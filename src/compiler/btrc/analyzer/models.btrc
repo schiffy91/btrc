@@ -1,5 +1,6 @@
 import std.map;
 import std.vector;
+
 import ../generated/ast/node.btrc;
 import ../syntax/identity.btrc;
 
@@ -11,14 +12,14 @@ import ../syntax/identity.btrc;
 /* A concrete monomorphization request: base generic class + the concrete type
  * args it was instantiated with, plus the precomputed mangled name. */
 class GenInstance {
-    public string base;
-    public Vector<Node> args;
-    public string mangled;
-    public GenInstance(string base, Vector<Node> args, string mangled) {
-        self.base = base;
-        self.args = args;
-        self.mangled = mangled;
-    }
+	public string base;
+	public Vector<Node> args;
+	public string mangled;
+	public GenInstance(string base, Vector<Node> args, string mangled) {
+		self.base = base;
+		self.args = args;
+		self.mangled = mangled;
+	}
 }
 
 /* One monomorphization target for a generic METHOD (a method with its own
@@ -28,504 +29,461 @@ class GenInstance {
  * method type args (e.g. [string] for mapTo<string>). Mirrors one entry of
  * the reference's analyzed.generic_method_instances. */
 class MethodGenInstance {
-    public string classBase;
-    public string methodName;
-    public Vector<Node> classArgs;
-    public Vector<Node> methodArgs;
-    public MethodGenInstance(string classBase, string methodName,
-                             Vector<Node> classArgs, Vector<Node> methodArgs) {
-        self.classBase = classBase;
-        self.methodName = methodName;
-        self.classArgs = classArgs;
-        self.methodArgs = methodArgs;
-    }
+	public string classBase;
+	public string methodName;
+	public Vector<Node> classArgs;
+	public Vector<Node> methodArgs;
+	public MethodGenInstance(string classBase, string methodName, Vector<Node> classArgs, Vector<Node> methodArgs) {
+		self.classBase = classBase;
+		self.methodName = methodName;
+		self.classArgs = classArgs;
+		self.methodArgs = methodArgs;
+	}
 }
 
 class Analyzed {
-    /* function name -> the function's return TypeExpr node (NK_TYPE_EXPR) */
-    public Map<string, Node> funcRetTypes;
-    /* set of declared function names (value always "1") */
-    public Map<string, bool> funcNames;
-    /* function name -> its FunctionDecl node (for default-parameter filling). */
-    public Map<string, Node> funcTable;
-    /* class name -> its ClassDecl node (NK_CLASS_DECL). Mirrors class_table. */
-    public Map<string, Node> classTable;
-    /* generic class base name -> its ClassDecl node (generic_params non-empty). */
-    public Map<string, Node> genericClassTable;
-    /* interface name -> its InterfaceDecl node. Interface declarations remain
+	/* function name -> the function's return TypeExpr node (NK_TYPE_EXPR) */
+	public Map<string, Node> funcRetTypes;
+	/* set of declared function names (value always "1") */
+	public Map<string, bool> funcNames;
+	/* function name -> its FunctionDecl node (for default-parameter filling). */
+	public Map<string, Node> funcTable;
+	/* class name -> its ClassDecl node (NK_CLASS_DECL). Mirrors class_table. */
+	public Map<string, Node> classTable;
+	/* generic class base name -> its ClassDecl node (generic_params non-empty). */
+	public Map<string, Node> genericClassTable;
+	/* interface name -> its InterfaceDecl node. Interface declarations remain
      * compile-time-only, but every semantic consumer needs the same registered
      * method namespace instead of borrowing validation-pass state. */
-    public Map<string, Node> interfaceTable;
-    /* Concrete generic instances in discovery (declaration-walk) order, deduped
+	public Map<string, Node> interfaceTable;
+	/* Concrete generic instances in discovery (declaration-walk) order, deduped
      * by mangled name. Mirrors analyzer.generic_instances flattened. */
-    public Vector<GenInstance> genericInstances;
-    /* set of canonical recursive instance keys already collected (dedup). */
-    public Map<string, bool> genericSeen;
-    /* enum type name -> its EnumDecl node (NK_ENUM_DECL). Mirrors enum_table
+	public Vector<GenInstance> genericInstances;
+	/* set of canonical recursive instance keys already collected (dedup). */
+	public Map<string, bool> genericSeen;
+	/* enum type name -> its EnumDecl node (NK_ENUM_DECL). Mirrors enum_table
      * keyed by type name (Python enum_table maps name -> [value names]). */
-    public Map<string, Node> enumTable;
-    /* bare enum value name (e.g. "RED") -> owning enum type name ("Color"). Lets
+	public Map<string, Node> enumTable;
+	/* bare enum value name (e.g. "RED") -> owning enum type name ("Color"). Lets
      * a bare identifier lower to its prefixed C constant. */
-    public Map<string, string> enumValueOwner;
-    /* Number of enum declarations that export each bare spelling. Qualified
+	public Map<string, string> enumValueOwner;
+	/* Number of enum declarations that export each bare spelling. Qualified
      * access remains legal when the bare form is ambiguous. */
-    public Map<string, int> enumValueOwnerCount;
-    /* rich (tagged-union) enum type name -> its RichEnumDecl node
+	public Map<string, int> enumValueOwnerCount;
+	/* rich (tagged-union) enum type name -> its RichEnumDecl node
      * (NK_RICH_ENUM_DECL). Mirrors rich_enum_table. */
-    public Map<string, Node> richEnumTable;
-    /* Generic-method monomorphization targets, in discovery order, deduped by
+	public Map<string, Node> richEnumTable;
+	/* Generic-method monomorphization targets, in discovery order, deduped by
      * the same mangled-key as their emitted C name. Mirrors
      * analyzed.generic_method_instances. */
-    public Vector<MethodGenInstance> methodGenInstances;
-    public Map<string, bool> methodGenSeen;
-    /* call-site AstIdentity.key (stable Node identity) -> the inferred method
+	public Vector<MethodGenInstance> methodGenInstances;
+	public Map<string, bool> methodGenSeen;
+	/* call-site AstIdentity.key (stable Node identity) -> the inferred method
      * type args, so IR-gen can mangle the call to its monomorphized instance
      * without re-running inference. Mirrors generic_method_call_args. */
-    public Map<string, Vector<Node>> methodGenCallArgs;
-    /* Canonical stdlib call sites that must bypass a user source definition
+	public Map<string, Vector<Node>> methodGenCallArgs;
+	/* Canonical stdlib call sites that must bypass a user source definition
      * sharing a compiler-owned hosted spelling. */
-    public Map<string, bool> hostedCallKeys;
-    /* Generic constructor call identity -> exact context/inference result.
+	public Map<string, bool> hostedCallKeys;
+	/* Generic constructor call identity -> exact context/inference result.
      * This is the self-hosted counterpart of reference node_types: no-arg and
      * nested constructors retain the concrete specialization selected by a
      * return, argument, initializer, or assignment boundary. */
-    public Map<string, Node> genericConstructorTypes;
-    /* Module-level (file-scope) variable name -> its TypeExpr. Mirrors the
+	public Map<string, Node> genericConstructorTypes;
+	/* Module-level (file-scope) variable name -> its TypeExpr. Mirrors the
      * reference's global scope: a bare identifier referencing a top-level var
      * resolves to this type during inference (e.g. `string order` so
      * `order.equals(...)` lowers as a string method). Seeded into each
      * function's local varTypes at lowering entry. */
-    public Map<string, Node> globalVarTypes;
-    /* Global names with a concrete definition (not an initializer-less extern).
+	public Map<string, Node> globalVarTypes;
+	/* Global names with a concrete definition (not an initializer-less extern).
      * IR generation suppresses redundant extern redeclarations when the same
      * composed translation unit already owns the definition. */
-    public Map<string, bool> globalHasDefinition;
-    /* user typedef alias -> original TypeExpr; inference canonicalizes through
+	public Map<string, bool> globalHasDefinition;
+	/* user typedef alias -> original TypeExpr; inference canonicalizes through
      * this table while IR declarations preserve source alias spelling. */
-    public Map<string, Node> typedefTable;
-    /* struct tag/name -> complete definition when available, otherwise its
+	public Map<string, Node> typedefTable;
+	/* struct tag/name -> complete definition when available, otherwise its
      * forward declaration. */
-    public Map<string, Node> structTable;
-    /* Immutable declaration indexes built after registration and before the
+	public Map<string, Node> structTable;
+	/* Immutable declaration indexes built after registration and before the
      * first inference query. General-member and method-only namespaces remain
      * separate so a value member never masks an inherited method. */
-    public bool memberIndexReady;
-    public Map<string, Node> classMemberIndex;
-    public Map<string, Node> classMethodIndex;
-    public Map<string, Node> classConstructorIndex;
-    public Map<string, Node> genericMemberIndex;
-    public Map<string, Node> genericMethodIndex;
-    public Map<string, Node> genericConstructorIndex;
-    /* for-in iterable identity -> semantic proof of real array capacity. */
-    public Map<string, bool> arrayIterationCapacityKeys;
-    /* Array-bound identity -> semantic proof of a C integer constant
+	public bool memberIndexReady;
+	public Map<string, Node> classMemberIndex;
+	public Map<string, Node> classMethodIndex;
+	public Map<string, Node> classConstructorIndex;
+	public Map<string, Node> genericMemberIndex;
+	public Map<string, Node> genericMethodIndex;
+	public Map<string, Node> genericConstructorIndex;
+	/* for-in iterable identity -> semantic proof of real array capacity. */
+	public Map<string, bool> arrayIterationCapacityKeys;
+	/* Array-bound identity -> semantic proof of a C integer constant
      * expression. IR generation uses this to fail closed if an invalid VLA
      * initializer somehow bypasses validation. */
-    public Map<string, bool> constantArrayBoundKeys;
-    /* Source C-for identity -> canonical realtime bounded-loop proof. */
-    public Map<string, bool> realtimeBoundedLoopKeys;
+	public Map<string, bool> constantArrayBoundKeys;
+	/* Source C-for identity -> canonical realtime bounded-loop proof. */
+	public Map<string, bool> realtimeBoundedLoopKeys;
 
-    public Analyzed() {
-        self.funcRetTypes = {};
-        self.funcNames = {};
-        self.funcTable = {};
-        self.classTable = {};
-        self.genericClassTable = {};
-        self.interfaceTable = {};
-        self.genericInstances = [];
-        self.genericSeen = {};
-        self.enumTable = {};
-        self.enumValueOwner = {};
-        self.enumValueOwnerCount = {};
-        self.richEnumTable = {};
-        self.methodGenInstances = [];
-        self.methodGenSeen = {};
-        self.methodGenCallArgs = {};
-        self.hostedCallKeys = {};
-        self.genericConstructorTypes = {};
-        self.globalVarTypes = {};
-        self.globalHasDefinition = {};
-        self.typedefTable = {};
-        self.structTable = {};
-        self.memberIndexReady = false;
-        self.classMemberIndex = {};
-        self.classMethodIndex = {};
-        self.classConstructorIndex = {};
-        self.genericMemberIndex = {};
-        self.genericMethodIndex = {};
-        self.genericConstructorIndex = {};
-        self.arrayIterationCapacityKeys = {};
-        self.constantArrayBoundKeys = {};
-        self.realtimeBoundedLoopKeys = {};
-    }
+	public Analyzed() {
+		self.funcRetTypes = {};
+		self.funcNames = {};
+		self.funcTable = {};
+		self.classTable = {};
+		self.genericClassTable = {};
+		self.interfaceTable = {};
+		self.genericInstances = [];
+		self.genericSeen = {};
+		self.enumTable = {};
+		self.enumValueOwner = {};
+		self.enumValueOwnerCount = {};
+		self.richEnumTable = {};
+		self.methodGenInstances = [];
+		self.methodGenSeen = {};
+		self.methodGenCallArgs = {};
+		self.hostedCallKeys = {};
+		self.genericConstructorTypes = {};
+		self.globalVarTypes = {};
+		self.globalHasDefinition = {};
+		self.typedefTable = {};
+		self.structTable = {};
+		self.memberIndexReady = false;
+		self.classMemberIndex = {};
+		self.classMethodIndex = {};
+		self.classConstructorIndex = {};
+		self.genericMemberIndex = {};
+		self.genericMethodIndex = {};
+		self.genericConstructorIndex = {};
+		self.arrayIterationCapacityKeys = {};
+		self.constantArrayBoundKeys = {};
+		self.realtimeBoundedLoopKeys = {};
+	}
 
-    private Node primitiveType(string base) {
-        Node typeExpr = Node();
-        typeExpr.kind = NK_TYPE_EXPR;
-        typeExpr.base = base;
-        return typeExpr;
-    }
+	private Node primitiveType(string base) {
+		Node typeExpr = Node();
+		typeExpr.kind = NK_TYPE_EXPR;
+		typeExpr.base = base;
+		return typeExpr;
+	}
 
-    private string parentName(Node declaration) {
-        if (declaration.parent == null) { return ""; }
-        return declaration.parent;
-    }
+	private string parentName(Node declaration) {
+		if (declaration.parent == null) { return ""; }
+		return declaration.parent;
+	}
 
-    class string memberKey(string owner, string member) {
-        return owner + "." + member;
-    }
+	class string memberKey(string owner, string member) { return owner + "." + member; }
 
-    public bool lexicalBindingConflictsType(string name) {
-        if (self.isClass(name) || self.isGenericClass(name)
-                || self.isEnum(name) || self.isRichEnum(name)
-                || self.structTable.has(name) || self.typedefTable.has(name)) {
-            return true;
-        }
-        Vector<string> classNames = self.classTable.keys();
-        Vector<string> genericClassNames = self.genericClassTable.keys();
-        int table = 0;
-        while (table < 2) {
-            Vector<string> names = table == 0
-                ? classNames : genericClassNames;
-            int classIndex = 0;
-            while (classIndex < names.len) {
-                Node declaration = table == 0
-                    ? self.classTable.get(names.get(classIndex))
-                    : self.genericClassTable.get(names.get(classIndex));
-                int parameterIndex = 0;
-                while (parameterIndex < declaration.generic_params.len) {
-                    if (declaration.generic_params.get(parameterIndex) == name) {
-                        return true;
-                    }
-                    parameterIndex = parameterIndex + 1;
-                }
-                int memberIndex = 0;
-                while (memberIndex < declaration.members.len) {
-                    Node member = declaration.members.get(memberIndex);
-                    int methodParameterIndex = 0;
-                    while (methodParameterIndex < member.generic_params.len) {
-                        if (member.generic_params.get(methodParameterIndex)
-                                == name) {
-                            return true;
-                        }
-                        methodParameterIndex = methodParameterIndex + 1;
-                    }
-                    memberIndex = memberIndex + 1;
-                }
-                classIndex = classIndex + 1;
-            }
-            table = table + 1;
-        }
-        return false;
-    }
+	public bool lexicalBindingConflictsType(string name) {
+		if (self.isClass(name) || self.isGenericClass(name) || self.isEnum(name) || self.isRichEnum(name) || self.structTable.has(name) || self.typedefTable.has(name)) {
+			return true;
+		}
+		Vector<string> classNames = self.classTable.keys();
+		Vector<string> genericClassNames = self.genericClassTable.keys();
+		int table = 0;
+		while (table < 2) {
+			Vector<string> names = table == 0 ? classNames : genericClassNames;
+			int classIndex = 0;
+			while (classIndex < names.len) {
+				Node declaration = table == 0 ? self.classTable.get(names.get(classIndex)) : self.genericClassTable.get(names.get(classIndex));
+				int parameterIndex = 0;
+				while (parameterIndex < declaration.generic_params.len) {
+					if (declaration.generic_params.get(parameterIndex) == name) {
+						return true;
+					}
+					parameterIndex = parameterIndex + 1;
+				}
+				int memberIndex = 0;
+				while (memberIndex < declaration.members.len) {
+					Node member = declaration.members.get(memberIndex);
+					int methodParameterIndex = 0;
+					while (methodParameterIndex < member.generic_params.len) {
+						if (member.generic_params.get(methodParameterIndex) == name) {
+							return true;
+						}
+						methodParameterIndex = methodParameterIndex + 1;
+					}
+					memberIndex = memberIndex + 1;
+				}
+				classIndex = classIndex + 1;
+			}
+			table = table + 1;
+		}
+		return false;
+	}
 
-    /* True if any generic-method monomorphization target exists. */
+	/* True if any generic-method monomorphization target exists. */
 
-    /* True if `name` names a known (plain) enum type. */
-    public bool isEnum(string name) {
-        return self.enumTable.has(name);
-    }
+	/* True if `name` names a known (plain) enum type. */
+	public bool isEnum(string name) { return self.enumTable.has(name); }
 
-    /* True if `name` names a known rich (tagged-union) enum type. */
-    public bool isRichEnum(string name) {
-        return self.richEnumTable.has(name);
-    }
+	/* True if `name` names a known rich (tagged-union) enum type. */
+	public bool isRichEnum(string name) { return self.richEnumTable.has(name); }
 
-    /* True if `name` is a bare enum value (e.g. RED). */
-    public bool isEnumValue(string name) {
-        return self.enumValueOwner.has(name)
-            && self.enumValueOwnerCount.get(name) == 1;
-    }
+	/* True if `name` is a bare enum value (e.g. RED). */
+	public bool isEnumValue(string name) { return self.enumValueOwner.has(name) && self.enumValueOwnerCount.get(name) == 1; }
 
-    public bool isAmbiguousEnumValue(string name) {
-        return self.enumValueOwnerCount.has(name)
-            && self.enumValueOwnerCount.get(name) > 1;
-    }
+	public bool isAmbiguousEnumValue(string name) { return self.enumValueOwnerCount.has(name) && self.enumValueOwnerCount.get(name) > 1; }
 
-    public bool enumContains(string enumName, string valueName) {
-        if (!self.enumTable.has(enumName)) { return false; }
-        Node declaration = self.enumTable.get(enumName);
-        int index = 0;
-        while (index < declaration.values.len) {
-            if (declaration.values.get(index).name == valueName) {
-                return true;
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	public bool enumContains(string enumName, string valueName) {
+		if (!self.enumTable.has(enumName)) { return false; }
+		Node declaration = self.enumTable.get(enumName);
+		int index = 0;
+		while (index < declaration.values.len) {
+			if (declaration.values.get(index).name == valueName) {
+				return true;
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 
-    /* The owning enum type name of bare value `name` ("" if unknown). */
-    public string enumOwnerOf(string name) {
-        if (self.enumValueOwner.has(name)) { return self.enumValueOwner.get(name); }
-        return "";
-    }
+	/* The owning enum type name of bare value `name` ("" if unknown). */
+	public string enumOwnerOf(string name) {
+		if (self.enumValueOwner.has(name)) { return self.enumValueOwner.get(name); }
+		return "";
+	}
 
-    /* True if `name` names a known generic class. */
-    public bool isGenericClass(string name) {
-        return self.genericClassTable.has(name);
-    }
+	/* True if `name` names a known generic class. */
+	public bool isGenericClass(string name) { return self.genericClassTable.has(name); }
 
-    /* True if any concrete generic instance exists (drives macro emission). */
+	/* True if any concrete generic instance exists (drives macro emission). */
 
-    /* True if `name` names a known (non-generic) class. */
-    public bool isClass(string name) {
-        return self.classTable.has(name);
-    }
+	/* True if `name` names a known (non-generic) class. */
+	public bool isClass(string name) { return self.classTable.has(name); }
 
-    /* True if `name` names a registered compile-time interface. */
-    public bool isInterface(string name) {
-        return self.interfaceTable.has(name);
-    }
+	/* True if `name` names a registered compile-time interface. */
+	public bool isInterface(string name) { return self.interfaceTable.has(name); }
 
-    /* Find an interface method through its declared inheritance chain. The
+	/* Find an interface method through its declared inheritance chain. The
      * declaration index belongs to Analyzed so validation and lowering resolve
      * exactly the same interface surface. */
-    public Node? interfaceMethod(string interfaceName, string methodName) {
-        string current = interfaceName;
-        Map<string, bool> seen = {};
-        while (current != "" && !seen.has(current)) {
-            seen.put(current, true);
-            if (!self.interfaceTable.has(current)) { return null; }
-            Node declaration = self.interfaceTable.get(current);
-            int index = 0;
-            while (index < declaration.methods.len) {
-                Node method = declaration.methods.get(index);
-                if (method.name == methodName) { return method; }
-                index = index + 1;
-            }
-            if (declaration.parent == null) { return null; }
-            current = declaration.parent;
-        }
-        return null;
-    }
+	public Node? interfaceMethod(string interfaceName, string methodName) {
+		string current = interfaceName;
+		Map<string, bool> seen = {};
+		while (current != "" && !seen.has(current)) {
+			seen.put(current, true);
+			if (!self.interfaceTable.has(current)) { return null; }
+			Node declaration = self.interfaceTable.get(current);
+			int index = 0;
+			while (index < declaration.methods.len) {
+				Node method = declaration.methods.get(index);
+				if (method.name == methodName) { return method; }
+				index = index + 1;
+			}
+			if (declaration.parent == null) { return null; }
+			current = declaration.parent;
+		}
+		return null;
+	}
 
-    /* Return types for language builtins that do not have source declarations
+	/* Return types for language builtins that do not have source declarations
      * or hosted-ABI entries. Keeping this on the analyzed semantic environment
      * gives every inference consumer the same typed contract. */
-    public Node? builtinCallResultType(string name) {
-        if (name == "len") { return self.primitiveType("int"); }
-        if (name == "print") { return self.primitiveType("void"); }
-        return null;
-    }
+	public Node? builtinCallResultType(string name) {
+		if (name == "len") { return self.primitiveType("int"); }
+		if (name == "print") { return self.primitiveType("void"); }
+		return null;
+	}
 
-    public void requireMemberIndex() {
-        if (self.memberIndexReady) { return; }
-        fprintf(stderr, "internal compiler error: declaration member index is not ready\n");
-        exit(1);
-    }
+	public void requireMemberIndex() {
+		if (self.memberIndexReady) { return; }
+		fprintf(stderr, "internal compiler error: declaration member index is not ready\n");
+		exit(1);
+	}
 
-    /* True if `base` is a (transitive) parent class of `sub`. Walks the parent
+	/* True if `base` is a (transitive) parent class of `sub`. Walks the parent
      * chain from `sub`; `sub == base` counts as true. Mirrors
      * variables._is_subclass. */
-    public bool isSubclass(string sub, string base) {
-        string cur = sub;
-        Map<string, bool> seen = {};
-        while (cur != "" && !seen.has(cur)) {
-            if (cur == base) { return true; }
-            seen.put(cur, true);
-            if (!self.classTable.has(cur)) { return false; }
-            Node decl = self.classTable.get(cur);
-            cur = self.parentName(decl);
-        }
-        return false;
-    }
+	public bool isSubclass(string sub, string base) {
+		string cur = sub;
+		Map<string, bool> seen = {};
+		while (cur != "" && !seen.has(cur)) {
+			if (cur == base) { return true; }
+			seen.put(cur, true);
+			if (!self.classTable.has(cur)) { return false; }
+			Node decl = self.classTable.get(cur);
+			cur = self.parentName(decl);
+		}
+		return false;
+	}
 
-    /* Look up an ordinary class member by name, walking the inheritance chain.
+	/* Look up an ordinary class member by name, walking the inheritance chain.
      * Constructors are declaration-only call targets and never instance
      * members; classConstructor() is their sole lookup path. */
-    public Node? classMember(string cls, string member) {
-        self.requireMemberIndex();
-        string key = Analyzed.memberKey(cls, member);
-        if (self.classMemberIndex.has(key)) {
-            return self.classMemberIndex.get(key);
-        }
-        return null;
-    }
+	public Node? classMember(string cls, string member) {
+		self.requireMemberIndex();
+		string key = Analyzed.memberKey(cls, member);
+		if (self.classMemberIndex.has(key)) {
+			return self.classMemberIndex.get(key);
+		}
+		return null;
+	}
 
-    /* Method-only lookup has a separate source namespace from fields and
+	/* Method-only lookup has a separate source namespace from fields and
      * properties. Walk inheritance just like classMember, but never let a
      * same-named value member mask the callable declaration. */
-    public Node? classMethod(string cls, string method) {
-        self.requireMemberIndex();
-        string key = Analyzed.memberKey(cls, method);
-        if (self.classMethodIndex.has(key)) {
-            return self.classMethodIndex.get(key);
-        }
-        return null;
-    }
+	public Node? classMethod(string cls, string method) {
+		self.requireMemberIndex();
+		string key = Analyzed.memberKey(cls, method);
+		if (self.classMethodIndex.has(key)) {
+			return self.classMethodIndex.get(key);
+		}
+		return null;
+	}
 
-    /* The explicitly marked constructor MethodDecl of class `cls`, or null. */
-    public Node? classConstructor(string cls) {
-        self.requireMemberIndex();
-        if (self.classConstructorIndex.has(cls)) {
-            return self.classConstructorIndex.get(cls);
-        }
-        return null;
-    }
+	/* The explicitly marked constructor MethodDecl of class `cls`, or null. */
+	public Node? classConstructor(string cls) {
+		self.requireMemberIndex();
+		if (self.classConstructorIndex.has(cls)) {
+			return self.classConstructorIndex.get(cls);
+		}
+		return null;
+	}
 
-    /* The MethodDecl named `member` on generic class `cls` (own members only;
+	/* The MethodDecl named `member` on generic class `cls` (own members only;
      * generic classes are not inherited in this compiler), or null. Used to
      * order named args / fill defaults on generic-instance method calls. */
-    public Node? genericClassMethod(string cls, string member) {
-        self.requireMemberIndex();
-        string key = Analyzed.memberKey(cls, member);
-        if (self.genericMethodIndex.has(key)) {
-            return self.genericMethodIndex.get(key);
-        }
-        return null;
-    }
+	public Node? genericClassMethod(string cls, string member) {
+		self.requireMemberIndex();
+		string key = Analyzed.memberKey(cls, member);
+		if (self.genericMethodIndex.has(key)) {
+			return self.genericMethodIndex.get(key);
+		}
+		return null;
+	}
 
-    public Node? genericClassConstructor(string cls) {
-        self.requireMemberIndex();
-        if (self.genericConstructorIndex.has(cls)) {
-            return self.genericConstructorIndex.get(cls);
-        }
-        return null;
-    }
+	public Node? genericClassConstructor(string cls) {
+		self.requireMemberIndex();
+		if (self.genericConstructorIndex.has(cls)) {
+			return self.genericConstructorIndex.get(cls);
+		}
+		return null;
+	}
 
-    /* True if `member` is a property (PropertyDecl) of class `cls` (own or
+	/* True if `member` is a property (PropertyDecl) of class `cls` (own or
      * inherited). */
 
-    /* The merged method set of class `cls` — own methods plus all inherited ones,
+	/* The merged method set of class `cls` — own methods plus all inherited ones,
      * with the dict-merge ordering the analyzer uses: parent (already-merged)
      * methods first in their order, child's own appended, an override keeping the
      * parent's position but using the child's decl. Excludes constructors and
      * __del__. Mirrors ClassInfo.methods after _resolve_class_parents. */
-    public Vector<MethodEntry> mergedMethods(string cls) {
-        Vector<MethodEntry> out = [];
-        if (!self.classTable.has(cls)) { return out; }
-        Node decl = self.classTable.get(cls);
-        Map<string, int> idx = {};
-        string par = self.parentName(decl);
-        if (par != "" && self.classTable.has(par)) {
-            Vector<MethodEntry> pm = self.mergedMethods(par);
-            int p = 0;
-            while (p < pm.len) {
-                MethodEntry pe = pm.get(p);
-                idx.put(pe.name, out.len);
-                out.push(MethodEntry(pe.name, pe.sig));
-                p = p + 1;
-            }
-        }
-        int i = 0;
-        while (i < decl.members.len) {
-            Node m = decl.members.get(i);
-            if (m.kind == NK_METHOD_DECL && !m.is_constructor
-                    && m.name != "__del__") {
-                if (idx.has(m.name)) {
-                    out.set(idx.get(m.name), MethodEntry(m.name, m));
-                } else {
-                    idx.put(m.name, out.len);
-                    out.push(MethodEntry(m.name, m));
-                }
-            }
-            i = i + 1;
-        }
-        return out;
-    }
+	public Vector<MethodEntry> mergedMethods(string cls) {
+		Vector<MethodEntry> out = [];
+		if (!self.classTable.has(cls)) { return out; }
+		Node decl = self.classTable.get(cls);
+		Map<string, int> idx = {};
+		string par = self.parentName(decl);
+		if (par != "" && self.classTable.has(par)) {
+			Vector<MethodEntry> pm = self.mergedMethods(par);
+			int p = 0;
+			while (p < pm.len) {
+				MethodEntry pe = pm.get(p);
+				idx.put(pe.name, out.len);
+				out.push(MethodEntry(pe.name, pe.sig));
+				p = p + 1;
+			}
+		}
+		int i = 0;
+		while (i < decl.members.len) {
+			Node m = decl.members.get(i);
+			if (m.kind == NK_METHOD_DECL && !m.is_constructor && m.name != "__del__") {
+				if (idx.has(m.name)) {
+					out.set(idx.get(m.name), MethodEntry(m.name, m));
+				} else {
+					idx.put(m.name, out.len);
+					out.push(MethodEntry(m.name, m));
+				}
+			}
+			i = i + 1;
+		}
+		return out;
+	}
 }
 
 /* A method available on a class: its name and the MethodDecl that defines its
  * signature (own or inherited). */
 class MethodEntry {
-    public string name;
-    public Node sig;
-    public MethodEntry(string name, Node sig) {
-        self.name = name;
-        self.sig = sig;
-    }
+	public string name;
+	public Node sig;
+	public MethodEntry(string name, Node sig) {
+		self.name = name;
+		self.sig = sig;
+	}
 }
 
 /* Precomputed expression facts consumed by raw-projection analysis. */
 
 class RawProjectionCarrierContext {
-    private Analyzed analysis;
-    private Map<string, bool> preparedExpressions;
-    private Map<string, Node> expressionTypes;
-    private Map<string, bool> managedTypes;
-    private Map<string, Node> aliasArguments;
-    private Map<string, bool> overriddenExpressions;
+	private Analyzed analysis;
+	private Map<string, bool> preparedExpressions;
+	private Map<string, Node> expressionTypes;
+	private Map<string, bool> managedTypes;
+	private Map<string, Node> aliasArguments;
+	private Map<string, bool> overriddenExpressions;
 
-    public RawProjectionCarrierContext(Analyzed analysis) {
-        self.analysis = analysis;
-        self.preparedExpressions = {};
-        self.expressionTypes = {};
-        self.managedTypes = {};
-        self.aliasArguments = {};
-        self.overriddenExpressions = {};
-    }
+	public RawProjectionCarrierContext(Analyzed analysis) {
+		self.analysis = analysis;
+		self.preparedExpressions = {};
+		self.expressionTypes = {};
+		self.managedTypes = {};
+		self.aliasArguments = {};
+		self.overriddenExpressions = {};
+	}
 
-    public bool prepared(Node expression) {
-        return self.preparedExpressions.has(AstIdentity.key(expression));
-    }
+	public bool prepared(Node expression) { return self.preparedExpressions.has(AstIdentity.key(expression)); }
 
-    public void recordExpression(Node expression, Node? typeExpr,
-                                 bool managed, bool overridden) {
-        string key = AstIdentity.key(expression);
-        self.preparedExpressions.put(key, true);
-        if (typeExpr != null) {
-            self.expressionTypes.put(key, typeExpr);
-            self.managedTypes.put(TypeIdentity.shapeKey(typeExpr), managed);
-        }
-        if (overridden) { self.overriddenExpressions.put(key, true); }
-    }
+	public void recordExpression(Node expression, Node? typeExpr, bool managed, bool overridden) {
+		string key = AstIdentity.key(expression);
+		self.preparedExpressions.put(key, true);
+		if (typeExpr != null) {
+			self.expressionTypes.put(key, typeExpr);
+			self.managedTypes.put(TypeIdentity.shapeKey(typeExpr), managed);
+		}
+		if (overridden) { self.overriddenExpressions.put(key, true); }
+	}
 
-    public void recordAlias(Node expression, Node argument) {
-        self.aliasArguments.put(AstIdentity.key(expression), argument);
-    }
+	public void recordAlias(Node expression, Node argument) { self.aliasArguments.put(AstIdentity.key(expression), argument); }
 
-    public Node? expressionType(Node? expression) {
-        if (expression == null) { return null; }
-        string key = AstIdentity.key(expression);
-        return self.expressionTypes.has(key)
-            ? self.expressionTypes.get(key) : null;
-    }
+	public Node? expressionType(Node? expression) {
+		if (expression == null) { return null; }
+		string key = AstIdentity.key(expression);
+		return self.expressionTypes.has(key) ? self.expressionTypes.get(key) : null;
+	}
 
-    public bool managedType(Node? typeExpr) {
-        return typeExpr != null
-            && self.managedTypes.has(TypeIdentity.shapeKey(typeExpr))
-            && self.managedTypes.get(TypeIdentity.shapeKey(typeExpr));
-    }
+	public bool managedType(Node? typeExpr) { return typeExpr != null && self.managedTypes.has(TypeIdentity.shapeKey(typeExpr)) && self.managedTypes.get(TypeIdentity.shapeKey(typeExpr)); }
 
-    public Node? aliasArgument(Node? expression) {
-        if (expression == null) { return null; }
-        string key = AstIdentity.key(expression);
-        return self.aliasArguments.has(key)
-            ? self.aliasArguments.get(key) : null;
-    }
+	public Node? aliasArgument(Node? expression) {
+		if (expression == null) { return null; }
+		string key = AstIdentity.key(expression);
+		return self.aliasArguments.has(key) ? self.aliasArguments.get(key) : null;
+	}
 
-    public bool overridden(Node? expression) {
-        return expression != null
-            && self.overriddenExpressions.has(AstIdentity.key(expression));
-    }
+	public bool overridden(Node? expression) { return expression != null && self.overriddenExpressions.has(AstIdentity.key(expression)); }
 
-    public Analyzed analyzed() {
-        return self.analysis;
-    }
+	public Analyzed analyzed() { return self.analysis; }
 }
 
 class RawProjectionCarrier {
-    public string kind;
-    public Node expression;
-    public bool directStorage;
-    public Vector<RawProjectionCarrier> branches;
+	public string kind;
+	public Node expression;
+	public bool directStorage;
+	public Vector<RawProjectionCarrier> branches;
 
-    public RawProjectionCarrier(string kind, Node expression,
-            bool directStorage) {
-        self.kind = kind;
-        self.expression = expression;
-        self.directStorage = directStorage;
-        self.branches = [];
-    }
+	public RawProjectionCarrier(string kind, Node expression, bool directStorage) {
+		self.kind = kind;
+		self.expression = expression;
+		self.directStorage = directStorage;
+		self.branches = [];
+	}
 }
 
 class RawProjectionStorageRoot {
-    public Node expression;
-    public bool managed;
+	public Node expression;
+	public bool managed;
 
-    public RawProjectionStorageRoot(Node expression, bool managed) {
-        self.expression = expression;
-        self.managed = managed;
-    }
+	public RawProjectionStorageRoot(Node expression, bool managed) {
+		self.expression = expression;
+		self.managed = managed;
+	}
 }

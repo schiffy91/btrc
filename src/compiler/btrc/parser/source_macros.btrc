@@ -1,601 +1,557 @@
 import std.map;
 import std.strings;
 import std.vector;
+
 import ../syntax/identity.btrc;
 
 class SourceMacroDefinition {
-    private string operationValue;
-    private string nameValue;
-    private Map<string, bool> parametersValue;
-    private string replacementValue;
-    private Vector<string> parameterOrderValue;
-    private bool functionLikeValue;
-    private bool variadicValue;
-    private bool parametersValidValue;
+	private string operationValue;
+	private string nameValue;
+	private Map<string, bool> parametersValue;
+	private string replacementValue;
+	private Vector<string> parameterOrderValue;
+	private bool functionLikeValue;
+	private bool variadicValue;
+	private bool parametersValidValue;
 
-    public SourceMacroDefinition(string sourceText) {
-        self.operationValue = "";
-        self.nameValue = "";
-        self.parametersValue = {};
-        self.replacementValue = "";
-        self.parameterOrderValue = [];
-        self.functionLikeValue = false;
-        self.variadicValue = false;
-        self.parametersValidValue = true;
-        self.parse(sourceText);
-    }
+	public SourceMacroDefinition(string sourceText) {
+		self.operationValue = "";
+		self.nameValue = "";
+		self.parametersValue = {};
+		self.replacementValue = "";
+		self.parameterOrderValue = [];
+		self.functionLikeValue = false;
+		self.variadicValue = false;
+		self.parametersValidValue = true;
+		self.parse(sourceText);
+	}
 
-    public bool isDefinition() {
-        return self.operationValue == "define";
-    }
+	public bool isDefinition() { return self.operationValue == "define"; }
 
-    public bool isUndef() {
-        return self.operationValue == "undef";
-    }
+	public bool isUndef() { return self.operationValue == "undef"; }
 
-    public string name() {
-        return self.nameValue;
-    }
+	public string name() { return self.nameValue; }
 
-    public bool functionLike() {
-        return self.functionLikeValue;
-    }
+	public bool functionLike() { return self.functionLikeValue; }
 
-    public bool variadic() {
-        return self.variadicValue;
-    }
+	public bool variadic() { return self.variadicValue; }
 
-    public bool parametersValid() {
-        return self.parametersValidValue;
-    }
+	public bool parametersValid() { return self.parametersValidValue; }
 
-    public int expectedArity() {
-        if (self.variadicValue) {
-            return -1;
-        }
-        return self.parameterOrderValue.len;
-    }
+	public int expectedArity() {
+		if (self.variadicValue) {
+			return -1;
+		}
+		return self.parameterOrderValue.len;
+	}
 
-    public int minimumArity() {
-        int result = self.parameterOrderValue.len;
-        if (self.variadicValue && result > 0) {
-            result += 1;
-        }
-        return result;
-    }
+	public int minimumArity() {
+		int result = self.parameterOrderValue.len;
+		if (self.variadicValue && result > 0) {
+			result += 1;
+		}
+		return result;
+	}
 
-    public bool acceptsArity(int argumentCount) {
-        if (!self.functionLikeValue || !self.parametersValidValue) {
-            return false;
-        }
-        if (self.variadicValue) {
-            return argumentCount >= self.minimumArity();
-        }
-        return argumentCount == self.expectedArity();
-    }
+	public bool acceptsArity(int argumentCount) {
+		if (!self.functionLikeValue || !self.parametersValidValue) {
+			return false;
+		}
+		if (self.variadicValue) {
+			return argumentCount >= self.minimumArity();
+		}
+		return argumentCount == self.expectedArity();
+	}
 
-    public Vector<string> parameterOrder() {
-        Vector<string> result = [];
-        for (int i = 0; i < self.parameterOrderValue.len; i++) {
-            result.push(self.parameterOrderValue.get(i));
-        }
-        return result;
-    }
+	public Vector<string> parameterOrder() {
+		Vector<string> result = [];
+		for (int i = 0; i < self.parameterOrderValue.len; i++) {
+			result.push(self.parameterOrderValue.get(i));
+		}
+		return result;
+	}
 
+	public Vector<string> replacementIdentifiers() {
+		Vector<string> result = [];
+		string replacement = self.replacementValue;
+		int index = 0;
+		while (index < replacement.length()) {
+			char current = replacement[index];
+			if (current == '"' || current == '\'') {
+				index = self.skipQuoted(replacement, index);
+			} else if (current == '/' && index + 1 < replacement.length() && replacement[index + 1] == '/') {
+				break;
+			} else if (current == '/' && index + 1 < replacement.length() && replacement[index + 1] == '*') {
+				int end = index + 2;
+				while (end + 1 < replacement.length() && !(replacement[end] == '*' && replacement[end + 1] == '/')) {
+					end++;
+				}
+				index = end + 2;
+			} else if (self.identifierStart(current)) {
+				int end = index + 1;
+				while (end < replacement.length() && self.identifierPart(replacement[end])) {
+					end++;
+				}
+				string identifier = replacement.substring(index, end - index);
+				if (!self.parametersValue.has(identifier) && !result.contains(identifier)) {
+					result.push(identifier);
+				}
+				index = end;
+			} else {
+				index++;
+			}
+		}
+		return result;
+	}
 
-    public Vector<string> replacementIdentifiers() {
-        Vector<string> result = [];
-        string replacement = self.replacementValue;
-        int index = 0;
-        while (index < replacement.length()) {
-            char current = replacement[index];
-            if (current == '"' || current == '\'') {
-                index = self.skipQuoted(replacement, index);
-            } else if (current == '/' && index + 1 < replacement.length() && replacement[index + 1] == '/') {
-                break;
-            } else if (current == '/' && index + 1 < replacement.length() && replacement[index + 1] == '*') {
-                int end = index + 2;
-                while (end + 1 < replacement.length() && !(replacement[end] == '*' && replacement[end + 1] == '/')) {
-                    end++;
-                }
-                index = end + 2;
-            } else if (self.identifierStart(current)) {
-                int end = index + 1;
-                while (end < replacement.length() && self.identifierPart(replacement[end])) {
-                    end++;
-                }
-                string identifier = replacement.substring(index, end - index);
-                if (!self.parametersValue.has(identifier)
-                        && !result.contains(identifier)) {
-                    result.push(identifier);
-                }
-                index = end;
-            } else {
-                index++;
-            }
-        }
-        return result;
-    }
+	public bool replacementUsesMember(string name) {
+		string replacement = self.replacementValue;
+		int index = 0;
+		while (index < replacement.length()) {
+			char current = replacement[index];
+			if (current == '"' || current == '\'') {
+				index = self.skipQuoted(replacement, index);
+			} else if (self.identifierStart(current)) {
+				int end = index + 1;
+				while (end < replacement.length() && self.identifierPart(replacement[end])) {
+					end++;
+				}
+				if (replacement.substring(index, end - index) == name) {
+					int prefix = index - 1;
+					while (prefix >= 0 && self.space(replacement[prefix])) {
+						prefix--;
+					}
+					if (prefix >= 0 && replacement[prefix] == '.') {
+						return true;
+					}
+					if (prefix >= 1 && replacement[prefix] == '>' && replacement[prefix - 1] == '-') {
+						return true;
+					}
+				}
+				index = end;
+			} else {
+				index++;
+			}
+		}
+		return false;
+	}
 
-    public bool replacementUsesMember(string name) {
-        string replacement = self.replacementValue;
-        int index = 0;
-        while (index < replacement.length()) {
-            char current = replacement[index];
-            if (current == '"' || current == '\'') {
-                index = self.skipQuoted(replacement, index);
-            } else if (self.identifierStart(current)) {
-                int end = index + 1;
-                while (end < replacement.length() && self.identifierPart(replacement[end])) {
-                    end++;
-                }
-                if (replacement.substring(index, end - index) == name) {
-                    int prefix = index - 1;
-                    while (prefix >= 0 && self.space(replacement[prefix])) {
-                        prefix--;
-                    }
-                    if (prefix >= 0 && replacement[prefix] == '.') {
-                        return true;
-                    }
-                    if (prefix >= 1 && replacement[prefix] == '>' && replacement[prefix - 1] == '-') {
-                        return true;
-                    }
-                }
-                index = end;
-            } else {
-                index++;
-            }
-        }
-        return false;
-    }
+	public bool replacementUsesBareName(string name) {
+		string replacement = self.replacementValue;
+		int index = 0;
+		while (index < replacement.length()) {
+			char current = replacement[index];
+			if (current == '"' || current == '\'') {
+				index = self.skipQuoted(replacement, index);
+			} else if (self.identifierStart(current)) {
+				int end = index + 1;
+				while (end < replacement.length() && self.identifierPart(replacement[end])) {
+					end++;
+				}
+				if (replacement.substring(index, end - index) == name) {
+					int prefix = index - 1;
+					while (prefix >= 0 && self.space(replacement[prefix])) {
+						prefix--;
+					}
+					bool memberAccess = prefix >= 0 && replacement[prefix] == '.';
+					bool pointerAccess = prefix >= 1 && replacement[prefix] == '>' && replacement[prefix - 1] == '-';
+					if (!memberAccess && !pointerAccess) {
+						return true;
+					}
+				}
+				index = end;
+			} else {
+				index++;
+			}
+		}
+		return false;
+	}
 
-    public bool replacementUsesBareName(string name) {
-        string replacement = self.replacementValue;
-        int index = 0;
-        while (index < replacement.length()) {
-            char current = replacement[index];
-            if (current == '"' || current == '\'') {
-                index = self.skipQuoted(replacement, index);
-            } else if (self.identifierStart(current)) {
-                int end = index + 1;
-                while (end < replacement.length() && self.identifierPart(replacement[end])) {
-                    end++;
-                }
-                if (replacement.substring(index, end - index) == name) {
-                    int prefix = index - 1;
-                    while (prefix >= 0 && self.space(replacement[prefix])) {
-                        prefix--;
-                    }
-                    bool memberAccess = prefix >= 0 && replacement[prefix] == '.';
-                    bool pointerAccess = prefix >= 1 && replacement[prefix] == '>' && replacement[prefix - 1] == '-';
-                    if (!memberAccess && !pointerAccess) {
-                        return true;
-                    }
-                }
-                index = end;
-            } else {
-                index++;
-            }
-        }
-        return false;
-    }
+	public bool usesTokenPaste() {
+		string replacement = self.replacementValue;
+		int index = 0;
+		while (index < replacement.length()) {
+			char current = replacement[index];
+			if (current == '"' || current == '\'') {
+				index = self.skipQuoted(replacement, index);
+			} else if (current == '/' && index + 1 < replacement.length() && replacement[index + 1] == '/') {
+				return false;
+			} else if (current == '/' && index + 1 < replacement.length() && replacement[index + 1] == '*') {
+				int end = index + 2;
+				while (end + 1 < replacement.length() && !(replacement[end] == '*' && replacement[end + 1] == '/')) {
+					end++;
+				}
+				index = end + 2;
+			} else {
+				if (self.tokenPasteAt(replacement, index)) {
+					return true;
+				}
+				index++;
+			}
+		}
+		return false;
+	}
 
-    public bool usesTokenPaste() {
-        string replacement = self.replacementValue;
-        int index = 0;
-        while (index < replacement.length()) {
-            char current = replacement[index];
-            if (current == '"' || current == '\'') {
-                index = self.skipQuoted(replacement, index);
-            } else if (current == '/' && index + 1 < replacement.length() && replacement[index + 1] == '/') {
-                return false;
-            } else if (current == '/' && index + 1 < replacement.length() && replacement[index + 1] == '*') {
-                int end = index + 2;
-                while (end + 1 < replacement.length() && !(replacement[end] == '*' && replacement[end + 1] == '/')) {
-                    end++;
-                }
-                index = end + 2;
-            } else {
-                if (self.tokenPasteAt(replacement, index)) {
-                    return true;
-                }
-                index++;
-            }
-        }
-        return false;
-    }
+	public string directReplacementIdentifier() {
+		string replacement = self.unwrapGroups(self.replacementValue);
+		if (replacement.length() == 0 || !self.identifierStart(replacement[0])) {
+			return "";
+		}
+		for (int index = 1; index < replacement.length(); index++) {
+			if (!self.identifierPart(replacement[index])) {
+				return "";
+			}
+		}
+		return replacement;
+	}
 
-    public string directReplacementIdentifier() {
-        string replacement = self.unwrapGroups(self.replacementValue);
-        if (replacement.length() == 0 || !self.identifierStart(replacement[0])) {
-            return "";
-        }
-        for (int index = 1; index < replacement.length(); index++) {
-            if (!self.identifierPart(replacement[index])) {
-                return "";
-            }
-        }
-        return replacement;
-    }
+	public string directCallName() {
+		if (!self.functionLikeValue) {
+			return "";
+		}
+		string replacement = self.directCallReplacement();
+		if (replacement.length() == 0 || !self.identifierStart(replacement[0])) {
+			return "";
+		}
+		int index = 1;
+		while (index < replacement.length() && self.identifierPart(replacement[index])) {
+			index++;
+		}
+		string name = replacement.substring(0, index);
+		while (index < replacement.length() && self.space(replacement[index])) {
+			index++;
+		}
+		if (index >= replacement.length() || replacement[index] != '(') {
+			return "";
+		}
+		int close = self.matchingClose(replacement, index);
+		if (close < 0) {
+			return "";
+		}
+		index = close + 1;
+		while (index < replacement.length() && self.space(replacement[index])) {
+			index++;
+		}
+		if (index != replacement.length()) {
+			return "";
+		}
+		return name;
+	}
 
-    public string directCallName() {
-        if (!self.functionLikeValue) {
-            return "";
-        }
-        string replacement = self.directCallReplacement();
-        if (replacement.length() == 0 || !self.identifierStart(replacement[0])) {
-            return "";
-        }
-        int index = 1;
-        while (index < replacement.length() && self.identifierPart(replacement[index])) {
-            index++;
-        }
-        string name = replacement.substring(0, index);
-        while (index < replacement.length() && self.space(replacement[index])) {
-            index++;
-        }
-        if (index >= replacement.length() || replacement[index] != '(') {
-            return "";
-        }
-        int close = self.matchingClose(replacement, index);
-        if (close < 0) {
-            return "";
-        }
-        index = close + 1;
-        while (index < replacement.length() && self.space(replacement[index])) {
-            index++;
-        }
-        if (index != replacement.length()) {
-            return "";
-        }
-        return name;
-    }
+	public Vector<string> directCallArguments() {
+		Vector<string> result = [];
+		if (self.directCallName() == "") {
+			return result;
+		}
+		string replacement = self.directCallReplacement();
+		int open = 0;
+		while (open < replacement.length() && replacement[open] != '(') {
+			open++;
+		}
+		if (open >= replacement.length() || replacement[open] != '(') {
+			return result;
+		}
+		int close = self.matchingClose(replacement, open);
+		if (close < 0) {
+			return result;
+		}
+		int depth = 0;
+		int start = open + 1;
+		int index = start;
+		while (index < close) {
+			char current = replacement[index];
+			if (current == '"' || current == '\'') {
+				index = self.skipQuoted(replacement, index);
+			} else {
+				if (current == '(' || current == '[' || current == '{') {
+					depth++;
+				} else if (current == ')' || current == ']' || current == '}') {
+					depth--;
+				} else if (current == ',' && depth == 0) {
+					result.push(self.trim(replacement.substring(start, index - start)));
+					start = index + 1;
+				}
+				index++;
+			}
+		}
+		if (start < close || result.len > 0) {
+			result.push(self.trim(replacement.substring(start, close - start)));
+		}
+		return result;
+	}
 
-    public Vector<string> directCallArguments() {
-        Vector<string> result = [];
-        if (self.directCallName() == "") {
-            return result;
-        }
-        string replacement = self.directCallReplacement();
-        int open = 0;
-        while (open < replacement.length() && replacement[open] != '(') {
-            open++;
-        }
-        if (open >= replacement.length() || replacement[open] != '(') {
-            return result;
-        }
-        int close = self.matchingClose(replacement, open);
-        if (close < 0) {
-            return result;
-        }
-        int depth = 0;
-        int start = open + 1;
-        int index = start;
-        while (index < close) {
-            char current = replacement[index];
-            if (current == '"' || current == '\'') {
-                index = self.skipQuoted(replacement, index);
-            } else {
-                if (current == '(' || current == '[' || current == '{') {
-                    depth++;
-                } else if (current == ')' || current == ']' || current == '}') {
-                    depth--;
-                } else if (current == ',' && depth == 0) {
-                    result.push(self.trim(replacement.substring(
-                        start, index - start)));
-                    start = index + 1;
-                }
-                index++;
-            }
-        }
-        if (start < close || result.len > 0) {
-            result.push(self.trim(replacement.substring(
-                start, close - start)));
-        }
-        return result;
-    }
+	private string directCallReplacement() {
+		string replacement = self.replacementValue;
+		int comment = replacement.indexOf("//");
+		if (comment >= 0) {
+			replacement = replacement.substring(0, comment);
+		}
+		return self.unwrapGroups(replacement);
+	}
 
-    private string directCallReplacement() {
-        string replacement = self.replacementValue;
-        int comment = replacement.indexOf("//");
-        if (comment >= 0) {
-            replacement = replacement.substring(0, comment);
-        }
-        return self.unwrapGroups(replacement);
-    }
+	public string unwrapGroups(string text) {
+		string result = self.trim(text);
+		bool changed = true;
+		while (changed && result.length() >= 2 && result[0] == '(') {
+			changed = false;
+			int close = self.matchingClose(result, 0);
+			if (close == result.length() - 1) {
+				result = self.trim(result.substring(1, close - 1));
+				changed = true;
+			}
+		}
+		return result;
+	}
 
-    public string unwrapGroups(string text) {
-        string result = self.trim(text);
-        bool changed = true;
-        while (changed && result.length() >= 2 && result[0] == '(') {
-            changed = false;
-            int close = self.matchingClose(result, 0);
-            if (close == result.length() - 1) {
-                result = self.trim(result.substring(1, close - 1));
-                changed = true;
-            }
-        }
-        return result;
-    }
+	public int identifierCount(string text, string name) {
+		int count = 0;
+		int index = 0;
+		while (index < text.length()) {
+			char current = text[index];
+			if (current == '"' || current == '\'') {
+				index = self.skipQuoted(text, index);
+			} else if (self.identifierStart(current)) {
+				int end = index + 1;
+				while (end < text.length() && self.identifierPart(text[end])) {
+					end++;
+				}
+				if (text.substring(index, end - index) == name) {
+					count++;
+				}
+				index = end;
+			} else {
+				index++;
+			}
+		}
+		return count;
+	}
 
-    public int identifierCount(string text, string name) {
-        int count = 0;
-        int index = 0;
-        while (index < text.length()) {
-            char current = text[index];
-            if (current == '"' || current == '\'') {
-                index = self.skipQuoted(text, index);
-            } else if (self.identifierStart(current)) {
-                int end = index + 1;
-                while (end < text.length() && self.identifierPart(text[end])) {
-                    end++;
-                }
-                if (text.substring(index, end - index) == name) {
-                    count++;
-                }
-                index = end;
-            } else {
-                index++;
-            }
-        }
-        return count;
-    }
+	private void parse(string sourceText) {
+		string normalized = self.normalize(sourceText);
+		string operation = self.directiveName(normalized, "define");
+		if (operation.length() > 0) {
+			self.operationValue = "define";
+			self.parseDefinition(normalized, operation);
+			return;
+		}
+		operation = self.directiveName(normalized, "undef");
+		if (operation.length() > 0) {
+			self.operationValue = "undef";
+			self.nameValue = operation;
+		}
+	}
 
-    private void parse(string sourceText) {
-        string normalized = self.normalize(sourceText);
-        string operation = self.directiveName(normalized, "define");
-        if (operation.length() > 0) {
-            self.operationValue = "define";
-            self.parseDefinition(normalized, operation);
-            return;
-        }
-        operation = self.directiveName(normalized, "undef");
-        if (operation.length() > 0) {
-            self.operationValue = "undef";
-            self.nameValue = operation;
-        }
-    }
+	private void parseDefinition(string normalized, string name) {
+		self.nameValue = name;
+		int nameEnd = self.directiveNameEnd(normalized, "define");
+		if (nameEnd < 0) {
+			self.parametersValidValue = false;
+			return;
+		}
+		if (nameEnd >= normalized.length() || normalized[nameEnd] != '(') {
+			self.replacementValue = self.trim(normalized.substring(nameEnd, normalized.length() - nameEnd));
+			return;
+		}
 
-    private void parseDefinition(string normalized, string name) {
-        self.nameValue = name;
-        int nameEnd = self.directiveNameEnd(normalized, "define");
-        if (nameEnd < 0) {
-            self.parametersValidValue = false;
-            return;
-        }
-        if (nameEnd >= normalized.length() || normalized[nameEnd] != '(') {
-            self.replacementValue = self.trim(normalized.substring(
-                nameEnd, normalized.length() - nameEnd));
-            return;
-        }
+		self.functionLikeValue = true;
+		int close = self.parametersEnd(normalized, nameEnd);
+		if (close < 0) {
+			self.replacementValue = self.trim(normalized.substring(nameEnd, normalized.length() - nameEnd));
+			return;
+		}
+		self.parseParameters(normalized, nameEnd + 1, close);
+		self.replacementValue = self.trim(normalized.substring(close + 1, normalized.length() - close - 1));
+	}
 
-        self.functionLikeValue = true;
-        int close = self.parametersEnd(normalized, nameEnd);
-        if (close < 0) {
-            self.replacementValue = self.trim(normalized.substring(
-                nameEnd, normalized.length() - nameEnd));
-            return;
-        }
-        self.parseParameters(normalized, nameEnd + 1, close);
-        self.replacementValue = self.trim(normalized.substring(
-            close + 1, normalized.length() - close - 1));
-    }
+	private void parseParameters(string sourceText, int start, int close) {
+		if (start == close) {
+			return;
+		}
+		int parameterStart = start;
+		while (parameterStart <= close) {
+			int parameterEnd = parameterStart;
+			while (parameterEnd < close && sourceText[parameterEnd] != ',') {
+				parameterEnd++;
+			}
+			string parameter = self.trim(sourceText.substring(parameterStart, parameterEnd - parameterStart));
+			bool last = parameterEnd == close;
+			if (parameter == "...") {
+				if (self.variadicValue || !last) {
+					self.parametersValidValue = false;
+				}
+				self.variadicValue = true;
+				self.parametersValue.set("__VA_ARGS__", true);
+			} else if (!self.validIdentifier(parameter) || self.parametersValue.has(parameter)) {
+				self.parametersValidValue = false;
+			} else {
+				self.parametersValue.set(parameter, true);
+				self.parameterOrderValue.push(parameter);
+			}
+			if (last) {
+				return;
+			}
+			parameterStart = parameterEnd + 1;
+		}
+	}
 
-    private void parseParameters(string sourceText, int start, int close) {
-        if (start == close) {
-            return;
-        }
-        int parameterStart = start;
-        while (parameterStart <= close) {
-            int parameterEnd = parameterStart;
-            while (parameterEnd < close && sourceText[parameterEnd] != ',') {
-                parameterEnd++;
-            }
-            string parameter = self.trim(sourceText.substring(
-                parameterStart, parameterEnd - parameterStart));
-            bool last = parameterEnd == close;
-            if (parameter == "...") {
-                if (self.variadicValue || !last) {
-                    self.parametersValidValue = false;
-                }
-                self.variadicValue = true;
-                self.parametersValue.set("__VA_ARGS__", true);
-            } else if (!self.validIdentifier(parameter) || self.parametersValue.has(parameter)) {
-                self.parametersValidValue = false;
-            } else {
-                self.parametersValue.set(parameter, true);
-                self.parameterOrderValue.push(parameter);
-            }
-            if (last) {
-                return;
-            }
-            parameterStart = parameterEnd + 1;
-        }
-    }
+	private bool validIdentifier(string text) {
+		if (text.length() == 0 || !self.identifierStart(text[0])) {
+			return false;
+		}
+		for (int index = 1; index < text.length(); index++) {
+			if (!self.identifierPart(text[index])) {
+				return false;
+			}
+		}
+		return true;
+	}
 
-    private bool validIdentifier(string text) {
-        if (text.length() == 0 || !self.identifierStart(text[0])) {
-            return false;
-        }
-        for (int index = 1; index < text.length(); index++) {
-            if (!self.identifierPart(text[index])) {
-                return false;
-            }
-        }
-        return true;
-    }
+	private bool space(char value) { return value == ' ' || value == '\t' || value == '\f' || value == '\v' || value == '\r'; }
 
-    private bool space(char value) {
-        return value == ' ' || value == '\t' || value == '\f'
-            || value == '\v' || value == '\r';
-    }
+	private bool identifierStart(char value) { return TypeIdentity.asciiLetter(value) || value == '_'; }
 
-    private bool identifierStart(char value) {
-        return TypeIdentity.asciiLetter(value) || value == '_';
-    }
+	private bool identifierPart(char value) { return self.identifierStart(value) || TypeIdentity.asciiDigit(value); }
 
-    private bool identifierPart(char value) {
-        return self.identifierStart(value) || TypeIdentity.asciiDigit(value);
-    }
+	private string normalize(string sourceText) {
+		string normalized = Strings.replace(sourceText, "\\\r\n", "");
+		normalized = Strings.replace(normalized, "\\\n", "");
+		normalized = Strings.replace(normalized, "?" + "?/\r\n", "");
+		normalized = Strings.replace(normalized, "?" + "?/\n", "");
+		string result = "";
+		int index = 0;
+		while (index < normalized.length()) {
+			if (normalized[index] == '"' || normalized[index] == '\'') {
+				int end = self.skipQuoted(normalized, index);
+				result += normalized.substring(index, end - index);
+				index = end;
+			} else if (index + 1 < normalized.length() && normalized[index] == '/' && normalized[index + 1] == '*') {
+				index += 2;
+				while (index + 1 < normalized.length() && !(normalized[index] == '*' && normalized[index + 1] == '/')) {
+					index++;
+				}
+				if (index + 1 < normalized.length()) {
+					index += 2;
+				}
+				result += " ";
+			} else {
+				result += normalized.substring(index, 1);
+				index++;
+			}
+		}
+		return result;
+	}
 
-    private string normalize(string sourceText) {
-        string normalized = Strings.replace(sourceText, "\\\r\n", "");
-        normalized = Strings.replace(normalized, "\\\n", "");
-        normalized = Strings.replace(normalized, "?" + "?/\r\n", "");
-        normalized = Strings.replace(normalized, "?" + "?/\n", "");
-        string result = "";
-        int index = 0;
-        while (index < normalized.length()) {
-            if (normalized[index] == '"' || normalized[index] == '\'') {
-                int end = self.skipQuoted(normalized, index);
-                result += normalized.substring(index, end - index);
-                index = end;
-            } else if (index + 1 < normalized.length()
-                    && normalized[index] == '/'
-                    && normalized[index + 1] == '*') {
-                index += 2;
-                while (index + 1 < normalized.length() && !(normalized[index] == '*' && normalized[index + 1] == '/')) {
-                    index++;
-                }
-                if (index + 1 < normalized.length()) {
-                    index += 2;
-                }
-                result += " ";
-            } else {
-                result += normalized.substring(index, 1);
-                index++;
-            }
-        }
-        return result;
-    }
+	private bool tokenPasteAt(string text, int index) { return (index + 1 < text.length() && text[index] == '#' && text[index + 1] == '#') || (index + 3 < text.length() && text[index] == '%' && text[index + 1] == ':' && text[index + 2] == '%' && text[index + 3] == ':') || (index + 5 < text.length() && text[index] == '?' && text[index + 1] == '?' && text[index + 2] == '=' && text[index + 3] == '?' && text[index + 4] == '?' && text[index + 5] == '='); }
 
-    private bool tokenPasteAt(string text, int index) {
-        return (index + 1 < text.length()
-                && text[index] == '#' && text[index + 1] == '#')
-            || (index + 3 < text.length()
-                && text[index] == '%' && text[index + 1] == ':'
-                && text[index + 2] == '%' && text[index + 3] == ':')
-            || (index + 5 < text.length()
-                && text[index] == '?' && text[index + 1] == '?'
-                && text[index + 2] == '=' && text[index + 3] == '?'
-                && text[index + 4] == '?' && text[index + 5] == '=');
-    }
+	private int directiveNameStart(string normalized, string operation) {
+		int index = 0;
+		while (index < normalized.length() && self.space(normalized[index])) {
+			index++;
+		}
+		if (index >= normalized.length() || normalized[index] != '#') {
+			return -1;
+		}
+		index++;
+		while (index < normalized.length() && self.space(normalized[index])) {
+			index++;
+		}
+		if (index + operation.length() > normalized.length() || normalized.substring(index, operation.length()) != operation) {
+			return -1;
+		}
+		index += operation.length();
+		if (index < normalized.length() && !self.space(normalized[index])) {
+			return -1;
+		}
+		while (index < normalized.length() && self.space(normalized[index])) {
+			index++;
+		}
+		return index;
+	}
 
-    private int directiveNameStart(string normalized, string operation) {
-        int index = 0;
-        while (index < normalized.length() && self.space(normalized[index])) {
-            index++;
-        }
-        if (index >= normalized.length() || normalized[index] != '#') {
-            return -1;
-        }
-        index++;
-        while (index < normalized.length() && self.space(normalized[index])) {
-            index++;
-        }
-        if (index + operation.length() > normalized.length()
-                || normalized.substring(index, operation.length())
-                    != operation) {
-            return -1;
-        }
-        index += operation.length();
-        if (index < normalized.length() && !self.space(normalized[index])) {
-            return -1;
-        }
-        while (index < normalized.length() && self.space(normalized[index])) {
-            index++;
-        }
-        return index;
-    }
+	private int directiveNameEnd(string normalized, string operation) {
+		int start = self.directiveNameStart(normalized, operation);
+		if (start < 0 || start >= normalized.length() || !self.identifierStart(normalized[start])) {
+			return -1;
+		}
+		int end = start + 1;
+		while (end < normalized.length() && self.identifierPart(normalized[end])) {
+			end++;
+		}
+		return end;
+	}
 
-    private int directiveNameEnd(string normalized, string operation) {
-        int start = self.directiveNameStart(normalized, operation);
-        if (start < 0 || start >= normalized.length()
-                || !self.identifierStart(normalized[start])) {
-            return -1;
-        }
-        int end = start + 1;
-        while (end < normalized.length()
-                && self.identifierPart(normalized[end])) {
-            end++;
-        }
-        return end;
-    }
+	private string directiveName(string normalized, string operation) {
+		int start = self.directiveNameStart(normalized, operation);
+		if (start < 0 || start >= normalized.length() || !self.identifierStart(normalized[start])) {
+			return "";
+		}
+		int end = start + 1;
+		while (end < normalized.length() && self.identifierPart(normalized[end])) {
+			end++;
+		}
+		return normalized.substring(start, end - start);
+	}
 
-    private string directiveName(string normalized, string operation) {
-        int start = self.directiveNameStart(normalized, operation);
-        if (start < 0 || start >= normalized.length()
-                || !self.identifierStart(normalized[start])) {
-            return "";
-        }
-        int end = start + 1;
-        while (end < normalized.length()
-                && self.identifierPart(normalized[end])) {
-            end++;
-        }
-        return normalized.substring(start, end - start);
-    }
+	private int parametersEnd(string sourceText, int nameEnd) {
+		if (nameEnd >= sourceText.length() || sourceText[nameEnd] != '(') {
+			return -1;
+		}
+		int index = nameEnd + 1;
+		while (index < sourceText.length()) {
+			if (sourceText[index] == ')') {
+				return index;
+			}
+			index++;
+		}
+		return -1;
+	}
 
-    private int parametersEnd(string sourceText, int nameEnd) {
-        if (nameEnd >= sourceText.length() || sourceText[nameEnd] != '(') {
-            return -1;
-        }
-        int index = nameEnd + 1;
-        while (index < sourceText.length()) {
-            if (sourceText[index] == ')') {
-                return index;
-            }
-            index++;
-        }
-        return -1;
-    }
+	private string trim(string value) {
+		int start = 0;
+		int end = value.length();
+		while (start < end && self.space(value[start])) {
+			start++;
+		}
+		while (end > start && self.space(value[end - 1])) {
+			end--;
+		}
+		return value.substring(start, end - start);
+	}
 
-    private string trim(string value) {
-        int start = 0;
-        int end = value.length();
-        while (start < end && self.space(value[start])) {
-            start++;
-        }
-        while (end > start && self.space(value[end - 1])) {
-            end--;
-        }
-        return value.substring(start, end - start);
-    }
+	private int skipQuoted(string text, int index) {
+		char quote = text[index];
+		index++;
+		while (index < text.length()) {
+			if (text[index] == '\\') {
+				index += 2;
+			} else if (text[index] == quote) {
+				return index + 1;
+			} else {
+				index++;
+			}
+		}
+		return index;
+	}
 
-    private int skipQuoted(string text, int index) {
-        char quote = text[index];
-        index++;
-        while (index < text.length()) {
-            if (text[index] == '\\') {
-                index += 2;
-            } else if (text[index] == quote) {
-                return index + 1;
-            } else {
-                index++;
-            }
-        }
-        return index;
-    }
-
-    private int matchingClose(string text, int openIndex) {
-        int depth = 0;
-        int index = openIndex;
-        while (index < text.length()) {
-            char current = text[index];
-            if (current == '"' || current == '\'') {
-                index = self.skipQuoted(text, index);
-            } else {
-                if (current == '(') {
-                    depth++;
-                } else if (current == ')') {
-                    depth--;
-                    if (depth == 0) {
-                        return index;
-                    }
-                }
-                index++;
-            }
-        }
-        return -1;
-    }
+	private int matchingClose(string text, int openIndex) {
+		int depth = 0;
+		int index = openIndex;
+		while (index < text.length()) {
+			char current = text[index];
+			if (current == '"' || current == '\'') {
+				index = self.skipQuoted(text, index);
+			} else {
+				if (current == '(') {
+					depth++;
+				} else if (current == ')') {
+					depth--;
+					if (depth == 0) {
+						return index;
+					}
+				}
+				index++;
+			}
+		}
+		return -1;
+	}
 }

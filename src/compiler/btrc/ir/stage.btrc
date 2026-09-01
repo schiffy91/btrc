@@ -4,7 +4,6 @@ import ../analyzer/stage.btrc;
 import ../syntax/identity.btrc;
 import ../syntax/types.btrc;
 import ../syntax/literals.btrc;
-
 import ./model.btrc;
 import ./runtime/catalog.btrc;
 import ./runtime/references.btrc;

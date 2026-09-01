@@ -4,97 +4,85 @@ import std.map;
 import std.vector;
 
 class TokenVocabulary {
-    private Map<string, string> keywordTokens;
-    private Vector<string> orderedOperators;
-    private Map<string, string> operatorTokens;
-    private Map<string, string> annotationTokens;
+	private Map<string, string> keywordTokens;
+	private Vector<string> orderedOperators;
+	private Map<string, string> operatorTokens;
+	private Map<string, string> annotationTokens;
 
-    public TokenVocabulary() {
-        self.keywordTokens = {};
-        self.orderedOperators = [];
-        self.operatorTokens = {};
-        self.annotationTokens = {};
-    }
+	public TokenVocabulary() {
+		self.keywordTokens = {};
+		self.orderedOperators = [];
+		self.operatorTokens = {};
+		self.annotationTokens = {};
+	}
 
-    public void addKeyword(string spelling, string tokenName) {
-        self.keywordTokens.put(spelling, tokenName);
-    }
+	public void addKeyword(string spelling, string tokenName) { self.keywordTokens.put(spelling, tokenName); }
 
-    public void addOperator(string spelling, string tokenName) {
-        self.orderedOperators.push(spelling);
-        self.operatorTokens.put(spelling, tokenName);
-    }
+	public void addOperator(string spelling, string tokenName) {
+		self.orderedOperators.push(spelling);
+		self.operatorTokens.put(spelling, tokenName);
+	}
 
-    public void addAnnotation(string spelling, string tokenName) {
-        self.annotationTokens.put(spelling, tokenName);
-    }
+	public void addAnnotation(string spelling, string tokenName) { self.annotationTokens.put(spelling, tokenName); }
 
-    public string keywordToken(string spelling) {
-        if (!self.keywordTokens.has(spelling)) { return ""; }
-        return self.keywordTokens.get(spelling);
-    }
+	public string keywordToken(string spelling) {
+		if (!self.keywordTokens.has(spelling)) { return ""; }
+		return self.keywordTokens.get(spelling);
+	}
 
-    public string annotationToken(string spelling) {
-        if (!self.annotationTokens.has(spelling)) { return ""; }
-        return self.annotationTokens.get(spelling);
-    }
+	public string annotationToken(string spelling) {
+		if (!self.annotationTokens.has(spelling)) { return ""; }
+		return self.annotationTokens.get(spelling);
+	}
 
-    public int operatorCount() {
-        return self.orderedOperators.len;
-    }
+	public int operatorCount() { return self.orderedOperators.len; }
 
-    public string operatorAt(int index) {
-        return self.orderedOperators.get(index);
-    }
+	public string operatorAt(int index) { return self.orderedOperators.get(index); }
 
-    public string operatorToken(string spelling) {
-        return self.operatorTokens.get(spelling);
-    }
+	public string operatorToken(string spelling) { return self.operatorTokens.get(spelling); }
 }
 
 class Token {
-    public string type;
-    public string value;
-    public int line;
-    public int col;
+	public string type;
+	public string value;
+	public int line;
+	public int col;
 
-    public Token(string type, string value, int line, int col) {
-        self.type = type;
-        self.value = value;
-        self.line = line;
-        self.col = col;
-    }
+	public Token(string type, string value, int line, int col) {
+		self.type = type;
+		self.value = value;
+		self.line = line;
+		self.col = col;
+	}
 
-    /* Python-compatible repr spelling used by diagnostics and inspection. */
-    public string valueRepr() {
-        bool hasSingle = self.value.indexOf("'") >= 0;
-        bool hasDouble = self.value.indexOf("\"") >= 0;
-        char quoteCharacter = '\'';
-        if (hasSingle && !hasDouble) { quoteCharacter = '"'; }
-        string quote = f"{quoteCharacter}";
-        string result = quote;
-        int index = 0;
-        while (index < self.value.length()) {
-            char valueCharacter = self.value[index];
-            if (valueCharacter == '\\') {
-                result = result + "\\\\";
-            } else if (valueCharacter == quoteCharacter) {
-                result = result + "\\" + quote;
-            } else if (valueCharacter == '\n') {
-                result = result + "\\n";
-            } else if (valueCharacter == '\r') {
-                result = result + "\\r";
-            } else if (valueCharacter == '\t') {
-                result = result + "\\t";
-            } else {
-                result = result + f"{valueCharacter}";
-            }
-            index++;
-        }
-        return result + quote;
-    }
+	/* Python-compatible repr spelling used by diagnostics and inspection. */
+	public string valueRepr() {
+		bool hasSingle = self.value.indexOf("'") >= 0;
+		bool hasDouble = self.value.indexOf("\"") >= 0;
+		char quoteCharacter = '\'';
+		if (hasSingle && !hasDouble) { quoteCharacter = '"'; }
+		string quote = f"{quoteCharacter}";
+		string result = quote;
+		int index = 0;
+		while (index < self.value.length()) {
+			char valueCharacter = self.value[index];
+			if (valueCharacter == '\\') {
+				result = result + "\\\\";
+			} else if (valueCharacter == quoteCharacter) {
+				result = result + "\\" + quote;
+			} else if (valueCharacter == '\n') {
+				result = result + "\\n";
+			} else if (valueCharacter == '\r') {
+				result = result + "\\r";
+			} else if (valueCharacter == '\t') {
+				result = result + "\\t";
+			} else {
+				result = result + f"{valueCharacter}";
+			}
+			index++;
+		}
+		return result + quote;
+	}
 
-    public string repr() {
-        return f"Token({self.type}, {self.valueRepr()}, {self.line}:{self.col})";
-    }
+	public string repr() { return f"Token({self.type}, {self.valueRepr()}, {self.line}:{self.col})"; }
 }

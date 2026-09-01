@@ -1,4 +1,5 @@
 import std.map;
+
 import ../../analyzer/expressions.btrc;
 import ../../generated/ast/node.btrc;
 import ../model.btrc;
@@ -10,62 +11,44 @@ import ./callables.btrc;
  * materializes only already-lowered plain assignments. */
 
 class AssignmentPlan {
-    public Node assignment;
-    public Node? targetType;
-    public Node? valueType;
-    public bool callableTarget;
-    public int callableAbi;
+	public Node assignment;
+	public Node? targetType;
+	public Node? valueType;
+	public bool callableTarget;
+	public int callableAbi;
 
-    public AssignmentPlan(Node assignment) {
-        self.assignment = assignment;
-        self.targetType = null;
-        self.valueType = null;
-        self.callableTarget = false;
-        self.callableAbi = 0;
-    }
+	public AssignmentPlan(Node assignment) {
+		self.assignment = assignment;
+		self.targetType = null;
+		self.valueType = null;
+		self.callableTarget = false;
+		self.callableAbi = 0;
+	}
 }
 
 class AssignmentLowerer {
-    private ExpressionTypeResolver expressionTypes;
-    private CallableValueSemantics callableValues;
-    private CallableBoundaryPolicy callableBoundaries;
+	private ExpressionTypeResolver expressionTypes;
+	private CallableValueSemantics callableValues;
+	private CallableBoundaryPolicy callableBoundaries;
 
-    public AssignmentLowerer(
-            ExpressionTypeResolver expressionTypes,
-            CallableValueSemantics callableValues,
-            CallableBoundaryPolicy callableBoundaries) {
-        self.expressionTypes = expressionTypes;
-        self.callableValues = callableValues;
-        self.callableBoundaries = callableBoundaries;
-    }
+	public AssignmentLowerer(ExpressionTypeResolver expressionTypes, CallableValueSemantics callableValues, CallableBoundaryPolicy callableBoundaries) {
+		self.expressionTypes = expressionTypes;
+		self.callableValues = callableValues;
+		self.callableBoundaries = callableBoundaries;
+	}
 
-    public AssignmentPlan plan(
-            Node assignment, Map<string, Node> variableTypes,
-            CallableBoundaryContext callableContext, CallableFlowState callableFlow) {
-        AssignmentPlan plan = AssignmentPlan(assignment);
-        plan.targetType = self.expressionTypes.inferSpecialization(
-            assignment.target, variableTypes);
-        plan.valueType = self.expressionTypes.inferSpecialization(
-            assignment.value_node, variableTypes);
-        bool unsafe = callableFlow.assignmentStorageUnsafe(
-            assignment, plan.targetType,
-            self.callableValues, callableContext);
-        self.callableBoundaries.rejectAssignment(
-            assignment, plan.targetType, callableContext, unsafe);
-        plan.callableTarget = assignment.target != null
-            && assignment.target.kind == NK_IDENTIFIER
-            && self.callableValues.lexicalIdentifier(
-                assignment.target.name, callableContext);
-        if (plan.callableTarget && assignment.op == "=") {
-            plan.callableAbi = callableFlow.evaluatedAbi(
-                assignment.value_node,
-                self.callableValues, callableContext);
-        }
-        return plan;
-    }
+	public AssignmentPlan plan(Node assignment, Map<string, Node> variableTypes, CallableBoundaryContext callableContext, CallableFlowState callableFlow) {
+		AssignmentPlan plan = AssignmentPlan(assignment);
+		plan.targetType = self.expressionTypes.inferSpecialization(assignment.target, variableTypes);
+		plan.valueType = self.expressionTypes.inferSpecialization(assignment.value_node, variableTypes);
+		bool unsafe = callableFlow.assignmentStorageUnsafe(assignment, plan.targetType, self.callableValues, callableContext);
+		self.callableBoundaries.rejectAssignment(assignment, plan.targetType, callableContext, unsafe);
+		plan.callableTarget = assignment.target != null && assignment.target.kind == NK_IDENTIFIER && self.callableValues.lexicalIdentifier(assignment.target.name, callableContext);
+		if (plan.callableTarget && assignment.op == "=") {
+			plan.callableAbi = callableFlow.evaluatedAbi(assignment.value_node, self.callableValues, callableContext);
+		}
+		return plan;
+	}
 
-    public IRNode materializePlain(
-            AssignmentPlan plan, IRNode target, IRNode value) {
-        return IRNode.binary(target, plan.assignment.op, value);
-    }
+	public IRNode materializePlain(AssignmentPlan plan, IRNode target, IRNode value) { return IRNode.binary(target, plan.assignment.op, value); }
 }

@@ -10,7 +10,7 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
-from tools.compiler_codegen import GeneratedArtifact, GeneratedSourceError
+from tools.compiler_codegen import GeneratedArtifact, GeneratedSourceError, format_generated_btrc
 from tools.compiler_codegen.verification import (
     GeneratedSourceSet,
 )
@@ -125,6 +125,23 @@ def test_generated_checker_requires_canonical_lf_bytes(tmp_path: Path) -> None:
 
     with pytest.raises(GeneratedSourceError, match="generated sources are stale"):
         publication.check(tmp_path)
+
+
+def test_generated_btrc_is_canonical_and_fixed_point() -> None:
+    path = PurePosixPath("generated/example.btrc")
+    source = """class Example {
+    public int value(
+        int input
+    ) {
+        return input;
+    }
+}
+"""
+
+    formatted = format_generated_btrc(source, path)
+
+    assert formatted == b"class Example {\n\tpublic int value(int input) { return input; }\n}\n"
+    assert format_generated_btrc(formatted.decode("utf-8"), path) == formatted
 
 
 def test_hosted_freshness_ignores_checkout_write_bits_but_generation_normalizes_them(tmp_path: Path) -> None:

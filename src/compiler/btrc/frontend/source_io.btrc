@@ -6,217 +6,188 @@ import std.io;
 import std.platform;
 import std.strings;
 import std.vector;
+
 import ./models.btrc;
 
 class FeSourcePathPolicy {
-    private bool windows;
-    private string currentDirectory;
+	private bool windows;
+	private string currentDirectory;
 
-    public FeSourcePathPolicy() {
-        self.windows = Platform.isWindows();
-        self.currentDirectory = FileSystem.currentDirectory();
-    }
+	public FeSourcePathPolicy() {
+		self.windows = Platform.isWindows();
+		self.currentDirectory = FileSystem.currentDirectory();
+	}
 
-    public bool isSeparatorFor(char value, bool windows) {
-        return value == '/' || (windows && value == '\\');
-    }
+	public bool isSeparatorFor(char value, bool windows) { return value == '/' || (windows && value == '\\'); }
 
-    public bool hasDriveFor(string path, bool windows) {
-        if (!windows || path == null || path.length() < 2) { return false; }
-        char drive = path[0];
-        return ((drive >= 'A' && drive <= 'Z')
-                || (drive >= 'a' && drive <= 'z'))
-            && path[1] == ':';
-    }
+	public bool hasDriveFor(string path, bool windows) {
+		if (!windows || path == null || path.length() < 2) { return false; }
+		char drive = path[0];
+		return ((drive >= 'A' && drive <= 'Z') || (drive >= 'a' && drive <= 'z')) && path[1] == ':';
+	}
 
-    public bool isAbsoluteFor(string path, bool windows) {
-        if (path == null || path.isEmpty()) { return false; }
-        if (!windows) { return path[0] == '/'; }
-        if (self.hasDriveFor(path, true)) {
-            return path.length() >= 3 && self.isSeparatorFor(path[2], true);
-        }
-        return path.length() >= 2
-            && self.isSeparatorFor(path[0], true)
-            && self.isSeparatorFor(path[1], true);
-    }
+	public bool isAbsoluteFor(string path, bool windows) {
+		if (path == null || path.isEmpty()) { return false; }
+		if (!windows) { return path[0] == '/'; }
+		if (self.hasDriveFor(path, true)) {
+			return path.length() >= 3 && self.isSeparatorFor(path[2], true);
+		}
+		return path.length() >= 2 && self.isSeparatorFor(path[0], true) && self.isSeparatorFor(path[1], true);
+	}
 
-    public bool isRootRelativeFor(string path, bool windows) {
-        return windows && path != null && !path.isEmpty()
-            && self.isSeparatorFor(path[0], true)
-            && !self.isAbsoluteFor(path, true);
-    }
+	public bool isRootRelativeFor(string path, bool windows) { return windows && path != null && !path.isEmpty() && self.isSeparatorFor(path[0], true) && !self.isAbsoluteFor(path, true); }
 
-    public string slashFormFor(string path, bool windows) {
-        if (path == null) { return ""; }
-        return windows ? Strings.replace(path, "\\", "/") : Strings.copy(path);
-    }
+	public string slashFormFor(string path, bool windows) {
+		if (path == null) { return ""; }
+		return windows ? Strings.replace(path, "\\", "/") : Strings.copy(path);
+	}
 
-    public string composeFor(string path, string current, bool windows) {
-        string input = self.slashFormFor(path, windows);
-        string cwd = self.slashFormFor(current, windows);
-        if (self.isAbsoluteFor(input, windows)) { return input; }
-        if (self.isRootRelativeFor(input, windows)) {
-            if (self.hasDriveFor(cwd, true)) {
-                return cwd.substring(0, 2) + input;
-            }
-            return input;
-        }
-        if (self.hasDriveFor(input, windows)) {
-            string drive = input.substring(0, 2);
-            string suffix = input.substring(2, input.length() - 2);
-            if (self.hasDriveFor(cwd, true)
-                    && cwd.substring(0, 2).toLower().equals(drive.toLower())) {
-                return cwd + "/" + suffix;
-            }
-            return drive + "/" + suffix;
-        }
-        if (cwd.isEmpty()) { return input; }
-        if (cwd.endsWith("/")) { return cwd + input; }
-        return cwd + "/" + input;
-    }
+	public string composeFor(string path, string current, bool windows) {
+		string input = self.slashFormFor(path, windows);
+		string cwd = self.slashFormFor(current, windows);
+		if (self.isAbsoluteFor(input, windows)) { return input; }
+		if (self.isRootRelativeFor(input, windows)) {
+			if (self.hasDriveFor(cwd, true)) {
+				return cwd.substring(0, 2) + input;
+			}
+			return input;
+		}
+		if (self.hasDriveFor(input, windows)) {
+			string drive = input.substring(0, 2);
+			string suffix = input.substring(2, input.length() - 2);
+			if (self.hasDriveFor(cwd, true) && cwd.substring(0, 2).toLower().equals(drive.toLower())) {
+				return cwd + "/" + suffix;
+			}
+			return drive + "/" + suffix;
+		}
+		if (cwd.isEmpty()) { return input; }
+		if (cwd.endsWith("/")) { return cwd + input; }
+		return cwd + "/" + input;
+	}
 
-    public string normalizeAbsoluteFor(string path, string current, bool windows) {
-        string composed = self.composeFor(path, current, windows);
-        bool driveRoot = self.hasDriveFor(composed, windows)
-            && composed.length() >= 3 && composed[2] == '/';
-        bool uncRoot = windows && composed.startsWith("//");
-        bool posixRoot = !windows && composed.startsWith("/");
-        int start = driveRoot ? 3 : (uncRoot ? 2 : (posixRoot ? 1 : 0));
-        int floor = uncRoot ? 2 : 0;
-        Vector<string> parts = Strings.split(
-            composed.substring(start, composed.length() - start), "/");
-        Vector<string> stack = [];
-        int i = 0;
-        while (i < parts.len) {
-            string segment = parts.get(i);
-            if (segment.isEmpty() || segment.equals(".")) {
-                /* Empty and current-directory components have no path identity. */
-            } else if (segment.equals("..")) {
-                if (stack.len > floor) { stack.pop(); }
-            } else {
-                stack.push(segment);
-            }
-            i++;
-        }
-        string out = driveRoot ? composed.substring(0, 3)
-            : (uncRoot ? "//" : (posixRoot ? "/" : ""));
-        int index = 0;
-        while (index < stack.len) {
-            if (!out.isEmpty() && !out.endsWith("/")) { out = out + "/"; }
-            out = out + stack.get(index);
-            index++;
-        }
-        if (out.isEmpty()) {
-            if (driveRoot) { return composed.substring(0, 3); }
-            if (uncRoot) { return "//"; }
-            if (posixRoot) { return "/"; }
-            return ".";
-        }
-        return out;
-    }
+	public string normalizeAbsoluteFor(string path, string current, bool windows) {
+		string composed = self.composeFor(path, current, windows);
+		bool driveRoot = self.hasDriveFor(composed, windows) && composed.length() >= 3 && composed[2] == '/';
+		bool uncRoot = windows && composed.startsWith("//");
+		bool posixRoot = !windows && composed.startsWith("/");
+		int start = driveRoot ? 3 : (uncRoot ? 2 : (posixRoot ? 1 : 0));
+		int floor = uncRoot ? 2 : 0;
+		Vector<string> parts = Strings.split(composed.substring(start, composed.length() - start), "/");
+		Vector<string> stack = [];
+		int i = 0;
+		while (i < parts.len) {
+			string segment = parts.get(i);
+			if (segment.isEmpty() || segment.equals(".")) {
+				/* Empty and current-directory components have no path identity. */
+			} else if (segment.equals("..")) {
+				if (stack.len > floor) { stack.pop(); }
+			} else {
+				stack.push(segment);
+			}
+			i++;
+		}
+		string out = driveRoot ? composed.substring(0, 3) : (uncRoot ? "//" : (posixRoot ? "/" : ""));
+		int index = 0;
+		while (index < stack.len) {
+			if (!out.isEmpty() && !out.endsWith("/")) { out = out + "/"; }
+			out = out + stack.get(index);
+			index++;
+		}
+		if (out.isEmpty()) {
+			if (driveRoot) { return composed.substring(0, 3); }
+			if (uncRoot) { return "//"; }
+			if (posixRoot) { return "/"; }
+			return ".";
+		}
+		return out;
+	}
 
-    public string absolute(string path) {
-        string input = path;
-        /* _fullpath resolves drive-relative paths and the current drive for a
+	public string absolute(string path) {
+		string input = path;
+		/* _fullpath resolves drive-relative paths and the current drive for a
          * root-relative path.  POSIX stays lexical so source-map spellings do not
          * unexpectedly follow a symlink. */
-        if (self.windows) {
-            string nativeAbsolute = PathTools.absolute(path);
-            if (!nativeAbsolute.isEmpty()) { input = nativeAbsolute; }
-        }
-        return self.normalizeAbsoluteFor(
-            input, self.currentDirectory, self.windows);
-    }
+		if (self.windows) {
+			string nativeAbsolute = PathTools.absolute(path);
+			if (!nativeAbsolute.isEmpty()) { input = nativeAbsolute; }
+		}
+		return self.normalizeAbsoluteFor(input, self.currentDirectory, self.windows);
+	}
 
-    public string identity(string path) {
-        string canonical = PathTools.absolute(path);
-        if (canonical.isEmpty()) { canonical = self.absolute(path); }
-        string normalized = self.normalizeAbsoluteFor(
-            canonical, self.currentDirectory, self.windows);
-        return self.windows ? normalized.toLower() : normalized;
-    }
+	public string identity(string path) {
+		string canonical = PathTools.absolute(path);
+		if (canonical.isEmpty()) { canonical = self.absolute(path); }
+		string normalized = self.normalizeAbsoluteFor(canonical, self.currentDirectory, self.windows);
+		return self.windows ? normalized.toLower() : normalized;
+	}
 
-    public string directoryName(string path) {
-        return PathTools.dirname(path);
-    }
+	public string directoryName(string path) { return PathTools.dirname(path); }
 
-    public string baseName(string path) {
-        return PathTools.basename(path);
-    }
+	public string baseName(string path) { return PathTools.basename(path); }
 
-    public string join(string left, string right) {
-        return PathTools.join(left, right);
-    }
+	public string join(string left, string right) { return PathTools.join(left, right); }
 }
 class FeUtf8SourceDecoder {
-    private bool continuation(int value) {
-        return value >= 128 && value <= 191;
-    }
+	private bool continuation(int value) { return value >= 128 && value <= 191; }
 
-    private bool validAt(Bytes data, int index, int width) {
-        if (index + width > data.len) { return false; }
-        int lead = data.get(index);
-        int second = data.get(index + 1);
-        if (!self.continuation(second)) { return false; }
-        if (width == 2) { return lead >= 194 && lead <= 223; }
-        int third = data.get(index + 2);
-        if (!self.continuation(third)) { return false; }
-        if (width == 3) {
-            if (lead == 224 && second < 160) { return false; }
-            if (lead == 237 && second > 159) { return false; }
-            return lead >= 224 && lead <= 239;
-        }
-        int fourth = data.get(index + 3);
-        if (!self.continuation(fourth)) { return false; }
-        if (lead == 240 && second < 144) { return false; }
-        if (lead == 244 && second > 143) { return false; }
-        return lead >= 240 && lead <= 244;
-    }
+	private bool validAt(Bytes data, int index, int width) {
+		if (index + width > data.len) { return false; }
+		int lead = data.get(index);
+		int second = data.get(index + 1);
+		if (!self.continuation(second)) { return false; }
+		if (width == 2) { return lead >= 194 && lead <= 223; }
+		int third = data.get(index + 2);
+		if (!self.continuation(third)) { return false; }
+		if (width == 3) {
+			if (lead == 224 && second < 160) { return false; }
+			if (lead == 237 && second > 159) { return false; }
+			return lead >= 224 && lead <= 239;
+		}
+		int fourth = data.get(index + 3);
+		if (!self.continuation(fourth)) { return false; }
+		if (lead == 240 && second < 144) { return false; }
+		if (lead == 244 && second > 143) { return false; }
+		return lead >= 240 && lead <= 244;
+	}
 
-    private int widthAt(Bytes data, int index) {
-        int lead = data.get(index);
-        if (lead == 0) { return 0; }
-        if (lead <= 127) { return 1; }
-        if (lead >= 194 && lead <= 223
-                && self.validAt(data, index, 2)) { return 2; }
-        if (lead >= 224 && lead <= 239
-                && self.validAt(data, index, 3)) { return 3; }
-        if (lead >= 240 && lead <= 244
-                && self.validAt(data, index, 4)) { return 4; }
-        return 0;
-    }
+	private int widthAt(Bytes data, int index) {
+		int lead = data.get(index);
+		if (lead == 0) { return 0; }
+		if (lead <= 127) { return 1; }
+		if (lead >= 194 && lead <= 223 && self.validAt(data, index, 2)) { return 2; }
+		if (lead >= 224 && lead <= 239 && self.validAt(data, index, 3)) { return 3; }
+		if (lead >= 240 && lead <= 244 && self.validAt(data, index, 4)) { return 4; }
+		return 0;
+	}
 
-    public string decode(Bytes data, string path) {
-        int index = 0;
-        if (data.len >= 3 && data.get(0) == 239
-                && data.get(1) == 187 && data.get(2) == 191) {
-            index = 3;
-        }
-        Bytes normalized = Bytes();
-        while (index < data.len) {
-            int width = self.widthAt(data, index);
-            if (width == 0) {
-                fprintf(stderr,
-                    "error: source file '%s' is not valid UTF-8 at byte %d\n",
-                    path, index);
-                exit(1);
-            }
-            int first = data.get(index);
-            if (first == 13) {
-                normalized.append(10);
-                index++;
-                if (index < data.len && data.get(index) == 10) { index++; }
-            } else {
-                int part = 0;
-                while (part < width) {
-                    normalized.append(data.get(index + part));
-                    part++;
-                }
-                index = index + width;
-            }
-        }
-        return normalized.toStringLossy();
-    }
+	public string decode(Bytes data, string path) {
+		int index = 0;
+		if (data.len >= 3 && data.get(0) == 239 && data.get(1) == 187 && data.get(2) == 191) {
+			index = 3;
+		}
+		Bytes normalized = Bytes();
+		while (index < data.len) {
+			int width = self.widthAt(data, index);
+			if (width == 0) {
+				fprintf(stderr, "error: source file '%s' is not valid UTF-8 at byte %d\n", path, index);
+				exit(1);
+			}
+			int first = data.get(index);
+			if (first == 13) {
+				normalized.append(10);
+				index++;
+				if (index < data.len && data.get(index) == 10) { index++; }
+			} else {
+				int part = 0;
+				while (part < width) {
+					normalized.append(data.get(index + part));
+					part++;
+				}
+				index = index + width;
+			}
+		}
+		return normalized.toStringLossy();
+	}
 }
 
 /* Fail-closed source-file input for one compiler application.  A source file is
@@ -224,114 +195,101 @@ class FeUtf8SourceDecoder {
  * close, decoding, and allocation failures are diagnosed.  Buffer growth keeps
  * its own integer-overflow protection. */
 class FeSourceFileReader {
-    private FeUtf8SourceDecoder decoder;
+	private FeUtf8SourceDecoder decoder;
 
-    public FeSourceFileReader() {
-        self.decoder = FeUtf8SourceDecoder();
-    }
+	public FeSourceFileReader() { self.decoder = FeUtf8SourceDecoder(); }
 
-    private void fail(string path, string reason) {
-        fprintf(stderr,
-            "error: cannot read source file '%s': %s\n", path, reason);
-        exit(1);
-    }
+	private void fail(string path, string reason) {
+		fprintf(stderr, "error: cannot read source file '%s': %s\n", path, reason);
+		exit(1);
+	}
 
-    public string readRequired(string path) {
-        File source = File(path, "rb");
-        if (!source.ok()) { self.fail(path, "open failed"); }
-        Bytes encoded = source.readBytes();
-        bool readFailed = source.failed();
-        bool closed = source.close();
-        if (readFailed) { self.fail(path, "read failed"); }
-        if (!closed || source.failed()) { self.fail(path, "close failed"); }
-        return self.decoder.decode(encoded, path);
-    }
+	public string readRequired(string path) {
+		File source = File(path, "rb");
+		if (!source.ok()) { self.fail(path, "open failed"); }
+		Bytes encoded = source.readBytes();
+		bool readFailed = source.failed();
+		bool closed = source.close();
+		if (readFailed) { self.fail(path, "read failed"); }
+		if (!closed || source.failed()) { self.fail(path, "close failed"); }
+		return self.decoder.decode(encoded, path);
+	}
 }
 
 /* Directory traversal streams through the operating system's own iterator.  The
  * compiler imposes no entry ceiling; callers keep only what they select. */
 class FeSourceDirectoryScanner {
-    private FeSourcePathPolicy sourcePaths;
+	private FeSourcePathPolicy sourcePaths;
 
-    public FeSourceDirectoryScanner() {
-        self.sourcePaths = FeSourcePathPolicy();
-    }
+	public FeSourceDirectoryScanner() { self.sourcePaths = FeSourcePathPolicy(); }
 
-    private void fail(string path) {
-        fprintf(stderr, "error: cannot scan source directory '%s'\n", path);
-        exit(1);
-    }
+	private void fail(string path) {
+		fprintf(stderr, "error: cannot scan source directory '%s'\n", path);
+		exit(1);
+	}
 
-    private void sort(Vector<string> entries) {
-        entries.sortBy((string left, string right) =>
-            Strings.lessThan(left, right));
-    }
+	private void sort(Vector<string> entries) { entries.sortBy((string left, string right) => Strings.lessThan(left, right)); }
 
-    /* Split one directory into its child directories and the source files a
+	/* Split one directory into its child directories and the source files a
      * caller selected, retaining only those names.  Symlinked children are
      * never descended into. */
-    public void partition(string root, Vector<string> childDirectories,
-                          Vector<string> sourceFiles,
-                          Vector<string> suffixes, bool wantChildren) {
-        DirectoryStream stream = Directory(root).stream();
-        if (!stream.ok()) { self.fail(root); }
-        while (stream.next()) {
-            string name = stream.name();
-            string path = self.sourcePaths.join(root, name);
-            if (wantChildren && FileSystem.isDir(path)
-                    && !FileSystem.isSymlink(path)) {
-                childDirectories.push(path);
-            } else if (self.matchesSuffix(name, suffixes)
-                    && FileSystem.isFile(path)) {
-                sourceFiles.push(path);
-            }
-        }
-        if (!stream.close()) { self.fail(root); }
-    }
+	public void partition(string root, Vector<string> childDirectories, Vector<string> sourceFiles, Vector<string> suffixes, bool wantChildren) {
+		DirectoryStream stream = Directory(root).stream();
+		if (!stream.ok()) { self.fail(root); }
+		while (stream.next()) {
+			string name = stream.name();
+			string path = self.sourcePaths.join(root, name);
+			if (wantChildren && FileSystem.isDir(path) && !FileSystem.isSymlink(path)) {
+				childDirectories.push(path);
+			} else if (self.matchesSuffix(name, suffixes) && FileSystem.isFile(path)) {
+				sourceFiles.push(path);
+			}
+		}
+		if (!stream.close()) { self.fail(root); }
+	}
 
-    private bool matchesSuffix(string name, Vector<string> suffixes) {
-        int index = 0;
-        while (index < suffixes.len) {
-            if (name.endsWith(suffixes.get(index))) { return true; }
-            index++;
-        }
-        return false;
-    }
+	private bool matchesSuffix(string name, Vector<string> suffixes) {
+		int index = 0;
+		while (index < suffixes.len) {
+			if (name.endsWith(suffixes.get(index))) { return true; }
+			index++;
+		}
+		return false;
+	}
 
-    /* Return the lexicographically first entry naming an existing child file,
+	/* Return the lexicographically first entry naming an existing child file,
      * or "" when none matches.  Exactly one candidate is retained, so the
      * listing itself never has to be materialized. */
-    public string firstEntryWithChildFile(string root, string childName) {
-        DirectoryStream stream = Directory(root).stream();
-        if (!stream.ok()) { return ""; }
-        string best = "";
-        string bestPath = "";
-        while (stream.next()) {
-            string name = stream.name();
-            if (best.isEmpty() || Strings.lessThan(name, best)) {
-                string candidate = self.sourcePaths.join(
-                    self.sourcePaths.join(root, name), childName);
-                if (FileSystem.isFile(candidate)) {
-                    best = name;
-                    bestPath = candidate;
-                }
-            }
-        }
-        if (!stream.close()) { self.fail(root); }
-        return bestPath;
-    }
+	public string firstEntryWithChildFile(string root, string childName) {
+		DirectoryStream stream = Directory(root).stream();
+		if (!stream.ok()) { return ""; }
+		string best = "";
+		string bestPath = "";
+		while (stream.next()) {
+			string name = stream.name();
+			if (best.isEmpty() || Strings.lessThan(name, best)) {
+				string candidate = self.sourcePaths.join(self.sourcePaths.join(root, name), childName);
+				if (FileSystem.isFile(candidate)) {
+					best = name;
+					bestPath = candidate;
+				}
+			}
+		}
+		if (!stream.close()) { self.fail(root); }
+		return bestPath;
+	}
 
-    /* Stream one directory and keep only the names carrying a suffix. */
-    public Vector<string> sortedNamesWithSuffix(string root, string suffix) {
-        Vector<string> names = [];
-        DirectoryStream stream = Directory(root).stream();
-        if (!stream.ok()) { self.fail(root); }
-        while (stream.next()) {
-            string name = stream.name();
-            if (name.endsWith(suffix)) { names.push(name); }
-        }
-        if (!stream.close()) { self.fail(root); }
-        self.sort(names);
-        return names;
-    }
+	/* Stream one directory and keep only the names carrying a suffix. */
+	public Vector<string> sortedNamesWithSuffix(string root, string suffix) {
+		Vector<string> names = [];
+		DirectoryStream stream = Directory(root).stream();
+		if (!stream.ok()) { self.fail(root); }
+		while (stream.next()) {
+			string name = stream.name();
+			if (name.endsWith(suffix)) { names.push(name); }
+		}
+		if (!stream.close()) { self.fail(root); }
+		self.sort(names);
+		return names;
+	}
 }

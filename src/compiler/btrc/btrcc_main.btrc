@@ -3,6 +3,6 @@
 import ./cli/driver.btrc;
 
 int main(int argc, char** argv) {
-    BtrccDriver driver = BtrccDriver(argc, argv);
-    return driver.run();
+	BtrccDriver driver = BtrccDriver(argc, argv);
+	return driver.run();
 }

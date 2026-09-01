@@ -6,125 +6,113 @@ import std.strings;
 import std.vector;
 
 class FeSourceText {
-    private string content;
+	private string content;
 
-    public FeSourceText(string content) {
-        self.content = content;
-    }
+	public FeSourceText(string content) { self.content = content; }
 
-    /* Matches Python str.split("\n"), including the final empty line when
+	/* Matches Python str.split("\n"), including the final empty line when
      * the source ends in a newline. */
-    public Vector<string> lines() {
-        Vector<string> result = [];
-        int start = 0;
-        int index = 0;
-        while (index < self.content.length()) {
-            if (self.content[index] == '\n') {
-                result.push(self.content.substring(start, index - start));
-                start = index + 1;
-            }
-            index++;
-        }
-        result.push(self.content.substring(
-            start, self.content.length() - start));
-        return result;
-    }
+	public Vector<string> lines() {
+		Vector<string> result = [];
+		int start = 0;
+		int index = 0;
+		while (index < self.content.length()) {
+			if (self.content[index] == '\n') {
+				result.push(self.content.substring(start, index - start));
+				start = index + 1;
+			}
+			index++;
+		}
+		result.push(self.content.substring(start, self.content.length() - start));
+		return result;
+	}
 
-    public int lineCount() {
-        int count = 1;
-        int index = 0;
-        while (index < self.content.length()) {
-            if (self.content[index] == '\n') { count++; }
-            index++;
-        }
-        return count;
-    }
+	public int lineCount() {
+		int count = 1;
+		int index = 0;
+		while (index < self.content.length()) {
+			if (self.content[index] == '\n') { count++; }
+			index++;
+		}
+		return count;
+	}
 
-    /* Prefix check at an exact source offset without allocating a suffix. */
-    public bool startsWithAt(int position, string prefix) {
-        if (position < 0
-                || position + prefix.length() > self.content.length()) {
-            return false;
-        }
-        int index = 0;
-        while (index < prefix.length()) {
-            if (self.content[position + index] != prefix[index]) {
-                return false;
-            }
-            index++;
-        }
-        return true;
-    }
+	/* Prefix check at an exact source offset without allocating a suffix. */
+	public bool startsWithAt(int position, string prefix) {
+		if (position < 0 || position + prefix.length() > self.content.length()) {
+			return false;
+		}
+		int index = 0;
+		while (index < prefix.length()) {
+			if (self.content[position + index] != prefix[index]) {
+				return false;
+			}
+			index++;
+		}
+		return true;
+	}
 
-    class string joinLines(Vector<string> lines) {
-        return Strings.join(lines, "\n");
-    }
+	class string joinLines(Vector<string> lines) { return Strings.join(lines, "\n"); }
 }
 
 class FeLine {
-    public string text;
-    public string sourceFile;  /* absolute path */
-    public int lineNumber;     /* 1-based, in sourceFile */
+	public string text;
+	public string sourceFile;  /* absolute path */
+	public int lineNumber;     /* 1-based, in sourceFile */
 
-    public FeLine(string text, string sourceFile, int lineNumber) {
-        self.text = text;
-        self.sourceFile = sourceFile;
-        self.lineNumber = lineNumber;
-    }
+	public FeLine(string text, string sourceFile, int lineNumber) {
+		self.text = text;
+		self.sourceFile = sourceFile;
+		self.lineNumber = lineNumber;
+	}
 }
 
 enum FeDependencyKind {
-    FE_DEPENDENCY_IMPORT = 1,
-    FE_DEPENDENCY_INCLUDE = 2,
+	FE_DEPENDENCY_IMPORT = 1,
+	FE_DEPENDENCY_INCLUDE = 2,
 };
 
 class FeDependencyEdge {
-    public string target;
-    public int kind;
+	public string target;
+	public int kind;
 
-    public FeDependencyEdge(string target, int kind) {
-        self.target = target;
-        self.kind = kind;
-    }
+	public FeDependencyEdge(string target, int kind) {
+		self.target = target;
+		self.kind = kind;
+	}
 }
 
 /* Typed dependency graph for per-file visibility. Language imports remain
  * directed; legacy #include edges are traversed in both directions because
  * their source fragments form one compilation unit. */
 class FeDependencyGraph {
-    private Map<string, Vector<FeDependencyEdge>> outgoing;
-    private Map<string, Vector<string>> includeParents;
+	private Map<string, Vector<FeDependencyEdge>> outgoing;
+	private Map<string, Vector<string>> includeParents;
 
-    public FeDependencyGraph(
-            Map<string, Vector<FeDependencyEdge>> outgoing,
-            Map<string, Vector<string>> includeParents) {
-        self.outgoing = outgoing;
-        self.includeParents = includeParents;
-    }
+	public FeDependencyGraph(Map<string, Vector<FeDependencyEdge>> outgoing, Map<string, Vector<string>> includeParents) {
+		self.outgoing = outgoing;
+		self.includeParents = includeParents;
+	}
 
-    public bool hasSource(string sourceIdentity) {
-        return self.outgoing.has(sourceIdentity);
-    }
+	public bool hasSource(string sourceIdentity) { return self.outgoing.has(sourceIdentity); }
 
-    public Vector<string> sourceIdentities() {
-        return self.outgoing.keys();
-    }
+	public Vector<string> sourceIdentities() { return self.outgoing.keys(); }
 
-    public Vector<FeDependencyEdge> outgoingFrom(string sourceIdentity) {
-        if (self.outgoing.has(sourceIdentity)) {
-            return self.outgoing.get(sourceIdentity);
-        }
-        Vector<FeDependencyEdge> empty = [];
-        return empty;
-    }
+	public Vector<FeDependencyEdge> outgoingFrom(string sourceIdentity) {
+		if (self.outgoing.has(sourceIdentity)) {
+			return self.outgoing.get(sourceIdentity);
+		}
+		Vector<FeDependencyEdge> empty = [];
+		return empty;
+	}
 
-    public Vector<string> includeParentsOf(string sourceIdentity) {
-        if (self.includeParents.has(sourceIdentity)) {
-            return self.includeParents.get(sourceIdentity);
-        }
-        Vector<string> empty = [];
-        return empty;
-    }
+	public Vector<string> includeParentsOf(string sourceIdentity) {
+		if (self.includeParents.has(sourceIdentity)) {
+			return self.includeParents.get(sourceIdentity);
+		}
+		Vector<string> empty = [];
+		return empty;
+	}
 }
 
 /* Immutable-by-API capture of the standard-library roots used for one
@@ -132,134 +120,118 @@ class FeDependencyGraph {
  * FeStdlibRepository; this value owns only captured paths, sources, and
  * content equality. */
 class FeStdlibRootSnapshot {
-    private Vector<string> paths;
-    private Vector<string> sources;
+	private Vector<string> paths;
+	private Vector<string> sources;
 
-    public FeStdlibRootSnapshot(Vector<string> paths, Vector<string> sources) {
-        self.paths = paths;
-        self.sources = sources;
-    }
+	public FeStdlibRootSnapshot(Vector<string> paths, Vector<string> sources) {
+		self.paths = paths;
+		self.sources = sources;
+	}
 
-    public int count() {
-        return self.paths.len;
-    }
+	public int count() { return self.paths.len; }
 
-    public string pathAt(int index) {
-        return self.paths.get(index);
-    }
+	public string pathAt(int index) { return self.paths.get(index); }
 
-    public string sourceAt(int index) {
-        return self.sources.get(index);
-    }
+	public string sourceAt(int index) { return self.sources.get(index); }
 
-    public bool sameContents(FeStdlibRootSnapshot other) {
-        if (self.count() != other.count()) { return false; }
-        int index = 0;
-        while (index < self.count()) {
-            if (!self.pathAt(index).equals(other.pathAt(index))
-                    || !self.sourceAt(index).equals(other.sourceAt(index))) {
-                return false;
-            }
-            index++;
-        }
-        return true;
-    }
+	public bool sameContents(FeStdlibRootSnapshot other) {
+		if (self.count() != other.count()) { return false; }
+		int index = 0;
+		while (index < self.count()) {
+			if (!self.pathAt(index).equals(other.pathAt(index)) || !self.sourceAt(index).equals(other.sourceAt(index))) {
+				return false;
+			}
+			index++;
+		}
+		return true;
+	}
 }
 
 class FeResolvedSource {
-    public string userSource;
-    public string source;
-    public string stdlibSource;
-    public Vector<FeLine> userLines;
-    public FeDependencyGraph dependencies;
-    public bool strictImports;
-    public int stdlibLineCount;
-    public string rootSourcePath;
-    public FeStdlibRootSnapshot stdlibSnapshot;
+	public string userSource;
+	public string source;
+	public string stdlibSource;
+	public Vector<FeLine> userLines;
+	public FeDependencyGraph dependencies;
+	public bool strictImports;
+	public int stdlibLineCount;
+	public string rootSourcePath;
+	public FeStdlibRootSnapshot stdlibSnapshot;
 
-    public FeResolvedSource(string userSource, string source,
-                            string stdlibSource, Vector<FeLine> userLines,
-                            FeDependencyGraph dependencies, bool strictImports,
-                            int stdlibLineCount, string rootSourcePath,
-                            FeStdlibRootSnapshot stdlibSnapshot) {
-        self.userSource = userSource;
-        self.source = source;
-        self.stdlibSource = stdlibSource;
-        self.userLines = userLines;
-        self.dependencies = dependencies;
-        self.strictImports = strictImports;
-        self.stdlibLineCount = stdlibLineCount;
-        self.rootSourcePath = rootSourcePath;
-        self.stdlibSnapshot = stdlibSnapshot;
-    }
+	public FeResolvedSource(string userSource, string source, string stdlibSource, Vector<FeLine> userLines, FeDependencyGraph dependencies, bool strictImports, int stdlibLineCount, string rootSourcePath, FeStdlibRootSnapshot stdlibSnapshot) {
+		self.userSource = userSource;
+		self.source = source;
+		self.stdlibSource = stdlibSource;
+		self.userLines = userLines;
+		self.dependencies = dependencies;
+		self.strictImports = strictImports;
+		self.stdlibLineCount = stdlibLineCount;
+		self.rootSourcePath = rootSourcePath;
+		self.stdlibSnapshot = stdlibSnapshot;
+	}
 
-    public FeLine? userLineForCombined(int line) {
-        int index = line - self.stdlibLineCount - 1;
-        if (index < 0 || index >= self.userLines.len) { return null; }
-        return self.userLines.get(index);
-    }
-
+	public FeLine? userLineForCombined(int line) {
+		int index = line - self.stdlibLineCount - 1;
+		if (index < 0 || index >= self.userLines.len) { return null; }
+		return self.userLines.get(index);
+	}
 }
 
 class FeDirective {
-    public string kind;     /* "import" or "btrc_include" */
-    public string payload;  /* import: raw spec text; include: the .btrc path */
-    public int start;       /* 1-based start line (inclusive) */
-    public int end;         /* 1-based end line (inclusive) */
+	public string kind;     /* "import" or "btrc_include" */
+	public string payload;  /* import: raw spec text; include: the .btrc path */
+	public int start;       /* 1-based start line (inclusive) */
+	public int end;         /* 1-based end line (inclusive) */
 
-    public FeDirective(string kind, string payload, int start, int end) {
-        self.kind = kind;
-        self.payload = payload;
-        self.start = start;
-        self.end = end;
-    }
+	public FeDirective(string kind, string payload, int start, int end) {
+		self.kind = kind;
+		self.payload = payload;
+		self.start = start;
+		self.end = end;
+	}
 }
 
 class FeVisibilityDiagnostic {
-    public string message;
-    public string sourceFile;
-    public int line;
-    public int col;
-    public string sourceLine;
+	public string message;
+	public string sourceFile;
+	public int line;
+	public int col;
+	public string sourceLine;
 
-    public FeVisibilityDiagnostic(string message, string sourceFile,
-                                  int line, int col, string sourceLine) {
-        self.message = message;
-        self.sourceFile = sourceFile;
-        self.line = line;
-        self.col = col;
-        self.sourceLine = sourceLine;
-    }
+	public FeVisibilityDiagnostic(string message, string sourceFile, int line, int col, string sourceLine) {
+		self.message = message;
+		self.sourceFile = sourceFile;
+		self.line = line;
+		self.col = col;
+		self.sourceLine = sourceLine;
+	}
 
-    public string render() {
-        string lineText = f"{self.line}";
-        string pad = Strings.repeat(" ", lineText.length());
-        string caret = Strings.repeat(" ", self.col > 0 ? self.col - 1 : 0) + "^";
-        return f"error: {self.message}\n {pad}--> {self.sourceFile}:{self.line}:{self.col}"
-            + f"\n {pad} |\n {lineText} | {self.sourceLine}\n {pad} | {caret}";
-    }
+	public string render() {
+		string lineText = f"{self.line}";
+		string pad = Strings.repeat(" ", lineText.length());
+		string caret = Strings.repeat(" ", self.col > 0 ? self.col - 1 : 0) + "^";
+		return f"error: {self.message}\n {pad}--> {self.sourceFile}:{self.line}:{self.col}" + f"\n {pad} |\n {lineText} | {self.sourceLine}\n {pad} | {caret}";
+	}
 }
 
 class FeStdlibSymbolIndexResult {
-    public bool success;
-    public string diagnostic;
+	public bool success;
+	public string diagnostic;
 
-    public FeStdlibSymbolIndexResult(bool success, string diagnostic) {
-        self.success = success;
-        self.diagnostic = diagnostic;
-    }
+	public FeStdlibSymbolIndexResult(bool success, string diagnostic) {
+		self.success = success;
+		self.diagnostic = diagnostic;
+	}
 }
 
 class FeVisibilityCheckResult {
-    public bool success;
-    public string diagnostic;
-    public Vector<FeVisibilityDiagnostic> diagnostics;
+	public bool success;
+	public string diagnostic;
+	public Vector<FeVisibilityDiagnostic> diagnostics;
 
-    public FeVisibilityCheckResult(
-            bool success, string diagnostic,
-            Vector<FeVisibilityDiagnostic> diagnostics) {
-        self.success = success;
-        self.diagnostic = diagnostic;
-        self.diagnostics = diagnostics;
-    }
+	public FeVisibilityCheckResult(bool success, string diagnostic, Vector<FeVisibilityDiagnostic> diagnostics) {
+		self.success = success;
+		self.diagnostic = diagnostic;
+		self.diagnostics = diagnostics;
+	}
 }

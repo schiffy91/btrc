@@ -2,197 +2,181 @@
 
 import std.strings;
 import std.vector;
+
 import ./tokens.btrc;
 
 class GrammarInfo {
-    public TokenVocabulary vocabulary;
+	public TokenVocabulary vocabulary;
 
-    public GrammarInfo(TokenVocabulary vocabulary) {
-        self.vocabulary = vocabulary;
-    }
+	public GrammarInfo(TokenVocabulary vocabulary) { self.vocabulary = vocabulary; }
 }
 
 /* Parses the declarative lexical tables in src/language/grammar.ebnf. */
 class EbnfGrammarParser {
-    private string source;
+	private string source;
 
-    public EbnfGrammarParser(string source) {
-        self.source = source;
-    }
+	public EbnfGrammarParser(string source) { self.source = source; }
 
-    private string characterName(char value) {
-        if (value == '+') { return "PLUS"; }
-        if (value == '-') { return "MINUS"; }
-        if (value == '*') { return "STAR"; }
-        if (value == '/') { return "SLASH"; }
-        if (value == '%') { return "PERCENT"; }
-        if (value == '=') { return "EQ"; }
-        if (value == '<') { return "LT"; }
-        if (value == '>') { return "GT"; }
-        if (value == '!') { return "BANG"; }
-        if (value == '&') { return "AMP"; }
-        if (value == '|') { return "PIPE"; }
-        if (value == '^') { return "CARET"; }
-        if (value == '~') { return "TILDE"; }
-        if (value == '?') { return "QUESTION"; }
-        if (value == '.') { return "DOT"; }
-        if (value == ',') { return "COMMA"; }
-        if (value == ';') { return "SEMICOLON"; }
-        if (value == ':') { return "COLON"; }
-        if (value == '(') { return "LPAREN"; }
-        if (value == ')') { return "RPAREN"; }
-        if (value == '[') { return "LBRACKET"; }
-        if (value == ']') { return "RBRACKET"; }
-        if (value == '{') { return "LBRACE"; }
-        if (value == '}') { return "RBRACE"; }
-        return "UNKNOWN";
-    }
+	private string characterName(char value) {
+		if (value == '+') { return "PLUS"; }
+		if (value == '-') { return "MINUS"; }
+		if (value == '*') { return "STAR"; }
+		if (value == '/') { return "SLASH"; }
+		if (value == '%') { return "PERCENT"; }
+		if (value == '=') { return "EQ"; }
+		if (value == '<') { return "LT"; }
+		if (value == '>') { return "GT"; }
+		if (value == '!') { return "BANG"; }
+		if (value == '&') { return "AMP"; }
+		if (value == '|') { return "PIPE"; }
+		if (value == '^') { return "CARET"; }
+		if (value == '~') { return "TILDE"; }
+		if (value == '?') { return "QUESTION"; }
+		if (value == '.') { return "DOT"; }
+		if (value == ',') { return "COMMA"; }
+		if (value == ';') { return "SEMICOLON"; }
+		if (value == ':') { return "COLON"; }
+		if (value == '(') { return "LPAREN"; }
+		if (value == ')') { return "RPAREN"; }
+		if (value == '[') { return "LBRACKET"; }
+		if (value == ']') { return "RBRACKET"; }
+		if (value == '{') { return "LBRACE"; }
+		if (value == '}') { return "RBRACE"; }
+		return "UNKNOWN";
+	}
 
-    private string operatorTokenName(string operatorText) {
-        if (operatorText == "->") { return "ARROW"; }
-        if (operatorText == "=>") { return "FAT_ARROW"; }
-        string result = "";
-        int index = 0;
-        while (index < operatorText.length()) {
-            if (index > 0) { result = result + "_"; }
-            result = result + self.characterName(operatorText[index]);
-            index++;
-        }
-        return result;
-    }
+	private string operatorTokenName(string operatorText) {
+		if (operatorText == "->") { return "ARROW"; }
+		if (operatorText == "=>") { return "FAT_ARROW"; }
+		string result = "";
+		int index = 0;
+		while (index < operatorText.length()) {
+			if (index > 0) { result = result + "_"; }
+			result = result + self.characterName(operatorText[index]);
+			index++;
+		}
+		return result;
+	}
 
-    /* Extract an @marker block while honoring nested braces and lexical
+	/* Extract an @marker block while honoring nested braces and lexical
      * constructs whose braces do not delimit the block. */
-    private string braceBlock(string text, string marker) {
-        int markerPosition = text.indexOf(marker);
-        if (markerPosition < 0) { return ""; }
-        int index = markerPosition + marker.length();
-        while (index < text.length() && text[index] != '{') { index++; }
-        if (index >= text.length()) { return ""; }
-        int bodyStart = index + 1;
-        int depth = 1;
-        index = bodyStart;
-        while (index < text.length() && depth > 0) {
-            char value = text[index];
-            if (value == '-' && index + 1 < text.length()
-                    && text[index + 1] == '-') {
-                while (index < text.length() && text[index] != '\n') { index++; }
-            } else if (value == '(' && index + 1 < text.length()
-                    && text[index + 1] == '*') {
-                index += 2;
-                while (index + 1 < text.length()
-                        && !(text[index] == '*' && text[index + 1] == ')')) {
-                    index++;
-                }
-                index += 2;
-            } else if (value == '/' && index + 1 < text.length()
-                    && text[index + 1] != '/') {
-                index++;
-                while (index < text.length() && text[index] != '/') {
-                    if (text[index] == '\\') { index++; }
-                    index++;
-                }
-                index++;
-            } else if (value == '"') {
-                index++;
-                while (index < text.length() && text[index] != '"') {
-                    if (text[index] == '\\') { index++; }
-                    index++;
-                }
-                index++;
-            } else if (value == '{') {
-                depth++;
-                index++;
-            } else if (value == '}') {
-                depth--;
-                if (depth == 0) {
-                    return text.substring(bodyStart, index - bodyStart);
-                }
-                index++;
-            } else {
-                index++;
-            }
-        }
-        return "";
-    }
+	private string braceBlock(string text, string marker) {
+		int markerPosition = text.indexOf(marker);
+		if (markerPosition < 0) { return ""; }
+		int index = markerPosition + marker.length();
+		while (index < text.length() && text[index] != '{') { index++; }
+		if (index >= text.length()) { return ""; }
+		int bodyStart = index + 1;
+		int depth = 1;
+		index = bodyStart;
+		while (index < text.length() && depth > 0) {
+			char value = text[index];
+			if (value == '-' && index + 1 < text.length() && text[index + 1] == '-') {
+				while (index < text.length() && text[index] != '\n') { index++; }
+			} else if (value == '(' && index + 1 < text.length() && text[index + 1] == '*') {
+				index += 2;
+				while (index + 1 < text.length() && !(text[index] == '*' && text[index + 1] == ')')) {
+					index++;
+				}
+				index += 2;
+			} else if (value == '/' && index + 1 < text.length() && text[index + 1] != '/') {
+				index++;
+				while (index < text.length() && text[index] != '/') {
+					if (text[index] == '\\') { index++; }
+					index++;
+				}
+				index++;
+			} else if (value == '"') {
+				index++;
+				while (index < text.length() && text[index] != '"') {
+					if (text[index] == '\\') { index++; }
+					index++;
+				}
+				index++;
+			} else if (value == '{') {
+				depth++;
+				index++;
+			} else if (value == '}') {
+				depth--;
+				if (depth == 0) {
+					return text.substring(bodyStart, index - bodyStart);
+				}
+				index++;
+			} else {
+				index++;
+			}
+		}
+		return "";
+	}
 
-    private Vector<string> words(string body) {
-        Vector<string> result = [];
-        int index = 0;
-        while (index < body.length()) {
-            char value = body[index];
-            if (value == '-' && index + 1 < body.length()
-                    && body[index + 1] == '-') {
-                while (index < body.length() && body[index] != '\n') { index++; }
-            } else if (Strings.isAlpha(value) || value == '_') {
-                int start = index;
-                while (index < body.length()
-                        && (Strings.isAlnum(body[index]) || body[index] == '_')) {
-                    index++;
-                }
-                result.push(body.substring(start, index - start));
-            } else {
-                index++;
-            }
-        }
-        return result;
-    }
+	private Vector<string> words(string body) {
+		Vector<string> result = [];
+		int index = 0;
+		while (index < body.length()) {
+			char value = body[index];
+			if (value == '-' && index + 1 < body.length() && body[index + 1] == '-') {
+				while (index < body.length() && body[index] != '\n') { index++; }
+			} else if (Strings.isAlpha(value) || value == '_') {
+				int start = index;
+				while (index < body.length() && (Strings.isAlnum(body[index]) || body[index] == '_')) {
+					index++;
+				}
+				result.push(body.substring(start, index - start));
+			} else {
+				index++;
+			}
+		}
+		return result;
+	}
 
-    private Vector<string> quotedValues(string body) {
-        Vector<string> result = [];
-        int index = 0;
-        while (index < body.length()) {
-            char value = body[index];
-            if (value == '-' && index + 1 < body.length()
-                    && body[index + 1] == '-') {
-                while (index < body.length() && body[index] != '\n') { index++; }
-            } else if (value == '"') {
-                int start = index + 1;
-                index++;
-                while (index < body.length() && body[index] != '"') { index++; }
-                result.push(body.substring(start, index - start));
-                index++;
-            } else {
-                index++;
-            }
-        }
-        return result;
-    }
+	private Vector<string> quotedValues(string body) {
+		Vector<string> result = [];
+		int index = 0;
+		while (index < body.length()) {
+			char value = body[index];
+			if (value == '-' && index + 1 < body.length() && body[index + 1] == '-') {
+				while (index < body.length() && body[index] != '\n') { index++; }
+			} else if (value == '"') {
+				int start = index + 1;
+				index++;
+				while (index < body.length() && body[index] != '"') { index++; }
+				result.push(body.substring(start, index - start));
+				index++;
+			} else {
+				index++;
+			}
+		}
+		return result;
+	}
 
-    public GrammarInfo parse() {
-        TokenVocabulary vocabulary = TokenVocabulary();
-        string lexical = self.braceBlock(self.source, "@lexical");
+	public GrammarInfo parse() {
+		TokenVocabulary vocabulary = TokenVocabulary();
+		string lexical = self.braceBlock(self.source, "@lexical");
 
-        Vector<string> keywords = self.words(
-            self.braceBlock(lexical, "@keywords"));
-        int index = 0;
-        while (index < keywords.len) {
-            string keyword = keywords.get(index);
-            vocabulary.addKeyword(keyword, keyword.toUpper());
-            index++;
-        }
+		Vector<string> keywords = self.words(self.braceBlock(lexical, "@keywords"));
+		int index = 0;
+		while (index < keywords.len) {
+			string keyword = keywords.get(index);
+			vocabulary.addKeyword(keyword, keyword.toUpper());
+			index++;
+		}
 
-        Vector<string> operators = self.quotedValues(
-            self.braceBlock(lexical, "@operators"));
-        operators.sortBy((string left, string right) =>
-            left.length() > right.length());
-        index = 0;
-        while (index < operators.len) {
-            string operatorText = operators.get(index);
-            vocabulary.addOperator(
-                operatorText, self.operatorTokenName(operatorText));
-            index++;
-        }
+		Vector<string> operators = self.quotedValues(self.braceBlock(lexical, "@operators"));
+		operators.sortBy((string left, string right) => left.length() > right.length());
+		index = 0;
+		while (index < operators.len) {
+			string operatorText = operators.get(index);
+			vocabulary.addOperator(operatorText, self.operatorTokenName(operatorText));
+			index++;
+		}
 
-        Vector<string> annotations = self.words(
-            self.braceBlock(lexical, "@annotations"));
-        index = 0;
-        while (index < annotations.len) {
-            string annotation = annotations.get(index);
-            vocabulary.addAnnotation(
-                annotation, "AT_" + annotation.toUpper());
-            index++;
-        }
-        return GrammarInfo(vocabulary);
-    }
+		Vector<string> annotations = self.words(self.braceBlock(lexical, "@annotations"));
+		index = 0;
+		while (index < annotations.len) {
+			string annotation = annotations.get(index);
+			vocabulary.addAnnotation(annotation, "AT_" + annotation.toUpper());
+			index++;
+		}
+		return GrammarInfo(vocabulary);
+	}
 }

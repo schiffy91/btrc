@@ -3,143 +3,103 @@
 import std.map;
 import std.strings;
 import std.vector;
+
 import ../frontend/packages.btrc;
 import ../ir/stage.btrc;
 import ./models.btrc;
 
 class CompilerPipeline {
-    private GrammarInfo grammar;
-    private FeStdlibRepository stdlib;
-    private FeStdlibSymbolIndex stdlibSymbols;
-    private HostedAbiRepository hostedAbi;
-    private FeSourceFileReader sourceFiles;
+	private GrammarInfo grammar;
+	private FeStdlibRepository stdlib;
+	private FeStdlibSymbolIndex stdlibSymbols;
+	private HostedAbiRepository hostedAbi;
+	private FeSourceFileReader sourceFiles;
 
-    public CompilerPipeline(GrammarInfo grammar, string stdlibDirectory,
-                            FeSourceFileReader sourceFiles) {
-        self.grammar = grammar;
-        self.stdlib = FeStdlibRepository(
-            stdlibDirectory, sourceFiles);
-        self.stdlibSymbols = FeStdlibSymbolIndex();
-        self.hostedAbi = HostedAbiRepository(
-            GeneratedHostedAbiData());
-        self.sourceFiles = sourceFiles;
-    }
+	public CompilerPipeline(GrammarInfo grammar, string stdlibDirectory, FeSourceFileReader sourceFiles) {
+		self.grammar = grammar;
+		self.stdlib = FeStdlibRepository(stdlibDirectory, sourceFiles);
+		self.stdlibSymbols = FeStdlibSymbolIndex();
+		self.hostedAbi = HostedAbiRepository(GeneratedHostedAbiData());
+		self.sourceFiles = sourceFiles;
+	}
 
-    private BtrccCompilationResult failure(string diagnostic) {
-        return BtrccCompilationResult(false, "", diagnostic, "");
-    }
+	private BtrccCompilationResult failure(string diagnostic) { return BtrccCompilationResult(false, "", diagnostic, ""); }
 
-    private string visibilityDiagnostic(
-            Vector<FeVisibilityDiagnostic> diagnostics) {
-        Vector<string> rendered = [];
-        int index = 0;
-        while (index < diagnostics.len) {
-            rendered.push(diagnostics.get(index).render());
-            index++;
-        }
-        return Strings.join(rendered, "\n");
-    }
+	private string visibilityDiagnostic(Vector<FeVisibilityDiagnostic> diagnostics) {
+		Vector<string> rendered = [];
+		int index = 0;
+		while (index < diagnostics.len) {
+			rendered.push(diagnostics.get(index).render());
+			index++;
+		}
+		return Strings.join(rendered, "\n");
+	}
 
-    public BtrccCompilationResult compile(string source, string sourcePath,
-                                          BtrccOptions options) {
-        FeResolvedPackages packages = FePackageGraphResolver(
-            self.sourceFiles).resolveFor(sourcePath, options.target);
-        FeFrontendResolver resolver = FeFrontendResolver(
-            self.grammar, self.stdlib,
-            options.includeStdlib, options.strictImports, packages);
-        FeResolvedSource resolved = resolver.resolve(source, sourcePath);
-        packages.linkPlan.restrictToSources(
-            resolved.dependencies.sourceIdentities());
-        string backgroundJobsModule = PathTools.join(
-            self.stdlib.directory(), "background_jobs.btrc");
-        if (resolved.dependencies.hasSource(
-                FeSourcePathPolicy().identity(backgroundJobsModule))) {
-            packages.linkPlan.requireStdlibBackgroundJobs(
-                self.stdlib.directory());
-        }
+	public BtrccCompilationResult compile(string source, string sourcePath, BtrccOptions options) {
+		FeResolvedPackages packages = FePackageGraphResolver(self.sourceFiles).resolveFor(sourcePath, options.target);
+		FeFrontendResolver resolver = FeFrontendResolver(self.grammar, self.stdlib, options.includeStdlib, options.strictImports, packages);
+		FeResolvedSource resolved = resolver.resolve(source, sourcePath);
+		packages.linkPlan.restrictToSources(resolved.dependencies.sourceIdentities());
+		string backgroundJobsModule = PathTools.join(self.stdlib.directory(), "background_jobs.btrc");
+		if (resolved.dependencies.hasSource(FeSourcePathPolicy().identity(backgroundJobsModule))) {
+			packages.linkPlan.requireStdlibBackgroundJobs(self.stdlib.directory());
+		}
 
-        Lexer lexer = Lexer(resolved.source, self.grammar);
-        Vector<Token> tokens = lexer.tokenize();
-        if (lexer.failed) {
-            return self.failure("error: " + lexer.diagnostic);
-        }
+		Lexer lexer = Lexer(resolved.source, self.grammar);
+		Vector<Token> tokens = lexer.tokenize();
+		if (lexer.failed) {
+			return self.failure("error: " + lexer.diagnostic);
+		}
 
-        Parser parser = Parser(tokens, self.grammar);
-        Node program = parser.parseProgram();
-        if (parser.failed) {
-            return self.failure("error: " + parser.diagnostic);
-        }
+		Parser parser = Parser(tokens, self.grammar);
+		Node program = parser.parseProgram();
+		if (parser.failed) {
+			return self.failure("error: " + parser.diagnostic);
+		}
 
-        if (options.strictImports) {
-            FeImportVisibilityChecker visibility =
-                FeImportVisibilityChecker(
-                    program, resolved, self.stdlib, self.stdlibSymbols,
-                    self.grammar,
-                    self.hostedAbi.sourceFunctionShadows(program));
-            FeVisibilityCheckResult checked = visibility.check();
-            if (!checked.success) {
-                return self.failure("error: " + checked.diagnostic);
-            }
-            if (checked.diagnostics.len > 0) {
-                return self.failure(
-                    self.visibilityDiagnostic(checked.diagnostics));
-            }
-        }
+		if (options.strictImports) {
+			FeImportVisibilityChecker visibility = FeImportVisibilityChecker(program, resolved, self.stdlib, self.stdlibSymbols, self.grammar, self.hostedAbi.sourceFunctionShadows(program));
+			FeVisibilityCheckResult checked = visibility.check();
+			if (!checked.success) {
+				return self.failure("error: " + checked.diagnostic);
+			}
+			if (checked.diagnostics.len > 0) {
+				return self.failure(self.visibilityDiagnostic(checked.diagnostics));
+			}
+		}
 
-        self.hostedAbi.stampProgramSources(
-            program, resolved.stdlibLineCount, resolved.userLines, sourcePath,
-            self.stdlib.directory());
-        GeneratedRuntimeCatalogData runtimeData =
-            GeneratedRuntimeCatalogData();
-        SourceRuntimeSymbols sourceRuntimeSymbols =
-            SourceRuntimeSymbols(
-                runtimeData.rows, runtimeData.intrinsic_effects);
-        RuntimeHelperCatalog runtimeHelpers =
-            RuntimeHelperCatalog(
-                runtimeData.rows, runtimeData.intrinsic_effects);
-        SemanticAnalyzer analyzer =
-            SemanticAnalyzer(sourceRuntimeSymbols);
-        Analyzed analyzed = analyzer.analyze(program, self.hostedAbi);
+		self.hostedAbi.stampProgramSources(program, resolved.stdlibLineCount, resolved.userLines, sourcePath, self.stdlib.directory());
+		GeneratedRuntimeCatalogData runtimeData = GeneratedRuntimeCatalogData();
+		SourceRuntimeSymbols sourceRuntimeSymbols = SourceRuntimeSymbols(runtimeData.rows, runtimeData.intrinsic_effects);
+		RuntimeHelperCatalog runtimeHelpers = RuntimeHelperCatalog(runtimeData.rows, runtimeData.intrinsic_effects);
+		SemanticAnalyzer analyzer = SemanticAnalyzer(sourceRuntimeSymbols);
+		Analyzed analyzed = analyzer.analyze(program, self.hostedAbi);
 
-        IRLowerer lowerer = IRLowerer(
-            analyzed, self.hostedAbi, analyzer.declarationRegistry(),
-            analyzer.operatorSemantics(),
-            analyzer.expressionTypes(),
-            analyzer.gpuSemantics(),
-            analyzer.managedValueSemantics(), analyzer.cycleSemantics(),
-            runtimeHelpers,
-            sourcePath, resolved.stdlibLineCount, resolved.userLines);
-        IRModule module = lowerer.lower(program);
-        bool hasRealtimeRoot = false;
-        int realtimeIndex = 0;
-        while (realtimeIndex < module.functions.len) {
-            if (module.functions.get(realtimeIndex).is_realtime) {
-                hasRealtimeRoot = true;
-            }
-            realtimeIndex = realtimeIndex + 1;
-        }
-        if (hasRealtimeRoot) {
-            module.realtime_safe_externals =
-                self.hostedAbi.realtimeSafeFunctions();
-            Map<string, bool> runtimeRealtimeSafe =
-                runtimeHelpers.realtimeSafeFunctions();
-            Vector<string> runtimeSafeNames = runtimeRealtimeSafe.keys();
-            int runtimeSafeIndex = 0;
-            while (runtimeSafeIndex < runtimeSafeNames.len) {
-                module.realtime_safe_externals.put(
-                    runtimeSafeNames.get(runtimeSafeIndex), true);
-                runtimeSafeIndex = runtimeSafeIndex + 1;
-            }
-        }
-        SetjmpEffectAnalysis setjmpEffects =
-            SetjmpEffectAnalysis(self.hostedAbi);
-        SetjmpSafetyPlanner setjmpSafety =
-            SetjmpSafetyPlanner(setjmpEffects);
-        IROptimizer optimizer =
-            IROptimizer(setjmpSafety, runtimeHelpers);
-        optimizer.optimize(module, options.runDce);
-        CEmitter emitter = CEmitter();
-        return BtrccCompilationResult(
-            true, emitter.emit(module), "", packages.linkPlan.canonicalJson());
-    }
+		IRLowerer lowerer = IRLowerer(analyzed, self.hostedAbi, analyzer.declarationRegistry(), analyzer.operatorSemantics(), analyzer.expressionTypes(), analyzer.gpuSemantics(), analyzer.managedValueSemantics(), analyzer.cycleSemantics(), runtimeHelpers, sourcePath, resolved.stdlibLineCount, resolved.userLines);
+		IRModule module = lowerer.lower(program);
+		bool hasRealtimeRoot = false;
+		int realtimeIndex = 0;
+		while (realtimeIndex < module.functions.len) {
+			if (module.functions.get(realtimeIndex).is_realtime) {
+				hasRealtimeRoot = true;
+			}
+			realtimeIndex = realtimeIndex + 1;
+		}
+		if (hasRealtimeRoot) {
+			module.realtime_safe_externals = self.hostedAbi.realtimeSafeFunctions();
+			Map<string, bool> runtimeRealtimeSafe = runtimeHelpers.realtimeSafeFunctions();
+			Vector<string> runtimeSafeNames = runtimeRealtimeSafe.keys();
+			int runtimeSafeIndex = 0;
+			while (runtimeSafeIndex < runtimeSafeNames.len) {
+				module.realtime_safe_externals.put(runtimeSafeNames.get(runtimeSafeIndex), true);
+				runtimeSafeIndex = runtimeSafeIndex + 1;
+			}
+		}
+		SetjmpEffectAnalysis setjmpEffects = SetjmpEffectAnalysis(self.hostedAbi);
+		SetjmpSafetyPlanner setjmpSafety = SetjmpSafetyPlanner(setjmpEffects);
+		IROptimizer optimizer = IROptimizer(setjmpSafety, runtimeHelpers);
+		optimizer.optimize(module, options.runDce);
+		CEmitter emitter = CEmitter();
+		return BtrccCompilationResult(true, emitter.emit(module), "", packages.linkPlan.canonicalJson());
+	}
 }

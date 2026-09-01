@@ -2,348 +2,301 @@
 
 import std.map;
 import std.vector;
+
 import ../model.btrc;
 import ./catalog.btrc;
 
 class RuntimeReferenceCollector {
-    private RuntimeHelperCatalog catalog;
+	private RuntimeHelperCatalog catalog;
 
-    public RuntimeReferenceCollector(RuntimeHelperCatalog catalog) {
-        self.catalog = catalog;
-    }
+	public RuntimeReferenceCollector(RuntimeHelperCatalog catalog) { self.catalog = catalog; }
 
-    public Map<string, bool> requiredBy(IRModule module) {
-        Vector<string> canonicalOrder = self.catalog.order();
-        Map<string, bool> used = {};
+	public Map<string, bool> requiredBy(IRModule module) {
+		Vector<string> canonicalOrder = self.catalog.order();
+		Map<string, bool> used = {};
 
-        int functionIndex = 0;
-        while (functionIndex < module.functions.len) {
-            IRFunction definition = module.functions.get(functionIndex);
-            if (definition.body != null) {
-                self.collectNode(definition.body, used);
-            }
-            functionIndex = functionIndex + 1;
-        }
+		int functionIndex = 0;
+		while (functionIndex < module.functions.len) {
+			IRFunction definition = module.functions.get(functionIndex);
+			if (definition.body != null) {
+				self.collectNode(definition.body, used);
+			}
+			functionIndex = functionIndex + 1;
+		}
 
-        int globalIndex = 0;
-        while (globalIndex < module.global_decls.len) {
-            self.collectNode(
-                module.global_decls.get(globalIndex).init, used);
-            globalIndex = globalIndex + 1;
-        }
+		int globalIndex = 0;
+		while (globalIndex < module.global_decls.len) {
+			self.collectNode(module.global_decls.get(globalIndex).init, used);
+			globalIndex = globalIndex + 1;
+		}
 
-        self.collectMacroReferences(module, canonicalOrder, used);
-        self.collectStructuredRoots(module, used);
-        self.closeDeclaredDependencies(used);
-        return used;
-    }
+		self.collectMacroReferences(module, canonicalOrder, used);
+		self.collectStructuredRoots(module, used);
+		self.closeDeclaredDependencies(used);
+		return used;
+	}
 
-    private bool isIdentifierChar(char character) {
-        return (character >= 'a' && character <= 'z')
-            || (character >= 'A' && character <= 'Z')
-            || (character >= '0' && character <= '9')
-            || character == '_';
-    }
+	private bool isIdentifierChar(char character) { return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || character == '_'; }
 
-    private bool isIdentifierStart(char character) {
-        return (character >= 'a' && character <= 'z')
-            || (character >= 'A' && character <= 'Z')
-            || character == '_';
-    }
+	private bool isIdentifierStart(char character) { return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || character == '_'; }
 
-    private int skipQuoted(string source, int start) {
-        char quote = source[start];
-        int index = start + 1;
-        while (index < source.length()) {
-            if (source[index] == '\\') {
-                index = index + 2;
-            } else if (source[index] == quote) {
-                return index + 1;
-            } else {
-                index = index + 1;
-            }
-        }
-        return source.length();
-    }
+	private int skipQuoted(string source, int start) {
+		char quote = source[start];
+		int index = start + 1;
+		while (index < source.length()) {
+			if (source[index] == '\\') {
+				index = index + 2;
+			} else if (source[index] == quote) {
+				return index + 1;
+			} else {
+				index = index + 1;
+			}
+		}
+		return source.length();
+	}
 
-    private void scanTextForNames(string source,
-            Vector<string> names, Map<string, bool> references) {
-        Map<string, bool> candidates = {};
-        int nameIndex = 0;
-        while (nameIndex < names.len) {
-            candidates.put(names.get(nameIndex), true);
-            nameIndex = nameIndex + 1;
-        }
+	private void scanTextForNames(string source, Vector<string> names, Map<string, bool> references) {
+		Map<string, bool> candidates = {};
+		int nameIndex = 0;
+		while (nameIndex < names.len) {
+			candidates.put(names.get(nameIndex), true);
+			nameIndex = nameIndex + 1;
+		}
 
-        int index = 0;
-        while (index < source.length()) {
-            char current = source[index];
-            if (current == '"' || current == '\'') {
-                index = self.skipQuoted(source, index);
-            } else if (current == '/' && index + 1 < source.length()
-                    && source[index + 1] == '/') {
-                index = index + 2;
-                while (index < source.length()
-                        && source[index] != '\n') {
-                    index = index + 1;
-                }
-            } else if (current == '/' && index + 1 < source.length()
-                    && source[index + 1] == '*') {
-                index = index + 2;
-                while (index + 1 < source.length()
-                        && !(source[index] == '*'
-                            && source[index + 1] == '/')) {
-                    index = index + 1;
-                }
-                index = index + 2;
-            } else if (self.isIdentifierStart(current)) {
-                int end = index + 1;
-                while (end < source.length()
-                        && self.isIdentifierChar(source[end])) {
-                    end = end + 1;
-                }
-                string identifier =
-                    source.substring(index, end - index);
-                if (candidates.has(identifier)) {
-                    references.put(identifier, true);
-                }
-                index = end;
-            } else {
-                index = index + 1;
-            }
-        }
-    }
+		int index = 0;
+		while (index < source.length()) {
+			char current = source[index];
+			if (current == '"' || current == '\'') {
+				index = self.skipQuoted(source, index);
+			} else if (current == '/' && index + 1 < source.length() && source[index + 1] == '/') {
+				index = index + 2;
+				while (index < source.length() && source[index] != '\n') {
+					index = index + 1;
+				}
+			} else if (current == '/' && index + 1 < source.length() && source[index + 1] == '*') {
+				index = index + 2;
+				while (index + 1 < source.length() && !(source[index] == '*' && source[index + 1] == '/')) {
+					index = index + 1;
+				}
+				index = index + 2;
+			} else if (self.isIdentifierStart(current)) {
+				int end = index + 1;
+				while (end < source.length() && self.isIdentifierChar(source[end])) {
+					end = end + 1;
+				}
+				string identifier = source.substring(index, end - index);
+				if (candidates.has(identifier)) {
+					references.put(identifier, true);
+				}
+				index = end;
+			} else {
+				index = index + 1;
+			}
+		}
+	}
 
-    private void collectTypeProviderReferences(
-            string cType, Map<string, bool> used) {
-        int length = cType.length();
-        int index = 0;
-        while (index < length) {
-            while (index < length
-                    && !self.isIdentifierChar(cType[index])) {
-                index = index + 1;
-            }
-            int start = index;
-            while (index < length
-                    && self.isIdentifierChar(cType[index])) {
-                index = index + 1;
-            }
-            if (start < index) {
-                string identifier =
-                    cType.substring(start, index - start);
-                string provider =
-                    self.catalog.helperProvidingType(identifier);
-                if (provider != "") { used.put(provider, true); }
-            }
-        }
-    }
+	private void collectTypeProviderReferences(string cType, Map<string, bool> used) {
+		int length = cType.length();
+		int index = 0;
+		while (index < length) {
+			while (index < length && !self.isIdentifierChar(cType[index])) {
+				index = index + 1;
+			}
+			int start = index;
+			while (index < length && self.isIdentifierChar(cType[index])) {
+				index = index + 1;
+			}
+			if (start < index) {
+				string identifier = cType.substring(start, index - start);
+				string provider = self.catalog.helperProvidingType(identifier);
+				if (provider != "") { used.put(provider, true); }
+			}
+		}
+	}
 
-    private void collectObjectProviderReference(
-            string name, Map<string, bool> used) {
-        string provider = self.catalog.helperProvidingObject(name);
-        if (provider != "") { used.put(provider, true); }
-    }
+	private void collectObjectProviderReference(string name, Map<string, bool> used) {
+		string provider = self.catalog.helperProvidingObject(name);
+		if (provider != "") { used.put(provider, true); }
+	}
 
-    private void collectNode(IRNode? node, Map<string, bool> used) {
-        if (node == null) { return; }
-        if (node.callee != "" && !used.has(node.callee)
-                && self.catalog.has(node.callee)) {
-            used.put(node.callee, true);
-        }
-        if (node.helper_ref != "" && !used.has(node.helper_ref)
-                && self.catalog.has(node.helper_ref)) {
-            used.put(node.helper_ref, true);
-        }
-        if (node.kind == IRK_FUNCTION_REF && !used.has(node.name)
-                && self.catalog.has(node.name)) {
-            used.put(node.name, true);
-        }
-        self.collectTypeProviderReferences(node.c_type, used);
-        self.collectTypeProviderReferences(node.target_type, used);
-        if (node.cleanup_slot != null) {
-            self.collectTypeProviderReferences(
-                node.cleanup_slot.c_type, used);
-        }
-        if (node.kind == IRK_VAR) {
-            self.collectObjectProviderReference(node.name, used);
-        }
+	private void collectNode(IRNode? node, Map<string, bool> used) {
+		if (node == null) { return; }
+		if (node.callee != "" && !used.has(node.callee) && self.catalog.has(node.callee)) {
+			used.put(node.callee, true);
+		}
+		if (node.helper_ref != "" && !used.has(node.helper_ref) && self.catalog.has(node.helper_ref)) {
+			used.put(node.helper_ref, true);
+		}
+		if (node.kind == IRK_FUNCTION_REF && !used.has(node.name) && self.catalog.has(node.name)) {
+			used.put(node.name, true);
+		}
+		self.collectTypeProviderReferences(node.c_type, used);
+		self.collectTypeProviderReferences(node.target_type, used);
+		if (node.cleanup_slot != null) {
+			self.collectTypeProviderReferences(node.cleanup_slot.c_type, used);
+		}
+		if (node.kind == IRK_VAR) {
+			self.collectObjectProviderReference(node.name, used);
+		}
 
-        self.collectNode(node.left, used);
-        self.collectNode(node.right, used);
-        self.collectNode(node.operand, used);
-        self.collectNode(node.expr, used);
-        self.collectNode(node.obj, used);
-        self.collectNode(node.index, used);
-        self.collectNode(node.condition, used);
-        self.collectNode(node.true_expr, used);
-        self.collectNode(node.false_expr, used);
-        self.collectNode(node.init, used);
-        self.collectNode(node.value, used);
-        self.collectNode(node.target, used);
-        self.collectNode(node.then_block, used);
-        self.collectNode(node.else_block, used);
-        self.collectNode(node.body, used);
-        self.collectNode(node.update, used);
-        self.collectNode(node.result, used);
-        self.collectNode(node.array_size, used);
+		self.collectNode(node.left, used);
+		self.collectNode(node.right, used);
+		self.collectNode(node.operand, used);
+		self.collectNode(node.expr, used);
+		self.collectNode(node.obj, used);
+		self.collectNode(node.index, used);
+		self.collectNode(node.condition, used);
+		self.collectNode(node.true_expr, used);
+		self.collectNode(node.false_expr, used);
+		self.collectNode(node.init, used);
+		self.collectNode(node.value, used);
+		self.collectNode(node.target, used);
+		self.collectNode(node.then_block, used);
+		self.collectNode(node.else_block, used);
+		self.collectNode(node.body, used);
+		self.collectNode(node.update, used);
+		self.collectNode(node.result, used);
+		self.collectNode(node.array_size, used);
 
-        int argumentIndex = 0;
-        while (argumentIndex < node.args.len) {
-            self.collectNode(node.args.get(argumentIndex), used);
-            argumentIndex = argumentIndex + 1;
-        }
-        int statementIndex = 0;
-        while (statementIndex < node.stmts.len) {
-            self.collectNode(node.stmts.get(statementIndex), used);
-            statementIndex = statementIndex + 1;
-        }
-    }
+		int argumentIndex = 0;
+		while (argumentIndex < node.args.len) {
+			self.collectNode(node.args.get(argumentIndex), used);
+			argumentIndex = argumentIndex + 1;
+		}
+		int statementIndex = 0;
+		while (statementIndex < node.stmts.len) {
+			self.collectNode(node.stmts.get(statementIndex), used);
+			statementIndex = statementIndex + 1;
+		}
+	}
 
-    private void collectMacroReferences(IRModule module,
-            Vector<string> canonicalOrder, Map<string, bool> used) {
-        int declarationIndex = 0;
-        while (declarationIndex < module.preprocessor_decls.len) {
-            IRPreprocessorDecl declaration =
-                module.preprocessor_decls.get(declarationIndex);
-            if (declaration.kind == IR_PREPROCESSOR_MACRO) {
-                Map<string, bool> macroHelpers = {};
-                self.scanTextForNames(
-                    declaration.replacement, canonicalOrder, macroHelpers);
-                Vector<string> names = macroHelpers.keys();
-                int nameIndex = 0;
-                while (nameIndex < names.len) {
-                    used.put(names.get(nameIndex), true);
-                    nameIndex = nameIndex + 1;
-                }
-            }
-            declarationIndex = declarationIndex + 1;
-        }
-    }
+	private void collectMacroReferences(IRModule module, Vector<string> canonicalOrder, Map<string, bool> used) {
+		int declarationIndex = 0;
+		while (declarationIndex < module.preprocessor_decls.len) {
+			IRPreprocessorDecl declaration = module.preprocessor_decls.get(declarationIndex);
+			if (declaration.kind == IR_PREPROCESSOR_MACRO) {
+				Map<string, bool> macroHelpers = {};
+				self.scanTextForNames(declaration.replacement, canonicalOrder, macroHelpers);
+				Vector<string> names = macroHelpers.keys();
+				int nameIndex = 0;
+				while (nameIndex < names.len) {
+					used.put(names.get(nameIndex), true);
+					nameIndex = nameIndex + 1;
+				}
+			}
+			declarationIndex = declarationIndex + 1;
+		}
+	}
 
-    private void closeDeclaredDependencies(Map<string, bool> used) {
-        Vector<string> worklist = used.keys();
-        while (worklist.len > 0) {
-            string current = worklist.pop();
-            Vector<string> dependencies =
-                self.catalog.dependencies(current);
-            int dependencyIndex = 0;
-            while (dependencyIndex < dependencies.len) {
-                string dependency = dependencies.get(dependencyIndex);
-                if (!used.has(dependency)) {
-                    used.put(dependency, true);
-                    worklist.push(dependency);
-                }
-                dependencyIndex = dependencyIndex + 1;
-            }
-        }
-    }
+	private void closeDeclaredDependencies(Map<string, bool> used) {
+		Vector<string> worklist = used.keys();
+		while (worklist.len > 0) {
+			string current = worklist.pop();
+			Vector<string> dependencies = self.catalog.dependencies(current);
+			int dependencyIndex = 0;
+			while (dependencyIndex < dependencies.len) {
+				string dependency = dependencies.get(dependencyIndex);
+				if (!used.has(dependency)) {
+					used.put(dependency, true);
+					worklist.push(dependency);
+				}
+				dependencyIndex = dependencyIndex + 1;
+			}
+		}
+	}
 
-    private void collectStructuredRoots(
-            IRModule module, Map<string, bool> used) {
-        int functionIndex = 0;
-        while (functionIndex < module.functions.len) {
-            IRFunction definition = module.functions.get(functionIndex);
-            self.collectTypeProviderReferences(
-                definition.return_type, used);
-            int parameterIndex = 0;
-            while (parameterIndex < definition.params.len) {
-                self.collectTypeProviderReferences(
-                    definition.params.get(parameterIndex).c_type, used);
-                parameterIndex = parameterIndex + 1;
-            }
-            functionIndex = functionIndex + 1;
-        }
+	private void collectStructuredRoots(IRModule module, Map<string, bool> used) {
+		int functionIndex = 0;
+		while (functionIndex < module.functions.len) {
+			IRFunction definition = module.functions.get(functionIndex);
+			self.collectTypeProviderReferences(definition.return_type, used);
+			int parameterIndex = 0;
+			while (parameterIndex < definition.params.len) {
+				self.collectTypeProviderReferences(definition.params.get(parameterIndex).c_type, used);
+				parameterIndex = parameterIndex + 1;
+			}
+			functionIndex = functionIndex + 1;
+		}
 
-        int structIndex = 0;
-        while (structIndex < module.struct_defs.len) {
-            IRStructDef definition = module.struct_defs.get(structIndex);
-            int fieldIndex = 0;
-            while (fieldIndex < definition.fields.len) {
-                IRStructField field = definition.fields.get(fieldIndex);
-                self.collectTypeProviderReferences(field.c_type, used);
-                self.collectNode(field.array_size, used);
-                fieldIndex = fieldIndex + 1;
-            }
-            structIndex = structIndex + 1;
-        }
+		int structIndex = 0;
+		while (structIndex < module.struct_defs.len) {
+			IRStructDef definition = module.struct_defs.get(structIndex);
+			int fieldIndex = 0;
+			while (fieldIndex < definition.fields.len) {
+				IRStructField field = definition.fields.get(fieldIndex);
+				self.collectTypeProviderReferences(field.c_type, used);
+				self.collectNode(field.array_size, used);
+				fieldIndex = fieldIndex + 1;
+			}
+			structIndex = structIndex + 1;
+		}
 
-        int globalIndex = 0;
-        while (globalIndex < module.global_decls.len) {
-            IRGlobalDecl global = module.global_decls.get(globalIndex);
-            self.collectTypeProviderReferences(global.c_type, used);
-            self.collectNode(global.array_size, used);
-            globalIndex = globalIndex + 1;
-        }
+		int globalIndex = 0;
+		while (globalIndex < module.global_decls.len) {
+			IRGlobalDecl global = module.global_decls.get(globalIndex);
+			self.collectTypeProviderReferences(global.c_type, used);
+			self.collectNode(global.array_size, used);
+			globalIndex = globalIndex + 1;
+		}
 
-        int enumIndex = 0;
-        while (enumIndex < module.enum_defs.len) {
-            IREnumDef definition = module.enum_defs.get(enumIndex);
-            int valueIndex = 0;
-            while (valueIndex < definition.values.len) {
-                self.collectNode(
-                    definition.values.get(valueIndex).value, used);
-                valueIndex = valueIndex + 1;
-            }
-            enumIndex = enumIndex + 1;
-        }
+		int enumIndex = 0;
+		while (enumIndex < module.enum_defs.len) {
+			IREnumDef definition = module.enum_defs.get(enumIndex);
+			int valueIndex = 0;
+			while (valueIndex < definition.values.len) {
+				self.collectNode(definition.values.get(valueIndex).value, used);
+				valueIndex = valueIndex + 1;
+			}
+			enumIndex = enumIndex + 1;
+		}
 
-        int declarationIndex = 0;
-        while (declarationIndex < module.function_decls.len) {
-            IRFunctionDecl declaration =
-                module.function_decls.get(declarationIndex);
-            self.collectTypeProviderReferences(
-                declaration.return_type, used);
-            int parameterIndex = 0;
-            while (parameterIndex < declaration.params.len) {
-                self.collectTypeProviderReferences(
-                    declaration.params.get(parameterIndex).c_type, used);
-                parameterIndex = parameterIndex + 1;
-            }
-            declarationIndex = declarationIndex + 1;
-        }
+		int declarationIndex = 0;
+		while (declarationIndex < module.function_decls.len) {
+			IRFunctionDecl declaration = module.function_decls.get(declarationIndex);
+			self.collectTypeProviderReferences(declaration.return_type, used);
+			int parameterIndex = 0;
+			while (parameterIndex < declaration.params.len) {
+				self.collectTypeProviderReferences(declaration.params.get(parameterIndex).c_type, used);
+				parameterIndex = parameterIndex + 1;
+			}
+			declarationIndex = declarationIndex + 1;
+		}
 
-        int pointerIndex = 0;
-        while (pointerIndex < module.function_pointer_typedefs.len) {
-            IRFunctionPointerTypedef pointer =
-                module.function_pointer_typedefs.get(pointerIndex);
-            self.collectTypeProviderReferences(pointer.return_type, used);
-            int parameterIndex = 0;
-            while (parameterIndex < pointer.param_types.len) {
-                self.collectTypeProviderReferences(
-                    pointer.param_types.get(parameterIndex), used);
-                parameterIndex = parameterIndex + 1;
-            }
-            pointerIndex = pointerIndex + 1;
-        }
+		int pointerIndex = 0;
+		while (pointerIndex < module.function_pointer_typedefs.len) {
+			IRFunctionPointerTypedef pointer = module.function_pointer_typedefs.get(pointerIndex);
+			self.collectTypeProviderReferences(pointer.return_type, used);
+			int parameterIndex = 0;
+			while (parameterIndex < pointer.param_types.len) {
+				self.collectTypeProviderReferences(pointer.param_types.get(parameterIndex), used);
+				parameterIndex = parameterIndex + 1;
+			}
+			pointerIndex = pointerIndex + 1;
+		}
 
-        int typedefIndex = 0;
-        while (typedefIndex < module.typedef_defs.len) {
-            self.collectTypeProviderReferences(
-                module.typedef_defs.get(typedefIndex).target_type, used);
-            typedefIndex = typedefIndex + 1;
-        }
+		int typedefIndex = 0;
+		while (typedefIndex < module.typedef_defs.len) {
+			self.collectTypeProviderReferences(module.typedef_defs.get(typedefIndex).target_type, used);
+			typedefIndex = typedefIndex + 1;
+		}
 
-        int taggedIndex = 0;
-        while (taggedIndex < module.tagged_union_defs.len) {
-            IRTaggedUnionDef tagged =
-                module.tagged_union_defs.get(taggedIndex);
-            self.collectTypeProviderReferences(tagged.tag_type, used);
-            int variantIndex = 0;
-            while (variantIndex < tagged.variants.len) {
-                IRTaggedUnionVariant variant =
-                    tagged.variants.get(variantIndex);
-                int fieldIndex = 0;
-                while (fieldIndex < variant.fields.len) {
-                    IRStructField field =
-                        variant.fields.get(fieldIndex);
-                    self.collectTypeProviderReferences(
-                        field.c_type, used);
-                    self.collectNode(field.array_size, used);
-                    fieldIndex = fieldIndex + 1;
-                }
-                variantIndex = variantIndex + 1;
-            }
-            taggedIndex = taggedIndex + 1;
-        }
-    }
+		int taggedIndex = 0;
+		while (taggedIndex < module.tagged_union_defs.len) {
+			IRTaggedUnionDef tagged = module.tagged_union_defs.get(taggedIndex);
+			self.collectTypeProviderReferences(tagged.tag_type, used);
+			int variantIndex = 0;
+			while (variantIndex < tagged.variants.len) {
+				IRTaggedUnionVariant variant = tagged.variants.get(variantIndex);
+				int fieldIndex = 0;
+				while (fieldIndex < variant.fields.len) {
+					IRStructField field = variant.fields.get(fieldIndex);
+					self.collectTypeProviderReferences(field.c_type, used);
+					self.collectNode(field.array_size, used);
+					fieldIndex = fieldIndex + 1;
+				}
+				variantIndex = variantIndex + 1;
+			}
+			taggedIndex = taggedIndex + 1;
+		}
+	}
 }

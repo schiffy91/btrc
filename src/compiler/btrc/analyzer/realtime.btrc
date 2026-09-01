@@ -3,6 +3,7 @@
 import std.map;
 import std.strings;
 import std.vector;
+
 import ../generated/ast/node.btrc;
 import ../syntax/identity.btrc;
 import ./expressions.btrc;
@@ -11,1284 +12,1114 @@ import ./models.btrc;
 import ./operators.btrc;
 
 class RealtimeEvent {
-    public bool is_effect;
-    public string target;
-    public string category;
-    public string operation;
-    public int line;
-    public int col;
+	public bool is_effect;
+	public string target;
+	public string category;
+	public string operation;
+	public int line;
+	public int col;
 
-    public RealtimeEvent() {
-        self.is_effect = false;
-        self.target = "";
-        self.category = "";
-        self.operation = "";
-        self.line = 0;
-        self.col = 0;
-    }
+	public RealtimeEvent() {
+		self.is_effect = false;
+		self.target = "";
+		self.category = "";
+		self.operation = "";
+		self.line = 0;
+		self.col = 0;
+	}
 }
 
 class RealtimeCallable {
-    public string key;
-    public string label;
-    public Node declaration;
-    public Node? body;
-    public Map<string, Node> variables;
-    public Map<string, bool> local_names;
-    public Vector<RealtimeEvent> events;
+	public string key;
+	public string label;
+	public Node declaration;
+	public Node? body;
+	public Map<string, Node> variables;
+	public Map<string, bool> local_names;
+	public Vector<RealtimeEvent> events;
 
-    public RealtimeCallable(string key, string label, Node declaration) {
-        self.key = key;
-        self.label = label;
-        self.declaration = declaration;
-        self.body = null;
-        self.variables = {};
-        self.local_names = {};
-        self.events = [];
-    }
+	public RealtimeCallable(string key, string label, Node declaration) {
+		self.key = key;
+		self.label = label;
+		self.declaration = declaration;
+		self.body = null;
+		self.variables = {};
+		self.local_names = {};
+		self.events = [];
+	}
 }
 
 class RealtimeWitness {
-    public string category;
-    public string operation;
-    public int line;
-    public int col;
-    public Vector<string> path;
+	public string category;
+	public string operation;
+	public int line;
+	public int col;
+	public Vector<string> path;
 
-    public RealtimeWitness() {
-        self.category = "";
-        self.operation = "";
-        self.line = 0;
-        self.col = 0;
-        self.path = [];
-    }
+	public RealtimeWitness() {
+		self.category = "";
+		self.operation = "";
+		self.line = 0;
+		self.col = 0;
+		self.path = [];
+	}
 }
 
 class RealtimeLoopProof {
-    public bool valid;
-    public string induction;
-    public string bound;
+	public bool valid;
+	public string induction;
+	public string bound;
 
-    public RealtimeLoopProof() {
-        self.valid = false;
-        self.induction = "";
-        self.bound = "";
-    }
+	public RealtimeLoopProof() {
+		self.valid = false;
+		self.induction = "";
+		self.bound = "";
+	}
 }
 
 class RealtimeLoopGuard {
-    public Map<string, bool> names;
-    public Node site;
-    public bool violated;
+	public Map<string, bool> names;
+	public Node site;
+	public bool violated;
 
-    public RealtimeLoopGuard(Node site) {
-        self.names = {};
-        self.site = site;
-        self.violated = false;
-    }
+	public RealtimeLoopGuard(Node site) {
+		self.names = {};
+		self.site = site;
+		self.violated = false;
+	}
 }
 
 class RealtimeAnalyzer {
-    private Node program;
-    private Analyzed analyzed;
-    private HostedAbiRepository hostedAbi;
-    private SourceRuntimeSymbols runtimeSymbols;
-    private ExpressionTypeResolver expressionTypes;
-    private Map<string, RealtimeCallable> callables;
-    private Vector<string> order;
-    private Map<string, string> declarationKeys;
-    private Map<string, string> propertyKeys;
-    private Vector<RealtimeLoopGuard> loopGuards;
+	private Node program;
+	private Analyzed analyzed;
+	private HostedAbiRepository hostedAbi;
+	private SourceRuntimeSymbols runtimeSymbols;
+	private ExpressionTypeResolver expressionTypes;
+	private Map<string, RealtimeCallable> callables;
+	private Vector<string> order;
+	private Map<string, string> declarationKeys;
+	private Map<string, string> propertyKeys;
+	private Vector<RealtimeLoopGuard> loopGuards;
 
-    public RealtimeAnalyzer(Node program, Analyzed analyzed,
-            HostedAbiRepository hostedAbi,
-            SourceRuntimeSymbols runtimeSymbols,
-            ExpressionTypeResolver expressionTypes) {
-        self.program = program;
-        self.analyzed = analyzed;
-        self.hostedAbi = hostedAbi;
-        self.runtimeSymbols = runtimeSymbols;
-        self.expressionTypes = expressionTypes;
-        self.callables = {};
-        self.order = [];
-        self.declarationKeys = {};
-        self.propertyKeys = {};
-        self.loopGuards = [];
-    }
+	public RealtimeAnalyzer(Node program, Analyzed analyzed, HostedAbiRepository hostedAbi, SourceRuntimeSymbols runtimeSymbols, ExpressionTypeResolver expressionTypes) {
+		self.program = program;
+		self.analyzed = analyzed;
+		self.hostedAbi = hostedAbi;
+		self.runtimeSymbols = runtimeSymbols;
+		self.expressionTypes = expressionTypes;
+		self.callables = {};
+		self.order = [];
+		self.declarationKeys = {};
+		self.propertyKeys = {};
+		self.loopGuards = [];
+	}
 
-    public void validate() {
-        bool hasRealtimeRoot = false;
-        int index = 0;
-        while (index < self.program.declarations.len) {
-            Node declaration = self.program.declarations.get(index);
-            if (declaration.kind == NK_FUNCTION_DECL
-                    && declaration.is_realtime) {
-                hasRealtimeRoot = true;
-            } else if (declaration.kind == NK_CLASS_DECL) {
-                int member = 0;
-                while (member < declaration.members.len) {
-                    Node item = declaration.members.get(member);
-                    if (item.kind == NK_METHOD_DECL && item.is_realtime) {
-                        hasRealtimeRoot = true;
-                    }
-                    member = member + 1;
-                }
-            }
-            index = index + 1;
-        }
-        if (!hasRealtimeRoot) { return; }
-        self.indexCallables();
-        index = 0;
-        while (index < self.order.len) {
-            self.scanCallable(self.callables.get(self.order.get(index)));
-            index = index + 1;
-        }
-        Map<string, bool> unsafe = self.unsafeFixedPoint();
-        index = 0;
-        while (index < self.order.len) {
-            RealtimeCallable callable = self.callables.get(self.order.get(index));
-            if (callable.declaration.is_realtime && unsafe.has(callable.key)) {
-                Map<string, bool> visiting = {};
-                RealtimeWitness? witness = self.firstWitness(
-                    callable.key, unsafe, visiting);
-                if (witness == null) {
-                    fprintf(stderr,
-                        "internal compiler error: realtime fixed-point lost witness for %s\n",
-                        callable.label);
-                    exit(1);
-                }
-                self.fail(callable, witness);
-            }
-            index = index + 1;
-        }
-    }
+	public void validate() {
+		bool hasRealtimeRoot = false;
+		int index = 0;
+		while (index < self.program.declarations.len) {
+			Node declaration = self.program.declarations.get(index);
+			if (declaration.kind == NK_FUNCTION_DECL && declaration.is_realtime) {
+				hasRealtimeRoot = true;
+			} else if (declaration.kind == NK_CLASS_DECL) {
+				int member = 0;
+				while (member < declaration.members.len) {
+					Node item = declaration.members.get(member);
+					if (item.kind == NK_METHOD_DECL && item.is_realtime) {
+						hasRealtimeRoot = true;
+					}
+					member = member + 1;
+				}
+			}
+			index = index + 1;
+		}
+		if (!hasRealtimeRoot) { return; }
+		self.indexCallables();
+		index = 0;
+		while (index < self.order.len) {
+			self.scanCallable(self.callables.get(self.order.get(index)));
+			index = index + 1;
+		}
+		Map<string, bool> unsafe = self.unsafeFixedPoint();
+		index = 0;
+		while (index < self.order.len) {
+			RealtimeCallable callable = self.callables.get(self.order.get(index));
+			if (callable.declaration.is_realtime && unsafe.has(callable.key)) {
+				Map<string, bool> visiting = {};
+				RealtimeWitness? witness = self.firstWitness(callable.key, unsafe, visiting);
+				if (witness == null) {
+					fprintf(stderr, "internal compiler error: realtime fixed-point lost witness for %s\n", callable.label);
+					exit(1);
+				}
+				self.fail(callable, witness);
+			}
+			index = index + 1;
+		}
+	}
 
-    private void indexCallables() {
-        int index = 0;
-        while (index < self.program.declarations.len) {
-            Node declaration = self.program.declarations.get(index);
-            if (declaration.kind == NK_FUNCTION_DECL) {
-                self.addCallable("function:" + declaration.name,
-                    declaration.name, declaration, declaration.body_node, "");
-            } else if (declaration.kind == NK_CLASS_DECL) {
-                int memberIndex = 0;
-                while (memberIndex < declaration.members.len) {
-                    Node member = declaration.members.get(memberIndex);
-                    if (member.kind == NK_METHOD_DECL) {
-                        string label = declaration.name + "." + member.name;
-                        self.addCallable("method:" + label, label,
-                            member, member.body_node, declaration.name);
-                    } else if (member.kind == NK_PROPERTY_DECL) {
-                        if (member.has_getter) {
-                            self.addPropertyCallable(
-                                declaration.name, member, "get",
-                                member.getter_body);
-                        }
-                        if (member.has_setter) {
-                            self.addPropertyCallable(
-                                declaration.name, member, "set",
-                                member.setter_body);
-                        }
-                    }
-                    memberIndex = memberIndex + 1;
-                }
-            }
-            index = index + 1;
-        }
-    }
+	private void indexCallables() {
+		int index = 0;
+		while (index < self.program.declarations.len) {
+			Node declaration = self.program.declarations.get(index);
+			if (declaration.kind == NK_FUNCTION_DECL) {
+				self.addCallable("function:" + declaration.name, declaration.name, declaration, declaration.body_node, "");
+			} else if (declaration.kind == NK_CLASS_DECL) {
+				int memberIndex = 0;
+				while (memberIndex < declaration.members.len) {
+					Node member = declaration.members.get(memberIndex);
+					if (member.kind == NK_METHOD_DECL) {
+						string label = declaration.name + "." + member.name;
+						self.addCallable("method:" + label, label, member, member.body_node, declaration.name);
+					} else if (member.kind == NK_PROPERTY_DECL) {
+						if (member.has_getter) {
+							self.addPropertyCallable(declaration.name, member, "get", member.getter_body);
+						}
+						if (member.has_setter) {
+							self.addPropertyCallable(declaration.name, member, "set", member.setter_body);
+						}
+					}
+					memberIndex = memberIndex + 1;
+				}
+			}
+			index = index + 1;
+		}
+	}
 
-    private void addPropertyCallable(string owner, Node declaration,
-            string kind, Node? body) {
-        string key = "property:" + owner + "." + declaration.name
-            + ":" + kind;
-        string label = owner + "." + declaration.name + "." + kind;
-        self.propertyKeys.put(
-            owner + "." + declaration.name + ":" + kind, key);
-        self.propertyKeys.put(AstIdentity.key(declaration) + ":" + kind, key);
-        self.addCallable(key, label, declaration, body, owner);
-    }
+	private void addPropertyCallable(string owner, Node declaration, string kind, Node? body) {
+		string key = "property:" + owner + "." + declaration.name + ":" + kind;
+		string label = owner + "." + declaration.name + "." + kind;
+		self.propertyKeys.put(owner + "." + declaration.name + ":" + kind, key);
+		self.propertyKeys.put(AstIdentity.key(declaration) + ":" + kind, key);
+		self.addCallable(key, label, declaration, body, owner);
+	}
 
-    private void addCallable(string key, string label, Node declaration,
-            Node? body, string owner) {
-        RealtimeCallable callable = RealtimeCallable(key, label, declaration);
-        callable.body = body;
-        Vector<string> globalNames = self.analyzed.globalVarTypes.keys();
-        int index = 0;
-        while (index < globalNames.len) {
-            string name = globalNames.get(index);
-            callable.variables.put(name, self.analyzed.globalVarTypes.get(name));
-            index = index + 1;
-        }
-        if (owner != "") {
-            Node selfType = Node();
-            selfType.kind = NK_TYPE_EXPR;
-            selfType.base = owner;
-            callable.variables.put("self", selfType);
-        }
-        index = 0;
-        while (index < declaration.params.len) {
-            Node parameter = declaration.params.get(index);
-            callable.variables.put(parameter.name, parameter.type);
-            callable.local_names.put(parameter.name, true);
-            index = index + 1;
-        }
-        if (key.endsWith(":set")) {
-            callable.variables.put("value", declaration.type);
-            callable.local_names.put("value", true);
-        }
-        self.collectLocals(body, callable);
-        self.callables.put(key, callable);
-        self.order.push(key);
-        self.declarationKeys.put(AstIdentity.key(declaration), key);
-    }
+	private void addCallable(string key, string label, Node declaration, Node? body, string owner) {
+		RealtimeCallable callable = RealtimeCallable(key, label, declaration);
+		callable.body = body;
+		Vector<string> globalNames = self.analyzed.globalVarTypes.keys();
+		int index = 0;
+		while (index < globalNames.len) {
+			string name = globalNames.get(index);
+			callable.variables.put(name, self.analyzed.globalVarTypes.get(name));
+			index = index + 1;
+		}
+		if (owner != "") {
+			Node selfType = Node();
+			selfType.kind = NK_TYPE_EXPR;
+			selfType.base = owner;
+			callable.variables.put("self", selfType);
+		}
+		index = 0;
+		while (index < declaration.params.len) {
+			Node parameter = declaration.params.get(index);
+			callable.variables.put(parameter.name, parameter.type);
+			callable.local_names.put(parameter.name, true);
+			index = index + 1;
+		}
+		if (key.endsWith(":set")) {
+			callable.variables.put("value", declaration.type);
+			callable.local_names.put("value", true);
+		}
+		self.collectLocals(body, callable);
+		self.callables.put(key, callable);
+		self.order.push(key);
+		self.declarationKeys.put(AstIdentity.key(declaration), key);
+	}
 
-    private void collectLocals(Node? node, RealtimeCallable callable) {
-        if (node == null || node.kind == NK_TYPE_EXPR) { return; }
-        if (node.kind == NK_VAR_DECL_STMT) {
-            Node? typeExpr = node.type;
-            if (typeExpr == null && node.initializer != null) {
-                typeExpr = self.expressionTypes.infer(
-                    node.initializer, callable.variables);
-            }
-            if (typeExpr != null) {
-                callable.variables.put(node.name, typeExpr);
-            }
-            callable.local_names.put(node.name, true);
-        }
-        self.collectChildren(node, callable, true);
-    }
+	private void collectLocals(Node? node, RealtimeCallable callable) {
+		if (node == null || node.kind == NK_TYPE_EXPR) { return; }
+		if (node.kind == NK_VAR_DECL_STMT) {
+			Node? typeExpr = node.type;
+			if (typeExpr == null && node.initializer != null) {
+				typeExpr = self.expressionTypes.infer(node.initializer, callable.variables);
+			}
+			if (typeExpr != null) {
+				callable.variables.put(node.name, typeExpr);
+			}
+			callable.local_names.put(node.name, true);
+		}
+		self.collectChildren(node, callable, true);
+	}
 
-    private void scanCallable(RealtimeCallable callable) {
-        Node declaration = callable.declaration;
-        if (declaration.kind == NK_PROPERTY_DECL
-                && self.managedType(declaration.type, {})) {
-            string kind = callable.key.endsWith(":set")
-                ? "setter" : "getter";
-            self.effect(callable, "ARC",
-                "managed property " + kind, declaration);
-        }
-        if (declaration.kind == NK_METHOD_DECL
-                && declaration.is_constructor) {
-            self.effect(callable, "allocation", "constructor entry", declaration);
-        }
-        if (declaration.is_gpu) {
-            self.effect(callable, "runtime", "GPU dispatch", declaration);
-        }
-        if (declaration.kind != NK_PROPERTY_DECL && callable.body == null) {
-            self.effect(callable, "unknown",
-                "bodyless or abstract callable", declaration);
-            return;
-        }
-        int index = 0;
-        while (index < declaration.params.len) {
-            Node parameter = declaration.params.get(index);
-            if (self.managedType(parameter.type, {})) {
-                self.effect(callable, "ARC",
-                    "managed parameter '" + parameter.name + "'", parameter);
-            }
-            index = index + 1;
-        }
-        if (declaration.kind != NK_PROPERTY_DECL
-                && declaration.return_type != null
-                && self.managedType(declaration.return_type, {})) {
-            self.effect(callable, "ARC", "managed return type",
-                declaration.return_type);
-        }
-        self.visit(callable.body, callable);
-    }
+	private void scanCallable(RealtimeCallable callable) {
+		Node declaration = callable.declaration;
+		if (declaration.kind == NK_PROPERTY_DECL && self.managedType(declaration.type, {})) {
+			string kind = callable.key.endsWith(":set") ? "setter" : "getter";
+			self.effect(callable, "ARC", "managed property " + kind, declaration);
+		}
+		if (declaration.kind == NK_METHOD_DECL && declaration.is_constructor) {
+			self.effect(callable, "allocation", "constructor entry", declaration);
+		}
+		if (declaration.is_gpu) {
+			self.effect(callable, "runtime", "GPU dispatch", declaration);
+		}
+		if (declaration.kind != NK_PROPERTY_DECL && callable.body == null) {
+			self.effect(callable, "unknown", "bodyless or abstract callable", declaration);
+			return;
+		}
+		int index = 0;
+		while (index < declaration.params.len) {
+			Node parameter = declaration.params.get(index);
+			if (self.managedType(parameter.type, {})) {
+				self.effect(callable, "ARC", "managed parameter '" + parameter.name + "'", parameter);
+			}
+			index = index + 1;
+		}
+		if (declaration.kind != NK_PROPERTY_DECL && declaration.return_type != null && self.managedType(declaration.return_type, {})) {
+			self.effect(callable, "ARC", "managed return type", declaration.return_type);
+		}
+		self.visit(callable.body, callable);
+	}
 
-    private void visit(Node? node, RealtimeCallable callable) {
-        if (node == null || node.kind == NK_TYPE_EXPR) { return; }
-        if (node.kind == NK_WHILE_STMT) {
-            self.effect(callable, "blocking", "unproven while loop", node);
-            self.visit(node.condition, callable);
-            self.visit(node.body_node, callable);
-            return;
-        }
-        if (node.kind == NK_DO_WHILE_STMT) {
-            self.effect(callable, "blocking",
-                "unproven do-while loop", node);
-            self.visit(node.body_node, callable);
-            self.visit(node.condition, callable);
-            return;
-        }
-        if (node.kind == NK_C_FOR_STMT) {
-            RealtimeLoopProof proof = self.canonicalCFor(node, callable);
-            if (!proof.valid) {
-                self.effect(callable, "blocking",
-                    "unproven C-style loop", node);
-                self.collectChildren(node, callable, false);
-                return;
-            }
-            self.visit(node.init, callable);
-            self.visit(node.condition, callable);
-            self.visit(node.update, callable);
-            RealtimeLoopGuard guard = RealtimeLoopGuard(node);
-            guard.names.put(proof.induction, true);
-            if (proof.bound != "") { guard.names.put(proof.bound, true); }
-            self.loopGuards.push(guard);
-            self.visit(node.body_node, callable);
-            self.loopGuards.pop();
-            if (!guard.violated) {
-                self.analyzed.realtimeBoundedLoopKeys.put(
-                    AstIdentity.key(node), true);
-            }
-            return;
-        }
-        if (node.kind == NK_CALL_EXPR) {
-            self.visitCallee(node.callee, callable);
-            int argument = 0;
-            while (argument < node.args.len) {
-                self.visit(node.args.get(argument), callable);
-                argument = argument + 1;
-            }
-            self.visitOmittedDefaults(node, callable);
-            self.callEvent(node, callable);
-            return;
-        }
-        if (node.kind == NK_NEW_EXPR) {
-            int argument = 0;
-            while (argument < node.args.len) {
-                self.visit(node.args.get(argument), callable);
-                argument = argument + 1;
-            }
-            self.effect(callable, "allocation", "new " + node.type.base, node);
-            return;
-        }
-        if (node.kind == NK_ASSIGN_EXPR) {
-            self.guardMutation(node.target, callable);
-            if (node.target.kind == NK_FIELD_ACCESS_EXPR) {
-                self.visit(node.target.obj, callable);
-                if (node.op != "=") {
-                    self.propertyEvent(node.target, "get", callable);
-                }
-            } else if (node.target.kind == NK_INDEX_EXPR) {
-                self.visit(node.target.obj, callable);
-                self.visit(node.target.index, callable);
-                if (node.op != "=") {
-                    self.indexEvent(node.target, "get", callable);
-                }
-            } else {
-                self.visit(node.target, callable);
-            }
-            self.visit(node.value_node, callable);
-            if (node.op != "=") {
-                self.operatorEvent(node.target,
-                    node.op.substring(0, node.op.length() - 1),
-                    false, node, callable);
-            }
-            if (node.target.kind == NK_FIELD_ACCESS_EXPR) {
-                self.propertyEvent(node.target, "set", callable);
-            } else if (node.target.kind == NK_INDEX_EXPR) {
-                self.indexEvent(node.target, "set", callable);
-            }
-            Node? valueType = self.expressionTypes.infer(
-                node.value_node, callable.variables);
-            if (self.managedType(valueType, {})) {
-                self.effect(callable, "ARC", "managed assignment", node);
-            }
-            return;
-        }
-        if (node.kind == NK_FIELD_ACCESS_EXPR) {
-            self.visit(node.obj, callable);
-            self.valueEffect(node, "field '" + node.field + "'",
-                null, callable);
-            self.propertyEvent(node, "get", callable);
-            return;
-        }
-        if (node.kind == NK_CAST_EXPR) {
-            self.visit(node.expr, callable);
-            self.valueEffect(node, "cast result", node.target_type, callable);
-            return;
-        }
-        if (node.kind == NK_IDENTIFIER) {
-            self.valueEffect(node, "identifier '" + node.name + "'",
-                null, callable);
-            return;
-        }
-        if (node.kind == NK_VAR_DECL_STMT) {
-            self.guardMutationName(node.name, callable);
-            self.visit(node.initializer, callable);
-            Node? declaredType = node.type;
-            if (declaredType == null && node.initializer != null) {
-                declaredType = self.expressionTypes.infer(
-                    node.initializer, callable.variables);
-            }
-            if (self.managedType(declaredType, {})) {
-                self.effect(callable, "ARC",
-                    "managed local '" + node.name + "'", node);
-            }
-            return;
-        }
-        if (node.kind == NK_RETURN_STMT) {
-            self.visit(node.value_node, callable);
-            Node? valueType = self.expressionTypes.infer(
-                node.value_node, callable.variables);
-            if (self.managedType(valueType, {})) {
-                self.effect(callable, "ARC", "managed return value", node);
-            }
-            return;
-        }
-        if (node.kind == NK_FOR_IN_STMT) {
-            self.effect(callable, "blocking", "unproven for-in loop", node);
-            self.visit(node.iterable, callable);
-            self.iterationEvents(node, callable);
-            self.visit(node.body_node, callable);
-            return;
-        }
-        if (node.kind == NK_UNARY_EXPR
-                && (node.op == "++" || node.op == "--")) {
-            self.guardMutation(node.operand, callable);
-            if (node.operand.kind == NK_FIELD_ACCESS_EXPR) {
-                self.visit(node.operand.obj, callable);
-                self.propertyEvent(node.operand, "get", callable);
-                self.propertyEvent(node.operand, "set", callable);
-            } else if (node.operand.kind == NK_INDEX_EXPR) {
-                self.visit(node.operand.obj, callable);
-                self.visit(node.operand.index, callable);
-                self.indexEvent(node.operand, "get", callable);
-                self.indexEvent(node.operand, "set", callable);
-            } else {
-                self.visit(node.operand, callable);
-            }
-            return;
-        }
-        if (node.kind == NK_STRING_LITERAL
-                || node.kind == NK_F_STRING_LITERAL) {
-            self.effect(callable, "strings", "string value", node);
-        } else if (node.kind == NK_LIST_LITERAL
-                || node.kind == NK_MAP_LITERAL) {
-            self.effect(callable, "collections", "collection literal", node);
-        } else if (node.kind == NK_LAMBDA_EXPR) {
-            self.effect(callable, "allocation", "closure construction", node);
-        } else if (node.kind == NK_SPAWN_EXPR) {
-            self.effect(callable, "blocking", "thread spawn", node);
-        } else if (node.kind == NK_TRY_CATCH_STMT
-                || node.kind == NK_THROW_STMT) {
-            self.effect(callable, "exceptions", "exception operation", node);
-        } else if (node.kind == NK_DELETE_STMT
-                || node.kind == NK_KEEP_STMT
-                || node.kind == NK_RELEASE_STMT) {
-            self.effect(callable, "ARC", "managed lifetime operation", node);
-        } else if (node.kind == NK_PARALLEL_FOR_STMT) {
-            self.effect(callable, "blocking", "parallel for", node);
-        } else if (node.kind == NK_BINARY_EXPR) {
-            self.visit(node.left, callable);
-            self.visit(node.right, callable);
-            bool overloaded = self.operatorEvent(
-                node.left, node.op, false, node, callable);
-            Node? leftType = self.expressionTypes.infer(
-                node.left, callable.variables);
-            Node? rightType = self.expressionTypes.infer(
-                node.right, callable.variables);
-            if (!overloaded && (node.op == "/" || node.op == "%")) {
-                self.effect(callable, "runtime",
-                    "checked '" + node.op + "' operator", node);
-            } else if (leftType != null && leftType.base == "string"
-                    || rightType != null && rightType.base == "string") {
-                self.effect(callable, "strings",
-                    "string '" + node.op + "' operator", node);
-            } else if (leftType != null && self.collectionType(leftType.base)
-                    || rightType != null && self.collectionType(rightType.base)) {
-                self.effect(callable, "collections",
-                    "collection '" + node.op + "' operator", node);
-            }
-            return;
-        } else if (node.kind == NK_UNARY_EXPR) {
-            if (node.op == "&") {
-                self.guardMutation(node.operand, callable);
-            }
-            self.visit(node.operand, callable);
-            self.operatorEvent(
-                node.operand, node.op, true, node, callable);
-            return;
-        } else if (node.kind == NK_INDEX_EXPR) {
-            self.visit(node.obj, callable);
-            self.visit(node.index, callable);
-            self.indexEvent(node, "get", callable);
-            return;
-        }
-        self.collectChildren(node, callable, false);
-    }
+	private void visit(Node? node, RealtimeCallable callable) {
+		if (node == null || node.kind == NK_TYPE_EXPR) { return; }
+		if (node.kind == NK_WHILE_STMT) {
+			self.effect(callable, "blocking", "unproven while loop", node);
+			self.visit(node.condition, callable);
+			self.visit(node.body_node, callable);
+			return;
+		}
+		if (node.kind == NK_DO_WHILE_STMT) {
+			self.effect(callable, "blocking", "unproven do-while loop", node);
+			self.visit(node.body_node, callable);
+			self.visit(node.condition, callable);
+			return;
+		}
+		if (node.kind == NK_C_FOR_STMT) {
+			RealtimeLoopProof proof = self.canonicalCFor(node, callable);
+			if (!proof.valid) {
+				self.effect(callable, "blocking", "unproven C-style loop", node);
+				self.collectChildren(node, callable, false);
+				return;
+			}
+			self.visit(node.init, callable);
+			self.visit(node.condition, callable);
+			self.visit(node.update, callable);
+			RealtimeLoopGuard guard = RealtimeLoopGuard(node);
+			guard.names.put(proof.induction, true);
+			if (proof.bound != "") { guard.names.put(proof.bound, true); }
+			self.loopGuards.push(guard);
+			self.visit(node.body_node, callable);
+			self.loopGuards.pop();
+			if (!guard.violated) {
+				self.analyzed.realtimeBoundedLoopKeys.put(AstIdentity.key(node), true);
+			}
+			return;
+		}
+		if (node.kind == NK_CALL_EXPR) {
+			self.visitCallee(node.callee, callable);
+			int argument = 0;
+			while (argument < node.args.len) {
+				self.visit(node.args.get(argument), callable);
+				argument = argument + 1;
+			}
+			self.visitOmittedDefaults(node, callable);
+			self.callEvent(node, callable);
+			return;
+		}
+		if (node.kind == NK_NEW_EXPR) {
+			int argument = 0;
+			while (argument < node.args.len) {
+				self.visit(node.args.get(argument), callable);
+				argument = argument + 1;
+			}
+			self.effect(callable, "allocation", "new " + node.type.base, node);
+			return;
+		}
+		if (node.kind == NK_ASSIGN_EXPR) {
+			self.guardMutation(node.target, callable);
+			if (node.target.kind == NK_FIELD_ACCESS_EXPR) {
+				self.visit(node.target.obj, callable);
+				if (node.op != "=") {
+					self.propertyEvent(node.target, "get", callable);
+				}
+			} else if (node.target.kind == NK_INDEX_EXPR) {
+				self.visit(node.target.obj, callable);
+				self.visit(node.target.index, callable);
+				if (node.op != "=") {
+					self.indexEvent(node.target, "get", callable);
+				}
+			} else {
+				self.visit(node.target, callable);
+			}
+			self.visit(node.value_node, callable);
+			if (node.op != "=") {
+				self.operatorEvent(node.target, node.op.substring(0, node.op.length() - 1), false, node, callable);
+			}
+			if (node.target.kind == NK_FIELD_ACCESS_EXPR) {
+				self.propertyEvent(node.target, "set", callable);
+			} else if (node.target.kind == NK_INDEX_EXPR) {
+				self.indexEvent(node.target, "set", callable);
+			}
+			Node? valueType = self.expressionTypes.infer(node.value_node, callable.variables);
+			if (self.managedType(valueType, {})) {
+				self.effect(callable, "ARC", "managed assignment", node);
+			}
+			return;
+		}
+		if (node.kind == NK_FIELD_ACCESS_EXPR) {
+			self.visit(node.obj, callable);
+			self.valueEffect(node, "field '" + node.field + "'", null, callable);
+			self.propertyEvent(node, "get", callable);
+			return;
+		}
+		if (node.kind == NK_CAST_EXPR) {
+			self.visit(node.expr, callable);
+			self.valueEffect(node, "cast result", node.target_type, callable);
+			return;
+		}
+		if (node.kind == NK_IDENTIFIER) {
+			self.valueEffect(node, "identifier '" + node.name + "'", null, callable);
+			return;
+		}
+		if (node.kind == NK_VAR_DECL_STMT) {
+			self.guardMutationName(node.name, callable);
+			self.visit(node.initializer, callable);
+			Node? declaredType = node.type;
+			if (declaredType == null && node.initializer != null) {
+				declaredType = self.expressionTypes.infer(node.initializer, callable.variables);
+			}
+			if (self.managedType(declaredType, {})) {
+				self.effect(callable, "ARC", "managed local '" + node.name + "'", node);
+			}
+			return;
+		}
+		if (node.kind == NK_RETURN_STMT) {
+			self.visit(node.value_node, callable);
+			Node? valueType = self.expressionTypes.infer(node.value_node, callable.variables);
+			if (self.managedType(valueType, {})) {
+				self.effect(callable, "ARC", "managed return value", node);
+			}
+			return;
+		}
+		if (node.kind == NK_FOR_IN_STMT) {
+			self.effect(callable, "blocking", "unproven for-in loop", node);
+			self.visit(node.iterable, callable);
+			self.iterationEvents(node, callable);
+			self.visit(node.body_node, callable);
+			return;
+		}
+		if (node.kind == NK_UNARY_EXPR && (node.op == "++" || node.op == "--")) {
+			self.guardMutation(node.operand, callable);
+			if (node.operand.kind == NK_FIELD_ACCESS_EXPR) {
+				self.visit(node.operand.obj, callable);
+				self.propertyEvent(node.operand, "get", callable);
+				self.propertyEvent(node.operand, "set", callable);
+			} else if (node.operand.kind == NK_INDEX_EXPR) {
+				self.visit(node.operand.obj, callable);
+				self.visit(node.operand.index, callable);
+				self.indexEvent(node.operand, "get", callable);
+				self.indexEvent(node.operand, "set", callable);
+			} else {
+				self.visit(node.operand, callable);
+			}
+			return;
+		}
+		if (node.kind == NK_STRING_LITERAL || node.kind == NK_F_STRING_LITERAL) {
+			self.effect(callable, "strings", "string value", node);
+		} else if (node.kind == NK_LIST_LITERAL || node.kind == NK_MAP_LITERAL) {
+			self.effect(callable, "collections", "collection literal", node);
+		} else if (node.kind == NK_LAMBDA_EXPR) {
+			self.effect(callable, "allocation", "closure construction", node);
+		} else if (node.kind == NK_SPAWN_EXPR) {
+			self.effect(callable, "blocking", "thread spawn", node);
+		} else if (node.kind == NK_TRY_CATCH_STMT || node.kind == NK_THROW_STMT) {
+			self.effect(callable, "exceptions", "exception operation", node);
+		} else if (node.kind == NK_DELETE_STMT || node.kind == NK_KEEP_STMT || node.kind == NK_RELEASE_STMT) {
+			self.effect(callable, "ARC", "managed lifetime operation", node);
+		} else if (node.kind == NK_PARALLEL_FOR_STMT) {
+			self.effect(callable, "blocking", "parallel for", node);
+		} else if (node.kind == NK_BINARY_EXPR) {
+			self.visit(node.left, callable);
+			self.visit(node.right, callable);
+			bool overloaded = self.operatorEvent(node.left, node.op, false, node, callable);
+			Node? leftType = self.expressionTypes.infer(node.left, callable.variables);
+			Node? rightType = self.expressionTypes.infer(node.right, callable.variables);
+			if (!overloaded && (node.op == "/" || node.op == "%")) {
+				self.effect(callable, "runtime", "checked '" + node.op + "' operator", node);
+			} else if (leftType != null && leftType.base == "string" || rightType != null && rightType.base == "string") {
+				self.effect(callable, "strings", "string '" + node.op + "' operator", node);
+			} else if (leftType != null && self.collectionType(leftType.base) || rightType != null && self.collectionType(rightType.base)) {
+				self.effect(callable, "collections", "collection '" + node.op + "' operator", node);
+			}
+			return;
+		} else if (node.kind == NK_UNARY_EXPR) {
+			if (node.op == "&") {
+				self.guardMutation(node.operand, callable);
+			}
+			self.visit(node.operand, callable);
+			self.operatorEvent(node.operand, node.op, true, node, callable);
+			return;
+		} else if (node.kind == NK_INDEX_EXPR) {
+			self.visit(node.obj, callable);
+			self.visit(node.index, callable);
+			self.indexEvent(node, "get", callable);
+			return;
+		}
+		self.collectChildren(node, callable, false);
+	}
 
-    private void visitCallee(Node callee, RealtimeCallable callable) {
-        if (callee.kind == NK_FIELD_ACCESS_EXPR) {
-            self.visit(callee.obj, callable);
-        } else if (callee.kind != NK_IDENTIFIER) {
-            self.visit(callee, callable);
-        }
-    }
+	private void visitCallee(Node callee, RealtimeCallable callable) {
+		if (callee.kind == NK_FIELD_ACCESS_EXPR) {
+			self.visit(callee.obj, callable);
+		} else if (callee.kind != NK_IDENTIFIER) {
+			self.visit(callee, callable);
+		}
+	}
 
-    private void collectChildren(Node node, RealtimeCallable callable,
-            bool collecting) {
-        self.dispatchChild(node.spec, callable, collecting);
-        self.dispatchChild(node.return_type, callable, collecting);
-        self.dispatchChild(node.body_node, callable, collecting);
-        self.dispatchChild(node.original, callable, collecting);
-        self.dispatchChild(node.type, callable, collecting);
-        self.dispatchChild(node.default_, callable, collecting);
-        self.dispatchChild(node.initializer, callable, collecting);
-        self.dispatchChild(node.value_node, callable, collecting);
-        self.dispatchChild(node.condition, callable, collecting);
-        self.dispatchChild(node.then_block, callable, collecting);
-        self.dispatchChild(node.else_block, callable, collecting);
-        self.dispatchChild(node.iterable, callable, collecting);
-        self.dispatchChild(node.init, callable, collecting);
-        self.dispatchChild(node.update, callable, collecting);
-        self.dispatchChild(node.expr, callable, collecting);
-        self.dispatchChild(node.try_block, callable, collecting);
-        self.dispatchChild(node.catch_type, callable, collecting);
-        self.dispatchChild(node.catch_block, callable, collecting);
-        self.dispatchChild(node.finally_block, callable, collecting);
-        self.dispatchChild(node.if_stmt, callable, collecting);
-        self.dispatchChild(node.var_decl, callable, collecting);
-        self.dispatchChild(node.expression, callable, collecting);
-        self.dispatchChild(node.left, callable, collecting);
-        self.dispatchChild(node.right, callable, collecting);
-        self.dispatchChild(node.operand, callable, collecting);
-        self.dispatchChild(node.callee, callable, collecting);
-        self.dispatchChild(node.obj, callable, collecting);
-        self.dispatchChild(node.index, callable, collecting);
-        self.dispatchChild(node.target_type, callable, collecting);
-        self.dispatchChild(node.true_expr, callable, collecting);
-        self.dispatchChild(node.false_expr, callable, collecting);
-        self.dispatchChild(node.target, callable, collecting);
-        self.dispatchChild(node.array_size, callable, collecting);
-        self.dispatchChild(node.fn, callable, collecting);
-        self.dispatchChild(node.key, callable, collecting);
+	private void collectChildren(Node node, RealtimeCallable callable, bool collecting) {
+		self.dispatchChild(node.spec, callable, collecting);
+		self.dispatchChild(node.return_type, callable, collecting);
+		self.dispatchChild(node.body_node, callable, collecting);
+		self.dispatchChild(node.original, callable, collecting);
+		self.dispatchChild(node.type, callable, collecting);
+		self.dispatchChild(node.default_, callable, collecting);
+		self.dispatchChild(node.initializer, callable, collecting);
+		self.dispatchChild(node.value_node, callable, collecting);
+		self.dispatchChild(node.condition, callable, collecting);
+		self.dispatchChild(node.then_block, callable, collecting);
+		self.dispatchChild(node.else_block, callable, collecting);
+		self.dispatchChild(node.iterable, callable, collecting);
+		self.dispatchChild(node.init, callable, collecting);
+		self.dispatchChild(node.update, callable, collecting);
+		self.dispatchChild(node.expr, callable, collecting);
+		self.dispatchChild(node.try_block, callable, collecting);
+		self.dispatchChild(node.catch_type, callable, collecting);
+		self.dispatchChild(node.catch_block, callable, collecting);
+		self.dispatchChild(node.finally_block, callable, collecting);
+		self.dispatchChild(node.if_stmt, callable, collecting);
+		self.dispatchChild(node.var_decl, callable, collecting);
+		self.dispatchChild(node.expression, callable, collecting);
+		self.dispatchChild(node.left, callable, collecting);
+		self.dispatchChild(node.right, callable, collecting);
+		self.dispatchChild(node.operand, callable, collecting);
+		self.dispatchChild(node.callee, callable, collecting);
+		self.dispatchChild(node.obj, callable, collecting);
+		self.dispatchChild(node.index, callable, collecting);
+		self.dispatchChild(node.target_type, callable, collecting);
+		self.dispatchChild(node.true_expr, callable, collecting);
+		self.dispatchChild(node.false_expr, callable, collecting);
+		self.dispatchChild(node.target, callable, collecting);
+		self.dispatchChild(node.array_size, callable, collecting);
+		self.dispatchChild(node.fn, callable, collecting);
+		self.dispatchChild(node.key, callable, collecting);
 
-        self.dispatchVector(node.declarations, callable, collecting);
-        self.dispatchVector(node.members, callable, collecting);
-        self.dispatchVector(node.methods, callable, collecting);
-        self.dispatchVector(node.params, callable, collecting);
-        self.dispatchVector(node.fields, callable, collecting);
-        self.dispatchVector(node.values, callable, collecting);
-        self.dispatchVector(node.variants, callable, collecting);
-        self.dispatchVector(node.generic_args, callable, collecting);
-        self.dispatchVector(node.statements, callable, collecting);
-        self.dispatchVector(node.cases, callable, collecting);
-        self.dispatchVector(node.args, callable, collecting);
-        self.dispatchVector(node.elements, callable, collecting);
-        self.dispatchVector(node.entries, callable, collecting);
-        self.dispatchVector(node.parts, callable, collecting);
-        self.dispatchVector(node.captures, callable, collecting);
-        self.dispatchVector(node.body_nlist, callable, collecting);
-    }
+		self.dispatchVector(node.declarations, callable, collecting);
+		self.dispatchVector(node.members, callable, collecting);
+		self.dispatchVector(node.methods, callable, collecting);
+		self.dispatchVector(node.params, callable, collecting);
+		self.dispatchVector(node.fields, callable, collecting);
+		self.dispatchVector(node.values, callable, collecting);
+		self.dispatchVector(node.variants, callable, collecting);
+		self.dispatchVector(node.generic_args, callable, collecting);
+		self.dispatchVector(node.statements, callable, collecting);
+		self.dispatchVector(node.cases, callable, collecting);
+		self.dispatchVector(node.args, callable, collecting);
+		self.dispatchVector(node.elements, callable, collecting);
+		self.dispatchVector(node.entries, callable, collecting);
+		self.dispatchVector(node.parts, callable, collecting);
+		self.dispatchVector(node.captures, callable, collecting);
+		self.dispatchVector(node.body_nlist, callable, collecting);
+	}
 
-    private void dispatchChild(Node? node, RealtimeCallable callable,
-            bool collecting) {
-        if (collecting) {
-            self.collectLocals(node, callable);
-        } else {
-            self.visit(node, callable);
-        }
-    }
+	private void dispatchChild(Node? node, RealtimeCallable callable, bool collecting) {
+		if (collecting) {
+			self.collectLocals(node, callable);
+		} else {
+			self.visit(node, callable);
+		}
+	}
 
-    private void dispatchVector(Vector<Node> nodes,
-            RealtimeCallable callable, bool collecting) {
-        int index = 0;
-        while (index < nodes.len) {
-            self.dispatchChild(nodes.get(index), callable, collecting);
-            index = index + 1;
-        }
-    }
+	private void dispatchVector(Vector<Node> nodes, RealtimeCallable callable, bool collecting) {
+		int index = 0;
+		while (index < nodes.len) {
+			self.dispatchChild(nodes.get(index), callable, collecting);
+			index = index + 1;
+		}
+	}
 
-    private Node? directDeclaration(Node call,
-            RealtimeCallable callable) {
-        Node callee = call.callee;
-        if (callee.kind == NK_IDENTIFIER) {
-            if (callable.local_names.has(callee.name)
-                    || self.analyzed.globalVarTypes.has(callee.name)) {
-                return null;
-            }
-            if (self.analyzed.funcTable.has(callee.name)) {
-                return self.analyzed.funcTable.get(callee.name);
-            }
-            return null;
-        }
-        if (callee.kind == NK_FIELD_ACCESS_EXPR) {
-            return self.methodDeclaration(callee, callable);
-        }
-        return null;
-    }
+	private Node? directDeclaration(Node call, RealtimeCallable callable) {
+		Node callee = call.callee;
+		if (callee.kind == NK_IDENTIFIER) {
+			if (callable.local_names.has(callee.name) || self.analyzed.globalVarTypes.has(callee.name)) {
+				return null;
+			}
+			if (self.analyzed.funcTable.has(callee.name)) {
+				return self.analyzed.funcTable.get(callee.name);
+			}
+			return null;
+		}
+		if (callee.kind == NK_FIELD_ACCESS_EXPR) {
+			return self.methodDeclaration(callee, callable);
+		}
+		return null;
+	}
 
-    private void visitOmittedDefaults(Node call,
-            RealtimeCallable callable) {
-        Node? declaration = self.directDeclaration(call, callable);
-        if (declaration == null) { return; }
-        Vector<bool> supplied = [];
-        int index = 0;
-        while (index < declaration.params.len) {
-            supplied.push(false);
-            index = index + 1;
-        }
-        int positional = 0;
-        index = 0;
-        while (index < call.args.len) {
-            string argumentName = index < call.arg_names.len
-                ? call.arg_names.get(index) : "";
-            if (argumentName == "") {
-                if (positional < supplied.len) {
-                    supplied.set(positional, true);
-                    positional = positional + 1;
-                }
-            } else {
-                int parameter = 0;
-                while (parameter < declaration.params.len) {
-                    if (declaration.params.get(parameter).name == argumentName) {
-                        supplied.set(parameter, true);
-                    }
-                    parameter = parameter + 1;
-                }
-            }
-            index = index + 1;
-        }
-        index = 0;
-        while (index < declaration.params.len) {
-            Node parameter = declaration.params.get(index);
-            if (!supplied.get(index) && parameter.default_ != null) {
-                self.visit(parameter.default_, callable);
-            }
-            index = index + 1;
-        }
-    }
+	private void visitOmittedDefaults(Node call, RealtimeCallable callable) {
+		Node? declaration = self.directDeclaration(call, callable);
+		if (declaration == null) { return; }
+		Vector<bool> supplied = [];
+		int index = 0;
+		while (index < declaration.params.len) {
+			supplied.push(false);
+			index = index + 1;
+		}
+		int positional = 0;
+		index = 0;
+		while (index < call.args.len) {
+			string argumentName = index < call.arg_names.len ? call.arg_names.get(index) : "";
+			if (argumentName == "") {
+				if (positional < supplied.len) {
+					supplied.set(positional, true);
+					positional = positional + 1;
+				}
+			} else {
+				int parameter = 0;
+				while (parameter < declaration.params.len) {
+					if (declaration.params.get(parameter).name == argumentName) {
+						supplied.set(parameter, true);
+					}
+					parameter = parameter + 1;
+				}
+			}
+			index = index + 1;
+		}
+		index = 0;
+		while (index < declaration.params.len) {
+			Node parameter = declaration.params.get(index);
+			if (!supplied.get(index) && parameter.default_ != null) {
+				self.visit(parameter.default_, callable);
+			}
+			index = index + 1;
+		}
+	}
 
-    private void callEvent(Node call, RealtimeCallable callable) {
-        Node callee = call.callee;
-        if (callee.kind == NK_IDENTIFIER) {
-            string name = callee.name;
-            if (callable.local_names.has(name)
-                    || self.analyzed.globalVarTypes.has(name)) {
-                self.effect(callable, "unknown",
-                    "indirect call through '" + name + "'", call);
-                return;
-            }
-            if (self.analyzed.funcTable.has(name)
-                    && !self.analyzed.hostedCallKeys.has(AstIdentity.key(call))) {
-                self.sourceCall(
-                    self.analyzed.funcTable.get(name), call, callable);
-                return;
-            }
-            if (self.runtimeSymbols.intrinsicRealtimeEffect(
-                    name, "constructor") == "safe") {
-                return;
-            }
-            if (self.analyzed.isClass(name)
-                    || self.analyzed.isGenericClass(name)) {
-                self.effect(callable, "allocation",
-                    "constructor call '" + name + "'", call);
-                return;
-            }
-            self.externalCall(name, call, callable);
-            return;
-        }
-        if (callee.kind == NK_FIELD_ACCESS_EXPR) {
-            Node? receiver = self.expressionTypes.infer(
-                callee.obj, callable.variables);
-            if (receiver != null
-                    && self.runtimeSymbols.intrinsicRealtimeEffect(
-                        receiver.base, callee.field) == "safe") {
-                return;
-            }
-            if (receiver != null && self.collectionType(receiver.base)) {
-                self.effect(callable, "collections",
-                    receiver.base + "." + callee.field + "()", call);
-                return;
-            }
-            if (receiver != null && receiver.base == "string") {
-                self.effect(callable, "strings",
-                    "string." + callee.field + "()", call);
-                return;
-            }
-            if (receiver != null && receiver.base == "Mutex") {
-                self.effect(callable, "locks",
-                    "Mutex." + callee.field + "()", call);
-                return;
-            }
-            Node? declaration = self.methodDeclaration(callee, callable);
-            if (declaration != null) {
-                self.sourceCall(declaration, call, callable);
-                return;
-            }
-            self.effect(callable, "unknown",
-                "unresolved member call '" + callee.field + "'", call);
-            return;
-        }
-        self.effect(callable, "unknown", "indirect callable value", call);
-    }
+	private void callEvent(Node call, RealtimeCallable callable) {
+		Node callee = call.callee;
+		if (callee.kind == NK_IDENTIFIER) {
+			string name = callee.name;
+			if (callable.local_names.has(name) || self.analyzed.globalVarTypes.has(name)) {
+				self.effect(callable, "unknown", "indirect call through '" + name + "'", call);
+				return;
+			}
+			if (self.analyzed.funcTable.has(name) && !self.analyzed.hostedCallKeys.has(AstIdentity.key(call))) {
+				self.sourceCall(self.analyzed.funcTable.get(name), call, callable);
+				return;
+			}
+			if (self.runtimeSymbols.intrinsicRealtimeEffect(name, "constructor") == "safe") {
+				return;
+			}
+			if (self.analyzed.isClass(name) || self.analyzed.isGenericClass(name)) {
+				self.effect(callable, "allocation", "constructor call '" + name + "'", call);
+				return;
+			}
+			self.externalCall(name, call, callable);
+			return;
+		}
+		if (callee.kind == NK_FIELD_ACCESS_EXPR) {
+			Node? receiver = self.expressionTypes.infer(callee.obj, callable.variables);
+			if (receiver != null && self.runtimeSymbols.intrinsicRealtimeEffect(receiver.base, callee.field) == "safe") {
+				return;
+			}
+			if (receiver != null && self.collectionType(receiver.base)) {
+				self.effect(callable, "collections", receiver.base + "." + callee.field + "()", call);
+				return;
+			}
+			if (receiver != null && receiver.base == "string") {
+				self.effect(callable, "strings", "string." + callee.field + "()", call);
+				return;
+			}
+			if (receiver != null && receiver.base == "Mutex") {
+				self.effect(callable, "locks", "Mutex." + callee.field + "()", call);
+				return;
+			}
+			Node? declaration = self.methodDeclaration(callee, callable);
+			if (declaration != null) {
+				self.sourceCall(declaration, call, callable);
+				return;
+			}
+			self.effect(callable, "unknown", "unresolved member call '" + callee.field + "'", call);
+			return;
+		}
+		self.effect(callable, "unknown", "indirect callable value", call);
+	}
 
-    private Node? methodDeclaration(Node callee,
-            RealtimeCallable callable) {
-        string owner = "";
-        if (callee.obj.kind == NK_IDENTIFIER
-                && (self.analyzed.isClass(callee.obj.name)
-                    || self.analyzed.isGenericClass(callee.obj.name))) {
-            owner = callee.obj.name;
-        } else {
-            Node? receiver = self.expressionTypes.infer(
-                callee.obj, callable.variables);
-            if (receiver != null
-                    && (self.analyzed.isClass(receiver.base)
-                        || self.analyzed.isGenericClass(receiver.base))) {
-                owner = receiver.base;
-            }
-        }
-        if (owner == "") { return null; }
-        if (self.analyzed.isGenericClass(owner)) {
-            return self.analyzed.genericClassMethod(owner, callee.field);
-        }
-        return self.analyzed.classMethod(owner, callee.field);
-    }
+	private Node? methodDeclaration(Node callee, RealtimeCallable callable) {
+		string owner = "";
+		if (callee.obj.kind == NK_IDENTIFIER && (self.analyzed.isClass(callee.obj.name) || self.analyzed.isGenericClass(callee.obj.name))) {
+			owner = callee.obj.name;
+		} else {
+			Node? receiver = self.expressionTypes.infer(callee.obj, callable.variables);
+			if (receiver != null && (self.analyzed.isClass(receiver.base) || self.analyzed.isGenericClass(receiver.base))) {
+				owner = receiver.base;
+			}
+		}
+		if (owner == "") { return null; }
+		if (self.analyzed.isGenericClass(owner)) {
+			return self.analyzed.genericClassMethod(owner, callee.field);
+		}
+		return self.analyzed.classMethod(owner, callee.field);
+	}
 
-    private void propertyEvent(Node access, string kind,
-            RealtimeCallable callable) {
-        string owner = "";
-        if (access.obj.kind == NK_IDENTIFIER
-                && (self.analyzed.isClass(access.obj.name)
-                    || self.analyzed.isGenericClass(access.obj.name))) {
-            owner = access.obj.name;
-        } else {
-            Node? receiver = self.expressionTypes.infer(
-                access.obj, callable.variables);
-            if (receiver != null
-                    && (self.analyzed.isClass(receiver.base)
-                        || self.analyzed.isGenericClass(receiver.base))) {
-                owner = receiver.base;
-            }
-        }
-        if (owner == "") { return; }
-        Node? member = self.analyzed.classMember(owner, access.field);
-        if (member == null || member.kind != NK_PROPERTY_DECL) { return; }
-        string propertyKey = AstIdentity.key(member) + ":" + kind;
-        if (!self.propertyKeys.has(propertyKey)) {
-            self.effect(callable, "unknown",
-                "unresolved property " + kind + " '" + access.field + "'",
-                access);
-            return;
-        }
-        string target = self.propertyKeys.get(propertyKey);
-        if (!self.callables.has(target)) {
-            self.effect(callable, "unknown",
-                "unresolved property " + kind + " '" + access.field + "'",
-                access);
-            return;
-        }
-        self.edge(callable, target, access);
-    }
+	private void propertyEvent(Node access, string kind, RealtimeCallable callable) {
+		string owner = "";
+		if (access.obj.kind == NK_IDENTIFIER && (self.analyzed.isClass(access.obj.name) || self.analyzed.isGenericClass(access.obj.name))) {
+			owner = access.obj.name;
+		} else {
+			Node? receiver = self.expressionTypes.infer(access.obj, callable.variables);
+			if (receiver != null && (self.analyzed.isClass(receiver.base) || self.analyzed.isGenericClass(receiver.base))) {
+				owner = receiver.base;
+			}
+		}
+		if (owner == "") { return; }
+		Node? member = self.analyzed.classMember(owner, access.field);
+		if (member == null || member.kind != NK_PROPERTY_DECL) { return; }
+		string propertyKey = AstIdentity.key(member) + ":" + kind;
+		if (!self.propertyKeys.has(propertyKey)) {
+			self.effect(callable, "unknown", "unresolved property " + kind + " '" + access.field + "'", access);
+			return;
+		}
+		string target = self.propertyKeys.get(propertyKey);
+		if (!self.callables.has(target)) {
+			self.effect(callable, "unknown", "unresolved property " + kind + " '" + access.field + "'", access);
+			return;
+		}
+		self.edge(callable, target, access);
+	}
 
-    private void sourceCall(Node declaration, Node call,
-            RealtimeCallable callable) {
-        string declarationKey = AstIdentity.key(declaration);
-        if (!self.declarationKeys.has(declarationKey)) {
-            self.effect(callable, "unknown",
-                "unindexed source call '" + declaration.name + "'", call);
-            return;
-        }
-        self.edge(callable, self.declarationKeys.get(declarationKey), call);
-    }
+	private void sourceCall(Node declaration, Node call, RealtimeCallable callable) {
+		string declarationKey = AstIdentity.key(declaration);
+		if (!self.declarationKeys.has(declarationKey)) {
+			self.effect(callable, "unknown", "unindexed source call '" + declaration.name + "'", call);
+			return;
+		}
+		self.edge(callable, self.declarationKeys.get(declarationKey), call);
+	}
 
-    private Node? methodForType(Node? receiver, string name) {
-        if (receiver == null) { return null; }
-        if (self.analyzed.isGenericClass(receiver.base)) {
-            return self.analyzed.genericClassMethod(receiver.base, name);
-        }
-        if (self.analyzed.isClass(receiver.base)) {
-            return self.analyzed.classMethod(receiver.base, name);
-        }
-        return null;
-    }
+	private Node? methodForType(Node? receiver, string name) {
+		if (receiver == null) { return null; }
+		if (self.analyzed.isGenericClass(receiver.base)) {
+			return self.analyzed.genericClassMethod(receiver.base, name);
+		}
+		if (self.analyzed.isClass(receiver.base)) {
+			return self.analyzed.classMethod(receiver.base, name);
+		}
+		return null;
+	}
 
-    private bool operatorEvent(Node operand, string op, bool unary,
-            Node site, RealtimeCallable callable) {
-        string methodName = "";
-        if (unary && op == "-") {
-            methodName = "__neg__";
-        } else if (!unary) {
-            if (op == "+") { methodName = "__add__"; }
-            else if (op == "-") { methodName = "__sub__"; }
-            else if (op == "*") { methodName = "__mul__"; }
-            else if (op == "/") { methodName = "__div__"; }
-            else if (op == "%") { methodName = "__mod__"; }
-            else if (op == "==") { methodName = "__eq__"; }
-            else if (op == "!=") { methodName = "__ne__"; }
-            else if (op == "<") { methodName = "__lt__"; }
-            else if (op == ">") { methodName = "__gt__"; }
-            else if (op == "<=") { methodName = "__le__"; }
-            else if (op == ">=") { methodName = "__ge__"; }
-        }
-        if (methodName == "") { return false; }
-        Node? receiver = self.expressionTypes.infer(
-            operand, callable.variables);
-        Node? declaration = self.methodForType(receiver, methodName);
-        if (declaration == null) { return false; }
-        self.sourceCall(declaration, site, callable);
-        return true;
-    }
+	private bool operatorEvent(Node operand, string op, bool unary, Node site, RealtimeCallable callable) {
+		string methodName = "";
+		if (unary && op == "-") {
+			methodName = "__neg__";
+		} else if (!unary) {
+			if (op == "+") { methodName = "__add__"; }
+			else if (op == "-") { methodName = "__sub__"; }
+			else if (op == "*") { methodName = "__mul__"; }
+			else if (op == "/") { methodName = "__div__"; }
+			else if (op == "%") { methodName = "__mod__"; }
+			else if (op == "==") { methodName = "__eq__"; }
+			else if (op == "!=") { methodName = "__ne__"; }
+			else if (op == "<") { methodName = "__lt__"; }
+			else if (op == ">") { methodName = "__gt__"; }
+			else if (op == "<=") { methodName = "__le__"; }
+			else if (op == ">=") { methodName = "__ge__"; }
+		}
+		if (methodName == "") { return false; }
+		Node? receiver = self.expressionTypes.infer(operand, callable.variables);
+		Node? declaration = self.methodForType(receiver, methodName);
+		if (declaration == null) { return false; }
+		self.sourceCall(declaration, site, callable);
+		return true;
+	}
 
-    private void indexEvent(Node index, string kind,
-            RealtimeCallable callable) {
-        Node? indexedType = self.expressionTypes.infer(
-            index.obj, callable.variables);
-        if (indexedType == null) { return; }
-        if (self.collectionType(indexedType.base)) {
-            self.effect(callable, "collections", "collection indexing", index);
-            return;
-        }
-        if (indexedType.base == "string") {
-            self.effect(callable, "strings", "string indexing", index);
-            return;
-        }
-        Node? declaration = self.methodForType(indexedType, kind);
-        if (declaration != null) {
-            self.sourceCall(declaration, index, callable);
-        }
-    }
+	private void indexEvent(Node index, string kind, RealtimeCallable callable) {
+		Node? indexedType = self.expressionTypes.infer(index.obj, callable.variables);
+		if (indexedType == null) { return; }
+		if (self.collectionType(indexedType.base)) {
+			self.effect(callable, "collections", "collection indexing", index);
+			return;
+		}
+		if (indexedType.base == "string") {
+			self.effect(callable, "strings", "string indexing", index);
+			return;
+		}
+		Node? declaration = self.methodForType(indexedType, kind);
+		if (declaration != null) {
+			self.sourceCall(declaration, index, callable);
+		}
+	}
 
-    private void iterationEvents(Node loop, RealtimeCallable callable) {
-        Node? iterableType = self.expressionTypes.infer(
-            loop.iterable, callable.variables);
-        if (iterableType == null) { return; }
-        if (self.collectionType(iterableType.base)) {
-            self.effect(callable, "collections", "collection iteration", loop);
-            return;
-        }
-        if (iterableType.base == "string") {
-            self.effect(callable, "strings", "string iteration", loop);
-            return;
-        }
-        Node? length = self.methodForType(iterableType, "iterLen");
-        Node? item = self.methodForType(iterableType, "iterGet");
-        if (length != null) { self.sourceCall(length, loop, callable); }
-        if (item != null) { self.sourceCall(item, loop, callable); }
-        if (loop.var_name2 != null) {
-            Node? value = self.methodForType(iterableType, "iterValueAt");
-            if (value != null) { self.sourceCall(value, loop, callable); }
-        }
-    }
+	private void iterationEvents(Node loop, RealtimeCallable callable) {
+		Node? iterableType = self.expressionTypes.infer(loop.iterable, callable.variables);
+		if (iterableType == null) { return; }
+		if (self.collectionType(iterableType.base)) {
+			self.effect(callable, "collections", "collection iteration", loop);
+			return;
+		}
+		if (iterableType.base == "string") {
+			self.effect(callable, "strings", "string iteration", loop);
+			return;
+		}
+		Node? length = self.methodForType(iterableType, "iterLen");
+		Node? item = self.methodForType(iterableType, "iterGet");
+		if (length != null) { self.sourceCall(length, loop, callable); }
+		if (item != null) { self.sourceCall(item, loop, callable); }
+		if (loop.var_name2 != null) {
+			Node? value = self.methodForType(iterableType, "iterValueAt");
+			if (value != null) { self.sourceCall(value, loop, callable); }
+		}
+	}
 
-    private RealtimeLoopProof canonicalCFor(
-            Node loop, RealtimeCallable callable) {
-        RealtimeLoopProof proof = RealtimeLoopProof();
-        if (loop.init == null || loop.init.kind != NK_FOR_INIT_VAR) {
-            return proof;
-        }
-        Node declaration = loop.init.var_decl;
-        if (declaration.kind != NK_VAR_DECL_STMT
-                || declaration.initializer == null
-                || declaration.initializer.kind != NK_INT_LITERAL) {
-            return proof;
-        }
-        Node? inductionType = declaration.type;
-        if (inductionType == null) {
-            inductionType = self.expressionTypes.infer(
-                declaration.initializer, callable.variables);
-        }
-        if (!self.integralScalar(inductionType, {})) { return proof; }
+	private RealtimeLoopProof canonicalCFor(Node loop, RealtimeCallable callable) {
+		RealtimeLoopProof proof = RealtimeLoopProof();
+		if (loop.init == null || loop.init.kind != NK_FOR_INIT_VAR) {
+			return proof;
+		}
+		Node declaration = loop.init.var_decl;
+		if (declaration.kind != NK_VAR_DECL_STMT || declaration.initializer == null || declaration.initializer.kind != NK_INT_LITERAL) {
+			return proof;
+		}
+		Node? inductionType = declaration.type;
+		if (inductionType == null) {
+			inductionType = self.expressionTypes.infer(declaration.initializer, callable.variables);
+		}
+		if (!self.integralScalar(inductionType, {})) { return proof; }
 
-        Node? condition = loop.condition;
-        if (condition == null || condition.kind != NK_BINARY_EXPR
-                || condition.op != "<" && condition.op != ">") {
-            return proof;
-        }
-        Node? bound = null;
-        string direction = "";
-        if (condition.left.kind == NK_IDENTIFIER
-                && condition.left.name == declaration.name) {
-            bound = condition.right;
-            direction = condition.op == "<" ? "++" : "--";
-        } else if (condition.right.kind == NK_IDENTIFIER
-                && condition.right.name == declaration.name) {
-            bound = condition.left;
-            direction = condition.op == "<" ? "--" : "++";
-        }
-        if (bound == null) { return proof; }
+		Node? condition = loop.condition;
+		if (condition == null || condition.kind != NK_BINARY_EXPR || condition.op != "<" && condition.op != ">") {
+			return proof;
+		}
+		Node? bound = null;
+		string direction = "";
+		if (condition.left.kind == NK_IDENTIFIER && condition.left.name == declaration.name) {
+			bound = condition.right;
+			direction = condition.op == "<" ? "++" : "--";
+		} else if (condition.right.kind == NK_IDENTIFIER && condition.right.name == declaration.name) {
+			bound = condition.left;
+			direction = condition.op == "<" ? "--" : "++";
+		}
+		if (bound == null) { return proof; }
 
-        string boundName = "";
-        if (bound.kind == NK_IDENTIFIER) {
-            if (bound.name == declaration.name
-                    || !callable.local_names.has(bound.name)
-                    || !self.integralScalar(
-                        self.expressionTypes.infer(
-                            bound, callable.variables), {})) {
-                return proof;
-            }
-            boundName = bound.name;
-        } else if (bound.kind != NK_INT_LITERAL) {
-            return proof;
-        }
+		string boundName = "";
+		if (bound.kind == NK_IDENTIFIER) {
+			if (bound.name == declaration.name || !callable.local_names.has(bound.name) || !self.integralScalar(self.expressionTypes.infer(bound, callable.variables), {})) {
+				return proof;
+			}
+			boundName = bound.name;
+		} else if (bound.kind != NK_INT_LITERAL) {
+			return proof;
+		}
 
-        Node? update = loop.update;
-        if (update == null || update.kind != NK_UNARY_EXPR
-                || update.op != direction
-                || update.operand.kind != NK_IDENTIFIER
-                || update.operand.name != declaration.name) {
-            return proof;
-        }
-        proof.valid = true;
-        proof.induction = declaration.name;
-        proof.bound = boundName;
-        return proof;
-    }
+		Node? update = loop.update;
+		if (update == null || update.kind != NK_UNARY_EXPR || update.op != direction || update.operand.kind != NK_IDENTIFIER || update.operand.name != declaration.name) {
+			return proof;
+		}
+		proof.valid = true;
+		proof.induction = declaration.name;
+		proof.bound = boundName;
+		return proof;
+	}
 
-    private bool integralScalar(Node? typeExpr, Map<string, bool> seen) {
-        if (typeExpr == null || seen.has(typeExpr.base)) { return false; }
-        if (self.analyzed.typedefTable.has(typeExpr.base)) {
-            return self.integralScalar(
-                self.analyzed.typedefTable.get(typeExpr.base),
-                self.nextSeen(seen, typeExpr.base));
-        }
-        return NumericSemantics.isScalar(typeExpr)
-            && typeExpr.base != "bool"
-            && !self.analyzed.isEnum(typeExpr.base)
-            && !typeExpr.base.startsWith("enum ")
-            && NumericSemantics.isType(typeExpr, self.analyzed)
-            && !NumericSemantics.isFloating(typeExpr);
-    }
+	private bool integralScalar(Node? typeExpr, Map<string, bool> seen) {
+		if (typeExpr == null || seen.has(typeExpr.base)) { return false; }
+		if (self.analyzed.typedefTable.has(typeExpr.base)) {
+			return self.integralScalar(self.analyzed.typedefTable.get(typeExpr.base), self.nextSeen(seen, typeExpr.base));
+		}
+		return NumericSemantics.isScalar(typeExpr) && typeExpr.base != "bool" && !self.analyzed.isEnum(typeExpr.base) && !typeExpr.base.startsWith("enum ") && NumericSemantics.isType(typeExpr, self.analyzed) && !NumericSemantics.isFloating(typeExpr);
+	}
 
-    private void guardMutation(
-            Node? expression, RealtimeCallable callable) {
-        if (expression != null && expression.kind == NK_IDENTIFIER) {
-            self.guardMutationName(expression.name, callable);
-        }
-    }
+	private void guardMutation(Node? expression, RealtimeCallable callable) {
+		if (expression != null && expression.kind == NK_IDENTIFIER) {
+			self.guardMutationName(expression.name, callable);
+		}
+	}
 
-    private void guardMutationName(
-            string name, RealtimeCallable callable) {
-        int index = self.loopGuards.len - 1;
-        while (index >= 0) {
-            RealtimeLoopGuard guard = self.loopGuards.get(index);
-            if (guard.names.has(name)) {
-                if (!guard.violated) {
-                    self.effect(callable, "blocking",
-                        "unproven C-style loop", guard.site);
-                }
-                guard.violated = true;
-            }
-            index = index - 1;
-        }
-    }
+	private void guardMutationName(string name, RealtimeCallable callable) {
+		int index = self.loopGuards.len - 1;
+		while (index >= 0) {
+			RealtimeLoopGuard guard = self.loopGuards.get(index);
+			if (guard.names.has(name)) {
+				if (!guard.violated) {
+					self.effect(callable, "blocking", "unproven C-style loop", guard.site);
+				}
+				guard.violated = true;
+			}
+			index = index - 1;
+		}
+	}
 
-    private void valueEffect(Node expression, string operation,
-            Node? fallback, RealtimeCallable callable) {
-        Node? typeExpr = fallback;
-        if (typeExpr == null) {
-            typeExpr = self.expressionTypes.infer(
-                expression, callable.variables);
-        }
-        string category = self.valueCategory(typeExpr);
-        if (category == "") { return; }
-        string valueKind = "managed";
-        if (category == "strings") { valueKind = "string"; }
-        else if (category == "collections") { valueKind = "collection"; }
-        self.effect(callable, category,
-            valueKind + " " + operation, expression);
-    }
+	private void valueEffect(Node expression, string operation, Node? fallback, RealtimeCallable callable) {
+		Node? typeExpr = fallback;
+		if (typeExpr == null) {
+			typeExpr = self.expressionTypes.infer(expression, callable.variables);
+		}
+		string category = self.valueCategory(typeExpr);
+		if (category == "") { return; }
+		string valueKind = "managed";
+		if (category == "strings") { valueKind = "string"; }
+		else if (category == "collections") { valueKind = "collection"; }
+		self.effect(callable, category, valueKind + " " + operation, expression);
+	}
 
-    private string valueCategory(Node? typeExpr) {
-        if (typeExpr == null) { return ""; }
-        if (typeExpr.base == "string") { return "strings"; }
-        if (self.collectionType(typeExpr.base)) { return "collections"; }
-        if (self.managedType(typeExpr, {})) { return "ARC"; }
-        return "";
-    }
+	private string valueCategory(Node? typeExpr) {
+		if (typeExpr == null) { return ""; }
+		if (typeExpr.base == "string") { return "strings"; }
+		if (self.collectionType(typeExpr.base)) { return "collections"; }
+		if (self.managedType(typeExpr, {})) { return "ARC"; }
+		return "";
+	}
 
-    private bool collectionType(string base) {
-        return base == "Array" || base == "List" || base == "Map"
-            || base == "Set" || base == "Vector";
-    }
+	private bool collectionType(string base) { return base == "Array" || base == "List" || base == "Map" || base == "Set" || base == "Vector"; }
 
-    private bool allocationCall(string name) {
-        return name == "malloc" || name == "calloc" || name == "realloc"
-            || name == "aligned_alloc" || name == "free"
-            || name == "strdup" || name == "strndup";
-    }
+	private bool allocationCall(string name) { return name == "malloc" || name == "calloc" || name == "realloc" || name == "aligned_alloc" || name == "free" || name == "strdup" || name == "strndup"; }
 
-    private bool lockCall(string name) {
-        return name.startsWith("pthread_mutex_")
-            || name.startsWith("pthread_cond_");
-    }
+	private bool lockCall(string name) { return name.startsWith("pthread_mutex_") || name.startsWith("pthread_cond_"); }
 
-    private bool logCall(string name) {
-        return name == "print" || name == "printf" || name == "fprintf"
-            || name == "vprintf" || name == "vfprintf" || name == "syslog";
-    }
+	private bool logCall(string name) { return name == "print" || name == "printf" || name == "fprintf" || name == "vprintf" || name == "vfprintf" || name == "syslog"; }
 
-    private bool blockingCall(string name) {
-        return name == "sleep" || name == "usleep" || name == "nanosleep"
-            || name == "wait" || name == "waitpid"
-            || name == "pthread_join" || name == "thrd_join";
-    }
+	private bool blockingCall(string name) { return name == "sleep" || name == "usleep" || name == "nanosleep" || name == "wait" || name == "waitpid" || name == "pthread_join" || name == "thrd_join"; }
 
-    private bool ioCall(string name) {
-        return name == "open" || name == "close" || name == "read"
-            || name == "write" || name == "pread" || name == "pwrite"
-            || name == "fopen" || name == "fclose" || name == "fread"
-            || name == "fwrite" || name == "socket" || name == "accept"
-            || name == "connect" || name == "recv" || name == "send";
-    }
+	private bool ioCall(string name) { return name == "open" || name == "close" || name == "read" || name == "write" || name == "pread" || name == "pwrite" || name == "fopen" || name == "fclose" || name == "fread" || name == "fwrite" || name == "socket" || name == "accept" || name == "connect" || name == "recv" || name == "send"; }
 
-    private void externalCall(string name, Node call,
-            RealtimeCallable callable) {
-        string category = "unknown";
-        if (self.allocationCall(name)) {
-            category = "allocation";
-        } else if (self.lockCall(name)) {
-            category = "locks";
-        } else if (self.logCall(name)) {
-            category = "logging";
-        } else if (self.blockingCall(name)) {
-            category = "blocking";
-        } else if (self.ioCall(name)) {
-            category = "I/O";
-        } else if (name == "len") {
-            category = "collections";
-        } else if (self.runtimeSymbols.helper(name)) {
-            category = self.catalogCategory(
-                self.runtimeSymbols.realtimeEffect(name));
-        } else if (self.hostedAbi.functionOwnedName(name)) {
-            category = self.catalogCategory(
-                self.hostedAbi.realtimeEffect(name));
-        }
-        if (category != "safe") {
-            self.effect(callable, category,
-                "external call '" + name + "()'", call);
-        }
-    }
+	private void externalCall(string name, Node call, RealtimeCallable callable) {
+		string category = "unknown";
+		if (self.allocationCall(name)) {
+			category = "allocation";
+		} else if (self.lockCall(name)) {
+			category = "locks";
+		} else if (self.logCall(name)) {
+			category = "logging";
+		} else if (self.blockingCall(name)) {
+			category = "blocking";
+		} else if (self.ioCall(name)) {
+			category = "I/O";
+		} else if (name == "len") {
+			category = "collections";
+		} else if (self.runtimeSymbols.helper(name)) {
+			category = self.catalogCategory(self.runtimeSymbols.realtimeEffect(name));
+		} else if (self.hostedAbi.functionOwnedName(name)) {
+			category = self.catalogCategory(self.hostedAbi.realtimeEffect(name));
+		}
+		if (category != "safe") {
+			self.effect(callable, category, "external call '" + name + "()'", call);
+		}
+	}
 
-    private string catalogCategory(string effect) {
-        if (effect == "arc") { return "ARC"; }
-        if (effect == "io") { return "I/O"; }
-        return effect;
-    }
+	private string catalogCategory(string effect) {
+		if (effect == "arc") { return "ARC"; }
+		if (effect == "io") { return "I/O"; }
+		return effect;
+	}
 
-    private bool managedType(Node? typeExpr, Map<string, bool> seen) {
-        if (typeExpr == null || seen.has(typeExpr.base)) { return false; }
-        string base = typeExpr.base;
-        if (base == "string" || self.collectionType(base)
-                || self.analyzed.isClass(base)
-                || self.analyzed.isGenericClass(base)) {
-            return true;
-        }
-        if (self.analyzed.typedefTable.has(base)
-                && self.managedType(self.analyzed.typedefTable.get(base),
-                    self.nextSeen(seen, base))) {
-            return true;
-        }
-        if (self.analyzed.structTable.has(base)) {
-            Node structure = self.analyzed.structTable.get(base);
-            int field = 0;
-            while (field < structure.fields.len) {
-                if (self.managedType(structure.fields.get(field).type,
-                        self.nextSeen(seen, base))) {
-                    return true;
-                }
-                field = field + 1;
-            }
-        }
-        if (self.analyzed.richEnumTable.has(base)) {
-            Node declaration = self.analyzed.richEnumTable.get(base);
-            int variant = 0;
-            while (variant < declaration.variants.len) {
-                Node item = declaration.variants.get(variant);
-                int parameter = 0;
-                while (parameter < item.params.len) {
-                    if (self.managedType(
-                            item.params.get(parameter).type,
-                            self.nextSeen(seen, base))) {
-                        return true;
-                    }
-                    parameter = parameter + 1;
-                }
-                variant = variant + 1;
-            }
-        }
-        int argument = 0;
-        while (argument < typeExpr.generic_args.len) {
-            if (self.managedType(typeExpr.generic_args.get(argument),
-                    self.nextSeen(seen, base))) {
-                return true;
-            }
-            argument = argument + 1;
-        }
-        return false;
-    }
+	private bool managedType(Node? typeExpr, Map<string, bool> seen) {
+		if (typeExpr == null || seen.has(typeExpr.base)) { return false; }
+		string base = typeExpr.base;
+		if (base == "string" || self.collectionType(base) || self.analyzed.isClass(base) || self.analyzed.isGenericClass(base)) {
+			return true;
+		}
+		if (self.analyzed.typedefTable.has(base) && self.managedType(self.analyzed.typedefTable.get(base), self.nextSeen(seen, base))) {
+			return true;
+		}
+		if (self.analyzed.structTable.has(base)) {
+			Node structure = self.analyzed.structTable.get(base);
+			int field = 0;
+			while (field < structure.fields.len) {
+				if (self.managedType(structure.fields.get(field).type, self.nextSeen(seen, base))) {
+					return true;
+				}
+				field = field + 1;
+			}
+		}
+		if (self.analyzed.richEnumTable.has(base)) {
+			Node declaration = self.analyzed.richEnumTable.get(base);
+			int variant = 0;
+			while (variant < declaration.variants.len) {
+				Node item = declaration.variants.get(variant);
+				int parameter = 0;
+				while (parameter < item.params.len) {
+					if (self.managedType(item.params.get(parameter).type, self.nextSeen(seen, base))) {
+						return true;
+					}
+					parameter = parameter + 1;
+				}
+				variant = variant + 1;
+			}
+		}
+		int argument = 0;
+		while (argument < typeExpr.generic_args.len) {
+			if (self.managedType(typeExpr.generic_args.get(argument), self.nextSeen(seen, base))) {
+				return true;
+			}
+			argument = argument + 1;
+		}
+		return false;
+	}
 
-    private Map<string, bool> nextSeen(
-            Map<string, bool> seen, string base) {
-        Map<string, bool> next = {};
-        Vector<string> names = seen.keys();
-        int index = 0;
-        while (index < names.len) {
-            next.put(names.get(index), true);
-            index = index + 1;
-        }
-        next.put(base, true);
-        return next;
-    }
+	private Map<string, bool> nextSeen(Map<string, bool> seen, string base) {
+		Map<string, bool> next = {};
+		Vector<string> names = seen.keys();
+		int index = 0;
+		while (index < names.len) {
+			next.put(names.get(index), true);
+			index = index + 1;
+		}
+		next.put(base, true);
+		return next;
+	}
 
-    private void effect(RealtimeCallable callable, string category,
-            string operation, Node site) {
-        RealtimeEvent event = RealtimeEvent();
-        event.is_effect = true;
-        event.category = category;
-        event.operation = operation;
-        event.line = site.line;
-        event.col = site.col;
-        callable.events.push(event);
-    }
+	private void effect(RealtimeCallable callable, string category, string operation, Node site) {
+		RealtimeEvent event = RealtimeEvent();
+		event.is_effect = true;
+		event.category = category;
+		event.operation = operation;
+		event.line = site.line;
+		event.col = site.col;
+		callable.events.push(event);
+	}
 
-    private void edge(RealtimeCallable callable, string target, Node site) {
-        RealtimeEvent event = RealtimeEvent();
-        event.target = target;
-        event.line = site.line;
-        event.col = site.col;
-        callable.events.push(event);
-    }
+	private void edge(RealtimeCallable callable, string target, Node site) {
+		RealtimeEvent event = RealtimeEvent();
+		event.target = target;
+		event.line = site.line;
+		event.col = site.col;
+		callable.events.push(event);
+	}
 
-    private Map<string, bool> unsafeFixedPoint() {
-        Map<string, bool> unsafe = self.recursiveCallables();
-        int index = 0;
-        while (index < self.order.len) {
-            string key = self.order.get(index);
-            Vector<RealtimeEvent> events = self.callables.get(key).events;
-            int eventIndex = 0;
-            while (eventIndex < events.len) {
-                if (events.get(eventIndex).is_effect) {
-                    unsafe.put(key, true);
-                }
-                eventIndex = eventIndex + 1;
-            }
-            index = index + 1;
-        }
-        bool changed = true;
-        while (changed) {
-            changed = false;
-            index = 0;
-            while (index < self.order.len) {
-                string key = self.order.get(index);
-                if (!unsafe.has(key)) {
-                    Vector<RealtimeEvent> events = self.callables.get(key).events;
-                    int eventIndex = 0;
-                    while (eventIndex < events.len) {
-                        RealtimeEvent event = events.get(eventIndex);
-                        if (!event.is_effect && unsafe.has(event.target)) {
-                            unsafe.put(key, true);
-                            changed = true;
-                        }
-                        eventIndex = eventIndex + 1;
-                    }
-                }
-                index = index + 1;
-            }
-        }
-        return unsafe;
-    }
+	private Map<string, bool> unsafeFixedPoint() {
+		Map<string, bool> unsafe = self.recursiveCallables();
+		int index = 0;
+		while (index < self.order.len) {
+			string key = self.order.get(index);
+			Vector<RealtimeEvent> events = self.callables.get(key).events;
+			int eventIndex = 0;
+			while (eventIndex < events.len) {
+				if (events.get(eventIndex).is_effect) {
+					unsafe.put(key, true);
+				}
+				eventIndex = eventIndex + 1;
+			}
+			index = index + 1;
+		}
+		bool changed = true;
+		while (changed) {
+			changed = false;
+			index = 0;
+			while (index < self.order.len) {
+				string key = self.order.get(index);
+				if (!unsafe.has(key)) {
+					Vector<RealtimeEvent> events = self.callables.get(key).events;
+					int eventIndex = 0;
+					while (eventIndex < events.len) {
+						RealtimeEvent event = events.get(eventIndex);
+						if (!event.is_effect && unsafe.has(event.target)) {
+							unsafe.put(key, true);
+							changed = true;
+						}
+						eventIndex = eventIndex + 1;
+					}
+				}
+				index = index + 1;
+			}
+		}
+		return unsafe;
+	}
 
-    private Map<string, bool> recursiveCallables() {
-        Map<string, bool> recursive = {};
-        int index = 0;
-        while (index < self.order.len) {
-            string key = self.order.get(index);
-            Vector<RealtimeEvent> events = self.callables.get(key).events;
-            int eventIndex = 0;
-            while (eventIndex < events.len && !recursive.has(key)) {
-                RealtimeEvent event = events.get(eventIndex);
-                if (!event.is_effect && self.reachesTarget(
-                        event.target, key, self.nextSeen({}, key))) {
-                    recursive.put(key, true);
-                }
-                eventIndex = eventIndex + 1;
-            }
-            index = index + 1;
-        }
-        return recursive;
-    }
+	private Map<string, bool> recursiveCallables() {
+		Map<string, bool> recursive = {};
+		int index = 0;
+		while (index < self.order.len) {
+			string key = self.order.get(index);
+			Vector<RealtimeEvent> events = self.callables.get(key).events;
+			int eventIndex = 0;
+			while (eventIndex < events.len && !recursive.has(key)) {
+				RealtimeEvent event = events.get(eventIndex);
+				if (!event.is_effect && self.reachesTarget(event.target, key, self.nextSeen({}, key))) {
+					recursive.put(key, true);
+				}
+				eventIndex = eventIndex + 1;
+			}
+			index = index + 1;
+		}
+		return recursive;
+	}
 
-    private bool reachesTarget(string key, string target,
-            Map<string, bool> visiting) {
-        if (key == target) { return true; }
-        if (visiting.has(key) || !self.callables.has(key)) { return false; }
-        Map<string, bool> next = self.nextSeen(visiting, key);
-        Vector<RealtimeEvent> events = self.callables.get(key).events;
-        int index = 0;
-        while (index < events.len) {
-            RealtimeEvent event = events.get(index);
-            if (!event.is_effect
-                    && self.reachesTarget(event.target, target, next)) {
-                return true;
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	private bool reachesTarget(string key, string target, Map<string, bool> visiting) {
+		if (key == target) { return true; }
+		if (visiting.has(key) || !self.callables.has(key)) { return false; }
+		Map<string, bool> next = self.nextSeen(visiting, key);
+		Vector<RealtimeEvent> events = self.callables.get(key).events;
+		int index = 0;
+		while (index < events.len) {
+			RealtimeEvent event = events.get(index);
+			if (!event.is_effect && self.reachesTarget(event.target, target, next)) {
+				return true;
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 
-    private RealtimeWitness? firstWitness(string key,
-            Map<string, bool> unsafe, Map<string, bool> visiting) {
-        if (visiting.has(key)) { return null; }
-        Map<string, bool> nextVisiting = {};
-        Vector<string> visited = visiting.keys();
-        int visitedIndex = 0;
-        while (visitedIndex < visited.len) {
-            nextVisiting.put(visited.get(visitedIndex), true);
-            visitedIndex = visitedIndex + 1;
-        }
-        nextVisiting.put(key, true);
-        Vector<RealtimeEvent> events = self.callables.get(key).events;
-        int index = 0;
-        while (index < events.len) {
-            RealtimeEvent event = events.get(index);
-            if (event.is_effect) {
-                RealtimeWitness witness = RealtimeWitness();
-                witness.category = event.category;
-                witness.operation = event.operation;
-                witness.line = event.line;
-                witness.col = event.col;
-                return witness;
-            }
-            if (unsafe.has(event.target)) {
-                if (nextVisiting.has(event.target)) {
-                    RealtimeWitness cycle = RealtimeWitness();
-                    cycle.category = "blocking";
-                    cycle.operation = "recursive call cycle";
-                    cycle.line = event.line;
-                    cycle.col = event.col;
-                    cycle.path.push(
-                        self.callables.get(event.target).label);
-                    return cycle;
-                }
-                RealtimeWitness? downstream = self.firstWitness(
-                    event.target, unsafe, nextVisiting);
-                if (downstream != null) {
-                    RealtimeWitness witness = RealtimeWitness();
-                    witness.category = downstream.category;
-                    witness.operation = downstream.operation;
-                    witness.line = downstream.line;
-                    witness.col = downstream.col;
-                    witness.path.push(self.callables.get(event.target).label);
-                    int pathIndex = 0;
-                    while (pathIndex < downstream.path.len) {
-                        witness.path.push(downstream.path.get(pathIndex));
-                        pathIndex = pathIndex + 1;
-                    }
-                    return witness;
-                }
-            }
-            index = index + 1;
-        }
-        return null;
-    }
+	private RealtimeWitness? firstWitness(string key, Map<string, bool> unsafe, Map<string, bool> visiting) {
+		if (visiting.has(key)) { return null; }
+		Map<string, bool> nextVisiting = {};
+		Vector<string> visited = visiting.keys();
+		int visitedIndex = 0;
+		while (visitedIndex < visited.len) {
+			nextVisiting.put(visited.get(visitedIndex), true);
+			visitedIndex = visitedIndex + 1;
+		}
+		nextVisiting.put(key, true);
+		Vector<RealtimeEvent> events = self.callables.get(key).events;
+		int index = 0;
+		while (index < events.len) {
+			RealtimeEvent event = events.get(index);
+			if (event.is_effect) {
+				RealtimeWitness witness = RealtimeWitness();
+				witness.category = event.category;
+				witness.operation = event.operation;
+				witness.line = event.line;
+				witness.col = event.col;
+				return witness;
+			}
+			if (unsafe.has(event.target)) {
+				if (nextVisiting.has(event.target)) {
+					RealtimeWitness cycle = RealtimeWitness();
+					cycle.category = "blocking";
+					cycle.operation = "recursive call cycle";
+					cycle.line = event.line;
+					cycle.col = event.col;
+					cycle.path.push(self.callables.get(event.target).label);
+					return cycle;
+				}
+				RealtimeWitness? downstream = self.firstWitness(event.target, unsafe, nextVisiting);
+				if (downstream != null) {
+					RealtimeWitness witness = RealtimeWitness();
+					witness.category = downstream.category;
+					witness.operation = downstream.operation;
+					witness.line = downstream.line;
+					witness.col = downstream.col;
+					witness.path.push(self.callables.get(event.target).label);
+					int pathIndex = 0;
+					while (pathIndex < downstream.path.len) {
+						witness.path.push(downstream.path.get(pathIndex));
+						pathIndex = pathIndex + 1;
+					}
+					return witness;
+				}
+			}
+			index = index + 1;
+		}
+		return null;
+	}
 
-    private void fail(RealtimeCallable root, RealtimeWitness witness) {
-        string path = root.label;
-        int index = 0;
-        while (index < witness.path.len) {
-            path = path + " -> " + witness.path.get(index);
-            index = index + 1;
-        }
-        fprintf(stderr,
-            "error: @realtime callable '%s' reaches forbidden %s operation '%s' via %s at %d:%d\n",
-            root.label, witness.category, witness.operation, path,
-            witness.line, witness.col);
-        exit(1);
-    }
+	private void fail(RealtimeCallable root, RealtimeWitness witness) {
+		string path = root.label;
+		int index = 0;
+		while (index < witness.path.len) {
+			path = path + " -> " + witness.path.get(index);
+			index = index + 1;
+		}
+		fprintf(stderr, "error: @realtime callable '%s' reaches forbidden %s operation '%s' via %s at %d:%d\n", root.label, witness.category, witness.operation, path, witness.line, witness.col);
+		exit(1);
+	}
 }

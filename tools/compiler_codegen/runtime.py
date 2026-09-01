@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from . import GeneratedArtifact
+from . import GeneratedArtifact, format_generated_btrc
 from .intrinsic_effects import IntrinsicEffectManifest
 
 
@@ -597,7 +597,7 @@ class RuntimeCatalogGenerator:
     def artifacts(self) -> tuple[GeneratedArtifact, ...]:
         return (
             GeneratedArtifact(self._PYTHON_PATH, self._render_python().encode("utf-8")),
-            GeneratedArtifact(self._BTRC_PATH, self._render_btrc().encode("utf-8")),
+            GeneratedArtifact(self._BTRC_PATH, format_generated_btrc(self._render_btrc(), self._BTRC_PATH)),
         )
 
     def _render_python(self) -> str:

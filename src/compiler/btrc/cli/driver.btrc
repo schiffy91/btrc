@@ -16,426 +16,354 @@ import std.FileSystem;
 import std.platform;
 import std.strings;
 import std.vector;
+
 import ../compiler.btrc;
 import ../frontend/packages.btrc;
 
 class BtrccDataPaths {
-    public bool valid;
-    public string root;
-    public string grammar;
-    public string stdlib;
-    public string diagnostic;
+	public bool valid;
+	public string root;
+	public string grammar;
+	public string stdlib;
+	public string diagnostic;
 
-    public BtrccDataPaths(bool valid, string root, string grammar,
-                          string stdlib, string diagnostic) {
-        self.valid = valid;
-        self.root = root;
-        self.grammar = grammar;
-        self.stdlib = stdlib;
-        self.diagnostic = diagnostic;
-    }
+	public BtrccDataPaths(bool valid, string root, string grammar, string stdlib, string diagnostic) {
+		self.valid = valid;
+		self.root = root;
+		self.grammar = grammar;
+		self.stdlib = stdlib;
+		self.diagnostic = diagnostic;
+	}
 }
 
 class BtrccRuntimePaths {
-    private string executableArgument;
+	private string executableArgument;
 
-    public BtrccRuntimePaths(string executableArgument) {
-        self.executableArgument = executableArgument;
-    }
+	public BtrccRuntimePaths(string executableArgument) { self.executableArgument = executableArgument; }
 
-    private BtrccDataPaths failure(string diagnostic) {
-        return new BtrccDataPaths(false, "", "", "", diagnostic);
-    }
+	private BtrccDataPaths failure(string diagnostic) { return new BtrccDataPaths(false, "", "", "", diagnostic); }
 
-    private bool hasPathSeparator(string path) {
-        if (path == null) { return false; }
-        if (path.contains("/")) { return true; }
-        return Platform.isWindows() && path.contains("\\");
-    }
+	private bool hasPathSeparator(string path) {
+		if (path == null) { return false; }
+		if (path.contains("/")) { return true; }
+		return Platform.isWindows() && path.contains("\\");
+	}
 
-    private string canonicalFile(string path) {
-        if (path == null || path.isEmpty() || !FileSystem.isFile(path)) {
-            return "";
-        }
-        if (!Platform.isWindows() && access(path, X_OK) != 0) { return ""; }
-        string canonical = PathTools.absolute(path);
-        return canonical.isEmpty() || !FileSystem.isFile(canonical)
-            ? "" : canonical;
-    }
+	private string canonicalFile(string path) {
+		if (path == null || path.isEmpty() || !FileSystem.isFile(path)) {
+			return "";
+		}
+		if (!Platform.isWindows() && access(path, X_OK) != 0) { return ""; }
+		string canonical = PathTools.absolute(path);
+		return canonical.isEmpty() || !FileSystem.isFile(canonical) ? "" : canonical;
+	}
 
-    private string resolveExplicitExecutable(string argv0) {
-        string canonical = self.canonicalFile(argv0);
-        if (!canonical.isEmpty()) { return canonical; }
-        if (Platform.isWindows() && !argv0.toLower().endsWith(".exe")) {
-            return self.canonicalFile(argv0 + ".exe");
-        }
-        return "";
-    }
+	private string resolveExplicitExecutable(string argv0) {
+		string canonical = self.canonicalFile(argv0);
+		if (!canonical.isEmpty()) { return canonical; }
+		if (Platform.isWindows() && !argv0.toLower().endsWith(".exe")) {
+			return self.canonicalFile(argv0 + ".exe");
+		}
+		return "";
+	}
 
-    private string resolvePathExecutable(string argv0) {
-        string search = Environment.get("PATH", "");
-        if (search.isEmpty()) { return ""; }
-        string separator = Platform.isWindows() ? ";" : ":";
-        Vector<string> directories = Strings.split(search, separator);
-        int index = 0;
-        while (index < directories.len) {
-            string directory = directories.get(index).trim();
-            int length = directory.length();
-            if (length >= 2
-                    && ((directory[0] == '"' && directory[length - 1] == '"')
-                        || (directory[0] == '\''
-                            && directory[length - 1] == '\''))) {
-                directory = directory.substring(1, length - 2);
-            }
-            /* Empty entries and relative entries both mean CWD to common PATH
+	private string resolvePathExecutable(string argv0) {
+		string search = Environment.get("PATH", "");
+		if (search.isEmpty()) { return ""; }
+		string separator = Platform.isWindows() ? ";" : ":";
+		Vector<string> directories = Strings.split(search, separator);
+		int index = 0;
+		while (index < directories.len) {
+			string directory = directories.get(index).trim();
+			int length = directory.length();
+			if (length >= 2 && ((directory[0] == '"' && directory[length - 1] == '"') || (directory[0] == '\'' && directory[length - 1] == '\''))) {
+				directory = directory.substring(1, length - 2);
+			}
+			/* Empty entries and relative entries both mean CWD to common PATH
              * resolvers. They are intentionally not trusted here. */
-            if (!directory.isEmpty() && PathTools.isAbsolute(directory)) {
-                string candidate = PathTools.join(directory, argv0);
-                string canonical = self.canonicalFile(candidate);
-                if (!canonical.isEmpty()) { return canonical; }
-                if (Platform.isWindows() && !argv0.toLower().endsWith(".exe")) {
-                    canonical = self.canonicalFile(
-                        candidate + ".exe");
-                    if (!canonical.isEmpty()) { return canonical; }
-                }
-            }
-            index++;
-        }
-        return "";
-    }
+			if (!directory.isEmpty() && PathTools.isAbsolute(directory)) {
+				string candidate = PathTools.join(directory, argv0);
+				string canonical = self.canonicalFile(candidate);
+				if (!canonical.isEmpty()) { return canonical; }
+				if (Platform.isWindows() && !argv0.toLower().endsWith(".exe")) {
+					canonical = self.canonicalFile(candidate + ".exe");
+					if (!canonical.isEmpty()) { return canonical; }
+				}
+			}
+			index++;
+		}
+		return "";
+	}
 
-    private string resolveExecutable(string argv0) {
-        if (argv0 == null || argv0.isEmpty()) { return ""; }
-        if (self.hasPathSeparator(argv0)
-                || PathTools.isAbsolute(argv0)) {
-            return self.resolveExplicitExecutable(argv0);
-        }
-        return self.resolvePathExecutable(argv0);
-    }
+	private string resolveExecutable(string argv0) {
+		if (argv0 == null || argv0.isEmpty()) { return ""; }
+		if (self.hasPathSeparator(argv0) || PathTools.isAbsolute(argv0)) {
+			return self.resolveExplicitExecutable(argv0);
+		}
+		return self.resolvePathExecutable(argv0);
+	}
 
-    private BtrccDataPaths validateRoot(string root, string source) {
-        if (root == null || root.isEmpty()) {
-            return self.failure(
-                f"{source} does not name a data directory");
-        }
-        if (!FileSystem.isDir(root)) {
-            return self.failure(
-                f"{source} data directory does not exist: {root}");
-        }
-        string canonical = PathTools.absolute(root);
-        if (canonical.isEmpty() || !FileSystem.isDir(canonical)) {
-            return self.failure(
-                f"cannot resolve {source} data directory: {root}");
-        }
-        string grammar = PathTools.join(canonical, "language/grammar.ebnf");
-        if (!FileSystem.isFile(grammar)) {
-            return self.failure(
-                f"{source} is missing language/grammar.ebnf: {canonical}");
-        }
-        string stdlib = PathTools.join(canonical, "stdlib");
-        if (!FileSystem.isDir(stdlib)) {
-            return self.failure(
-                f"{source} is missing the stdlib directory: {canonical}");
-        }
-        string vectorSource = PathTools.join(stdlib, "vector.btrc");
-        string stringsSource = PathTools.join(stdlib, "strings.btrc");
-        if (!FileSystem.isFile(vectorSource)
-                || !FileSystem.isFile(stringsSource)) {
-            return self.failure(
-                f"{source} stdlib is incomplete (vector.btrc and "
-                + f"strings.btrc are required): {stdlib}");
-        }
-        return new BtrccDataPaths(true, canonical, grammar, stdlib, "");
-    }
+	private BtrccDataPaths validateRoot(string root, string source) {
+		if (root == null || root.isEmpty()) {
+			return self.failure(f"{source} does not name a data directory");
+		}
+		if (!FileSystem.isDir(root)) {
+			return self.failure(f"{source} data directory does not exist: {root}");
+		}
+		string canonical = PathTools.absolute(root);
+		if (canonical.isEmpty() || !FileSystem.isDir(canonical)) {
+			return self.failure(f"cannot resolve {source} data directory: {root}");
+		}
+		string grammar = PathTools.join(canonical, "language/grammar.ebnf");
+		if (!FileSystem.isFile(grammar)) {
+			return self.failure(f"{source} is missing language/grammar.ebnf: {canonical}");
+		}
+		string stdlib = PathTools.join(canonical, "stdlib");
+		if (!FileSystem.isDir(stdlib)) {
+			return self.failure(f"{source} is missing the stdlib directory: {canonical}");
+		}
+		string vectorSource = PathTools.join(stdlib, "vector.btrc");
+		string stringsSource = PathTools.join(stdlib, "strings.btrc");
+		if (!FileSystem.isFile(vectorSource) || !FileSystem.isFile(stringsSource)) {
+			return self.failure(f"{source} stdlib is incomplete (vector.btrc and " + f"strings.btrc are required): {stdlib}");
+		}
+		return new BtrccDataPaths(true, canonical, grammar, stdlib, "");
+	}
 
-    private BtrccDataPaths fromEnvironment(char* configuredRaw) {
-        string configured = Strings.copy(configuredRaw);
-        if (configured.isEmpty()) {
-            return self.failure(
-                "BTRC_HOME is set but does not name a data directory");
-        }
-        return self.validateRoot(configured, "BTRC_HOME");
-    }
+	private BtrccDataPaths fromEnvironment(char* configuredRaw) {
+		string configured = Strings.copy(configuredRaw);
+		if (configured.isEmpty()) {
+			return self.failure("BTRC_HOME is set but does not name a data directory");
+		}
+		return self.validateRoot(configured, "BTRC_HOME");
+	}
 
-    public BtrccDataPaths resolve() {
-        char* configuredRaw = getenv("BTRC_HOME");
-        if (configuredRaw != NULL) {
-            /* An invalid explicit override is authoritative: never mask it by
+	public BtrccDataPaths resolve() {
+		char* configuredRaw = getenv("BTRC_HOME");
+		if (configuredRaw != NULL) {
+			/* An invalid explicit override is authoritative: never mask it by
              * falling back to executable-relative or repository data. */
-            return self.fromEnvironment(configuredRaw);
-        }
-        string executable = self.resolveExecutable(self.executableArgument);
-        if (executable.isEmpty()) {
-            return self.failure(
-                f"cannot securely resolve compiler executable from argv[0]: "
-                + f"{self.executableArgument}; set BTRC_HOME to the installed "
-                + "data directory");
-        }
-        string binaryDirectory = PathTools.dirname(executable);
-        string installRoot = PathTools.dirname(binaryDirectory);
-        string dataRoot = PathTools.join(
-            PathTools.join(installRoot, "share"), "btrc");
-        BtrccDataPaths installed = self.validateRoot(
-            dataRoot, "executable-relative");
-        if (installed.valid) { return installed; }
+			return self.fromEnvironment(configuredRaw);
+		}
+		string executable = self.resolveExecutable(self.executableArgument);
+		if (executable.isEmpty()) {
+			return self.failure(f"cannot securely resolve compiler executable from argv[0]: " + f"{self.executableArgument}; set BTRC_HOME to the installed " + "data directory");
+		}
+		string binaryDirectory = PathTools.dirname(executable);
+		string installRoot = PathTools.dirname(binaryDirectory);
+		string dataRoot = PathTools.join(PathTools.join(installRoot, "share"), "btrc");
+		BtrccDataPaths installed = self.validateRoot(dataRoot, "executable-relative");
+		if (installed.valid) { return installed; }
 
-        /* `make btrcc` keeps its native developer entrypoint in repo/bin.
+		/* `make btrcc` keeps its native developer entrypoint in repo/bin.
          * Recognize that source-tree layout only through an executable-relative
          * marker unique to a btrc checkout; never inspect the process CWD. */
-        string developmentRoot = PathTools.join(installRoot, "src");
-        string developmentMarker = PathTools.join(
-            PathTools.join(
-                PathTools.join(developmentRoot, "compiler"), "btrc"),
-            "btrcc_main.btrc");
-        if (FileSystem.isFile(developmentMarker)) {
-            BtrccDataPaths development = self.validateRoot(
-                developmentRoot, "executable-relative development");
-            if (development.valid) { return development; }
-            return development;
-        }
-        return self.failure(
-            installed.diagnostic + f"; no valid development data root at "
-            + developmentRoot);
-    }
+		string developmentRoot = PathTools.join(installRoot, "src");
+		string developmentMarker = PathTools.join(PathTools.join(PathTools.join(developmentRoot, "compiler"), "btrc"), "btrcc_main.btrc");
+		if (FileSystem.isFile(developmentMarker)) {
+			BtrccDataPaths development = self.validateRoot(developmentRoot, "executable-relative development");
+			if (development.valid) { return development; }
+			return development;
+		}
+		return self.failure(installed.diagnostic + f"; no valid development data root at " + developmentRoot);
+	}
 }
 
 /* Command-line model for the production self-hosted compiler driver. */
 
 class BtrccCommandLine {
-    private Vector<string> arguments;
+	private Vector<string> arguments;
 
-    public BtrccCommandLine(int argc, char** argv) {
-        self.arguments = [];
-        int index = 0;
-        while (index < argc) {
-            self.arguments.push(Strings.copy(argv[index]));
-            index++;
-        }
-    }
+	public BtrccCommandLine(int argc, char** argv) {
+		self.arguments = [];
+		int index = 0;
+		while (index < argc) {
+			self.arguments.push(Strings.copy(argv[index]));
+			index++;
+		}
+	}
 
-    public string executable() {
-        return self.arguments.len > 0 ? self.arguments.get(0) : "";
-    }
+	public string executable() { return self.arguments.len > 0 ? self.arguments.get(0) : ""; }
 
-    public string argument(int index) {
-        return self.arguments.get(index);
-    }
+	public string argument(int index) { return self.arguments.get(index); }
 
-    public string usage() {
-        return "usage: btrcc [--strict-imports | --relaxed-imports] "
-            + "[--no-stdlib] [--no-dce] [--target OS-ARCH] "
-            + "[--emit-link-plan PATH] [--] <file.btrc>\n"
-            + "       btrcc --stdlib-dir\n\n"
-            + "Strict imports are the default; --strict-imports explicitly "
-            + "asserts that mode.\n"
-            + "--relaxed-imports enables legacy implicit cross-file visibility "
-            + "and stdlib composition.\n"
-            + "--no-stdlib disables relaxed stdlib composition; explicit "
-            + "imports still resolve.";
-    }
+	public string usage() { return "usage: btrcc [--strict-imports | --relaxed-imports] " + "[--no-stdlib] [--no-dce] [--target OS-ARCH] " + "[--emit-link-plan PATH] [--] <file.btrc>\n" + "       btrcc --stdlib-dir\n\n" + "Strict imports are the default; --strict-imports explicitly " + "asserts that mode.\n" + "--relaxed-imports enables legacy implicit cross-file visibility " + "and stdlib composition.\n" + "--no-stdlib disables relaxed stdlib composition; explicit " + "imports still resolve."; }
 
-    private BtrccOptions invalid(BtrccOptions options, string diagnostic) {
-        options.valid = false;
-        options.diagnostic = diagnostic;
-        return options;
-    }
+	private BtrccOptions invalid(BtrccOptions options, string diagnostic) {
+		options.valid = false;
+		options.diagnostic = diagnostic;
+		return options;
+	}
 
-    public BtrccOptions parse() {
-        BtrccOptions options = BtrccOptions();
-        int index = 1;
-        int importMode = 0;
-        while (index < self.arguments.len) {
-            string option = self.arguments.get(index);
-            if (option.equals("--no-stdlib")) {
-                options.includeStdlib = false;
-            } else if (option.equals("--strict-imports")) {
-                if (importMode < 0) {
-                    return self.invalid(
-                        options,
-                        "--strict-imports cannot be combined with --relaxed-imports");
-                }
-                importMode = 1;
-                options.strictImports = true;
-            } else if (option.equals("--relaxed-imports")) {
-                if (importMode > 0) {
-                    return self.invalid(
-                        options,
-                        "--relaxed-imports cannot be combined with --strict-imports");
-                }
-                importMode = -1;
-                options.strictImports = false;
-            } else if (option.equals("--no-dce")) {
-                options.runDce = false;
-            } else if (option.equals("--stdlib-dir")) {
-                options.showStdlibDirectory = true;
-            } else if (option.equals("--target")) {
-                if (!options.target.isEmpty()) {
-                    return self.invalid(options, "--target may be specified only once");
-                }
-                index++;
-                if (index >= self.arguments.len) {
-                    return self.invalid(options, "--target requires OS-ARCH");
-                }
-                options.target = self.arguments.get(index);
-            } else if (option.equals("--emit-link-plan")) {
-                if (!options.linkPlanPath.isEmpty()) {
-                    return self.invalid(
-                        options, "--emit-link-plan may be specified only once");
-                }
-                index++;
-                if (index >= self.arguments.len) {
-                    return self.invalid(
-                        options, "--emit-link-plan requires an output path");
-                }
-                options.linkPlanPath = self.arguments.get(index);
-            } else if (option.equals("--help") || option.equals("-h")) {
-                options.showHelp = true;
-            } else if (option.equals("--")) {
-                index++;
-                break;
-            } else if (option.startsWith("-")) {
-                return self.invalid(
-                    options, f"unknown option: {option}");
-            } else {
-                break;
-            }
-            index++;
-        }
-        options.inputIndex = index;
-        if (options.showHelp) { return options; }
-        if (options.showStdlibDirectory) {
-            if (index < self.arguments.len) {
-                return self.invalid(
-                    options, "--stdlib-dir does not accept an input file");
-            }
-            return options;
-        }
-        if (index >= self.arguments.len) {
-            return self.invalid(options, "missing input file");
-        }
-        if (index + 1 < self.arguments.len) {
-            return self.invalid(
-                options, "only one input file may be compiled at a time");
-        }
-        return options;
-    }
+	public BtrccOptions parse() {
+		BtrccOptions options = BtrccOptions();
+		int index = 1;
+		int importMode = 0;
+		while (index < self.arguments.len) {
+			string option = self.arguments.get(index);
+			if (option.equals("--no-stdlib")) {
+				options.includeStdlib = false;
+			} else if (option.equals("--strict-imports")) {
+				if (importMode < 0) {
+					return self.invalid(options, "--strict-imports cannot be combined with --relaxed-imports");
+				}
+				importMode = 1;
+				options.strictImports = true;
+			} else if (option.equals("--relaxed-imports")) {
+				if (importMode > 0) {
+					return self.invalid(options, "--relaxed-imports cannot be combined with --strict-imports");
+				}
+				importMode = -1;
+				options.strictImports = false;
+			} else if (option.equals("--no-dce")) {
+				options.runDce = false;
+			} else if (option.equals("--stdlib-dir")) {
+				options.showStdlibDirectory = true;
+			} else if (option.equals("--target")) {
+				if (!options.target.isEmpty()) {
+					return self.invalid(options, "--target may be specified only once");
+				}
+				index++;
+				if (index >= self.arguments.len) {
+					return self.invalid(options, "--target requires OS-ARCH");
+				}
+				options.target = self.arguments.get(index);
+			} else if (option.equals("--emit-link-plan")) {
+				if (!options.linkPlanPath.isEmpty()) {
+					return self.invalid(options, "--emit-link-plan may be specified only once");
+				}
+				index++;
+				if (index >= self.arguments.len) {
+					return self.invalid(options, "--emit-link-plan requires an output path");
+				}
+				options.linkPlanPath = self.arguments.get(index);
+			} else if (option.equals("--help") || option.equals("-h")) {
+				options.showHelp = true;
+			} else if (option.equals("--")) {
+				index++;
+				break;
+			} else if (option.startsWith("-")) {
+				return self.invalid(options, f"unknown option: {option}");
+			} else {
+				break;
+			}
+			index++;
+		}
+		options.inputIndex = index;
+		if (options.showHelp) { return options; }
+		if (options.showStdlibDirectory) {
+			if (index < self.arguments.len) {
+				return self.invalid(options, "--stdlib-dir does not accept an input file");
+			}
+			return options;
+		}
+		if (index >= self.arguments.len) {
+			return self.invalid(options, "missing input file");
+		}
+		if (index + 1 < self.arguments.len) {
+			return self.invalid(options, "only one input file may be compiled at a time");
+		}
+		return options;
+	}
 }
 
 /* Checked process output owned by a concrete stream instance. */
 
 class BtrccOutput {
-    private FILE* stream;
+	private FILE* stream;
 
-    public BtrccOutput(FILE* stream) {
-        self.stream = stream;
-    }
+	public BtrccOutput(FILE* stream) { self.stream = stream; }
 
-    public bool writeChunk(string value, bool trailingNewline) {
-        if (value == null || self.stream == NULL) { return false; }
-        int length = value.length();
-        if (length > 0
-                && fwrite(value, 1, (size_t)length, self.stream)
-                    != (size_t)length) {
-            return false;
-        }
-        if (trailingNewline && fputc('\n', self.stream) == EOF) {
-            return false;
-        }
-        return ferror(self.stream) == 0;
-    }
+	public bool writeChunk(string value, bool trailingNewline) {
+		if (value == null || self.stream == NULL) { return false; }
+		int length = value.length();
+		if (length > 0 && fwrite(value, 1, (size_t)length, self.stream) != (size_t)length) {
+			return false;
+		}
+		if (trailingNewline && fputc('\n', self.stream) == EOF) {
+			return false;
+		}
+		return ferror(self.stream) == 0;
+	}
 
-    public bool flush() {
-        if (self.stream == NULL || fflush(self.stream) != 0) { return false; }
-        return ferror(self.stream) == 0;
-    }
+	public bool flush() {
+		if (self.stream == NULL || fflush(self.stream) != 0) { return false; }
+		return ferror(self.stream) == 0;
+	}
 
-    public bool write(string value, bool trailingNewline = false) {
-        return self.writeChunk(value, trailingNewline) && self.flush();
-    }
+	public bool write(string value, bool trailingNewline = false) { return self.writeChunk(value, trailingNewline) && self.flush(); }
 
-    public bool writeLine(string value) {
-        return self.write(value, true);
-    }
+	public bool writeLine(string value) { return self.write(value, true); }
 }
 
 /* Command-line application owner for the production self-hosted compiler. */
 
 class BtrccDriver {
-    private BtrccCommandLine commandLine;
-    private BtrccOutput output;
-    private FeSourceFileReader sourceFiles;
+	private BtrccCommandLine commandLine;
+	private BtrccOutput output;
+	private FeSourceFileReader sourceFiles;
 
-    public BtrccDriver(int argc, char** argv) {
-        self.commandLine = BtrccCommandLine(argc, argv);
-        self.output = BtrccOutput(stdout);
-        self.sourceFiles = FeSourceFileReader();
-    }
+	public BtrccDriver(int argc, char** argv) {
+		self.commandLine = BtrccCommandLine(argc, argv);
+		self.output = BtrccOutput(stdout);
+		self.sourceFiles = FeSourceFileReader();
+	}
 
-    private int fail(string diagnostic) {
-        fprintf(stderr, "btrcc: error: %s\n", diagnostic);
-        return 1;
-    }
+	private int fail(string diagnostic) {
+		fprintf(stderr, "btrcc: error: %s\n", diagnostic);
+		return 1;
+	}
 
-    private int failWithUsage(string diagnostic) {
-        fprintf(stderr, "btrcc: error: %s\n%s\n",
-            diagnostic, self.commandLine.usage());
-        return 1;
-    }
+	private int failWithUsage(string diagnostic) {
+		fprintf(stderr, "btrcc: error: %s\n%s\n", diagnostic, self.commandLine.usage());
+		return 1;
+	}
 
-    private int writeLine(string value) {
-        if (self.output.writeLine(value)) { return 0; }
-        return self.fail("cannot write standard output");
-    }
+	private int writeLine(string value) {
+		if (self.output.writeLine(value)) { return 0; }
+		return self.fail("cannot write standard output");
+	}
 
-    public int run() {
-        BtrccOptions options = self.commandLine.parse();
-        if (!options.valid) {
-            return self.failWithUsage(options.diagnostic);
-        }
-        if (options.showHelp) {
-            return self.writeLine(self.commandLine.usage());
-        }
+	public int run() {
+		BtrccOptions options = self.commandLine.parse();
+		if (!options.valid) {
+			return self.failWithUsage(options.diagnostic);
+		}
+		if (options.showHelp) {
+			return self.writeLine(self.commandLine.usage());
+		}
 
-        BtrccRuntimePaths runtimePaths = BtrccRuntimePaths(
-            self.commandLine.executable());
-        BtrccDataPaths dataPaths = runtimePaths.resolve();
-        if (!dataPaths.valid) { return self.fail(dataPaths.diagnostic); }
-        if (options.showStdlibDirectory) {
-            return self.writeLine(dataPaths.stdlib);
-        }
+		BtrccRuntimePaths runtimePaths = BtrccRuntimePaths(self.commandLine.executable());
+		BtrccDataPaths dataPaths = runtimePaths.resolve();
+		if (!dataPaths.valid) { return self.fail(dataPaths.diagnostic); }
+		if (options.showStdlibDirectory) {
+			return self.writeLine(dataPaths.stdlib);
+		}
 
-        string grammarSource = self.sourceFiles.readRequired(dataPaths.grammar);
-        if (grammarSource.isEmpty()) {
-            return self.fail("cannot read grammar: " + dataPaths.grammar);
-        }
-        GrammarInfo grammar = EbnfGrammarParser(grammarSource).parse();
+		string grammarSource = self.sourceFiles.readRequired(dataPaths.grammar);
+		if (grammarSource.isEmpty()) {
+			return self.fail("cannot read grammar: " + dataPaths.grammar);
+		}
+		GrammarInfo grammar = EbnfGrammarParser(grammarSource).parse();
 
-        string sourcePath = self.commandLine.argument(options.inputIndex);
-        if (!FileSystem.isFile(sourcePath)) {
-            return self.fail("input file does not exist: " + sourcePath);
-        }
-        if (!options.linkPlanPath.isEmpty()
-                && PathTools.absolute(options.linkPlanPath).equals(
-                    PathTools.absolute(sourcePath))) {
-            return self.fail(
-                "link-plan output must differ from the input path");
-        }
-        string source = self.sourceFiles.readRequired(sourcePath);
-        Compiler compiler = Compiler(
-            grammar, dataPaths.stdlib, self.sourceFiles);
-        BtrccCompilationResult result =
-            compiler.compile(source, sourcePath, options);
-        if (!result.success) {
-            fprintf(stderr, "%s\n", result.diagnostic);
-            return 1;
-        }
-        if (!options.linkPlanPath.isEmpty()
-                && !FePackageFileStore().writeAtomically(
-                    options.linkPlanPath, result.linkPlan)) {
-            return self.fail(
-                "cannot write native link plan: " + options.linkPlanPath);
-        }
-        if (self.output.write(result.output)) { return 0; }
-        return self.fail("cannot write standard output");
-    }
+		string sourcePath = self.commandLine.argument(options.inputIndex);
+		if (!FileSystem.isFile(sourcePath)) {
+			return self.fail("input file does not exist: " + sourcePath);
+		}
+		if (!options.linkPlanPath.isEmpty() && PathTools.absolute(options.linkPlanPath).equals(PathTools.absolute(sourcePath))) {
+			return self.fail("link-plan output must differ from the input path");
+		}
+		string source = self.sourceFiles.readRequired(sourcePath);
+		Compiler compiler = Compiler(grammar, dataPaths.stdlib, self.sourceFiles);
+		BtrccCompilationResult result = compiler.compile(source, sourcePath, options);
+		if (!result.success) {
+			fprintf(stderr, "%s\n", result.diagnostic);
+			return 1;
+		}
+		if (!options.linkPlanPath.isEmpty() && !FePackageFileStore().writeAtomically(options.linkPlanPath, result.linkPlan)) {
+			return self.fail("cannot write native link plan: " + options.linkPlanPath);
+		}
+		if (self.output.write(result.output)) { return 0; }
+		return self.fail("cannot write standard output");
+	}
 }

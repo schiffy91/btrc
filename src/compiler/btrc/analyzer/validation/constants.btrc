@@ -1,6 +1,7 @@
 /* Integral constant evaluation and enum constant contracts. */
 
 import std.map;
+
 import ../../generated/ast/node.btrc;
 import ../../syntax/literals.btrc;
 import ../models.btrc;
@@ -8,572 +9,477 @@ import ../types.btrc;
 import ./types.btrc;
 
 class SemanticIntegerConstant {
-    public bool valid;
-    public bool known;
-    public long long value;
+	public bool valid;
+	public bool known;
+	public long long value;
 
-    public SemanticIntegerConstant(bool valid, bool known, long long value) {
-        self.valid = valid;
-        self.known = known;
-        self.value = value;
-    }
+	public SemanticIntegerConstant(bool valid, bool known, long long value) {
+		self.valid = valid;
+		self.known = known;
+		self.value = value;
+	}
 }
 
 class SemanticIntegralCastRange {
-    public bool supported;
-    public bool isUnsigned;
-    public long long minimum;
-    public unsigned long long maximum;
+	public bool supported;
+	public bool isUnsigned;
+	public long long minimum;
+	public unsigned long long maximum;
 
-    public SemanticIntegralCastRange(bool supported, bool isUnsigned,
-            long long minimum, unsigned long long maximum) {
-        self.supported = supported;
-        self.isUnsigned = isUnsigned;
-        self.minimum = minimum;
-        self.maximum = maximum;
-    }
+	public SemanticIntegralCastRange(bool supported, bool isUnsigned, long long minimum, unsigned long long maximum) {
+		self.supported = supported;
+		self.isUnsigned = isUnsigned;
+		self.minimum = minimum;
+		self.maximum = maximum;
+	}
 }
 
 class ConstantValidator {
-    private SemanticValidationState state;
-    private TypeValidator types;
+	private SemanticValidationState state;
+	private TypeValidator types;
 
-    public ConstantValidator(
-            SemanticValidationState state,
-            TypeValidator types) {
-        self.state = state;
-        self.types = types;
-    }
+	public ConstantValidator(SemanticValidationState state, TypeValidator types) {
+		self.state = state;
+		self.types = types;
+	}
 
-    public SemanticIntegerConstant invalidConstant() {
-        return SemanticIntegerConstant(false, false, 0);
-    }
+	public SemanticIntegerConstant invalidConstant() { return SemanticIntegerConstant(false, false, 0); }
 
-    public SemanticIntegerConstant unknownConstant() {
-        return SemanticIntegerConstant(true, false, 0);
-    }
+	public SemanticIntegerConstant unknownConstant() { return SemanticIntegerConstant(true, false, 0); }
 
-    public SemanticIntegerConstant knownConstant(long long value) {
-        return SemanticIntegerConstant(true, true, value);
-    }
+	public SemanticIntegerConstant knownConstant(long long value) { return SemanticIntegerConstant(true, true, value); }
 
-    public string enumConstantKey(string owner, string member) {
-        return owner + "." + member;
-    }
+	public string enumConstantKey(string owner, string member) { return owner + "." + member; }
 
-    public SemanticIntegerConstant storedEnumConstant(
-            string owner, string member) {
-        string key = self.enumConstantKey(owner, member);
-        if (!self.state.enumConstantKnown.has(key)) {
-            return self.invalidConstant();
-        }
-        if (!self.state.enumConstantKnown.get(key)) {
-            return self.unknownConstant();
-        }
-        return self.knownConstant(self.state.enumConstantValues.get(key));
-    }
+	public SemanticIntegerConstant storedEnumConstant(string owner, string member) {
+		string key = self.enumConstantKey(owner, member);
+		if (!self.state.enumConstantKnown.has(key)) {
+			return self.invalidConstant();
+		}
+		if (!self.state.enumConstantKnown.get(key)) {
+			return self.unknownConstant();
+		}
+		return self.knownConstant(self.state.enumConstantValues.get(key));
+	}
 
-    public SemanticIntegerConstant characterConstant(string raw) {
-        CharacterLiteralInfo details = CharacterLiteral(raw).details();
-        if (!details.known) { return self.unknownConstant(); }
-        return self.knownConstant(details.value);
-    }
+	public SemanticIntegerConstant characterConstant(string raw) {
+		CharacterLiteralInfo details = CharacterLiteral(raw).details();
+		if (!details.known) { return self.unknownConstant(); }
+		return self.knownConstant(details.value);
+	}
 
-    public SemanticIntegerConstant applyConstantUnary(
-            string op, long long value) {
-        if (op == "+") { return self.knownConstant(value); }
-        if (op == "-") {
-            if (value == LLONG_MIN) { return self.invalidConstant(); }
-            return self.knownConstant(-value);
-        }
-        if (op == "~") { return self.knownConstant(~value); }
-        if (op == "!") { return self.knownConstant(value == 0 ? 1 : 0); }
-        return self.invalidConstant();
-    }
+	public SemanticIntegerConstant applyConstantUnary(string op, long long value) {
+		if (op == "+") { return self.knownConstant(value); }
+		if (op == "-") {
+			if (value == LLONG_MIN) { return self.invalidConstant(); }
+			return self.knownConstant(-value);
+		}
+		if (op == "~") { return self.knownConstant(~value); }
+		if (op == "!") { return self.knownConstant(value == 0 ? 1 : 0); }
+		return self.invalidConstant();
+	}
 
-    public bool constantMultiplyOverflows(long long left, long long right) {
-        if (left == 0 || right == 0) { return false; }
-        if (left == -1) { return right == LLONG_MIN; }
-        if (right == -1) { return left == LLONG_MIN; }
-        if (left > 0) {
-            if (right > 0) { return left > (long long)LLONG_MAX / right; }
-            return right < (long long)LLONG_MIN / left;
-        }
-        if (right > 0) { return left < (long long)LLONG_MIN / right; }
-        return left < (long long)LLONG_MAX / right;
-    }
+	public bool constantMultiplyOverflows(long long left, long long right) {
+		if (left == 0 || right == 0) { return false; }
+		if (left == -1) { return right == LLONG_MIN; }
+		if (right == -1) { return left == LLONG_MIN; }
+		if (left > 0) {
+			if (right > 0) { return left > (long long)LLONG_MAX / right; }
+			return right < (long long)LLONG_MIN / left;
+		}
+		if (right > 0) { return left < (long long)LLONG_MIN / right; }
+		return left < (long long)LLONG_MAX / right;
+	}
 
-    public SemanticIntegerConstant applyConstantBinary(
-            string op, long long left, long long right) {
-        if (op == "+") {
-            if ((right > 0 && left > (long long)LLONG_MAX - right)
-                    || (right < 0 && left < (long long)LLONG_MIN - right)) {
-                return self.invalidConstant();
-            }
-            return self.knownConstant(left + right);
-        }
-        if (op == "-") {
-            if ((right > 0 && left < (long long)LLONG_MIN + right)
-                    || (right < 0 && left > (long long)LLONG_MAX + right)) {
-                return self.invalidConstant();
-            }
-            return self.knownConstant(left - right);
-        }
-        if (op == "*") {
-            if (self.constantMultiplyOverflows(left, right)) {
-                return self.invalidConstant();
-            }
-            return self.knownConstant(left * right);
-        }
-        if (op == "/" || op == "%") {
-            if (right == 0 || (left == LLONG_MIN && right == -1)) {
-                return self.invalidConstant();
-            }
-            if (op == "/") { return self.knownConstant(left / right); }
-            return self.knownConstant(left % right);
-        }
-        if (op == "<<" || op == ">>") {
-            if (right < 0 || right >= 64) {
-                return self.invalidConstant();
-            }
-            if (op == "<<") {
-                if (left < 0 || (right > 0
-                        && left > ((long long)LLONG_MAX >> (int)right))) {
-                    return self.invalidConstant();
-                }
-                return self.knownConstant(left << (int)right);
-            }
-            if (left < 0) { return self.unknownConstant(); }
-            return self.knownConstant(left >> (int)right);
-        }
-        if (op == "&") { return self.knownConstant(left & right); }
-        if (op == "|") { return self.knownConstant(left | right); }
-        if (op == "^") { return self.knownConstant(left ^ right); }
-        if (op == "==") { return self.knownConstant(left == right ? 1 : 0); }
-        if (op == "!=") { return self.knownConstant(left != right ? 1 : 0); }
-        if (op == "<") { return self.knownConstant(left < right ? 1 : 0); }
-        if (op == ">") { return self.knownConstant(left > right ? 1 : 0); }
-        if (op == "<=") { return self.knownConstant(left <= right ? 1 : 0); }
-        if (op == ">=") { return self.knownConstant(left >= right ? 1 : 0); }
-        if (op == "&&") {
-            return self.knownConstant(left != 0 && right != 0 ? 1 : 0);
-        }
-        if (op == "||") {
-            return self.knownConstant(left != 0 || right != 0 ? 1 : 0);
-        }
-        return self.invalidConstant();
-    }
+	public SemanticIntegerConstant applyConstantBinary(string op, long long left, long long right) {
+		if (op == "+") {
+			if ((right > 0 && left > (long long)LLONG_MAX - right) || (right < 0 && left < (long long)LLONG_MIN - right)) {
+				return self.invalidConstant();
+			}
+			return self.knownConstant(left + right);
+		}
+		if (op == "-") {
+			if ((right > 0 && left < (long long)LLONG_MIN + right) || (right < 0 && left > (long long)LLONG_MAX + right)) {
+				return self.invalidConstant();
+			}
+			return self.knownConstant(left - right);
+		}
+		if (op == "*") {
+			if (self.constantMultiplyOverflows(left, right)) {
+				return self.invalidConstant();
+			}
+			return self.knownConstant(left * right);
+		}
+		if (op == "/" || op == "%") {
+			if (right == 0 || (left == LLONG_MIN && right == -1)) {
+				return self.invalidConstant();
+			}
+			if (op == "/") { return self.knownConstant(left / right); }
+			return self.knownConstant(left % right);
+		}
+		if (op == "<<" || op == ">>") {
+			if (right < 0 || right >= 64) {
+				return self.invalidConstant();
+			}
+			if (op == "<<") {
+				if (left < 0 || (right > 0 && left > ((long long)LLONG_MAX >> (int)right))) {
+					return self.invalidConstant();
+				}
+				return self.knownConstant(left << (int)right);
+			}
+			if (left < 0) { return self.unknownConstant(); }
+			return self.knownConstant(left >> (int)right);
+		}
+		if (op == "&") { return self.knownConstant(left & right); }
+		if (op == "|") { return self.knownConstant(left | right); }
+		if (op == "^") { return self.knownConstant(left ^ right); }
+		if (op == "==") { return self.knownConstant(left == right ? 1 : 0); }
+		if (op == "!=") { return self.knownConstant(left != right ? 1 : 0); }
+		if (op == "<") { return self.knownConstant(left < right ? 1 : 0); }
+		if (op == ">") { return self.knownConstant(left > right ? 1 : 0); }
+		if (op == "<=") { return self.knownConstant(left <= right ? 1 : 0); }
+		if (op == ">=") { return self.knownConstant(left >= right ? 1 : 0); }
+		if (op == "&&") {
+			return self.knownConstant(left != 0 && right != 0 ? 1 : 0);
+		}
+		if (op == "||") {
+			return self.knownConstant(left != 0 || right != 0 ? 1 : 0);
+		}
+		return self.invalidConstant();
+	}
 
-    public SemanticIntegerConstant integerConstant(
-            Node? expression,
-            bool restrictEnum, string enumOwner,
-            Map<string, bool> allowedMembers) {
-        if (expression == null) { return self.invalidConstant(); }
-        if (expression.kind == NK_INT_LITERAL) {
-            return self.integerLiteralConstant(expression);
-        }
-        if (expression.kind == NK_BOOL_LITERAL) {
-            return self.knownConstant(expression.value_bool ? 1 : 0);
-        }
-        if (expression.kind == NK_CHAR_LITERAL) {
-            return self.characterConstant(expression.value_string);
-        }
-        if (expression.kind == NK_IDENTIFIER) {
-            if (restrictEnum) {
-                if (allowedMembers.has(expression.name)) {
-                    return self.storedEnumConstant(
-                        enumOwner, expression.name);
-                }
-                /* A declared enum member is not an ambient C macro. Reject
+	public SemanticIntegerConstant integerConstant(Node? expression, bool restrictEnum, string enumOwner, Map<string, bool> allowedMembers) {
+		if (expression == null) { return self.invalidConstant(); }
+		if (expression.kind == NK_INT_LITERAL) {
+			return self.integerLiteralConstant(expression);
+		}
+		if (expression.kind == NK_BOOL_LITERAL) {
+			return self.knownConstant(expression.value_bool ? 1 : 0);
+		}
+		if (expression.kind == NK_CHAR_LITERAL) {
+			return self.characterConstant(expression.value_string);
+		}
+		if (expression.kind == NK_IDENTIFIER) {
+			if (restrictEnum) {
+				if (allowedMembers.has(expression.name)) {
+					return self.storedEnumConstant(enumOwner, expression.name);
+				}
+				/* A declared enum member is not an ambient C macro. Reject
                  * self/forward/foreign bare references before the uppercase-macro
                  * interop escape hatch. */
-                if (self.state.analyzed.enumContains(enumOwner, expression.name)
-                        || self.state.analyzed.isEnumValue(expression.name)
-                        || self.state.analyzed.isAmbiguousEnumValue(expression.name)) {
-                    return self.invalidConstant();
-                }
-            } else if (self.state.analyzed.isEnumValue(expression.name)) {
-                return self.storedEnumConstant(
-                    self.state.analyzed.enumOwnerOf(expression.name),
-                    expression.name);
-            }
-            if (expression.name != "NULL"
-                    && SemanticTypeSystem.isCIntegerIdentifier(expression.name)) {
-                return self.unknownConstant();
-            }
-            return self.invalidConstant();
-        }
-        if (expression.kind == NK_FIELD_ACCESS_EXPR
-                && expression.obj.kind == NK_IDENTIFIER
-                && self.state.analyzed.richEnumTable.has(expression.obj.name)) {
-            if (restrictEnum) { return self.invalidConstant(); }
-            Node declaration = self.state.analyzed.richEnumTable.get(
-                expression.obj.name);
-            int variantIndex = 0;
-            while (variantIndex < declaration.variants.len) {
-                if (declaration.variants.get(variantIndex).name
-                        == expression.field) {
-                    return self.knownConstant(variantIndex);
-                }
-                variantIndex = variantIndex + 1;
-            }
-            return self.invalidConstant();
-        }
-        if (expression.kind == NK_FIELD_ACCESS_EXPR
-                && expression.obj.kind == NK_IDENTIFIER
-                && self.state.analyzed.enumContains(
-                    expression.obj.name, expression.field)) {
-            string owner = expression.obj.name;
-            if (restrictEnum && (owner != enumOwner
-                    || !allowedMembers.has(expression.field))) {
-                return self.invalidConstant();
-            }
-            return self.storedEnumConstant(owner, expression.field);
-        }
-        if (expression.kind == NK_SIZEOF_EXPR) {
-            return self.unknownConstant();
-        }
-        if (expression.kind == NK_CAST_EXPR) {
-            return self.integralCastConstant(expression,
-                restrictEnum, enumOwner, allowedMembers);
-        }
-        if (expression.kind == NK_UNARY_EXPR
-                && (expression.op == "+" || expression.op == "-"
-                    || expression.op == "~" || expression.op == "!")) {
-            SemanticIntegerConstant operand = self.integerConstant(
-                expression.operand,  restrictEnum,
-                enumOwner, allowedMembers);
-            if (!operand.valid || !operand.known) { return operand; }
-            return self.applyConstantUnary(expression.op, operand.value);
-        }
-        if (expression.kind == NK_BINARY_EXPR) {
-            SemanticIntegerConstant left = self.integerConstant(
-                expression.left,  restrictEnum,
-                enumOwner, allowedMembers);
-            SemanticIntegerConstant right = self.integerConstant(
-                expression.right,  restrictEnum,
-                enumOwner, allowedMembers);
-            if (!left.valid || !right.valid) {
-                return self.invalidConstant();
-            }
-            if (!left.known || !right.known) {
-                return self.unknownConstant();
-            }
-            return self.applyConstantBinary(
-                expression.op, left.value, right.value);
-        }
-        if (expression.kind == NK_TERNARY_EXPR) {
-            SemanticIntegerConstant condition = self.integerConstant(
-                expression.condition,  restrictEnum,
-                enumOwner, allowedMembers);
-            SemanticIntegerConstant whenTrue = self.integerConstant(
-                expression.true_expr,  restrictEnum,
-                enumOwner, allowedMembers);
-            SemanticIntegerConstant whenFalse = self.integerConstant(
-                expression.false_expr,  restrictEnum,
-                enumOwner, allowedMembers);
-            if (!condition.valid || !whenTrue.valid || !whenFalse.valid) {
-                return self.invalidConstant();
-            }
-            if (condition.known) {
-                if (condition.value != 0) { return whenTrue; }
-                return whenFalse;
-            }
-            if (whenTrue.known && whenFalse.known
-                    && whenTrue.value == whenFalse.value) {
-                return whenTrue;
-            }
-            return self.unknownConstant();
-        }
-        return self.invalidConstant();
-    }
+				if (self.state.analyzed.enumContains(enumOwner, expression.name) || self.state.analyzed.isEnumValue(expression.name) || self.state.analyzed.isAmbiguousEnumValue(expression.name)) {
+					return self.invalidConstant();
+				}
+			} else if (self.state.analyzed.isEnumValue(expression.name)) {
+				return self.storedEnumConstant(self.state.analyzed.enumOwnerOf(expression.name), expression.name);
+			}
+			if (expression.name != "NULL" && SemanticTypeSystem.isCIntegerIdentifier(expression.name)) {
+				return self.unknownConstant();
+			}
+			return self.invalidConstant();
+		}
+		if (expression.kind == NK_FIELD_ACCESS_EXPR && expression.obj.kind == NK_IDENTIFIER && self.state.analyzed.richEnumTable.has(expression.obj.name)) {
+			if (restrictEnum) { return self.invalidConstant(); }
+			Node declaration = self.state.analyzed.richEnumTable.get(expression.obj.name);
+			int variantIndex = 0;
+			while (variantIndex < declaration.variants.len) {
+				if (declaration.variants.get(variantIndex).name == expression.field) {
+					return self.knownConstant(variantIndex);
+				}
+				variantIndex = variantIndex + 1;
+			}
+			return self.invalidConstant();
+		}
+		if (expression.kind == NK_FIELD_ACCESS_EXPR && expression.obj.kind == NK_IDENTIFIER && self.state.analyzed.enumContains(expression.obj.name, expression.field)) {
+			string owner = expression.obj.name;
+			if (restrictEnum && (owner != enumOwner || !allowedMembers.has(expression.field))) {
+				return self.invalidConstant();
+			}
+			return self.storedEnumConstant(owner, expression.field);
+		}
+		if (expression.kind == NK_SIZEOF_EXPR) {
+			return self.unknownConstant();
+		}
+		if (expression.kind == NK_CAST_EXPR) {
+			return self.integralCastConstant(expression, restrictEnum, enumOwner, allowedMembers);
+		}
+		if (expression.kind == NK_UNARY_EXPR && (expression.op == "+" || expression.op == "-" || expression.op == "~" || expression.op == "!")) {
+			SemanticIntegerConstant operand = self.integerConstant(expression.operand, restrictEnum, enumOwner, allowedMembers);
+			if (!operand.valid || !operand.known) { return operand; }
+			return self.applyConstantUnary(expression.op, operand.value);
+		}
+		if (expression.kind == NK_BINARY_EXPR) {
+			SemanticIntegerConstant left = self.integerConstant(expression.left, restrictEnum, enumOwner, allowedMembers);
+			SemanticIntegerConstant right = self.integerConstant(expression.right, restrictEnum, enumOwner, allowedMembers);
+			if (!left.valid || !right.valid) {
+				return self.invalidConstant();
+			}
+			if (!left.known || !right.known) {
+				return self.unknownConstant();
+			}
+			return self.applyConstantBinary(expression.op, left.value, right.value);
+		}
+		if (expression.kind == NK_TERNARY_EXPR) {
+			SemanticIntegerConstant condition = self.integerConstant(expression.condition, restrictEnum, enumOwner, allowedMembers);
+			SemanticIntegerConstant whenTrue = self.integerConstant(expression.true_expr, restrictEnum, enumOwner, allowedMembers);
+			SemanticIntegerConstant whenFalse = self.integerConstant(expression.false_expr, restrictEnum, enumOwner, allowedMembers);
+			if (!condition.valid || !whenTrue.valid || !whenFalse.valid) {
+				return self.invalidConstant();
+			}
+			if (condition.known) {
+				if (condition.value != 0) { return whenTrue; }
+				return whenFalse;
+			}
+			if (whenTrue.known && whenFalse.known && whenTrue.value == whenFalse.value) {
+				return whenTrue;
+			}
+			return self.unknownConstant();
+		}
+		return self.invalidConstant();
+	}
 
-    public void storeEnumConstant(string owner, string member,
-            SemanticIntegerConstant value) {
-        string key = self.enumConstantKey(owner, member);
-        self.state.enumConstantKnown.put(key, value.known);
-        if (value.known) {
-            self.state.enumConstantValues.put(key, (int)value.value);
-        }
-    }
+	public void storeEnumConstant(string owner, string member, SemanticIntegerConstant value) {
+		string key = self.enumConstantKey(owner, member);
+		self.state.enumConstantKnown.put(key, value.known);
+		if (value.known) {
+			self.state.enumConstantValues.put(key, (int)value.value);
+		}
+	}
 
-    public void validateEnumValues(
-            Node declaration) {
-        Map<string, bool> prior = {};
-        bool previousKnown = true;
-        long long previous = -1;
-        int index = 0;
-        while (index < declaration.values.len) {
-            Node value = declaration.values.get(index);
-            SemanticIntegerConstant result = self.unknownConstant();
-            if (value.value_node != null) {
-                result = self.integerConstant(value.value_node,
-                    true, declaration.name, prior);
-                if (!result.valid) {
-                    TypeValidator.fail("Enum value '" + value.name
-                        + "' requires an integral constant expression using only "
-                        + "earlier members", value);
-                }
-            } else if (previousKnown) {
-                if (previous >= INT_MAX) {
-                    TypeValidator.fail("Implicit enum value '" + value.name
-                        + "' is outside the strict-C11 int range", value);
-                }
-                result = self.knownConstant(previous + 1);
-            }
-            if (result.known
-                    && (result.value < INT_MIN || result.value > INT_MAX)) {
-                TypeValidator.fail("Enum value '" + value.name
-                    + "' is outside the strict-C11 int range", value);
-            }
-            self.storeEnumConstant(
-                declaration.name, value.name, result);
-            previousKnown = result.known;
-            if (result.known) { previous = result.value; }
-            prior.put(value.name, true);
-            index = index + 1;
-        }
-    }
+	public void validateEnumValues(Node declaration) {
+		Map<string, bool> prior = {};
+		bool previousKnown = true;
+		long long previous = -1;
+		int index = 0;
+		while (index < declaration.values.len) {
+			Node value = declaration.values.get(index);
+			SemanticIntegerConstant result = self.unknownConstant();
+			if (value.value_node != null) {
+				result = self.integerConstant(value.value_node, true, declaration.name, prior);
+				if (!result.valid) {
+					TypeValidator.fail("Enum value '" + value.name + "' requires an integral constant expression using only " + "earlier members", value);
+				}
+			} else if (previousKnown) {
+				if (previous >= INT_MAX) {
+					TypeValidator.fail("Implicit enum value '" + value.name + "' is outside the strict-C11 int range", value);
+				}
+				result = self.knownConstant(previous + 1);
+			}
+			if (result.known && (result.value < INT_MIN || result.value > INT_MAX)) {
+				TypeValidator.fail("Enum value '" + value.name + "' is outside the strict-C11 int range", value);
+			}
+			self.storeEnumConstant(declaration.name, value.name, result);
+			previousKnown = result.known;
+			if (result.known) { previous = result.value; }
+			prior.put(value.name, true);
+			index = index + 1;
+		}
+	}
 
-    public void validateProgramEnumValues(
-            Node program) {
-        int index = 0;
-        while (index < program.declarations.len) {
-            Node declaration = program.declarations.get(index);
-            if (declaration.kind == NK_ENUM_DECL) {
-                self.validateEnumValues(declaration);
-            }
-            index = index + 1;
-        }
-    }
+	public void validateProgramEnumValues(Node program) {
+		int index = 0;
+		while (index < program.declarations.len) {
+			Node declaration = program.declarations.get(index);
+			if (declaration.kind == NK_ENUM_DECL) {
+				self.validateEnumValues(declaration);
+			}
+			index = index + 1;
+		}
+	}
 
-    public SemanticIntegralCastRange unsupportedCastRange() {
-        return SemanticIntegralCastRange(false, false, 0LL, 0ULL);
-    }
+	public SemanticIntegralCastRange unsupportedCastRange() { return SemanticIntegralCastRange(false, false, 0LL, 0ULL); }
 
-    public SemanticIntegralCastRange signedCastRange(
-            long long minimum, long long maximum) {
-        return SemanticIntegralCastRange(
-            true, false, minimum, (unsigned long long)maximum);
-    }
+	public SemanticIntegralCastRange signedCastRange(long long minimum, long long maximum) { return SemanticIntegralCastRange(true, false, minimum, (unsigned long long)maximum); }
 
-    public SemanticIntegralCastRange unsignedCastRange(
-            unsigned long long maximum) {
-        return SemanticIntegralCastRange(true, true, 0LL, maximum);
-    }
+	public SemanticIntegralCastRange unsignedCastRange(unsigned long long maximum) { return SemanticIntegralCastRange(true, true, 0LL, maximum); }
 
-    public SemanticIntegralCastRange builtinCastRange(
-            string base, Analyzed analyzed) {
-        if (base == "byte" || base == "signed char") {
-            return self.signedCastRange(SCHAR_MIN, SCHAR_MAX);
-        }
-        if (base == "unsigned char") {
-            return self.unsignedCastRange(UCHAR_MAX);
-        }
-        if (base == "short" || base == "short int"
-                || base == "signed short" || base == "signed short int") {
-            return self.signedCastRange(SHRT_MIN, SHRT_MAX);
-        }
-        if (base == "unsigned short" || base == "unsigned short int") {
-            return self.unsignedCastRange(USHRT_MAX);
-        }
-        if (base == "int" || base == "signed" || base == "signed int"
-                || analyzed.isEnum(base) || base.startsWith("enum ")) {
-            return self.signedCastRange(INT_MIN, INT_MAX);
-        }
-        if (base == "uint" || base == "unsigned"
-                || base == "unsigned int") {
-            return self.unsignedCastRange(UINT_MAX);
-        }
-        if (base == "long" || base == "long int"
-                || base == "signed long" || base == "signed long int") {
-            return self.signedCastRange(LONG_MIN, LONG_MAX);
-        }
-        if (base == "unsigned long" || base == "unsigned long int") {
-            return self.unsignedCastRange(ULONG_MAX);
-        }
-        if (base == "long long" || base == "long long int"
-                || base == "signed long long"
-                || base == "signed long long int") {
-            return self.signedCastRange(LLONG_MIN, LLONG_MAX);
-        }
-        if (base == "unsigned long long"
-                || base == "unsigned long long int") {
-            return self.unsignedCastRange(ULLONG_MAX);
-        }
-        return self.unsupportedCastRange();
-    }
+	public SemanticIntegralCastRange builtinCastRange(string base, Analyzed analyzed) {
+		if (base == "byte" || base == "signed char") {
+			return self.signedCastRange(SCHAR_MIN, SCHAR_MAX);
+		}
+		if (base == "unsigned char") {
+			return self.unsignedCastRange(UCHAR_MAX);
+		}
+		if (base == "short" || base == "short int" || base == "signed short" || base == "signed short int") {
+			return self.signedCastRange(SHRT_MIN, SHRT_MAX);
+		}
+		if (base == "unsigned short" || base == "unsigned short int") {
+			return self.unsignedCastRange(USHRT_MAX);
+		}
+		if (base == "int" || base == "signed" || base == "signed int" || analyzed.isEnum(base) || base.startsWith("enum ")) {
+			return self.signedCastRange(INT_MIN, INT_MAX);
+		}
+		if (base == "uint" || base == "unsigned" || base == "unsigned int") {
+			return self.unsignedCastRange(UINT_MAX);
+		}
+		if (base == "long" || base == "long int" || base == "signed long" || base == "signed long int") {
+			return self.signedCastRange(LONG_MIN, LONG_MAX);
+		}
+		if (base == "unsigned long" || base == "unsigned long int") {
+			return self.unsignedCastRange(ULONG_MAX);
+		}
+		if (base == "long long" || base == "long long int" || base == "signed long long" || base == "signed long long int") {
+			return self.signedCastRange(LLONG_MIN, LLONG_MAX);
+		}
+		if (base == "unsigned long long" || base == "unsigned long long int") {
+			return self.unsignedCastRange(ULLONG_MAX);
+		}
+		return self.unsupportedCastRange();
+	}
 
-    public SemanticIntegralCastRange fixedCastRange(string base) {
-        if (base == "int8_t") { return self.signedCastRange(INT8_MIN, INT8_MAX); }
-        if (base == "uint8_t") { return self.unsignedCastRange(UINT8_MAX); }
-        if (base == "int16_t") { return self.signedCastRange(INT16_MIN, INT16_MAX); }
-        if (base == "uint16_t") { return self.unsignedCastRange(UINT16_MAX); }
-        if (base == "int32_t") { return self.signedCastRange(INT32_MIN, INT32_MAX); }
-        if (base == "uint32_t") { return self.unsignedCastRange(UINT32_MAX); }
-        if (base == "int64_t") { return self.signedCastRange(INT64_MIN, INT64_MAX); }
-        if (base == "uint64_t") { return self.unsignedCastRange(UINT64_MAX); }
-        if (base == "int_least8_t") {
-            return self.signedCastRange(INT_LEAST8_MIN, INT_LEAST8_MAX);
-        }
-        if (base == "uint_least8_t") {
-            return self.unsignedCastRange(UINT_LEAST8_MAX);
-        }
-        if (base == "int_least16_t") {
-            return self.signedCastRange(INT_LEAST16_MIN, INT_LEAST16_MAX);
-        }
-        if (base == "uint_least16_t") {
-            return self.unsignedCastRange(UINT_LEAST16_MAX);
-        }
-        if (base == "int_least32_t") {
-            return self.signedCastRange(INT_LEAST32_MIN, INT_LEAST32_MAX);
-        }
-        if (base == "uint_least32_t") {
-            return self.unsignedCastRange(UINT_LEAST32_MAX);
-        }
-        if (base == "int_least64_t") {
-            return self.signedCastRange(INT_LEAST64_MIN, INT_LEAST64_MAX);
-        }
-        if (base == "uint_least64_t") {
-            return self.unsignedCastRange(UINT_LEAST64_MAX);
-        }
-        return self.unsupportedCastRange();
-    }
+	public SemanticIntegralCastRange fixedCastRange(string base) {
+		if (base == "int8_t") { return self.signedCastRange(INT8_MIN, INT8_MAX); }
+		if (base == "uint8_t") { return self.unsignedCastRange(UINT8_MAX); }
+		if (base == "int16_t") { return self.signedCastRange(INT16_MIN, INT16_MAX); }
+		if (base == "uint16_t") { return self.unsignedCastRange(UINT16_MAX); }
+		if (base == "int32_t") { return self.signedCastRange(INT32_MIN, INT32_MAX); }
+		if (base == "uint32_t") { return self.unsignedCastRange(UINT32_MAX); }
+		if (base == "int64_t") { return self.signedCastRange(INT64_MIN, INT64_MAX); }
+		if (base == "uint64_t") { return self.unsignedCastRange(UINT64_MAX); }
+		if (base == "int_least8_t") {
+			return self.signedCastRange(INT_LEAST8_MIN, INT_LEAST8_MAX);
+		}
+		if (base == "uint_least8_t") {
+			return self.unsignedCastRange(UINT_LEAST8_MAX);
+		}
+		if (base == "int_least16_t") {
+			return self.signedCastRange(INT_LEAST16_MIN, INT_LEAST16_MAX);
+		}
+		if (base == "uint_least16_t") {
+			return self.unsignedCastRange(UINT_LEAST16_MAX);
+		}
+		if (base == "int_least32_t") {
+			return self.signedCastRange(INT_LEAST32_MIN, INT_LEAST32_MAX);
+		}
+		if (base == "uint_least32_t") {
+			return self.unsignedCastRange(UINT_LEAST32_MAX);
+		}
+		if (base == "int_least64_t") {
+			return self.signedCastRange(INT_LEAST64_MIN, INT_LEAST64_MAX);
+		}
+		if (base == "uint_least64_t") {
+			return self.unsignedCastRange(UINT_LEAST64_MAX);
+		}
+		return self.unsupportedCastRange();
+	}
 
-    public SemanticIntegralCastRange abiCastRange(string base) {
-        if (base == "int_fast8_t") {
-            return self.signedCastRange(INT_FAST8_MIN, INT_FAST8_MAX);
-        }
-        if (base == "uint_fast8_t") {
-            return self.unsignedCastRange(UINT_FAST8_MAX);
-        }
-        if (base == "int_fast16_t") {
-            return self.signedCastRange(INT_FAST16_MIN, INT_FAST16_MAX);
-        }
-        if (base == "uint_fast16_t") {
-            return self.unsignedCastRange(UINT_FAST16_MAX);
-        }
-        if (base == "int_fast32_t") {
-            return self.signedCastRange(INT_FAST32_MIN, INT_FAST32_MAX);
-        }
-        if (base == "uint_fast32_t") {
-            return self.unsignedCastRange(UINT_FAST32_MAX);
-        }
-        if (base == "int_fast64_t") {
-            return self.signedCastRange(INT_FAST64_MIN, INT_FAST64_MAX);
-        }
-        if (base == "uint_fast64_t") {
-            return self.unsignedCastRange(UINT_FAST64_MAX);
-        }
-        if (base == "intptr_t") {
-            return self.signedCastRange(INTPTR_MIN, INTPTR_MAX);
-        }
-        if (base == "uintptr_t") {
-            return self.unsignedCastRange(UINTPTR_MAX);
-        }
-        if (base == "intmax_t") {
-            return self.signedCastRange(INTMAX_MIN, INTMAX_MAX);
-        }
-        if (base == "uintmax_t") {
-            return self.unsignedCastRange(UINTMAX_MAX);
-        }
-        if (base == "ptrdiff_t") {
-            return self.signedCastRange(PTRDIFF_MIN, PTRDIFF_MAX);
-        }
-        if (base == "size_t") { return self.unsignedCastRange(SIZE_MAX); }
-        return self.unsupportedCastRange();
-    }
+	public SemanticIntegralCastRange abiCastRange(string base) {
+		if (base == "int_fast8_t") {
+			return self.signedCastRange(INT_FAST8_MIN, INT_FAST8_MAX);
+		}
+		if (base == "uint_fast8_t") {
+			return self.unsignedCastRange(UINT_FAST8_MAX);
+		}
+		if (base == "int_fast16_t") {
+			return self.signedCastRange(INT_FAST16_MIN, INT_FAST16_MAX);
+		}
+		if (base == "uint_fast16_t") {
+			return self.unsignedCastRange(UINT_FAST16_MAX);
+		}
+		if (base == "int_fast32_t") {
+			return self.signedCastRange(INT_FAST32_MIN, INT_FAST32_MAX);
+		}
+		if (base == "uint_fast32_t") {
+			return self.unsignedCastRange(UINT_FAST32_MAX);
+		}
+		if (base == "int_fast64_t") {
+			return self.signedCastRange(INT_FAST64_MIN, INT_FAST64_MAX);
+		}
+		if (base == "uint_fast64_t") {
+			return self.unsignedCastRange(UINT_FAST64_MAX);
+		}
+		if (base == "intptr_t") {
+			return self.signedCastRange(INTPTR_MIN, INTPTR_MAX);
+		}
+		if (base == "uintptr_t") {
+			return self.unsignedCastRange(UINTPTR_MAX);
+		}
+		if (base == "intmax_t") {
+			return self.signedCastRange(INTMAX_MIN, INTMAX_MAX);
+		}
+		if (base == "uintmax_t") {
+			return self.unsignedCastRange(UINTMAX_MAX);
+		}
+		if (base == "ptrdiff_t") {
+			return self.signedCastRange(PTRDIFF_MIN, PTRDIFF_MAX);
+		}
+		if (base == "size_t") { return self.unsignedCastRange(SIZE_MAX); }
+		return self.unsupportedCastRange();
+	}
 
-    public SemanticIntegralCastRange integralCastRange(
-            Node target, Analyzed analyzed) {
-        SemanticIntegralCastRange range = self.builtinCastRange(
-            target.base, analyzed);
-        if (range.supported) { return range; }
-        range = self.fixedCastRange(target.base);
-        if (range.supported) { return range; }
-        return self.abiCastRange(target.base);
-    }
+	public SemanticIntegralCastRange integralCastRange(Node target, Analyzed analyzed) {
+		SemanticIntegralCastRange range = self.builtinCastRange(target.base, analyzed);
+		if (range.supported) { return range; }
+		range = self.fixedCastRange(target.base);
+		if (range.supported) { return range; }
+		return self.abiCastRange(target.base);
+	}
 
-    public SemanticIntegerConstant integerLiteralConstant(Node expression) {
-        IntegerLiteralInfo info = IntegerLiteral(expression.raw).details();
-        if (!info.valid) { return self.invalidConstant(); }
-        if (info.magnitude > (unsigned long long)LLONG_MAX) {
-            return self.unknownConstant();
-        }
-        return self.knownConstant((long long)info.magnitude);
-    }
+	public SemanticIntegerConstant integerLiteralConstant(Node expression) {
+		IntegerLiteralInfo info = IntegerLiteral(expression.raw).details();
+		if (!info.valid) { return self.invalidConstant(); }
+		if (info.magnitude > (unsigned long long)LLONG_MAX) {
+			return self.unknownConstant();
+		}
+		return self.knownConstant((long long)info.magnitude);
+	}
 
-    public SemanticIntegerConstant convertKnownIntegral(
-            long long value, SemanticIntegralCastRange range) {
-        if (!range.supported) { return self.unknownConstant(); }
-        if (!range.isUnsigned) {
-            if (value < range.minimum
-                    || (value >= 0
-                        && (unsigned long long)value > range.maximum)) {
-                return self.invalidConstant();
-            }
-            return self.knownConstant(value);
-        }
-        unsigned long long converted = (unsigned long long)value;
-        if (range.maximum != ULLONG_MAX) {
-            converted = converted % (range.maximum + 1ULL);
-        }
-        if (converted > (unsigned long long)LLONG_MAX) {
-            return self.unknownConstant();
-        }
-        return self.knownConstant((long long)converted);
-    }
+	public SemanticIntegerConstant convertKnownIntegral(long long value, SemanticIntegralCastRange range) {
+		if (!range.supported) { return self.unknownConstant(); }
+		if (!range.isUnsigned) {
+			if (value < range.minimum || (value >= 0 && (unsigned long long)value > range.maximum)) {
+				return self.invalidConstant();
+			}
+			return self.knownConstant(value);
+		}
+		unsigned long long converted = (unsigned long long)value;
+		if (range.maximum != ULLONG_MAX) {
+			converted = converted % (range.maximum + 1ULL);
+		}
+		if (converted > (unsigned long long)LLONG_MAX) {
+			return self.unknownConstant();
+		}
+		return self.knownConstant((long long)converted);
+	}
 
-    public SemanticIntegerConstant convertFloatLiteral(
-            string raw, SemanticIntegralCastRange range) {
-        if (!range.supported) { return self.unknownConstant(); }
-        long double value = truncl(strtold(
-            FloatLiteral(raw).numericBody(), NULL));
-        long double lower = range.isUnsigned
-            ? (long double)0.0 : (long double)range.minimum;
-        long double upper = (long double)range.maximum + (long double)1.0;
-        if (value < lower || value >= upper) {
-            return self.invalidConstant();
-        }
-        if (range.isUnsigned) {
-            unsigned long long converted = (unsigned long long)value;
-            if (converted > (unsigned long long)LLONG_MAX) {
-                return self.unknownConstant();
-            }
-            return self.knownConstant((long long)converted);
-        }
-        return self.knownConstant((long long)value);
-    }
+	public SemanticIntegerConstant convertFloatLiteral(string raw, SemanticIntegralCastRange range) {
+		if (!range.supported) { return self.unknownConstant(); }
+		long double value = truncl(strtold(FloatLiteral(raw).numericBody(), NULL));
+		long double lower = range.isUnsigned ? (long double)0.0 : (long double)range.minimum;
+		long double upper = (long double)range.maximum + (long double)1.0;
+		if (value < lower || value >= upper) {
+			return self.invalidConstant();
+		}
+		if (range.isUnsigned) {
+			unsigned long long converted = (unsigned long long)value;
+			if (converted > (unsigned long long)LLONG_MAX) {
+				return self.unknownConstant();
+			}
+			return self.knownConstant((long long)converted);
+		}
+		return self.knownConstant((long long)value);
+	}
 
-    public SemanticIntegerConstant integralCastConstant(
-            Node expression,
-            bool restrictEnum, string enumOwner,
-            Map<string, bool> allowedMembers) {
-        Node? resolved = self.types.resolveAliases(expression.target_type);
-        if (resolved == null
-                || !self.types.integralType(resolved, self.state.analyzed)) {
-            return self.invalidConstant();
-        }
-        Node target = resolved;
-        if (target.base == "bool") {
-            if (expression.expr.kind == NK_FLOAT_LITERAL) {
-                return self.knownConstant(
-                    FloatLiteral(expression.expr.raw).doubleValue() != 0.0
-                        ? 1 : 0);
-            }
-            SemanticIntegerConstant operand = self.integerConstant(
-                expression.expr,  restrictEnum, enumOwner, allowedMembers);
-            if (!operand.valid || !operand.known) { return operand; }
-            return self.knownConstant(operand.value != 0 ? 1 : 0);
-        }
-        SemanticIntegralCastRange range = self.integralCastRange(
-            target, self.state.analyzed);
-        if (expression.expr.kind == NK_FLOAT_LITERAL) {
-            return self.convertFloatLiteral(expression.expr.raw, range);
-        }
-        SemanticIntegerConstant operand = self.integerConstant(
-            expression.expr,  restrictEnum, enumOwner, allowedMembers);
-        if (!operand.valid || !operand.known) { return operand; }
-        return self.convertKnownIntegral(operand.value, range);
-    }
+	public SemanticIntegerConstant integralCastConstant(Node expression, bool restrictEnum, string enumOwner, Map<string, bool> allowedMembers) {
+		Node? resolved = self.types.resolveAliases(expression.target_type);
+		if (resolved == null || !self.types.integralType(resolved, self.state.analyzed)) {
+			return self.invalidConstant();
+		}
+		Node target = resolved;
+		if (target.base == "bool") {
+			if (expression.expr.kind == NK_FLOAT_LITERAL) {
+				return self.knownConstant(FloatLiteral(expression.expr.raw).doubleValue() != 0.0 ? 1 : 0);
+			}
+			SemanticIntegerConstant operand = self.integerConstant(expression.expr, restrictEnum, enumOwner, allowedMembers);
+			if (!operand.valid || !operand.known) { return operand; }
+			return self.knownConstant(operand.value != 0 ? 1 : 0);
+		}
+		SemanticIntegralCastRange range = self.integralCastRange(target, self.state.analyzed);
+		if (expression.expr.kind == NK_FLOAT_LITERAL) {
+			return self.convertFloatLiteral(expression.expr.raw, range);
+		}
+		SemanticIntegerConstant operand = self.integerConstant(expression.expr, restrictEnum, enumOwner, allowedMembers);
+		if (!operand.valid || !operand.known) { return operand; }
+		return self.convertKnownIntegral(operand.value, range);
+	}
 }

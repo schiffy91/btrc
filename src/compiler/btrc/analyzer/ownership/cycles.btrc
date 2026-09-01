@@ -3,6 +3,7 @@
 import std.map;
 import std.strings;
 import std.vector;
+
 import ../../generated/ast/node.btrc;
 import ../../syntax/identity.btrc;
 import ../declarations.btrc;
@@ -11,379 +12,330 @@ import ../types.btrc;
 import ./values.btrc;
 
 class CycleSemantics {
-    private Analyzed analyzed;
-    private ManagedValueSemantics values;
-    private Map<string, bool> runtimeTypeKnown;
-    private Map<string, bool> runtimeTypeMayCycleValues;
+	private Analyzed analyzed;
+	private ManagedValueSemantics values;
+	private Map<string, bool> runtimeTypeKnown;
+	private Map<string, bool> runtimeTypeMayCycleValues;
 
-    public CycleSemantics(
-            Analyzed analyzed, ManagedValueSemantics values) {
-        self.analyzed = analyzed;
-        self.values = values;
-        self.runtimeTypeKnown = {};
-        self.runtimeTypeMayCycleValues = {};
-    }
+	public CycleSemantics(Analyzed analyzed, ManagedValueSemantics values) {
+		self.analyzed = analyzed;
+		self.values = values;
+		self.runtimeTypeKnown = {};
+		self.runtimeTypeMayCycleValues = {};
+	}
 
-    public string visitorName(string emittedName) {
-        return "__btrc_arc_visit_" + emittedName;
-    }
+	public string visitorName(string emittedName) { return "__btrc_arc_visit_" + emittedName; }
 
-    public bool isCollection(string base) {
-        return base == "Vector" || base == "Array" || base == "List"
-            || base == "Map" || base == "Set";
-    }
+	public bool isCollection(string base) { return base == "Vector" || base == "Array" || base == "List" || base == "Map" || base == "Set"; }
 
-    private Node? canonical(Node? typeExpr) {
-        return SemanticTypeSystem.resolveOuterTypedefType(
-            typeExpr, self.analyzed.typedefTable);
-    }
+	private Node? canonical(Node? typeExpr) { return SemanticTypeSystem.resolveOuterTypedefType(typeExpr, self.analyzed.typedefTable); }
 
-    private Node rootType(GenInstance instance) {
-        Node root = Node();
-        root.kind = NK_TYPE_EXPR;
-        root.base = instance.base;
-        int index = 0;
-        while (index < instance.args.len) {
-            root.generic_args.push(instance.args.get(index));
-            index = index + 1;
-        }
-        return root;
-    }
+	private Node rootType(GenInstance instance) {
+		Node root = Node();
+		root.kind = NK_TYPE_EXPR;
+		root.base = instance.base;
+		int index = 0;
+		while (index < instance.args.len) {
+			root.generic_args.push(instance.args.get(index));
+			index = index + 1;
+		}
+		return root;
+	}
 
-    private string typeKey(Node typeExpr) {
-        if (typeExpr.generic_args.len > 0) {
-            return "generic:" + TypeIdentity.genericInstanceKey(
-                typeExpr.base, typeExpr.generic_args);
-        }
-        return "class:" + TypeIdentity.field(
-            "b", TypeIdentity.utf8Hex(typeExpr.base));
-    }
+	private string typeKey(Node typeExpr) {
+		if (typeExpr.generic_args.len > 0) {
+			return "generic:" + TypeIdentity.genericInstanceKey(typeExpr.base, typeExpr.generic_args);
+		}
+		return "class:" + TypeIdentity.field("b", TypeIdentity.utf8Hex(typeExpr.base));
+	}
 
-    public bool isGraphManaged(Node? typeExpr) {
-        Node? canonical = self.canonical(typeExpr);
-        if (canonical == null || canonical.is_array) { return false; }
-        return self.values.isArc(canonical);
-    }
+	public bool isGraphManaged(Node? typeExpr) {
+		Node? canonical = self.canonical(typeExpr);
+		if (canonical == null || canonical.is_array) { return false; }
+		return self.values.isArc(canonical);
+	}
 
-    private void appendRuntimeTypes(
-            Node typeExpr, Vector<Node> output) {
-        Node? canonical = self.canonical(typeExpr);
-        if (canonical == null) { return; }
-        Node resolved = canonical;
-        if (self.values.isMutex(resolved)) {
-            output.push(resolved);
-            return;
-        }
-        if (!self.isGraphManaged(resolved)) { return; }
-        if (resolved.generic_args.len == 0
-                && self.analyzed.isClass(resolved.base)) {
-            Vector<string> runtimeClasses =
-                self.analyzed.classTable.keys();
-            int index = 0;
-            while (index < runtimeClasses.len) {
-                string runtimeClass = runtimeClasses.get(index);
-                if (self.analyzed.isSubclass(
-                        runtimeClass, resolved.base)) {
-                    output.push(SemanticTypeSystem.primitive(runtimeClass));
-                }
-                index = index + 1;
-            }
-            return;
-        }
-        output.push(resolved);
-    }
+	private void appendRuntimeTypes(Node typeExpr, Vector<Node> output) {
+		Node? canonical = self.canonical(typeExpr);
+		if (canonical == null) { return; }
+		Node resolved = canonical;
+		if (self.values.isMutex(resolved)) {
+			output.push(resolved);
+			return;
+		}
+		if (!self.isGraphManaged(resolved)) { return; }
+		if (resolved.generic_args.len == 0 && self.analyzed.isClass(resolved.base)) {
+			Vector<string> runtimeClasses = self.analyzed.classTable.keys();
+			int index = 0;
+			while (index < runtimeClasses.len) {
+				string runtimeClass = runtimeClasses.get(index);
+				if (self.analyzed.isSubclass(runtimeClass, resolved.base)) {
+					output.push(SemanticTypeSystem.primitive(runtimeClass));
+				}
+				index = index + 1;
+			}
+			return;
+		}
+		output.push(resolved);
+	}
 
-    public void collectClassFields(
-            string className, Vector<Node> output) {
-        if (!self.analyzed.isClass(className)) { return; }
-        Node declaration = self.analyzed.classTable.get(className);
-        string parent = DeclarationRegistry.parentName(declaration);
-        if (parent != "" && self.analyzed.isClass(parent)) {
-            self.collectClassFields(parent, output);
-        }
-        int index = 0;
-        while (index < declaration.members.len) {
-            Node member = declaration.members.get(index);
-            if (DeclarationRegistry.instanceStorageName(member) != "") {
-                output.push(member);
-            }
-            index = index + 1;
-        }
-    }
+	public void collectClassFields(string className, Vector<Node> output) {
+		if (!self.analyzed.isClass(className)) { return; }
+		Node declaration = self.analyzed.classTable.get(className);
+		string parent = DeclarationRegistry.parentName(declaration);
+		if (parent != "" && self.analyzed.isClass(parent)) {
+			self.collectClassFields(parent, output);
+		}
+		int index = 0;
+		while (index < declaration.members.len) {
+			Node member = declaration.members.get(index);
+			if (DeclarationRegistry.instanceStorageName(member) != "") {
+				output.push(member);
+			}
+			index = index + 1;
+		}
+	}
 
-    private void appendCollectionStorageRefs(
-            Node typeExpr, Vector<Node> output) {
-        if (typeExpr.base == "List") {
-            if (typeExpr.generic_args.len != 1) { return; }
-            Node nodeType = Node();
-            nodeType.kind = NK_TYPE_EXPR;
-            nodeType.base = "ListNode";
-            nodeType.generic_args.push(typeExpr.generic_args.get(0));
-            self.appendRuntimeTypes(nodeType, output);
-            return;
-        }
-        if (typeExpr.base == "Map") {
-            if (typeExpr.generic_args.len != 2) { return; }
-            self.appendRuntimeTypes(
-                typeExpr.generic_args.get(0), output);
-            self.appendRuntimeTypes(
-                typeExpr.generic_args.get(1), output);
-            return;
-        }
-        if ((typeExpr.base == "Vector" || typeExpr.base == "Array"
-                    || typeExpr.base == "Set")
-                && typeExpr.generic_args.len == 1) {
-            self.appendRuntimeTypes(
-                typeExpr.generic_args.get(0), output);
-        }
-    }
+	private void appendCollectionStorageRefs(Node typeExpr, Vector<Node> output) {
+		if (typeExpr.base == "List") {
+			if (typeExpr.generic_args.len != 1) { return; }
+			Node nodeType = Node();
+			nodeType.kind = NK_TYPE_EXPR;
+			nodeType.base = "ListNode";
+			nodeType.generic_args.push(typeExpr.generic_args.get(0));
+			self.appendRuntimeTypes(nodeType, output);
+			return;
+		}
+		if (typeExpr.base == "Map") {
+			if (typeExpr.generic_args.len != 2) { return; }
+			self.appendRuntimeTypes(typeExpr.generic_args.get(0), output);
+			self.appendRuntimeTypes(typeExpr.generic_args.get(1), output);
+			return;
+		}
+		if ((typeExpr.base == "Vector" || typeExpr.base == "Array" || typeExpr.base == "Set") && typeExpr.generic_args.len == 1) {
+			self.appendRuntimeTypes(typeExpr.generic_args.get(0), output);
+		}
+	}
 
-    private void appendRefs(Node typeExpr, Vector<Node> output) {
-        Node? canonical = self.canonical(typeExpr);
-        if (canonical == null) { return; }
-        Node resolvedType = canonical;
-        Node? mutexPayload = SemanticTypeSystem.mutexPayloadFor(
-            self.analyzed, resolvedType);
-        if (mutexPayload != null) {
-            self.appendRuntimeTypes(mutexPayload, output);
-            return;
-        }
-        if (resolvedType.generic_args.len > 0
-                && self.isCollection(resolvedType.base)) {
-            /* Built-in collections store elements in compiler-known raw
+	private void appendRefs(Node typeExpr, Vector<Node> output) {
+		Node? canonical = self.canonical(typeExpr);
+		if (canonical == null) { return; }
+		Node resolvedType = canonical;
+		Node? mutexPayload = SemanticTypeSystem.mutexPayloadFor(self.analyzed, resolvedType);
+		if (mutexPayload != null) {
+			self.appendRuntimeTypes(mutexPayload, output);
+			return;
+		}
+		if (resolvedType.generic_args.len > 0 && self.isCollection(resolvedType.base)) {
+			/* Built-in collections store elements in compiler-known raw
              * backing layouts. Traverse those actual stored element types,
              * rather than every generic argument of every generic class. */
-            self.appendCollectionStorageRefs(resolvedType, output);
-            return;
-        }
-        if (resolvedType.generic_args.len > 0
-                && self.analyzed.isGenericClass(resolvedType.base)) {
-            Node declaration =
-                self.analyzed.genericClassTable.get(resolvedType.base);
-            Map<string, Node> substitutions = {};
-            int parameter = 0;
-            while (parameter < declaration.generic_params.len
-                    && parameter < resolvedType.generic_args.len) {
-                substitutions.put(
-                    declaration.generic_params.get(parameter),
-                    resolvedType.generic_args.get(parameter));
-                parameter = parameter + 1;
-            }
-            int memberIndex = 0;
-            while (memberIndex < declaration.members.len) {
-                Node member = declaration.members.get(memberIndex);
-                if (DeclarationRegistry.instanceStorageName(member) != "") {
-                    Node resolved = SemanticTypeSystem.resolveGenericType(
-                        member.type, substitutions, self.analyzed);
-                    self.appendRuntimeTypes(resolved, output);
-                }
-                memberIndex = memberIndex + 1;
-            }
-            return;
-        }
-        if (self.analyzed.isClass(resolvedType.base)) {
-            Vector<Node> fields = [];
-            self.collectClassFields(resolvedType.base, fields);
-            int fieldIndex = 0;
-            while (fieldIndex < fields.len) {
-                self.appendRuntimeTypes(
-                    fields.get(fieldIndex).type, output);
-                fieldIndex = fieldIndex + 1;
-            }
-        }
-    }
+			self.appendCollectionStorageRefs(resolvedType, output);
+			return;
+		}
+		if (resolvedType.generic_args.len > 0 && self.analyzed.isGenericClass(resolvedType.base)) {
+			Node declaration = self.analyzed.genericClassTable.get(resolvedType.base);
+			Map<string, Node> substitutions = {};
+			int parameter = 0;
+			while (parameter < declaration.generic_params.len && parameter < resolvedType.generic_args.len) {
+				substitutions.put(declaration.generic_params.get(parameter), resolvedType.generic_args.get(parameter));
+				parameter = parameter + 1;
+			}
+			int memberIndex = 0;
+			while (memberIndex < declaration.members.len) {
+				Node member = declaration.members.get(memberIndex);
+				if (DeclarationRegistry.instanceStorageName(member) != "") {
+					Node resolved = SemanticTypeSystem.resolveGenericType(member.type, substitutions, self.analyzed);
+					self.appendRuntimeTypes(resolved, output);
+				}
+				memberIndex = memberIndex + 1;
+			}
+			return;
+		}
+		if (self.analyzed.isClass(resolvedType.base)) {
+			Vector<Node> fields = [];
+			self.collectClassFields(resolvedType.base, fields);
+			int fieldIndex = 0;
+			while (fieldIndex < fields.len) {
+				self.appendRuntimeTypes(fields.get(fieldIndex).type, output);
+				fieldIndex = fieldIndex + 1;
+			}
+		}
+	}
 
-    private bool reaches(Node initial, string targetKey) {
-        Vector<Node> stack = [initial];
-        Map<string, bool> visited = {};
-        while (stack.len > 0) {
-            Node current = stack.pop();
-            string currentKey = self.typeKey(current);
-            if (currentKey == targetKey) { return true; }
-            if (!visited.has(currentKey)) {
-                visited.put(currentKey, true);
-                self.appendRefs(current, stack);
-            }
-        }
-        return false;
-    }
+	private bool reaches(Node initial, string targetKey) {
+		Vector<Node> stack = [initial];
+		Map<string, bool> visited = {};
+		while (stack.len > 0) {
+			Node current = stack.pop();
+			string currentKey = self.typeKey(current);
+			if (currentKey == targetKey) { return true; }
+			if (!visited.has(currentKey)) {
+				visited.put(currentKey, true);
+				self.appendRefs(current, stack);
+			}
+		}
+		return false;
+	}
 
-    private bool typeIsCyclable(Node root) {
-        string rootKey = self.typeKey(root);
-        Vector<Node> references = [];
-        self.appendRefs(root, references);
-        int index = 0;
-        while (index < references.len) {
-            if (self.reaches(references.get(index), rootKey)) {
-                return true;
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	private bool typeIsCyclable(Node root) {
+		string rootKey = self.typeKey(root);
+		Vector<Node> references = [];
+		self.appendRefs(root, references);
+		int index = 0;
+		while (index < references.len) {
+			if (self.reaches(references.get(index), rootKey)) {
+				return true;
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 
-    public bool genericInstanceIsCyclable(GenInstance instance) {
-        return self.typeIsCyclable(self.rootType(instance));
-    }
+	public bool genericInstanceIsCyclable(GenInstance instance) { return self.typeIsCyclable(self.rootType(instance)); }
 
-    public bool genericInstanceNeedsVisitor(GenInstance instance) {
-        if (self.isCollection(instance.base)) {
-            if (instance.base == "List") {
-                return instance.args.len == 1;
-            }
-            int argument = 0;
-            while (argument < instance.args.len) {
-                if (self.isGraphManaged(instance.args.get(argument))) {
-                    return true;
-                }
-                argument = argument + 1;
-            }
-            return false;
-        }
-        if (!self.analyzed.isGenericClass(instance.base)) {
-            return false;
-        }
-        Node declaration =
-            self.analyzed.genericClassTable.get(instance.base);
-        Map<string, Node> substitutions = {};
-        int parameter = 0;
-        while (parameter < declaration.generic_params.len
-                && parameter < instance.args.len) {
-            substitutions.put(
-                declaration.generic_params.get(parameter),
-                instance.args.get(parameter));
-            parameter = parameter + 1;
-        }
-        int member = 0;
-        while (member < declaration.members.len) {
-            Node field = declaration.members.get(member);
-            if (DeclarationRegistry.instanceStorageName(field) != "") {
-                Node resolved = SemanticTypeSystem.resolveGenericType(
-                    field.type, substitutions, self.analyzed);
-                if (self.isGraphManaged(resolved)) { return true; }
-            }
-            member = member + 1;
-        }
-        return false;
-    }
+	public bool genericInstanceNeedsVisitor(GenInstance instance) {
+		if (self.isCollection(instance.base)) {
+			if (instance.base == "List") {
+				return instance.args.len == 1;
+			}
+			int argument = 0;
+			while (argument < instance.args.len) {
+				if (self.isGraphManaged(instance.args.get(argument))) {
+					return true;
+				}
+				argument = argument + 1;
+			}
+			return false;
+		}
+		if (!self.analyzed.isGenericClass(instance.base)) {
+			return false;
+		}
+		Node declaration = self.analyzed.genericClassTable.get(instance.base);
+		Map<string, Node> substitutions = {};
+		int parameter = 0;
+		while (parameter < declaration.generic_params.len && parameter < instance.args.len) {
+			substitutions.put(declaration.generic_params.get(parameter), instance.args.get(parameter));
+			parameter = parameter + 1;
+		}
+		int member = 0;
+		while (member < declaration.members.len) {
+			Node field = declaration.members.get(member);
+			if (DeclarationRegistry.instanceStorageName(field) != "") {
+				Node resolved = SemanticTypeSystem.resolveGenericType(field.type, substitutions, self.analyzed);
+				if (self.isGraphManaged(resolved)) { return true; }
+			}
+			member = member + 1;
+		}
+		return false;
+	}
 
-    public bool classNeedsVisitor(string className) {
-        if (!self.analyzed.isClass(className)) { return false; }
-        Vector<Node> fields = [];
-        self.collectClassFields(className, fields);
-        int index = 0;
-        while (index < fields.len) {
-            if (self.isGraphManaged(fields.get(index).type)) {
-                return true;
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	public bool classNeedsVisitor(string className) {
+		if (!self.analyzed.isClass(className)) { return false; }
+		Vector<Node> fields = [];
+		self.collectClassFields(className, fields);
+		int index = 0;
+		while (index < fields.len) {
+			if (self.isGraphManaged(fields.get(index).type)) {
+				return true;
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 
-    public bool genericTypeNeedsVisitor(Node typeExpr) {
-        Node? canonical = self.canonical(typeExpr);
-        if (canonical == null || canonical.generic_args.len == 0
-                || canonical.pointer_depth > 1 || canonical.is_array) {
-            return false;
-        }
-        string mangled = TypeIdentity.mangleGenericType(
-            canonical.base, canonical.generic_args);
-        int index = 0;
-        while (index < self.analyzed.genericInstances.len) {
-            GenInstance instance =
-                self.analyzed.genericInstances.get(index);
-            if (instance.mangled == mangled) {
-                return self.genericInstanceNeedsVisitor(instance);
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	public bool genericTypeNeedsVisitor(Node typeExpr) {
+		Node? canonical = self.canonical(typeExpr);
+		if (canonical == null || canonical.generic_args.len == 0 || canonical.pointer_depth > 1 || canonical.is_array) {
+			return false;
+		}
+		string mangled = TypeIdentity.mangleGenericType(canonical.base, canonical.generic_args);
+		int index = 0;
+		while (index < self.analyzed.genericInstances.len) {
+			GenInstance instance = self.analyzed.genericInstances.get(index);
+			if (instance.mangled == mangled) {
+				return self.genericInstanceNeedsVisitor(instance);
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 
-    public bool emittedTypeNeedsVisitor(string emittedName) {
-        if (emittedName == self.values.mutexRuntimeType()) {
-            return true;
-        }
-        if (self.analyzed.isClass(emittedName)) {
-            return self.classNeedsVisitor(emittedName);
-        }
-        int index = 0;
-        while (index < self.analyzed.genericInstances.len) {
-            GenInstance instance =
-                self.analyzed.genericInstances.get(index);
-            if (instance.mangled == emittedName) {
-                return self.genericInstanceNeedsVisitor(instance);
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	public bool emittedTypeNeedsVisitor(string emittedName) {
+		if (emittedName == self.values.mutexRuntimeType()) {
+			return true;
+		}
+		if (self.analyzed.isClass(emittedName)) {
+			return self.classNeedsVisitor(emittedName);
+		}
+		int index = 0;
+		while (index < self.analyzed.genericInstances.len) {
+			GenInstance instance = self.analyzed.genericInstances.get(index);
+			if (instance.mangled == emittedName) {
+				return self.genericInstanceNeedsVisitor(instance);
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 
-    public string visitorSymbol(string emittedName) {
-        if (emittedName == self.values.mutexRuntimeType()) {
-            return "__btrc_mutex_arc_visit";
-        }
-        if (self.emittedTypeNeedsVisitor(emittedName)) {
-            return self.visitorName(emittedName);
-        }
-        return "";
-    }
+	public string visitorSymbol(string emittedName) {
+		if (emittedName == self.values.mutexRuntimeType()) {
+			return "__btrc_mutex_arc_visit";
+		}
+		if (self.emittedTypeNeedsVisitor(emittedName)) {
+			return self.visitorName(emittedName);
+		}
+		return "";
+	}
 
-    private bool computeRuntimeTypeMayCycle(string runtimeType) {
-        if (self.analyzed.isClass(runtimeType)) {
-            Vector<string> runtimeClasses =
-                self.analyzed.classTable.keys();
-            int runtimeIndex = 0;
-            while (runtimeIndex < runtimeClasses.len) {
-                string runtimeClass =
-                    runtimeClasses.get(runtimeIndex);
-                if (self.analyzed.isSubclass(
-                        runtimeClass, runtimeType)
-                        && self.typeIsCyclable(
-                            SemanticTypeSystem.primitive(runtimeClass))) {
-                    return true;
-                }
-                runtimeIndex = runtimeIndex + 1;
-            }
-            return false;
-        }
-        int index = 0;
-        while (index < self.analyzed.genericInstances.len) {
-            GenInstance instance =
-                self.analyzed.genericInstances.get(index);
-            if (instance.mangled == runtimeType) {
-                return self.genericInstanceIsCyclable(instance);
-            }
-            index = index + 1;
-        }
-        /* An emitted managed type outside the analyzed universe is an
+	private bool computeRuntimeTypeMayCycle(string runtimeType) {
+		if (self.analyzed.isClass(runtimeType)) {
+			Vector<string> runtimeClasses = self.analyzed.classTable.keys();
+			int runtimeIndex = 0;
+			while (runtimeIndex < runtimeClasses.len) {
+				string runtimeClass = runtimeClasses.get(runtimeIndex);
+				if (self.analyzed.isSubclass(runtimeClass, runtimeType) && self.typeIsCyclable(SemanticTypeSystem.primitive(runtimeClass))) {
+					return true;
+				}
+				runtimeIndex = runtimeIndex + 1;
+			}
+			return false;
+		}
+		int index = 0;
+		while (index < self.analyzed.genericInstances.len) {
+			GenInstance instance = self.analyzed.genericInstances.get(index);
+			if (instance.mangled == runtimeType) {
+				return self.genericInstanceIsCyclable(instance);
+			}
+			index = index + 1;
+		}
+		/* An emitted managed type outside the analyzed universe is an
          * invariant violation. Conservatively select the full release path so
          * an upstream diagnostic bug cannot become a missed cycle collection. */
-        return true;
-    }
+		return true;
+	}
 
-    public bool runtimeTypeMayCycle(string runtimeType) {
-        if (runtimeType == self.values.mutexRuntimeType()) {
-            return true;
-        }
-        if (runtimeType == self.values.stringRuntimeType()) {
-            return false;
-        }
-        if (self.runtimeTypeKnown.has(runtimeType)) {
-            return self.runtimeTypeMayCycleValues.get(runtimeType);
-        }
-        bool result = self.computeRuntimeTypeMayCycle(runtimeType);
-        self.runtimeTypeKnown.put(runtimeType, true);
-        self.runtimeTypeMayCycleValues.put(runtimeType, result);
-        return result;
-    }
+	public bool runtimeTypeMayCycle(string runtimeType) {
+		if (runtimeType == self.values.mutexRuntimeType()) {
+			return true;
+		}
+		if (runtimeType == self.values.stringRuntimeType()) {
+			return false;
+		}
+		if (self.runtimeTypeKnown.has(runtimeType)) {
+			return self.runtimeTypeMayCycleValues.get(runtimeType);
+		}
+		bool result = self.computeRuntimeTypeMayCycle(runtimeType);
+		self.runtimeTypeKnown.put(runtimeType, true);
+		self.runtimeTypeMayCycleValues.put(runtimeType, result);
+		return result;
+	}
 
-    public string edgeEmittedName(Node typeExpr) {
-        if (typeExpr.generic_args.len > 0) {
-            return TypeIdentity.mangleGenericType(
-                typeExpr.base, typeExpr.generic_args);
-        }
-        return typeExpr.base;
-    }
+	public string edgeEmittedName(Node typeExpr) {
+		if (typeExpr.generic_args.len > 0) {
+			return TypeIdentity.mangleGenericType(typeExpr.base, typeExpr.generic_args);
+		}
+		return typeExpr.base;
+	}
 }

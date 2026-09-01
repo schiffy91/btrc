@@ -3,6 +3,7 @@
 import std.map;
 import std.strings;
 import std.vector;
+
 import ../../generated/ast/node.btrc;
 import ../../syntax/identity.btrc;
 import ../../syntax/types.btrc;
@@ -18,1667 +19,1187 @@ import ./storage.btrc;
 import ./types.btrc;
 
 class CallValidator {
-    private SemanticValidationState state;
-    private HostedAbiRepository hostedAbi;
-    private OperatorSemantics operators;
-    private GpuSemantics gpu;
-    private SourceMacroNamespace sourceMacros;
-    private SourceRuntimeSymbols sourceRuntimeSymbols;
-    private TypeValidator types;
-    private StorageValidator storage;
-    private OwnershipValidator ownership;
-    private BorrowValidator borrows;
+	private SemanticValidationState state;
+	private HostedAbiRepository hostedAbi;
+	private OperatorSemantics operators;
+	private GpuSemantics gpu;
+	private SourceMacroNamespace sourceMacros;
+	private SourceRuntimeSymbols sourceRuntimeSymbols;
+	private TypeValidator types;
+	private StorageValidator storage;
+	private OwnershipValidator ownership;
+	private BorrowValidator borrows;
 
-    public CallValidator(
-            SemanticValidationState state,
-            HostedAbiRepository hostedAbi,
-            OperatorSemantics operators,
-            GpuSemantics gpu,
-            SourceMacroNamespace sourceMacros,
-            SourceRuntimeSymbols sourceRuntimeSymbols,
-            TypeValidator types,
-            StorageValidator storage,
-            OwnershipValidator ownership,
-            BorrowValidator borrows) {
-        self.state = state;
-        self.hostedAbi = hostedAbi;
-        self.operators = operators;
-        self.gpu = gpu;
-        self.sourceMacros = sourceMacros;
-        self.sourceRuntimeSymbols = sourceRuntimeSymbols;
-        self.types = types;
-        self.storage = storage;
-        self.ownership = ownership;
-        self.borrows = borrows;
-    }
+	public CallValidator(SemanticValidationState state, HostedAbiRepository hostedAbi, OperatorSemantics operators, GpuSemantics gpu, SourceMacroNamespace sourceMacros, SourceRuntimeSymbols sourceRuntimeSymbols, TypeValidator types, StorageValidator storage, OwnershipValidator ownership, BorrowValidator borrows) {
+		self.state = state;
+		self.hostedAbi = hostedAbi;
+		self.operators = operators;
+		self.gpu = gpu;
+		self.sourceMacros = sourceMacros;
+		self.sourceRuntimeSymbols = sourceRuntimeSymbols;
+		self.types = types;
+		self.storage = storage;
+		self.ownership = ownership;
+		self.borrows = borrows;
+	}
 
-    private void rejectThreadValueEscape(Node? expression,
-            string destination, Map<string, Node> variables) {
-        Node? valueType = self.types.inferType(expression, variables);
-        if (valueType != null && valueType.base == "Thread") {
-            TypeValidator.fail("Thread handles cannot be " + destination
-                + "; join or return the unique owner instead", expression);
-        }
-    }
+	private void rejectThreadValueEscape(Node? expression, string destination, Map<string, Node> variables) {
+		Node? valueType = self.types.inferType(expression, variables);
+		if (valueType != null && valueType.base == "Thread") {
+			TypeValidator.fail("Thread handles cannot be " + destination + "; join or return the unique owner instead", expression);
+		}
+	}
 
-    private Node? interfaceMethod(string owner, string name) {
-        if (!self.state.interfaces.has(owner)) { return null; }
-        Node declaration = self.state.interfaces.get(owner);
-        int index = 0;
-        while (index < declaration.methods.len) {
-            Node method = declaration.methods.get(index);
-            if (method.name == name) { return method; }
-            index = index + 1;
-        }
-        return null;
-    }
+	private Node? interfaceMethod(string owner, string name) {
+		if (!self.state.interfaces.has(owner)) { return null; }
+		Node declaration = self.state.interfaces.get(owner);
+		int index = 0;
+		while (index < declaration.methods.len) {
+			Node method = declaration.methods.get(index);
+			if (method.name == name) { return method; }
+			index = index + 1;
+		}
+		return null;
+	}
 
-    private void validateBuiltinSignature(string label,
-            Vector<Node> expectedTypes, Node call,
-            Map<string, Node> vars) {
-        int namedIndex = 0;
-        while (namedIndex < call.arg_names.len) {
-            if (call.arg_names.get(namedIndex) != "") {
-                TypeValidator.fail("'" + label
-                    + "()' does not accept named arguments", call);
-            }
-            namedIndex = namedIndex + 1;
-        }
-        if (call.args.len != expectedTypes.len) {
-            TypeValidator.fail("'" + label + "()' expects "
-                + Strings.fromInt(expectedTypes.len)
-                + " argument(s) but got "
-                + Strings.fromInt(call.args.len), call);
-        }
-        int index = 0;
-        while (index < expectedTypes.len) {
-            Node expected = expectedTypes.get(index);
-            Node argument = call.args.get(index);
-            self.storage.validateVolatileReferenceConversion(
-                expected, argument,
-                "Argument " + Strings.fromInt(index + 1)
-                    + " to '" + label + "()'", vars);
-            Node? actual = self.types.inferType(argument, vars);
-            if (actual != null
-                    && !self.types.assignmentCompatible(expected, actual)) {
-                TypeValidator.fail("Argument "
-                    + Strings.fromInt(index + 1) + " to '" + label
-                    + "()' expects '" + self.types.formatType(expected)
-                    + "' but got '" + self.types.formatType(actual) + "'",
-                    argument);
-            }
-            index = index + 1;
-        }
-    }
+	private void validateBuiltinSignature(string label, Vector<Node> expectedTypes, Node call, Map<string, Node> vars) {
+		int namedIndex = 0;
+		while (namedIndex < call.arg_names.len) {
+			if (call.arg_names.get(namedIndex) != "") {
+				TypeValidator.fail("'" + label + "()' does not accept named arguments", call);
+			}
+			namedIndex = namedIndex + 1;
+		}
+		if (call.args.len != expectedTypes.len) {
+			TypeValidator.fail("'" + label + "()' expects " + Strings.fromInt(expectedTypes.len) + " argument(s) but got " + Strings.fromInt(call.args.len), call);
+		}
+		int index = 0;
+		while (index < expectedTypes.len) {
+			Node expected = expectedTypes.get(index);
+			Node argument = call.args.get(index);
+			self.storage.validateVolatileReferenceConversion(expected, argument, "Argument " + Strings.fromInt(index + 1) + " to '" + label + "()'", vars);
+			Node? actual = self.types.inferType(argument, vars);
+			if (actual != null && !self.types.assignmentCompatible(expected, actual)) {
+				TypeValidator.fail("Argument " + Strings.fromInt(index + 1) + " to '" + label + "()' expects '" + self.types.formatType(expected) + "' but got '" + self.types.formatType(actual) + "'", argument);
+			}
+			index = index + 1;
+		}
+	}
 
-    private string literalMemoryOrder(Node argument, string operation) {
-        if (argument.kind != NK_FIELD_ACCESS_EXPR
-                || argument.obj == null
-                || argument.obj.kind != NK_IDENTIFIER
-                || argument.obj.name != "MemoryOrder"
-                || (argument.field != "RELAXED"
-                    && argument.field != "ACQUIRE"
-                    && argument.field != "RELEASE"
-                    && argument.field != "ACQ_REL"
-                    && argument.field != "SEQ_CST")) {
-            TypeValidator.fail(operation
-                + " requires a literal MemoryOrder member", argument);
-        }
-        return argument.field;
-    }
+	private string literalMemoryOrder(Node argument, string operation) {
+		if (argument.kind != NK_FIELD_ACCESS_EXPR || argument.obj == null || argument.obj.kind != NK_IDENTIFIER || argument.obj.name != "MemoryOrder" || (argument.field != "RELAXED" && argument.field != "ACQUIRE" && argument.field != "RELEASE" && argument.field != "ACQ_REL" && argument.field != "SEQ_CST")) {
+			TypeValidator.fail(operation + " requires a literal MemoryOrder member", argument);
+		}
+		return argument.field;
+	}
 
-    private bool compareExchangeFailureAllowed(
-            string success, string failure) {
-        if (success == "RELAXED") { return failure == "RELAXED"; }
-        if (success == "ACQUIRE") {
-            return failure == "RELAXED" || failure == "ACQUIRE";
-        }
-        if (success == "RELEASE") { return failure == "RELAXED"; }
-        if (success == "ACQ_REL") {
-            return failure == "RELAXED" || failure == "ACQUIRE";
-        }
-        return failure == "RELAXED" || failure == "ACQUIRE"
-            || failure == "SEQ_CST";
-    }
+	private bool compareExchangeFailureAllowed(string success, string failure) {
+		if (success == "RELAXED") { return failure == "RELAXED"; }
+		if (success == "ACQUIRE") {
+			return failure == "RELAXED" || failure == "ACQUIRE";
+		}
+		if (success == "RELEASE") { return failure == "RELAXED"; }
+		if (success == "ACQ_REL") {
+			return failure == "RELAXED" || failure == "ACQUIRE";
+		}
+		return failure == "RELAXED" || failure == "ACQUIRE" || failure == "SEQ_CST";
+	}
 
-    private void validateAtomicMethod(Node call, Node receiver,
-            Map<string, Node> vars) {
-        string method = call.callee.field;
-        Node payload = receiver.generic_args.get(0);
-        Node order = SemanticTypeSystem.primitive("MemoryOrder");
-        Vector<Node> expected = [];
-        if (method == "init") {
-            expected.push(payload);
-        } else if (method == "load") {
-            expected.push(order);
-        } else if (method == "store" || method == "exchange"
-                || method == "fetchAdd" || method == "fetchSub"
-                || method == "fetchAnd" || method == "fetchOr"
-                || method == "fetchXor") {
-            expected.push(payload);
-            expected.push(order);
-        } else if (method == "compareExchangeStrong") {
-            expected.push(TypeShape.withOuterPointer(payload));
-            expected.push(payload);
-            expected.push(order);
-            expected.push(order);
-        } else {
-            TypeValidator.fail("Atomic<T> has no method '"
-                + method + "'", call);
-        }
-        self.validateBuiltinSignature(
-            "Atomic." + method, expected, call, vars);
-        if (method.startsWith("fetch")
-                && (payload.base == "bool"
-                    || !self.types.integralType(
-                        payload, self.state.analyzed))) {
-            TypeValidator.fail("Atomic." + method
-                + " requires an integral payload", call);
-        }
-        if (method == "load") {
-            string actualOrder = self.literalMemoryOrder(
-                call.args.get(0), "Atomic.load");
-            if (actualOrder == "RELEASE" || actualOrder == "ACQ_REL") {
-                TypeValidator.fail("Atomic.load does not accept MemoryOrder."
-                    + actualOrder, call);
-            }
-        } else if (method == "store") {
-            string actualOrder = self.literalMemoryOrder(
-                call.args.get(1), "Atomic.store");
-            if (actualOrder == "ACQUIRE" || actualOrder == "ACQ_REL") {
-                TypeValidator.fail("Atomic.store does not accept MemoryOrder."
-                    + actualOrder, call);
-            }
-        } else if (method == "exchange" || method.startsWith("fetch")) {
-            self.literalMemoryOrder(
-                call.args.get(1), "Atomic." + method);
-        } else if (method == "compareExchangeStrong") {
-            string success = self.literalMemoryOrder(
-                call.args.get(2), "Atomic.compareExchangeStrong");
-            string failure = self.literalMemoryOrder(
-                call.args.get(3), "Atomic.compareExchangeStrong");
-            if (!self.compareExchangeFailureAllowed(success, failure)) {
-                TypeValidator.fail(
-                    "Atomic.compareExchangeStrong failure order MemoryOrder."
-                        + failure + " is not allowed with success order MemoryOrder."
-                        + success,
-                    call);
-            }
-        }
-    }
+	private void validateAtomicMethod(Node call, Node receiver, Map<string, Node> vars) {
+		string method = call.callee.field;
+		Node payload = receiver.generic_args.get(0);
+		Node order = SemanticTypeSystem.primitive("MemoryOrder");
+		Vector<Node> expected = [];
+		if (method == "init") {
+			expected.push(payload);
+		} else if (method == "load") {
+			expected.push(order);
+		} else if (method == "store" || method == "exchange" || method == "fetchAdd" || method == "fetchSub" || method == "fetchAnd" || method == "fetchOr" || method == "fetchXor") {
+			expected.push(payload);
+			expected.push(order);
+		} else if (method == "compareExchangeStrong") {
+			expected.push(TypeShape.withOuterPointer(payload));
+			expected.push(payload);
+			expected.push(order);
+			expected.push(order);
+		} else {
+			TypeValidator.fail("Atomic<T> has no method '" + method + "'", call);
+		}
+		self.validateBuiltinSignature("Atomic." + method, expected, call, vars);
+		if (method.startsWith("fetch") && (payload.base == "bool" || !self.types.integralType(payload, self.state.analyzed))) {
+			TypeValidator.fail("Atomic." + method + " requires an integral payload", call);
+		}
+		if (method == "load") {
+			string actualOrder = self.literalMemoryOrder(call.args.get(0), "Atomic.load");
+			if (actualOrder == "RELEASE" || actualOrder == "ACQ_REL") {
+				TypeValidator.fail("Atomic.load does not accept MemoryOrder." + actualOrder, call);
+			}
+		} else if (method == "store") {
+			string actualOrder = self.literalMemoryOrder(call.args.get(1), "Atomic.store");
+			if (actualOrder == "ACQUIRE" || actualOrder == "ACQ_REL") {
+				TypeValidator.fail("Atomic.store does not accept MemoryOrder." + actualOrder, call);
+			}
+		} else if (method == "exchange" || method.startsWith("fetch")) {
+			self.literalMemoryOrder(call.args.get(1), "Atomic." + method);
+		} else if (method == "compareExchangeStrong") {
+			string success = self.literalMemoryOrder(call.args.get(2), "Atomic.compareExchangeStrong");
+			string failure = self.literalMemoryOrder(call.args.get(3), "Atomic.compareExchangeStrong");
+			if (!self.compareExchangeFailureAllowed(success, failure)) {
+				TypeValidator.fail("Atomic.compareExchangeStrong failure order MemoryOrder." + failure + " is not allowed with success order MemoryOrder." + success, call);
+			}
+		}
+	}
 
-    private void validateSpanMethod(Node call, Node receiver,
-            Map<string, Node> vars) {
-        string method = call.callee.field;
-        Node element = receiver.generic_args.get(0);
-        Vector<Node> expected = [];
-        if (method == "tryGet") {
-            expected.push(SemanticTypeSystem.primitive("size_t"));
-            Node outputElement = TypeShape.copy(element);
-            outputElement.is_const = false;
-            outputElement.is_volatile = false;
-            expected.push(TypeShape.withOuterPointer(outputElement));
-        } else if (method == "trySet") {
-            expected.push(SemanticTypeSystem.primitive("size_t"));
-            expected.push(element);
-        } else if (method != "length" && method != "isEmpty"
-                && method != "isValid") {
-            TypeValidator.fail("Span<T> has no method '"
-                + method + "'", call);
-        }
-        self.validateBuiltinSignature(
-            "Span." + method, expected, call, vars);
-        if (method == "trySet" && element.is_const) {
-            TypeValidator.fail(
-                "Span<const T>.trySet is not available", call);
-        }
-    }
+	private void validateSpanMethod(Node call, Node receiver, Map<string, Node> vars) {
+		string method = call.callee.field;
+		Node element = receiver.generic_args.get(0);
+		Vector<Node> expected = [];
+		if (method == "tryGet") {
+			expected.push(SemanticTypeSystem.primitive("size_t"));
+			Node outputElement = TypeShape.copy(element);
+			outputElement.is_const = false;
+			outputElement.is_volatile = false;
+			expected.push(TypeShape.withOuterPointer(outputElement));
+		} else if (method == "trySet") {
+			expected.push(SemanticTypeSystem.primitive("size_t"));
+			expected.push(element);
+		} else if (method != "length" && method != "isEmpty" && method != "isValid") {
+			TypeValidator.fail("Span<T> has no method '" + method + "'", call);
+		}
+		self.validateBuiltinSignature("Span." + method, expected, call, vars);
+		if (method == "trySet" && element.is_const) {
+			TypeValidator.fail("Span<const T>.trySet is not available", call);
+		}
+	}
 
-    private void validateMethodAccess(string className, Node method,
-            Node site) {
-        if (method.access != "private") { return; }
-        if (!self.state.owner.startsWith(className + ".")) {
-            TypeValidator.fail("Cannot access private method '" + method.name
-                + "' of class '" + className + "'", site);
-        }
-    }
+	private void validateMethodAccess(string className, Node method, Node site) {
+		if (method.access != "private") { return; }
+		if (!self.state.owner.startsWith(className + ".")) {
+			TypeValidator.fail("Cannot access private method '" + method.name + "' of class '" + className + "'", site);
+		}
+	}
 
-    public void validateConstructorAccess(
-            string className, Node constructor, Node site) {
-        if (constructor.access == "private"
-                && !self.state.owner.startsWith(className + ".")) {
-            TypeValidator.fail(
-                "Cannot call private constructor of class '"
-                    + className + "'",
-                site);
-        }
-    }
+	public void validateConstructorAccess(string className, Node constructor, Node site) {
+		if (constructor.access == "private" && !self.state.owner.startsWith(className + ".")) {
+			TypeValidator.fail("Cannot call private constructor of class '" + className + "'", site);
+		}
+	}
 
-    public void validateCall(Node call,
-            Map<string, Node> vars) {
-        self.borrows.validateConditionalRawProjectionCall(call,  vars);
-        self.validateSourceMacroCall(call,  vars);
-        if (self.ownership.rawLifetimeCall(call,  vars)) {
-            self.ownership.validateRawLifetimeCall(call,  vars);
-        }
-        int threadArgumentIndex = 0;
-        while (threadArgumentIndex < call.args.len) {
-            self.rejectThreadValueEscape(
-                call.args.get(threadArgumentIndex), "passed as arguments",
-                 vars);
-            threadArgumentIndex = threadArgumentIndex + 1;
-        }
-        self.ownership.rejectRichEnumOwnedArgs(call,  vars);
-        Node callee = call.callee;
-        Map<string, Node> noSubstitutions = {};
-        if (callee == null) { return; }
-        if (callee.kind == NK_IDENTIFIER) {
-            string name = callee.name;
-            if (self.validateCallableValueCall(call, name,  vars)) { return; }
-            if (self.validateGpuBuiltinCall(call,  vars)) { return; }
-            if (self.validateHostedIdentifierCall(call,  vars)) {
-                return;
-            }
-            if (self.state.analyzed.funcTable.has(name)) {
-                Node functionDecl = self.state.analyzed.funcTable.get(name);
-                self.borrows.validateOpaqueCallArguments(
-                    functionDecl, functionDecl.params, call, name,
-                    noSubstitutions, functionDecl.body_node == null,
-                     vars);
-                self.validateSignature(name, functionDecl.params, call,
-                    noSubstitutions, functionDecl.is_gpu,  vars);
-                self.ownership.validateTransferredArguments(
-                    functionDecl, call,  vars);
-                return;
-            }
-            if (name == "Mutex") {
-                if (call.args.len != 1) {
-                    TypeValidator.fail("'Mutex()' expects 1 argument but got "
-                        + Strings.fromInt(call.args.len), call);
-                }
-                int mutexArgIndex = 0;
-                while (mutexArgIndex < call.arg_names.len) {
-                    if (call.arg_names.get(mutexArgIndex) != "") {
-                        TypeValidator.fail(
-                            "'Mutex()' does not accept named arguments", call);
-                    }
-                    mutexArgIndex = mutexArgIndex + 1;
-                }
-                return;
-            }
-            if (name == "Atomic" || name == "Span") {
-                int namedIndex = 0;
-                while (namedIndex < call.arg_names.len) {
-                    if (call.arg_names.get(namedIndex) != "") {
-                        TypeValidator.fail("'" + name
-                            + "()' does not accept named arguments", call);
-                    }
-                    namedIndex = namedIndex + 1;
-                }
-                if (name == "Atomic") {
-                    if (call.args.len != 1) {
-                        TypeValidator.fail("'Atomic()' expects 1 argument but got "
-                            + Strings.fromInt(call.args.len), call);
-                    }
-                    Node? payload = self.types.resolveAliases(
-                        self.types.inferType(call.args.get(0), vars));
-                    if (payload != null && !self.types.atomicPayload(payload)) {
-                        TypeValidator.fail(
-                            "Atomic<T> payload must be bool, int, uint, or a raw pointer",
-                            call);
-                    }
-                    return;
-                }
-                if (call.args.len != 1 && call.args.len != 2) {
-                    TypeValidator.fail("'Span()' expects 1 or 2 arguments but got "
-                        + Strings.fromInt(call.args.len), call);
-                }
-                Node? backing = self.types.resolveAliases(
-                    self.types.inferType(call.args.get(0), vars));
-                if (backing == null
-                        || (!backing.is_array
-                            && backing.pointer_depth == 0)) {
-                    TypeValidator.fail(
-                        "Span() backing must be a fixed array or raw pointer",
-                        call);
-                }
-                Node concreteBacking = backing;
-                if (call.args.len == 1 && !concreteBacking.is_array) {
-                    TypeValidator.fail(
-                        "Span(pointer) requires an explicit element count", call);
-                }
-                if (call.args.len == 1 && concreteBacking.is_array
-                        && (concreteBacking.array_size == null
-                            || !self.state.analyzed.constantArrayBoundKeys.has(
-                                AstIdentity.key(concreteBacking.array_size)))) {
-                    TypeValidator.fail(
-                        "Span(array) requires a fixed constant extent", call);
-                }
-                if (call.args.len == 2) {
-                    Node? countType = self.types.resolveAliases(
-                        self.types.inferType(call.args.get(1), vars));
-                    if (countType != null && !self.types.integralType(
-                            countType, self.state.analyzed)) {
-                        TypeValidator.fail(
-                            "Span() element count must be integral", call);
-                    }
-                }
-                return;
-            }
-            string constructorName = name;
-            Node? aliasConstructorType = null;
-            if (self.state.analyzed.typedefTable.has(name)) {
-                Node? resolvedAlias = self.types.resolveAliases(
-                    SemanticTypeSystem.primitive(name));
-                if (resolvedAlias != null
-                        && (self.state.analyzed.isClass(resolvedAlias.base)
-                            || self.state.analyzed.isGenericClass(
-                                resolvedAlias.base))) {
-                    constructorName = resolvedAlias.base;
-                    aliasConstructorType = resolvedAlias;
-                }
-            }
-            if (self.state.analyzed.isClass(constructorName)) {
-                Node classDeclaration =
-                    self.state.analyzed.classTable.get(constructorName);
-                if (classDeclaration.is_abstract) {
-                    TypeValidator.fail(
-                        "Cannot instantiate abstract class '"
-                            + constructorName + "'", call);
-                }
-                Node? constructor =
-                    self.state.analyzed.classConstructor(constructorName);
-                if (constructor == null) {
-                    if (call.args.len > 0) {
-                        TypeValidator.fail("Class '" + constructorName
-                            + "' has no constructor but was called with "
-                            + Strings.fromInt(call.args.len) + " argument(s)", call);
-                    }
-                } else {
-                    self.validateConstructorAccess(
-                        constructorName, constructor, call);
-                    self.borrows.validateOpaqueCallArguments(
-                        constructor, constructor.params, call, constructorName,
-                        noSubstitutions, false,  vars);
-                    self.validateSignature(
-                        constructorName, constructor.params, call,
-                        noSubstitutions, false, vars);
-                    self.ownership.validateTransferredArguments(
-                        constructor, call,  vars);
-                    if (constructorName == "CallbackRegistration") {
-                        self.validateCallbackRegistrationInvoke(
-                            constructor, call, vars);
-                    }
-                }
-                return;
-            }
-            if (self.state.analyzed.isGenericClass(constructorName)) {
-                Node declaration = self.state.analyzed.genericClassTable.get(
-                    constructorName);
-                if (declaration.is_abstract) {
-                    TypeValidator.fail(
-                        "Cannot instantiate abstract class '"
-                            + constructorName + "'", call);
-                }
-                Node? instance = aliasConstructorType != null
-                    ? aliasConstructorType
-                    : self.types.inferType(call, vars);
-                if (instance == null
-                        || instance.base != constructorName
-                        || instance.generic_args.len
-                            != declaration.generic_params.len) {
-                    TypeValidator.fail(
-                        "Cannot infer generic arguments for constructor '"
-                            + constructorName + "()'", call);
-                }
-                Node concreteInstance = instance;
-                Node? constructor =
-                    self.state.analyzed.genericClassConstructor(constructorName);
-                if (constructor == null) {
-                    if (call.args.len > 0) {
-                        TypeValidator.fail("Class '" + constructorName
-                            + "' has no constructor but was called with "
-                            + Strings.fromInt(call.args.len) + " argument(s)", call);
-                    }
-                    return;
-                }
-                self.validateConstructorAccess(
-                    constructorName, constructor, call);
-                Map<string, Node> substitutions = SemanticTypeSystem.genericTypeMap(
-                    self.state.analyzed, concreteInstance);
-                self.borrows.validateOpaqueCallArguments(
-                    constructor, constructor.params, call, constructorName,
-                    substitutions, false,  vars);
-                self.validateSignature(constructorName, constructor.params, call,
-                    substitutions, false,  vars);
-                self.ownership.validateTransferredArguments(
-                    constructor, call,  vars);
-                if (constructorName == "CallbackRegistration") {
-                    self.validateCallbackRegistrationInvoke(
-                        constructor, call, vars);
-                }
-                return;
-            }
-            self.rejectConstructorDefaultInstanceMember(
-                name, callee, true,  vars);
-            return;
-        }
-        if (callee.kind == NK_LAMBDA_EXPR) {
-            self.borrows.validateOpaqueCallArguments(
-                null, callee.params, call, "lambda", noSubstitutions, false,
-                 vars);
-            self.validateSignature("lambda", callee.params, call,
-                noSubstitutions, false,  vars);
-            return;
-        }
-        if (callee.kind == NK_FIELD_ACCESS_EXPR
-                && callee.obj != null
-                && callee.obj.kind == NK_IDENTIFIER
-                && !vars.has(callee.obj.name)
-                && self.state.analyzed.isRichEnum(callee.obj.name)) {
-            Node? variant = self.types.richEnumVariant(
-                callee.obj.name, callee.field);
-            if (variant == null) {
-                TypeValidator.fail("Rich enum '" + callee.obj.name
-                    + "' has no variant '" + callee.field + "'", call);
-            }
-            Node concreteVariant = variant;
-            self.validateSignature(callee.obj.name + "." + callee.field,
-                concreteVariant.params, call, noSubstitutions,
-                false,  vars);
-            self.borrows.validateOpaqueCallArguments(
-                null, concreteVariant.params, call,
-                callee.obj.name + "." + callee.field,
-                noSubstitutions, false,  vars);
-            return;
-        }
-        Node? calleeType = SemanticTypeSystem.directFunctionPointer(
-            self.types.inferType(callee,  vars), self.state.analyzed);
-        if (calleeType != null) {
-            Vector<Node> callableParams = [];
-            int callableIndex = 1;
-            while (callableIndex < calleeType.generic_args.len) {
-                Node callableParam = Node();
-                callableParam.kind = NK_PARAM;
-                callableParam.name = Strings.fromInt(callableIndex);
-                callableParam.type = calleeType.generic_args.get(callableIndex);
-                callableParams.push(callableParam);
-                callableIndex = callableIndex + 1;
-            }
-            self.validateSignature("callable", callableParams, call,
-                noSubstitutions, false,  vars);
-            self.borrows.validateOpaqueCallArguments(
-                null, callableParams, call, "callable",
-                noSubstitutions, false,  vars);
-            return;
-        }
-        if (callee.kind != NK_FIELD_ACCESS_EXPR) {
-            if (calleeType != null) {
-                TypeValidator.fail("Expression is not callable", call);
-            }
-            return;
-        }
-        string methodName = callee.field;
-        if (callee.obj != null && callee.obj.kind == NK_IDENTIFIER
-                && !vars.has(callee.obj.name)
-                && self.state.analyzed.isClass(callee.obj.name)) {
-            string className = callee.obj.name;
-            Node? method = self.state.analyzed.classMethod(className, methodName);
-            if (method == null || method.kind != NK_METHOD_DECL) {
-                TypeValidator.fail("Class '" + className
-                    + "' has no class method '" + methodName + "'", call);
-            }
-            Node concreteMethod = method;
-            if (concreteMethod.access != "class") {
-                TypeValidator.fail("Method '" + className + "."
-                    + methodName + "' is not a class method", call);
-            }
-            self.validateMethodAccess(
-                className, concreteMethod,  call);
-            self.validateSignature(className + "." + methodName,
-                concreteMethod.params, call, noSubstitutions,
-                false,  vars);
-            self.borrows.validateOpaqueCallArguments(
-                concreteMethod, concreteMethod.params, call,
-                className + "." + methodName, noSubstitutions, false,
-                 vars);
-            self.ownership.validateTransferredArguments(
-                concreteMethod, call,  vars);
-            return;
-        }
-        Node? receiver = self.types.inferType(callee.obj,  vars);
-        if (receiver == null) { return; }
-        Node? canonicalReceiver = self.types.resolveAliases(receiver);
-        if (canonicalReceiver != null
-                && canonicalReceiver.base == "Thread"
-                && methodName == "join") {
-            self.ownership.validateThreadJoinReceiver(call);
-            return;
-        }
-        if (canonicalReceiver != null
-                && canonicalReceiver.base == "Mutex"
-                && canonicalReceiver.generic_args.len == 1) {
-            self.ownership.validateMutexCall(
-                call, canonicalReceiver,  vars);
-            return;
-        }
-        if (canonicalReceiver != null
-                && canonicalReceiver.base == "Atomic"
-                && canonicalReceiver.generic_args.len == 1) {
-            self.validateAtomicMethod(call, canonicalReceiver, vars);
-            return;
-        }
-        if (canonicalReceiver != null
-                && canonicalReceiver.base == "Span"
-                && canonicalReceiver.generic_args.len == 1) {
-            self.validateSpanMethod(call, canonicalReceiver, vars);
-            return;
-        }
-        if (canonicalReceiver != null
-                && self.state.analyzed.isRichEnum(canonicalReceiver.base)) {
-            if (methodName != "toString") {
-                TypeValidator.fail("Rich enum '" + canonicalReceiver.base
-                    + "' has no method '" + methodName + "'", call);
-            }
-            Vector<Node> noParameters = [];
-            self.validateSignature(canonicalReceiver.base + ".toString",
-                noParameters, call, noSubstitutions, false,  vars);
-            return;
-        }
-        if (SemanticTypeSystem.isString(receiver)) {
-            self.validateStringCall(call,  vars);
-            return;
-        }
-        Node? method = null;
-        Map<string, Node> substitutions = {};
-        if (self.state.analyzed.isClass(receiver.base)) {
-            method = self.state.analyzed.classMethod(receiver.base, methodName);
-        } else if (self.state.analyzed.isGenericClass(receiver.base)) {
-            method = self.state.analyzed.genericClassMethod(
-                receiver.base, methodName);
-            substitutions = SemanticTypeSystem.genericTypeMap(self.state.analyzed, receiver);
-        } else if (self.state.interfaces.has(receiver.base)) {
-            method = self.interfaceMethod( receiver.base, methodName);
-        } else {
-            return;
-        }
-        if (method == null || method.kind != NK_METHOD_DECL) {
-            TypeValidator.fail("Type '" + self.types.formatType(receiver)
-                + "' has no method '" + methodName + "'", call);
-        }
-        Node concreteMethod = method;
-        if (concreteMethod.access == "class") {
-            TypeValidator.fail("Class method '" + receiver.base + "."
-                + methodName + "' must be called on the class", call);
-        }
-        self.validateMethodAccess(
-            receiver.base, concreteMethod,  call);
-        self.addMethodSubstitutions(
-            concreteMethod, call, substitutions);
-        self.borrows.validateOpaqueCallArguments(
-            concreteMethod, concreteMethod.params, call,
-            receiver.base + "." + methodName, substitutions, false,
-             vars);
-        self.validateSignature(receiver.base + "." + methodName,
-            concreteMethod.params, call, substitutions, false,  vars);
-        self.ownership.validateTransferredArguments(
-            concreteMethod, call,  vars);
-    }
+	public void validateCall(Node call, Map<string, Node> vars) {
+		self.borrows.validateConditionalRawProjectionCall(call,  vars);
+		self.validateSourceMacroCall(call,  vars);
+		if (self.ownership.rawLifetimeCall(call, vars)) {
+			self.ownership.validateRawLifetimeCall(call,  vars);
+		}
+		int threadArgumentIndex = 0;
+		while (threadArgumentIndex < call.args.len) {
+			self.rejectThreadValueEscape(call.args.get(threadArgumentIndex), "passed as arguments", vars);
+			threadArgumentIndex = threadArgumentIndex + 1;
+		}
+		self.ownership.rejectRichEnumOwnedArgs(call,  vars);
+		Node callee = call.callee;
+		Map<string, Node> noSubstitutions = {};
+		if (callee == null) { return; }
+		if (callee.kind == NK_IDENTIFIER) {
+			string name = callee.name;
+			if (self.validateCallableValueCall(call, name, vars)) { return; }
+			if (self.validateGpuBuiltinCall(call, vars)) { return; }
+			if (self.validateHostedIdentifierCall(call, vars)) {
+				return;
+			}
+			if (self.state.analyzed.funcTable.has(name)) {
+				Node functionDecl = self.state.analyzed.funcTable.get(name);
+				self.borrows.validateOpaqueCallArguments(functionDecl, functionDecl.params, call, name, noSubstitutions, functionDecl.body_node == null, vars);
+				self.validateSignature(name, functionDecl.params, call, noSubstitutions, functionDecl.is_gpu, vars);
+				self.ownership.validateTransferredArguments(functionDecl, call, vars);
+				return;
+			}
+			if (name == "Mutex") {
+				if (call.args.len != 1) {
+					TypeValidator.fail("'Mutex()' expects 1 argument but got " + Strings.fromInt(call.args.len), call);
+				}
+				int mutexArgIndex = 0;
+				while (mutexArgIndex < call.arg_names.len) {
+					if (call.arg_names.get(mutexArgIndex) != "") {
+						TypeValidator.fail("'Mutex()' does not accept named arguments", call);
+					}
+					mutexArgIndex = mutexArgIndex + 1;
+				}
+				return;
+			}
+			if (name == "Atomic" || name == "Span") {
+				int namedIndex = 0;
+				while (namedIndex < call.arg_names.len) {
+					if (call.arg_names.get(namedIndex) != "") {
+						TypeValidator.fail("'" + name + "()' does not accept named arguments", call);
+					}
+					namedIndex = namedIndex + 1;
+				}
+				if (name == "Atomic") {
+					if (call.args.len != 1) {
+						TypeValidator.fail("'Atomic()' expects 1 argument but got " + Strings.fromInt(call.args.len), call);
+					}
+					Node? payload = self.types.resolveAliases(self.types.inferType(call.args.get(0), vars));
+					if (payload != null && !self.types.atomicPayload(payload)) {
+						TypeValidator.fail("Atomic<T> payload must be bool, int, uint, or a raw pointer", call);
+					}
+					return;
+				}
+				if (call.args.len != 1 && call.args.len != 2) {
+					TypeValidator.fail("'Span()' expects 1 or 2 arguments but got " + Strings.fromInt(call.args.len), call);
+				}
+				Node? backing = self.types.resolveAliases(self.types.inferType(call.args.get(0), vars));
+				if (backing == null || (!backing.is_array && backing.pointer_depth == 0)) {
+					TypeValidator.fail("Span() backing must be a fixed array or raw pointer", call);
+				}
+				Node concreteBacking = backing;
+				if (call.args.len == 1 && !concreteBacking.is_array) {
+					TypeValidator.fail("Span(pointer) requires an explicit element count", call);
+				}
+				if (call.args.len == 1 && concreteBacking.is_array && (concreteBacking.array_size == null || !self.state.analyzed.constantArrayBoundKeys.has(AstIdentity.key(concreteBacking.array_size)))) {
+					TypeValidator.fail("Span(array) requires a fixed constant extent", call);
+				}
+				if (call.args.len == 2) {
+					Node? countType = self.types.resolveAliases(self.types.inferType(call.args.get(1), vars));
+					if (countType != null && !self.types.integralType(countType, self.state.analyzed)) {
+						TypeValidator.fail("Span() element count must be integral", call);
+					}
+				}
+				return;
+			}
+			string constructorName = name;
+			Node? aliasConstructorType = null;
+			if (self.state.analyzed.typedefTable.has(name)) {
+				Node? resolvedAlias = self.types.resolveAliases(SemanticTypeSystem.primitive(name));
+				if (resolvedAlias != null && (self.state.analyzed.isClass(resolvedAlias.base) || self.state.analyzed.isGenericClass(resolvedAlias.base))) {
+					constructorName = resolvedAlias.base;
+					aliasConstructorType = resolvedAlias;
+				}
+			}
+			if (self.state.analyzed.isClass(constructorName)) {
+				Node classDeclaration = self.state.analyzed.classTable.get(constructorName);
+				if (classDeclaration.is_abstract) {
+					TypeValidator.fail("Cannot instantiate abstract class '" + constructorName + "'", call);
+				}
+				Node? constructor = self.state.analyzed.classConstructor(constructorName);
+				if (constructor == null) {
+					if (call.args.len > 0) {
+						TypeValidator.fail("Class '" + constructorName + "' has no constructor but was called with " + Strings.fromInt(call.args.len) + " argument(s)", call);
+					}
+				} else {
+					self.validateConstructorAccess(constructorName, constructor, call);
+					self.borrows.validateOpaqueCallArguments(constructor, constructor.params, call, constructorName, noSubstitutions, false, vars);
+					self.validateSignature(constructorName, constructor.params, call, noSubstitutions, false, vars);
+					self.ownership.validateTransferredArguments(constructor, call, vars);
+					if (constructorName == "CallbackRegistration") {
+						self.validateCallbackRegistrationInvoke(constructor, call, vars);
+					}
+				}
+				return;
+			}
+			if (self.state.analyzed.isGenericClass(constructorName)) {
+				Node declaration = self.state.analyzed.genericClassTable.get(constructorName);
+				if (declaration.is_abstract) {
+					TypeValidator.fail("Cannot instantiate abstract class '" + constructorName + "'", call);
+				}
+				Node? instance = aliasConstructorType != null ? aliasConstructorType : self.types.inferType(call, vars);
+				if (instance == null || instance.base != constructorName || instance.generic_args.len != declaration.generic_params.len) {
+					TypeValidator.fail("Cannot infer generic arguments for constructor '" + constructorName + "()'", call);
+				}
+				Node concreteInstance = instance;
+				Node? constructor = self.state.analyzed.genericClassConstructor(constructorName);
+				if (constructor == null) {
+					if (call.args.len > 0) {
+						TypeValidator.fail("Class '" + constructorName + "' has no constructor but was called with " + Strings.fromInt(call.args.len) + " argument(s)", call);
+					}
+					return;
+				}
+				self.validateConstructorAccess(constructorName, constructor, call);
+				Map<string, Node> substitutions = SemanticTypeSystem.genericTypeMap(self.state.analyzed, concreteInstance);
+				self.borrows.validateOpaqueCallArguments(constructor, constructor.params, call, constructorName, substitutions, false, vars);
+				self.validateSignature(constructorName, constructor.params, call, substitutions, false, vars);
+				self.ownership.validateTransferredArguments(constructor, call, vars);
+				if (constructorName == "CallbackRegistration") {
+					self.validateCallbackRegistrationInvoke(constructor, call, vars);
+				}
+				return;
+			}
+			self.rejectConstructorDefaultInstanceMember(name, callee, true, vars);
+			return;
+		}
+		if (callee.kind == NK_LAMBDA_EXPR) {
+			self.borrows.validateOpaqueCallArguments(null, callee.params, call, "lambda", noSubstitutions, false, vars);
+			self.validateSignature("lambda", callee.params, call, noSubstitutions, false, vars);
+			return;
+		}
+		if (callee.kind == NK_FIELD_ACCESS_EXPR && callee.obj != null && callee.obj.kind == NK_IDENTIFIER && !vars.has(callee.obj.name) && self.state.analyzed.isRichEnum(callee.obj.name)) {
+			Node? variant = self.types.richEnumVariant(callee.obj.name, callee.field);
+			if (variant == null) {
+				TypeValidator.fail("Rich enum '" + callee.obj.name + "' has no variant '" + callee.field + "'", call);
+			}
+			Node concreteVariant = variant;
+			self.validateSignature(callee.obj.name + "." + callee.field, concreteVariant.params, call, noSubstitutions, false, vars);
+			self.borrows.validateOpaqueCallArguments(null, concreteVariant.params, call, callee.obj.name + "." + callee.field, noSubstitutions, false, vars);
+			return;
+		}
+		Node? calleeType = SemanticTypeSystem.directFunctionPointer(self.types.inferType(callee, vars), self.state.analyzed);
+		if (calleeType != null) {
+			Vector<Node> callableParams = [];
+			int callableIndex = 1;
+			while (callableIndex < calleeType.generic_args.len) {
+				Node callableParam = Node();
+				callableParam.kind = NK_PARAM;
+				callableParam.name = Strings.fromInt(callableIndex);
+				callableParam.type = calleeType.generic_args.get(callableIndex);
+				callableParams.push(callableParam);
+				callableIndex = callableIndex + 1;
+			}
+			self.validateSignature("callable", callableParams, call, noSubstitutions, false, vars);
+			self.borrows.validateOpaqueCallArguments(null, callableParams, call, "callable", noSubstitutions, false, vars);
+			return;
+		}
+		if (callee.kind != NK_FIELD_ACCESS_EXPR) {
+			if (calleeType != null) {
+				TypeValidator.fail("Expression is not callable", call);
+			}
+			return;
+		}
+		string methodName = callee.field;
+		if (callee.obj != null && callee.obj.kind == NK_IDENTIFIER && !vars.has(callee.obj.name) && self.state.analyzed.isClass(callee.obj.name)) {
+			string className = callee.obj.name;
+			Node? method = self.state.analyzed.classMethod(className, methodName);
+			if (method == null || method.kind != NK_METHOD_DECL) {
+				TypeValidator.fail("Class '" + className + "' has no class method '" + methodName + "'", call);
+			}
+			Node concreteMethod = method;
+			if (concreteMethod.access != "class") {
+				TypeValidator.fail("Method '" + className + "." + methodName + "' is not a class method", call);
+			}
+			self.validateMethodAccess(className, concreteMethod, call);
+			self.validateSignature(className + "." + methodName, concreteMethod.params, call, noSubstitutions, false, vars);
+			self.borrows.validateOpaqueCallArguments(concreteMethod, concreteMethod.params, call, className + "." + methodName, noSubstitutions, false, vars);
+			self.ownership.validateTransferredArguments(concreteMethod, call, vars);
+			return;
+		}
+		Node? receiver = self.types.inferType(callee.obj,  vars);
+		if (receiver == null) { return; }
+		Node? canonicalReceiver = self.types.resolveAliases(receiver);
+		if (canonicalReceiver != null && canonicalReceiver.base == "Thread" && methodName == "join") {
+			self.ownership.validateThreadJoinReceiver(call);
+			return;
+		}
+		if (canonicalReceiver != null && canonicalReceiver.base == "Mutex" && canonicalReceiver.generic_args.len == 1) {
+			self.ownership.validateMutexCall(call, canonicalReceiver, vars);
+			return;
+		}
+		if (canonicalReceiver != null && canonicalReceiver.base == "Atomic" && canonicalReceiver.generic_args.len == 1) {
+			self.validateAtomicMethod(call, canonicalReceiver, vars);
+			return;
+		}
+		if (canonicalReceiver != null && canonicalReceiver.base == "Span" && canonicalReceiver.generic_args.len == 1) {
+			self.validateSpanMethod(call, canonicalReceiver, vars);
+			return;
+		}
+		if (canonicalReceiver != null && self.state.analyzed.isRichEnum(canonicalReceiver.base)) {
+			if (methodName != "toString") {
+				TypeValidator.fail("Rich enum '" + canonicalReceiver.base + "' has no method '" + methodName + "'", call);
+			}
+			Vector<Node> noParameters = [];
+			self.validateSignature(canonicalReceiver.base + ".toString", noParameters, call, noSubstitutions, false, vars);
+			return;
+		}
+		if (SemanticTypeSystem.isString(receiver)) {
+			self.validateStringCall(call,  vars);
+			return;
+		}
+		Node? method = null;
+		Map<string, Node> substitutions = {};
+		if (self.state.analyzed.isClass(receiver.base)) {
+			method = self.state.analyzed.classMethod(receiver.base, methodName);
+		} else if (self.state.analyzed.isGenericClass(receiver.base)) {
+			method = self.state.analyzed.genericClassMethod(receiver.base, methodName);
+			substitutions = SemanticTypeSystem.genericTypeMap(self.state.analyzed, receiver);
+		} else if (self.state.interfaces.has(receiver.base)) {
+			method = self.interfaceMethod( receiver.base, methodName);
+		} else {
+			return;
+		}
+		if (method == null || method.kind != NK_METHOD_DECL) {
+			TypeValidator.fail("Type '" + self.types.formatType(receiver) + "' has no method '" + methodName + "'", call);
+		}
+		Node concreteMethod = method;
+		if (concreteMethod.access == "class") {
+			TypeValidator.fail("Class method '" + receiver.base + "." + methodName + "' must be called on the class", call);
+		}
+		self.validateMethodAccess(receiver.base, concreteMethod, call);
+		self.addMethodSubstitutions(concreteMethod, call, substitutions);
+		self.borrows.validateOpaqueCallArguments(concreteMethod, concreteMethod.params, call, receiver.base + "." + methodName, substitutions, false, vars);
+		self.validateSignature(receiver.base + "." + methodName, concreteMethod.params, call, substitutions, false, vars);
+		self.ownership.validateTransferredArguments(concreteMethod, call, vars);
+	}
 
-    public void validateCallbackRegistrationInvoke(
-            Node constructor, Node call, Map<string, Node> vars) {
-        int invokeParameter = -1;
-        int parameterIndex = 0;
-        while (parameterIndex < constructor.params.len) {
-            if (constructor.params.get(parameterIndex).name == "invoke") {
-                invokeParameter = parameterIndex;
-            }
-            parameterIndex = parameterIndex + 1;
-        }
-        Node? invoke = null;
-        int positional = 0;
-        int argumentIndex = 0;
-        while (argumentIndex < call.args.len) {
-            string argumentName = argumentIndex < call.arg_names.len
-                ? call.arg_names.get(argumentIndex) : "";
-            if (argumentName == "invoke"
-                    || (argumentName == "" && positional == invokeParameter)) {
-                invoke = call.args.get(argumentIndex);
-            }
-            if (argumentName == "") { positional = positional + 1; }
-            argumentIndex = argumentIndex + 1;
-        }
-        if (invoke == null || invoke.kind != NK_IDENTIFIER
-                || vars.has(invoke.name)
-                || !self.state.analyzed.funcTable.has(invoke.name)
-                || !self.state.analyzed.funcTable.get(invoke.name).is_realtime) {
-            TypeValidator.fail(
-                "CallbackRegistration invoke must be a direct named "
-                    + "@realtime function",
-                invoke == null ? call : invoke);
-        }
-    }
+	public void validateCallbackRegistrationInvoke(Node constructor, Node call, Map<string, Node> vars) {
+		int invokeParameter = -1;
+		int parameterIndex = 0;
+		while (parameterIndex < constructor.params.len) {
+			if (constructor.params.get(parameterIndex).name == "invoke") {
+				invokeParameter = parameterIndex;
+			}
+			parameterIndex = parameterIndex + 1;
+		}
+		Node? invoke = null;
+		int positional = 0;
+		int argumentIndex = 0;
+		while (argumentIndex < call.args.len) {
+			string argumentName = argumentIndex < call.arg_names.len ? call.arg_names.get(argumentIndex) : "";
+			if (argumentName == "invoke" || (argumentName == "" && positional == invokeParameter)) {
+				invoke = call.args.get(argumentIndex);
+			}
+			if (argumentName == "") { positional = positional + 1; }
+			argumentIndex = argumentIndex + 1;
+		}
+		if (invoke == null || invoke.kind != NK_IDENTIFIER || vars.has(invoke.name) || !self.state.analyzed.funcTable.has(invoke.name) || !self.state.analyzed.funcTable.get(invoke.name).is_realtime) {
+			TypeValidator.fail("CallbackRegistration invoke must be a direct named " + "@realtime function", invoke == null ? call : invoke);
+		}
+	}
 
-    public bool validateCallableValueCall(Node call, string name,
-             Map<string, Node> vars) {
-        if (!vars.has(name)) { return false; }
-        Node? resolvedCallable = SemanticTypeSystem.directFunctionPointer(
-            vars.get(name), self.state.analyzed);
-        if (resolvedCallable == null) {
-            TypeValidator.fail("Value '" + name
-                + "' is not callable", call);
-        }
-        Node callable = resolvedCallable;
-        Vector<Node> params = [];
-        int index = 1;
-        while (index < callable.generic_args.len) {
-            Node parameter = Node();
-            parameter.kind = NK_PARAM;
-            parameter.name = Strings.fromInt(index);
-            parameter.type = callable.generic_args.get(index);
-            params.push(parameter);
-            index = index + 1;
-        }
-        Map<string, Node> noSubstitutions = {};
-        self.validateSignature(name, params, call,
-            noSubstitutions, false,  vars);
-        self.borrows.validateOpaqueCallArguments(
-            null, params, call, name, noSubstitutions, false,
-             vars);
-        return true;
-    }
+	public bool validateCallableValueCall(Node call, string name, Map<string, Node> vars) {
+		if (!vars.has(name)) { return false; }
+		Node? resolvedCallable = SemanticTypeSystem.directFunctionPointer(vars.get(name), self.state.analyzed);
+		if (resolvedCallable == null) {
+			TypeValidator.fail("Value '" + name + "' is not callable", call);
+		}
+		Node callable = resolvedCallable;
+		Vector<Node> params = [];
+		int index = 1;
+		while (index < callable.generic_args.len) {
+			Node parameter = Node();
+			parameter.kind = NK_PARAM;
+			parameter.name = Strings.fromInt(index);
+			parameter.type = callable.generic_args.get(index);
+			params.push(parameter);
+			index = index + 1;
+		}
+		Map<string, Node> noSubstitutions = {};
+		self.validateSignature(name, params, call, noSubstitutions, false, vars);
+		self.borrows.validateOpaqueCallArguments(null, params, call, name, noSubstitutions, false, vars);
+		return true;
+	}
 
-    public bool validateGpuBuiltinCall(Node call,
-             Map<string, Node> vars) {
-        string name = call.callee.name;
-        bool gpuBody = self.state.gpuCallable
-            && !self.state.inParameterDefault;
-        if (!gpuBody) {
-            if (name == "gpu_id"
-                    && self.gpu.callResolvesToIntrinsic(call, vars)) {
-                TypeValidator.fail(
-                    "gpu_id() can only be called inside @gpu functions",
-                    call);
-            }
-            return false;
-        }
-        if (self.gpu.callResolvesToSourceSymbol(call, vars)) {
-            TypeValidator.fail("call to '" + name
-                + "' has no WGSL definition because it resolves to a source symbol",
-                call);
-        }
-        if (!self.gpu.callResolvesToIntrinsic(call, vars)) {
-            return false;
-        }
-        int namedIndex = 0;
-        while (namedIndex < call.arg_names.len) {
-            if (call.arg_names.get(namedIndex) != "") {
-                TypeValidator.fail(
-                    "WGSL built-ins do not accept named arguments", call);
-            }
-            namedIndex = namedIndex + 1;
-        }
-        if (name == "gpu_id") {
-            if (call.args.len != 0) {
-                TypeValidator.fail("gpu_id() takes no arguments", call);
-            }
-            return true;
-        }
-        int expected = self.gpu.builtinArity(name);
-        if (call.args.len != expected) {
-            TypeValidator.fail(name + "() expects "
-                + Strings.fromInt(expected) + " argument(s), got "
-                + Strings.fromInt(call.args.len), call);
-        }
-        string firstBase = "";
-        int index = 0;
-        while (index < call.args.len) {
-            Node argument = call.args.get(index);
-            Node? actual = self.gpu.contextualExprType(argument, vars);
-            if (actual != null) {
-                string base = actual.base;
-                if (self.gpu.floatBuiltin(name) && base != "float") {
-                    TypeValidator.fail(name
-                        + "() requires float arguments in GPU functions",
-                        argument);
-                }
-                if (self.gpu.sameTypeBuiltin(name)) {
-                    if (base != "int" && base != "float") {
-                        TypeValidator.fail(name
-                            + "() requires int or float arguments in GPU functions",
-                            argument);
-                    }
-                    if (firstBase == "") { firstBase = base; }
-                    else if (base != firstBase) {
-                        TypeValidator.fail(name
-                            + "() arguments must have the same GPU scalar type",
-                            argument);
-                    }
-                }
-            }
-            index = index + 1;
-        }
-        if (self.state.analyzed.funcTable.has(name)) {
-            /* A canonical bodyless hosted prototype is superseded by the GPU
+	public bool validateGpuBuiltinCall(Node call, Map<string, Node> vars) {
+		string name = call.callee.name;
+		bool gpuBody = self.state.gpuCallable && !self.state.inParameterDefault;
+		if (!gpuBody) {
+			if (name == "gpu_id" && self.gpu.callResolvesToIntrinsic(call, vars)) {
+				TypeValidator.fail("gpu_id() can only be called inside @gpu functions", call);
+			}
+			return false;
+		}
+		if (self.gpu.callResolvesToSourceSymbol(call, vars)) {
+			TypeValidator.fail("call to '" + name + "' has no WGSL definition because it resolves to a source symbol", call);
+		}
+		if (!self.gpu.callResolvesToIntrinsic(call, vars)) {
+			return false;
+		}
+		int namedIndex = 0;
+		while (namedIndex < call.arg_names.len) {
+			if (call.arg_names.get(namedIndex) != "") {
+				TypeValidator.fail("WGSL built-ins do not accept named arguments", call);
+			}
+			namedIndex = namedIndex + 1;
+		}
+		if (name == "gpu_id") {
+			if (call.args.len != 0) {
+				TypeValidator.fail("gpu_id() takes no arguments", call);
+			}
+			return true;
+		}
+		int expected = self.gpu.builtinArity(name);
+		if (call.args.len != expected) {
+			TypeValidator.fail(name + "() expects " + Strings.fromInt(expected) + " argument(s), got " + Strings.fromInt(call.args.len), call);
+		}
+		string firstBase = "";
+		int index = 0;
+		while (index < call.args.len) {
+			Node argument = call.args.get(index);
+			Node? actual = self.gpu.contextualExprType(argument, vars);
+			if (actual != null) {
+				string base = actual.base;
+				if (self.gpu.floatBuiltin(name) && base != "float") {
+					TypeValidator.fail(name + "() requires float arguments in GPU functions", argument);
+				}
+				if (self.gpu.sameTypeBuiltin(name)) {
+					if (base != "int" && base != "float") {
+						TypeValidator.fail(name + "() requires int or float arguments in GPU functions", argument);
+					}
+					if (firstBase == "") { firstBase = base; }
+					else if (base != firstBase) {
+						TypeValidator.fail(name + "() arguments must have the same GPU scalar type", argument);
+					}
+				}
+			}
+			index = index + 1;
+		}
+		if (self.state.analyzed.funcTable.has(name)) {
+			/* A canonical bodyless hosted prototype is superseded by the GPU
              * intrinsic here. Retain the existing non-source call identity used by
              * CPU-fallback and WGSL lowering. */
-            self.state.analyzed.hostedCallKeys.put(AstIdentity.key(call), true);
-        }
-        return true;
-    }
+			self.state.analyzed.hostedCallKeys.put(AstIdentity.key(call), true);
+		}
+		return true;
+	}
 
-    public void validateDirectHostedOpaqueArguments(string name, Node call,
-             Map<string, Node> vars) {
-        int parameterCount = self.hostedAbi.parameterCount(name);
-        int argumentIndex = 0;
-        while (argumentIndex < call.args.len
-                && argumentIndex < parameterCount) {
-            Node expected = self.hostedAbi.parameterType(name, argumentIndex);
-            self.borrows.validateOpaqueCallArgument(
-                null, argumentIndex, expected,
-                call.args.get(argumentIndex), name, true,  vars);
-            argumentIndex = argumentIndex + 1;
-        }
-    }
+	public void validateDirectHostedOpaqueArguments(string name, Node call, Map<string, Node> vars) {
+		int parameterCount = self.hostedAbi.parameterCount(name);
+		int argumentIndex = 0;
+		while (argumentIndex < call.args.len && argumentIndex < parameterCount) {
+			Node expected = self.hostedAbi.parameterType(name, argumentIndex);
+			self.borrows.validateOpaqueCallArgument(null, argumentIndex, expected, call.args.get(argumentIndex), name, true, vars);
+			argumentIndex = argumentIndex + 1;
+		}
+	}
 
-    public bool hostedCallBypassesSourceDefinition(
-            string name) {
-        if (!self.hostedAbi.functionOwnedName(name)
-                || !self.state.analyzed.funcTable.has(name)
-                || self.state.callable == null
-                || !self.hostedAbi.compilerStdlibNode(self.state.callable)) {
-            return false;
-        }
-        Node declaration = self.state.analyzed.funcTable.get(name);
-        return declaration.body_node != null
-            && !self.hostedAbi.compilerStdlibNode(declaration);
-    }
+	public bool hostedCallBypassesSourceDefinition(string name) {
+		if (!self.hostedAbi.functionOwnedName(name) || !self.state.analyzed.funcTable.has(name) || self.state.callable == null || !self.hostedAbi.compilerStdlibNode(self.state.callable)) {
+			return false;
+		}
+		Node declaration = self.state.analyzed.funcTable.get(name);
+		return declaration.body_node != null && !self.hostedAbi.compilerStdlibNode(declaration);
+	}
 
-    public bool hostedCallUsesOwnedSymbol(string name,
-             Map<string, Node> vars) {
-        if (!self.hostedAbi.functionOwnedName(name) || vars.has(name)) { return false; }
-        if (!self.state.analyzed.funcTable.has(name)) {
-            return !self.state.analyzed.isClass(name);
-        }
-        Node declaration = self.state.analyzed.funcTable.get(name);
-        return declaration.body_node == null
-            || self.hostedCallBypassesSourceDefinition(name);
-    }
+	public bool hostedCallUsesOwnedSymbol(string name, Map<string, Node> vars) {
+		if (!self.hostedAbi.functionOwnedName(name) || vars.has(name)) { return false; }
+		if (!self.state.analyzed.funcTable.has(name)) {
+			return !self.state.analyzed.isClass(name);
+		}
+		Node declaration = self.state.analyzed.funcTable.get(name);
+		return declaration.body_node == null || self.hostedCallBypassesSourceDefinition(name);
+	}
 
-    public bool hostedArgumentTypeDeferred(Node expected, Node actual) {
-        if (self.state.typeParams.has(actual.base)) { return true; }
-        return expected.base == "void" && expected.pointer_depth == 1
-            && (actual.base == "string" || actual.pointer_depth > 0
-                || actual.is_array);
-    }
+	public bool hostedArgumentTypeDeferred(Node expected, Node actual) {
+		if (self.state.typeParams.has(actual.base)) { return true; }
+		return expected.base == "void" && expected.pointer_depth == 1 && (actual.base == "string" || actual.pointer_depth > 0 || actual.is_array);
+	}
 
-    public void validateUnknownHostedOpaqueArguments(string name, Node call,
-             Map<string, Node> vars) {
-        int index = 0;
-        while (index < call.args.len) {
-            Node argument = call.args.get(index);
-            if (self.borrows.expressionIsOpaqueBorrow(argument,  vars)) {
-                TypeValidator.fail("Argument to hosted function '" + name
-                    + "()' cannot forward a managed value as a raw "
-                    + "representation because its ABI effect is not proven "
-                    + "read-only", argument);
-            }
-            index = index + 1;
-        }
-    }
+	public void validateUnknownHostedOpaqueArguments(string name, Node call, Map<string, Node> vars) {
+		int index = 0;
+		while (index < call.args.len) {
+			Node argument = call.args.get(index);
+			if (self.borrows.expressionIsOpaqueBorrow(argument, vars)) {
+				TypeValidator.fail("Argument to hosted function '" + name + "()' cannot forward a managed value as a raw " + "representation because its ABI effect is not proven " + "read-only", argument);
+			}
+			index = index + 1;
+		}
+	}
 
-    public void validateDirectHostedCall(string name, Node call,
-             Map<string, Node> vars) {
-        if (!self.hostedAbi.exactFunction(name)) {
-            self.validateUnknownHostedOpaqueArguments(name, call,  vars);
-            return;
-        }
-        int nameIndex = 0;
-        while (nameIndex < call.arg_names.len) {
-            if (call.arg_names.get(nameIndex) != "") {
-                TypeValidator.fail("Hosted function '" + name
-                    + "()' does not accept named arguments", call);
-            }
-            nameIndex = nameIndex + 1;
-        }
-        int expectedCount = self.hostedAbi.parameterCount(name);
-        bool arityValid = call.args.len == expectedCount;
-        if (self.hostedAbi.variadic(name)) {
-            arityValid = call.args.len >= expectedCount;
-        }
-        if (!arityValid) {
-            string qualifier = self.hostedAbi.variadic(name) ? "at least " : "";
-            TypeValidator.fail("'" + name + "()' expects " + qualifier
-                + Strings.fromInt(expectedCount) + " argument(s) but got "
-                + Strings.fromInt(call.args.len), call);
-            return;
-        }
-        self.validateDirectHostedOpaqueArguments(name, call,  vars);
-        int index = 0;
-        while (index < expectedCount) {
-            Node expected = self.hostedAbi.parameterType(name, index);
-            Node argument = call.args.get(index);
-            self.storage.validateVolatileReferenceConversion(
-                expected, argument,
-                "Argument " + Strings.fromInt(index + 1)
-                    + " to hosted function '" + name + "()'",
-                 vars);
-            Node? actual = self.types.inferType(argument,  vars);
-            if (actual != null
-                    && !self.hostedArgumentTypeDeferred(
-                        expected, actual)
-                    && !self.types.assignmentCompatible(expected, actual)) {
-                TypeValidator.fail("Argument " + Strings.fromInt(index + 1)
-                    + " to hosted function '" + name + "()' expects '"
-                    + self.types.formatType(expected) + "' but got '"
-                    + self.types.formatType(actual) + "'", argument);
-            }
-            self.validateSourceHelperConsumer(
-                name, index, argument,  vars);
-            index = index + 1;
-        }
-    }
+	public void validateDirectHostedCall(string name, Node call, Map<string, Node> vars) {
+		if (!self.hostedAbi.exactFunction(name)) {
+			self.validateUnknownHostedOpaqueArguments(name, call,  vars);
+			return;
+		}
+		int nameIndex = 0;
+		while (nameIndex < call.arg_names.len) {
+			if (call.arg_names.get(nameIndex) != "") {
+				TypeValidator.fail("Hosted function '" + name + "()' does not accept named arguments", call);
+			}
+			nameIndex = nameIndex + 1;
+		}
+		int expectedCount = self.hostedAbi.parameterCount(name);
+		bool arityValid = call.args.len == expectedCount;
+		if (self.hostedAbi.variadic(name)) {
+			arityValid = call.args.len >= expectedCount;
+		}
+		if (!arityValid) {
+			string qualifier = self.hostedAbi.variadic(name) ? "at least " : "";
+			TypeValidator.fail("'" + name + "()' expects " + qualifier + Strings.fromInt(expectedCount) + " argument(s) but got " + Strings.fromInt(call.args.len), call);
+			return;
+		}
+		self.validateDirectHostedOpaqueArguments(name, call,  vars);
+		int index = 0;
+		while (index < expectedCount) {
+			Node expected = self.hostedAbi.parameterType(name, index);
+			Node argument = call.args.get(index);
+			self.storage.validateVolatileReferenceConversion(expected, argument, "Argument " + Strings.fromInt(index + 1) + " to hosted function '" + name + "()'", vars);
+			Node? actual = self.types.inferType(argument,  vars);
+			if (actual != null && !self.hostedArgumentTypeDeferred(expected, actual) && !self.types.assignmentCompatible(expected, actual)) {
+				TypeValidator.fail("Argument " + Strings.fromInt(index + 1) + " to hosted function '" + name + "()' expects '" + self.types.formatType(expected) + "' but got '" + self.types.formatType(actual) + "'", argument);
+			}
+			self.validateSourceHelperConsumer(name, index, argument, vars);
+			index = index + 1;
+		}
+	}
 
-    public bool validateHostedIdentifierCall(Node call,
-             Map<string, Node> vars) {
-        string name = call.callee.name;
-        if (!self.hostedCallUsesOwnedSymbol(name,  vars)) {
-            return false;
-        }
-        bool bypass = self.hostedCallBypassesSourceDefinition(name);
-        self.state.analyzed.hostedCallKeys.put(AstIdentity.key(call), true);
-        self.validateDirectHostedCall(name, call,  vars);
-        return self.hostedAbi.exactFunction(name)
-            || bypass || !self.state.analyzed.funcTable.has(name);
-    }
+	public bool validateHostedIdentifierCall(Node call, Map<string, Node> vars) {
+		string name = call.callee.name;
+		if (!self.hostedCallUsesOwnedSymbol(name, vars)) {
+			return false;
+		}
+		bool bypass = self.hostedCallBypassesSourceDefinition(name);
+		self.state.analyzed.hostedCallKeys.put(AstIdentity.key(call), true);
+		self.validateDirectHostedCall(name, call,  vars);
+		return self.hostedAbi.exactFunction(name) || bypass || !self.state.analyzed.funcTable.has(name);
+	}
 
-    public string directHostedReturnEffect(Node? expression) {
-        if (expression == null || expression.kind != NK_CALL_EXPR
-                || expression.callee == null
-                || expression.callee.kind != NK_IDENTIFIER
-                || !self.state.analyzed.hostedCallKeys.has(
-                    AstIdentity.key(expression))) {
-            return "";
-        }
-        return self.hostedAbi.returnEffectForCall(
-            expression.callee.name, expression);
-    }
+	public string directHostedReturnEffect(Node? expression) {
+		if (expression == null || expression.kind != NK_CALL_EXPR || expression.callee == null || expression.callee.kind != NK_IDENTIFIER || !self.state.analyzed.hostedCallKeys.has(AstIdentity.key(expression))) {
+			return "";
+		}
+		return self.hostedAbi.returnEffectForCall(expression.callee.name, expression);
+	}
 
-    public void validateManagedStringSource(Node? expected, Node? value,
-            string subject,
-            Map<string, Node> vars) {
-        if (expected == null || value == null) { return; }
-        Node? target = self.types.resolveAliases(expected);
-        Node? actual = self.types.resolveAliases(
-            self.types.inferType(value,  vars));
-        if (target == null || actual == null
-                || !TypeComposition.isSemanticScalarString(target)
-                || !self.operators.isCStringPointer(actual)) {
-            return;
-        }
-        string effect = self.directHostedReturnEffect(value);
-        if (effect == "alias" || effect == "independent"
-                || (effect == "fresh"
-                    && self.hostedAbi.returnDeallocatorForCall(
-                        value.callee.name, value) == "free")) {
-            return;
-        }
-        TypeValidator.fail(subject
-            + " cannot implicitly convert raw 'char*' storage to managed "
-            + "'string' because its ownership is not proven; transfer fresh "
-            + "storage with __btrc_str_track() or make an explicit copy", value);
-    }
+	public void validateManagedStringSource(Node? expected, Node? value, string subject, Map<string, Node> vars) {
+		if (expected == null || value == null) { return; }
+		Node? target = self.types.resolveAliases(expected);
+		Node? actual = self.types.resolveAliases(self.types.inferType(value, vars));
+		if (target == null || actual == null || !TypeComposition.isSemanticScalarString(target) || !self.operators.isCStringPointer(actual)) {
+			return;
+		}
+		string effect = self.directHostedReturnEffect(value);
+		if (effect == "alias" || effect == "independent" || (effect == "fresh" && self.hostedAbi.returnDeallocatorForCall(value.callee.name, value) == "free")) {
+			return;
+		}
+		TypeValidator.fail(subject + " cannot implicitly convert raw 'char*' storage to managed " + "'string' because its ownership is not proven; transfer fresh " + "storage with __btrc_str_track() or make an explicit copy", value);
+	}
 
-    public void validateSourceHelperConsumer(string name, int index,
-            Node argument,
-            Map<string, Node> vars) {
-        if (!self.hostedAbi.sourceAdoptingHelper(
-                name, index)) {
-            return;
-        }
-        if (self.ownership.rawLifetimeUsesStaticString(argument,  vars)) {
-            TypeValidator.fail(name
-                + "() cannot adopt static string storage; pass fresh raw heap "
-                + "storage", argument);
-        }
-        Node? managed = self.borrows.opaqueManagedOrigin(argument,  vars);
-        if (managed != null) {
-            TypeValidator.fail(name
-                + "() cannot adopt an already-managed value of type '"
-                + self.types.formatType(managed)
-                + "'; pass fresh raw heap storage", argument);
-        }
-        Node producer = argument;
-        while (producer.kind == NK_CAST_EXPR) {
-            producer = producer.expr;
-        }
-        if (producer.kind != NK_CALL_EXPR || producer.callee == null
-                || producer.callee.kind != NK_IDENTIFIER
-                || !self.state.analyzed.hostedCallKeys.has(AstIdentity.key(producer))) {
-            return;
-        }
-        string producerName = producer.callee.name;
-        string effect = self.hostedAbi.returnEffectForCall(
-            producerName, producer);
-        string deallocator = self.hostedAbi.returnDeallocatorForCall(
-            producerName, producer);
-        if (effect == "fresh" && deallocator == "free") { return; }
-        TypeValidator.fail(name + "() cannot adopt storage returned by "
-            + producerName + "() because it is not proven fresh "
-            + "free-compatible allocation", argument);
-    }
+	public void validateSourceHelperConsumer(string name, int index, Node argument, Map<string, Node> vars) {
+		if (!self.hostedAbi.sourceAdoptingHelper(name, index)) {
+			return;
+		}
+		if (self.ownership.rawLifetimeUsesStaticString(argument, vars)) {
+			TypeValidator.fail(name + "() cannot adopt static string storage; pass fresh raw heap " + "storage", argument);
+		}
+		Node? managed = self.borrows.opaqueManagedOrigin(argument,  vars);
+		if (managed != null) {
+			TypeValidator.fail(name + "() cannot adopt an already-managed value of type '" + self.types.formatType(managed) + "'; pass fresh raw heap storage", argument);
+		}
+		Node producer = argument;
+		while (producer.kind == NK_CAST_EXPR) {
+			producer = producer.expr;
+		}
+		if (producer.kind != NK_CALL_EXPR || producer.callee == null || producer.callee.kind != NK_IDENTIFIER || !self.state.analyzed.hostedCallKeys.has(AstIdentity.key(producer))) {
+			return;
+		}
+		string producerName = producer.callee.name;
+		string effect = self.hostedAbi.returnEffectForCall(producerName, producer);
+		string deallocator = self.hostedAbi.returnDeallocatorForCall(producerName, producer);
+		if (effect == "fresh" && deallocator == "free") { return; }
+		TypeValidator.fail(name + "() cannot adopt storage returned by " + producerName + "() because it is not proven fresh " + "free-compatible allocation", argument);
+	}
 
-    public int parameterIndex(Vector<Node> params, string name) {
-        int index = 0;
-        while (index < params.len) {
-            if (params.get(index).name == name) { return index; }
-            index = index + 1;
-        }
-        return -1;
-    }
+	public int parameterIndex(Vector<Node> params, string name) {
+		int index = 0;
+		while (index < params.len) {
+			if (params.get(index).name == name) { return index; }
+			index = index + 1;
+		}
+		return -1;
+	}
 
-    public void addMethodSubstitutions(Node method, Node call,
-            Map<string, Node> substitutions) {
-        if (method.generic_params.len == 0) { return; }
-        string callKey = AstIdentity.key(call);
-        if (!self.state.analyzed.methodGenCallArgs.has(callKey)) {
-            TypeValidator.fail("Cannot infer generic arguments for method '"
-                + method.name + "'", call);
-        }
-        Vector<Node> arguments = self.state.analyzed.methodGenCallArgs.get(callKey);
-        if (arguments.len != method.generic_params.len) {
-            TypeValidator.fail("Generic method '" + method.name
-                + "' requires " + Strings.fromInt(method.generic_params.len)
-                + " type argument(s)", call);
-        }
-        int index = 0;
-        while (index < method.generic_params.len) {
-            substitutions.put(
-                method.generic_params.get(index), arguments.get(index));
-            index = index + 1;
-        }
-    }
+	public void addMethodSubstitutions(Node method, Node call, Map<string, Node> substitutions) {
+		if (method.generic_params.len == 0) { return; }
+		string callKey = AstIdentity.key(call);
+		if (!self.state.analyzed.methodGenCallArgs.has(callKey)) {
+			TypeValidator.fail("Cannot infer generic arguments for method '" + method.name + "'", call);
+		}
+		Vector<Node> arguments = self.state.analyzed.methodGenCallArgs.get(callKey);
+		if (arguments.len != method.generic_params.len) {
+			TypeValidator.fail("Generic method '" + method.name + "' requires " + Strings.fromInt(method.generic_params.len) + " type argument(s)", call);
+		}
+		int index = 0;
+		while (index < method.generic_params.len) {
+			substitutions.put(method.generic_params.get(index), arguments.get(index));
+			index = index + 1;
+		}
+	}
 
-    public void validateSignature(string label, Vector<Node> params,
-            Node call, Map<string, Node> substitutions,
-            bool gpuDispatch,
-            Map<string, Node> vars) {
-        Map<string, bool> supplied = {};
-        int positional = 0;
-        bool sawNamed = false;
-        int argumentIndex = 0;
-        while (argumentIndex < call.args.len) {
-            string argumentName = "";
-            if (argumentIndex < call.arg_names.len) {
-                argumentName = call.arg_names.get(argumentIndex);
-            }
-            int parameterIndex = -1;
-            if (argumentName != "") {
-                sawNamed = true;
-                parameterIndex = self.parameterIndex(params, argumentName);
-                if (parameterIndex < 0) {
-                    TypeValidator.fail("'" + label
-                        + "()' has no parameter named '" + argumentName + "'", call);
-                }
-            } else {
-                if (sawNamed) {
-                    TypeValidator.fail("'" + label
-                        + "()' positional argument follows named argument", call);
-                }
-                parameterIndex = positional;
-                positional = positional + 1;
-            }
-            if (parameterIndex >= params.len) {
-                TypeValidator.fail("'" + label + "()' expects at most "
-                    + Strings.fromInt(params.len) + " argument(s) but got "
-                    + Strings.fromInt(call.args.len), call);
-            }
-            string suppliedKey = Strings.fromInt(parameterIndex);
-            if (supplied.has(suppliedKey)) {
-                TypeValidator.fail("'" + label
-                    + "()' got one parameter more than once", call);
-            }
-            supplied.put(suppliedKey, true);
-            Node parameter = params.get(parameterIndex);
-            Node expected = parameter.type;
-            if (substitutions.len > 0) {
-                expected = SemanticTypeSystem.resolveGenericType(expected, substitutions,
-                    self.state.analyzed);
-            }
-            Node argument = call.args.get(argumentIndex);
-            Node? resolvedGpuExpected = self.types.resolveAliases(expected);
-            bool gpuArrayParameter = gpuDispatch
-                && resolvedGpuExpected != null
-                && resolvedGpuExpected.is_array;
-            if (!gpuArrayParameter
-                    && !self.types.contextualAggregateInitializer(argument)) {
-                Node? parameterValueType = self.storage.arrayParameterValueType(
-                    expected);
-                if (parameterValueType != null) {
-                    expected = parameterValueType;
-                }
-            }
-            /* GPU arrays have a stricter storage ABI that diagnoses volatile
+	public void validateSignature(string label, Vector<Node> params, Node call, Map<string, Node> substitutions, bool gpuDispatch, Map<string, Node> vars) {
+		Map<string, bool> supplied = {};
+		int positional = 0;
+		bool sawNamed = false;
+		int argumentIndex = 0;
+		while (argumentIndex < call.args.len) {
+			string argumentName = "";
+			if (argumentIndex < call.arg_names.len) {
+				argumentName = call.arg_names.get(argumentIndex);
+			}
+			int parameterIndex = -1;
+			if (argumentName != "") {
+				sawNamed = true;
+				parameterIndex = self.parameterIndex(params, argumentName);
+				if (parameterIndex < 0) {
+					TypeValidator.fail("'" + label + "()' has no parameter named '" + argumentName + "'", call);
+				}
+			} else {
+				if (sawNamed) {
+					TypeValidator.fail("'" + label + "()' positional argument follows named argument", call);
+				}
+				parameterIndex = positional;
+				positional = positional + 1;
+			}
+			if (parameterIndex >= params.len) {
+				TypeValidator.fail("'" + label + "()' expects at most " + Strings.fromInt(params.len) + " argument(s) but got " + Strings.fromInt(call.args.len), call);
+			}
+			string suppliedKey = Strings.fromInt(parameterIndex);
+			if (supplied.has(suppliedKey)) {
+				TypeValidator.fail("'" + label + "()' got one parameter more than once", call);
+			}
+			supplied.put(suppliedKey, true);
+			Node parameter = params.get(parameterIndex);
+			Node expected = parameter.type;
+			if (substitutions.len > 0) {
+				expected = SemanticTypeSystem.resolveGenericType(expected, substitutions, self.state.analyzed);
+			}
+			Node argument = call.args.get(argumentIndex);
+			Node? resolvedGpuExpected = self.types.resolveAliases(expected);
+			bool gpuArrayParameter = gpuDispatch && resolvedGpuExpected != null && resolvedGpuExpected.is_array;
+			if (!gpuArrayParameter && !self.types.contextualAggregateInitializer(argument)) {
+				Node? parameterValueType = self.storage.arrayParameterValueType(expected);
+				if (parameterValueType != null) {
+					expected = parameterValueType;
+				}
+			}
+			/* GPU arrays have a stricter storage ABI that diagnoses volatile
              * outer/element qualification together with capacity and element
              * shape. Let that owned boundary report the domain-specific error
              * instead of terminating early with the generic pointer-conversion
              * diagnostic. */
-            if (!gpuArrayParameter) {
-                self.storage.validateVolatileReferenceConversion(
-                    expected, argument,
-                    "Argument '" + parameter.name + "' to '" + label + "()'",
-                     vars);
-            }
-            /* Parameters receive expression values.  Apply initializer-shape
+			if (!gpuArrayParameter) {
+				self.storage.validateVolatileReferenceConversion(expected, argument, "Argument '" + parameter.name + "' to '" + label + "()'", vars);
+			}
+			/* Parameters receive expression values.  Apply initializer-shape
              * validation only when the argument is an aggregate literal; an
              * existing array expression is passed through the normal type-
              * compatibility path (and may decay at the ABI boundary). */
-            if (self.types.contextualAggregateInitializer(argument)) {
-                self.types.validateTypedInitializer(expected, argument,
-                    "Argument '" + parameter.name + "' to '"
-                        + label + "()'",  vars);
-            }
-            Node? actual = self.types.inferType(argument,  vars);
-            if (actual != null && gpuArrayParameter) {
-                if (!self.storage.arrayTargetHasCapacity(
-                        argument, actual,  vars)) {
-                    TypeValidator.fail("Argument '" + parameter.name
-                        + "' to '" + label + "()' has no provable readable "
-                        + "GPU buffer capacity", argument);
-                }
-                if (!self.storage.gpuInputHasCompatibleStorage(
-                        argument, expected, actual,  vars)) {
-                    TypeValidator.fail("Argument '" + parameter.name
-                        + "' to '" + label + "()' does not have an "
-                        + "ABI-compatible GPU buffer element type", argument);
-                }
-            } else if (actual != null
-                    && !self.types.contextualAggregateInitializer(argument)
-                    && !self.types.assignmentCompatible(expected, actual)) {
-                TypeValidator.fail("Argument '" + parameter.name + "' to '"
-                    + label + "()' expects '" + self.types.formatType(expected)
-                    + "' but got '" + self.types.formatType(actual) + "'", argument);
-            }
-            argumentIndex = argumentIndex + 1;
-        }
-        int parameterIndex = 0;
-        while (parameterIndex < params.len) {
-            Node parameter = params.get(parameterIndex);
-            if (!supplied.has(Strings.fromInt(parameterIndex))
-                    && parameter.default_ == null) {
-                TypeValidator.fail("'" + label
-                    + "()' missing required argument '" + parameter.name + "'", call);
-            }
-            parameterIndex = parameterIndex + 1;
-        }
-    }
+			if (self.types.contextualAggregateInitializer(argument)) {
+				self.types.validateTypedInitializer(expected, argument, "Argument '" + parameter.name + "' to '" + label + "()'", vars);
+			}
+			Node? actual = self.types.inferType(argument,  vars);
+			if (actual != null && gpuArrayParameter) {
+				if (!self.storage.arrayTargetHasCapacity(argument, actual, vars)) {
+					TypeValidator.fail("Argument '" + parameter.name + "' to '" + label + "()' has no provable readable " + "GPU buffer capacity", argument);
+				}
+				if (!self.storage.gpuInputHasCompatibleStorage(argument, expected, actual, vars)) {
+					TypeValidator.fail("Argument '" + parameter.name + "' to '" + label + "()' does not have an " + "ABI-compatible GPU buffer element type", argument);
+				}
+			} else if (actual != null && !self.types.contextualAggregateInitializer(argument) && !self.types.assignmentCompatible(expected, actual)) {
+				TypeValidator.fail("Argument '" + parameter.name + "' to '" + label + "()' expects '" + self.types.formatType(expected) + "' but got '" + self.types.formatType(actual) + "'", argument);
+			}
+			argumentIndex = argumentIndex + 1;
+		}
+		int parameterIndex = 0;
+		while (parameterIndex < params.len) {
+			Node parameter = params.get(parameterIndex);
+			if (!supplied.has(Strings.fromInt(parameterIndex)) && parameter.default_ == null) {
+				TypeValidator.fail("'" + label + "()' missing required argument '" + parameter.name + "'", call);
+			}
+			parameterIndex = parameterIndex + 1;
+		}
+	}
 
-    public bool macroLanguageMethodNamed(string name) {
-        Vector<string> classes = self.state.analyzed.classTable.keys();
-        int index = 0;
-        while (index < classes.len) {
-            if (self.state.analyzed.classMethod(classes.get(index), name) != null) {
-                return true;
-            }
-            index = index + 1;
-        }
-        classes = self.state.analyzed.genericClassTable.keys();
-        index = 0;
-        while (index < classes.len) {
-            if (self.state.analyzed.genericClassMethod(
-                    classes.get(index), name) != null) {
-                return true;
-            }
-            index = index + 1;
-        }
-        Vector<string> interfaces = self.state.interfaces.keys();
-        index = 0;
-        while (index < interfaces.len) {
-            if (self.interfaceMethod(
-                     interfaces.get(index), name) != null) {
-                return true;
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	public bool macroLanguageMethodNamed(string name) {
+		Vector<string> classes = self.state.analyzed.classTable.keys();
+		int index = 0;
+		while (index < classes.len) {
+			if (self.state.analyzed.classMethod(classes.get(index), name) != null) {
+				return true;
+			}
+			index = index + 1;
+		}
+		classes = self.state.analyzed.genericClassTable.keys();
+		index = 0;
+		while (index < classes.len) {
+			if (self.state.analyzed.genericClassMethod(classes.get(index), name) != null) {
+				return true;
+			}
+			index = index + 1;
+		}
+		Vector<string> interfaces = self.state.interfaces.keys();
+		index = 0;
+		while (index < interfaces.len) {
+			if (self.interfaceMethod(interfaces.get(index), name) != null) {
+				return true;
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 
-    public bool macroFieldCallable(Node expression,
-             Map<string, Node> vars) {
-        if (expression.obj != null && expression.obj.kind == NK_IDENTIFIER
-                && !vars.has(expression.obj.name)
-                && (self.state.analyzed.isClass(expression.obj.name)
-                    || self.state.analyzed.isGenericClass(expression.obj.name))) {
-            return self.macroLanguageMethodNamed(expression.field);
-        }
-        Node? receiver = self.types.inferType(expression.obj,  vars);
-        if (receiver == null) { return false; }
-        if (self.state.analyzed.isClass(receiver.base)) {
-            return self.state.analyzed.classMethod(
-                receiver.base, expression.field) != null;
-        }
-        return self.state.analyzed.isGenericClass(receiver.base)
-            && self.state.analyzed.genericClassMethod(
-                receiver.base, expression.field) != null;
-    }
+	public bool macroFieldCallable(Node expression, Map<string, Node> vars) {
+		if (expression.obj != null && expression.obj.kind == NK_IDENTIFIER && !vars.has(expression.obj.name) && (self.state.analyzed.isClass(expression.obj.name) || self.state.analyzed.isGenericClass(expression.obj.name))) {
+			return self.macroLanguageMethodNamed(expression.field);
+		}
+		Node? receiver = self.types.inferType(expression.obj,  vars);
+		if (receiver == null) { return false; }
+		if (self.state.analyzed.isClass(receiver.base)) {
+			return self.state.analyzed.classMethod(receiver.base, expression.field) != null;
+		}
+		return self.state.analyzed.isGenericClass(receiver.base) && self.state.analyzed.genericClassMethod(receiver.base, expression.field) != null;
+	}
 
-    public bool macroExpressionListCallable(Vector<Node> expressions,
-             Map<string, Node> vars) {
-        int index = 0;
-        while (index < expressions.len) {
-            if (self.macroArgumentCallable(
-                    expressions.get(index),  vars)) {
-                return true;
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	public bool macroExpressionListCallable(Vector<Node> expressions, Map<string, Node> vars) {
+		int index = 0;
+		while (index < expressions.len) {
+			if (self.macroArgumentCallable(expressions.get(index), vars)) {
+				return true;
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 
-    public bool macroMapEntriesCallable(Vector<Node> entries,
-             Map<string, Node> vars) {
-        int index = 0;
-        while (index < entries.len) {
-            Node entry = entries.get(index);
-            if (self.macroArgumentCallable(entry.key,  vars)
-                    || self.macroArgumentCallable(
-                        entry.value_node,  vars)) {
-                return true;
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	public bool macroMapEntriesCallable(Vector<Node> entries, Map<string, Node> vars) {
+		int index = 0;
+		while (index < entries.len) {
+			Node entry = entries.get(index);
+			if (self.macroArgumentCallable(entry.key, vars) || self.macroArgumentCallable(entry.value_node, vars)) {
+				return true;
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 
-    public bool macroFStringCallable(Vector<Node> parts,
-             Map<string, Node> vars) {
-        int index = 0;
-        while (index < parts.len) {
-            Node part = parts.get(index);
-            if (part.kind == NK_F_STRING_EXPR
-                    && self.macroArgumentCallable(
-                        part.expression,  vars)) {
-                return true;
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	public bool macroFStringCallable(Vector<Node> parts, Map<string, Node> vars) {
+		int index = 0;
+		while (index < parts.len) {
+			Node part = parts.get(index);
+			if (part.kind == NK_F_STRING_EXPR && self.macroArgumentCallable(part.expression, vars)) {
+				return true;
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 
-    public bool macroArgumentCallable(Node argument,
-             Map<string, Node> vars) {
-        Node? inferred = self.types.inferType(argument,  vars);
-        if (SemanticTypeSystem.directFunctionPointer(inferred, self.state.analyzed) != null
-                || argument.kind == NK_LAMBDA_EXPR) {
-            return true;
-        }
-        if (argument.kind == NK_IDENTIFIER) {
-            return (!vars.has(argument.name)
-                    && self.state.analyzed.funcTable.has(argument.name))
-                || (vars.has(argument.name)
-                    && SemanticTypeSystem.directFunctionPointer(
-                        vars.get(argument.name), self.state.analyzed) != null);
-        }
-        if (argument.kind == NK_FIELD_ACCESS_EXPR
-                && self.macroFieldCallable(argument,  vars)) {
-            return true;
-        }
-        if (argument.kind == NK_BINARY_EXPR) {
-            return self.macroArgumentCallable(argument.left,  vars)
-                || self.macroArgumentCallable(argument.right,  vars);
-        }
-        if (argument.kind == NK_UNARY_EXPR) {
-            return self.macroArgumentCallable(
-                argument.operand,  vars);
-        }
-        if (argument.kind == NK_CALL_EXPR) {
-            return self.macroArgumentCallable(argument.callee,  vars)
-                || self.macroExpressionListCallable(
-                    argument.args,  vars);
-        }
-        if (argument.kind == NK_INDEX_EXPR) {
-            return self.macroArgumentCallable(argument.obj,  vars)
-                || self.macroArgumentCallable(argument.index,  vars);
-        }
-        if (argument.kind == NK_FIELD_ACCESS_EXPR) {
-            return self.macroArgumentCallable(argument.obj,  vars);
-        }
-        if (argument.kind == NK_CAST_EXPR) {
-            return self.macroArgumentCallable(argument.expr,  vars);
-        }
-        if (argument.kind == NK_SIZEOF_EXPR) {
-            return argument.operand != null
-                && argument.operand.kind == NK_SIZEOF_EXPR_OP
-                && self.macroArgumentCallable(
-                    argument.operand.expr,  vars);
-        }
-        if (argument.kind == NK_TERNARY_EXPR) {
-            return self.macroArgumentCallable(
-                    argument.condition,  vars)
-                || self.macroArgumentCallable(
-                    argument.true_expr,  vars)
-                || self.macroArgumentCallable(
-                    argument.false_expr,  vars);
-        }
-        if (argument.kind == NK_ASSIGN_EXPR) {
-            return self.macroArgumentCallable(argument.target,  vars)
-                || self.macroArgumentCallable(
-                    argument.value_node,  vars);
-        }
-        if (argument.kind == NK_LIST_LITERAL
-                || argument.kind == NK_BRACE_INITIALIZER
-                || argument.kind == NK_TUPLE_LITERAL) {
-            return self.macroExpressionListCallable(
-                argument.elements,  vars);
-        }
-        if (argument.kind == NK_MAP_LITERAL) {
-            return self.macroMapEntriesCallable(
-                argument.entries,  vars);
-        }
-        if (argument.kind == NK_F_STRING_LITERAL) {
-            return self.macroFStringCallable(
-                argument.parts,  vars);
-        }
-        if (argument.kind == NK_NEW_EXPR) {
-            return self.macroExpressionListCallable(
-                argument.args,  vars);
-        }
-        return argument.kind == NK_SPAWN_EXPR
-            && self.macroArgumentCallable(argument.fn,  vars);
-    }
+	public bool macroArgumentCallable(Node argument, Map<string, Node> vars) {
+		Node? inferred = self.types.inferType(argument,  vars);
+		if (SemanticTypeSystem.directFunctionPointer(inferred, self.state.analyzed) != null || argument.kind == NK_LAMBDA_EXPR) {
+			return true;
+		}
+		if (argument.kind == NK_IDENTIFIER) {
+			return (!vars.has(argument.name) && self.state.analyzed.funcTable.has(argument.name)) || (vars.has(argument.name) && SemanticTypeSystem.directFunctionPointer(vars.get(argument.name), self.state.analyzed) != null);
+		}
+		if (argument.kind == NK_FIELD_ACCESS_EXPR && self.macroFieldCallable(argument, vars)) {
+			return true;
+		}
+		if (argument.kind == NK_BINARY_EXPR) {
+			return self.macroArgumentCallable(argument.left, vars) || self.macroArgumentCallable(argument.right, vars);
+		}
+		if (argument.kind == NK_UNARY_EXPR) {
+			return self.macroArgumentCallable(argument.operand, vars);
+		}
+		if (argument.kind == NK_CALL_EXPR) {
+			return self.macroArgumentCallable(argument.callee, vars) || self.macroExpressionListCallable(argument.args, vars);
+		}
+		if (argument.kind == NK_INDEX_EXPR) {
+			return self.macroArgumentCallable(argument.obj, vars) || self.macroArgumentCallable(argument.index, vars);
+		}
+		if (argument.kind == NK_FIELD_ACCESS_EXPR) {
+			return self.macroArgumentCallable(argument.obj,  vars);
+		}
+		if (argument.kind == NK_CAST_EXPR) {
+			return self.macroArgumentCallable(argument.expr,  vars);
+		}
+		if (argument.kind == NK_SIZEOF_EXPR) {
+			return argument.operand != null && argument.operand.kind == NK_SIZEOF_EXPR_OP && self.macroArgumentCallable(argument.operand.expr, vars);
+		}
+		if (argument.kind == NK_TERNARY_EXPR) {
+			return self.macroArgumentCallable(argument.condition, vars) || self.macroArgumentCallable(argument.true_expr, vars) || self.macroArgumentCallable(argument.false_expr, vars);
+		}
+		if (argument.kind == NK_ASSIGN_EXPR) {
+			return self.macroArgumentCallable(argument.target, vars) || self.macroArgumentCallable(argument.value_node, vars);
+		}
+		if (argument.kind == NK_LIST_LITERAL || argument.kind == NK_BRACE_INITIALIZER || argument.kind == NK_TUPLE_LITERAL) {
+			return self.macroExpressionListCallable(argument.elements, vars);
+		}
+		if (argument.kind == NK_MAP_LITERAL) {
+			return self.macroMapEntriesCallable(argument.entries, vars);
+		}
+		if (argument.kind == NK_F_STRING_LITERAL) {
+			return self.macroFStringCallable(argument.parts, vars);
+		}
+		if (argument.kind == NK_NEW_EXPR) {
+			return self.macroExpressionListCallable(argument.args, vars);
+		}
+		return argument.kind == NK_SPAWN_EXPR && self.macroArgumentCallable(argument.fn, vars);
+	}
 
-    public void validateMacroCaptures(SourceMacroDefinition definition,
-            Node call,
-            Map<string, Node> vars) {
-        Vector<string> identifiers =
-            self.sourceMacros.freeIdentifiers(definition);
-        int index = 0;
-        while (index < identifiers.len) {
-            string name = identifiers.get(index);
-            Node? typeExpr = null;
-            if (vars.has(name)) {
-                typeExpr = vars.get(name);
-            } else if (self.state.analyzed.globalVarTypes.has(name)) {
-                typeExpr = self.state.analyzed.globalVarTypes.get(name);
-            }
-            bool callableValue = SemanticTypeSystem.directFunctionPointer(
-                typeExpr, self.state.analyzed) != null;
-            if (callableValue || self.macroTypeBoundary(typeExpr)) {
-                TypeValidator.fail("Source macro '" + definition.name()
-                    + "' cannot capture managed or callable value '" + name
-                    + "' because macro expansion bypasses semantic analysis",
-                    call);
-            }
-            index = index + 1;
-        }
-    }
+	public void validateMacroCaptures(SourceMacroDefinition definition, Node call, Map<string, Node> vars) {
+		Vector<string> identifiers = self.sourceMacros.freeIdentifiers(definition);
+		int index = 0;
+		while (index < identifiers.len) {
+			string name = identifiers.get(index);
+			Node? typeExpr = null;
+			if (vars.has(name)) {
+				typeExpr = vars.get(name);
+			} else if (self.state.analyzed.globalVarTypes.has(name)) {
+				typeExpr = self.state.analyzed.globalVarTypes.get(name);
+			}
+			bool callableValue = SemanticTypeSystem.directFunctionPointer(typeExpr, self.state.analyzed) != null;
+			if (callableValue || self.macroTypeBoundary(typeExpr)) {
+				TypeValidator.fail("Source macro '" + definition.name() + "' cannot capture managed or callable value '" + name + "' because macro expansion bypasses semantic analysis", call);
+			}
+			index = index + 1;
+		}
+	}
 
-    public bool macroTypeBoundaryImpl(Node? typeExpr,
-            Map<string, bool> typeParams, Map<string, bool> visiting) {
-        Node? canonical = self.types.resolveAliases(typeExpr);
-        if (canonical == null) { return false; }
-        Node value = canonical;
-        if (self.borrows.opaqueManagedType(value)
-                || SemanticTypeSystem.directFunctionPointer(value, self.state.analyzed) != null
-                || typeParams.has(value.base)) {
-            return true;
-        }
-        int argumentIndex = 0;
-        while (argumentIndex < value.generic_args.len) {
-            if (self.macroTypeBoundaryImpl(
-                    value.generic_args.get(argumentIndex), typeParams,
-                    visiting)) {
-                return true;
-            }
-            argumentIndex = argumentIndex + 1;
-        }
-        string name = value.base;
-        if (name.startsWith("struct ")) {
-            name = name.substring(7, name.length() - 7);
-        }
-        string kind = self.state.analyzed.structTable.has(name)
-            ? "struct:" : "rich-enum:";
-        string key = kind + name;
-        if (visiting.has(key)) { return false; }
-        Map<string, bool> nested = self.types.cloneFlags(visiting);
-        nested.put(key, true);
-        if (self.state.analyzed.structTable.has(name)) {
-            Node structure = self.state.analyzed.structTable.get(name);
-            if (!structure.is_forward) {
-                int fieldIndex = 0;
-                while (fieldIndex < structure.fields.len) {
-                    if (self.macroTypeBoundaryImpl(
-                            structure.fields.get(fieldIndex).type,
-                            typeParams, nested)) {
-                        return true;
-                    }
-                    fieldIndex = fieldIndex + 1;
-                }
-            }
-        }
-        if (self.state.analyzed.richEnumTable.has(name)) {
-            Node richEnum = self.state.analyzed.richEnumTable.get(name);
-            int variantIndex = 0;
-            while (variantIndex < richEnum.variants.len) {
-                Node variant = richEnum.variants.get(variantIndex);
-                int parameterIndex = 0;
-                while (parameterIndex < variant.params.len) {
-                    if (self.macroTypeBoundaryImpl(
-                            variant.params.get(parameterIndex).type,
-                            typeParams, nested)) {
-                        return true;
-                    }
-                    parameterIndex = parameterIndex + 1;
-                }
-                variantIndex = variantIndex + 1;
-            }
-        }
-        return false;
-    }
+	public bool macroTypeBoundaryImpl(Node? typeExpr, Map<string, bool> typeParams, Map<string, bool> visiting) {
+		Node? canonical = self.types.resolveAliases(typeExpr);
+		if (canonical == null) { return false; }
+		Node value = canonical;
+		if (self.borrows.opaqueManagedType(value) || SemanticTypeSystem.directFunctionPointer(value, self.state.analyzed) != null || typeParams.has(value.base)) {
+			return true;
+		}
+		int argumentIndex = 0;
+		while (argumentIndex < value.generic_args.len) {
+			if (self.macroTypeBoundaryImpl(value.generic_args.get(argumentIndex), typeParams, visiting)) {
+				return true;
+			}
+			argumentIndex = argumentIndex + 1;
+		}
+		string name = value.base;
+		if (name.startsWith("struct ")) {
+			name = name.substring(7, name.length() - 7);
+		}
+		string kind = self.state.analyzed.structTable.has(name) ? "struct:" : "rich-enum:";
+		string key = kind + name;
+		if (visiting.has(key)) { return false; }
+		Map<string, bool> nested = self.types.cloneFlags(visiting);
+		nested.put(key, true);
+		if (self.state.analyzed.structTable.has(name)) {
+			Node structure = self.state.analyzed.structTable.get(name);
+			if (!structure.is_forward) {
+				int fieldIndex = 0;
+				while (fieldIndex < structure.fields.len) {
+					if (self.macroTypeBoundaryImpl(structure.fields.get(fieldIndex).type, typeParams, nested)) {
+						return true;
+					}
+					fieldIndex = fieldIndex + 1;
+				}
+			}
+		}
+		if (self.state.analyzed.richEnumTable.has(name)) {
+			Node richEnum = self.state.analyzed.richEnumTable.get(name);
+			int variantIndex = 0;
+			while (variantIndex < richEnum.variants.len) {
+				Node variant = richEnum.variants.get(variantIndex);
+				int parameterIndex = 0;
+				while (parameterIndex < variant.params.len) {
+					if (self.macroTypeBoundaryImpl(variant.params.get(parameterIndex).type, typeParams, nested)) {
+						return true;
+					}
+					parameterIndex = parameterIndex + 1;
+				}
+				variantIndex = variantIndex + 1;
+			}
+		}
+		return false;
+	}
 
-    public bool macroTypeBoundary(Node? typeExpr) {
-        Map<string, bool> visiting = {};
-        return self.macroTypeBoundaryImpl(
-            typeExpr, self.state.typeParams, visiting);
-    }
+	public bool macroTypeBoundary(Node? typeExpr) {
+		Map<string, bool> visiting = {};
+		return self.macroTypeBoundaryImpl(typeExpr, self.state.typeParams, visiting);
+	}
 
-    public bool macroCallableSignatureBoundary(Node declaration) {
-        Map<string, bool> params = self.types.typeParamSet(
-            declaration.generic_params);
-        Map<string, bool> visiting = {};
-        if (self.macroTypeBoundaryImpl(
-                declaration.return_type, params, visiting)) {
-            return true;
-        }
-        int index = 0;
-        while (index < declaration.params.len) {
-            if (self.macroTypeBoundaryImpl(
-                    declaration.params.get(index).type,
-                    params, visiting)) {
-                return true;
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	public bool macroCallableSignatureBoundary(Node declaration) {
+		Map<string, bool> params = self.types.typeParamSet(declaration.generic_params);
+		Map<string, bool> visiting = {};
+		if (self.macroTypeBoundaryImpl(declaration.return_type, params, visiting)) {
+			return true;
+		}
+		int index = 0;
+		while (index < declaration.params.len) {
+			if (self.macroTypeBoundaryImpl(declaration.params.get(index).type, params, visiting)) {
+				return true;
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 
-    public void validateMacroLanguageSymbol(
-            SourceMacroDefinition definition, string symbol, Node site) {
-        string macroName = definition.name();
-        if (self.state.analyzed.isClass(symbol)
-                || self.state.analyzed.isGenericClass(symbol)) {
-            TypeValidator.fail("Language type '" + symbol
-                + "' cannot be referenced from macro replacement '"
-                + macroName + "'", site);
-        }
-        if (self.state.analyzed.funcTable.has(symbol)) {
-            Node functionDecl = self.state.analyzed.funcTable.get(symbol);
-            bool bareAlias = definition.directReplacementIdentifier() == symbol;
-            bool sensitive = self.macroCallableSignatureBoundary(
-                functionDecl);
-            if (functionDecl.body_node != null
-                    && (definition.functionLike()
-                        || bareAlias || sensitive)) {
-                TypeValidator.fail("Language callable '" + symbol
-                    + "' requires semantic call analysis and cannot be "
-                    + "referenced from macro replacement '" + macroName
-                    + "'", site);
-            }
-        }
-        if (definition.functionLike()
-                && definition.replacementUsesMember(symbol)
-                && self.macroLanguageMethodNamed(symbol)) {
-            TypeValidator.fail("Language method '" + symbol
-                + "' cannot be referenced from macro replacement '"
-                + macroName + "'", site);
-        }
-        if (self.state.analyzed.globalVarTypes.has(symbol)
-                && self.macroTypeBoundary(
-                    self.state.analyzed.globalVarTypes.get(symbol))) {
-            TypeValidator.fail("Managed source value '" + symbol
-                + "' cannot be referenced from macro replacement '"
-                + macroName + "'", site);
-        }
-    }
+	public void validateMacroLanguageSymbol(SourceMacroDefinition definition, string symbol, Node site) {
+		string macroName = definition.name();
+		if (self.state.analyzed.isClass(symbol) || self.state.analyzed.isGenericClass(symbol)) {
+			TypeValidator.fail("Language type '" + symbol + "' cannot be referenced from macro replacement '" + macroName + "'", site);
+		}
+		if (self.state.analyzed.funcTable.has(symbol)) {
+			Node functionDecl = self.state.analyzed.funcTable.get(symbol);
+			bool bareAlias = definition.directReplacementIdentifier() == symbol;
+			bool sensitive = self.macroCallableSignatureBoundary(functionDecl);
+			if (functionDecl.body_node != null && (definition.functionLike() || bareAlias || sensitive)) {
+				TypeValidator.fail("Language callable '" + symbol + "' requires semantic call analysis and cannot be " + "referenced from macro replacement '" + macroName + "'", site);
+			}
+		}
+		if (definition.functionLike() && definition.replacementUsesMember(symbol) && self.macroLanguageMethodNamed(symbol)) {
+			TypeValidator.fail("Language method '" + symbol + "' cannot be referenced from macro replacement '" + macroName + "'", site);
+		}
+		if (self.state.analyzed.globalVarTypes.has(symbol) && self.macroTypeBoundary(self.state.analyzed.globalVarTypes.get(symbol))) {
+			TypeValidator.fail("Managed source value '" + symbol + "' cannot be referenced from macro replacement '" + macroName + "'", site);
+		}
+	}
 
-    public Node? macroReadOnlyExpected(
-            SourceMacroDefinition definition, string parameter) {
-        string callee = definition.directCallName();
-        if (callee == "" || !self.hostedAbi.exactFunction(callee)
-                || self.hostedAbi.variadic(callee)
-                || self.hostedAbi.macroReferenceRequiresSemanticCall(callee)) {
-            return null;
-        }
-        Vector<string> arguments = definition.directCallArguments();
-        if (arguments.len != self.hostedAbi.parameterCount(callee)) { return null; }
-        int occurrenceCount = 0;
-        int safeIndex = -1;
-        int index = 0;
-        while (index < arguments.len) {
-            int occurrences = definition.identifierCount(
-                arguments.get(index), parameter);
-            occurrenceCount = occurrenceCount + occurrences;
-            if (occurrences == 1
-                    && definition.unwrapGroups(arguments.get(index)) == parameter
-                    && self.hostedAbi.parameterReadOnlyBorrow(callee, index)) {
-                safeIndex = index;
-            }
-            index = index + 1;
-        }
-        if (occurrenceCount != 1 || safeIndex < 0) { return null; }
-        Node expected = self.hostedAbi.parameterType(callee, safeIndex);
-        return expected;
-    }
+	public Node? macroReadOnlyExpected(SourceMacroDefinition definition, string parameter) {
+		string callee = definition.directCallName();
+		if (callee == "" || !self.hostedAbi.exactFunction(callee) || self.hostedAbi.variadic(callee) || self.hostedAbi.macroReferenceRequiresSemanticCall(callee)) {
+			return null;
+		}
+		Vector<string> arguments = definition.directCallArguments();
+		if (arguments.len != self.hostedAbi.parameterCount(callee)) { return null; }
+		int occurrenceCount = 0;
+		int safeIndex = -1;
+		int index = 0;
+		while (index < arguments.len) {
+			int occurrences = definition.identifierCount(arguments.get(index), parameter);
+			occurrenceCount = occurrenceCount + occurrences;
+			if (occurrences == 1 && definition.unwrapGroups(arguments.get(index)) == parameter && self.hostedAbi.parameterReadOnlyBorrow(callee, index)) {
+				safeIndex = index;
+			}
+			index = index + 1;
+		}
+		if (occurrenceCount != 1 || safeIndex < 0) { return null; }
+		Node expected = self.hostedAbi.parameterType(callee, safeIndex);
+		return expected;
+	}
 
-    public bool macroReadOnlyArgumentSafe(Node expected, Node argument,
-             Map<string, Node> vars) {
-        if (self.ownership.expressionOwnsResult(argument,  vars)) { return false; }
-        Node? actual = self.types.inferType(argument,  vars);
-        return actual != null
-            && (self.hostedArgumentTypeDeferred(expected, actual)
-                || self.types.assignmentCompatible(expected, actual));
-    }
+	public bool macroReadOnlyArgumentSafe(Node expected, Node argument, Map<string, Node> vars) {
+		if (self.ownership.expressionOwnsResult(argument, vars)) { return false; }
+		Node? actual = self.types.inferType(argument,  vars);
+		return actual != null && (self.hostedArgumentTypeDeferred(expected, actual) || self.types.assignmentCompatible(expected, actual));
+	}
 
-    public bool validateSourceMacroCall(Node call,
-             Map<string, Node> vars) {
-        if (call.callee == null || call.callee.kind != NK_IDENTIFIER
-                || !self.sourceMacros.declared(call.callee.name)) {
-            return false;
-        }
-        string macroName = call.callee.name;
-        SourceMacroDefinition? active = self.sourceMacros.active(macroName);
-        if (active == null) { return false; }
-        SourceMacroDefinition definition = active;
-        if (!definition.functionLike()) { return false; }
-        int nameIndex = 0;
-        while (nameIndex < call.arg_names.len) {
-            if (call.arg_names.get(nameIndex) != "") {
-                TypeValidator.fail("Source macro '" + macroName
-                    + "' does not accept named arguments", call);
-            }
-            nameIndex = nameIndex + 1;
-        }
-        if (definition.parametersValid()
-                && !definition.acceptsArity(call.args.len)) {
-            string expectation = Strings.fromInt(definition.expectedArity());
-            if (definition.variadic()) {
-                expectation = "at least "
-                    + Strings.fromInt(definition.minimumArity());
-            }
-            TypeValidator.fail("Source macro '" + macroName
-                + "' expects " + expectation + " argument(s) but got "
-                + Strings.fromInt(call.args.len), call);
-        }
-        Vector<string> parameters = definition.parameterOrder();
-        int index = 0;
-        while (index < call.args.len) {
-            Node argument = call.args.get(index);
-            if (self.macroArgumentCallable(argument,  vars)) {
-                TypeValidator.fail("Source macro '" + macroName
-                    + "' cannot accept callable argument "
-                    + Strings.fromInt(index + 1)
-                    + " because macro expansion bypasses semantic call analysis",
-                    argument);
-            }
-            bool boundary = self.borrows.expressionIsOpaqueBorrow(
-                    argument,  vars)
-                || self.macroTypeBoundary(
-                    self.types.inferType(argument,  vars));
-            if (boundary) {
-                Node? expected = null;
-                if (index < parameters.len) {
-                    expected = self.macroReadOnlyExpected(
-                        definition, parameters.get(index));
-                }
-                if (expected == null || !self.macroReadOnlyArgumentSafe(
-                        expected, argument,  vars)) {
-                    TypeValidator.fail("Source macro '" + macroName
-                        + "' cannot accept managed or opaque-borrow argument "
-                        + Strings.fromInt(index + 1)
-                        + " because its expansion is not a proven read-only "
-                        + "hosted call", argument);
-                }
-            }
-            index = index + 1;
-        }
-        self.validateMacroCaptures(definition, call,  vars);
-        return true;
-    }
+	public bool validateSourceMacroCall(Node call, Map<string, Node> vars) {
+		if (call.callee == null || call.callee.kind != NK_IDENTIFIER || !self.sourceMacros.declared(call.callee.name)) {
+			return false;
+		}
+		string macroName = call.callee.name;
+		SourceMacroDefinition? active = self.sourceMacros.active(macroName);
+		if (active == null) { return false; }
+		SourceMacroDefinition definition = active;
+		if (!definition.functionLike()) { return false; }
+		int nameIndex = 0;
+		while (nameIndex < call.arg_names.len) {
+			if (call.arg_names.get(nameIndex) != "") {
+				TypeValidator.fail("Source macro '" + macroName + "' does not accept named arguments", call);
+			}
+			nameIndex = nameIndex + 1;
+		}
+		if (definition.parametersValid() && !definition.acceptsArity(call.args.len)) {
+			string expectation = Strings.fromInt(definition.expectedArity());
+			if (definition.variadic()) {
+				expectation = "at least " + Strings.fromInt(definition.minimumArity());
+			}
+			TypeValidator.fail("Source macro '" + macroName + "' expects " + expectation + " argument(s) but got " + Strings.fromInt(call.args.len), call);
+		}
+		Vector<string> parameters = definition.parameterOrder();
+		int index = 0;
+		while (index < call.args.len) {
+			Node argument = call.args.get(index);
+			if (self.macroArgumentCallable(argument, vars)) {
+				TypeValidator.fail("Source macro '" + macroName + "' cannot accept callable argument " + Strings.fromInt(index + 1) + " because macro expansion bypasses semantic call analysis", argument);
+			}
+			bool boundary = self.borrows.expressionIsOpaqueBorrow(argument, vars) || self.macroTypeBoundary(self.types.inferType(argument, vars));
+			if (boundary) {
+				Node? expected = null;
+				if (index < parameters.len) {
+					expected = self.macroReadOnlyExpected(definition, parameters.get(index));
+				}
+				if (expected == null || !self.macroReadOnlyArgumentSafe(expected, argument, vars)) {
+					TypeValidator.fail("Source macro '" + macroName + "' cannot accept managed or opaque-borrow argument " + Strings.fromInt(index + 1) + " because its expansion is not a proven read-only " + "hosted call", argument);
+				}
+			}
+			index = index + 1;
+		}
+		self.validateMacroCaptures(definition, call,  vars);
+		return true;
+	}
 
-    public Node? defaultInstanceMember(string name, bool directCall,
-             Map<string, Node> vars) {
-        if (!self.state.inParameterDefault || self.state.callable == null
-                || !self.state.callable.is_constructor || !vars.has("self")) {
-            return null;
-        }
-        string className = vars.get("self").base;
-        Node? member = null;
-        if (self.state.analyzed.isClass(className)) {
-            if (directCall) {
-                member = self.state.analyzed.classMethod(className, name);
-            }
-            if (member == null) {
-                member = self.state.analyzed.classMember(className, name);
-            }
-        } else if (self.state.analyzed.isGenericClass(className)) {
-            Node declaration = self.state.analyzed.genericClassTable.get(className);
-            int index = 0;
-            while (index < declaration.members.len && member == null) {
-                Node candidate = declaration.members.get(index);
-                bool matchingMethod = candidate.kind == NK_METHOD_DECL
-                    && !candidate.is_constructor && candidate.name == name;
-                bool matchingValue = candidate.kind != NK_METHOD_DECL
-                    && candidate.name == name;
-                if ((directCall && matchingMethod)
-                        || (!directCall && (matchingMethod || matchingValue))) {
-                    member = candidate;
-                }
-                index = index + 1;
-            }
-            if (directCall && member == null) {
-                index = 0;
-                while (index < declaration.members.len && member == null) {
-                    Node candidate = declaration.members.get(index);
-                    if (candidate.kind != NK_METHOD_DECL
-                            && candidate.name == name) {
-                        member = candidate;
-                    }
-                    index = index + 1;
-                }
-            }
-        }
-        return member;
-    }
+	public Node? defaultInstanceMember(string name, bool directCall, Map<string, Node> vars) {
+		if (!self.state.inParameterDefault || self.state.callable == null || !self.state.callable.is_constructor || !vars.has("self")) {
+			return null;
+		}
+		string className = vars.get("self").base;
+		Node? member = null;
+		if (self.state.analyzed.isClass(className)) {
+			if (directCall) {
+				member = self.state.analyzed.classMethod(className, name);
+			}
+			if (member == null) {
+				member = self.state.analyzed.classMember(className, name);
+			}
+		} else if (self.state.analyzed.isGenericClass(className)) {
+			Node declaration = self.state.analyzed.genericClassTable.get(className);
+			int index = 0;
+			while (index < declaration.members.len && member == null) {
+				Node candidate = declaration.members.get(index);
+				bool matchingMethod = candidate.kind == NK_METHOD_DECL && !candidate.is_constructor && candidate.name == name;
+				bool matchingValue = candidate.kind != NK_METHOD_DECL && candidate.name == name;
+				if ((directCall && matchingMethod) || (!directCall && (matchingMethod || matchingValue))) {
+					member = candidate;
+				}
+				index = index + 1;
+			}
+			if (directCall && member == null) {
+				index = 0;
+				while (index < declaration.members.len && member == null) {
+					Node candidate = declaration.members.get(index);
+					if (candidate.kind != NK_METHOD_DECL && candidate.name == name) {
+						member = candidate;
+					}
+					index = index + 1;
+				}
+			}
+		}
+		return member;
+	}
 
-    public void rejectConstructorDefaultInstanceMember(string name, Node site,
-            bool directCall,
-            Map<string, Node> vars) {
-        if (vars.has(name) || self.state.analyzed.funcTable.has(name)
-                || self.sourceMacros.declared(name)
-                || self.state.analyzed.isClass(name)
-                || self.state.analyzed.isGenericClass(name)
-                || self.state.analyzed.isEnum(name)
-                || self.state.analyzed.isRichEnum(name)
-                || self.state.analyzed.isEnumValue(name)
-                || self.sourceRuntimeSymbols.helper(name)
-                || SemanticTypeSystem.isCIntegerIdentifier(name)
-                || name == "NULL" || name == "__func__"
-                || name == "stdin" || name == "stdout" || name == "stderr") {
-            return;
-        }
-        Node? member = self.defaultInstanceMember(
-            name, directCall,  vars);
-        if (member != null && member.access != "class") {
-            TypeValidator.fail("Constructor defaults cannot reference "
-                + "instance member '" + name + "' before allocation", site);
-        }
-    }
+	public void rejectConstructorDefaultInstanceMember(string name, Node site, bool directCall, Map<string, Node> vars) {
+		if (vars.has(name) || self.state.analyzed.funcTable.has(name) || self.sourceMacros.declared(name) || self.state.analyzed.isClass(name) || self.state.analyzed.isGenericClass(name) || self.state.analyzed.isEnum(name) || self.state.analyzed.isRichEnum(name) || self.state.analyzed.isEnumValue(name) || self.sourceRuntimeSymbols.helper(name) || SemanticTypeSystem.isCIntegerIdentifier(name) || name == "NULL" || name == "__func__" || name == "stdin" || name == "stdout" || name == "stderr") {
+			return;
+		}
+		Node? member = self.defaultInstanceMember(name, directCall, vars);
+		if (member != null && member.access != "class") {
+			TypeValidator.fail("Constructor defaults cannot reference " + "instance member '" + name + "' before allocation", site);
+		}
+	}
 
-    public Node stringParam(string name, string typeName) {
-        Node parameter = Node();
-        parameter.kind = NK_PARAM;
-        parameter.name = name;
-        parameter.type = SemanticTypeSystem.primitive(typeName);
-        return parameter;
-    }
+	public Node stringParam(string name, string typeName) {
+		Node parameter = Node();
+		parameter.kind = NK_PARAM;
+		parameter.name = name;
+		parameter.type = SemanticTypeSystem.primitive(typeName);
+		return parameter;
+	}
 
-    public bool zeroArgStringMethod(string method) {
-        return method == "len" || method == "byteLen" || method == "length"
-            || method == "charLen" || method == "isEmpty"
-            || method == "isBlank" || method == "isUpper"
-            || method == "isLower" || method == "isAlnum"
-            || method == "isAlnumStr" || method == "isDigit"
-            || method == "isDigitStr" || method == "isAlpha"
-            || method == "isAlphaStr" || method == "trim"
-            || method == "lstrip" || method == "rstrip"
-            || method == "toUpper" || method == "toLower"
-            || method == "reverse" || method == "capitalize"
-            || method == "title" || method == "swapCase"
-            || method == "toInt" || method == "toFloat"
-            || method == "toDouble" || method == "toLong"
-            || method == "toBool";
-    }
+	public bool zeroArgStringMethod(string method) { return method == "len" || method == "byteLen" || method == "length" || method == "charLen" || method == "isEmpty" || method == "isBlank" || method == "isUpper" || method == "isLower" || method == "isAlnum" || method == "isAlnumStr" || method == "isDigit" || method == "isDigitStr" || method == "isAlpha" || method == "isAlphaStr" || method == "trim" || method == "lstrip" || method == "rstrip" || method == "toUpper" || method == "toLower" || method == "reverse" || method == "capitalize" || method == "title" || method == "swapCase" || method == "toInt" || method == "toFloat" || method == "toDouble" || method == "toLong" || method == "toBool"; }
 
-    class bool oneStringArgMethod(string method) {
-        return method == "equals" || method == "contains"
-            || method == "startsWith" || method == "endsWith"
-            || method == "indexOf" || method == "lastIndexOf"
-            || method == "count" || method == "removePrefix"
-            || method == "removeSuffix" || method == "split";
-    }
+	class bool oneStringArgMethod(string method) { return method == "equals" || method == "contains" || method == "startsWith" || method == "endsWith" || method == "indexOf" || method == "lastIndexOf" || method == "count" || method == "removePrefix" || method == "removeSuffix" || method == "split"; }
 
-    public void validateStringCall(Node call,
-            Map<string, Node> vars) {
-        string method = call.callee.field;
-        if (SemanticTypeSystem.stringMethodResult(method) == null) {
-            TypeValidator.fail(
-                "Type 'string' has no method '" + method + "'", call);
-        }
-        Vector<Node> params = [];
-        if (CallValidator.oneStringArgMethod(method)) {
-            params.push(self.stringParam("value", "string"));
-        } else if (method == "charAt" || method == "repeat"
-                || method == "zfill") {
-            params.push(self.stringParam("value", "int"));
-        } else if (method == "substring") {
-            params.push(self.stringParam("start", "int"));
-            params.push(self.stringParam("length", "int"));
-        } else if (method == "find") {
-            params.push(self.stringParam("value", "string"));
-            params.push(self.stringParam("start", "int"));
-        } else if (method == "replace") {
-            params.push(self.stringParam("old", "string"));
-            params.push(self.stringParam("replacement", "string"));
-        } else if (method == "padLeft" || method == "padRight"
-                || method == "center") {
-            params.push(self.stringParam("width", "int"));
-            params.push(self.stringParam("fill", "char"));
-        } else if (!self.zeroArgStringMethod(method)) {
-            TypeValidator.fail(
-                "No semantic signature for string method '" + method + "'", call);
-        }
-        Map<string, Node> substitutions = {};
-        self.validateSignature("string." + method, params, call,
-            substitutions, false,  vars);
-    }
+	public void validateStringCall(Node call, Map<string, Node> vars) {
+		string method = call.callee.field;
+		if (SemanticTypeSystem.stringMethodResult(method) == null) {
+			TypeValidator.fail("Type 'string' has no method '" + method + "'", call);
+		}
+		Vector<Node> params = [];
+		if (CallValidator.oneStringArgMethod(method)) {
+			params.push(self.stringParam("value", "string"));
+		} else if (method == "charAt" || method == "repeat" || method == "zfill") {
+			params.push(self.stringParam("value", "int"));
+		} else if (method == "substring") {
+			params.push(self.stringParam("start", "int"));
+			params.push(self.stringParam("length", "int"));
+		} else if (method == "find") {
+			params.push(self.stringParam("value", "string"));
+			params.push(self.stringParam("start", "int"));
+		} else if (method == "replace") {
+			params.push(self.stringParam("old", "string"));
+			params.push(self.stringParam("replacement", "string"));
+		} else if (method == "padLeft" || method == "padRight" || method == "center") {
+			params.push(self.stringParam("width", "int"));
+			params.push(self.stringParam("fill", "char"));
+		} else if (!self.zeroArgStringMethod(method)) {
+			TypeValidator.fail("No semantic signature for string method '" + method + "'", call);
+		}
+		Map<string, Node> substitutions = {};
+		self.validateSignature("string." + method, params, call, substitutions, false, vars);
+	}
 }

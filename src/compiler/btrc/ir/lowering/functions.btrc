@@ -1,6 +1,7 @@
 import std.map;
 import std.strings;
 import std.vector;
+
 import ../../analyzer/declarations.btrc;
 import ../../analyzer/expressions.btrc;
 import ../../analyzer/generics.btrc;
@@ -26,123 +27,102 @@ import ./types.btrc;
 /* Function, method, lambda-lift, and isolated-scope lowering. */
 
 class ScopeSnapshot {
-    public ManagedLifetimeSnapshot lifetime;
-    public string retC;
-    public Node? retType;
-    public bool retOwned;
-    public int tryDepth;
-    public int trycatchDepth;
-    public Vector<string> borrowedLocalBindings;
-    public Vector<string> sourceLexicalBindings;
-    /* COPIES of the func-var-decl accumulator (the IRNode handles), so a lambda
+	public ManagedLifetimeSnapshot lifetime;
+	public string retC;
+	public Node? retType;
+	public bool retOwned;
+	public int tryDepth;
+	public int trycatchDepth;
+	public Vector<string> borrowedLocalBindings;
+	public Vector<string> sourceLexicalBindings;
+	/* COPIES of the func-var-decl accumulator (the IRNode handles), so a lambda
      * body lowers in a fresh decl context and the parent's accumulator is
      * restored after. Mirrors saving/clearing gen._func_var_decls around a
      * lambda body in lambdas.py. */
-    public Vector<IRNode> funcVarDecls;
+	public Vector<IRNode> funcVarDecls;
 
-    public ScopeSnapshot() {
-        self.lifetime = ManagedLifetimeSnapshot();
-        self.retC = "";
-        self.retType = null;
-        self.retOwned = true;
-        self.tryDepth = 0;
-        self.trycatchDepth = 0;
-        self.borrowedLocalBindings = [];
-        self.sourceLexicalBindings = [];
-        self.funcVarDecls = [];
-    }
+	public ScopeSnapshot() {
+		self.lifetime = ManagedLifetimeSnapshot();
+		self.retC = "";
+		self.retType = null;
+		self.retOwned = true;
+		self.tryDepth = 0;
+		self.trycatchDepth = 0;
+		self.borrowedLocalBindings = [];
+		self.sourceLexicalBindings = [];
+		self.funcVarDecls = [];
+	}
 }
 
 
 class FunctionLowerer {
-    private Analyzed analyzed;
-    private HostedAbiRepository hostedAbi;
-    private DeclarationRegistry declarations;
-    private ExpressionTypeResolver expressionTypes;
-    private ManagedValueSemantics managedValues;
-    private CycleSemantics cycles;
-    private CallableValueLowerer callableLowering;
-    private CallLowerer calls;
-    private LoweringContext context;
-    private ManagedLifetimeLowerer managedLifetime;
-    private ManagedTypeLowerer managedTypes;
-    private CycleBoundaryLowerer cycleBoundaries;
-    private CycleReturnBoundaryLowerer cycleReturns;
-    private GpuPipeline gpuPipeline;
-    private CTypeLowerer cTypes;
-    private StatementLowerer statements;
+	private Analyzed analyzed;
+	private HostedAbiRepository hostedAbi;
+	private DeclarationRegistry declarations;
+	private ExpressionTypeResolver expressionTypes;
+	private ManagedValueSemantics managedValues;
+	private CycleSemantics cycles;
+	private CallableValueLowerer callableLowering;
+	private CallLowerer calls;
+	private LoweringContext context;
+	private ManagedLifetimeLowerer managedLifetime;
+	private ManagedTypeLowerer managedTypes;
+	private CycleBoundaryLowerer cycleBoundaries;
+	private CycleReturnBoundaryLowerer cycleReturns;
+	private GpuPipeline gpuPipeline;
+	private CTypeLowerer cTypes;
+	private StatementLowerer statements;
 
-    public FunctionLowerer(Analyzed analyzed,
-            HostedAbiRepository hostedAbi,
-            DeclarationRegistry declarations,
-            ExpressionTypeResolver expressionTypes,
-            ManagedValueSemantics managedValues, CycleSemantics cycles,
-            CallableValueLowerer callableLowering, CallLowerer calls,
-            LoweringContext context,
-            ManagedLifetimeLowerer managedLifetime,
-            ManagedTypeLowerer managedTypes,
-            CycleBoundaryLowerer cycleBoundaries,
-            CycleReturnBoundaryLowerer cycleReturns,
-            GpuPipeline gpuPipeline, CTypeLowerer cTypes,
-            StatementLowerer statements) {
-        self.analyzed = analyzed;
-        self.hostedAbi = hostedAbi;
-        self.declarations = declarations;
-        self.expressionTypes = expressionTypes;
-        self.managedValues = managedValues; self.cycles = cycles;
-        self.callableLowering = callableLowering;
-        self.calls = calls;
-        self.context = context;
-        self.managedLifetime = managedLifetime;
-        self.managedTypes = managedTypes;
-        self.cycleBoundaries = cycleBoundaries;
-        self.cycleReturns = cycleReturns;
-        self.gpuPipeline = gpuPipeline; self.cTypes = cTypes;
-        self.statements = statements;
-    }
+	public FunctionLowerer(Analyzed analyzed, HostedAbiRepository hostedAbi, DeclarationRegistry declarations, ExpressionTypeResolver expressionTypes, ManagedValueSemantics managedValues, CycleSemantics cycles, CallableValueLowerer callableLowering, CallLowerer calls, LoweringContext context, ManagedLifetimeLowerer managedLifetime, ManagedTypeLowerer managedTypes, CycleBoundaryLowerer cycleBoundaries, CycleReturnBoundaryLowerer cycleReturns, GpuPipeline gpuPipeline, CTypeLowerer cTypes, StatementLowerer statements) {
+		self.analyzed = analyzed;
+		self.hostedAbi = hostedAbi;
+		self.declarations = declarations;
+		self.expressionTypes = expressionTypes;
+		self.managedValues = managedValues; self.cycles = cycles;
+		self.callableLowering = callableLowering;
+		self.calls = calls;
+		self.context = context;
+		self.managedLifetime = managedLifetime;
+		self.managedTypes = managedTypes;
+		self.cycleBoundaries = cycleBoundaries;
+		self.cycleReturns = cycleReturns;
+		self.gpuPipeline = gpuPipeline; self.cTypes = cTypes;
+		self.statements = statements;
+	}
 
-    private string lexicalBindingCName(string name) {
-        return self.hostedAbi.lexicalBindingCName(
-            name, self.hostedAbi.typedefName(name)
-                || self.analyzed.lexicalBindingConflictsType(name));
-    }
+	private string lexicalBindingCName(string name) { return self.hostedAbi.lexicalBindingCName(name, self.hostedAbi.typedefName(name) || self.analyzed.lexicalBindingConflictsType(name)); }
 
-    public void activateSourceLexicalParameters(Vector<Node> parameters) {
-        int index = 0;
-        while (index < parameters.len) {
-            self.context.activateSourceName(
-                parameters.get(index).name, self.lexicalBindingCName(
-                parameters.get(index).name));
-            index = index + 1;
-        }
-    }
+	public void activateSourceLexicalParameters(Vector<Node> parameters) {
+		int index = 0;
+		while (index < parameters.len) {
+			self.context.activateSourceName(parameters.get(index).name, self.lexicalBindingCName(parameters.get(index).name));
+			index = index + 1;
+		}
+	}
 
-    public Vector<string> replaceSourceLexicalParameters(
-            Vector<Node> parameters) {
-        Vector<string> snapshot = self.context.snapshotSourceBindings();
-        Vector<string> empty = [];
-        self.context.restoreSourceBindings(empty);
-        self.activateSourceLexicalParameters(parameters);
-        return snapshot;
-    }
+	public Vector<string> replaceSourceLexicalParameters(Vector<Node> parameters) {
+		Vector<string> snapshot = self.context.snapshotSourceBindings();
+		Vector<string> empty = [];
+		self.context.restoreSourceBindings(empty);
+		self.activateSourceLexicalParameters(parameters);
+		return snapshot;
+	}
 
-    /* Invalidate context-sensitive inference results before a new body or
+	/* Invalidate context-sensitive inference results before a new body or
      * generic mapping is lowered. Replacing both maps also releases cached type
      * nodes promptly instead of retaining every expression for the module. */
-    public void resetExpressionInferenceMemo() {
-        self.expressionTypes.beginMemo();
-    }
+	public void resetExpressionInferenceMemo() { self.expressionTypes.beginMemo(); }
 
-    /* Start a fresh function/method body: clear the funcVarDecls accumulator in
+	/* Start a fresh function/method body: clear the funcVarDecls accumulator in
      * place (no reassignment — see ScopeSnapshot's note on alias-free) so the
      * try/catch volatile pass only marks THIS body's locals. Mirrors the
      * `gen._func_var_decls = []` reset at every body-lowering entry point. */
-    public void resetFuncVarDecls() {
-        self.context.beginFunction();
-        self.resetExpressionInferenceMemo();
-    }
+	public void resetFuncVarDecls() {
+		self.context.beginFunction();
+		self.resetExpressionInferenceMemo();
+	}
 
-    /* Begin lowering an isolated body (a lifted lambda / thread wrapper). Snapshot
+	/* Begin lowering an isolated body (a lifted lambda / thread wrapper). Snapshot
      * the current managed stack + scope starts into a fresh ScopeSnapshot (by
      * copying entries, NOT aliasing the field pointer), then clear the live
      * fields IN PLACE so the body lowers in an empty managed/return context.
@@ -150,526 +130,467 @@ class FunctionLowerer {
      * body; the in-place clear avoids btrcc's alias-free bug (reassigning a
      * collection field releases the old vector, which a plain saved alias does
      * not keep alive). */
-    public ScopeSnapshot enterIsolatedScope(string retC, Node? retType) {
-        ScopeSnapshot snap = ScopeSnapshot();
-        snap.retC = self.context.currentReturnCType;
-        snap.retType = self.context.currentReturnType;
-        snap.retOwned = self.context.currentReturnOwned;
-        snap.tryDepth = self.context.tryDepth;
-        snap.trycatchDepth = self.context.tryCatchDepth;
-        snap.lifetime = self.managedLifetime.isolate();
-        snap.funcVarDecls = self.context.snapshotFunctionLocals();
-        Vector<string> borrowed = self.context.snapshotBorrowedBindings();
-        int borrowedIndex = 0;
-        while (borrowedIndex < borrowed.len) {
-            snap.borrowedLocalBindings.push(
-                borrowed.get(borrowedIndex));
-            borrowedIndex = borrowedIndex + 1;
-        }
-        Vector<string> sourceBindings =
-            self.context.snapshotSourceBindings();
-        int sourceBindingIndex = 0;
-        while (sourceBindingIndex < sourceBindings.len) {
-            snap.sourceLexicalBindings.push(
-                sourceBindings.get(sourceBindingIndex));
-            sourceBindingIndex = sourceBindingIndex + 1;
-        }
-        self.context.beginFunction();
-        Vector<string> noBorrowedBindings = [];
-        self.context.restoreBorrowedBindings(noBorrowedBindings);
-        Vector<string> noSourceBindings = [];
-        self.context.restoreSourceBindings(noSourceBindings);
-        self.context.tryDepth = 0;
-        self.context.tryCatchDepth = 0;
-        self.context.currentReturnCType = retC;
-        self.context.currentReturnType = retType;
-        self.context.currentReturnOwned = true;
-        self.resetExpressionInferenceMemo();
-        return snap;
-    }
+	public ScopeSnapshot enterIsolatedScope(string retC, Node? retType) {
+		ScopeSnapshot snap = ScopeSnapshot();
+		snap.retC = self.context.currentReturnCType;
+		snap.retType = self.context.currentReturnType;
+		snap.retOwned = self.context.currentReturnOwned;
+		snap.tryDepth = self.context.tryDepth;
+		snap.trycatchDepth = self.context.tryCatchDepth;
+		snap.lifetime = self.managedLifetime.isolate();
+		snap.funcVarDecls = self.context.snapshotFunctionLocals();
+		Vector<string> borrowed = self.context.snapshotBorrowedBindings();
+		int borrowedIndex = 0;
+		while (borrowedIndex < borrowed.len) {
+			snap.borrowedLocalBindings.push(borrowed.get(borrowedIndex));
+			borrowedIndex = borrowedIndex + 1;
+		}
+		Vector<string> sourceBindings = self.context.snapshotSourceBindings();
+		int sourceBindingIndex = 0;
+		while (sourceBindingIndex < sourceBindings.len) {
+			snap.sourceLexicalBindings.push(sourceBindings.get(sourceBindingIndex));
+			sourceBindingIndex = sourceBindingIndex + 1;
+		}
+		self.context.beginFunction();
+		Vector<string> noBorrowedBindings = [];
+		self.context.restoreBorrowedBindings(noBorrowedBindings);
+		Vector<string> noSourceBindings = [];
+		self.context.restoreSourceBindings(noSourceBindings);
+		self.context.tryDepth = 0;
+		self.context.tryCatchDepth = 0;
+		self.context.currentReturnCType = retC;
+		self.context.currentReturnType = retType;
+		self.context.currentReturnOwned = true;
+		self.resetExpressionInferenceMemo();
+		return snap;
+	}
 
-    /* End an isolated body: clear the live fields in place and refill them from
+	/* End an isolated body: clear the live fields in place and refill them from
      * the snapshot, then restore the return context. */
-    public void exitIsolatedScope(ScopeSnapshot snap) {
-        self.managedLifetime.restore(snap.lifetime);
-        self.context.restoreFunctionLocals(snap.funcVarDecls);
-        self.context.restoreBorrowedBindings(
-            snap.borrowedLocalBindings);
-        self.context.restoreSourceBindings(
-            snap.sourceLexicalBindings);
-        self.context.currentReturnCType = snap.retC;
-        self.context.currentReturnType = snap.retType;
-        self.context.currentReturnOwned = snap.retOwned;
-        self.context.tryDepth = snap.tryDepth;
-        self.context.tryCatchDepth = snap.trycatchDepth;
-        self.resetExpressionInferenceMemo();
-    }
+	public void exitIsolatedScope(ScopeSnapshot snap) {
+		self.managedLifetime.restore(snap.lifetime);
+		self.context.restoreFunctionLocals(snap.funcVarDecls);
+		self.context.restoreBorrowedBindings(snap.borrowedLocalBindings);
+		self.context.restoreSourceBindings(snap.sourceLexicalBindings);
+		self.context.currentReturnCType = snap.retC;
+		self.context.currentReturnType = snap.retType;
+		self.context.currentReturnOwned = snap.retOwned;
+		self.context.tryDepth = snap.tryDepth;
+		self.context.tryCatchDepth = snap.trycatchDepth;
+		self.resetExpressionInferenceMemo();
+	}
 
-    public void emitOneMethodGenericInstance(MethodGenInstance inst, IRModule m) {
-        /* Method-generic bodies are shared ASTs under distinct combined class
+	public void emitOneMethodGenericInstance(MethodGenInstance inst, IRModule m) {
+		/* Method-generic bodies are shared ASTs under distinct combined class
          * and method type maps, so each specialization owns a cache epoch. */
-        self.resetExpressionInferenceMemo();
-        /* Resolve the owning class decl + method. */
-        bool ownerGeneric = self.analyzed.isGenericClass(inst.classBase);
-        Node? decl = null;
-        Node? method = null;
-        if (ownerGeneric) {
-            decl = self.analyzed.genericClassTable.get(inst.classBase);
-            method = self.analyzed.genericClassMethod(inst.classBase, inst.methodName);
-        } else {
-            decl = self.analyzed.classTable.get(inst.classBase);
-            method = self.analyzed.classMethod(
-                inst.classBase, inst.methodName);
-        }
-        if (decl == null || method == null
-                || method.kind != NK_METHOD_DECL) { return; }
+		self.resetExpressionInferenceMemo();
+		/* Resolve the owning class decl + method. */
+		bool ownerGeneric = self.analyzed.isGenericClass(inst.classBase);
+		Node? decl = null;
+		Node? method = null;
+		if (ownerGeneric) {
+			decl = self.analyzed.genericClassTable.get(inst.classBase);
+			method = self.analyzed.genericClassMethod(inst.classBase, inst.methodName);
+		} else {
+			decl = self.analyzed.classTable.get(inst.classBase);
+			method = self.analyzed.classMethod(inst.classBase, inst.methodName);
+		}
+		if (decl == null || method == null || method.kind != NK_METHOD_DECL) { return; }
 
-        /* self type: mangled generic instance for a generic owner, else the
+		/* self type: mangled generic instance for a generic owner, else the
          * bare class name. */
-        string selfMangled = inst.classBase;
-        if (inst.classArgs.len > 0) {
-            selfMangled = TypeIdentity.mangleGenericType(inst.classBase, inst.classArgs);
-        }
-        string fnName = GenericSpecializer.genericMethodInstanceName(
-            inst.classBase, inst.classArgs, inst.methodName, inst.methodArgs);
+		string selfMangled = inst.classBase;
+		if (inst.classArgs.len > 0) {
+			selfMangled = TypeIdentity.mangleGenericType(inst.classBase, inst.classArgs);
+		}
+		string fnName = GenericSpecializer.genericMethodInstanceName(inst.classBase, inst.classArgs, inst.methodName, inst.methodArgs);
 
-        /* Combined {class_param: concrete, method_param: concrete} type map. */
-        Map<string, Node> typeMap = {};
-        int ci = 0;
-        while (ci < decl.generic_params.len && ci < inst.classArgs.len) {
-            typeMap.put(decl.generic_params.get(ci), inst.classArgs.get(ci));
-            ci = ci + 1;
-        }
-        int ui = 0;
-        while (ui < method.generic_params.len && ui < inst.methodArgs.len) {
-            typeMap.put(method.generic_params.get(ui), inst.methodArgs.get(ui));
-            ui = ui + 1;
-        }
+		/* Combined {class_param: concrete, method_param: concrete} type map. */
+		Map<string, Node> typeMap = {};
+		int ci = 0;
+		while (ci < decl.generic_params.len && ci < inst.classArgs.len) {
+			typeMap.put(decl.generic_params.get(ci), inst.classArgs.get(ci));
+			ci = ci + 1;
+		}
+		int ui = 0;
+		while (ui < method.generic_params.len && ui < inst.methodArgs.len) {
+			typeMap.put(method.generic_params.get(ui), inst.methodArgs.get(ui));
+			ui = ui + 1;
+		}
 
-        /* Resolved return + params. */
-        Node rrt = SemanticTypeSystem.resolveGenericType(
-            method.return_type, typeMap, self.analyzed);
-        string retC = self.cTypes.lowerGeneric(
-            method.return_type, typeMap);
+		/* Resolved return + params. */
+		Node rrt = SemanticTypeSystem.resolveGenericType(method.return_type, typeMap, self.analyzed);
+		string retC = self.cTypes.lowerGeneric(method.return_type, typeMap);
 
-        IRFunctionDecl declaration = IRFunctionDecl(fnName, retC, true);
-        declaration.params.push(IRParam(selfMangled + "*", "self"));
-        int fp = 0;
-        while (fp < method.params.len) {
-            Node pp = method.params.get(fp);
-            declaration.params.push(self.cTypes.lowerResolvedParameter(pp, SemanticTypeSystem.resolveGenericType(pp.type, typeMap, self.analyzed), self.cTypes.lowerGeneric(pp.type, typeMap)));
-            fp = fp + 1;
-        }
-        m.function_decls.push(declaration);
+		IRFunctionDecl declaration = IRFunctionDecl(fnName, retC, true);
+		declaration.params.push(IRParam(selfMangled + "*", "self"));
+		int fp = 0;
+		while (fp < method.params.len) {
+			Node pp = method.params.get(fp);
+			declaration.params.push(self.cTypes.lowerResolvedParameter(pp, SemanticTypeSystem.resolveGenericType(pp.type, typeMap, self.analyzed), self.cTypes.lowerGeneric(pp.type, typeMap)));
+			fp = fp + 1;
+		}
+		m.function_decls.push(declaration);
 
-        /* Body lowering context. Mirrors emitGenericInstance: set the generic
+		/* Body lowering context. Mirrors emitGenericInstance: set the generic
          * method context, then reset it after. currentReturnTypeNode is set (not
          * save/restored) like lowerMethod does — guarding the nullable store. */
-        string savedClass = self.context.currentClass;
-        string savedReturnC = self.context.currentReturnCType;
-        Node? savedReturnType = self.context.currentReturnType;
-        bool savedReturnOwned = self.context.currentReturnOwned;
-        bool savedBatchExplicitReleases = self.context.batchExplicitReleases;
-        bool savedCollectionEdgeKeeps = self.context.collectionEdgeKeeps;
-        self.context.currentClass = selfMangled;
-        self.context.currentReturnCType = retC;
-        self.context.currentReturnType = rrt;
-        self.context.currentReturnOwned = true;
-        self.context.genericBody = true;
-        self.context.activeTypeMap = typeMap;
-        bool publicCollectionMethod =
-            self.cycleBoundaries.publicCollectionBase(inst.classBase)
-            && method.access == "public";
-        bool topologyCollection = false;
-        if (self.cycleBoundaries.publicCollectionBase(inst.classBase)) {
-            GenInstance ownerInstance = GenInstance(
-                inst.classBase, inst.classArgs, selfMangled);
-            topologyCollection =
-                self.cycles.genericInstanceNeedsVisitor(ownerInstance);
-        }
-        self.context.batchExplicitReleases = publicCollectionMethod;
-        self.context.collectionEdgeKeeps = self.cycleBoundaries.publicCollectionBase(inst.classBase);
+		string savedClass = self.context.currentClass;
+		string savedReturnC = self.context.currentReturnCType;
+		Node? savedReturnType = self.context.currentReturnType;
+		bool savedReturnOwned = self.context.currentReturnOwned;
+		bool savedBatchExplicitReleases = self.context.batchExplicitReleases;
+		bool savedCollectionEdgeKeeps = self.context.collectionEdgeKeeps;
+		self.context.currentClass = selfMangled;
+		self.context.currentReturnCType = retC;
+		self.context.currentReturnType = rrt;
+		self.context.currentReturnOwned = true;
+		self.context.genericBody = true;
+		self.context.activeTypeMap = typeMap;
+		bool publicCollectionMethod = self.cycleBoundaries.publicCollectionBase(inst.classBase) && method.access == "public";
+		bool topologyCollection = false;
+		if (self.cycleBoundaries.publicCollectionBase(inst.classBase)) {
+			GenInstance ownerInstance = GenInstance(inst.classBase, inst.classArgs, selfMangled);
+			topologyCollection = self.cycles.genericInstanceNeedsVisitor(ownerInstance);
+		}
+		self.context.batchExplicitReleases = publicCollectionMethod;
+		self.context.collectionEdgeKeeps = self.cycleBoundaries.publicCollectionBase(inst.classBase);
 
-        IRFunction fn = IRFunction();
-        fn.name = fnName;
-        fn.return_type = retC;
-        fn.is_static = true;
-        fn.params.push(IRParam(selfMangled + "*", "self"));
-        int pp2 = 0;
-        while (pp2 < method.params.len) {
-            Node pp = method.params.get(pp2);
-            fn.params.push(self.cTypes.lowerResolvedParameter(pp, SemanticTypeSystem.resolveGenericType(pp.type, typeMap, self.analyzed), self.cTypes.lowerGeneric(pp.type, typeMap)));
-            pp2 = pp2 + 1;
-        }
+		IRFunction fn = IRFunction();
+		fn.name = fnName;
+		fn.return_type = retC;
+		fn.is_static = true;
+		fn.params.push(IRParam(selfMangled + "*", "self"));
+		int pp2 = 0;
+		while (pp2 < method.params.len) {
+			Node pp = method.params.get(pp2);
+			fn.params.push(self.cTypes.lowerResolvedParameter(pp, SemanticTypeSystem.resolveGenericType(pp.type, typeMap, self.analyzed), self.cTypes.lowerGeneric(pp.type, typeMap)));
+			pp2 = pp2 + 1;
+		}
 
-        /* var-type map: self -> the receiver instance type, each param -> its
+		/* var-type map: self -> the receiver instance type, each param -> its
          * resolved type. */
-        Map<string, Node> vt = self.seededVarTypes();
-        Node selfT = Node();
-        selfT.kind = NK_TYPE_EXPR;
-        selfT.base = inst.classBase;
-        selfT.generic_args = inst.classArgs;
-        selfT.pointer_depth = 1;
-        vt.put("self", selfT);
-        int vp = 0;
-        while (vp < method.params.len) {
-            Node pp = method.params.get(vp);
-            vt.put(pp.name, pp.type);
-            vp = vp + 1;
-        }
+		Map<string, Node> vt = self.seededVarTypes();
+		Node selfT = Node();
+		selfT.kind = NK_TYPE_EXPR;
+		selfT.base = inst.classBase;
+		selfT.generic_args = inst.classArgs;
+		selfT.pointer_depth = 1;
+		vt.put("self", selfT);
+		int vp = 0;
+		while (vp < method.params.len) {
+			Node pp = method.params.get(vp);
+			vt.put(pp.name, pp.type);
+			vp = vp + 1;
+		}
 
-        Vector<IRNode> mbody = [];
-        if (method.body_node != null) {
-            Vector<string> methodSourceBindings =
-                self.replaceSourceLexicalParameters(method.params);
-            self.resetFuncVarDecls();
-            IRNode blk = self.lowerBody(method.body_node, vt);
-            int b = 0;
-            while (b < blk.stmts.len) { mbody.push(blk.stmts.get(b)); b = b + 1; }
-            self.context.restoreSourceBindings(
-                methodSourceBindings);
-        }
-        if (mbody.len == 0) {
-            mbody.push(IRNode.expressionStatement(IRNode.cast("void", IRNode.variable("self"))));
-        }
-        fn.body = IRNode.block(mbody);
-        if (topologyCollection) {
-            self.cycleBoundaries.installCollectionTopologyBoundary(fn);
-        }
-        if (publicCollectionMethod) {
-            self.cycleReturns.installReleaseBearingBoundary(fn);
-        }
-        m.functions.push(fn);
+		Vector<IRNode> mbody = [];
+		if (method.body_node != null) {
+			Vector<string> methodSourceBindings = self.replaceSourceLexicalParameters(method.params);
+			self.resetFuncVarDecls();
+			IRNode blk = self.lowerBody(method.body_node, vt);
+			int b = 0;
+			while (b < blk.stmts.len) { mbody.push(blk.stmts.get(b)); b = b + 1; }
+			self.context.restoreSourceBindings(methodSourceBindings);
+		}
+		if (mbody.len == 0) {
+			mbody.push(IRNode.expressionStatement(IRNode.cast("void", IRNode.variable("self"))));
+		}
+		fn.body = IRNode.block(mbody);
+		if (topologyCollection) {
+			self.cycleBoundaries.installCollectionTopologyBoundary(fn);
+		}
+		if (publicCollectionMethod) {
+			self.cycleReturns.installReleaseBearingBoundary(fn);
+		}
+		m.functions.push(fn);
 
-        self.context.currentClass = savedClass;
-        self.context.currentReturnCType = savedReturnC;
-        self.context.currentReturnType = savedReturnType;
-        self.context.currentReturnOwned = savedReturnOwned;
-        self.context.batchExplicitReleases = savedBatchExplicitReleases;
-        self.context.collectionEdgeKeeps = savedCollectionEdgeKeeps;
-        self.context.genericBody = false;
-        self.context.activeTypeMap = {};
-    }
+		self.context.currentClass = savedClass;
+		self.context.currentReturnCType = savedReturnC;
+		self.context.currentReturnType = savedReturnType;
+		self.context.currentReturnOwned = savedReturnOwned;
+		self.context.batchExplicitReleases = savedBatchExplicitReleases;
+		self.context.collectionEdgeKeeps = savedCollectionEdgeKeeps;
+		self.context.genericBody = false;
+		self.context.activeTypeMap = {};
+	}
 
-    /* Var types retain source templates; resolvedExpressionType applies the
+	/* Var types retain source templates; resolvedExpressionType applies the
      * active map for semantic queries while C lowering can still distinguish
      * `T*` with `T = int?` from direct `int*?`. */
-    public Map<string, Node> genericMethodVarTypes(
-            GenInstance inst, Node method) {
-        Map<string, Node> vt = self.seededVarTypes();
-        Node selfT = Node();
-        selfT.kind = NK_TYPE_EXPR;
-        selfT.base = inst.base;
-        selfT.generic_args = inst.args;
-        selfT.pointer_depth = 1;
-        vt.put("self", selfT);
-        int i = 0;
-        while (i < method.params.len) {
-            Node p = method.params.get(i);
-            vt.put(p.name, p.type);
-            i = i + 1;
-        }
-        return vt;
-    }
+	public Map<string, Node> genericMethodVarTypes(GenInstance inst, Node method) {
+		Map<string, Node> vt = self.seededVarTypes();
+		Node selfT = Node();
+		selfT.kind = NK_TYPE_EXPR;
+		selfT.base = inst.base;
+		selfT.generic_args = inst.args;
+		selfT.pointer_depth = 1;
+		vt.put("self", selfT);
+		int i = 0;
+		while (i < method.params.len) {
+			Node p = method.params.get(i);
+			vt.put(p.name, p.type);
+			i = i + 1;
+		}
+		return vt;
+	}
 
-    /* The explicitly marked constructor of a generic class declaration. */
-    public Node? genericConstructor(Node decl) {
-        int i = 0;
-        while (i < decl.members.len) {
-            Node m = decl.members.get(i);
-            if (m.kind == NK_METHOD_DECL && m.is_constructor) { return m; }
-            i = i + 1;
-        }
-        return null;
-    }
+	/* The explicitly marked constructor of a generic class declaration. */
+	public Node? genericConstructor(Node decl) {
+		int i = 0;
+		while (i < decl.members.len) {
+			Node m = decl.members.get(i);
+			if (m.kind == NK_METHOD_DECL && m.is_constructor) { return m; }
+			i = i + 1;
+		}
+		return null;
+	}
 
-    /* Emit compiler-owned ARC field releases for a generic instance using
+	/* Emit compiler-owned ARC field releases for a generic instance using
      * resolved field types. The source __del__ lives in a separate hook. */
-    public bool emitGenericFieldReleases(
-            Node decl, Map<string, Node> typeMap, Vector<IRNode> body) {
-        bool emitted = false;
-        int i = 0;
-        while (i < decl.members.len) {
-            Node mem = decl.members.get(i);
-            string storage = DeclarationRegistry.instanceStorageName(mem);
-            if (storage != "") {
-                Node rt = SemanticTypeSystem.resolveGenericType(
-                    mem.type, typeMap, self.analyzed);
-                if (self.managedValues.isManaged(
-                        self.cTypes.resolveBodyType(rt, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
-                    body.push(self.managedTypes.releaseField(storage, rt));
-                    emitted = true;
-                }
-            }
-            i = i + 1;
-        }
-        return emitted;
-    }
+	public bool emitGenericFieldReleases(Node decl, Map<string, Node> typeMap, Vector<IRNode> body) {
+		bool emitted = false;
+		int i = 0;
+		while (i < decl.members.len) {
+			Node mem = decl.members.get(i);
+			string storage = DeclarationRegistry.instanceStorageName(mem);
+			if (storage != "") {
+				Node rt = SemanticTypeSystem.resolveGenericType(mem.type, typeMap, self.analyzed);
+				if (self.managedValues.isManaged(self.cTypes.resolveBodyType(rt, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
+					body.push(self.managedTypes.releaseField(storage, rt));
+					emitted = true;
+				}
+			}
+			i = i + 1;
+		}
+		return emitted;
+	}
 
-    /* Emit a class: struct def + method forward decls + constructor +
+	/* Emit a class: struct def + method forward decls + constructor +
      * destructor + methods + inherited-method wrappers (mirrors emit_class_decl
      * + class_members). */
-    public Map<string, Node> seededVarTypes() {
-        Map<string, Node> vt = {};
-        Vector<string> gkeys = self.analyzed.globalVarTypes.keys();
-        int gk = 0;
-        while (gk < gkeys.len) {
-            string gn = gkeys.get(gk);
-            vt.put(gn, self.analyzed.globalVarTypes.get(gn));
-            gk = gk + 1;
-        }
-        return vt;
-    }
+	public Map<string, Node> seededVarTypes() {
+		Map<string, Node> vt = {};
+		Vector<string> gkeys = self.analyzed.globalVarTypes.keys();
+		int gk = 0;
+		while (gk < gkeys.len) {
+			string gn = gkeys.get(gk);
+			vt.put(gn, self.analyzed.globalVarTypes.get(gn));
+			gk = gk + 1;
+		}
+		return vt;
+	}
 
-    private IRNode lowerLiftedCallableBody(
-            Node source, Map<string, Node> variableTypes,
-            Vector<string> captures, string returnCType,
-            Node? returnType) {
-        ScopeSnapshot scope = self.enterIsolatedScope(
-            returnCType, returnType);
-        int parameterIndex = 0;
-        while (parameterIndex < source.params.len) {
-            string name = source.params.get(parameterIndex).name;
-            self.context.borrowedLocalBindings.put(name, true);
-            self.context.activateSourceName(
-                name, self.lexicalBindingCName(name));
-            parameterIndex = parameterIndex + 1;
-        }
-        int captureIndex = 0;
-        while (captureIndex < captures.len) {
-            string name = captures.get(captureIndex);
-            self.context.borrowedLocalBindings.put(name, true);
-            self.context.activateSourceName(
-                name, self.lexicalBindingCName(name));
-            captureIndex = captureIndex + 1;
-        }
-        CallableFlowState callableFlow = CallableFlowState();
-        Vector<IRNode> body = [];
-        Node? sourceBody = source.body_node;
-        if (sourceBody != null
-                && sourceBody.kind == NK_LAMBDA_BLOCK
-                && sourceBody.body_node != null) {
-            IRNode block = self.statements.lowerBlock(
-                sourceBody.body_node, variableTypes, callableFlow);
-            int statementIndex = 0;
-            while (statementIndex < block.stmts.len) {
-                body.push(block.stmts.get(statementIndex));
-                statementIndex = statementIndex + 1;
-            }
-        } else if (sourceBody != null
-                && sourceBody.kind == NK_LAMBDA_EXPR_BODY
-                && sourceBody.expression != null) {
-            Node returnStatement = Node();
-            returnStatement.kind = NK_RETURN_STMT;
-            returnStatement.value_node = sourceBody.expression;
-            self.statements.lowerReturn(
-                returnStatement, variableTypes, body, callableFlow);
-        }
-        self.exitIsolatedScope(scope);
-        return IRNode.block(body);
-    }
+	private IRNode lowerLiftedCallableBody(Node source, Map<string, Node> variableTypes, Vector<string> captures, string returnCType, Node? returnType) {
+		ScopeSnapshot scope = self.enterIsolatedScope(returnCType, returnType);
+		int parameterIndex = 0;
+		while (parameterIndex < source.params.len) {
+			string name = source.params.get(parameterIndex).name;
+			self.context.borrowedLocalBindings.put(name, true);
+			self.context.activateSourceName(name, self.lexicalBindingCName(name));
+			parameterIndex = parameterIndex + 1;
+		}
+		int captureIndex = 0;
+		while (captureIndex < captures.len) {
+			string name = captures.get(captureIndex);
+			self.context.borrowedLocalBindings.put(name, true);
+			self.context.activateSourceName(name, self.lexicalBindingCName(name));
+			captureIndex = captureIndex + 1;
+		}
+		CallableFlowState callableFlow = CallableFlowState();
+		Vector<IRNode> body = [];
+		Node? sourceBody = source.body_node;
+		if (sourceBody != null && sourceBody.kind == NK_LAMBDA_BLOCK && sourceBody.body_node != null) {
+			IRNode block = self.statements.lowerBlock(sourceBody.body_node, variableTypes, callableFlow);
+			int statementIndex = 0;
+			while (statementIndex < block.stmts.len) {
+				body.push(block.stmts.get(statementIndex));
+				statementIndex = statementIndex + 1;
+			}
+		} else if (sourceBody != null && sourceBody.kind == NK_LAMBDA_EXPR_BODY && sourceBody.expression != null) {
+			Node returnStatement = Node();
+			returnStatement.kind = NK_RETURN_STMT;
+			returnStatement.value_node = sourceBody.expression;
+			self.statements.lowerReturn(returnStatement, variableTypes, body, callableFlow);
+		}
+		self.exitIsolatedScope(scope);
+		return IRNode.block(body);
+	}
 
-    private void materializePendingCallables() {
-        Vector<CallableLambdaPlan> lambdas =
-            self.callableLowering.takePendingLambdas();
-        Vector<CallableSpawnPlan> spawns =
-            self.callableLowering.takePendingSpawns();
-        while (lambdas.len > 0 || spawns.len > 0) {
-            int index = 0;
-            while (index < lambdas.len) {
-                CallableLambdaPlan plan = lambdas.get(index);
-                IRNode body = self.lowerLiftedCallableBody(
-                    plan.source, plan.bodyVariableTypes,
-                    plan.captures, plan.returnCType,
-                    plan.returnType);
-                self.callableLowering.materializeLifted(
-                    plan, body, self.context.module);
-                index = index + 1;
-            }
-            index = 0;
-            while (index < spawns.len) {
-                CallableSpawnPlan plan = spawns.get(index);
-                IRNode body = self.lowerLiftedCallableBody(
-                    plan.lambda, plan.bodyVariableTypes,
-                    plan.captures, plan.returnCType,
-                    plan.returnType);
-                self.callableLowering.materializeSpawn(
-                    plan, body, self.context.module);
-                index = index + 1;
-            }
-            lambdas = self.callableLowering.takePendingLambdas();
-            spawns = self.callableLowering.takePendingSpawns();
-        }
-    }
+	private void materializePendingCallables() {
+		Vector<CallableLambdaPlan> lambdas = self.callableLowering.takePendingLambdas();
+		Vector<CallableSpawnPlan> spawns = self.callableLowering.takePendingSpawns();
+		while (lambdas.len > 0 || spawns.len > 0) {
+			int index = 0;
+			while (index < lambdas.len) {
+				CallableLambdaPlan plan = lambdas.get(index);
+				IRNode body = self.lowerLiftedCallableBody(plan.source, plan.bodyVariableTypes, plan.captures, plan.returnCType, plan.returnType);
+				self.callableLowering.materializeLifted(plan, body, self.context.module);
+				index = index + 1;
+			}
+			index = 0;
+			while (index < spawns.len) {
+				CallableSpawnPlan plan = spawns.get(index);
+				IRNode body = self.lowerLiftedCallableBody(plan.lambda, plan.bodyVariableTypes, plan.captures, plan.returnCType, plan.returnType);
+				self.callableLowering.materializeSpawn(plan, body, self.context.module);
+				index = index + 1;
+			}
+			lambdas = self.callableLowering.takePendingLambdas();
+			spawns = self.callableLowering.takePendingSpawns();
+		}
+	}
 
-    private void materializeDefaultHelper(DefaultHelperPlan plan) {
-        if (plan.materialized) {
-            print("internal compiler error: default helper materialized twice");
-            exit(1);
-        }
-        Node parameter = plan.parameters.get(plan.parameterIndex);
-        string returnCType = self.cTypes.lower(parameter.type);
-        string savedClass = self.context.currentClass;
-        int savedDeclarationDepth =
-            self.context.defaultDeclarationDepth;
-        string savedFunctionName = self.context.defaultFunctionName;
-        Map<string, Node> savedTypes = self.calls.beginDefaultTypeScope(
-            plan.target.signature.substitutions);
-        ScopeSnapshot scope = self.enterIsolatedScope(
-            returnCType, parameter.type);
-        self.context.currentClass = plan.target.classPrefix;
-        self.context.defaultDeclarationDepth =
-            savedDeclarationDepth + 1;
-        self.context.defaultFunctionName = plan.target.defaultCName;
+	private void materializeDefaultHelper(DefaultHelperPlan plan) {
+		if (plan.materialized) {
+			print("internal compiler error: default helper materialized twice");
+			exit(1);
+		}
+		Node parameter = plan.parameters.get(plan.parameterIndex);
+		string returnCType = self.cTypes.lower(parameter.type);
+		string savedClass = self.context.currentClass;
+		int savedDeclarationDepth = self.context.defaultDeclarationDepth;
+		string savedFunctionName = self.context.defaultFunctionName;
+		Map<string, Node> savedTypes = self.calls.beginDefaultTypeScope(plan.target.signature.substitutions);
+		ScopeSnapshot scope = self.enterIsolatedScope(returnCType, parameter.type);
+		self.context.currentClass = plan.target.classPrefix;
+		self.context.defaultDeclarationDepth = savedDeclarationDepth + 1;
+		self.context.defaultFunctionName = plan.target.defaultCName;
 
-        Map<string, Node> variableTypes = self.seededVarTypes();
-        if (plan.target.selfType != null) {
-            variableTypes.put("self", plan.target.selfType);
-            self.context.borrowedLocalBindings.put("self", true);
-            self.context.activateSourceName("self", "self");
-        }
-        Vector<Node> priorParameters = [];
-        int prior = 0;
-        while (prior < plan.parameterIndex) {
-            Node priorParameter = plan.parameters.get(prior);
-            priorParameters.push(priorParameter);
-            variableTypes.put(priorParameter.name, priorParameter.type);
-            self.context.borrowedLocalBindings.put(
-                priorParameter.name, true);
-            prior = prior + 1;
-        }
-        self.activateSourceLexicalParameters(priorParameters);
+		Map<string, Node> variableTypes = self.seededVarTypes();
+		if (plan.target.selfType != null) {
+			variableTypes.put("self", plan.target.selfType);
+			self.context.borrowedLocalBindings.put("self", true);
+			self.context.activateSourceName("self", "self");
+		}
+		Vector<Node> priorParameters = [];
+		int prior = 0;
+		while (prior < plan.parameterIndex) {
+			Node priorParameter = plan.parameters.get(prior);
+			priorParameters.push(priorParameter);
+			variableTypes.put(priorParameter.name, priorParameter.type);
+			self.context.borrowedLocalBindings.put(priorParameter.name, true);
+			prior = prior + 1;
+		}
+		self.activateSourceLexicalParameters(priorParameters);
 
-        Node returnStatement = Node();
-        returnStatement.kind = NK_RETURN_STMT;
-        returnStatement.value_node = parameter.default_;
-        if (parameter.default_ != null) {
-            returnStatement.line = parameter.default_.line;
-            returnStatement.col = parameter.default_.col;
-        }
-        Node helperBlock = Node();
-        helperBlock.kind = NK_BLOCK;
-        helperBlock.statements.push(returnStatement);
-        CallableFlowState callableFlow = CallableFlowState();
-        IRNode body = self.statements.lowerBlock(
-            helperBlock, variableTypes, callableFlow);
+		Node returnStatement = Node();
+		returnStatement.kind = NK_RETURN_STMT;
+		returnStatement.value_node = parameter.default_;
+		if (parameter.default_ != null) {
+			returnStatement.line = parameter.default_.line;
+			returnStatement.col = parameter.default_.col;
+		}
+		Node helperBlock = Node();
+		helperBlock.kind = NK_BLOCK;
+		helperBlock.statements.push(returnStatement);
+		CallableFlowState callableFlow = CallableFlowState();
+		IRNode body = self.statements.lowerBlock(helperBlock, variableTypes, callableFlow);
 
-        self.context.defaultFunctionName = savedFunctionName;
-        self.context.defaultDeclarationDepth = savedDeclarationDepth;
-        self.context.currentClass = savedClass;
-        self.exitIsolatedScope(scope);
-        self.calls.endDefaultTypeScope(savedTypes);
+		self.context.defaultFunctionName = savedFunctionName;
+		self.context.defaultDeclarationDepth = savedDeclarationDepth;
+		self.context.currentClass = savedClass;
+		self.exitIsolatedScope(scope);
+		self.calls.endDefaultTypeScope(savedTypes);
 
-        IRFunction definition = IRFunction();
-        definition.name = plan.symbol;
-        definition.return_type = returnCType;
-        definition.is_static = true;
-        int parameterIndex = 0;
-        while (parameterIndex < plan.helperParameters.len) {
-            definition.params.push(self.cTypes.copyParameter(
-                plan.helperParameters.get(parameterIndex)));
-            parameterIndex = parameterIndex + 1;
-        }
-        definition.body = body;
-        self.context.activeModule().functions.push(definition);
-        plan.materialized = true;
-    }
+		IRFunction definition = IRFunction();
+		definition.name = plan.symbol;
+		definition.return_type = returnCType;
+		definition.is_static = true;
+		int parameterIndex = 0;
+		while (parameterIndex < plan.helperParameters.len) {
+			definition.params.push(self.cTypes.copyParameter(plan.helperParameters.get(parameterIndex)));
+			parameterIndex = parameterIndex + 1;
+		}
+		definition.body = body;
+		self.context.activeModule().functions.push(definition);
+		plan.materialized = true;
+	}
 
-    public void materializeDeferredClosure() {
-        self.materializePendingCallables();
-        Vector<DefaultHelperPlan> defaults =
-            self.calls.takePendingDefaultHelpers();
-        while (defaults.len > 0) {
-            int index = 0;
-            while (index < defaults.len) {
-                self.materializeDefaultHelper(defaults.get(index));
-                index = index + 1;
-            }
-            self.materializePendingCallables();
-            defaults = self.calls.takePendingDefaultHelpers();
-        }
-    }
+	public void materializeDeferredClosure() {
+		self.materializePendingCallables();
+		Vector<DefaultHelperPlan> defaults = self.calls.takePendingDefaultHelpers();
+		while (defaults.len > 0) {
+			int index = 0;
+			while (index < defaults.len) {
+				self.materializeDefaultHelper(defaults.get(index));
+				index = index + 1;
+			}
+			self.materializePendingCallables();
+			defaults = self.calls.takePendingDefaultHelpers();
+		}
+	}
 
-    public IRNode lowerBody(
-            Node body, Map<string, Node> variableTypes) {
-        CallableFlowState callableFlow = CallableFlowState();
-        IRNode lowered = self.statements.lowerBlock(
-            body, variableTypes, callableFlow);
-        self.materializePendingCallables();
-        return lowered;
-    }
+	public IRNode lowerBody(Node body, Map<string, Node> variableTypes) {
+		CallableFlowState callableFlow = CallableFlowState();
+		IRNode lowered = self.statements.lowerBlock(body, variableTypes, callableFlow);
+		self.materializePendingCallables();
+		return lowered;
+	}
 
-    public void emitGpuCpuFallback(
-            Node declaration, IRModule module) {
-        self.resetFuncVarDecls();
-        GpuCpuLoweringPlan plan = self.gpuPipeline.beginCpuFallback(
-            declaration, module, self.seededVarTypes());
-        string previousReturnC = self.context.currentReturnCType;
-        Node? previousReturn = self.context.currentReturnType;
-        bool previousReturnOwned = self.context.currentReturnOwned;
-        self.context.currentReturnCType = plan.worker.return_type;
-        self.context.currentReturnOwned = true;
-        if (plan.returnsArray) {
-            self.context.currentReturnType = SemanticTypeSystem.primitive(
-                declaration.return_type.base);
-        } else {
-            self.context.currentReturnType = declaration.return_type;
-        }
-        Vector<string> sourceBindings =
-            self.replaceSourceLexicalParameters(declaration.params);
-        IRNode body = self.lowerBody(
-            declaration.body_node, plan.variableTypes);
-        self.context.restoreSourceBindings(sourceBindings);
-        self.context.currentReturnCType = previousReturnC;
-        self.context.currentReturnType = previousReturn;
-        self.context.currentReturnOwned = previousReturnOwned;
-        self.gpuPipeline.finishCpuFallback(plan, body, module);
-    }
+	public void emitGpuCpuFallback(Node declaration, IRModule module) {
+		self.resetFuncVarDecls();
+		GpuCpuLoweringPlan plan = self.gpuPipeline.beginCpuFallback(declaration, module, self.seededVarTypes());
+		string previousReturnC = self.context.currentReturnCType;
+		Node? previousReturn = self.context.currentReturnType;
+		bool previousReturnOwned = self.context.currentReturnOwned;
+		self.context.currentReturnCType = plan.worker.return_type;
+		self.context.currentReturnOwned = true;
+		if (plan.returnsArray) {
+			self.context.currentReturnType = SemanticTypeSystem.primitive(declaration.return_type.base);
+		} else {
+			self.context.currentReturnType = declaration.return_type;
+		}
+		Vector<string> sourceBindings = self.replaceSourceLexicalParameters(declaration.params);
+		IRNode body = self.lowerBody(declaration.body_node, plan.variableTypes);
+		self.context.restoreSourceBindings(sourceBindings);
+		self.context.currentReturnCType = previousReturnC;
+		self.context.currentReturnType = previousReturn;
+		self.context.currentReturnOwned = previousReturnOwned;
+		self.gpuPipeline.finishCpuFallback(plan, body, module);
+	}
 
-    public IRFunction lowerFunction(Node d) {
-        self.gpuPipeline.resetHostCapacities();
-        IRFunction fn = IRFunction();
-        fn.name = self.declarations.sourceFunctionSymbol(d.name);
-        fn.is_realtime = d.is_realtime;
-        string ret = self.cTypes.lower(d.return_type);
-        /* main() with void return -> int (matches functions.py). */
-        if (d.name == "main" && ret == "void") { ret = "int"; }
-        fn.return_type = ret;
-        int i = 0;
-        while (i < d.params.len) {
-            Node p = d.params.get(i);
-            fn.params.push(self.cTypes.lowerParameter(p));
-            if (p.type != null && p.type.is_array) {
-                self.gpuPipeline.recordUnknownHostCapacity(p.name);
-            }
-            i = i + 1;
-        }
-        /* Seed the global scope: module-level vars are visible inside every
+	public IRFunction lowerFunction(Node d) {
+		self.gpuPipeline.resetHostCapacities();
+		IRFunction fn = IRFunction();
+		fn.name = self.declarations.sourceFunctionSymbol(d.name);
+		fn.is_realtime = d.is_realtime;
+		string ret = self.cTypes.lower(d.return_type);
+		/* main() with void return -> int (matches functions.py). */
+		if (d.name == "main" && ret == "void") { ret = "int"; }
+		fn.return_type = ret;
+		int i = 0;
+		while (i < d.params.len) {
+			Node p = d.params.get(i);
+			fn.params.push(self.cTypes.lowerParameter(p));
+			if (p.type != null && p.type.is_array) {
+				self.gpuPipeline.recordUnknownHostCapacity(p.name);
+			}
+			i = i + 1;
+		}
+		/* Seed the global scope: module-level vars are visible inside every
          * function. Params (added next) shadow a same-named global, matching
          * scope resolution order. */
-        Map<string, Node> varTypes = self.seededVarTypes();
-        int j = 0;
-        while (j < d.params.len) {
-            Node p = d.params.get(j);
-            varTypes.put(p.name, p.type);
-            j = j + 1;
-        }
-        self.context.currentReturnCType = ret;
-        self.context.currentReturnType = d.return_type;
-        self.context.currentReturnOwned = true;
-        self.context.currentClass = "";
-        self.resetFuncVarDecls();
-        if (d.body_node != null) {
-            Vector<string> sourceBindings =
-                self.replaceSourceLexicalParameters(d.params);
-            /* Hoist to a local: btrcpy's ARC double-evaluates `field = call()`
+		Map<string, Node> varTypes = self.seededVarTypes();
+		int j = 0;
+		while (j < d.params.len) {
+			Node p = d.params.get(j);
+			varTypes.put(p.name, p.type);
+			j = j + 1;
+		}
+		self.context.currentReturnCType = ret;
+		self.context.currentReturnType = d.return_type;
+		self.context.currentReturnOwned = true;
+		self.context.currentClass = "";
+		self.resetFuncVarDecls();
+		if (d.body_node != null) {
+			Vector<string> sourceBindings = self.replaceSourceLexicalParameters(d.params);
+			/* Hoist to a local: btrcpy's ARC double-evaluates `field = call()`
              * (see gotchas), which would lower the body twice and desync the
              * fresh-temp counter. */
-            IRNode b = self.lowerBody(d.body_node, varTypes);
-            fn.body = b;
-            self.context.restoreSourceBindings(sourceBindings);
-        }
-        return fn;
-    }
-
+			IRNode b = self.lowerBody(d.body_node, varTypes);
+			fn.body = b;
+			self.context.restoreSourceBindings(sourceBindings);
+		}
+		return fn;
+	}
 }

@@ -2,140 +2,125 @@
 
 import std.map;
 import std.vector;
+
 import ../model.btrc;
 
 class RealtimeIRVerifier {
-    private Map<string, IRFunction> functions;
-    private Map<string, bool> safeExternals;
-    private Map<string, string> intrinsicTargets;
+	private Map<string, IRFunction> functions;
+	private Map<string, bool> safeExternals;
+	private Map<string, string> intrinsicTargets;
 
-    public RealtimeIRVerifier(IRModule module) {
-        self.functions = {};
-        self.safeExternals = module.realtime_safe_externals;
-        self.intrinsicTargets = module.realtime_intrinsic_targets;
-    }
+	public RealtimeIRVerifier(IRModule module) {
+		self.functions = {};
+		self.safeExternals = module.realtime_safe_externals;
+		self.intrinsicTargets = module.realtime_intrinsic_targets;
+	}
 
-    public void validate(IRModule module) {
-        bool hasRealtimeRoot = false;
-        int index = 0;
-        while (index < module.functions.len) {
-            IRFunction definition = module.functions.get(index);
-            if (definition.is_realtime) {
-                hasRealtimeRoot = true;
-            }
-            index = index + 1;
-        }
-        if (!hasRealtimeRoot) { return; }
-        index = 0;
-        while (index < module.functions.len) {
-            IRFunction definition = module.functions.get(index);
-            self.functions.put(definition.name, definition);
-            index = index + 1;
-        }
-        index = 0;
-        while (index < module.functions.len) {
-            IRFunction definition = module.functions.get(index);
-            if (definition.is_realtime) {
-                Map<string, bool> visiting = {};
-                self.validateFunction(definition, definition.name, visiting);
-            }
-            index = index + 1;
-        }
-    }
+	public void validate(IRModule module) {
+		bool hasRealtimeRoot = false;
+		int index = 0;
+		while (index < module.functions.len) {
+			IRFunction definition = module.functions.get(index);
+			if (definition.is_realtime) {
+				hasRealtimeRoot = true;
+			}
+			index = index + 1;
+		}
+		if (!hasRealtimeRoot) { return; }
+		index = 0;
+		while (index < module.functions.len) {
+			IRFunction definition = module.functions.get(index);
+			self.functions.put(definition.name, definition);
+			index = index + 1;
+		}
+		index = 0;
+		while (index < module.functions.len) {
+			IRFunction definition = module.functions.get(index);
+			if (definition.is_realtime) {
+				Map<string, bool> visiting = {};
+				self.validateFunction(definition, definition.name, visiting);
+			}
+			index = index + 1;
+		}
+	}
 
-    private void validateFunction(IRFunction definition, string path,
-            Map<string, bool> visiting) {
-        if (visiting.has(definition.name)) {
-            self.fail("recursive call cycle", path);
-        }
-        Map<string, bool> next = {};
-        Vector<string> names = visiting.keys();
-        int index = 0;
-        while (index < names.len) {
-            next.put(names.get(index), true);
-            index = index + 1;
-        }
-        next.put(definition.name, true);
-        self.validateNode(definition.body, path, next);
-    }
+	private void validateFunction(IRFunction definition, string path, Map<string, bool> visiting) {
+		if (visiting.has(definition.name)) {
+			self.fail("recursive call cycle", path);
+		}
+		Map<string, bool> next = {};
+		Vector<string> names = visiting.keys();
+		int index = 0;
+		while (index < names.len) {
+			next.put(names.get(index), true);
+			index = index + 1;
+		}
+		next.put(definition.name, true);
+		self.validateNode(definition.body, path, next);
+	}
 
-    private void validateNode(IRNode? node, string path,
-            Map<string, bool> visiting) {
-        if (node == null) { return; }
-        if (node.kind == IRK_WHILE || node.kind == IRK_DO_WHILE) {
-            self.fail("unbounded loop", path);
-        }
-        if (node.kind == IRK_FOR && !node.realtime_bounded) {
-            self.fail("uncertified for loop", path);
-        }
-        if (node.kind == IRK_LITERAL
-                && (node.text.startsWith("\"")
-                    || node.text.startsWith("L\"")
-                    || node.text.startsWith("u\"")
-                    || node.text.startsWith("U\"")
-                    || node.text.startsWith("u8\""))) {
-            self.fail("string literal", path);
-        }
-        if (node.kind == IRK_FUNCTION_REF) {
-            self.fail("function value '" + node.name + "'", path);
-        }
-        if (node.kind == IRK_CALL) {
-            if (node.callee == "") {
-                self.fail("indirect call", path);
-            }
-            if (node.realtime_provenance != ""
-                    && (!self.intrinsicTargets.has(node.callee)
-                        || self.intrinsicTargets.get(node.callee)
-                            != node.realtime_provenance)) {
-                self.fail("invalid intrinsic provenance '"
-                    + node.realtime_provenance + "' for '"
-                    + node.callee + "'", path);
-            }
-            if (!self.functions.has(node.callee)) {
-                if (!self.safeExternals.has(node.callee)
-                        && node.realtime_provenance == "") {
-                    self.fail("external/runtime call '" + node.callee + "'", path);
-                }
-            } else {
-                IRFunction target = self.functions.get(node.callee);
-                self.validateFunction(
-                    target, path + " -> " + target.name, visiting);
-            }
-        }
-        self.validateNode(node.left, path, visiting);
-        self.validateNode(node.right, path, visiting);
-        self.validateNode(node.operand, path, visiting);
-        self.validateNode(node.expr, path, visiting);
-        self.validateNode(node.obj, path, visiting);
-        self.validateNode(node.index, path, visiting);
-        self.validateNode(node.condition, path, visiting);
-        self.validateNode(node.true_expr, path, visiting);
-        self.validateNode(node.false_expr, path, visiting);
-        self.validateNode(node.array_size, path, visiting);
-        self.validateNode(node.init, path, visiting);
-        self.validateNode(node.value, path, visiting);
-        self.validateNode(node.target, path, visiting);
-        self.validateNode(node.then_block, path, visiting);
-        self.validateNode(node.else_block, path, visiting);
-        self.validateNode(node.body, path, visiting);
-        self.validateNode(node.update, path, visiting);
-        self.validateNode(node.result, path, visiting);
-        int index = 0;
-        while (index < node.args.len) {
-            self.validateNode(node.args.get(index), path, visiting);
-            index = index + 1;
-        }
-        index = 0;
-        while (index < node.stmts.len) {
-            self.validateNode(node.stmts.get(index), path, visiting);
-            index = index + 1;
-        }
-    }
+	private void validateNode(IRNode? node, string path, Map<string, bool> visiting) {
+		if (node == null) { return; }
+		if (node.kind == IRK_WHILE || node.kind == IRK_DO_WHILE) {
+			self.fail("unbounded loop", path);
+		}
+		if (node.kind == IRK_FOR && !node.realtime_bounded) {
+			self.fail("uncertified for loop", path);
+		}
+		if (node.kind == IRK_LITERAL && (node.text.startsWith("\"") || node.text.startsWith("L\"") || node.text.startsWith("u\"") || node.text.startsWith("U\"") || node.text.startsWith("u8\""))) {
+			self.fail("string literal", path);
+		}
+		if (node.kind == IRK_FUNCTION_REF) {
+			self.fail("function value '" + node.name + "'", path);
+		}
+		if (node.kind == IRK_CALL) {
+			if (node.callee == "") {
+				self.fail("indirect call", path);
+			}
+			if (node.realtime_provenance != "" && (!self.intrinsicTargets.has(node.callee) || self.intrinsicTargets.get(node.callee) != node.realtime_provenance)) {
+				self.fail("invalid intrinsic provenance '" + node.realtime_provenance + "' for '" + node.callee + "'", path);
+			}
+			if (!self.functions.has(node.callee)) {
+				if (!self.safeExternals.has(node.callee) && node.realtime_provenance == "") {
+					self.fail("external/runtime call '" + node.callee + "'", path);
+				}
+			} else {
+				IRFunction target = self.functions.get(node.callee);
+				self.validateFunction(target, path + " -> " + target.name, visiting);
+			}
+		}
+		self.validateNode(node.left, path, visiting);
+		self.validateNode(node.right, path, visiting);
+		self.validateNode(node.operand, path, visiting);
+		self.validateNode(node.expr, path, visiting);
+		self.validateNode(node.obj, path, visiting);
+		self.validateNode(node.index, path, visiting);
+		self.validateNode(node.condition, path, visiting);
+		self.validateNode(node.true_expr, path, visiting);
+		self.validateNode(node.false_expr, path, visiting);
+		self.validateNode(node.array_size, path, visiting);
+		self.validateNode(node.init, path, visiting);
+		self.validateNode(node.value, path, visiting);
+		self.validateNode(node.target, path, visiting);
+		self.validateNode(node.then_block, path, visiting);
+		self.validateNode(node.else_block, path, visiting);
+		self.validateNode(node.body, path, visiting);
+		self.validateNode(node.update, path, visiting);
+		self.validateNode(node.result, path, visiting);
+		int index = 0;
+		while (index < node.args.len) {
+			self.validateNode(node.args.get(index), path, visiting);
+			index = index + 1;
+		}
+		index = 0;
+		while (index < node.stmts.len) {
+			self.validateNode(node.stmts.get(index), path, visiting);
+			index = index + 1;
+		}
+	}
 
-    private void fail(string operation, string path) {
-        fprintf(stderr,
-            "internal compiler error: IR realtime backstop rejected %s via %s\n",
-            operation, path);
-        exit(1);
-    }
+	private void fail(string operation, string path) {
+		fprintf(stderr, "internal compiler error: IR realtime backstop rejected %s via %s\n", operation, path);
+		exit(1);
+	}
 }

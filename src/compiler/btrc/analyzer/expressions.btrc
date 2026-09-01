@@ -3,6 +3,7 @@
 import std.map;
 import std.strings;
 import std.vector;
+
 import ../generated/ast/node.btrc;
 import ../syntax/identity.btrc;
 import ../syntax/types.btrc;
@@ -13,1039 +14,850 @@ import ./operators.btrc;
 import ./types.btrc;
 
 class ExpressionTypeResolver {
-    private Analyzed analyzed;
-    private HostedAbiRepository hostedAbi;
-    private OperatorSemantics operators;
-    private SemanticTypeSystem types;
-    private DeclarationRegistry declarations;
-    private bool memoEnabled;
-    private Map<string, bool> memoKnown;
-    private Map<string, Node> memoValues;
+	private Analyzed analyzed;
+	private HostedAbiRepository hostedAbi;
+	private OperatorSemantics operators;
+	private SemanticTypeSystem types;
+	private DeclarationRegistry declarations;
+	private bool memoEnabled;
+	private Map<string, bool> memoKnown;
+	private Map<string, Node> memoValues;
 
-    public ExpressionTypeResolver(Analyzed analyzed,
-            HostedAbiRepository hostedAbi,
-            OperatorSemantics operators, SemanticTypeSystem types,
-            DeclarationRegistry declarations) {
-        self.analyzed = analyzed;
-        self.hostedAbi = hostedAbi;
-        self.operators = operators;
-        self.types = types;
-        self.declarations = declarations;
-        self.memoEnabled = false;
-        self.memoKnown = {};
-        self.memoValues = {};
-    }
+	public ExpressionTypeResolver(Analyzed analyzed, HostedAbiRepository hostedAbi, OperatorSemantics operators, SemanticTypeSystem types, DeclarationRegistry declarations) {
+		self.analyzed = analyzed;
+		self.hostedAbi = hostedAbi;
+		self.operators = operators;
+		self.types = types;
+		self.declarations = declarations;
+		self.memoEnabled = false;
+		self.memoKnown = {};
+		self.memoValues = {};
+	}
 
-    private Node? richEnumVariant(
-            string enumName, string variantName, Analyzed analyzed) {
-        if (!analyzed.richEnumTable.has(enumName)) { return null; }
-        Node declaration = analyzed.richEnumTable.get(enumName);
-        int index = 0;
-        while (index < declaration.variants.len) {
-            Node variant = declaration.variants.get(index);
-            if (variant.name == variantName) { return variant; }
-            index = index + 1;
-        }
-        return null;
-    }
+	private Node? richEnumVariant(string enumName, string variantName, Analyzed analyzed) {
+		if (!analyzed.richEnumTable.has(enumName)) { return null; }
+		Node declaration = analyzed.richEnumTable.get(enumName);
+		int index = 0;
+		while (index < declaration.variants.len) {
+			Node variant = declaration.variants.get(index);
+			if (variant.name == variantName) { return variant; }
+			index = index + 1;
+		}
+		return null;
+	}
 
-    private Map<string, Node> copyTypes(Map<string, Node> source) {
-        Map<string, Node> result = {};
-        Vector<string> names = source.keys();
-        int index = 0;
-        while (index < names.len) {
-            string name = names.get(index);
-            result.put(name, source.get(name));
-            index = index + 1;
-        }
-        return result;
-    }
+	private Map<string, Node> copyTypes(Map<string, Node> source) {
+		Map<string, Node> result = {};
+		Vector<string> names = source.keys();
+		int index = 0;
+		while (index < names.len) {
+			string name = names.get(index);
+			result.put(name, source.get(name));
+			index = index + 1;
+		}
+		return result;
+	}
 
-    private bool rangeForm(Node? expression) {
-        return expression != null && expression.kind == NK_CALL_EXPR
-            && expression.callee != null
-            && expression.callee.kind == NK_IDENTIFIER
-            && expression.callee.name == "range";
-    }
+	private bool rangeForm(Node? expression) { return expression != null && expression.kind == NK_CALL_EXPR && expression.callee != null && expression.callee.kind == NK_IDENTIFIER && expression.callee.name == "range"; }
 
-    private Node? iterableMethod(
-            Node iterableType, string name, Analyzed analyzed) {
-        if (analyzed.isGenericClass(iterableType.base)
-                && iterableType.pointer_depth <= 1) {
-            return analyzed.genericClassMethod(iterableType.base, name);
-        }
-        if (analyzed.isClass(iterableType.base)
-                && iterableType.pointer_depth <= 1) {
-            return analyzed.classMethod(iterableType.base, name);
-        }
-        return null;
-    }
+	private Node? iterableMethod(Node iterableType, string name, Analyzed analyzed) {
+		if (analyzed.isGenericClass(iterableType.base) && iterableType.pointer_depth <= 1) {
+			return analyzed.genericClassMethod(iterableType.base, name);
+		}
+		if (analyzed.isClass(iterableType.base) && iterableType.pointer_depth <= 1) {
+			return analyzed.classMethod(iterableType.base, name);
+		}
+		return null;
+	}
 
-    private Node iterableResolvedType(
-            Node declared, Node iterableType, Analyzed analyzed) {
-        if (analyzed.isGenericClass(iterableType.base)
-                && iterableType.generic_args.len > 0) {
-            return SemanticTypeSystem.resolveGenericType(
-                declared, SemanticTypeSystem.genericTypeMap(
-                    analyzed, iterableType), analyzed);
-        }
-        return declared;
-    }
+	private Node iterableResolvedType(Node declared, Node iterableType, Analyzed analyzed) {
+		if (analyzed.isGenericClass(iterableType.base) && iterableType.generic_args.len > 0) {
+			return SemanticTypeSystem.resolveGenericType(declared, SemanticTypeSystem.genericTypeMap(analyzed, iterableType), analyzed);
+		}
+		return declared;
+	}
 
-    class bool blockTerminates(Node? block) {
-        if (block == null) { return false; }
-        int index = 0;
-        while (index < block.statements.len) {
-            if (ExpressionTypeResolver.statementTerminates(
-                    block.statements.get(index))) { return true; }
-            index = index + 1;
-        }
-        return false;
-    }
+	class bool blockTerminates(Node? block) {
+		if (block == null) { return false; }
+		int index = 0;
+		while (index < block.statements.len) {
+			if (ExpressionTypeResolver.statementTerminates(block.statements.get(index))) { return true; }
+			index = index + 1;
+		}
+		return false;
+	}
 
-    class bool elseTerminates(Node? elseNode) {
-        if (elseNode == null) { return false; }
-        if (elseNode.kind == NK_ELSE_BLOCK) {
-            return ExpressionTypeResolver.blockTerminates(elseNode.body_node);
-        }
-        return elseNode.kind == NK_ELSE_IF
-            && ExpressionTypeResolver.statementTerminates(elseNode.if_stmt);
-    }
+	class bool elseTerminates(Node? elseNode) {
+		if (elseNode == null) { return false; }
+		if (elseNode.kind == NK_ELSE_BLOCK) {
+			return ExpressionTypeResolver.blockTerminates(elseNode.body_node);
+		}
+		return elseNode.kind == NK_ELSE_IF && ExpressionTypeResolver.statementTerminates(elseNode.if_stmt);
+	}
 
-    class bool statementTerminates(Node statement) {
-        if (statement.kind == NK_RETURN_STMT
-                || statement.kind == NK_THROW_STMT) { return true; }
-        if (statement.kind == NK_BLOCK) {
-            return ExpressionTypeResolver.blockTerminates(statement);
-        }
-        if (statement.kind == NK_IF_STMT) {
-            return ExpressionTypeResolver.blockTerminates(statement.then_block)
-                && ExpressionTypeResolver.elseTerminates(statement.else_block);
-        }
-        if (statement.kind == NK_TRY_CATCH_STMT) {
-            if (ExpressionTypeResolver.blockTerminates(
-                    statement.finally_block)) { return true; }
-            bool tryTerminates = ExpressionTypeResolver.blockTerminates(
-                statement.try_block);
-            if (statement.catch_block == null) { return tryTerminates; }
-            return tryTerminates && ExpressionTypeResolver.blockTerminates(
-                statement.catch_block);
-        }
-        return false;
-    }
+	class bool statementTerminates(Node statement) {
+		if (statement.kind == NK_RETURN_STMT || statement.kind == NK_THROW_STMT) { return true; }
+		if (statement.kind == NK_BLOCK) {
+			return ExpressionTypeResolver.blockTerminates(statement);
+		}
+		if (statement.kind == NK_IF_STMT) {
+			return ExpressionTypeResolver.blockTerminates(statement.then_block) && ExpressionTypeResolver.elseTerminates(statement.else_block);
+		}
+		if (statement.kind == NK_TRY_CATCH_STMT) {
+			if (ExpressionTypeResolver.blockTerminates(statement.finally_block)) { return true; }
+			bool tryTerminates = ExpressionTypeResolver.blockTerminates(statement.try_block);
+			if (statement.catch_block == null) { return tryTerminates; }
+			return tryTerminates && ExpressionTypeResolver.blockTerminates(statement.catch_block);
+		}
+		return false;
+	}
 
-    public Node? infer(Node? expression, Map<string, Node> variables) {
-        return self.inferType(
-            expression, self.analyzed, self.operators, variables);
-    }
+	public Node? infer(Node? expression, Map<string, Node> variables) { return self.inferType(expression, self.analyzed, self.operators, variables); }
 
-    public Node? inferRaw(
-            Node? expression, Map<string, Node> variables) {
-        return self.inferTypeRaw(
-            expression, self.analyzed, self.operators, variables);
-    }
+	public Node? inferRaw(Node? expression, Map<string, Node> variables) { return self.inferTypeRaw(expression, self.analyzed, self.operators, variables); }
 
-    public Node? inferSpecialization(
-            Node? expression, Map<string, Node> variables) {
-        return self.inferSpecializationType(
-            expression, self.analyzed, self.operators, variables);
-    }
+	public Node? inferSpecialization(Node? expression, Map<string, Node> variables) { return self.inferSpecializationType(expression, self.analyzed, self.operators, variables); }
 
-    public Node? inferSpecializationWithoutMemo(
-            Node? expression, Map<string, Node> variables) {
-        return self.inferSpecializationTypeWithoutMemo(
-            expression, self.analyzed, self.operators, variables);
-    }
+	public Node? inferSpecializationWithoutMemo(Node? expression, Map<string, Node> variables) { return self.inferSpecializationTypeWithoutMemo(expression, self.analyzed, self.operators, variables); }
 
-    public Node lambdaType(Node lambda, Map<string, Node> variables) {
-        return self.lambdaFnPtrType(
-            lambda, self.analyzed, self.operators, variables);
-    }
+	public Node lambdaType(Node lambda, Map<string, Node> variables) { return self.lambdaFnPtrType(lambda, self.analyzed, self.operators, variables); }
 
-    public Node lambdaReturnType(
-            Node lambda, Map<string, Node> variables) {
-        return self.inferredLambdaReturnType(
-            lambda, self.analyzed, self.operators, variables);
-    }
+	public Node lambdaReturnType(Node lambda, Map<string, Node> variables) { return self.inferredLambdaReturnType(lambda, self.analyzed, self.operators, variables); }
 
+	public void beginMemo() { self.beginExpressionInferenceMemo(); }
 
-    public void beginMemo() {
-        self.beginExpressionInferenceMemo();
-    }
+	public void disableMemo() { self.disableExpressionInferenceMemo(); }
 
-    public void disableMemo() {
-        self.disableExpressionInferenceMemo();
-    }
+	public bool beginScopedMemo() {
+		if (self.memoEnabled) { return false; }
+		self.beginExpressionInferenceMemo();
+		return true;
+	}
 
-    public bool beginScopedMemo() {
-        if (self.memoEnabled) { return false; }
-        self.beginExpressionInferenceMemo();
-        return true;
-    }
+	public void endScopedMemo(bool owned) {
+		if (owned) { self.disableExpressionInferenceMemo(); }
+	}
 
-    public void endScopedMemo(bool owned) {
-        if (owned) { self.disableExpressionInferenceMemo(); }
-    }
+	public Node? genericArgumentType(Node argument, Map<string, Node> variables) {
+		if (argument.kind == NK_IDENTIFIER && self.analyzed.funcTable.has(argument.name) && !variables.has(argument.name)) {
+			return CallableSignature.sourceFunctionPointer(self.analyzed.funcTable.get(argument.name));
+		}
+		return self.inferSpecialization(argument, variables);
+	}
 
-    public Node? genericArgumentType(
-            Node argument, Map<string, Node> variables) {
-        if (argument.kind == NK_IDENTIFIER
-                && self.analyzed.funcTable.has(argument.name)
-                && !variables.has(argument.name)) {
-            return CallableSignature.sourceFunctionPointer(
-                self.analyzed.funcTable.get(argument.name));
-        }
-        return self.inferSpecialization(argument, variables);
-    }
+	private Node? inferGenericConstructorCall(Node call, string name, Map<string, Node> variables) {
+		if (!self.analyzed.isGenericClass(name)) { return null; }
+		Node declaration = self.analyzed.genericClassTable.get(name);
+		Node? constructor = self.analyzed.genericClassConstructor(name);
+		Map<string, Node> substitutions = {};
+		Map<string, bool> parameters = SemanticTypeSystem.genericParameterSet(declaration.generic_params);
+		if (constructor != null) {
+			int positional = 0;
+			int argumentIndex = 0;
+			while (argumentIndex < call.args.len) {
+				int parameterIndex = positional;
+				string argumentName = "";
+				if (argumentIndex < call.arg_names.len) {
+					argumentName = call.arg_names.get(argumentIndex);
+				}
+				if (argumentName != "") {
+					parameterIndex = -1;
+					int search = 0;
+					while (search < constructor.params.len) {
+						if (constructor.params.get(search).name == argumentName) {
+							parameterIndex = search;
+						}
+						search = search + 1;
+					}
+				} else {
+					positional = positional + 1;
+				}
+				if (parameterIndex >= 0 && parameterIndex < constructor.params.len) {
+					Node? actual = self.genericArgumentType(call.args.get(argumentIndex), variables);
+					SemanticTypeSystem.unifyGenericParameter(constructor.params.get(parameterIndex).type, actual, parameters, substitutions);
+				}
+				argumentIndex = argumentIndex + 1;
+			}
+		}
+		Node instance = SemanticTypeSystem.primitive(name);
+		int typeIndex = 0;
+		while (typeIndex < declaration.generic_params.len) {
+			string parameter = declaration.generic_params.get(typeIndex);
+			if (!substitutions.has(parameter)) {
+				if (variables.has("self")) {
+					Node selfType = variables.get("self");
+					if (selfType.base == name && selfType.generic_args.len == declaration.generic_params.len) {
+						return selfType;
+					}
+				}
+				return null;
+			}
+			instance.generic_args.push(substitutions.get(parameter));
+			typeIndex = typeIndex + 1;
+		}
+		return SemanticTypeSystem.classReference(instance);
+	}
 
-    private Node? inferGenericConstructorCall(
-            Node call, string name,
-            Map<string, Node> variables) {
-        if (!self.analyzed.isGenericClass(name)) { return null; }
-        Node declaration =
-            self.analyzed.genericClassTable.get(name);
-        Node? constructor =
-            self.analyzed.genericClassConstructor(name);
-        Map<string, Node> substitutions = {};
-        Map<string, bool> parameters =
-            SemanticTypeSystem.genericParameterSet(
-                declaration.generic_params);
-        if (constructor != null) {
-            int positional = 0;
-            int argumentIndex = 0;
-            while (argumentIndex < call.args.len) {
-                int parameterIndex = positional;
-                string argumentName = "";
-                if (argumentIndex < call.arg_names.len) {
-                    argumentName =
-                        call.arg_names.get(argumentIndex);
-                }
-                if (argumentName != "") {
-                    parameterIndex = -1;
-                    int search = 0;
-                    while (search < constructor.params.len) {
-                        if (constructor.params.get(search).name
-                                == argumentName) {
-                            parameterIndex = search;
-                        }
-                        search = search + 1;
-                    }
-                } else {
-                    positional = positional + 1;
-                }
-                if (parameterIndex >= 0
-                        && parameterIndex < constructor.params.len) {
-                    Node? actual = self.genericArgumentType(
-                        call.args.get(argumentIndex), variables);
-                    SemanticTypeSystem.unifyGenericParameter(
-                        constructor.params.get(parameterIndex).type,
-                        actual, parameters, substitutions);
-                }
-                argumentIndex = argumentIndex + 1;
-            }
-        }
-        Node instance = SemanticTypeSystem.primitive(name);
-        int typeIndex = 0;
-        while (typeIndex < declaration.generic_params.len) {
-            string parameter =
-                declaration.generic_params.get(typeIndex);
-            if (!substitutions.has(parameter)) {
-                if (variables.has("self")) {
-                    Node selfType = variables.get("self");
-                    if (selfType.base == name
-                            && selfType.generic_args.len
-                                == declaration.generic_params.len) {
-                        return selfType;
-                    }
-                }
-                return null;
-            }
-            instance.generic_args.push(
-                substitutions.get(parameter));
-            typeIndex = typeIndex + 1;
-        }
-        return SemanticTypeSystem.classReference(instance);
-    }
-
-    public void inferGlobals(Node program) {
-        /* `var` (untyped) module-level variables: deduce the type from the
+	public void inferGlobals(Node program) {
+		/* `var` (untyped) module-level variables: deduce the type from the
         * initializer now that the function/class tables are populated, so self.analyzed bare
         * reference to such self.analyzed global still resolves (mirrors the global-scope type
         * the analyzer records for an inferred top-level var). */
-        int gv = 0;
-        while (gv < program.declarations.len) {
-        Node d = program.declarations.get(gv);
-        if (d.kind == NK_VAR_DECL_STMT && d.type == null && d.initializer != null) {
-        Map<string, Node> empty = {};
-        Node? gt = self.inferSpecializationType(d.initializer, self.analyzed, self.operators, empty);
-        if (gt != null) { self.analyzed.globalVarTypes.put(d.name, gt); }
-        }
-        gv = gv + 1;
-        }
-    }
+		int gv = 0;
+		while (gv < program.declarations.len) {
+			Node d = program.declarations.get(gv);
+			if (d.kind == NK_VAR_DECL_STMT && d.type == null && d.initializer != null) {
+				Map<string, Node> empty = {};
+				Node? gt = self.inferSpecializationType(d.initializer, self.analyzed, self.operators, empty);
+				if (gt != null) { self.analyzed.globalVarTypes.put(d.name, gt); }
+			}
+			gv = gv + 1;
+		}
+	}
 
 
-    /* On-demand type inference for an expression node, given a map of in-scope
+	/* On-demand type inference for an expression node, given a map of in-scope
      * variable name -> declared TypeExpr node. Returns a TypeExpr Node, or null if
      * the type is unknown (mirrors Python's node_types.get returning None). */
-    private Node? binaryTypeFromOperands(
-            Node expression, Node? leftType, Node? rightType,
-            Analyzed analyzed, OperatorSemantics operators) {
-        Node? overloaded = operators.overloadReturnType(
-            leftType, expression.op, false);
-        if (overloaded != null) { return overloaded; }
-        if (SemanticTypeSystem.isComparisonOperator(expression.op)) {
-            return SemanticTypeSystem.primitive("bool");
-        }
-        Node? pointerType = operators.pointerArithmeticType(
-            leftType, rightType, expression.op);
-        if (pointerType != null) { return pointerType; }
-        Node? numericType = NumericSemantics.resultType(
-            leftType, rightType, analyzed);
-        if (numericType != null) { return numericType; }
-        if (leftType != null) { return leftType; }
-        return rightType;
-    }
+	private Node? binaryTypeFromOperands(Node expression, Node? leftType, Node? rightType, Analyzed analyzed, OperatorSemantics operators) {
+		Node? overloaded = operators.overloadReturnType(leftType, expression.op, false);
+		if (overloaded != null) { return overloaded; }
+		if (SemanticTypeSystem.isComparisonOperator(expression.op)) {
+			return SemanticTypeSystem.primitive("bool");
+		}
+		Node? pointerType = operators.pointerArithmeticType(leftType, rightType, expression.op);
+		if (pointerType != null) { return pointerType; }
+		Node? numericType = NumericSemantics.resultType(leftType, rightType, analyzed);
+		if (numericType != null) { return numericType; }
+		if (leftType != null) { return leftType; }
+		return rightType;
+	}
 
-    private void appendBinaryType(
-            Node? value, Vector<Node> values, Vector<bool> present) {
-        present.push(value != null);
-        if (value != null) { values.push(value); }
-    }
+	private void appendBinaryType(Node? value, Vector<Node> values, Vector<bool> present) {
+		present.push(value != null);
+		if (value != null) { values.push(value); }
+	}
 
-    private Node? popBinaryType(
-            Vector<Node> values, Vector<bool> present) {
-        if (!present.pop()) { return null; }
-        return values.pop();
-    }
+	private Node? popBinaryType(Vector<Node> values, Vector<bool> present) {
+		if (!present.pop()) { return null; }
+		return values.pop();
+	}
 
-    private bool appendMemoizedBinaryType(
-            Node expression, Vector<Node> values, Vector<bool> present) {
-        if (!self.memoEnabled) { return false; }
-        string key = AstIdentity.key(expression);
-        if (!self.memoKnown.has(key)) { return false; }
-        Node? value = null;
-        if (self.memoValues.has(key)) {
-            value = self.memoValues.get(key);
-        }
-        self.appendBinaryType(value, values, present);
-        return true;
-    }
+	private bool appendMemoizedBinaryType(Node expression, Vector<Node> values, Vector<bool> present) {
+		if (!self.memoEnabled) { return false; }
+		string key = AstIdentity.key(expression);
+		if (!self.memoKnown.has(key)) { return false; }
+		Node? value = null;
+		if (self.memoValues.has(key)) {
+			value = self.memoValues.get(key);
+		}
+		self.appendBinaryType(value, values, present);
+		return true;
+	}
 
-    private void rememberBinaryType(Node expression, Node? value) {
-        if (!self.memoEnabled) { return; }
-        string key = AstIdentity.key(expression);
-        self.memoKnown.put(key, true);
-        if (value != null) {
-            self.memoValues.put(key, value);
-        }
-    }
+	private void rememberBinaryType(Node expression, Node? value) {
+		if (!self.memoEnabled) { return; }
+		string key = AstIdentity.key(expression);
+		self.memoKnown.put(key, true);
+		if (value != null) {
+			self.memoValues.put(key, value);
+		}
+	}
 
-    private void appendBinaryOperand(
-            Node? operand, Analyzed analyzed,
-            OperatorSemantics operators, Map<string, Node> varTypes,
-            Vector<Node> expressions, Vector<int> stages,
-            Vector<Node> values, Vector<bool> present) {
-        if (operand != null && operand.kind == NK_BINARY_EXPR) {
-            expressions.push(operand);
-            stages.push(0);
-            return;
-        }
-        self.appendBinaryType(
-            self.inferSpecializationType(
-                operand, analyzed, operators, varTypes),
-            values, present);
-    }
+	private void appendBinaryOperand(Node? operand, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> varTypes, Vector<Node> expressions, Vector<int> stages, Vector<Node> values, Vector<bool> present) {
+		if (operand != null && operand.kind == NK_BINARY_EXPR) {
+			expressions.push(operand);
+			stages.push(0);
+			return;
+		}
+		self.appendBinaryType(self.inferSpecializationType(operand, analyzed, operators, varTypes), values, present);
+	}
 
-    private Node? inferBinaryType(
-            Node root, Analyzed analyzed,
-            OperatorSemantics operators, Map<string, Node> varTypes) {
-        Vector<Node> expressions = [root];
-        Vector<int> stages = [0];
-        Vector<Node> values = [];
-        Vector<bool> present = [];
-        while (expressions.len > 0) {
-            Node expression = expressions.pop();
-            int stage = stages.pop();
-            if (stage == 0) {
-                if (self.appendMemoizedBinaryType(
-                        expression, values, present)) {
-                    continue;
-                }
-                expressions.push(expression);
-                stages.push(1);
-                self.appendBinaryOperand(
-                    expression.left, analyzed, operators, varTypes,
-                    expressions, stages, values, present);
-                continue;
-            }
-            if (stage == 1) {
-                expressions.push(expression);
-                stages.push(2);
-                self.appendBinaryOperand(
-                    expression.right, analyzed, operators, varTypes,
-                    expressions, stages, values, present);
-                continue;
-            }
-            Node? rightType = self.popBinaryType(values, present);
-            Node? leftType = self.popBinaryType(values, present);
-            Node? value = self.binaryTypeFromOperands(
-                expression, leftType, rightType, analyzed, operators);
-            if (expressions.len > 0) {
-                value = SemanticTypeSystem.resolveOuterTypedefType(
-                    value, analyzed.typedefTable);
-                self.rememberBinaryType(expression, value);
-            }
-            self.appendBinaryType(value, values, present);
-        }
-        if (present.len == 0) { return null; }
-        return self.popBinaryType(values, present);
-    }
+	private Node? inferBinaryType(Node root, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> varTypes) {
+		Vector<Node> expressions = [root];
+		Vector<int> stages = [0];
+		Vector<Node> values = [];
+		Vector<bool> present = [];
+		while (expressions.len > 0) {
+			Node expression = expressions.pop();
+			int stage = stages.pop();
+			if (stage == 0) {
+				if (self.appendMemoizedBinaryType(expression, values, present)) {
+					continue;
+				}
+				expressions.push(expression);
+				stages.push(1);
+				self.appendBinaryOperand(expression.left, analyzed, operators, varTypes, expressions, stages, values, present);
+				continue;
+			}
+			if (stage == 1) {
+				expressions.push(expression);
+				stages.push(2);
+				self.appendBinaryOperand(expression.right, analyzed, operators, varTypes, expressions, stages, values, present);
+				continue;
+			}
+			Node? rightType = self.popBinaryType(values, present);
+			Node? leftType = self.popBinaryType(values, present);
+			Node? value = self.binaryTypeFromOperands(expression, leftType, rightType, analyzed, operators);
+			if (expressions.len > 0) {
+				value = SemanticTypeSystem.resolveOuterTypedefType(value, analyzed.typedefTable);
+				self.rememberBinaryType(expression, value);
+			}
+			self.appendBinaryType(value, values, present);
+		}
+		if (present.len == 0) { return null; }
+		return self.popBinaryType(values, present);
+	}
 
-    private Node? inferTypeRaw(Node? node, Analyzed a,
-            OperatorSemantics operators, Map<string, Node> varTypes) {
-        if (node == null) { return null; }
-        if (node.kind == NK_INT_LITERAL) { return NumericSemantics.integerLiteralType(node.raw); }
-        if (node.kind == NK_FLOAT_LITERAL) { return NumericSemantics.floatLiteralType(node.raw); }
-        if (node.kind == NK_BOOL_LITERAL) { return SemanticTypeSystem.primitive("bool"); }
-        if (node.kind == NK_CHAR_LITERAL) { return SemanticTypeSystem.primitive("char"); }
-        if (node.kind == NK_STRING_LITERAL) { return SemanticTypeSystem.primitive("string"); }
-        if (node.kind == NK_F_STRING_LITERAL) { return SemanticTypeSystem.primitive("string"); }
-        if (node.kind == NK_SIZEOF_EXPR) { return SemanticTypeSystem.primitive("size_t"); }
-        if (node.kind == NK_NULL_LITERAL) { return operators.nullType(); }
-        if (node.kind == NK_IDENTIFIER) {
-            if (node.name == "NULL") { return operators.nullType(); }
-            if (varTypes.has(node.name)) { return varTypes.get(node.name); }
-            if (a.funcTable.has(node.name)) {
-                return self.genericArgumentType(node, varTypes);
-            }
-            if (a.isEnumValue(node.name)) {
-                string owner = a.enumOwnerOf(node.name);
-                /* Anonymous-enum constants enter C's ordinary integer namespace;
+	private Node? inferTypeRaw(Node? node, Analyzed a, OperatorSemantics operators, Map<string, Node> varTypes) {
+		if (node == null) { return null; }
+		if (node.kind == NK_INT_LITERAL) { return NumericSemantics.integerLiteralType(node.raw); }
+		if (node.kind == NK_FLOAT_LITERAL) { return NumericSemantics.floatLiteralType(node.raw); }
+		if (node.kind == NK_BOOL_LITERAL) { return SemanticTypeSystem.primitive("bool"); }
+		if (node.kind == NK_CHAR_LITERAL) { return SemanticTypeSystem.primitive("char"); }
+		if (node.kind == NK_STRING_LITERAL) { return SemanticTypeSystem.primitive("string"); }
+		if (node.kind == NK_F_STRING_LITERAL) { return SemanticTypeSystem.primitive("string"); }
+		if (node.kind == NK_SIZEOF_EXPR) { return SemanticTypeSystem.primitive("size_t"); }
+		if (node.kind == NK_NULL_LITERAL) { return operators.nullType(); }
+		if (node.kind == NK_IDENTIFIER) {
+			if (node.name == "NULL") { return operators.nullType(); }
+			if (varTypes.has(node.name)) { return varTypes.get(node.name); }
+			if (a.funcTable.has(node.name)) {
+				return self.genericArgumentType(node, varTypes);
+			}
+			if (a.isEnumValue(node.name)) {
+				string owner = a.enumOwnerOf(node.name);
+				/* Anonymous-enum constants enter C's ordinary integer namespace;
                  * they do not introduce a nominal source type. */
-                if (owner == "") { return SemanticTypeSystem.primitive("int"); }
-                return SemanticTypeSystem.primitive(owner);
-            }
-            /* Standard stream objects are opaque FILE pointers. The reference
+				if (owner == "") { return SemanticTypeSystem.primitive("int"); }
+				return SemanticTypeSystem.primitive(owner);
+			}
+			/* Standard stream objects are opaque FILE pointers. The reference
              * analyzer records this type too; preserving it here lets structured
              * call sequencing hoist stderr/stdout/stdin without inventing a C11
              * typeof fallback or mistaking the operand for a managed value. */
-            if (node.name == "stdin" || node.name == "stdout"
-                    || node.name == "stderr") {
-                Node streamType = SemanticTypeSystem.primitive("FILE");
-                streamType.pointer_depth = 1;
-                return streamType;
-            }
-            if (node.name == "__func__") {
-                Node functionNameType = SemanticTypeSystem.primitive("char");
-                functionNameType.pointer_depth = 1;
-                functionNameType.is_const = true;
-                return functionNameType;
-            }
-            Node? predefinedType = SemanticTypeSystem.predefinedIdentifier(node.name);
-            if (predefinedType != null) { return predefinedType; }
-            if (SemanticTypeSystem.isCOpaqueValueIdentifier(node.name)) { return null; }
-            if (SemanticTypeSystem.isCIntegerIdentifier(node.name)) { return SemanticTypeSystem.primitive("int"); }
-            return null;
-        }
-        if (node.kind == NK_BINARY_EXPR) {
-            return self.inferBinaryType(node, a, operators, varTypes);
-        }
-        if (node.kind == NK_ASSIGN_EXPR) {
-            return self.inferSpecializationType(
-                node.target, a, operators, varTypes);
-        }
-        if (node.kind == NK_UNARY_EXPR) {
-            Node? declaredOperandType = self.inferTypeRaw(
-                node.operand, a, operators, varTypes);
-            Node? operandType = self.inferSpecializationType(
-                node.operand, a, operators, varTypes);
-            if (operandType == null) { return null; }
-            if (node.op == "!") { return SemanticTypeSystem.primitive("bool"); }
-            if (node.op == "&") {
-                if (node.operand != null
-                        && node.operand.kind == NK_IDENTIFIER
-                        && a.funcTable.has(node.operand.name)
-                        && !varTypes.has(node.operand.name)) {
-                    return operandType;
-                }
-                Node addressed = TypeShape.withoutOuterArray(operandType);
-                return TypeShape.withOuterPointer(addressed);
-            }
-            if (node.op == "*") {
-                if (operandType.is_array || operandType.pointer_depth > 0) {
-                    Node? preserved = SemanticTypeSystem.typeWithoutOuterStorageThroughTypedef(
-                        declaredOperandType, a.typedefTable);
-                    if (preserved != null) { return preserved; }
-                    if (operandType.is_array) {
-                        return TypeShape.withoutOuterArray(operandType);
-                    }
-                    return TypeShape.withoutOuterPointers(operandType, 1);
-                }
-            }
-            Node? overloaded = operators.overloadReturnType(
-                operandType, node.op, true);
-            if (overloaded != null) { return overloaded; }
-            return operandType;
-        }
-        if (node.kind == NK_SELF_EXPR) {
-            if (varTypes.has("self")) { return varTypes.get("self"); }
-            return null;
-        }
-        if (node.kind == NK_SUPER_EXPR) {
-            if (!varTypes.has("self")) { return null; }
-            Node selfType = varTypes.get("self");
-            if (!a.classTable.has(selfType.base)) { return null; }
-            string parent = DeclarationRegistry.parentName(a.classTable.get(selfType.base));
-            if (parent == "") { return null; }
-            return SemanticTypeSystem.classReference(SemanticTypeSystem.namedClass(parent));
-        }
-        if (node.kind == NK_NEW_EXPR) {
-            /* Thread<T> and Mutex<T> are already source-level opaque handles.
+			if (node.name == "stdin" || node.name == "stdout" || node.name == "stderr") {
+				Node streamType = SemanticTypeSystem.primitive("FILE");
+				streamType.pointer_depth = 1;
+				return streamType;
+			}
+			if (node.name == "__func__") {
+				Node functionNameType = SemanticTypeSystem.primitive("char");
+				functionNameType.pointer_depth = 1;
+				functionNameType.is_const = true;
+				return functionNameType;
+			}
+			Node? predefinedType = SemanticTypeSystem.predefinedIdentifier(node.name);
+			if (predefinedType != null) { return predefinedType; }
+			if (SemanticTypeSystem.isCOpaqueValueIdentifier(node.name)) { return null; }
+			if (SemanticTypeSystem.isCIntegerIdentifier(node.name)) { return SemanticTypeSystem.primitive("int"); }
+			return null;
+		}
+		if (node.kind == NK_BINARY_EXPR) {
+			return self.inferBinaryType(node, a, operators, varTypes);
+		}
+		if (node.kind == NK_ASSIGN_EXPR) {
+			return self.inferSpecializationType(node.target, a, operators, varTypes);
+		}
+		if (node.kind == NK_UNARY_EXPR) {
+			Node? declaredOperandType = self.inferTypeRaw(node.operand, a, operators, varTypes);
+			Node? operandType = self.inferSpecializationType(node.operand, a, operators, varTypes);
+			if (operandType == null) { return null; }
+			if (node.op == "!") { return SemanticTypeSystem.primitive("bool"); }
+			if (node.op == "&") {
+				if (node.operand != null && node.operand.kind == NK_IDENTIFIER && a.funcTable.has(node.operand.name) && !varTypes.has(node.operand.name)) {
+					return operandType;
+				}
+				Node addressed = TypeShape.withoutOuterArray(operandType);
+				return TypeShape.withOuterPointer(addressed);
+			}
+			if (node.op == "*") {
+				if (operandType.is_array || operandType.pointer_depth > 0) {
+					Node? preserved = SemanticTypeSystem.typeWithoutOuterStorageThroughTypedef(declaredOperandType, a.typedefTable);
+					if (preserved != null) { return preserved; }
+					if (operandType.is_array) {
+						return TypeShape.withoutOuterArray(operandType);
+					}
+					return TypeShape.withoutOuterPointers(operandType, 1);
+				}
+			}
+			Node? overloaded = operators.overloadReturnType(operandType, node.op, true);
+			if (overloaded != null) { return overloaded; }
+			return operandType;
+		}
+		if (node.kind == NK_SELF_EXPR) {
+			if (varTypes.has("self")) { return varTypes.get("self"); }
+			return null;
+		}
+		if (node.kind == NK_SUPER_EXPR) {
+			if (!varTypes.has("self")) { return null; }
+			Node selfType = varTypes.get("self");
+			if (!a.classTable.has(selfType.base)) { return null; }
+			string parent = DeclarationRegistry.parentName(a.classTable.get(selfType.base));
+			if (parent == "") { return null; }
+			return SemanticTypeSystem.classReference(SemanticTypeSystem.namedClass(parent));
+		}
+		if (node.kind == NK_NEW_EXPR) {
+			/* Thread<T> and Mutex<T> are already source-level opaque handles.
              * Unlike user classes, their TypeExpr must not gain an additional
              * pointer depth during inference. Mirrors TypeInferencer._infer_type. */
-            if (node.type.base == "Thread" || node.type.base == "Mutex") {
-                return node.type;
-            }
-            return SemanticTypeSystem.classReference(node.type);
-        }
-        if (node.kind == NK_FIELD_ACCESS_EXPR) {
-            if (node.obj != null && node.obj.kind == NK_IDENTIFIER
-                    && !varTypes.has(node.obj.name)
-                    && node.obj.name == "MemoryOrder") {
-                return SemanticTypeSystem.primitive("MemoryOrder");
-            }
-            /* A class-qualified field is translation-unit storage, but its value
+			if (node.type.base == "Thread" || node.type.base == "Mutex") {
+				return node.type;
+			}
+			return SemanticTypeSystem.classReference(node.type);
+		}
+		if (node.kind == NK_FIELD_ACCESS_EXPR) {
+			if (node.obj != null && node.obj.kind == NK_IDENTIFIER && !varTypes.has(node.obj.name) && node.obj.name == "MemoryOrder") {
+				return SemanticTypeSystem.primitive("MemoryOrder");
+			}
+			/* A class-qualified field is translation-unit storage, but its value
              * still has the declaration's type.  Nested projections and managed
              * static replacement both rely on this result. */
-            if (node.obj != null && node.obj.kind == NK_IDENTIFIER
-                    && a.isClass(node.obj.name)) {
-                Node? staticMember = a.classMember(
-                    node.obj.name, node.field);
-                if (staticMember != null
-                        && staticMember.kind == NK_FIELD_DECL
-                        && staticMember.access == "class") {
-                    return staticMember.type;
-                }
-            }
-            if (node.obj != null && node.obj.kind == NK_IDENTIFIER
-                    && a.isEnum(node.obj.name)
-                    && a.enumContains(node.obj.name, node.field)) {
-                return SemanticTypeSystem.primitive(node.obj.name);
-            }
-            Node? ot = self.inferSpecializationType(
-                node.obj, a, operators, varTypes);
-            if (ot != null && ot.base == "Tuple") {
-                int tupleIndex = SemanticTypeSystem.tupleIndex(node.field);
-                if (tupleIndex >= 0 && tupleIndex < ot.generic_args.len) {
-                    return ot.generic_args.get(tupleIndex);
-                }
-                return null;
-            }
-            /* Rich-enum field access: `s.tag` is int; any other direct field of a
+			if (node.obj != null && node.obj.kind == NK_IDENTIFIER && a.isClass(node.obj.name)) {
+				Node? staticMember = a.classMember(node.obj.name, node.field);
+				if (staticMember != null && staticMember.kind == NK_FIELD_DECL && staticMember.access == "class") {
+					return staticMember.type;
+				}
+			}
+			if (node.obj != null && node.obj.kind == NK_IDENTIFIER && a.isEnum(node.obj.name) && a.enumContains(node.obj.name, node.field)) {
+				return SemanticTypeSystem.primitive(node.obj.name);
+			}
+			Node? ot = self.inferSpecializationType(node.obj, a, operators, varTypes);
+			if (ot != null && ot.base == "Tuple") {
+				int tupleIndex = SemanticTypeSystem.tupleIndex(node.field);
+				if (tupleIndex >= 0 && tupleIndex < ot.generic_args.len) {
+					return ot.generic_args.get(tupleIndex);
+				}
+				return null;
+			}
+			/* Rich-enum field access: `s.tag` is int; any other direct field of a
              * rich enum (the `data` union) has no scalar type. Mirrors
              * type_inference._infer_field_access_type's rich_enum_table branch. */
-            if (ot != null && a.isRichEnum(ot.base)) {
-                if (node.field == "tag") { return SemanticTypeSystem.primitive("int"); }
-                return null;
-            }
-            /* Rich-enum payload field: `s.data.<Variant>.<field>` resolves to the
+			if (ot != null && a.isRichEnum(ot.base)) {
+				if (node.field == "tag") { return SemanticTypeSystem.primitive("int"); }
+				return null;
+			}
+			/* Rich-enum payload field: `s.data.<Variant>.<field>` resolves to the
              * variant param's declared type (so the f-string interp picks the right
              * format and the arrow decision sees a class-pointer payload). Mirrors
              * type_inference._infer_field_access_type's nested rich_enum branch. */
-            if (node.obj != null && node.obj.kind == NK_FIELD_ACCESS_EXPR
-                    && node.obj.obj != null
-                    && node.obj.obj.kind == NK_FIELD_ACCESS_EXPR) {
-                Node dataExpr = node.obj.obj;
-                Node? sType = self.inferSpecializationType(
-                    dataExpr.obj, a, operators, varTypes);
-                if (sType != null && a.isRichEnum(sType.base)) {
-                    Node reDecl = a.richEnumTable.get(sType.base);
-                    string variantName = node.obj.field;
-                    int vi = 0;
-                    while (vi < reDecl.variants.len) {
-                        Node v = reDecl.variants.get(vi);
-                        if (v.name == variantName) {
-                            int pi = 0;
-                            while (pi < v.params.len) {
-                                Node par = v.params.get(pi);
-                                if (par.name == node.field) { return par.type; }
-                                pi = pi + 1;
-                            }
-                        }
-                        vi = vi + 1;
-                    }
-                }
-            }
-            if (ot != null && a.isClass(ot.base)) {
-                Node? fm = a.classMember(ot.base, node.field);
-                if (fm != null && fm.kind == NK_FIELD_DECL) { return fm.type; }
-                if (fm != null && fm.kind == NK_PROPERTY_DECL) { return fm.type; }
-            }
-            /* Generic instance field access: resolve the field type via the type map. */
-            if (ot != null && ot.generic_args.len > 0 && a.isGenericClass(ot.base)) {
-                Node? fm = self.types.instanceMember(
-                    ot.base, node.field);
-                if (fm != null && (fm.kind == NK_FIELD_DECL || fm.kind == NK_PROPERTY_DECL)) {
-                    return self.types.resolveGeneric(
-                        fm.type, self.types.instanceTypeMap(ot));
-                }
-            }
-            Node? nativeField = SemanticTypeSystem.structFieldFor(ot, node.field, a);
-            if (nativeField != null) { return nativeField; }
-            return null;
-        }
-        if (node.kind == NK_CALL_EXPR) {
-            Node callee = node.callee;
-            if (callee != null && callee.kind == NK_LAMBDA_EXPR) {
-                Node callableType = self.lambdaFnPtrType(
-                    callee, a, operators, varTypes);
-                if (callableType.generic_args.len > 0) {
-                    return callableType.generic_args.get(0);
-                }
-            }
-            Node? callableCallee =
-                SemanticTypeSystem.directFunctionPointerSpecialization(
-                self.inferSpecializationType(
-                    callee, a, operators, varTypes), a);
-            if (callableCallee != null) {
-                return callableCallee.generic_args.get(0);
-            }
-            if (callee != null && callee.kind == NK_IDENTIFIER) {
-                if (varTypes.has(callee.name)) { return null; }
-                string constructorKey = AstIdentity.key(node);
-                if (a.genericConstructorTypes.has(constructorKey)) {
-                    return a.genericConstructorTypes.get(constructorKey);
-                }
-                if (callee.name == "__btrc_hash") { return SemanticTypeSystem.primitive("uint"); }
-                if (callee.name == "__btrc_eq" || callee.name == "__btrc_lt"
-                        || callee.name == "__btrc_gt") {
-                    return SemanticTypeSystem.primitive("bool");
-                }
-                if (callee.name == "__btrc_str_track"
-                        || callee.name == "__btrc_string_adopt"
-                        || callee.name == "__btrc_string_alloc") {
-                    return SemanticTypeSystem.primitive("string");
-                }
-                string hostedCallKey = AstIdentity.key(node);
-                if (a.funcRetTypes.has(callee.name)
-                        && !a.hostedCallKeys.has(hostedCallKey)) {
-                    return a.funcRetTypes.get(callee.name);
-                }
-                Node? hostedResult = self.hostedAbi.semanticResultType(callee.name);
-                if (hostedResult != null) { return hostedResult; }
-                Node? builtinResult = a.builtinCallResultType(callee.name);
-                if (builtinResult != null) { return builtinResult; }
-                /* Builtin Mutex(value) infers the exact payload type. Keep this in
+			if (node.obj != null && node.obj.kind == NK_FIELD_ACCESS_EXPR && node.obj.obj != null && node.obj.obj.kind == NK_FIELD_ACCESS_EXPR) {
+				Node dataExpr = node.obj.obj;
+				Node? sType = self.inferSpecializationType(dataExpr.obj, a, operators, varTypes);
+				if (sType != null && a.isRichEnum(sType.base)) {
+					Node reDecl = a.richEnumTable.get(sType.base);
+					string variantName = node.obj.field;
+					int vi = 0;
+					while (vi < reDecl.variants.len) {
+						Node v = reDecl.variants.get(vi);
+						if (v.name == variantName) {
+							int pi = 0;
+							while (pi < v.params.len) {
+								Node par = v.params.get(pi);
+								if (par.name == node.field) { return par.type; }
+								pi = pi + 1;
+							}
+						}
+						vi = vi + 1;
+					}
+				}
+			}
+			if (ot != null && a.isClass(ot.base)) {
+				Node? fm = a.classMember(ot.base, node.field);
+				if (fm != null && fm.kind == NK_FIELD_DECL) { return fm.type; }
+				if (fm != null && fm.kind == NK_PROPERTY_DECL) { return fm.type; }
+			}
+			/* Generic instance field access: resolve the field type via the type map. */
+			if (ot != null && ot.generic_args.len > 0 && a.isGenericClass(ot.base)) {
+				Node? fm = self.types.instanceMember(ot.base, node.field);
+				if (fm != null && (fm.kind == NK_FIELD_DECL || fm.kind == NK_PROPERTY_DECL)) {
+					return self.types.resolveGeneric(fm.type, self.types.instanceTypeMap(ot));
+				}
+			}
+			Node? nativeField = SemanticTypeSystem.structFieldFor(ot, node.field, a);
+			if (nativeField != null) { return nativeField; }
+			return null;
+		}
+		if (node.kind == NK_CALL_EXPR) {
+			Node callee = node.callee;
+			if (callee != null && callee.kind == NK_LAMBDA_EXPR) {
+				Node callableType = self.lambdaFnPtrType(callee, a, operators, varTypes);
+				if (callableType.generic_args.len > 0) {
+					return callableType.generic_args.get(0);
+				}
+			}
+			Node? callableCallee = SemanticTypeSystem.directFunctionPointerSpecialization(self.inferSpecializationType(callee, a, operators, varTypes), a);
+			if (callableCallee != null) {
+				return callableCallee.generic_args.get(0);
+			}
+			if (callee != null && callee.kind == NK_IDENTIFIER) {
+				if (varTypes.has(callee.name)) { return null; }
+				string constructorKey = AstIdentity.key(node);
+				if (a.genericConstructorTypes.has(constructorKey)) {
+					return a.genericConstructorTypes.get(constructorKey);
+				}
+				if (callee.name == "__btrc_hash") { return SemanticTypeSystem.primitive("uint"); }
+				if (callee.name == "__btrc_eq" || callee.name == "__btrc_lt" || callee.name == "__btrc_gt") {
+					return SemanticTypeSystem.primitive("bool");
+				}
+				if (callee.name == "__btrc_str_track" || callee.name == "__btrc_string_adopt" || callee.name == "__btrc_string_alloc") {
+					return SemanticTypeSystem.primitive("string");
+				}
+				string hostedCallKey = AstIdentity.key(node);
+				if (a.funcRetTypes.has(callee.name) && !a.hostedCallKeys.has(hostedCallKey)) {
+					return a.funcRetTypes.get(callee.name);
+				}
+				Node? hostedResult = self.hostedAbi.semanticResultType(callee.name);
+				if (hostedResult != null) { return hostedResult; }
+				Node? builtinResult = a.builtinCallResultType(callee.name);
+				if (builtinResult != null) { return builtinResult; }
+				/* Builtin Mutex(value) infers the exact payload type. Keep this in
                  * semantic inference (matching the reference compiler) so ownership
                  * boundaries and every other consumer see a typed handle instead of
                  * falling back to an integer C temporary. */
-                if (callee.name == "Mutex" && node.args.len > 0) {
-                    Node mutexType = SemanticTypeSystem.primitive("Mutex");
-                    Node? argumentType = self.inferSpecializationType(
-                        node.args.get(0), a, operators, varTypes);
-                    if (argumentType == null) {
-                        argumentType = SemanticTypeSystem.primitive("int");
-                    } else if ((a.isClass(argumentType.base)
-                                || a.isGenericClass(argumentType.base))
-                            && argumentType.pointer_depth == 0) {
-                        /* Local scope tables preserve the source spelling of an
+				if (callee.name == "Mutex" && node.args.len > 0) {
+					Node mutexType = SemanticTypeSystem.primitive("Mutex");
+					Node? argumentType = self.inferSpecializationType(node.args.get(0), a, operators, varTypes);
+					if (argumentType == null) {
+						argumentType = SemanticTypeSystem.primitive("int");
+					} else if ((a.isClass(argumentType.base) || a.isGenericClass(argumentType.base)) && argumentType.pointer_depth == 0) {
+						/* Local scope tables preserve the source spelling of an
                          * outer class type, while declaration normalization eagerly
                          * records class-typed generic arguments as pointers.  A
                          * Mutex payload is an expression value, so give an inferred
                          * bare class the same heap-reference shape used by the
                          * reference compiler before embedding it in Mutex<T>. */
-                        argumentType = SemanticTypeSystem.classReference(argumentType);
-                    }
-                    mutexType.generic_args.push(argumentType);
-                    return mutexType;
-                }
-                if (callee.name == "Atomic" && node.args.len > 0) {
-                    Node atomicType = SemanticTypeSystem.primitive("Atomic");
-                    Node? argumentType = self.inferSpecializationType(
-                        node.args.get(0), a, operators, varTypes);
-                    atomicType.generic_args.push(argumentType == null
-                        ? SemanticTypeSystem.primitive("int") : argumentType);
-                    return atomicType;
-                }
-                if (callee.name == "Span" && node.args.len > 0) {
-                    Node spanType = SemanticTypeSystem.primitive("Span");
-                    Node? backingType = self.inferSpecializationType(
-                        node.args.get(0), a, operators, varTypes);
-                    Node elementType = SemanticTypeSystem.primitive("int");
-                    if (backingType != null && backingType.is_array) {
-                        elementType = TypeShape.withoutOuterArray(backingType);
-                    } else if (backingType != null
-                            && backingType.pointer_depth > 0) {
-                        elementType = TypeShape.withoutOuterPointers(
-                            backingType, 1);
-                    }
-                    spanType.generic_args.push(elementType);
-                    return spanType;
-                }
-                if (a.typedefTable.has(callee.name)) {
-                    Node? aliasConstructor =
-                        SemanticTypeSystem.resolveTypedefType(
-                            SemanticTypeSystem.primitive(callee.name),
-                            a.typedefTable);
-                    if (aliasConstructor != null
-                            && (a.isClass(aliasConstructor.base)
-                                || a.isGenericClass(aliasConstructor.base))) {
-                        return aliasConstructor;
-                    }
-                }
-                if (a.isGenericClass(callee.name)) {
-                    return self.inferGenericConstructorCall(
-                        node, callee.name, varTypes);
-                }
-                /* Constructor call ClassName(...) yields a class-instance pointer. */
-                if (a.isClass(callee.name)) {
-                    return SemanticTypeSystem.classReference(SemanticTypeSystem.namedClass(callee.name));
-                }
-            }
-            if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR) {
-                string method = callee.field;
-                /* A rich-enum variant constructor is a namespaced free function
+						argumentType = SemanticTypeSystem.classReference(argumentType);
+					}
+					mutexType.generic_args.push(argumentType);
+					return mutexType;
+				}
+				if (callee.name == "Atomic" && node.args.len > 0) {
+					Node atomicType = SemanticTypeSystem.primitive("Atomic");
+					Node? argumentType = self.inferSpecializationType(node.args.get(0), a, operators, varTypes);
+					atomicType.generic_args.push(argumentType == null ? SemanticTypeSystem.primitive("int") : argumentType);
+					return atomicType;
+				}
+				if (callee.name == "Span" && node.args.len > 0) {
+					Node spanType = SemanticTypeSystem.primitive("Span");
+					Node? backingType = self.inferSpecializationType(node.args.get(0), a, operators, varTypes);
+					Node elementType = SemanticTypeSystem.primitive("int");
+					if (backingType != null && backingType.is_array) {
+						elementType = TypeShape.withoutOuterArray(backingType);
+					} else if (backingType != null && backingType.pointer_depth > 0) {
+						elementType = TypeShape.withoutOuterPointers(backingType, 1);
+					}
+					spanType.generic_args.push(elementType);
+					return spanType;
+				}
+				if (a.typedefTable.has(callee.name)) {
+					Node? aliasConstructor = SemanticTypeSystem.resolveTypedefType(SemanticTypeSystem.primitive(callee.name), a.typedefTable);
+					if (aliasConstructor != null && (a.isClass(aliasConstructor.base) || a.isGenericClass(aliasConstructor.base))) {
+						return aliasConstructor;
+					}
+				}
+				if (a.isGenericClass(callee.name)) {
+					return self.inferGenericConstructorCall(node, callee.name, varTypes);
+				}
+				/* Constructor call ClassName(...) yields a class-instance pointer. */
+				if (a.isClass(callee.name)) {
+					return SemanticTypeSystem.classReference(SemanticTypeSystem.namedClass(callee.name));
+				}
+			}
+			if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR) {
+				string method = callee.field;
+				/* A rich-enum variant constructor is a namespaced free function
                  * whose value has the enum type. Keep this in the shared
                  * specialization inference path so call-boundary result slots and
                  * generic-body consumers use the same resolved target. */
-                if (callee.obj != null
-                        && callee.obj.kind == NK_IDENTIFIER
-                        && !varTypes.has(callee.obj.name)
-                        && self.richEnumVariant(
-                            callee.obj.name, method, a) != null) {
-                    return SemanticTypeSystem.primitive(callee.obj.name);
-                }
-                /* Static method call ClassName.method(...) */
-                if (callee.obj != null && callee.obj.kind == NK_IDENTIFIER
-                        && !varTypes.has(callee.obj.name)
-                        && a.isClass(callee.obj.name)) {
-                    Node? sm = a.classMethod(callee.obj.name, method);
-                    if (sm != null && sm.kind == NK_METHOD_DECL) { return sm.return_type; }
-                }
-                /* Instance method call obj.method(...) */
-                Node? ot = self.inferSpecializationType(
-                    callee.obj, a, operators, varTypes);
-                if (ot != null && method == "toString"
-                        && ot.pointer_depth == 0 && !ot.is_array
-                        && ot.generic_args.len == 0
-                        && (NumericSemantics.isType(ot, a) || ot.base == "bool"
-                            || a.isEnum(ot.base)
-                            || a.isRichEnum(ot.base))) {
-                    return SemanticTypeSystem.primitive("string");
-                }
-                /* Builtin string method: return type from the shared spec. */
-                if (SemanticTypeSystem.isString(ot)) {
-                    Node? srt = SemanticTypeSystem.stringMethodResult(method);
-                    if (srt != null) { return srt; }
-                }
-                /* Thread<T>.join() -> T, Mutex<T>.get() -> T, Mutex<T>.set/destroy ->
+				if (callee.obj != null && callee.obj.kind == NK_IDENTIFIER && !varTypes.has(callee.obj.name) && self.richEnumVariant(callee.obj.name, method, a) != null) {
+					return SemanticTypeSystem.primitive(callee.obj.name);
+				}
+				/* Static method call ClassName.method(...) */
+				if (callee.obj != null && callee.obj.kind == NK_IDENTIFIER && !varTypes.has(callee.obj.name) && a.isClass(callee.obj.name)) {
+					Node? sm = a.classMethod(callee.obj.name, method);
+					if (sm != null && sm.kind == NK_METHOD_DECL) { return sm.return_type; }
+				}
+				/* Instance method call obj.method(...) */
+				Node? ot = self.inferSpecializationType(callee.obj, a, operators, varTypes);
+				if (ot != null && method == "toString" && ot.pointer_depth == 0 && !ot.is_array && ot.generic_args.len == 0 && (NumericSemantics.isType(ot, a) || ot.base == "bool" || a.isEnum(ot.base) || a.isRichEnum(ot.base))) {
+					return SemanticTypeSystem.primitive("string");
+				}
+				/* Builtin string method: return type from the shared spec. */
+				if (SemanticTypeSystem.isString(ot)) {
+					Node? srt = SemanticTypeSystem.stringMethodResult(method);
+					if (srt != null) { return srt; }
+				}
+				/* Thread<T>.join() -> T, Mutex<T>.get() -> T, Mutex<T>.set/destroy ->
                  * void (mirrors type_inference's Thread/Mutex CallExpr branches). The
                  * payload type drives the arrow decision when a Mutex stores a class
                  * instance (e.g. mb.get().v must emit `->v`, not `.v`). */
-                if (ot != null && ot.base == "Thread" && ot.generic_args.len > 0) {
-                    if (method == "join") { return ot.generic_args.get(0); }
-                }
-                if (ot != null && ot.base == "Mutex" && ot.generic_args.len > 0) {
-                    if (method == "get") { return ot.generic_args.get(0); }
-                    if (method == "set" || method == "destroy") { return SemanticTypeSystem.primitive("void"); }
-                }
-                if (ot != null && ot.base == "Atomic"
-                        && ot.generic_args.len > 0) {
-                    if (method == "load" || method == "exchange"
-                            || method == "fetchAdd" || method == "fetchSub"
-                            || method == "fetchAnd" || method == "fetchOr"
-                            || method == "fetchXor") {
-                        return ot.generic_args.get(0);
-                    }
-                    if (method == "compareExchangeStrong") {
-                        return SemanticTypeSystem.primitive("bool");
-                    }
-                    if (method == "init" || method == "store") {
-                        return SemanticTypeSystem.primitive("void");
-                    }
-                }
-                if (ot != null && ot.base == "Span"
-                        && ot.generic_args.len > 0) {
-                    if (method == "length") {
-                        return SemanticTypeSystem.primitive("size_t");
-                    }
-                    if (method == "isEmpty" || method == "isValid"
-                            || method == "tryGet" || method == "trySet") {
-                        return SemanticTypeSystem.primitive("bool");
-                    }
-                }
-                if (ot != null && a.isClass(ot.base)) {
-                    Node? mm = a.classMethod(ot.base, method);
-                    if (mm != null && mm.kind == NK_METHOD_DECL) {
-                        Map<string, Node> noClassArgs = {};
-                        return self.types.resolveGeneric(
-                            mm.return_type,
-                            self.types.callTypeMap(
-                                node, mm, noClassArgs));
-                    }
-                    if (mm != null && mm.kind == NK_PROPERTY_DECL) { return mm.type; }
-                }
-                /* Generic instance method call: resolve return type via type map. */
-                if (ot != null && ot.generic_args.len > 0 && a.isGenericClass(ot.base)) {
-                    Node? mm = a.genericClassMethod(ot.base, method);
-                    if (mm != null && mm.kind == NK_METHOD_DECL) {
-                        Map<string, Node> classArgs =
-                            self.types.instanceTypeMap(ot);
-                        return self.types.resolveGeneric(
-                            mm.return_type,
-                            self.types.callTypeMap(
-                                node, mm, classArgs));
-                    }
-                    if (mm != null && mm.kind == NK_PROPERTY_DECL) {
-                        return self.types.resolveGeneric(
-                            mm.type, self.types.instanceTypeMap(ot));
-                    }
-                }
-            }
-            return null;
-        }
-        if (node.kind == NK_INDEX_EXPR) {
-            Node? declaredObjectType = self.inferTypeRaw(
-                node.obj, a, operators, varTypes);
-            Node? ot = SemanticTypeSystem.resolveOuterTypedefType(
-                declaredObjectType, a.typedefTable);
-            if (ot != null && (ot.is_array
-                    || SemanticTypeSystem.rawIndexedPointer(ot, a))) {
-                Node? preserved = SemanticTypeSystem.typeWithoutOuterStorageThroughTypedef(
-                    declaredObjectType, a.typedefTable);
-                if (preserved != null) { return preserved; }
-            }
-            return SemanticTypeSystem.indexResultType(ot, a);
-        }
-        if (node.kind == NK_CAST_EXPR) { return node.target_type; }
-        if (node.kind == NK_TERNARY_EXPR) {
-            Node? trueType = self.inferSpecializationType(
-                node.true_expr, a, operators, varTypes);
-            Node? falseType = self.inferSpecializationType(
-                node.false_expr, a, operators, varTypes);
-            Node? numericType = NumericSemantics.resultType(trueType, falseType, a);
-            if (numericType != null) { return numericType; }
-            if (operators.isNullType(trueType) && falseType != null) {
-                return falseType;
-            }
-            if (operators.isNullType(falseType) && trueType != null) {
-                return trueType;
-            }
-            if (trueType != null) { return trueType; }
-            return falseType;
-        }
-        if (node.kind == NK_LIST_LITERAL) {
-            if (node.elements.len > 0) {
-                Node? et = self.inferSpecializationType(
-                    node.elements.get(0), a, operators, varTypes);
-                if (et != null) {
-                    Node elementType = et;
-                    if ((a.isClass(et.base) || a.isGenericClass(et.base))
-                            && et.pointer_depth == 0) {
-                        elementType = SemanticTypeSystem.classReference(et);
-                    }
-                    Node u = Node();
-                    u.kind = NK_TYPE_EXPR;
-                    u.base = "Vector";
-                    Vector<Node> ga = [];
-                    ga.push(elementType);
-                    u.generic_args = ga;
-                    return u;
-                }
-            }
-            return null;
-        }
-        if (node.kind == NK_LAMBDA_EXPR) {
-            return self.lambdaFnPtrType(node, a, operators, varTypes);
-        }
-        if (node.kind == NK_SPAWN_EXPR) {
-            /* spawn(callable) yields Thread<T> where T is the callable's return type
+				if (ot != null && ot.base == "Thread" && ot.generic_args.len > 0) {
+					if (method == "join") { return ot.generic_args.get(0); }
+				}
+				if (ot != null && ot.base == "Mutex" && ot.generic_args.len > 0) {
+					if (method == "get") { return ot.generic_args.get(0); }
+					if (method == "set" || method == "destroy") { return SemanticTypeSystem.primitive("void"); }
+				}
+				if (ot != null && ot.base == "Atomic" && ot.generic_args.len > 0) {
+					if (method == "load" || method == "exchange" || method == "fetchAdd" || method == "fetchSub" || method == "fetchAnd" || method == "fetchOr" || method == "fetchXor") {
+						return ot.generic_args.get(0);
+					}
+					if (method == "compareExchangeStrong") {
+						return SemanticTypeSystem.primitive("bool");
+					}
+					if (method == "init" || method == "store") {
+						return SemanticTypeSystem.primitive("void");
+					}
+				}
+				if (ot != null && ot.base == "Span" && ot.generic_args.len > 0) {
+					if (method == "length") {
+						return SemanticTypeSystem.primitive("size_t");
+					}
+					if (method == "isEmpty" || method == "isValid" || method == "tryGet" || method == "trySet") {
+						return SemanticTypeSystem.primitive("bool");
+					}
+				}
+				if (ot != null && a.isClass(ot.base)) {
+					Node? mm = a.classMethod(ot.base, method);
+					if (mm != null && mm.kind == NK_METHOD_DECL) {
+						Map<string, Node> noClassArgs = {};
+						return self.types.resolveGeneric(mm.return_type, self.types.callTypeMap(node, mm, noClassArgs));
+					}
+					if (mm != null && mm.kind == NK_PROPERTY_DECL) { return mm.type; }
+				}
+				/* Generic instance method call: resolve return type via type map. */
+				if (ot != null && ot.generic_args.len > 0 && a.isGenericClass(ot.base)) {
+					Node? mm = a.genericClassMethod(ot.base, method);
+					if (mm != null && mm.kind == NK_METHOD_DECL) {
+						Map<string, Node> classArgs = self.types.instanceTypeMap(ot);
+						return self.types.resolveGeneric(mm.return_type, self.types.callTypeMap(node, mm, classArgs));
+					}
+					if (mm != null && mm.kind == NK_PROPERTY_DECL) {
+						return self.types.resolveGeneric(mm.type, self.types.instanceTypeMap(ot));
+					}
+				}
+			}
+			return null;
+		}
+		if (node.kind == NK_INDEX_EXPR) {
+			Node? declaredObjectType = self.inferTypeRaw(node.obj, a, operators, varTypes);
+			Node? ot = SemanticTypeSystem.resolveOuterTypedefType(declaredObjectType, a.typedefTable);
+			if (ot != null && (ot.is_array || SemanticTypeSystem.rawIndexedPointer(ot, a))) {
+				Node? preserved = SemanticTypeSystem.typeWithoutOuterStorageThroughTypedef(declaredObjectType, a.typedefTable);
+				if (preserved != null) { return preserved; }
+			}
+			return SemanticTypeSystem.indexResultType(ot, a);
+		}
+		if (node.kind == NK_CAST_EXPR) { return node.target_type; }
+		if (node.kind == NK_TERNARY_EXPR) {
+			Node? trueType = self.inferSpecializationType(node.true_expr, a, operators, varTypes);
+			Node? falseType = self.inferSpecializationType(node.false_expr, a, operators, varTypes);
+			Node? numericType = NumericSemantics.resultType(trueType, falseType, a);
+			if (numericType != null) { return numericType; }
+			if (operators.isNullType(trueType) && falseType != null) {
+				return falseType;
+			}
+			if (operators.isNullType(falseType) && trueType != null) {
+				return trueType;
+			}
+			if (trueType != null) { return trueType; }
+			return falseType;
+		}
+		if (node.kind == NK_LIST_LITERAL) {
+			if (node.elements.len > 0) {
+				Node? et = self.inferSpecializationType(node.elements.get(0), a, operators, varTypes);
+				if (et != null) {
+					Node elementType = et;
+					if ((a.isClass(et.base) || a.isGenericClass(et.base)) && et.pointer_depth == 0) {
+						elementType = SemanticTypeSystem.classReference(et);
+					}
+					Node u = Node();
+					u.kind = NK_TYPE_EXPR;
+					u.base = "Vector";
+					Vector<Node> ga = [];
+					ga.push(elementType);
+					u.generic_args = ga;
+					return u;
+				}
+			}
+			return null;
+		}
+		if (node.kind == NK_LAMBDA_EXPR) {
+			return self.lambdaFnPtrType(node, a, operators, varTypes);
+		}
+		if (node.kind == NK_SPAWN_EXPR) {
+			/* spawn(callable) yields Thread<T> where T is the callable's return type
              * (mirrors expressions._infer_spawn_return_type / type_inference's
              * SpawnExpr branch). A lambda's return type is its annotation or the
              * inferred body return type (lambdaFnPtrType's arg[0]); a non-lambda
              * function-pointer operand contributes void. */
-            Node ret = SemanticTypeSystem.primitive("void");
-            Node fn = node.fn;
-            if (fn != null && fn.kind == NK_LAMBDA_EXPR) {
-                Node fpt = self.lambdaFnPtrType(
-                    fn, a, operators, varTypes);
-                if (fpt.generic_args.len > 0) { ret = fpt.generic_args.get(0); }
-            } else if (fn != null) {
-                Node? fnt = self.inferSpecializationType(
-                    fn, a, operators, varTypes);
-                if (fnt != null && fnt.base == "__fn_ptr" && fnt.generic_args.len > 0) {
-                    ret = fnt.generic_args.get(0);
-                }
-            }
-            Node u = Node();
-            u.kind = NK_TYPE_EXPR;
-            u.base = "Thread";
-            Vector<Node> tga = [];
-            tga.push(ret);
-            u.generic_args = tga;
-            return u;
-        }
-        if (node.kind == NK_TUPLE_LITERAL) {
-            /* A tuple literal's type is Tuple<T0, T1, ...> built from each element's
+			Node ret = SemanticTypeSystem.primitive("void");
+			Node fn = node.fn;
+			if (fn != null && fn.kind == NK_LAMBDA_EXPR) {
+				Node fpt = self.lambdaFnPtrType(fn, a, operators, varTypes);
+				if (fpt.generic_args.len > 0) { ret = fpt.generic_args.get(0); }
+			} else if (fn != null) {
+				Node? fnt = self.inferSpecializationType(fn, a, operators, varTypes);
+				if (fnt != null && fnt.base == "__fn_ptr" && fnt.generic_args.len > 0) {
+					ret = fnt.generic_args.get(0);
+				}
+			}
+			Node u = Node();
+			u.kind = NK_TYPE_EXPR;
+			u.base = "Thread";
+			Vector<Node> tga = [];
+			tga.push(ret);
+			u.generic_args = tga;
+			return u;
+		}
+		if (node.kind == NK_TUPLE_LITERAL) {
+			/* A tuple literal's type is Tuple<T0, T1, ...> built from each element's
              * inferred type. Needed so a nested tuple element (e.g. the (string,bool)
              * inside (int,(string,bool))) mangles to the right struct name rather
              * than falling back to int. Element fallback is int to match the
              * lowerTupleLiteral fallback. */
-            Node u = Node();
-            u.kind = NK_TYPE_EXPR;
-            u.base = "Tuple";
-            Vector<Node> ga = [];
-            int ti = 0;
-            while (ti < node.elements.len) {
-                Node? et = self.inferSpecializationType(
-                    node.elements.get(ti), a, operators, varTypes);
-                if (et == null) { et = SemanticTypeSystem.primitive("int"); }
-                ga.push(TypeShape.copyTree(et));
-                ti = ti + 1;
-            }
-            u.generic_args = ga;
-            /* Declared aggregate types eagerly normalize nested class references
+			Node u = Node();
+			u.kind = NK_TYPE_EXPR;
+			u.base = "Tuple";
+			Vector<Node> ga = [];
+			int ti = 0;
+			while (ti < node.elements.len) {
+				Node? et = self.inferSpecializationType(node.elements.get(ti), a, operators, varTypes);
+				if (et == null) { et = SemanticTypeSystem.primitive("int"); }
+				ga.push(TypeShape.copyTree(et));
+				ti = ti + 1;
+			}
+			u.generic_args = ga;
+			/* Declared aggregate types eagerly normalize nested class references
              * to their concrete pointer shape.  Inferred symbol types keep the
              * source spelling for an outer class, so normalize these copied tuple
              * arguments before invariant generic comparison.  The recursive copy
              * avoids mutating the symbol table while handling nested tuples. */
-            SemanticTypeSystem.upgradeConcreteTypeGenericArgs(u, a);
-            return u;
-        }
-        return null;
-    }
+			SemanticTypeSystem.upgradeConcreteTypeGenericArgs(u, a);
+			return u;
+		}
+		return null;
+	}
 
-    private Node? inferType(Node? node, Analyzed a,
-            OperatorSemantics operators, Map<string, Node> varTypes) {
-        return SemanticTypeSystem.resolveTypedefType(
-            self.inferTypeRaw(node, a, operators, varTypes), a.typedefTable);
-    }
+	private Node? inferType(Node? node, Analyzed a, OperatorSemantics operators, Map<string, Node> varTypes) { return SemanticTypeSystem.resolveTypedefType(self.inferTypeRaw(node, a, operators, varTypes), a.typedefTable); }
 
-    /* Match the reference analyzer's stored expression-type domain: expand the
+	/* Match the reference analyzer's stored expression-type domain: expand the
      * alias naming the value itself, but retain aliases nested in generic
      * arguments so IR symbol selection agrees with generic-instance collection. */
-    private Node? inferSpecializationTypeUnmemoized(
-            Node? node, Analyzed a, OperatorSemantics operators,
-            Map<string, Node> varTypes) {
-        return SemanticTypeSystem.resolveOuterTypedefType(
-            self.inferTypeRaw(node, a, operators, varTypes), a.typedefTable);
-    }
+	private Node? inferSpecializationTypeUnmemoized(Node? node, Analyzed a, OperatorSemantics operators, Map<string, Node> varTypes) { return SemanticTypeSystem.resolveOuterTypedefType(self.inferTypeRaw(node, a, operators, varTypes), a.typedefTable); }
 
-    /* Infer the __fn_ptr(ret, params...) TypeExpr for a lambda expression so that
+	/* Infer the __fn_ptr(ret, params...) TypeExpr for a lambda expression so that
      * `var f = lambda` declares `f` with the right typedef'd C type. The return
      * type is the lambda's explicit annotation, or inferred from its expression
      * body, or "void" for a block body without annotation (mirrors lambdas.py's
      * return-type resolution + the analyzer storing the lambda type as __fn_ptr). */
-    private Node lambdaFnPtrType(Node node, Analyzed a,
-            OperatorSemantics operators, Map<string, Node> varTypes) {
-        Node u = Node();
-        u.kind = NK_TYPE_EXPR;
-        u.base = "__fn_ptr";
-        Vector<Node> ga = [];
-        /* arg[0] is the explicit or structurally inferred return type. */
-        Node ret = self.inferredLambdaReturnType(
-            node, a, operators, varTypes);
-        if ((a.isClass(ret.base) || a.isGenericClass(ret.base))
-                && ret.pointer_depth == 0 && !ret.is_array) {
-            ret = SemanticTypeSystem.classReference(ret);
-        }
-        ga.push(ret);
-        /* arg[1..] = parameter types. */
-        int i = 0;
-        while (i < node.params.len) {
-            Node p = node.params.get(i);
-            if (p.type != null) { ga.push(p.type); }
-            else { ga.push(SemanticTypeSystem.primitive("int")); }
-            i = i + 1;
-        }
-        u.generic_args = ga;
-        return u;
-    }
+	private Node lambdaFnPtrType(Node node, Analyzed a, OperatorSemantics operators, Map<string, Node> varTypes) {
+		Node u = Node();
+		u.kind = NK_TYPE_EXPR;
+		u.base = "__fn_ptr";
+		Vector<Node> ga = [];
+		/* arg[0] is the explicit or structurally inferred return type. */
+		Node ret = self.inferredLambdaReturnType(node, a, operators, varTypes);
+		if ((a.isClass(ret.base) || a.isGenericClass(ret.base)) && ret.pointer_depth == 0 && !ret.is_array) {
+			ret = SemanticTypeSystem.classReference(ret);
+		}
+		ga.push(ret);
+		/* arg[1..] = parameter types. */
+		int i = 0;
+		while (i < node.params.len) {
+			Node p = node.params.get(i);
+			if (p.type != null) { ga.push(p.type); }
+			else { ga.push(SemanticTypeSystem.primitive("int")); }
+			i = i + 1;
+		}
+		u.generic_args = ga;
+		return u;
+	}
 
-    /* Walk an AST subtree and collect all Identifier names into `names` (value
+	/* Walk an AST subtree and collect all Identifier names into `names` (value
      * always true). Mirrors analyzer._collect_identifiers: an Identifier adds its
      * name and stops; otherwise every Node-typed and Vector<Node>-typed child field
      * is visited recursively. Used by lambda lowering to compute captures. */
-    class void collectIdentifiers(Node? n, Map<string, bool> names) {
-        if (n == null) { return; }
-        if (n.kind == NK_IDENTIFIER) {
-            names.put(n.name, true);
-            return;
-        }
-        if (n.kind == NK_SELF_EXPR || n.kind == NK_SUPER_EXPR) {
-            names.put("self", true);
-            return;
-        }
-        /* Node-typed scalar children. */
-        ExpressionTypeResolver.collectIdentifiers(n.spec, names);
-        ExpressionTypeResolver.collectIdentifiers(n.return_type, names);
-        ExpressionTypeResolver.collectIdentifiers(n.body_node, names);
-        ExpressionTypeResolver.collectIdentifiers(n.original, names);
-        ExpressionTypeResolver.collectIdentifiers(n.array_size, names);
-        ExpressionTypeResolver.collectIdentifiers(n.type, names);
-        ExpressionTypeResolver.collectIdentifiers(n.default_, names);
-        ExpressionTypeResolver.collectIdentifiers(n.initializer, names);
-        ExpressionTypeResolver.collectIdentifiers(n.getter_body, names);
-        ExpressionTypeResolver.collectIdentifiers(n.setter_body, names);
-        ExpressionTypeResolver.collectIdentifiers(n.value_node, names);
-        ExpressionTypeResolver.collectIdentifiers(n.condition, names);
-        ExpressionTypeResolver.collectIdentifiers(n.then_block, names);
-        ExpressionTypeResolver.collectIdentifiers(n.else_block, names);
-        ExpressionTypeResolver.collectIdentifiers(n.iterable, names);
-        ExpressionTypeResolver.collectIdentifiers(n.init, names);
-        ExpressionTypeResolver.collectIdentifiers(n.update, names);
-        ExpressionTypeResolver.collectIdentifiers(n.expr, names);
-        ExpressionTypeResolver.collectIdentifiers(n.try_block, names);
-        ExpressionTypeResolver.collectIdentifiers(n.catch_type, names);
-        ExpressionTypeResolver.collectIdentifiers(n.catch_block, names);
-        ExpressionTypeResolver.collectIdentifiers(n.finally_block, names);
-        ExpressionTypeResolver.collectIdentifiers(n.if_stmt, names);
-        ExpressionTypeResolver.collectIdentifiers(n.var_decl, names);
-        ExpressionTypeResolver.collectIdentifiers(n.expression, names);
-        ExpressionTypeResolver.collectIdentifiers(n.left, names);
-        ExpressionTypeResolver.collectIdentifiers(n.right, names);
-        ExpressionTypeResolver.collectIdentifiers(n.operand, names);
-        ExpressionTypeResolver.collectIdentifiers(n.callee, names);
-        ExpressionTypeResolver.collectIdentifiers(n.obj, names);
-        ExpressionTypeResolver.collectIdentifiers(n.index, names);
-        ExpressionTypeResolver.collectIdentifiers(n.target_type, names);
-        ExpressionTypeResolver.collectIdentifiers(n.true_expr, names);
-        ExpressionTypeResolver.collectIdentifiers(n.false_expr, names);
-        ExpressionTypeResolver.collectIdentifiers(n.target, names);
-        ExpressionTypeResolver.collectIdentifiers(n.fn, names);
-        ExpressionTypeResolver.collectIdentifiers(n.key, names);
-        /* Vector<Node> children. */
-        ExpressionTypeResolver.collectIdentifiersList(n.members, names);
-        ExpressionTypeResolver.collectIdentifiersList(n.methods, names);
-        ExpressionTypeResolver.collectIdentifiersList(n.params, names);
-        ExpressionTypeResolver.collectIdentifiersList(n.fields, names);
-        ExpressionTypeResolver.collectIdentifiersList(n.values, names);
-        ExpressionTypeResolver.collectIdentifiersList(n.variants, names);
-        ExpressionTypeResolver.collectIdentifiersList(n.generic_args, names);
-        ExpressionTypeResolver.collectIdentifiersList(n.statements, names);
-        ExpressionTypeResolver.collectIdentifiersList(n.cases, names);
-        ExpressionTypeResolver.collectIdentifiersList(n.args, names);
-        ExpressionTypeResolver.collectIdentifiersList(n.elements, names);
-        ExpressionTypeResolver.collectIdentifiersList(n.entries, names);
-        ExpressionTypeResolver.collectIdentifiersList(n.parts, names);
-        ExpressionTypeResolver.collectIdentifiersList(n.captures, names);
-        ExpressionTypeResolver.collectIdentifiersList(n.body_nlist, names);
-    }
+	class void collectIdentifiers(Node? n, Map<string, bool> names) {
+		if (n == null) { return; }
+		if (n.kind == NK_IDENTIFIER) {
+			names.put(n.name, true);
+			return;
+		}
+		if (n.kind == NK_SELF_EXPR || n.kind == NK_SUPER_EXPR) {
+			names.put("self", true);
+			return;
+		}
+		/* Node-typed scalar children. */
+		ExpressionTypeResolver.collectIdentifiers(n.spec, names);
+		ExpressionTypeResolver.collectIdentifiers(n.return_type, names);
+		ExpressionTypeResolver.collectIdentifiers(n.body_node, names);
+		ExpressionTypeResolver.collectIdentifiers(n.original, names);
+		ExpressionTypeResolver.collectIdentifiers(n.array_size, names);
+		ExpressionTypeResolver.collectIdentifiers(n.type, names);
+		ExpressionTypeResolver.collectIdentifiers(n.default_, names);
+		ExpressionTypeResolver.collectIdentifiers(n.initializer, names);
+		ExpressionTypeResolver.collectIdentifiers(n.getter_body, names);
+		ExpressionTypeResolver.collectIdentifiers(n.setter_body, names);
+		ExpressionTypeResolver.collectIdentifiers(n.value_node, names);
+		ExpressionTypeResolver.collectIdentifiers(n.condition, names);
+		ExpressionTypeResolver.collectIdentifiers(n.then_block, names);
+		ExpressionTypeResolver.collectIdentifiers(n.else_block, names);
+		ExpressionTypeResolver.collectIdentifiers(n.iterable, names);
+		ExpressionTypeResolver.collectIdentifiers(n.init, names);
+		ExpressionTypeResolver.collectIdentifiers(n.update, names);
+		ExpressionTypeResolver.collectIdentifiers(n.expr, names);
+		ExpressionTypeResolver.collectIdentifiers(n.try_block, names);
+		ExpressionTypeResolver.collectIdentifiers(n.catch_type, names);
+		ExpressionTypeResolver.collectIdentifiers(n.catch_block, names);
+		ExpressionTypeResolver.collectIdentifiers(n.finally_block, names);
+		ExpressionTypeResolver.collectIdentifiers(n.if_stmt, names);
+		ExpressionTypeResolver.collectIdentifiers(n.var_decl, names);
+		ExpressionTypeResolver.collectIdentifiers(n.expression, names);
+		ExpressionTypeResolver.collectIdentifiers(n.left, names);
+		ExpressionTypeResolver.collectIdentifiers(n.right, names);
+		ExpressionTypeResolver.collectIdentifiers(n.operand, names);
+		ExpressionTypeResolver.collectIdentifiers(n.callee, names);
+		ExpressionTypeResolver.collectIdentifiers(n.obj, names);
+		ExpressionTypeResolver.collectIdentifiers(n.index, names);
+		ExpressionTypeResolver.collectIdentifiers(n.target_type, names);
+		ExpressionTypeResolver.collectIdentifiers(n.true_expr, names);
+		ExpressionTypeResolver.collectIdentifiers(n.false_expr, names);
+		ExpressionTypeResolver.collectIdentifiers(n.target, names);
+		ExpressionTypeResolver.collectIdentifiers(n.fn, names);
+		ExpressionTypeResolver.collectIdentifiers(n.key, names);
+		/* Vector<Node> children. */
+		ExpressionTypeResolver.collectIdentifiersList(n.members, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.methods, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.params, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.fields, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.values, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.variants, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.generic_args, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.statements, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.cases, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.args, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.elements, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.entries, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.parts, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.captures, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.body_nlist, names);
+	}
 
-    class void collectIdentifiersList(Vector<Node> xs, Map<string, bool> names) {
-        int i = 0;
-        while (i < xs.len) {
-            ExpressionTypeResolver.collectIdentifiers(xs.get(i), names);
-            i = i + 1;
-        }
-    }
+	class void collectIdentifiersList(Vector<Node> xs, Map<string, bool> names) {
+		int i = 0;
+		while (i < xs.len) {
+			ExpressionTypeResolver.collectIdentifiers(xs.get(i), names);
+			i = i + 1;
+		}
+	}
 
-    /* Substitute generic type parameters in a TypeExpr using a param-name -> concrete
+	/* Substitute generic type parameters in a TypeExpr using a param-name -> concrete
      * TypeExpr map. Mirrors generics.core._resolve_type. Combines pointer depths when
      * a T* member is resolved against a pointer concrete type. */
 
-    /* Context-scoped memoization for recursive expression inference.
+	/* Context-scoped memoization for recursive expression inference.
      *
      * `inferTypeRaw` recursively re-enters inferSpecializationType for child AST
      * nodes. Keeping the memo at that public recursion seam makes one inference
@@ -1053,438 +865,331 @@ class ExpressionTypeResolver {
      * every suffix of a deep expression. IR generation alone enables the memo;
      * semantic analysis continues to use an isolated uncached environment. */
 
-    private void beginExpressionInferenceMemo() {
-        self.memoKnown = {};
-        self.memoValues = {};
-        self.memoEnabled = true;
-    }
+	private void beginExpressionInferenceMemo() {
+		self.memoKnown = {};
+		self.memoValues = {};
+		self.memoEnabled = true;
+	}
 
-    /* Module prepasses (notably WGSL registration) use their own contextual type
+	/* Module prepasses (notably WGSL registration) use their own contextual type
      * domains. Start every generate() call with no persistent inference context;
      * individual lowered bodies opt in through beginExpressionInferenceMemo. */
-    private void disableExpressionInferenceMemo() {
-        self.memoKnown = {};
-        self.memoValues = {};
-        self.memoEnabled = false;
-    }
+	private void disableExpressionInferenceMemo() {
+		self.memoKnown = {};
+		self.memoValues = {};
+		self.memoEnabled = false;
+	}
 
-    private Node? inferSpecializationType(
-            Node? node, Analyzed analyzed, OperatorSemantics operators,
-            Map<string, Node> varTypes) {
-        if (node == null || !self.memoEnabled) {
-            return self.inferSpecializationTypeUnmemoized(
-                node, analyzed, operators, varTypes);
-        }
-        string key = AstIdentity.key(node);
-        if (self.memoKnown.has(key)) {
-            if (self.memoValues.has(key)) {
-                return self.memoValues.get(key);
-            }
-            return null;
-        }
-        Node? result = self.inferSpecializationTypeUnmemoized(
-            node, analyzed, operators, varTypes);
-        self.memoKnown.put(key, true);
-        if (result != null) {
-            self.memoValues.put(key, result);
-        }
-        return result;
-    }
+	private Node? inferSpecializationType(Node? node, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> varTypes) {
+		if (node == null || !self.memoEnabled) {
+			return self.inferSpecializationTypeUnmemoized(node, analyzed, operators, varTypes);
+		}
+		string key = AstIdentity.key(node);
+		if (self.memoKnown.has(key)) {
+			if (self.memoValues.has(key)) {
+				return self.memoValues.get(key);
+			}
+			return null;
+		}
+		Node? result = self.inferSpecializationTypeUnmemoized(node, analyzed, operators, varTypes);
+		self.memoKnown.put(key, true);
+		if (result != null) {
+			self.memoValues.put(key, result);
+		}
+		return result;
+	}
 
-    /* Defaults are declaration-scoped ASTs reused under call-site environments.
+	/* Defaults are declaration-scoped ASTs reused under call-site environments.
      * Disable the persistent body memo for the complete recursive inference, then
      * restore the enclosing context without discarding its already-proven types. */
-    private Node? inferSpecializationTypeWithoutMemo(
-            Node? node, Analyzed analyzed, OperatorSemantics operators,
-            Map<string, Node> varTypes) {
-        bool enabled = self.memoEnabled;
-        self.memoEnabled = false;
-        Node? result = self.inferSpecializationTypeUnmemoized(
-            node, analyzed, operators, varTypes);
-        self.memoEnabled = enabled;
-        return result;
-    }
+	private Node? inferSpecializationTypeWithoutMemo(Node? node, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> varTypes) {
+		bool enabled = self.memoEnabled;
+		self.memoEnabled = false;
+		Node? result = self.inferSpecializationTypeUnmemoized(node, analyzed, operators, varTypes);
+		self.memoEnabled = enabled;
+		return result;
+	}
 
 
-    /* Pure lambda return discovery shared by inference, validation, and lowering. */
+	/* Pure lambda return discovery shared by inference, validation, and lowering. */
 
-    private Node lambdaVoidType() { return SemanticTypeSystem.primitive("void"); }
+	private Node lambdaVoidType() { return SemanticTypeSystem.primitive("void"); }
 
-    private Node? inferredLambdaReturnInBlock(
-            Node? block, Analyzed analyzed, OperatorSemantics operators,
-            Map<string, Node> outerVars) {
-        if (block == null) { return null; }
-        Map<string, Node> vars = self.copyTypes(outerVars);
-        int index = 0;
-        while (index < block.statements.len) {
-            Node statement = block.statements.get(index);
-            if (statement.kind == NK_VAR_DECL_STMT) {
-                Node? localType = statement.type;
-                if (localType == null) {
-                    localType = self.inferType(
-                        statement.initializer, analyzed, operators, vars);
-                }
-                if (localType != null) {
-                    vars.put(statement.name, localType);
-                }
-            }
-            Node? found = self.inferredLambdaReturnInStatement(
-                statement, analyzed, operators, vars);
-            if (found != null) { return found; }
-            index = index + 1;
-        }
-        return null;
-    }
+	private Node? inferredLambdaReturnInBlock(Node? block, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> outerVars) {
+		if (block == null) { return null; }
+		Map<string, Node> vars = self.copyTypes(outerVars);
+		int index = 0;
+		while (index < block.statements.len) {
+			Node statement = block.statements.get(index);
+			if (statement.kind == NK_VAR_DECL_STMT) {
+				Node? localType = statement.type;
+				if (localType == null) {
+					localType = self.inferType(statement.initializer, analyzed, operators, vars);
+				}
+				if (localType != null) {
+					vars.put(statement.name, localType);
+				}
+			}
+			Node? found = self.inferredLambdaReturnInStatement(statement, analyzed, operators, vars);
+			if (found != null) { return found; }
+			index = index + 1;
+		}
+		return null;
+	}
 
-    private Node? inferredLambdaReturnInElse(
-            Node? elseNode, Analyzed analyzed, OperatorSemantics operators,
-            Map<string, Node> vars) {
-        if (elseNode == null) { return null; }
-        if (elseNode.kind == NK_ELSE_BLOCK) {
-            return self.inferredLambdaReturnInBlock(
-                elseNode.body_node, analyzed, operators, vars);
-        }
-        if (elseNode.kind == NK_ELSE_IF) {
-            return self.inferredLambdaReturnInStatement(
-                elseNode.if_stmt, analyzed, operators, vars);
-        }
-        return null;
-    }
+	private Node? inferredLambdaReturnInElse(Node? elseNode, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> vars) {
+		if (elseNode == null) { return null; }
+		if (elseNode.kind == NK_ELSE_BLOCK) {
+			return self.inferredLambdaReturnInBlock(elseNode.body_node, analyzed, operators, vars);
+		}
+		if (elseNode.kind == NK_ELSE_IF) {
+			return self.inferredLambdaReturnInStatement(elseNode.if_stmt, analyzed, operators, vars);
+		}
+		return null;
+	}
 
-    private Node? inferredLambdaReturnInStatement(
-            Node statement, Analyzed analyzed, OperatorSemantics operators,
-            Map<string, Node> vars) {
-        if (statement.kind == NK_RETURN_STMT) {
-            if (statement.value_node == null) { return self.lambdaVoidType(); }
-            return self.inferType(
-                statement.value_node, analyzed, operators, vars);
-        }
-        if (statement.kind == NK_BLOCK) {
-            return self.inferredLambdaReturnInBlock(
-                statement, analyzed, operators, vars);
-        }
-        if (statement.kind == NK_IF_STMT) {
-            Node? found = self.inferredLambdaReturnInBlock(
-                statement.then_block, analyzed, operators, vars);
-            if (found != null) { return found; }
-            return self.inferredLambdaReturnInElse(
-                statement.else_block, analyzed, operators, vars);
-        }
-        if (statement.kind == NK_WHILE_STMT
-                || statement.kind == NK_DO_WHILE_STMT
-                || statement.kind == NK_PARALLEL_FOR_STMT) {
-            return self.inferredLambdaReturnInBlock(
-                statement.body_node, analyzed, operators, vars);
-        }
-        if (statement.kind == NK_FOR_IN_STMT) {
-            Map<string, Node> loopVars = self.copyTypes(vars);
-            Node loopType = SemanticTypeSystem.primitive("int");
-            if (!self.rangeForm(statement.iterable)) {
-                Node? iterable = self.inferType(
-                    statement.iterable, analyzed, operators, vars);
-                if (SemanticTypeSystem.isString(iterable)) {
-                    loopType = SemanticTypeSystem.primitive("char");
-                } else if (iterable != null) {
-                    Node? method = self.iterableMethod(
-                        iterable, "iterGet", analyzed);
-                    if (method != null) {
-                        loopType = self.iterableResolvedType(
-                            method.return_type, iterable, analyzed);
-                    }
-                }
-            }
-            loopVars.put(statement.var_name, loopType);
-            return self.inferredLambdaReturnInBlock(
-                statement.body_node, analyzed, operators, loopVars);
-        }
-        if (statement.kind == NK_C_FOR_STMT) {
-            Map<string, Node> loopVars = self.copyTypes(vars);
-            if (statement.init != null
-                    && statement.init.kind == NK_FOR_INIT_VAR) {
-                Node declaration = statement.init.var_decl;
-                Node? declared = declaration.type;
-                if (declared == null) {
-                    declared = self.inferType(
-                        declaration.initializer,
-                        analyzed, operators, loopVars);
-                }
-                if (declared != null) {
-                    loopVars.put(declaration.name, declared);
-                }
-            }
-            return self.inferredLambdaReturnInBlock(
-                statement.body_node, analyzed, operators, loopVars);
-        }
-        if (statement.kind == NK_SWITCH_STMT) {
-            int caseIndex = 0;
-            while (caseIndex < statement.cases.len) {
-                Node caseClause = statement.cases.get(caseIndex);
-                int bodyIndex = 0;
-                while (bodyIndex < caseClause.body_nlist.len) {
-                    Node? found = self.inferredLambdaReturnInStatement(
-                        caseClause.body_nlist.get(bodyIndex),
-                        analyzed, operators, vars);
-                    if (found != null) { return found; }
-                    bodyIndex = bodyIndex + 1;
-                }
-                caseIndex = caseIndex + 1;
-            }
-        }
-        if (statement.kind == NK_TRY_CATCH_STMT) {
-            Node? found = self.inferredLambdaReturnInBlock(
-                statement.try_block, analyzed, operators, vars);
-            if (found != null) { return found; }
-            found = self.inferredLambdaReturnInBlock(
-                statement.catch_block, analyzed, operators, vars);
-            if (found != null) { return found; }
-            return self.inferredLambdaReturnInBlock(
-                statement.finally_block, analyzed, operators, vars);
-        }
-        return null;
-    }
+	private Node? inferredLambdaReturnInStatement(Node statement, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> vars) {
+		if (statement.kind == NK_RETURN_STMT) {
+			if (statement.value_node == null) { return self.lambdaVoidType(); }
+			return self.inferType(statement.value_node, analyzed, operators, vars);
+		}
+		if (statement.kind == NK_BLOCK) {
+			return self.inferredLambdaReturnInBlock(statement, analyzed, operators, vars);
+		}
+		if (statement.kind == NK_IF_STMT) {
+			Node? found = self.inferredLambdaReturnInBlock(statement.then_block, analyzed, operators, vars);
+			if (found != null) { return found; }
+			return self.inferredLambdaReturnInElse(statement.else_block, analyzed, operators, vars);
+		}
+		if (statement.kind == NK_WHILE_STMT || statement.kind == NK_DO_WHILE_STMT || statement.kind == NK_PARALLEL_FOR_STMT) {
+			return self.inferredLambdaReturnInBlock(statement.body_node, analyzed, operators, vars);
+		}
+		if (statement.kind == NK_FOR_IN_STMT) {
+			Map<string, Node> loopVars = self.copyTypes(vars);
+			Node loopType = SemanticTypeSystem.primitive("int");
+			if (!self.rangeForm(statement.iterable)) {
+				Node? iterable = self.inferType(statement.iterable, analyzed, operators, vars);
+				if (SemanticTypeSystem.isString(iterable)) {
+					loopType = SemanticTypeSystem.primitive("char");
+				} else if (iterable != null) {
+					Node? method = self.iterableMethod(iterable, "iterGet", analyzed);
+					if (method != null) {
+						loopType = self.iterableResolvedType(method.return_type, iterable, analyzed);
+					}
+				}
+			}
+			loopVars.put(statement.var_name, loopType);
+			return self.inferredLambdaReturnInBlock(statement.body_node, analyzed, operators, loopVars);
+		}
+		if (statement.kind == NK_C_FOR_STMT) {
+			Map<string, Node> loopVars = self.copyTypes(vars);
+			if (statement.init != null && statement.init.kind == NK_FOR_INIT_VAR) {
+				Node declaration = statement.init.var_decl;
+				Node? declared = declaration.type;
+				if (declared == null) {
+					declared = self.inferType(declaration.initializer, analyzed, operators, loopVars);
+				}
+				if (declared != null) {
+					loopVars.put(declaration.name, declared);
+				}
+			}
+			return self.inferredLambdaReturnInBlock(statement.body_node, analyzed, operators, loopVars);
+		}
+		if (statement.kind == NK_SWITCH_STMT) {
+			int caseIndex = 0;
+			while (caseIndex < statement.cases.len) {
+				Node caseClause = statement.cases.get(caseIndex);
+				int bodyIndex = 0;
+				while (bodyIndex < caseClause.body_nlist.len) {
+					Node? found = self.inferredLambdaReturnInStatement(caseClause.body_nlist.get(bodyIndex), analyzed, operators, vars);
+					if (found != null) { return found; }
+					bodyIndex = bodyIndex + 1;
+				}
+				caseIndex = caseIndex + 1;
+			}
+		}
+		if (statement.kind == NK_TRY_CATCH_STMT) {
+			Node? found = self.inferredLambdaReturnInBlock(statement.try_block, analyzed, operators, vars);
+			if (found != null) { return found; }
+			found = self.inferredLambdaReturnInBlock(statement.catch_block, analyzed, operators, vars);
+			if (found != null) { return found; }
+			return self.inferredLambdaReturnInBlock(statement.finally_block, analyzed, operators, vars);
+		}
+		return null;
+	}
 
-    private Node inferredLambdaReturnType(
-            Node lambda, Analyzed analyzed, OperatorSemantics operators,
-            Map<string, Node> outerVars) {
-        if (lambda.return_type != null) { return lambda.return_type; }
-        Map<string, Node> vars = self.copyTypes(outerVars);
-        int index = 0;
-        while (index < lambda.params.len) {
-            Node parameter = lambda.params.get(index);
-            if (parameter.type != null) {
-                vars.put(parameter.name, parameter.type);
-            }
-            index = index + 1;
-        }
-        Node body = lambda.body_node;
-        if (body != null && body.kind == NK_LAMBDA_EXPR_BODY) {
-            Node? expressionType = self.inferType(
-                body.expression, analyzed, operators, vars);
-            if (expressionType != null) { return expressionType; }
-            return self.lambdaVoidType();
-        }
-        if (body != null && body.kind == NK_LAMBDA_BLOCK) {
-            Node? found = self.inferredLambdaReturnInBlock(
-                body.body_node, analyzed, operators, vars);
-            if (found != null) { return found; }
-        }
-        return self.lambdaVoidType();
-    }
+	private Node inferredLambdaReturnType(Node lambda, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> outerVars) {
+		if (lambda.return_type != null) { return lambda.return_type; }
+		Map<string, Node> vars = self.copyTypes(outerVars);
+		int index = 0;
+		while (index < lambda.params.len) {
+			Node parameter = lambda.params.get(index);
+			if (parameter.type != null) {
+				vars.put(parameter.name, parameter.type);
+			}
+			index = index + 1;
+		}
+		Node body = lambda.body_node;
+		if (body != null && body.kind == NK_LAMBDA_EXPR_BODY) {
+			Node? expressionType = self.inferType(body.expression, analyzed, operators, vars);
+			if (expressionType != null) { return expressionType; }
+			return self.lambdaVoidType();
+		}
+		if (body != null && body.kind == NK_LAMBDA_BLOCK) {
+			Node? found = self.inferredLambdaReturnInBlock(body.body_node, analyzed, operators, vars);
+			if (found != null) { return found; }
+		}
+		return self.lambdaVoidType();
+	}
 
+	class bool rawProjectionCarrierType(Node? typeExpr, RawProjectionCarrierContext context) { return typeExpr != null && !context.managedType(typeExpr) && (typeExpr.is_array || typeExpr.pointer_depth > 0 || typeExpr.base == "intptr_t" || typeExpr.base == "uintptr_t"); }
 
-    class bool rawProjectionCarrierType(Node? typeExpr,
-            RawProjectionCarrierContext context) {
-        return typeExpr != null && !context.managedType(typeExpr)
-            && (typeExpr.is_array || typeExpr.pointer_depth > 0
-                || typeExpr.base == "intptr_t"
-                || typeExpr.base == "uintptr_t");
-    }
+	class bool rawProjectionDirectStorage(Node? expression, RawProjectionCarrierContext context) {
+		if (expression == null || expression.kind == NK_SELF_EXPR || expression.kind == NK_SUPER_EXPR) { return false; }
+		return context.managedType(context.expressionType(expression));
+	}
 
-    class bool rawProjectionDirectStorage(Node? expression,
-            RawProjectionCarrierContext context) {
-        if (expression == null || expression.kind == NK_SELF_EXPR
-                || expression.kind == NK_SUPER_EXPR) { return false; }
-        return context.managedType(context.expressionType(expression));
-    }
+	class RawProjectionCarrier rawProjectionLeaf(Node expression, bool directStorage) { return new RawProjectionCarrier("leaf", expression, directStorage); }
 
-    class RawProjectionCarrier rawProjectionLeaf(Node expression,
-            bool directStorage) {
-        return new RawProjectionCarrier("leaf", expression, directStorage);
-    }
+	class RawProjectionCarrier rawProjectionChoice(Node expression) { return new RawProjectionCarrier("choice", expression, false); }
 
-    class RawProjectionCarrier rawProjectionChoice(Node expression) {
-        return new RawProjectionCarrier("choice", expression, false);
-    }
+	class void rawProjectionAddBranch(RawProjectionCarrier choice, RawProjectionCarrier? branch) {
+		if (branch != null) { choice.branches.push(branch); }
+	}
 
-    class void rawProjectionAddBranch(RawProjectionCarrier choice,
-            RawProjectionCarrier? branch) {
-        if (branch != null) { choice.branches.push(branch); }
-    }
+	class RawProjectionCarrier? rawProjectionCarrier(Node? expression, RawProjectionCarrierContext context) { return ExpressionTypeResolver.rawProjectionCarrierImpl(expression, false, context); }
 
-    class RawProjectionCarrier? rawProjectionCarrier(Node? expression,
-            RawProjectionCarrierContext context) {
-        return ExpressionTypeResolver.rawProjectionCarrierImpl(expression, false, context);
-    }
+	class RawProjectionCarrier? rawProjectionCarrierImpl(Node? expression, bool addressed, RawProjectionCarrierContext context) {
+		if (expression == null) { return null; }
+		Node? aliasArgument = context.aliasArgument(expression);
+		if (aliasArgument != null) {
+			RawProjectionCarrier? aliasCarrier = ExpressionTypeResolver.rawProjectionCarrierImpl(aliasArgument, false, context);
+			if (aliasCarrier != null) { return aliasCarrier; }
+			if (ExpressionTypeResolver.rawProjectionDirectStorage(aliasArgument, context)) {
+				return ExpressionTypeResolver.rawProjectionLeaf(aliasArgument, true);
+			}
+			return null;
+		}
+		if (expression.kind == NK_CAST_EXPR) {
+			if (!ExpressionTypeResolver.rawProjectionCarrierType(context.expressionType(expression), context)) { return null; }
+			RawProjectionCarrier? castCarrier = ExpressionTypeResolver.rawProjectionCarrierImpl(expression.expr, false, context);
+			if (castCarrier != null) { return castCarrier; }
+			if (ExpressionTypeResolver.rawProjectionDirectStorage(expression.expr, context)) {
+				return ExpressionTypeResolver.rawProjectionLeaf(expression.expr, true);
+			}
+			return null;
+		}
+		if (expression.kind == NK_UNARY_EXPR && expression.op == "&") {
+			return ExpressionTypeResolver.rawProjectionCarrierImpl(expression.operand, true, context);
+		}
+		if (expression.kind == NK_UNARY_EXPR && expression.op == "*" && (addressed || ExpressionTypeResolver.rawProjectionCarrierType(context.expressionType(expression), context))) {
+			return ExpressionTypeResolver.rawProjectionCarrierImpl(expression.operand, false, context);
+		}
+		if (expression.kind == NK_TERNARY_EXPR) {
+			if (!addressed && !ExpressionTypeResolver.rawProjectionCarrierType(context.expressionType(expression), context)) { return null; }
+			RawProjectionCarrier choice = ExpressionTypeResolver.rawProjectionChoice(expression);
+			ExpressionTypeResolver.rawProjectionAddBranch(choice, ExpressionTypeResolver.rawProjectionCarrierImpl(expression.true_expr, addressed, context));
+			ExpressionTypeResolver.rawProjectionAddBranch(choice, ExpressionTypeResolver.rawProjectionCarrierImpl(expression.false_expr, addressed, context));
+			return choice;
+		}
+		if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
+			if (!addressed && !ExpressionTypeResolver.rawProjectionCarrierType(context.expressionType(expression), context)) { return null; }
+			RawProjectionCarrier choice = ExpressionTypeResolver.rawProjectionChoice(expression);
+			ExpressionTypeResolver.rawProjectionAddBranch(choice, ExpressionTypeResolver.rawProjectionCarrierImpl(expression.left, addressed, context));
+			ExpressionTypeResolver.rawProjectionAddBranch(choice, ExpressionTypeResolver.rawProjectionCarrierImpl(expression.right, addressed, context));
+			return choice;
+		}
+		if (expression.kind == NK_BINARY_EXPR && (expression.op == "+" || expression.op == "-")) {
+			if (!ExpressionTypeResolver.rawProjectionCarrierType(context.expressionType(expression), context)) { return null; }
+			if (ExpressionTypeResolver.rawProjectionCarrierType(context.expressionType(expression.left), context)) {
+				RawProjectionCarrier? leftCarrier = ExpressionTypeResolver.rawProjectionCarrierImpl(expression.left, false, context);
+				if (leftCarrier != null) { return leftCarrier; }
+			}
+			if (expression.op == "+" && ExpressionTypeResolver.rawProjectionCarrierType(context.expressionType(expression.right), context)) {
+				return ExpressionTypeResolver.rawProjectionCarrierImpl(expression.right, false, context);
+			}
+			return null;
+		}
+		if ((expression.kind == NK_FIELD_ACCESS_EXPR || expression.kind == NK_INDEX_EXPR) && (addressed || ExpressionTypeResolver.rawProjectionCarrierType(context.expressionType(expression), context))) {
+			RawProjectionCarrier? nested = ExpressionTypeResolver.rawProjectionCarrierImpl(expression.obj, false, context);
+			if (nested != null) { return nested; }
+			return ExpressionTypeResolver.rawProjectionLeaf(expression, false);
+		}
+		return null;
+	}
 
-    class RawProjectionCarrier? rawProjectionCarrierImpl(Node? expression,
-            bool addressed, RawProjectionCarrierContext context) {
-        if (expression == null) { return null; }
-        Node? aliasArgument = context.aliasArgument(expression);
-        if (aliasArgument != null) {
-            RawProjectionCarrier? aliasCarrier = ExpressionTypeResolver.rawProjectionCarrierImpl(
-                aliasArgument, false, context);
-            if (aliasCarrier != null) { return aliasCarrier; }
-            if (ExpressionTypeResolver.rawProjectionDirectStorage(aliasArgument, context)) {
-                return ExpressionTypeResolver.rawProjectionLeaf(aliasArgument, true);
-            }
-            return null;
-        }
-        if (expression.kind == NK_CAST_EXPR) {
-            if (!ExpressionTypeResolver.rawProjectionCarrierType(
-                    context.expressionType(expression), context)) { return null; }
-            RawProjectionCarrier? castCarrier = ExpressionTypeResolver.rawProjectionCarrierImpl(
-                expression.expr, false, context);
-            if (castCarrier != null) { return castCarrier; }
-            if (ExpressionTypeResolver.rawProjectionDirectStorage(expression.expr, context)) {
-                return ExpressionTypeResolver.rawProjectionLeaf(expression.expr, true);
-            }
-            return null;
-        }
-        if (expression.kind == NK_UNARY_EXPR && expression.op == "&") {
-            return ExpressionTypeResolver.rawProjectionCarrierImpl(
-                expression.operand, true, context);
-        }
-        if (expression.kind == NK_UNARY_EXPR && expression.op == "*"
-                && (addressed || ExpressionTypeResolver.rawProjectionCarrierType(
-                    context.expressionType(expression), context))) {
-            return ExpressionTypeResolver.rawProjectionCarrierImpl(
-                expression.operand, false, context);
-        }
-        if (expression.kind == NK_TERNARY_EXPR) {
-            if (!addressed && !ExpressionTypeResolver.rawProjectionCarrierType(
-                    context.expressionType(expression), context)) { return null; }
-            RawProjectionCarrier choice = ExpressionTypeResolver.rawProjectionChoice(expression);
-            ExpressionTypeResolver.rawProjectionAddBranch(choice, ExpressionTypeResolver.rawProjectionCarrierImpl(
-                expression.true_expr, addressed, context));
-            ExpressionTypeResolver.rawProjectionAddBranch(choice, ExpressionTypeResolver.rawProjectionCarrierImpl(
-                expression.false_expr, addressed, context));
-            return choice;
-        }
-        if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
-            if (!addressed && !ExpressionTypeResolver.rawProjectionCarrierType(
-                    context.expressionType(expression), context)) { return null; }
-            RawProjectionCarrier choice = ExpressionTypeResolver.rawProjectionChoice(expression);
-            ExpressionTypeResolver.rawProjectionAddBranch(choice, ExpressionTypeResolver.rawProjectionCarrierImpl(
-                expression.left, addressed, context));
-            ExpressionTypeResolver.rawProjectionAddBranch(choice, ExpressionTypeResolver.rawProjectionCarrierImpl(
-                expression.right, addressed, context));
-            return choice;
-        }
-        if (expression.kind == NK_BINARY_EXPR
-                && (expression.op == "+" || expression.op == "-")) {
-            if (!ExpressionTypeResolver.rawProjectionCarrierType(
-                    context.expressionType(expression), context)) { return null; }
-            if (ExpressionTypeResolver.rawProjectionCarrierType(
-                    context.expressionType(expression.left), context)) {
-                RawProjectionCarrier? leftCarrier = ExpressionTypeResolver.rawProjectionCarrierImpl(
-                    expression.left, false, context);
-                if (leftCarrier != null) { return leftCarrier; }
-            }
-            if (expression.op == "+" && ExpressionTypeResolver.rawProjectionCarrierType(
-                    context.expressionType(expression.right), context)) {
-                return ExpressionTypeResolver.rawProjectionCarrierImpl(
-                    expression.right, false, context);
-            }
-            return null;
-        }
-        if ((expression.kind == NK_FIELD_ACCESS_EXPR
-                || expression.kind == NK_INDEX_EXPR)
-                && (addressed || ExpressionTypeResolver.rawProjectionCarrierType(
-                    context.expressionType(expression), context))) {
-            RawProjectionCarrier? nested = ExpressionTypeResolver.rawProjectionCarrierImpl(
-                expression.obj, false, context);
-            if (nested != null) { return nested; }
-            return ExpressionTypeResolver.rawProjectionLeaf(expression, false);
-        }
-        return null;
-    }
+	class RawProjectionStorageRoot? rawProjectionStorageRoot(RawProjectionCarrier carrier, RawProjectionCarrierContext context) {
+		if (carrier.kind != "leaf") { return null; }
+		return ExpressionTypeResolver.rawProjectionStorageRootExpr(carrier.expression, carrier.directStorage, context);
+	}
 
+	class RawProjectionStorageRoot? rawProjectionStorageRootExpr(Node? expression, bool directStorage, RawProjectionCarrierContext context) {
+		if (expression == null) { return null; }
+		if (directStorage) {
+			if (ExpressionTypeResolver.rawProjectionDirectStorage(expression, context)) {
+				return new RawProjectionStorageRoot(expression, true);
+			}
+			return null;
+		}
+		if (expression.kind == NK_CAST_EXPR) {
+			return ExpressionTypeResolver.rawProjectionStorageRootExpr(expression.expr, false, context);
+		}
+		if (expression.kind == NK_UNARY_EXPR && expression.op == "*") {
+			return ExpressionTypeResolver.rawProjectionStorageRootExpr(expression.operand, false, context);
+		}
+		if (expression.kind == NK_BINARY_EXPR && (expression.op == "+" || expression.op == "-")) {
+			if (ExpressionTypeResolver.rawProjectionCarrierType(context.expressionType(expression.left), context)) {
+				return ExpressionTypeResolver.rawProjectionStorageRootExpr(expression.left, false, context);
+			}
+			if (expression.op == "+" && ExpressionTypeResolver.rawProjectionCarrierType(context.expressionType(expression.right), context)) {
+				return ExpressionTypeResolver.rawProjectionStorageRootExpr(expression.right, false, context);
+			}
+			return null;
+		}
+		if (expression.kind != NK_FIELD_ACCESS_EXPR && expression.kind != NK_INDEX_EXPR) { return null; }
+		Node? receiver = expression.obj;
+		if (receiver == null || context.overridden(receiver)) { return null; }
+		Node? receiverType = context.expressionType(receiver);
+		if (context.managedType(receiverType) && receiver.kind != NK_SELF_EXPR && receiver.kind != NK_SUPER_EXPR) {
+			return new RawProjectionStorageRoot(receiver, true);
+		}
+		string structName = ExpressionTypeResolver.rawProjectionStructName(receiverType);
+		if (receiver.kind == NK_CALL_EXPR && receiverType != null && receiverType.pointer_depth == 0 && !receiverType.is_array && structName != "" && context.analyzed().structTable.has(structName)) {
+			return new RawProjectionStorageRoot(receiver, false);
+		}
+		return ExpressionTypeResolver.rawProjectionStorageRootExpr(receiver, false, context);
+	}
 
-    class RawProjectionStorageRoot? rawProjectionStorageRoot(
-            RawProjectionCarrier carrier,
-            RawProjectionCarrierContext context) {
-        if (carrier.kind != "leaf") { return null; }
-        return ExpressionTypeResolver.rawProjectionStorageRootExpr(
-            carrier.expression, carrier.directStorage, context);
-    }
+	class string rawProjectionStructName(Node? typeExpr) {
+		if (typeExpr == null) { return ""; }
+		string name = typeExpr.base;
+		if (name.startsWith("struct ")) {
+			return name.substring(7, name.length() - 7);
+		}
+		return name;
+	}
 
-    class RawProjectionStorageRoot? rawProjectionStorageRootExpr(Node? expression,
-            bool directStorage, RawProjectionCarrierContext context) {
-        if (expression == null) { return null; }
-        if (directStorage) {
-            if (ExpressionTypeResolver.rawProjectionDirectStorage(expression, context)) {
-                return new RawProjectionStorageRoot(expression, true);
-            }
-            return null;
-        }
-        if (expression.kind == NK_CAST_EXPR) {
-            return ExpressionTypeResolver.rawProjectionStorageRootExpr(
-                expression.expr, false, context);
-        }
-        if (expression.kind == NK_UNARY_EXPR && expression.op == "*") {
-            return ExpressionTypeResolver.rawProjectionStorageRootExpr(
-                expression.operand, false, context);
-        }
-        if (expression.kind == NK_BINARY_EXPR
-                && (expression.op == "+" || expression.op == "-")) {
-            if (ExpressionTypeResolver.rawProjectionCarrierType(
-                    context.expressionType(expression.left), context)) {
-                return ExpressionTypeResolver.rawProjectionStorageRootExpr(
-                    expression.left, false, context);
-            }
-            if (expression.op == "+" && ExpressionTypeResolver.rawProjectionCarrierType(
-                    context.expressionType(expression.right), context)) {
-                return ExpressionTypeResolver.rawProjectionStorageRootExpr(
-                    expression.right, false, context);
-            }
-            return null;
-        }
-        if (expression.kind != NK_FIELD_ACCESS_EXPR
-                && expression.kind != NK_INDEX_EXPR) { return null; }
-        Node? receiver = expression.obj;
-        if (receiver == null || context.overridden(receiver)) { return null; }
-        Node? receiverType = context.expressionType(receiver);
-        if (context.managedType(receiverType)
-                && receiver.kind != NK_SELF_EXPR
-                && receiver.kind != NK_SUPER_EXPR) {
-            return new RawProjectionStorageRoot(receiver, true);
-        }
-        string structName = ExpressionTypeResolver.rawProjectionStructName(receiverType);
-        if (receiver.kind == NK_CALL_EXPR && receiverType != null
-                && receiverType.pointer_depth == 0
-                && !receiverType.is_array && structName != ""
-                && context.analyzed().structTable.has(structName)) {
-            return new RawProjectionStorageRoot(receiver, false);
-        }
-        return ExpressionTypeResolver.rawProjectionStorageRootExpr(receiver, false, context);
-    }
+	class bool rawProjectionCarrierHasStorage(RawProjectionCarrier carrier, RawProjectionCarrierContext context) {
+		if (carrier.kind == "leaf") {
+			return ExpressionTypeResolver.rawProjectionStorageRoot(carrier, context) != null;
+		}
+		int index = 0;
+		while (index < carrier.branches.len) {
+			if (ExpressionTypeResolver.rawProjectionCarrierHasStorage(carrier.branches.get(index), context)) { return true; }
+			index = index + 1;
+		}
+		return false;
+	}
 
-    class string rawProjectionStructName(Node? typeExpr) {
-        if (typeExpr == null) { return ""; }
-        string name = typeExpr.base;
-        if (name.startsWith("struct ")) {
-            return name.substring(7, name.length() - 7);
-        }
-        return name;
-    }
-
-    class bool rawProjectionCarrierHasStorage(RawProjectionCarrier carrier,
-            RawProjectionCarrierContext context) {
-        if (carrier.kind == "leaf") {
-            return ExpressionTypeResolver.rawProjectionStorageRoot(carrier, context) != null;
-        }
-        int index = 0;
-        while (index < carrier.branches.len) {
-            if (ExpressionTypeResolver.rawProjectionCarrierHasStorage(
-                    carrier.branches.get(index), context)) { return true; }
-            index = index + 1;
-        }
-        return false;
-    }
-
-    class Node? rawProjectionFirstBranchStorageChoice(
-            RawProjectionCarrier? carrier,
-            RawProjectionCarrierContext context) {
-        if (carrier == null || carrier.kind != "choice") { return null; }
-        int index = 0;
-        while (index < carrier.branches.len) {
-            if (ExpressionTypeResolver.rawProjectionCarrierHasStorage(
-                    carrier.branches.get(index), context)) {
-                return carrier.expression;
-            }
-            index = index + 1;
-        }
-        return null;
-    }
-
+	class Node? rawProjectionFirstBranchStorageChoice(RawProjectionCarrier? carrier, RawProjectionCarrierContext context) {
+		if (carrier == null || carrier.kind != "choice") { return null; }
+		int index = 0;
+		while (index < carrier.branches.len) {
+			if (ExpressionTypeResolver.rawProjectionCarrierHasStorage(carrier.branches.get(index), context)) {
+				return carrier.expression;
+			}
+			index = index + 1;
+		}
+		return null;
+	}
 }

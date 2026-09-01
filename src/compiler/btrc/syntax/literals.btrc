@@ -5,382 +5,347 @@ import std.strings;
 #include <float.h>
 
 class IntegerLiteralInfo {
-    public bool valid;
-    public unsigned long long magnitude;
-    public string suffix;
-    public bool decimal;
+	public bool valid;
+	public unsigned long long magnitude;
+	public string suffix;
+	public bool decimal;
 
-    public IntegerLiteralInfo(bool valid, unsigned long long magnitude,
-            string suffix, bool decimal) {
-        self.valid = valid;
-        self.magnitude = magnitude;
-        self.suffix = suffix;
-        self.decimal = decimal;
-    }
+	public IntegerLiteralInfo(bool valid, unsigned long long magnitude, string suffix, bool decimal) {
+		self.valid = valid;
+		self.magnitude = magnitude;
+		self.suffix = suffix;
+		self.decimal = decimal;
+	}
 }
 
 class IntegerLiteral {
-    private string raw;
-    private IntegerLiteralInfo detailsValue;
+	private string raw;
+	private IntegerLiteralInfo detailsValue;
 
-    public IntegerLiteral(string raw) {
-        self.raw = raw;
-        IntegerLiteralInfo parsed = self.parseInfo();
-        self.detailsValue = parsed;
-    }
+	public IntegerLiteral(string raw) {
+		self.raw = raw;
+		IntegerLiteralInfo parsed = self.parseInfo();
+		self.detailsValue = parsed;
+	}
 
-    private bool suffixCharacter(char value) {
-        return value == 'u' || value == 'U'
-            || value == 'l' || value == 'L';
-    }
+	private bool suffixCharacter(char value) { return value == 'u' || value == 'U' || value == 'l' || value == 'L'; }
 
-    private int digitValue(char value) {
-        if (value >= '0' && value <= '9') {
-            return (int)value - (int)'0';
-        }
-        if (value >= 'a' && value <= 'f') {
-            return (int)value - (int)'a' + 10;
-        }
-        return (int)value - (int)'A' + 10;
-    }
+	private int digitValue(char value) {
+		if (value >= '0' && value <= '9') {
+			return (int)value - (int)'0';
+		}
+		if (value >= 'a' && value <= 'f') {
+			return (int)value - (int)'a' + 10;
+		}
+		return (int)value - (int)'A' + 10;
+	}
 
-    private IntegerLiteralInfo parseInfo() {
-        int bodyEnd = self.raw.length();
-        while (bodyEnd > 0 && self.suffixCharacter(self.raw[bodyEnd - 1])) {
-            bodyEnd--;
-        }
-        string suffix = self.raw.substring(
-            bodyEnd, self.raw.length() - bodyEnd).toLower();
-        if (bodyEnd == 0) {
-            return IntegerLiteralInfo(false, 0ULL, suffix, true);
-        }
+	private IntegerLiteralInfo parseInfo() {
+		int bodyEnd = self.raw.length();
+		while (bodyEnd > 0 && self.suffixCharacter(self.raw[bodyEnd - 1])) {
+			bodyEnd--;
+		}
+		string suffix = self.raw.substring(bodyEnd, self.raw.length() - bodyEnd).toLower();
+		if (bodyEnd == 0) {
+			return IntegerLiteralInfo(false, 0ULL, suffix, true);
+		}
 
-        int radix = 10;
-        int start = 0;
-        bool decimal = true;
-        if (bodyEnd >= 2 && self.raw[0] == '0') {
-            char prefix = self.raw[1];
-            if (prefix == 'x' || prefix == 'X') {
-                radix = 16;
-                start = 2;
-                decimal = false;
-            } else if (prefix == 'b' || prefix == 'B') {
-                radix = 2;
-                start = 2;
-                decimal = false;
-            } else if (prefix == 'o' || prefix == 'O') {
-                radix = 8;
-                start = 2;
-                decimal = false;
-            } else if (bodyEnd > 1) {
-                radix = 8;
-                start = 1;
-                decimal = false;
-            }
-        }
-        if (start >= bodyEnd) {
-            return IntegerLiteralInfo(false, 0ULL, suffix, decimal);
-        }
+		int radix = 10;
+		int start = 0;
+		bool decimal = true;
+		if (bodyEnd >= 2 && self.raw[0] == '0') {
+			char prefix = self.raw[1];
+			if (prefix == 'x' || prefix == 'X') {
+				radix = 16;
+				start = 2;
+				decimal = false;
+			} else if (prefix == 'b' || prefix == 'B') {
+				radix = 2;
+				start = 2;
+				decimal = false;
+			} else if (prefix == 'o' || prefix == 'O') {
+				radix = 8;
+				start = 2;
+				decimal = false;
+			} else if (bodyEnd > 1) {
+				radix = 8;
+				start = 1;
+				decimal = false;
+			}
+		}
+		if (start >= bodyEnd) {
+			return IntegerLiteralInfo(false, 0ULL, suffix, decimal);
+		}
 
-        unsigned long long magnitude = 0ULL;
-        int index = start;
-        while (index < bodyEnd) {
-            int digit = self.digitValue(self.raw[index]);
-            if (digit < 0 || digit >= radix) {
-                return IntegerLiteralInfo(false, 0ULL, suffix, decimal);
-            }
-            unsigned long long wideDigit = (unsigned long long)digit;
-            unsigned long long wideRadix = (unsigned long long)radix;
-            if (magnitude > ((unsigned long long)ULLONG_MAX - wideDigit)
-                    / wideRadix) {
-                return IntegerLiteralInfo(false, 0ULL, suffix, decimal);
-            }
-            magnitude = magnitude * wideRadix + wideDigit;
-            index++;
-        }
-        return IntegerLiteralInfo(true, magnitude, suffix, decimal);
-    }
+		unsigned long long magnitude = 0ULL;
+		int index = start;
+		while (index < bodyEnd) {
+			int digit = self.digitValue(self.raw[index]);
+			if (digit < 0 || digit >= radix) {
+				return IntegerLiteralInfo(false, 0ULL, suffix, decimal);
+			}
+			unsigned long long wideDigit = (unsigned long long)digit;
+			unsigned long long wideRadix = (unsigned long long)radix;
+			if (magnitude > ((unsigned long long)ULLONG_MAX - wideDigit) / wideRadix) {
+				return IntegerLiteralInfo(false, 0ULL, suffix, decimal);
+			}
+			magnitude = magnitude * wideRadix + wideDigit;
+			index++;
+		}
+		return IntegerLiteralInfo(true, magnitude, suffix, decimal);
+	}
 
-    public string typeName() {
-        if (!self.detailsValue.valid) { return ""; }
-        unsigned long long value = self.detailsValue.magnitude;
-        string suffix = self.detailsValue.suffix;
+	public string typeName() {
+		if (!self.detailsValue.valid) { return ""; }
+		unsigned long long value = self.detailsValue.magnitude;
+		string suffix = self.detailsValue.suffix;
 
-        if (suffix == "") {
-            if (value <= (unsigned long long)INT_MAX) { return "int"; }
-            if (!self.detailsValue.decimal
-                    && value <= (unsigned long long)UINT_MAX) {
-                return "unsigned int";
-            }
-            if (value <= (unsigned long long)LONG_MAX) { return "long"; }
-            if (!self.detailsValue.decimal
-                    && value <= (unsigned long long)ULONG_MAX) {
-                return "unsigned long";
-            }
-            if (value <= (unsigned long long)LLONG_MAX) { return "long long"; }
-            if (!self.detailsValue.decimal) { return "unsigned long long"; }
-            return "";
-        }
-        if (suffix == "u") {
-            if (value <= (unsigned long long)UINT_MAX) { return "unsigned int"; }
-            if (value <= (unsigned long long)ULONG_MAX) { return "unsigned long"; }
-            return "unsigned long long";
-        }
-        if (suffix == "l") {
-            if (value <= (unsigned long long)LONG_MAX) { return "long"; }
-            if (!self.detailsValue.decimal
-                    && value <= (unsigned long long)ULONG_MAX) {
-                return "unsigned long";
-            }
-            if (value <= (unsigned long long)LLONG_MAX) { return "long long"; }
-            if (!self.detailsValue.decimal) { return "unsigned long long"; }
-            return "";
-        }
-        if (suffix == "ul" || suffix == "lu") {
-            if (value <= (unsigned long long)ULONG_MAX) {
-                return "unsigned long";
-            }
-            return "unsigned long long";
-        }
-        if (suffix == "ll") {
-            if (value <= (unsigned long long)LLONG_MAX) { return "long long"; }
-            if (!self.detailsValue.decimal) { return "unsigned long long"; }
-            return "";
-        }
-        if (suffix == "ull" || suffix == "llu") {
-            return "unsigned long long";
-        }
-        return "";
-    }
+		if (suffix == "") {
+			if (value <= (unsigned long long)INT_MAX) { return "int"; }
+			if (!self.detailsValue.decimal && value <= (unsigned long long)UINT_MAX) {
+				return "unsigned int";
+			}
+			if (value <= (unsigned long long)LONG_MAX) { return "long"; }
+			if (!self.detailsValue.decimal && value <= (unsigned long long)ULONG_MAX) {
+				return "unsigned long";
+			}
+			if (value <= (unsigned long long)LLONG_MAX) { return "long long"; }
+			if (!self.detailsValue.decimal) { return "unsigned long long"; }
+			return "";
+		}
+		if (suffix == "u") {
+			if (value <= (unsigned long long)UINT_MAX) { return "unsigned int"; }
+			if (value <= (unsigned long long)ULONG_MAX) { return "unsigned long"; }
+			return "unsigned long long";
+		}
+		if (suffix == "l") {
+			if (value <= (unsigned long long)LONG_MAX) { return "long"; }
+			if (!self.detailsValue.decimal && value <= (unsigned long long)ULONG_MAX) {
+				return "unsigned long";
+			}
+			if (value <= (unsigned long long)LLONG_MAX) { return "long long"; }
+			if (!self.detailsValue.decimal) { return "unsigned long long"; }
+			return "";
+		}
+		if (suffix == "ul" || suffix == "lu") {
+			if (value <= (unsigned long long)ULONG_MAX) {
+				return "unsigned long";
+			}
+			return "unsigned long long";
+		}
+		if (suffix == "ll") {
+			if (value <= (unsigned long long)LLONG_MAX) { return "long long"; }
+			if (!self.detailsValue.decimal) { return "unsigned long long"; }
+			return "";
+		}
+		if (suffix == "ull" || suffix == "llu") {
+			return "unsigned long long";
+		}
+		return "";
+	}
 
-    public int storedValue() {
-        if (!self.detailsValue.valid
-                || self.detailsValue.magnitude > (unsigned long long)INT_MAX) {
-            return 0;
-        }
-        return (int)self.detailsValue.magnitude;
-    }
+	public int storedValue() {
+		if (!self.detailsValue.valid || self.detailsValue.magnitude > (unsigned long long)INT_MAX) {
+			return 0;
+		}
+		return (int)self.detailsValue.magnitude;
+	}
 
-    public IntegerLiteralInfo details() {
-        return self.detailsValue;
-    }
+	public IntegerLiteralInfo details() { return self.detailsValue; }
 
-    private string binaryDigitsAsHex(string digits) {
-        string alphabet = "0123456789abcdef";
-        string result = "";
-        int groupLength = digits.length() % 4;
-        if (groupLength == 0) { groupLength = 4; }
-        int index = 0;
-        while (index < digits.length()) {
-            int nibble = 0;
-            int consumed = 0;
-            while (consumed < groupLength && index < digits.length()) {
-                nibble *= 2;
-                if (digits[index] == '1') { nibble++; }
-                consumed++;
-                index++;
-            }
-            result = result + alphabet.substring(nibble, 1);
-            groupLength = 4;
-        }
-        while (result.length() > 1 && result[0] == '0') {
-            result = result.substring(1, result.length() - 1);
-        }
-        if (result == "") { return "0"; }
-        return result;
-    }
+	private string binaryDigitsAsHex(string digits) {
+		string alphabet = "0123456789abcdef";
+		string result = "";
+		int groupLength = digits.length() % 4;
+		if (groupLength == 0) { groupLength = 4; }
+		int index = 0;
+		while (index < digits.length()) {
+			int nibble = 0;
+			int consumed = 0;
+			while (consumed < groupLength && index < digits.length()) {
+				nibble *= 2;
+				if (digits[index] == '1') { nibble++; }
+				consumed++;
+				index++;
+			}
+			result = result + alphabet.substring(nibble, 1);
+			groupLength = 4;
+		}
+		while (result.length() > 1 && result[0] == '0') {
+			result = result.substring(1, result.length() - 1);
+		}
+		if (result == "") { return "0"; }
+		return result;
+	}
 
-    public string cSource(int storedValue) {
-        if (self.raw == "") { return Strings.fromInt(storedValue); }
+	public string cSource(int storedValue) {
+		if (self.raw == "") { return Strings.fromInt(storedValue); }
 
-        int bodyEnd = self.raw.length();
-        while (bodyEnd > 0 && self.suffixCharacter(self.raw[bodyEnd - 1])) {
-            bodyEnd--;
-        }
-        string body = self.raw.substring(0, bodyEnd);
-        string suffix = self.raw.substring(
-            bodyEnd, self.raw.length() - bodyEnd);
-        if (body.length() >= 2) {
-            string prefix = body.substring(0, 2);
-            if (prefix == "0b" || prefix == "0B") {
-                string digits = body.substring(2, body.length() - 2);
-                return "0x" + self.binaryDigitsAsHex(digits) + suffix;
-            }
-            if (prefix == "0o" || prefix == "0O") {
-                return "0" + body.substring(2, body.length() - 2) + suffix;
-            }
-        }
-        return self.raw;
-    }
+		int bodyEnd = self.raw.length();
+		while (bodyEnd > 0 && self.suffixCharacter(self.raw[bodyEnd - 1])) {
+			bodyEnd--;
+		}
+		string body = self.raw.substring(0, bodyEnd);
+		string suffix = self.raw.substring(bodyEnd, self.raw.length() - bodyEnd);
+		if (body.length() >= 2) {
+			string prefix = body.substring(0, 2);
+			if (prefix == "0b" || prefix == "0B") {
+				string digits = body.substring(2, body.length() - 2);
+				return "0x" + self.binaryDigitsAsHex(digits) + suffix;
+			}
+			if (prefix == "0o" || prefix == "0O") {
+				return "0" + body.substring(2, body.length() - 2) + suffix;
+			}
+		}
+		return self.raw;
+	}
 }
 
 class FloatLiteral {
-    private string raw;
+	private string raw;
 
-    public FloatLiteral(string raw) {
-        self.raw = raw;
-    }
+	public FloatLiteral(string raw) { self.raw = raw; }
 
-    public string numericBody() {
-        int length = self.raw.length();
-        if (length > 0 && (self.raw[length - 1] == 'f'
-                || self.raw[length - 1] == 'F')) {
-            return self.raw.substring(0, length - 1);
-        }
-        return self.raw;
-    }
+	public string numericBody() {
+		int length = self.raw.length();
+		if (length > 0 && (self.raw[length - 1] == 'f' || self.raw[length - 1] == 'F')) {
+			return self.raw.substring(0, length - 1);
+		}
+		return self.raw;
+	}
 
-    public double doubleValue() {
-        return strtod(self.numericBody(), NULL);
-    }
+	public double doubleValue() { return strtod(self.numericBody(), NULL); }
 
-    private bool hasNonzeroSignificand() {
-        int index = 0;
-        while (index < self.raw.length()
-                && self.raw[index] != 'e' && self.raw[index] != 'E') {
-            if (self.raw[index] >= '1' && self.raw[index] <= '9') {
-                return true;
-            }
-            index++;
-        }
-        return false;
-    }
+	private bool hasNonzeroSignificand() {
+		int index = 0;
+		while (index < self.raw.length() && self.raw[index] != 'e' && self.raw[index] != 'E') {
+			if (self.raw[index] >= '1' && self.raw[index] <= '9') {
+				return true;
+			}
+			index++;
+		}
+		return false;
+	}
 
-    private bool narrow() {
-        int length = self.raw.length();
-        return length > 0 && (self.raw[length - 1] == 'f'
-            || self.raw[length - 1] == 'F');
-    }
+	private bool narrow() {
+		int length = self.raw.length();
+		return length > 0 && (self.raw[length - 1] == 'f' || self.raw[length - 1] == 'F');
+	}
 
-    public string narrowingProblem(double value) {
-        float narrowed = (float)value;
-        bool finite = narrowed == narrowed
-            && narrowed <= FLT_MAX && narrowed >= -FLT_MAX;
-        if (!finite) {
-            return "Floating literal '" + self.raw
-                + "' is outside the finite float range";
-        }
-        if (narrowed == 0.0f && self.hasNonzeroSignificand()) {
-            return "Floating literal '" + self.raw
-                + "' underflows to zero as float";
-        }
-        return "";
-    }
+	public string narrowingProblem(double value) {
+		float narrowed = (float)value;
+		bool finite = narrowed == narrowed && narrowed <= FLT_MAX && narrowed >= -FLT_MAX;
+		if (!finite) {
+			return "Floating literal '" + self.raw + "' is outside the finite float range";
+		}
+		if (narrowed == 0.0f && self.hasNonzeroSignificand()) {
+			return "Floating literal '" + self.raw + "' underflows to zero as float";
+		}
+		return "";
+	}
 
-    public string problem() {
-        double value = self.doubleValue();
-        bool finite = value == value && value <= DBL_MAX && value >= -DBL_MAX;
-        if (!finite) {
-            return "Floating literal '" + self.raw
-                + "' is outside the finite double range";
-        }
-        if (value == 0.0 && self.hasNonzeroSignificand()) {
-            return "Floating literal '" + self.raw + "' underflows to zero";
-        }
-        if (!self.narrow()) { return ""; }
-        return self.narrowingProblem(value);
-    }
+	public string problem() {
+		double value = self.doubleValue();
+		bool finite = value == value && value <= DBL_MAX && value >= -DBL_MAX;
+		if (!finite) {
+			return "Floating literal '" + self.raw + "' is outside the finite double range";
+		}
+		if (value == 0.0 && self.hasNonzeroSignificand()) {
+			return "Floating literal '" + self.raw + "' underflows to zero";
+		}
+		if (!self.narrow()) { return ""; }
+		return self.narrowingProblem(value);
+	}
 
-    public string typeName() {
-        return self.narrow() ? "float" : "double";
-    }
+	public string typeName() { return self.narrow() ? "float" : "double"; }
 }
 
 class CharacterLiteralInfo {
-    public bool known;
-    public int value;
+	public bool known;
+	public int value;
 
-    public CharacterLiteralInfo(bool known, int value) {
-        self.known = known;
-        self.value = value;
-    }
+	public CharacterLiteralInfo(bool known, int value) {
+		self.known = known;
+		self.value = value;
+	}
 }
 
 class CharacterLiteral {
-    private string raw;
+	private string raw;
 
-    public CharacterLiteral(string raw) {
-        self.raw = raw;
-    }
+	public CharacterLiteral(string raw) { self.raw = raw; }
 
-    private bool hexDigit(char value) {
-        return (value >= '0' && value <= '9')
-            || (value >= 'a' && value <= 'f')
-            || (value >= 'A' && value <= 'F');
-    }
+	private bool hexDigit(char value) { return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') || (value >= 'A' && value <= 'F'); }
 
-    private int hexDigitValue(char value) {
-        if (value >= '0' && value <= '9') {
-            return (int)value - (int)'0';
-        }
-        if (value >= 'a' && value <= 'f') {
-            return (int)value - (int)'a' + 10;
-        }
-        return (int)value - (int)'A' + 10;
-    }
+	private int hexDigitValue(char value) {
+		if (value >= '0' && value <= '9') {
+			return (int)value - (int)'0';
+		}
+		if (value >= 'a' && value <= 'f') {
+			return (int)value - (int)'a' + 10;
+		}
+		return (int)value - (int)'A' + 10;
+	}
 
-    public CharacterLiteralInfo details() {
-        int length = self.raw.length();
-        if (length < 3) { return CharacterLiteralInfo(false, 0); }
-        if (self.raw[1] != '\\') {
-            return CharacterLiteralInfo(true, (int)self.raw[1]);
-        }
-        if (length < 4) { return CharacterLiteralInfo(false, 0); }
-        char escaped = self.raw[2];
-        if (escaped == 'a') { return CharacterLiteralInfo(true, 7); }
-        if (escaped == 'b') { return CharacterLiteralInfo(true, 8); }
-        if (escaped == 't') { return CharacterLiteralInfo(true, 9); }
-        if (escaped == 'n') { return CharacterLiteralInfo(true, 10); }
-        if (escaped == 'v') { return CharacterLiteralInfo(true, 11); }
-        if (escaped == 'f') { return CharacterLiteralInfo(true, 12); }
-        if (escaped == 'r') { return CharacterLiteralInfo(true, 13); }
-        if (escaped == '\\' || escaped == '\'' || escaped == '"'
-                || escaped == '?') {
-            return CharacterLiteralInfo(true, (int)escaped);
-        }
-        if (escaped >= '0' && escaped <= '7') {
-            int value = 0;
-            int index = 2;
-            while (index < length - 1) {
-                char digit = self.raw[index];
-                if (digit < '0' || digit > '7') {
-                    return CharacterLiteralInfo(false, 0);
-                }
-                value = value * 8 + (int)digit - (int)'0';
-                index++;
-            }
-            return CharacterLiteralInfo(true, value);
-        }
-        if (escaped == 'x') {
-            int value = 0;
-            int index = 3;
-            while (index < length - 1) {
-                char digit = self.raw[index];
-                if (!self.hexDigit(digit)) {
-                    return CharacterLiteralInfo(false, 0);
-                }
-                value = value * 16 + self.hexDigitValue(digit);
-                index++;
-            }
-            return CharacterLiteralInfo(true, value);
-        }
-        return CharacterLiteralInfo(false, 0);
-    }
+	public CharacterLiteralInfo details() {
+		int length = self.raw.length();
+		if (length < 3) { return CharacterLiteralInfo(false, 0); }
+		if (self.raw[1] != '\\') {
+			return CharacterLiteralInfo(true, (int)self.raw[1]);
+		}
+		if (length < 4) { return CharacterLiteralInfo(false, 0); }
+		char escaped = self.raw[2];
+		if (escaped == 'a') { return CharacterLiteralInfo(true, 7); }
+		if (escaped == 'b') { return CharacterLiteralInfo(true, 8); }
+		if (escaped == 't') { return CharacterLiteralInfo(true, 9); }
+		if (escaped == 'n') { return CharacterLiteralInfo(true, 10); }
+		if (escaped == 'v') { return CharacterLiteralInfo(true, 11); }
+		if (escaped == 'f') { return CharacterLiteralInfo(true, 12); }
+		if (escaped == 'r') { return CharacterLiteralInfo(true, 13); }
+		if (escaped == '\\' || escaped == '\'' || escaped == '"' || escaped == '?') {
+			return CharacterLiteralInfo(true, (int)escaped);
+		}
+		if (escaped >= '0' && escaped <= '7') {
+			int value = 0;
+			int index = 2;
+			while (index < length - 1) {
+				char digit = self.raw[index];
+				if (digit < '0' || digit > '7') {
+					return CharacterLiteralInfo(false, 0);
+				}
+				value = value * 8 + (int)digit - (int)'0';
+				index++;
+			}
+			return CharacterLiteralInfo(true, value);
+		}
+		if (escaped == 'x') {
+			int value = 0;
+			int index = 3;
+			while (index < length - 1) {
+				char digit = self.raw[index];
+				if (!self.hexDigit(digit)) {
+					return CharacterLiteralInfo(false, 0);
+				}
+				value = value * 16 + self.hexDigitValue(digit);
+				index++;
+			}
+			return CharacterLiteralInfo(true, value);
+		}
+		return CharacterLiteralInfo(false, 0);
+	}
 }
 
 class StringLiteral {
-    private string value;
+	private string value;
 
-    public StringLiteral(string value) {
-        self.value = value;
-    }
+	public StringLiteral(string value) { self.value = value; }
 
-    public string cSource() {
-        string escaped = Strings.replace(self.value, "\\", "\\\\");
-        escaped = Strings.replace(escaped, "\"", "\\\"");
-        escaped = Strings.replace(escaped, "\r", "\\r");
-        escaped = Strings.replace(escaped, "\n", "\\n");
-        escaped = Strings.replace(escaped, "\t", "\\t");
-        return "\"" + escaped + "\"";
-    }
+	public string cSource() {
+		string escaped = Strings.replace(self.value, "\\", "\\\\");
+		escaped = Strings.replace(escaped, "\"", "\\\"");
+		escaped = Strings.replace(escaped, "\r", "\\r");
+		escaped = Strings.replace(escaped, "\n", "\\n");
+		escaped = Strings.replace(escaped, "\t", "\\t");
+		return "\"" + escaped + "\"";
+	}
 }

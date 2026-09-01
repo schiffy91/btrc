@@ -11,6 +11,7 @@
  */
 
 import std.console;
+
 import ../cli/driver.btrc;
 import ../frontend/models.btrc;
 import ../frontend/packages.btrc;
@@ -20,81 +21,68 @@ import ../frontend/stdlib.btrc;
 import ../syntax/grammar.btrc;
 
 class FrontendInspectionCommand {
-    private BtrccOutput output;
-    private FeSourceFileReader sourceFiles;
+	private BtrccOutput output;
+	private FeSourceFileReader sourceFiles;
 
-    public FrontendInspectionCommand(BtrccOutput output) {
-        self.output = output;
-        self.sourceFiles = FeSourceFileReader();
-    }
+	public FrontendInspectionCommand(BtrccOutput output) {
+		self.output = output;
+		self.sourceFiles = FeSourceFileReader();
+	}
 
-    private string usage() {
-        return "usage: frontend [--strict-imports | --relaxed-imports] "
-            + "[--no-stdlib] [--target OS-ARCH] <file.btrc>";
-    }
+	private string usage() { return "usage: frontend [--strict-imports | --relaxed-imports] " + "[--no-stdlib] [--target OS-ARCH] <file.btrc>"; }
 
-    public int run(int argc, char** argv) {
-        if (argc < 2) {
-            Console.error(self.usage());
-            return 1;
-        }
+	public int run(int argc, char** argv) {
+		if (argc < 2) {
+			Console.error(self.usage());
+			return 1;
+		}
 
-        bool includeStdlib = true;
-        bool strictImports = true;
-        string target = "";
-        int argumentIndex = 1;
-        while (argumentIndex < argc) {
-            string option = Strings.copy(argv[argumentIndex]);
-            if (option.equals("--no-stdlib")) {
-                includeStdlib = false;
-            } else if (option.equals("--strict-imports")) {
-                strictImports = true;
-            } else if (option.equals("--relaxed-imports")) {
-                strictImports = false;
-            } else if (option.equals("--target")) {
-                argumentIndex++;
-                if (argumentIndex >= argc) {
-                    Console.error("--target requires OS-ARCH");
-                    return 1;
-                }
-                target = Strings.copy(argv[argumentIndex]);
-            } else {
-                break;
-            }
-            argumentIndex++;
-        }
-        if (argumentIndex >= argc) {
-            Console.error(self.usage());
-            return 1;
-        }
+		bool includeStdlib = true;
+		bool strictImports = true;
+		string target = "";
+		int argumentIndex = 1;
+		while (argumentIndex < argc) {
+			string option = Strings.copy(argv[argumentIndex]);
+			if (option.equals("--no-stdlib")) {
+				includeStdlib = false;
+			} else if (option.equals("--strict-imports")) {
+				strictImports = true;
+			} else if (option.equals("--relaxed-imports")) {
+				strictImports = false;
+			} else if (option.equals("--target")) {
+				argumentIndex++;
+				if (argumentIndex >= argc) {
+					Console.error("--target requires OS-ARCH");
+					return 1;
+				}
+				target = Strings.copy(argv[argumentIndex]);
+			} else {
+				break;
+			}
+			argumentIndex++;
+		}
+		if (argumentIndex >= argc) {
+			Console.error(self.usage());
+			return 1;
+		}
 
-        string path = Strings.copy(argv[argumentIndex]);
-        string source = self.sourceFiles.readRequired(path);
-        BtrccRuntimePaths runtimePaths =
-            BtrccRuntimePaths(Strings.copy(argv[0]));
-        BtrccDataPaths dataPaths = runtimePaths.resolve();
-        if (!dataPaths.valid) {
-            Console.error(dataPaths.diagnostic);
-            return 1;
-        }
-        GrammarInfo grammar = EbnfGrammarParser(
-            self.sourceFiles.readRequired(dataPaths.grammar)).parse();
-        FeStdlibRepository stdlib = FeStdlibRepository(
-            dataPaths.stdlib, self.sourceFiles);
-        FeResolvedPackages packages = FePackageGraphResolver(
-            self.sourceFiles).resolveFor(path, target);
-        FeFrontendResolver resolver = FeFrontendResolver(
-            grammar, stdlib, includeStdlib, strictImports,
-            packages);
-        FeResolvedSource resolved = resolver.resolve(source, path);
-        if (self.output.write(resolved.source)) { return 0; }
-        fprintf(
-            stderr, "frontend: error: cannot write standard output\n");
-        return 1;
-    }
+		string path = Strings.copy(argv[argumentIndex]);
+		string source = self.sourceFiles.readRequired(path);
+		BtrccRuntimePaths runtimePaths = BtrccRuntimePaths(Strings.copy(argv[0]));
+		BtrccDataPaths dataPaths = runtimePaths.resolve();
+		if (!dataPaths.valid) {
+			Console.error(dataPaths.diagnostic);
+			return 1;
+		}
+		GrammarInfo grammar = EbnfGrammarParser(self.sourceFiles.readRequired(dataPaths.grammar)).parse();
+		FeStdlibRepository stdlib = FeStdlibRepository(dataPaths.stdlib, self.sourceFiles);
+		FeResolvedPackages packages = FePackageGraphResolver(self.sourceFiles).resolveFor(path, target);
+		FeFrontendResolver resolver = FeFrontendResolver(grammar, stdlib, includeStdlib, strictImports, packages);
+		FeResolvedSource resolved = resolver.resolve(source, path);
+		if (self.output.write(resolved.source)) { return 0; }
+		fprintf(stderr, "frontend: error: cannot write standard output\n");
+		return 1;
+	}
 }
 
-int main(int argc, char** argv) {
-    return FrontendInspectionCommand(
-        BtrccOutput(stdout)).run(argc, argv);
-}
+int main(int argc, char** argv) { return FrontendInspectionCommand(BtrccOutput(stdout)).run(argc, argv); }

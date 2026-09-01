@@ -1,5 +1,6 @@
 import std.map;
 import std.vector;
+
 import ../../analyzer/hosted_abi.btrc;
 import ../../analyzer/models.btrc;
 import ../../analyzer/types.btrc;
@@ -16,328 +17,261 @@ import ../model.btrc;
  * deterministic registry and one rendering policy. */
 
 class CTypeLowerer {
-    private Analyzed analyzed;
-    private HostedAbiRepository hostedAbi;
-    private Map<string, Node> functionPointerTypes;
-    private Vector<string> functionPointerOrder;
-    private Map<string, Node> spanTypes;
-    private Vector<string> spanTypeOrder;
-    private Map<string, Node> atomicTypes;
-    private Vector<string> atomicTypeOrder;
+	private Analyzed analyzed;
+	private HostedAbiRepository hostedAbi;
+	private Map<string, Node> functionPointerTypes;
+	private Vector<string> functionPointerOrder;
+	private Map<string, Node> spanTypes;
+	private Vector<string> spanTypeOrder;
+	private Map<string, Node> atomicTypes;
+	private Vector<string> atomicTypeOrder;
 
-    public CTypeLowerer(
-            Analyzed analyzed, HostedAbiRepository hostedAbi) {
-        self.analyzed = analyzed;
-        self.hostedAbi = hostedAbi;
-        self.functionPointerTypes = {};
-        self.functionPointerOrder = [];
-        self.spanTypes = {};
-        self.spanTypeOrder = [];
-        self.atomicTypes = {};
-        self.atomicTypeOrder = [];
-    }
+	public CTypeLowerer(Analyzed analyzed, HostedAbiRepository hostedAbi) {
+		self.analyzed = analyzed;
+		self.hostedAbi = hostedAbi;
+		self.functionPointerTypes = {};
+		self.functionPointerOrder = [];
+		self.spanTypes = {};
+		self.spanTypeOrder = [];
+		self.atomicTypes = {};
+		self.atomicTypeOrder = [];
+	}
 
-    private string lexicalBindingCName(string name) {
-        return self.hostedAbi.lexicalBindingCName(
-            name, self.hostedAbi.typedefName(name)
-                || self.analyzed.lexicalBindingConflictsType(name));
-    }
+	private string lexicalBindingCName(string name) { return self.hostedAbi.lexicalBindingCName(name, self.hostedAbi.typedefName(name) || self.analyzed.lexicalBindingConflictsType(name)); }
 
-    public Node resolveBodyType(Node? typeExpr,
-            Map<string, Node> substitutions,
-            bool resolvesSubstitutions) {
-        if (resolvesSubstitutions) {
-            return SemanticTypeSystem.resolveGenericType(
-                typeExpr, substitutions, self.analyzed);
-        }
-        if (typeExpr == null) {
-            return SemanticTypeSystem.primitive("void");
-        }
-        return typeExpr;
-    }
+	public Node resolveBodyType(Node? typeExpr, Map<string, Node> substitutions, bool resolvesSubstitutions) {
+		if (resolvesSubstitutions) {
+			return SemanticTypeSystem.resolveGenericType(typeExpr, substitutions, self.analyzed);
+		}
+		if (typeExpr == null) {
+			return SemanticTypeSystem.primitive("void");
+		}
+		return typeExpr;
+	}
 
-    private string functionPointerName(Node typeExpr) {
-        string mangled = TypeIdentity.mangleFunctionPointerSymbol(
-            typeExpr.generic_args);
-        if (!self.functionPointerTypes.has(mangled)) {
-            int component = 0;
-            while (component < typeExpr.generic_args.len) {
-                /* Discover directly nested callbacks without flattening a
+	private string functionPointerName(Node typeExpr) {
+		string mangled = TypeIdentity.mangleFunctionPointerSymbol(typeExpr.generic_args);
+		if (!self.functionPointerTypes.has(mangled)) {
+			int component = 0;
+			while (component < typeExpr.generic_args.len) {
+				/* Discover directly nested callbacks without flattening a
                  * named typedef boundary.  A typedef is both the source C
                  * spelling and the only representation of qualifiers applied
                  * to an intermediate pointer layer. */
-                self.lower(typeExpr.generic_args.get(component));
-                component = component + 1;
-            }
-            self.functionPointerTypes.put(mangled, typeExpr);
-            self.functionPointerOrder.push(mangled);
-        }
-        return mangled;
-    }
+				self.lower(typeExpr.generic_args.get(component));
+				component = component + 1;
+			}
+			self.functionPointerTypes.put(mangled, typeExpr);
+			self.functionPointerOrder.push(mangled);
+		}
+		return mangled;
+	}
 
-    private bool aliasBaseIsReference(string base) {
-        if (!self.analyzed.typedefTable.has(base)) { return false; }
-        Node aliasUse = Node();
-        aliasUse.kind = NK_TYPE_EXPR;
-        aliasUse.base = base;
-        Node? canonical = SemanticTypeSystem.resolveOuterTypedefType(
-            aliasUse, self.analyzed.typedefTable);
-        if (canonical == null) { return false; }
-        Node resolved = canonical;
-        return TypeComposition.resolvedReferenceShape(resolved)
-            || self.analyzed.isClass(resolved.base)
-            || (resolved.generic_args.len > 0
-                && self.analyzed.isGenericClass(resolved.base));
-    }
+	private bool aliasBaseIsReference(string base) {
+		if (!self.analyzed.typedefTable.has(base)) { return false; }
+		Node aliasUse = Node();
+		aliasUse.kind = NK_TYPE_EXPR;
+		aliasUse.base = base;
+		Node? canonical = SemanticTypeSystem.resolveOuterTypedefType(aliasUse, self.analyzed.typedefTable);
+		if (canonical == null) { return false; }
+		Node resolved = canonical;
+		return TypeComposition.resolvedReferenceShape(resolved) || self.analyzed.isClass(resolved.base) || (resolved.generic_args.len > 0 && self.analyzed.isGenericClass(resolved.base));
+	}
 
-    public string lower(Node? typeExpr) {
-        if (typeExpr == null) { return "void"; }
-        Node concrete = typeExpr;
-        string base = concrete.base;
-        string prefix = concrete.is_const ? "const " : "";
-        string rendered = base;
-        if (base == "__fn_ptr" && concrete.generic_args.len > 0) {
-            rendered = self.functionPointerName(concrete);
-        } else if (base == "Atomic" && concrete.generic_args.len == 1) {
-            string name = TypeIdentity.mangleGenericSymbol(
-                base, concrete.generic_args);
-            if (!self.atomicTypes.has(name)) {
-                self.atomicTypes.put(name, concrete.generic_args.get(0));
-                self.atomicTypeOrder.push(name);
-            }
-            rendered = "_Atomic(" + self.lower(
-                concrete.generic_args.get(0)) + ")";
-        } else if (base == "MemoryOrder"
-                && concrete.generic_args.len == 0) {
-            rendered = "memory_order";
-        } else if (base == "Span" && concrete.generic_args.len == 1) {
-            string name = TypeIdentity.mangleGenericSymbol(
-                base, concrete.generic_args);
-            if (!self.spanTypes.has(name)) {
-                self.spanTypes.put(name, concrete.generic_args.get(0));
-                self.spanTypeOrder.push(name);
-            }
-            rendered = name;
-        } else if (base == "Thread" && concrete.generic_args.len > 0) {
-            rendered = "__btrc_thread_t*";
-        } else if (base == "Mutex" && concrete.generic_args.len > 0) {
-            rendered = "__btrc_mutex_val_t*";
-        } else if (concrete.generic_args.len > 0) {
-            if (base == "Tuple") {
-                rendered = TypeIdentity.mangleGenericSymbol(
-                    base, concrete.generic_args);
-            } else {
-                rendered = TypeIdentity.mangleGenericType(
-                    base, concrete.generic_args);
-            }
-        } else if (base == "string") { rendered = "char*"; }
-        else if (base == "bool") { rendered = "bool"; }
-        else if (base == "byte") { rendered = "unsigned char"; }
-        else if (base == "uint") { rendered = "unsigned int"; }
+	public string lower(Node? typeExpr) {
+		if (typeExpr == null) { return "void"; }
+		Node concrete = typeExpr;
+		string base = concrete.base;
+		string prefix = concrete.is_const ? "const " : "";
+		string rendered = base;
+		if (base == "__fn_ptr" && concrete.generic_args.len > 0) {
+			rendered = self.functionPointerName(concrete);
+		} else if (base == "Atomic" && concrete.generic_args.len == 1) {
+			string name = TypeIdentity.mangleGenericSymbol(base, concrete.generic_args);
+			if (!self.atomicTypes.has(name)) {
+				self.atomicTypes.put(name, concrete.generic_args.get(0));
+				self.atomicTypeOrder.push(name);
+			}
+			rendered = "_Atomic(" + self.lower(concrete.generic_args.get(0)) + ")";
+		} else if (base == "MemoryOrder" && concrete.generic_args.len == 0) {
+			rendered = "memory_order";
+		} else if (base == "Span" && concrete.generic_args.len == 1) {
+			string name = TypeIdentity.mangleGenericSymbol(base, concrete.generic_args);
+			if (!self.spanTypes.has(name)) {
+				self.spanTypes.put(name, concrete.generic_args.get(0));
+				self.spanTypeOrder.push(name);
+			}
+			rendered = name;
+		} else if (base == "Thread" && concrete.generic_args.len > 0) {
+			rendered = "__btrc_thread_t*";
+		} else if (base == "Mutex" && concrete.generic_args.len > 0) {
+			rendered = "__btrc_mutex_val_t*";
+		} else if (concrete.generic_args.len > 0) {
+			if (base == "Tuple") {
+				rendered = TypeIdentity.mangleGenericSymbol(base, concrete.generic_args);
+			} else {
+				rendered = TypeIdentity.mangleGenericType(base, concrete.generic_args);
+			}
+		} else if (base == "string") { rendered = "char*"; }
+		else if (base == "bool") { rendered = "bool"; }
+		else if (base == "byte") { rendered = "unsigned char"; }
+		else if (base == "uint") { rendered = "unsigned int"; }
 
-        int depth = concrete.pointer_depth;
-        bool baseIsReference = rendered.endsWith("*")
-            || base == "__fn_ptr" || self.aliasBaseIsReference(base);
-        if (TypeComposition.nullableCollapsesReferenceLayer(
-                concrete, baseIsReference)) {
-            depth = depth - 1;
-        }
-        int pointer = 0;
-        while (pointer < depth) {
-            rendered = rendered + "*";
-            pointer = pointer + 1;
-        }
-        if (concrete.generic_args.len == 0
-                && self.analyzed.isClass(base)
-                && concrete.pointer_depth == 0) {
-            rendered = rendered + "*";
-        } else if (concrete.generic_args.len > 0
-                && self.analyzed.isGenericClass(base)
-                && concrete.pointer_depth == 0) {
-            rendered = rendered + "*";
-        }
-        if (concrete.is_array) { rendered = rendered + "*"; }
-        return prefix + rendered;
-    }
+		int depth = concrete.pointer_depth;
+		bool baseIsReference = rendered.endsWith("*") || base == "__fn_ptr" || self.aliasBaseIsReference(base);
+		if (TypeComposition.nullableCollapsesReferenceLayer(concrete, baseIsReference)) {
+			depth = depth - 1;
+		}
+		int pointer = 0;
+		while (pointer < depth) {
+			rendered = rendered + "*";
+			pointer = pointer + 1;
+		}
+		if (concrete.generic_args.len == 0 && self.analyzed.isClass(base) && concrete.pointer_depth == 0) {
+			rendered = rendered + "*";
+		} else if (concrete.generic_args.len > 0 && self.analyzed.isGenericClass(base) && concrete.pointer_depth == 0) {
+			rendered = rendered + "*";
+		}
+		if (concrete.is_array) { rendered = rendered + "*"; }
+		return prefix + rendered;
+	}
 
-    public string lowerGeneric(
-            Node? typeExpr, Map<string, Node> substitutions) {
-        if (typeExpr == null) { return "void"; }
-        return self.lower(SemanticTypeSystem.resolveGenericType(
-            typeExpr, substitutions, self.analyzed));
-    }
+	public string lowerGeneric(Node? typeExpr, Map<string, Node> substitutions) {
+		if (typeExpr == null) { return "void"; }
+		return self.lower(SemanticTypeSystem.resolveGenericType(typeExpr, substitutions, self.analyzed));
+	}
 
-    public IRParam lowerResolvedParameter(
-            Node parameter, Node? resolvedType, string rendered) {
-        IRParam result = IRParam(
-            rendered,
-            self.lexicalBindingCName(
-                parameter.name));
-        result.is_volatile = resolvedType != null
-            && resolvedType.is_volatile;
-        result.effective_is_volatile =
-            SemanticTypeSystem.typeEffectiveOuterVolatile(
-                resolvedType, self.analyzed.typedefTable);
-        return result;
-    }
+	public IRParam lowerResolvedParameter(Node parameter, Node? resolvedType, string rendered) {
+		IRParam result = IRParam(rendered, self.lexicalBindingCName(parameter.name));
+		result.is_volatile = resolvedType != null && resolvedType.is_volatile;
+		result.effective_is_volatile = SemanticTypeSystem.typeEffectiveOuterVolatile(resolvedType, self.analyzed.typedefTable);
+		return result;
+	}
 
-    public IRParam lowerRenderedParameter(
-            Node parameter, string rendered) {
-        return self.lowerResolvedParameter(
-            parameter, parameter.type, rendered);
-    }
+	public IRParam lowerRenderedParameter(Node parameter, string rendered) { return self.lowerResolvedParameter(parameter, parameter.type, rendered); }
 
-    public IRParam lowerParameter(Node parameter) {
-        return self.lowerRenderedParameter(
-            parameter, self.lower(parameter.type));
-    }
+	public IRParam lowerParameter(Node parameter) { return self.lowerRenderedParameter(parameter, self.lower(parameter.type)); }
 
-    public IRParam copyParameter(IRParam parameter) {
-        IRParam result = IRParam(parameter.c_type, parameter.name);
-        result.is_volatile = parameter.is_volatile;
-        result.effective_is_volatile = parameter.effective_is_volatile;
-        result.setjmp_inferred_volatile = parameter.setjmp_inferred_volatile;
-        return result;
-    }
+	public IRParam copyParameter(IRParam parameter) {
+		IRParam result = IRParam(parameter.c_type, parameter.name);
+		result.is_volatile = parameter.is_volatile;
+		result.effective_is_volatile = parameter.effective_is_volatile;
+		result.setjmp_inferred_volatile = parameter.setjmp_inferred_volatile;
+		return result;
+	}
 
-    public IRParam lowerNamedParameter(
-            Node? typeExpr, string rendered, string name) {
-        IRParam result = IRParam(rendered, name);
-        result.is_volatile = typeExpr != null && typeExpr.is_volatile;
-        result.effective_is_volatile =
-            SemanticTypeSystem.typeEffectiveOuterVolatile(
-                typeExpr, self.analyzed.typedefTable);
-        return result;
-    }
+	public IRParam lowerNamedParameter(Node? typeExpr, string rendered, string name) {
+		IRParam result = IRParam(rendered, name);
+		result.is_volatile = typeExpr != null && typeExpr.is_volatile;
+		result.effective_is_volatile = SemanticTypeSystem.typeEffectiveOuterVolatile(typeExpr, self.analyzed.typedefTable);
+		return result;
+	}
 
-    private void visitTypedefType(
-            Node? typeExpr, Map<string, Node> declarations,
-            Map<string, int> states, Vector<Node> ordered) {
-        if (typeExpr == null) { return; }
-        if (typeExpr.generic_args.len == 0
-                && declarations.has(typeExpr.base)) {
-            self.visitTypedef(
-                typeExpr.base, declarations, states, ordered);
-        }
-        int index = 0;
-        while (index < typeExpr.generic_args.len) {
-            self.visitTypedefType(
-                typeExpr.generic_args.get(index),
-                declarations, states, ordered);
-            index = index + 1;
-        }
-    }
+	private void visitTypedefType(Node? typeExpr, Map<string, Node> declarations, Map<string, int> states, Vector<Node> ordered) {
+		if (typeExpr == null) { return; }
+		if (typeExpr.generic_args.len == 0 && declarations.has(typeExpr.base)) {
+			self.visitTypedef(typeExpr.base, declarations, states, ordered);
+		}
+		int index = 0;
+		while (index < typeExpr.generic_args.len) {
+			self.visitTypedefType(typeExpr.generic_args.get(index), declarations, states, ordered);
+			index = index + 1;
+		}
+	}
 
-    private void visitTypedef(
-            string alias, Map<string, Node> declarations,
-            Map<string, int> states, Vector<Node> ordered) {
-        if (states.has(alias) && states.get(alias) == 2) { return; }
-        if (states.has(alias) && states.get(alias) == 1) {
-            fprintf(stderr,
-                "error: Cyclic typedef involving '%s'\n", alias);
-            exit(1);
-        }
-        states.put(alias, 1);
-        Node declaration = declarations.get(alias);
-        self.visitTypedefType(
-            declaration.original, declarations, states, ordered);
-        states.put(alias, 2);
-        ordered.push(declaration);
-    }
+	private void visitTypedef(string alias, Map<string, Node> declarations, Map<string, int> states, Vector<Node> ordered) {
+		if (states.has(alias) && states.get(alias) == 2) { return; }
+		if (states.has(alias) && states.get(alias) == 1) {
+			fprintf(stderr, "error: Cyclic typedef involving '%s'\n", alias);
+			exit(1);
+		}
+		states.put(alias, 1);
+		Node declaration = declarations.get(alias);
+		self.visitTypedefType(declaration.original, declarations, states, ordered);
+		states.put(alias, 2);
+		ordered.push(declaration);
+	}
 
-    public void appendTypedefs(Node program, IRModule module) {
-        Map<string, Node> declarations = {};
-        Vector<string> sourceOrder = [];
-        int index = 0;
-        while (index < program.declarations.len) {
-            Node declaration = program.declarations.get(index);
-            if (declaration.kind == NK_TYPEDEF_DECL) {
-                declarations.put(declaration.alias, declaration);
-                sourceOrder.push(declaration.alias);
-            }
-            index = index + 1;
-        }
-        Map<string, int> states = {};
-        Vector<Node> ordered = [];
-        index = 0;
-        while (index < sourceOrder.len) {
-            self.visitTypedef(
-                sourceOrder.get(index), declarations, states, ordered);
-            index = index + 1;
-        }
-        index = 0;
-        while (index < ordered.len) {
-            Node declaration = ordered.get(index);
-            IRTypedefDef definition = IRTypedefDef(
-                self.lower(declaration.original), declaration.alias);
-            definition.is_volatile = declaration.original.is_volatile;
-            module.typedef_defs.push(definition);
-            index = index + 1;
-        }
-    }
+	public void appendTypedefs(Node program, IRModule module) {
+		Map<string, Node> declarations = {};
+		Vector<string> sourceOrder = [];
+		int index = 0;
+		while (index < program.declarations.len) {
+			Node declaration = program.declarations.get(index);
+			if (declaration.kind == NK_TYPEDEF_DECL) {
+				declarations.put(declaration.alias, declaration);
+				sourceOrder.push(declaration.alias);
+			}
+			index = index + 1;
+		}
+		Map<string, int> states = {};
+		Vector<Node> ordered = [];
+		index = 0;
+		while (index < sourceOrder.len) {
+			self.visitTypedef(sourceOrder.get(index), declarations, states, ordered);
+			index = index + 1;
+		}
+		index = 0;
+		while (index < ordered.len) {
+			Node declaration = ordered.get(index);
+			IRTypedefDef definition = IRTypedefDef(self.lower(declaration.original), declaration.alias);
+			definition.is_volatile = declaration.original.is_volatile;
+			module.typedef_defs.push(definition);
+			index = index + 1;
+		}
+	}
 
-    public void appendFunctionPointerTypedefs(IRModule module) {
-        int index = 0;
-        while (index < self.functionPointerOrder.len) {
-            string name = self.functionPointerOrder.get(index);
-            Node typeExpr = self.functionPointerTypes.get(name);
-            string returnType = "void";
-            if (typeExpr.generic_args.len > 0) {
-                returnType = self.lower(typeExpr.generic_args.get(0));
-            }
-            IRFunctionPointerTypedef declaration =
-                IRFunctionPointerTypedef(name, returnType);
-            int parameter = 1;
-            while (parameter < typeExpr.generic_args.len) {
-                declaration.param_types.push(
-                    self.lower(typeExpr.generic_args.get(parameter)));
-                parameter = parameter + 1;
-            }
-            module.function_pointer_typedefs.push(declaration);
-            index = index + 1;
-        }
-    }
+	public void appendFunctionPointerTypedefs(IRModule module) {
+		int index = 0;
+		while (index < self.functionPointerOrder.len) {
+			string name = self.functionPointerOrder.get(index);
+			Node typeExpr = self.functionPointerTypes.get(name);
+			string returnType = "void";
+			if (typeExpr.generic_args.len > 0) {
+				returnType = self.lower(typeExpr.generic_args.get(0));
+			}
+			IRFunctionPointerTypedef declaration = IRFunctionPointerTypedef(name, returnType);
+			int parameter = 1;
+			while (parameter < typeExpr.generic_args.len) {
+				declaration.param_types.push(self.lower(typeExpr.generic_args.get(parameter)));
+				parameter = parameter + 1;
+			}
+			module.function_pointer_typedefs.push(declaration);
+			index = index + 1;
+		}
+	}
 
-    private string atomicLockFreeMacro(Node payload) {
-        if (payload.pointer_depth > 0) {
-            return "ATOMIC_POINTER_LOCK_FREE";
-        }
-        if (payload.base == "bool") { return "ATOMIC_BOOL_LOCK_FREE"; }
-        return "ATOMIC_INT_LOCK_FREE";
-    }
+	private string atomicLockFreeMacro(Node payload) {
+		if (payload.pointer_depth > 0) {
+			return "ATOMIC_POINTER_LOCK_FREE";
+		}
+		if (payload.base == "bool") { return "ATOMIC_BOOL_LOCK_FREE"; }
+		return "ATOMIC_INT_LOCK_FREE";
+	}
 
-    public bool usesAtomic() {
-        return self.atomicTypeOrder.len > 0;
-    }
+	public bool usesAtomic() { return self.atomicTypeOrder.len > 0; }
 
-    public void appendRealtimeTypeDeclarations(IRModule module) {
-        int spanIndex = 0;
-        while (spanIndex < self.spanTypeOrder.len) {
-            string name = self.spanTypeOrder.get(spanIndex);
-            Node element = self.spanTypes.get(name);
-            module.struct_forwards.push(IRStructForward(name));
-            IRStructDef definition = IRStructDef();
-            definition.name = name;
-            definition.fields.push(IRStructField(
-                self.lower(element) + "*", "data"));
-            definition.fields.push(IRStructField("size_t", "length"));
-            module.struct_defs.push(definition);
-            spanIndex = spanIndex + 1;
-        }
-        int atomicIndex = 0;
-        while (atomicIndex < self.atomicTypeOrder.len) {
-            string name = self.atomicTypeOrder.get(atomicIndex);
-            Node payload = self.atomicTypes.get(name);
-            IREnumDef proof = IREnumDef("");
-            proof.values.push(IREnumValue(
-                "__btrc_atomic_lock_free_" + name,
-                IRNode.binary(
-                    IRNode.literal("1"), "/",
-                    IRNode.binary(
-                        IRNode.variable(self.atomicLockFreeMacro(payload)),
-                        "==", IRNode.literal("2")))));
-            module.enum_defs.push(proof);
-            atomicIndex = atomicIndex + 1;
-        }
-    }
+	public void appendRealtimeTypeDeclarations(IRModule module) {
+		int spanIndex = 0;
+		while (spanIndex < self.spanTypeOrder.len) {
+			string name = self.spanTypeOrder.get(spanIndex);
+			Node element = self.spanTypes.get(name);
+			module.struct_forwards.push(IRStructForward(name));
+			IRStructDef definition = IRStructDef();
+			definition.name = name;
+			definition.fields.push(IRStructField(self.lower(element) + "*", "data"));
+			definition.fields.push(IRStructField("size_t", "length"));
+			module.struct_defs.push(definition);
+			spanIndex = spanIndex + 1;
+		}
+		int atomicIndex = 0;
+		while (atomicIndex < self.atomicTypeOrder.len) {
+			string name = self.atomicTypeOrder.get(atomicIndex);
+			Node payload = self.atomicTypes.get(name);
+			IREnumDef proof = IREnumDef("");
+			proof.values.push(IREnumValue("__btrc_atomic_lock_free_" + name, IRNode.binary(IRNode.literal("1"), "/", IRNode.binary(IRNode.variable(self.atomicLockFreeMacro(payload)), "==", IRNode.literal("2")))));
+			module.enum_defs.push(proof);
+			atomicIndex = atomicIndex + 1;
+		}
+	}
 }

@@ -3,6 +3,7 @@
 import std.map;
 import std.strings;
 import std.vector;
+
 import ../../generated/ast/node.btrc;
 import ../../syntax/identity.btrc;
 import ../../syntax/types.btrc;
@@ -14,1290 +15,920 @@ import ../operators.btrc;
 import ../types.btrc;
 
 class SemanticValidationState {
-    public Analyzed analyzed;
-    public Node? returnType;
-    public string owner;
-    public Map<string, bool> typeParams;
-    public Map<string, Node> interfaces;
-    public int loopDepth;
-    public int breakDepth;
-    public bool gpuCallable;
-    public Node? callable;
-    public Node? previousStatement;
-    public Node? standaloneExpression;
-    public Node? gpuArrayResultBoundary;
-    public Map<string, bool> parameterNames;
-    public Map<string, bool> borrowedBindings;
-    /* Lexical binding identity reduced to the property needed by capture
+	public Analyzed analyzed;
+	public Node? returnType;
+	public string owner;
+	public Map<string, bool> typeParams;
+	public Map<string, Node> interfaces;
+	public int loopDepth;
+	public int breakDepth;
+	public bool gpuCallable;
+	public Node? callable;
+	public Node? previousStatement;
+	public Node? standaloneExpression;
+	public Node? gpuArrayResultBoundary;
+	public Map<string, bool> parameterNames;
+	public Map<string, bool> borrowedBindings;
+	/* Lexical binding identity reduced to the property needed by capture
      * analysis: whether the currently resolved name is local rather than the
      * same-spelled global. Scope entry/exit snapshots preserve shadowing. */
-    public Map<string, bool> localBindings;
-    /* Partially evaluated simple-enum constants, keyed by `Enum.member`.
+	public Map<string, bool> localBindings;
+	/* Partially evaluated simple-enum constants, keyed by `Enum.member`.
      * The known map distinguishes a legitimate unknown macro-derived value
      * from a missing/invalid member. */
-    public Map<string, int> enumConstantValues;
-    public Map<string, bool> enumConstantKnown;
-    /* Exact emitted-name claims that are compiler-owned call boundaries. */
-    public Map<string, string> generatedSymbols;
-    /* Conservative proofs for source raw-pointer parameters. */
-    public Map<string, bool> rawBorrowEffects;
-    public Map<string, bool> rawBorrowEffectKnown;
-    public Map<string, bool> rawBorrowVisiting;
-    public bool allowOwnedOpaqueVariable;
-    public bool inParameterDefault;
+	public Map<string, int> enumConstantValues;
+	public Map<string, bool> enumConstantKnown;
+	/* Exact emitted-name claims that are compiler-owned call boundaries. */
+	public Map<string, string> generatedSymbols;
+	/* Conservative proofs for source raw-pointer parameters. */
+	public Map<string, bool> rawBorrowEffects;
+	public Map<string, bool> rawBorrowEffectKnown;
+	public Map<string, bool> rawBorrowVisiting;
+	public bool allowOwnedOpaqueVariable;
+	public bool inParameterDefault;
 
-    public SemanticValidationState(Analyzed analyzed) {
-        self.analyzed = analyzed;
-        self.returnType = null;
-        self.owner = "";
-        self.typeParams = {};
-        self.interfaces = {};
-        self.loopDepth = 0;
-        self.breakDepth = 0;
-        self.gpuCallable = false;
-        self.callable = null;
-        self.previousStatement = null;
-        self.standaloneExpression = null;
-        self.gpuArrayResultBoundary = null;
-        self.parameterNames = {};
-        self.borrowedBindings = {};
-        self.localBindings = {};
-        self.enumConstantValues = {};
-        self.enumConstantKnown = {};
-        self.generatedSymbols = {};
-        self.rawBorrowEffects = {};
-        self.rawBorrowEffectKnown = {};
-        self.rawBorrowVisiting = {};
-        self.allowOwnedOpaqueVariable = false;
-        self.inParameterDefault = false;
-    }
+	public SemanticValidationState(Analyzed analyzed) {
+		self.analyzed = analyzed;
+		self.returnType = null;
+		self.owner = "";
+		self.typeParams = {};
+		self.interfaces = {};
+		self.loopDepth = 0;
+		self.breakDepth = 0;
+		self.gpuCallable = false;
+		self.callable = null;
+		self.previousStatement = null;
+		self.standaloneExpression = null;
+		self.gpuArrayResultBoundary = null;
+		self.parameterNames = {};
+		self.borrowedBindings = {};
+		self.localBindings = {};
+		self.enumConstantValues = {};
+		self.enumConstantKnown = {};
+		self.generatedSymbols = {};
+		self.rawBorrowEffects = {};
+		self.rawBorrowEffectKnown = {};
+		self.rawBorrowVisiting = {};
+		self.allowOwnedOpaqueVariable = false;
+		self.inParameterDefault = false;
+	}
 }
 
 class TypeValidator {
-    private SemanticValidationState state;
-    private OperatorSemantics operators;
-    private GpuSemantics gpu;
-    private SemanticTypeSystem semanticTypes;
-    private DeclarationRegistry declarationRegistry;
-    private ExpressionTypeResolver expressionTypes;
+	private SemanticValidationState state;
+	private OperatorSemantics operators;
+	private GpuSemantics gpu;
+	private SemanticTypeSystem semanticTypes;
+	private DeclarationRegistry declarationRegistry;
+	private ExpressionTypeResolver expressionTypes;
 
-    public TypeValidator(
-            SemanticValidationState state,
-            OperatorSemantics operators,
-            GpuSemantics gpu,
-            SemanticTypeSystem semanticTypes,
-            DeclarationRegistry declarationRegistry,
-            ExpressionTypeResolver expressionTypes) {
-        self.state = state;
-        self.operators = operators;
-        self.gpu = gpu;
-        self.semanticTypes = semanticTypes;
-        self.declarationRegistry = declarationRegistry;
-        self.expressionTypes = expressionTypes;
-    }
+	public TypeValidator(SemanticValidationState state, OperatorSemantics operators, GpuSemantics gpu, SemanticTypeSystem semanticTypes, DeclarationRegistry declarationRegistry, ExpressionTypeResolver expressionTypes) {
+		self.state = state;
+		self.operators = operators;
+		self.gpu = gpu;
+		self.semanticTypes = semanticTypes;
+		self.declarationRegistry = declarationRegistry;
+		self.expressionTypes = expressionTypes;
+	}
 
-    class bool scalarVoid(Node? typeExpr) {
-        return typeExpr != null && typeExpr.base == "void"
-            && typeExpr.pointer_depth == 0 && !typeExpr.is_array
-            && typeExpr.generic_args.len == 0;
-    }
+	class bool scalarVoid(Node? typeExpr) { return typeExpr != null && typeExpr.base == "void" && typeExpr.pointer_depth == 0 && !typeExpr.is_array && typeExpr.generic_args.len == 0; }
 
-    class void fail(string message, Node site) {
-        fprintf(stderr, "error: %s at %d:%d\n", message, site.line, site.col);
-        exit(1);
-    }
+	class void fail(string message, Node site) {
+		fprintf(stderr, "error: %s at %d:%d\n", message, site.line, site.col);
+		exit(1);
+	}
 
-    class Map<string, Node> cloneTypes(Map<string, Node> source) {
-        Map<string, Node> result = {};
-        Vector<string> keys = source.keys();
-        int index = 0;
-        while (index < keys.len) {
-            string key = keys.get(index);
-            result.put(key, source.get(key));
-            index = index + 1;
-        }
-        return result;
-    }
+	class Map<string, Node> cloneTypes(Map<string, Node> source) {
+		Map<string, Node> result = {};
+		Vector<string> keys = source.keys();
+		int index = 0;
+		while (index < keys.len) {
+			string key = keys.get(index);
+			result.put(key, source.get(key));
+			index = index + 1;
+		}
+		return result;
+	}
 
-    public Map<string, bool> typeParamSet(Vector<string> names) {
-        Map<string, bool> result = {};
-        int index = 0;
-        while (index < names.len) {
-            result.put(names.get(index), true);
-            index = index + 1;
-        }
-        return result;
-    }
+	public Map<string, bool> typeParamSet(Vector<string> names) {
+		Map<string, bool> result = {};
+		int index = 0;
+		while (index < names.len) {
+			result.put(names.get(index), true);
+			index = index + 1;
+		}
+		return result;
+	}
 
-    public Map<string, bool> cloneFlags(Map<string, bool> source) {
-        Map<string, bool> result = {};
-        Vector<string> keys = source.keys();
-        int index = 0;
-        while (index < keys.len) {
-            string key = keys.get(index);
-            result.put(key, source.get(key));
-            index = index + 1;
-        }
-        return result;
-    }
+	public Map<string, bool> cloneFlags(Map<string, bool> source) {
+		Map<string, bool> result = {};
+		Vector<string> keys = source.keys();
+		int index = 0;
+		while (index < keys.len) {
+			string key = keys.get(index);
+			result.put(key, source.get(key));
+			index = index + 1;
+		}
+		return result;
+	}
 
-    public Map<string, bool> combinedTypeParams(
-            Vector<string> classParams, Vector<string> methodParams) {
-        Map<string, bool> result = self.typeParamSet(classParams);
-        int index = 0;
-        while (index < methodParams.len) {
-            result.put(methodParams.get(index), true);
-            index = index + 1;
-        }
-        return result;
-    }
+	public Map<string, bool> combinedTypeParams(Vector<string> classParams, Vector<string> methodParams) {
+		Map<string, bool> result = self.typeParamSet(classParams);
+		int index = 0;
+		while (index < methodParams.len) {
+			result.put(methodParams.get(index), true);
+			index = index + 1;
+		}
+		return result;
+	}
 
-    public string formatType(Node? typeExpr) {
-        if (typeExpr == null) { return "<unknown>"; }
-        string result = typeExpr.is_const ? "const " : "";
-        result = result + (typeExpr.base == "__fn_ptr"
-            ? "CFunction" : typeExpr.base);
-        if (typeExpr.generic_args.len > 0) {
-            result = result + "<";
-            int index = 0;
-            while (index < typeExpr.generic_args.len) {
-                if (index > 0) { result = result + ", "; }
-                result = result + self.formatType(
-                    typeExpr.generic_args.get(index));
-                index = index + 1;
-            }
-            result = result + ">";
-        }
-        int pointer = 0;
-        while (pointer < typeExpr.pointer_depth) {
-            result = result + "*";
-            pointer = pointer + 1;
-        }
-        if (typeExpr.is_array) { result = result + "[]"; }
-        return result;
-    }
+	public string formatType(Node? typeExpr) {
+		if (typeExpr == null) { return "<unknown>"; }
+		string result = typeExpr.is_const ? "const " : "";
+		result = result + (typeExpr.base == "__fn_ptr" ? "CFunction" : typeExpr.base);
+		if (typeExpr.generic_args.len > 0) {
+			result = result + "<";
+			int index = 0;
+			while (index < typeExpr.generic_args.len) {
+				if (index > 0) { result = result + ", "; }
+				result = result + self.formatType(typeExpr.generic_args.get(index));
+				index = index + 1;
+			}
+			result = result + ">";
+		}
+		int pointer = 0;
+		while (pointer < typeExpr.pointer_depth) {
+			result = result + "*";
+			pointer = pointer + 1;
+		}
+		if (typeExpr.is_array) { result = result + "[]"; }
+		return result;
+	}
 
-    public bool typeContainsParams(
-            Node? typeExpr, Map<string, bool> typeParams) {
-        if (typeExpr == null) { return false; }
-        if (typeParams.has(typeExpr.base)) { return true; }
-        int index = 0;
-        while (index < typeExpr.generic_args.len) {
-            if (self.typeContainsParams(
-                    typeExpr.generic_args.get(index), typeParams)) {
-                return true;
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	public bool typeContainsParams(Node? typeExpr, Map<string, bool> typeParams) {
+		if (typeExpr == null) { return false; }
+		if (typeParams.has(typeExpr.base)) { return true; }
+		int index = 0;
+		while (index < typeExpr.generic_args.len) {
+			if (self.typeContainsParams(typeExpr.generic_args.get(index), typeParams)) {
+				return true;
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 
-    public bool integralType(Node? typeExpr, Analyzed analyzed) {
-        return typeExpr != null && NumericSemantics.isType(typeExpr, analyzed)
-            && !NumericSemantics.isFloating(typeExpr);
-    }
+	public bool integralType(Node? typeExpr, Analyzed analyzed) { return typeExpr != null && NumericSemantics.isType(typeExpr, analyzed) && !NumericSemantics.isFloating(typeExpr); }
 
+	public void rejectRuntimeInterfaceType(Node? typeExpr, Node site) {
+		Node? resolvedType = self.resolveAliases(typeExpr);
+		if (resolvedType == null) { return; }
+		if (self.state.typeParams.has(resolvedType.base)) { return; }
+		if (self.state.interfaces.has(resolvedType.base)) {
+			TypeValidator.fail("Interface type '" + resolvedType.base + "' is compile-time-only and cannot be used as a runtime value type", site);
+		}
+		int index = 0;
+		while (index < resolvedType.generic_args.len) {
+			self.rejectRuntimeInterfaceType(resolvedType.generic_args.get(index), site);
+			index = index + 1;
+		}
+	}
 
-    public void rejectRuntimeInterfaceType(Node? typeExpr, Node site) {
-        Node? resolvedType = self.resolveAliases(typeExpr);
-        if (resolvedType == null) { return; }
-        if (self.state.typeParams.has(resolvedType.base)) { return; }
-        if (self.state.interfaces.has(resolvedType.base)) {
-            TypeValidator.fail("Interface type '" + resolvedType.base
-                + "' is compile-time-only and cannot be used as a runtime value type",
-                site);
-        }
-        int index = 0;
-        while (index < resolvedType.generic_args.len) {
-            self.rejectRuntimeInterfaceType(
-                resolvedType.generic_args.get(index), site);
-            index = index + 1;
-        }
-    }
+	public Node? resolveAliases(Node? typeExpr) { return self.semanticTypes.canonical(typeExpr); }
 
-    public Node? resolveAliases(Node? typeExpr) {
-        return self.semanticTypes.canonical(typeExpr);
-    }
+	public Node? arrayValueType(Node? typeExpr) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (typeExpr == null || canonical == null || typeExpr.is_array || !canonical.is_array) {
+			return typeExpr;
+		}
+		return TypeShape.withOuterPointer(TypeShape.withoutOuterArray(canonical));
+	}
 
-    public Node? arrayValueType(Node? typeExpr) {
-        Node? canonical = self.resolveAliases(typeExpr);
-        if (typeExpr == null || canonical == null
-                || typeExpr.is_array || !canonical.is_array) {
-            return typeExpr;
-        }
-        return TypeShape.withOuterPointer(TypeShape.withoutOuterArray(canonical));
-    }
+	public Node? inferType(Node? expression, Map<string, Node> vars) {
+		if (expression != null && expression.kind == NK_INDEX_EXPR) {
+			Node? objectType = self.inferType(expression.obj,  vars);
+			return self.resolveAliases(self.indexResultType(objectType));
+		}
+		if (self.state.gpuCallable) {
+			return self.resolveAliases(self.gpu.contextualExprType(expression, vars));
+		}
+		return self.resolveAliases(self.expressionTypes.infer(expression, vars));
+	}
 
-    public Node? inferType(Node? expression,
-            Map<string, Node> vars) {
-        if (expression != null && expression.kind == NK_INDEX_EXPR) {
-            Node? objectType = self.inferType(expression.obj,  vars);
-            return self.resolveAliases(
-                self.indexResultType(objectType));
-        }
-        if (self.state.gpuCallable) {
-            return self.resolveAliases(
-                self.gpu.contextualExprType(expression, vars));
-        }
-        return self.resolveAliases(self.expressionTypes.infer(expression, vars));
-    }
+	public Node? inferRaw(Node? expression, Map<string, Node> vars) { return self.expressionTypes.inferRaw(expression, vars); }
 
-    public Node? inferRaw(
-            Node? expression, Map<string, Node> vars) {
-        return self.expressionTypes.inferRaw(expression, vars);
-    }
+	public Node? indexResultType(Node? objectType) {
+		if (objectType == null || objectType.base == "Tuple") { return null; }
+		if (SemanticTypeSystem.isString(objectType)) {
+			Node character = SemanticTypeSystem.primitive("char");
+			character.is_const = objectType.is_const;
+			return character;
+		}
+		if (objectType.is_array) {
+			return TypeShape.withoutOuterArray(objectType);
+		}
+		if (objectType.pointer_depth > 0 && (!self.state.analyzed.isClass(objectType.base) && !self.state.analyzed.isGenericClass(objectType.base) || objectType.pointer_depth > 1)) {
+			return TypeShape.withoutOuterPointers(objectType, 1);
+		}
+		Node? getter = self.indexedMethod(objectType, "get");
+		Node? result = null;
+		if (getter != null && getter.access != "class" && getter.generic_params.len == 0 && getter.params.len == 1 && !getter.params.get(0).keep_ && getter.return_type != null && !TypeValidator.scalarVoid(getter.return_type)) {
+			result = getter.return_type;
+		} else {
+			Node? setter = self.indexedMethod(objectType, "set");
+			if (setter != null && setter.access != "class" && setter.generic_params.len == 0 && setter.params.len == 2 && !setter.params.get(0).keep_ && TypeValidator.scalarVoid(setter.return_type)) {
+				result = setter.params.get(1).type;
+			}
+		}
+		if (result == null) { return null; }
+		if (self.state.analyzed.isGenericClass(objectType.base) && objectType.generic_args.len > 0) {
+			return SemanticTypeSystem.resolveGenericType(result, SemanticTypeSystem.genericTypeMap(self.state.analyzed, objectType), self.state.analyzed);
+		}
+		return result;
+	}
 
-    public Node? indexResultType(Node? objectType) {
-        if (objectType == null || objectType.base == "Tuple") { return null; }
-        if (SemanticTypeSystem.isString(objectType)) {
-            Node character = SemanticTypeSystem.primitive("char");
-            character.is_const = objectType.is_const;
-            return character;
-        }
-        if (objectType.is_array) {
-            return TypeShape.withoutOuterArray(objectType);
-        }
-        if (objectType.pointer_depth > 0
-                && (!self.state.analyzed.isClass(objectType.base)
-                    && !self.state.analyzed.isGenericClass(objectType.base)
-                    || objectType.pointer_depth > 1)) {
-            return TypeShape.withoutOuterPointers(objectType, 1);
-        }
-        Node? getter = self.indexedMethod(objectType, "get");
-        Node? result = null;
-        if (getter != null && getter.access != "class"
-                && getter.generic_params.len == 0
-                && getter.params.len == 1 && !getter.params.get(0).keep_
-                && getter.return_type != null
-                && !TypeValidator.scalarVoid(getter.return_type)) {
-            result = getter.return_type;
-        } else {
-            Node? setter = self.indexedMethod(objectType, "set");
-            if (setter != null && setter.access != "class"
-                    && setter.generic_params.len == 0
-                    && setter.params.len == 2 && !setter.params.get(0).keep_
-                    && TypeValidator.scalarVoid(setter.return_type)) {
-                result = setter.params.get(1).type;
-            }
-        }
-        if (result == null) { return null; }
-        if (self.state.analyzed.isGenericClass(objectType.base)
-                && objectType.generic_args.len > 0) {
-            return SemanticTypeSystem.resolveGenericType(
-                result, SemanticTypeSystem.genericTypeMap(
-                    self.state.analyzed, objectType), self.state.analyzed);
-        }
-        return result;
-    }
+	private Node? indexedMethod(Node objectType, string name) {
+		if (self.state.typeParams.has(objectType.base)) { return null; }
+		if (self.state.analyzed.isGenericClass(objectType.base) && objectType.pointer_depth <= 1) {
+			return self.state.analyzed.genericClassMethod(objectType.base, name);
+		}
+		if (self.state.analyzed.isClass(objectType.base)) {
+			return self.state.analyzed.classMethod(objectType.base, name);
+		}
+		return null;
+	}
 
-    private Node? indexedMethod(Node objectType, string name) {
-        if (self.state.typeParams.has(objectType.base)) { return null; }
-        if (self.state.analyzed.isGenericClass(objectType.base)
-                && objectType.pointer_depth <= 1) {
-            return self.state.analyzed.genericClassMethod(objectType.base, name);
-        }
-        if (self.state.analyzed.isClass(objectType.base)) {
-            return self.state.analyzed.classMethod(objectType.base, name);
-        }
-        return null;
-    }
+	public bool interfaceExtends(string child, string parent) {
+		string current = child;
+		Map<string, bool> seen = {};
+		while (current != "" && !seen.has(current)) {
+			if (current == parent) { return true; }
+			seen.put(current, true);
+			if (!self.state.interfaces.has(current)) { return false; }
+			Node declaration = self.state.interfaces.get(current);
+			if (declaration.parent == null) { return false; }
+			current = declaration.parent;
+		}
+		return false;
+	}
 
-    public bool interfaceExtends(string child, string parent) {
-        string current = child;
-        Map<string, bool> seen = {};
-        while (current != "" && !seen.has(current)) {
-            if (current == parent) { return true; }
-            seen.put(current, true);
-            if (!self.state.interfaces.has(current)) { return false; }
-            Node declaration = self.state.interfaces.get(current);
-            if (declaration.parent == null) { return false; }
-            current = declaration.parent;
-        }
-        return false;
-    }
+	public bool classImplements(string className, string interfaceName) {
+		string current = className;
+		Map<string, bool> seen = {};
+		while (current != "" && !seen.has(current)) {
+			seen.put(current, true);
+			Node? declaration = null;
+			if (self.state.analyzed.classTable.has(current)) {
+				declaration = self.state.analyzed.classTable.get(current);
+			} else if (self.state.analyzed.genericClassTable.has(current)) {
+				declaration = self.state.analyzed.genericClassTable.get(current);
+			}
+			if (declaration == null) { return false; }
+			int index = 0;
+			while (index < declaration.interfaces.len) {
+				string implemented = declaration.interfaces.get(index);
+				if (implemented == interfaceName || self.interfaceExtends(implemented, interfaceName)) {
+					return true;
+				}
+				index = index + 1;
+			}
+			current = DeclarationRegistry.parentName(declaration);
+		}
+		return false;
+	}
 
-    public bool classImplements(string className, string interfaceName) {
-        string current = className;
-        Map<string, bool> seen = {};
-        while (current != "" && !seen.has(current)) {
-            seen.put(current, true);
-            Node? declaration = null;
-            if (self.state.analyzed.classTable.has(current)) {
-                declaration = self.state.analyzed.classTable.get(current);
-            } else if (self.state.analyzed.genericClassTable.has(current)) {
-                declaration = self.state.analyzed.genericClassTable.get(current);
-            }
-            if (declaration == null) { return false; }
-            int index = 0;
-            while (index < declaration.interfaces.len) {
-                string implemented = declaration.interfaces.get(index);
-                if (implemented == interfaceName
-                        || self.interfaceExtends(implemented, interfaceName)) {
-                    return true;
-                }
-                index = index + 1;
-            }
-            current = DeclarationRegistry.parentName(declaration);
-        }
-        return false;
-    }
+	public bool containsThreadStorage(Node? typeExpr) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (canonical == null) { return false; }
+		if (canonical.base == "Thread") { return true; }
+		int index = canonical.base == "__fn_ptr" ? 1 : 0;
+		while (index < canonical.generic_args.len) {
+			if (self.containsThreadStorage(canonical.generic_args.get(index))) {
+				return true;
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 
-    public bool containsThreadStorage(Node? typeExpr) {
-        Node? canonical = self.resolveAliases(typeExpr);
-        if (canonical == null) { return false; }
-        if (canonical.base == "Thread") { return true; }
-        int index = canonical.base == "__fn_ptr" ? 1 : 0;
-        while (index < canonical.generic_args.len) {
-            if (self.containsThreadStorage(canonical.generic_args.get(index))) {
-                return true;
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	public bool directManagedThreadResult(Node? typeExpr) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (canonical == null || canonical.is_array) { return false; }
+		return TypeComposition.isSemanticScalarString(canonical) || (canonical.pointer_depth <= 1 && (self.state.analyzed.isClass(canonical.base) || (canonical.generic_args.len > 0 && self.state.analyzed.isGenericClass(canonical.base))));
+	}
 
-    public bool directManagedThreadResult(Node? typeExpr) {
-        Node? canonical = self.resolveAliases(typeExpr);
-        if (canonical == null || canonical.is_array) { return false; }
-        return TypeComposition.isSemanticScalarString(canonical)
-            || (canonical.pointer_depth <= 1
-                && (self.state.analyzed.isClass(canonical.base)
-                    || (canonical.generic_args.len > 0
-                        && self.state.analyzed.isGenericClass(canonical.base))));
-    }
+	private bool aggregateTypeMatches(Node? typeExpr, int query, Map<string, bool> visiting) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (canonical == null) { return false; }
+		if (query == 1 && canonical.base == "Mutex") { return true; }
+		if (query == 2 && canonical.base == "Thread") { return true; }
+		if (query == 6 && canonical.base == "Span") { return true; }
+		if (query == 7 && canonical.base == "Atomic" && canonical.pointer_depth == 0) {
+			return true;
+		}
+		if (canonical.is_array) {
+			if (query == 3 && canonical.array_size == null) { return true; }
+			if (query == 4) { return true; }
+			return self.aggregateTypeMatches(TypeShape.withoutOuterArray(canonical), query, visiting);
+		}
+		if (query == 5 && self.directManagedThreadResult(canonical)) {
+			return true;
+		}
+		int argumentIndex = canonical.base == "__fn_ptr" ? 1 : 0;
+		while (argumentIndex < canonical.generic_args.len) {
+			if (self.aggregateTypeMatches(canonical.generic_args.get(argumentIndex), query, visiting)) {
+				return true;
+			}
+			argumentIndex = argumentIndex + 1;
+		}
+		if (canonical.pointer_depth > 0) { return false; }
+		string name = canonical.base;
+		if (name.startsWith("struct ")) {
+			name = name.substring(7, name.length() - 7);
+		}
+		string key = (self.state.analyzed.structTable.has(name) ? "struct:" : "rich-enum:") + name;
+		if (visiting.has(key)) { return false; }
+		Map<string, bool> nested = self.cloneFlags(visiting);
+		nested.put(key, true);
+		if (self.state.analyzed.structTable.has(name)) {
+			Node declaration = self.state.analyzed.structTable.get(name);
+			if (!declaration.is_forward) {
+				int fieldIndex = 0;
+				while (fieldIndex < declaration.fields.len) {
+					if (self.aggregateTypeMatches(declaration.fields.get(fieldIndex).type, query, nested)) {
+						return true;
+					}
+					fieldIndex = fieldIndex + 1;
+				}
+			}
+		}
+		if (self.state.analyzed.richEnumTable.has(name)) {
+			Node declaration = self.state.analyzed.richEnumTable.get(name);
+			int variantIndex = 0;
+			while (variantIndex < declaration.variants.len) {
+				Node variant = declaration.variants.get(variantIndex);
+				int parameterIndex = 0;
+				while (parameterIndex < variant.params.len) {
+					if (self.aggregateTypeMatches(variant.params.get(parameterIndex).type, query, nested)) {
+						return true;
+					}
+					parameterIndex = parameterIndex + 1;
+				}
+				variantIndex = variantIndex + 1;
+			}
+		}
+		return false;
+	}
 
-    private bool aggregateTypeMatches(Node? typeExpr, int query,
-            Map<string, bool> visiting) {
-        Node? canonical = self.resolveAliases(typeExpr);
-        if (canonical == null) { return false; }
-        if (query == 1 && canonical.base == "Mutex") { return true; }
-        if (query == 2 && canonical.base == "Thread") { return true; }
-        if (query == 6 && canonical.base == "Span") { return true; }
-        if (query == 7 && canonical.base == "Atomic"
-                && canonical.pointer_depth == 0) {
-            return true;
-        }
-        if (canonical.is_array) {
-            if (query == 3 && canonical.array_size == null) { return true; }
-            if (query == 4) { return true; }
-            return self.aggregateTypeMatches(
-                TypeShape.withoutOuterArray(canonical), query, visiting);
-        }
-        if (query == 5 && self.directManagedThreadResult(canonical)) {
-            return true;
-        }
-        int argumentIndex = canonical.base == "__fn_ptr" ? 1 : 0;
-        while (argumentIndex < canonical.generic_args.len) {
-            if (self.aggregateTypeMatches(
-                    canonical.generic_args.get(argumentIndex), query,
-                    visiting)) {
-                return true;
-            }
-            argumentIndex = argumentIndex + 1;
-        }
-        if (canonical.pointer_depth > 0) { return false; }
-        string name = canonical.base;
-        if (name.startsWith("struct ")) {
-            name = name.substring(7, name.length() - 7);
-        }
-        string key = (self.state.analyzed.structTable.has(name)
-            ? "struct:" : "rich-enum:") + name;
-        if (visiting.has(key)) { return false; }
-        Map<string, bool> nested = self.cloneFlags(visiting);
-        nested.put(key, true);
-        if (self.state.analyzed.structTable.has(name)) {
-            Node declaration = self.state.analyzed.structTable.get(name);
-            if (!declaration.is_forward) {
-                int fieldIndex = 0;
-                while (fieldIndex < declaration.fields.len) {
-                    if (self.aggregateTypeMatches(
-                            declaration.fields.get(fieldIndex).type,
-                            query, nested)) {
-                        return true;
-                    }
-                    fieldIndex = fieldIndex + 1;
-                }
-            }
-        }
-        if (self.state.analyzed.richEnumTable.has(name)) {
-            Node declaration = self.state.analyzed.richEnumTable.get(name);
-            int variantIndex = 0;
-            while (variantIndex < declaration.variants.len) {
-                Node variant = declaration.variants.get(variantIndex);
-                int parameterIndex = 0;
-                while (parameterIndex < variant.params.len) {
-                    if (self.aggregateTypeMatches(
-                            variant.params.get(parameterIndex).type,
-                            query, nested)) {
-                        return true;
-                    }
-                    parameterIndex = parameterIndex + 1;
-                }
-                variantIndex = variantIndex + 1;
-            }
-        }
-        return false;
-    }
+	public bool containsMutexStorage(Node? typeExpr) {
+		Map<string, bool> visiting = {};
+		return self.aggregateTypeMatches(typeExpr, 1, visiting);
+	}
 
-    public bool containsMutexStorage(Node? typeExpr) {
-        Map<string, bool> visiting = {};
-        return self.aggregateTypeMatches(typeExpr, 1, visiting);
-    }
+	public bool containsSpanStorage(Node? typeExpr) {
+		Map<string, bool> visiting = {};
+		return self.aggregateTypeMatches(typeExpr, 6, visiting);
+	}
 
-    public bool containsSpanStorage(Node? typeExpr) {
-        Map<string, bool> visiting = {};
-        return self.aggregateTypeMatches(typeExpr, 6, visiting);
-    }
+	public bool containsAtomicStorage(Node? typeExpr) {
+		Map<string, bool> visiting = {};
+		return self.aggregateTypeMatches(typeExpr, 7, visiting);
+	}
 
-    public bool containsAtomicStorage(Node? typeExpr) {
-        Map<string, bool> visiting = {};
-        return self.aggregateTypeMatches(typeExpr, 7, visiting);
-    }
+	public bool threadAggregateHasManagedReference(Node? typeExpr, Map<string, bool> visiting) { return self.aggregateTypeMatches(typeExpr, 5, visiting); }
 
-    public bool threadAggregateHasManagedReference(Node? typeExpr,
-            Map<string, bool> visiting) {
-        return self.aggregateTypeMatches(typeExpr, 5, visiting);
-    }
+	public bool threadResultHasUnsizedArray(Node? typeExpr, Map<string, bool> visiting) { return self.aggregateTypeMatches(typeExpr, 3, visiting); }
 
-    public bool threadResultHasUnsizedArray(Node? typeExpr,
-            Map<string, bool> visiting) {
-        return self.aggregateTypeMatches(typeExpr, 3, visiting);
-    }
+	public void validateMutexPayloadsInType(Node? typeExpr, Node site) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (canonical == null) { return; }
+		if (canonical.base == "Mutex" && canonical.generic_args.len == 1) {
+			Node payload = canonical.generic_args.get(0);
+			Map<string, bool> visiting = {};
+			string problem = "";
+			if (self.aggregateTypeMatches(payload, 2, visiting)) {
+				problem = "cannot contain a Thread handle";
+			} else {
+				visiting = {};
+				if (self.aggregateTypeMatches(payload, 1, visiting)) {
+					problem = "cannot contain a Mutex handle";
+				} else {
+					visiting = {};
+					if (self.aggregateTypeMatches(payload, 4, visiting)) {
+						problem = "cannot contain array storage";
+					} else if (!self.directManagedThreadResult(payload)) {
+						visiting = {};
+						if (self.aggregateTypeMatches(payload, 5, visiting)) {
+							problem = "aggregate cannot contain string or class references";
+						}
+					}
+				}
+			}
+			if (problem != "") {
+				TypeValidator.fail("Mutex<T> payload type " + problem, site);
+			}
+		}
+		int index = 0;
+		while (index < canonical.generic_args.len) {
+			self.validateMutexPayloadsInType(canonical.generic_args.get(index), site);
+			index = index + 1;
+		}
+	}
 
-    public void validateMutexPayloadsInType(Node? typeExpr, Node site) {
-        Node? canonical = self.resolveAliases(typeExpr);
-        if (canonical == null) { return; }
-        if (canonical.base == "Mutex" && canonical.generic_args.len == 1) {
-            Node payload = canonical.generic_args.get(0);
-            Map<string, bool> visiting = {};
-            string problem = "";
-            if (self.aggregateTypeMatches(payload, 2, visiting)) {
-                problem = "cannot contain a Thread handle";
-            } else {
-                visiting = {};
-                if (self.aggregateTypeMatches(payload, 1, visiting)) {
-                    problem = "cannot contain a Mutex handle";
-                } else {
-                    visiting = {};
-                    if (self.aggregateTypeMatches(payload, 4, visiting)) {
-                        problem = "cannot contain array storage";
-                    } else if (!self.directManagedThreadResult(payload)) {
-                        visiting = {};
-                        if (self.aggregateTypeMatches(payload, 5, visiting)) {
-                            problem = "aggregate cannot contain string or class references";
-                        }
-                    }
-                }
-            }
-            if (problem != "") {
-                TypeValidator.fail("Mutex<T> payload type " + problem, site);
-            }
-        }
-        int index = 0;
-        while (index < canonical.generic_args.len) {
-            self.validateMutexPayloadsInType(
-                canonical.generic_args.get(index), site);
-            index = index + 1;
-        }
-    }
+	public void validateArrayReturn(Node callable, string label) {
+		if (callable.return_type != null && callable.return_type.is_array && !callable.is_gpu) {
+			TypeValidator.fail(label + " cannot return an array outside @gpu", callable);
+		}
+	}
 
-    public void validateArrayReturn(Node callable, string label) {
-        if (callable.return_type != null && callable.return_type.is_array
-                && !callable.is_gpu) {
-            TypeValidator.fail(label
-                + " cannot return an array outside @gpu", callable);
-        }
-    }
+	public bool managedOwnershipType(Node? typeExpr) {
+		if (typeExpr == null) { return false; }
+		if (self.state.typeParams.has(typeExpr.base)) {
+			return !typeExpr.is_array && (typeExpr.pointer_depth == 0 || (typeExpr.is_nullable && typeExpr.pointer_depth == 1));
+		}
+		return !typeExpr.is_array && typeExpr.pointer_depth <= 1 && (SemanticTypeSystem.isString(typeExpr) || (typeExpr.base == "Mutex" && typeExpr.generic_args.len == 1 && typeExpr.pointer_depth == 0) || self.state.analyzed.isClass(typeExpr.base) || self.state.analyzed.isGenericClass(typeExpr.base));
+	}
 
-    public bool managedOwnershipType(Node? typeExpr) {
-        if (typeExpr == null) { return false; }
-        if (self.state.typeParams.has(typeExpr.base)) {
-            return !typeExpr.is_array
-                && (typeExpr.pointer_depth == 0
-                    || (typeExpr.is_nullable && typeExpr.pointer_depth == 1));
-        }
-        return !typeExpr.is_array && typeExpr.pointer_depth <= 1
-            && (SemanticTypeSystem.isString(typeExpr)
-                || (typeExpr.base == "Mutex"
-                    && typeExpr.generic_args.len == 1
-                    && typeExpr.pointer_depth == 0)
-                || self.state.analyzed.isClass(typeExpr.base)
-                || self.state.analyzed.isGenericClass(typeExpr.base));
-    }
+	public Node arrayElementType(Node arrayType) {
+		Node element = TypeShape.withoutOuterArray(arrayType);
+		element.is_static = false;
+		element.is_extern = false;
+		return element;
+	}
 
-    public Node arrayElementType(Node arrayType) {
-        Node element = TypeShape.withoutOuterArray(arrayType);
-        element.is_static = false;
-        element.is_extern = false;
-        return element;
-    }
+	public bool contextualAggregateInitializer(Node? initializer) { return initializer != null && (initializer.kind == NK_BRACE_INITIALIZER || initializer.kind == NK_LIST_LITERAL || initializer.kind == NK_MAP_LITERAL); }
 
-    public bool contextualAggregateInitializer(Node? initializer) {
-        return initializer != null
-            && (initializer.kind == NK_BRACE_INITIALIZER
-                || initializer.kind == NK_LIST_LITERAL
-                || initializer.kind == NK_MAP_LITERAL);
-    }
+	public bool gpuArrayResultCall(Node? expression, Map<string, Node> variables) {
+		if (expression == null || expression.kind != NK_CALL_EXPR || expression.callee == null || expression.callee.kind != NK_IDENTIFIER) {
+			return false;
+		}
+		string name = expression.callee.name;
+		if (variables.has(name) || !self.state.analyzed.funcTable.has(name)) {
+			return false;
+		}
+		Node declaration = self.state.analyzed.funcTable.get(name);
+		return declaration.kind == NK_FUNCTION_DECL && declaration.is_gpu && declaration.return_type != null && declaration.return_type.is_array;
+	}
 
-    public bool gpuArrayResultCall(Node? expression,
-            Map<string, Node> variables) {
-        if (expression == null || expression.kind != NK_CALL_EXPR
-                || expression.callee == null
-                || expression.callee.kind != NK_IDENTIFIER) {
-            return false;
-        }
-        string name = expression.callee.name;
-        if (variables.has(name) || !self.state.analyzed.funcTable.has(name)) {
-            return false;
-        }
-        Node declaration = self.state.analyzed.funcTable.get(name);
-        return declaration.kind == NK_FUNCTION_DECL && declaration.is_gpu
-            && declaration.return_type != null
-            && declaration.return_type.is_array;
-    }
+	public bool gpuOutputCollectionType(Node? typeExpr) { return self.gpu.outputCollectionType(typeExpr); }
 
-    public bool gpuOutputCollectionType(Node? typeExpr) {
-        return self.gpu.outputCollectionType(typeExpr);
-    }
+	public Node? binaryOverloadMethod(Node? leftType, string op) {
+		string magic = self.operators.binaryMethodName(op);
+		Node? receiver = self.resolveAliases(leftType);
+		if (magic == "" || receiver == null) { return null; }
+		Node concreteReceiver = receiver;
+		Node? method = null;
+		if (self.state.analyzed.isClass(concreteReceiver.base)) {
+			method = self.state.analyzed.classMethod(concreteReceiver.base, magic);
+		} else if (self.state.analyzed.isGenericClass(concreteReceiver.base)) {
+			method = self.state.analyzed.genericClassMethod(concreteReceiver.base, magic);
+		}
+		if (method == null || method.kind != NK_METHOD_DECL) { return null; }
+		return method;
+	}
 
-    public Node? binaryOverloadMethod(Node? leftType, string op) {
-        string magic = self.operators.binaryMethodName(op);
-        Node? receiver = self.resolveAliases(leftType);
-        if (magic == "" || receiver == null) { return null; }
-        Node concreteReceiver = receiver;
-        Node? method = null;
-        if (self.state.analyzed.isClass(concreteReceiver.base)) {
-            method = self.state.analyzed.classMethod(
-                concreteReceiver.base, magic);
-        } else if (self.state.analyzed.isGenericClass(
-                concreteReceiver.base)) {
-            method = self.state.analyzed.genericClassMethod(
-                concreteReceiver.base, magic);
-        }
-        if (method == null || method.kind != NK_METHOD_DECL) { return null; }
-        return method;
-    }
+	public Node resolvedBinaryOverloadType(Node declaredType, Node receiverType) {
+		Node resolved = declaredType;
+		Node? receiver = self.resolveAliases(receiverType);
+		if (receiver != null) {
+			Node concreteReceiver = receiver;
+			if (concreteReceiver.generic_args.len > 0 && self.state.analyzed.isGenericClass(concreteReceiver.base)) {
+				resolved = SemanticTypeSystem.resolveGenericType(declaredType, SemanticTypeSystem.genericTypeMap(self.state.analyzed, concreteReceiver), self.state.analyzed);
+			}
+		}
+		Node? canonical = self.resolveAliases(resolved);
+		if (canonical != null) { return canonical; }
+		return resolved;
+	}
 
-    public Node resolvedBinaryOverloadType(
-            Node declaredType, Node receiverType) {
-        Node resolved = declaredType;
-        Node? receiver = self.resolveAliases(receiverType);
-        if (receiver != null) {
-            Node concreteReceiver = receiver;
-            if (concreteReceiver.generic_args.len > 0
-                    && self.state.analyzed.isGenericClass(
-                        concreteReceiver.base)) {
-                resolved = SemanticTypeSystem.resolveGenericType(
-                    declaredType,
-                    SemanticTypeSystem.genericTypeMap(
-                        self.state.analyzed, concreteReceiver),
-                    self.state.analyzed);
-            }
-        }
-        Node? canonical = self.resolveAliases(resolved);
-        if (canonical != null) { return canonical; }
-        return resolved;
-    }
+	public bool hasBinaryOverload(Node leftType, string op) { return self.binaryOverloadMethod(leftType, op) != null; }
 
-    public bool hasBinaryOverload(Node leftType, string op) {
-        return self.binaryOverloadMethod(leftType, op) != null;
-    }
+	public bool hasUnaryOverload(Node operandType, string op) {
+		if (op != "-") { return false; }
+		Node? method = null;
+		if (self.state.analyzed.isClass(operandType.base)) {
+			method = self.state.analyzed.classMethod(operandType.base, "__neg__");
+		} else if (self.state.analyzed.isGenericClass(operandType.base)) {
+			method = self.state.analyzed.genericClassMethod(operandType.base, "__neg__");
+		}
+		return method != null && method.kind == NK_METHOD_DECL;
+	}
 
-    public bool hasUnaryOverload(Node operandType, string op) {
-        if (op != "-") { return false; }
-        Node? method = null;
-        if (self.state.analyzed.isClass(operandType.base)) {
-            method = self.state.analyzed.classMethod(operandType.base, "__neg__");
-        } else if (self.state.analyzed.isGenericClass(operandType.base)) {
-            method = self.state.analyzed.genericClassMethod(
-                operandType.base, "__neg__");
-        }
-        return method != null && method.kind == NK_METHOD_DECL;
-    }
+	public void operatorFailure(Node expression, Node left, Node right) { TypeValidator.fail("operator '" + expression.op + "' is not defined for '" + self.formatType(left) + "' and '" + self.formatType(right) + "'", expression); }
 
-    public void operatorFailure(Node expression, Node left, Node right) {
-        TypeValidator.fail("operator '" + expression.op
-            + "' is not defined for '" + self.formatType(left)
-            + "' and '" + self.formatType(right) + "'", expression);
-    }
+	public void validatePortableNumericMix(Node site, Node left, Node right, string context) {
+		if (NumericSemantics.isType(left, self.state.analyzed) && NumericSemantics.isType(right, self.state.analyzed) && !NumericSemantics.integerMixIsPortable(left, right)) {
+			TypeValidator.fail(context + " mixes ABI-dependent integer type '" + self.formatType(left) + "' with '" + self.formatType(right) + "'; cast explicitly to a fixed-width or built-in integer type", site);
+		}
+	}
 
-    public void validatePortableNumericMix(
-            Node site, Node left, Node right, string context) {
-        if (NumericSemantics.isType(left, self.state.analyzed)
-                && NumericSemantics.isType(right, self.state.analyzed)
-                && !NumericSemantics.integerMixIsPortable(left, right)) {
-            TypeValidator.fail(context + " mixes ABI-dependent integer type '"
-                + self.formatType(left) + "' with '" + self.formatType(right)
-                + "'; cast explicitly to a fixed-width or built-in integer type",
-                site);
-        }
-    }
+	public bool threadCopySource(Node value) {
+		if (value.kind == NK_SPAWN_EXPR || value.kind == NK_CALL_EXPR || value.kind == NK_NULL_LITERAL) {
+			return false;
+		}
+		if (value.kind == NK_TERNARY_EXPR) {
+			return self.threadCopySource(value.true_expr) || self.threadCopySource(value.false_expr);
+		}
+		return true;
+	}
 
-    public bool threadCopySource(Node value) {
-        if (value.kind == NK_SPAWN_EXPR || value.kind == NK_CALL_EXPR
-                || value.kind == NK_NULL_LITERAL) {
-            return false;
-        }
-        if (value.kind == NK_TERNARY_EXPR) {
-            return self.threadCopySource(value.true_expr)
-                || self.threadCopySource(value.false_expr);
-        }
-        return true;
-    }
+	public bool scalarConditionType(Node? typeExpr) { return typeExpr != null && (NumericSemantics.isType(typeExpr, self.state.analyzed) || self.operators.isReferenceType(typeExpr)); }
 
-    public bool scalarConditionType(Node? typeExpr) {
-        return typeExpr != null
-            && (NumericSemantics.isType(typeExpr, self.state.analyzed)
-                || self.operators.isReferenceType(typeExpr));
-    }
+	public void validateTypedInitializer(Node? expected, Node? initializer, string subject, Map<string, Node> variables) {
+		if (expected == null || initializer == null || self.contextualAggregateInitializer(initializer)) {
+			return;
+		}
+		Node? actual = self.inferType(initializer, variables);
+		if (actual != null && !self.assignmentCompatible(expected, actual)) {
+			TypeValidator.fail(subject + " expects '" + self.formatType(expected) + "' but got '" + self.formatType(actual) + "'", initializer);
+		}
+	}
 
-    public void validateTypedInitializer(Node? expected, Node? initializer,
-            string subject, Map<string, Node> variables) {
-        if (expected == null || initializer == null
-                || self.contextualAggregateInitializer(initializer)) {
-            return;
-        }
-        Node? actual = self.inferType(initializer, variables);
-        if (actual != null && !self.assignmentCompatible(expected, actual)) {
-            TypeValidator.fail(subject + " expects '" + self.formatType(expected)
-                + "' but got '" + self.formatType(actual) + "'", initializer);
-        }
-    }
+	public Node? richEnumVariant(string enumName, string variantName) {
+		if (!self.state.analyzed.richEnumTable.has(enumName)) { return null; }
+		Node declaration = self.state.analyzed.richEnumTable.get(enumName);
+		int index = 0;
+		while (index < declaration.variants.len) {
+			Node variant = declaration.variants.get(index);
+			if (variant.name == variantName) { return variant; }
+			index = index + 1;
+		}
+		return null;
+	}
 
-    public Node? richEnumVariant(string enumName, string variantName) {
-        if (!self.state.analyzed.richEnumTable.has(enumName)) { return null; }
-        Node declaration = self.state.analyzed.richEnumTable.get(enumName);
-        int index = 0;
-        while (index < declaration.variants.len) {
-            Node variant = declaration.variants.get(index);
-            if (variant.name == variantName) { return variant; }
-            index = index + 1;
-        }
-        return null;
-    }
+	public Map<string, Node> genericClassMap(Node declaration, Vector<Node> arguments) {
+		Map<string, Node> substitutions = {};
+		int index = 0;
+		while (index < declaration.generic_params.len && index < arguments.len) {
+			substitutions.put(declaration.generic_params.get(index), arguments.get(index));
+			index = index + 1;
+		}
+		return substitutions;
+	}
 
-    public Map<string, Node> genericClassMap(
-            Node declaration, Vector<Node> arguments) {
-        Map<string, Node> substitutions = {};
-        int index = 0;
-        while (index < declaration.generic_params.len
-                && index < arguments.len) {
-            substitutions.put(declaration.generic_params.get(index),
-                arguments.get(index));
-            index = index + 1;
-        }
-        return substitutions;
-    }
+	public Node? inferSpecialization(Node? expression, Map<string, Node> vars) { return self.expressionTypes.inferSpecialization(expression, vars); }
 
-    public Node? inferSpecialization(
-            Node? expression, Map<string, Node> vars) {
-        return self.expressionTypes.inferSpecialization(expression, vars);
-    }
+	public bool aliasTypesSame(Node? left, Node? right) {
+		Node? resolvedLeft = self.resolveAliases(left);
+		Node? resolvedRight = self.resolveAliases(right);
+		if (resolvedLeft == null || resolvedRight == null) {
+			return resolvedLeft == null && resolvedRight == null;
+		}
+		return TypeIdentity.shapeKey(resolvedLeft) == TypeIdentity.shapeKey(resolvedRight);
+	}
 
-    public bool aliasTypesSame(Node? left, Node? right) {
-        Node? resolvedLeft = self.resolveAliases(left);
-        Node? resolvedRight = self.resolveAliases(right);
-        if (resolvedLeft == null || resolvedRight == null) {
-            return resolvedLeft == null && resolvedRight == null;
-        }
-        return TypeIdentity.shapeKey(resolvedLeft) == TypeIdentity.shapeKey(resolvedRight);
-    }
+	public void validateTypedefs(Node program) {
+		int index = 0;
+		while (index < program.declarations.len) {
+			Node declaration = program.declarations.get(index);
+			if (declaration.kind == NK_TYPEDEF_DECL) {
+				self.semanticTypes.canonical(declaration.original);
+			}
+			index = index + 1;
+		}
+	}
 
-    public void validateTypedefs(Node program) {
-        int index = 0;
-        while (index < program.declarations.len) {
-            Node declaration = program.declarations.get(index);
-            if (declaration.kind == NK_TYPEDEF_DECL) {
-                self.semanticTypes.canonical(declaration.original);
-            }
-            index = index + 1;
-        }
-    }
+	public int assignmentDepth(Node typeExpr, OperatorSemantics operators) { return operators.valueDepth(typeExpr); }
 
-    public int assignmentDepth(
-            Node typeExpr, OperatorSemantics operators) {
-        return operators.valueDepth(typeExpr);
-    }
+	public bool sameTypeShape(Node left, Node right, OperatorSemantics operators) { return left.base == right.base && self.assignmentDepth(left, operators) == self.assignmentDepth(right, operators) && left.is_array == right.is_array && operators.genericArgsEqual(left.generic_args, right.generic_args); }
 
-    public bool sameTypeShape(
-            Node left, Node right, OperatorSemantics operators) {
-        return left.base == right.base
-            && self.assignmentDepth(left, operators)
-                == self.assignmentDepth(right, operators)
-            && left.is_array == right.is_array
-            && operators.genericArgsEqual(
-                left.generic_args, right.generic_args);
-    }
+	public bool callableComponentSameTypeShape(Node left, Node right, OperatorSemantics operators) { return left.base == right.base && operators.valueDepth(left) == operators.valueDepth(right) && left.is_array == right.is_array && left.is_nullable == right.is_nullable && left.nullable_outer_depth == right.nullable_outer_depth && left.is_const == right.is_const && left.is_volatile == right.is_volatile && operators.genericArgsEqual(left.generic_args, right.generic_args); }
 
-    public bool callableComponentSameTypeShape(
-            Node left, Node right, OperatorSemantics operators) {
-        return left.base == right.base
-            && operators.valueDepth(left) == operators.valueDepth(right)
-            && left.is_array == right.is_array
-            && left.is_nullable == right.is_nullable
-            && left.nullable_outer_depth == right.nullable_outer_depth
-            && left.is_const == right.is_const
-            && left.is_volatile == right.is_volatile
-            && operators.genericArgsEqual(
-                left.generic_args, right.generic_args);
-    }
+	public bool callableAssignmentCompatible(Node target, Node source, OperatorSemantics operators) {
+		if (target.base != "__fn_ptr" || source.base != "__fn_ptr" || target.generic_args.len == 0 || target.generic_args.len != source.generic_args.len) {
+			return false;
+		}
+		Node targetReturn = target.generic_args.get(0);
+		Node sourceReturn = source.generic_args.get(0);
+		if (!self.callableComponentSameTypeShape(targetReturn, sourceReturn, operators)) {
+			return false;
+		}
+		int index = 1;
+		while (index < target.generic_args.len) {
+			if (!self.callableComponentSameTypeShape(target.generic_args.get(index), source.generic_args.get(index), operators)) {
+				return false;
+			}
+			index = index + 1;
+		}
+		return true;
+	}
 
-    public bool callableAssignmentCompatible(
-            Node target, Node source, OperatorSemantics operators) {
-        if (target.base != "__fn_ptr" || source.base != "__fn_ptr"
-                || target.generic_args.len == 0
-                || target.generic_args.len != source.generic_args.len) {
-            return false;
-        }
-        Node targetReturn = target.generic_args.get(0);
-        Node sourceReturn = source.generic_args.get(0);
-        if (!self.callableComponentSameTypeShape(
-                targetReturn, sourceReturn, operators)) {
-            return false;
-        }
-        int index = 1;
-        while (index < target.generic_args.len) {
-            if (!self.callableComponentSameTypeShape(
-                    target.generic_args.get(index),
-                    source.generic_args.get(index), operators)) {
-                return false;
-            }
-            index = index + 1;
-        }
-        return true;
-    }
-
-    public bool assignmentCompatible(Node? target, Node? source) {
-        Node? valueTarget = self.arrayValueType(target);
-        Node? valueSource = self.arrayValueType(source);
-        Node? resolvedTarget = self.resolveAliases(valueTarget);
-        Node? resolvedSource = self.resolveAliases(valueSource);
-        if (resolvedTarget == null || resolvedSource == null) { return false; }
-        if (self.typeContainsParams(resolvedTarget, self.state.typeParams)
-                || self.typeContainsParams(resolvedSource, self.state.typeParams)) {
-            return true;
-        }
-        if (self.operators.isNullType(resolvedSource)) {
-            return self.operators.isReferenceType(resolvedTarget)
-                || self.state.interfaces.has(resolvedTarget.base);
-        }
-        if (self.sameTypeShape(
-                resolvedTarget, resolvedSource, self.operators)) { return true; }
-        if (self.callableAssignmentCompatible(
-                resolvedTarget, resolvedSource, self.operators)) { return true; }
-        /* C array-to-pointer decay is directional.  Do not collapse both shapes to
+	public bool assignmentCompatible(Node? target, Node? source) {
+		Node? valueTarget = self.arrayValueType(target);
+		Node? valueSource = self.arrayValueType(source);
+		Node? resolvedTarget = self.resolveAliases(valueTarget);
+		Node? resolvedSource = self.resolveAliases(valueSource);
+		if (resolvedTarget == null || resolvedSource == null) { return false; }
+		if (self.typeContainsParams(resolvedTarget, self.state.typeParams) || self.typeContainsParams(resolvedSource, self.state.typeParams)) {
+			return true;
+		}
+		if (self.operators.isNullType(resolvedSource)) {
+			return self.operators.isReferenceType(resolvedTarget) || self.state.interfaces.has(resolvedTarget.base);
+		}
+		if (self.sameTypeShape(resolvedTarget, resolvedSource, self.operators)) { return true; }
+		if (self.callableAssignmentCompatible(resolvedTarget, resolvedSource, self.operators)) { return true; }
+		/* C array-to-pointer decay is directional.  Do not collapse both shapes to
          * one effective depth: a pointer cannot initialize an array declaration. */
-        if (resolvedSource.is_array && !resolvedTarget.is_array
-                && resolvedTarget.base == resolvedSource.base
-                && resolvedTarget.pointer_depth == resolvedSource.pointer_depth + 1
-                && self.operators.genericArgsEqual(
-                    resolvedTarget.generic_args, resolvedSource.generic_args)) {
-            return true;
-        }
-        if (NumericSemantics.isType(resolvedTarget, self.state.analyzed)
-                && NumericSemantics.isType(resolvedSource, self.state.analyzed)
-                && resolvedTarget.base != "bool" && resolvedSource.base != "bool") {
-            return true;
-        }
-        if (TypeComposition.isSemanticScalarString(resolvedTarget)
-                && self.operators.isCStringPointer(resolvedSource)) {
-            return true;
-        }
-        if (self.operators.isCStringPointer(resolvedTarget)
-                && TypeComposition.isSemanticScalarString(resolvedSource)) {
-            return true;
-        }
-        if (self.operators.isVoidPointer(resolvedTarget)
-                && self.operators.isReferenceType(resolvedSource)) {
-            return true;
-        }
-        if (self.operators.isVoidPointer(resolvedSource)
-                && self.operators.isReferenceType(resolvedTarget)) {
-            return true;
-        }
-        bool targetNominal = self.state.analyzed.isClass(resolvedTarget.base)
-            || self.state.analyzed.isGenericClass(resolvedTarget.base);
-        bool sourceNominal = self.state.analyzed.isClass(resolvedSource.base)
-            || self.state.analyzed.isGenericClass(resolvedSource.base);
-        if (self.state.interfaces.has(resolvedTarget.base) && sourceNominal) {
-            return self.classImplements(
-                 resolvedSource.base, resolvedTarget.base);
-        }
-        if (self.state.interfaces.has(resolvedTarget.base)
-                && self.state.interfaces.has(resolvedSource.base)) {
-            return self.interfaceExtends(
-                 resolvedSource.base, resolvedTarget.base);
-        }
-        if (targetNominal && sourceNominal) {
-            return self.operators.specializationIsSubtype(
-                resolvedSource, resolvedTarget);
-        }
-        if (TypeComposition.isSemanticScalarString(resolvedTarget)
-                && self.sourceHasToString(resolvedSource)) {
-            return true;
-        }
-        return false;
-    }
+		if (resolvedSource.is_array && !resolvedTarget.is_array && resolvedTarget.base == resolvedSource.base && resolvedTarget.pointer_depth == resolvedSource.pointer_depth + 1 && self.operators.genericArgsEqual(resolvedTarget.generic_args, resolvedSource.generic_args)) {
+			return true;
+		}
+		if (NumericSemantics.isType(resolvedTarget, self.state.analyzed) && NumericSemantics.isType(resolvedSource, self.state.analyzed) && resolvedTarget.base != "bool" && resolvedSource.base != "bool") {
+			return true;
+		}
+		if (TypeComposition.isSemanticScalarString(resolvedTarget) && self.operators.isCStringPointer(resolvedSource)) {
+			return true;
+		}
+		if (self.operators.isCStringPointer(resolvedTarget) && TypeComposition.isSemanticScalarString(resolvedSource)) {
+			return true;
+		}
+		if (self.operators.isVoidPointer(resolvedTarget) && self.operators.isReferenceType(resolvedSource)) {
+			return true;
+		}
+		if (self.operators.isVoidPointer(resolvedSource) && self.operators.isReferenceType(resolvedTarget)) {
+			return true;
+		}
+		bool targetNominal = self.state.analyzed.isClass(resolvedTarget.base) || self.state.analyzed.isGenericClass(resolvedTarget.base);
+		bool sourceNominal = self.state.analyzed.isClass(resolvedSource.base) || self.state.analyzed.isGenericClass(resolvedSource.base);
+		if (self.state.interfaces.has(resolvedTarget.base) && sourceNominal) {
+			return self.classImplements(resolvedSource.base, resolvedTarget.base);
+		}
+		if (self.state.interfaces.has(resolvedTarget.base) && self.state.interfaces.has(resolvedSource.base)) {
+			return self.interfaceExtends(resolvedSource.base, resolvedTarget.base);
+		}
+		if (targetNominal && sourceNominal) {
+			return self.operators.specializationIsSubtype(resolvedSource, resolvedTarget);
+		}
+		if (TypeComposition.isSemanticScalarString(resolvedTarget) && self.sourceHasToString(resolvedSource)) {
+			return true;
+		}
+		return false;
+	}
 
-    public bool sourceHasToString(Node? source) {
-        Node? resolvedSource = self.resolveAliases(source);
-        if (resolvedSource == null || resolvedSource.is_array
-                || self.operators.valueDepth(resolvedSource) != 1
-                || (!self.state.analyzed.isClass(resolvedSource.base)
-                    && !self.state.analyzed.isGenericClass(
-                        resolvedSource.base))) {
-            return false;
-        }
-        Node concreteSource = resolvedSource;
-        Node? method = null;
-        if (self.state.analyzed.isClass(concreteSource.base)) {
-            method = self.state.analyzed.classMethod(
-                concreteSource.base, "toString");
-        } else {
-            method = self.state.analyzed.genericClassMethod(
-                concreteSource.base, "toString");
-        }
-        return method != null && method.kind == NK_METHOD_DECL
-            && method.params.len == 0 && method.return_type != null
-            && TypeComposition.isSemanticScalarString(method.return_type);
-    }
+	public bool sourceHasToString(Node? source) {
+		Node? resolvedSource = self.resolveAliases(source);
+		if (resolvedSource == null || resolvedSource.is_array || self.operators.valueDepth(resolvedSource) != 1 || (!self.state.analyzed.isClass(resolvedSource.base) && !self.state.analyzed.isGenericClass(resolvedSource.base))) {
+			return false;
+		}
+		Node concreteSource = resolvedSource;
+		Node? method = null;
+		if (self.state.analyzed.isClass(concreteSource.base)) {
+			method = self.state.analyzed.classMethod(concreteSource.base, "toString");
+		} else {
+			method = self.state.analyzed.genericClassMethod(concreteSource.base, "toString");
+		}
+		return method != null && method.kind == NK_METHOD_DECL && method.params.len == 0 && method.return_type != null && TypeComposition.isSemanticScalarString(method.return_type);
+	}
 
-    public bool requiresTargetStringConversion(Node? target, Node? source) {
-        Node? resolvedTarget = self.resolveAliases(target);
-        return resolvedTarget != null
-            && TypeComposition.isSemanticScalarString(resolvedTarget)
-            && self.sourceHasToString(source);
-    }
+	public bool requiresTargetStringConversion(Node? target, Node? source) {
+		Node? resolvedTarget = self.resolveAliases(target);
+		return resolvedTarget != null && TypeComposition.isSemanticScalarString(resolvedTarget) && self.sourceHasToString(source);
+	}
 
-    public bool explicitCTag(string base) {
-        return base.startsWith("struct ") || base.startsWith("enum ")
-            || base.startsWith("union ");
-    }
+	public bool explicitCTag(string base) { return base.startsWith("struct ") || base.startsWith("enum ") || base.startsWith("union "); }
 
-    public bool atomicPayload(Node? typeExpr) {
-        Node? canonical = self.resolveAliases(typeExpr);
-        if (canonical == null || canonical.is_array || canonical.is_nullable
-                || canonical.generic_args.len > 0) {
-            return false;
-        }
-        if (canonical.pointer_depth > 0) {
-            return canonical.base != "string"
-                && canonical.base != "Atomic"
-                && canonical.base != "Span"
-                && !self.state.analyzed.isClass(canonical.base)
-                && !self.state.analyzed.isGenericClass(canonical.base);
-        }
-        if (canonical.is_const || canonical.is_volatile) { return false; }
-        return canonical.base == "bool" || canonical.base == "int"
-            || canonical.base == "signed"
-            || canonical.base == "signed int"
-            || canonical.base == "uint"
-            || canonical.base == "unsigned"
-            || canonical.base == "unsigned int";
-    }
+	public bool atomicPayload(Node? typeExpr) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (canonical == null || canonical.is_array || canonical.is_nullable || canonical.generic_args.len > 0) {
+			return false;
+		}
+		if (canonical.pointer_depth > 0) {
+			return canonical.base != "string" && canonical.base != "Atomic" && canonical.base != "Span" && !self.state.analyzed.isClass(canonical.base) && !self.state.analyzed.isGenericClass(canonical.base);
+		}
+		if (canonical.is_const || canonical.is_volatile) { return false; }
+		return canonical.base == "bool" || canonical.base == "int" || canonical.base == "signed" || canonical.base == "signed int" || canonical.base == "uint" || canonical.base == "unsigned" || canonical.base == "unsigned int";
+	}
 
-    private bool realtimePodInner(
-            Node? typeExpr, Map<string, bool> visiting) {
-        Node? canonical = self.resolveAliases(typeExpr);
-        if (canonical == null || canonical.is_array || canonical.is_nullable) {
-            return false;
-        }
-        if (canonical.pointer_depth > 0) {
-            return canonical.base != "string"
-                && !self.state.analyzed.isClass(canonical.base)
-                && !self.state.analyzed.isGenericClass(canonical.base);
-        }
-        if (canonical.generic_args.len > 0) { return false; }
-        if (canonical.base == "bool"
-                || NumericSemantics.isType(
-                    canonical, self.state.analyzed)
-                || self.state.analyzed.isEnum(canonical.base)) {
-            return true;
-        }
-        string name = canonical.base;
-        if (name.startsWith("struct ")) {
-            name = name.substring(7, name.length() - 7);
-        }
-        if (visiting.has(name)
-                || !self.state.analyzed.structTable.has(name)) {
-            return false;
-        }
-        Node declaration = self.state.analyzed.structTable.get(name);
-        if (declaration.is_forward) { return false; }
-        Map<string, bool> nested = self.cloneFlags(visiting);
-        nested.put(name, true);
-        int fieldIndex = 0;
-        while (fieldIndex < declaration.fields.len) {
-            if (!self.realtimePodInner(
-                    declaration.fields.get(fieldIndex).type, nested)) {
-                return false;
-            }
-            fieldIndex = fieldIndex + 1;
-        }
-        return true;
-    }
+	private bool realtimePodInner(Node? typeExpr, Map<string, bool> visiting) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (canonical == null || canonical.is_array || canonical.is_nullable) {
+			return false;
+		}
+		if (canonical.pointer_depth > 0) {
+			return canonical.base != "string" && !self.state.analyzed.isClass(canonical.base) && !self.state.analyzed.isGenericClass(canonical.base);
+		}
+		if (canonical.generic_args.len > 0) { return false; }
+		if (canonical.base == "bool" || NumericSemantics.isType(canonical, self.state.analyzed) || self.state.analyzed.isEnum(canonical.base)) {
+			return true;
+		}
+		string name = canonical.base;
+		if (name.startsWith("struct ")) {
+			name = name.substring(7, name.length() - 7);
+		}
+		if (visiting.has(name) || !self.state.analyzed.structTable.has(name)) {
+			return false;
+		}
+		Node declaration = self.state.analyzed.structTable.get(name);
+		if (declaration.is_forward) { return false; }
+		Map<string, bool> nested = self.cloneFlags(visiting);
+		nested.put(name, true);
+		int fieldIndex = 0;
+		while (fieldIndex < declaration.fields.len) {
+			if (!self.realtimePodInner(declaration.fields.get(fieldIndex).type, nested)) {
+				return false;
+			}
+			fieldIndex = fieldIndex + 1;
+		}
+		return true;
+	}
 
-    public bool realtimePod(Node? typeExpr) {
-        Map<string, bool> visiting = {};
-        return self.realtimePodInner(typeExpr, visiting);
-    }
+	public bool realtimePod(Node? typeExpr) {
+		Map<string, bool> visiting = {};
+		return self.realtimePodInner(typeExpr, visiting);
+	}
 
-    public bool runtimeTypeBase(string base) {
-        return base == "Array" || base == "List" || base == "Map"
-            || base == "Atomic" || base == "MemoryOrder"
-            || base == "Mutex" || base == "Set" || base == "Span"
-            || base == "Thread" || base == "Tuple" || base == "Vector"
-            || base == "__fn_ptr";
-    }
+	public bool runtimeTypeBase(string base) { return base == "Array" || base == "List" || base == "Map" || base == "Atomic" || base == "MemoryOrder" || base == "Mutex" || base == "Set" || base == "Span" || base == "Thread" || base == "Tuple" || base == "Vector" || base == "__fn_ptr"; }
 
-    public bool knownDeclarationType(
-            Node typeExpr) {
-        if (typeExpr.pointer_depth > 0 && typeExpr.generic_args.len == 0) {
-            return true;
-        }
-        string base = typeExpr.base;
-        return self.state.typeParams.has(base)
-            || NumericSemantics.isIntegralBase(base) || NumericSemantics.isStandardTypedef(base)
-            || base == "float" || base == "double" || base == "long double"
-            || base == "bool" || base == "string" || base == "void"
-            || self.runtimeTypeBase(base)
-            || self.state.analyzed.isClass(base)
-            || self.state.analyzed.isGenericClass(base)
-            || self.state.interfaces.has(base)
-            || self.state.analyzed.isEnum(base)
-            || self.state.analyzed.isRichEnum(base)
-            || self.state.analyzed.structTable.has(base)
-            || self.state.analyzed.typedefTable.has(base)
-            || base.endsWith("_t")
-            || self.explicitCTag(base);
-    }
+	public bool knownDeclarationType(Node typeExpr) {
+		if (typeExpr.pointer_depth > 0 && typeExpr.generic_args.len == 0) {
+			return true;
+		}
+		string base = typeExpr.base;
+		return self.state.typeParams.has(base) || NumericSemantics.isIntegralBase(base) || NumericSemantics.isStandardTypedef(base) || base == "float" || base == "double" || base == "long double" || base == "bool" || base == "string" || base == "void" || self.runtimeTypeBase(base) || self.state.analyzed.isClass(base) || self.state.analyzed.isGenericClass(base) || self.state.interfaces.has(base) || self.state.analyzed.isEnum(base) || self.state.analyzed.isRichEnum(base) || self.state.analyzed.structTable.has(base) || self.state.analyzed.typedefTable.has(base) || base.endsWith("_t") || self.explicitCTag(base);
+	}
 
-    private int declaredGenericArity(string base) {
-        if (self.state.analyzed.genericClassTable.has(base)) {
-            return self.state.analyzed.genericClassTable.get(
-                base).generic_params.len;
-        }
-        if (self.state.analyzed.classTable.has(base)) {
-            return self.state.analyzed.classTable.get(base).generic_params.len;
-        }
-        if (self.state.analyzed.interfaceTable.has(base)) {
-            return self.state.analyzed.interfaceTable.get(
-                base).generic_params.len;
-        }
-        if (base == "Array" || base == "Atomic" || base == "List"
-                || base == "Mutex" || base == "Set" || base == "Span"
-                || base == "Thread" || base == "Vector") {
-            return 1;
-        }
-        if (base == "Map") { return 2; }
-        return -1;
-    }
+	private int declaredGenericArity(string base) {
+		if (self.state.analyzed.genericClassTable.has(base)) {
+			return self.state.analyzed.genericClassTable.get(base).generic_params.len;
+		}
+		if (self.state.analyzed.classTable.has(base)) {
+			return self.state.analyzed.classTable.get(base).generic_params.len;
+		}
+		if (self.state.analyzed.interfaceTable.has(base)) {
+			return self.state.analyzed.interfaceTable.get(base).generic_params.len;
+		}
+		if (base == "Array" || base == "Atomic" || base == "List" || base == "Mutex" || base == "Set" || base == "Span" || base == "Thread" || base == "Vector") {
+			return 1;
+		}
+		if (base == "Map") { return 2; }
+		return -1;
+	}
 
-    public void validateDeclaredType(Node? typeExpr, string subject,
-            string role, Node site) {
-        if (typeExpr == null) { return; }
-        int expectedArguments = self.declaredGenericArity(typeExpr.base);
-        if (expectedArguments >= 0
-                && !self.state.typeParams.has(typeExpr.base)
-                && typeExpr.generic_args.len != expectedArguments) {
-            TypeValidator.fail("Type '" + typeExpr.base + "' expects "
-                + Strings.fromInt(expectedArguments)
-                + " generic argument(s) but got "
-                + Strings.fromInt(typeExpr.generic_args.len), site);
-        }
-        if (typeExpr.is_static && typeExpr.is_extern) {
-            TypeValidator.fail(
-                subject + " cannot be both static and extern", site);
-        }
-        if ((role == "parameter" || role == "field"
-                || role == "stable_field")
-                && (typeExpr.is_static || typeExpr.is_extern)) {
-            TypeValidator.fail(subject
-                + " cannot carry static/extern storage qualifiers", site);
-        }
-        if (role == "return"
-                && (SemanticTypeSystem.typeEffectiveOuterConst(
-                        typeExpr, self.state.analyzed.typedefTable)
-                    || SemanticTypeSystem.typeEffectiveOuterVolatile(
-                        typeExpr, self.state.analyzed.typedefTable))) {
-            TypeValidator.fail(subject
-                + " cannot carry an outer const/volatile qualifier; "
-                + "C discards qualifiers on returned values", site);
-        }
-        Node? canonical = self.resolveAliases(typeExpr);
-        if (!SemanticTypeSystem.ownedClosureInvokeIsAdmissible(
-                typeExpr, self.state.analyzed, self.state.typeParams)) {
-            TypeValidator.fail(
-                "OwnedClosure<Invoke> requires an exact "
-                    + "CFunction<Signature> invoke type",
-                site);
-        }
-        if (canonical != null && canonical.base == "SpscQueue"
-                && canonical.generic_args.len > 0
-                && !self.state.typeParams.has(
-                    canonical.generic_args.get(0).base)
-                && !self.realtimePod(canonical.generic_args.get(0))) {
-            TypeValidator.fail(
-                "SpscQueue<T> payload must be realtime POD without managed ownership",
-                site);
-        }
-        if (canonical != null && canonical.base == "OwnedBuffer"
-                && canonical.generic_args.len > 0
-                && !self.state.typeParams.has(
-                    canonical.generic_args.get(0).base)) {
-            Node payload = canonical.generic_args.get(0);
-            if (!self.realtimePod(payload)) {
-                TypeValidator.fail(
-                    "OwnedBuffer<T> payload must be realtime POD without "
-                        + "managed or atomic ownership",
-                    site);
-            }
-        }
-        if (canonical != null && canonical.base == "AtomicBuffer"
-                && canonical.generic_args.len > 0
-                && !self.state.typeParams.has(
-                    canonical.generic_args.get(0).base)
-                && !self.atomicPayload(canonical.generic_args.get(0))) {
-            TypeValidator.fail(
-                "AtomicBuffer<T> payload must be bool, int, uint, or a raw pointer",
-                site);
-        }
-        if (canonical != null && canonical.base == "Span") {
-            bool directSpan = canonical.pointer_depth == 0
-                && !canonical.is_array;
-            if (!directSpan || canonical.is_const || canonical.is_nullable) {
-                TypeValidator.fail(
-                    "Span<T> must be one direct, nonnullable borrowed view",
-                    site);
-            }
-            if (directSpan
-                    && (role == "field" || role == "stable_field")) {
-                TypeValidator.fail(subject
-                    + " cannot store nonescaping Span<T>", site);
-            }
-            if (directSpan && role == "return") {
-                TypeValidator.fail(subject
-                    + " cannot be nonescaping Span<T>", site);
-            }
-            if (directSpan && canonical.generic_args.len > 0
-                    && !self.state.typeParams.has(
-                        canonical.generic_args.get(0).base)
-                    && !self.realtimePod(canonical.generic_args.get(0))) {
-                TypeValidator.fail(
-                    "Span<T> element type must be realtime POD without managed ownership",
-                    site);
-            }
-        }
-        if (canonical != null && canonical.base == "Atomic") {
-            bool directAtomic = canonical.pointer_depth == 0
-                && !canonical.is_array;
-            if (canonical.is_array || canonical.is_const
-                    || canonical.is_nullable) {
-                TypeValidator.fail(
-                    "Atomic<T> owner type must be direct mutable stable storage",
-                    site);
-            }
-            if (directAtomic && role == "parameter") {
-                TypeValidator.fail(
-                    "Atomic<T> owner cannot be passed by value; pass Atomic<T>*",
-                    site);
-            }
-            if (directAtomic && role == "return") {
-                TypeValidator.fail(
-                    "Atomic<T> owner cannot be returned by value", site);
-            }
-            if (directAtomic && role == "field") {
-                TypeValidator.fail(subject
-                    + " cannot embed an Atomic<T> owner in shallow copyable "
-                    + "storage; keep Atomic<T> as a direct class field or "
-                    + "local owner", typeExpr);
-            }
-            if (canonical.generic_args.len > 0
-                    && !self.state.typeParams.has(
-                        canonical.generic_args.get(0).base)
-                    && !self.atomicPayload(canonical.generic_args.get(0))) {
-                TypeValidator.fail(
-                    "Atomic<T> payload must be bool, int, uint, or a raw pointer",
-                    site);
-            }
-        }
-        if (canonical != null && canonical.base != "Span"
-                && self.containsSpanStorage(canonical)) {
-            TypeValidator.fail(subject
-                + " cannot contain nonescaping Span<T> in aggregate or managed "
-                + "storage", site);
-        }
-        if (canonical != null && canonical.base != "Atomic"
-                && self.containsAtomicStorage(canonical)) {
-            TypeValidator.fail(subject
-                + " cannot embed an Atomic<T> owner in shallow copyable storage; "
-                + "keep Atomic<T> as a direct class field or local owner", site);
-        }
-        if (canonical != null && canonical.base == "Mutex"
-                && (canonical.pointer_depth > 0 || canonical.is_array
-                    || canonical.is_const)) {
-            TypeValidator.fail(
-                "Mutex<T> owner type must be one direct mutable handle; "
-                    + "pointer, array, and const Mutex shapes are not supported",
-                site);
-        }
-        if (canonical != null && canonical.base != "Mutex"
-                && canonical.base != "Thread"
-                && canonical.base != "__fn_ptr"
-                && !self.state.analyzed.isClass(canonical.base)
-                && !self.state.analyzed.isGenericClass(canonical.base)
-                && self.containsMutexStorage(canonical)) {
-            TypeValidator.fail(subject
-                + " cannot embed a Mutex handle in shallow by-value storage; "
-                + "keep Mutex<T> as a direct managed value", site);
-        }
-        self.validateMutexPayloadsInType(typeExpr, site);
-        if (canonical != null && canonical.base == "Thread"
-                && (canonical.pointer_depth > 0 || canonical.is_array
-                    || canonical.is_const || canonical.is_nullable)) {
-            TypeValidator.fail(
-                "Thread<T> owner type must be one direct mutable handle; "
-                    + "pointer, array, const, and nullable Thread shapes are not "
-                    + "supported",
-                site);
-        }
-        if ((role == "field" || role == "stable_field"
-                || role == "parameter")
-                && self.containsThreadStorage(typeExpr)) {
-            TypeValidator.fail(subject
-                + " cannot own a Thread handle; keep each Thread<T> in one "
-                + "initialized local variable or return it", site);
-        }
-        if (canonical != null && canonical.base == "Thread"
-                && canonical.generic_args.len > 0) {
-            Node resultType = canonical.generic_args.get(0);
-            Map<string, bool> visiting = {};
-            if (self.threadResultHasUnsizedArray(
-                    resultType, visiting)) {
-                TypeValidator.fail(
-                    "Thread<T> result type cannot contain an unsized array; "
-                        + "return a managed collection or another explicitly "
-                        + "owned value",
-                    site);
-            }
-            if (self.containsThreadStorage(resultType)) {
-                TypeValidator.fail(
-                    "Thread<T> result type cannot contain another Thread handle",
-                    site);
-            }
-            if (self.containsMutexStorage(resultType)) {
-                TypeValidator.fail(
-                    "Thread<T> result type cannot contain a Mutex handle",
-                    site);
-            }
-            if (!self.directManagedThreadResult(resultType)
-                    && self.threadAggregateHasManagedReference(
-                        resultType, visiting)) {
-                TypeValidator.fail(
-                    "Thread<T> aggregate result type cannot contain string or "
-                        + "class references; return the managed value directly "
-                        + "or use a scalar-only aggregate",
-                    site);
-            }
-        }
-        if (role != "return" && role != "alias"
-                && TypeValidator.scalarVoid(canonical)) {
-            TypeValidator.fail(subject
-                + " cannot have scalar/non-pointer void type", site);
-        }
-        if (canonical != null && canonical.pointer_depth == 0
-                && self.state.analyzed.structTable.has(canonical.base)
-                && self.state.analyzed.structTable.get(canonical.base).is_forward) {
-            TypeValidator.fail("Incomplete struct '" + canonical.base
-                + "' cannot be used by value for " + subject, site);
-        }
-        if (!self.knownDeclarationType(typeExpr)) {
-            TypeValidator.fail(subject + " uses unknown by-value type '"
-                + self.formatType(typeExpr) + "'", site);
-        }
-        int index = 0;
-        while (index < typeExpr.generic_args.len) {
-            string argumentRole = "object";
-            if ((typeExpr.base == "__fn_ptr" || typeExpr.base == "Thread")
-                    && index == 0) {
-                argumentRole = "return";
-            }
-            self.validateDeclaredType(typeExpr.generic_args.get(index),
-                "Generic argument " + Strings.fromInt(index + 1)
-                    + " of " + subject,
-                argumentRole, site);
-            index = index + 1;
-        }
-    }
+	public void validateDeclaredType(Node? typeExpr, string subject, string role, Node site) {
+		if (typeExpr == null) { return; }
+		int expectedArguments = self.declaredGenericArity(typeExpr.base);
+		if (expectedArguments >= 0 && !self.state.typeParams.has(typeExpr.base) && typeExpr.generic_args.len != expectedArguments) {
+			TypeValidator.fail("Type '" + typeExpr.base + "' expects " + Strings.fromInt(expectedArguments) + " generic argument(s) but got " + Strings.fromInt(typeExpr.generic_args.len), site);
+		}
+		if (typeExpr.is_static && typeExpr.is_extern) {
+			TypeValidator.fail(subject + " cannot be both static and extern", site);
+		}
+		if ((role == "parameter" || role == "field" || role == "stable_field") && (typeExpr.is_static || typeExpr.is_extern)) {
+			TypeValidator.fail(subject + " cannot carry static/extern storage qualifiers", site);
+		}
+		if (role == "return" && (SemanticTypeSystem.typeEffectiveOuterConst(typeExpr, self.state.analyzed.typedefTable) || SemanticTypeSystem.typeEffectiveOuterVolatile(typeExpr, self.state.analyzed.typedefTable))) {
+			TypeValidator.fail(subject + " cannot carry an outer const/volatile qualifier; " + "C discards qualifiers on returned values", site);
+		}
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (!SemanticTypeSystem.ownedClosureInvokeIsAdmissible(typeExpr, self.state.analyzed, self.state.typeParams)) {
+			TypeValidator.fail("OwnedClosure<Invoke> requires an exact " + "CFunction<Signature> invoke type", site);
+		}
+		if (canonical != null && canonical.base == "SpscQueue" && canonical.generic_args.len > 0 && !self.state.typeParams.has(canonical.generic_args.get(0).base) && !self.realtimePod(canonical.generic_args.get(0))) {
+			TypeValidator.fail("SpscQueue<T> payload must be realtime POD without managed ownership", site);
+		}
+		if (canonical != null && canonical.base == "OwnedBuffer" && canonical.generic_args.len > 0 && !self.state.typeParams.has(canonical.generic_args.get(0).base)) {
+			Node payload = canonical.generic_args.get(0);
+			if (!self.realtimePod(payload)) {
+				TypeValidator.fail("OwnedBuffer<T> payload must be realtime POD without " + "managed or atomic ownership", site);
+			}
+		}
+		if (canonical != null && canonical.base == "AtomicBuffer" && canonical.generic_args.len > 0 && !self.state.typeParams.has(canonical.generic_args.get(0).base) && !self.atomicPayload(canonical.generic_args.get(0))) {
+			TypeValidator.fail("AtomicBuffer<T> payload must be bool, int, uint, or a raw pointer", site);
+		}
+		if (canonical != null && canonical.base == "Span") {
+			bool directSpan = canonical.pointer_depth == 0 && !canonical.is_array;
+			if (!directSpan || canonical.is_const || canonical.is_nullable) {
+				TypeValidator.fail("Span<T> must be one direct, nonnullable borrowed view", site);
+			}
+			if (directSpan && (role == "field" || role == "stable_field")) {
+				TypeValidator.fail(subject + " cannot store nonescaping Span<T>", site);
+			}
+			if (directSpan && role == "return") {
+				TypeValidator.fail(subject + " cannot be nonescaping Span<T>", site);
+			}
+			if (directSpan && canonical.generic_args.len > 0 && !self.state.typeParams.has(canonical.generic_args.get(0).base) && !self.realtimePod(canonical.generic_args.get(0))) {
+				TypeValidator.fail("Span<T> element type must be realtime POD without managed ownership", site);
+			}
+		}
+		if (canonical != null && canonical.base == "Atomic") {
+			bool directAtomic = canonical.pointer_depth == 0 && !canonical.is_array;
+			if (canonical.is_array || canonical.is_const || canonical.is_nullable) {
+				TypeValidator.fail("Atomic<T> owner type must be direct mutable stable storage", site);
+			}
+			if (directAtomic && role == "parameter") {
+				TypeValidator.fail("Atomic<T> owner cannot be passed by value; pass Atomic<T>*", site);
+			}
+			if (directAtomic && role == "return") {
+				TypeValidator.fail("Atomic<T> owner cannot be returned by value", site);
+			}
+			if (directAtomic && role == "field") {
+				TypeValidator.fail(subject + " cannot embed an Atomic<T> owner in shallow copyable " + "storage; keep Atomic<T> as a direct class field or " + "local owner", typeExpr);
+			}
+			if (canonical.generic_args.len > 0 && !self.state.typeParams.has(canonical.generic_args.get(0).base) && !self.atomicPayload(canonical.generic_args.get(0))) {
+				TypeValidator.fail("Atomic<T> payload must be bool, int, uint, or a raw pointer", site);
+			}
+		}
+		if (canonical != null && canonical.base != "Span" && self.containsSpanStorage(canonical)) {
+			TypeValidator.fail(subject + " cannot contain nonescaping Span<T> in aggregate or managed " + "storage", site);
+		}
+		if (canonical != null && canonical.base != "Atomic" && self.containsAtomicStorage(canonical)) {
+			TypeValidator.fail(subject + " cannot embed an Atomic<T> owner in shallow copyable storage; " + "keep Atomic<T> as a direct class field or local owner", site);
+		}
+		if (canonical != null && canonical.base == "Mutex" && (canonical.pointer_depth > 0 || canonical.is_array || canonical.is_const)) {
+			TypeValidator.fail("Mutex<T> owner type must be one direct mutable handle; " + "pointer, array, and const Mutex shapes are not supported", site);
+		}
+		if (canonical != null && canonical.base != "Mutex" && canonical.base != "Thread" && canonical.base != "__fn_ptr" && !self.state.analyzed.isClass(canonical.base) && !self.state.analyzed.isGenericClass(canonical.base) && self.containsMutexStorage(canonical)) {
+			TypeValidator.fail(subject + " cannot embed a Mutex handle in shallow by-value storage; " + "keep Mutex<T> as a direct managed value", site);
+		}
+		self.validateMutexPayloadsInType(typeExpr, site);
+		if (canonical != null && canonical.base == "Thread" && (canonical.pointer_depth > 0 || canonical.is_array || canonical.is_const || canonical.is_nullable)) {
+			TypeValidator.fail("Thread<T> owner type must be one direct mutable handle; " + "pointer, array, const, and nullable Thread shapes are not " + "supported", site);
+		}
+		if ((role == "field" || role == "stable_field" || role == "parameter") && self.containsThreadStorage(typeExpr)) {
+			TypeValidator.fail(subject + " cannot own a Thread handle; keep each Thread<T> in one " + "initialized local variable or return it", site);
+		}
+		if (canonical != null && canonical.base == "Thread" && canonical.generic_args.len > 0) {
+			Node resultType = canonical.generic_args.get(0);
+			Map<string, bool> visiting = {};
+			if (self.threadResultHasUnsizedArray(resultType, visiting)) {
+				TypeValidator.fail("Thread<T> result type cannot contain an unsized array; " + "return a managed collection or another explicitly " + "owned value", site);
+			}
+			if (self.containsThreadStorage(resultType)) {
+				TypeValidator.fail("Thread<T> result type cannot contain another Thread handle", site);
+			}
+			if (self.containsMutexStorage(resultType)) {
+				TypeValidator.fail("Thread<T> result type cannot contain a Mutex handle", site);
+			}
+			if (!self.directManagedThreadResult(resultType) && self.threadAggregateHasManagedReference(resultType, visiting)) {
+				TypeValidator.fail("Thread<T> aggregate result type cannot contain string or " + "class references; return the managed value directly " + "or use a scalar-only aggregate", site);
+			}
+		}
+		if (role != "return" && role != "alias" && TypeValidator.scalarVoid(canonical)) {
+			TypeValidator.fail(subject + " cannot have scalar/non-pointer void type", site);
+		}
+		if (canonical != null && canonical.pointer_depth == 0 && self.state.analyzed.structTable.has(canonical.base) && self.state.analyzed.structTable.get(canonical.base).is_forward) {
+			TypeValidator.fail("Incomplete struct '" + canonical.base + "' cannot be used by value for " + subject, site);
+		}
+		if (!self.knownDeclarationType(typeExpr)) {
+			TypeValidator.fail(subject + " uses unknown by-value type '" + self.formatType(typeExpr) + "'", site);
+		}
+		int index = 0;
+		while (index < typeExpr.generic_args.len) {
+			string argumentRole = "object";
+			if ((typeExpr.base == "__fn_ptr" || typeExpr.base == "Thread") && index == 0) {
+				argumentRole = "return";
+			}
+			self.validateDeclaredType(typeExpr.generic_args.get(index), "Generic argument " + Strings.fromInt(index + 1) + " of " + subject, argumentRole, site);
+			index = index + 1;
+		}
+	}
 
-    public void validateAggregateDeclarationTypes(
-            Node program) {
-        int index = 0;
-        while (index < program.declarations.len) {
-            Node declaration = program.declarations.get(index);
-            if (declaration.kind == NK_STRUCT_DECL && !declaration.is_forward) {
-                int fieldIndex = 0;
-                while (fieldIndex < declaration.fields.len) {
-                    Node field = declaration.fields.get(fieldIndex);
-                    self.validateDeclaredType(field.type,
-                        "Struct field '" + declaration.name + "."
-                            + field.name + "'", "field", field);
-                    fieldIndex = fieldIndex + 1;
-                }
-            } else if (declaration.kind == NK_TYPEDEF_DECL) {
-                self.validateDeclaredType(declaration.original,
-                    "Typedef '" + declaration.alias + "'", "alias",
-                    declaration);
-            } else if (declaration.kind == NK_INTERFACE_DECL) {
-                Map<string, bool> previousParams =
-                    self.cloneFlags(self.state.typeParams);
-                self.state.typeParams = self.typeParamSet(
-                    declaration.generic_params);
-                int methodIndex = 0;
-                while (methodIndex < declaration.methods.len) {
-                    Node method = declaration.methods.get(methodIndex);
-                    self.validateDeclaredType(method.return_type,
-                        "Interface method '" + declaration.name + "."
-                            + method.name + "' return", "return", method);
-                    self.validateArrayReturn(method, "Interface method '"
-                        + declaration.name + "." + method.name + "'");
-                    int parameterIndex = 0;
-                    while (parameterIndex < method.params.len) {
-                        Node parameter = method.params.get(parameterIndex);
-                        self.validateDeclaredType(parameter.type,
-                            "Parameter '" + parameter.name + "'", "parameter",
-                            parameter);
-                        parameterIndex = parameterIndex + 1;
-                    }
-                    methodIndex = methodIndex + 1;
-                }
-                self.state.typeParams = previousParams;
-            } else if (declaration.kind == NK_RICH_ENUM_DECL) {
-                int variantIndex = 0;
-                while (variantIndex < declaration.variants.len) {
-                    Node variant = declaration.variants.get(variantIndex);
-                    int parameterIndex = 0;
-                    while (parameterIndex < variant.params.len) {
-                        Node parameter = variant.params.get(parameterIndex);
-                        self.validateDeclaredType(parameter.type,
-                            "Rich-enum payload '" + declaration.name + "."
-                                + variant.name + "." + parameter.name + "'",
-                            "field", parameter);
-                        if (SemanticTypeSystem.typeEffectiveOuterConst(
-                                parameter.type,
-                                self.state.analyzed.typedefTable)) {
-                            TypeValidator.fail("Rich-enum payload '"
-                                + declaration.name + "." + variant.name + "."
-                                + parameter.name + "' cannot use const storage "
-                                + "until rich-enum constructors use structured "
-                                + "initialization", parameter);
-                        }
-                        parameterIndex = parameterIndex + 1;
-                    }
-                    variantIndex = variantIndex + 1;
-                }
-            }
-            index = index + 1;
-        }
-    }
+	public void validateAggregateDeclarationTypes(Node program) {
+		int index = 0;
+		while (index < program.declarations.len) {
+			Node declaration = program.declarations.get(index);
+			if (declaration.kind == NK_STRUCT_DECL && !declaration.is_forward) {
+				int fieldIndex = 0;
+				while (fieldIndex < declaration.fields.len) {
+					Node field = declaration.fields.get(fieldIndex);
+					self.validateDeclaredType(field.type, "Struct field '" + declaration.name + "." + field.name + "'", "field", field);
+					fieldIndex = fieldIndex + 1;
+				}
+			} else if (declaration.kind == NK_TYPEDEF_DECL) {
+				self.validateDeclaredType(declaration.original, "Typedef '" + declaration.alias + "'", "alias", declaration);
+			} else if (declaration.kind == NK_INTERFACE_DECL) {
+				Map<string, bool> previousParams = self.cloneFlags(self.state.typeParams);
+				self.state.typeParams = self.typeParamSet(declaration.generic_params);
+				int methodIndex = 0;
+				while (methodIndex < declaration.methods.len) {
+					Node method = declaration.methods.get(methodIndex);
+					self.validateDeclaredType(method.return_type, "Interface method '" + declaration.name + "." + method.name + "' return", "return", method);
+					self.validateArrayReturn(method, "Interface method '" + declaration.name + "." + method.name + "'");
+					int parameterIndex = 0;
+					while (parameterIndex < method.params.len) {
+						Node parameter = method.params.get(parameterIndex);
+						self.validateDeclaredType(parameter.type, "Parameter '" + parameter.name + "'", "parameter", parameter);
+						parameterIndex = parameterIndex + 1;
+					}
+					methodIndex = methodIndex + 1;
+				}
+				self.state.typeParams = previousParams;
+			} else if (declaration.kind == NK_RICH_ENUM_DECL) {
+				int variantIndex = 0;
+				while (variantIndex < declaration.variants.len) {
+					Node variant = declaration.variants.get(variantIndex);
+					int parameterIndex = 0;
+					while (parameterIndex < variant.params.len) {
+						Node parameter = variant.params.get(parameterIndex);
+						self.validateDeclaredType(parameter.type, "Rich-enum payload '" + declaration.name + "." + variant.name + "." + parameter.name + "'", "field", parameter);
+						if (SemanticTypeSystem.typeEffectiveOuterConst(parameter.type, self.state.analyzed.typedefTable)) {
+							TypeValidator.fail("Rich-enum payload '" + declaration.name + "." + variant.name + "." + parameter.name + "' cannot use const storage " + "until rich-enum constructors use structured " + "initialization", parameter);
+						}
+						parameterIndex = parameterIndex + 1;
+					}
+					variantIndex = variantIndex + 1;
+				}
+			}
+			index = index + 1;
+		}
+	}
 }

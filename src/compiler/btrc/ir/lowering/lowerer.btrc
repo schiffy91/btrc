@@ -1,5 +1,6 @@
 import std.map;
 import std.vector;
+
 import ../../analyzer/declarations.btrc;
 import ../../analyzer/expressions.btrc;
 import ../../analyzer/gpu.btrc;
@@ -39,192 +40,103 @@ import ./types.btrc;
  * orchestrates one module operation; it owns no recursive AST lowering. */
 
 class IRLowerer {
-    private ExpressionTypeResolver expressionTypes;
-    private LoweringContext context;
-    private CleanupSlotRegistry cleanupSlots;
-    private CTypeLowerer cTypes;
-    private GenericLowerer genericPlans;
-    private ExpressionLowerer expressions;
-    private ControlFlowLowerer controlFlow;
-    private StatementLowerer statements;
-    private FunctionLowerer functions;
-    private DeclarationLowerer declarations;
-    private GpuPipeline gpuPipeline;
-    private RuntimeHelperCatalog runtimeHelpers;
+	private ExpressionTypeResolver expressionTypes;
+	private LoweringContext context;
+	private CleanupSlotRegistry cleanupSlots;
+	private CTypeLowerer cTypes;
+	private GenericLowerer genericPlans;
+	private ExpressionLowerer expressions;
+	private ControlFlowLowerer controlFlow;
+	private StatementLowerer statements;
+	private FunctionLowerer functions;
+	private DeclarationLowerer declarations;
+	private GpuPipeline gpuPipeline;
+	private RuntimeHelperCatalog runtimeHelpers;
 
-    public IRLowerer(
-            Analyzed analyzed, HostedAbiRepository hostedAbi,
-            DeclarationRegistry semanticDeclarations,
-            OperatorSemantics operators,
-            ExpressionTypeResolver expressionTypes,
-            GpuSemantics gpuSemantics,
-            ManagedValueSemantics managedValues,
-            CycleSemantics cycles,
-            RuntimeHelperCatalog runtimeHelpers,
-            string sourceFile, int stdlibLineCount,
-            Vector<FeLine> userLines) {
-        self.expressionTypes = expressionTypes;
-        self.runtimeHelpers = runtimeHelpers;
-        self.context = LoweringContext();
-        self.context.configureSource(
-            sourceFile, stdlibLineCount, userLines);
-        Map<string, bool> sourceVisibleHelpers = {};
-        Vector<string> runtimeNames = runtimeHelpers.order();
-        int runtimeIndex = 0;
-        while (runtimeIndex < runtimeNames.len) {
-            string runtimeName = runtimeNames.get(runtimeIndex);
-            if (runtimeHelpers.sourceVisible(runtimeName)) {
-                sourceVisibleHelpers.put(runtimeName, true);
-            }
-            runtimeIndex = runtimeIndex + 1;
-        }
-        self.context.configureSourceVisibleHelpers(
-            sourceVisibleHelpers);
-        self.cleanupSlots = CleanupSlotRegistry();
-        self.cTypes = CTypeLowerer(analyzed, hostedAbi);
+	public IRLowerer(Analyzed analyzed, HostedAbiRepository hostedAbi, DeclarationRegistry semanticDeclarations, OperatorSemantics operators, ExpressionTypeResolver expressionTypes, GpuSemantics gpuSemantics, ManagedValueSemantics managedValues, CycleSemantics cycles, RuntimeHelperCatalog runtimeHelpers, string sourceFile, int stdlibLineCount, Vector<FeLine> userLines) {
+		self.expressionTypes = expressionTypes;
+		self.runtimeHelpers = runtimeHelpers;
+		self.context = LoweringContext();
+		self.context.configureSource(sourceFile, stdlibLineCount, userLines);
+		Map<string, bool> sourceVisibleHelpers = {};
+		Vector<string> runtimeNames = runtimeHelpers.order();
+		int runtimeIndex = 0;
+		while (runtimeIndex < runtimeNames.len) {
+			string runtimeName = runtimeNames.get(runtimeIndex);
+			if (runtimeHelpers.sourceVisible(runtimeName)) {
+				sourceVisibleHelpers.put(runtimeName, true);
+			}
+			runtimeIndex = runtimeIndex + 1;
+		}
+		self.context.configureSourceVisibleHelpers(sourceVisibleHelpers);
+		self.cleanupSlots = CleanupSlotRegistry();
+		self.cTypes = CTypeLowerer(analyzed, hostedAbi);
 
-        CallableValueSemantics callableValues =
-            CallableValueSemantics(analyzed, expressionTypes);
-        CallableBoundaryPolicy callableBoundaries =
-            CallableBoundaryPolicy(callableValues);
-        AssignmentLowerer assignments = AssignmentLowerer(
-            expressionTypes, callableValues,
-            callableBoundaries);
-        CallTargetResolver callTargets = CallTargetResolver(
-            analyzed, hostedAbi, semanticDeclarations,
-            expressionTypes, callableValues,
-            self.cTypes, self.context);
-        OwnershipOperandPlanner operandPlanner = OwnershipOperandPlanner(
-            analyzed, operators, gpuSemantics,
-            expressionTypes, self.cTypes);
-        ManagedLifetimeLowerer managedLifetime =
-            ManagedLifetimeLowerer(
-                analyzed, managedValues, cycles,
-                self.cleanupSlots, self.context, self.cTypes);
-        OwnershipSemantics ownershipSemantics = OwnershipSemantics(
-            analyzed, hostedAbi, operators, managedValues,
-            callableValues,
-            operandPlanner, self.context, callTargets);
-        CallOwnershipLowerer callOwnership = CallOwnershipLowerer(
-            analyzed, managedValues, ownershipSemantics,
-            operandPlanner, callableValues,
-            self.context, managedLifetime, self.cTypes,
-            callTargets);
-        ManagedTypeLowerer managedTypes = ManagedTypeLowerer(
-            analyzed, managedValues, cycles,
-            operandPlanner, self.context,
-            managedLifetime, self.cTypes);
-        CycleBoundaryLowerer cycleBoundaries = CycleBoundaryLowerer(
-            analyzed, managedValues, cycles,
-            self.cleanupSlots, self.context,
-            self.cTypes);
-        CycleReturnBoundaryLowerer cycleReturns =
-            CycleReturnBoundaryLowerer(
-                self.context.temporaryNames());
-        AggregateValueLowerer aggregateValues = AggregateValueLowerer(
-            analyzed, managedValues, operandPlanner);
-        CallLowerer calls = CallLowerer(
-            callTargets, self.cTypes, self.context);
-        self.gpuPipeline = GpuPipeline(
-            analyzed, hostedAbi, gpuSemantics, managedValues,
-            operandPlanner, managedLifetime, calls, self.cTypes);
-        StringLowerer strings = StringLowerer(
-            analyzed, hostedAbi, operators, managedValues,
-            operandPlanner, callOwnership,
-            self.context, self.cTypes);
-        ConcurrencyLowerer concurrency = ConcurrencyLowerer(
-            analyzed, hostedAbi,
-            operators, expressionTypes, managedValues,
-            self.cleanupSlots, managedLifetime,
-            self.context, self.cTypes, runtimeHelpers);
-        CallableValueLowerer callableLowering = CallableValueLowerer(
-            analyzed, hostedAbi, callableValues, callableBoundaries,
-            self.context, self.cTypes, managedValues,
-            managedLifetime, concurrency);
-        self.expressions = ExpressionLowerer(
-            analyzed, hostedAbi, semanticDeclarations,
-            operators, expressionTypes,
-            managedValues, cycles,
-            callableValues, callableBoundaries, callableLowering,
-            assignments, self.context, operandPlanner,
-            ownershipSemantics, callOwnership, managedLifetime,
-            managedTypes,
-            aggregateValues, self.gpuPipeline,
-            self.cTypes, callTargets, calls, strings, concurrency);
-        self.controlFlow = ControlFlowLowerer();
-        self.statements = StatementLowerer(
-            analyzed, hostedAbi, managedValues, cycles,
-            callableValues, callableBoundaries, callableLowering,
-            self.context, operandPlanner, ownershipSemantics,
-            managedLifetime, managedTypes, aggregateValues,
-            self.gpuPipeline, self.cTypes, self.expressions,
-            concurrency, self.controlFlow);
-        self.functions = FunctionLowerer(
-            analyzed, hostedAbi, semanticDeclarations,
-            expressionTypes, managedValues, cycles,
-            callableLowering, calls,
-            self.context, managedLifetime, managedTypes,
-            cycleBoundaries, cycleReturns, self.gpuPipeline,
-            self.cTypes, self.statements);
-        self.genericPlans = GenericLowerer(
-            analyzed);
-        self.declarations = DeclarationLowerer(
-            analyzed, hostedAbi, semanticDeclarations,
-            managedValues, cycles, self.cleanupSlots,
-            callableValues, callableBoundaries,
-            self.context, managedLifetime,
-            managedTypes, cycleBoundaries, cycleReturns,
-            self.cTypes, self.functions, self.expressions);
-    }
+		CallableValueSemantics callableValues = CallableValueSemantics(analyzed, expressionTypes);
+		CallableBoundaryPolicy callableBoundaries = CallableBoundaryPolicy(callableValues);
+		AssignmentLowerer assignments = AssignmentLowerer(expressionTypes, callableValues, callableBoundaries);
+		CallTargetResolver callTargets = CallTargetResolver(analyzed, hostedAbi, semanticDeclarations, expressionTypes, callableValues, self.cTypes, self.context);
+		OwnershipOperandPlanner operandPlanner = OwnershipOperandPlanner(analyzed, operators, gpuSemantics, expressionTypes, self.cTypes);
+		ManagedLifetimeLowerer managedLifetime = ManagedLifetimeLowerer(analyzed, managedValues, cycles, self.cleanupSlots, self.context, self.cTypes);
+		OwnershipSemantics ownershipSemantics = OwnershipSemantics(analyzed, hostedAbi, operators, managedValues, callableValues, operandPlanner, self.context, callTargets);
+		CallOwnershipLowerer callOwnership = CallOwnershipLowerer(analyzed, managedValues, ownershipSemantics, operandPlanner, callableValues, self.context, managedLifetime, self.cTypes, callTargets);
+		ManagedTypeLowerer managedTypes = ManagedTypeLowerer(analyzed, managedValues, cycles, operandPlanner, self.context, managedLifetime, self.cTypes);
+		CycleBoundaryLowerer cycleBoundaries = CycleBoundaryLowerer(analyzed, managedValues, cycles, self.cleanupSlots, self.context, self.cTypes);
+		CycleReturnBoundaryLowerer cycleReturns = CycleReturnBoundaryLowerer(self.context.temporaryNames());
+		AggregateValueLowerer aggregateValues = AggregateValueLowerer(analyzed, managedValues, operandPlanner);
+		CallLowerer calls = CallLowerer(callTargets, self.cTypes, self.context);
+		self.gpuPipeline = GpuPipeline(analyzed, hostedAbi, gpuSemantics, managedValues, operandPlanner, managedLifetime, calls, self.cTypes);
+		StringLowerer strings = StringLowerer(analyzed, hostedAbi, operators, managedValues, operandPlanner, callOwnership, self.context, self.cTypes);
+		ConcurrencyLowerer concurrency = ConcurrencyLowerer(analyzed, hostedAbi, operators, expressionTypes, managedValues, self.cleanupSlots, managedLifetime, self.context, self.cTypes, runtimeHelpers);
+		CallableValueLowerer callableLowering = CallableValueLowerer(analyzed, hostedAbi, callableValues, callableBoundaries, self.context, self.cTypes, managedValues, managedLifetime, concurrency);
+		self.expressions = ExpressionLowerer(analyzed, hostedAbi, semanticDeclarations, operators, expressionTypes, managedValues, cycles, callableValues, callableBoundaries, callableLowering, assignments, self.context, operandPlanner, ownershipSemantics, callOwnership, managedLifetime, managedTypes, aggregateValues, self.gpuPipeline, self.cTypes, callTargets, calls, strings, concurrency);
+		self.controlFlow = ControlFlowLowerer();
+		self.statements = StatementLowerer(analyzed, hostedAbi, managedValues, cycles, callableValues, callableBoundaries, callableLowering, self.context, operandPlanner, ownershipSemantics, managedLifetime, managedTypes, aggregateValues, self.gpuPipeline, self.cTypes, self.expressions, concurrency, self.controlFlow);
+		self.functions = FunctionLowerer(analyzed, hostedAbi, semanticDeclarations, expressionTypes, managedValues, cycles, callableLowering, calls, self.context, managedLifetime, managedTypes, cycleBoundaries, cycleReturns, self.gpuPipeline, self.cTypes, self.statements);
+		self.genericPlans = GenericLowerer(analyzed);
+		self.declarations = DeclarationLowerer(analyzed, hostedAbi, semanticDeclarations, managedValues, cycles, self.cleanupSlots, callableValues, callableBoundaries, self.context, managedLifetime, managedTypes, cycleBoundaries, cycleReturns, self.cTypes, self.functions, self.expressions);
+	}
 
-    public IRModule lower(Node program) {
-        self.expressionTypes.disableMemo();
-        self.cleanupSlots.reset();
-        IRModule module = IRModule();
-        module.realtime_intrinsic_targets =
-            self.runtimeHelpers.realtimeIntrinsicTargetProvenance();
-        self.context.bindModule(module);
-        self.context.packAlignments =
-            self.declarations.packAlignments(program);
-        self.declarations.addStandardPreprocessorDecls(module);
-        self.context.setExceptionsEnabled(
-            self.statements.programUsesTrycatch(program));
-        if (self.context.exceptionsAreEnabled()) {
-            self.declarations.requireSystemInclude(
-                module, "setjmp.h");
-        }
+	public IRModule lower(Node program) {
+		self.expressionTypes.disableMemo();
+		self.cleanupSlots.reset();
+		IRModule module = IRModule();
+		module.realtime_intrinsic_targets = self.runtimeHelpers.realtimeIntrinsicTargetProvenance();
+		self.context.bindModule(module);
+		self.context.packAlignments = self.declarations.packAlignments(program);
+		self.declarations.addStandardPreprocessorDecls(module);
+		self.context.setExceptionsEnabled(self.statements.programUsesTrycatch(program));
+		if (self.context.exceptionsAreEnabled()) {
+			self.declarations.requireSystemInclude(module, "setjmp.h");
+		}
 
-        self.declarations.emitForwardDecls(program, module);
-        self.gpuPipeline.registerKernels(program, module);
-        self.cTypes.appendTypedefs(program, module);
-        self.declarations.emitStructDefinitions(program, module);
+		self.declarations.emitForwardDecls(program, module);
+		self.gpuPipeline.registerKernels(program, module);
+		self.cTypes.appendTypedefs(program, module);
+		self.declarations.emitStructDefinitions(program, module);
 
-        Vector<GenericClassLoweringPlan> classPlans =
-            self.genericPlans.classPlans();
-        int classIndex = 0;
-        while (classIndex < classPlans.len) {
-            self.declarations.emitGenericInstance(
-                classPlans.get(classIndex).instance, module);
-            classIndex = classIndex + 1;
-        }
-        Vector<GenericMethodLoweringPlan> methodPlans =
-            self.genericPlans.methodPlans();
-        int methodIndex = 0;
-        while (methodIndex < methodPlans.len) {
-            self.functions.emitOneMethodGenericInstance(
-                methodPlans.get(methodIndex).instance, module);
-            methodIndex = methodIndex + 1;
-        }
+		Vector<GenericClassLoweringPlan> classPlans = self.genericPlans.classPlans();
+		int classIndex = 0;
+		while (classIndex < classPlans.len) {
+			self.declarations.emitGenericInstance(classPlans.get(classIndex).instance, module);
+			classIndex = classIndex + 1;
+		}
+		Vector<GenericMethodLoweringPlan> methodPlans = self.genericPlans.methodPlans();
+		int methodIndex = 0;
+		while (methodIndex < methodPlans.len) {
+			self.functions.emitOneMethodGenericInstance(methodPlans.get(methodIndex).instance, module);
+			methodIndex = methodIndex + 1;
+		}
 
-        self.declarations.emitDeclarations(program, module);
-        self.functions.materializeDeferredClosure();
-        self.cTypes.appendFunctionPointerTypedefs(module);
-        self.cTypes.appendRealtimeTypeDeclarations(module);
-        if (self.cTypes.usesAtomic()) {
-            self.declarations.requireSystemInclude(module, "stdatomic.h");
-        }
-        self.cleanupSlots.finalize(module);
-        self.expressionTypes.disableMemo();
-        return module;
-    }
+		self.declarations.emitDeclarations(program, module);
+		self.functions.materializeDeferredClosure();
+		self.cTypes.appendFunctionPointerTypedefs(module);
+		self.cTypes.appendRealtimeTypeDeclarations(module);
+		if (self.cTypes.usesAtomic()) {
+			self.declarations.requireSystemInclude(module, "stdatomic.h");
+		}
+		self.cleanupSlots.finalize(module);
+		self.expressionTypes.disableMemo();
+		return module;
+	}
 }

@@ -1,143 +1,106 @@
 import std.vector;
+
 import ../model.btrc;
 
 /* Sequence-level control-flow facts for structured IR statements. */
 
 class IRStatementSequence {
-    private Vector<IRNode> statements;
+	private Vector<IRNode> statements;
 
-    public IRStatementSequence(Vector<IRNode> statements) {
-        self.statements = statements;
-    }
+	public IRStatementSequence(Vector<IRNode> statements) { self.statements = statements; }
 
-    private bool expressionMayComplete(IRNode? expression) {
-        if (expression == null) { return true; }
-        if (expression.kind == IRK_CALL
-                && expression.never_returns) {
-            return false;
-        }
-        if (expression.kind == IRK_STMT_EXPR) {
-            return IRStatementSequence(
-                    expression.stmts).mayFallThrough()
-                && self.expressionMayComplete(expression.result);
-        }
-        if (expression.kind == IRK_COMMA_EXPR) {
-            int index = 0;
-            while (index < expression.args.len) {
-                if (!self.expressionMayComplete(
-                        expression.args.get(index))) {
-                    return false;
-                }
-                index = index + 1;
-            }
-            return true;
-        }
-        return true;
-    }
+	private bool expressionMayComplete(IRNode? expression) {
+		if (expression == null) { return true; }
+		if (expression.kind == IRK_CALL && expression.never_returns) {
+			return false;
+		}
+		if (expression.kind == IRK_STMT_EXPR) {
+			return IRStatementSequence(expression.stmts).mayFallThrough() && self.expressionMayComplete(expression.result);
+		}
+		if (expression.kind == IRK_COMMA_EXPR) {
+			int index = 0;
+			while (index < expression.args.len) {
+				if (!self.expressionMayComplete(expression.args.get(index))) {
+					return false;
+				}
+				index = index + 1;
+			}
+			return true;
+		}
+		return true;
+	}
 
-    private bool switchMayFallThrough(IRNode statement) {
-        return statement.can_fall_through;
-    }
+	private bool switchMayFallThrough(IRNode statement) { return statement.can_fall_through; }
 
-    private bool statementMayFallThrough(IRNode? statement) {
-        if (statement == null) { return true; }
-        if (statement.kind == IRK_RETURN
-                || statement.kind == IRK_BREAK
-                || statement.kind == IRK_CONTINUE) {
-            return false;
-        }
-        if (statement.kind == IRK_EXPR_STMT) {
-            return self.expressionMayComplete(statement.expr);
-        }
-        if (statement.kind == IRK_VAR_DECL) {
-            return self.expressionMayComplete(statement.init);
-        }
-        if (statement.kind == IRK_BLOCK
-                || statement.kind == IRK_CASE) {
-            return IRStatementSequence(
-                statement.stmts).mayFallThrough();
-        }
-        if (statement.kind == IRK_IF
-                && statement.else_block != null) {
-            return self.statementMayFallThrough(
-                    statement.then_block)
-                || self.statementMayFallThrough(
-                    statement.else_block);
-        }
-        if (statement.kind == IRK_SWITCH) {
-            return self.switchMayFallThrough(statement);
-        }
-        return true;
-    }
+	private bool statementMayFallThrough(IRNode? statement) {
+		if (statement == null) { return true; }
+		if (statement.kind == IRK_RETURN || statement.kind == IRK_BREAK || statement.kind == IRK_CONTINUE) {
+			return false;
+		}
+		if (statement.kind == IRK_EXPR_STMT) {
+			return self.expressionMayComplete(statement.expr);
+		}
+		if (statement.kind == IRK_VAR_DECL) {
+			return self.expressionMayComplete(statement.init);
+		}
+		if (statement.kind == IRK_BLOCK || statement.kind == IRK_CASE) {
+			return IRStatementSequence(statement.stmts).mayFallThrough();
+		}
+		if (statement.kind == IRK_IF && statement.else_block != null) {
+			return self.statementMayFallThrough(statement.then_block) || self.statementMayFallThrough(statement.else_block);
+		}
+		if (statement.kind == IRK_SWITCH) {
+			return self.switchMayFallThrough(statement);
+		}
+		return true;
+	}
 
-    public bool mayFallThrough() {
-        int index = 0;
-        while (index < self.statements.len) {
-            if (!self.statementMayFallThrough(
-                    self.statements.get(index))) {
-                return false;
-            }
-            index = index + 1;
-        }
-        return true;
-    }
+	public bool mayFallThrough() {
+		int index = 0;
+		while (index < self.statements.len) {
+			if (!self.statementMayFallThrough(self.statements.get(index))) {
+				return false;
+			}
+			index = index + 1;
+		}
+		return true;
+	}
 
-    private bool nodeReferencesVariable(
-            IRNode? node, string name) {
-        if (node == null) { return false; }
-        if (node.kind == IRK_VAR && node.name == name) {
-            return true;
-        }
-        if (self.nodeReferencesVariable(node.left, name)
-                || self.nodeReferencesVariable(node.right, name)
-                || self.nodeReferencesVariable(node.operand, name)
-                || self.nodeReferencesVariable(node.expr, name)
-                || self.nodeReferencesVariable(node.obj, name)
-                || self.nodeReferencesVariable(node.index, name)
-                || self.nodeReferencesVariable(node.condition, name)
-                || self.nodeReferencesVariable(node.true_expr, name)
-                || self.nodeReferencesVariable(node.false_expr, name)
-                || self.nodeReferencesVariable(node.init, name)
-                || self.nodeReferencesVariable(node.value, name)
-                || self.nodeReferencesVariable(node.target, name)
-                || self.nodeReferencesVariable(node.then_block, name)
-                || self.nodeReferencesVariable(node.else_block, name)
-                || self.nodeReferencesVariable(node.body, name)
-                || self.nodeReferencesVariable(node.update, name)
-                || self.nodeReferencesVariable(node.result, name)
-                || self.nodeReferencesVariable(node.array_size, name)) {
-            return true;
-        }
-        int argument = 0;
-        while (argument < node.args.len) {
-            if (self.nodeReferencesVariable(
-                    node.args.get(argument), name)) {
-                return true;
-            }
-            argument = argument + 1;
-        }
-        int statement = 0;
-        while (statement < node.stmts.len) {
-            if (self.nodeReferencesVariable(
-                    node.stmts.get(statement), name)) {
-                return true;
-            }
-            statement = statement + 1;
-        }
-        return false;
-    }
+	private bool nodeReferencesVariable(IRNode? node, string name) {
+		if (node == null) { return false; }
+		if (node.kind == IRK_VAR && node.name == name) {
+			return true;
+		}
+		if (self.nodeReferencesVariable(node.left, name) || self.nodeReferencesVariable(node.right, name) || self.nodeReferencesVariable(node.operand, name) || self.nodeReferencesVariable(node.expr, name) || self.nodeReferencesVariable(node.obj, name) || self.nodeReferencesVariable(node.index, name) || self.nodeReferencesVariable(node.condition, name) || self.nodeReferencesVariable(node.true_expr, name) || self.nodeReferencesVariable(node.false_expr, name) || self.nodeReferencesVariable(node.init, name) || self.nodeReferencesVariable(node.value, name) || self.nodeReferencesVariable(node.target, name) || self.nodeReferencesVariable(node.then_block, name) || self.nodeReferencesVariable(node.else_block, name) || self.nodeReferencesVariable(node.body, name) || self.nodeReferencesVariable(node.update, name) || self.nodeReferencesVariable(node.result, name) || self.nodeReferencesVariable(node.array_size, name)) {
+			return true;
+		}
+		int argument = 0;
+		while (argument < node.args.len) {
+			if (self.nodeReferencesVariable(node.args.get(argument), name)) {
+				return true;
+			}
+			argument = argument + 1;
+		}
+		int statement = 0;
+		while (statement < node.stmts.len) {
+			if (self.nodeReferencesVariable(node.stmts.get(statement), name)) {
+				return true;
+			}
+			statement = statement + 1;
+		}
+		return false;
+	}
 
-    public bool referencesVariable(string name) {
-        int index = 0;
-        while (index < self.statements.len) {
-            if (self.nodeReferencesVariable(
-                    self.statements.get(index), name)) {
-                return true;
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	public bool referencesVariable(string name) {
+		int index = 0;
+		while (index < self.statements.len) {
+			if (self.nodeReferencesVariable(self.statements.get(index), name)) {
+				return true;
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 }
 
 /* Prelowered control-flow values.  StatementLowerer owns AST recursion and
@@ -146,81 +109,66 @@ class IRStatementSequence {
  * lowering. */
 
 class ConditionalPlan {
-    public IRNode condition;
-    public IRNode thenBranch;
-    public IRNode? elseBranch;
+	public IRNode condition;
+	public IRNode thenBranch;
+	public IRNode? elseBranch;
 
-    public ConditionalPlan(
-            IRNode condition, IRNode thenBranch,
-            IRNode? elseBranch) {
-        self.condition = condition;
-        self.thenBranch = thenBranch;
-        self.elseBranch = elseBranch;
-    }
+	public ConditionalPlan(IRNode condition, IRNode thenBranch, IRNode? elseBranch) {
+		self.condition = condition;
+		self.thenBranch = thenBranch;
+		self.elseBranch = elseBranch;
+	}
 }
 
 class WhilePlan {
-    public IRNode condition;
-    public IRNode body;
+	public IRNode condition;
+	public IRNode body;
 
-    public WhilePlan(IRNode condition, IRNode body) {
-        self.condition = condition;
-        self.body = body;
-    }
+	public WhilePlan(IRNode condition, IRNode body) {
+		self.condition = condition;
+		self.body = body;
+	}
 }
 
 class ForPlan {
-    public IRNode? initializer;
-    public IRNode condition;
-    public IRNode? update;
-    public IRNode body;
+	public IRNode? initializer;
+	public IRNode condition;
+	public IRNode? update;
+	public IRNode body;
 
-    public ForPlan(IRNode? initializer, IRNode condition,
-            IRNode? update, IRNode body) {
-        self.initializer = initializer;
-        self.condition = condition;
-        self.update = update;
-        self.body = body;
-    }
+	public ForPlan(IRNode? initializer, IRNode condition, IRNode? update, IRNode body) {
+		self.initializer = initializer;
+		self.condition = condition;
+		self.update = update;
+		self.body = body;
+	}
 }
 
 class SwitchPlan {
-    public IRNode value;
-    public Vector<IRNode> cases;
-    public bool canFallThrough;
+	public IRNode value;
+	public Vector<IRNode> cases;
+	public bool canFallThrough;
 
-    public SwitchPlan(IRNode value, Vector<IRNode> cases,
-            bool canFallThrough) {
-        self.value = value;
-        self.cases = cases;
-        self.canFallThrough = canFallThrough;
-    }
+	public SwitchPlan(IRNode value, Vector<IRNode> cases, bool canFallThrough) {
+		self.value = value;
+		self.cases = cases;
+		self.canFallThrough = canFallThrough;
+	}
 }
 
 
 class ControlFlowLowerer {
-    public ControlFlowLowerer() {}
+	public ControlFlowLowerer() {}
 
-    public IRNode materializeConditional(ConditionalPlan plan) {
-        return IRNode.ifStatement(
-            plan.condition, plan.thenBranch, plan.elseBranch);
-    }
+	public IRNode materializeConditional(ConditionalPlan plan) { return IRNode.ifStatement(plan.condition, plan.thenBranch, plan.elseBranch); }
 
-    public IRNode materializeWhile(WhilePlan plan) {
-        return IRNode.whileStatement(plan.condition, plan.body);
-    }
+	public IRNode materializeWhile(WhilePlan plan) { return IRNode.whileStatement(plan.condition, plan.body); }
 
-    public IRNode materializeFor(ForPlan plan) {
-        return IRNode.forStatement(
-            plan.initializer, plan.condition,
-            plan.update, plan.body);
-    }
+	public IRNode materializeFor(ForPlan plan) { return IRNode.forStatement(plan.initializer, plan.condition, plan.update, plan.body); }
 
-    public IRNode materializeSwitch(SwitchPlan plan) {
-        IRNode statement = IRNode.switchStatement(
-            plan.value, plan.cases);
-        statement.can_fall_through = plan.canFallThrough;
-        return statement;
-    }
-
+	public IRNode materializeSwitch(SwitchPlan plan) {
+		IRNode statement = IRNode.switchStatement(plan.value, plan.cases);
+		statement.can_fall_through = plan.canFallThrough;
+		return statement;
+	}
 }

@@ -2,285 +2,250 @@
 
 import std.map;
 import std.vector;
+
 import ../../generated/runtime/catalog.btrc;
 import ../model.btrc;
 
 class RuntimeHelperCatalog {
-    private Vector<GeneratedRuntimeHelperRow> rows;
-    private Vector<GeneratedIntrinsicEffectRow> intrinsicEffects;
-    private Map<string, int> indices;
-    private Map<string, int> intrinsicIndices;
-    private Map<string, string> realtimeIntrinsicTargets;
-    private Map<string, string> typeProviders;
-    private Map<string, string> objectProviders;
-    private Map<string, string> materializedSources;
+	private Vector<GeneratedRuntimeHelperRow> rows;
+	private Vector<GeneratedIntrinsicEffectRow> intrinsicEffects;
+	private Map<string, int> indices;
+	private Map<string, int> intrinsicIndices;
+	private Map<string, string> realtimeIntrinsicTargets;
+	private Map<string, string> typeProviders;
+	private Map<string, string> objectProviders;
+	private Map<string, string> materializedSources;
 
-    public RuntimeHelperCatalog(
-            Vector<GeneratedRuntimeHelperRow> rows,
-            Vector<GeneratedIntrinsicEffectRow> intrinsicEffects = []) {
-        self.rows = rows;
-        self.intrinsicEffects = intrinsicEffects;
-        self.indices = {};
-        self.intrinsicIndices = {};
-        self.realtimeIntrinsicTargets = {};
-        self.typeProviders = {};
-        self.objectProviders = {};
-        self.materializedSources = {};
+	public RuntimeHelperCatalog(Vector<GeneratedRuntimeHelperRow> rows, Vector<GeneratedIntrinsicEffectRow> intrinsicEffects = []) {
+		self.rows = rows;
+		self.intrinsicEffects = intrinsicEffects;
+		self.indices = {};
+		self.intrinsicIndices = {};
+		self.realtimeIntrinsicTargets = {};
+		self.typeProviders = {};
+		self.objectProviders = {};
+		self.materializedSources = {};
 
-        int index = 0;
-        while (index < self.rows.len) {
-            GeneratedRuntimeHelperRow row = self.rows.get(index);
-            if (self.indices.has(row.name)) {
-                fprintf(stderr,
-                    "internal compiler error: duplicate runtime helper '%s'\n",
-                    row.name);
-                exit(1);
-            }
-            self.indices.put(row.name, index);
+		int index = 0;
+		while (index < self.rows.len) {
+			GeneratedRuntimeHelperRow row = self.rows.get(index);
+			if (self.indices.has(row.name)) {
+				fprintf(stderr, "internal compiler error: duplicate runtime helper '%s'\n", row.name);
+				exit(1);
+			}
+			self.indices.put(row.name, index);
 
-            int typeIndex = 0;
-            while (typeIndex < row.provided_types.len) {
-                string providedType = row.provided_types.get(typeIndex);
-                if (self.typeProviders.has(providedType)) {
-                    fprintf(stderr,
-                        "internal compiler error: runtime type '%s' is provided by both '%s' and '%s'\n",
-                        providedType, self.typeProviders.get(providedType),
-                        row.name);
-                    exit(1);
-                }
-                self.typeProviders.put(providedType, row.name);
-                typeIndex = typeIndex + 1;
-            }
+			int typeIndex = 0;
+			while (typeIndex < row.provided_types.len) {
+				string providedType = row.provided_types.get(typeIndex);
+				if (self.typeProviders.has(providedType)) {
+					fprintf(stderr, "internal compiler error: runtime type '%s' is provided by both '%s' and '%s'\n", providedType, self.typeProviders.get(providedType), row.name);
+					exit(1);
+				}
+				self.typeProviders.put(providedType, row.name);
+				typeIndex = typeIndex + 1;
+			}
 
-            int objectIndex = 0;
-            while (objectIndex < row.provided_objects.len) {
-                string providedObject =
-                    row.provided_objects.get(objectIndex);
-                if (self.objectProviders.has(providedObject)) {
-                    fprintf(stderr,
-                        "internal compiler error: runtime object '%s' is provided by both '%s' and '%s'\n",
-                        providedObject,
-                        self.objectProviders.get(providedObject), row.name);
-                    exit(1);
-                }
-                self.objectProviders.put(providedObject, row.name);
-                objectIndex = objectIndex + 1;
-            }
-            index = index + 1;
-        }
+			int objectIndex = 0;
+			while (objectIndex < row.provided_objects.len) {
+				string providedObject = row.provided_objects.get(objectIndex);
+				if (self.objectProviders.has(providedObject)) {
+					fprintf(stderr, "internal compiler error: runtime object '%s' is provided by both '%s' and '%s'\n", providedObject, self.objectProviders.get(providedObject), row.name);
+					exit(1);
+				}
+				self.objectProviders.put(providedObject, row.name);
+				objectIndex = objectIndex + 1;
+			}
+			index = index + 1;
+		}
 
-        index = 0;
-        while (index < self.intrinsicEffects.len) {
-            GeneratedIntrinsicEffectRow effect =
-                self.intrinsicEffects.get(index);
-            if (self.intrinsicIndices.has(effect.provenance)) {
-                fprintf(stderr,
-                    "internal compiler error: duplicate compiler intrinsic '%s'\n",
-                    effect.provenance);
-                exit(1);
-            }
-            self.intrinsicIndices.put(effect.provenance, index);
-            if (effect.realtime_effect == "safe"
-                    && effect.c_callee != "") {
-                if (self.realtimeIntrinsicTargets.has(effect.c_callee)) {
-                    fprintf(stderr,
-                        "internal compiler error: compiler intrinsic C callee '%s' is owned by both '%s' and '%s'\n",
-                        effect.c_callee,
-                        self.realtimeIntrinsicTargets.get(effect.c_callee),
-                        effect.provenance);
-                    exit(1);
-                }
-                self.realtimeIntrinsicTargets.put(
-                    effect.c_callee, effect.provenance);
-            }
-            index = index + 1;
-        }
-    }
+		index = 0;
+		while (index < self.intrinsicEffects.len) {
+			GeneratedIntrinsicEffectRow effect = self.intrinsicEffects.get(index);
+			if (self.intrinsicIndices.has(effect.provenance)) {
+				fprintf(stderr, "internal compiler error: duplicate compiler intrinsic '%s'\n", effect.provenance);
+				exit(1);
+			}
+			self.intrinsicIndices.put(effect.provenance, index);
+			if (effect.realtime_effect == "safe" && effect.c_callee != "") {
+				if (self.realtimeIntrinsicTargets.has(effect.c_callee)) {
+					fprintf(stderr, "internal compiler error: compiler intrinsic C callee '%s' is owned by both '%s' and '%s'\n", effect.c_callee, self.realtimeIntrinsicTargets.get(effect.c_callee), effect.provenance);
+					exit(1);
+				}
+				self.realtimeIntrinsicTargets.put(effect.c_callee, effect.provenance);
+			}
+			index = index + 1;
+		}
+	}
 
-    public bool has(string name) {
-        return self.indices.has(name);
-    }
+	public bool has(string name) { return self.indices.has(name); }
 
-    public bool sourceVisible(string name) {
-        if (!self.indices.has(name)) { return false; }
-        return self.rows.get(self.indices.get(name)).source_visible;
-    }
+	public bool sourceVisible(string name) {
+		if (!self.indices.has(name)) { return false; }
+		return self.rows.get(self.indices.get(name)).source_visible;
+	}
 
-    public Map<string, bool> realtimeSafeFunctions() {
-        Map<string, bool> safe = {};
-        int index = 0;
-        while (index < self.rows.len) {
-            GeneratedRuntimeHelperRow row = self.rows.get(index);
-            if (row.realtime_effect == "safe") {
-                safe.put(row.name, true);
-            }
-            index = index + 1;
-        }
-        return safe;
-    }
+	public Map<string, bool> realtimeSafeFunctions() {
+		Map<string, bool> safe = {};
+		int index = 0;
+		while (index < self.rows.len) {
+			GeneratedRuntimeHelperRow row = self.rows.get(index);
+			if (row.realtime_effect == "safe") {
+				safe.put(row.name, true);
+			}
+			index = index + 1;
+		}
+		return safe;
+	}
 
-    public string intrinsicRealtimeEffect(
-            string receiver, string method) {
-        string provenance = receiver + "." + method;
-        if (!self.intrinsicIndices.has(provenance)) { return "unknown"; }
-        return self.intrinsicEffects.get(
-            self.intrinsicIndices.get(provenance)).realtime_effect;
-    }
+	public string intrinsicRealtimeEffect(string receiver, string method) {
+		string provenance = receiver + "." + method;
+		if (!self.intrinsicIndices.has(provenance)) { return "unknown"; }
+		return self.intrinsicEffects.get(self.intrinsicIndices.get(provenance)).realtime_effect;
+	}
 
-    public string intrinsicCallee(string receiver, string method) {
-        string provenance = receiver + "." + method;
-        if (!self.intrinsicIndices.has(provenance)) { return ""; }
-        return self.intrinsicEffects.get(
-            self.intrinsicIndices.get(provenance)).c_callee;
-    }
+	public string intrinsicCallee(string receiver, string method) {
+		string provenance = receiver + "." + method;
+		if (!self.intrinsicIndices.has(provenance)) { return ""; }
+		return self.intrinsicEffects.get(self.intrinsicIndices.get(provenance)).c_callee;
+	}
 
-    public string intrinsicProvenance(string receiver, string method) {
-        string provenance = receiver + "." + method;
-        return self.intrinsicIndices.has(provenance) ? provenance : "";
-    }
+	public string intrinsicProvenance(string receiver, string method) {
+		string provenance = receiver + "." + method;
+		return self.intrinsicIndices.has(provenance) ? provenance : "";
+	}
 
-    public Map<string, string> realtimeIntrinsicTargetProvenance() {
-        Map<string, string> targets = {};
-        Vector<string> names = self.realtimeIntrinsicTargets.keys();
-        int index = 0;
-        while (index < names.len) {
-            string name = names.get(index);
-            targets.put(name, self.realtimeIntrinsicTargets.get(name));
-            index = index + 1;
-        }
-        return targets;
-    }
+	public Map<string, string> realtimeIntrinsicTargetProvenance() {
+		Map<string, string> targets = {};
+		Vector<string> names = self.realtimeIntrinsicTargets.keys();
+		int index = 0;
+		while (index < names.len) {
+			string name = names.get(index);
+			targets.put(name, self.realtimeIntrinsicTargets.get(name));
+			index = index + 1;
+		}
+		return targets;
+	}
 
-    public string helperProvidingType(string typeName) {
-        if (!self.typeProviders.has(typeName)) { return ""; }
-        return self.typeProviders.get(typeName);
-    }
+	public string helperProvidingType(string typeName) {
+		if (!self.typeProviders.has(typeName)) { return ""; }
+		return self.typeProviders.get(typeName);
+	}
 
-    public string helperProvidingObject(string objectName) {
-        if (!self.objectProviders.has(objectName)) { return ""; }
-        return self.objectProviders.get(objectName);
-    }
+	public string helperProvidingObject(string objectName) {
+		if (!self.objectProviders.has(objectName)) { return ""; }
+		return self.objectProviders.get(objectName);
+	}
 
-    private Vector<string> copyStrings(Vector<string> values) {
-        Vector<string> copy = [];
-        int index = 0;
-        while (index < values.len) {
-            copy.push(values.get(index));
-            index = index + 1;
-        }
-        return copy;
-    }
+	private Vector<string> copyStrings(Vector<string> values) {
+		Vector<string> copy = [];
+		int index = 0;
+		while (index < values.len) {
+			copy.push(values.get(index));
+			index = index + 1;
+		}
+		return copy;
+	}
 
-    private string joinSource(Vector<string> chunks) {
-        string source = "";
-        int index = 0;
-        while (index < chunks.len) {
-            source = source + chunks.get(index);
-            index = index + 1;
-        }
-        return source;
-    }
+	private string joinSource(Vector<string> chunks) {
+		string source = "";
+		int index = 0;
+		while (index < chunks.len) {
+			source = source + chunks.get(index);
+			index = index + 1;
+		}
+		return source;
+	}
 
-    public string source(string name) {
-        if (!self.indices.has(name)) { return ""; }
-        if (self.materializedSources.has(name)) {
-            return self.materializedSources.get(name);
-        }
+	public string source(string name) {
+		if (!self.indices.has(name)) { return ""; }
+		if (self.materializedSources.has(name)) {
+			return self.materializedSources.get(name);
+		}
 
-        GeneratedRuntimeHelperRow row =
-            self.rows.get(self.indices.get(name));
-        string source = self.joinSource(row.source_chunks);
-        self.materializedSources.put(name, source);
-        return source;
-    }
+		GeneratedRuntimeHelperRow row = self.rows.get(self.indices.get(name));
+		string source = self.joinSource(row.source_chunks);
+		self.materializedSources.put(name, source);
+		return source;
+	}
 
-    public Vector<string> dependencies(string name) {
-        if (!self.indices.has(name)) {
-            Vector<string> none = [];
-            return none;
-        }
-        GeneratedRuntimeHelperRow row =
-            self.rows.get(self.indices.get(name));
-        return self.copyStrings(row.dependencies);
-    }
+	public Vector<string> dependencies(string name) {
+		if (!self.indices.has(name)) {
+			Vector<string> none = [];
+			return none;
+		}
+		GeneratedRuntimeHelperRow row = self.rows.get(self.indices.get(name));
+		return self.copyStrings(row.dependencies);
+	}
 
-    public Vector<string> headers(string name) {
-        if (!self.indices.has(name)) {
-            Vector<string> none = [];
-            return none;
-        }
-        GeneratedRuntimeHelperRow row =
-            self.rows.get(self.indices.get(name));
-        return self.copyStrings(row.headers);
-    }
+	public Vector<string> headers(string name) {
+		if (!self.indices.has(name)) {
+			Vector<string> none = [];
+			return none;
+		}
+		GeneratedRuntimeHelperRow row = self.rows.get(self.indices.get(name));
+		return self.copyStrings(row.headers);
+	}
 
-    public Vector<string> order() {
-        Vector<string> names = [];
-        int index = 0;
-        while (index < self.rows.len) {
-            names.push(self.rows.get(index).name);
-            index = index + 1;
-        }
-        return names;
-    }
+	public Vector<string> order() {
+		Vector<string> names = [];
+		int index = 0;
+		while (index < self.rows.len) {
+			names.push(self.rows.get(index).name);
+			index = index + 1;
+		}
+		return names;
+	}
 
-    public Vector<string> selectedInCanonicalOrder(
-            Map<string, bool> selected) {
-        Vector<string> names = [];
-        int index = 0;
-        while (index < self.rows.len) {
-            string name = self.rows.get(index).name;
-            if (selected.has(name)) { names.push(name); }
-            index = index + 1;
-        }
-        return names;
-    }
+	public Vector<string> selectedInCanonicalOrder(Map<string, bool> selected) {
+		Vector<string> names = [];
+		int index = 0;
+		while (index < self.rows.len) {
+			string name = self.rows.get(index).name;
+			if (selected.has(name)) { names.push(name); }
+			index = index + 1;
+		}
+		return names;
+	}
 
-    private bool hasSystemInclude(IRModule module, string header) {
-        int index = 0;
-        while (index < module.preprocessor_decls.len) {
-            IRPreprocessorDecl declaration =
-                module.preprocessor_decls.get(index);
-            if (declaration.kind == IR_PREPROCESSOR_INCLUDE
-                    && declaration.is_system
-                    && declaration.header == header) {
-                return true;
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	private bool hasSystemInclude(IRModule module, string header) {
+		int index = 0;
+		while (index < module.preprocessor_decls.len) {
+			IRPreprocessorDecl declaration = module.preprocessor_decls.get(index);
+			if (declaration.kind == IR_PREPROCESSOR_INCLUDE && declaration.is_system && declaration.header == header) {
+				return true;
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 
-    /* Replace the runtime seam from the optimizer's live helper set.  Source
+	/* Replace the runtime seam from the optimizer's live helper set.  Source
      * bodies remain in canonical manifest order; headers retain discovery
      * order while structured include nodes prevent duplicate emission. */
-    public void materializeInto(
-            IRModule module, Map<string, bool> selected) {
-        Vector<string> materialized = [];
-        Vector<string> ordered =
-            self.selectedInCanonicalOrder(selected);
-        int helperIndex = 0;
-        while (helperIndex < ordered.len) {
-            materialized.push(self.source(ordered.get(helperIndex)));
-            helperIndex = helperIndex + 1;
-        }
-        module.helpers = materialized;
+	public void materializeInto(IRModule module, Map<string, bool> selected) {
+		Vector<string> materialized = [];
+		Vector<string> ordered = self.selectedInCanonicalOrder(selected);
+		int helperIndex = 0;
+		while (helperIndex < ordered.len) {
+			materialized.push(self.source(ordered.get(helperIndex)));
+			helperIndex = helperIndex + 1;
+		}
+		module.helpers = materialized;
 
-        Vector<string> names = selected.keys();
-        int nameIndex = 0;
-        while (nameIndex < names.len) {
-            Vector<string> requiredHeaders =
-                self.headers(names.get(nameIndex));
-            int headerIndex = 0;
-            while (headerIndex < requiredHeaders.len) {
-                string header = requiredHeaders.get(headerIndex);
-                if (!self.hasSystemInclude(module, header)) {
-                    module.preprocessor_decls.push(
-                        IRPreprocessorDecl.include(header, true));
-                }
-                headerIndex = headerIndex + 1;
-            }
-            nameIndex = nameIndex + 1;
-        }
-    }
+		Vector<string> names = selected.keys();
+		int nameIndex = 0;
+		while (nameIndex < names.len) {
+			Vector<string> requiredHeaders = self.headers(names.get(nameIndex));
+			int headerIndex = 0;
+			while (headerIndex < requiredHeaders.len) {
+				string header = requiredHeaders.get(headerIndex);
+				if (!self.hasSystemInclude(module, header)) {
+					module.preprocessor_decls.push(IRPreprocessorDecl.include(header, true));
+				}
+				headerIndex = headerIndex + 1;
+			}
+			nameIndex = nameIndex + 1;
+		}
+	}
 }

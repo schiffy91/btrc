@@ -1,98 +1,88 @@
 /* Immutable analyzer view of C preprocessor namespace mutations. */
 
 import std.map;
+
 import ../generated/ast/node.btrc;
 import ../parser/source_macros.btrc;
 
 class SourceMacroNamespace {
-    private Map<string, bool> declaredNames;
-    private Map<string, SourceMacroDefinition> activeDefinitions;
+	private Map<string, bool> declaredNames;
+	private Map<string, SourceMacroDefinition> activeDefinitions;
 
-    public SourceMacroNamespace(Node program) {
-        self.declaredNames = {};
-        self.activeDefinitions = {};
-        self.collect(program);
-    }
+	public SourceMacroNamespace(Node program) {
+		self.declaredNames = {};
+		self.activeDefinitions = {};
+		self.collect(program);
+	}
 
-    public bool declared(string name) {
-        return self.declaredNames.has(name);
-    }
+	public bool declared(string name) { return self.declaredNames.has(name); }
 
-    public SourceMacroDefinition? active(string name) {
-        if (!self.activeDefinitions.has(name)) { return null; }
-        return self.activeDefinitions.get(name);
-    }
+	public SourceMacroDefinition? active(string name) {
+		if (!self.activeDefinitions.has(name)) { return null; }
+		return self.activeDefinitions.get(name);
+	}
 
-    public Vector<string> freeIdentifiers(
-            SourceMacroDefinition definition) {
-        Map<string, bool> visiting = {};
-        Vector<string> result = [];
-        self.collectFreeIdentifiers(definition, visiting, result);
-        return result;
-    }
+	public Vector<string> freeIdentifiers(SourceMacroDefinition definition) {
+		Map<string, bool> visiting = {};
+		Vector<string> result = [];
+		self.collectFreeIdentifiers(definition, visiting, result);
+		return result;
+	}
 
-    public bool expandsToAny(
-            string name, Map<string, bool> identifiers) {
-        Map<string, bool> visiting = {};
-        return self.expandsToAnyImpl(name, identifiers, visiting);
-    }
+	public bool expandsToAny(string name, Map<string, bool> identifiers) {
+		Map<string, bool> visiting = {};
+		return self.expandsToAnyImpl(name, identifiers, visiting);
+	}
 
-    private bool expandsToAnyImpl(string name,
-            Map<string, bool> identifiers, Map<string, bool> visiting) {
-        if (visiting.has(name)) { return false; }
-        SourceMacroDefinition? definition = self.active(name);
-        if (definition == null) { return false; }
-        visiting.put(name, true);
-        Vector<string> referenced = definition.replacementIdentifiers();
-        int index = 0;
-        while (index < referenced.len) {
-            string identifier = referenced.get(index);
-            if (identifiers.has(identifier)
-                    || self.expandsToAnyImpl(
-                        identifier, identifiers, visiting)) {
-                return true;
-            }
-            index++;
-        }
-        return false;
-    }
+	private bool expandsToAnyImpl(string name, Map<string, bool> identifiers, Map<string, bool> visiting) {
+		if (visiting.has(name)) { return false; }
+		SourceMacroDefinition? definition = self.active(name);
+		if (definition == null) { return false; }
+		visiting.put(name, true);
+		Vector<string> referenced = definition.replacementIdentifiers();
+		int index = 0;
+		while (index < referenced.len) {
+			string identifier = referenced.get(index);
+			if (identifiers.has(identifier) || self.expandsToAnyImpl(identifier, identifiers, visiting)) {
+				return true;
+			}
+			index++;
+		}
+		return false;
+	}
 
-    private void collect(Node program) {
-        int index = 0;
-        while (index < program.declarations.len) {
-            Node declaration = program.declarations.get(index);
-            if (declaration.kind == NK_PREPROCESSOR_DIRECTIVE) {
-                SourceMacroDefinition definition =
-                    SourceMacroDefinition(declaration.text);
-                if (definition.isDefinition()) {
-                    self.declaredNames.put(definition.name(), true);
-                    self.activeDefinitions.put(
-                        definition.name(), definition);
-                } else if (definition.isUndef()) {
-                    self.activeDefinitions.remove(definition.name());
-                }
-            }
-            index++;
-        }
-    }
+	private void collect(Node program) {
+		int index = 0;
+		while (index < program.declarations.len) {
+			Node declaration = program.declarations.get(index);
+			if (declaration.kind == NK_PREPROCESSOR_DIRECTIVE) {
+				SourceMacroDefinition definition = SourceMacroDefinition(declaration.text);
+				if (definition.isDefinition()) {
+					self.declaredNames.put(definition.name(), true);
+					self.activeDefinitions.put(definition.name(), definition);
+				} else if (definition.isUndef()) {
+					self.activeDefinitions.remove(definition.name());
+				}
+			}
+			index++;
+		}
+	}
 
-    private void collectFreeIdentifiers(
-            SourceMacroDefinition definition, Map<string, bool> visiting,
-            Vector<string> result) {
-        string name = definition.name();
-        if (name != "" && visiting.has(name)) { return; }
-        if (name != "") { visiting.put(name, true); }
-        Vector<string> identifiers = definition.replacementIdentifiers();
-        int index = 0;
-        while (index < identifiers.len) {
-            string identifier = identifiers.get(index);
-            SourceMacroDefinition? nested = self.active(identifier);
-            if (nested != null) {
-                self.collectFreeIdentifiers(nested, visiting, result);
-            } else if (!result.contains(identifier)) {
-                result.push(identifier);
-            }
-            index++;
-        }
-    }
+	private void collectFreeIdentifiers(SourceMacroDefinition definition, Map<string, bool> visiting, Vector<string> result) {
+		string name = definition.name();
+		if (name != "" && visiting.has(name)) { return; }
+		if (name != "") { visiting.put(name, true); }
+		Vector<string> identifiers = definition.replacementIdentifiers();
+		int index = 0;
+		while (index < identifiers.len) {
+			string identifier = identifiers.get(index);
+			SourceMacroDefinition? nested = self.active(identifier);
+			if (nested != null) {
+				self.collectFreeIdentifiers(nested, visiting, result);
+			} else if (!result.contains(identifier)) {
+				result.push(identifier);
+			}
+			index++;
+		}
+	}
 }

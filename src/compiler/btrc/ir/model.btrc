@@ -3,624 +3,620 @@
 import std.map;
 import std.strings;
 import std.vector;
+
 import ../generated/ast/node.btrc;
 
 class IRCleanupSlot {
-    public int site;
-    public string name;
-    public string c_type;
-    public string take_function;
+	public int site;
+	public string name;
+	public string c_type;
+	public string take_function;
 
-    public IRCleanupSlot(int site, string name, string cType,
-            string takeFunction) {
-        self.site = site;
-        self.name = name;
-        self.c_type = cType;
-        self.take_function = takeFunction;
-    }
+	public IRCleanupSlot(int site, string name, string cType, string takeFunction) {
+		self.site = site;
+		self.name = name;
+		self.c_type = cType;
+		self.take_function = takeFunction;
+	}
 }
 
 enum IRKind {
-    IRK_NONE = 0,
-    /* expressions */
-    IRK_LITERAL,
-    IRK_VAR,
-    IRK_FUNCTION_REF,
-    IRK_BINOP,
-    IRK_COMMA_EXPR,
-    IRK_UNARYOP,
-    IRK_CALL,
-    IRK_CAST,
-    IRK_TERNARY,
-    IRK_INDEX,
-    IRK_FIELD_ACCESS,
-    IRK_ADDRESS_OF,
-    IRK_DEREF,
-    IRK_SIZEOF,
-    IRK_INITIALIZER_LIST,
-    IRK_COMPOUND_LITERAL,
-    IRK_STMT_EXPR,
-    IRK_INVALID_EXPR,
-    /* statements */
-    IRK_VAR_DECL,
-    IRK_ASSIGN,
-    IRK_RETURN,
-    IRK_EXPR_STMT,
-    IRK_IF,
-    IRK_WHILE,
-    IRK_DO_WHILE,
-    IRK_FOR,
-    IRK_BREAK,
-    IRK_CONTINUE,
-    IRK_BLOCK,
-    IRK_SWITCH,
-    IRK_CASE,
+	IRK_NONE = 0,
+	/* expressions */
+	IRK_LITERAL,
+	IRK_VAR,
+	IRK_FUNCTION_REF,
+	IRK_BINOP,
+	IRK_COMMA_EXPR,
+	IRK_UNARYOP,
+	IRK_CALL,
+	IRK_CAST,
+	IRK_TERNARY,
+	IRK_INDEX,
+	IRK_FIELD_ACCESS,
+	IRK_ADDRESS_OF,
+	IRK_DEREF,
+	IRK_SIZEOF,
+	IRK_INITIALIZER_LIST,
+	IRK_COMPOUND_LITERAL,
+	IRK_STMT_EXPR,
+	IRK_INVALID_EXPR,
+	/* statements */
+	IRK_VAR_DECL,
+	IRK_ASSIGN,
+	IRK_RETURN,
+	IRK_EXPR_STMT,
+	IRK_IF,
+	IRK_WHILE,
+	IRK_DO_WHILE,
+	IRK_FOR,
+	IRK_BREAK,
+	IRK_CONTINUE,
+	IRK_BLOCK,
+	IRK_SWITCH,
+	IRK_CASE,
 };
 
 class IRNode {
-    public int kind;
+	public int kind;
 
-    /* IRLiteral: C literal text */
-    public string text;
+	/* IRLiteral: C literal text */
+	public string text;
 
-    /* IRVar/IRFunctionRef: name. IRCall: named callee. */
-    public string name;
-    public string callee;
-    public string op;
-    public bool prefix;
+	/* IRVar/IRFunctionRef: name. IRCall: named callee. */
+	public string name;
+	public string callee;
+	public string op;
+	public bool prefix;
 
-    /* sub-expressions */
-    public IRNode left;
-    public IRNode right;
-    public IRNode operand;
-    public IRNode expr;          /* cast/address/deref/expr-stmt/call-callee operand */
-    public IRNode obj;
-    public IRNode index;
-    public IRNode condition;
-    public IRNode true_expr;
-    public IRNode false_expr;
-    public Vector<IRNode> args;
-    public Vector<string> field_names; /* IRCompoundLiteral designators */
+	/* sub-expressions */
+	public IRNode left;
+	public IRNode right;
+	public IRNode operand;
+	public IRNode expr;          /* cast/address/deref/expr-stmt/call-callee operand */
+	public IRNode obj;
+	public IRNode index;
+	public IRNode condition;
+	public IRNode true_expr;
+	public IRNode false_expr;
+	public Vector<IRNode> args;
+	public Vector<string> field_names; /* IRCompoundLiteral designators */
 
-    /* IRCast / IRSizeof */
-    public string target_type;
+	/* IRCast / IRSizeof */
+	public string target_type;
 
-    /* IRFieldAccess */
-    public string field;
-    public bool arrow;
-    /* Resolved direct-storage identity for source indexes and lowered derefs.
+	/* IRFieldAccess */
+	public string field;
+	public bool arrow;
+	/* Resolved direct-storage identity for source indexes and lowered derefs.
      * An empty known root means the lvalue changes a pointee, not the pointer
      * automatic itself. */
-    public string storage_root;
-    public bool storage_root_known;
-    public bool source_address;
-    public string array_storage_root;
-    public bool array_storage_known;
+	public string storage_root;
+	public bool storage_root_known;
+	public bool source_address;
+	public string array_storage_root;
+	public bool array_storage_known;
 
-    /* statements */
-    public string c_type;        /* IRVarDecl type text */
-    public bool is_array_decl;   /* IRVarDecl declarator carries [] */
-    public IRNode array_size;    /* optional local array/VLA bound */
-    public bool is_volatile;     /* Physical qualifier emitted in this declarator. */
-    public bool effective_is_volatile; /* Semantic outer-object qualification. */
-    public bool setjmp_inferred_volatile;
-    public bool is_static;       /* IRVarDecl storage class */
-    public bool is_extern;       /* IRVarDecl storage class */
-    public bool is_cycle_return_temp; /* Boundary-pass provenance marker. */
-    public bool falls_through;   /* IRCase: intentionally reaches next case. */
-    public bool can_fall_through; /* Structured statement continuation metadata. */
-    public bool never_returns;   /* IRCall: control cannot continue afterward. */
-    /* Typed unwind-slot identity shared by one declaration and its calls. */
-    public IRCleanupSlot cleanup_slot;
-    public string helper_ref;    /* Explicit runtime-helper edge on IRCall. */
-    public string realtime_provenance; /* Exact typed-intrinsic certificate. */
-    public IRNode init;          /* IRVarDecl initializer / IRFor init */
-    public IRNode value;         /* IRReturn / IRAssign value */
-    public IRNode target;        /* IRAssign target */
-    public IRNode then_block;    /* IRIf */
-    public IRNode else_block;    /* IRIf */
-    public IRNode body;          /* IRWhile/IRDoWhile/IRFor body */
-    public IRNode update;        /* IRFor update */
-    public bool realtime_bounded; /* Semantic certificate for source C-for. */
-    public Vector<IRNode> stmts; /* IRBlock / IRStmtExpr setup statements */
-    public IRNode result;        /* IRStmtExpr result expression */
+	/* statements */
+	public string c_type;        /* IRVarDecl type text */
+	public bool is_array_decl;   /* IRVarDecl declarator carries [] */
+	public IRNode array_size;    /* optional local array/VLA bound */
+	public bool is_volatile;     /* Physical qualifier emitted in this declarator. */
+	public bool effective_is_volatile; /* Semantic outer-object qualification. */
+	public bool setjmp_inferred_volatile;
+	public bool is_static;       /* IRVarDecl storage class */
+	public bool is_extern;       /* IRVarDecl storage class */
+	public bool is_cycle_return_temp; /* Boundary-pass provenance marker. */
+	public bool falls_through;   /* IRCase: intentionally reaches next case. */
+	public bool can_fall_through; /* Structured statement continuation metadata. */
+	public bool never_returns;   /* IRCall: control cannot continue afterward. */
+	/* Typed unwind-slot identity shared by one declaration and its calls. */
+	public IRCleanupSlot cleanup_slot;
+	public string helper_ref;    /* Explicit runtime-helper edge on IRCall. */
+	public string realtime_provenance; /* Exact typed-intrinsic certificate. */
+	public IRNode init;          /* IRVarDecl initializer / IRFor init */
+	public IRNode value;         /* IRReturn / IRAssign value */
+	public IRNode target;        /* IRAssign target */
+	public IRNode then_block;    /* IRIf */
+	public IRNode else_block;    /* IRIf */
+	public IRNode body;          /* IRWhile/IRDoWhile/IRFor body */
+	public IRNode update;        /* IRFor update */
+	public bool realtime_bounded; /* Semantic certificate for source C-for. */
+	public Vector<IRNode> stmts; /* IRBlock / IRStmtExpr setup statements */
+	public IRNode result;        /* IRStmtExpr result expression */
 
-    public IRNode() {
-        self.kind = IRK_NONE;
-        self.text = "";
-        self.name = "";
-        self.callee = "";
-        self.op = "";
-        self.prefix = false;
-        self.left = null;
-        self.right = null;
-        self.operand = null;
-        self.expr = null;
-        self.obj = null;
-        self.index = null;
-        self.condition = null;
-        self.true_expr = null;
-        self.false_expr = null;
-        self.args = [];
-        self.field_names = [];
-        self.target_type = "";
-        self.field = "";
-        self.arrow = false;
-        self.storage_root = "";
-        self.storage_root_known = false;
-        self.source_address = false;
-        self.array_storage_root = "";
-        self.array_storage_known = false;
-        self.c_type = "";
-        self.is_array_decl = false;
-        self.array_size = null;
-        self.is_volatile = false;
-        self.effective_is_volatile = false;
-        self.setjmp_inferred_volatile = false;
-        self.is_static = false;
-        self.is_extern = false;
-        self.is_cycle_return_temp = false;
-        self.falls_through = false;
-        self.can_fall_through = true;
-        self.never_returns = false;
-        self.cleanup_slot = null;
-        self.helper_ref = "";
-        self.realtime_provenance = "";
-        self.init = null;
-        self.value = null;
-        self.target = null;
-        self.then_block = null;
-        self.else_block = null;
-        self.body = null;
-        self.update = null;
-        self.realtime_bounded = false;
-        self.stmts = [];
-        self.result = null;
-    }
+	public IRNode() {
+		self.kind = IRK_NONE;
+		self.text = "";
+		self.name = "";
+		self.callee = "";
+		self.op = "";
+		self.prefix = false;
+		self.left = null;
+		self.right = null;
+		self.operand = null;
+		self.expr = null;
+		self.obj = null;
+		self.index = null;
+		self.condition = null;
+		self.true_expr = null;
+		self.false_expr = null;
+		self.args = [];
+		self.field_names = [];
+		self.target_type = "";
+		self.field = "";
+		self.arrow = false;
+		self.storage_root = "";
+		self.storage_root_known = false;
+		self.source_address = false;
+		self.array_storage_root = "";
+		self.array_storage_known = false;
+		self.c_type = "";
+		self.is_array_decl = false;
+		self.array_size = null;
+		self.is_volatile = false;
+		self.effective_is_volatile = false;
+		self.setjmp_inferred_volatile = false;
+		self.is_static = false;
+		self.is_extern = false;
+		self.is_cycle_return_temp = false;
+		self.falls_through = false;
+		self.can_fall_through = true;
+		self.never_returns = false;
+		self.cleanup_slot = null;
+		self.helper_ref = "";
+		self.realtime_provenance = "";
+		self.init = null;
+		self.value = null;
+		self.target = null;
+		self.then_block = null;
+		self.else_block = null;
+		self.body = null;
+		self.update = null;
+		self.realtime_bounded = false;
+		self.stmts = [];
+		self.result = null;
+	}
 
-    class string directStorageRoot(IRNode? node) {
-        if (node == null) { return ""; }
-        if (node.kind == IRK_VAR) { return node.name; }
-        if (node.kind == IRK_FIELD_ACCESS) {
-            if (node.arrow) { return ""; }
-            return IRNode.directStorageRoot(node.obj);
-        }
-        if ((node.kind == IRK_INDEX || node.kind == IRK_DEREF)
-                && node.storage_root_known) {
-            return node.storage_root;
-        }
-        if (node.kind == IRK_INDEX) {
-            return IRNode.directStorageRoot(node.obj);
-        }
-        return "";
-    }
+	class string directStorageRoot(IRNode? node) {
+		if (node == null) { return ""; }
+		if (node.kind == IRK_VAR) { return node.name; }
+		if (node.kind == IRK_FIELD_ACCESS) {
+			if (node.arrow) { return ""; }
+			return IRNode.directStorageRoot(node.obj);
+		}
+		if ((node.kind == IRK_INDEX || node.kind == IRK_DEREF) && node.storage_root_known) {
+			return node.storage_root;
+		}
+		if (node.kind == IRK_INDEX) {
+			return IRNode.directStorageRoot(node.obj);
+		}
+		return "";
+	}
 
-    class IRNode recordArrayProjection(IRNode field, bool isArray) {
-        if (isArray) {
-            field.array_storage_known = true;
-            field.array_storage_root = IRNode.directStorageRoot(field);
-        }
-        return field;
-    }
+	class IRNode recordArrayProjection(IRNode field, bool isArray) {
+		if (isArray) {
+			field.array_storage_known = true;
+			field.array_storage_root = IRNode.directStorageRoot(field);
+		}
+		return field;
+	}
 
-    class IRNode recordArrayValue(IRNode value, bool isArray) {
-        if (isArray) {
-            value.array_storage_known = true;
-            value.array_storage_root = IRNode.directStorageRoot(value);
-        }
-        return value;
-    }
+	class IRNode recordArrayValue(IRNode value, bool isArray) {
+		if (isArray) {
+			value.array_storage_known = true;
+			value.array_storage_root = IRNode.directStorageRoot(value);
+		}
+		return value;
+	}
 
-    /* --- Typed constructors return fresh nodes and never alias. --- */
+	/* --- Typed constructors return fresh nodes and never alias. --- */
 
-    class IRNode literal(string text) {
-        IRNode n = IRNode();
-        n.kind = IRK_LITERAL;
-        n.text = text;
-        return n;
-    }
+	class IRNode literal(string text) {
+		IRNode n = IRNode();
+		n.kind = IRK_LITERAL;
+		n.text = text;
+		return n;
+	}
 
-    class IRNode initializerList(Vector<IRNode> elements) {
-        IRNode n = IRNode();
-        n.kind = IRK_INITIALIZER_LIST;
-        n.args = elements;
-        return n;
-    }
+	class IRNode initializerList(Vector<IRNode> elements) {
+		IRNode n = IRNode();
+		n.kind = IRK_INITIALIZER_LIST;
+		n.args = elements;
+		return n;
+	}
 
-    /* A typed C compound literal with named field initializers. `field_names` and
+	/* A typed C compound literal with named field initializers. `field_names` and
      * `args` are parallel vectors so every initializer remains a traversable IR
      * expression (mirrors Python IRCompoundLiteral.fields). */
-    class IRNode compoundLiteral(string c_type, Vector<string> field_names,
-            Vector<IRNode> values) {
-        IRNode n = IRNode();
-        n.kind = IRK_COMPOUND_LITERAL;
-        n.target_type = c_type;
-        n.field_names = field_names;
-        n.args = values;
-        return n;
-    }
+	class IRNode compoundLiteral(string c_type, Vector<string> field_names, Vector<IRNode> values) {
+		IRNode n = IRNode();
+		n.kind = IRK_COMPOUND_LITERAL;
+		n.target_type = c_type;
+		n.field_names = field_names;
+		n.args = values;
+		return n;
+	}
 
-    class IRNode variable(string name) {
-        IRNode n = IRNode();
-        n.kind = IRK_VAR;
-        n.name = name;
-        return n;
-    }
+	class IRNode variable(string name) {
+		IRNode n = IRNode();
+		n.kind = IRK_VAR;
+		n.name = name;
+		return n;
+	}
 
-    class IRNode functionReference(string name) {
-        IRNode n = IRNode();
-        n.kind = IRK_FUNCTION_REF;
-        n.name = name;
-        return n;
-    }
+	class IRNode functionReference(string name) {
+		IRNode n = IRNode();
+		n.kind = IRK_FUNCTION_REF;
+		n.name = name;
+		return n;
+	}
 
-    class IRNode binary(IRNode left, string op, IRNode right) {
-        IRNode n = IRNode();
-        n.kind = IRK_BINOP;
-        n.left = left;
-        n.op = op;
-        n.right = right;
-        return n;
-    }
+	class IRNode binary(IRNode left, string op, IRNode right) {
+		IRNode n = IRNode();
+		n.kind = IRK_BINOP;
+		n.left = left;
+		n.op = op;
+		n.right = right;
+		return n;
+	}
 
-    class IRNode unary(string op, IRNode operand, bool prefix) {
-        IRNode n = IRNode();
-        n.kind = IRK_UNARYOP;
-        n.op = op;
-        n.operand = operand;
-        n.prefix = prefix;
-        return n;
-    }
+	class IRNode unary(string op, IRNode operand, bool prefix) {
+		IRNode n = IRNode();
+		n.kind = IRK_UNARYOP;
+		n.op = op;
+		n.operand = operand;
+		n.prefix = prefix;
+		return n;
+	}
 
-    class IRNode call(string callee, Vector<IRNode> args) {
-        IRNode n = IRNode();
-        n.kind = IRK_CALL;
-        n.callee = callee;
-        n.args = args;
-        return n;
-    }
+	class IRNode call(string callee, Vector<IRNode> args) {
+		IRNode n = IRNode();
+		n.kind = IRK_CALL;
+		n.callee = callee;
+		n.args = args;
+		return n;
+	}
 
-    class IRNode indirectCall(IRNode callee, Vector<IRNode> args) {
-        IRNode n = IRNode();
-        n.kind = IRK_CALL;
-        n.expr = callee;
-        n.args = args;
-        return n;
-    }
+	class IRNode indirectCall(IRNode callee, Vector<IRNode> args) {
+		IRNode n = IRNode();
+		n.kind = IRK_CALL;
+		n.expr = callee;
+		n.args = args;
+		return n;
+	}
 
-    class IRNode cast(string target_type, IRNode expr) {
-        IRNode n = IRNode();
-        n.kind = IRK_CAST;
-        n.target_type = target_type;
-        n.expr = expr;
-        return n;
-    }
+	class IRNode cast(string target_type, IRNode expr) {
+		IRNode n = IRNode();
+		n.kind = IRK_CAST;
+		n.target_type = target_type;
+		n.expr = expr;
+		return n;
+	}
 
-    class IRNode ternary(IRNode condition, IRNode true_expr, IRNode false_expr) {
-        IRNode n = IRNode();
-        n.kind = IRK_TERNARY;
-        n.condition = condition;
-        n.true_expr = true_expr;
-        n.false_expr = false_expr;
-        return n;
-    }
+	class IRNode ternary(IRNode condition, IRNode true_expr, IRNode false_expr) {
+		IRNode n = IRNode();
+		n.kind = IRK_TERNARY;
+		n.condition = condition;
+		n.true_expr = true_expr;
+		n.false_expr = false_expr;
+		return n;
+	}
 
-    class IRNode indexAccess(IRNode obj, IRNode index) {
-        IRNode n = IRNode();
-        n.kind = IRK_INDEX;
-        n.obj = obj;
-        n.index = index;
-        return n;
-    }
+	class IRNode indexAccess(IRNode obj, IRNode index) {
+		IRNode n = IRNode();
+		n.kind = IRK_INDEX;
+		n.obj = obj;
+		n.index = index;
+		return n;
+	}
 
-    class IRNode fieldAccess(IRNode obj, string field, bool arrow) {
-        IRNode n = IRNode();
-        n.kind = IRK_FIELD_ACCESS;
-        n.obj = obj;
-        n.field = field;
-        n.arrow = arrow;
-        return n;
-    }
+	class IRNode fieldAccess(IRNode obj, string field, bool arrow) {
+		IRNode n = IRNode();
+		n.kind = IRK_FIELD_ACCESS;
+		n.obj = obj;
+		n.field = field;
+		n.arrow = arrow;
+		return n;
+	}
 
-    class IRNode addressOf(IRNode expr) {
-        IRNode n = IRNode();
-        n.kind = IRK_ADDRESS_OF;
-        n.expr = expr;
-        return n;
-    }
+	class IRNode addressOf(IRNode expr) {
+		IRNode n = IRNode();
+		n.kind = IRK_ADDRESS_OF;
+		n.expr = expr;
+		return n;
+	}
 
-    class IRNode dereference(IRNode expr) {
-        IRNode n = IRNode();
-        n.kind = IRK_DEREF;
-        n.expr = expr;
-        return n;
-    }
+	class IRNode dereference(IRNode expr) {
+		IRNode n = IRNode();
+		n.kind = IRK_DEREF;
+		n.expr = expr;
+		return n;
+	}
 
-    class IRNode sizeofType(string operand_type) {
-        IRNode n = IRNode();
-        n.kind = IRK_SIZEOF;
-        n.target_type = operand_type;
-        return n;
-    }
+	class IRNode sizeofType(string operand_type) {
+		IRNode n = IRNode();
+		n.kind = IRK_SIZEOF;
+		n.target_type = operand_type;
+		return n;
+	}
 
-    class IRNode sizeofExpression(IRNode operand) {
-        IRNode n = IRNode();
-        n.kind = IRK_SIZEOF;
-        n.operand = operand;
-        return n;
-    }
+	class IRNode sizeofExpression(IRNode operand) {
+		IRNode n = IRNode();
+		n.kind = IRK_SIZEOF;
+		n.operand = operand;
+		return n;
+	}
 
-    class IRNode variableDeclaration(string c_type, string name, IRNode? init) {
-        IRNode n = IRNode();
-        n.kind = IRK_VAR_DECL;
-        n.c_type = c_type;
-        n.name = name;
-        if (init != null) { n.init = init; }
-        return n;
-    }
+	class IRNode variableDeclaration(string c_type, string name, IRNode? init) {
+		IRNode n = IRNode();
+		n.kind = IRK_VAR_DECL;
+		n.c_type = c_type;
+		n.name = name;
+		if (init != null) { n.init = init; }
+		return n;
+	}
 
-    class IRNode arrayDeclaration(string c_type, string name, IRNode? arraySize,
-            IRNode? init) {
-        IRNode n = IRNode.variableDeclaration(c_type, name, init);
-        n.is_array_decl = true;
-        if (arraySize != null) { n.array_size = arraySize; }
-        return n;
-    }
+	class IRNode arrayDeclaration(string c_type, string name, IRNode? arraySize, IRNode? init) {
+		IRNode n = IRNode.variableDeclaration(c_type, name, init);
+		n.is_array_decl = true;
+		if (arraySize != null) { n.array_size = arraySize; }
+		return n;
+	}
 
-    class IRNode assignment(IRNode target, IRNode value) {
-        IRNode n = IRNode();
-        n.kind = IRK_ASSIGN;
-        n.target = target;
-        n.value = value;
-        return n;
-    }
+	class IRNode assignment(IRNode target, IRNode value) {
+		IRNode n = IRNode();
+		n.kind = IRK_ASSIGN;
+		n.target = target;
+		n.value = value;
+		return n;
+	}
 
-    class IRNode returnStatement(IRNode? value) {
-        IRNode n = IRNode();
-        n.kind = IRK_RETURN;
-        if (value != null) { n.value = value; }
-        return n;
-    }
+	class IRNode returnStatement(IRNode? value) {
+		IRNode n = IRNode();
+		n.kind = IRK_RETURN;
+		if (value != null) { n.value = value; }
+		return n;
+	}
 
-    class IRNode expressionStatement(IRNode expr) {
-        IRNode n = IRNode();
-        n.kind = IRK_EXPR_STMT;
-        n.expr = expr;
-        return n;
-    }
+	class IRNode expressionStatement(IRNode expr) {
+		IRNode n = IRNode();
+		n.kind = IRK_EXPR_STMT;
+		n.expr = expr;
+		return n;
+	}
 
-    class IRNode ifStatement(IRNode condition, IRNode then_block, IRNode? else_block) {
-        IRNode n = IRNode();
-        n.kind = IRK_IF;
-        n.condition = condition;
-        n.then_block = then_block;
-        /* Guard the field store: btrcpy's ARC emits `else_block->__rc++` on the
+	class IRNode ifStatement(IRNode condition, IRNode then_block, IRNode? else_block) {
+		IRNode n = IRNode();
+		n.kind = IRK_IF;
+		n.condition = condition;
+		n.then_block = then_block;
+		/* Guard the field store: btrcpy's ARC emits `else_block->__rc++` on the
          * assignment, which null-derefs when no else exists. Leaving the field at
          * its constructor default (null) skips that, matching the parser's idiom. */
-        if (else_block != null) { n.else_block = else_block; }
-        return n;
-    }
+		if (else_block != null) { n.else_block = else_block; }
+		return n;
+	}
 
-    class IRNode whileStatement(IRNode condition, IRNode body) {
-        IRNode n = IRNode();
-        n.kind = IRK_WHILE;
-        n.condition = condition;
-        n.body = body;
-        return n;
-    }
+	class IRNode whileStatement(IRNode condition, IRNode body) {
+		IRNode n = IRNode();
+		n.kind = IRK_WHILE;
+		n.condition = condition;
+		n.body = body;
+		return n;
+	}
 
-    class IRNode doWhileStatement(IRNode body, IRNode condition) {
-        IRNode n = IRNode();
-        n.kind = IRK_DO_WHILE;
-        n.body = body;
-        n.condition = condition;
-        return n;
-    }
+	class IRNode doWhileStatement(IRNode body, IRNode condition) {
+		IRNode n = IRNode();
+		n.kind = IRK_DO_WHILE;
+		n.body = body;
+		n.condition = condition;
+		return n;
+	}
 
-    class IRNode forStatement(IRNode? init, IRNode condition, IRNode? update, IRNode body) {
-        IRNode n = IRNode();
-        n.kind = IRK_FOR;
-        if (init != null) { n.init = init; }
-        n.condition = condition;
-        if (update != null) { n.update = update; }
-        n.body = body;
-        return n;
-    }
+	class IRNode forStatement(IRNode? init, IRNode condition, IRNode? update, IRNode body) {
+		IRNode n = IRNode();
+		n.kind = IRK_FOR;
+		if (init != null) { n.init = init; }
+		n.condition = condition;
+		if (update != null) { n.update = update; }
+		n.body = body;
+		return n;
+	}
 
-    class IRNode breakStatement() {
-        IRNode n = IRNode();
-        n.kind = IRK_BREAK;
-        return n;
-    }
+	class IRNode breakStatement() {
+		IRNode n = IRNode();
+		n.kind = IRK_BREAK;
+		return n;
+	}
 
-    class IRNode continueStatement() {
-        IRNode n = IRNode();
-        n.kind = IRK_CONTINUE;
-        return n;
-    }
+	class IRNode continueStatement() {
+		IRNode n = IRNode();
+		n.kind = IRK_CONTINUE;
+		return n;
+	}
 
-    class IRNode block(Vector<IRNode> stmts) {
-        IRNode n = IRNode();
-        n.kind = IRK_BLOCK;
-        n.stmts = stmts;
-        return n;
-    }
+	class IRNode block(Vector<IRNode> stmts) {
+		IRNode n = IRNode();
+		n.kind = IRK_BLOCK;
+		n.stmts = stmts;
+		return n;
+	}
 
-    /* IRSwitch: `value` is the switch expression; `args` holds the IRCase nodes
+	/* IRSwitch: `value` is the switch expression; `args` holds the IRCase nodes
      * (mirrors IRSwitch.value/cases). */
-    class IRNode switchStatement(IRNode value, Vector<IRNode> cases) {
-        IRNode n = IRNode();
-        n.kind = IRK_SWITCH;
-        n.value = value;
-        n.args = cases;
-        return n;
-    }
+	class IRNode switchStatement(IRNode value, Vector<IRNode> cases) {
+		IRNode n = IRNode();
+		n.kind = IRK_SWITCH;
+		n.value = value;
+		n.args = cases;
+		return n;
+	}
 
-    /* IRCase: one switch case. `value` is the case label expression (null = the
+	/* IRCase: one switch case. `value` is the case label expression (null = the
      * `default:` clause); `stmts` is the case body (mirrors IRCase.value/body). */
-    class IRNode caseClause(IRNode? value, Vector<IRNode> body, bool fallsThrough) {
-        IRNode n = IRNode();
-        n.kind = IRK_CASE;
-        /* Guard the field store: btrcpy's ARC emits `value->__rc++` on the
+	class IRNode caseClause(IRNode? value, Vector<IRNode> body, bool fallsThrough) {
+		IRNode n = IRNode();
+		n.kind = IRK_CASE;
+		/* Guard the field store: btrcpy's ARC emits `value->__rc++` on the
          * assignment, which null-derefs for a `default:` clause (value == null).
          * Leaving the field at its constructor default (null) skips that. */
-        if (value != null) { n.value = value; }
-        n.stmts = body;
-        n.falls_through = fallsThrough;
-        return n;
-    }
+		if (value != null) { n.value = value; }
+		n.stmts = body;
+		n.falls_through = fallsThrough;
+		return n;
+	}
 
-    /* IRStmtExpr: setup statements hoisted before the enclosing statement, then the
+	/* IRStmtExpr: setup statements hoisted before the enclosing statement, then the
      * `result` expression is used in place. Mirrors IRStmtExpr (standard C11; no GCC
      * statement expressions). */
-    class IRNode statementExpression(Vector<IRNode> stmts, IRNode result) {
-        IRNode n = IRNode();
-        n.kind = IRK_STMT_EXPR;
-        n.stmts = stmts;
-        n.result = result;
-        return n;
-    }
+	class IRNode statementExpression(Vector<IRNode> stmts, IRNode result) {
+		IRNode n = IRNode();
+		n.kind = IRK_STMT_EXPR;
+		n.stmts = stmts;
+		n.result = result;
+		return n;
+	}
 
-    /* A standard-C comma expression. Every child is evaluated left-to-right and
+	/* A standard-C comma expression. Every child is evaluated left-to-right and
      * the final child is the value of the whole expression. */
-    class IRNode commaExpression(Vector<IRNode> expressions) {
-        IRNode n = IRNode();
-        n.kind = IRK_COMMA_EXPR;
-        n.args = expressions;
-        return n;
-    }
+	class IRNode commaExpression(Vector<IRNode> expressions) {
+		IRNode n = IRNode();
+		n.kind = IRK_COMMA_EXPR;
+		n.args = expressions;
+		return n;
+	}
 
-    /* A deferred typed-operator diagnostic. Generic instances initially contain
+	/* A deferred typed-operator diagnostic. Generic instances initially contain
      * every method; function DCE may remove an unreachable invalid specialization.
      * If the expression survives, the emitter reports its diagnostic and stops. */
-    class IRNode invalidExpression(string message) {
-        IRNode n = IRNode();
-        n.kind = IRK_INVALID_EXPR;
-        n.text = message;
-        return n;
-    }
-
+	class IRNode invalidExpression(string message) {
+		IRNode n = IRNode();
+		n.kind = IRK_INVALID_EXPR;
+		n.text = message;
+		return n;
+	}
 }
 
 /* --- IR top-level entities (functions + module) --- */
 
 class IRParam {
-    public string c_type;
-    public string name;
-    public bool is_volatile;
-    public bool effective_is_volatile;
-    public bool setjmp_inferred_volatile;
-    public IRParam(string c_type, string name) {
-        self.c_type = c_type;
-        self.name = name;
-        self.is_volatile = false;
-        self.effective_is_volatile = false;
-        self.setjmp_inferred_volatile = false;
-    }
+	public string c_type;
+	public string name;
+	public bool is_volatile;
+	public bool effective_is_volatile;
+	public bool setjmp_inferred_volatile;
+	public IRParam(string c_type, string name) {
+		self.c_type = c_type;
+		self.name = name;
+		self.is_volatile = false;
+		self.effective_is_volatile = false;
+		self.setjmp_inferred_volatile = false;
+	}
 }
 
 /* A single field within a struct definition (mirrors IRStructField). */
 class IRStructField {
-    public string c_type;
-    public string name;
-    public IRNode array_size;
-    public bool is_volatile;
-    public bool effective_is_volatile;
-    public IRStructField(string c_type, string name) {
-        self.c_type = c_type;
-        self.name = name;
-        self.array_size = null;
-        self.is_volatile = false;
-        self.effective_is_volatile = false;
-    }
+	public string c_type;
+	public string name;
+	public IRNode array_size;
+	public bool is_volatile;
+	public bool effective_is_volatile;
+	public IRStructField(string c_type, string name) {
+		self.c_type = c_type;
+		self.name = name;
+		self.array_size = null;
+		self.is_volatile = false;
+		self.effective_is_volatile = false;
+	}
 }
 
 /* A struct definition (mirrors IRStructDef). */
 class IRStructDef {
-    public string name;
-    public Vector<IRStructField> fields;
-    /* Zero means natural alignment; otherwise one supported pragma-pack
+	public string name;
+	public Vector<IRStructField> fields;
+	/* Zero means natural alignment; otherwise one supported pragma-pack
      * alignment that must wrap this exact declaration during emission. */
-    public int pack_alignment;
-    public IRStructDef() {
-        self.name = "";
-        self.fields = [];
-        self.pack_alignment = 0;
-    }
+	public int pack_alignment;
+	public IRStructDef() {
+		self.name = "";
+		self.fields = [];
+		self.pack_alignment = 0;
+	}
 }
 
 class IRTypedefDef {
-    public string target_type;
-    public string name;
-    public bool is_volatile;
-    public IRTypedefDef(string target_type, string name) {
-        self.target_type = target_type;
-        self.name = name;
-        self.is_volatile = false;
-    }
+	public string target_type;
+	public string name;
+	public bool is_volatile;
+	public IRTypedefDef(string target_type, string name) {
+		self.target_type = target_type;
+		self.name = name;
+		self.is_volatile = false;
+	}
 }
 
 class IRTaggedUnionVariant {
-    public string name;
-    public Vector<IRStructField> fields;
-    public IRTaggedUnionVariant(string name) {
-        self.name = name;
-        self.fields = [];
-    }
+	public string name;
+	public Vector<IRStructField> fields;
+	public IRTaggedUnionVariant(string name) {
+		self.name = name;
+		self.fields = [];
+	}
 }
 
 class IRTaggedUnionDef {
-    public string name;
-    public string tag_type;
-    public Vector<IRTaggedUnionVariant> variants;
-    public IRTaggedUnionDef(string name, string tag_type) {
-        self.name = name;
-        self.tag_type = tag_type;
-        self.variants = [];
-    }
+	public string name;
+	public string tag_type;
+	public Vector<IRTaggedUnionVariant> variants;
+	public IRTaggedUnionDef(string name, string tag_type) {
+		self.name = name;
+		self.tag_type = tag_type;
+		self.variants = [];
+	}
 }
 
 class IRGlobalDecl {
-    public string c_type;
-    public string name;
-    public IRNode init;
-    public IRNode array_size;
-    public bool is_unsized_array;
-    public bool is_static;
-    public bool is_extern;
-    public bool is_volatile;
-    public bool effective_is_volatile;
-    public IRGlobalDecl(string c_type, string name) {
-        self.c_type = c_type;
-        self.name = name;
-        self.init = null;
-        self.array_size = null;
-        self.is_unsized_array = false;
-        self.is_static = true;
-        self.is_extern = false;
-        self.is_volatile = false;
-        self.effective_is_volatile = false;
-    }
+	public string c_type;
+	public string name;
+	public IRNode init;
+	public IRNode array_size;
+	public bool is_unsized_array;
+	public bool is_static;
+	public bool is_extern;
+	public bool is_volatile;
+	public bool effective_is_volatile;
+	public IRGlobalDecl(string c_type, string name) {
+		self.c_type = c_type;
+		self.name = name;
+		self.init = null;
+		self.array_size = null;
+		self.is_unsized_array = false;
+		self.is_static = true;
+		self.is_extern = false;
+		self.is_volatile = false;
+		self.effective_is_volatile = false;
+	}
 }
 
 class IRFunction {
-    public string name;
-    public string return_type;
-    public Vector<IRParam> params;
-    public IRNode body;      /* IRBlock, or null for a forward-only decl */
-    public bool is_static;
-    public bool archive_export;
-    public bool is_realtime;
+	public string name;
+	public string return_type;
+	public Vector<IRParam> params;
+	public IRNode body;      /* IRBlock, or null for a forward-only decl */
+	public bool is_static;
+	public bool archive_export;
+	public bool is_realtime;
 
-    public IRFunction() {
-        self.name = "";
-        self.return_type = "void";
-        self.params = [];
-        self.body = null;
-        self.is_static = false;
-        self.archive_export = false;
-        self.is_realtime = false;
-    }
+	public IRFunction() {
+		self.name = "";
+		self.return_type = "void";
+		self.params = [];
+		self.body = null;
+		self.is_static = false;
+		self.archive_export = false;
+		self.is_realtime = false;
+	}
 }
 
 /* Typed translation-unit declarations for the self-hosted compiler.
@@ -631,195 +627,191 @@ class IRFunction {
  * parsing pre-rendered C text. */
 
 enum IRPreprocessorKind {
-    IR_PREPROCESSOR_INCLUDE = 1,
-    IR_PREPROCESSOR_MACRO = 2,
+	IR_PREPROCESSOR_INCLUDE = 1,
+	IR_PREPROCESSOR_MACRO = 2,
 };
 
 /* A system <header> or local "header" include, or a structured single-line
  * macro.  A fat tagged node preserves source order in one homogeneous Vector.
  * `function_like` distinguishes F from F(), including an empty parameter list. */
 class IRPreprocessorDecl {
-    public int kind;
-    public string header;
-    public bool is_system;
-    public string name;
-    public bool function_like;
-    public Vector<string> params;
-    public string replacement;
+	public int kind;
+	public string header;
+	public bool is_system;
+	public string name;
+	public bool function_like;
+	public Vector<string> params;
+	public string replacement;
 
-    public IRPreprocessorDecl() {
-        self.kind = 0;
-        self.header = "";
-        self.is_system = true;
-        self.name = "";
-        self.function_like = false;
-        self.params = [];
-        self.replacement = "";
-    }
+	public IRPreprocessorDecl() {
+		self.kind = 0;
+		self.header = "";
+		self.is_system = true;
+		self.name = "";
+		self.function_like = false;
+		self.params = [];
+		self.replacement = "";
+	}
 
-    class IRPreprocessorDecl include(string header, bool isSystem) {
-        IRPreprocessorDecl declaration = IRPreprocessorDecl();
-        declaration.kind = IR_PREPROCESSOR_INCLUDE;
-        declaration.header = header;
-        declaration.is_system = isSystem;
-        return declaration;
-    }
+	class IRPreprocessorDecl include(string header, bool isSystem) {
+		IRPreprocessorDecl declaration = IRPreprocessorDecl();
+		declaration.kind = IR_PREPROCESSOR_INCLUDE;
+		declaration.header = header;
+		declaration.is_system = isSystem;
+		return declaration;
+	}
 
-    class IRPreprocessorDecl macro(string name, bool functionLike,
-            Vector<string> params, string replacement) {
-        IRPreprocessorDecl declaration = IRPreprocessorDecl();
-        declaration.kind = IR_PREPROCESSOR_MACRO;
-        declaration.name = name;
-        declaration.function_like = functionLike;
-        declaration.params = params;
-        declaration.replacement = replacement;
-        return declaration;
-    }
-
+	class IRPreprocessorDecl macro(string name, bool functionLike, Vector<string> params, string replacement) {
+		IRPreprocessorDecl declaration = IRPreprocessorDecl();
+		declaration.kind = IR_PREPROCESSOR_MACRO;
+		declaration.name = name;
+		declaration.function_like = functionLike;
+		declaration.params = params;
+		declaration.replacement = replacement;
+		return declaration;
+	}
 }
 
 class IRStructForward {
-    public string name;
-    public IRStructForward(string name) { self.name = name; }
+	public string name;
+	public IRStructForward(string name) { self.name = name; }
 }
 
 class IRFunctionPointerTypedef {
-    public string name;
-    public string return_type;
-    public Vector<string> param_types;
-    public IRFunctionPointerTypedef(string name, string returnType) {
-        self.name = name;
-        self.return_type = returnType;
-        self.param_types = [];
-    }
+	public string name;
+	public string return_type;
+	public Vector<string> param_types;
+	public IRFunctionPointerTypedef(string name, string returnType) {
+		self.name = name;
+		self.return_type = returnType;
+		self.param_types = [];
+	}
 }
 
 class IRFunctionDecl {
-    public string name;
-    public string return_type;
-    public Vector<IRParam> params;
-    public bool is_static;
-    public IRFunctionDecl(string name, string returnType, bool isStatic) {
-        self.name = name;
-        self.return_type = returnType;
-        self.params = [];
-        self.is_static = isStatic;
-    }
+	public string name;
+	public string return_type;
+	public Vector<IRParam> params;
+	public bool is_static;
+	public IRFunctionDecl(string name, string returnType, bool isStatic) {
+		self.name = name;
+		self.return_type = returnType;
+		self.params = [];
+		self.is_static = isStatic;
+	}
 }
 
 class IREnumValue {
-    public string name;
-    public IRNode value;
-    public IREnumValue(string name, IRNode value) {
-        self.name = name;
-        self.value = value;
-    }
+	public string name;
+	public IRNode value;
+	public IREnumValue(string name, IRNode value) {
+		self.name = name;
+		self.value = value;
+	}
 }
 
 class IREnumDef {
-    public string name;
-    public Vector<IREnumValue> values;
-    public IREnumDef(string name) {
-        self.name = name;
-        self.values = [];
-    }
+	public string name;
+	public Vector<IREnumValue> values;
+	public IREnumDef(string name) {
+		self.name = name;
+		self.values = [];
+	}
 }
 
 /* GPU translation-unit declarations are IR schema. The GPU pipeline builds
  * these values; optimizers and emitters consume them without depending on the
  * pipeline implementation. */
 class IRGpuBuffer {
-    public string name;
-    public string elem_type;
-    public int binding;
+	public string name;
+	public string elem_type;
+	public int binding;
 
-    public IRGpuBuffer(string name, string elemType, int binding) {
-        self.name = name;
-        self.elem_type = elemType;
-        self.binding = binding;
-    }
+	public IRGpuBuffer(string name, string elemType, int binding) {
+		self.name = name;
+		self.elem_type = elemType;
+		self.binding = binding;
+	}
 }
 
 class IRGpuUniform {
-    public string name;
-    public string storage_type;
+	public string name;
+	public string storage_type;
 
-    public IRGpuUniform(string name, string storageType) {
-        self.name = name;
-        self.storage_type = storageType;
-    }
+	public IRGpuUniform(string name, string storageType) {
+		self.name = name;
+		self.storage_type = storageType;
+	}
 }
 
 class IRGpuKernel {
-    public string name;
-    public string wgsl_source;
-    public int workgroup_size;
-    public Vector<IRGpuBuffer> param_buffers;
-    public IRGpuBuffer output_buffer;
-    public Vector<IRGpuUniform> uniform_params;
-    public Node declaration;
+	public string name;
+	public string wgsl_source;
+	public int workgroup_size;
+	public Vector<IRGpuBuffer> param_buffers;
+	public IRGpuBuffer output_buffer;
+	public Vector<IRGpuUniform> uniform_params;
+	public Node declaration;
 
-    public IRGpuKernel(string name, Node declaration) {
-        self.name = name;
-        self.wgsl_source = "";
-        self.workgroup_size = 64;
-        self.param_buffers = [];
-        self.output_buffer = null;
-        self.uniform_params = [];
-        self.declaration = declaration;
-    }
+	public IRGpuKernel(string name, Node declaration) {
+		self.name = name;
+		self.wgsl_source = "";
+		self.workgroup_size = 64;
+		self.param_buffers = [];
+		self.output_buffer = null;
+		self.uniform_params = [];
+		self.declaration = declaration;
+	}
 }
 
 /* Deterministic temporary-name state shared by every transformation of one
  * module.  Lowering and later IR normalization both allocate from this owner,
  * so stage boundaries never exchange a lowering context or guess at names. */
 class IRTemporaryNames {
-    private int nextIdentity;
+	private int nextIdentity;
 
-    public IRTemporaryNames() {
-        self.nextIdentity = 0;
-    }
+	public IRTemporaryNames() { self.nextIdentity = 0; }
 
-    public string fresh(string prefix) {
-        self.nextIdentity = self.nextIdentity + 1;
-        return prefix + "_" + Strings.fromInt(self.nextIdentity);
-    }
+	public string fresh(string prefix) {
+		self.nextIdentity = self.nextIdentity + 1;
+		return prefix + "_" + Strings.fromInt(self.nextIdentity);
+	}
 }
 
 class IRModule {
-    public Vector<IRPreprocessorDecl> preprocessor_decls;
-    public Vector<IREnumDef> enum_defs;
-    public Vector<IRStructForward> struct_forwards;
-    public Vector<IRFunctionPointerTypedef> function_pointer_typedefs;
-    public Vector<IRFunctionDecl> function_decls;
-    public Vector<IRTypedefDef> typedef_defs;
-    public Vector<IRTaggedUnionDef> tagged_union_defs;
-    public Vector<IRStructDef> struct_defs;
-    public Vector<IRGlobalDecl> global_decls;
-    public Vector<IRFunction> functions;
-    public Vector<IRGpuKernel> gpu_kernels;
-    public Map<string, bool> realtime_safe_externals;
-    public Map<string, string> realtime_intrinsic_targets;
-    public IRTemporaryNames temporary_names;
-    /* Runtime helper bodies remain registry-owned C source at the deliberate
+	public Vector<IRPreprocessorDecl> preprocessor_decls;
+	public Vector<IREnumDef> enum_defs;
+	public Vector<IRStructForward> struct_forwards;
+	public Vector<IRFunctionPointerTypedef> function_pointer_typedefs;
+	public Vector<IRFunctionDecl> function_decls;
+	public Vector<IRTypedefDef> typedef_defs;
+	public Vector<IRTaggedUnionDef> tagged_union_defs;
+	public Vector<IRStructDef> struct_defs;
+	public Vector<IRGlobalDecl> global_decls;
+	public Vector<IRFunction> functions;
+	public Vector<IRGpuKernel> gpu_kernels;
+	public Map<string, bool> realtime_safe_externals;
+	public Map<string, string> realtime_intrinsic_targets;
+	public IRTemporaryNames temporary_names;
+	/* Runtime helper bodies remain registry-owned C source at the deliberate
      * runtime seam. They are never parsed to recover declaration structure. */
-    public Vector<string> helpers;
+	public Vector<string> helpers;
 
-    public IRModule() {
-        self.preprocessor_decls = [];
-        self.enum_defs = [];
-        self.struct_forwards = [];
-        self.function_pointer_typedefs = [];
-        self.function_decls = [];
-        self.typedef_defs = [];
-        self.tagged_union_defs = [];
-        self.struct_defs = [];
-        self.global_decls = [];
-        self.functions = [];
-        self.gpu_kernels = [];
-        self.realtime_safe_externals = {};
-        self.realtime_intrinsic_targets = {};
-        self.temporary_names = IRTemporaryNames();
-        self.helpers = [];
-    }
+	public IRModule() {
+		self.preprocessor_decls = [];
+		self.enum_defs = [];
+		self.struct_forwards = [];
+		self.function_pointer_typedefs = [];
+		self.function_decls = [];
+		self.typedef_defs = [];
+		self.tagged_union_defs = [];
+		self.struct_defs = [];
+		self.global_decls = [];
+		self.functions = [];
+		self.gpu_kernels = [];
+		self.realtime_safe_externals = {};
+		self.realtime_intrinsic_targets = {};
+		self.temporary_names = IRTemporaryNames();
+		self.helpers = [];
+	}
 }

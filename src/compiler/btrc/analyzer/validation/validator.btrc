@@ -1,6 +1,7 @@
 /* Per-program semantic-validation composition and ordered validation cascade. */
 
 import std.map;
+
 import ../../generated/ast/node.btrc;
 import ../declarations.btrc;
 import ../expressions.btrc;
@@ -23,119 +24,88 @@ import ./storage.btrc;
 import ./types.btrc;
 
 class SemanticValidator {
-    private Node program;
-    private SemanticValidationState state;
-    private TypeValidator types;
-    private ConstantValidator constants;
-    private NameValidator names;
-    private StorageValidator storage;
-    private OwnershipValidator ownership;
-    private BorrowValidator borrows;
-    private CallValidator calls;
-    private ExpressionValidator expressions;
-    private ControlFlowValidator controlFlow;
-    private DeclarationValidator declarations;
+	private Node program;
+	private SemanticValidationState state;
+	private TypeValidator types;
+	private ConstantValidator constants;
+	private NameValidator names;
+	private StorageValidator storage;
+	private OwnershipValidator ownership;
+	private BorrowValidator borrows;
+	private CallValidator calls;
+	private ExpressionValidator expressions;
+	private ControlFlowValidator controlFlow;
+	private DeclarationValidator declarations;
 
-    public SemanticValidator(Node program, Analyzed analyzed,
-            HostedAbiRepository hostedAbi,
-            OperatorSemantics operators, GpuSemantics gpu,
-            CycleSemantics cycles,
-            SourceRuntimeSymbols sourceRuntimeSymbols,
-            SemanticTypeSystem semanticTypes,
-            DeclarationRegistry declarationRegistry,
-            ExpressionTypeResolver expressionTypes) {
-        self.program = program;
-        self.state = SemanticValidationState(analyzed);
-        SourceMacroNamespace sourceMacros = SourceMacroNamespace(program);
+	public SemanticValidator(Node program, Analyzed analyzed, HostedAbiRepository hostedAbi, OperatorSemantics operators, GpuSemantics gpu, CycleSemantics cycles, SourceRuntimeSymbols sourceRuntimeSymbols, SemanticTypeSystem semanticTypes, DeclarationRegistry declarationRegistry, ExpressionTypeResolver expressionTypes) {
+		self.program = program;
+		self.state = SemanticValidationState(analyzed);
+		SourceMacroNamespace sourceMacros = SourceMacroNamespace(program);
 
-        self.types = TypeValidator(
-            self.state, operators, gpu, semanticTypes,
-            declarationRegistry, expressionTypes);
-        self.constants = ConstantValidator(self.state, self.types);
-        self.storage = StorageValidator(
-            self.state, operators, self.types, self.constants);
-        self.ownership = OwnershipValidator(
-            self.state, hostedAbi, operators, self.types, self.storage);
-        self.borrows = BorrowValidator(
-            self.state, hostedAbi,
-            self.types, self.storage, self.ownership);
-        self.calls = CallValidator(
-            self.state, hostedAbi,
-            operators, gpu, sourceMacros, sourceRuntimeSymbols,
-            self.types, self.storage, self.ownership, self.borrows);
-        self.names = NameValidator(
-            self.state, hostedAbi, cycles, sourceRuntimeSymbols,
-            self.types, self.storage, self.calls);
-        self.expressions = ExpressionValidator(
-            self.state, operators, sourceMacros, sourceRuntimeSymbols,
-            expressionTypes, self.types, self.names,
-            self.storage, self.ownership,
-            self.borrows, self.calls);
-        self.controlFlow = ControlFlowValidator(
-            self.state, operators,
-            self.types, self.constants, self.names, self.storage,
-            self.ownership, self.borrows, self.expressions);
-        self.declarations = DeclarationValidator(
-            self.state, hostedAbi, operators,
-            self.types, self.constants, self.names, self.storage,
-            self.ownership, self.expressions, self.controlFlow);
-    }
+		self.types = TypeValidator(self.state, operators, gpu, semanticTypes, declarationRegistry, expressionTypes);
+		self.constants = ConstantValidator(self.state, self.types);
+		self.storage = StorageValidator(self.state, operators, self.types, self.constants);
+		self.ownership = OwnershipValidator(self.state, hostedAbi, operators, self.types, self.storage);
+		self.borrows = BorrowValidator(self.state, hostedAbi, self.types, self.storage, self.ownership);
+		self.calls = CallValidator(self.state, hostedAbi, operators, gpu, sourceMacros, sourceRuntimeSymbols, self.types, self.storage, self.ownership, self.borrows);
+		self.names = NameValidator(self.state, hostedAbi, cycles, sourceRuntimeSymbols, self.types, self.storage, self.calls);
+		self.expressions = ExpressionValidator(self.state, operators, sourceMacros, sourceRuntimeSymbols, expressionTypes, self.types, self.names, self.storage, self.ownership, self.borrows, self.calls);
+		self.controlFlow = ControlFlowValidator(self.state, operators, self.types, self.constants, self.names, self.storage, self.ownership, self.borrows, self.expressions);
+		self.declarations = DeclarationValidator(self.state, hostedAbi, operators, self.types, self.constants, self.names, self.storage, self.ownership, self.expressions, self.controlFlow);
+	}
 
-    public void validate() {
-        self.types.validateTypedefs(self.program);
-        self.declarations.validateInterfaceDeclarations(self.program);
-        int index = 0;
-        while (index < self.program.declarations.len) {
-            Node declaration = self.program.declarations.get(index);
-            if (declaration.kind == NK_CLASS_DECL) {
-                self.declarations.validateClassInheritanceCycle(declaration);
-            }
-            index = index + 1;
-        }
-        self.constants.validateProgramEnumValues(self.program);
-        self.types.validateAggregateDeclarationTypes(self.program);
-        self.ownership.validateConcreteMutexInstances();
-        self.declarations.validateStructLayouts(self.program);
-        self.names.validateDeclarationNames(self.program);
-        self.names.validateDeclarationDuplicates(self.program);
-        self.names.publishKnownGeneratedSymbols(self.program);
-        self.declarations.validateCallableShapes(self.program);
+	public void validate() {
+		self.types.validateTypedefs(self.program);
+		self.declarations.validateInterfaceDeclarations(self.program);
+		int index = 0;
+		while (index < self.program.declarations.len) {
+			Node declaration = self.program.declarations.get(index);
+			if (declaration.kind == NK_CLASS_DECL) {
+				self.declarations.validateClassInheritanceCycle(declaration);
+			}
+			index = index + 1;
+		}
+		self.constants.validateProgramEnumValues(self.program);
+		self.types.validateAggregateDeclarationTypes(self.program);
+		self.ownership.validateConcreteMutexInstances();
+		self.declarations.validateStructLayouts(self.program);
+		self.names.validateDeclarationNames(self.program);
+		self.names.validateDeclarationDuplicates(self.program);
+		self.names.publishKnownGeneratedSymbols(self.program);
+		self.declarations.validateCallableShapes(self.program);
 
-        index = 0;
-        while (index < self.program.declarations.len) {
-            Node declaration = self.program.declarations.get(index);
-            if (declaration.kind == NK_CLASS_DECL) {
-                self.declarations.validateClassContracts(declaration);
-            }
-            index = index + 1;
-        }
+		index = 0;
+		while (index < self.program.declarations.len) {
+			Node declaration = self.program.declarations.get(index);
+			if (declaration.kind == NK_CLASS_DECL) {
+				self.declarations.validateClassContracts(declaration);
+			}
+			index = index + 1;
+		}
 
-        index = 0;
-        while (index < self.program.declarations.len) {
-            Node declaration = self.program.declarations.get(index);
-            if (declaration.kind == NK_RICH_ENUM_DECL) {
-                self.declarations.validateRichEnumDefaults(declaration);
-            }
-            index = index + 1;
-        }
+		index = 0;
+		while (index < self.program.declarations.len) {
+			Node declaration = self.program.declarations.get(index);
+			if (declaration.kind == NK_RICH_ENUM_DECL) {
+				self.declarations.validateRichEnumDefaults(declaration);
+			}
+			index = index + 1;
+		}
 
-        Map<string, Node> globals =
-            self.declarations.globalTypes(self.state.analyzed);
-        index = 0;
-        while (index < self.program.declarations.len) {
-            Node declaration = self.program.declarations.get(index);
-            if (declaration.kind == NK_FUNCTION_DECL) {
-                self.declarations.validateCallableBody(declaration, null);
-            } else if (declaration.kind == NK_CLASS_DECL) {
-                self.declarations.validateClassBodies(declaration);
-            } else if (declaration.kind == NK_VAR_DECL_STMT) {
-                self.controlFlow.validateVariable(declaration, globals);
-            }
-            index = index + 1;
-        }
-    }
+		Map<string, Node> globals = self.declarations.globalTypes(self.state.analyzed);
+		index = 0;
+		while (index < self.program.declarations.len) {
+			Node declaration = self.program.declarations.get(index);
+			if (declaration.kind == NK_FUNCTION_DECL) {
+				self.declarations.validateCallableBody(declaration, null);
+			} else if (declaration.kind == NK_CLASS_DECL) {
+				self.declarations.validateClassBodies(declaration);
+			} else if (declaration.kind == NK_VAR_DECL_STMT) {
+				self.controlFlow.validateVariable(declaration, globals);
+			}
+			index = index + 1;
+		}
+	}
 
-    public void validateCompletedGeneratedSymbols() {
-        self.names.validateCompletedGeneratedSymbols(self.program);
-    }
+	public void validateCompletedGeneratedSymbols() { self.names.validateCompletedGeneratedSymbols(self.program); }
 }

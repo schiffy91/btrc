@@ -1,5 +1,6 @@
 import std.map;
 import std.vector;
+
 import ../../../analyzer/declarations.btrc;
 import ../../../analyzer/models.btrc;
 import ../../../analyzer/ownership/cycles.btrc;
@@ -18,849 +19,644 @@ import ../types.btrc;
  * module's deterministic temporary-name state, never on LoweringContext or
  * semantic-analysis services. */
 class CycleReturnBoundaryLowerer {
-    private IRTemporaryNames temporaryNames;
+	private IRTemporaryNames temporaryNames;
 
-    public CycleReturnBoundaryLowerer(
-            IRTemporaryNames temporaryNames) {
-        self.temporaryNames = temporaryNames;
-    }
+	public CycleReturnBoundaryLowerer(IRTemporaryNames temporaryNames) { self.temporaryNames = temporaryNames; }
 
-    private bool containsCyclableRelease(IRNode? node) {
-        if (node == null) { return false; }
-        if (node.kind == IRK_CALL
-                && (node.callee == "__btrc_arc_release"
-                    || node.callee == "__btrc_arc_release_edge"
-                    || node.callee == "__btrc_arc_replace_edge")) {
-            return true;
-        }
-        if (self.containsCyclableRelease(node.left)
-                || self.containsCyclableRelease(node.right)
-                || self.containsCyclableRelease(node.operand)
-                || self.containsCyclableRelease(node.expr)
-                || self.containsCyclableRelease(node.obj)
-                || self.containsCyclableRelease(node.index)
-                || self.containsCyclableRelease(node.condition)
-                || self.containsCyclableRelease(node.true_expr)
-                || self.containsCyclableRelease(node.false_expr)
-                || self.containsCyclableRelease(node.array_size)
-                || self.containsCyclableRelease(node.init)
-                || self.containsCyclableRelease(node.value)
-                || self.containsCyclableRelease(node.target)
-                || self.containsCyclableRelease(node.then_block)
-                || self.containsCyclableRelease(node.else_block)
-                || self.containsCyclableRelease(node.body)
-                || self.containsCyclableRelease(node.update)
-                || self.containsCyclableRelease(node.result)) {
-            return true;
-        }
-        int index = 0;
-        while (index < node.args.len) {
-            if (self.containsCyclableRelease(node.args.get(index))) {
-                return true;
-            }
-            index = index + 1;
-        }
-        index = 0;
-        while (index < node.stmts.len) {
-            if (self.containsCyclableRelease(node.stmts.get(index))) {
-                return true;
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	private bool containsCyclableRelease(IRNode? node) {
+		if (node == null) { return false; }
+		if (node.kind == IRK_CALL && (node.callee == "__btrc_arc_release" || node.callee == "__btrc_arc_release_edge" || node.callee == "__btrc_arc_replace_edge")) {
+			return true;
+		}
+		if (self.containsCyclableRelease(node.left) || self.containsCyclableRelease(node.right) || self.containsCyclableRelease(node.operand) || self.containsCyclableRelease(node.expr) || self.containsCyclableRelease(node.obj) || self.containsCyclableRelease(node.index) || self.containsCyclableRelease(node.condition) || self.containsCyclableRelease(node.true_expr) || self.containsCyclableRelease(node.false_expr) || self.containsCyclableRelease(node.array_size) || self.containsCyclableRelease(node.init) || self.containsCyclableRelease(node.value) || self.containsCyclableRelease(node.target) || self.containsCyclableRelease(node.then_block) || self.containsCyclableRelease(node.else_block) || self.containsCyclableRelease(node.body) || self.containsCyclableRelease(node.update) || self.containsCyclableRelease(node.result)) {
+			return true;
+		}
+		int index = 0;
+		while (index < node.args.len) {
+			if (self.containsCyclableRelease(node.args.get(index))) {
+				return true;
+			}
+			index = index + 1;
+		}
+		index = 0;
+		while (index < node.stmts.len) {
+			if (self.containsCyclableRelease(node.stmts.get(index))) {
+				return true;
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 
-    private IRNode forcedFlush() {
-        Vector<IRNode> arguments = [];
-        return IRNode.expressionStatement(
-            IRNode.call("__btrc_flush_cycles", arguments));
-    }
+	private IRNode forcedFlush() {
+		Vector<IRNode> arguments = [];
+		return IRNode.expressionStatement(IRNode.call("__btrc_flush_cycles", arguments));
+	}
 
-    private bool isForcedFlush(IRNode node) {
-        return node.kind == IRK_EXPR_STMT
-            && node.expr != null && node.expr.kind == IRK_CALL
-            && node.expr.callee == "__btrc_flush_cycles";
-    }
+	private bool isForcedFlush(IRNode node) { return node.kind == IRK_EXPR_STMT && node.expr != null && node.expr.kind == IRK_CALL && node.expr.callee == "__btrc_flush_cycles"; }
 
-    private bool endsWithFlush(Vector<IRNode> statements) {
-        return statements.len > 0
-            && self.isForcedFlush(
-                statements.get(statements.len - 1));
-    }
+	private bool endsWithFlush(Vector<IRNode> statements) { return statements.len > 0 && self.isForcedFlush(statements.get(statements.len - 1)); }
 
-    private bool isMaterializedReturn(
-            Vector<IRNode> statements, IRNode statement) {
-        if (statements.len < 2 || !self.endsWithFlush(statements)
-                || statement.value == null
-                || statement.value.kind != IRK_VAR) {
-            return false;
-        }
-        IRNode declaration = statements.get(statements.len - 2);
-        return declaration.kind == IRK_VAR_DECL
-            && declaration.is_cycle_return_temp
-            && declaration.name == statement.value.name;
-    }
+	private bool isMaterializedReturn(Vector<IRNode> statements, IRNode statement) {
+		if (statements.len < 2 || !self.endsWithFlush(statements) || statement.value == null || statement.value.kind != IRK_VAR) {
+			return false;
+		}
+		IRNode declaration = statements.get(statements.len - 2);
+		return declaration.kind == IRK_VAR_DECL && declaration.is_cycle_return_temp && declaration.name == statement.value.name;
+	}
 
-    private void rewriteNestedReturns(
-            IRFunction definition, IRNode node) {
-        if (node.kind == IRK_BLOCK) {
-            self.rewriteReturns(definition, node);
-        } else if (node.kind == IRK_IF) {
-            self.rewriteReturns(definition, node.then_block);
-            if (node.else_block != null) {
-                self.rewriteReturns(definition, node.else_block);
-            }
-        } else if (node.kind == IRK_WHILE
-                || node.kind == IRK_DO_WHILE || node.kind == IRK_FOR) {
-            self.rewriteReturns(definition, node.body);
-        } else if (node.kind == IRK_SWITCH) {
-            int index = 0;
-            while (index < node.args.len) {
-                self.rewriteReturns(
-                    definition, node.args.get(index));
-                index = index + 1;
-            }
-        } else if (node.kind == IRK_CASE) {
-            self.rewriteReturns(definition, node);
-        }
-    }
+	private void rewriteNestedReturns(IRFunction definition, IRNode node) {
+		if (node.kind == IRK_BLOCK) {
+			self.rewriteReturns(definition, node);
+		} else if (node.kind == IRK_IF) {
+			self.rewriteReturns(definition, node.then_block);
+			if (node.else_block != null) {
+				self.rewriteReturns(definition, node.else_block);
+			}
+		} else if (node.kind == IRK_WHILE || node.kind == IRK_DO_WHILE || node.kind == IRK_FOR) {
+			self.rewriteReturns(definition, node.body);
+		} else if (node.kind == IRK_SWITCH) {
+			int index = 0;
+			while (index < node.args.len) {
+				self.rewriteReturns(definition, node.args.get(index));
+				index = index + 1;
+			}
+		} else if (node.kind == IRK_CASE) {
+			self.rewriteReturns(definition, node);
+		}
+	}
 
-    private void rewriteReturns(
-            IRFunction definition, IRNode block) {
-        Vector<IRNode> rewritten = [];
-        int index = 0;
-        while (index < block.stmts.len) {
-            IRNode statement = block.stmts.get(index);
-            self.rewriteNestedReturns(definition, statement);
-            if (statement.kind == IRK_RETURN) {
-                bool materialized = self.isMaterializedReturn(
-                    rewritten, statement);
-                if (statement.value != null && !materialized) {
-                    string result = self.temporaryNames.fresh(
-                        "__btrc_cycle_return");
-                    IRNode declaration = IRNode.variableDeclaration(
-                        definition.return_type, result, statement.value);
-                    declaration.is_cycle_return_temp = true;
-                    rewritten.push(declaration);
-                    statement.value = IRNode.variable(result);
-                }
-                if (!self.endsWithFlush(rewritten)) {
-                    rewritten.push(self.forcedFlush());
-                }
-            }
-            rewritten.push(statement);
-            index = index + 1;
-        }
-        block.stmts = rewritten;
-    }
+	private void rewriteReturns(IRFunction definition, IRNode block) {
+		Vector<IRNode> rewritten = [];
+		int index = 0;
+		while (index < block.stmts.len) {
+			IRNode statement = block.stmts.get(index);
+			self.rewriteNestedReturns(definition, statement);
+			if (statement.kind == IRK_RETURN) {
+				bool materialized = self.isMaterializedReturn(rewritten, statement);
+				if (statement.value != null && !materialized) {
+					string result = self.temporaryNames.fresh("__btrc_cycle_return");
+					IRNode declaration = IRNode.variableDeclaration(definition.return_type, result, statement.value);
+					declaration.is_cycle_return_temp = true;
+					rewritten.push(declaration);
+					statement.value = IRNode.variable(result);
+				}
+				if (!self.endsWithFlush(rewritten)) {
+					rewritten.push(self.forcedFlush());
+				}
+			}
+			rewritten.push(statement);
+			index = index + 1;
+		}
+		block.stmts = rewritten;
+	}
 
-    private void forceBoundary(IRFunction definition) {
-        self.rewriteReturns(definition, definition.body);
-        if (IRStatementSequence(
-                definition.body.stmts).mayFallThrough()
-                && !self.endsWithFlush(definition.body.stmts)) {
-            definition.body.stmts.push(self.forcedFlush());
-        }
-    }
+	private void forceBoundary(IRFunction definition) {
+		self.rewriteReturns(definition, definition.body);
+		if (IRStatementSequence(definition.body.stmts).mayFallThrough() && !self.endsWithFlush(definition.body.stmts)) {
+			definition.body.stmts.push(self.forcedFlush());
+		}
+	}
 
-    public bool installReleaseBearingBoundary(
-            IRFunction definition) {
-        if (definition.body == null
-                || !self.containsCyclableRelease(definition.body)) {
-            return false;
-        }
-        self.forceBoundary(definition);
-        return true;
-    }
+	public bool installReleaseBearingBoundary(IRFunction definition) {
+		if (definition.body == null || !self.containsCyclableRelease(definition.body)) {
+			return false;
+		}
+		self.forceBoundary(definition);
+		return true;
+	}
 
-    public void installProgramBoundary(IRModule module) {
-        bool hasCyclableRelease = false;
-        int index = 0;
-        while (index < module.functions.len) {
-            IRFunction definition = module.functions.get(index);
-            if (definition.body != null
-                    && self.containsCyclableRelease(definition.body)) {
-                hasCyclableRelease = true;
-                break;
-            }
-            index = index + 1;
-        }
-        if (!hasCyclableRelease) { return; }
-        index = 0;
-        while (index < module.functions.len) {
-            IRFunction definition = module.functions.get(index);
-            if (definition.name == "main"
-                    || definition.name == "btrc_main") {
-                self.forceBoundary(definition);
-            }
-            index = index + 1;
-        }
-    }
+	public void installProgramBoundary(IRModule module) {
+		bool hasCyclableRelease = false;
+		int index = 0;
+		while (index < module.functions.len) {
+			IRFunction definition = module.functions.get(index);
+			if (definition.body != null && self.containsCyclableRelease(definition.body)) {
+				hasCyclableRelease = true;
+				break;
+			}
+			index = index + 1;
+		}
+		if (!hasCyclableRelease) { return; }
+		index = 0;
+		while (index < module.functions.len) {
+			IRFunction definition = module.functions.get(index);
+			if (definition.name == "main" || definition.name == "btrc_main") {
+				self.forceBoundary(definition);
+			}
+			index = index + 1;
+		}
+	}
 }
 
 class CycleBoundaryLowerer {
-    private Analyzed analyzed;
-    private ManagedValueSemantics managedValues;
-    private CycleSemantics cycles;
-    private CleanupSlotRegistry cleanupSlots;
-    private LoweringContext context;
-    private CTypeLowerer cTypes;
+	private Analyzed analyzed;
+	private ManagedValueSemantics managedValues;
+	private CycleSemantics cycles;
+	private CleanupSlotRegistry cleanupSlots;
+	private LoweringContext context;
+	private CTypeLowerer cTypes;
 
-    public CycleBoundaryLowerer(Analyzed analyzed,
-            ManagedValueSemantics managedValues,
-            CycleSemantics cycles,
-            CleanupSlotRegistry cleanupSlots,
-            LoweringContext context,
-            CTypeLowerer cTypes) {
-        self.analyzed = analyzed;
-        self.managedValues = managedValues;
-        self.cycles = cycles;
-        self.cleanupSlots = cleanupSlots;
-        self.context = context;
-        self.cTypes = cTypes;
-    }
+	public CycleBoundaryLowerer(Analyzed analyzed, ManagedValueSemantics managedValues, CycleSemantics cycles, CleanupSlotRegistry cleanupSlots, LoweringContext context, CTypeLowerer cTypes) {
+		self.analyzed = analyzed;
+		self.managedValues = managedValues;
+		self.cycles = cycles;
+		self.cleanupSlots = cleanupSlots;
+		self.context = context;
+		self.cTypes = cTypes;
+	}
 
-    public bool publicCollectionBase(string name) {
-        return name == "Array" || name == "List" || name == "Map"
-            || name == "Set" || name == "Vector";
-    }
+	public bool publicCollectionBase(string name) { return name == "Array" || name == "List" || name == "Map" || name == "Set" || name == "Vector"; }
 
-    private IRNode edgeDescriptor(Node typeExpr) {
-        if (self.managedValues.isMutex(typeExpr)) {
-            return self.arcDescriptor(
-                self.managedValues.mutexRuntimeType());
-        }
-        string emitted = self.cycles.edgeEmittedName(typeExpr);
-        Vector<string> fields = [];
-        fields.push("visit");
-        fields.push("destroy");
-        fields.push("hook");
-        fields.push("guard");
-        fields.push("raise");
-        Vector<IRNode> values = [];
-        if ((typeExpr.generic_args.len > 0
-                    && self.cycles.genericTypeNeedsVisitor(typeExpr))
-                || (typeExpr.generic_args.len == 0
-                    && self.cycles.classNeedsVisitor(typeExpr.base))) {
-            values.push(IRNode.functionReference(
-                self.cycles.visitorName(emitted)));
-        } else {
-            values.push(IRNode.literal("NULL"));
-        }
-        values.push(IRNode.functionReference(emitted + "_destroy"));
-        values.push(IRNode.literal("NULL"));
-        values.push(IRNode.literal("NULL"));
-        values.push(IRNode.literal("NULL"));
-        return IRNode.addressOf(IRNode.compoundLiteral(
-            "__btrc_arc_type", fields, values));
-    }
+	private IRNode edgeDescriptor(Node typeExpr) {
+		if (self.managedValues.isMutex(typeExpr)) {
+			return self.arcDescriptor(self.managedValues.mutexRuntimeType());
+		}
+		string emitted = self.cycles.edgeEmittedName(typeExpr);
+		Vector<string> fields = [];
+		fields.push("visit");
+		fields.push("destroy");
+		fields.push("hook");
+		fields.push("guard");
+		fields.push("raise");
+		Vector<IRNode> values = [];
+		if ((typeExpr.generic_args.len > 0 && self.cycles.genericTypeNeedsVisitor(typeExpr)) || (typeExpr.generic_args.len == 0 && self.cycles.classNeedsVisitor(typeExpr.base))) {
+			values.push(IRNode.functionReference(self.cycles.visitorName(emitted)));
+		} else {
+			values.push(IRNode.literal("NULL"));
+		}
+		values.push(IRNode.functionReference(emitted + "_destroy"));
+		values.push(IRNode.literal("NULL"));
+		values.push(IRNode.literal("NULL"));
+		values.push(IRNode.literal("NULL"));
+		return IRNode.addressOf(IRNode.compoundLiteral("__btrc_arc_type", fields, values));
+	}
 
-    private IRNode arcDescriptor(string emittedName) {
-        if (emittedName == self.managedValues.mutexRuntimeType()) {
-            self.context.referenceHelper("__btrc_mutex_arc_type");
-            return IRNode.addressOf(
-                IRNode.variable("__btrc_mutex_arc_descriptor"));
-        }
-        Vector<string> fields = [];
-        fields.push("visit");
-        fields.push("destroy");
-        fields.push("hook");
-        fields.push("guard");
-        fields.push("raise");
-        Vector<IRNode> values = [];
-        if (self.cycles.emittedTypeNeedsVisitor(emittedName)) {
-            values.push(IRNode.functionReference(
-                self.cycles.visitorName(emittedName)));
-        } else {
-            values.push(IRNode.literal("NULL"));
-        }
-        values.push(IRNode.functionReference(emittedName + "_destroy"));
-        values.push(IRNode.literal("NULL"));
-        values.push(IRNode.literal("NULL"));
-        values.push(IRNode.literal("NULL"));
-        return IRNode.addressOf(IRNode.compoundLiteral(
-            "__btrc_arc_type", fields, values));
-    }
+	private IRNode arcDescriptor(string emittedName) {
+		if (emittedName == self.managedValues.mutexRuntimeType()) {
+			self.context.referenceHelper("__btrc_mutex_arc_type");
+			return IRNode.addressOf(IRNode.variable("__btrc_mutex_arc_descriptor"));
+		}
+		Vector<string> fields = [];
+		fields.push("visit");
+		fields.push("destroy");
+		fields.push("hook");
+		fields.push("guard");
+		fields.push("raise");
+		Vector<IRNode> values = [];
+		if (self.cycles.emittedTypeNeedsVisitor(emittedName)) {
+			values.push(IRNode.functionReference(self.cycles.visitorName(emittedName)));
+		} else {
+			values.push(IRNode.literal("NULL"));
+		}
+		values.push(IRNode.functionReference(emittedName + "_destroy"));
+		values.push(IRNode.literal("NULL"));
+		values.push(IRNode.literal("NULL"));
+		values.push(IRNode.literal("NULL"));
+		return IRNode.addressOf(IRNode.compoundLiteral("__btrc_arc_type", fields, values));
+	}
 
-    private void appendCycleCallback(Node typeExpr, IRNode slot,
-            Vector<IRNode> output) {
-        Node? canonical = SemanticTypeSystem.resolveOuterTypedefType(
-            typeExpr, self.analyzed.typedefTable);
-        if (canonical == null) { return; }
-        Node resolved = canonical;
-        string access = self.cleanupSlots.ensureArcSlotAdapter(
-            self.cTypes.lower(resolved));
-        Vector<IRNode> arguments = [];
-        arguments.push(IRNode.cast(
-            "volatile void*", IRNode.addressOf(slot)));
-        arguments.push(IRNode.functionReference(access));
-        arguments.push(self.edgeDescriptor(resolved));
-        arguments.push(IRNode.variable("context"));
-        Vector<IRNode> thenBody = [];
-        thenBody.push(IRNode.expressionStatement(
-            IRNode.call("fn", arguments)));
-        output.push(IRNode.ifStatement(
-            slot, IRNode.block(thenBody), null));
-    }
+	private void appendCycleCallback(Node typeExpr, IRNode slot, Vector<IRNode> output) {
+		Node? canonical = SemanticTypeSystem.resolveOuterTypedefType(typeExpr, self.analyzed.typedefTable);
+		if (canonical == null) { return; }
+		Node resolved = canonical;
+		string access = self.cleanupSlots.ensureArcSlotAdapter(self.cTypes.lower(resolved));
+		Vector<IRNode> arguments = [];
+		arguments.push(IRNode.cast("volatile void*", IRNode.addressOf(slot)));
+		arguments.push(IRNode.functionReference(access));
+		arguments.push(self.edgeDescriptor(resolved));
+		arguments.push(IRNode.variable("context"));
+		Vector<IRNode> thenBody = [];
+		thenBody.push(IRNode.expressionStatement(IRNode.call("fn", arguments)));
+		output.push(IRNode.ifStatement(slot, IRNode.block(thenBody), null));
+	}
 
-    public bool appendClassFieldVisit(Node typeExpr,
-            IRNode slot, Vector<IRNode> output) {
-        if (typeExpr == null || typeExpr.pointer_depth > 1
-                || typeExpr.is_array) {
-            return false;
-        }
-        if (self.cycles.isGraphManaged(typeExpr)) {
-            self.appendCycleCallback(typeExpr, slot, output);
-            return true;
-        }
-        return false;
-    }
+	public bool appendClassFieldVisit(Node typeExpr, IRNode slot, Vector<IRNode> output) {
+		if (typeExpr == null || typeExpr.pointer_depth > 1 || typeExpr.is_array) {
+			return false;
+		}
+		if (self.cycles.isGraphManaged(typeExpr)) {
+			self.appendCycleCallback(typeExpr, slot, output);
+			return true;
+		}
+		return false;
+	}
 
-    public bool appendGenericFieldVisit(Node typeExpr,
-            IRNode slot, Vector<IRNode> output) {
-        if (typeExpr == null || typeExpr.pointer_depth > 1
-                || typeExpr.is_array
-                || !self.cycles.isGraphManaged(typeExpr)) {
-            return false;
-        }
-        self.appendCycleCallback(typeExpr, slot, output);
-        return true;
-    }
+	public bool appendGenericFieldVisit(Node typeExpr, IRNode slot, Vector<IRNode> output) {
+		if (typeExpr == null || typeExpr.pointer_depth > 1 || typeExpr.is_array || !self.cycles.isGraphManaged(typeExpr)) {
+			return false;
+		}
+		self.appendCycleCallback(typeExpr, slot, output);
+		return true;
+	}
 
-    private void appendCollectionSlotVisit(Node typeExpr,
-            IRNode slot, Vector<IRNode> output) {
-        if (typeExpr == null || typeExpr.pointer_depth > 1
-                || typeExpr.is_array) {
-            return;
-        }
-        if (self.cycles.isGraphManaged(typeExpr)) {
-            self.appendCycleCallback(typeExpr, slot, output);
-        }
-    }
+	private void appendCollectionSlotVisit(Node typeExpr, IRNode slot, Vector<IRNode> output) {
+		if (typeExpr == null || typeExpr.pointer_depth > 1 || typeExpr.is_array) {
+			return;
+		}
+		if (self.cycles.isGraphManaged(typeExpr)) {
+			self.appendCycleCallback(typeExpr, slot, output);
+		}
+	}
 
-    private IRNode collectionIndexedLoop(string bound,
-            Vector<string> fields, Vector<Node> types,
-            bool occupiedOnly) {
-        string index = self.context.freshTemporary(
-            "__btrc_visit_index");
-        Vector<IRNode> slotBody = [];
-        int slotIndex = 0;
-        while (slotIndex < fields.len && slotIndex < types.len) {
-            IRNode array = IRNode.fieldAccess(
-                IRNode.variable("self"), fields.get(slotIndex), true);
-            self.appendCollectionSlotVisit(types.get(slotIndex),
-                IRNode.indexAccess(array, IRNode.variable(index)),
-                slotBody);
-            slotIndex = slotIndex + 1;
-        }
-        Vector<IRNode> loopBody = slotBody;
-        if (occupiedOnly) {
-            IRNode occupied = IRNode.indexAccess(IRNode.fieldAccess(
-                IRNode.variable("self"), "occupied", true),
-                IRNode.variable(index));
-            loopBody = [];
-            loopBody.push(IRNode.ifStatement(
-                occupied, IRNode.block(slotBody), null));
-        }
-        IRNode init = IRNode.variableDeclaration(
-            "int", index, IRNode.literal("0"));
-        IRNode condition = IRNode.binary(IRNode.variable(index), "<",
-            IRNode.fieldAccess(
-                IRNode.variable("self"), bound, true));
-        IRNode update = IRNode.unary(
-            "++", IRNode.variable(index), false);
-        return IRNode.forStatement(
-            init, condition, update, IRNode.block(loopBody));
-    }
+	private IRNode collectionIndexedLoop(string bound, Vector<string> fields, Vector<Node> types, bool occupiedOnly) {
+		string index = self.context.freshTemporary("__btrc_visit_index");
+		Vector<IRNode> slotBody = [];
+		int slotIndex = 0;
+		while (slotIndex < fields.len && slotIndex < types.len) {
+			IRNode array = IRNode.fieldAccess(IRNode.variable("self"), fields.get(slotIndex), true);
+			self.appendCollectionSlotVisit(types.get(slotIndex), IRNode.indexAccess(array, IRNode.variable(index)), slotBody);
+			slotIndex = slotIndex + 1;
+		}
+		Vector<IRNode> loopBody = slotBody;
+		if (occupiedOnly) {
+			IRNode occupied = IRNode.indexAccess(IRNode.fieldAccess(IRNode.variable("self"), "occupied", true), IRNode.variable(index));
+			loopBody = [];
+			loopBody.push(IRNode.ifStatement(occupied, IRNode.block(slotBody), null));
+		}
+		IRNode init = IRNode.variableDeclaration("int", index, IRNode.literal("0"));
+		IRNode condition = IRNode.binary(IRNode.variable(index), "<", IRNode.fieldAccess(IRNode.variable("self"), bound, true));
+		IRNode update = IRNode.unary("++", IRNode.variable(index), false);
+		return IRNode.forStatement(init, condition, update, IRNode.block(loopBody));
+	}
 
-    private void appendListBody(
-            Node element, Vector<IRNode> body) {
-        Node nodeType = Node();
-        nodeType.kind = NK_TYPE_EXPR;
-        nodeType.base = "ListNode";
-        nodeType.generic_args.push(element);
-        self.appendCollectionSlotVisit(nodeType,
-            IRNode.fieldAccess(
-                IRNode.variable("self"), "head", true), body);
-        self.appendCollectionSlotVisit(nodeType,
-            IRNode.fieldAccess(
-                IRNode.variable("self"), "tail", true), body);
-    }
+	private void appendListBody(Node element, Vector<IRNode> body) {
+		Node nodeType = Node();
+		nodeType.kind = NK_TYPE_EXPR;
+		nodeType.base = "ListNode";
+		nodeType.generic_args.push(element);
+		self.appendCollectionSlotVisit(nodeType, IRNode.fieldAccess(IRNode.variable("self"), "head", true), body);
+		self.appendCollectionSlotVisit(nodeType, IRNode.fieldAccess(IRNode.variable("self"), "tail", true), body);
+	}
 
-    private bool appendBuiltinCollectionBody(
-            GenInstance instance, Vector<IRNode> body) {
-        if (!self.cycles.isCollection(instance.base)) { return false; }
-        if ((instance.base == "Map" && instance.args.len != 2)
-                || (instance.base != "Map"
-                    && instance.args.len != 1)) {
-            fprintf(stderr,
-                "error: cannot safely traverse malformed %s instance\n",
-                instance.base);
-            exit(1);
-        }
-        if (instance.base == "List") {
-            self.appendListBody(instance.args.get(0), body);
-            return true;
-        }
-        Vector<string> fields = [];
-        Vector<Node> types = [];
-        bool occupiedOnly = false;
-        string bound = "len";
-        if (instance.base == "Vector" || instance.base == "Array") {
-            fields.push("data");
-            types.push(instance.args.get(0));
-        } else {
-            bound = "cap";
-            occupiedOnly = true;
-            fields.push("keys");
-            types.push(instance.args.get(0));
-            if (instance.base == "Map") {
-                fields.push("values");
-                types.push(instance.args.get(1));
-            }
-        }
-        body.push(self.collectionIndexedLoop(
-            bound, fields, types, occupiedOnly));
-        return true;
-    }
+	private bool appendBuiltinCollectionBody(GenInstance instance, Vector<IRNode> body) {
+		if (!self.cycles.isCollection(instance.base)) { return false; }
+		if ((instance.base == "Map" && instance.args.len != 2) || (instance.base != "Map" && instance.args.len != 1)) {
+			fprintf(stderr, "error: cannot safely traverse malformed %s instance\n", instance.base);
+			exit(1);
+		}
+		if (instance.base == "List") {
+			self.appendListBody(instance.args.get(0), body);
+			return true;
+		}
+		Vector<string> fields = [];
+		Vector<Node> types = [];
+		bool occupiedOnly = false;
+		string bound = "len";
+		if (instance.base == "Vector" || instance.base == "Array") {
+			fields.push("data");
+			types.push(instance.args.get(0));
+		} else {
+			bound = "cap";
+			occupiedOnly = true;
+			fields.push("keys");
+			types.push(instance.args.get(0));
+			if (instance.base == "Map") {
+				fields.push("values");
+				types.push(instance.args.get(1));
+			}
+		}
+		body.push(self.collectionIndexedLoop(bound, fields, types, occupiedOnly));
+		return true;
+	}
 
-    public void emitGenericVisitor(GenInstance instance,
-            Node declaration, Map<string, Node> substitutions,
-            IRModule module) {
-        if (!self.cycles.genericInstanceNeedsVisitor(instance)) { return; }
-        self.context.referenceHelper("__btrc_arc_callback_types");
-        IRFunctionDecl visitorDeclaration = IRFunctionDecl(
-            self.cycles.visitorName(instance.mangled), "void", true);
-        visitorDeclaration.params.push(IRParam("void*", "object"));
-        visitorDeclaration.params.push(
-            IRParam("__btrc_field_visit_fn", "fn"));
-        visitorDeclaration.params.push(IRParam("void*", "context"));
-        module.function_decls.push(visitorDeclaration);
+	public void emitGenericVisitor(GenInstance instance, Node declaration, Map<string, Node> substitutions, IRModule module) {
+		if (!self.cycles.genericInstanceNeedsVisitor(instance)) { return; }
+		self.context.referenceHelper("__btrc_arc_callback_types");
+		IRFunctionDecl visitorDeclaration = IRFunctionDecl(self.cycles.visitorName(instance.mangled), "void", true);
+		visitorDeclaration.params.push(IRParam("void*", "object"));
+		visitorDeclaration.params.push(IRParam("__btrc_field_visit_fn", "fn"));
+		visitorDeclaration.params.push(IRParam("void*", "context"));
+		module.function_decls.push(visitorDeclaration);
 
-        IRFunction visitor = IRFunction();
-        visitor.name = self.cycles.visitorName(instance.mangled);
-        visitor.return_type = "void";
-        visitor.is_static = true;
-        visitor.archive_export = true;
-        visitor.params.push(IRParam("void*", "object"));
-        visitor.params.push(IRParam("__btrc_field_visit_fn", "fn"));
-        visitor.params.push(IRParam("void*", "context"));
-        Vector<IRNode> body = [];
-        body.push(IRNode.variableDeclaration(instance.mangled + "*",
-            "self", IRNode.cast(instance.mangled + "*",
-                IRNode.variable("object"))));
-        bool visited = self.appendBuiltinCollectionBody(instance, body);
-        if (!visited) {
-            int memberIndex = 0;
-            while (memberIndex < declaration.members.len) {
-                Node member = declaration.members.get(memberIndex);
-                string storageName =
-                    DeclarationRegistry.instanceStorageName(member);
-                if (storageName != "") {
-                    Node resolved = SemanticTypeSystem.resolveGenericType(
-                        member.type, substitutions, self.analyzed);
-                    if (self.cycles.isGraphManaged(resolved)) {
-                        IRNode field = IRNode.fieldAccess(
-                            IRNode.variable("self"), storageName, true);
-                        if (self.appendGenericFieldVisit(
-                                resolved, field, body)) {
-                            visited = true;
-                        }
-                    }
-                }
-                memberIndex = memberIndex + 1;
-            }
-        }
-        if (!visited) {
-            body.push(IRNode.expressionStatement(
-                IRNode.cast("void", IRNode.variable("self"))));
-            body.push(IRNode.expressionStatement(
-                IRNode.cast("void", IRNode.variable("fn"))));
-            body.push(IRNode.expressionStatement(
-                IRNode.cast("void", IRNode.variable("context"))));
-        }
-        visitor.body = IRNode.block(body);
-        module.functions.push(visitor);
-    }
+		IRFunction visitor = IRFunction();
+		visitor.name = self.cycles.visitorName(instance.mangled);
+		visitor.return_type = "void";
+		visitor.is_static = true;
+		visitor.archive_export = true;
+		visitor.params.push(IRParam("void*", "object"));
+		visitor.params.push(IRParam("__btrc_field_visit_fn", "fn"));
+		visitor.params.push(IRParam("void*", "context"));
+		Vector<IRNode> body = [];
+		body.push(IRNode.variableDeclaration(instance.mangled + "*", "self", IRNode.cast(instance.mangled + "*", IRNode.variable("object"))));
+		bool visited = self.appendBuiltinCollectionBody(instance, body);
+		if (!visited) {
+			int memberIndex = 0;
+			while (memberIndex < declaration.members.len) {
+				Node member = declaration.members.get(memberIndex);
+				string storageName = DeclarationRegistry.instanceStorageName(member);
+				if (storageName != "") {
+					Node resolved = SemanticTypeSystem.resolveGenericType(member.type, substitutions, self.analyzed);
+					if (self.cycles.isGraphManaged(resolved)) {
+						IRNode field = IRNode.fieldAccess(IRNode.variable("self"), storageName, true);
+						if (self.appendGenericFieldVisit(resolved, field, body)) {
+							visited = true;
+						}
+					}
+				}
+				memberIndex = memberIndex + 1;
+			}
+		}
+		if (!visited) {
+			body.push(IRNode.expressionStatement(IRNode.cast("void", IRNode.variable("self"))));
+			body.push(IRNode.expressionStatement(IRNode.cast("void", IRNode.variable("fn"))));
+			body.push(IRNode.expressionStatement(IRNode.cast("void", IRNode.variable("context"))));
+		}
+		visitor.body = IRNode.block(body);
+		module.functions.push(visitor);
+	}
 
-    private bool topologyAssignmentOperator(string op) {
-        return op == "=" || op == "+=" || op == "-=" || op == "*="
-            || op == "/=" || op == "%=" || op == "&=" || op == "|="
-            || op == "^=" || op == "<<=" || op == ">>=";
-    }
+	private bool topologyAssignmentOperator(string op) { return op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/=" || op == "%=" || op == "&=" || op == "|=" || op == "^=" || op == "<<=" || op == ">>="; }
 
-    private bool topologyRootedInSelf(
-            IRNode? node, Map<string, bool> aliases) {
-        if (node == null) { return false; }
-        if (node.kind == IRK_VAR) {
-            return node.name == "self" || aliases.has(node.name);
-        }
-        if (node.kind == IRK_FIELD_ACCESS || node.kind == IRK_INDEX) {
-            return self.topologyRootedInSelf(node.obj, aliases);
-        }
-        if (node.kind == IRK_ADDRESS_OF || node.kind == IRK_CAST
-                || node.kind == IRK_DEREF) {
-            return self.topologyRootedInSelf(node.expr, aliases);
-        }
-        if (node.kind == IRK_UNARYOP) {
-            return self.topologyRootedInSelf(node.operand, aliases);
-        }
-        if (node.kind == IRK_BINOP
-                && (node.op == "+" || node.op == "-")) {
-            return self.topologyRootedInSelf(node.left, aliases)
-                || self.topologyRootedInSelf(node.right, aliases);
-        }
-        return false;
-    }
+	private bool topologyRootedInSelf(IRNode? node, Map<string, bool> aliases) {
+		if (node == null) { return false; }
+		if (node.kind == IRK_VAR) {
+			return node.name == "self" || aliases.has(node.name);
+		}
+		if (node.kind == IRK_FIELD_ACCESS || node.kind == IRK_INDEX) {
+			return self.topologyRootedInSelf(node.obj, aliases);
+		}
+		if (node.kind == IRK_ADDRESS_OF || node.kind == IRK_CAST || node.kind == IRK_DEREF) {
+			return self.topologyRootedInSelf(node.expr, aliases);
+		}
+		if (node.kind == IRK_UNARYOP) {
+			return self.topologyRootedInSelf(node.operand, aliases);
+		}
+		if (node.kind == IRK_BINOP && (node.op == "+" || node.op == "-")) {
+			return self.topologyRootedInSelf(node.left, aliases) || self.topologyRootedInSelf(node.right, aliases);
+		}
+		return false;
+	}
 
-    private bool selfTopologyStorage(
-            IRNode? node, Map<string, bool> aliases) {
-        if (node == null) { return false; }
-        if (node.kind == IRK_FIELD_ACCESS || node.kind == IRK_INDEX) {
-            return self.topologyRootedInSelf(node.obj, aliases);
-        }
-        if (node.kind == IRK_DEREF) {
-            return self.topologyRootedInSelf(node.expr, aliases);
-        }
-        if (node.kind == IRK_UNARYOP && node.op == "*") {
-            return self.topologyRootedInSelf(node.operand, aliases);
-        }
-        return false;
-    }
+	private bool selfTopologyStorage(IRNode? node, Map<string, bool> aliases) {
+		if (node == null) { return false; }
+		if (node.kind == IRK_FIELD_ACCESS || node.kind == IRK_INDEX) {
+			return self.topologyRootedInSelf(node.obj, aliases);
+		}
+		if (node.kind == IRK_DEREF) {
+			return self.topologyRootedInSelf(node.expr, aliases);
+		}
+		if (node.kind == IRK_UNARYOP && node.op == "*") {
+			return self.topologyRootedInSelf(node.operand, aliases);
+		}
+		return false;
+	}
 
-    private bool addTopologyAlias(string name, IRNode? source,
-            Map<string, bool> aliases) {
-        if (aliases.has(name)
-                || !self.topologyRootedInSelf(source, aliases)) {
-            return false;
-        }
-        aliases.put(name, true);
-        return true;
-    }
+	private bool addTopologyAlias(string name, IRNode? source, Map<string, bool> aliases) {
+		if (aliases.has(name) || !self.topologyRootedInSelf(source, aliases)) {
+			return false;
+		}
+		aliases.put(name, true);
+		return true;
+	}
 
-    private bool collectTopologyAliases(
-            IRNode? node, Map<string, bool> aliases) {
-        if (node == null) { return false; }
-        bool changed = false;
-        if (node.kind == IRK_VAR_DECL && node.init != null) {
-            if (self.addTopologyAlias(node.name, node.init, aliases)) {
-                changed = true;
-            }
-        } else if (node.kind == IRK_ASSIGN && node.target != null
-                && node.target.kind == IRK_VAR) {
-            if (self.addTopologyAlias(
-                    node.target.name, node.value, aliases)) {
-                changed = true;
-            }
-        } else if (node.kind == IRK_BINOP && node.op == "="
-                && node.left != null && node.left.kind == IRK_VAR) {
-            if (self.addTopologyAlias(
-                    node.left.name, node.right, aliases)) {
-                changed = true;
-            }
-        }
-        if (self.collectTopologyAliases(node.left, aliases)) {
-            changed = true;
-        }
-        if (self.collectTopologyAliases(node.right, aliases)) {
-            changed = true;
-        }
-        if (self.collectTopologyAliases(node.operand, aliases)) {
-            changed = true;
-        }
-        if (self.collectTopologyAliases(node.expr, aliases)) {
-            changed = true;
-        }
-        if (self.collectTopologyAliases(node.obj, aliases)) {
-            changed = true;
-        }
-        if (self.collectTopologyAliases(node.index, aliases)) {
-            changed = true;
-        }
-        if (self.collectTopologyAliases(node.condition, aliases)) {
-            changed = true;
-        }
-        if (self.collectTopologyAliases(node.true_expr, aliases)) {
-            changed = true;
-        }
-        if (self.collectTopologyAliases(node.false_expr, aliases)) {
-            changed = true;
-        }
-        if (self.collectTopologyAliases(node.array_size, aliases)) {
-            changed = true;
-        }
-        if (self.collectTopologyAliases(node.init, aliases)) {
-            changed = true;
-        }
-        if (self.collectTopologyAliases(node.value, aliases)) {
-            changed = true;
-        }
-        if (self.collectTopologyAliases(node.target, aliases)) {
-            changed = true;
-        }
-        if (self.collectTopologyAliases(node.then_block, aliases)) {
-            changed = true;
-        }
-        if (self.collectTopologyAliases(node.else_block, aliases)) {
-            changed = true;
-        }
-        if (self.collectTopologyAliases(node.body, aliases)) {
-            changed = true;
-        }
-        if (self.collectTopologyAliases(node.update, aliases)) {
-            changed = true;
-        }
-        if (self.collectTopologyAliases(node.result, aliases)) {
-            changed = true;
-        }
-        int index = 0;
-        while (index < node.args.len) {
-            if (self.collectTopologyAliases(
-                    node.args.get(index), aliases)) {
-                changed = true;
-            }
-            index = index + 1;
-        }
-        index = 0;
-        while (index < node.stmts.len) {
-            if (self.collectTopologyAliases(
-                    node.stmts.get(index), aliases)) {
-                changed = true;
-            }
-            index = index + 1;
-        }
-        return changed;
-    }
+	private bool collectTopologyAliases(IRNode? node, Map<string, bool> aliases) {
+		if (node == null) { return false; }
+		bool changed = false;
+		if (node.kind == IRK_VAR_DECL && node.init != null) {
+			if (self.addTopologyAlias(node.name, node.init, aliases)) {
+				changed = true;
+			}
+		} else if (node.kind == IRK_ASSIGN && node.target != null && node.target.kind == IRK_VAR) {
+			if (self.addTopologyAlias(node.target.name, node.value, aliases)) {
+				changed = true;
+			}
+		} else if (node.kind == IRK_BINOP && node.op == "=" && node.left != null && node.left.kind == IRK_VAR) {
+			if (self.addTopologyAlias(node.left.name, node.right, aliases)) {
+				changed = true;
+			}
+		}
+		if (self.collectTopologyAliases(node.left, aliases)) {
+			changed = true;
+		}
+		if (self.collectTopologyAliases(node.right, aliases)) {
+			changed = true;
+		}
+		if (self.collectTopologyAliases(node.operand, aliases)) {
+			changed = true;
+		}
+		if (self.collectTopologyAliases(node.expr, aliases)) {
+			changed = true;
+		}
+		if (self.collectTopologyAliases(node.obj, aliases)) {
+			changed = true;
+		}
+		if (self.collectTopologyAliases(node.index, aliases)) {
+			changed = true;
+		}
+		if (self.collectTopologyAliases(node.condition, aliases)) {
+			changed = true;
+		}
+		if (self.collectTopologyAliases(node.true_expr, aliases)) {
+			changed = true;
+		}
+		if (self.collectTopologyAliases(node.false_expr, aliases)) {
+			changed = true;
+		}
+		if (self.collectTopologyAliases(node.array_size, aliases)) {
+			changed = true;
+		}
+		if (self.collectTopologyAliases(node.init, aliases)) {
+			changed = true;
+		}
+		if (self.collectTopologyAliases(node.value, aliases)) {
+			changed = true;
+		}
+		if (self.collectTopologyAliases(node.target, aliases)) {
+			changed = true;
+		}
+		if (self.collectTopologyAliases(node.then_block, aliases)) {
+			changed = true;
+		}
+		if (self.collectTopologyAliases(node.else_block, aliases)) {
+			changed = true;
+		}
+		if (self.collectTopologyAliases(node.body, aliases)) {
+			changed = true;
+		}
+		if (self.collectTopologyAliases(node.update, aliases)) {
+			changed = true;
+		}
+		if (self.collectTopologyAliases(node.result, aliases)) {
+			changed = true;
+		}
+		int index = 0;
+		while (index < node.args.len) {
+			if (self.collectTopologyAliases(node.args.get(index), aliases)) {
+				changed = true;
+			}
+			index = index + 1;
+		}
+		index = 0;
+		while (index < node.stmts.len) {
+			if (self.collectTopologyAliases(node.stmts.get(index), aliases)) {
+				changed = true;
+			}
+			index = index + 1;
+		}
+		return changed;
+	}
 
-    private int topologyMutatingCallSlot(string callee) {
-        if (callee == "__btrc_arc_replace_edge"
-                || callee == "__btrc_safe_realloc" || callee == "free"
-                || callee == "memcpy" || callee == "memmove"
-                || callee == "memset" || callee == "qsort"
-                || callee == "realloc") {
-            return 0;
-        }
-        return -1;
-    }
+	private int topologyMutatingCallSlot(string callee) {
+		if (callee == "__btrc_arc_replace_edge" || callee == "__btrc_safe_realloc" || callee == "free" || callee == "memcpy" || callee == "memmove" || callee == "memset" || callee == "qsort" || callee == "realloc") {
+			return 0;
+		}
+		return -1;
+	}
 
-    private bool containsTopologyMutation(
-            IRNode? node, Map<string, bool> aliases) {
-        if (node == null) { return false; }
-        if (node.kind == IRK_ASSIGN
-                && self.selfTopologyStorage(node.target, aliases)) {
-            return true;
-        }
-        if (node.kind == IRK_BINOP
-                && self.topologyAssignmentOperator(node.op)
-                && self.selfTopologyStorage(node.left, aliases)) {
-            return true;
-        }
-        if (node.kind == IRK_UNARYOP
-                && (node.op == "++" || node.op == "--")
-                && self.selfTopologyStorage(node.operand, aliases)) {
-            return true;
-        }
-        if (node.kind == IRK_CALL) {
-            int slot = self.topologyMutatingCallSlot(node.callee);
-            if (slot >= 0 && slot < node.args.len
-                    && self.topologyRootedInSelf(
-                        node.args.get(slot), aliases)) {
-                return true;
-            }
-        }
-        if (self.containsTopologyMutation(node.left, aliases)
-                || self.containsTopologyMutation(node.right, aliases)
-                || self.containsTopologyMutation(node.operand, aliases)
-                || self.containsTopologyMutation(node.expr, aliases)
-                || self.containsTopologyMutation(node.obj, aliases)
-                || self.containsTopologyMutation(node.index, aliases)
-                || self.containsTopologyMutation(node.condition, aliases)
-                || self.containsTopologyMutation(node.true_expr, aliases)
-                || self.containsTopologyMutation(node.false_expr, aliases)
-                || self.containsTopologyMutation(node.array_size, aliases)
-                || self.containsTopologyMutation(node.init, aliases)
-                || self.containsTopologyMutation(node.value, aliases)
-                || self.containsTopologyMutation(node.target, aliases)
-                || self.containsTopologyMutation(node.then_block, aliases)
-                || self.containsTopologyMutation(node.else_block, aliases)
-                || self.containsTopologyMutation(node.body, aliases)
-                || self.containsTopologyMutation(node.update, aliases)
-                || self.containsTopologyMutation(node.result, aliases)) {
-            return true;
-        }
-        int index = 0;
-        while (index < node.args.len) {
-            if (self.containsTopologyMutation(
-                    node.args.get(index), aliases)) {
-                return true;
-            }
-            index = index + 1;
-        }
-        index = 0;
-        while (index < node.stmts.len) {
-            if (self.containsTopologyMutation(
-                    node.stmts.get(index), aliases)) {
-                return true;
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	private bool containsTopologyMutation(IRNode? node, Map<string, bool> aliases) {
+		if (node == null) { return false; }
+		if (node.kind == IRK_ASSIGN && self.selfTopologyStorage(node.target, aliases)) {
+			return true;
+		}
+		if (node.kind == IRK_BINOP && self.topologyAssignmentOperator(node.op) && self.selfTopologyStorage(node.left, aliases)) {
+			return true;
+		}
+		if (node.kind == IRK_UNARYOP && (node.op == "++" || node.op == "--") && self.selfTopologyStorage(node.operand, aliases)) {
+			return true;
+		}
+		if (node.kind == IRK_CALL) {
+			int slot = self.topologyMutatingCallSlot(node.callee);
+			if (slot >= 0 && slot < node.args.len && self.topologyRootedInSelf(node.args.get(slot), aliases)) {
+				return true;
+			}
+		}
+		if (self.containsTopologyMutation(node.left, aliases) || self.containsTopologyMutation(node.right, aliases) || self.containsTopologyMutation(node.operand, aliases) || self.containsTopologyMutation(node.expr, aliases) || self.containsTopologyMutation(node.obj, aliases) || self.containsTopologyMutation(node.index, aliases) || self.containsTopologyMutation(node.condition, aliases) || self.containsTopologyMutation(node.true_expr, aliases) || self.containsTopologyMutation(node.false_expr, aliases) || self.containsTopologyMutation(node.array_size, aliases) || self.containsTopologyMutation(node.init, aliases) || self.containsTopologyMutation(node.value, aliases) || self.containsTopologyMutation(node.target, aliases) || self.containsTopologyMutation(node.then_block, aliases) || self.containsTopologyMutation(node.else_block, aliases) || self.containsTopologyMutation(node.body, aliases) || self.containsTopologyMutation(node.update, aliases) || self.containsTopologyMutation(node.result, aliases)) {
+			return true;
+		}
+		int index = 0;
+		while (index < node.args.len) {
+			if (self.containsTopologyMutation(node.args.get(index), aliases)) {
+				return true;
+			}
+			index = index + 1;
+		}
+		index = 0;
+		while (index < node.stmts.len) {
+			if (self.containsTopologyMutation(node.stmts.get(index), aliases)) {
+				return true;
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 
-    public bool containsSelfTopologyMutation(IRNode? node) {
-        Map<string, bool> aliases = {};
-        bool changed = true;
-        while (changed) {
-            changed = self.collectTopologyAliases(node, aliases);
-        }
-        return self.containsTopologyMutation(node, aliases);
-    }
+	public bool containsSelfTopologyMutation(IRNode? node) {
+		Map<string, bool> aliases = {};
+		bool changed = true;
+		while (changed) {
+			changed = self.collectTopologyAliases(node, aliases);
+		}
+		return self.containsTopologyMutation(node, aliases);
+	}
 
-    private Vector<IRNode> topologyEpilogue(
-            string token, string marker) {
-        Vector<IRNode> output = [];
-        Vector<IRNode> completeArguments = [];
-        completeArguments.push(IRNode.cast(
-            "void* volatile*", IRNode.addressOf(
-                IRNode.variable(token))));
-        output.push(IRNode.expressionStatement(IRNode.call(
-            "__btrc_arc_topology_complete", completeArguments)));
-        if (marker != "") {
-            Vector<IRNode> discardArguments = [];
-            discardArguments.push(IRNode.variable(marker));
-            output.push(IRNode.expressionStatement(IRNode.call(
-                "__btrc_discard_cleanups_to", discardArguments)));
-        }
-        return output;
-    }
+	private Vector<IRNode> topologyEpilogue(string token, string marker) {
+		Vector<IRNode> output = [];
+		Vector<IRNode> completeArguments = [];
+		completeArguments.push(IRNode.cast("void* volatile*", IRNode.addressOf(IRNode.variable(token))));
+		output.push(IRNode.expressionStatement(IRNode.call("__btrc_arc_topology_complete", completeArguments)));
+		if (marker != "") {
+			Vector<IRNode> discardArguments = [];
+			discardArguments.push(IRNode.variable(marker));
+			output.push(IRNode.expressionStatement(IRNode.call("__btrc_discard_cleanups_to", discardArguments)));
+		}
+		return output;
+	}
 
-    private void appendTopologyEpilogue(Vector<IRNode> output,
-            string token, string marker) {
-        Vector<IRNode> epilogue = self.topologyEpilogue(token, marker);
-        int index = 0;
-        while (index < epilogue.len) {
-            output.push(epilogue.get(index));
-            index = index + 1;
-        }
-    }
+	private void appendTopologyEpilogue(Vector<IRNode> output, string token, string marker) {
+		Vector<IRNode> epilogue = self.topologyEpilogue(token, marker);
+		int index = 0;
+		while (index < epilogue.len) {
+			output.push(epilogue.get(index));
+			index = index + 1;
+		}
+	}
 
-    private void rewriteNestedTopologyReturns(IRFunction definition,
-            IRNode node, string token, string marker) {
-        if (node.kind == IRK_BLOCK) {
-            self.rewriteTopologyReturns(
-                definition, node, token, marker);
-        } else if (node.kind == IRK_IF) {
-            self.rewriteTopologyReturns(
-                definition, node.then_block, token, marker);
-            if (node.else_block != null) {
-                self.rewriteTopologyReturns(
-                    definition, node.else_block, token, marker);
-            }
-        } else if (node.kind == IRK_WHILE
-                || node.kind == IRK_DO_WHILE || node.kind == IRK_FOR) {
-            self.rewriteTopologyReturns(
-                definition, node.body, token, marker);
-        } else if (node.kind == IRK_SWITCH) {
-            int index = 0;
-            while (index < node.args.len) {
-                self.rewriteTopologyReturns(
-                    definition, node.args.get(index), token, marker);
-                index = index + 1;
-            }
-        } else if (node.kind == IRK_CASE) {
-            self.rewriteTopologyReturns(
-                definition, node, token, marker);
-        }
-    }
+	private void rewriteNestedTopologyReturns(IRFunction definition, IRNode node, string token, string marker) {
+		if (node.kind == IRK_BLOCK) {
+			self.rewriteTopologyReturns(definition, node, token, marker);
+		} else if (node.kind == IRK_IF) {
+			self.rewriteTopologyReturns(definition, node.then_block, token, marker);
+			if (node.else_block != null) {
+				self.rewriteTopologyReturns(definition, node.else_block, token, marker);
+			}
+		} else if (node.kind == IRK_WHILE || node.kind == IRK_DO_WHILE || node.kind == IRK_FOR) {
+			self.rewriteTopologyReturns(definition, node.body, token, marker);
+		} else if (node.kind == IRK_SWITCH) {
+			int index = 0;
+			while (index < node.args.len) {
+				self.rewriteTopologyReturns(definition, node.args.get(index), token, marker);
+				index = index + 1;
+			}
+		} else if (node.kind == IRK_CASE) {
+			self.rewriteTopologyReturns(definition, node, token, marker);
+		}
+	}
 
-    private void rewriteTopologyReturns(IRFunction definition,
-            IRNode block, string token, string marker) {
-        Vector<IRNode> rewritten = [];
-        int index = 0;
-        while (index < block.stmts.len) {
-            IRNode statement = block.stmts.get(index);
-            self.rewriteNestedTopologyReturns(
-                definition, statement, token, marker);
-            if (statement.kind == IRK_RETURN) {
-                if (statement.value != null) {
-                    string result = self.context.freshTemporary(
-                        "__btrc_topology_return");
-                    rewritten.push(IRNode.variableDeclaration(
-                        definition.return_type, result, statement.value));
-                    statement.value = IRNode.variable(result);
-                }
-                self.appendTopologyEpilogue(
-                    rewritten, token, marker);
-            }
-            rewritten.push(statement);
-            index = index + 1;
-        }
-        block.stmts = rewritten;
-    }
+	private void rewriteTopologyReturns(IRFunction definition, IRNode block, string token, string marker) {
+		Vector<IRNode> rewritten = [];
+		int index = 0;
+		while (index < block.stmts.len) {
+			IRNode statement = block.stmts.get(index);
+			self.rewriteNestedTopologyReturns(definition, statement, token, marker);
+			if (statement.kind == IRK_RETURN) {
+				if (statement.value != null) {
+					string result = self.context.freshTemporary("__btrc_topology_return");
+					rewritten.push(IRNode.variableDeclaration(definition.return_type, result, statement.value));
+					statement.value = IRNode.variable(result);
+				}
+				self.appendTopologyEpilogue(rewritten, token, marker);
+			}
+			rewritten.push(statement);
+			index = index + 1;
+		}
+		block.stmts = rewritten;
+	}
 
-    private Vector<IRNode> topologyPrologue(
-            string token, string marker, bool cleanupEnabled) {
-        Vector<IRNode> output = [];
-        if (cleanupEnabled) {
-            Vector<IRNode> markArguments = [];
-            output.push(IRNode.variableDeclaration("int", marker,
-                IRNode.call("__btrc_cleanup_mark", markArguments)));
-        }
-        Vector<IRNode> beginArguments = [];
-        IRNode tokenDeclaration = IRNode.variableDeclaration(
-            "void*", token,
-            IRNode.call("__btrc_arc_topology_begin", beginArguments));
-        output.push(tokenDeclaration);
-        if (cleanupEnabled) {
-            output.push(IRNode.expressionStatement(
-                self.cleanupSlots.registerSlot(
-                    self.context, tokenDeclaration,
-                    IRNode.functionReference(
-                        "__btrc_arc_topology_cleanup"),
-                    null, true)));
-        }
-        return output;
-    }
+	private Vector<IRNode> topologyPrologue(string token, string marker, bool cleanupEnabled) {
+		Vector<IRNode> output = [];
+		if (cleanupEnabled) {
+			Vector<IRNode> markArguments = [];
+			output.push(IRNode.variableDeclaration("int", marker, IRNode.call("__btrc_cleanup_mark", markArguments)));
+		}
+		Vector<IRNode> beginArguments = [];
+		IRNode tokenDeclaration = IRNode.variableDeclaration("void*", token, IRNode.call("__btrc_arc_topology_begin", beginArguments));
+		output.push(tokenDeclaration);
+		if (cleanupEnabled) {
+			output.push(IRNode.expressionStatement(self.cleanupSlots.registerSlot(self.context, tokenDeclaration, IRNode.functionReference("__btrc_arc_topology_cleanup"), null, true)));
+		}
+		return output;
+	}
 
-    public bool installCollectionTopologyBoundary(
-            IRFunction definition) {
-        if (definition.body == null
-                || !self.containsSelfTopologyMutation(definition.body)) {
-            return false;
-        }
-        string token = self.context.freshTemporary(
-            "__btrc_topology_scope");
-        bool cleanupEnabled = self.context.exceptionsAreEnabled();
-        string marker = "";
-        if (cleanupEnabled) {
-            marker = self.context.freshTemporary(
-                "__btrc_topology_cleanup");
-        }
-        self.context.referenceHelper("__btrc_arc_topology_begin");
-        self.context.referenceHelper("__btrc_arc_topology_complete");
-        if (cleanupEnabled) {
-            self.context.referenceHelper("__btrc_cleanup_mark");
-            self.context.referenceHelper(
-                "__btrc_register_direct_cleanup");
-            self.context.referenceHelper("__btrc_arc_topology_cleanup");
-            self.context.referenceHelper("__btrc_discard_cleanups_to");
-        }
-        self.rewriteTopologyReturns(
-            definition, definition.body, token, marker);
-        if (IRStatementSequence(
-                definition.body.stmts).mayFallThrough()) {
-            self.appendTopologyEpilogue(
-                definition.body.stmts, token, marker);
-        }
-        Vector<IRNode> body = self.topologyPrologue(
-            token, marker, cleanupEnabled);
-        int index = 0;
-        while (index < definition.body.stmts.len) {
-            body.push(definition.body.stmts.get(index));
-            index = index + 1;
-        }
-        definition.body.stmts = body;
-        return true;
-    }
-
+	public bool installCollectionTopologyBoundary(IRFunction definition) {
+		if (definition.body == null || !self.containsSelfTopologyMutation(definition.body)) {
+			return false;
+		}
+		string token = self.context.freshTemporary("__btrc_topology_scope");
+		bool cleanupEnabled = self.context.exceptionsAreEnabled();
+		string marker = "";
+		if (cleanupEnabled) {
+			marker = self.context.freshTemporary("__btrc_topology_cleanup");
+		}
+		self.context.referenceHelper("__btrc_arc_topology_begin");
+		self.context.referenceHelper("__btrc_arc_topology_complete");
+		if (cleanupEnabled) {
+			self.context.referenceHelper("__btrc_cleanup_mark");
+			self.context.referenceHelper("__btrc_register_direct_cleanup");
+			self.context.referenceHelper("__btrc_arc_topology_cleanup");
+			self.context.referenceHelper("__btrc_discard_cleanups_to");
+		}
+		self.rewriteTopologyReturns(definition, definition.body, token, marker);
+		if (IRStatementSequence(definition.body.stmts).mayFallThrough()) {
+			self.appendTopologyEpilogue(definition.body.stmts, token, marker);
+		}
+		Vector<IRNode> body = self.topologyPrologue(token, marker, cleanupEnabled);
+		int index = 0;
+		while (index < definition.body.stmts.len) {
+			body.push(definition.body.stmts.get(index));
+			index = index + 1;
+		}
+		definition.body.stmts = body;
+		return true;
+	}
 }

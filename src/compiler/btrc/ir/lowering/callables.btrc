@@ -1,6 +1,7 @@
 import std.map;
 import std.strings;
 import std.vector;
+
 import ../../analyzer/expressions.btrc;
 import ../../analyzer/hosted_abi.btrc;
 import ../../analyzer/models.btrc;
@@ -23,634 +24,483 @@ import ./types.btrc;
  * the compiler, not data carried by the runtime value. */
 
 class CallableBoundaryContext {
-    private Map<string, Node> variableTypes;
-    private Map<string, Node> typeParameters;
-    private bool resolvesTypeParameters;
-    private Map<string, bool> ownedCallables;
-    private Map<string, bool> ambiguousCallables;
-    private Vector<string> lexicalCallableDeclarations;
-    private Map<string, string> environmentFunctions;
-    private Map<string, string> environmentStorage;
+	private Map<string, Node> variableTypes;
+	private Map<string, Node> typeParameters;
+	private bool resolvesTypeParameters;
+	private Map<string, bool> ownedCallables;
+	private Map<string, bool> ambiguousCallables;
+	private Vector<string> lexicalCallableDeclarations;
+	private Map<string, string> environmentFunctions;
+	private Map<string, string> environmentStorage;
 
-    public CallableBoundaryContext(
-            Map<string, Node> variableTypes,
-            Map<string, Node> typeParameters,
-            bool resolvesTypeParameters,
-            Map<string, bool> ownedCallables,
-            Map<string, bool> ambiguousCallables,
-            Vector<string> lexicalCallableDeclarations,
-            Map<string, string> environmentFunctions,
-            Map<string, string> environmentStorage) {
-        self.variableTypes = {};
-        Vector<string> variableNames = variableTypes.keys();
-        int variableIndex = 0;
-        while (variableIndex < variableNames.len) {
-            string name = variableNames.get(variableIndex);
-            self.variableTypes.put(name, variableTypes.get(name));
-            variableIndex = variableIndex + 1;
-        }
-        self.typeParameters = {};
-        Vector<string> parameterNames = typeParameters.keys();
-        int parameterIndex = 0;
-        while (parameterIndex < parameterNames.len) {
-            string name = parameterNames.get(parameterIndex);
-            self.typeParameters.put(name, typeParameters.get(name));
-            parameterIndex = parameterIndex + 1;
-        }
-        self.resolvesTypeParameters = resolvesTypeParameters;
-        self.ownedCallables = {};
-        Vector<string> ownedNames = ownedCallables.keys();
-        int ownedIndex = 0;
-        while (ownedIndex < ownedNames.len) {
-            string name = ownedNames.get(ownedIndex);
-            self.ownedCallables.put(name, ownedCallables.get(name));
-            ownedIndex = ownedIndex + 1;
-        }
-        self.ambiguousCallables = {};
-        Vector<string> ambiguousNames = ambiguousCallables.keys();
-        int ambiguousIndex = 0;
-        while (ambiguousIndex < ambiguousNames.len) {
-            string name = ambiguousNames.get(ambiguousIndex);
-            self.ambiguousCallables.put(
-                name, ambiguousCallables.get(name));
-            ambiguousIndex = ambiguousIndex + 1;
-        }
-        self.lexicalCallableDeclarations = [];
-        int declarationIndex = 0;
-        while (declarationIndex < lexicalCallableDeclarations.len) {
-            self.lexicalCallableDeclarations.push(
-                lexicalCallableDeclarations.get(declarationIndex));
-            declarationIndex = declarationIndex + 1;
-        }
-        self.environmentFunctions = {};
-        Vector<string> environmentNames = environmentFunctions.keys();
-        int environmentIndex = 0;
-        while (environmentIndex < environmentNames.len) {
-            string name = environmentNames.get(environmentIndex);
-            self.environmentFunctions.put(
-                name, environmentFunctions.get(name));
-            environmentIndex = environmentIndex + 1;
-        }
-        self.environmentStorage = {};
-        environmentNames = environmentStorage.keys();
-        environmentIndex = 0;
-        while (environmentIndex < environmentNames.len) {
-            string name = environmentNames.get(environmentIndex);
-            self.environmentStorage.put(
-                name, environmentStorage.get(name));
-            environmentIndex = environmentIndex + 1;
-        }
-    }
+	public CallableBoundaryContext(Map<string, Node> variableTypes, Map<string, Node> typeParameters, bool resolvesTypeParameters, Map<string, bool> ownedCallables, Map<string, bool> ambiguousCallables, Vector<string> lexicalCallableDeclarations, Map<string, string> environmentFunctions, Map<string, string> environmentStorage) {
+		self.variableTypes = {};
+		Vector<string> variableNames = variableTypes.keys();
+		int variableIndex = 0;
+		while (variableIndex < variableNames.len) {
+			string name = variableNames.get(variableIndex);
+			self.variableTypes.put(name, variableTypes.get(name));
+			variableIndex = variableIndex + 1;
+		}
+		self.typeParameters = {};
+		Vector<string> parameterNames = typeParameters.keys();
+		int parameterIndex = 0;
+		while (parameterIndex < parameterNames.len) {
+			string name = parameterNames.get(parameterIndex);
+			self.typeParameters.put(name, typeParameters.get(name));
+			parameterIndex = parameterIndex + 1;
+		}
+		self.resolvesTypeParameters = resolvesTypeParameters;
+		self.ownedCallables = {};
+		Vector<string> ownedNames = ownedCallables.keys();
+		int ownedIndex = 0;
+		while (ownedIndex < ownedNames.len) {
+			string name = ownedNames.get(ownedIndex);
+			self.ownedCallables.put(name, ownedCallables.get(name));
+			ownedIndex = ownedIndex + 1;
+		}
+		self.ambiguousCallables = {};
+		Vector<string> ambiguousNames = ambiguousCallables.keys();
+		int ambiguousIndex = 0;
+		while (ambiguousIndex < ambiguousNames.len) {
+			string name = ambiguousNames.get(ambiguousIndex);
+			self.ambiguousCallables.put(name, ambiguousCallables.get(name));
+			ambiguousIndex = ambiguousIndex + 1;
+		}
+		self.lexicalCallableDeclarations = [];
+		int declarationIndex = 0;
+		while (declarationIndex < lexicalCallableDeclarations.len) {
+			self.lexicalCallableDeclarations.push(lexicalCallableDeclarations.get(declarationIndex));
+			declarationIndex = declarationIndex + 1;
+		}
+		self.environmentFunctions = {};
+		Vector<string> environmentNames = environmentFunctions.keys();
+		int environmentIndex = 0;
+		while (environmentIndex < environmentNames.len) {
+			string name = environmentNames.get(environmentIndex);
+			self.environmentFunctions.put(name, environmentFunctions.get(name));
+			environmentIndex = environmentIndex + 1;
+		}
+		self.environmentStorage = {};
+		environmentNames = environmentStorage.keys();
+		environmentIndex = 0;
+		while (environmentIndex < environmentNames.len) {
+			string name = environmentNames.get(environmentIndex);
+			self.environmentStorage.put(name, environmentStorage.get(name));
+			environmentIndex = environmentIndex + 1;
+		}
+	}
 
-    public bool resolvesParameters() {
-        return self.resolvesTypeParameters;
-    }
+	public bool resolvesParameters() { return self.resolvesTypeParameters; }
 
-    public Map<string, Node> parameterTypes() {
-        Map<string, Node> snapshot = {};
-        Vector<string> names = self.typeParameters.keys();
-        int index = 0;
-        while (index < names.len) {
-            string name = names.get(index);
-            snapshot.put(name, self.typeParameters.get(name));
-            index = index + 1;
-        }
-        return snapshot;
-    }
+	public Map<string, Node> parameterTypes() {
+		Map<string, Node> snapshot = {};
+		Vector<string> names = self.typeParameters.keys();
+		int index = 0;
+		while (index < names.len) {
+			string name = names.get(index);
+			snapshot.put(name, self.typeParameters.get(name));
+			index = index + 1;
+		}
+		return snapshot;
+	}
 
-    public Map<string, Node> variables() {
-        Map<string, Node> snapshot = {};
-        Vector<string> names = self.variableTypes.keys();
-        int index = 0;
-        while (index < names.len) {
-            string name = names.get(index);
-            snapshot.put(name, self.variableTypes.get(name));
-            index = index + 1;
-        }
-        return snapshot;
-    }
+	public Map<string, Node> variables() {
+		Map<string, Node> snapshot = {};
+		Vector<string> names = self.variableTypes.keys();
+		int index = 0;
+		while (index < names.len) {
+			string name = names.get(index);
+			snapshot.put(name, self.variableTypes.get(name));
+			index = index + 1;
+		}
+		return snapshot;
+	}
 
-    public bool hasVariable(string name) {
-        return self.variableTypes.has(name);
-    }
+	public bool hasVariable(string name) { return self.variableTypes.has(name); }
 
-    public Node variableType(string name) {
-        return self.variableTypes.get(name);
-    }
+	public Node variableType(string name) { return self.variableTypes.get(name); }
 
-    public int abiFor(string name) {
-        if (self.ambiguousCallables.has(name)
-                && self.ambiguousCallables.get(name)) {
-            return 2;
-        }
-        if (self.ownedCallables.has(name)
-                && self.ownedCallables.get(name)) {
-            return 1;
-        }
-        return 0;
-    }
+	public int abiFor(string name) {
+		if (self.ambiguousCallables.has(name) && self.ambiguousCallables.get(name)) {
+			return 2;
+		}
+		if (self.ownedCallables.has(name) && self.ownedCallables.get(name)) {
+			return 1;
+		}
+		return 0;
+	}
 
-    public bool declaresCallable(string name) {
-        int index = 0;
-        while (index < self.lexicalCallableDeclarations.len) {
-            if (self.lexicalCallableDeclarations.get(index) == name) {
-                return true;
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	public bool declaresCallable(string name) {
+		int index = 0;
+		while (index < self.lexicalCallableDeclarations.len) {
+			if (self.lexicalCallableDeclarations.get(index) == name) {
+				return true;
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 
-    public bool hasEnvironment(string name) {
-        return self.environmentFunctions.has(name)
-            && self.environmentFunctions.get(name) != ""
-            && self.environmentStorage.has(name)
-            && self.environmentStorage.get(name) != "";
-    }
+	public bool hasEnvironment(string name) { return self.environmentFunctions.has(name) && self.environmentFunctions.get(name) != "" && self.environmentStorage.has(name) && self.environmentStorage.get(name) != ""; }
 
-    public string environmentFunction(string name) {
-        return self.environmentFunctions.get(name);
-    }
+	public string environmentFunction(string name) { return self.environmentFunctions.get(name); }
 
-    public string environmentStorageName(string name) {
-        return self.environmentStorage.get(name);
-    }
+	public string environmentStorageName(string name) { return self.environmentStorage.get(name); }
 }
 
 class CallableValueSemantics {
-    private Analyzed analysis;
-    private ExpressionTypeResolver expressionTypes;
+	private Analyzed analysis;
+	private ExpressionTypeResolver expressionTypes;
 
-    public CallableValueSemantics(
-            Analyzed analysis,
-            ExpressionTypeResolver expressionTypes) {
-        self.analysis = analysis;
-        self.expressionTypes = expressionTypes;
-    }
+	public CallableValueSemantics(Analyzed analysis, ExpressionTypeResolver expressionTypes) {
+		self.analysis = analysis;
+		self.expressionTypes = expressionTypes;
+	}
 
-    public Node resolveType(
-            Node? typeExpr, CallableBoundaryContext context) {
-        if (context.resolvesParameters()) {
-            return SemanticTypeSystem.resolveGenericType(
-                typeExpr, context.parameterTypes(), self.analysis);
-        }
-        if (typeExpr == null) {
-            return SemanticTypeSystem.primitive("void");
-        }
-        return typeExpr;
-    }
+	public Node resolveType(Node? typeExpr, CallableBoundaryContext context) {
+		if (context.resolvesParameters()) {
+			return SemanticTypeSystem.resolveGenericType(typeExpr, context.parameterTypes(), self.analysis);
+		}
+		if (typeExpr == null) {
+			return SemanticTypeSystem.primitive("void");
+		}
+		return typeExpr;
+	}
 
-    public Node? expressionType(
-            Node? expression, CallableBoundaryContext context) {
-        return self.expressionTypes.inferRaw(
-            expression, context.variables());
-    }
+	public Node? expressionType(Node? expression, CallableBoundaryContext context) { return self.expressionTypes.inferRaw(expression, context.variables()); }
 
-    public Node lambdaType(
-            Node lambda, CallableBoundaryContext context) {
-        return self.expressionTypes.lambdaType(
-            lambda, context.variables());
-    }
+	public Node lambdaType(Node lambda, CallableBoundaryContext context) { return self.expressionTypes.lambdaType(lambda, context.variables()); }
 
-    public Node? canonicalType(
-            Node? typeExpr, CallableBoundaryContext context) {
-        if (typeExpr == null) { return null; }
-        Node concrete = self.resolveType(typeExpr, context);
-        Node? canonical = SemanticTypeSystem.resolveTypedefType(
-            concrete, self.analysis.typedefTable);
-        if (canonical != null) { return canonical; }
-        return concrete;
-    }
+	public Node? canonicalType(Node? typeExpr, CallableBoundaryContext context) {
+		if (typeExpr == null) { return null; }
+		Node concrete = self.resolveType(typeExpr, context);
+		Node? canonical = SemanticTypeSystem.resolveTypedefType(concrete, self.analysis.typedefTable);
+		if (canonical != null) { return canonical; }
+		return concrete;
+	}
 
-    private bool managedValueType(
-            Node? typeExpr, CallableBoundaryContext context) {
-        Node? canonical = self.canonicalType(typeExpr, context);
-        if (canonical == null) { return false; }
-        Node resolved = canonical;
-        if (SemanticTypeSystem.isString(resolved)) { return true; }
-        int classDepth = resolved.pointer_depth;
-        if (TypeComposition.nullableCollapsesReferenceLayer(
-                resolved, false)) {
-            classDepth = classDepth - 1;
-        }
-        if (!resolved.is_array && classDepth <= 1
-                && (self.analysis.isClass(resolved.base)
-                    || (resolved.generic_args.len > 0
-                        && self.analysis.isGenericClass(
-                            resolved.base)))) {
-            return true;
-        }
-        int mutexDepth = resolved.pointer_depth;
-        if (TypeComposition.nullableCollapsesReferenceLayer(
-                resolved, true)) {
-            mutexDepth = mutexDepth - 1;
-        }
-        return !resolved.is_array && mutexDepth == 0
-            && resolved.base == "Mutex"
-            && resolved.generic_args.len == 1;
-    }
+	private bool managedValueType(Node? typeExpr, CallableBoundaryContext context) {
+		Node? canonical = self.canonicalType(typeExpr, context);
+		if (canonical == null) { return false; }
+		Node resolved = canonical;
+		if (SemanticTypeSystem.isString(resolved)) { return true; }
+		int classDepth = resolved.pointer_depth;
+		if (TypeComposition.nullableCollapsesReferenceLayer(resolved, false)) {
+			classDepth = classDepth - 1;
+		}
+		if (!resolved.is_array && classDepth <= 1 && (self.analysis.isClass(resolved.base) || (resolved.generic_args.len > 0 && self.analysis.isGenericClass(resolved.base)))) {
+			return true;
+		}
+		int mutexDepth = resolved.pointer_depth;
+		if (TypeComposition.nullableCollapsesReferenceLayer(resolved, true)) {
+			mutexDepth = mutexDepth - 1;
+		}
+		return !resolved.is_array && mutexDepth == 0 && resolved.base == "Mutex" && resolved.generic_args.len == 1;
+	}
 
-    public bool managedReturnCallable(
-            Node? typeExpr, CallableBoundaryContext context) {
-        Node? canonical = self.canonicalType(typeExpr, context);
-        if (canonical == null) { return false; }
-        Node callable = canonical;
-        return callable.base == "__fn_ptr"
-            && callable.pointer_depth == 0
-            && !callable.is_array
-            && callable.generic_args.len > 0
-            && self.managedValueType(
-                callable.generic_args.get(0), context);
-    }
+	public bool managedReturnCallable(Node? typeExpr, CallableBoundaryContext context) {
+		Node? canonical = self.canonicalType(typeExpr, context);
+		if (canonical == null) { return false; }
+		Node callable = canonical;
+		return callable.base == "__fn_ptr" && callable.pointer_depth == 0 && !callable.is_array && callable.generic_args.len > 0 && self.managedValueType(callable.generic_args.get(0), context);
+	}
 
-    public bool callableType(
-            Node? typeExpr, CallableBoundaryContext context) {
-        Node? canonical = self.canonicalType(typeExpr, context);
-        return canonical != null
-            && canonical.base == "__fn_ptr"
-            && canonical.pointer_depth == 0
-            && !canonical.is_array;
-    }
+	public bool callableType(Node? typeExpr, CallableBoundaryContext context) {
+		Node? canonical = self.canonicalType(typeExpr, context);
+		return canonical != null && canonical.base == "__fn_ptr" && canonical.pointer_depth == 0 && !canonical.is_array;
+	}
 
-    public bool validatedReferenceOwner(Node typeExpr) {
-        return typeExpr.pointer_depth > 0
-            || self.analysis.isClass(typeExpr.base)
-            || self.analysis.isGenericClass(typeExpr.base);
-    }
+	public bool validatedReferenceOwner(Node typeExpr) { return typeExpr.pointer_depth > 0 || self.analysis.isClass(typeExpr.base) || self.analysis.isGenericClass(typeExpr.base); }
 
-    public bool lexicalIdentifier(
-            string name, CallableBoundaryContext context) {
-        return context.declaresCallable(name)
-            || !self.analysis.globalVarTypes.has(name);
-    }
+	public bool lexicalIdentifier(string name, CallableBoundaryContext context) { return context.declaresCallable(name) || !self.analysis.globalVarTypes.has(name); }
 
-    public int expressionAbi(
-            Node? expression, CallableBoundaryContext context) {
-        if (expression == null) { return 0; }
-        if (expression.kind == NK_LAMBDA_EXPR) { return 1; }
-        if (expression.kind == NK_IDENTIFIER) {
-            int lexicalAbi = context.abiFor(expression.name);
-            if (lexicalAbi != 0) { return lexicalAbi; }
-            if (context.hasVariable(expression.name)) {
-                Node? lexicalType = SemanticTypeSystem.resolveTypedefType(
-                    context.variableType(expression.name),
-                    self.analysis.typedefTable);
-                if (lexicalType != null
-                        && lexicalType.base == "__fn_ptr") {
-                    return 0;
-                }
-            }
-            if (!self.analysis.funcTable.has(expression.name)) {
-                return 0;
-            }
-            Node declaration = self.analysis.funcTable.get(expression.name);
-            return declaration.body_node != null ? 1 : 0;
-        }
-        if (expression.kind == NK_FIELD_ACCESS_EXPR) {
-            Node? method = self.methodDeclaration(expression, context);
-            if (method != null && method.body_node != null) {
-                return 1;
-            }
-            return 0;
-        }
-        if (expression.kind == NK_CAST_EXPR) {
-            return self.expressionAbi(expression.expr, context);
-        }
-        if (expression.kind == NK_UNARY_EXPR && expression.op == "&") {
-            return self.expressionAbi(expression.operand, context);
-        }
-        if (expression.kind == NK_ASSIGN_EXPR) {
-            return self.expressionAbi(expression.value_node, context);
-        }
-        if (expression.kind == NK_TERNARY_EXPR) {
-            return self.joinAbi(
-                self.expressionAbi(expression.true_expr, context),
-                self.expressionAbi(expression.false_expr, context));
-        }
-        if (expression.kind == NK_BINARY_EXPR
-                && expression.op == "??") {
-            return self.joinAbi(
-                self.expressionAbi(expression.left, context),
-                self.expressionAbi(expression.right, context));
-        }
-        return 0;
-    }
+	public int expressionAbi(Node? expression, CallableBoundaryContext context) {
+		if (expression == null) { return 0; }
+		if (expression.kind == NK_LAMBDA_EXPR) { return 1; }
+		if (expression.kind == NK_IDENTIFIER) {
+			int lexicalAbi = context.abiFor(expression.name);
+			if (lexicalAbi != 0) { return lexicalAbi; }
+			if (context.hasVariable(expression.name)) {
+				Node? lexicalType = SemanticTypeSystem.resolveTypedefType(context.variableType(expression.name), self.analysis.typedefTable);
+				if (lexicalType != null && lexicalType.base == "__fn_ptr") {
+					return 0;
+				}
+			}
+			if (!self.analysis.funcTable.has(expression.name)) {
+				return 0;
+			}
+			Node declaration = self.analysis.funcTable.get(expression.name);
+			return declaration.body_node != null ? 1 : 0;
+		}
+		if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+			Node? method = self.methodDeclaration(expression, context);
+			if (method != null && method.body_node != null) {
+				return 1;
+			}
+			return 0;
+		}
+		if (expression.kind == NK_CAST_EXPR) {
+			return self.expressionAbi(expression.expr, context);
+		}
+		if (expression.kind == NK_UNARY_EXPR && expression.op == "&") {
+			return self.expressionAbi(expression.operand, context);
+		}
+		if (expression.kind == NK_ASSIGN_EXPR) {
+			return self.expressionAbi(expression.value_node, context);
+		}
+		if (expression.kind == NK_TERNARY_EXPR) {
+			return self.joinAbi(self.expressionAbi(expression.true_expr, context), self.expressionAbi(expression.false_expr, context));
+		}
+		if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
+			return self.joinAbi(self.expressionAbi(expression.left, context), self.expressionAbi(expression.right, context));
+		}
+		return 0;
+	}
 
-    private int joinAbi(int left, int right) {
-        if (left == right) { return left; }
-        return 2;
-    }
+	private int joinAbi(int left, int right) {
+		if (left == right) { return left; }
+		return 2;
+	}
 
-    public Vector<string> captureNames(
-            Node lambda, CallableBoundaryContext context) {
-        Map<string, bool> parameterNames = {};
-        int parameter = 0;
-        while (parameter < lambda.params.len) {
-            parameterNames.put(
-                lambda.params.get(parameter).name, true);
-            parameter = parameter + 1;
-        }
-        Map<string, bool> usedNames = {};
-        ExpressionTypeResolver.collectIdentifiers(lambda.body_node, usedNames);
-        Vector<string> captures = [];
-        Vector<string> names = usedNames.keys();
-        int index = 0;
-        while (index < names.len) {
-            string name = names.get(index);
-            if (!parameterNames.has(name)
-                    && context.hasVariable(name)
-                    && !self.analysis.globalVarTypes.has(name)) {
-                captures.push(name);
-            }
-            index = index + 1;
-        }
-        int sorted = 1;
-        while (sorted < captures.len) {
-            string key = captures.get(sorted);
-            int insertion = sorted - 1;
-            while (insertion >= 0
-                    && strcmp(captures.get(insertion), key) > 0) {
-                captures.set(
-                    insertion + 1, captures.get(insertion));
-                insertion = insertion - 1;
-            }
-            captures.set(insertion + 1, key);
-            sorted = sorted + 1;
-        }
-        return captures;
-    }
+	public Vector<string> captureNames(Node lambda, CallableBoundaryContext context) {
+		Map<string, bool> parameterNames = {};
+		int parameter = 0;
+		while (parameter < lambda.params.len) {
+			parameterNames.put(lambda.params.get(parameter).name, true);
+			parameter = parameter + 1;
+		}
+		Map<string, bool> usedNames = {};
+		ExpressionTypeResolver.collectIdentifiers(lambda.body_node, usedNames);
+		Vector<string> captures = [];
+		Vector<string> names = usedNames.keys();
+		int index = 0;
+		while (index < names.len) {
+			string name = names.get(index);
+			if (!parameterNames.has(name) && context.hasVariable(name) && !self.analysis.globalVarTypes.has(name)) {
+				captures.push(name);
+			}
+			index = index + 1;
+		}
+		int sorted = 1;
+		while (sorted < captures.len) {
+			string key = captures.get(sorted);
+			int insertion = sorted - 1;
+			while (insertion >= 0 && strcmp(captures.get(insertion), key) > 0) {
+				captures.set(insertion + 1, captures.get(insertion));
+				insertion = insertion - 1;
+			}
+			captures.set(insertion + 1, key);
+			sorted = sorted + 1;
+		}
+		return captures;
+	}
 
-    public bool expressionRequiresEnvironment(
-            Node? expression, CallableBoundaryContext context) {
-        if (expression == null) { return false; }
-        if (expression.kind == NK_LAMBDA_EXPR) {
-            return self.captureNames(expression, context).len > 0;
-        }
-        if (expression.kind == NK_IDENTIFIER) {
-            return context.hasEnvironment(expression.name);
-        }
-        if (expression.kind == NK_CAST_EXPR) {
-            return self.expressionRequiresEnvironment(
-                expression.expr, context);
-        }
-        if (expression.kind == NK_ASSIGN_EXPR) {
-            return self.expressionRequiresEnvironment(
-                expression.value_node, context);
-        }
-        if (expression.kind == NK_TERNARY_EXPR) {
-            return self.expressionRequiresEnvironment(
-                    expression.true_expr, context)
-                || self.expressionRequiresEnvironment(
-                    expression.false_expr, context);
-        }
-        if (expression.kind == NK_BINARY_EXPR
-                && expression.op == "??") {
-            return self.expressionRequiresEnvironment(
-                    expression.left, context)
-                || self.expressionRequiresEnvironment(
-                    expression.right, context);
-        }
-        if (expression.kind == NK_FIELD_ACCESS_EXPR) {
-            Node? method = self.methodDeclaration(expression, context);
-            if (method != null) {
-                if (method.kind == NK_METHOD_SIG) { return true; }
-                if (method.kind == NK_METHOD_DECL) {
-                    return method.access != "class";
-                }
-            }
-            if (expression.obj == null) { return false; }
-            Node? receiverType = self.expressionType(
-                expression.obj, context);
-            Node? canonical = self.canonicalType(receiverType, context);
-            return canonical != null
-                && self.builtinMethodRequiresEnvironment(
-                    canonical, expression.field);
-        }
-        return false;
-    }
+	public bool expressionRequiresEnvironment(Node? expression, CallableBoundaryContext context) {
+		if (expression == null) { return false; }
+		if (expression.kind == NK_LAMBDA_EXPR) {
+			return self.captureNames(expression, context).len > 0;
+		}
+		if (expression.kind == NK_IDENTIFIER) {
+			return context.hasEnvironment(expression.name);
+		}
+		if (expression.kind == NK_CAST_EXPR) {
+			return self.expressionRequiresEnvironment(expression.expr, context);
+		}
+		if (expression.kind == NK_ASSIGN_EXPR) {
+			return self.expressionRequiresEnvironment(expression.value_node, context);
+		}
+		if (expression.kind == NK_TERNARY_EXPR) {
+			return self.expressionRequiresEnvironment(expression.true_expr, context) || self.expressionRequiresEnvironment(expression.false_expr, context);
+		}
+		if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
+			return self.expressionRequiresEnvironment(expression.left, context) || self.expressionRequiresEnvironment(expression.right, context);
+		}
+		if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+			Node? method = self.methodDeclaration(expression, context);
+			if (method != null) {
+				if (method.kind == NK_METHOD_SIG) { return true; }
+				if (method.kind == NK_METHOD_DECL) {
+					return method.access != "class";
+				}
+			}
+			if (expression.obj == null) { return false; }
+			Node? receiverType = self.expressionType(expression.obj, context);
+			Node? canonical = self.canonicalType(receiverType, context);
+			return canonical != null && self.builtinMethodRequiresEnvironment(canonical, expression.field);
+		}
+		return false;
+	}
 
-    private bool builtinMethodRequiresEnvironment(
-            Node receiverType, string methodName) {
-        if (receiverType.pointer_depth != 0 || receiverType.is_array) {
-            return false;
-        }
-        if (receiverType.base == "Thread"
-                && receiverType.generic_args.len == 1) {
-            return methodName == "join";
-        }
-        if (receiverType.base == "Mutex"
-                && receiverType.generic_args.len == 1) {
-            return methodName == "get" || methodName == "set"
-                || methodName == "destroy";
-        }
-        return SemanticTypeSystem.isString(receiverType)
-            && SemanticTypeSystem.stringMethodResult(methodName) != null;
-    }
+	private bool builtinMethodRequiresEnvironment(Node receiverType, string methodName) {
+		if (receiverType.pointer_depth != 0 || receiverType.is_array) {
+			return false;
+		}
+		if (receiverType.base == "Thread" && receiverType.generic_args.len == 1) {
+			return methodName == "join";
+		}
+		if (receiverType.base == "Mutex" && receiverType.generic_args.len == 1) {
+			return methodName == "get" || methodName == "set" || methodName == "destroy";
+		}
+		return SemanticTypeSystem.isString(receiverType) && SemanticTypeSystem.stringMethodResult(methodName) != null;
+	}
 
-    private Node? methodDeclaration(
-            Node expression, CallableBoundaryContext context) {
-        if (expression.obj == null) { return null; }
-        Node receiver = expression.obj;
-        if (receiver.kind == NK_IDENTIFIER
-                && !context.hasVariable(receiver.name)) {
-            if (self.analysis.isClass(receiver.name)) {
-                return self.analysis.classMethod(
-                    receiver.name, expression.field);
-            }
-            if (self.analysis.isGenericClass(receiver.name)) {
-                return self.analysis.genericClassMethod(
-                    receiver.name, expression.field);
-            }
-        }
-        Node? receiverType = self.expressionType(
-            receiver, context);
-        Node? canonical = self.canonicalType(receiverType, context);
-        if (canonical == null) { return null; }
-        if (self.analysis.isClass(canonical.base)) {
-            return self.analysis.classMethod(
-                canonical.base, expression.field);
-        }
-        if (self.analysis.isGenericClass(canonical.base)) {
-            return self.analysis.genericClassMethod(
-                canonical.base, expression.field);
-        }
-        if (self.analysis.isInterface(canonical.base)) {
-            return self.analysis.interfaceMethod(
-                canonical.base, expression.field);
-        }
-        return null;
-    }
+	private Node? methodDeclaration(Node expression, CallableBoundaryContext context) {
+		if (expression.obj == null) { return null; }
+		Node receiver = expression.obj;
+		if (receiver.kind == NK_IDENTIFIER && !context.hasVariable(receiver.name)) {
+			if (self.analysis.isClass(receiver.name)) {
+				return self.analysis.classMethod(receiver.name, expression.field);
+			}
+			if (self.analysis.isGenericClass(receiver.name)) {
+				return self.analysis.genericClassMethod(receiver.name, expression.field);
+			}
+		}
+		Node? receiverType = self.expressionType(receiver, context);
+		Node? canonical = self.canonicalType(receiverType, context);
+		if (canonical == null) { return null; }
+		if (self.analysis.isClass(canonical.base)) {
+			return self.analysis.classMethod(canonical.base, expression.field);
+		}
+		if (self.analysis.isGenericClass(canonical.base)) {
+			return self.analysis.genericClassMethod(canonical.base, expression.field);
+		}
+		if (self.analysis.isInterface(canonical.base)) {
+			return self.analysis.interfaceMethod(canonical.base, expression.field);
+		}
+		return null;
+	}
 
-    public Node arrayElement(Node arrayType) {
-        Node element = TypeShape.withoutOuterArray(arrayType);
-        element.is_static = false;
-        element.is_extern = false;
-        return element;
-    }
+	public Node arrayElement(Node arrayType) {
+		Node element = TypeShape.withoutOuterArray(arrayType);
+		element.is_static = false;
+		element.is_extern = false;
+		return element;
+	}
 
-    public Node? structDeclaration(Node typeExpr) {
-        if (typeExpr.pointer_depth > 0) { return null; }
-        string name = StorageValidator.structTypeName(typeExpr, self.analysis);
-        if (name == "" || !self.analysis.structTable.has(name)) {
-            return null;
-        }
-        Node declaration = self.analysis.structTable.get(name);
-        if (declaration.is_forward) { return null; }
-        return declaration;
-    }
+	public Node? structDeclaration(Node typeExpr) {
+		if (typeExpr.pointer_depth > 0) { return null; }
+		string name = StorageValidator.structTypeName(typeExpr, self.analysis);
+		if (name == "" || !self.analysis.structTable.has(name)) {
+			return null;
+		}
+		Node declaration = self.analysis.structTable.get(name);
+		if (declaration.is_forward) { return null; }
+		return declaration;
+	}
 
-    private bool typeContainsManagedSeen(
-            Node? typeExpr, CallableBoundaryContext context,
-            Map<string, bool> active) {
-        Node? canonicalType = self.canonicalType(typeExpr, context);
-        if (canonicalType == null) { return false; }
-        Node canonical = canonicalType;
-        if (self.managedReturnCallable(canonical, context)) {
-            return true;
-        }
-        if (self.validatedReferenceOwner(canonical)) {
-            return false;
-        }
-        string key = TypeIdentity.shapeKey(canonical);
-        if (active.has(key)) { return false; }
-        active.put(key, true);
-        bool contains = false;
-        if (canonical.is_array) {
-            contains = self.typeContainsManagedSeen(
-                self.arrayElement(canonical), context, active);
-        } else if (canonical.pointer_depth == 0
-                && (canonical.base == "Array" || canonical.base == "List"
-                    || canonical.base == "Set" || canonical.base == "Vector")
-                && canonical.generic_args.len == 1) {
-            contains = self.typeContainsManagedSeen(
-                canonical.generic_args.get(0), context, active);
-        } else if (canonical.pointer_depth == 0
-                && (canonical.base == "Map" || canonical.base == "Tuple")) {
-            int index = 0;
-            while (!contains && index < canonical.generic_args.len) {
-                contains = self.typeContainsManagedSeen(
-                    canonical.generic_args.get(index), context, active);
-                index = index + 1;
-            }
-        } else {
-            Node? declaration = self.structDeclaration(canonical);
-            if (declaration != null) {
-                int index = 0;
-                while (!contains && index < declaration.fields.len) {
-                    contains = self.typeContainsManagedSeen(
-                        declaration.fields.get(index).type,
-                        context, active);
-                    index = index + 1;
-                }
-            }
-        }
-        active.remove(key);
-        return contains;
-    }
+	private bool typeContainsManagedSeen(Node? typeExpr, CallableBoundaryContext context, Map<string, bool> active) {
+		Node? canonicalType = self.canonicalType(typeExpr, context);
+		if (canonicalType == null) { return false; }
+		Node canonical = canonicalType;
+		if (self.managedReturnCallable(canonical, context)) {
+			return true;
+		}
+		if (self.validatedReferenceOwner(canonical)) {
+			return false;
+		}
+		string key = TypeIdentity.shapeKey(canonical);
+		if (active.has(key)) { return false; }
+		active.put(key, true);
+		bool contains = false;
+		if (canonical.is_array) {
+			contains = self.typeContainsManagedSeen(self.arrayElement(canonical), context, active);
+		} else if (canonical.pointer_depth == 0 && (canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector") && canonical.generic_args.len == 1) {
+			contains = self.typeContainsManagedSeen(canonical.generic_args.get(0), context, active);
+		} else if (canonical.pointer_depth == 0 && (canonical.base == "Map" || canonical.base == "Tuple")) {
+			int index = 0;
+			while (!contains && index < canonical.generic_args.len) {
+				contains = self.typeContainsManagedSeen(canonical.generic_args.get(index), context, active);
+				index = index + 1;
+			}
+		} else {
+			Node? declaration = self.structDeclaration(canonical);
+			if (declaration != null) {
+				int index = 0;
+				while (!contains && index < declaration.fields.len) {
+					contains = self.typeContainsManagedSeen(declaration.fields.get(index).type, context, active);
+					index = index + 1;
+				}
+			}
+		}
+		active.remove(key);
+		return contains;
+	}
 
-    public bool typeContainsManaged(
-            Node? typeExpr, CallableBoundaryContext context) {
-        Map<string, bool> active = {};
-        return self.typeContainsManagedSeen(typeExpr, context, active);
-    }
+	public bool typeContainsManaged(Node? typeExpr, CallableBoundaryContext context) {
+		Map<string, bool> active = {};
+		return self.typeContainsManagedSeen(typeExpr, context, active);
+	}
 
-    public bool valueRequiresEnvironment(
-            Node? expectedType, Node? value,
-            CallableBoundaryContext context) {
-        if (expectedType == null || value == null) { return false; }
-        Node? canonicalType = self.canonicalType(
-            expectedType, context);
-        if (canonicalType == null) { return false; }
-        Node canonical = canonicalType;
-        if (canonical.base == "__fn_ptr"
-                && canonical.pointer_depth == 0
-                && !canonical.is_array) {
-            return self.expressionRequiresEnvironment(value, context);
-        }
-        if (value.kind == NK_LIST_LITERAL
-                || value.kind == NK_BRACE_INITIALIZER) {
-            Node? elementType = null;
-            if (canonical.is_array) {
-                elementType = self.arrayElement(canonical);
-            } else if ((canonical.base == "Array"
-                    || canonical.base == "List"
-                    || canonical.base == "Set"
-                    || canonical.base == "Vector")
-                    && canonical.generic_args.len == 1) {
-                elementType = canonical.generic_args.get(0);
-            }
-            if (elementType != null) {
-                int index = 0;
-                while (index < value.elements.len) {
-                    if (self.valueRequiresEnvironment(
-                            elementType, value.elements.get(index),
-                            context)) {
-                        return true;
-                    }
-                    index = index + 1;
-                }
-                return false;
-            }
-            if (canonical.base == "Tuple") {
-                int index = 0;
-                while (index < value.elements.len
-                        && index < canonical.generic_args.len) {
-                    if (self.valueRequiresEnvironment(
-                            canonical.generic_args.get(index),
-                            value.elements.get(index), context)) {
-                        return true;
-                    }
-                    index = index + 1;
-                }
-                return false;
-            }
-            Node? declaration = self.structDeclaration(canonical);
-            if (declaration != null) {
-                int index = 0;
-                while (index < value.elements.len
-                        && index < declaration.fields.len) {
-                    if (self.valueRequiresEnvironment(
-                            declaration.fields.get(index).type,
-                            value.elements.get(index), context)) {
-                        return true;
-                    }
-                    index = index + 1;
-                }
-                return false;
-            }
-        }
-        if (value.kind == NK_TUPLE_LITERAL
-                && canonical.base == "Tuple") {
-            int index = 0;
-            while (index < value.elements.len
-                    && index < canonical.generic_args.len) {
-                if (self.valueRequiresEnvironment(
-                        canonical.generic_args.get(index),
-                        value.elements.get(index), context)) {
-                    return true;
-                }
-                index = index + 1;
-            }
-            return false;
-        }
-        if (value.kind == NK_MAP_LITERAL && canonical.base == "Map"
-                && canonical.generic_args.len == 2) {
-            int index = 0;
-            while (index < value.entries.len) {
-                Node entry = value.entries.get(index);
-                if (self.valueRequiresEnvironment(
-                        canonical.generic_args.get(0),
-                        entry.key, context)
-                        || self.valueRequiresEnvironment(
-                            canonical.generic_args.get(1),
-                            entry.value_node, context)) {
-                    return true;
-                }
-                index = index + 1;
-            }
-        }
-        return false;
-    }
+	public bool valueRequiresEnvironment(Node? expectedType, Node? value, CallableBoundaryContext context) {
+		if (expectedType == null || value == null) { return false; }
+		Node? canonicalType = self.canonicalType(expectedType, context);
+		if (canonicalType == null) { return false; }
+		Node canonical = canonicalType;
+		if (canonical.base == "__fn_ptr" && canonical.pointer_depth == 0 && !canonical.is_array) {
+			return self.expressionRequiresEnvironment(value, context);
+		}
+		if (value.kind == NK_LIST_LITERAL || value.kind == NK_BRACE_INITIALIZER) {
+			Node? elementType = null;
+			if (canonical.is_array) {
+				elementType = self.arrayElement(canonical);
+			} else if ((canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector") && canonical.generic_args.len == 1) {
+				elementType = canonical.generic_args.get(0);
+			}
+			if (elementType != null) {
+				int index = 0;
+				while (index < value.elements.len) {
+					if (self.valueRequiresEnvironment(elementType, value.elements.get(index), context)) {
+						return true;
+					}
+					index = index + 1;
+				}
+				return false;
+			}
+			if (canonical.base == "Tuple") {
+				int index = 0;
+				while (index < value.elements.len && index < canonical.generic_args.len) {
+					if (self.valueRequiresEnvironment(canonical.generic_args.get(index), value.elements.get(index), context)) {
+						return true;
+					}
+					index = index + 1;
+				}
+				return false;
+			}
+			Node? declaration = self.structDeclaration(canonical);
+			if (declaration != null) {
+				int index = 0;
+				while (index < value.elements.len && index < declaration.fields.len) {
+					if (self.valueRequiresEnvironment(declaration.fields.get(index).type, value.elements.get(index), context)) {
+						return true;
+					}
+					index = index + 1;
+				}
+				return false;
+			}
+		}
+		if (value.kind == NK_TUPLE_LITERAL && canonical.base == "Tuple") {
+			int index = 0;
+			while (index < value.elements.len && index < canonical.generic_args.len) {
+				if (self.valueRequiresEnvironment(canonical.generic_args.get(index), value.elements.get(index), context)) {
+					return true;
+				}
+				index = index + 1;
+			}
+			return false;
+		}
+		if (value.kind == NK_MAP_LITERAL && canonical.base == "Map" && canonical.generic_args.len == 2) {
+			int index = 0;
+			while (index < value.entries.len) {
+				Node entry = value.entries.get(index);
+				if (self.valueRequiresEnvironment(canonical.generic_args.get(0), entry.key, context) || self.valueRequiresEnvironment(canonical.generic_args.get(1), entry.value_node, context)) {
+					return true;
+				}
+				index = index + 1;
+			}
+		}
+		return false;
+	}
 }
 
 /* Fail-closed storage policy for callback metadata that a bare C function
@@ -659,314 +509,225 @@ class CallableValueSemantics {
  * representable. */
 
 class CallableBoundaryPolicy {
-    private CallableValueSemantics values;
+	private CallableValueSemantics values;
 
-    public CallableBoundaryPolicy(
-            CallableValueSemantics values) {
-        self.values = values;
-    }
+	public CallableBoundaryPolicy(CallableValueSemantics values) { self.values = values; }
 
-    public void rejectEnvironmentEscape(Node site) {
-        print("An environment-requiring callable value cannot escape "
-            + "through a bare __fn_ptr; a tagged closure representation "
-            + "is required");
-        exit(1);
-    }
+	public void rejectEnvironmentEscape(Node site) {
+		print("An environment-requiring callable value cannot escape " + "through a bare __fn_ptr; a tagged closure representation " + "is required");
+		exit(1);
+	}
 
-    public void rejectCapturedEnvironments(
-            Vector<string> captures, Node site,
-            CallableBoundaryContext context) {
-        int index = 0;
-        while (index < captures.len) {
-            string capture = captures.get(index);
-            if (context.hasEnvironment(capture)) {
-                print(f"A lambda cannot capture an environment-bearing "
-                    + f"callable ({capture}); a closure value is required at "
-                    + f"{site.line}:{site.col}");
-                exit(1);
-            }
-            index = index + 1;
-        }
-    }
+	public void rejectCapturedEnvironments(Vector<string> captures, Node site, CallableBoundaryContext context) {
+		int index = 0;
+		while (index < captures.len) {
+			string capture = captures.get(index);
+			if (context.hasEnvironment(capture)) {
+				print(f"A lambda cannot capture an environment-bearing " + f"callable ({capture}); a closure value is required at " + f"{site.line}:{site.col}");
+				exit(1);
+			}
+			index = index + 1;
+		}
+	}
 
-    private bool unsafeValue(
-            Node? expectedType, Node? value,
-            CallableBoundaryContext context) {
-        if (expectedType == null || value == null) { return false; }
-        Node? canonicalType = self.values.canonicalType(
-            expectedType, context);
-        if (canonicalType == null) { return false; }
-        Node canonical = canonicalType;
-        if (self.values.managedReturnCallable(canonical, context)) {
-            return self.values.expressionAbi(value, context) != 0;
-        }
-        if (value.kind == NK_LIST_LITERAL
-                || value.kind == NK_BRACE_INITIALIZER) {
-            Node? elementType = null;
-            if (canonical.is_array) {
-                elementType = self.values.arrayElement(canonical);
-            } else if ((canonical.base == "Array"
-                    || canonical.base == "List" || canonical.base == "Set"
-                    || canonical.base == "Vector")
-                    && canonical.generic_args.len == 1) {
-                elementType = canonical.generic_args.get(0);
-            }
-            if (elementType != null) {
-                int index = 0;
-                while (index < value.elements.len) {
-                    if (self.unsafeValue(elementType,
-                            value.elements.get(index), context)) {
-                        return true;
-                    }
-                    index = index + 1;
-                }
-                return false;
-            }
-            if (canonical.base == "Tuple") {
-                int index = 0;
-                while (index < value.elements.len
-                        && index < canonical.generic_args.len) {
-                    if (self.unsafeValue(
-                            canonical.generic_args.get(index),
-                            value.elements.get(index), context)) {
-                        return true;
-                    }
-                    index = index + 1;
-                }
-                return false;
-            }
-            Node? declaration = self.values.structDeclaration(canonical);
-            if (declaration != null) {
-                int index = 0;
-                while (index < value.elements.len
-                        && index < declaration.fields.len) {
-                    if (self.unsafeValue(
-                            declaration.fields.get(index).type,
-                            value.elements.get(index), context)) {
-                        return true;
-                    }
-                    index = index + 1;
-                }
-                return false;
-            }
-        }
-        if (value.kind == NK_TUPLE_LITERAL && canonical.base == "Tuple") {
-            int index = 0;
-            while (index < value.elements.len
-                    && index < canonical.generic_args.len) {
-                if (self.unsafeValue(
-                        canonical.generic_args.get(index),
-                        value.elements.get(index), context)) {
-                    return true;
-                }
-                index = index + 1;
-            }
-            return false;
-        }
-        if (value.kind == NK_MAP_LITERAL && canonical.base == "Map"
-                && canonical.generic_args.len == 2) {
-            int index = 0;
-            while (index < value.entries.len) {
-                Node entry = value.entries.get(index);
-                if (self.unsafeValue(canonical.generic_args.get(0),
-                        entry.key, context)
-                        || self.unsafeValue(canonical.generic_args.get(1),
-                            entry.value_node, context)) {
-                    return true;
-                }
-                index = index + 1;
-            }
-            return false;
-        }
-        if (self.values.validatedReferenceOwner(canonical)) {
-            return false;
-        }
-        /* Aggregate values carry no ABI tag for their callback leaves. */
-        return self.values.typeContainsManaged(canonical, context);
-    }
+	private bool unsafeValue(Node? expectedType, Node? value, CallableBoundaryContext context) {
+		if (expectedType == null || value == null) { return false; }
+		Node? canonicalType = self.values.canonicalType(expectedType, context);
+		if (canonicalType == null) { return false; }
+		Node canonical = canonicalType;
+		if (self.values.managedReturnCallable(canonical, context)) {
+			return self.values.expressionAbi(value, context) != 0;
+		}
+		if (value.kind == NK_LIST_LITERAL || value.kind == NK_BRACE_INITIALIZER) {
+			Node? elementType = null;
+			if (canonical.is_array) {
+				elementType = self.values.arrayElement(canonical);
+			} else if ((canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector") && canonical.generic_args.len == 1) {
+				elementType = canonical.generic_args.get(0);
+			}
+			if (elementType != null) {
+				int index = 0;
+				while (index < value.elements.len) {
+					if (self.unsafeValue(elementType, value.elements.get(index), context)) {
+						return true;
+					}
+					index = index + 1;
+				}
+				return false;
+			}
+			if (canonical.base == "Tuple") {
+				int index = 0;
+				while (index < value.elements.len && index < canonical.generic_args.len) {
+					if (self.unsafeValue(canonical.generic_args.get(index), value.elements.get(index), context)) {
+						return true;
+					}
+					index = index + 1;
+				}
+				return false;
+			}
+			Node? declaration = self.values.structDeclaration(canonical);
+			if (declaration != null) {
+				int index = 0;
+				while (index < value.elements.len && index < declaration.fields.len) {
+					if (self.unsafeValue(declaration.fields.get(index).type, value.elements.get(index), context)) {
+						return true;
+					}
+					index = index + 1;
+				}
+				return false;
+			}
+		}
+		if (value.kind == NK_TUPLE_LITERAL && canonical.base == "Tuple") {
+			int index = 0;
+			while (index < value.elements.len && index < canonical.generic_args.len) {
+				if (self.unsafeValue(canonical.generic_args.get(index), value.elements.get(index), context)) {
+					return true;
+				}
+				index = index + 1;
+			}
+			return false;
+		}
+		if (value.kind == NK_MAP_LITERAL && canonical.base == "Map" && canonical.generic_args.len == 2) {
+			int index = 0;
+			while (index < value.entries.len) {
+				Node entry = value.entries.get(index);
+				if (self.unsafeValue(canonical.generic_args.get(0), entry.key, context) || self.unsafeValue(canonical.generic_args.get(1), entry.value_node, context)) {
+					return true;
+				}
+				index = index + 1;
+			}
+			return false;
+		}
+		if (self.values.validatedReferenceOwner(canonical)) {
+			return false;
+		}
+		/* Aggregate values carry no ABI tag for their callback leaves. */
+		return self.values.typeContainsManaged(canonical, context);
+	}
 
-    public void rejectPersistentStorage(
-            Node? expectedType, Node? value,
-            CallableBoundaryContext context, bool unsafe,
-            string boundary) {
-        if (self.values.valueRequiresEnvironment(
-                expectedType, value, context)) {
-            print("Environment-requiring callable value cannot cross "
-                + boundary + "; bare __fn_ptr has no tagged receiver or "
-                + "closure environment");
-            exit(1);
-        }
-        if (!unsafe) { return; }
-        print("Managed-return callback cannot cross " + boundary
-            + "; bare __fn_ptr storage erases its return ABI");
-        exit(1);
-    }
+	public void rejectPersistentStorage(Node? expectedType, Node? value, CallableBoundaryContext context, bool unsafe, string boundary) {
+		if (self.values.valueRequiresEnvironment(expectedType, value, context)) {
+			print("Environment-requiring callable value cannot cross " + boundary + "; bare __fn_ptr has no tagged receiver or " + "closure environment");
+			exit(1);
+		}
+		if (!unsafe) { return; }
+		print("Managed-return callback cannot cross " + boundary + "; bare __fn_ptr storage erases its return ABI");
+		exit(1);
+	}
 
-    public void rejectAggregateInitializer(
-            Node? expectedType, Node? value,
-            CallableBoundaryContext context, bool unsafe) {
-        /* A direct local lambda is lowered as a lifted function plus a
+	public void rejectAggregateInitializer(Node? expectedType, Node? value, CallableBoundaryContext context, bool unsafe) {
+		/* A direct local lambda is lowered as a lifted function plus a
          * compiler-owned environment slot. It is not being persisted through
          * a bare aggregate representation at this boundary. */
-        if (value != null && value.kind == NK_LAMBDA_EXPR) { return; }
-        if (self.values.managedReturnCallable(expectedType, context)) {
-            return;
-        }
-        self.rejectPersistentStorage(
-            expectedType, value, context, unsafe,
-            "aggregate storage");
-    }
+		if (value != null && value.kind == NK_LAMBDA_EXPR) { return; }
+		if (self.values.managedReturnCallable(expectedType, context)) {
+			return;
+		}
+		self.rejectPersistentStorage(expectedType, value, context, unsafe, "aggregate storage");
+	}
 
-    public void rejectAddressEscape(
-            Node? operand, Node? operandType,
-            CallableBoundaryContext context) {
-        if (operand == null
-                || !self.values.managedReturnCallable(
-                    operandType, context)) {
-            return;
-        }
-        bool storage = operand.kind == NK_FIELD_ACCESS_EXPR
-            || operand.kind == NK_INDEX_EXPR
-            || (operand.kind == NK_UNARY_EXPR
-                && operand.op == "*")
-            || (operand.kind == NK_IDENTIFIER
-                && context.hasVariable(operand.name));
-        if (!storage) { return; }
-        print("Managed-return callable storage cannot be addressed; "
-            + "an alias cannot preserve flow-sensitive return ownership ABI");
-        exit(1);
-    }
+	public void rejectAddressEscape(Node? operand, Node? operandType, CallableBoundaryContext context) {
+		if (operand == null || !self.values.managedReturnCallable(operandType, context)) {
+			return;
+		}
+		bool storage = operand.kind == NK_FIELD_ACCESS_EXPR || operand.kind == NK_INDEX_EXPR || (operand.kind == NK_UNARY_EXPR && operand.op == "*") || (operand.kind == NK_IDENTIFIER && context.hasVariable(operand.name));
+		if (!storage) { return; }
+		print("Managed-return callable storage cannot be addressed; " + "an alias cannot preserve flow-sensitive return ownership ABI");
+		exit(1);
+	}
 
-    public void rejectNonportableCallableCast(
-            Node cast, Node? sourceType,
-            CallableBoundaryContext context) {
-        Node? targetType = self.values.canonicalType(
-            cast.target_type, context);
-        Node? canonicalSource = self.values.canonicalType(
-            sourceType, context);
-        bool targetCallable =
-            self.values.callableType(targetType, context);
-        bool sourceCallable =
-            self.values.callableType(canonicalSource, context);
-        if (targetCallable && !sourceCallable) {
-            bool nullValue = cast.expr != null
-                && cast.expr.kind == NK_NULL_LITERAL;
-            bool zeroValue = cast.expr != null
-                && cast.expr.kind == NK_INT_LITERAL
-                && cast.expr.value_int == 0;
-            if (nullValue || zeroValue) { return; }
-            print("Function pointers cannot be cast from object pointers "
-                + "or integer values in strict C11");
-            exit(1);
-        }
-        if (!sourceCallable || targetCallable) { return; }
-        bool targetBool = targetType != null
-            && targetType.base == "bool"
-            && targetType.pointer_depth == 0
-            && !targetType.is_array;
-        if (targetBool) { return; }
-        print("Function pointers cannot be cast to object pointers or "
-            + "integer values in strict C11");
-        exit(1);
-    }
+	public void rejectNonportableCallableCast(Node cast, Node? sourceType, CallableBoundaryContext context) {
+		Node? targetType = self.values.canonicalType(cast.target_type, context);
+		Node? canonicalSource = self.values.canonicalType(sourceType, context);
+		bool targetCallable = self.values.callableType(targetType, context);
+		bool sourceCallable = self.values.callableType(canonicalSource, context);
+		if (targetCallable && !sourceCallable) {
+			bool nullValue = cast.expr != null && cast.expr.kind == NK_NULL_LITERAL;
+			bool zeroValue = cast.expr != null && cast.expr.kind == NK_INT_LITERAL && cast.expr.value_int == 0;
+			if (nullValue || zeroValue) { return; }
+			print("Function pointers cannot be cast from object pointers " + "or integer values in strict C11");
+			exit(1);
+		}
+		if (!sourceCallable || targetCallable) { return; }
+		bool targetBool = targetType != null && targetType.base == "bool" && targetType.pointer_depth == 0 && !targetType.is_array;
+		if (targetBool) { return; }
+		print("Function pointers cannot be cast to object pointers or " + "integer values in strict C11");
+		exit(1);
+	}
 
-    public void rejectAssignment(
-            Node assignment, Node? targetType,
-            CallableBoundaryContext context, bool unsafe) {
-        if (assignment.op != "=" || assignment.target == null) { return; }
-        Node target = assignment.target;
-        bool localIdentifier = target.kind == NK_IDENTIFIER
-            && self.values.lexicalIdentifier(target.name, context);
-        if (localIdentifier
-                && self.values.managedReturnCallable(
-                    targetType, context)) {
-            return;
-        }
-        string boundary = "persistent storage";
-        if (target.kind == NK_IDENTIFIER) {
-            boundary = localIdentifier
-                ? "aggregate storage" : "global storage";
-        } else if (target.kind == NK_FIELD_ACCESS_EXPR) {
-            boundary = "field storage";
-        } else if (target.kind == NK_INDEX_EXPR) {
-            boundary = "indexed storage";
-        }
-        self.rejectPersistentStorage(
-            targetType, assignment.value_node, context, unsafe,
-            boundary);
-    }
+	public void rejectAssignment(Node assignment, Node? targetType, CallableBoundaryContext context, bool unsafe) {
+		if (assignment.op != "=" || assignment.target == null) { return; }
+		Node target = assignment.target;
+		bool localIdentifier = target.kind == NK_IDENTIFIER && self.values.lexicalIdentifier(target.name, context);
+		if (localIdentifier && self.values.managedReturnCallable(targetType, context)) {
+			return;
+		}
+		string boundary = "persistent storage";
+		if (target.kind == NK_IDENTIFIER) {
+			boundary = localIdentifier ? "aggregate storage" : "global storage";
+		} else if (target.kind == NK_FIELD_ACCESS_EXPR) {
+			boundary = "field storage";
+		} else if (target.kind == NK_INDEX_EXPR) {
+			boundary = "indexed storage";
+		}
+		self.rejectPersistentStorage(targetType, assignment.value_node, context, unsafe, boundary);
+	}
 
-    private void rejectUnsafeArgument(
-            Node parameter, Node argument,
-            CallableBoundaryContext context) {
-        if (self.values.valueRequiresEnvironment(
-                parameter.type, argument, context)) {
-            print("Environment-requiring callable value cannot cross "
-                + "parameter '" + parameter.name
-                + "'; bare __fn_ptr has no tagged receiver or closure "
-                + "environment");
-            exit(1);
-        }
-        if (!self.unsafeValue(parameter.type, argument, context)) { return; }
-        if (!self.values.managedReturnCallable(
-                parameter.type, context)) {
-            print("Managed-return callback cannot cross parameter '"
-                + parameter.name + "'; an erased or opaque value cannot "
-                + "preserve its return ownership ABI");
-            exit(1);
-        }
-        print("Managed-return callback for parameter '" + parameter.name
-            + "' erases its source-owned return ABI; bare __fn_ptr parameters "
-            + "accept only borrowed C callbacks");
-        exit(1);
-    }
+	private void rejectUnsafeArgument(Node parameter, Node argument, CallableBoundaryContext context) {
+		if (self.values.valueRequiresEnvironment(parameter.type, argument, context)) {
+			print("Environment-requiring callable value cannot cross " + "parameter '" + parameter.name + "'; bare __fn_ptr has no tagged receiver or closure " + "environment");
+			exit(1);
+		}
+		if (!self.unsafeValue(parameter.type, argument, context)) { return; }
+		if (!self.values.managedReturnCallable(parameter.type, context)) {
+			print("Managed-return callback cannot cross parameter '" + parameter.name + "'; an erased or opaque value cannot " + "preserve its return ownership ABI");
+			exit(1);
+		}
+		print("Managed-return callback for parameter '" + parameter.name + "' erases its source-owned return ABI; bare __fn_ptr parameters " + "accept only borrowed C callbacks");
+		exit(1);
+	}
 
-    public void rejectUnsafeArguments(
-            Node call, Vector<Node> parameters,
-            CallableBoundaryContext context) {
-        if (parameters.len == 0) { return; }
-        Map<string, int> parameterIndices = {};
-        Vector<int> bound = [];
-        int index = 0;
-        while (index < parameters.len) {
-            parameterIndices.put(parameters.get(index).name, index);
-            bound.push(0);
-            index = index + 1;
-        }
-        int positional = 0;
-        index = 0;
-        while (index < call.args.len) {
-            int parameterIndex = positional;
-            string argumentName = "";
-            if (index < call.arg_names.len) {
-                argumentName = call.arg_names.get(index);
-            }
-            if (argumentName != "") {
-                parameterIndex = -1;
-                if (parameterIndices.has(argumentName)) {
-                    parameterIndex = parameterIndices.get(argumentName);
-                }
-            } else {
-                positional = positional + 1;
-            }
-            if (parameterIndex >= 0 && parameterIndex < parameters.len) {
-                bound.set(parameterIndex, 1);
-                self.rejectUnsafeArgument(
-                    parameters.get(parameterIndex),
-                    call.args.get(index), context);
-            }
-            index = index + 1;
-        }
-        index = 0;
-        while (index < parameters.len) {
-            Node parameter = parameters.get(index);
-            if (bound.get(index) == 0 && parameter.default_ != null) {
-                self.rejectUnsafeArgument(
-                    parameter, parameter.default_, context);
-            }
-            index = index + 1;
-        }
-    }
+	public void rejectUnsafeArguments(Node call, Vector<Node> parameters, CallableBoundaryContext context) {
+		if (parameters.len == 0) { return; }
+		Map<string, int> parameterIndices = {};
+		Vector<int> bound = [];
+		int index = 0;
+		while (index < parameters.len) {
+			parameterIndices.put(parameters.get(index).name, index);
+			bound.push(0);
+			index = index + 1;
+		}
+		int positional = 0;
+		index = 0;
+		while (index < call.args.len) {
+			int parameterIndex = positional;
+			string argumentName = "";
+			if (index < call.arg_names.len) {
+				argumentName = call.arg_names.get(index);
+			}
+			if (argumentName != "") {
+				parameterIndex = -1;
+				if (parameterIndices.has(argumentName)) {
+					parameterIndex = parameterIndices.get(argumentName);
+				}
+			} else {
+				positional = positional + 1;
+			}
+			if (parameterIndex >= 0 && parameterIndex < parameters.len) {
+				bound.set(parameterIndex, 1);
+				self.rejectUnsafeArgument(parameters.get(parameterIndex), call.args.get(index), context);
+			}
+			index = index + 1;
+		}
+		index = 0;
+		while (index < parameters.len) {
+			Node parameter = parameters.get(index);
+			if (bound.get(index) == 0 && parameter.default_ != null) {
+				self.rejectUnsafeArgument(parameter, parameter.default_, context);
+			}
+			index = index + 1;
+		}
+	}
 }
 
 /* A prepared lifted callable contains only source/value data and prebuilt IR
@@ -974,596 +735,459 @@ class CallableBoundaryPolicy {
  * source body to StatementLowerer with a fresh per-function provenance state,
  * then returns the resulting block to CallableValueLowerer for materialization. */
 class CallableLambdaPlan {
-    public Node source;
-    public int identity;
-    public string functionName;
-    public string environmentName;
-    public Vector<string> captures;
-    public Map<string, Node> bodyVariableTypes;
-    public Node? returnType;
-    public string returnCType;
-    public IRNode value;
-    public IRFunction liftedFunction;
-    public IRStructDef environmentDefinition;
-    public Vector<IRNode> bodyPrefix;
-    public bool hasEnvironment;
-    public bool materialized;
+	public Node source;
+	public int identity;
+	public string functionName;
+	public string environmentName;
+	public Vector<string> captures;
+	public Map<string, Node> bodyVariableTypes;
+	public Node? returnType;
+	public string returnCType;
+	public IRNode value;
+	public IRFunction liftedFunction;
+	public IRStructDef environmentDefinition;
+	public Vector<IRNode> bodyPrefix;
+	public bool hasEnvironment;
+	public bool materialized;
 
-    public CallableLambdaPlan(
-            Node source, int identity,
-            string functionName, string environmentName) {
-        self.source = source;
-        self.identity = identity;
-        self.functionName = functionName;
-        self.environmentName = environmentName;
-        self.captures = [];
-        self.bodyVariableTypes = {};
-        self.returnType = null;
-        self.returnCType = "void";
-        self.value = IRNode.functionReference(functionName);
-        self.liftedFunction = IRFunction();
-        self.environmentDefinition = IRStructDef();
-        self.bodyPrefix = [];
-        self.hasEnvironment = false;
-        self.materialized = false;
-    }
+	public CallableLambdaPlan(Node source, int identity, string functionName, string environmentName) {
+		self.source = source;
+		self.identity = identity;
+		self.functionName = functionName;
+		self.environmentName = environmentName;
+		self.captures = [];
+		self.bodyVariableTypes = {};
+		self.returnType = null;
+		self.returnCType = "void";
+		self.value = IRNode.functionReference(functionName);
+		self.liftedFunction = IRFunction();
+		self.environmentDefinition = IRStructDef();
+		self.bodyPrefix = [];
+		self.hasEnvironment = false;
+		self.materialized = false;
+	}
 }
 
 class CallableInvocationEnvironment {
-    public Vector<IRNode> declarations;
-    public Vector<IRNode> prefix;
-    public IRNode? environmentArgument;
+	public Vector<IRNode> declarations;
+	public Vector<IRNode> prefix;
+	public IRNode? environmentArgument;
 
-    public CallableInvocationEnvironment() {
-        self.declarations = [];
-        self.prefix = [];
-        self.environmentArgument = null;
-    }
+	public CallableInvocationEnvironment() {
+		self.declarations = [];
+		self.prefix = [];
+		self.environmentArgument = null;
+	}
 }
 
 class CallableBindingPlan {
-    public bool replacesValueDeclaration;
-    public Vector<IRNode> statements;
-    public string functionName;
-    public string environmentStorage;
+	public bool replacesValueDeclaration;
+	public Vector<IRNode> statements;
+	public string functionName;
+	public string environmentStorage;
 
-    public CallableBindingPlan() {
-        self.replacesValueDeclaration = false;
-        self.statements = [];
-        self.functionName = "";
-        self.environmentStorage = "";
-    }
+	public CallableBindingPlan() {
+		self.replacesValueDeclaration = false;
+		self.statements = [];
+		self.functionName = "";
+		self.environmentStorage = "";
+	}
 }
 
 class CallableSpawnPlan {
-    public Node source;
-    public Node lambda;
-    public int identity;
-    public string wrapperName;
-    public string environmentName;
-    public Vector<string> captures;
-    public Map<string, Node> bodyVariableTypes;
-    public Node? returnType;
-    public string returnCType;
-    public IRNode value;
-    public IRFunction wrapper;
-    public IRStructDef environmentDefinition;
-    public Vector<IRNode> bodyPrefix;
-    public bool hasEnvironment;
-    public bool materialized;
+	public Node source;
+	public Node lambda;
+	public int identity;
+	public string wrapperName;
+	public string environmentName;
+	public Vector<string> captures;
+	public Map<string, Node> bodyVariableTypes;
+	public Node? returnType;
+	public string returnCType;
+	public IRNode value;
+	public IRFunction wrapper;
+	public IRStructDef environmentDefinition;
+	public Vector<IRNode> bodyPrefix;
+	public bool hasEnvironment;
+	public bool materialized;
 
-    public CallableSpawnPlan(Node source, Node lambda, int identity,
-            string wrapperName, string environmentName) {
-        self.source = source;
-        self.lambda = lambda;
-        self.identity = identity;
-        self.wrapperName = wrapperName;
-        self.environmentName = environmentName;
-        self.captures = [];
-        self.bodyVariableTypes = {};
-        self.returnType = null;
-        self.returnCType = "void";
-        self.value = IRNode.literal("0");
-        self.wrapper = IRFunction();
-        self.environmentDefinition = IRStructDef();
-        self.bodyPrefix = [];
-        self.hasEnvironment = false;
-        self.materialized = false;
-    }
+	public CallableSpawnPlan(Node source, Node lambda, int identity, string wrapperName, string environmentName) {
+		self.source = source;
+		self.lambda = lambda;
+		self.identity = identity;
+		self.wrapperName = wrapperName;
+		self.environmentName = environmentName;
+		self.captures = [];
+		self.bodyVariableTypes = {};
+		self.returnType = null;
+		self.returnCType = "void";
+		self.value = IRNode.literal("0");
+		self.wrapper = IRFunction();
+		self.environmentDefinition = IRStructDef();
+		self.bodyPrefix = [];
+		self.hasEnvironment = false;
+		self.materialized = false;
+	}
 }
 
 class CallableValueLowerer {
-    private Analyzed analyzed;
-    private HostedAbiRepository hostedAbi;
-    private CallableValueSemantics values;
-    private CallableBoundaryPolicy boundaries;
-    private LoweringContext context;
-    private CTypeLowerer cTypes;
-    private ManagedValueSemantics managedValues;
-    private ManagedLifetimeLowerer managedLifetime;
-    private ConcurrencyLowerer concurrency;
-    private int nextIdentity;
-    private Vector<CallableLambdaPlan> pendingLambdas;
-    private Vector<CallableSpawnPlan> pendingSpawns;
+	private Analyzed analyzed;
+	private HostedAbiRepository hostedAbi;
+	private CallableValueSemantics values;
+	private CallableBoundaryPolicy boundaries;
+	private LoweringContext context;
+	private CTypeLowerer cTypes;
+	private ManagedValueSemantics managedValues;
+	private ManagedLifetimeLowerer managedLifetime;
+	private ConcurrencyLowerer concurrency;
+	private int nextIdentity;
+	private Vector<CallableLambdaPlan> pendingLambdas;
+	private Vector<CallableSpawnPlan> pendingSpawns;
 
-    public CallableValueLowerer(
-            Analyzed analyzed,
-            HostedAbiRepository hostedAbi,
-            CallableValueSemantics values,
-            CallableBoundaryPolicy boundaries,
-            LoweringContext context,
-            CTypeLowerer cTypes,
-            ManagedValueSemantics managedValues,
-            ManagedLifetimeLowerer managedLifetime,
-            ConcurrencyLowerer concurrency) {
-        self.analyzed = analyzed;
-        self.hostedAbi = hostedAbi;
-        self.values = values;
-        self.boundaries = boundaries;
-        self.context = context;
-        self.cTypes = cTypes;
-        self.managedValues = managedValues;
-        self.managedLifetime = managedLifetime;
-        self.concurrency = concurrency;
-        self.nextIdentity = 0;
-        self.pendingLambdas = [];
-        self.pendingSpawns = [];
-    }
+	public CallableValueLowerer(Analyzed analyzed, HostedAbiRepository hostedAbi, CallableValueSemantics values, CallableBoundaryPolicy boundaries, LoweringContext context, CTypeLowerer cTypes, ManagedValueSemantics managedValues, ManagedLifetimeLowerer managedLifetime, ConcurrencyLowerer concurrency) {
+		self.analyzed = analyzed;
+		self.hostedAbi = hostedAbi;
+		self.values = values;
+		self.boundaries = boundaries;
+		self.context = context;
+		self.cTypes = cTypes;
+		self.managedValues = managedValues;
+		self.managedLifetime = managedLifetime;
+		self.concurrency = concurrency;
+		self.nextIdentity = 0;
+		self.pendingLambdas = [];
+		self.pendingSpawns = [];
+	}
 
-    private string lexicalBindingCName(string name) {
-        return self.hostedAbi.lexicalBindingCName(
-            name, self.hostedAbi.typedefName(name)
-                || self.analyzed.lexicalBindingConflictsType(name));
-    }
+	private string lexicalBindingCName(string name) { return self.hostedAbi.lexicalBindingCName(name, self.hostedAbi.typedefName(name) || self.analyzed.lexicalBindingConflictsType(name)); }
 
-    private Node concreteType(Node typeExpr) {
-        return self.cTypes.resolveBodyType(
-            typeExpr, self.context.activeTypeMap,
-            self.context.genericBody
-                || self.context.callDefaultTypeDepth > 0);
-    }
+	private Node concreteType(Node typeExpr) { return self.cTypes.resolveBodyType(typeExpr, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0); }
 
-    private string concreteCType(Node typeExpr) {
-        if (self.context.genericBody
-                || self.context.callDefaultTypeDepth > 0) {
-            return self.cTypes.lowerGeneric(
-                typeExpr, self.context.activeTypeMap);
-        }
-        return self.cTypes.lower(typeExpr);
-    }
+	private string concreteCType(Node typeExpr) {
+		if (self.context.genericBody || self.context.callDefaultTypeDepth > 0) {
+			return self.cTypes.lowerGeneric(typeExpr, self.context.activeTypeMap);
+		}
+		return self.cTypes.lower(typeExpr);
+	}
 
-    private Map<string, Node> copyVariableTypes(
-            Map<string, Node> variableTypes) {
-        Map<string, Node> copied = {};
-        Vector<string> names = variableTypes.keys();
-        int index = 0;
-        while (index < names.len) {
-            string name = names.get(index);
-            copied.put(name, variableTypes.get(name));
-            index = index + 1;
-        }
-        return copied;
-    }
+	private Map<string, Node> copyVariableTypes(Map<string, Node> variableTypes) {
+		Map<string, Node> copied = {};
+		Vector<string> names = variableTypes.keys();
+		int index = 0;
+		while (index < names.len) {
+			string name = names.get(index);
+			copied.put(name, variableTypes.get(name));
+			index = index + 1;
+		}
+		return copied;
+	}
 
-    public int nextSyntheticIdentity() {
-        self.nextIdentity = self.nextIdentity + 1;
-        return self.nextIdentity;
-    }
+	public int nextSyntheticIdentity() {
+		self.nextIdentity = self.nextIdentity + 1;
+		return self.nextIdentity;
+	}
 
-    public CallableLambdaPlan prepareLambda(
-            Node lambda, Map<string, Node> variableTypes,
-            CallableBoundaryContext boundary) {
-        int identity = self.nextSyntheticIdentity();
-        string suffix = Strings.fromInt(identity);
-        string functionName = "__btrc_lambda_" + suffix;
-        string environmentName = functionName + "_env";
-        CallableLambdaPlan plan = CallableLambdaPlan(
-            lambda, identity,
-            functionName, environmentName);
-        plan.captures = self.values.captureNames(lambda, boundary);
-        plan.hasEnvironment = plan.captures.len > 0;
-        self.boundaries.rejectCapturedEnvironments(
-            plan.captures, lambda, boundary);
-        plan.bodyVariableTypes = self.copyVariableTypes(variableTypes);
+	public CallableLambdaPlan prepareLambda(Node lambda, Map<string, Node> variableTypes, CallableBoundaryContext boundary) {
+		int identity = self.nextSyntheticIdentity();
+		string suffix = Strings.fromInt(identity);
+		string functionName = "__btrc_lambda_" + suffix;
+		string environmentName = functionName + "_env";
+		CallableLambdaPlan plan = CallableLambdaPlan(lambda, identity, functionName, environmentName);
+		plan.captures = self.values.captureNames(lambda, boundary);
+		plan.hasEnvironment = plan.captures.len > 0;
+		self.boundaries.rejectCapturedEnvironments(plan.captures, lambda, boundary);
+		plan.bodyVariableTypes = self.copyVariableTypes(variableTypes);
 
-        Node signature = self.values.lambdaType(lambda, boundary);
-        plan.returnType = lambda.return_type;
-        if (plan.returnType == null
-                && signature.generic_args.len > 0) {
-            plan.returnType = signature.generic_args.get(0);
-        }
-        if (plan.returnType != null) {
-            Node concreteReturn = plan.returnType;
-            plan.returnCType = self.concreteCType(concreteReturn);
-        }
+		Node signature = self.values.lambdaType(lambda, boundary);
+		plan.returnType = lambda.return_type;
+		if (plan.returnType == null && signature.generic_args.len > 0) {
+			plan.returnType = signature.generic_args.get(0);
+		}
+		if (plan.returnType != null) {
+			Node concreteReturn = plan.returnType;
+			plan.returnCType = self.concreteCType(concreteReturn);
+		}
 
-        plan.liftedFunction.name = functionName;
-        plan.liftedFunction.return_type = plan.returnCType;
-        plan.liftedFunction.is_static = true;
-        int parameterIndex = 0;
-        while (parameterIndex < lambda.params.len) {
-            Node parameter = lambda.params.get(parameterIndex);
-            plan.liftedFunction.params.push(
-                self.cTypes.lowerParameter(parameter));
-            if (parameter.type != null) {
-                plan.bodyVariableTypes.put(
-                    parameter.name, parameter.type);
-            }
-            parameterIndex = parameterIndex + 1;
-        }
-        if (plan.hasEnvironment) {
-            plan.liftedFunction.params.push(
-                IRParam("void*", "__btrc_env"));
-            plan.environmentDefinition.name = environmentName;
-            int captureIndex = 0;
-            while (captureIndex < plan.captures.len) {
-                string capture = plan.captures.get(captureIndex);
-                Node captureType = self.concreteType(
-                    variableTypes.get(capture));
-                IRStructField field = IRStructField(
-                    self.concreteCType(variableTypes.get(capture)),
-                    self.hostedAbi.lexicalBindingCName(
-                        capture, false));
-                field.is_volatile = captureType.is_volatile;
-                field.effective_is_volatile =
-                    SemanticTypeSystem.typeEffectiveOuterVolatile(
-                        captureType, self.analyzed.typedefTable);
-                plan.environmentDefinition.fields.push(field);
-                captureIndex = captureIndex + 1;
-            }
+		plan.liftedFunction.name = functionName;
+		plan.liftedFunction.return_type = plan.returnCType;
+		plan.liftedFunction.is_static = true;
+		int parameterIndex = 0;
+		while (parameterIndex < lambda.params.len) {
+			Node parameter = lambda.params.get(parameterIndex);
+			plan.liftedFunction.params.push(self.cTypes.lowerParameter(parameter));
+			if (parameter.type != null) {
+				plan.bodyVariableTypes.put(parameter.name, parameter.type);
+			}
+			parameterIndex = parameterIndex + 1;
+		}
+		if (plan.hasEnvironment) {
+			plan.liftedFunction.params.push(IRParam("void*", "__btrc_env"));
+			plan.environmentDefinition.name = environmentName;
+			int captureIndex = 0;
+			while (captureIndex < plan.captures.len) {
+				string capture = plan.captures.get(captureIndex);
+				Node captureType = self.concreteType(variableTypes.get(capture));
+				IRStructField field = IRStructField(self.concreteCType(variableTypes.get(capture)), self.hostedAbi.lexicalBindingCName(capture, false));
+				field.is_volatile = captureType.is_volatile;
+				field.effective_is_volatile = SemanticTypeSystem.typeEffectiveOuterVolatile(captureType, self.analyzed.typedefTable);
+				plan.environmentDefinition.fields.push(field);
+				captureIndex = captureIndex + 1;
+			}
 
-            IRNode environment = IRNode.cast(
-                "struct " + environmentName + "*",
-                IRNode.variable("__btrc_env"));
-            plan.bodyPrefix.push(IRNode.variableDeclaration(
-                "struct " + environmentName + "*",
-                "__env", environment));
-            captureIndex = 0;
-            while (captureIndex < plan.captures.len) {
-                string capture = plan.captures.get(captureIndex);
-                Node captureType = self.concreteType(
-                    variableTypes.get(capture));
-                IRNode field = IRNode.fieldAccess(
-                    IRNode.variable("__env"),
-                    self.hostedAbi.lexicalBindingCName(
-                        capture, false), true);
-                IRNode declaration = IRNode.variableDeclaration(
-                    self.concreteCType(variableTypes.get(capture)),
-                    self.lexicalBindingCName(capture), field);
-                declaration.is_volatile = captureType.is_volatile;
-                declaration.effective_is_volatile =
-                    SemanticTypeSystem.typeEffectiveOuterVolatile(
-                        captureType, self.analyzed.typedefTable);
-                plan.bodyPrefix.push(declaration);
-                captureIndex = captureIndex + 1;
-            }
-        }
-        self.pendingLambdas.push(plan);
-        return plan;
-    }
+			IRNode environment = IRNode.cast("struct " + environmentName + "*", IRNode.variable("__btrc_env"));
+			plan.bodyPrefix.push(IRNode.variableDeclaration("struct " + environmentName + "*", "__env", environment));
+			captureIndex = 0;
+			while (captureIndex < plan.captures.len) {
+				string capture = plan.captures.get(captureIndex);
+				Node captureType = self.concreteType(variableTypes.get(capture));
+				IRNode field = IRNode.fieldAccess(IRNode.variable("__env"), self.hostedAbi.lexicalBindingCName(capture, false), true);
+				IRNode declaration = IRNode.variableDeclaration(self.concreteCType(variableTypes.get(capture)), self.lexicalBindingCName(capture), field);
+				declaration.is_volatile = captureType.is_volatile;
+				declaration.effective_is_volatile = SemanticTypeSystem.typeEffectiveOuterVolatile(captureType, self.analyzed.typedefTable);
+				plan.bodyPrefix.push(declaration);
+				captureIndex = captureIndex + 1;
+			}
+		}
+		self.pendingLambdas.push(plan);
+		return plan;
+	}
 
-    public CallableBindingPlan bindLambda(
-            string variable, CallableLambdaPlan lambda) {
-        CallableBindingPlan plan = CallableBindingPlan();
-        if (!lambda.hasEnvironment) { return plan; }
-        plan.replacesValueDeclaration = true;
-        plan.functionName = lambda.functionName;
-        plan.environmentStorage = "__" + variable + "_env";
-        plan.statements.push(IRNode.variableDeclaration(
-            "struct " + lambda.environmentName,
-            plan.environmentStorage, null));
-        int captureIndex = 0;
-        while (captureIndex < lambda.captures.len) {
-            string capture = lambda.captures.get(captureIndex);
-            IRNode target = IRNode.fieldAccess(
-                IRNode.variable(plan.environmentStorage),
-                self.hostedAbi.lexicalBindingCName(
-                    capture, false), false);
-            plan.statements.push(IRNode.assignment(
-                target, IRNode.variable(
-                    self.context.sourceCName(capture))));
-            captureIndex = captureIndex + 1;
-        }
-        return plan;
-    }
+	public CallableBindingPlan bindLambda(string variable, CallableLambdaPlan lambda) {
+		CallableBindingPlan plan = CallableBindingPlan();
+		if (!lambda.hasEnvironment) { return plan; }
+		plan.replacesValueDeclaration = true;
+		plan.functionName = lambda.functionName;
+		plan.environmentStorage = "__" + variable + "_env";
+		plan.statements.push(IRNode.variableDeclaration("struct " + lambda.environmentName, plan.environmentStorage, null));
+		int captureIndex = 0;
+		while (captureIndex < lambda.captures.len) {
+			string capture = lambda.captures.get(captureIndex);
+			IRNode target = IRNode.fieldAccess(IRNode.variable(plan.environmentStorage), self.hostedAbi.lexicalBindingCName(capture, false), false);
+			plan.statements.push(IRNode.assignment(target, IRNode.variable(self.context.sourceCName(capture))));
+			captureIndex = captureIndex + 1;
+		}
+		return plan;
+	}
 
+	public CallableInvocationEnvironment prepareInvocationEnvironment(CallableLambdaPlan lambda, Vector<IRNode> captureValues) {
+		if (captureValues.len != lambda.captures.len) {
+			print("internal compiler error: immediate lambda capture plan is incomplete");
+			exit(1);
+		}
+		CallableInvocationEnvironment invocation = CallableInvocationEnvironment();
+		if (!lambda.hasEnvironment) { return invocation; }
+		string environmentStorage = lambda.functionName + "_call_env";
+		IRNode declaration = IRNode.variableDeclaration("struct " + lambda.environmentName, environmentStorage, null);
+		invocation.declarations.push(declaration);
+		self.context.recordLocal(declaration);
+		int captureIndex = 0;
+		while (captureIndex < lambda.captures.len) {
+			string capture = lambda.captures.get(captureIndex);
+			invocation.prefix.push(IRNode.binary(IRNode.fieldAccess(IRNode.variable(environmentStorage), self.hostedAbi.lexicalBindingCName(capture, false), false), "=", captureValues.get(captureIndex)));
+			captureIndex = captureIndex + 1;
+		}
+		invocation.environmentArgument = IRNode.cast("void*", IRNode.addressOf(IRNode.variable(environmentStorage)));
+		return invocation;
+	}
 
-    public CallableInvocationEnvironment prepareInvocationEnvironment(
-            CallableLambdaPlan lambda,
-            Vector<IRNode> captureValues) {
-        if (captureValues.len != lambda.captures.len) {
-            print("internal compiler error: immediate lambda capture plan is incomplete");
-            exit(1);
-        }
-        CallableInvocationEnvironment invocation =
-            CallableInvocationEnvironment();
-        if (!lambda.hasEnvironment) { return invocation; }
-        string environmentStorage =
-            lambda.functionName + "_call_env";
-        IRNode declaration = IRNode.variableDeclaration(
-            "struct " + lambda.environmentName,
-            environmentStorage, null);
-        invocation.declarations.push(declaration);
-        self.context.recordLocal(declaration);
-        int captureIndex = 0;
-        while (captureIndex < lambda.captures.len) {
-            string capture = lambda.captures.get(captureIndex);
-            invocation.prefix.push(IRNode.binary(
-                IRNode.fieldAccess(
-                    IRNode.variable(environmentStorage),
-                    self.hostedAbi.lexicalBindingCName(
-                        capture, false), false),
-                "=", captureValues.get(captureIndex)));
-            captureIndex = captureIndex + 1;
-        }
-        invocation.environmentArgument = IRNode.cast(
-            "void*", IRNode.addressOf(
-                IRNode.variable(environmentStorage)));
-        return invocation;
-    }
+	public IRNode materializeInvocation(CallableLambdaPlan lambda, Vector<IRNode> arguments, CallableInvocationEnvironment invocation) {
+		if (invocation.environmentArgument != null) {
+			arguments.push(invocation.environmentArgument);
+		} else if (lambda.hasEnvironment) {
+			print("internal compiler error: immediate lambda environment was not prepared");
+			exit(1);
+		}
+		return IRNode.call(lambda.functionName, arguments);
+	}
 
-    public IRNode materializeInvocation(
-            CallableLambdaPlan lambda, Vector<IRNode> arguments,
-            CallableInvocationEnvironment invocation) {
-        if (invocation.environmentArgument != null) {
-            arguments.push(invocation.environmentArgument);
-        } else if (lambda.hasEnvironment) {
-            print("internal compiler error: immediate lambda environment was not prepared");
-            exit(1);
-        }
-        return IRNode.call(lambda.functionName, arguments);
-    }
+	public CallableSpawnPlan prepareSpawn(Node sourceSpawn, Map<string, Node> variableTypes, CallableBoundaryContext boundary) {
+		self.context.referenceHelper("__btrc_thread_spawn");
+		Node lambda = sourceSpawn.fn;
+		int identity = self.nextSyntheticIdentity();
+		string suffix = Strings.fromInt(identity);
+		CallableSpawnPlan plan = CallableSpawnPlan(sourceSpawn, lambda, identity, "__btrc_spawn_wrapper_" + suffix, "__btrc_spawn_env_" + suffix);
+		plan.captures = self.values.captureNames(lambda, boundary);
+		plan.hasEnvironment = plan.captures.len > 0;
+		self.boundaries.rejectCapturedEnvironments(plan.captures, lambda, boundary);
+		plan.bodyVariableTypes = self.copyVariableTypes(variableTypes);
+		int parameterIndex = 0;
+		while (parameterIndex < lambda.params.len) {
+			Node parameter = lambda.params.get(parameterIndex);
+			if (parameter.type != null) {
+				plan.bodyVariableTypes.put(parameter.name, parameter.type);
+			}
+			parameterIndex = parameterIndex + 1;
+		}
+		Node signature = self.values.lambdaType(lambda, boundary);
+		plan.returnType = lambda.return_type;
+		if (plan.returnType == null && signature.generic_args.len > 0) {
+			plan.returnType = signature.generic_args.get(0);
+		}
+		if (plan.returnType != null) {
+			plan.returnCType = self.concreteCType(plan.returnType);
+		}
 
-    public CallableSpawnPlan prepareSpawn(
-            Node sourceSpawn, Map<string, Node> variableTypes,
-            CallableBoundaryContext boundary) {
-        self.context.referenceHelper("__btrc_thread_spawn");
-        Node lambda = sourceSpawn.fn;
-        int identity = self.nextSyntheticIdentity();
-        string suffix = Strings.fromInt(identity);
-        CallableSpawnPlan plan = CallableSpawnPlan(
-            sourceSpawn, lambda, identity,
-            "__btrc_spawn_wrapper_" + suffix,
-            "__btrc_spawn_env_" + suffix);
-        plan.captures = self.values.captureNames(lambda, boundary);
-        plan.hasEnvironment = plan.captures.len > 0;
-        self.boundaries.rejectCapturedEnvironments(
-            plan.captures, lambda, boundary);
-        plan.bodyVariableTypes = self.copyVariableTypes(variableTypes);
-        int parameterIndex = 0;
-        while (parameterIndex < lambda.params.len) {
-            Node parameter = lambda.params.get(parameterIndex);
-            if (parameter.type != null) {
-                plan.bodyVariableTypes.put(
-                    parameter.name, parameter.type);
-            }
-            parameterIndex = parameterIndex + 1;
-        }
-        Node signature = self.values.lambdaType(lambda, boundary);
-        plan.returnType = lambda.return_type;
-        if (plan.returnType == null && signature.generic_args.len > 0) {
-            plan.returnType = signature.generic_args.get(0);
-        }
-        if (plan.returnType != null) {
-            plan.returnCType = self.concreteCType(plan.returnType);
-        }
+		plan.wrapper.name = plan.wrapperName;
+		plan.wrapper.is_static = true;
+		plan.wrapper.return_type = "void*";
+		plan.wrapper.params.push(IRParam("void*", "__arg"));
 
-        plan.wrapper.name = plan.wrapperName;
-        plan.wrapper.is_static = true;
-        plan.wrapper.return_type = "void*";
-        plan.wrapper.params.push(IRParam("void*", "__arg"));
+		if (plan.hasEnvironment) {
+			plan.environmentDefinition.name = plan.environmentName;
+			int captureIndex = 0;
+			while (captureIndex < plan.captures.len) {
+				string capture = plan.captures.get(captureIndex);
+				Node captureType = self.concreteType(variableTypes.get(capture));
+				IRStructField field = IRStructField(self.concreteCType(variableTypes.get(capture)), self.hostedAbi.lexicalBindingCName(capture, false));
+				field.is_volatile = captureType.is_volatile;
+				field.effective_is_volatile = SemanticTypeSystem.typeEffectiveOuterVolatile(captureType, self.analyzed.typedefTable);
+				plan.environmentDefinition.fields.push(field);
+				captureIndex = captureIndex + 1;
+			}
+			string environmentType = "struct " + plan.environmentName + "*";
+			plan.bodyPrefix.push(IRNode.variableDeclaration(environmentType, "__env", IRNode.cast(environmentType, IRNode.variable("__arg"))));
+			captureIndex = 0;
+			while (captureIndex < plan.captures.len) {
+				string capture = plan.captures.get(captureIndex);
+				Node captureType = self.concreteType(variableTypes.get(capture));
+				IRNode field = IRNode.fieldAccess(IRNode.variable("__env"), self.hostedAbi.lexicalBindingCName(capture, false), true);
+				IRNode declaration = IRNode.variableDeclaration(self.concreteCType(variableTypes.get(capture)), self.lexicalBindingCName(capture), field);
+				declaration.is_volatile = captureType.is_volatile;
+				declaration.effective_is_volatile = SemanticTypeSystem.typeEffectiveOuterVolatile(captureType, self.analyzed.typedefTable);
+				plan.bodyPrefix.push(declaration);
+				captureIndex = captureIndex + 1;
+			}
+		}
 
-        if (plan.hasEnvironment) {
-            plan.environmentDefinition.name = plan.environmentName;
-            int captureIndex = 0;
-            while (captureIndex < plan.captures.len) {
-                string capture = plan.captures.get(captureIndex);
-                Node captureType = self.concreteType(
-                    variableTypes.get(capture));
-                IRStructField field = IRStructField(
-                    self.concreteCType(variableTypes.get(capture)),
-                    self.hostedAbi.lexicalBindingCName(
-                        capture, false));
-                field.is_volatile = captureType.is_volatile;
-                field.effective_is_volatile =
-                    SemanticTypeSystem.typeEffectiveOuterVolatile(
-                        captureType, self.analyzed.typedefTable);
-                plan.environmentDefinition.fields.push(field);
-                captureIndex = captureIndex + 1;
-            }
-            string environmentType =
-                "struct " + plan.environmentName + "*";
-            plan.bodyPrefix.push(IRNode.variableDeclaration(
-                environmentType, "__env",
-                IRNode.cast(environmentType,
-                    IRNode.variable("__arg"))));
-            captureIndex = 0;
-            while (captureIndex < plan.captures.len) {
-                string capture = plan.captures.get(captureIndex);
-                Node captureType = self.concreteType(
-                    variableTypes.get(capture));
-                IRNode field = IRNode.fieldAccess(
-                    IRNode.variable("__env"),
-                    self.hostedAbi.lexicalBindingCName(
-                        capture, false), true);
-                IRNode declaration = IRNode.variableDeclaration(
-                    self.concreteCType(variableTypes.get(capture)),
-                    self.lexicalBindingCName(capture), field);
-                declaration.is_volatile = captureType.is_volatile;
-                declaration.effective_is_volatile =
-                    SemanticTypeSystem.typeEffectiveOuterVolatile(
-                        captureType, self.analyzed.typedefTable);
-                plan.bodyPrefix.push(declaration);
-                captureIndex = captureIndex + 1;
-            }
-        }
+		string disposer = self.concurrency.emitSpawnCaptureDisposer(plan.captures, variableTypes, plan.environmentName, identity);
+		IRNode wrapperValue = IRNode.cast("void*(*)(void*)", IRNode.functionReference(plan.wrapperName));
+		if (!plan.hasEnvironment) {
+			Vector<IRNode> arguments = [];
+			arguments.push(wrapperValue);
+			arguments.push(IRNode.literal("NULL"));
+			arguments.push(IRNode.literal("NULL"));
+			self.concurrency.appendThreadResultDisposal(arguments, plan.returnType);
+			plan.value = IRNode.call("__btrc_thread_spawn", arguments);
+		} else {
+			string environmentStorage = "__se" + suffix;
+			Vector<IRNode> declarations = [];
+			declarations.push(IRNode.variableDeclaration("struct " + plan.environmentName + "*", environmentStorage, null));
+			Vector<IRNode> sequence = [];
+			self.context.referenceHelper("__btrc_safe_realloc");
+			Vector<IRNode> allocationArguments = [];
+			allocationArguments.push(IRNode.literal("NULL"));
+			allocationArguments.push(IRNode.sizeofType("struct " + plan.environmentName));
+			IRNode allocation = IRNode.cast("struct " + plan.environmentName + "*", IRNode.call("__btrc_safe_realloc", allocationArguments));
+			sequence.push(IRNode.binary(IRNode.variable(environmentStorage), "=", allocation));
+			int captureIndex = 0;
+			while (captureIndex < plan.captures.len) {
+				string capture = plan.captures.get(captureIndex);
+				IRNode target = IRNode.fieldAccess(IRNode.variable(environmentStorage), self.hostedAbi.lexicalBindingCName(capture, false), true);
+				sequence.push(IRNode.binary(target, "=", IRNode.variable(self.context.sourceCName(capture))));
+				Node captureType = variableTypes.get(capture);
+				if (self.managedValues.isManaged(self.concreteType(captureType))) {
+					sequence.push(self.managedLifetime.retainValue(IRNode.variable(self.context.sourceCName(capture)), captureType));
+				}
+				captureIndex = captureIndex + 1;
+			}
+			Vector<IRNode> arguments = [];
+			arguments.push(wrapperValue);
+			arguments.push(IRNode.cast("void*", IRNode.variable(environmentStorage)));
+			arguments.push(IRNode.functionReference(disposer));
+			self.concurrency.appendThreadResultDisposal(arguments, plan.returnType);
+			sequence.push(IRNode.call("__btrc_thread_spawn", arguments));
+			plan.value = IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
+		}
+		self.pendingSpawns.push(plan);
+		return plan;
+	}
 
-        string disposer = self.concurrency.emitSpawnCaptureDisposer(
-            plan.captures, variableTypes,
-            plan.environmentName, identity);
-        IRNode wrapperValue = IRNode.cast(
-            "void*(*)(void*)",
-            IRNode.functionReference(plan.wrapperName));
-        if (!plan.hasEnvironment) {
-            Vector<IRNode> arguments = [];
-            arguments.push(wrapperValue);
-            arguments.push(IRNode.literal("NULL"));
-            arguments.push(IRNode.literal("NULL"));
-            self.concurrency.appendThreadResultDisposal(
-                arguments, plan.returnType);
-            plan.value = IRNode.call(
-                "__btrc_thread_spawn", arguments);
-        } else {
-            string environmentStorage = "__se" + suffix;
-            Vector<IRNode> declarations = [];
-            declarations.push(IRNode.variableDeclaration(
-                "struct " + plan.environmentName + "*",
-                environmentStorage, null));
-            Vector<IRNode> sequence = [];
-            self.context.referenceHelper("__btrc_safe_realloc");
-            Vector<IRNode> allocationArguments = [];
-            allocationArguments.push(IRNode.literal("NULL"));
-            allocationArguments.push(IRNode.sizeofType(
-                "struct " + plan.environmentName));
-            IRNode allocation = IRNode.cast(
-                "struct " + plan.environmentName + "*",
-                IRNode.call(
-                    "__btrc_safe_realloc", allocationArguments));
-            sequence.push(IRNode.binary(
-                IRNode.variable(environmentStorage), "=", allocation));
-            int captureIndex = 0;
-            while (captureIndex < plan.captures.len) {
-                string capture = plan.captures.get(captureIndex);
-                IRNode target = IRNode.fieldAccess(
-                    IRNode.variable(environmentStorage),
-                    self.hostedAbi.lexicalBindingCName(
-                        capture, false), true);
-                sequence.push(IRNode.binary(
-                    target, "=", IRNode.variable(
-                        self.context.sourceCName(capture))));
-                Node captureType = variableTypes.get(capture);
-                if (self.managedValues.isManaged(
-                        self.concreteType(captureType))) {
-                    sequence.push(self.managedLifetime.retainValue(
-                        IRNode.variable(
-                            self.context.sourceCName(capture)),
-                        captureType));
-                }
-                captureIndex = captureIndex + 1;
-            }
-            Vector<IRNode> arguments = [];
-            arguments.push(wrapperValue);
-            arguments.push(IRNode.cast(
-                "void*", IRNode.variable(environmentStorage)));
-            arguments.push(IRNode.functionReference(disposer));
-            self.concurrency.appendThreadResultDisposal(
-                arguments, plan.returnType);
-            sequence.push(IRNode.call(
-                "__btrc_thread_spawn", arguments));
-            plan.value = IRNode.statementExpression(
-                declarations, IRNode.commaExpression(sequence));
-        }
-        self.pendingSpawns.push(plan);
-        return plan;
-    }
+	public Vector<CallableLambdaPlan> takePendingLambdas() {
+		Vector<CallableLambdaPlan> pending = [];
+		int index = 0;
+		while (index < self.pendingLambdas.len) {
+			pending.push(self.pendingLambdas.get(index));
+			index = index + 1;
+		}
+		while (self.pendingLambdas.len > 0) {
+			self.pendingLambdas.pop();
+		}
+		return pending;
+	}
 
-    public Vector<CallableLambdaPlan> takePendingLambdas() {
-        Vector<CallableLambdaPlan> pending = [];
-        int index = 0;
-        while (index < self.pendingLambdas.len) {
-            pending.push(self.pendingLambdas.get(index));
-            index = index + 1;
-        }
-        while (self.pendingLambdas.len > 0) {
-            self.pendingLambdas.pop();
-        }
-        return pending;
-    }
+	public Vector<CallableSpawnPlan> takePendingSpawns() {
+		Vector<CallableSpawnPlan> pending = [];
+		int index = 0;
+		while (index < self.pendingSpawns.len) {
+			pending.push(self.pendingSpawns.get(index));
+			index = index + 1;
+		}
+		while (self.pendingSpawns.len > 0) {
+			self.pendingSpawns.pop();
+		}
+		return pending;
+	}
 
-    public Vector<CallableSpawnPlan> takePendingSpawns() {
-        Vector<CallableSpawnPlan> pending = [];
-        int index = 0;
-        while (index < self.pendingSpawns.len) {
-            pending.push(self.pendingSpawns.get(index));
-            index = index + 1;
-        }
-        while (self.pendingSpawns.len > 0) {
-            self.pendingSpawns.pop();
-        }
-        return pending;
-    }
-
-    public void materializeLifted(
-            CallableLambdaPlan plan, IRNode loweredBody,
-            IRModule module) {
-        if (plan.materialized) {
-            print("internal compiler error: lifted callable materialized twice");
-            exit(1);
-        }
-        Vector<IRNode> body = [];
-        int index = 0;
-        while (index < plan.bodyPrefix.len) {
-            body.push(plan.bodyPrefix.get(index));
-            index = index + 1;
-        }
-        index = 0;
-        while (index < loweredBody.stmts.len) {
-            body.push(loweredBody.stmts.get(index));
-            index = index + 1;
-        }
-        plan.liftedFunction.body = IRNode.block(body);
-        if (plan.hasEnvironment) {
-            module.struct_defs.push(plan.environmentDefinition);
-        }
-        /* A lambda nested inside another lambda is lifted while the outer body
+	public void materializeLifted(CallableLambdaPlan plan, IRNode loweredBody, IRModule module) {
+		if (plan.materialized) {
+			print("internal compiler error: lifted callable materialized twice");
+			exit(1);
+		}
+		Vector<IRNode> body = [];
+		int index = 0;
+		while (index < plan.bodyPrefix.len) {
+			body.push(plan.bodyPrefix.get(index));
+			index = index + 1;
+		}
+		index = 0;
+		while (index < loweredBody.stmts.len) {
+			body.push(loweredBody.stmts.get(index));
+			index = index + 1;
+		}
+		plan.liftedFunction.body = IRNode.block(body);
+		if (plan.hasEnvironment) {
+			module.struct_defs.push(plan.environmentDefinition);
+		}
+		/* A lambda nested inside another lambda is lifted while the outer body
          * is still being lowered, so it is materialized after the caller that
          * names it. A prototype keeps every lifted body callable regardless of
          * definition order. */
-        IRFunctionDecl prototype = IRFunctionDecl(
-            plan.liftedFunction.name,
-            plan.liftedFunction.return_type,
-            plan.liftedFunction.is_static);
-        int parameterIndex = 0;
-        while (parameterIndex < plan.liftedFunction.params.len) {
-            prototype.params.push(self.cTypes.copyParameter(
-                plan.liftedFunction.params.get(parameterIndex)));
-            parameterIndex = parameterIndex + 1;
-        }
-        module.function_decls.push(prototype);
-        module.functions.push(plan.liftedFunction);
-        plan.materialized = true;
-    }
+		IRFunctionDecl prototype = IRFunctionDecl(plan.liftedFunction.name, plan.liftedFunction.return_type, plan.liftedFunction.is_static);
+		int parameterIndex = 0;
+		while (parameterIndex < plan.liftedFunction.params.len) {
+			prototype.params.push(self.cTypes.copyParameter(plan.liftedFunction.params.get(parameterIndex)));
+			parameterIndex = parameterIndex + 1;
+		}
+		module.function_decls.push(prototype);
+		module.functions.push(plan.liftedFunction);
+		plan.materialized = true;
+	}
 
-    public void materializeSpawn(
-            CallableSpawnPlan plan, IRNode loweredBody,
-            IRModule module) {
-        if (plan.materialized) {
-            print("internal compiler error: spawn callable materialized twice");
-            exit(1);
-        }
-        Vector<IRNode> body = [];
-        int index = 0;
-        while (index < plan.bodyPrefix.len) {
-            body.push(plan.bodyPrefix.get(index));
-            index = index + 1;
-        }
-        Vector<IRNode> rewritten =
-            self.concurrency.rewriteThreadStatements(
-                loweredBody.stmts, plan.returnType);
-        index = 0;
-        while (index < rewritten.len) {
-            body.push(rewritten.get(index));
-            index = index + 1;
-        }
-        if (body.len == 0
-                || body.get(body.len - 1).kind != IRK_RETURN) {
-            body.push(IRNode.returnStatement(IRNode.literal("NULL")));
-        }
-        plan.wrapper.body = IRNode.block(body);
-        if (plan.hasEnvironment) {
-            module.struct_defs.push(plan.environmentDefinition);
-        }
-        module.functions.push(plan.wrapper);
-        plan.materialized = true;
-    }
+	public void materializeSpawn(CallableSpawnPlan plan, IRNode loweredBody, IRModule module) {
+		if (plan.materialized) {
+			print("internal compiler error: spawn callable materialized twice");
+			exit(1);
+		}
+		Vector<IRNode> body = [];
+		int index = 0;
+		while (index < plan.bodyPrefix.len) {
+			body.push(plan.bodyPrefix.get(index));
+			index = index + 1;
+		}
+		Vector<IRNode> rewritten = self.concurrency.rewriteThreadStatements(loweredBody.stmts, plan.returnType);
+		index = 0;
+		while (index < rewritten.len) {
+			body.push(rewritten.get(index));
+			index = index + 1;
+		}
+		if (body.len == 0 || body.get(body.len - 1).kind != IRK_RETURN) {
+			body.push(IRNode.returnStatement(IRNode.literal("NULL")));
+		}
+		plan.wrapper.body = IRNode.block(body);
+		if (plan.hasEnvironment) {
+			module.struct_defs.push(plan.environmentDefinition);
+		}
+		module.functions.push(plan.wrapper);
+		plan.materialized = true;
+	}
 }

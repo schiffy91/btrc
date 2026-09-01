@@ -10,296 +10,296 @@
 import std.vector;
 
 enum NodeKind {
-    NK_NONE = 0,
-    NK_PROGRAM,
-    NK_PREPROCESSOR_DIRECTIVE,
-    NK_IMPORT_DECL,
-    NK_CLASS_DECL,
-    NK_INTERFACE_DECL,
-    NK_FUNCTION_DECL,
-    NK_STRUCT_DECL,
-    NK_ENUM_DECL,
-    NK_RICH_ENUM_DECL,
-    NK_TYPEDEF_DECL,
-    NK_STD_GLOB,
-    NK_STD_MODULES,
-    NK_PACKAGE_PATH,
-    NK_RELATIVE_PATH,
-    NK_QUOTED_PATH,
-    NK_TYPE_EXPR,
-    NK_PARAM,
-    NK_FIELD_DECL,
-    NK_METHOD_DECL,
-    NK_PROPERTY_DECL,
-    NK_METHOD_SIG,
-    NK_ENUM_VALUE,
-    NK_RICH_ENUM_VARIANT,
-    NK_FIELD_DEF,
-    NK_BLOCK,
-    NK_VAR_DECL_STMT,
-    NK_RETURN_STMT,
-    NK_IF_STMT,
-    NK_WHILE_STMT,
-    NK_DO_WHILE_STMT,
-    NK_FOR_IN_STMT,
-    NK_C_FOR_STMT,
-    NK_PARALLEL_FOR_STMT,
-    NK_SWITCH_STMT,
-    NK_BREAK_STMT,
-    NK_CONTINUE_STMT,
-    NK_EXPR_STMT,
-    NK_DELETE_STMT,
-    NK_TRY_CATCH_STMT,
-    NK_THROW_STMT,
-    NK_KEEP_STMT,
-    NK_RELEASE_STMT,
-    NK_ELSE_BLOCK,
-    NK_ELSE_IF,
-    NK_FOR_INIT_VAR,
-    NK_FOR_INIT_EXPR,
-    NK_CASE_CLAUSE,
-    NK_INT_LITERAL,
-    NK_FLOAT_LITERAL,
-    NK_STRING_LITERAL,
-    NK_CHAR_LITERAL,
-    NK_BOOL_LITERAL,
-    NK_NULL_LITERAL,
-    NK_IDENTIFIER,
-    NK_SELF_EXPR,
-    NK_SUPER_EXPR,
-    NK_BINARY_EXPR,
-    NK_UNARY_EXPR,
-    NK_CALL_EXPR,
-    NK_INDEX_EXPR,
-    NK_FIELD_ACCESS_EXPR,
-    NK_CAST_EXPR,
-    NK_SIZEOF_EXPR,
-    NK_TERNARY_EXPR,
-    NK_ASSIGN_EXPR,
-    NK_LIST_LITERAL,
-    NK_MAP_LITERAL,
-    NK_BRACE_INITIALIZER,
-    NK_F_STRING_LITERAL,
-    NK_NEW_EXPR,
-    NK_TUPLE_LITERAL,
-    NK_LAMBDA_EXPR,
-    NK_SPAWN_EXPR,
-    NK_SIZEOF_TYPE,
-    NK_SIZEOF_EXPR_OP,
-    NK_MAP_ENTRY,
-    NK_F_STRING_TEXT,
-    NK_F_STRING_EXPR,
-    NK_LAMBDA_BLOCK,
-    NK_LAMBDA_EXPR_BODY,
-    NK_CAPTURE,
+	NK_NONE = 0,
+	NK_PROGRAM,
+	NK_PREPROCESSOR_DIRECTIVE,
+	NK_IMPORT_DECL,
+	NK_CLASS_DECL,
+	NK_INTERFACE_DECL,
+	NK_FUNCTION_DECL,
+	NK_STRUCT_DECL,
+	NK_ENUM_DECL,
+	NK_RICH_ENUM_DECL,
+	NK_TYPEDEF_DECL,
+	NK_STD_GLOB,
+	NK_STD_MODULES,
+	NK_PACKAGE_PATH,
+	NK_RELATIVE_PATH,
+	NK_QUOTED_PATH,
+	NK_TYPE_EXPR,
+	NK_PARAM,
+	NK_FIELD_DECL,
+	NK_METHOD_DECL,
+	NK_PROPERTY_DECL,
+	NK_METHOD_SIG,
+	NK_ENUM_VALUE,
+	NK_RICH_ENUM_VARIANT,
+	NK_FIELD_DEF,
+	NK_BLOCK,
+	NK_VAR_DECL_STMT,
+	NK_RETURN_STMT,
+	NK_IF_STMT,
+	NK_WHILE_STMT,
+	NK_DO_WHILE_STMT,
+	NK_FOR_IN_STMT,
+	NK_C_FOR_STMT,
+	NK_PARALLEL_FOR_STMT,
+	NK_SWITCH_STMT,
+	NK_BREAK_STMT,
+	NK_CONTINUE_STMT,
+	NK_EXPR_STMT,
+	NK_DELETE_STMT,
+	NK_TRY_CATCH_STMT,
+	NK_THROW_STMT,
+	NK_KEEP_STMT,
+	NK_RELEASE_STMT,
+	NK_ELSE_BLOCK,
+	NK_ELSE_IF,
+	NK_FOR_INIT_VAR,
+	NK_FOR_INIT_EXPR,
+	NK_CASE_CLAUSE,
+	NK_INT_LITERAL,
+	NK_FLOAT_LITERAL,
+	NK_STRING_LITERAL,
+	NK_CHAR_LITERAL,
+	NK_BOOL_LITERAL,
+	NK_NULL_LITERAL,
+	NK_IDENTIFIER,
+	NK_SELF_EXPR,
+	NK_SUPER_EXPR,
+	NK_BINARY_EXPR,
+	NK_UNARY_EXPR,
+	NK_CALL_EXPR,
+	NK_INDEX_EXPR,
+	NK_FIELD_ACCESS_EXPR,
+	NK_CAST_EXPR,
+	NK_SIZEOF_EXPR,
+	NK_TERNARY_EXPR,
+	NK_ASSIGN_EXPR,
+	NK_LIST_LITERAL,
+	NK_MAP_LITERAL,
+	NK_BRACE_INITIALIZER,
+	NK_F_STRING_LITERAL,
+	NK_NEW_EXPR,
+	NK_TUPLE_LITERAL,
+	NK_LAMBDA_EXPR,
+	NK_SPAWN_EXPR,
+	NK_SIZEOF_TYPE,
+	NK_SIZEOF_EXPR_OP,
+	NK_MAP_ENTRY,
+	NK_F_STRING_TEXT,
+	NK_F_STRING_EXPR,
+	NK_LAMBDA_BLOCK,
+	NK_LAMBDA_EXPR_BODY,
+	NK_CAPTURE,
 };
 
 class Node {
-    public int kind;
-    public Vector<Node> declarations;
-    public string text;
-    public int line;
-    public int col;
-    public string? source_file;
-    public Node spec;
-    public string name;
-    public Vector<string> generic_params;
-    public Vector<Node> members;
-    public string? parent;
-    public Vector<string> interfaces;
-    public bool is_abstract;
-    public int name_line;
-    public int name_col;
-    public Vector<Node> methods;
-    public Node return_type;
-    public Vector<Node> params;
-    public Node body_node;
-    public bool is_gpu;
-    public bool is_realtime;
-    public bool keep_return;
-    public Vector<Node> fields;
-    public bool is_forward;
-    public Vector<Node> values;
-    public Vector<Node> variants;
-    public Node original;
-    public string alias;
-    public bool recursive;
-    public Vector<string> names;
-    public Vector<string> segments;
-    public string path;
-    public string base;
-    public Vector<Node> generic_args;
-    public int pointer_depth;
-    public bool is_array;
-    public Node array_size;
-    public bool is_const;
-    public bool is_nullable;
-    public int nullable_outer_depth;
-    public bool is_static;
-    public bool is_extern;
-    public bool is_volatile;
-    public Node type;
-    public Node default_;
-    public bool keep_;
-    public string access;
-    public Node initializer;
-    public bool is_constructor;
-    public bool has_getter;
-    public bool has_setter;
-    public Node getter_body;
-    public Node setter_body;
-    public Node value_node;
-    public Vector<Node> statements;
-    public Node condition;
-    public Node then_block;
-    public Node else_block;
-    public string var_name;
-    public string? var_name2;
-    public Node iterable;
-    public Node init;
-    public Node update;
-    public Vector<Node> cases;
-    public Node expr;
-    public Node try_block;
-    public string catch_var;
-    public Node catch_type;
-    public Node catch_block;
-    public Node finally_block;
-    public Node if_stmt;
-    public Node var_decl;
-    public Node expression;
-    public Vector<Node> body_nlist;
-    public int value_int;
-    public string raw;
-    public float value_float;
-    public string value_string;
-    public bool value_bool;
-    public Node left;
-    public string op;
-    public Node right;
-    public Node operand;
-    public bool prefix;
-    public Node callee;
-    public Vector<Node> args;
-    public Vector<string> arg_names;
-    public Node obj;
-    public Node index;
-    public string field;
-    public bool arrow;
-    public bool optional;
-    public Node target_type;
-    public Node true_expr;
-    public Node false_expr;
-    public Node target;
-    public Vector<Node> elements;
-    public Vector<Node> entries;
-    public Vector<Node> parts;
-    public Vector<Node> captures;
-    public Node fn;
-    public Node key;
+	public int kind;
+	public Vector<Node> declarations;
+	public string text;
+	public int line;
+	public int col;
+	public string? source_file;
+	public Node spec;
+	public string name;
+	public Vector<string> generic_params;
+	public Vector<Node> members;
+	public string? parent;
+	public Vector<string> interfaces;
+	public bool is_abstract;
+	public int name_line;
+	public int name_col;
+	public Vector<Node> methods;
+	public Node return_type;
+	public Vector<Node> params;
+	public Node body_node;
+	public bool is_gpu;
+	public bool is_realtime;
+	public bool keep_return;
+	public Vector<Node> fields;
+	public bool is_forward;
+	public Vector<Node> values;
+	public Vector<Node> variants;
+	public Node original;
+	public string alias;
+	public bool recursive;
+	public Vector<string> names;
+	public Vector<string> segments;
+	public string path;
+	public string base;
+	public Vector<Node> generic_args;
+	public int pointer_depth;
+	public bool is_array;
+	public Node array_size;
+	public bool is_const;
+	public bool is_nullable;
+	public int nullable_outer_depth;
+	public bool is_static;
+	public bool is_extern;
+	public bool is_volatile;
+	public Node type;
+	public Node default_;
+	public bool keep_;
+	public string access;
+	public Node initializer;
+	public bool is_constructor;
+	public bool has_getter;
+	public bool has_setter;
+	public Node getter_body;
+	public Node setter_body;
+	public Node value_node;
+	public Vector<Node> statements;
+	public Node condition;
+	public Node then_block;
+	public Node else_block;
+	public string var_name;
+	public string? var_name2;
+	public Node iterable;
+	public Node init;
+	public Node update;
+	public Vector<Node> cases;
+	public Node expr;
+	public Node try_block;
+	public string catch_var;
+	public Node catch_type;
+	public Node catch_block;
+	public Node finally_block;
+	public Node if_stmt;
+	public Node var_decl;
+	public Node expression;
+	public Vector<Node> body_nlist;
+	public int value_int;
+	public string raw;
+	public float value_float;
+	public string value_string;
+	public bool value_bool;
+	public Node left;
+	public string op;
+	public Node right;
+	public Node operand;
+	public bool prefix;
+	public Node callee;
+	public Vector<Node> args;
+	public Vector<string> arg_names;
+	public Node obj;
+	public Node index;
+	public string field;
+	public bool arrow;
+	public bool optional;
+	public Node target_type;
+	public Node true_expr;
+	public Node false_expr;
+	public Node target;
+	public Vector<Node> elements;
+	public Vector<Node> entries;
+	public Vector<Node> parts;
+	public Vector<Node> captures;
+	public Node fn;
+	public Node key;
 
-    public Node() {
-        self.kind = NK_NONE;
-        self.declarations = [];
-        self.text = "";
-        self.line = 0;
-        self.col = 0;
-        self.source_file = null;
-        self.spec = null;
-        self.name = "";
-        self.generic_params = [];
-        self.members = [];
-        self.parent = null;
-        self.interfaces = [];
-        self.is_abstract = false;
-        self.name_line = 0;
-        self.name_col = 0;
-        self.methods = [];
-        self.return_type = null;
-        self.params = [];
-        self.body_node = null;
-        self.is_gpu = false;
-        self.is_realtime = false;
-        self.keep_return = false;
-        self.fields = [];
-        self.is_forward = false;
-        self.values = [];
-        self.variants = [];
-        self.original = null;
-        self.alias = "";
-        self.recursive = false;
-        self.names = [];
-        self.segments = [];
-        self.path = "";
-        self.base = "";
-        self.generic_args = [];
-        self.pointer_depth = 0;
-        self.is_array = false;
-        self.array_size = null;
-        self.is_const = false;
-        self.is_nullable = false;
-        self.nullable_outer_depth = 0;
-        self.is_static = false;
-        self.is_extern = false;
-        self.is_volatile = false;
-        self.type = null;
-        self.default_ = null;
-        self.keep_ = false;
-        self.access = "";
-        self.initializer = null;
-        self.is_constructor = false;
-        self.has_getter = false;
-        self.has_setter = false;
-        self.getter_body = null;
-        self.setter_body = null;
-        self.value_node = null;
-        self.statements = [];
-        self.condition = null;
-        self.then_block = null;
-        self.else_block = null;
-        self.var_name = "";
-        self.var_name2 = null;
-        self.iterable = null;
-        self.init = null;
-        self.update = null;
-        self.cases = [];
-        self.expr = null;
-        self.try_block = null;
-        self.catch_var = "";
-        self.catch_type = null;
-        self.catch_block = null;
-        self.finally_block = null;
-        self.if_stmt = null;
-        self.var_decl = null;
-        self.expression = null;
-        self.body_nlist = [];
-        self.value_int = 0;
-        self.raw = "";
-        self.value_float = 0.0;
-        self.value_string = "";
-        self.value_bool = false;
-        self.left = null;
-        self.op = "";
-        self.right = null;
-        self.operand = null;
-        self.prefix = false;
-        self.callee = null;
-        self.args = [];
-        self.arg_names = [];
-        self.obj = null;
-        self.index = null;
-        self.field = "";
-        self.arrow = false;
-        self.optional = false;
-        self.target_type = null;
-        self.true_expr = null;
-        self.false_expr = null;
-        self.target = null;
-        self.elements = [];
-        self.entries = [];
-        self.parts = [];
-        self.captures = [];
-        self.fn = null;
-        self.key = null;
-    }
+	public Node() {
+		self.kind = NK_NONE;
+		self.declarations = [];
+		self.text = "";
+		self.line = 0;
+		self.col = 0;
+		self.source_file = null;
+		self.spec = null;
+		self.name = "";
+		self.generic_params = [];
+		self.members = [];
+		self.parent = null;
+		self.interfaces = [];
+		self.is_abstract = false;
+		self.name_line = 0;
+		self.name_col = 0;
+		self.methods = [];
+		self.return_type = null;
+		self.params = [];
+		self.body_node = null;
+		self.is_gpu = false;
+		self.is_realtime = false;
+		self.keep_return = false;
+		self.fields = [];
+		self.is_forward = false;
+		self.values = [];
+		self.variants = [];
+		self.original = null;
+		self.alias = "";
+		self.recursive = false;
+		self.names = [];
+		self.segments = [];
+		self.path = "";
+		self.base = "";
+		self.generic_args = [];
+		self.pointer_depth = 0;
+		self.is_array = false;
+		self.array_size = null;
+		self.is_const = false;
+		self.is_nullable = false;
+		self.nullable_outer_depth = 0;
+		self.is_static = false;
+		self.is_extern = false;
+		self.is_volatile = false;
+		self.type = null;
+		self.default_ = null;
+		self.keep_ = false;
+		self.access = "";
+		self.initializer = null;
+		self.is_constructor = false;
+		self.has_getter = false;
+		self.has_setter = false;
+		self.getter_body = null;
+		self.setter_body = null;
+		self.value_node = null;
+		self.statements = [];
+		self.condition = null;
+		self.then_block = null;
+		self.else_block = null;
+		self.var_name = "";
+		self.var_name2 = null;
+		self.iterable = null;
+		self.init = null;
+		self.update = null;
+		self.cases = [];
+		self.expr = null;
+		self.try_block = null;
+		self.catch_var = "";
+		self.catch_type = null;
+		self.catch_block = null;
+		self.finally_block = null;
+		self.if_stmt = null;
+		self.var_decl = null;
+		self.expression = null;
+		self.body_nlist = [];
+		self.value_int = 0;
+		self.raw = "";
+		self.value_float = 0.0;
+		self.value_string = "";
+		self.value_bool = false;
+		self.left = null;
+		self.op = "";
+		self.right = null;
+		self.operand = null;
+		self.prefix = false;
+		self.callee = null;
+		self.args = [];
+		self.arg_names = [];
+		self.obj = null;
+		self.index = null;
+		self.field = "";
+		self.arrow = false;
+		self.optional = false;
+		self.target_type = null;
+		self.true_expr = null;
+		self.false_expr = null;
+		self.target = null;
+		self.elements = [];
+		self.entries = [];
+		self.parts = [];
+		self.captures = [];
+		self.fn = null;
+		self.key = null;
+	}
 }

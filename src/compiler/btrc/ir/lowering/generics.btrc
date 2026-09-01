@@ -1,5 +1,6 @@
 import std.map;
 import std.vector;
+
 import ../../analyzer/models.btrc;
 import ../../analyzer/types.btrc;
 import ../../generated/ast/node.btrc;
@@ -9,109 +10,86 @@ import ../../generated/ast/node.btrc;
  * declaration/function/expression lowerer. */
 
 class GenericClassLoweringPlan {
-    public GenInstance instance;
-    public Node declaration;
-    public Map<string, Node> substitutions;
+	public GenInstance instance;
+	public Node declaration;
+	public Map<string, Node> substitutions;
 
-    public GenericClassLoweringPlan(
-            GenInstance instance, Node declaration,
-            Map<string, Node> substitutions) {
-        self.instance = instance;
-        self.declaration = declaration;
-        self.substitutions = substitutions;
-    }
+	public GenericClassLoweringPlan(GenInstance instance, Node declaration, Map<string, Node> substitutions) {
+		self.instance = instance;
+		self.declaration = declaration;
+		self.substitutions = substitutions;
+	}
 }
 
 class GenericMethodLoweringPlan {
-    public MethodGenInstance instance;
-    public Node owner;
-    public Node method;
-    public Map<string, Node> substitutions;
+	public MethodGenInstance instance;
+	public Node owner;
+	public Node method;
+	public Map<string, Node> substitutions;
 
-    public GenericMethodLoweringPlan(
-            MethodGenInstance instance, Node owner, Node method,
-            Map<string, Node> substitutions) {
-        self.instance = instance;
-        self.owner = owner;
-        self.method = method;
-        self.substitutions = substitutions;
-    }
+	public GenericMethodLoweringPlan(MethodGenInstance instance, Node owner, Node method, Map<string, Node> substitutions) {
+		self.instance = instance;
+		self.owner = owner;
+		self.method = method;
+		self.substitutions = substitutions;
+	}
 }
 
 class GenericLowerer {
-    private Analyzed analyzed;
+	private Analyzed analyzed;
 
-    public GenericLowerer(Analyzed analyzed) {
-        self.analyzed = analyzed;
-    }
+	public GenericLowerer(Analyzed analyzed) { self.analyzed = analyzed; }
 
-    public Vector<GenericClassLoweringPlan> classPlans() {
-        Vector<GenericClassLoweringPlan> plans = [];
-        int index = 0;
-        while (index < self.analyzed.genericInstances.len) {
-            GenInstance instance =
-                self.analyzed.genericInstances.get(index);
-            if (self.analyzed.genericClassTable.has(instance.base)) {
-                Node declaration =
-                    self.analyzed.genericClassTable.get(instance.base);
-                Node instanceType =
-                    SemanticTypeSystem.primitive(instance.base);
-                instanceType.generic_args = instance.args;
-                plans.push(GenericClassLoweringPlan(
-                    instance, declaration,
-                    SemanticTypeSystem.genericTypeMap(
-                        self.analyzed, instanceType)));
-            }
-            index = index + 1;
-        }
-        return plans;
-    }
+	public Vector<GenericClassLoweringPlan> classPlans() {
+		Vector<GenericClassLoweringPlan> plans = [];
+		int index = 0;
+		while (index < self.analyzed.genericInstances.len) {
+			GenInstance instance = self.analyzed.genericInstances.get(index);
+			if (self.analyzed.genericClassTable.has(instance.base)) {
+				Node declaration = self.analyzed.genericClassTable.get(instance.base);
+				Node instanceType = SemanticTypeSystem.primitive(instance.base);
+				instanceType.generic_args = instance.args;
+				plans.push(GenericClassLoweringPlan(instance, declaration, SemanticTypeSystem.genericTypeMap(self.analyzed, instanceType)));
+			}
+			index = index + 1;
+		}
+		return plans;
+	}
 
-    public Vector<GenericMethodLoweringPlan> methodPlans() {
-        Vector<GenericMethodLoweringPlan> plans = [];
-        int index = 0;
-        while (index < self.analyzed.methodGenInstances.len) {
-            MethodGenInstance instance =
-                self.analyzed.methodGenInstances.get(index);
-            Node? owner = null;
-            if (self.analyzed.genericClassTable.has(instance.classBase)) {
-                owner = self.analyzed.genericClassTable.get(
-                    instance.classBase);
-            } else if (self.analyzed.classTable.has(instance.classBase)) {
-                owner = self.analyzed.classTable.get(instance.classBase);
-            }
-            if (owner != null) {
-                Node concreteOwner = owner;
-                Node? method = self.analyzed.genericClassMethod(
-                    instance.classBase, instance.methodName);
-                if (method == null) {
-                    method = self.analyzed.classMethod(
-                        instance.classBase, instance.methodName);
-                }
-                if (method != null) {
-                    Map<string, Node> substitutions = {};
-                    int classIndex = 0;
-                    while (classIndex < concreteOwner.generic_params.len
-                            && classIndex < instance.classArgs.len) {
-                        substitutions.put(
-                            concreteOwner.generic_params.get(classIndex),
-                            instance.classArgs.get(classIndex));
-                        classIndex = classIndex + 1;
-                    }
-                    int methodIndex = 0;
-                    while (methodIndex < method.generic_params.len
-                            && methodIndex < instance.methodArgs.len) {
-                        substitutions.put(
-                            method.generic_params.get(methodIndex),
-                            instance.methodArgs.get(methodIndex));
-                        methodIndex = methodIndex + 1;
-                    }
-                    plans.push(GenericMethodLoweringPlan(
-                        instance, concreteOwner, method, substitutions));
-                }
-            }
-            index = index + 1;
-        }
-        return plans;
-    }
+	public Vector<GenericMethodLoweringPlan> methodPlans() {
+		Vector<GenericMethodLoweringPlan> plans = [];
+		int index = 0;
+		while (index < self.analyzed.methodGenInstances.len) {
+			MethodGenInstance instance = self.analyzed.methodGenInstances.get(index);
+			Node? owner = null;
+			if (self.analyzed.genericClassTable.has(instance.classBase)) {
+				owner = self.analyzed.genericClassTable.get(instance.classBase);
+			} else if (self.analyzed.classTable.has(instance.classBase)) {
+				owner = self.analyzed.classTable.get(instance.classBase);
+			}
+			if (owner != null) {
+				Node concreteOwner = owner;
+				Node? method = self.analyzed.genericClassMethod(instance.classBase, instance.methodName);
+				if (method == null) {
+					method = self.analyzed.classMethod(instance.classBase, instance.methodName);
+				}
+				if (method != null) {
+					Map<string, Node> substitutions = {};
+					int classIndex = 0;
+					while (classIndex < concreteOwner.generic_params.len && classIndex < instance.classArgs.len) {
+						substitutions.put(concreteOwner.generic_params.get(classIndex), instance.classArgs.get(classIndex));
+						classIndex = classIndex + 1;
+					}
+					int methodIndex = 0;
+					while (methodIndex < method.generic_params.len && methodIndex < instance.methodArgs.len) {
+						substitutions.put(method.generic_params.get(methodIndex), instance.methodArgs.get(methodIndex));
+						methodIndex = methodIndex + 1;
+					}
+					plans.push(GenericMethodLoweringPlan(instance, concreteOwner, method, substitutions));
+				}
+			}
+			index = index + 1;
+		}
+		return plans;
+	}
 }

@@ -3,1125 +3,1042 @@
 import std.map;
 import std.strings;
 import std.vector;
-import ../generated/ast/node.btrc;
 
+import ../generated/ast/node.btrc;
 #include <stdint.h>
 
 class AstIdentity {
-    /* Source positions are not unique for chained expressions. The self-host
+	/* Source positions are not unique for chained expressions. The self-host
      * runtime gives class values stable pointer identity, so side tables use
      * that identity directly. */
-    class string key(Node node) {
-        return f"{(unsigned long long)(uintptr_t)node}";
-    }
+	class string key(Node node) { return f"{(unsigned long long)(uintptr_t)node}"; }
 }
 
 class AstCanonicalRenderer {
-    public AstCanonicalRenderer() {}
+	public AstCanonicalRenderer() {}
 
-    public string render(Node node) {
-        return self.renderAtDepth(node, 0);
-    }
+	public string render(Node node) { return self.renderAtDepth(node, 0); }
 
-    private string renderAtDepth(Node node, int d) {
-        if (node.kind == NK_PROGRAM) {
-            string out = "(Program";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "declarations=" + self.canonNodeList(node.declarations, d + 1);
-            return out + ")";
-        } else if (node.kind == NK_PREPROCESSOR_DIRECTIVE) {
-            string out = "(PreprocessorDirective";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "text=" + self.canonStr(node.text);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.source_file);
-            return out + ")";
-        } else if (node.kind == NK_IMPORT_DECL) {
-            string out = "(ImportDecl";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "spec=" + self.canonNode(node.spec, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.source_file);
-            return out + ")";
-        } else if (node.kind == NK_CLASS_DECL) {
-            string out = "(ClassDecl";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_params=" + self.canonStrList(node.generic_params, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "members=" + self.canonNodeList(node.members, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "parent=" + self.canonOptStr(node.parent);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "interfaces=" + self.canonStrList(node.interfaces, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "is_abstract=" + self.canonBool(node.is_abstract);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.source_file);
-            return out + ")";
-        } else if (node.kind == NK_INTERFACE_DECL) {
-            string out = "(InterfaceDecl";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "methods=" + self.canonNodeList(node.methods, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "parent=" + self.canonOptStr(node.parent);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_params=" + self.canonStrList(node.generic_params, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.source_file);
-            return out + ")";
-        } else if (node.kind == NK_FUNCTION_DECL) {
-            string out = "(FunctionDecl";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "return_type=" + self.canonNode(node.return_type, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "is_gpu=" + self.canonBool(node.is_gpu);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "is_realtime=" + self.canonBool(node.is_realtime);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "keep_return=" + self.canonBool(node.keep_return);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.source_file);
-            return out + ")";
-        } else if (node.kind == NK_STRUCT_DECL) {
-            string out = "(StructDecl";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "fields=" + self.canonNodeList(node.fields, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "is_forward=" + self.canonBool(node.is_forward);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.source_file);
-            return out + ")";
-        } else if (node.kind == NK_ENUM_DECL) {
-            string out = "(EnumDecl";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "values=" + self.canonNodeList(node.values, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.source_file);
-            return out + ")";
-        } else if (node.kind == NK_RICH_ENUM_DECL) {
-            string out = "(RichEnumDecl";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "variants=" + self.canonNodeList(node.variants, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.source_file);
-            return out + ")";
-        } else if (node.kind == NK_TYPEDEF_DECL) {
-            string out = "(TypedefDecl";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "original=" + self.canonNode(node.original, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "alias=" + self.canonStr(node.alias);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.source_file);
-            return out + ")";
-        } else if (node.kind == NK_STD_GLOB) {
-            string out = "(StdGlob";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "recursive=" + self.canonBool(node.recursive);
-            return out + ")";
-        } else if (node.kind == NK_STD_MODULES) {
-            string out = "(StdModules";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "names=" + self.canonStrList(node.names, d + 1);
-            return out + ")";
-        } else if (node.kind == NK_PACKAGE_PATH) {
-            string out = "(PackagePath";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "segments=" + self.canonStrList(node.segments, d + 1);
-            return out + ")";
-        } else if (node.kind == NK_RELATIVE_PATH) {
-            string out = "(RelativePath";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "path=" + self.canonStr(node.path);
-            return out + ")";
-        } else if (node.kind == NK_QUOTED_PATH) {
-            string out = "(QuotedPath";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "path=" + self.canonStr(node.path);
-            return out + ")";
-        } else if (node.kind == NK_TYPE_EXPR) {
-            string out = "(TypeExpr";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "base=" + self.canonStr(node.base);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_args=" + self.canonNodeList(node.generic_args, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "pointer_depth=" + self.canonInt(node.pointer_depth);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "is_array=" + self.canonBool(node.is_array);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "array_size=" + self.canonNode(node.array_size, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "is_const=" + self.canonBool(node.is_const);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "is_nullable=" + self.canonBool(node.is_nullable);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "nullable_outer_depth=" + self.canonInt(node.nullable_outer_depth);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "is_static=" + self.canonBool(node.is_static);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "is_extern=" + self.canonBool(node.is_extern);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "is_volatile=" + self.canonBool(node.is_volatile);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_PARAM) {
-            string out = "(Param";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "default=" + self.canonNode(node.default_, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "keep=" + self.canonBool(node.keep_);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_FIELD_DECL) {
-            string out = "(FieldDecl";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "access=" + self.canonStr(node.access);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "initializer=" + self.canonNode(node.initializer, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_METHOD_DECL) {
-            string out = "(MethodDecl";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "access=" + self.canonStr(node.access);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "return_type=" + self.canonNode(node.return_type, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "is_constructor=" + self.canonBool(node.is_constructor);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_params=" + self.canonStrList(node.generic_params, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "is_gpu=" + self.canonBool(node.is_gpu);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "is_realtime=" + self.canonBool(node.is_realtime);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "is_abstract=" + self.canonBool(node.is_abstract);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "keep_return=" + self.canonBool(node.keep_return);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_PROPERTY_DECL) {
-            string out = "(PropertyDecl";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "access=" + self.canonStr(node.access);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "has_getter=" + self.canonBool(node.has_getter);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "has_setter=" + self.canonBool(node.has_setter);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "getter_body=" + self.canonNode(node.getter_body, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "setter_body=" + self.canonNode(node.setter_body, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_METHOD_SIG) {
-            string out = "(MethodSig";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "return_type=" + self.canonNode(node.return_type, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "keep_return=" + self.canonBool(node.keep_return);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_ENUM_VALUE) {
-            string out = "(EnumValue";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonNode(node.value_node, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_RICH_ENUM_VARIANT) {
-            string out = "(RichEnumVariant";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_FIELD_DEF) {
-            string out = "(FieldDef";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_BLOCK) {
-            string out = "(Block";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "statements=" + self.canonNodeList(node.statements, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_VAR_DECL_STMT) {
-            string out = "(VarDeclStmt";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "initializer=" + self.canonNode(node.initializer, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_RETURN_STMT) {
-            string out = "(ReturnStmt";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonNode(node.value_node, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_IF_STMT) {
-            string out = "(IfStmt";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "condition=" + self.canonNode(node.condition, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "then_block=" + self.canonNode(node.then_block, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "else_block=" + self.canonNode(node.else_block, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_WHILE_STMT) {
-            string out = "(WhileStmt";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "condition=" + self.canonNode(node.condition, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_DO_WHILE_STMT) {
-            string out = "(DoWhileStmt";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "condition=" + self.canonNode(node.condition, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_FOR_IN_STMT) {
-            string out = "(ForInStmt";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "var_name=" + self.canonStr(node.var_name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "var_name2=" + self.canonOptStr(node.var_name2);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "iterable=" + self.canonNode(node.iterable, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_C_FOR_STMT) {
-            string out = "(CForStmt";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "init=" + self.canonNode(node.init, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "condition=" + self.canonNode(node.condition, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "update=" + self.canonNode(node.update, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_PARALLEL_FOR_STMT) {
-            string out = "(ParallelForStmt";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "var_name=" + self.canonStr(node.var_name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "iterable=" + self.canonNode(node.iterable, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_SWITCH_STMT) {
-            string out = "(SwitchStmt";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonNode(node.value_node, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "cases=" + self.canonNodeList(node.cases, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_BREAK_STMT) {
-            string out = "(BreakStmt";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_CONTINUE_STMT) {
-            string out = "(ContinueStmt";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_EXPR_STMT) {
-            string out = "(ExprStmt";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "expr=" + self.canonNode(node.expr, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_DELETE_STMT) {
-            string out = "(DeleteStmt";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "expr=" + self.canonNode(node.expr, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_TRY_CATCH_STMT) {
-            string out = "(TryCatchStmt";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "try_block=" + self.canonNode(node.try_block, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "catch_var=" + self.canonStr(node.catch_var);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "catch_type=" + self.canonNode(node.catch_type, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "catch_block=" + self.canonNode(node.catch_block, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "finally_block=" + self.canonNode(node.finally_block, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_THROW_STMT) {
-            string out = "(ThrowStmt";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "expr=" + self.canonNode(node.expr, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_KEEP_STMT) {
-            string out = "(KeepStmt";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "expr=" + self.canonNode(node.expr, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_RELEASE_STMT) {
-            string out = "(ReleaseStmt";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "expr=" + self.canonNode(node.expr, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_ELSE_BLOCK) {
-            string out = "(ElseBlock";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
-            return out + ")";
-        } else if (node.kind == NK_ELSE_IF) {
-            string out = "(ElseIf";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "if_stmt=" + self.canonNode(node.if_stmt, d + 1);
-            return out + ")";
-        } else if (node.kind == NK_FOR_INIT_VAR) {
-            string out = "(ForInitVar";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "var_decl=" + self.canonNode(node.var_decl, d + 1);
-            return out + ")";
-        } else if (node.kind == NK_FOR_INIT_EXPR) {
-            string out = "(ForInitExpr";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "expression=" + self.canonNode(node.expression, d + 1);
-            return out + ")";
-        } else if (node.kind == NK_CASE_CLAUSE) {
-            string out = "(CaseClause";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonNode(node.value_node, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNodeList(node.body_nlist, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_INT_LITERAL) {
-            string out = "(IntLiteral";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonInt(node.value_int);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "raw=" + self.canonStr(node.raw);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_FLOAT_LITERAL) {
-            string out = "(FloatLiteral";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonFloat(node.value_float);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "raw=" + self.canonStr(node.raw);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_STRING_LITERAL) {
-            string out = "(StringLiteral";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonStr(node.value_string);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_CHAR_LITERAL) {
-            string out = "(CharLiteral";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonStr(node.value_string);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_BOOL_LITERAL) {
-            string out = "(BoolLiteral";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonBool(node.value_bool);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_NULL_LITERAL) {
-            string out = "(NullLiteral";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_IDENTIFIER) {
-            string out = "(Identifier";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_SELF_EXPR) {
-            string out = "(SelfExpr";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_SUPER_EXPR) {
-            string out = "(SuperExpr";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_BINARY_EXPR) {
-            string out = "(BinaryExpr";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "left=" + self.canonNode(node.left, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "op=" + self.canonStr(node.op);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "right=" + self.canonNode(node.right, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_UNARY_EXPR) {
-            string out = "(UnaryExpr";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "op=" + self.canonStr(node.op);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "operand=" + self.canonNode(node.operand, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "prefix=" + self.canonBool(node.prefix);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_CALL_EXPR) {
-            string out = "(CallExpr";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "callee=" + self.canonNode(node.callee, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "args=" + self.canonNodeList(node.args, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "arg_names=" + self.canonStrList(node.arg_names, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_INDEX_EXPR) {
-            string out = "(IndexExpr";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "obj=" + self.canonNode(node.obj, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "index=" + self.canonNode(node.index, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_FIELD_ACCESS_EXPR) {
-            string out = "(FieldAccessExpr";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "obj=" + self.canonNode(node.obj, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "field=" + self.canonStr(node.field);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "arrow=" + self.canonBool(node.arrow);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "optional=" + self.canonBool(node.optional);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_CAST_EXPR) {
-            string out = "(CastExpr";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "target_type=" + self.canonNode(node.target_type, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "expr=" + self.canonNode(node.expr, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_SIZEOF_EXPR) {
-            string out = "(SizeofExpr";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "operand=" + self.canonNode(node.operand, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_TERNARY_EXPR) {
-            string out = "(TernaryExpr";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "condition=" + self.canonNode(node.condition, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "true_expr=" + self.canonNode(node.true_expr, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "false_expr=" + self.canonNode(node.false_expr, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_ASSIGN_EXPR) {
-            string out = "(AssignExpr";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "target=" + self.canonNode(node.target, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "op=" + self.canonStr(node.op);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonNode(node.value_node, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_LIST_LITERAL) {
-            string out = "(ListLiteral";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "elements=" + self.canonNodeList(node.elements, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_MAP_LITERAL) {
-            string out = "(MapLiteral";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "entries=" + self.canonNodeList(node.entries, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_BRACE_INITIALIZER) {
-            string out = "(BraceInitializer";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "elements=" + self.canonNodeList(node.elements, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_F_STRING_LITERAL) {
-            string out = "(FStringLiteral";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "parts=" + self.canonNodeList(node.parts, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_NEW_EXPR) {
-            string out = "(NewExpr";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "args=" + self.canonNodeList(node.args, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "arg_names=" + self.canonStrList(node.arg_names, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_TUPLE_LITERAL) {
-            string out = "(TupleLiteral";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "elements=" + self.canonNodeList(node.elements, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_LAMBDA_EXPR) {
-            string out = "(LambdaExpr";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "return_type=" + self.canonNode(node.return_type, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "captures=" + self.canonNodeList(node.captures, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_SPAWN_EXPR) {
-            string out = "(SpawnExpr";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "fn=" + self.canonNode(node.fn, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
-            return out + ")";
-        } else if (node.kind == NK_SIZEOF_TYPE) {
-            string out = "(SizeofType";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
-            return out + ")";
-        } else if (node.kind == NK_SIZEOF_EXPR_OP) {
-            string out = "(SizeofExprOp";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "expr=" + self.canonNode(node.expr, d + 1);
-            return out + ")";
-        } else if (node.kind == NK_MAP_ENTRY) {
-            string out = "(MapEntry";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "key=" + self.canonNode(node.key, d + 1);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonNode(node.value_node, d + 1);
-            return out + ")";
-        } else if (node.kind == NK_F_STRING_TEXT) {
-            string out = "(FStringText";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "text=" + self.canonStr(node.text);
-            return out + ")";
-        } else if (node.kind == NK_F_STRING_EXPR) {
-            string out = "(FStringExpr";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "expression=" + self.canonNode(node.expression, d + 1);
-            return out + ")";
-        } else if (node.kind == NK_LAMBDA_BLOCK) {
-            string out = "(LambdaBlock";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
-            return out + ")";
-        } else if (node.kind == NK_LAMBDA_EXPR_BODY) {
-            string out = "(LambdaExprBody";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "expression=" + self.canonNode(node.expression, d + 1);
-            return out + ")";
-        } else if (node.kind == NK_CAPTURE) {
-            string out = "(Capture";
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-            out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
-            return out + ")";
-        }
-        return "(Unknown)";
-    }
+	private string renderAtDepth(Node node, int d) {
+		if (node.kind == NK_PROGRAM) {
+			string out = "(Program";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "declarations=" + self.canonNodeList(node.declarations, d + 1);
+			return out + ")";
+		} else if (node.kind == NK_PREPROCESSOR_DIRECTIVE) {
+			string out = "(PreprocessorDirective";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "text=" + self.canonStr(node.text);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.source_file);
+			return out + ")";
+		} else if (node.kind == NK_IMPORT_DECL) {
+			string out = "(ImportDecl";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "spec=" + self.canonNode(node.spec, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.source_file);
+			return out + ")";
+		} else if (node.kind == NK_CLASS_DECL) {
+			string out = "(ClassDecl";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_params=" + self.canonStrList(node.generic_params, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "members=" + self.canonNodeList(node.members, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "parent=" + self.canonOptStr(node.parent);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "interfaces=" + self.canonStrList(node.interfaces, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_abstract=" + self.canonBool(node.is_abstract);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.source_file);
+			return out + ")";
+		} else if (node.kind == NK_INTERFACE_DECL) {
+			string out = "(InterfaceDecl";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "methods=" + self.canonNodeList(node.methods, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "parent=" + self.canonOptStr(node.parent);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_params=" + self.canonStrList(node.generic_params, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.source_file);
+			return out + ")";
+		} else if (node.kind == NK_FUNCTION_DECL) {
+			string out = "(FunctionDecl";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "return_type=" + self.canonNode(node.return_type, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_gpu=" + self.canonBool(node.is_gpu);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_realtime=" + self.canonBool(node.is_realtime);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "keep_return=" + self.canonBool(node.keep_return);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.source_file);
+			return out + ")";
+		} else if (node.kind == NK_STRUCT_DECL) {
+			string out = "(StructDecl";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "fields=" + self.canonNodeList(node.fields, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_forward=" + self.canonBool(node.is_forward);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.source_file);
+			return out + ")";
+		} else if (node.kind == NK_ENUM_DECL) {
+			string out = "(EnumDecl";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "values=" + self.canonNodeList(node.values, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.source_file);
+			return out + ")";
+		} else if (node.kind == NK_RICH_ENUM_DECL) {
+			string out = "(RichEnumDecl";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "variants=" + self.canonNodeList(node.variants, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.source_file);
+			return out + ")";
+		} else if (node.kind == NK_TYPEDEF_DECL) {
+			string out = "(TypedefDecl";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "original=" + self.canonNode(node.original, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "alias=" + self.canonStr(node.alias);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.source_file);
+			return out + ")";
+		} else if (node.kind == NK_STD_GLOB) {
+			string out = "(StdGlob";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "recursive=" + self.canonBool(node.recursive);
+			return out + ")";
+		} else if (node.kind == NK_STD_MODULES) {
+			string out = "(StdModules";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "names=" + self.canonStrList(node.names, d + 1);
+			return out + ")";
+		} else if (node.kind == NK_PACKAGE_PATH) {
+			string out = "(PackagePath";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "segments=" + self.canonStrList(node.segments, d + 1);
+			return out + ")";
+		} else if (node.kind == NK_RELATIVE_PATH) {
+			string out = "(RelativePath";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "path=" + self.canonStr(node.path);
+			return out + ")";
+		} else if (node.kind == NK_QUOTED_PATH) {
+			string out = "(QuotedPath";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "path=" + self.canonStr(node.path);
+			return out + ")";
+		} else if (node.kind == NK_TYPE_EXPR) {
+			string out = "(TypeExpr";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "base=" + self.canonStr(node.base);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_args=" + self.canonNodeList(node.generic_args, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "pointer_depth=" + self.canonInt(node.pointer_depth);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_array=" + self.canonBool(node.is_array);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "array_size=" + self.canonNode(node.array_size, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_const=" + self.canonBool(node.is_const);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_nullable=" + self.canonBool(node.is_nullable);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "nullable_outer_depth=" + self.canonInt(node.nullable_outer_depth);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_static=" + self.canonBool(node.is_static);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_extern=" + self.canonBool(node.is_extern);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_volatile=" + self.canonBool(node.is_volatile);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_PARAM) {
+			string out = "(Param";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "default=" + self.canonNode(node.default_, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "keep=" + self.canonBool(node.keep_);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_FIELD_DECL) {
+			string out = "(FieldDecl";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "access=" + self.canonStr(node.access);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "initializer=" + self.canonNode(node.initializer, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_METHOD_DECL) {
+			string out = "(MethodDecl";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "access=" + self.canonStr(node.access);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "return_type=" + self.canonNode(node.return_type, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_constructor=" + self.canonBool(node.is_constructor);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_params=" + self.canonStrList(node.generic_params, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_gpu=" + self.canonBool(node.is_gpu);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_realtime=" + self.canonBool(node.is_realtime);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_abstract=" + self.canonBool(node.is_abstract);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "keep_return=" + self.canonBool(node.keep_return);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_PROPERTY_DECL) {
+			string out = "(PropertyDecl";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "access=" + self.canonStr(node.access);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "has_getter=" + self.canonBool(node.has_getter);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "has_setter=" + self.canonBool(node.has_setter);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "getter_body=" + self.canonNode(node.getter_body, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "setter_body=" + self.canonNode(node.setter_body, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_METHOD_SIG) {
+			string out = "(MethodSig";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "return_type=" + self.canonNode(node.return_type, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "keep_return=" + self.canonBool(node.keep_return);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_ENUM_VALUE) {
+			string out = "(EnumValue";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonNode(node.value_node, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_RICH_ENUM_VARIANT) {
+			string out = "(RichEnumVariant";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_FIELD_DEF) {
+			string out = "(FieldDef";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_BLOCK) {
+			string out = "(Block";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "statements=" + self.canonNodeList(node.statements, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_VAR_DECL_STMT) {
+			string out = "(VarDeclStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "initializer=" + self.canonNode(node.initializer, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_RETURN_STMT) {
+			string out = "(ReturnStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonNode(node.value_node, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_IF_STMT) {
+			string out = "(IfStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "condition=" + self.canonNode(node.condition, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "then_block=" + self.canonNode(node.then_block, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "else_block=" + self.canonNode(node.else_block, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_WHILE_STMT) {
+			string out = "(WhileStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "condition=" + self.canonNode(node.condition, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_DO_WHILE_STMT) {
+			string out = "(DoWhileStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "condition=" + self.canonNode(node.condition, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_FOR_IN_STMT) {
+			string out = "(ForInStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "var_name=" + self.canonStr(node.var_name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "var_name2=" + self.canonOptStr(node.var_name2);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "iterable=" + self.canonNode(node.iterable, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_C_FOR_STMT) {
+			string out = "(CForStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "init=" + self.canonNode(node.init, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "condition=" + self.canonNode(node.condition, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "update=" + self.canonNode(node.update, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_PARALLEL_FOR_STMT) {
+			string out = "(ParallelForStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "var_name=" + self.canonStr(node.var_name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "iterable=" + self.canonNode(node.iterable, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_SWITCH_STMT) {
+			string out = "(SwitchStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonNode(node.value_node, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "cases=" + self.canonNodeList(node.cases, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_BREAK_STMT) {
+			string out = "(BreakStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_CONTINUE_STMT) {
+			string out = "(ContinueStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_EXPR_STMT) {
+			string out = "(ExprStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "expr=" + self.canonNode(node.expr, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_DELETE_STMT) {
+			string out = "(DeleteStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "expr=" + self.canonNode(node.expr, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_TRY_CATCH_STMT) {
+			string out = "(TryCatchStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "try_block=" + self.canonNode(node.try_block, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "catch_var=" + self.canonStr(node.catch_var);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "catch_type=" + self.canonNode(node.catch_type, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "catch_block=" + self.canonNode(node.catch_block, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "finally_block=" + self.canonNode(node.finally_block, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_THROW_STMT) {
+			string out = "(ThrowStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "expr=" + self.canonNode(node.expr, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_KEEP_STMT) {
+			string out = "(KeepStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "expr=" + self.canonNode(node.expr, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_RELEASE_STMT) {
+			string out = "(ReleaseStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "expr=" + self.canonNode(node.expr, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_ELSE_BLOCK) {
+			string out = "(ElseBlock";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
+			return out + ")";
+		} else if (node.kind == NK_ELSE_IF) {
+			string out = "(ElseIf";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "if_stmt=" + self.canonNode(node.if_stmt, d + 1);
+			return out + ")";
+		} else if (node.kind == NK_FOR_INIT_VAR) {
+			string out = "(ForInitVar";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "var_decl=" + self.canonNode(node.var_decl, d + 1);
+			return out + ")";
+		} else if (node.kind == NK_FOR_INIT_EXPR) {
+			string out = "(ForInitExpr";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "expression=" + self.canonNode(node.expression, d + 1);
+			return out + ")";
+		} else if (node.kind == NK_CASE_CLAUSE) {
+			string out = "(CaseClause";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonNode(node.value_node, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNodeList(node.body_nlist, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_INT_LITERAL) {
+			string out = "(IntLiteral";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonInt(node.value_int);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "raw=" + self.canonStr(node.raw);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_FLOAT_LITERAL) {
+			string out = "(FloatLiteral";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonFloat(node.value_float);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "raw=" + self.canonStr(node.raw);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_STRING_LITERAL) {
+			string out = "(StringLiteral";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonStr(node.value_string);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_CHAR_LITERAL) {
+			string out = "(CharLiteral";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonStr(node.value_string);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_BOOL_LITERAL) {
+			string out = "(BoolLiteral";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonBool(node.value_bool);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_NULL_LITERAL) {
+			string out = "(NullLiteral";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_IDENTIFIER) {
+			string out = "(Identifier";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_SELF_EXPR) {
+			string out = "(SelfExpr";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_SUPER_EXPR) {
+			string out = "(SuperExpr";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_BINARY_EXPR) {
+			string out = "(BinaryExpr";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "left=" + self.canonNode(node.left, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "op=" + self.canonStr(node.op);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "right=" + self.canonNode(node.right, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_UNARY_EXPR) {
+			string out = "(UnaryExpr";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "op=" + self.canonStr(node.op);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "operand=" + self.canonNode(node.operand, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "prefix=" + self.canonBool(node.prefix);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_CALL_EXPR) {
+			string out = "(CallExpr";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "callee=" + self.canonNode(node.callee, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "args=" + self.canonNodeList(node.args, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "arg_names=" + self.canonStrList(node.arg_names, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_INDEX_EXPR) {
+			string out = "(IndexExpr";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "obj=" + self.canonNode(node.obj, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "index=" + self.canonNode(node.index, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_FIELD_ACCESS_EXPR) {
+			string out = "(FieldAccessExpr";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "obj=" + self.canonNode(node.obj, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "field=" + self.canonStr(node.field);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "arrow=" + self.canonBool(node.arrow);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "optional=" + self.canonBool(node.optional);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_CAST_EXPR) {
+			string out = "(CastExpr";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "target_type=" + self.canonNode(node.target_type, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "expr=" + self.canonNode(node.expr, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_SIZEOF_EXPR) {
+			string out = "(SizeofExpr";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "operand=" + self.canonNode(node.operand, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_TERNARY_EXPR) {
+			string out = "(TernaryExpr";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "condition=" + self.canonNode(node.condition, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "true_expr=" + self.canonNode(node.true_expr, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "false_expr=" + self.canonNode(node.false_expr, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_ASSIGN_EXPR) {
+			string out = "(AssignExpr";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "target=" + self.canonNode(node.target, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "op=" + self.canonStr(node.op);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonNode(node.value_node, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_LIST_LITERAL) {
+			string out = "(ListLiteral";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "elements=" + self.canonNodeList(node.elements, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_MAP_LITERAL) {
+			string out = "(MapLiteral";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "entries=" + self.canonNodeList(node.entries, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_BRACE_INITIALIZER) {
+			string out = "(BraceInitializer";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "elements=" + self.canonNodeList(node.elements, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_F_STRING_LITERAL) {
+			string out = "(FStringLiteral";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "parts=" + self.canonNodeList(node.parts, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_NEW_EXPR) {
+			string out = "(NewExpr";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "args=" + self.canonNodeList(node.args, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "arg_names=" + self.canonStrList(node.arg_names, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_TUPLE_LITERAL) {
+			string out = "(TupleLiteral";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "elements=" + self.canonNodeList(node.elements, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_LAMBDA_EXPR) {
+			string out = "(LambdaExpr";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "return_type=" + self.canonNode(node.return_type, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "captures=" + self.canonNodeList(node.captures, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_SPAWN_EXPR) {
+			string out = "(SpawnExpr";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "fn=" + self.canonNode(node.fn, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
+			return out + ")";
+		} else if (node.kind == NK_SIZEOF_TYPE) {
+			string out = "(SizeofType";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
+			return out + ")";
+		} else if (node.kind == NK_SIZEOF_EXPR_OP) {
+			string out = "(SizeofExprOp";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "expr=" + self.canonNode(node.expr, d + 1);
+			return out + ")";
+		} else if (node.kind == NK_MAP_ENTRY) {
+			string out = "(MapEntry";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "key=" + self.canonNode(node.key, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonNode(node.value_node, d + 1);
+			return out + ")";
+		} else if (node.kind == NK_F_STRING_TEXT) {
+			string out = "(FStringText";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "text=" + self.canonStr(node.text);
+			return out + ")";
+		} else if (node.kind == NK_F_STRING_EXPR) {
+			string out = "(FStringExpr";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "expression=" + self.canonNode(node.expression, d + 1);
+			return out + ")";
+		} else if (node.kind == NK_LAMBDA_BLOCK) {
+			string out = "(LambdaBlock";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
+			return out + ")";
+		} else if (node.kind == NK_LAMBDA_EXPR_BODY) {
+			string out = "(LambdaExprBody";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "expression=" + self.canonNode(node.expression, d + 1);
+			return out + ")";
+		} else if (node.kind == NK_CAPTURE) {
+			string out = "(Capture";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
+			return out + ")";
+		}
+		return "(Unknown)";
+	}
 
-    private string spaces(int n) {
-        string s = "";
-        int i = 0;
-        while (i < n) { s = s + " "; i = i + 1; }
-        return s;
-    }
+	private string spaces(int n) {
+		string s = "";
+		int i = 0;
+		while (i < n) { s = s + " "; i = i + 1; }
+		return s;
+	}
 
-    private string canonInt(int v) { return Strings.fromInt(v); }
-    private string canonBool(bool b) { if (b) { return "true"; } return "false"; }
-    private string canonFloat(float f) { return f"{f}"; }
+	private string canonInt(int v) { return Strings.fromInt(v); }
 
-    private string canonStr(string s) {
-        string out = "\"";
-        int i = 0;
-        int n = s.length();
-        while (i < n) {
-            char c = s[i];
-            if (c == '\\') { out = out + "\\\\"; }
-            else if (c == '"') { out = out + "\\\""; }
-            else if (c == '\n') { out = out + "\\n"; }
-            else if (c == '\r') { out = out + "\\r"; }
-            else if (c == '\t') { out = out + "\\t"; }
-            else { out = out + f"{c}"; }
-            i = i + 1;
-        }
-        return out + "\"";
-    }
+	private string canonBool(bool b) { if (b) { return "true"; } return "false"; }
 
-    private string canonOptStr(string? s) {
-        if (s == null) { return "nil"; }
-        return self.canonStr(s);
-    }
+	private string canonFloat(float f) { return f"{f}"; }
 
-    private string canonNode(Node node, int d) {
-        if (node == null) { return "nil"; }
-        return self.renderAtDepth(node, d);
-    }
+	private string canonStr(string s) {
+		string out = "\"";
+		int i = 0;
+		int n = s.length();
+		while (i < n) {
+			char c = s[i];
+			if (c == '\\') { out = out + "\\\\"; }
+			else if (c == '"') { out = out + "\\\""; }
+			else if (c == '\n') { out = out + "\\n"; }
+			else if (c == '\r') { out = out + "\\r"; }
+			else if (c == '\t') { out = out + "\\t"; }
+			else { out = out + f"{c}"; }
+			i = i + 1;
+		}
+		return out + "\"";
+	}
 
-    private string canonNodeList(Vector<Node> xs, int d) {
-        if (xs.len == 0) { return "[]"; }
-        string out = "[\n";
-        int i = 0;
-        while (i < xs.len) {
-            out = out + self.spaces(2 * (d + 1)) + self.renderAtDepth(xs.get(i), d + 1);
-            if (i < xs.len - 1) { out = out + "\n"; }
-            i = i + 1;
-        }
-        return out + "\n" + self.spaces(2 * d) + "]";
-    }
+	private string canonOptStr(string? s) {
+		if (s == null) { return "nil"; }
+		return self.canonStr(s);
+	}
 
-    private string canonStrList(Vector<string> xs, int d) {
-        if (xs.len == 0) { return "[]"; }
-        string out = "[\n";
-        int i = 0;
-        while (i < xs.len) {
-            out = out + self.spaces(2 * (d + 1)) + self.canonStr(xs.get(i));
-            if (i < xs.len - 1) { out = out + "\n"; }
-            i = i + 1;
-        }
-        return out + "\n" + self.spaces(2 * d) + "]";
-    }
+	private string canonNode(Node node, int d) {
+		if (node == null) { return "nil"; }
+		return self.renderAtDepth(node, d);
+	}
+
+	private string canonNodeList(Vector<Node> xs, int d) {
+		if (xs.len == 0) { return "[]"; }
+		string out = "[\n";
+		int i = 0;
+		while (i < xs.len) {
+			out = out + self.spaces(2 * (d + 1)) + self.renderAtDepth(xs.get(i), d + 1);
+			if (i < xs.len - 1) { out = out + "\n"; }
+			i = i + 1;
+		}
+		return out + "\n" + self.spaces(2 * d) + "]";
+	}
+
+	private string canonStrList(Vector<string> xs, int d) {
+		if (xs.len == 0) { return "[]"; }
+		string out = "[\n";
+		int i = 0;
+		while (i < xs.len) {
+			out = out + self.spaces(2 * (d + 1)) + self.canonStr(xs.get(i));
+			if (i < xs.len - 1) { out = out + "\n"; }
+			i = i + 1;
+		}
+		return out + "\n" + self.spaces(2 * d) + "]";
+	}
 }
 
 class TypeIdentity {
-    class bool asciiLetter(char value) {
-        return (value >= 'A' && value <= 'Z')
-            || (value >= 'a' && value <= 'z');
-    }
+	class bool asciiLetter(char value) { return (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z'); }
 
-    class bool asciiDigit(char value) {
-        return value >= '0' && value <= '9';
-    }
+	class bool asciiDigit(char value) { return value >= '0' && value <= '9'; }
 
-    class bool safeBase(string base) {
-        int length = base.length();
-        if (length == 0 || !TypeIdentity.asciiLetter(base[0])) { return false; }
-        if (length >= 2 && base[0] == 'Z' && base[1] == 'Q') { return false; }
-        int index = 1;
-        while (index < length) {
-            char value = base[index];
-            if (!TypeIdentity.asciiLetter(value) && !TypeIdentity.asciiDigit(value)) {
-                return false;
-            }
-            index = index + 1;
-        }
-        return true;
-    }
+	class bool safeBase(string base) {
+		int length = base.length();
+		if (length == 0 || !TypeIdentity.asciiLetter(base[0])) { return false; }
+		if (length >= 2 && base[0] == 'Z' && base[1] == 'Q') { return false; }
+		int index = 1;
+		while (index < length) {
+			char value = base[index];
+			if (!TypeIdentity.asciiLetter(value) && !TypeIdentity.asciiDigit(value)) {
+				return false;
+			}
+			index = index + 1;
+		}
+		return true;
+	}
 
-    class string utf8Hex(string value) {
-        string digits = "0123456789abcdef";
-        string encoded = "";
-        int index = 0;
-        while (index < value.length()) {
-            int byteValue = (int)((unsigned char)value[index]);
-            encoded = encoded + f"{digits[byteValue / 16]}";
-            encoded = encoded + f"{digits[byteValue % 16]}";
-            index = index + 1;
-        }
-        return encoded;
-    }
+	class string utf8Hex(string value) {
+		string digits = "0123456789abcdef";
+		string encoded = "";
+		int index = 0;
+		while (index < value.length()) {
+			int byteValue = (int)((unsigned char)value[index]);
+			encoded = encoded + f"{digits[byteValue / 16]}";
+			encoded = encoded + f"{digits[byteValue % 16]}";
+			index = index + 1;
+		}
+		return encoded;
+	}
 
-    class string field(string tag, string value) {
-        return tag + Strings.fromInt(value.length()) + "_" + value;
-    }
+	class string field(string tag, string value) { return tag + Strings.fromInt(value.length()) + "_" + value; }
 
-    class int qualifierBits(Node typeExpr) {
-        int bits = 0;
-        if (typeExpr.is_const) { bits = bits + 1; }
-        if (typeExpr.is_static) { bits = bits + 2; }
-        if (typeExpr.is_extern) { bits = bits + 4; }
-        if (typeExpr.is_volatile) { bits = bits + 8; }
-        return bits;
-    }
+	class int qualifierBits(Node typeExpr) {
+		int bits = 0;
+		if (typeExpr.is_const) { bits = bits + 1; }
+		if (typeExpr.is_static) { bits = bits + 2; }
+		if (typeExpr.is_extern) { bits = bits + 4; }
+		if (typeExpr.is_volatile) { bits = bits + 8; }
+		return bits;
+	}
 
-    class string encodeTypes(Vector<Node> args) {
-        string encoded = "k" + Strings.fromInt(args.len);
-        int index = 0;
-        while (index < args.len) {
-            encoded = encoded
-                + TypeIdentity.field("t", TypeIdentity.encode(args.get(index)));
-            index = index + 1;
-        }
-        return encoded;
-    }
+	class string encodeTypes(Vector<Node> args) {
+		string encoded = "k" + Strings.fromInt(args.len);
+		int index = 0;
+		while (index < args.len) {
+			encoded = encoded + TypeIdentity.field("t", TypeIdentity.encode(args.get(index)));
+			index = index + 1;
+		}
+		return encoded;
+	}
 
-    class string encode(Node typeExpr) {
-        string encodedBase = TypeIdentity.utf8Hex(typeExpr.base);
-        string shape = "p" + Strings.fromInt(typeExpr.pointer_depth)
-            + "n" + Strings.fromInt(typeExpr.is_nullable ? 1 : 0)
-            + "o" + Strings.fromInt(typeExpr.nullable_outer_depth)
-            + "a" + Strings.fromInt(typeExpr.is_array ? 1 : 0)
-            + "q" + Strings.fromInt(TypeIdentity.qualifierBits(typeExpr));
-        return TypeIdentity.field("b", encodedBase) + shape
-            + TypeIdentity.encodeTypes(typeExpr.generic_args);
-    }
+	class string encode(Node typeExpr) {
+		string encodedBase = TypeIdentity.utf8Hex(typeExpr.base);
+		string shape = "p" + Strings.fromInt(typeExpr.pointer_depth) + "n" + Strings.fromInt(typeExpr.is_nullable ? 1 : 0) + "o" + Strings.fromInt(typeExpr.nullable_outer_depth) + "a" + Strings.fromInt(typeExpr.is_array ? 1 : 0) + "q" + Strings.fromInt(TypeIdentity.qualifierBits(typeExpr));
+		return TypeIdentity.field("b", encodedBase) + shape + TypeIdentity.encodeTypes(typeExpr.generic_args);
+	}
 
-    class string encodeNameAndTypes(string base, Vector<Node> args) {
-        return TypeIdentity.field("b", TypeIdentity.utf8Hex(base))
-            + TypeIdentity.encodeTypes(args);
-    }
+	class string encodeNameAndTypes(string base, Vector<Node> args) { return TypeIdentity.field("b", TypeIdentity.utf8Hex(base)) + TypeIdentity.encodeTypes(args); }
 
-    /* Position-independent semantic key. The encoding is recursive and
+	/* Position-independent semantic key. The encoding is recursive and
      * length-delimited, so no two TypeExpr trees can share a key. */
-    class string shapeKey(Node typeExpr) {
-        return TypeIdentity.encode(typeExpr);
-    }
+	class string shapeKey(Node typeExpr) { return TypeIdentity.encode(typeExpr); }
 
-    class string genericInstanceKey(string base, Vector<Node> args) {
-        return TypeIdentity.encodeNameAndTypes(base, args);
-    }
+	class string genericInstanceKey(string base, Vector<Node> args) { return TypeIdentity.encodeNameAndTypes(base, args); }
 
-    class string methodInstanceKey(string classBase, Vector<Node> classArgs,
-                             string methodName, Vector<Node> methodArgs) {
-        return TypeIdentity.encodeNameAndTypes(classBase, classArgs)
-            + TypeIdentity.field("m", TypeIdentity.utf8Hex(methodName))
-            + TypeIdentity.encodeTypes(methodArgs);
-    }
+	class string methodInstanceKey(string classBase, Vector<Node> classArgs, string methodName, Vector<Node> methodArgs) { return TypeIdentity.encodeNameAndTypes(classBase, classArgs) + TypeIdentity.field("m", TypeIdentity.utf8Hex(methodName)) + TypeIdentity.encodeTypes(methodArgs); }
 
-    class bool referencesNames(Node? typeExpr, Map<string, bool> names) {
-        if (typeExpr == null) { return false; }
-        if (names.has(typeExpr.base)) { return true; }
-        int index = 0;
-        while (index < typeExpr.generic_args.len) {
-            if (TypeIdentity.referencesNames(typeExpr.generic_args.get(index), names)) {
-                return true;
-            }
-            index = index + 1;
-        }
-        return false;
-    }
+	class bool referencesNames(Node? typeExpr, Map<string, bool> names) {
+		if (typeExpr == null) { return false; }
+		if (names.has(typeExpr.base)) { return true; }
+		int index = 0;
+		while (index < typeExpr.generic_args.len) {
+			if (TypeIdentity.referencesNames(typeExpr.generic_args.get(index), names)) {
+				return true;
+			}
+			index = index + 1;
+		}
+		return false;
+	}
 
-    class string genericArgumentProblemInner(
-            Node typeExpr, bool qualifiedComponent) {
-        if (!qualifiedComponent && typeExpr.is_const) {
-            return "generic arguments cannot be const-qualified";
-        }
-        if (!qualifiedComponent && typeExpr.is_static) {
-            return "generic arguments cannot be static-qualified";
-        }
-        if (!qualifiedComponent && typeExpr.is_extern) {
-            return "generic arguments cannot be extern-qualified";
-        }
-        if (!qualifiedComponent && typeExpr.is_volatile) {
-            return "generic arguments cannot be volatile-qualified";
-        }
-        bool childIsStructuralComponent =
-            typeExpr.base == "Tuple" || typeExpr.base == "__fn_ptr";
-        int index = 0;
-        while (index < typeExpr.generic_args.len) {
-            string problem = TypeIdentity.genericArgumentProblemInner(
-                typeExpr.generic_args.get(index),
-                childIsStructuralComponent);
-            if (problem != "") { return problem; }
-            index = index + 1;
-        }
-        return "";
-    }
+	class string genericArgumentProblemInner(Node typeExpr, bool qualifiedComponent) {
+		if (!qualifiedComponent && typeExpr.is_const) {
+			return "generic arguments cannot be const-qualified";
+		}
+		if (!qualifiedComponent && typeExpr.is_static) {
+			return "generic arguments cannot be static-qualified";
+		}
+		if (!qualifiedComponent && typeExpr.is_extern) {
+			return "generic arguments cannot be extern-qualified";
+		}
+		if (!qualifiedComponent && typeExpr.is_volatile) {
+			return "generic arguments cannot be volatile-qualified";
+		}
+		bool childIsStructuralComponent = typeExpr.base == "Tuple" || typeExpr.base == "__fn_ptr";
+		int index = 0;
+		while (index < typeExpr.generic_args.len) {
+			string problem = TypeIdentity.genericArgumentProblemInner(typeExpr.generic_args.get(index), childIsStructuralComponent);
+			if (problem != "") { return problem; }
+			index = index + 1;
+		}
+		return "";
+	}
 
-    class string genericArgumentProblem(Node typeExpr) {
-        return TypeIdentity.genericArgumentProblemInner(typeExpr, false);
-    }
+	class string genericArgumentProblem(Node typeExpr) { return TypeIdentity.genericArgumentProblemInner(typeExpr, false); }
 
-    class void fail(string message) {
-        fprintf(stderr, "error: %s\n", message);
-        exit(1);
-    }
+	class void fail(string message) {
+		fprintf(stderr, "error: %s\n", message);
+		exit(1);
+	}
 
-    class void ensureSupportedGenericArguments(Vector<Node> args) {
-        int index = 0;
-        while (index < args.len) {
-            string problem = TypeIdentity.genericArgumentProblem(args.get(index));
-            if (problem != "") { TypeIdentity.fail(problem); }
-            index = index + 1;
-        }
-    }
+	class void ensureSupportedGenericArguments(Vector<Node> args) {
+		int index = 0;
+		while (index < args.len) {
+			string problem = TypeIdentity.genericArgumentProblem(args.get(index));
+			if (problem != "") { TypeIdentity.fail(problem); }
+			index = index + 1;
+		}
+	}
 
-    class bool legacyComponentPossible(Node typeExpr) {
-        return typeExpr.generic_args.len == 0
-            && TypeIdentity.safeBase(typeExpr.base)
-            && typeExpr.nullable_outer_depth == 0
-            && !typeExpr.is_const && !typeExpr.is_static
-            && !typeExpr.is_extern && !typeExpr.is_volatile;
-    }
+	class bool legacyComponentPossible(Node typeExpr) { return typeExpr.generic_args.len == 0 && TypeIdentity.safeBase(typeExpr.base) && typeExpr.nullable_outer_depth == 0 && !typeExpr.is_const && !typeExpr.is_static && !typeExpr.is_extern && !typeExpr.is_volatile; }
 
-    class string legacyComponent(Node typeExpr) {
-        string component = typeExpr.base;
-        if (typeExpr.pointer_depth > 0) {
-            component = component + "_p"
-                + Strings.fromInt(typeExpr.pointer_depth);
-        }
-        if (typeExpr.is_nullable) { component = component + "_n"; }
-        if (typeExpr.is_array) { component = component + "_a"; }
-        return component;
-    }
+	class string legacyComponent(Node typeExpr) {
+		string component = typeExpr.base;
+		if (typeExpr.pointer_depth > 0) {
+			component = component + "_p" + Strings.fromInt(typeExpr.pointer_depth);
+		}
+		if (typeExpr.is_nullable) { component = component + "_n"; }
+		if (typeExpr.is_array) { component = component + "_a"; }
+		return component;
+	}
 
-    class bool legacySequencePossible(Vector<Node> args) {
-        int index = 0;
-        while (index < args.len) {
-            Node argument = args.get(index);
-            if (!TypeIdentity.legacyComponentPossible(argument)) { return false; }
-            if (args.len > 1 && (argument.pointer_depth > 0
-                    || argument.is_nullable || argument.is_array)) {
-                return false;
-            }
-            index = index + 1;
-        }
-        return true;
-    }
+	class bool legacySequencePossible(Vector<Node> args) {
+		int index = 0;
+		while (index < args.len) {
+			Node argument = args.get(index);
+			if (!TypeIdentity.legacyComponentPossible(argument)) { return false; }
+			if (args.len > 1 && (argument.pointer_depth > 0 || argument.is_nullable || argument.is_array)) {
+				return false;
+			}
+			index = index + 1;
+		}
+		return true;
+	}
 
-    class string legacySequence(Vector<Node> args) {
-        string sequence = "";
-        int index = 0;
-        while (index < args.len) {
-            if (index > 0) { sequence = sequence + "_"; }
-            sequence = sequence + TypeIdentity.legacyComponent(args.get(index));
-            index = index + 1;
-        }
-        return sequence;
-    }
+	class string legacySequence(Vector<Node> args) {
+		string sequence = "";
+		int index = 0;
+		while (index < args.len) {
+			if (index > 0) { sequence = sequence + "_"; }
+			sequence = sequence + TypeIdentity.legacyComponent(args.get(index));
+			index = index + 1;
+		}
+		return sequence;
+	}
 
-    class bool legacyComponentSpelling(string value) {
-        int length = value.length();
-        if (length == 0 || !TypeIdentity.asciiLetter(value[0])) {
-            return false;
-        }
-        int index = 1;
-        while (index < length
-                && (TypeIdentity.asciiLetter(value[index])
-                    || TypeIdentity.asciiDigit(value[index]))) {
-            index = index + 1;
-        }
-        string base = value.substring(0, index);
-        if (!TypeIdentity.safeBase(base)) { return false; }
-        if (index + 2 <= length
-                && value.substring(index, 2) == "_p") {
-            index = index + 2;
-            int digitStart = index;
-            while (index < length
-                    && TypeIdentity.asciiDigit(value[index])) {
-                index = index + 1;
-            }
-            if (digitStart == index || value[digitStart] == '0') {
-                return false;
-            }
-        }
-        if (index + 2 <= length
-                && value.substring(index, 2) == "_n") {
-            index = index + 2;
-        }
-        if (index + 2 <= length
-                && value.substring(index, 2) == "_a") {
-            index = index + 2;
-        }
-        return index == length;
-    }
+	class bool legacyComponentSpelling(string value) {
+		int length = value.length();
+		if (length == 0 || !TypeIdentity.asciiLetter(value[0])) {
+			return false;
+		}
+		int index = 1;
+		while (index < length && (TypeIdentity.asciiLetter(value[index]) || TypeIdentity.asciiDigit(value[index]))) {
+			index = index + 1;
+		}
+		string base = value.substring(0, index);
+		if (!TypeIdentity.safeBase(base)) { return false; }
+		if (index + 2 <= length && value.substring(index, 2) == "_p") {
+			index = index + 2;
+			int digitStart = index;
+			while (index < length && TypeIdentity.asciiDigit(value[index])) {
+				index = index + 1;
+			}
+			if (digitStart == index || value[digitStart] == '0') {
+				return false;
+			}
+		}
+		if (index + 2 <= length && value.substring(index, 2) == "_n") {
+			index = index + 2;
+		}
+		if (index + 2 <= length && value.substring(index, 2) == "_a") {
+			index = index + 2;
+		}
+		return index == length;
+	}
 
-    class bool legacySequenceSpelling(string value, int arity) {
-        if (arity <= 0 || value == "") { return false; }
-        if (arity == 1) {
-            return TypeIdentity.legacyComponentSpelling(value);
-        }
-        Vector<string> components = Strings.split(value, "_");
-        if (components.len != arity) { return false; }
-        int index = 0;
-        while (index < components.len) {
-            if (!TypeIdentity.safeBase(components.get(index))) {
-                return false;
-            }
-            index = index + 1;
-        }
-        return true;
-    }
+	class bool legacySequenceSpelling(string value, int arity) {
+		if (arity <= 0 || value == "") { return false; }
+		if (arity == 1) {
+			return TypeIdentity.legacyComponentSpelling(value);
+		}
+		Vector<string> components = Strings.split(value, "_");
+		if (components.len != arity) { return false; }
+		int index = 0;
+		while (index < components.len) {
+			if (!TypeIdentity.safeBase(components.get(index))) {
+				return false;
+			}
+			index = index + 1;
+		}
+		return true;
+	}
 
-    class int encodedFieldEnd(string value, int start, char tag) {
-        int length = value.length();
-        if (start < 0 || start >= length || value[start] != tag) {
-            return -1;
-        }
-        int index = start + 1;
-        int digitStart = index;
-        long long payloadLength = 0LL;
-        while (index < length && TypeIdentity.asciiDigit(value[index])) {
-            long long digit = (long long)(value[index] - '0');
-            if (payloadLength > (2147483647LL - digit) / 10LL) {
-                return -1;
-            }
-            payloadLength = payloadLength * 10LL + digit;
-            index = index + 1;
-        }
-        if (digitStart == index || index >= length || value[index] != '_'
-                || (index - digitStart > 1 && value[digitStart] == '0')) {
-            return -1;
-        }
-        index = index + 1;
-        if (payloadLength <= 0LL
-                || payloadLength > (long long)(length - index)) {
-            return -1;
-        }
-        return index + (int)payloadLength;
-    }
+	class int encodedFieldEnd(string value, int start, char tag) {
+		int length = value.length();
+		if (start < 0 || start >= length || value[start] != tag) {
+			return -1;
+		}
+		int index = start + 1;
+		int digitStart = index;
+		long long payloadLength = 0LL;
+		while (index < length && TypeIdentity.asciiDigit(value[index])) {
+			long long digit = (long long)(value[index] - '0');
+			if (payloadLength > (2147483647LL - digit) / 10LL) {
+				return -1;
+			}
+			payloadLength = payloadLength * 10LL + digit;
+			index = index + 1;
+		}
+		if (digitStart == index || index >= length || value[index] != '_' || (index - digitStart > 1 && value[digitStart] == '0')) {
+			return -1;
+		}
+		index = index + 1;
+		if (payloadLength <= 0LL || payloadLength > (long long)(length - index)) {
+			return -1;
+		}
+		return index + (int)payloadLength;
+	}
 
-    class int encodedTypesEnd(string value, int start, int arity) {
-        if (arity < 0) { return -1; }
-        string prefix = "k" + Strings.fromInt(arity);
-        if (start < 0 || start + prefix.length() > value.length()
-                || value.substring(start, prefix.length()) != prefix) {
-            return -1;
-        }
-        int index = start + prefix.length();
-        int argument = 0;
-        while (argument < arity) {
-            index = TypeIdentity.encodedFieldEnd(value, index, 't');
-            if (index < 0) { return -1; }
-            argument = argument + 1;
-        }
-        return index;
-    }
+	class int encodedTypesEnd(string value, int start, int arity) {
+		if (arity < 0) { return -1; }
+		string prefix = "k" + Strings.fromInt(arity);
+		if (start < 0 || start + prefix.length() > value.length() || value.substring(start, prefix.length()) != prefix) {
+			return -1;
+		}
+		int index = start + prefix.length();
+		int argument = 0;
+		while (argument < arity) {
+			index = TypeIdentity.encodedFieldEnd(value, index, 't');
+			if (index < 0) { return -1; }
+			argument = argument + 1;
+		}
+		return index;
+	}
 
-    class bool possibleLegacyMangledGenericType(
-            string symbol, string base, int arity) {
-        if (arity <= 0 || !TypeIdentity.safeBase(base)) { return false; }
-        string prefix = "btrc_" + base + "_";
-        if (!symbol.startsWith(prefix)) { return false; }
-        string arguments = symbol.substring(
-            prefix.length(), symbol.length() - prefix.length());
-        return TypeIdentity.legacySequenceSpelling(arguments, arity);
-    }
+	class bool possibleLegacyMangledGenericType(string symbol, string base, int arity) {
+		if (arity <= 0 || !TypeIdentity.safeBase(base)) { return false; }
+		string prefix = "btrc_" + base + "_";
+		if (!symbol.startsWith(prefix)) { return false; }
+		string arguments = symbol.substring(prefix.length(), symbol.length() - prefix.length());
+		return TypeIdentity.legacySequenceSpelling(arguments, arity);
+	}
 
-    /* Recognize one possible generic-type spelling using only its declared
+	/* Recognize one possible generic-type spelling using only its declared
      * base and arity.  This is intentionally structural: before generic graph
      * closure, semantic analysis does not yet own the concrete TypeExpr rows,
      * but it can still distinguish the canonical legacy/encoded grammars from
      * arbitrary lookalikes. */
-    class bool possibleMangledGenericType(
-            string symbol, string base, int arity) {
-        if (TypeIdentity.possibleLegacyMangledGenericType(
-                symbol, base, arity)) {
-            return true;
-        }
-        if (arity <= 0) { return false; }
-        string prefix = "btrc_ZQg"
-            + TypeIdentity.field("b", TypeIdentity.utf8Hex(base));
-        if (!symbol.startsWith(prefix)) { return false; }
-        return TypeIdentity.encodedTypesEnd(
-            symbol, prefix.length(), arity) == symbol.length();
-    }
+	class bool possibleMangledGenericType(string symbol, string base, int arity) {
+		if (TypeIdentity.possibleLegacyMangledGenericType(symbol, base, arity)) {
+			return true;
+		}
+		if (arity <= 0) { return false; }
+		string prefix = "btrc_ZQg" + TypeIdentity.field("b", TypeIdentity.utf8Hex(base));
+		if (!symbol.startsWith(prefix)) { return false; }
+		return TypeIdentity.encodedTypesEnd(symbol, prefix.length(), arity) == symbol.length();
+	}
 
-    class bool possibleGenericInstanceSymbol(string symbol,
-            string base, int arity, string suffix) {
-        if (!symbol.endsWith(suffix)
-                || symbol.length() <= suffix.length()) {
-            return false;
-        }
-        string emitted = symbol.substring(
-            0, symbol.length() - suffix.length());
-        return TypeIdentity.possibleMangledGenericType(
-            emitted, base, arity);
-    }
+	class bool possibleGenericInstanceSymbol(string symbol, string base, int arity, string suffix) {
+		if (!symbol.endsWith(suffix) || symbol.length() <= suffix.length()) {
+			return false;
+		}
+		string emitted = symbol.substring(0, symbol.length() - suffix.length());
+		return TypeIdentity.possibleMangledGenericType(emitted, base, arity);
+	}
 
-    /* Generic-method symbols use the same legacy type sequences, or the
+	/* Generic-method symbols use the same legacy type sequences, or the
      * collision-safe Qm envelope with independently framed class/method type
      * lists.  Match declared owner/method names and both exact arities. */
-    class bool possibleMethodInstanceSymbol(string symbol,
-            string classBase, int classArity,
-            string methodName, int methodArity) {
-        if (methodArity <= 0) { return false; }
-        if (TypeIdentity.safeBase(classBase)
-                && TypeIdentity.safeBase(methodName)) {
-            string marker = "_" + methodName + "_";
-            int position = 0;
-            while (position + marker.length() < symbol.length()) {
-                if (symbol.substring(position, marker.length()) == marker) {
-                    string owner = symbol.substring(0, position);
-                    bool ownerMatches = false;
-                    if (classArity == 0) {
-                        ownerMatches = owner == classBase;
-                    } else {
-                        ownerMatches =
-                            TypeIdentity.possibleLegacyMangledGenericType(
-                                owner, classBase, classArity);
-                    }
-                    int argumentStart = position + marker.length();
-                    string arguments = symbol.substring(
-                        argumentStart, symbol.length() - argumentStart);
-                    if (ownerMatches
-                            && TypeIdentity.legacySequenceSpelling(
-                                arguments, methodArity)) {
-                        return true;
-                    }
-                }
-                position = position + 1;
-            }
-        }
+	class bool possibleMethodInstanceSymbol(string symbol, string classBase, int classArity, string methodName, int methodArity) {
+		if (methodArity <= 0) { return false; }
+		if (TypeIdentity.safeBase(classBase) && TypeIdentity.safeBase(methodName)) {
+			string marker = "_" + methodName + "_";
+			int position = 0;
+			while (position + marker.length() < symbol.length()) {
+				if (symbol.substring(position, marker.length()) == marker) {
+					string owner = symbol.substring(0, position);
+					bool ownerMatches = false;
+					if (classArity == 0) {
+						ownerMatches = owner == classBase;
+					} else {
+						ownerMatches = TypeIdentity.possibleLegacyMangledGenericType(owner, classBase, classArity);
+					}
+					int argumentStart = position + marker.length();
+					string arguments = symbol.substring(argumentStart, symbol.length() - argumentStart);
+					if (ownerMatches && TypeIdentity.legacySequenceSpelling(arguments, methodArity)) {
+						return true;
+					}
+				}
+				position = position + 1;
+			}
+		}
 
-        string prefix = "btrc_ZQm"
-            + TypeIdentity.field("b", TypeIdentity.utf8Hex(classBase));
-        if (!symbol.startsWith(prefix)) { return false; }
-        int index = TypeIdentity.encodedTypesEnd(
-            symbol, prefix.length(), classArity);
-        if (index < 0) { return false; }
-        string methodField = TypeIdentity.field(
-            "m", TypeIdentity.utf8Hex(methodName));
-        if (index + methodField.length() > symbol.length()
-                || symbol.substring(index, methodField.length())
-                    != methodField) {
-            return false;
-        }
-        index = TypeIdentity.encodedTypesEnd(
-            symbol, index + methodField.length(), methodArity);
-        return index == symbol.length();
-    }
+		string prefix = "btrc_ZQm" + TypeIdentity.field("b", TypeIdentity.utf8Hex(classBase));
+		if (!symbol.startsWith(prefix)) { return false; }
+		int index = TypeIdentity.encodedTypesEnd(symbol, prefix.length(), classArity);
+		if (index < 0) { return false; }
+		string methodField = TypeIdentity.field("m", TypeIdentity.utf8Hex(methodName));
+		if (index + methodField.length() > symbol.length() || symbol.substring(index, methodField.length()) != methodField) {
+			return false;
+		}
+		index = TypeIdentity.encodedTypesEnd(symbol, index + methodField.length(), methodArity);
+		return index == symbol.length();
+	}
 
 
-    /* Injective C-identifier component for one type. Types that already spell
+	/* Injective C-identifier component for one type. Types that already spell
      * a safe legacy identifier keep it; everything else takes the reserved
      * length-delimited encoding. Mirrors TypeIdentity.symbol_component. */
-    class string symbolComponent(Node typeExpr) {
-        if (TypeIdentity.legacyComponentPossible(typeExpr)) {
-            return TypeIdentity.legacyComponent(typeExpr);
-        }
-        return "ZQt" + TypeIdentity.encode(typeExpr);
-    }
+	class string symbolComponent(Node typeExpr) {
+		if (TypeIdentity.legacyComponentPossible(typeExpr)) {
+			return TypeIdentity.legacyComponent(typeExpr);
+		}
+		return "ZQt" + TypeIdentity.encode(typeExpr);
+	}
 
-    /* Structural primitive: unlike writable class specializations, Tuple and
+	/* Structural primitive: unlike writable class specializations, Tuple and
      * __fn_ptr are allowed to carry qualified component types. */
-    class string mangleGenericSymbol(string base, Vector<Node> args) {
-        if (TypeIdentity.safeBase(base)
-                && TypeIdentity.legacySequencePossible(args)) {
-            string legacy = TypeIdentity.legacySequence(args);
-            if (legacy == "") { return "btrc_" + base; }
-            return "btrc_" + base + "_" + legacy;
-        }
-        return "btrc_ZQg" + TypeIdentity.encodeNameAndTypes(base, args);
-    }
+	class string mangleGenericSymbol(string base, Vector<Node> args) {
+		if (TypeIdentity.safeBase(base) && TypeIdentity.legacySequencePossible(args)) {
+			string legacy = TypeIdentity.legacySequence(args);
+			if (legacy == "") { return "btrc_" + base; }
+			return "btrc_" + base + "_" + legacy;
+		}
+		return "btrc_ZQg" + TypeIdentity.encodeNameAndTypes(base, args);
+	}
 
-    /* Writable class specialization entry point: fail closed on qualifiers. */
-    class string mangleGenericType(string base, Vector<Node> args) {
-        TypeIdentity.ensureSupportedGenericArguments(args);
-        return TypeIdentity.mangleGenericSymbol(base, args);
-    }
+	/* Writable class specialization entry point: fail closed on qualifiers. */
+	class string mangleGenericType(string base, Vector<Node> args) {
+		TypeIdentity.ensureSupportedGenericArguments(args);
+		return TypeIdentity.mangleGenericSymbol(base, args);
+	}
 
-    class string mangleMethodInstanceSymbol(string classBase, Vector<Node> classArgs,
-                                      string methodName, Vector<Node> methodArgs) {
-        TypeIdentity.ensureSupportedGenericArguments(classArgs);
-        TypeIdentity.ensureSupportedGenericArguments(methodArgs);
-        bool legacy = TypeIdentity.safeBase(classBase)
-            && TypeIdentity.safeBase(methodName)
-            && TypeIdentity.legacySequencePossible(classArgs)
-            && TypeIdentity.legacySequencePossible(methodArgs);
-        if (legacy) {
-            string classPart = classBase;
-            if (classArgs.len > 0) {
-                classPart = "btrc_" + classBase + "_"
-                    + TypeIdentity.legacySequence(classArgs);
-            }
-            string methodPart = "_" + methodName;
-            string methodLegacy = TypeIdentity.legacySequence(methodArgs);
-            if (methodLegacy != "") {
-                methodPart = methodPart + "_" + methodLegacy;
-            }
-            return classPart + methodPart;
-        }
-        string payload = TypeIdentity.encodeNameAndTypes(classBase, classArgs)
-            + TypeIdentity.field("m", TypeIdentity.utf8Hex(methodName))
-            + TypeIdentity.encodeTypes(methodArgs);
-        return "btrc_ZQm" + payload;
-    }
+	class string mangleMethodInstanceSymbol(string classBase, Vector<Node> classArgs, string methodName, Vector<Node> methodArgs) {
+		TypeIdentity.ensureSupportedGenericArguments(classArgs);
+		TypeIdentity.ensureSupportedGenericArguments(methodArgs);
+		bool legacy = TypeIdentity.safeBase(classBase) && TypeIdentity.safeBase(methodName) && TypeIdentity.legacySequencePossible(classArgs) && TypeIdentity.legacySequencePossible(methodArgs);
+		if (legacy) {
+			string classPart = classBase;
+			if (classArgs.len > 0) {
+				classPart = "btrc_" + classBase + "_" + TypeIdentity.legacySequence(classArgs);
+			}
+			string methodPart = "_" + methodName;
+			string methodLegacy = TypeIdentity.legacySequence(methodArgs);
+			if (methodLegacy != "") {
+				methodPart = methodPart + "_" + methodLegacy;
+			}
+			return classPart + methodPart;
+		}
+		string payload = TypeIdentity.encodeNameAndTypes(classBase, classArgs) + TypeIdentity.field("m", TypeIdentity.utf8Hex(methodName)) + TypeIdentity.encodeTypes(methodArgs);
+		return "btrc_ZQm" + payload;
+	}
 
-    class string mangleFunctionPointerSymbol(Vector<Node> args) {
-        if (TypeIdentity.legacySequencePossible(args)) {
-            return "__btrc_fn_" + TypeIdentity.legacySequence(args);
-        }
-        return "__btrc_fn_ZQf" + TypeIdentity.encodeTypes(args);
-    }
-
+	class string mangleFunctionPointerSymbol(Vector<Node> args) {
+		if (TypeIdentity.legacySequencePossible(args)) {
+			return "__btrc_fn_" + TypeIdentity.legacySequence(args);
+		}
+		return "__btrc_fn_ZQf" + TypeIdentity.encodeTypes(args);
+	}
 }

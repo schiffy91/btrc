@@ -4,6 +4,7 @@ import std.FileSystem;
 import std.map;
 import std.strings;
 import std.vector;
+
 import ../lexer/lexer.btrc;
 import ../syntax/grammar.btrc;
 import ../syntax/tokens.btrc;
@@ -13,935 +14,822 @@ import ./source_io.btrc;
 import ./stdlib.btrc;
 
 class FeDependencyGraphBuilder {
-    private FeSourcePathPolicy sourcePaths;
-    private Map<string, Vector<FeDependencyEdge>> outgoing;
-    private Map<string, Vector<string>> includeParents;
+	private FeSourcePathPolicy sourcePaths;
+	private Map<string, Vector<FeDependencyEdge>> outgoing;
+	private Map<string, Vector<string>> includeParents;
 
-    public FeDependencyGraphBuilder(FeSourcePathPolicy sourcePaths) {
-        self.sourcePaths = sourcePaths;
-        self.outgoing = {};
-        self.includeParents = {};
-    }
+	public FeDependencyGraphBuilder(FeSourcePathPolicy sourcePaths) {
+		self.sourcePaths = sourcePaths;
+		self.outgoing = {};
+		self.includeParents = {};
+	}
 
-    private void ensureIdentity(string sourceIdentity) {
-        if (!self.outgoing.has(sourceIdentity)) {
-            Vector<FeDependencyEdge> empty = [];
-            self.outgoing.put(sourceIdentity, empty);
-        }
-        if (!self.includeParents.has(sourceIdentity)) {
-            Vector<string> emptyParents = [];
-            self.includeParents.put(sourceIdentity, emptyParents);
-        }
-    }
+	private void ensureIdentity(string sourceIdentity) {
+		if (!self.outgoing.has(sourceIdentity)) {
+			Vector<FeDependencyEdge> empty = [];
+			self.outgoing.put(sourceIdentity, empty);
+		}
+		if (!self.includeParents.has(sourceIdentity)) {
+			Vector<string> emptyParents = [];
+			self.includeParents.put(sourceIdentity, emptyParents);
+		}
+	}
 
-    private bool containsEdge(Vector<FeDependencyEdge> edges,
-                              string target, int kind) {
-        int index = 0;
-        while (index < edges.len) {
-            FeDependencyEdge edge = edges.get(index);
-            if (edge.kind == kind && edge.target.equals(target)) { return true; }
-            index++;
-        }
-        return false;
-    }
+	private bool containsEdge(Vector<FeDependencyEdge> edges, string target, int kind) {
+		int index = 0;
+		while (index < edges.len) {
+			FeDependencyEdge edge = edges.get(index);
+			if (edge.kind == kind && edge.target.equals(target)) { return true; }
+			index++;
+		}
+		return false;
+	}
 
-    private bool containsPath(Vector<string> paths, string target) {
-        int index = 0;
-        while (index < paths.len) {
-            if (paths.get(index).equals(target)) { return true; }
-            index++;
-        }
-        return false;
-    }
+	private bool containsPath(Vector<string> paths, string target) {
+		int index = 0;
+		while (index < paths.len) {
+			if (paths.get(index).equals(target)) { return true; }
+			index++;
+		}
+		return false;
+	}
 
-    private void add(string source, string target, int kind) {
-        string sourceIdentity = self.sourcePaths.identity(source);
-        string targetIdentity = self.sourcePaths.identity(target);
-        self.ensureIdentity(sourceIdentity);
-        self.ensureIdentity(targetIdentity);
-        Vector<FeDependencyEdge> edges = self.outgoing.get(sourceIdentity);
-        if (!self.containsEdge(edges, targetIdentity, kind)) {
-            edges.push(FeDependencyEdge(targetIdentity, kind));
-        }
-        if (kind == FE_DEPENDENCY_INCLUDE) {
-            Vector<string> parents = self.includeParents.get(targetIdentity);
-            if (!self.containsPath(parents, sourceIdentity)) {
-                parents.push(sourceIdentity);
-            }
-        }
-    }
+	private void add(string source, string target, int kind) {
+		string sourceIdentity = self.sourcePaths.identity(source);
+		string targetIdentity = self.sourcePaths.identity(target);
+		self.ensureIdentity(sourceIdentity);
+		self.ensureIdentity(targetIdentity);
+		Vector<FeDependencyEdge> edges = self.outgoing.get(sourceIdentity);
+		if (!self.containsEdge(edges, targetIdentity, kind)) {
+			edges.push(FeDependencyEdge(targetIdentity, kind));
+		}
+		if (kind == FE_DEPENDENCY_INCLUDE) {
+			Vector<string> parents = self.includeParents.get(targetIdentity);
+			if (!self.containsPath(parents, sourceIdentity)) {
+				parents.push(sourceIdentity);
+			}
+		}
+	}
 
-    public void ensureSource(string source) {
-        self.ensureIdentity(self.sourcePaths.identity(source));
-    }
+	public void ensureSource(string source) { self.ensureIdentity(self.sourcePaths.identity(source)); }
 
-    public void addImport(string source, string target) {
-        self.add(source, target, FE_DEPENDENCY_IMPORT);
-    }
+	public void addImport(string source, string target) { self.add(source, target, FE_DEPENDENCY_IMPORT); }
 
-    public void addInclude(string source, string target) {
-        self.add(source, target, FE_DEPENDENCY_INCLUDE);
-    }
+	public void addInclude(string source, string target) { self.add(source, target, FE_DEPENDENCY_INCLUDE); }
 
-    public FeDependencyGraph build() {
-        return FeDependencyGraph(self.outgoing, self.includeParents);
-    }
+	public FeDependencyGraph build() { return FeDependencyGraph(self.outgoing, self.includeParents); }
 }
 
 class FeDirectiveScanner {
-    private GrammarInfo grammar;
+	private GrammarInfo grammar;
 
-    public FeDirectiveScanner(GrammarInfo grammar) {
-        self.grammar = grammar;
-    }
+	public FeDirectiveScanner(GrammarInfo grammar) { self.grammar = grammar; }
 
-    /* Extract the include path from a `#include "X.btrc"` preprocessor token,
+	/* Extract the include path from a `#include "X.btrc"` preprocessor token,
      * or return "" for a C include (`<...>` or non-.btrc). */
-    private string cIncludeBtrcPath(string tokenValue) {
-        string s = tokenValue.trim();
-        if (!FeSourceText(s).startsWithAt(0, "#include")) { return ""; }
-        int i = 8;
-        int n = s.length();
-        if (i >= n || (s[i] != ' ' && s[i] != '\t')) { return ""; }
-        while (i < n && (s[i] == ' ' || s[i] == '\t')) { i++; }
-        if (i >= n) { return ""; }
-        char open = s[i];
-        if (open != '"' && open != '<') { return ""; }
-        char close = open == '<' ? '>' : '"';
-        i++;
-        int pathStart = i;
-        while (i < n && s[i] != close && s[i] != '"') { i++; }
-        if (i >= n || s[i] != close) { return ""; }
-        string path = s.substring(pathStart, i - pathStart);
-        i++;
-        while (i < n && (s[i] == ' ' || s[i] == '\t')) { i++; }
-        if (i != n || !path.endsWith(".btrc")) { return ""; }
-        return path;
-    }
+	private string cIncludeBtrcPath(string tokenValue) {
+		string s = tokenValue.trim();
+		if (!FeSourceText(s).startsWithAt(0, "#include")) { return ""; }
+		int i = 8;
+		int n = s.length();
+		if (i >= n || (s[i] != ' ' && s[i] != '\t')) { return ""; }
+		while (i < n && (s[i] == ' ' || s[i] == '\t')) { i++; }
+		if (i >= n) { return ""; }
+		char open = s[i];
+		if (open != '"' && open != '<') { return ""; }
+		char close = open == '<' ? '>' : '"';
+		i++;
+		int pathStart = i;
+		while (i < n && s[i] != close && s[i] != '"') { i++; }
+		if (i >= n || s[i] != close) { return ""; }
+		string path = s.substring(pathStart, i - pathStart);
+		i++;
+		while (i < n && (s[i] == ' ' || s[i] == '\t')) { i++; }
+		if (i != n || !path.endsWith(".btrc")) { return ""; }
+		return path;
+	}
 
-    private int importTokenEnd(Vector<Token> tokens, int start) {
-        if (start >= tokens.len || tokens.get(start).type.equals("EOF")) {
-            return -1;
-        }
-        Token first = tokens.get(start);
-        if (first.type.equals("STRING_LIT") || first.type.equals("PATH_SPEC")) {
-            return start + 1;
-        }
-        if (!first.type.equals("IDENT")) { return -1; }
-        int index = start + 1;
-        if (!first.value.equals("std")) {
-            while (index < tokens.len && tokens.get(index).type.equals("DOT")) {
-                if (index + 1 >= tokens.len
-                        || !tokens.get(index + 1).type.equals("IDENT")) {
-                    return -1;
-                }
-                index = index + 2;
-            }
-            return index;
-        }
-        if (index >= tokens.len || !tokens.get(index).type.equals("DOT")) {
-            return index;
-        }
-        index++;
-        if (index >= tokens.len) { return -1; }
-        Token spec = tokens.get(index);
-        if (spec.type.equals("IDENT")) { return index + 1; }
-        if (spec.type.equals("STAR")) {
-            index++;
-            if (index < tokens.len && tokens.get(index).type.equals("STAR")) {
-                index++;
-            }
-            return index;
-        }
-        if (!spec.type.equals("LBRACE")) { return -1; }
-        index++;
-        if (index >= tokens.len || !tokens.get(index).type.equals("IDENT")) {
-            return -1;
-        }
-        index++;
-        while (index < tokens.len && tokens.get(index).type.equals("COMMA")) {
-            index++;
-            if (index < tokens.len && tokens.get(index).type.equals("RBRACE")) {
-                break;
-            }
-            if (index >= tokens.len
-                    || !tokens.get(index).type.equals("IDENT")) {
-                return -1;
-            }
-            index++;
-        }
-        if (index >= tokens.len || !tokens.get(index).type.equals("RBRACE")) {
-            return -1;
-        }
-        return index + 1;
-    }
+	private int importTokenEnd(Vector<Token> tokens, int start) {
+		if (start >= tokens.len || tokens.get(start).type.equals("EOF")) {
+			return -1;
+		}
+		Token first = tokens.get(start);
+		if (first.type.equals("STRING_LIT") || first.type.equals("PATH_SPEC")) {
+			return start + 1;
+		}
+		if (!first.type.equals("IDENT")) { return -1; }
+		int index = start + 1;
+		if (!first.value.equals("std")) {
+			while (index < tokens.len && tokens.get(index).type.equals("DOT")) {
+				if (index + 1 >= tokens.len || !tokens.get(index + 1).type.equals("IDENT")) {
+					return -1;
+				}
+				index = index + 2;
+			}
+			return index;
+		}
+		if (index >= tokens.len || !tokens.get(index).type.equals("DOT")) {
+			return index;
+		}
+		index++;
+		if (index >= tokens.len) { return -1; }
+		Token spec = tokens.get(index);
+		if (spec.type.equals("IDENT")) { return index + 1; }
+		if (spec.type.equals("STAR")) {
+			index++;
+			if (index < tokens.len && tokens.get(index).type.equals("STAR")) {
+				index++;
+			}
+			return index;
+		}
+		if (!spec.type.equals("LBRACE")) { return -1; }
+		index++;
+		if (index >= tokens.len || !tokens.get(index).type.equals("IDENT")) {
+			return -1;
+		}
+		index++;
+		while (index < tokens.len && tokens.get(index).type.equals("COMMA")) {
+			index++;
+			if (index < tokens.len && tokens.get(index).type.equals("RBRACE")) {
+				break;
+			}
+			if (index >= tokens.len || !tokens.get(index).type.equals("IDENT")) {
+				return -1;
+			}
+			index++;
+		}
+		if (index >= tokens.len || !tokens.get(index).type.equals("RBRACE")) {
+			return -1;
+		}
+		return index + 1;
+	}
 
-    private string canonicalImportSpec(
-            Vector<Token> tokens, int start, int end) {
-        if (end > start && tokens.get(end - 1).type.equals("SEMICOLON")) {
-            end--;
-        }
-        Token first = tokens.get(start);
-        if (first.type.equals("STRING_LIT") || first.type.equals("PATH_SPEC")) {
-            return first.value;
-        }
-        string canonical = "";
-        int index = start;
-        while (index < end) {
-            canonical = canonical + tokens.get(index).value;
-            index++;
-        }
-        return canonical;
-    }
+	private string canonicalImportSpec(Vector<Token> tokens, int start, int end) {
+		if (end > start && tokens.get(end - 1).type.equals("SEMICOLON")) {
+			end--;
+		}
+		Token first = tokens.get(start);
+		if (first.type.equals("STRING_LIT") || first.type.equals("PATH_SPEC")) {
+			return first.value;
+		}
+		string canonical = "";
+		int index = start;
+		while (index < end) {
+			canonical = canonical + tokens.get(index).value;
+			index++;
+		}
+		return canonical;
+	}
 
-    /* Locate whole-line import and btrc-include directives. The lexer makes
+	/* Locate whole-line import and btrc-include directives. The lexer makes
      * the scan comment- and string-aware using the pipeline grammar. */
-    public Vector<FeDirective> scan(string source) {
-        Vector<FeDirective> directives = [];
-        Lexer lexer = Lexer(source, self.grammar);
-        Vector<Token> tokens = lexer.tokenize();
+	public Vector<FeDirective> scan(string source) {
+		Vector<FeDirective> directives = [];
+		Lexer lexer = Lexer(source, self.grammar);
+		Vector<Token> tokens = lexer.tokenize();
 
-        Map<int, int> firstCol = {};
-        Map<int, int> lastCol = {};
-        int tokenIndex = 0;
-        while (tokenIndex < tokens.len) {
-            Token token = tokens.get(tokenIndex);
-            if (!token.type.equals("EOF")) {
-                if (!firstCol.has(token.line)) {
-                    firstCol.put(token.line, token.col);
-                }
-                lastCol.put(token.line, token.col);
-            }
-            tokenIndex++;
-        }
+		Map<int, int> firstCol = {};
+		Map<int, int> lastCol = {};
+		int tokenIndex = 0;
+		while (tokenIndex < tokens.len) {
+			Token token = tokens.get(tokenIndex);
+			if (!token.type.equals("EOF")) {
+				if (!firstCol.has(token.line)) {
+					firstCol.put(token.line, token.col);
+				}
+				lastCol.put(token.line, token.col);
+			}
+			tokenIndex++;
+		}
 
-        int index = 0;
-        while (index < tokens.len) {
-            Token token = tokens.get(index);
-            bool isFirst = firstCol.has(token.line)
-                && firstCol.get(token.line) == token.col;
-            bool isImport = token.type.equals("IMPORT")
-                || (token.type.equals("IDENT")
-                    && token.value.equals("import"));
-            if (isFirst && isImport) {
-                int specEnd = self.importTokenEnd(tokens, index + 1);
-                if (specEnd < 0) {
-                    fprintf(stderr,
-                        "error: invalid import specification at line %d\n",
-                        token.line);
-                    exit(1);
-                }
-                int afterDirective = specEnd;
-                if (afterDirective < tokens.len
-                        && tokens.get(afterDirective).type.equals("SEMICOLON")) {
-                    afterDirective++;
-                }
-                Token endToken = tokens.get(afterDirective - 1);
-                bool ownsLine = lastCol.has(endToken.line)
-                    && lastCol.get(endToken.line) == endToken.col;
-                if (ownsLine) {
-                    string canonical = self.canonicalImportSpec(
-                        tokens, index + 1, specEnd);
-                    directives.push(FeDirective(
-                        "import", canonical, token.line, endToken.line));
-                }
-                index = afterDirective;
-                continue;
-            }
-            if (isFirst && token.type.equals("PREPROCESSOR")) {
-                string path = self.cIncludeBtrcPath(token.value);
-                bool isLast = lastCol.has(token.line)
-                    && lastCol.get(token.line) == token.col;
-                if (path.length() > 0 && isLast) {
-                    directives.push(FeDirective(
-                        "btrc_include", path, token.line, token.line));
-                }
-            }
-            index++;
-        }
-        return directives;
-    }
+		int index = 0;
+		while (index < tokens.len) {
+			Token token = tokens.get(index);
+			bool isFirst = firstCol.has(token.line) && firstCol.get(token.line) == token.col;
+			bool isImport = token.type.equals("IMPORT") || (token.type.equals("IDENT") && token.value.equals("import"));
+			if (isFirst && isImport) {
+				int specEnd = self.importTokenEnd(tokens, index + 1);
+				if (specEnd < 0) {
+					fprintf(stderr, "error: invalid import specification at line %d\n", token.line);
+					exit(1);
+				}
+				int afterDirective = specEnd;
+				if (afterDirective < tokens.len && tokens.get(afterDirective).type.equals("SEMICOLON")) {
+					afterDirective++;
+				}
+				Token endToken = tokens.get(afterDirective - 1);
+				bool ownsLine = lastCol.has(endToken.line) && lastCol.get(endToken.line) == endToken.col;
+				if (ownsLine) {
+					string canonical = self.canonicalImportSpec(tokens, index + 1, specEnd);
+					directives.push(FeDirective("import", canonical, token.line, endToken.line));
+				}
+				index = afterDirective;
+				continue;
+			}
+			if (isFirst && token.type.equals("PREPROCESSOR")) {
+				string path = self.cIncludeBtrcPath(token.value);
+				bool isLast = lastCol.has(token.line) && lastCol.get(token.line) == token.col;
+				if (path.length() > 0 && isLast) {
+					directives.push(FeDirective("btrc_include", path, token.line, token.line));
+				}
+			}
+			index++;
+		}
+		return directives;
+	}
 }
 
 class FeImportResolver {
-    private FeStdlibRepository stdlib;
-    private FeStdlibRootSnapshot stdlibSnapshot;
-    private FeSourceDirectoryScanner sourceDirectories;
-    private FeSourcePathPolicy sourcePaths;
-    private FeResolvedPackages packages;
+	private FeStdlibRepository stdlib;
+	private FeStdlibRootSnapshot stdlibSnapshot;
+	private FeSourceDirectoryScanner sourceDirectories;
+	private FeSourcePathPolicy sourcePaths;
+	private FeResolvedPackages packages;
 
-    public FeImportResolver(
-            FeStdlibRepository stdlib, FeStdlibRootSnapshot stdlibSnapshot,
-            FeSourceDirectoryScanner sourceDirectories,
-            FeResolvedPackages packages = null) {
-        self.stdlib = stdlib;
-        self.stdlibSnapshot = stdlibSnapshot;
-        self.sourceDirectories = sourceDirectories;
-        self.sourcePaths = FeSourcePathPolicy();
-        self.packages = packages;
-    }
+	public FeImportResolver(FeStdlibRepository stdlib, FeStdlibRootSnapshot stdlibSnapshot, FeSourceDirectoryScanner sourceDirectories, FeResolvedPackages packages = null) {
+		self.stdlib = stdlib;
+		self.stdlibSnapshot = stdlibSnapshot;
+		self.sourceDirectories = sourceDirectories;
+		self.sourcePaths = FeSourcePathPolicy();
+		self.packages = packages;
+	}
 
-    /* Resolve a #include path against the including file's directory, then the
+	/* Resolve a #include path against the including file's directory, then the
      * captured stdlib snapshot. Returns "" if unresolved. */
-    public string resolveIncludePath(string includePath, string sourceDir) {
-        string local = self.sourcePaths.join(sourceDir, includePath);
-        if (FileSystem.exists(local)) { return local; }
-        return self.stdlib.findFileForCompilation(
-            includePath, self.stdlibSnapshot);
-    }
+	public string resolveIncludePath(string includePath, string sourceDir) {
+		string local = self.sourcePaths.join(sourceDir, includePath);
+		if (FileSystem.exists(local)) { return local; }
+		return self.stdlib.findFileForCompilation(includePath, self.stdlibSnapshot);
+	}
 
-    private Vector<string> compilableSuffixes() {
-        Vector<string> suffixes = [".btrc", ".c"];
-        return suffixes;
-    }
+	private Vector<string> compilableSuffixes() {
+		Vector<string> suffixes = [".btrc", ".c"];
+		return suffixes;
+	}
 
-    /* Recursive imports never descend through symlinked child directories.
+	/* Recursive imports never descend through symlinked child directories.
      * Traversal keeps an explicit pending stack and streams each directory, so
      * neither nesting depth nor directory size is capped by the compiler.
      * Directory entries and the final result retain Python's sorted order. */
-    private void collectTree(string root, Vector<string> out) {
-        Vector<string> suffixes = self.compilableSuffixes();
-        Vector<string> pending = [];
-        pending.push(root);
-        while (pending.len > 0) {
-            string current = pending.pop();
-            Vector<string> children = [];
-            self.sourceDirectories.partition(
-                current, children, out, suffixes, true);
-            self.sortPaths(children);
-            int child = children.len - 1;
-            while (child >= 0) {
-                pending.push(children.get(child));
-                child--;
-            }
-        }
-    }
+	private void collectTree(string root, Vector<string> out) {
+		Vector<string> suffixes = self.compilableSuffixes();
+		Vector<string> pending = [];
+		pending.push(root);
+		while (pending.len > 0) {
+			string current = pending.pop();
+			Vector<string> children = [];
+			self.sourceDirectories.partition(current, children, out, suffixes, true);
+			self.sortPaths(children);
+			int child = children.len - 1;
+			while (child >= 0) {
+				pending.push(children.get(child));
+				child--;
+			}
+		}
+	}
 
-    private void sortPaths(Vector<string> paths) {
-        paths.sortBy((string left, string right) =>
-            Strings.lessThan(left, right));
-    }
+	private void sortPaths(Vector<string> paths) { paths.sortBy((string left, string right) => Strings.lessThan(left, right)); }
 
-    private void collectDirectory(string root, Vector<string> out) {
-        Vector<string> children = [];
-        self.sourceDirectories.partition(
-            root, children, out, self.compilableSuffixes(), false);
-        self.sortPaths(out);
-    }
+	private void collectDirectory(string root, Vector<string> out) {
+		Vector<string> children = [];
+		self.sourceDirectories.partition(root, children, out, self.compilableSuffixes(), false);
+		self.sortPaths(out);
+	}
 
-    private Vector<string> resolveRelative(string spec, string sourceDir) {
-        Vector<string> paths = [];
-        bool recursive = spec.endsWith("/**");
-        bool directGlob = spec.endsWith("/*");
-        if (recursive || directGlob) {
-            int suffixLength = recursive ? 3 : 2;
-            string base = spec.substring(0, spec.length() - suffixLength);
-            string root = PathTools.isAbsolute(base)
-                ? base : self.sourcePaths.join(sourceDir, base);
-            if (!FileSystem.isDir(root)) {
-                fprintf(stderr,
-                    "error: import directory '%s' not found\n  searched: %s\n",
-                    spec, root);
-                exit(1);
-            }
-            if (recursive) {
-                self.collectTree(root, paths);
-                self.sortPaths(paths);
-            } else {
-                self.collectDirectory(root, paths);
-            }
-            return paths;
-        }
+	private Vector<string> resolveRelative(string spec, string sourceDir) {
+		Vector<string> paths = [];
+		bool recursive = spec.endsWith("/**");
+		bool directGlob = spec.endsWith("/*");
+		if (recursive || directGlob) {
+			int suffixLength = recursive ? 3 : 2;
+			string base = spec.substring(0, spec.length() - suffixLength);
+			string root = PathTools.isAbsolute(base) ? base : self.sourcePaths.join(sourceDir, base);
+			if (!FileSystem.isDir(root)) {
+				fprintf(stderr, "error: import directory '%s' not found\n  searched: %s\n", spec, root);
+				exit(1);
+			}
+			if (recursive) {
+				self.collectTree(root, paths);
+				self.sortPaths(paths);
+			} else {
+				self.collectDirectory(root, paths);
+			}
+			return paths;
+		}
 
-        string directory = PathTools.isAbsolute(spec)
-            ? spec : self.sourcePaths.join(sourceDir, spec);
-        if (FileSystem.isDir(directory)) {
-            self.collectDirectory(directory, paths);
-            return paths;
-        }
+		string directory = PathTools.isAbsolute(spec) ? spec : self.sourcePaths.join(sourceDir, spec);
+		if (FileSystem.isDir(directory)) {
+			self.collectDirectory(directory, paths);
+			return paths;
+		}
 
-        if (FileSystem.exists(directory)) {
-            paths.push(directory);
-            return paths;
-        }
-        string resolved = self.resolveIncludePath(spec, sourceDir);
-        if (!resolved.isEmpty()) {
-            paths.push(resolved);
-            return paths;
-        }
-        fprintf(stderr,
-            "error: include file '%s' not found\n  searched: %s\n  searched: %s\n",
-            spec, sourceDir, self.stdlib.directory());
-        exit(1);
-        return paths;
-    }
+		if (FileSystem.exists(directory)) {
+			paths.push(directory);
+			return paths;
+		}
+		string resolved = self.resolveIncludePath(spec, sourceDir);
+		if (!resolved.isEmpty()) {
+			paths.push(resolved);
+			return paths;
+		}
+		fprintf(stderr, "error: include file '%s' not found\n  searched: %s\n  searched: %s\n", spec, sourceDir, self.stdlib.directory());
+		exit(1);
+		return paths;
+	}
 
-    private bool validIdentifier(string value) {
-        if (value.isEmpty()
-                || (!Strings.isAlpha(value[0]) && value[0] != '_')) {
-            return false;
-        }
-        int index = 1;
-        while (index < value.length()) {
-            if (!Strings.isAlnum(value[index]) && value[index] != '_') {
-                return false;
-            }
-            index++;
-        }
-        return true;
-    }
+	private bool validIdentifier(string value) {
+		if (value.isEmpty() || (!Strings.isAlpha(value[0]) && value[0] != '_')) {
+			return false;
+		}
+		int index = 1;
+		while (index < value.length()) {
+			if (!Strings.isAlnum(value[index]) && value[index] != '_') {
+				return false;
+			}
+			index++;
+		}
+		return true;
+	}
 
-    private bool packageImportSpec(string spec) {
-        Vector<string> segments = Strings.split(spec, ".");
-        if (segments.len == 0) { return false; }
-        int index = 0;
-        while (index < segments.len) {
-            if (!self.validIdentifier(segments.get(index))) { return false; }
-            index++;
-        }
-        return true;
-    }
+	private bool packageImportSpec(string spec) {
+		Vector<string> segments = Strings.split(spec, ".");
+		if (segments.len == 0) { return false; }
+		int index = 0;
+		while (index < segments.len) {
+			if (!self.validIdentifier(segments.get(index))) { return false; }
+			index++;
+		}
+		return true;
+	}
 
-    private Vector<string> stdlibModuleNames(string rest) {
-        Vector<string> names = [];
-        if (self.validIdentifier(rest)) {
-            names.push(rest);
-            return names;
-        }
-        int length = rest.length();
-        if (length < 3 || rest[0] != '{' || rest[length - 1] != '}') {
-            return names;
-        }
-        Vector<string> rawNames = Strings.split(
-            rest.substring(1, length - 2), ",");
-        int index = 0;
-        while (index < rawNames.len) {
-            string name = rawNames.get(index).trim();
-            bool trailing = index == rawNames.len - 1 && name.isEmpty();
-            if (!trailing && !self.validIdentifier(name)) {
-                names.clear();
-                return names;
-            }
-            if (!trailing) { names.push(name); }
-            index++;
-        }
-        return names;
-    }
+	private Vector<string> stdlibModuleNames(string rest) {
+		Vector<string> names = [];
+		if (self.validIdentifier(rest)) {
+			names.push(rest);
+			return names;
+		}
+		int length = rest.length();
+		if (length < 3 || rest[0] != '{' || rest[length - 1] != '}') {
+			return names;
+		}
+		Vector<string> rawNames = Strings.split(rest.substring(1, length - 2), ",");
+		int index = 0;
+		while (index < rawNames.len) {
+			string name = rawNames.get(index).trim();
+			bool trailing = index == rawNames.len - 1 && name.isEmpty();
+			if (!trailing && !self.validIdentifier(name)) {
+				names.clear();
+				return names;
+			}
+			if (!trailing) { names.push(name); }
+			index++;
+		}
+		return names;
+	}
 
-    private void rejectInvalidSpec(string spec) {
-        fprintf(stderr, "error: invalid import specification: %s\n", spec);
-        exit(1);
-    }
+	private void rejectInvalidSpec(string spec) {
+		fprintf(stderr, "error: invalid import specification: %s\n", spec);
+		exit(1);
+	}
 
-    /* Resolve the exact raw import form captured by FeDirectiveScanner. */
-    public Vector<string> resolveSpec(string spec, string sourceDir) {
-        int length = spec.length();
-        if (length >= 2 && spec[0] == '"' && spec[length - 1] == '"') {
-            return self.resolveRelative(
-                spec.substring(1, length - 2), sourceDir);
-        }
-        if (FeSourceText(spec).startsWithAt(0, "std.")) {
-            string rest = spec.substring(4, spec.length() - 4);
-            if (rest.equals("*") || rest.equals("**")) {
-                return self.stdlib.rootPaths(self.stdlibSnapshot);
-            }
-            Vector<string> names = self.stdlibModuleNames(rest);
-            if (names.len == 0) { self.rejectInvalidSpec(spec); }
-            Vector<string> paths = [];
-            int index = 0;
-            while (index < names.len) {
-                FeStdlibLookup lookup = self.stdlib.requiredModuleForCompilation(
-                    names.get(index), self.stdlibSnapshot);
-                if (!lookup.found) {
-                    fprintf(stderr, "error: %s\n", lookup.diagnostic);
-                    exit(1);
-                }
-                paths.push(lookup.path);
-                index++;
-            }
-            return paths;
-        }
-        if (spec.startsWith(".") || spec.startsWith("/")
-                || spec.startsWith("~")) {
-            return self.resolveRelative(spec, sourceDir);
-        }
-        if (self.packageImportSpec(spec)) {
-            if (self.packages == null) {
-                fprintf(stderr,
-                    "error: package import '%s' is unsupported by btrcc without a version-1 btrc.toml; use an explicit local path beginning with './'\n",
-                    spec);
-                exit(1);
-            }
-            Vector<string> packagePaths = self.packages.pathsForImport(
-                spec, sourceDir);
-            if (packagePaths.len > 0) { return packagePaths; }
-            if (!self.packages.versioned) {
-                fprintf(stderr,
-                    "error: package import '%s' is unsupported by btrcc without a version-1 btrc.toml; use an explicit local path beginning with './'\n",
-                    spec);
-            } else {
-                fprintf(stderr,
-                    "error: package import '%s' is not declared by the owning btrc.toml; use an explicit local path beginning with './' for local files\n",
-                    spec);
-            }
-            exit(1);
-        }
-        self.rejectInvalidSpec(spec);
-        Vector<string> invalid = [];
-        return invalid;
-    }
+	/* Resolve the exact raw import form captured by FeDirectiveScanner. */
+	public Vector<string> resolveSpec(string spec, string sourceDir) {
+		int length = spec.length();
+		if (length >= 2 && spec[0] == '"' && spec[length - 1] == '"') {
+			return self.resolveRelative(spec.substring(1, length - 2), sourceDir);
+		}
+		if (FeSourceText(spec).startsWithAt(0, "std.")) {
+			string rest = spec.substring(4, spec.length() - 4);
+			if (rest.equals("*") || rest.equals("**")) {
+				return self.stdlib.rootPaths(self.stdlibSnapshot);
+			}
+			Vector<string> names = self.stdlibModuleNames(rest);
+			if (names.len == 0) { self.rejectInvalidSpec(spec); }
+			Vector<string> paths = [];
+			int index = 0;
+			while (index < names.len) {
+				FeStdlibLookup lookup = self.stdlib.requiredModuleForCompilation(names.get(index), self.stdlibSnapshot);
+				if (!lookup.found) {
+					fprintf(stderr, "error: %s\n", lookup.diagnostic);
+					exit(1);
+				}
+				paths.push(lookup.path);
+				index++;
+			}
+			return paths;
+		}
+		if (spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("~")) {
+			return self.resolveRelative(spec, sourceDir);
+		}
+		if (self.packageImportSpec(spec)) {
+			if (self.packages == null) {
+				fprintf(stderr, "error: package import '%s' is unsupported by btrcc without a version-1 btrc.toml; use an explicit local path beginning with './'\n", spec);
+				exit(1);
+			}
+			Vector<string> packagePaths = self.packages.pathsForImport(spec, sourceDir);
+			if (packagePaths.len > 0) { return packagePaths; }
+			if (!self.packages.versioned) {
+				fprintf(stderr, "error: package import '%s' is unsupported by btrcc without a version-1 btrc.toml; use an explicit local path beginning with './'\n", spec);
+			} else {
+				fprintf(stderr, "error: package import '%s' is not declared by the owning btrc.toml; use an explicit local path beginning with './' for local files\n", spec);
+			}
+			exit(1);
+		}
+		self.rejectInvalidSpec(spec);
+		Vector<string> invalid = [];
+		return invalid;
+	}
 
-    private bool cTrigraphSuffix(char value) {
-        return value == '=' || value == '/' || value == '\'' || value == '('
-            || value == ')' || value == '!' || value == '<' || value == '>'
-            || value == '-';
-    }
+	private bool cTrigraphSuffix(char value) { return value == '=' || value == '/' || value == '\'' || value == '(' || value == ')' || value == '!' || value == '<' || value == '>' || value == '-'; }
 
-    /* C11 header names cannot portably quote `"` or control bytes, and
+	/* C11 header names cannot portably quote `"` or control bytes, and
      * trigraph replacement runs before preprocessing. */
-    public string renderCInclude(string path) {
-        int index = 0;
-        while (index < path.length()) {
-            int code = (int)(byte)path[index];
-            if (path[index] == '"' || code < 32 || code == 127) {
-                fprintf(stderr,
-                    "error: cannot import C file with a quote or control character in its path: %s\n",
-                    path);
-                exit(1);
-            }
-            if (index + 2 < path.length() && path[index] == '?'
-                    && path[index + 1] == '?'
-                    && self.cTrigraphSuffix(path[index + 2])) {
-                fprintf(stderr,
-                    "error: cannot import C file whose path contains a C trigraph: %s\n",
-                    path);
-                exit(1);
-            }
-            index++;
-        }
-        return f"#include \"{path}\"";
-    }
+	public string renderCInclude(string path) {
+		int index = 0;
+		while (index < path.length()) {
+			int code = (int)(byte)path[index];
+			if (path[index] == '"' || code < 32 || code == 127) {
+				fprintf(stderr, "error: cannot import C file with a quote or control character in its path: %s\n", path);
+				exit(1);
+			}
+			if (index + 2 < path.length() && path[index] == '?' && path[index + 1] == '?' && self.cTrigraphSuffix(path[index + 2])) {
+				fprintf(stderr, "error: cannot import C file whose path contains a C trigraph: %s\n", path);
+				exit(1);
+			}
+			index++;
+		}
+		return f"#include \"{path}\"";
+	}
 }
 
 /* One dependency queued by the directive currently being expanded. */
 class FePendingSource {
-    public string path;
-    public int line;
-    public bool viaInclude;
+	public string path;
+	public int line;
+	public bool viaInclude;
 
-    public FePendingSource(string path, int line, bool viaInclude) {
-        self.path = path;
-        self.line = line;
-        self.viaInclude = viaInclude;
-    }
+	public FePendingSource(string path, int line, bool viaInclude) {
+		self.path = path;
+		self.line = line;
+		self.viaInclude = viaInclude;
+	}
 }
 
 /* One source file in progress during iterative import resolution. */
 class FeResolutionFrame {
-    public string absPath;
-    public string sourceDir;
-    public Vector<string> lines;
-    public Vector<FeDirective> directives;
-    public Map<int, int> byStart;
-    public Map<int, bool> covered;
-    private int cursor;
-    private Vector<FePendingSource> pending;
-    private int pendingCursor;
+	public string absPath;
+	public string sourceDir;
+	public Vector<string> lines;
+	public Vector<FeDirective> directives;
+	public Map<int, int> byStart;
+	public Map<int, bool> covered;
+	private int cursor;
+	private Vector<FePendingSource> pending;
+	private int pendingCursor;
 
-    public FeResolutionFrame(
-            string absPath, string sourceDir, Vector<string> lines,
-            Vector<FeDirective> directives, Map<int, int> byStart,
-            Map<int, bool> covered) {
-        self.absPath = absPath;
-        self.sourceDir = sourceDir;
-        self.lines = lines;
-        self.directives = directives;
-        self.byStart = byStart;
-        self.covered = covered;
-        self.cursor = 0;
-        Vector<FePendingSource> empty = [];
-        self.pending = empty;
-        self.pendingCursor = 0;
-    }
+	public FeResolutionFrame(string absPath, string sourceDir, Vector<string> lines, Vector<FeDirective> directives, Map<int, int> byStart, Map<int, bool> covered) {
+		self.absPath = absPath;
+		self.sourceDir = sourceDir;
+		self.lines = lines;
+		self.directives = directives;
+		self.byStart = byStart;
+		self.covered = covered;
+		self.cursor = 0;
+		Vector<FePendingSource> empty = [];
+		self.pending = empty;
+		self.pendingCursor = 0;
+	}
 
-    public bool hasPending() {
-        return self.pendingCursor < self.pending.len;
-    }
+	public bool hasPending() { return self.pendingCursor < self.pending.len; }
 
-    public FePendingSource takePending() {
-        FePendingSource next = self.pending.get(self.pendingCursor);
-        self.pendingCursor++;
-        return next;
-    }
+	public FePendingSource takePending() {
+		FePendingSource next = self.pending.get(self.pendingCursor);
+		self.pendingCursor++;
+		return next;
+	}
 
-    /* Each directive owns its own dependency queue. */
-    public void queue(FePendingSource dependency, bool first) {
-        if (first) {
-            Vector<FePendingSource> empty = [];
-            self.pending = empty;
-            self.pendingCursor = 0;
-        }
-        self.pending.push(dependency);
-    }
+	/* Each directive owns its own dependency queue. */
+	public void queue(FePendingSource dependency, bool first) {
+		if (first) {
+			Vector<FePendingSource> empty = [];
+			self.pending = empty;
+			self.pendingCursor = 0;
+		}
+		self.pending.push(dependency);
+	}
 
-    public bool exhausted() {
-        return self.cursor >= self.lines.len;
-    }
+	public bool exhausted() { return self.cursor >= self.lines.len; }
 
-    /* Advance one line and return its 1-based number. */
-    public int takeLineNumber() {
-        self.cursor++;
-        return self.cursor;
-    }
+	/* Advance one line and return its 1-based number. */
+	public int takeLineNumber() {
+		self.cursor++;
+		return self.cursor;
+	}
 
-    public string lineAt(int lineNumber) {
-        return self.lines.get(lineNumber - 1);
-    }
+	public string lineAt(int lineNumber) { return self.lines.get(lineNumber - 1); }
 }
 
 class FeFrontendResolver {
-    private FeDirectiveScanner directiveScanner;
-    private FeSourceDirectoryScanner sourceDirectories;
-    private FeStdlibRepository stdlib;
-    private FeStdlibRootSnapshot stdlibSnapshot;
-    private FeImportResolver importResolver;
-    private bool includeStdlib;
-    private bool strictImports;
-    private Map<string, bool> included;
-    private FeDependencyGraphBuilder dependencies;
-    private FeSourcePathPolicy sourcePaths;
-    private FeResolvedPackages packages;
+	private FeDirectiveScanner directiveScanner;
+	private FeSourceDirectoryScanner sourceDirectories;
+	private FeStdlibRepository stdlib;
+	private FeStdlibRootSnapshot stdlibSnapshot;
+	private FeImportResolver importResolver;
+	private bool includeStdlib;
+	private bool strictImports;
+	private Map<string, bool> included;
+	private FeDependencyGraphBuilder dependencies;
+	private FeSourcePathPolicy sourcePaths;
+	private FeResolvedPackages packages;
 
-    public FeFrontendResolver(
-            GrammarInfo grammar, FeStdlibRepository stdlib,
-            bool includeStdlib, bool strictImports,
-            FeResolvedPackages packages = null) {
-        self.directiveScanner = FeDirectiveScanner(grammar);
-        self.sourceDirectories = FeSourceDirectoryScanner();
-        self.sourcePaths = FeSourcePathPolicy();
-        self.stdlib = stdlib;
-        self.packages = packages;
-        Vector<string> emptyPaths = [];
-        Vector<string> emptySources = [];
-        FeStdlibRootSnapshot emptySnapshot = FeStdlibRootSnapshot(
-            emptyPaths, emptySources);
-        self.stdlibSnapshot = emptySnapshot;
-        self.importResolver = FeImportResolver(
-            stdlib, emptySnapshot, self.sourceDirectories, packages);
-        self.includeStdlib = includeStdlib;
-        self.strictImports = strictImports;
-        self.included = {};
-        self.dependencies = FeDependencyGraphBuilder(self.sourcePaths);
-    }
+	public FeFrontendResolver(GrammarInfo grammar, FeStdlibRepository stdlib, bool includeStdlib, bool strictImports, FeResolvedPackages packages = null) {
+		self.directiveScanner = FeDirectiveScanner(grammar);
+		self.sourceDirectories = FeSourceDirectoryScanner();
+		self.sourcePaths = FeSourcePathPolicy();
+		self.stdlib = stdlib;
+		self.packages = packages;
+		Vector<string> emptyPaths = [];
+		Vector<string> emptySources = [];
+		FeStdlibRootSnapshot emptySnapshot = FeStdlibRootSnapshot(emptyPaths, emptySources);
+		self.stdlibSnapshot = emptySnapshot;
+		self.importResolver = FeImportResolver(stdlib, emptySnapshot, self.sourceDirectories, packages);
+		self.includeStdlib = includeStdlib;
+		self.strictImports = strictImports;
+		self.included = {};
+		self.dependencies = FeDependencyGraphBuilder(self.sourcePaths);
+	}
 
-    /* Register one source in the dependency graph.  Returns false when it was
+	/* Register one source in the dependency graph.  Returns false when it was
      * already composed and must not contribute lines a second time. */
-    private bool beginSource(string absPath) {
-        string identity = self.sourcePaths.identity(absPath);
-        self.dependencies.ensureSource(absPath);
-        if (self.included.has(identity)) { return false; }
-        self.included.put(identity, true);
-        return true;
-    }
+	private bool beginSource(string absPath) {
+		string identity = self.sourcePaths.identity(absPath);
+		self.dependencies.ensureSource(absPath);
+		if (self.included.has(identity)) { return false; }
+		self.included.put(identity, true);
+		return true;
+	}
 
-    private FeResolutionFrame openFrame(string source, string absPath) {
-        Vector<FeDirective> directives = self.directiveScanner.scan(source);
-        Map<int, int> byStart = {};
-        Map<int, bool> covered = {};
-        int directiveIndex = 0;
-        while (directiveIndex < directives.len) {
-            FeDirective directive = directives.get(directiveIndex);
-            byStart.put(directive.start, directiveIndex);
-            int line = directive.start;
-            while (line <= directive.end) {
-                covered.put(line, true);
-                line++;
-            }
-            directiveIndex++;
-        }
-        return FeResolutionFrame(
-            absPath, self.sourcePaths.directoryName(absPath),
-            FeSourceText(source).lines(), directives, byStart, covered);
-    }
+	private FeResolutionFrame openFrame(string source, string absPath) {
+		Vector<FeDirective> directives = self.directiveScanner.scan(source);
+		Map<int, int> byStart = {};
+		Map<int, bool> covered = {};
+		int directiveIndex = 0;
+		while (directiveIndex < directives.len) {
+			FeDirective directive = directives.get(directiveIndex);
+			byStart.put(directive.start, directiveIndex);
+			int line = directive.start;
+			while (line <= directive.end) {
+				covered.put(line, true);
+				line++;
+			}
+			directiveIndex++;
+		}
+		return FeResolutionFrame(absPath, self.sourcePaths.directoryName(absPath), FeSourceText(source).lines(), directives, byStart, covered);
+	}
 
-    /* Queue every source one directive contributes, in resolution order. */
-    private void splice(FeResolutionFrame frame, FeDirective directive,
-                        int lineNumber) {
-        if (directive.kind.equals("btrc_include")) {
-            string resolved = self.importResolver.resolveIncludePath(
-                directive.payload, frame.sourceDir);
-            if (resolved.length() == 0) {
-                fprintf(stderr,
-                    "error: include file '%s' not found\n  searched: %s\n  searched: %s\n",
-                    directive.payload, frame.sourceDir, self.stdlib.directory());
-                exit(1);
-            }
-            self.dependencies.addInclude(frame.absPath, resolved);
-            frame.queue(FePendingSource(resolved, lineNumber, true), true);
-            return;
-        }
-        Vector<string> paths = self.importResolver.resolveSpec(
-            directive.payload, frame.sourceDir);
-        int index = 0;
-        while (index < paths.len) {
-            frame.queue(
-                FePendingSource(paths.get(index), lineNumber, false),
-                index == 0);
-            index++;
-        }
-    }
+	/* Queue every source one directive contributes, in resolution order. */
+	private void splice(FeResolutionFrame frame, FeDirective directive, int lineNumber) {
+		if (directive.kind.equals("btrc_include")) {
+			string resolved = self.importResolver.resolveIncludePath(directive.payload, frame.sourceDir);
+			if (resolved.length() == 0) {
+				fprintf(stderr, "error: include file '%s' not found\n  searched: %s\n  searched: %s\n", directive.payload, frame.sourceDir, self.stdlib.directory());
+				exit(1);
+			}
+			self.dependencies.addInclude(frame.absPath, resolved);
+			frame.queue(FePendingSource(resolved, lineNumber, true), true);
+			return;
+		}
+		Vector<string> paths = self.importResolver.resolveSpec(directive.payload, frame.sourceDir);
+		int index = 0;
+		while (index < paths.len) {
+			frame.queue(FePendingSource(paths.get(index), lineNumber, false), index == 0);
+			index++;
+		}
+	}
 
-    /* Splice one queued dependency into the traversal.  C sources become native
+	/* Splice one queued dependency into the traversal.  C sources become native
      * include lines; btrc sources push a child frame. */
-    private void enter(FeResolutionFrame frame, FePendingSource dependency,
-                       Vector<FeLine> out,
-                       Vector<FeResolutionFrame> stack) {
-        string absolute = self.sourcePaths.absolute(dependency.path);
-        if (!dependency.viaInclude) {
-            self.dependencies.addImport(frame.absPath, absolute);
-        }
-        if (dependency.path.endsWith(".c")) {
-            string identity = self.sourcePaths.identity(absolute);
-            if (!self.included.has(identity)) {
-                self.included.put(identity, true);
-                out.push(FeLine(
-                    self.importResolver.renderCInclude(absolute),
-                    frame.absPath, 0));
-            }
-            return;
-        }
-        string content = self.stdlib.readSourceForCompilation(
-            dependency.path, self.stdlibSnapshot);
-        if (self.beginSource(absolute)) {
-            stack.push(self.openFrame(content, absolute));
-        }
-    }
+	private void enter(FeResolutionFrame frame, FePendingSource dependency, Vector<FeLine> out, Vector<FeResolutionFrame> stack) {
+		string absolute = self.sourcePaths.absolute(dependency.path);
+		if (!dependency.viaInclude) {
+			self.dependencies.addImport(frame.absPath, absolute);
+		}
+		if (dependency.path.endsWith(".c")) {
+			string identity = self.sourcePaths.identity(absolute);
+			if (!self.included.has(identity)) {
+				self.included.put(identity, true);
+				out.push(FeLine(self.importResolver.renderCInclude(absolute), frame.absPath, 0));
+			}
+			return;
+		}
+		string content = self.stdlib.readSourceForCompilation(dependency.path, self.stdlibSnapshot);
+		if (self.beginSource(absolute)) {
+			stack.push(self.openFrame(content, absolute));
+		}
+	}
 
-    /* Compose one source graph depth-first with an explicit frame stack, so
+	/* Compose one source graph depth-first with an explicit frame stack, so
      * import nesting is bounded only by available memory rather than by a
      * compiler-defined depth ceiling or the host's call stack. */
-    private void resolveGraph(string source, string sourcePath,
-                              Vector<FeLine> out) {
-        string rootPath = self.sourcePaths.absolute(sourcePath);
-        if (!self.beginSource(rootPath)) { return; }
-        Vector<FeResolutionFrame> stack = [];
-        stack.push(self.openFrame(source, rootPath));
-        while (stack.len > 0) {
-            FeResolutionFrame frame = stack.get(stack.len - 1);
-            if (frame.hasPending()) {
-                self.enter(frame, frame.takePending(), out, stack);
-            } else if (frame.exhausted()) {
-                stack.pop();
-            } else {
-                int lineNumber = frame.takeLineNumber();
-                if (frame.byStart.has(lineNumber)) {
-                    self.splice(
-                        frame,
-                        frame.directives.get(frame.byStart.get(lineNumber)),
-                        lineNumber);
-                } else if (!frame.covered.has(lineNumber)) {
-                    out.push(FeLine(
-                        frame.lineAt(lineNumber), frame.absPath, lineNumber));
-                }
-            }
-        }
-    }
+	private void resolveGraph(string source, string sourcePath, Vector<FeLine> out) {
+		string rootPath = self.sourcePaths.absolute(sourcePath);
+		if (!self.beginSource(rootPath)) { return; }
+		Vector<FeResolutionFrame> stack = [];
+		stack.push(self.openFrame(source, rootPath));
+		while (stack.len > 0) {
+			FeResolutionFrame frame = stack.get(stack.len - 1);
+			if (frame.hasPending()) {
+				self.enter(frame, frame.takePending(), out, stack);
+			} else if (frame.exhausted()) {
+				stack.pop();
+			} else {
+				int lineNumber = frame.takeLineNumber();
+				if (frame.byStart.has(lineNumber)) {
+					self.splice(frame, frame.directives.get(frame.byStart.get(lineNumber)), lineNumber);
+				} else if (!frame.covered.has(lineNumber)) {
+					out.push(FeLine(frame.lineAt(lineNumber), frame.absPath, lineNumber));
+				}
+			}
+		}
+	}
 
-    public FeResolvedSource resolve(string source, string sourcePath) {
-        /* Each result owns a stable dependency graph. Resolver reuse must not
+	public FeResolvedSource resolve(string source, string sourcePath) {
+		/* Each result owns a stable dependency graph. Resolver reuse must not
          * retain a prior call's include guards or dependency edges. */
-        self.included = {};
-        self.dependencies = FeDependencyGraphBuilder(self.sourcePaths);
-        FeStdlibRootSnapshot currentSnapshot = self.stdlib.rootSnapshot();
-        self.stdlibSnapshot = currentSnapshot;
-        self.importResolver = FeImportResolver(
-            self.stdlib, currentSnapshot, self.sourceDirectories,
-            self.packages);
+		self.included = {};
+		self.dependencies = FeDependencyGraphBuilder(self.sourcePaths);
+		FeStdlibRootSnapshot currentSnapshot = self.stdlib.rootSnapshot();
+		self.stdlibSnapshot = currentSnapshot;
+		self.importResolver = FeImportResolver(self.stdlib, currentSnapshot, self.sourceDirectories, self.packages);
 
-        Vector<FeLine> userLines = [];
-        self.resolveGraph(source, sourcePath, userLines);
+		Vector<FeLine> userLines = [];
+		self.resolveGraph(source, sourcePath, userLines);
 
-        Vector<string> userTexts = [];
-        int lineIndex = 0;
-        while (lineIndex < userLines.len) {
-            userTexts.push(userLines.get(lineIndex).text);
-            lineIndex++;
-        }
-        string userSource = FeSourceText.joinLines(userTexts);
-        string stdlibSource = "";
-        if (self.includeStdlib && !self.strictImports) {
-            stdlibSource = self.sourceAtSnapshot(
-                userSource, self.stdlibSnapshot);
-        }
-        string combined = stdlibSource.length() > 0
-            ? stdlibSource + "\n" + userSource : userSource;
-        int stdlibLineCount = stdlibSource.length() > 0
-            ? FeSourceText(stdlibSource).lineCount() : 0;
-        return FeResolvedSource(
-            userSource, combined, stdlibSource, userLines,
-            self.dependencies.build(),
-            self.strictImports, stdlibLineCount, self.sourcePaths.absolute(sourcePath),
-            self.stdlibSnapshot);
-    }
+		Vector<string> userTexts = [];
+		int lineIndex = 0;
+		while (lineIndex < userLines.len) {
+			userTexts.push(userLines.get(lineIndex).text);
+			lineIndex++;
+		}
+		string userSource = FeSourceText.joinLines(userTexts);
+		string stdlibSource = "";
+		if (self.includeStdlib && !self.strictImports) {
+			stdlibSource = self.sourceAtSnapshot(userSource, self.stdlibSnapshot);
+		}
+		string combined = stdlibSource.length() > 0 ? stdlibSource + "\n" + userSource : userSource;
+		int stdlibLineCount = stdlibSource.length() > 0 ? FeSourceText(stdlibSource).lineCount() : 0;
+		return FeResolvedSource(userSource, combined, stdlibSource, userLines, self.dependencies.build(), self.strictImports, stdlibLineCount, self.sourcePaths.absolute(sourcePath), self.stdlibSnapshot);
+	}
 
-    private bool wordCharacter(char value) {
-        return Strings.isAlnum(value) || value == '_';
-    }
+	private bool wordCharacter(char value) { return Strings.isAlnum(value) || value == '_'; }
 
-    private int skipWhitespace(string line, int index) {
-        while (index < line.length()
-                && (line[index] == ' ' || line[index] == '\t')) {
-            index++;
-        }
-        return index;
-    }
+	private int skipWhitespace(string line, int index) {
+		while (index < line.length() && (line[index] == ' ' || line[index] == '\t')) {
+			index++;
+		}
+		return index;
+	}
 
-    private int matchGenerics(string line, int index) {
-        int next = self.skipWhitespace(line, index);
-        if (next >= line.length() || line[next] != '<') { return index; }
-        int cursor = next + 1;
-        int count = 0;
-        while (cursor < line.length() && line[cursor] != '>') {
-            cursor++;
-            count++;
-        }
-        return cursor < line.length() && count > 0 ? cursor + 1 : index;
-    }
+	private int matchGenerics(string line, int index) {
+		int next = self.skipWhitespace(line, index);
+		if (next >= line.length() || line[next] != '<') { return index; }
+		int cursor = next + 1;
+		int count = 0;
+		while (cursor < line.length() && line[cursor] != '>') {
+			cursor++;
+			count++;
+		}
+		return cursor < line.length() && count > 0 ? cursor + 1 : index;
+	}
 
-    private string declarationName(string line, string keyword) {
-        bool isClass = keyword.equals("class");
-        int length = line.length();
-        int index = self.skipWhitespace(line, 0);
-        FeSourceText sourceLine = FeSourceText(line);
-        if (isClass && sourceLine.startsWithAt(index, "abstract")) {
-            int next = index + 8;
-            if (next < length && (line[next] == ' ' || line[next] == '\t')) {
-                index = self.skipWhitespace(line, next);
-            }
-        }
-        if (!sourceLine.startsWithAt(index, keyword)) { return ""; }
-        int cursor = index + keyword.length();
-        if (cursor >= length
-                || (line[cursor] != ' ' && line[cursor] != '\t')) {
-            return "";
-        }
-        cursor = self.skipWhitespace(line, cursor);
-        int nameStart = cursor;
-        while (cursor < length && self.wordCharacter(line[cursor])) { cursor++; }
-        if (cursor == nameStart) { return ""; }
-        string name = line.substring(nameStart, cursor - nameStart);
-        cursor = self.matchGenerics(line, cursor);
-        cursor = self.skipWhitespace(line, cursor);
-        if (sourceLine.startsWithAt(cursor, "extends")) {
-            int next = cursor + 7;
-            if (next < length && (line[next] == ' ' || line[next] == '\t')) {
-                next = self.skipWhitespace(line, next);
-                int wordStart = next;
-                while (next < length && self.wordCharacter(line[next])) { next++; }
-                if (next > wordStart) {
-                    next = self.matchGenerics(line, next);
-                    cursor = self.skipWhitespace(line, next);
-                }
-            }
-        }
-        if (isClass && sourceLine.startsWithAt(cursor, "implements")) {
-            int next = cursor + 10;
-            if (next < length && (line[next] == ' ' || line[next] == '\t')) {
-                next = self.skipWhitespace(line, next);
-                int wordStart = next;
-                while (next < length && self.wordCharacter(line[next])) { next++; }
-                if (next > wordStart) {
-                    bool more = true;
-                    while (more) {
-                        int saved = next;
-                        int separator = self.skipWhitespace(line, next);
-                        if (separator < length && line[separator] == ',') {
-                            separator = self.skipWhitespace(line, separator + 1);
-                            int itemStart = separator;
-                            while (separator < length
-                                    && self.wordCharacter(line[separator])) {
-                                separator++;
-                            }
-                            if (separator > itemStart) { next = separator; }
-                            else { next = saved; more = false; }
-                        } else {
-                            more = false;
-                        }
-                    }
-                    cursor = self.skipWhitespace(line, next);
-                }
-            }
-        }
-        return cursor < length && line[cursor] == '{' ? name : "";
-    }
+	private string declarationName(string line, string keyword) {
+		bool isClass = keyword.equals("class");
+		int length = line.length();
+		int index = self.skipWhitespace(line, 0);
+		FeSourceText sourceLine = FeSourceText(line);
+		if (isClass && sourceLine.startsWithAt(index, "abstract")) {
+			int next = index + 8;
+			if (next < length && (line[next] == ' ' || line[next] == '\t')) {
+				index = self.skipWhitespace(line, next);
+			}
+		}
+		if (!sourceLine.startsWithAt(index, keyword)) { return ""; }
+		int cursor = index + keyword.length();
+		if (cursor >= length || (line[cursor] != ' ' && line[cursor] != '\t')) {
+			return "";
+		}
+		cursor = self.skipWhitespace(line, cursor);
+		int nameStart = cursor;
+		while (cursor < length && self.wordCharacter(line[cursor])) { cursor++; }
+		if (cursor == nameStart) { return ""; }
+		string name = line.substring(nameStart, cursor - nameStart);
+		cursor = self.matchGenerics(line, cursor);
+		cursor = self.skipWhitespace(line, cursor);
+		if (sourceLine.startsWithAt(cursor, "extends")) {
+			int next = cursor + 7;
+			if (next < length && (line[next] == ' ' || line[next] == '\t')) {
+				next = self.skipWhitespace(line, next);
+				int wordStart = next;
+				while (next < length && self.wordCharacter(line[next])) { next++; }
+				if (next > wordStart) {
+					next = self.matchGenerics(line, next);
+					cursor = self.skipWhitespace(line, next);
+				}
+			}
+		}
+		if (isClass && sourceLine.startsWithAt(cursor, "implements")) {
+			int next = cursor + 10;
+			if (next < length && (line[next] == ' ' || line[next] == '\t')) {
+				next = self.skipWhitespace(line, next);
+				int wordStart = next;
+				while (next < length && self.wordCharacter(line[next])) { next++; }
+				if (next > wordStart) {
+					bool more = true;
+					while (more) {
+						int saved = next;
+						int separator = self.skipWhitespace(line, next);
+						if (separator < length && line[separator] == ',') {
+							separator = self.skipWhitespace(line, separator + 1);
+							int itemStart = separator;
+							while (separator < length && self.wordCharacter(line[separator])) {
+								separator++;
+							}
+							if (separator > itemStart) { next = separator; }
+							else { next = saved; more = false; }
+						} else {
+							more = false;
+						}
+					}
+					cursor = self.skipWhitespace(line, next);
+				}
+			}
+		}
+		return cursor < length && line[cursor] == '{' ? name : "";
+	}
 
-    private Map<string, bool> definedTypeNames(string source) {
-        Map<string, bool> names = {};
-        Vector<string> lines = FeSourceText(source).lines();
-        int index = 0;
-        while (index < lines.len) {
-            string line = lines.get(index);
-            string className = self.declarationName(line, "class");
-            if (!className.isEmpty()) { names.put(className, true); }
-            string interfaceName = self.declarationName(line, "interface");
-            if (!interfaceName.isEmpty()) { names.put(interfaceName, true); }
-            index++;
-        }
-        return names;
-    }
+	private Map<string, bool> definedTypeNames(string source) {
+		Map<string, bool> names = {};
+		Vector<string> lines = FeSourceText(source).lines();
+		int index = 0;
+		while (index < lines.len) {
+			string line = lines.get(index);
+			string className = self.declarationName(line, "class");
+			if (!className.isEmpty()) { names.put(className, true); }
+			string interfaceName = self.declarationName(line, "interface");
+			if (!interfaceName.isEmpty()) { names.put(interfaceName, true); }
+			index++;
+		}
+		return names;
+	}
 
-    private bool namesIntersect(
-            Map<string, bool> left, Map<string, bool> right) {
-        Vector<string> names = left.keys();
-        int index = 0;
-        while (index < names.len) {
-            if (right.has(names.get(index))) { return true; }
-            index++;
-        }
-        return false;
-    }
+	private bool namesIntersect(Map<string, bool> left, Map<string, bool> right) {
+		Vector<string> names = left.keys();
+		int index = 0;
+		while (index < names.len) {
+			if (right.has(names.get(index))) { return true; }
+			index++;
+		}
+		return false;
+	}
 
-    private Vector<string> sourceWithoutImports(string content) {
-        Vector<string> lines = FeSourceText(content).lines();
-        Vector<FeDirective> directives = self.directiveScanner.scan(content);
-        Map<int, bool> covered = {};
-        int directiveIndex = 0;
-        while (directiveIndex < directives.len) {
-            FeDirective directive = directives.get(directiveIndex);
-            if (directive.kind.equals("import")) {
-                int line = directive.start;
-                while (line <= directive.end) { covered.put(line, true); line++; }
-            }
-            directiveIndex++;
-        }
-        Vector<string> kept = [];
-        int index = 0;
-        while (index < lines.len) {
-            if (!covered.has(index + 1)) { kept.push(lines.get(index)); }
-            index++;
-        }
-        return kept;
-    }
+	private Vector<string> sourceWithoutImports(string content) {
+		Vector<string> lines = FeSourceText(content).lines();
+		Vector<FeDirective> directives = self.directiveScanner.scan(content);
+		Map<int, bool> covered = {};
+		int directiveIndex = 0;
+		while (directiveIndex < directives.len) {
+			FeDirective directive = directives.get(directiveIndex);
+			if (directive.kind.equals("import")) {
+				int line = directive.start;
+				while (line <= directive.end) { covered.put(line, true); line++; }
+			}
+			directiveIndex++;
+		}
+		Vector<string> kept = [];
+		int index = 0;
+		while (index < lines.len) {
+			if (!covered.has(index + 1)) { kept.push(lines.get(index)); }
+			index++;
+		}
+		return kept;
+	}
 
-    public string sourceAtSnapshot(
-            string userSource, FeStdlibRootSnapshot snapshot) {
-        Map<string, bool> userNames = self.definedTypeNames(userSource);
-        Vector<string> lines = [];
-        int fileIndex = 0;
-        while (fileIndex < snapshot.count()) {
-            string content = snapshot.sourceAt(fileIndex);
-            if (!self.namesIntersect(
-                    self.definedTypeNames(content), userNames)) {
-                Vector<string> fileLines = self.sourceWithoutImports(content);
-                int lineIndex = 0;
-                while (lineIndex < fileLines.len) {
-                    lines.push(fileLines.get(lineIndex));
-                    lineIndex++;
-                }
-            }
-            fileIndex++;
-        }
-        return FeSourceText.joinLines(lines);
-    }
-
+	public string sourceAtSnapshot(string userSource, FeStdlibRootSnapshot snapshot) {
+		Map<string, bool> userNames = self.definedTypeNames(userSource);
+		Vector<string> lines = [];
+		int fileIndex = 0;
+		while (fileIndex < snapshot.count()) {
+			string content = snapshot.sourceAt(fileIndex);
+			if (!self.namesIntersect(self.definedTypeNames(content), userNames)) {
+				Vector<string> fileLines = self.sourceWithoutImports(content);
+				int lineIndex = 0;
+				while (lineIndex < fileLines.len) {
+					lines.push(fileLines.get(lineIndex));
+					lineIndex++;
+				}
+			}
+			fileIndex++;
+		}
+		return FeSourceText.joinLines(lines);
+	}
 }

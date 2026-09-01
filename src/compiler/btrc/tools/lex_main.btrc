@@ -4,47 +4,40 @@ import ../frontend/source_io.btrc;
 import ../cli/driver.btrc;
 
 class LexerInspectionCommand {
-    private BtrccOutput output;
-    private FeSourceFileReader sourceFiles;
+	private BtrccOutput output;
+	private FeSourceFileReader sourceFiles;
 
-    public LexerInspectionCommand(BtrccOutput output) {
-        self.output = output;
-        self.sourceFiles = FeSourceFileReader();
-    }
+	public LexerInspectionCommand(BtrccOutput output) {
+		self.output = output;
+		self.sourceFiles = FeSourceFileReader();
+	}
 
-    public int run(int argc, char** argv) {
-        if (argc < 2) {
-            print("usage: lex <file.btrc>");
-            return 1;
-        }
-        string grammarText = self.sourceFiles.readRequired(
-            "src/language/grammar.ebnf");
-        GrammarInfo grammar = EbnfGrammarParser(grammarText).parse();
-        string source = self.sourceFiles.readRequired(
-            Strings.copy(argv[1]));
-        Lexer lexer = Lexer(source, grammar);
-        Vector<Token> tokens = lexer.tokenize();
-        if (lexer.failed) {
-            fprintf(stderr, "error: %s\n", lexer.diagnostic);
-            return 1;
-        }
-        int index = 0;
-        while (index < tokens.len) {
-            if (!self.output.writeChunk(tokens.get(index).repr(), true)) {
-                fprintf(
-                    stderr,
-                    "lex: error: cannot write standard output\n");
-                return 1;
-            }
-            index++;
-        }
-        if (self.output.flush()) { return 0; }
-        fprintf(stderr, "lex: error: cannot write standard output\n");
-        return 1;
-    }
+	public int run(int argc, char** argv) {
+		if (argc < 2) {
+			print("usage: lex <file.btrc>");
+			return 1;
+		}
+		string grammarText = self.sourceFiles.readRequired("src/language/grammar.ebnf");
+		GrammarInfo grammar = EbnfGrammarParser(grammarText).parse();
+		string source = self.sourceFiles.readRequired(Strings.copy(argv[1]));
+		Lexer lexer = Lexer(source, grammar);
+		Vector<Token> tokens = lexer.tokenize();
+		if (lexer.failed) {
+			fprintf(stderr, "error: %s\n", lexer.diagnostic);
+			return 1;
+		}
+		int index = 0;
+		while (index < tokens.len) {
+			if (!self.output.writeChunk(tokens.get(index).repr(), true)) {
+				fprintf(stderr, "lex: error: cannot write standard output\n");
+				return 1;
+			}
+			index++;
+		}
+		if (self.output.flush()) { return 0; }
+		fprintf(stderr, "lex: error: cannot write standard output\n");
+		return 1;
+	}
 }
 
-int main(int argc, char** argv) {
-    return LexerInspectionCommand(
-        BtrccOutput(stdout)).run(argc, argv);
-}
+int main(int argc, char** argv) { return LexerInspectionCommand(BtrccOutput(stdout)).run(argc, argv); }

@@ -1,5 +1,6 @@
 import std.map;
 import std.vector;
+
 import ../../analyzer/types.btrc;
 import ../../generated/ast/node.btrc;
 import ./callables.btrc;
@@ -11,1181 +12,947 @@ import ./callables.btrc;
  * no composition-wide instance is cleared and reused between functions. */
 
 class CallableFlowSnapshot {
-    public Vector<string> owned;
-    public Vector<string> ambiguous;
-    public Vector<string> environmentNames;
-    public Vector<string> environmentFunctions;
-    public Vector<string> environmentStorage;
+	public Vector<string> owned;
+	public Vector<string> ambiguous;
+	public Vector<string> environmentNames;
+	public Vector<string> environmentFunctions;
+	public Vector<string> environmentStorage;
 
-    public CallableFlowSnapshot() {
-        self.owned = [];
-        self.ambiguous = [];
-        self.environmentNames = [];
-        self.environmentFunctions = [];
-        self.environmentStorage = [];
-    }
+	public CallableFlowSnapshot() {
+		self.owned = [];
+		self.ambiguous = [];
+		self.environmentNames = [];
+		self.environmentFunctions = [];
+		self.environmentStorage = [];
+	}
 }
 
 class CallableExceptionalCapture {
-    public Vector<string> names;
-    public Vector<CallableFlowSnapshot> states;
-    public int scopeDepth;
+	public Vector<string> names;
+	public Vector<CallableFlowSnapshot> states;
+	public int scopeDepth;
 
-    public CallableExceptionalCapture() {
-        self.names = [];
-        self.states = [];
-        self.scopeDepth = 0;
-    }
+	public CallableExceptionalCapture() {
+		self.names = [];
+		self.states = [];
+		self.scopeDepth = 0;
+	}
 }
 
 class CallableLoopCapture {
-    public Vector<string> names;
-    public Vector<CallableFlowSnapshot> breaks;
-    public Vector<CallableFlowSnapshot> continues;
-    public int scopeDepth;
+	public Vector<string> names;
+	public Vector<CallableFlowSnapshot> breaks;
+	public Vector<CallableFlowSnapshot> continues;
+	public int scopeDepth;
 
-    public CallableLoopCapture() {
-        self.names = [];
-        self.breaks = [];
-        self.continues = [];
-        self.scopeDepth = 0;
-    }
+	public CallableLoopCapture() {
+		self.names = [];
+		self.breaks = [];
+		self.continues = [];
+		self.scopeDepth = 0;
+	}
 }
 
 class CallableSwitchCapture {
-    public Vector<string> names;
-    public Vector<CallableFlowSnapshot> breaks;
-    public int scopeDepth;
+	public Vector<string> names;
+	public Vector<CallableFlowSnapshot> breaks;
+	public int scopeDepth;
 
-    public CallableSwitchCapture() {
-        self.names = [];
-        self.breaks = [];
-        self.scopeDepth = 0;
-    }
+	public CallableSwitchCapture() {
+		self.names = [];
+		self.breaks = [];
+		self.scopeDepth = 0;
+	}
 }
 
 class CallableMutationCapture {
-    public Vector<string> tracked;
-    public Vector<string> mutated;
-    public int scopeDepth;
+	public Vector<string> tracked;
+	public Vector<string> mutated;
+	public int scopeDepth;
 
-    public CallableMutationCapture() {
-        self.tracked = [];
-        self.mutated = [];
-        self.scopeDepth = 0;
-    }
+	public CallableMutationCapture() {
+		self.tracked = [];
+		self.mutated = [];
+		self.scopeDepth = 0;
+	}
 }
 
 class CallableConditionalCapture {
-    public Node expression;
-    public CallableFlowSnapshot incoming;
-    public CallableFlowSnapshot branchEntry;
+	public Node expression;
+	public CallableFlowSnapshot incoming;
+	public CallableFlowSnapshot branchEntry;
 
-    public CallableConditionalCapture(Node expression) {
-        self.expression = expression;
-        self.incoming = CallableFlowSnapshot();
-        self.branchEntry = CallableFlowSnapshot();
-    }
+	public CallableConditionalCapture(Node expression) {
+		self.expression = expression;
+		self.incoming = CallableFlowSnapshot();
+		self.branchEntry = CallableFlowSnapshot();
+	}
 }
 
 
 class CallableFlowState {
-    private Map<string, bool> ownedBindings;
-    private Map<string, bool> ambiguousBindings;
-    private Map<string, string> environmentFunctions;
-    private Map<string, string> environmentStorage;
-    private Vector<string> declarations;
-    private Vector<int> scopeStarts;
-    private Vector<CallableFlowSnapshot> scopeEnclosings;
-    private Vector<CallableExceptionalCapture> exceptionCaptures;
-    private Vector<CallableLoopCapture> loopCaptures;
-    private Vector<CallableSwitchCapture> switchCaptures;
-    private Vector<CallableMutationCapture> mutationCaptures;
-    private int planningDepth;
+	private Map<string, bool> ownedBindings;
+	private Map<string, bool> ambiguousBindings;
+	private Map<string, string> environmentFunctions;
+	private Map<string, string> environmentStorage;
+	private Vector<string> declarations;
+	private Vector<int> scopeStarts;
+	private Vector<CallableFlowSnapshot> scopeEnclosings;
+	private Vector<CallableExceptionalCapture> exceptionCaptures;
+	private Vector<CallableLoopCapture> loopCaptures;
+	private Vector<CallableSwitchCapture> switchCaptures;
+	private Vector<CallableMutationCapture> mutationCaptures;
+	private int planningDepth;
 
-    public CallableFlowState() {
-        self.ownedBindings = {};
-        self.ambiguousBindings = {};
-        self.environmentFunctions = {};
-        self.environmentStorage = {};
-        self.declarations = [];
-        self.scopeStarts = [];
-        self.scopeEnclosings = [];
-        self.exceptionCaptures = [];
-        self.loopCaptures = [];
-        self.switchCaptures = [];
-        self.mutationCaptures = [];
-        self.planningDepth = 0;
-    }
+	public CallableFlowState() {
+		self.ownedBindings = {};
+		self.ambiguousBindings = {};
+		self.environmentFunctions = {};
+		self.environmentStorage = {};
+		self.declarations = [];
+		self.scopeStarts = [];
+		self.scopeEnclosings = [];
+		self.exceptionCaptures = [];
+		self.loopCaptures = [];
+		self.switchCaptures = [];
+		self.mutationCaptures = [];
+		self.planningDepth = 0;
+	}
 
-    public CallableBoundaryContext boundaryContext(
-            Map<string, Node> variableTypes,
-            Map<string, Node> typeParameters,
-        bool resolvesTypeParameters) {
-        return CallableBoundaryContext(
-            variableTypes,
-            typeParameters,
-            resolvesTypeParameters,
-            self.ownedBindings,
-            self.ambiguousBindings,
-            self.declarations,
-            self.environmentFunctions,
-            self.environmentStorage);
-    }
+	public CallableBoundaryContext boundaryContext(Map<string, Node> variableTypes, Map<string, Node> typeParameters, bool resolvesTypeParameters) { return CallableBoundaryContext(variableTypes, typeParameters, resolvesTypeParameters, self.ownedBindings, self.ambiguousBindings, self.declarations, self.environmentFunctions, self.environmentStorage); }
 
-    private CallableBoundaryContext refreshedBoundaryContext(
-            CallableBoundaryContext context) {
-        return self.boundaryContext(
-            context.variables(), context.parameterTypes(),
-            context.resolvesParameters());
-    }
+	private CallableBoundaryContext refreshedBoundaryContext(CallableBoundaryContext context) { return self.boundaryContext(context.variables(), context.parameterTypes(), context.resolvesParameters()); }
 
 
 
-    /* 0 = borrowed C callback, 1 = source-owned +1, 2 = ambiguous join. */
+	/* 0 = borrowed C callback, 1 = source-owned +1, 2 = ambiguous join. */
 
-    public void setBindingAbi(string name, int abi) {
-        self.initializeBindingAbi(name, abi);
-        if (self.planningDepth == 0) {
-            self.recordMutation(name);
-        }
-    }
+	public void setBindingAbi(string name, int abi) {
+		self.initializeBindingAbi(name, abi);
+		if (self.planningDepth == 0) {
+			self.recordMutation(name);
+		}
+	}
 
-    public void initializeBindingAbi(string name, int abi) {
-        self.ownedBindings.remove(name);
-        self.ambiguousBindings.remove(name);
-        if (abi == 1) {
-            self.ownedBindings.put(name, true);
-        } else if (abi == 2) {
-            self.ambiguousBindings.put(name, true);
-        }
-    }
+	public void initializeBindingAbi(string name, int abi) {
+		self.ownedBindings.remove(name);
+		self.ambiguousBindings.remove(name);
+		if (abi == 1) {
+			self.ownedBindings.put(name, true);
+		} else if (abi == 2) {
+			self.ambiguousBindings.put(name, true);
+		}
+	}
 
-    public bool hasEnvironment(string name) {
-        return self.environmentFunctions.has(name)
-            && self.environmentFunctions.get(name) != ""
-            && self.environmentStorage.has(name)
-            && self.environmentStorage.get(name) != "";
-    }
+	public bool hasEnvironment(string name) { return self.environmentFunctions.has(name) && self.environmentFunctions.get(name) != "" && self.environmentStorage.has(name) && self.environmentStorage.get(name) != ""; }
 
+	public void setEnvironment(string name, string functionName, string storageName) {
+		self.environmentFunctions.put(name, functionName);
+		self.environmentStorage.put(name, storageName);
+	}
 
-    public void setEnvironment(
-            string name, string functionName, string storageName) {
-        self.environmentFunctions.put(name, functionName);
-        self.environmentStorage.put(name, storageName);
-    }
+	public void clearEnvironment(string name) {
+		self.environmentFunctions.remove(name);
+		self.environmentStorage.remove(name);
+	}
 
-    public void clearEnvironment(string name) {
-        self.environmentFunctions.remove(name);
-        self.environmentStorage.remove(name);
-    }
+	private void recordMutation(string name) {
+		int captureIndex = 0;
+		while (captureIndex < self.mutationCaptures.len) {
+			CallableMutationCapture capture = self.mutationCaptures.get(captureIndex);
+			if (self.contains(capture.tracked, name) && !self.declaredAfterScopeDepth(capture.scopeDepth, name) && !self.contains(capture.mutated, name)) {
+				capture.mutated.push(name);
+			}
+			captureIndex = captureIndex + 1;
+		}
+	}
 
-    private void recordMutation(string name) {
-        int captureIndex = 0;
-        while (captureIndex < self.mutationCaptures.len) {
-            CallableMutationCapture capture =
-                self.mutationCaptures.get(captureIndex);
-            if (self.contains(capture.tracked, name)
-                    && !self.declaredAfterScopeDepth(
-                        capture.scopeDepth, name)
-                    && !self.contains(capture.mutated, name)) {
-                capture.mutated.push(name);
-            }
-            captureIndex = captureIndex + 1;
-        }
-    }
+	private void appendOwnedBindings(Vector<string> names) {
+		Vector<string> keys = self.ownedBindings.keys();
+		int index = 0;
+		while (index < keys.len) {
+			string name = keys.get(index);
+			if (self.ownedBindings.get(name)) { names.push(name); }
+			index = index + 1;
+		}
+	}
 
-    private void appendOwnedBindings(Vector<string> names) {
-        Vector<string> keys = self.ownedBindings.keys();
-        int index = 0;
-        while (index < keys.len) {
-            string name = keys.get(index);
-            if (self.ownedBindings.get(name)) { names.push(name); }
-            index = index + 1;
-        }
-    }
+	private void appendAmbiguousBindings(Vector<string> names) {
+		Vector<string> keys = self.ambiguousBindings.keys();
+		int index = 0;
+		while (index < keys.len) {
+			string name = keys.get(index);
+			if (self.ambiguousBindings.get(name)) { names.push(name); }
+			index = index + 1;
+		}
+	}
 
-    private void appendAmbiguousBindings(Vector<string> names) {
-        Vector<string> keys = self.ambiguousBindings.keys();
-        int index = 0;
-        while (index < keys.len) {
-            string name = keys.get(index);
-            if (self.ambiguousBindings.get(name)) { names.push(name); }
-            index = index + 1;
-        }
-    }
+	private void restoreOwnedBindings(Vector<string> names) {
+		Vector<string> keys = self.ownedBindings.keys();
+		int index = 0;
+		while (index < keys.len) {
+			self.ownedBindings.remove(keys.get(index));
+			index = index + 1;
+		}
+		index = 0;
+		while (index < names.len) {
+			self.ownedBindings.put(names.get(index), true);
+			index = index + 1;
+		}
+	}
 
-    private void restoreOwnedBindings(Vector<string> names) {
-        Vector<string> keys = self.ownedBindings.keys();
-        int index = 0;
-        while (index < keys.len) {
-            self.ownedBindings.remove(keys.get(index));
-            index = index + 1;
-        }
-        index = 0;
-        while (index < names.len) {
-            self.ownedBindings.put(names.get(index), true);
-            index = index + 1;
-        }
-    }
+	private void restoreAmbiguousBindings(Vector<string> names) {
+		Vector<string> keys = self.ambiguousBindings.keys();
+		int index = 0;
+		while (index < keys.len) {
+			self.ambiguousBindings.remove(keys.get(index));
+			index = index + 1;
+		}
+		index = 0;
+		while (index < names.len) {
+			self.ambiguousBindings.put(names.get(index), true);
+			index = index + 1;
+		}
+	}
 
-    private void restoreAmbiguousBindings(Vector<string> names) {
-        Vector<string> keys = self.ambiguousBindings.keys();
-        int index = 0;
-        while (index < keys.len) {
-            self.ambiguousBindings.remove(keys.get(index));
-            index = index + 1;
-        }
-        index = 0;
-        while (index < names.len) {
-            self.ambiguousBindings.put(names.get(index), true);
-            index = index + 1;
-        }
-    }
+	private void appendEnvironments(CallableFlowSnapshot flow) {
+		Vector<string> names = self.environmentFunctions.keys();
+		int index = 0;
+		while (index < names.len) {
+			string name = names.get(index);
+			if (self.hasEnvironment(name)) {
+				flow.environmentNames.push(name);
+				flow.environmentFunctions.push(self.environmentFunctions.get(name));
+				flow.environmentStorage.push(self.environmentStorage.get(name));
+			}
+			index = index + 1;
+		}
+	}
 
-    private void appendEnvironments(CallableFlowSnapshot flow) {
-        Vector<string> names = self.environmentFunctions.keys();
-        int index = 0;
-        while (index < names.len) {
-            string name = names.get(index);
-            if (self.hasEnvironment(name)) {
-                flow.environmentNames.push(name);
-                flow.environmentFunctions.push(
-                    self.environmentFunctions.get(name));
-                flow.environmentStorage.push(
-                    self.environmentStorage.get(name));
-            }
-            index = index + 1;
-        }
-    }
+	private void restoreEnvironments(CallableFlowSnapshot flow) {
+		Vector<string> names = self.environmentFunctions.keys();
+		int index = 0;
+		while (index < names.len) {
+			self.environmentFunctions.remove(names.get(index));
+			self.environmentStorage.remove(names.get(index));
+			index = index + 1;
+		}
+		index = 0;
+		while (index < flow.environmentNames.len) {
+			self.setEnvironment(flow.environmentNames.get(index), flow.environmentFunctions.get(index), flow.environmentStorage.get(index));
+			index = index + 1;
+		}
+	}
 
-    private void restoreEnvironments(CallableFlowSnapshot flow) {
-        Vector<string> names = self.environmentFunctions.keys();
-        int index = 0;
-        while (index < names.len) {
-            self.environmentFunctions.remove(names.get(index));
-            self.environmentStorage.remove(names.get(index));
-            index = index + 1;
-        }
-        index = 0;
-        while (index < flow.environmentNames.len) {
-            self.setEnvironment(
-                flow.environmentNames.get(index),
-                flow.environmentFunctions.get(index),
-                flow.environmentStorage.get(index));
-            index = index + 1;
-        }
-    }
+	public CallableFlowSnapshot snapshot() {
+		CallableFlowSnapshot flow = CallableFlowSnapshot();
+		self.appendOwnedBindings(flow.owned);
+		self.appendAmbiguousBindings(flow.ambiguous);
+		self.appendEnvironments(flow);
+		return flow;
+	}
 
-    public CallableFlowSnapshot snapshot() {
-        CallableFlowSnapshot flow = CallableFlowSnapshot();
-        self.appendOwnedBindings(flow.owned);
-        self.appendAmbiguousBindings(flow.ambiguous);
-        self.appendEnvironments(flow);
-        return flow;
-    }
+	public void restore(CallableFlowSnapshot flow) {
+		self.restoreOwnedBindings(flow.owned);
+		self.restoreAmbiguousBindings(flow.ambiguous);
+		self.restoreEnvironments(flow);
+	}
 
-    public void restore(CallableFlowSnapshot flow) {
-        self.restoreOwnedBindings(flow.owned);
-        self.restoreAmbiguousBindings(flow.ambiguous);
-        self.restoreEnvironments(flow);
-    }
+	private bool contains(Vector<string> names, string name) {
+		int index = 0;
+		while (index < names.len) {
+			if (names.get(index) == name) { return true; }
+			index = index + 1;
+		}
+		return false;
+	}
 
-    private bool contains(Vector<string> names, string name) {
-        int index = 0;
-        while (index < names.len) {
-            if (names.get(index) == name) { return true; }
-            index = index + 1;
-        }
-        return false;
-    }
+	private int snapshotAbi(CallableFlowSnapshot flow, string name) {
+		if (self.contains(flow.ambiguous, name)) { return 2; }
+		if (self.contains(flow.owned, name)) { return 1; }
+		return 0;
+	}
 
-    private int snapshotAbi(
-            CallableFlowSnapshot flow, string name) {
-        if (self.contains(flow.ambiguous, name)) { return 2; }
-        if (self.contains(flow.owned, name)) { return 1; }
-        return 0;
-    }
+	private int snapshotEnvironmentIndex(CallableFlowSnapshot flow, string name) {
+		int index = 0;
+		while (index < flow.environmentNames.len) {
+			if (flow.environmentNames.get(index) == name) {
+				return index;
+			}
+			index = index + 1;
+		}
+		return -1;
+	}
 
-    private int snapshotEnvironmentIndex(
-            CallableFlowSnapshot flow, string name) {
-        int index = 0;
-        while (index < flow.environmentNames.len) {
-            if (flow.environmentNames.get(index) == name) {
-                return index;
-            }
-            index = index + 1;
-        }
-        return -1;
-    }
+	private bool sameEnvironment(CallableFlowSnapshot left, CallableFlowSnapshot right, string name) {
+		int leftIndex = self.snapshotEnvironmentIndex(left, name);
+		int rightIndex = self.snapshotEnvironmentIndex(right, name);
+		if (leftIndex < 0 || rightIndex < 0) {
+			return leftIndex == rightIndex;
+		}
+		return left.environmentFunctions.get(leftIndex) == right.environmentFunctions.get(rightIndex) && left.environmentStorage.get(leftIndex) == right.environmentStorage.get(rightIndex);
+	}
 
-    private bool sameEnvironment(
-            CallableFlowSnapshot left,
-            CallableFlowSnapshot right, string name) {
-        int leftIndex = self.snapshotEnvironmentIndex(left, name);
-        int rightIndex = self.snapshotEnvironmentIndex(right, name);
-        if (leftIndex < 0 || rightIndex < 0) {
-            return leftIndex == rightIndex;
-        }
-        return left.environmentFunctions.get(leftIndex)
-                == right.environmentFunctions.get(rightIndex)
-            && left.environmentStorage.get(leftIndex)
-                == right.environmentStorage.get(rightIndex);
-    }
+	private void appendSnapshotNames(CallableFlowSnapshot flow, Vector<string> names) {
+		int index = 0;
+		while (index < flow.owned.len) {
+			string name = flow.owned.get(index);
+			if (!self.contains(names, name)) { names.push(name); }
+			index = index + 1;
+		}
+		index = 0;
+		while (index < flow.ambiguous.len) {
+			string name = flow.ambiguous.get(index);
+			if (!self.contains(names, name)) { names.push(name); }
+			index = index + 1;
+		}
+		index = 0;
+		while (index < flow.environmentNames.len) {
+			string name = flow.environmentNames.get(index);
+			if (!self.contains(names, name)) { names.push(name); }
+			index = index + 1;
+		}
+	}
 
-    private void appendSnapshotNames(
-            CallableFlowSnapshot flow, Vector<string> names) {
-        int index = 0;
-        while (index < flow.owned.len) {
-            string name = flow.owned.get(index);
-            if (!self.contains(names, name)) { names.push(name); }
-            index = index + 1;
-        }
-        index = 0;
-        while (index < flow.ambiguous.len) {
-            string name = flow.ambiguous.get(index);
-            if (!self.contains(names, name)) { names.push(name); }
-            index = index + 1;
-        }
-        index = 0;
-        while (index < flow.environmentNames.len) {
-            string name = flow.environmentNames.get(index);
-            if (!self.contains(names, name)) { names.push(name); }
-            index = index + 1;
-        }
-    }
+	public void join(Vector<CallableFlowSnapshot> flows) {
+		if (flows.len == 0) { return; }
+		Vector<string> names = [];
+		int index = 0;
+		while (index < flows.len) {
+			self.appendSnapshotNames(flows.get(index), names);
+			index = index + 1;
+		}
 
-    public void join(Vector<CallableFlowSnapshot> flows) {
-        if (flows.len == 0) { return; }
-        Vector<string> names = [];
-        int index = 0;
-        while (index < flows.len) {
-            self.appendSnapshotNames(flows.get(index), names);
-            index = index + 1;
-        }
+		CallableFlowSnapshot joined = CallableFlowSnapshot();
+		index = 0;
+		while (index < names.len) {
+			string name = names.get(index);
+			int abi = self.snapshotAbi(flows.get(0), name);
+			int path = 1;
+			while (path < flows.len) {
+				if (self.snapshotAbi(flows.get(path), name) != abi) {
+					abi = 2;
+				}
+				path = path + 1;
+			}
+			if (abi == 1) { joined.owned.push(name); }
+			else if (abi == 2) { joined.ambiguous.push(name); }
+			int environmentIndex = self.snapshotEnvironmentIndex(flows.get(0), name);
+			bool environmentMatches = true;
+			path = 1;
+			while (path < flows.len) {
+				if (!self.sameEnvironment(flows.get(0), flows.get(path), name)) {
+					environmentMatches = false;
+				}
+				path = path + 1;
+			}
+			if (environmentMatches && environmentIndex >= 0) {
+				joined.environmentNames.push(name);
+				joined.environmentFunctions.push(flows.get(0).environmentFunctions.get(environmentIndex));
+				joined.environmentStorage.push(flows.get(0).environmentStorage.get(environmentIndex));
+			} else if (!environmentMatches) {
+				print("An environment-requiring callable value cannot " + "escape through a bare __fn_ptr; a tagged closure " + "representation is required");
+				exit(1);
+			}
+			index = index + 1;
+		}
+		self.restore(joined);
+	}
 
-        CallableFlowSnapshot joined = CallableFlowSnapshot();
-        index = 0;
-        while (index < names.len) {
-            string name = names.get(index);
-            int abi = self.snapshotAbi(flows.get(0), name);
-            int path = 1;
-            while (path < flows.len) {
-                if (self.snapshotAbi(flows.get(path), name) != abi) {
-                    abi = 2;
-                }
-                path = path + 1;
-            }
-            if (abi == 1) { joined.owned.push(name); }
-            else if (abi == 2) { joined.ambiguous.push(name); }
-            int environmentIndex =
-                self.snapshotEnvironmentIndex(flows.get(0), name);
-            bool environmentMatches = true;
-            path = 1;
-            while (path < flows.len) {
-                if (!self.sameEnvironment(
-                        flows.get(0), flows.get(path), name)) {
-                    environmentMatches = false;
-                }
-                path = path + 1;
-            }
-            if (environmentMatches && environmentIndex >= 0) {
-                joined.environmentNames.push(name);
-                joined.environmentFunctions.push(
-                    flows.get(0).environmentFunctions.get(
-                        environmentIndex));
-                joined.environmentStorage.push(
-                    flows.get(0).environmentStorage.get(
-                        environmentIndex));
-            } else if (!environmentMatches) {
-                print("An environment-requiring callable value cannot "
-                    + "escape through a bare __fn_ptr; a tagged closure "
-                    + "representation is required");
-                exit(1);
-            }
-            index = index + 1;
-        }
-        self.restore(joined);
-    }
+	private void appendSnapshotBinding(CallableFlowSnapshot destination, CallableFlowSnapshot source, string name) {
+		int abi = self.snapshotAbi(source, name);
+		if (abi == 1) { destination.owned.push(name); }
+		else if (abi == 2) { destination.ambiguous.push(name); }
+		int environmentIndex = self.snapshotEnvironmentIndex(source, name);
+		if (environmentIndex >= 0) {
+			destination.environmentNames.push(name);
+			destination.environmentFunctions.push(source.environmentFunctions.get(environmentIndex));
+			destination.environmentStorage.push(source.environmentStorage.get(environmentIndex));
+		}
+	}
 
-    private void appendSnapshotBinding(
-            CallableFlowSnapshot destination,
-            CallableFlowSnapshot source, string name) {
-        int abi = self.snapshotAbi(source, name);
-        if (abi == 1) { destination.owned.push(name); }
-        else if (abi == 2) { destination.ambiguous.push(name); }
-        int environmentIndex = self.snapshotEnvironmentIndex(
-            source, name);
-        if (environmentIndex >= 0) {
-            destination.environmentNames.push(name);
-            destination.environmentFunctions.push(
-                source.environmentFunctions.get(environmentIndex));
-            destination.environmentStorage.push(
-                source.environmentStorage.get(environmentIndex));
-        }
-    }
+	private bool declaredInScope(int scopeIndex, string name) {
+		int start = self.scopeStarts.get(scopeIndex);
+		int end = self.declarations.len;
+		if (scopeIndex + 1 < self.scopeStarts.len) {
+			end = self.scopeStarts.get(scopeIndex + 1);
+		}
+		int index = start;
+		while (index < end) {
+			if (self.declarations.get(index) == name) { return true; }
+			index = index + 1;
+		}
+		return false;
+	}
 
-    private bool declaredInScope(int scopeIndex, string name) {
-        int start = self.scopeStarts.get(scopeIndex);
-        int end = self.declarations.len;
-        if (scopeIndex + 1 < self.scopeStarts.len) {
-            end = self.scopeStarts.get(scopeIndex + 1);
-        }
-        int index = start;
-        while (index < end) {
-            if (self.declarations.get(index) == name) { return true; }
-            index = index + 1;
-        }
-        return false;
-    }
+	private bool declaredAfterScopeDepth(int scopeDepth, string name) {
+		int scopeIndex = scopeDepth;
+		while (scopeIndex < self.scopeStarts.len) {
+			if (self.declaredInScope(scopeIndex, name)) { return true; }
+			scopeIndex = scopeIndex + 1;
+		}
+		return false;
+	}
 
-    private bool declaredAfterScopeDepth(
-            int scopeDepth, string name) {
-        int scopeIndex = scopeDepth;
-        while (scopeIndex < self.scopeStarts.len) {
-            if (self.declaredInScope(scopeIndex, name)) { return true; }
-            scopeIndex = scopeIndex + 1;
-        }
-        return false;
-    }
-
-    /* Project an exit through lexical scopes that the exit unwinds. A local
+	/* Project an exit through lexical scopes that the exit unwinds. A local
      * shadow must never masquerade as the same-named callable visible where
      * the capture began. */
-    private CallableFlowSnapshot restrictedSnapshot(
-            Vector<string> names, int scopeDepth) {
-        CallableFlowSnapshot flow = CallableFlowSnapshot();
-        CallableFlowSnapshot current = self.snapshot();
-        int index = 0;
-        while (index < names.len) {
-            string name = names.get(index);
-            CallableFlowSnapshot visible = current;
-            int scopeIndex = self.scopeStarts.len - 1;
-            while (scopeIndex >= scopeDepth) {
-                if (self.declaredInScope(scopeIndex, name)) {
-                    visible = self.scopeEnclosings.get(scopeIndex);
-                }
-                scopeIndex = scopeIndex - 1;
-            }
-            self.appendSnapshotBinding(flow, visible, name);
-            index = index + 1;
-        }
-        return flow;
-    }
+	private CallableFlowSnapshot restrictedSnapshot(Vector<string> names, int scopeDepth) {
+		CallableFlowSnapshot flow = CallableFlowSnapshot();
+		CallableFlowSnapshot current = self.snapshot();
+		int index = 0;
+		while (index < names.len) {
+			string name = names.get(index);
+			CallableFlowSnapshot visible = current;
+			int scopeIndex = self.scopeStarts.len - 1;
+			while (scopeIndex >= scopeDepth) {
+				if (self.declaredInScope(scopeIndex, name)) {
+					visible = self.scopeEnclosings.get(scopeIndex);
+				}
+				scopeIndex = scopeIndex - 1;
+			}
+			self.appendSnapshotBinding(flow, visible, name);
+			index = index + 1;
+		}
+		return flow;
+	}
 
-    public CallableExceptionalCapture beginExceptionalCapture(
-            Map<string, Node> variableTypes,
-            Map<string, Node> typedefTable) {
-        CallableExceptionalCapture capture =
-            CallableExceptionalCapture();
-        capture.scopeDepth = self.scopeStarts.len;
-        Vector<string> names = variableTypes.keys();
-        int index = 0;
-        while (index < names.len) {
-            string name = names.get(index);
-            Node? type = SemanticTypeSystem.resolveTypedefType(
-                variableTypes.get(name), typedefTable);
-            if (type != null && type.base == "__fn_ptr") {
-                capture.names.push(name);
-            }
-            index = index + 1;
-        }
-        self.exceptionCaptures.push(capture);
-        self.recordExceptional();
-        return capture;
-    }
+	public CallableExceptionalCapture beginExceptionalCapture(Map<string, Node> variableTypes, Map<string, Node> typedefTable) {
+		CallableExceptionalCapture capture = CallableExceptionalCapture();
+		capture.scopeDepth = self.scopeStarts.len;
+		Vector<string> names = variableTypes.keys();
+		int index = 0;
+		while (index < names.len) {
+			string name = names.get(index);
+			Node? type = SemanticTypeSystem.resolveTypedefType(variableTypes.get(name), typedefTable);
+			if (type != null && type.base == "__fn_ptr") {
+				capture.names.push(name);
+			}
+			index = index + 1;
+		}
+		self.exceptionCaptures.push(capture);
+		self.recordExceptional();
+		return capture;
+	}
 
-    public void finishExceptionalCapture(
-            CallableExceptionalCapture capture) {
-        if (self.exceptionCaptures.len == 0) {
-            print("internal compiler error: unmatched callable exception capture");
-            exit(1);
-        }
-        CallableExceptionalCapture active =
-            self.exceptionCaptures.pop();
-        if (active != capture) {
-            print("internal compiler error: callable exception captures must be nested");
-            exit(1);
-        }
-    }
+	public void finishExceptionalCapture(CallableExceptionalCapture capture) {
+		if (self.exceptionCaptures.len == 0) {
+			print("internal compiler error: unmatched callable exception capture");
+			exit(1);
+		}
+		CallableExceptionalCapture active = self.exceptionCaptures.pop();
+		if (active != capture) {
+			print("internal compiler error: callable exception captures must be nested");
+			exit(1);
+		}
+	}
 
-    public void recordExceptional() {
-        int index = 0;
-        while (index < self.exceptionCaptures.len) {
-            CallableExceptionalCapture capture =
-                self.exceptionCaptures.get(index);
-            capture.states.push(self.restrictedSnapshot(
-                capture.names, capture.scopeDepth));
-            index = index + 1;
-        }
-    }
+	public void recordExceptional() {
+		int index = 0;
+		while (index < self.exceptionCaptures.len) {
+			CallableExceptionalCapture capture = self.exceptionCaptures.get(index);
+			capture.states.push(self.restrictedSnapshot(capture.names, capture.scopeDepth));
+			index = index + 1;
+		}
+	}
 
-    public CallableLoopCapture beginLoopCapture() {
-        CallableLoopCapture capture = CallableLoopCapture();
-        capture.scopeDepth = self.scopeStarts.len;
-        self.loopCaptures.push(capture);
-        return capture;
-    }
+	public CallableLoopCapture beginLoopCapture() {
+		CallableLoopCapture capture = CallableLoopCapture();
+		capture.scopeDepth = self.scopeStarts.len;
+		self.loopCaptures.push(capture);
+		return capture;
+	}
 
-    public CallableLoopCapture beginLoopCaptureFor(
-            Map<string, Node> variableTypes,
-            Map<string, Node> typedefTable) {
-        CallableLoopCapture capture = self.beginLoopCapture();
-        self.appendCallableNames(
-            variableTypes, typedefTable, capture.names);
-        return capture;
-    }
+	public CallableLoopCapture beginLoopCaptureFor(Map<string, Node> variableTypes, Map<string, Node> typedefTable) {
+		CallableLoopCapture capture = self.beginLoopCapture();
+		self.appendCallableNames(variableTypes, typedefTable, capture.names);
+		return capture;
+	}
 
-    public void finishLoopCapture(CallableLoopCapture capture) {
-        if (self.loopCaptures.len == 0) {
-            print("internal compiler error: unmatched callable loop capture");
-            exit(1);
-        }
-        CallableLoopCapture active = self.loopCaptures.pop();
-        if (active != capture) {
-            print("internal compiler error: callable loop captures must be nested");
-            exit(1);
-        }
-    }
+	public void finishLoopCapture(CallableLoopCapture capture) {
+		if (self.loopCaptures.len == 0) {
+			print("internal compiler error: unmatched callable loop capture");
+			exit(1);
+		}
+		CallableLoopCapture active = self.loopCaptures.pop();
+		if (active != capture) {
+			print("internal compiler error: callable loop captures must be nested");
+			exit(1);
+		}
+	}
 
-    public CallableSwitchCapture beginSwitchCapture(
-            Map<string, Node> variableTypes,
-            Map<string, Node> typedefTable) {
-        CallableSwitchCapture capture = CallableSwitchCapture();
-        capture.scopeDepth = self.scopeStarts.len;
-        self.appendCallableNames(
-            variableTypes, typedefTable, capture.names);
-        self.switchCaptures.push(capture);
-        return capture;
-    }
+	public CallableSwitchCapture beginSwitchCapture(Map<string, Node> variableTypes, Map<string, Node> typedefTable) {
+		CallableSwitchCapture capture = CallableSwitchCapture();
+		capture.scopeDepth = self.scopeStarts.len;
+		self.appendCallableNames(variableTypes, typedefTable, capture.names);
+		self.switchCaptures.push(capture);
+		return capture;
+	}
 
-    public void finishSwitchCapture(
-            CallableSwitchCapture capture) {
-        if (self.switchCaptures.len == 0) {
-            print("internal compiler error: unmatched callable switch capture");
-            exit(1);
-        }
-        CallableSwitchCapture active =
-            self.switchCaptures.pop();
-        if (active != capture) {
-            print("internal compiler error: callable switch captures must be nested");
-            exit(1);
-        }
-    }
+	public void finishSwitchCapture(CallableSwitchCapture capture) {
+		if (self.switchCaptures.len == 0) {
+			print("internal compiler error: unmatched callable switch capture");
+			exit(1);
+		}
+		CallableSwitchCapture active = self.switchCaptures.pop();
+		if (active != capture) {
+			print("internal compiler error: callable switch captures must be nested");
+			exit(1);
+		}
+	}
 
-    private void appendCallableNames(
-            Map<string, Node> variableTypes,
-            Map<string, Node> typedefTable,
-            Vector<string> names) {
-        Vector<string> variables = variableTypes.keys();
-        int index = 0;
-        while (index < variables.len) {
-            string name = variables.get(index);
-            Node? type = SemanticTypeSystem.resolveTypedefType(
-                variableTypes.get(name), typedefTable);
-            if (type != null && type.base == "__fn_ptr") {
-                names.push(name);
-            }
-            index = index + 1;
-        }
-    }
+	private void appendCallableNames(Map<string, Node> variableTypes, Map<string, Node> typedefTable, Vector<string> names) {
+		Vector<string> variables = variableTypes.keys();
+		int index = 0;
+		while (index < variables.len) {
+			string name = variables.get(index);
+			Node? type = SemanticTypeSystem.resolveTypedefType(variableTypes.get(name), typedefTable);
+			if (type != null && type.base == "__fn_ptr") {
+				names.push(name);
+			}
+			index = index + 1;
+		}
+	}
 
-    public void recordControlExit(
-            bool isBreak, Vector<string> controlContext) {
-        int context = controlContext.len - 1;
-        while (context >= 0) {
-            string target = controlContext.get(context);
-            if (target == "loop") {
-                if (self.loopCaptures.len == 0) { return; }
-                CallableLoopCapture loop =
-                    self.loopCaptures.get(
-                        self.loopCaptures.len - 1);
-                CallableFlowSnapshot flow =
-                    self.restrictedSnapshot(
-                        loop.names, loop.scopeDepth);
-                if (isBreak) {
-                    loop.breaks.push(flow);
-                } else {
-                    loop.continues.push(flow);
-                }
-                return;
-            }
-            if (isBreak && target == "switch") {
-                if (self.switchCaptures.len == 0) { return; }
-                CallableSwitchCapture switchCapture =
-                    self.switchCaptures.get(
-                        self.switchCaptures.len - 1);
-                switchCapture.breaks.push(
-                    self.restrictedSnapshot(
-                        switchCapture.names,
-                        switchCapture.scopeDepth));
-                return;
-            }
-            context = context - 1;
-        }
-    }
+	public void recordControlExit(bool isBreak, Vector<string> controlContext) {
+		int context = controlContext.len - 1;
+		while (context >= 0) {
+			string target = controlContext.get(context);
+			if (target == "loop") {
+				if (self.loopCaptures.len == 0) { return; }
+				CallableLoopCapture loop = self.loopCaptures.get(self.loopCaptures.len - 1);
+				CallableFlowSnapshot flow = self.restrictedSnapshot(loop.names, loop.scopeDepth);
+				if (isBreak) {
+					loop.breaks.push(flow);
+				} else {
+					loop.continues.push(flow);
+				}
+				return;
+			}
+			if (isBreak && target == "switch") {
+				if (self.switchCaptures.len == 0) { return; }
+				CallableSwitchCapture switchCapture = self.switchCaptures.get(self.switchCaptures.len - 1);
+				switchCapture.breaks.push(self.restrictedSnapshot(switchCapture.names, switchCapture.scopeDepth));
+				return;
+			}
+			context = context - 1;
+		}
+	}
 
-    public void requireInvariant(
-            CallableFlowSnapshot expected,
-            CallableFlowSnapshot actual, string edge) {
-        Vector<string> changed =
-            self.changedBindings(expected, actual);
-        if (changed.len == 0) { return; }
-        string labels = "";
-        int index = 0;
-        while (index < changed.len) {
-            if (index > 0) { labels = labels + ", "; }
-            labels = labels + changed.get(index);
-            index = index + 1;
-        }
-        print("Callable ownership ABI must be invariant across a repeated "
-            + "loop " + edge + "; changed binding(s): " + labels);
-        exit(1);
-    }
+	public void requireInvariant(CallableFlowSnapshot expected, CallableFlowSnapshot actual, string edge) {
+		Vector<string> changed = self.changedBindings(expected, actual);
+		if (changed.len == 0) { return; }
+		string labels = "";
+		int index = 0;
+		while (index < changed.len) {
+			if (index > 0) { labels = labels + ", "; }
+			labels = labels + changed.get(index);
+			index = index + 1;
+		}
+		print("Callable ownership ABI must be invariant across a repeated " + "loop " + edge + "; changed binding(s): " + labels);
+		exit(1);
+	}
 
-    private Vector<string> changedBindings(
-            CallableFlowSnapshot expected,
-            CallableFlowSnapshot actual) {
-        Vector<string> names = [];
-        self.appendSnapshotNames(expected, names);
-        self.appendSnapshotNames(actual, names);
-        Vector<string> changed = [];
-        int index = 0;
-        while (index < names.len) {
-            string name = names.get(index);
-            if (self.snapshotAbi(expected, name)
-                        != self.snapshotAbi(actual, name)
-                    || !self.sameEnvironment(
-                        expected, actual, name)) {
-                changed.push(name);
-            }
-            index = index + 1;
-        }
-        return changed;
-    }
+	private Vector<string> changedBindings(CallableFlowSnapshot expected, CallableFlowSnapshot actual) {
+		Vector<string> names = [];
+		self.appendSnapshotNames(expected, names);
+		self.appendSnapshotNames(actual, names);
+		Vector<string> changed = [];
+		int index = 0;
+		while (index < names.len) {
+			string name = names.get(index);
+			if (self.snapshotAbi(expected, name) != self.snapshotAbi(actual, name) || !self.sameEnvironment(expected, actual, name)) {
+				changed.push(name);
+			}
+			index = index + 1;
+		}
+		return changed;
+	}
 
-    public CallableFlowSnapshot merged(
-            Vector<CallableFlowSnapshot> flows) {
-        CallableFlowSnapshot saved = self.snapshot();
-        self.join(flows);
-        CallableFlowSnapshot result = self.snapshot();
-        self.restore(saved);
-        return result;
-    }
+	public CallableFlowSnapshot merged(Vector<CallableFlowSnapshot> flows) {
+		CallableFlowSnapshot saved = self.snapshot();
+		self.join(flows);
+		CallableFlowSnapshot result = self.snapshot();
+		self.restore(saved);
+		return result;
+	}
 
-    private int joinedAbi(int left, int right) {
-        if (left == right) { return left; }
-        return 2;
-    }
+	private int joinedAbi(int left, int right) {
+		if (left == right) { return left; }
+		return 2;
+	}
 
-    private void evaluateAssignmentTarget(
-            Node? target, CallableValueSemantics values,
-            CallableBoundaryContext context) {
-        if (target == null) { return; }
-        if (target.kind == NK_FIELD_ACCESS_EXPR) {
-            self.evaluateExpression(target.obj, values, context);
-        } else if (target.kind == NK_INDEX_EXPR) {
-            self.evaluateExpression(target.obj, values, context);
-            self.evaluateExpression(target.index, values, context);
-        } else if (target.kind == NK_UNARY_EXPR
-                && target.op == "*") {
-            self.evaluateExpression(target.operand, values, context);
-        }
-    }
+	private void evaluateAssignmentTarget(Node? target, CallableValueSemantics values, CallableBoundaryContext context) {
+		if (target == null) { return; }
+		if (target.kind == NK_FIELD_ACCESS_EXPR) {
+			self.evaluateExpression(target.obj, values, context);
+		} else if (target.kind == NK_INDEX_EXPR) {
+			self.evaluateExpression(target.obj, values, context);
+			self.evaluateExpression(target.index, values, context);
+		} else if (target.kind == NK_UNARY_EXPR && target.op == "*") {
+			self.evaluateExpression(target.operand, values, context);
+		}
+	}
 
-    private int evaluateExpression(
-            Node? expression, CallableValueSemantics values,
-            CallableBoundaryContext context) {
-        if (expression == null) { return 0; }
-        CallableBoundaryContext currentContext =
-            self.refreshedBoundaryContext(context);
-        if (expression.kind == NK_ASSIGN_EXPR) {
-            self.evaluateAssignmentTarget(
-                expression.target, values, currentContext);
-            int valueAbi = self.evaluateExpression(
-                expression.value_node, values, currentContext);
-            CallableBoundaryContext assignmentContext =
-                self.refreshedBoundaryContext(currentContext);
-            if (expression.op == "="
-                    && expression.target != null
-                    && expression.target.kind == NK_IDENTIFIER
-                    && assignmentContext.hasVariable(
-                        expression.target.name)
-                    && values.callableType(
-                        assignmentContext.variableType(
-                            expression.target.name),
-                        assignmentContext)
-                    && values.lexicalIdentifier(
-                        expression.target.name, assignmentContext)) {
-                self.setBindingAbi(
-                    expression.target.name, valueAbi);
-                if (self.planningDepth == 0) {
-                    self.recordExceptional();
-                }
-            }
-            return valueAbi;
-        }
-        if (expression.kind == NK_TERNARY_EXPR) {
-            self.evaluateExpression(
-                expression.condition, values, currentContext);
-            CallableFlowSnapshot branchEntry = self.snapshot();
-            int trueAbi = self.evaluateExpression(
-                expression.true_expr, values, currentContext);
-            CallableFlowSnapshot trueFlow = self.snapshot();
-            self.restore(branchEntry);
-            int falseAbi = self.evaluateExpression(
-                expression.false_expr, values, currentContext);
-            CallableFlowSnapshot falseFlow = self.snapshot();
-            Vector<CallableFlowSnapshot> branches = [];
-            branches.push(trueFlow);
-            branches.push(falseFlow);
-            self.join(branches);
-            return self.joinedAbi(trueAbi, falseAbi);
-        }
-        if (expression.kind == NK_BINARY_EXPR) {
-            int leftAbi = self.evaluateExpression(
-                expression.left, values, currentContext);
-            if (expression.op == "??"
-                    || expression.op == "&&"
-                    || expression.op == "||") {
-                CallableFlowSnapshot skipped = self.snapshot();
-                int rightAbi = self.evaluateExpression(
-                    expression.right, values, currentContext);
-                CallableFlowSnapshot executed = self.snapshot();
-                Vector<CallableFlowSnapshot> outcomes = [];
-                outcomes.push(skipped);
-                outcomes.push(executed);
-                self.join(outcomes);
-                if (expression.op == "??") {
-                    return self.joinedAbi(leftAbi, rightAbi);
-                }
-                return 0;
-            }
-            self.evaluateExpression(
-                expression.right, values, currentContext);
-            return 0;
-        }
-        if (expression.kind == NK_CAST_EXPR) {
-            return self.evaluateExpression(
-                expression.expr, values, currentContext);
-        }
-        if (expression.kind == NK_UNARY_EXPR) {
-            return self.evaluateExpression(
-                expression.operand, values, currentContext);
-        }
-        if (expression.kind == NK_CALL_EXPR) {
-            self.evaluateExpression(
-                expression.callee, values, currentContext);
-            int argument = 0;
-            while (argument < expression.args.len) {
-                self.evaluateExpression(
-                    expression.args.get(argument),
-                    values, currentContext);
-                argument = argument + 1;
-            }
-            return values.expressionAbi(
-                expression,
-                self.refreshedBoundaryContext(currentContext));
-        }
-        if (expression.kind == NK_FIELD_ACCESS_EXPR) {
-            self.evaluateExpression(
-                expression.obj, values, currentContext);
-            return values.expressionAbi(
-                expression,
-                self.refreshedBoundaryContext(currentContext));
-        }
-        if (expression.kind == NK_INDEX_EXPR) {
-            self.evaluateExpression(
-                expression.obj, values, currentContext);
-            self.evaluateExpression(
-                expression.index, values, currentContext);
-            return values.expressionAbi(
-                expression,
-                self.refreshedBoundaryContext(currentContext));
-        }
-        if (expression.kind == NK_LIST_LITERAL
-                || expression.kind == NK_BRACE_INITIALIZER
-                || expression.kind == NK_TUPLE_LITERAL) {
-            int element = 0;
-            while (element < expression.elements.len) {
-                self.evaluateExpression(
-                    expression.elements.get(element),
-                    values, currentContext);
-                element = element + 1;
-            }
-            return 0;
-        }
-        if (expression.kind == NK_MAP_LITERAL) {
-            int entryIndex = 0;
-            while (entryIndex < expression.entries.len) {
-                Node entry = expression.entries.get(entryIndex);
-                self.evaluateExpression(
-                    entry.key, values, currentContext);
-                self.evaluateExpression(
-                    entry.value_node, values, currentContext);
-                entryIndex = entryIndex + 1;
-            }
-            return 0;
-        }
-        if (expression.kind == NK_F_STRING_LITERAL) {
-            int partIndex = 0;
-            while (partIndex < expression.parts.len) {
-                Node part = expression.parts.get(partIndex);
-                if (part.kind == NK_F_STRING_EXPR) {
-                    self.evaluateExpression(
-                        part.expression, values, currentContext);
-                }
-                partIndex = partIndex + 1;
-            }
-            return 0;
-        }
-        if (expression.kind == NK_NEW_EXPR) {
-            int argument = 0;
-            while (argument < expression.args.len) {
-                self.evaluateExpression(
-                    expression.args.get(argument),
-                    values, currentContext);
-                argument = argument + 1;
-            }
-            return 0;
-        }
-        if (expression.kind == NK_SPAWN_EXPR) {
-            self.evaluateExpression(
-                expression.fn, values, currentContext);
-            return 0;
-        }
-        return values.expressionAbi(
-            expression,
-            self.refreshedBoundaryContext(currentContext));
-    }
+	private int evaluateExpression(Node? expression, CallableValueSemantics values, CallableBoundaryContext context) {
+		if (expression == null) { return 0; }
+		CallableBoundaryContext currentContext = self.refreshedBoundaryContext(context);
+		if (expression.kind == NK_ASSIGN_EXPR) {
+			self.evaluateAssignmentTarget(expression.target, values, currentContext);
+			int valueAbi = self.evaluateExpression(expression.value_node, values, currentContext);
+			CallableBoundaryContext assignmentContext = self.refreshedBoundaryContext(currentContext);
+			if (expression.op == "=" && expression.target != null && expression.target.kind == NK_IDENTIFIER && assignmentContext.hasVariable(expression.target.name) && values.callableType(assignmentContext.variableType(expression.target.name), assignmentContext) && values.lexicalIdentifier(expression.target.name, assignmentContext)) {
+				self.setBindingAbi(expression.target.name, valueAbi);
+				if (self.planningDepth == 0) {
+					self.recordExceptional();
+				}
+			}
+			return valueAbi;
+		}
+		if (expression.kind == NK_TERNARY_EXPR) {
+			self.evaluateExpression(expression.condition, values, currentContext);
+			CallableFlowSnapshot branchEntry = self.snapshot();
+			int trueAbi = self.evaluateExpression(expression.true_expr, values, currentContext);
+			CallableFlowSnapshot trueFlow = self.snapshot();
+			self.restore(branchEntry);
+			int falseAbi = self.evaluateExpression(expression.false_expr, values, currentContext);
+			CallableFlowSnapshot falseFlow = self.snapshot();
+			Vector<CallableFlowSnapshot> branches = [];
+			branches.push(trueFlow);
+			branches.push(falseFlow);
+			self.join(branches);
+			return self.joinedAbi(trueAbi, falseAbi);
+		}
+		if (expression.kind == NK_BINARY_EXPR) {
+			int leftAbi = self.evaluateExpression(expression.left, values, currentContext);
+			if (expression.op == "??" || expression.op == "&&" || expression.op == "||") {
+				CallableFlowSnapshot skipped = self.snapshot();
+				int rightAbi = self.evaluateExpression(expression.right, values, currentContext);
+				CallableFlowSnapshot executed = self.snapshot();
+				Vector<CallableFlowSnapshot> outcomes = [];
+				outcomes.push(skipped);
+				outcomes.push(executed);
+				self.join(outcomes);
+				if (expression.op == "??") {
+					return self.joinedAbi(leftAbi, rightAbi);
+				}
+				return 0;
+			}
+			self.evaluateExpression(expression.right, values, currentContext);
+			return 0;
+		}
+		if (expression.kind == NK_CAST_EXPR) {
+			return self.evaluateExpression(expression.expr, values, currentContext);
+		}
+		if (expression.kind == NK_UNARY_EXPR) {
+			return self.evaluateExpression(expression.operand, values, currentContext);
+		}
+		if (expression.kind == NK_CALL_EXPR) {
+			self.evaluateExpression(expression.callee, values, currentContext);
+			int argument = 0;
+			while (argument < expression.args.len) {
+				self.evaluateExpression(expression.args.get(argument), values, currentContext);
+				argument = argument + 1;
+			}
+			return values.expressionAbi(expression, self.refreshedBoundaryContext(currentContext));
+		}
+		if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+			self.evaluateExpression(expression.obj, values, currentContext);
+			return values.expressionAbi(expression, self.refreshedBoundaryContext(currentContext));
+		}
+		if (expression.kind == NK_INDEX_EXPR) {
+			self.evaluateExpression(expression.obj, values, currentContext);
+			self.evaluateExpression(expression.index, values, currentContext);
+			return values.expressionAbi(expression, self.refreshedBoundaryContext(currentContext));
+		}
+		if (expression.kind == NK_LIST_LITERAL || expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_TUPLE_LITERAL) {
+			int element = 0;
+			while (element < expression.elements.len) {
+				self.evaluateExpression(expression.elements.get(element), values, currentContext);
+				element = element + 1;
+			}
+			return 0;
+		}
+		if (expression.kind == NK_MAP_LITERAL) {
+			int entryIndex = 0;
+			while (entryIndex < expression.entries.len) {
+				Node entry = expression.entries.get(entryIndex);
+				self.evaluateExpression(entry.key, values, currentContext);
+				self.evaluateExpression(entry.value_node, values, currentContext);
+				entryIndex = entryIndex + 1;
+			}
+			return 0;
+		}
+		if (expression.kind == NK_F_STRING_LITERAL) {
+			int partIndex = 0;
+			while (partIndex < expression.parts.len) {
+				Node part = expression.parts.get(partIndex);
+				if (part.kind == NK_F_STRING_EXPR) {
+					self.evaluateExpression(part.expression, values, currentContext);
+				}
+				partIndex = partIndex + 1;
+			}
+			return 0;
+		}
+		if (expression.kind == NK_NEW_EXPR) {
+			int argument = 0;
+			while (argument < expression.args.len) {
+				self.evaluateExpression(expression.args.get(argument), values, currentContext);
+				argument = argument + 1;
+			}
+			return 0;
+		}
+		if (expression.kind == NK_SPAWN_EXPR) {
+			self.evaluateExpression(expression.fn, values, currentContext);
+			return 0;
+		}
+		return values.expressionAbi(expression, self.refreshedBoundaryContext(currentContext));
+	}
 
-    /* Apply only provenance effects. The caller owns the surrounding
+	/* Apply only provenance effects. The caller owns the surrounding
      * transaction and restores its saved snapshot after planning. */
-    public int applyEvaluation(
-            Node? expression, CallableValueSemantics values,
-            CallableBoundaryContext context) {
-        self.planningDepth = self.planningDepth + 1;
-        int abi = self.evaluateExpression(expression, values, context);
-        self.planningDepth = self.planningDepth - 1;
-        return abi;
-    }
+	public int applyEvaluation(Node? expression, CallableValueSemantics values, CallableBoundaryContext context) {
+		self.planningDepth = self.planningDepth + 1;
+		int abi = self.evaluateExpression(expression, values, context);
+		self.planningDepth = self.planningDepth - 1;
+		return abi;
+	}
 
-    public int evaluatedAbi(
-            Node? expression, CallableValueSemantics values,
-            CallableBoundaryContext context) {
-        CallableFlowSnapshot incoming = self.snapshot();
-        int abi = self.applyEvaluation(
-            expression, values, context);
-        self.restore(incoming);
-        return abi;
-    }
+	public int evaluatedAbi(Node? expression, CallableValueSemantics values, CallableBoundaryContext context) {
+		CallableFlowSnapshot incoming = self.snapshot();
+		int abi = self.applyEvaluation(expression, values, context);
+		self.restore(incoming);
+		return abi;
+	}
 
-    private bool unsafePersistentValue(
-            Node? expectedType, Node? value,
-            CallableValueSemantics values,
-            CallableBoundaryContext context) {
-        if (value == null) { return false; }
-        CallableBoundaryContext currentContext =
-            self.refreshedBoundaryContext(context);
-        if (expectedType == null) {
-            self.applyEvaluation(value, values, currentContext);
-            return false;
-        }
-        Node? canonicalType = values.canonicalType(
-            expectedType, currentContext);
-        if (canonicalType == null) {
-            self.applyEvaluation(value, values, currentContext);
-            return false;
-        }
-        Node canonical = canonicalType;
-        if (values.managedReturnCallable(canonical, currentContext)) {
-            return self.applyEvaluation(
-                value, values, currentContext) != 0;
-        }
-        bool unsafe = false;
-        if (value.kind == NK_LIST_LITERAL
-                || value.kind == NK_BRACE_INITIALIZER) {
-            Node? elementType = null;
-            if (canonical.is_array) {
-                elementType = values.arrayElement(canonical);
-            } else if ((canonical.base == "Array"
-                    || canonical.base == "List"
-                    || canonical.base == "Set"
-                    || canonical.base == "Vector")
-                    && canonical.generic_args.len == 1) {
-                elementType = canonical.generic_args.get(0);
-            }
-            if (elementType != null) {
-                int index = 0;
-                while (index < value.elements.len) {
-                    if (self.unsafePersistentValue(
-                            elementType, value.elements.get(index),
-                            values, currentContext)) {
-                        unsafe = true;
-                    }
-                    index = index + 1;
-                }
-                return unsafe;
-            }
-            if (canonical.base == "Tuple") {
-                int index = 0;
-                while (index < value.elements.len
-                        && index < canonical.generic_args.len) {
-                    if (self.unsafePersistentValue(
-                            canonical.generic_args.get(index),
-                            value.elements.get(index),
-                            values, currentContext)) {
-                        unsafe = true;
-                    }
-                    index = index + 1;
-                }
-                return unsafe;
-            }
-            Node? declaration = values.structDeclaration(canonical);
-            if (declaration != null) {
-                int index = 0;
-                while (index < value.elements.len
-                        && index < declaration.fields.len) {
-                    if (self.unsafePersistentValue(
-                            declaration.fields.get(index).type,
-                            value.elements.get(index),
-                            values, currentContext)) {
-                        unsafe = true;
-                    }
-                    index = index + 1;
-                }
-                return unsafe;
-            }
-        }
-        if (value.kind == NK_TUPLE_LITERAL
-                && canonical.base == "Tuple") {
-            int index = 0;
-            while (index < value.elements.len
-                    && index < canonical.generic_args.len) {
-                if (self.unsafePersistentValue(
-                        canonical.generic_args.get(index),
-                        value.elements.get(index),
-                        values, currentContext)) {
-                    unsafe = true;
-                }
-                index = index + 1;
-            }
-            return unsafe;
-        }
-        if (value.kind == NK_MAP_LITERAL && canonical.base == "Map"
-                && canonical.generic_args.len == 2) {
-            int index = 0;
-            while (index < value.entries.len) {
-                Node entry = value.entries.get(index);
-                if (self.unsafePersistentValue(
-                        canonical.generic_args.get(0), entry.key,
-                        values, currentContext)) {
-                    unsafe = true;
-                }
-                if (self.unsafePersistentValue(
-                        canonical.generic_args.get(1), entry.value_node,
-                        values, currentContext)) {
-                    unsafe = true;
-                }
-                index = index + 1;
-            }
-            return unsafe;
-        }
-        self.applyEvaluation(value, values, currentContext);
-        if (values.validatedReferenceOwner(canonical)) {
-            return false;
-        }
-        return values.typeContainsManaged(canonical, currentContext);
-    }
+	private bool unsafePersistentValue(Node? expectedType, Node? value, CallableValueSemantics values, CallableBoundaryContext context) {
+		if (value == null) { return false; }
+		CallableBoundaryContext currentContext = self.refreshedBoundaryContext(context);
+		if (expectedType == null) {
+			self.applyEvaluation(value, values, currentContext);
+			return false;
+		}
+		Node? canonicalType = values.canonicalType(expectedType, currentContext);
+		if (canonicalType == null) {
+			self.applyEvaluation(value, values, currentContext);
+			return false;
+		}
+		Node canonical = canonicalType;
+		if (values.managedReturnCallable(canonical, currentContext)) {
+			return self.applyEvaluation(value, values, currentContext) != 0;
+		}
+		bool unsafe = false;
+		if (value.kind == NK_LIST_LITERAL || value.kind == NK_BRACE_INITIALIZER) {
+			Node? elementType = null;
+			if (canonical.is_array) {
+				elementType = values.arrayElement(canonical);
+			} else if ((canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector") && canonical.generic_args.len == 1) {
+				elementType = canonical.generic_args.get(0);
+			}
+			if (elementType != null) {
+				int index = 0;
+				while (index < value.elements.len) {
+					if (self.unsafePersistentValue(elementType, value.elements.get(index), values, currentContext)) {
+						unsafe = true;
+					}
+					index = index + 1;
+				}
+				return unsafe;
+			}
+			if (canonical.base == "Tuple") {
+				int index = 0;
+				while (index < value.elements.len && index < canonical.generic_args.len) {
+					if (self.unsafePersistentValue(canonical.generic_args.get(index), value.elements.get(index), values, currentContext)) {
+						unsafe = true;
+					}
+					index = index + 1;
+				}
+				return unsafe;
+			}
+			Node? declaration = values.structDeclaration(canonical);
+			if (declaration != null) {
+				int index = 0;
+				while (index < value.elements.len && index < declaration.fields.len) {
+					if (self.unsafePersistentValue(declaration.fields.get(index).type, value.elements.get(index), values, currentContext)) {
+						unsafe = true;
+					}
+					index = index + 1;
+				}
+				return unsafe;
+			}
+		}
+		if (value.kind == NK_TUPLE_LITERAL && canonical.base == "Tuple") {
+			int index = 0;
+			while (index < value.elements.len && index < canonical.generic_args.len) {
+				if (self.unsafePersistentValue(canonical.generic_args.get(index), value.elements.get(index), values, currentContext)) {
+					unsafe = true;
+				}
+				index = index + 1;
+			}
+			return unsafe;
+		}
+		if (value.kind == NK_MAP_LITERAL && canonical.base == "Map" && canonical.generic_args.len == 2) {
+			int index = 0;
+			while (index < value.entries.len) {
+				Node entry = value.entries.get(index);
+				if (self.unsafePersistentValue(canonical.generic_args.get(0), entry.key, values, currentContext)) {
+					unsafe = true;
+				}
+				if (self.unsafePersistentValue(canonical.generic_args.get(1), entry.value_node, values, currentContext)) {
+					unsafe = true;
+				}
+				index = index + 1;
+			}
+			return unsafe;
+		}
+		self.applyEvaluation(value, values, currentContext);
+		if (values.validatedReferenceOwner(canonical)) {
+			return false;
+		}
+		return values.typeContainsManaged(canonical, currentContext);
+	}
 
-    public bool persistentStorageUnsafe(
-            Node? expectedType, Node? value,
-            CallableValueSemantics values,
-            CallableBoundaryContext context) {
-        CallableFlowSnapshot incoming = self.snapshot();
-        bool unsafe = self.unsafePersistentValue(
-            expectedType, value, values, context);
-        self.restore(incoming);
-        return unsafe;
-    }
+	public bool persistentStorageUnsafe(Node? expectedType, Node? value, CallableValueSemantics values, CallableBoundaryContext context) {
+		CallableFlowSnapshot incoming = self.snapshot();
+		bool unsafe = self.unsafePersistentValue(expectedType, value, values, context);
+		self.restore(incoming);
+		return unsafe;
+	}
 
-    public bool assignmentStorageUnsafe(
-            Node assignment, Node? targetType,
-            CallableValueSemantics values,
-            CallableBoundaryContext context) {
-        CallableFlowSnapshot incoming = self.snapshot();
-        self.applyEvaluation(
-            assignment.target, values, context);
-        bool unsafe = self.unsafePersistentValue(
-            targetType, assignment.value_node, values, context);
-        self.restore(incoming);
-        return unsafe;
-    }
+	public bool assignmentStorageUnsafe(Node assignment, Node? targetType, CallableValueSemantics values, CallableBoundaryContext context) {
+		CallableFlowSnapshot incoming = self.snapshot();
+		self.applyEvaluation(assignment.target, values, context);
+		bool unsafe = self.unsafePersistentValue(targetType, assignment.value_node, values, context);
+		self.restore(incoming);
+		return unsafe;
+	}
 
+	public CallableConditionalCapture beginConditionalFacts(Node expression, CallableValueSemantics values, CallableBoundaryContext context) {
+		CallableConditionalCapture capture = CallableConditionalCapture(expression);
+		capture.incoming = self.snapshot();
+		if (expression.kind == NK_TERNARY_EXPR) {
+			self.applyEvaluation(expression.condition, values, context);
+			capture.branchEntry = self.snapshot();
+		} else if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
+			capture.branchEntry = capture.incoming;
+		} else {
+			print("internal compiler error: callable conditional facts " + "require a ternary or null-coalescing expression");
+			exit(1);
+		}
+		return capture;
+	}
 
-    public CallableConditionalCapture beginConditionalFacts(
-            Node expression, CallableValueSemantics values,
-            CallableBoundaryContext context) {
-        CallableConditionalCapture capture =
-            CallableConditionalCapture(expression);
-        capture.incoming = self.snapshot();
-        if (expression.kind == NK_TERNARY_EXPR) {
-            self.applyEvaluation(
-                expression.condition, values, context);
-            capture.branchEntry = self.snapshot();
-        } else if (expression.kind == NK_BINARY_EXPR
-                && expression.op == "??") {
-            capture.branchEntry = capture.incoming;
-        } else {
-            print("internal compiler error: callable conditional facts "
-                + "require a ternary or null-coalescing expression");
-            exit(1);
-        }
-        return capture;
-    }
+	public void selectConditionalRight(CallableConditionalCapture capture, CallableValueSemantics values, CallableBoundaryContext context) {
+		if (capture.expression.kind == NK_TERNARY_EXPR) {
+			self.restore(capture.branchEntry);
+			return;
+		}
+		self.restore(capture.incoming);
+		self.applyEvaluation(capture.expression.left, values, context);
+		capture.branchEntry = self.snapshot();
+	}
 
-    public void selectConditionalRight(
-            CallableConditionalCapture capture,
-            CallableValueSemantics values,
-            CallableBoundaryContext context) {
-        if (capture.expression.kind == NK_TERNARY_EXPR) {
-            self.restore(capture.branchEntry);
-            return;
-        }
-        self.restore(capture.incoming);
-        self.applyEvaluation(
-            capture.expression.left, values, context);
-        capture.branchEntry = self.snapshot();
-    }
+	public void finishConditionalFacts(CallableConditionalCapture capture) { self.restore(capture.incoming); }
 
-    public void finishConditionalFacts(
-            CallableConditionalCapture capture) {
-        self.restore(capture.incoming);
-    }
+	public CallableMutationCapture beginMutationCapture(Map<string, Node> variableTypes, Map<string, Node> typedefTable) {
+		CallableMutationCapture capture = CallableMutationCapture();
+		capture.scopeDepth = self.scopeStarts.len;
+		self.appendCallableNames(variableTypes, typedefTable, capture.tracked);
+		self.mutationCaptures.push(capture);
+		return capture;
+	}
 
-    public CallableMutationCapture beginMutationCapture(
-            Map<string, Node> variableTypes,
-            Map<string, Node> typedefTable) {
-        CallableMutationCapture capture =
-            CallableMutationCapture();
-        capture.scopeDepth = self.scopeStarts.len;
-        self.appendCallableNames(
-            variableTypes, typedefTable, capture.tracked);
-        self.mutationCaptures.push(capture);
-        return capture;
-    }
+	public Vector<string> finishMutationCapture(CallableMutationCapture capture) {
+		if (self.mutationCaptures.len == 0) {
+			print("internal compiler error: unmatched callable mutation capture");
+			exit(1);
+		}
+		CallableMutationCapture active = self.mutationCaptures.pop();
+		if (active != capture) {
+			print("internal compiler error: callable mutation captures must be nested");
+			exit(1);
+		}
+		return capture.mutated;
+	}
 
-    public Vector<string> finishMutationCapture(
-            CallableMutationCapture capture) {
-        if (self.mutationCaptures.len == 0) {
-            print("internal compiler error: unmatched callable mutation capture");
-            exit(1);
-        }
-        CallableMutationCapture active =
-            self.mutationCaptures.pop();
-        if (active != capture) {
-            print("internal compiler error: callable mutation captures must be nested");
-            exit(1);
-        }
-        return capture.mutated;
-    }
+	public CallableFlowSnapshot projectMutations(CallableFlowSnapshot allResult, CallableFlowSnapshot continuation, Vector<string> mutated) {
+		CallableFlowSnapshot saved = self.snapshot();
+		self.restore(continuation);
+		int index = 0;
+		while (index < mutated.len) {
+			string name = mutated.get(index);
+			self.setBindingAbi(name, self.snapshotAbi(allResult, name));
+			int environmentIndex = self.snapshotEnvironmentIndex(allResult, name);
+			if (environmentIndex >= 0) {
+				self.setEnvironment(name, allResult.environmentFunctions.get(environmentIndex), allResult.environmentStorage.get(environmentIndex));
+			} else {
+				self.clearEnvironment(name);
+			}
+			index = index + 1;
+		}
+		CallableFlowSnapshot result = self.snapshot();
+		self.restore(saved);
+		return result;
+	}
 
-    public CallableFlowSnapshot projectMutations(
-            CallableFlowSnapshot allResult,
-            CallableFlowSnapshot continuation,
-            Vector<string> mutated) {
-        CallableFlowSnapshot saved = self.snapshot();
-        self.restore(continuation);
-        int index = 0;
-        while (index < mutated.len) {
-            string name = mutated.get(index);
-            self.setBindingAbi(
-                name, self.snapshotAbi(allResult, name));
-            int environmentIndex =
-                self.snapshotEnvironmentIndex(allResult, name);
-            if (environmentIndex >= 0) {
-                self.setEnvironment(
-                    name,
-                    allResult.environmentFunctions.get(
-                        environmentIndex),
-                    allResult.environmentStorage.get(
-                        environmentIndex));
-            } else {
-                self.clearEnvironment(name);
-            }
-            index = index + 1;
-        }
-        CallableFlowSnapshot result = self.snapshot();
-        self.restore(saved);
-        return result;
-    }
+	public CallableFlowSnapshot beginScope() {
+		CallableFlowSnapshot enclosing = self.snapshot();
+		self.scopeStarts.push(self.declarations.len);
+		self.scopeEnclosings.push(enclosing);
+		return enclosing;
+	}
 
-    public CallableFlowSnapshot beginScope() {
-        CallableFlowSnapshot enclosing = self.snapshot();
-        self.scopeStarts.push(self.declarations.len);
-        self.scopeEnclosings.push(enclosing);
-        return enclosing;
-    }
+	public void declare(string name) {
+		if (self.scopeStarts.len > 0) {
+			self.declarations.push(name);
+		}
+		self.ownedBindings.remove(name);
+		self.ambiguousBindings.remove(name);
+		self.environmentFunctions.remove(name);
+		self.environmentStorage.remove(name);
+	}
 
-    public void declare(string name) {
-        if (self.scopeStarts.len > 0) {
-            self.declarations.push(name);
-        }
-        self.ownedBindings.remove(name);
-        self.ambiguousBindings.remove(name);
-        self.environmentFunctions.remove(name);
-        self.environmentStorage.remove(name);
-    }
+	private bool declaredSince(int start, string name) {
+		int index = start;
+		while (index < self.declarations.len) {
+			if (self.declarations.get(index) == name) { return true; }
+			index = index + 1;
+		}
+		return false;
+	}
 
-    private bool declaredSince(int start, string name) {
-        int index = start;
-        while (index < self.declarations.len) {
-            if (self.declarations.get(index) == name) { return true; }
-            index = index + 1;
-        }
-        return false;
-    }
-
-    public void finishScope(CallableFlowSnapshot enclosing) {
-        int start = self.declarations.len;
-        CallableFlowSnapshot recordedEnclosing = enclosing;
-        if (self.scopeStarts.len > 0) {
-            start = self.scopeStarts.pop();
-            recordedEnclosing = self.scopeEnclosings.pop();
-            if (recordedEnclosing != enclosing) {
-                print("internal compiler error: callable lexical scopes "
-                    + "must be nested");
-                exit(1);
-            }
-        }
-        CallableFlowSnapshot current = self.snapshot();
-        Vector<string> names = [];
-        self.appendSnapshotNames(recordedEnclosing, names);
-        self.appendSnapshotNames(current, names);
-        self.restore(recordedEnclosing);
-        int index = 0;
-        while (index < names.len) {
-            string name = names.get(index);
-            if (!self.declaredSince(start, name)) {
-                self.initializeBindingAbi(
-                    name, self.snapshotAbi(current, name));
-                int environmentIndex =
-                    self.snapshotEnvironmentIndex(current, name);
-                if (environmentIndex >= 0) {
-                    self.setEnvironment(name,
-                        current.environmentFunctions.get(
-                            environmentIndex),
-                        current.environmentStorage.get(
-                            environmentIndex));
-                } else {
-                    self.clearEnvironment(name);
-                }
-            }
-            index = index + 1;
-        }
-        while (self.declarations.len > start) {
-            self.declarations.pop();
-        }
-    }
-
+	public void finishScope(CallableFlowSnapshot enclosing) {
+		int start = self.declarations.len;
+		CallableFlowSnapshot recordedEnclosing = enclosing;
+		if (self.scopeStarts.len > 0) {
+			start = self.scopeStarts.pop();
+			recordedEnclosing = self.scopeEnclosings.pop();
+			if (recordedEnclosing != enclosing) {
+				print("internal compiler error: callable lexical scopes " + "must be nested");
+				exit(1);
+			}
+		}
+		CallableFlowSnapshot current = self.snapshot();
+		Vector<string> names = [];
+		self.appendSnapshotNames(recordedEnclosing, names);
+		self.appendSnapshotNames(current, names);
+		self.restore(recordedEnclosing);
+		int index = 0;
+		while (index < names.len) {
+			string name = names.get(index);
+			if (!self.declaredSince(start, name)) {
+				self.initializeBindingAbi(name, self.snapshotAbi(current, name));
+				int environmentIndex = self.snapshotEnvironmentIndex(current, name);
+				if (environmentIndex >= 0) {
+					self.setEnvironment(name, current.environmentFunctions.get(environmentIndex), current.environmentStorage.get(environmentIndex));
+				} else {
+					self.clearEnvironment(name);
+				}
+			}
+			index = index + 1;
+		}
+		while (self.declarations.len > start) {
+			self.declarations.pop();
+		}
+	}
 }

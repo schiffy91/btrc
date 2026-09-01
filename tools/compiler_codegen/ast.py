@@ -9,7 +9,7 @@ from typing import ClassVar
 
 from src.compiler.python.syntax.grammar import GrammarRepository
 
-from . import GeneratedArtifact, GeneratedSourceError
+from . import GeneratedArtifact, GeneratedSourceError, format_generated_btrc
 from .asdl import (
     AsdlConstructor,
     AsdlField,
@@ -563,6 +563,6 @@ class AstCatalogGenerator:
             ),
             GeneratedArtifact(
                 path=self._SELFHOST_OUTPUT,
-                content=selfhost.encode("utf-8"),
+                content=format_generated_btrc(selfhost, self._SELFHOST_OUTPUT),
             ),
         )

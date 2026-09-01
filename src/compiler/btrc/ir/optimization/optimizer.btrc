@@ -2,6 +2,7 @@
 
 import std.map;
 import std.vector;
+
 import ../gpu/pipeline.btrc;
 import ../lowering/ownership/cycle_boundaries.btrc;
 import ../model.btrc;
@@ -12,803 +13,730 @@ import ./realtime.btrc;
 import ./setjmp/safety.btrc;
 
 class IROptimizer {
-    private SetjmpSafetyPlanner setjmpSafety;
-    private RuntimeHelperCatalog runtimeHelpers;
+	private SetjmpSafetyPlanner setjmpSafety;
+	private RuntimeHelperCatalog runtimeHelpers;
 
-    public IROptimizer(
-            SetjmpSafetyPlanner setjmpSafety,
-            RuntimeHelperCatalog runtimeHelpers) {
-        self.setjmpSafety = setjmpSafety;
-        self.runtimeHelpers = runtimeHelpers;
-    }
+	public IROptimizer(SetjmpSafetyPlanner setjmpSafety, RuntimeHelperCatalog runtimeHelpers) {
+		self.setjmpSafety = setjmpSafety;
+		self.runtimeHelpers = runtimeHelpers;
+	}
 
-    /* Complete stage-five cascade.  Every operation consumes and mutates only
+	/* Complete stage-five cascade.  Every operation consumes and mutates only
      * structured IR plus immutable repositories supplied by the pipeline. */
-    public void optimize(IRModule module, bool eliminateDeadCode) {
-        RealtimeIRVerifier(module).validate(module);
-        self.setjmpSafety.apply(module);
-        CleanupSlotValidator(module).validate();
-        if (eliminateDeadCode) {
-            self.eliminateUnreachable(module);
-        }
-        CycleReturnBoundaryLowerer(
-            module.temporary_names).installProgramBoundary(module);
-        self.normalizeUnusedParameters(module);
-        RuntimeReferenceCollector references =
-            RuntimeReferenceCollector(self.runtimeHelpers);
-        self.runtimeHelpers.materializeInto(
-            module, references.requiredBy(module));
-    }
+	public void optimize(IRModule module, bool eliminateDeadCode) {
+		RealtimeIRVerifier(module).validate(module);
+		self.setjmpSafety.apply(module);
+		CleanupSlotValidator(module).validate();
+		if (eliminateDeadCode) {
+			self.eliminateUnreachable(module);
+		}
+		CycleReturnBoundaryLowerer(module.temporary_names).installProgramBoundary(module);
+		self.normalizeUnusedParameters(module);
+		RuntimeReferenceCollector references = RuntimeReferenceCollector(self.runtimeHelpers);
+		self.runtimeHelpers.materializeInto(module, references.requiredBy(module));
+	}
 
-    private void eliminateUnreachable(IRModule module) {
-        self.eliminateDeadGlobals(module);
-        self.eliminateDeadFunctions(module);
-        GpuPipeline.eliminateUnreachable(module);
-        self.eliminateDeadStructs(module);
-    }
+	private void eliminateUnreachable(IRModule module) {
+		self.eliminateDeadGlobals(module);
+		self.eliminateDeadFunctions(module);
+		GpuPipeline.eliminateUnreachable(module);
+		self.eliminateDeadStructs(module);
+	}
 
-    /* File-scope value reachability before ordinary function/helper DCE.
+	/* File-scope value reachability before ordinary function/helper DCE.
      * Runtime-helper C is emitted before IRGlobalDecl values and cannot name an
      * internal module global; helper-owned state stays inside helper source. */
 
-    private bool globalInitializerHasEffects(IRNode? node) {
-        if (node == null) { return false; }
-        if (node.kind == IRK_CALL || node.kind == IRK_STMT_EXPR
-                || node.kind == IRK_INVALID_EXPR
-                || node.kind >= IRK_VAR_DECL) {
-            return true;
-        }
-        if (node.kind == IRK_UNARYOP
-                && (node.op == "++" || node.op == "--")) {
-            return true;
-        }
-        if (self.globalInitializerHasEffects(node.left)
-                || self.globalInitializerHasEffects(node.right)
-                || self.globalInitializerHasEffects(node.operand)
-                || self.globalInitializerHasEffects(node.expr)
-                || self.globalInitializerHasEffects(node.obj)
-                || self.globalInitializerHasEffects(node.index)
-                || self.globalInitializerHasEffects(node.condition)
-                || self.globalInitializerHasEffects(node.true_expr)
-                || self.globalInitializerHasEffects(node.false_expr)
-                || self.globalInitializerHasEffects(node.init)
-                || self.globalInitializerHasEffects(node.value)
-                || self.globalInitializerHasEffects(node.target)
-                || self.globalInitializerHasEffects(node.then_block)
-                || self.globalInitializerHasEffects(node.else_block)
-                || self.globalInitializerHasEffects(node.body)
-                || self.globalInitializerHasEffects(node.update)
-                || self.globalInitializerHasEffects(node.result)
-                || self.globalInitializerHasEffects(node.array_size)) {
-            return true;
-        }
-        int argument = 0;
-        while (argument < node.args.len) {
-            if (self.globalInitializerHasEffects(node.args.get(argument))) {
-                return true;
-            }
-            argument = argument + 1;
-        }
-        return false;
-    }
+	private bool globalInitializerHasEffects(IRNode? node) {
+		if (node == null) { return false; }
+		if (node.kind == IRK_CALL || node.kind == IRK_STMT_EXPR || node.kind == IRK_INVALID_EXPR || node.kind >= IRK_VAR_DECL) {
+			return true;
+		}
+		if (node.kind == IRK_UNARYOP && (node.op == "++" || node.op == "--")) {
+			return true;
+		}
+		if (self.globalInitializerHasEffects(node.left) || self.globalInitializerHasEffects(node.right) || self.globalInitializerHasEffects(node.operand) || self.globalInitializerHasEffects(node.expr) || self.globalInitializerHasEffects(node.obj) || self.globalInitializerHasEffects(node.index) || self.globalInitializerHasEffects(node.condition) || self.globalInitializerHasEffects(node.true_expr) || self.globalInitializerHasEffects(node.false_expr) || self.globalInitializerHasEffects(node.init) || self.globalInitializerHasEffects(node.value) || self.globalInitializerHasEffects(node.target) || self.globalInitializerHasEffects(node.then_block) || self.globalInitializerHasEffects(node.else_block) || self.globalInitializerHasEffects(node.body) || self.globalInitializerHasEffects(node.update) || self.globalInitializerHasEffects(node.result) || self.globalInitializerHasEffects(node.array_size)) {
+			return true;
+		}
+		int argument = 0;
+		while (argument < node.args.len) {
+			if (self.globalInitializerHasEffects(node.args.get(argument))) {
+				return true;
+			}
+			argument = argument + 1;
+		}
+		return false;
+	}
 
-    private void collectGlobalRefs(IRNode? node, Map<string, bool> names,
-            Map<string, bool> out) {
-        if (node == null) { return; }
-        if (node.kind == IRK_VAR && names.has(node.name)) {
-            out.put(node.name, true);
-        }
-        if (node.kind == IRK_CALL && names.has(node.callee)) {
-            out.put(node.callee, true);
-        }
-        self.collectGlobalRefs(node.left, names, out);
-        self.collectGlobalRefs(node.right, names, out);
-        self.collectGlobalRefs(node.operand, names, out);
-        self.collectGlobalRefs(node.expr, names, out);
-        self.collectGlobalRefs(node.obj, names, out);
-        self.collectGlobalRefs(node.index, names, out);
-        self.collectGlobalRefs(node.condition, names, out);
-        self.collectGlobalRefs(node.true_expr, names, out);
-        self.collectGlobalRefs(node.false_expr, names, out);
-        self.collectGlobalRefs(node.init, names, out);
-        self.collectGlobalRefs(node.value, names, out);
-        self.collectGlobalRefs(node.target, names, out);
-        self.collectGlobalRefs(node.then_block, names, out);
-        self.collectGlobalRefs(node.else_block, names, out);
-        self.collectGlobalRefs(node.body, names, out);
-        self.collectGlobalRefs(node.update, names, out);
-        self.collectGlobalRefs(node.result, names, out);
-        self.collectGlobalRefs(node.array_size, names, out);
-        int argument = 0;
-        while (argument < node.args.len) {
-            self.collectGlobalRefs(node.args.get(argument), names, out);
-            argument = argument + 1;
-        }
-        int statement = 0;
-        while (statement < node.stmts.len) {
-            self.collectGlobalRefs(node.stmts.get(statement), names, out);
-            statement = statement + 1;
-        }
-    }
+	private void collectGlobalRefs(IRNode? node, Map<string, bool> names, Map<string, bool> out) {
+		if (node == null) { return; }
+		if (node.kind == IRK_VAR && names.has(node.name)) {
+			out.put(node.name, true);
+		}
+		if (node.kind == IRK_CALL && names.has(node.callee)) {
+			out.put(node.callee, true);
+		}
+		self.collectGlobalRefs(node.left, names, out);
+		self.collectGlobalRefs(node.right, names, out);
+		self.collectGlobalRefs(node.operand, names, out);
+		self.collectGlobalRefs(node.expr, names, out);
+		self.collectGlobalRefs(node.obj, names, out);
+		self.collectGlobalRefs(node.index, names, out);
+		self.collectGlobalRefs(node.condition, names, out);
+		self.collectGlobalRefs(node.true_expr, names, out);
+		self.collectGlobalRefs(node.false_expr, names, out);
+		self.collectGlobalRefs(node.init, names, out);
+		self.collectGlobalRefs(node.value, names, out);
+		self.collectGlobalRefs(node.target, names, out);
+		self.collectGlobalRefs(node.then_block, names, out);
+		self.collectGlobalRefs(node.else_block, names, out);
+		self.collectGlobalRefs(node.body, names, out);
+		self.collectGlobalRefs(node.update, names, out);
+		self.collectGlobalRefs(node.result, names, out);
+		self.collectGlobalRefs(node.array_size, names, out);
+		int argument = 0;
+		while (argument < node.args.len) {
+			self.collectGlobalRefs(node.args.get(argument), names, out);
+			argument = argument + 1;
+		}
+		int statement = 0;
+		while (statement < node.stmts.len) {
+			self.collectGlobalRefs(node.stmts.get(statement), names, out);
+			statement = statement + 1;
+		}
+	}
 
-    private void enqueueGlobalFunctionRefs(Map<string, bool> references,
-            Map<string, bool> live, Vector<string> worklist) {
-        Vector<string> names = references.keys();
-        int index = 0;
-        while (index < names.len) {
-            string name = names.get(index);
-            if (!live.has(name)) {
-                live.put(name, true);
-                worklist.push(name);
-            }
-            index = index + 1;
-        }
-    }
+	private void enqueueGlobalFunctionRefs(Map<string, bool> references, Map<string, bool> live, Vector<string> worklist) {
+		Vector<string> names = references.keys();
+		int index = 0;
+		while (index < names.len) {
+			string name = names.get(index);
+			if (!live.has(name)) {
+				live.put(name, true);
+				worklist.push(name);
+			}
+			index = index + 1;
+		}
+	}
 
-    private void eliminateDeadGlobals(IRModule module) {
-        if (module.global_decls.len == 0) { return; }
+	private void eliminateDeadGlobals(IRModule module) {
+		if (module.global_decls.len == 0) { return; }
 
-        Vector<string> functionNames = [];
-        Map<string, bool> knownFunctions = {};
-        Map<string, int> functionByName = {};
-        Map<string, bool> liveFunctions = {};
-        Vector<string> functionWorklist = [];
-        int functionIndex = 0;
-        while (functionIndex < module.functions.len) {
-            IRFunction fn = module.functions.get(functionIndex);
-            functionNames.push(fn.name);
-            knownFunctions.put(fn.name, true);
-            functionByName.put(fn.name, functionIndex);
-            if (fn.name == "main" || fn.name == "btrc_main") {
-                liveFunctions.put(fn.name, true);
-                functionWorklist.push(fn.name);
-            }
-            functionIndex = functionIndex + 1;
-        }
+		Vector<string> functionNames = [];
+		Map<string, bool> knownFunctions = {};
+		Map<string, int> functionByName = {};
+		Map<string, bool> liveFunctions = {};
+		Vector<string> functionWorklist = [];
+		int functionIndex = 0;
+		while (functionIndex < module.functions.len) {
+			IRFunction fn = module.functions.get(functionIndex);
+			functionNames.push(fn.name);
+			knownFunctions.put(fn.name, true);
+			functionByName.put(fn.name, functionIndex);
+			if (fn.name == "main" || fn.name == "btrc_main") {
+				liveFunctions.put(fn.name, true);
+				functionWorklist.push(fn.name);
+			}
+			functionIndex = functionIndex + 1;
+		}
 
-        Vector<string> globalNames = [];
-        Map<string, bool> knownGlobals = {};
-        Map<string, bool> liveGlobals = {};
-        Vector<string> globalWorklist = [];
-        int globalIndex = 0;
-        while (globalIndex < module.global_decls.len) {
-            IRGlobalDecl global = module.global_decls.get(globalIndex);
-            if (!knownGlobals.has(global.name)) {
-                knownGlobals.put(global.name, true);
-                globalNames.push(global.name);
-            }
-            /* Volatile affects accesses, not the observability of unreachable
+		Vector<string> globalNames = [];
+		Map<string, bool> knownGlobals = {};
+		Map<string, bool> liveGlobals = {};
+		Vector<string> globalWorklist = [];
+		int globalIndex = 0;
+		while (globalIndex < module.global_decls.len) {
+			IRGlobalDecl global = module.global_decls.get(globalIndex);
+			if (!knownGlobals.has(global.name)) {
+				knownGlobals.put(global.name, true);
+				globalNames.push(global.name);
+			}
+			/* Volatile affects accesses, not the observability of unreachable
              * internal storage. External linkage and real references still root
              * every volatile object that can be observed. */
-            if (!global.is_static || global.is_extern
-                    || self.globalInitializerHasEffects(global.init)
-                    || self.globalInitializerHasEffects(global.array_size)) {
-                if (!liveGlobals.has(global.name)) {
-                    liveGlobals.put(global.name, true);
-                    globalWorklist.push(global.name);
-                }
-            }
-            globalIndex = globalIndex + 1;
-        }
+			if (!global.is_static || global.is_extern || self.globalInitializerHasEffects(global.init) || self.globalInitializerHasEffects(global.array_size)) {
+				if (!liveGlobals.has(global.name)) {
+					liveGlobals.put(global.name, true);
+					globalWorklist.push(global.name);
+				}
+			}
+			globalIndex = globalIndex + 1;
+		}
 
-        int preprocessorIndex = 0;
-        while (preprocessorIndex < module.preprocessor_decls.len) {
-            IRPreprocessorDecl declaration =
-                module.preprocessor_decls.get(preprocessorIndex);
-            if (declaration.kind == IR_PREPROCESSOR_MACRO) {
-                Map<string, bool> functionRoots = {};
-                Map<string, bool> globalRoots = {};
-                self.scanTextForNames(
-                    declaration.replacement, functionNames, functionRoots);
-                self.scanTextForNames(
-                    declaration.replacement, globalNames, globalRoots);
-                self.enqueueGlobalFunctionRefs(
-                    functionRoots, liveFunctions, functionWorklist);
-                self.enqueueGlobalFunctionRefs(
-                    globalRoots, liveGlobals, globalWorklist);
-            }
-            preprocessorIndex = preprocessorIndex + 1;
-        }
+		int preprocessorIndex = 0;
+		while (preprocessorIndex < module.preprocessor_decls.len) {
+			IRPreprocessorDecl declaration = module.preprocessor_decls.get(preprocessorIndex);
+			if (declaration.kind == IR_PREPROCESSOR_MACRO) {
+				Map<string, bool> functionRoots = {};
+				Map<string, bool> globalRoots = {};
+				self.scanTextForNames(declaration.replacement, functionNames, functionRoots);
+				self.scanTextForNames(declaration.replacement, globalNames, globalRoots);
+				self.enqueueGlobalFunctionRefs(functionRoots, liveFunctions, functionWorklist);
+				self.enqueueGlobalFunctionRefs(globalRoots, liveGlobals, globalWorklist);
+			}
+			preprocessorIndex = preprocessorIndex + 1;
+		}
 
-        while (functionWorklist.len > 0 || globalWorklist.len > 0) {
-            Map<string, bool> functionRefs = {};
-            Map<string, bool> globalRefs = {};
-            if (functionWorklist.len > 0) {
-                string functionName = functionWorklist.pop();
-                IRFunction fn = module.functions.get(
-                    functionByName.get(functionName));
-                self.collectFuncRefs(fn.body, knownFunctions, functionRefs);
-                self.collectGlobalRefs(fn.body, knownGlobals, globalRefs);
-            } else {
-                string globalName = globalWorklist.pop();
-                int declarationIndex = 0;
-                while (declarationIndex < module.global_decls.len) {
-                    IRGlobalDecl global =
-                        module.global_decls.get(declarationIndex);
-                    if (global.name == globalName) {
-                        self.collectFuncRefs(
-                            global.init, knownFunctions, functionRefs);
-                        self.collectFuncRefs(
-                            global.array_size, knownFunctions, functionRefs);
-                        self.collectGlobalRefs(
-                            global.init, knownGlobals, globalRefs);
-                        self.collectGlobalRefs(
-                            global.array_size, knownGlobals, globalRefs);
-                    }
-                    declarationIndex = declarationIndex + 1;
-                }
-            }
-            self.enqueueGlobalFunctionRefs(
-                functionRefs, liveFunctions, functionWorklist);
-            self.enqueueGlobalFunctionRefs(
-                globalRefs, liveGlobals, globalWorklist);
-        }
+		while (functionWorklist.len > 0 || globalWorklist.len > 0) {
+			Map<string, bool> functionRefs = {};
+			Map<string, bool> globalRefs = {};
+			if (functionWorklist.len > 0) {
+				string functionName = functionWorklist.pop();
+				IRFunction fn = module.functions.get(functionByName.get(functionName));
+				self.collectFuncRefs(fn.body, knownFunctions, functionRefs);
+				self.collectGlobalRefs(fn.body, knownGlobals, globalRefs);
+			} else {
+				string globalName = globalWorklist.pop();
+				int declarationIndex = 0;
+				while (declarationIndex < module.global_decls.len) {
+					IRGlobalDecl global = module.global_decls.get(declarationIndex);
+					if (global.name == globalName) {
+						self.collectFuncRefs(global.init, knownFunctions, functionRefs);
+						self.collectFuncRefs(global.array_size, knownFunctions, functionRefs);
+						self.collectGlobalRefs(global.init, knownGlobals, globalRefs);
+						self.collectGlobalRefs(global.array_size, knownGlobals, globalRefs);
+					}
+					declarationIndex = declarationIndex + 1;
+				}
+			}
+			self.enqueueGlobalFunctionRefs(functionRefs, liveFunctions, functionWorklist);
+			self.enqueueGlobalFunctionRefs(globalRefs, liveGlobals, globalWorklist);
+		}
 
-        Vector<IRGlobalDecl> kept = [];
-        globalIndex = 0;
-        while (globalIndex < module.global_decls.len) {
-            IRGlobalDecl global = module.global_decls.get(globalIndex);
-            if (liveGlobals.has(global.name)) { kept.push(global); }
-            globalIndex = globalIndex + 1;
-        }
-        module.global_decls = kept;
-    }
+		Vector<IRGlobalDecl> kept = [];
+		globalIndex = 0;
+		while (globalIndex < module.global_decls.len) {
+			IRGlobalDecl global = module.global_decls.get(globalIndex);
+			if (liveGlobals.has(global.name)) { kept.push(global); }
+			globalIndex = globalIndex + 1;
+		}
+		module.global_decls = kept;
+	}
 
-    /* Membership in a Vector<string>. */
-    private bool containsName(Vector<string> names, string name) {
-        int i = 0;
-        while (i < names.len) {
-            if (names.get(i) == name) { return true; }
-            i = i + 1;
-        }
-        return false;
-    }
+	/* Membership in a Vector<string>. */
+	private bool containsName(Vector<string> names, string name) {
+		int i = 0;
+		while (i < names.len) {
+			if (names.get(i) == name) { return true; }
+			i = i + 1;
+		}
+		return false;
+	}
 
-    /* True if a char can be part of a C identifier. */
-    private bool isIdentChar(char c) {
-        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-            || (c >= '0' && c <= '9') || c == '_';
-    }
+	/* True if a char can be part of a C identifier. */
+	private bool isIdentChar(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'; }
 
-    /* Index of `needle` in `hay` at or after `from` (-1 if absent). btrc's string
+	/* Index of `needle` in `hay` at or after `from` (-1 if absent). btrc's string
      * indexOf has no start-offset overload, so search the suffix and re-offset. */
-    private int indexOfFrom(string hay, string needle, int startAt) {
-        int hlen = hay.length();
-        if (startAt < 0) { startAt = 0; }
-        if (startAt > hlen) { return -1; }
-        string suffix = hay.substring(startAt, hlen - startAt);
-        int rel = suffix.indexOf(needle);
-        if (rel < 0) { return -1; }
-        return startAt + rel;
-    }
+	private int indexOfFrom(string hay, string needle, int startAt) {
+		int hlen = hay.length();
+		if (startAt < 0) { startAt = 0; }
+		if (startAt > hlen) { return -1; }
+		string suffix = hay.substring(startAt, hlen - startAt);
+		int rel = suffix.indexOf(needle);
+		if (rel < 0) { return -1; }
+		return startAt + rel;
+	}
 
-    /* Add every name in `names` that occurs as a whole identifier in `text` to
+	/* Add every name in `names` that occurs as a whole identifier in `text` to
      * `out` (mirrors _scan_text_for_names: word-boundary, not substring). */
-    private void scanTextForNames(string text, Vector<string> names, Map<string, bool> out) {
-        int n = names.len;
-        int tlen = text.length();
-        int i = 0;
-        while (i < n) {
-            string name = names.get(i);
-            if (!out.has(name)) {
-                int nlen = name.length();
-                int startAt = 0;
-                bool found = false;
-                while (!found && startAt <= tlen - nlen) {
-                    int pos = self.indexOfFrom(text, name, startAt);
-                    if (pos < 0) { startAt = tlen + 1; }
-                    else {
-                        bool okBefore = pos == 0 || !self.isIdentChar(text[pos - 1]);
-                        int after = pos + nlen;
-                        bool okAfter = after >= tlen || !self.isIdentChar(text[after]);
-                        if (okBefore && okAfter) { found = true; }
-                        else { startAt = pos + 1; }
-                    }
-                }
-                if (found) { out.put(name, true); }
-            }
-            i = i + 1;
-        }
-    }
+	private void scanTextForNames(string text, Vector<string> names, Map<string, bool> out) {
+		int n = names.len;
+		int tlen = text.length();
+		int i = 0;
+		while (i < n) {
+			string name = names.get(i);
+			if (!out.has(name)) {
+				int nlen = name.length();
+				int startAt = 0;
+				bool found = false;
+				while (!found && startAt <= tlen - nlen) {
+					int pos = self.indexOfFrom(text, name, startAt);
+					if (pos < 0) { startAt = tlen + 1; }
+					else {
+						bool okBefore = pos == 0 || !self.isIdentChar(text[pos - 1]);
+						int after = pos + nlen;
+						bool okAfter = after >= tlen || !self.isIdentChar(text[after]);
+						if (okBefore && okAfter) { found = true; }
+						else { startAt = pos + 1; }
+					}
+				}
+				if (found) { out.put(name, true); }
+			}
+			i = i + 1;
+		}
+	}
 
-    /* Add whole C identifiers from `text` that are present in `names`.  Unlike
+	/* Add whole C identifiers from `text` that are present in `names`.  Unlike
      * scanTextForNames this is linear in the text length: type reachability walks
      * every surviving IR node, so probing the complete declaration-name vector at
      * every leaf would make the pass O(IR nodes * declarations). */
-    private void scanTextForKnownNames(string text, Map<string, bool> names,
-            Map<string, bool> out) {
-        int length = text.length();
-        int index = 0;
-        while (index < length) {
-            while (index < length && !self.isIdentChar(text[index])) {
-                index = index + 1;
-            }
-            int start = index;
-            while (index < length && self.isIdentChar(text[index])) {
-                index = index + 1;
-            }
-            if (start < index) {
-                string identifier = text.substring(start, index - start);
-                if (names.has(identifier)) { out.put(identifier, true); }
-            }
-        }
-    }
+	private void scanTextForKnownNames(string text, Map<string, bool> names, Map<string, bool> out) {
+		int length = text.length();
+		int index = 0;
+		while (index < length) {
+			while (index < length && !self.isIdentChar(text[index])) {
+				index = index + 1;
+			}
+			int start = index;
+			while (index < length && self.isIdentChar(text[index])) {
+				index = index + 1;
+			}
+			if (start < index) {
+				string identifier = text.substring(start, index - start);
+				if (names.has(identifier)) { out.put(identifier, true); }
+			}
+		}
+	}
 
-    /* Collect referenced function names from an IR expression/statement tree.
+	/* Collect referenced function names from an IR expression/statement tree.
      * Calls and IRFunctionRef nodes are semantic references. Literal text
      * is data and must never root a same-named dead function. */
-    private void collectFuncRefs(IRNode node, Map<string, bool> names,
-            Map<string, bool> out) {
-        if (node == null) { return; }
-        if (node.kind == IRK_CALL && names.has(node.callee)) {
-            out.put(node.callee, true);
-        }
-        if (node.kind == IRK_FUNCTION_REF && names.has(node.name)) {
-            out.put(node.name, true);
-        }
-        /* Recurse into every sub-node field. */
-        self.collectFuncRefs(node.left, names, out);
-        self.collectFuncRefs(node.right, names, out);
-        self.collectFuncRefs(node.operand, names, out);
-        self.collectFuncRefs(node.expr, names, out);
-        self.collectFuncRefs(node.obj, names, out);
-        self.collectFuncRefs(node.index, names, out);
-        self.collectFuncRefs(node.condition, names, out);
-        self.collectFuncRefs(node.true_expr, names, out);
-        self.collectFuncRefs(node.false_expr, names, out);
-        self.collectFuncRefs(node.init, names, out);
-        self.collectFuncRefs(node.value, names, out);
-        self.collectFuncRefs(node.target, names, out);
-        self.collectFuncRefs(node.then_block, names, out);
-        self.collectFuncRefs(node.else_block, names, out);
-        self.collectFuncRefs(node.body, names, out);
-        self.collectFuncRefs(node.update, names, out);
-        self.collectFuncRefs(node.result, names, out);
-        self.collectFuncRefs(node.array_size, names, out);
-        int i = 0;
-        while (i < node.args.len) { self.collectFuncRefs(node.args.get(i), names, out); i = i + 1; }
-        int j = 0;
-        while (j < node.stmts.len) { self.collectFuncRefs(node.stmts.get(j), names, out); j = j + 1; }
-    }
+	private void collectFuncRefs(IRNode node, Map<string, bool> names, Map<string, bool> out) {
+		if (node == null) { return; }
+		if (node.kind == IRK_CALL && names.has(node.callee)) {
+			out.put(node.callee, true);
+		}
+		if (node.kind == IRK_FUNCTION_REF && names.has(node.name)) {
+			out.put(node.name, true);
+		}
+		/* Recurse into every sub-node field. */
+		self.collectFuncRefs(node.left, names, out);
+		self.collectFuncRefs(node.right, names, out);
+		self.collectFuncRefs(node.operand, names, out);
+		self.collectFuncRefs(node.expr, names, out);
+		self.collectFuncRefs(node.obj, names, out);
+		self.collectFuncRefs(node.index, names, out);
+		self.collectFuncRefs(node.condition, names, out);
+		self.collectFuncRefs(node.true_expr, names, out);
+		self.collectFuncRefs(node.false_expr, names, out);
+		self.collectFuncRefs(node.init, names, out);
+		self.collectFuncRefs(node.value, names, out);
+		self.collectFuncRefs(node.target, names, out);
+		self.collectFuncRefs(node.then_block, names, out);
+		self.collectFuncRefs(node.else_block, names, out);
+		self.collectFuncRefs(node.body, names, out);
+		self.collectFuncRefs(node.update, names, out);
+		self.collectFuncRefs(node.result, names, out);
+		self.collectFuncRefs(node.array_size, names, out);
+		int i = 0;
+		while (i < node.args.len) { self.collectFuncRefs(node.args.get(i), names, out); i = i + 1; }
+		int j = 0;
+		while (j < node.stmts.len) { self.collectFuncRefs(node.stmts.get(j), names, out); j = j + 1; }
+	}
 
-    private void eliminateDeadFunctions(IRModule m) {
-        if (m.functions.len == 0) { return; }
-        Vector<string> names = [];
-        Map<string, bool> knownNames = {};
-        Map<string, int> byName = {};
-        Map<string, bool> keepSet = {};
-        Vector<string> worklist = [];
-        int i = 0;
-        while (i < m.functions.len) {
-            names.push(m.functions.get(i).name);
-            knownNames.put(m.functions.get(i).name, true);
-            byName.put(m.functions.get(i).name, i);
-            i = i + 1;
-        }
-        Vector<string> descriptorNames = [];
-        Map<string, bool> knownDescriptorNames = {};
-        Map<string, int> descriptorByName = {};
-        int descriptorIndex = 0;
-        while (descriptorIndex < m.global_decls.len) {
-            IRGlobalDecl descriptor = m.global_decls.get(descriptorIndex);
-            if (descriptor.c_type == "const __btrc_arc_type") {
-                descriptorNames.push(descriptor.name);
-                knownDescriptorNames.put(descriptor.name, true);
-                descriptorByName.put(descriptor.name, descriptorIndex);
-            }
-            descriptorIndex = descriptorIndex + 1;
-        }
-        /* Roots: the entry points main / btrc_main. */
-        int r = 0;
-        while (r < names.len) {
-            string nm = names.get(r);
-            if (nm == "main" || nm == "btrc_main") {
-                if (!keepSet.has(nm)) { keepSet.put(nm, true); worklist.push(nm); }
-            }
-            r = r + 1;
-        }
-        /* Macro replacement bodies and global initializers are executable roots;
+	private void eliminateDeadFunctions(IRModule m) {
+		if (m.functions.len == 0) { return; }
+		Vector<string> names = [];
+		Map<string, bool> knownNames = {};
+		Map<string, int> byName = {};
+		Map<string, bool> keepSet = {};
+		Vector<string> worklist = [];
+		int i = 0;
+		while (i < m.functions.len) {
+			names.push(m.functions.get(i).name);
+			knownNames.put(m.functions.get(i).name, true);
+			byName.put(m.functions.get(i).name, i);
+			i = i + 1;
+		}
+		Vector<string> descriptorNames = [];
+		Map<string, bool> knownDescriptorNames = {};
+		Map<string, int> descriptorByName = {};
+		int descriptorIndex = 0;
+		while (descriptorIndex < m.global_decls.len) {
+			IRGlobalDecl descriptor = m.global_decls.get(descriptorIndex);
+			if (descriptor.c_type == "const __btrc_arc_type") {
+				descriptorNames.push(descriptor.name);
+				knownDescriptorNames.put(descriptor.name, true);
+				descriptorByName.put(descriptor.name, descriptorIndex);
+			}
+			descriptorIndex = descriptorIndex + 1;
+		}
+		/* Roots: the entry points main / btrc_main. */
+		int r = 0;
+		while (r < names.len) {
+			string nm = names.get(r);
+			if (nm == "main" || nm == "btrc_main") {
+				if (!keepSet.has(nm)) { keepSet.put(nm, true); worklist.push(nm); }
+			}
+			r = r + 1;
+		}
+		/* Macro replacement bodies and global initializers are executable roots;
          * callable declarations themselves are not. */
-        Map<string, bool> rootRefs = {};
-        Map<string, bool> descriptorRootRefs = {};
-        int preprocessorIndex = 0;
-        while (preprocessorIndex < m.preprocessor_decls.len) {
-            IRPreprocessorDecl declaration =
-                m.preprocessor_decls.get(preprocessorIndex);
-            if (declaration.kind == IR_PREPROCESSOR_MACRO) {
-                self.scanTextForNames(declaration.replacement, names, rootRefs);
-                self.scanTextForNames(declaration.replacement,
-                    descriptorNames, descriptorRootRefs);
-            }
-            preprocessorIndex = preprocessorIndex + 1;
-        }
-        int globalIndex = 0;
-        while (globalIndex < m.global_decls.len) {
-            IRGlobalDecl global = m.global_decls.get(globalIndex);
-            if (!descriptorByName.has(global.name)) {
-                self.collectFuncRefs(global.init, knownNames, rootRefs);
-                self.collectFuncRefs(global.array_size, knownNames, rootRefs);
-                self.collectGlobalRefs(global.init,
-                    knownDescriptorNames, descriptorRootRefs);
-                self.collectGlobalRefs(global.array_size,
-                    knownDescriptorNames, descriptorRootRefs);
-            }
-            globalIndex = globalIndex + 1;
-        }
-        Vector<string> rootNames = rootRefs.keys();
-        int rootIndex = 0;
-        while (rootIndex < rootNames.len) {
-            string rootName = rootNames.get(rootIndex);
-            if (!keepSet.has(rootName)) {
-                keepSet.put(rootName, true);
-                worklist.push(rootName);
-            }
-            rootIndex = rootIndex + 1;
-        }
-        Map<string, bool> keptDescriptors = {};
-        Vector<string> descriptorWorklist = descriptorRootRefs.keys();
-        /* Transitive reachability. */
-        while (worklist.len > 0 || descriptorWorklist.len > 0) {
-            Map<string, bool> refs = {};
-            if (descriptorWorklist.len > 0) {
-                string descriptorName = descriptorWorklist.pop();
-                if (keptDescriptors.has(descriptorName)) { continue; }
-                keptDescriptors.put(descriptorName, true);
-                IRGlobalDecl descriptor = m.global_decls.get(
-                    descriptorByName.get(descriptorName));
-                self.collectFuncRefs(descriptor.init, knownNames, refs);
-                self.collectFuncRefs(descriptor.array_size, knownNames, refs);
-            } else {
-                string cur = worklist.pop();
-                bool hasFn = byName.has(cur);
-                if (hasFn) {
-                    IRFunction fn = m.functions.get(byName.get(cur));
-                    if (fn.body != null) {
-                        self.collectFuncRefs(fn.body, knownNames, refs);
-                        Map<string, bool> foundDescriptors = {};
-                        self.collectGlobalRefs(fn.body,
-                            knownDescriptorNames, foundDescriptors);
-                        Vector<string> foundNames = foundDescriptors.keys();
-                        int foundIndex = 0;
-                        while (foundIndex < foundNames.len) {
-                            string foundName = foundNames.get(foundIndex);
-                            if (!keptDescriptors.has(foundName)) {
-                                descriptorWorklist.push(foundName);
-                            }
-                            foundIndex = foundIndex + 1;
-                        }
-                    }
-                }
-            }
-            Vector<string> rk = refs.keys();
-            int k = 0;
-            while (k < rk.len) {
-                string rn = rk.get(k);
-                if (!keepSet.has(rn)) { keepSet.put(rn, true); worklist.push(rn); }
-                k = k + 1;
-            }
-        }
-        if (descriptorNames.len > keptDescriptors.len) {
-            Vector<IRGlobalDecl> keptGlobals = [];
-            int keptGlobalIndex = 0;
-            while (keptGlobalIndex < m.global_decls.len) {
-                IRGlobalDecl global = m.global_decls.get(keptGlobalIndex);
-                if (!descriptorByName.has(global.name)
-                        || keptDescriptors.has(global.name)) {
-                    keptGlobals.push(global);
-                }
-                keptGlobalIndex = keptGlobalIndex + 1;
-            }
-            m.global_decls = keptGlobals;
-        }
-        /* Filter functions. */
-        Vector<IRFunction> kept = [];
-        Vector<string> removed = [];
-        int f = 0;
-        while (f < m.functions.len) {
-            IRFunction fn = m.functions.get(f);
-            if (keepSet.has(fn.name)) { kept.push(fn); }
-            else { removed.push(fn.name); }
-            f = f + 1;
-        }
-        m.functions = kept;
-        /* Typed declarations are pruned by their explicit function name. */
-        if (removed.len > 0) {
-            Vector<IRFunctionDecl> declarations = [];
-            int d = 0;
-            while (d < m.function_decls.len) {
-                IRFunctionDecl declaration = m.function_decls.get(d);
-                if (!self.containsName(removed, declaration.name)) {
-                    declarations.push(declaration);
-                }
-                d = d + 1;
-            }
-            m.function_decls = declarations;
-        }
-    }
+		Map<string, bool> rootRefs = {};
+		Map<string, bool> descriptorRootRefs = {};
+		int preprocessorIndex = 0;
+		while (preprocessorIndex < m.preprocessor_decls.len) {
+			IRPreprocessorDecl declaration = m.preprocessor_decls.get(preprocessorIndex);
+			if (declaration.kind == IR_PREPROCESSOR_MACRO) {
+				self.scanTextForNames(declaration.replacement, names, rootRefs);
+				self.scanTextForNames(declaration.replacement, descriptorNames, descriptorRootRefs);
+			}
+			preprocessorIndex = preprocessorIndex + 1;
+		}
+		int globalIndex = 0;
+		while (globalIndex < m.global_decls.len) {
+			IRGlobalDecl global = m.global_decls.get(globalIndex);
+			if (!descriptorByName.has(global.name)) {
+				self.collectFuncRefs(global.init, knownNames, rootRefs);
+				self.collectFuncRefs(global.array_size, knownNames, rootRefs);
+				self.collectGlobalRefs(global.init, knownDescriptorNames, descriptorRootRefs);
+				self.collectGlobalRefs(global.array_size, knownDescriptorNames, descriptorRootRefs);
+			}
+			globalIndex = globalIndex + 1;
+		}
+		Vector<string> rootNames = rootRefs.keys();
+		int rootIndex = 0;
+		while (rootIndex < rootNames.len) {
+			string rootName = rootNames.get(rootIndex);
+			if (!keepSet.has(rootName)) {
+				keepSet.put(rootName, true);
+				worklist.push(rootName);
+			}
+			rootIndex = rootIndex + 1;
+		}
+		Map<string, bool> keptDescriptors = {};
+		Vector<string> descriptorWorklist = descriptorRootRefs.keys();
+		/* Transitive reachability. */
+		while (worklist.len > 0 || descriptorWorklist.len > 0) {
+			Map<string, bool> refs = {};
+			if (descriptorWorklist.len > 0) {
+				string descriptorName = descriptorWorklist.pop();
+				if (keptDescriptors.has(descriptorName)) { continue; }
+				keptDescriptors.put(descriptorName, true);
+				IRGlobalDecl descriptor = m.global_decls.get(descriptorByName.get(descriptorName));
+				self.collectFuncRefs(descriptor.init, knownNames, refs);
+				self.collectFuncRefs(descriptor.array_size, knownNames, refs);
+			} else {
+				string cur = worklist.pop();
+				bool hasFn = byName.has(cur);
+				if (hasFn) {
+					IRFunction fn = m.functions.get(byName.get(cur));
+					if (fn.body != null) {
+						self.collectFuncRefs(fn.body, knownNames, refs);
+						Map<string, bool> foundDescriptors = {};
+						self.collectGlobalRefs(fn.body, knownDescriptorNames, foundDescriptors);
+						Vector<string> foundNames = foundDescriptors.keys();
+						int foundIndex = 0;
+						while (foundIndex < foundNames.len) {
+							string foundName = foundNames.get(foundIndex);
+							if (!keptDescriptors.has(foundName)) {
+								descriptorWorklist.push(foundName);
+							}
+							foundIndex = foundIndex + 1;
+						}
+					}
+				}
+			}
+			Vector<string> rk = refs.keys();
+			int k = 0;
+			while (k < rk.len) {
+				string rn = rk.get(k);
+				if (!keepSet.has(rn)) { keepSet.put(rn, true); worklist.push(rn); }
+				k = k + 1;
+			}
+		}
+		if (descriptorNames.len > keptDescriptors.len) {
+			Vector<IRGlobalDecl> keptGlobals = [];
+			int keptGlobalIndex = 0;
+			while (keptGlobalIndex < m.global_decls.len) {
+				IRGlobalDecl global = m.global_decls.get(keptGlobalIndex);
+				if (!descriptorByName.has(global.name) || keptDescriptors.has(global.name)) {
+					keptGlobals.push(global);
+				}
+				keptGlobalIndex = keptGlobalIndex + 1;
+			}
+			m.global_decls = keptGlobals;
+		}
+		/* Filter functions. */
+		Vector<IRFunction> kept = [];
+		Vector<string> removed = [];
+		int f = 0;
+		while (f < m.functions.len) {
+			IRFunction fn = m.functions.get(f);
+			if (keepSet.has(fn.name)) { kept.push(fn); }
+			else { removed.push(fn.name); }
+			f = f + 1;
+		}
+		m.functions = kept;
+		/* Typed declarations are pruned by their explicit function name. */
+		if (removed.len > 0) {
+			Vector<IRFunctionDecl> declarations = [];
+			int d = 0;
+			while (d < m.function_decls.len) {
+				IRFunctionDecl declaration = m.function_decls.get(d);
+				if (!self.containsName(removed, declaration.name)) {
+					declarations.push(declaration);
+				}
+				d = d + 1;
+			}
+			m.function_decls = declarations;
+		}
+	}
 
-    /* Collect struct-name references in a function's signature (params + return)
+	/* Collect struct-name references in a function's signature (params + return)
      * and body. Mirrors Python collect_c_type_references: only resolved type text
      * is a type-reachability edge. */
-    private void collectStructRefsFn(IRFunction fn, Map<string, bool> names,
-            Map<string, bool> out) {
-        self.scanTextForKnownNames(fn.return_type, names, out);
-        int i = 0;
-        while (i < fn.params.len) {
-            self.scanTextForKnownNames(fn.params.get(i).c_type, names, out);
-            i = i + 1;
-        }
-        if (fn.body != null) { self.collectStructRefsNode(fn.body, names, out); }
-    }
+	private void collectStructRefsFn(IRFunction fn, Map<string, bool> names, Map<string, bool> out) {
+		self.scanTextForKnownNames(fn.return_type, names, out);
+		int i = 0;
+		while (i < fn.params.len) {
+			self.scanTextForKnownNames(fn.params.get(i).c_type, names, out);
+			i = i + 1;
+		}
+		if (fn.body != null) { self.collectStructRefsNode(fn.body, names, out); }
+	}
 
-    /* Scan only type-bearing IR fields. Literal payloads and callable names are
+	/* Scan only type-bearing IR fields. Literal payloads and callable names are
      * values, not type references; treating them as C source both roots unrelated
      * declarations and repeatedly scans large generated-runtime string data. */
-    private void collectStructRefsNode(IRNode node, Map<string, bool> names,
-            Map<string, bool> out) {
-        if (node == null) { return; }
-        if (node.c_type != "") {
-            self.scanTextForKnownNames(node.c_type, names, out);
-        }
-        if (node.target_type != "") {
-            self.scanTextForKnownNames(node.target_type, names, out);
-        }
-        self.collectStructRefsNode(node.left, names, out);
-        self.collectStructRefsNode(node.right, names, out);
-        self.collectStructRefsNode(node.operand, names, out);
-        self.collectStructRefsNode(node.expr, names, out);
-        self.collectStructRefsNode(node.obj, names, out);
-        self.collectStructRefsNode(node.index, names, out);
-        self.collectStructRefsNode(node.condition, names, out);
-        self.collectStructRefsNode(node.true_expr, names, out);
-        self.collectStructRefsNode(node.false_expr, names, out);
-        self.collectStructRefsNode(node.init, names, out);
-        self.collectStructRefsNode(node.value, names, out);
-        self.collectStructRefsNode(node.target, names, out);
-        self.collectStructRefsNode(node.then_block, names, out);
-        self.collectStructRefsNode(node.else_block, names, out);
-        self.collectStructRefsNode(node.body, names, out);
-        self.collectStructRefsNode(node.update, names, out);
-        self.collectStructRefsNode(node.result, names, out);
-        self.collectStructRefsNode(node.array_size, names, out);
-        int i = 0;
-        while (i < node.args.len) { self.collectStructRefsNode(node.args.get(i), names, out); i = i + 1; }
-        int j = 0;
-        while (j < node.stmts.len) { self.collectStructRefsNode(node.stmts.get(j), names, out); j = j + 1; }
-    }
+	private void collectStructRefsNode(IRNode node, Map<string, bool> names, Map<string, bool> out) {
+		if (node == null) { return; }
+		if (node.c_type != "") {
+			self.scanTextForKnownNames(node.c_type, names, out);
+		}
+		if (node.target_type != "") {
+			self.scanTextForKnownNames(node.target_type, names, out);
+		}
+		self.collectStructRefsNode(node.left, names, out);
+		self.collectStructRefsNode(node.right, names, out);
+		self.collectStructRefsNode(node.operand, names, out);
+		self.collectStructRefsNode(node.expr, names, out);
+		self.collectStructRefsNode(node.obj, names, out);
+		self.collectStructRefsNode(node.index, names, out);
+		self.collectStructRefsNode(node.condition, names, out);
+		self.collectStructRefsNode(node.true_expr, names, out);
+		self.collectStructRefsNode(node.false_expr, names, out);
+		self.collectStructRefsNode(node.init, names, out);
+		self.collectStructRefsNode(node.value, names, out);
+		self.collectStructRefsNode(node.target, names, out);
+		self.collectStructRefsNode(node.then_block, names, out);
+		self.collectStructRefsNode(node.else_block, names, out);
+		self.collectStructRefsNode(node.body, names, out);
+		self.collectStructRefsNode(node.update, names, out);
+		self.collectStructRefsNode(node.result, names, out);
+		self.collectStructRefsNode(node.array_size, names, out);
+		int i = 0;
+		while (i < node.args.len) { self.collectStructRefsNode(node.args.get(i), names, out); i = i + 1; }
+		int j = 0;
+		while (j < node.stmts.len) { self.collectStructRefsNode(node.stmts.get(j), names, out); j = j + 1; }
+	}
 
-    private void eliminateDeadStructs(IRModule m) {
-        if (m.struct_defs.len == 0) { return; }
-        Vector<string> names = [];
-        Map<string, bool> knownNames = {};
-        Map<string, int> byName = {};
-        Map<string, bool> refs = {};
-        Map<string, bool> keepSet = {};
-        int i = 0;
-        while (i < m.struct_defs.len) {
-            names.push(m.struct_defs.get(i).name);
-            knownNames.put(m.struct_defs.get(i).name, true);
-            byName.put(m.struct_defs.get(i).name, i);
-            i = i + 1;
-        }
-        int f = 0;
-        while (f < m.functions.len) {
-            self.collectStructRefsFn(m.functions.get(f), knownNames, refs);
-            f = f + 1;
-        }
-        int globalIndex = 0;
-        while (globalIndex < m.global_decls.len) {
-            IRGlobalDecl global = m.global_decls.get(globalIndex);
-            self.scanTextForKnownNames(global.c_type, knownNames, refs);
-            self.collectStructRefsNode(global.init, knownNames, refs);
-            self.collectStructRefsNode(global.array_size, knownNames, refs);
-            globalIndex = globalIndex + 1;
-        }
-        int declarationIndex = 0;
-        while (declarationIndex < m.function_decls.len) {
-            IRFunctionDecl declaration = m.function_decls.get(declarationIndex);
-            self.scanTextForKnownNames(declaration.return_type, knownNames, refs);
-            int parameterIndex = 0;
-            while (parameterIndex < declaration.params.len) {
-                self.scanTextForKnownNames(
-                    declaration.params.get(parameterIndex).c_type,
-                    knownNames, refs);
-                parameterIndex = parameterIndex + 1;
-            }
-            declarationIndex = declarationIndex + 1;
-        }
-        int pointerIndex = 0;
-        while (pointerIndex < m.function_pointer_typedefs.len) {
-            IRFunctionPointerTypedef declaration =
-                m.function_pointer_typedefs.get(pointerIndex);
-            self.scanTextForKnownNames(declaration.return_type, knownNames, refs);
-            int parameterIndex = 0;
-            while (parameterIndex < declaration.param_types.len) {
-                self.scanTextForKnownNames(
-                    declaration.param_types.get(parameterIndex),
-                    knownNames, refs);
-                parameterIndex = parameterIndex + 1;
-            }
-            pointerIndex = pointerIndex + 1;
-        }
-        int typedefIndex = 0;
-        while (typedefIndex < m.typedef_defs.len) {
-            self.scanTextForKnownNames(
-                m.typedef_defs.get(typedefIndex).target_type,
-                knownNames, refs);
-            typedefIndex = typedefIndex + 1;
-        }
-        int taggedIndex = 0;
-        while (taggedIndex < m.tagged_union_defs.len) {
-            IRTaggedUnionDef tagged = m.tagged_union_defs.get(taggedIndex);
-            self.scanTextForKnownNames(tagged.tag_type, knownNames, refs);
-            int variantIndex = 0;
-            while (variantIndex < tagged.variants.len) {
-                IRTaggedUnionVariant variant = tagged.variants.get(variantIndex);
-                int fieldIndex = 0;
-                while (fieldIndex < variant.fields.len) {
-                    IRStructField field = variant.fields.get(fieldIndex);
-                    self.scanTextForKnownNames(field.c_type, knownNames, refs);
-                    self.collectStructRefsNode(field.array_size, knownNames, refs);
-                    fieldIndex = fieldIndex + 1;
-                }
-                variantIndex = variantIndex + 1;
-            }
-            taggedIndex = taggedIndex + 1;
-        }
-        int preprocessorIndex = 0;
-        while (preprocessorIndex < m.preprocessor_decls.len) {
-            IRPreprocessorDecl declaration =
-                m.preprocessor_decls.get(preprocessorIndex);
-            if (declaration.kind == IR_PREPROCESSOR_MACRO) {
-                self.scanTextForKnownNames(
-                    declaration.replacement, knownNames, refs);
-            }
-            preprocessorIndex = preprocessorIndex + 1;
-        }
-        /* Names referenced in surviving functions seed the set; the embedding
+	private void eliminateDeadStructs(IRModule m) {
+		if (m.struct_defs.len == 0) { return; }
+		Vector<string> names = [];
+		Map<string, bool> knownNames = {};
+		Map<string, int> byName = {};
+		Map<string, bool> refs = {};
+		Map<string, bool> keepSet = {};
+		int i = 0;
+		while (i < m.struct_defs.len) {
+			names.push(m.struct_defs.get(i).name);
+			knownNames.put(m.struct_defs.get(i).name, true);
+			byName.put(m.struct_defs.get(i).name, i);
+			i = i + 1;
+		}
+		int f = 0;
+		while (f < m.functions.len) {
+			self.collectStructRefsFn(m.functions.get(f), knownNames, refs);
+			f = f + 1;
+		}
+		int globalIndex = 0;
+		while (globalIndex < m.global_decls.len) {
+			IRGlobalDecl global = m.global_decls.get(globalIndex);
+			self.scanTextForKnownNames(global.c_type, knownNames, refs);
+			self.collectStructRefsNode(global.init, knownNames, refs);
+			self.collectStructRefsNode(global.array_size, knownNames, refs);
+			globalIndex = globalIndex + 1;
+		}
+		int declarationIndex = 0;
+		while (declarationIndex < m.function_decls.len) {
+			IRFunctionDecl declaration = m.function_decls.get(declarationIndex);
+			self.scanTextForKnownNames(declaration.return_type, knownNames, refs);
+			int parameterIndex = 0;
+			while (parameterIndex < declaration.params.len) {
+				self.scanTextForKnownNames(declaration.params.get(parameterIndex).c_type, knownNames, refs);
+				parameterIndex = parameterIndex + 1;
+			}
+			declarationIndex = declarationIndex + 1;
+		}
+		int pointerIndex = 0;
+		while (pointerIndex < m.function_pointer_typedefs.len) {
+			IRFunctionPointerTypedef declaration = m.function_pointer_typedefs.get(pointerIndex);
+			self.scanTextForKnownNames(declaration.return_type, knownNames, refs);
+			int parameterIndex = 0;
+			while (parameterIndex < declaration.param_types.len) {
+				self.scanTextForKnownNames(declaration.param_types.get(parameterIndex), knownNames, refs);
+				parameterIndex = parameterIndex + 1;
+			}
+			pointerIndex = pointerIndex + 1;
+		}
+		int typedefIndex = 0;
+		while (typedefIndex < m.typedef_defs.len) {
+			self.scanTextForKnownNames(m.typedef_defs.get(typedefIndex).target_type, knownNames, refs);
+			typedefIndex = typedefIndex + 1;
+		}
+		int taggedIndex = 0;
+		while (taggedIndex < m.tagged_union_defs.len) {
+			IRTaggedUnionDef tagged = m.tagged_union_defs.get(taggedIndex);
+			self.scanTextForKnownNames(tagged.tag_type, knownNames, refs);
+			int variantIndex = 0;
+			while (variantIndex < tagged.variants.len) {
+				IRTaggedUnionVariant variant = tagged.variants.get(variantIndex);
+				int fieldIndex = 0;
+				while (fieldIndex < variant.fields.len) {
+					IRStructField field = variant.fields.get(fieldIndex);
+					self.scanTextForKnownNames(field.c_type, knownNames, refs);
+					self.collectStructRefsNode(field.array_size, knownNames, refs);
+					fieldIndex = fieldIndex + 1;
+				}
+				variantIndex = variantIndex + 1;
+			}
+			taggedIndex = taggedIndex + 1;
+		}
+		int preprocessorIndex = 0;
+		while (preprocessorIndex < m.preprocessor_decls.len) {
+			IRPreprocessorDecl declaration = m.preprocessor_decls.get(preprocessorIndex);
+			if (declaration.kind == IR_PREPROCESSOR_MACRO) {
+				self.scanTextForKnownNames(declaration.replacement, knownNames, refs);
+			}
+			preprocessorIndex = preprocessorIndex + 1;
+		}
+		/* Names referenced in surviving functions seed the set; the embedding
          * closure below keeps the struct types of a kept struct's fields. */
-        Vector<string> worklist = refs.keys();
-        int w0 = 0;
-        while (w0 < worklist.len) { keepSet.put(worklist.get(w0), true); w0 = w0 + 1; }
-        while (worklist.len > 0) {
-            Map<string, bool> fr = {};
-            string cur = worklist.pop();
-            bool present = byName.has(cur);
-            if (present) {
-                IRStructDef sd = m.struct_defs.get(byName.get(cur));
-                int fl = 0;
-                while (fl < sd.fields.len) {
-                    IRStructField field = sd.fields.get(fl);
-                    self.scanTextForKnownNames(field.c_type, knownNames, fr);
-                    self.collectStructRefsNode(field.array_size, knownNames, fr);
-                    fl = fl + 1;
-                }
-            }
-            Vector<string> frk = fr.keys();
-            int z = 0;
-            while (z < frk.len) {
-                string nm = frk.get(z);
-                if (!keepSet.has(nm)) { keepSet.put(nm, true); worklist.push(nm); }
-                z = z + 1;
-            }
-        }
-        if (keepSet.len == names.len) { return; }
-        Vector<IRStructDef> kept = [];
-        Vector<string> removed = [];
-        int s = 0;
-        while (s < m.struct_defs.len) {
-            IRStructDef sd = m.struct_defs.get(s);
-            if (keepSet.has(sd.name)) { kept.push(sd); }
-            else { removed.push(sd.name); }
-            s = s + 1;
-        }
-        m.struct_defs = kept;
-        Vector<IRStructForward> forwards = [];
-        int d = 0;
-        while (d < m.struct_forwards.len) {
-            IRStructForward declaration = m.struct_forwards.get(d);
-            if (!self.containsName(removed, declaration.name)) {
-                forwards.push(declaration);
-            }
-            d = d + 1;
-        }
-        m.struct_forwards = forwards;
-    }
+		Vector<string> worklist = refs.keys();
+		int w0 = 0;
+		while (w0 < worklist.len) { keepSet.put(worklist.get(w0), true); w0 = w0 + 1; }
+		while (worklist.len > 0) {
+			Map<string, bool> fr = {};
+			string cur = worklist.pop();
+			bool present = byName.has(cur);
+			if (present) {
+				IRStructDef sd = m.struct_defs.get(byName.get(cur));
+				int fl = 0;
+				while (fl < sd.fields.len) {
+					IRStructField field = sd.fields.get(fl);
+					self.scanTextForKnownNames(field.c_type, knownNames, fr);
+					self.collectStructRefsNode(field.array_size, knownNames, fr);
+					fl = fl + 1;
+				}
+			}
+			Vector<string> frk = fr.keys();
+			int z = 0;
+			while (z < frk.len) {
+				string nm = frk.get(z);
+				if (!keepSet.has(nm)) { keepSet.put(nm, true); worklist.push(nm); }
+				z = z + 1;
+			}
+		}
+		if (keepSet.len == names.len) { return; }
+		Vector<IRStructDef> kept = [];
+		Vector<string> removed = [];
+		int s = 0;
+		while (s < m.struct_defs.len) {
+			IRStructDef sd = m.struct_defs.get(s);
+			if (keepSet.has(sd.name)) { kept.push(sd); }
+			else { removed.push(sd.name); }
+			s = s + 1;
+		}
+		m.struct_defs = kept;
+		Vector<IRStructForward> forwards = [];
+		int d = 0;
+		while (d < m.struct_forwards.len) {
+			IRStructForward declaration = m.struct_forwards.get(d);
+			if (!self.containsName(removed, declaration.name)) {
+				forwards.push(declaration);
+			}
+			d = d + 1;
+		}
+		m.struct_forwards = forwards;
+	}
 
-    /* Normalize unused C parameters into explicit structured discards.
+	/* Normalize unused C parameters into explicit structured discards.
      * Mirrors IROptimizer._normalize_unused_parameters in the Python owner. */
 
-    private void collectParameterUses(IRNode node, Map<string, bool> names,
-                              Map<string, bool> references,
-                              Map<string, bool> declarations) {
-        if (node == null) { return; }
-        if (node.kind == IRK_VAR && names.has(node.name)) {
-            references.put(node.name, true);
-        } else if (node.kind == IRK_VAR_DECL && names.has(node.name)) {
-            declarations.put(node.name, true);
-        }
+	private void collectParameterUses(IRNode node, Map<string, bool> names, Map<string, bool> references, Map<string, bool> declarations) {
+		if (node == null) { return; }
+		if (node.kind == IRK_VAR && names.has(node.name)) {
+			references.put(node.name, true);
+		} else if (node.kind == IRK_VAR_DECL && names.has(node.name)) {
+			declarations.put(node.name, true);
+		}
 
-        self.collectParameterUses(node.left, names, references, declarations);
-        self.collectParameterUses(node.right, names, references, declarations);
-        self.collectParameterUses(node.operand, names, references, declarations);
-        self.collectParameterUses(node.expr, names, references, declarations);
-        self.collectParameterUses(node.obj, names, references, declarations);
-        self.collectParameterUses(node.index, names, references, declarations);
-        self.collectParameterUses(node.condition, names, references, declarations);
-        self.collectParameterUses(node.true_expr, names, references, declarations);
-        self.collectParameterUses(node.false_expr, names, references, declarations);
-        self.collectParameterUses(node.init, names, references, declarations);
-        self.collectParameterUses(node.value, names, references, declarations);
-        self.collectParameterUses(node.target, names, references, declarations);
-        self.collectParameterUses(node.then_block, names, references, declarations);
-        self.collectParameterUses(node.else_block, names, references, declarations);
-        self.collectParameterUses(node.body, names, references, declarations);
-        self.collectParameterUses(node.update, names, references, declarations);
-        self.collectParameterUses(node.result, names, references, declarations);
-        self.collectParameterUses(node.array_size, names, references, declarations);
-        int i = 0;
-        while (i < node.args.len) {
-            self.collectParameterUses(
-                node.args.get(i), names, references, declarations);
-            i = i + 1;
-        }
-        int s = 0;
-        while (s < node.stmts.len) {
-            self.collectParameterUses(
-                node.stmts.get(s), names, references, declarations);
-            s = s + 1;
-        }
-    }
+		self.collectParameterUses(node.left, names, references, declarations);
+		self.collectParameterUses(node.right, names, references, declarations);
+		self.collectParameterUses(node.operand, names, references, declarations);
+		self.collectParameterUses(node.expr, names, references, declarations);
+		self.collectParameterUses(node.obj, names, references, declarations);
+		self.collectParameterUses(node.index, names, references, declarations);
+		self.collectParameterUses(node.condition, names, references, declarations);
+		self.collectParameterUses(node.true_expr, names, references, declarations);
+		self.collectParameterUses(node.false_expr, names, references, declarations);
+		self.collectParameterUses(node.init, names, references, declarations);
+		self.collectParameterUses(node.value, names, references, declarations);
+		self.collectParameterUses(node.target, names, references, declarations);
+		self.collectParameterUses(node.then_block, names, references, declarations);
+		self.collectParameterUses(node.else_block, names, references, declarations);
+		self.collectParameterUses(node.body, names, references, declarations);
+		self.collectParameterUses(node.update, names, references, declarations);
+		self.collectParameterUses(node.result, names, references, declarations);
+		self.collectParameterUses(node.array_size, names, references, declarations);
+		int i = 0;
+		while (i < node.args.len) {
+			self.collectParameterUses(node.args.get(i), names, references, declarations);
+			i = i + 1;
+		}
+		int s = 0;
+		while (s < node.stmts.len) {
+			self.collectParameterUses(node.stmts.get(s), names, references, declarations);
+			s = s + 1;
+		}
+	}
 
-    private void normalizeUnusedParameters(IRModule module) {
-        int f = 0;
-        while (f < module.functions.len) {
-            IRFunction fn = module.functions.get(f);
-            if (fn.body != null && fn.params.len > 0) {
-                Map<string, bool> names = {};
-                int p = 0;
-                while (p < fn.params.len) {
-                    names.put(fn.params.get(p).name, true);
-                    p = p + 1;
-                }
+	private void normalizeUnusedParameters(IRModule module) {
+		int f = 0;
+		while (f < module.functions.len) {
+			IRFunction fn = module.functions.get(f);
+			if (fn.body != null && fn.params.len > 0) {
+				Map<string, bool> names = {};
+				int p = 0;
+				while (p < fn.params.len) {
+					names.put(fn.params.get(p).name, true);
+					p = p + 1;
+				}
 
-                Map<string, bool> references = {};
-                Map<string, bool> declarations = {};
-                self.collectParameterUses(
-                    fn.body, names, references, declarations);
+				Map<string, bool> references = {};
+				Map<string, bool> declarations = {};
+				self.collectParameterUses(fn.body, names, references, declarations);
 
-                Map<string, bool> existingDiscards = {};
-                int s = 0;
-                while (s < fn.body.stmts.len) {
-                    IRNode statement = fn.body.stmts.get(s);
-                    if (statement.kind == IRK_EXPR_STMT
-                            && statement.expr != null
-                            && statement.expr.kind == IRK_VAR) {
-                        existingDiscards.put(statement.expr.name, true);
-                    }
-                    s = s + 1;
-                }
+				Map<string, bool> existingDiscards = {};
+				int s = 0;
+				while (s < fn.body.stmts.len) {
+					IRNode statement = fn.body.stmts.get(s);
+					if (statement.kind == IRK_EXPR_STMT && statement.expr != null && statement.expr.kind == IRK_VAR) {
+						existingDiscards.put(statement.expr.name, true);
+					}
+					s = s + 1;
+				}
 
-                Vector<IRNode> prefix = [];
-                p = 0;
-                while (p < fn.params.len) {
-                    string name = fn.params.get(p).name;
-                    bool unused = !references.has(name)
-                        || declarations.has(name);
-                    if (unused && !existingDiscards.has(name)) {
-                        prefix.push(IRNode.expressionStatement(IRNode.variable(name)));
-                    }
-                    p = p + 1;
-                }
-                s = 0;
-                while (s < fn.body.stmts.len) {
-                    prefix.push(fn.body.stmts.get(s));
-                    s = s + 1;
-                }
-                fn.body.stmts = prefix;
-            }
-            f = f + 1;
-        }
-    }
+				Vector<IRNode> prefix = [];
+				p = 0;
+				while (p < fn.params.len) {
+					string name = fn.params.get(p).name;
+					bool unused = !references.has(name) || declarations.has(name);
+					if (unused && !existingDiscards.has(name)) {
+						prefix.push(IRNode.expressionStatement(IRNode.variable(name)));
+					}
+					p = p + 1;
+				}
+				s = 0;
+				while (s < fn.body.stmts.len) {
+					prefix.push(fn.body.stmts.get(s));
+					s = s + 1;
+				}
+				fn.body.stmts = prefix;
+			}
+			f = f + 1;
+		}
+	}
 }

@@ -3,935 +3,739 @@
 import std.map;
 import std.strings;
 import std.vector;
+
 import ../../model.btrc;
 import ./analysis.btrc;
 
 class SetjmpSafetyPlanner {
-    private SetjmpEffectAnalysis effectAnalysis;
-    private Map<string, SetjmpCallEffects> effectsByFunction;
+	private SetjmpEffectAnalysis effectAnalysis;
+	private Map<string, SetjmpCallEffects> effectsByFunction;
 
-    public SetjmpSafetyPlanner(SetjmpEffectAnalysis effectAnalysis) {
-        self.effectAnalysis = effectAnalysis;
-        self.effectsByFunction = {};
-    }
+	public SetjmpSafetyPlanner(SetjmpEffectAnalysis effectAnalysis) {
+		self.effectAnalysis = effectAnalysis;
+		self.effectsByFunction = {};
+	}
 
-    private IRNode? visibleAutomatic(string name, Vector<IRNode> visible) {
-        int index = visible.len - 1;
-        while (index >= 0) {
-            IRNode declaration = visible.get(index);
-            if (declaration.name == name) { return declaration; }
-            index = index - 1;
-        }
-        return null;
-    }
+	private IRNode? visibleAutomatic(string name, Vector<IRNode> visible) {
+		int index = visible.len - 1;
+		while (index >= 0) {
+			IRNode declaration = visible.get(index);
+			if (declaration.name == name) { return declaration; }
+			index = index - 1;
+		}
+		return null;
+	}
 
-    private IRParam? visibleParameter(string name, Vector<IRParam> params) {
-        int index = 0;
-        while (index < params.len) {
-            IRParam parameter = params.get(index);
-            if (parameter.name == name) { return parameter; }
-            index = index + 1;
-        }
-        return null;
-    }
+	private IRParam? visibleParameter(string name, Vector<IRParam> params) {
+		int index = 0;
+		while (index < params.len) {
+			IRParam parameter = params.get(index);
+			if (parameter.name == name) { return parameter; }
+			index = index + 1;
+		}
+		return null;
+	}
 
-    private void addVisible(Vector<IRNode> visible, IRNode? declaration) {
-        if (declaration != null && declaration.kind == IRK_VAR_DECL) {
-            visible.push(declaration);
-        }
-    }
+	private void addVisible(Vector<IRNode> visible, IRNode? declaration) {
+		if (declaration != null && declaration.kind == IRK_VAR_DECL) {
+			visible.push(declaration);
+		}
+	}
 
-    private void rejectAlias(string name, bool inferred) {
-        string reason = "has explicitly volatile storage";
-        if (inferred) {
-            reason = "is modified across try/throw and requires volatile storage";
-        }
-        fprintf(stderr,
-            "error: storage object '%s' %s; its address or array decay requires unsupported layered pointer qualifiers\n",
-            name, reason);
-        exit(1);
-    }
+	private void rejectAlias(string name, bool inferred) {
+		string reason = "has explicitly volatile storage";
+		if (inferred) {
+			reason = "is modified across try/throw and requires volatile storage";
+		}
+		fprintf(stderr, "error: storage object '%s' %s; its address or array decay requires unsupported layered pointer qualifiers\n", name, reason);
+		exit(1);
+	}
 
-    private void validateExpression(IRNode? node,
-            Vector<IRNode> visible, Vector<IRParam> params,
-            int parentKind, string parentField) {
-        if (node == null) { return; }
-        if (node.kind == IRK_STMT_EXPR) {
-            Vector<IRNode> local = self.copyVisible(visible);
-            int statementIndex = 0;
-            while (statementIndex < node.stmts.len) {
-                self.validateStatement(
-                    node.stmts.get(statementIndex), local, params);
-                statementIndex = statementIndex + 1;
-            }
-            self.validateExpression(
-                node.result, local, params, node.kind, "result");
-            return;
-        }
-        if (node.kind == IRK_ADDRESS_OF && node.source_address
-                && parentKind != IRK_SIZEOF) {
-            string root = IRNode.directStorageRoot(node.expr);
-            if (root != "" && !self.compilerOwnedStorage(root)) {
-                IRNode? declaration = self.visibleAutomatic(root, visible);
-                if (declaration != null && declaration.is_volatile
-                        && declaration.setjmp_inferred_volatile) {
-                    self.rejectAlias(
-                        root, true);
-                }
-                if (declaration == null) {
-                    IRParam? parameter = self.visibleParameter(root, params);
-                    if (parameter != null && parameter.is_volatile
-                            && parameter.setjmp_inferred_volatile) {
-                        self.rejectAlias(
-                            root, true);
-                    }
-                }
-            }
-        }
-        if (node.kind == IRK_VAR && !self.compilerOwnedStorage(node.name)) {
-            IRNode? declaration = self.visibleAutomatic(node.name, visible);
-            bool safeIndex = parentKind == IRK_INDEX && parentField == "obj";
-            if (declaration != null && declaration.is_volatile
-                    && declaration.setjmp_inferred_volatile
-                    && declaration.is_array_decl
-                    && parentKind != IRK_SIZEOF && !safeIndex) {
-                self.rejectAlias(node.name, true);
-            }
-            return;
-        }
-        if (node.kind == IRK_FIELD_ACCESS && node.array_storage_known
-                && node.array_storage_root != ""
-                && !self.compilerOwnedStorage(node.array_storage_root)
-                && parentKind != IRK_SIZEOF
-                && !(parentKind == IRK_INDEX && parentField == "obj")) {
-            IRNode? declaration = self.visibleAutomatic(
-                node.array_storage_root, visible);
-            if (declaration != null && declaration.is_volatile
-                    && declaration.setjmp_inferred_volatile) {
-                self.rejectAlias(
-                    node.array_storage_root, true);
-            }
-            if (declaration == null) {
-                IRParam? parameter = self.visibleParameter(
-                    node.array_storage_root, params);
-                if (parameter != null && parameter.is_volatile
-                        && parameter.setjmp_inferred_volatile) {
-                    self.rejectAlias(
-                        node.array_storage_root, true);
-                }
-            }
-        }
-        self.validateExpression(
-            node.left, visible, params, node.kind, "left");
-        self.validateExpression(
-            node.right, visible, params, node.kind, "right");
-        self.validateExpression(
-            node.operand, visible, params, node.kind, "operand");
-        self.validateExpression(
-            node.expr, visible, params, node.kind, "expr");
-        self.validateExpression(
-            node.obj, visible, params, node.kind, "obj");
-        self.validateExpression(
-            node.index, visible, params, node.kind, "index");
-        self.validateExpression(
-            node.condition, visible, params, node.kind, "condition");
-        self.validateExpression(
-            node.true_expr, visible, params, node.kind, "true_expr");
-        self.validateExpression(
-            node.false_expr, visible, params, node.kind, "false_expr");
-        self.validateExpression(
-            node.array_size, visible, params, node.kind, "array_size");
-        self.validateExpression(
-            node.init, visible, params, node.kind, "init");
-        self.validateExpression(
-            node.value, visible, params, node.kind, "value");
-        self.validateExpression(
-            node.target, visible, params, node.kind, "target");
-        self.validateExpression(
-            node.update, visible, params, node.kind, "update");
-        self.validateExpression(
-            node.result, visible, params, node.kind, "result");
-        int index = 0;
-        while (index < node.args.len) {
-            self.validateExpression(
-                node.args.get(index), visible, params, node.kind, "args");
-            index = index + 1;
-        }
-    }
+	private void validateExpression(IRNode? node, Vector<IRNode> visible, Vector<IRParam> params, int parentKind, string parentField) {
+		if (node == null) { return; }
+		if (node.kind == IRK_STMT_EXPR) {
+			Vector<IRNode> local = self.copyVisible(visible);
+			int statementIndex = 0;
+			while (statementIndex < node.stmts.len) {
+				self.validateStatement(node.stmts.get(statementIndex), local, params);
+				statementIndex = statementIndex + 1;
+			}
+			self.validateExpression(node.result, local, params, node.kind, "result");
+			return;
+		}
+		if (node.kind == IRK_ADDRESS_OF && node.source_address && parentKind != IRK_SIZEOF) {
+			string root = IRNode.directStorageRoot(node.expr);
+			if (root != "" && !self.compilerOwnedStorage(root)) {
+				IRNode? declaration = self.visibleAutomatic(root, visible);
+				if (declaration != null && declaration.is_volatile && declaration.setjmp_inferred_volatile) {
+					self.rejectAlias(root, true);
+				}
+				if (declaration == null) {
+					IRParam? parameter = self.visibleParameter(root, params);
+					if (parameter != null && parameter.is_volatile && parameter.setjmp_inferred_volatile) {
+						self.rejectAlias(root, true);
+					}
+				}
+			}
+		}
+		if (node.kind == IRK_VAR && !self.compilerOwnedStorage(node.name)) {
+			IRNode? declaration = self.visibleAutomatic(node.name, visible);
+			bool safeIndex = parentKind == IRK_INDEX && parentField == "obj";
+			if (declaration != null && declaration.is_volatile && declaration.setjmp_inferred_volatile && declaration.is_array_decl && parentKind != IRK_SIZEOF && !safeIndex) {
+				self.rejectAlias(node.name, true);
+			}
+			return;
+		}
+		if (node.kind == IRK_FIELD_ACCESS && node.array_storage_known && node.array_storage_root != "" && !self.compilerOwnedStorage(node.array_storage_root) && parentKind != IRK_SIZEOF && !(parentKind == IRK_INDEX && parentField == "obj")) {
+			IRNode? declaration = self.visibleAutomatic(node.array_storage_root, visible);
+			if (declaration != null && declaration.is_volatile && declaration.setjmp_inferred_volatile) {
+				self.rejectAlias(node.array_storage_root, true);
+			}
+			if (declaration == null) {
+				IRParam? parameter = self.visibleParameter(node.array_storage_root, params);
+				if (parameter != null && parameter.is_volatile && parameter.setjmp_inferred_volatile) {
+					self.rejectAlias(node.array_storage_root, true);
+				}
+			}
+		}
+		self.validateExpression(node.left, visible, params, node.kind, "left");
+		self.validateExpression(node.right, visible, params, node.kind, "right");
+		self.validateExpression(node.operand, visible, params, node.kind, "operand");
+		self.validateExpression(node.expr, visible, params, node.kind, "expr");
+		self.validateExpression(node.obj, visible, params, node.kind, "obj");
+		self.validateExpression(node.index, visible, params, node.kind, "index");
+		self.validateExpression(node.condition, visible, params, node.kind, "condition");
+		self.validateExpression(node.true_expr, visible, params, node.kind, "true_expr");
+		self.validateExpression(node.false_expr, visible, params, node.kind, "false_expr");
+		self.validateExpression(node.array_size, visible, params, node.kind, "array_size");
+		self.validateExpression(node.init, visible, params, node.kind, "init");
+		self.validateExpression(node.value, visible, params, node.kind, "value");
+		self.validateExpression(node.target, visible, params, node.kind, "target");
+		self.validateExpression(node.update, visible, params, node.kind, "update");
+		self.validateExpression(node.result, visible, params, node.kind, "result");
+		int index = 0;
+		while (index < node.args.len) {
+			self.validateExpression(node.args.get(index), visible, params, node.kind, "args");
+			index = index + 1;
+		}
+	}
 
-    private void validateBlock(IRNode? block,
-            Vector<IRNode> inherited, Vector<IRParam> params) {
-        if (block == null) { return; }
-        Vector<IRNode> visible = self.copyVisible(inherited);
-        int index = 0;
-        while (index < block.stmts.len) {
-            self.validateStatement(
-                block.stmts.get(index), visible, params);
-            index = index + 1;
-        }
-    }
+	private void validateBlock(IRNode? block, Vector<IRNode> inherited, Vector<IRParam> params) {
+		if (block == null) { return; }
+		Vector<IRNode> visible = self.copyVisible(inherited);
+		int index = 0;
+		while (index < block.stmts.len) {
+			self.validateStatement(block.stmts.get(index), visible, params);
+			index = index + 1;
+		}
+	}
 
-    private void validateStatement(IRNode statement,
-            Vector<IRNode> visible, Vector<IRParam> params) {
-        if (statement.kind == IRK_VAR_DECL) {
-            self.validateExpression(
-                statement.array_size, visible, params, statement.kind, "array_size");
-            self.addVisible(visible, statement);
-            self.validateExpression(
-                statement.init, visible, params, statement.kind, "init");
-            return;
-        }
-        if (statement.kind == IRK_IF) {
-            self.validateExpression(
-                statement.condition, visible, params, statement.kind, "condition");
-            self.validateBlock(statement.then_block, visible, params);
-            self.validateBlock(statement.else_block, visible, params);
-            return;
-        }
-        if (statement.kind == IRK_WHILE || statement.kind == IRK_DO_WHILE) {
-            self.validateExpression(
-                statement.condition, visible, params, statement.kind, "condition");
-            self.validateBlock(statement.body, visible, params);
-            return;
-        }
-        if (statement.kind == IRK_FOR) {
-            Vector<IRNode> local = self.copyVisible(visible);
-            if (statement.init != null) {
-                self.validateStatement(statement.init, local, params);
-            }
-            self.validateExpression(
-                statement.condition, local, params, statement.kind, "condition");
-            self.validateExpression(
-                statement.update, local, params, statement.kind, "update");
-            self.validateBlock(statement.body, local, params);
-            return;
-        }
-        if (statement.kind == IRK_SWITCH) {
-            self.validateExpression(
-                statement.value, visible, params, statement.kind, "value");
-            int caseIndex = 0;
-            while (caseIndex < statement.args.len) {
-                IRNode caseNode = statement.args.get(caseIndex);
-                Vector<IRNode> local = self.copyVisible(visible);
-                self.validateExpression(
-                    caseNode.value, local, params, caseNode.kind, "value");
-                int childIndex = 0;
-                while (childIndex < caseNode.stmts.len) {
-                    self.validateStatement(
-                        caseNode.stmts.get(childIndex), local, params);
-                    childIndex = childIndex + 1;
-                }
-                caseIndex = caseIndex + 1;
-            }
-            return;
-        }
-        if (statement.kind == IRK_BLOCK) {
-            self.validateBlock(statement, visible, params);
-            return;
-        }
-        self.validateExpression(
-            statement, visible, params, IRK_NONE, "");
-    }
+	private void validateStatement(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params) {
+		if (statement.kind == IRK_VAR_DECL) {
+			self.validateExpression(statement.array_size, visible, params, statement.kind, "array_size");
+			self.addVisible(visible, statement);
+			self.validateExpression(statement.init, visible, params, statement.kind, "init");
+			return;
+		}
+		if (statement.kind == IRK_IF) {
+			self.validateExpression(statement.condition, visible, params, statement.kind, "condition");
+			self.validateBlock(statement.then_block, visible, params);
+			self.validateBlock(statement.else_block, visible, params);
+			return;
+		}
+		if (statement.kind == IRK_WHILE || statement.kind == IRK_DO_WHILE) {
+			self.validateExpression(statement.condition, visible, params, statement.kind, "condition");
+			self.validateBlock(statement.body, visible, params);
+			return;
+		}
+		if (statement.kind == IRK_FOR) {
+			Vector<IRNode> local = self.copyVisible(visible);
+			if (statement.init != null) {
+				self.validateStatement(statement.init, local, params);
+			}
+			self.validateExpression(statement.condition, local, params, statement.kind, "condition");
+			self.validateExpression(statement.update, local, params, statement.kind, "update");
+			self.validateBlock(statement.body, local, params);
+			return;
+		}
+		if (statement.kind == IRK_SWITCH) {
+			self.validateExpression(statement.value, visible, params, statement.kind, "value");
+			int caseIndex = 0;
+			while (caseIndex < statement.args.len) {
+				IRNode caseNode = statement.args.get(caseIndex);
+				Vector<IRNode> local = self.copyVisible(visible);
+				self.validateExpression(caseNode.value, local, params, caseNode.kind, "value");
+				int childIndex = 0;
+				while (childIndex < caseNode.stmts.len) {
+					self.validateStatement(caseNode.stmts.get(childIndex), local, params);
+					childIndex = childIndex + 1;
+				}
+				caseIndex = caseIndex + 1;
+			}
+			return;
+		}
+		if (statement.kind == IRK_BLOCK) {
+			self.validateBlock(statement, visible, params);
+			return;
+		}
+		self.validateExpression(statement, visible, params, IRK_NONE, "");
+	}
 
-    private void validateFunction(IRFunction definition) {
-        Vector<IRNode> visible = [];
-        self.validateBlock(
-            definition.body, visible, definition.params);
-    }
+	private void validateFunction(IRFunction definition) {
+		Vector<IRNode> visible = [];
+		self.validateBlock(definition.body, visible, definition.params);
+	}
 
-    private void validateGlobals(IRModule module) {
-        Vector<IRNode> visible = [];
-        Vector<IRParam> params = [];
-        int index = 0;
-        while (index < module.global_decls.len) {
-            IRGlobalDecl declaration = module.global_decls.get(index);
-            self.validateExpression(
-                declaration.array_size, visible, params, IRK_NONE, "array_size");
-            self.validateExpression(
-                declaration.init, visible, params, IRK_NONE, "init");
-            index = index + 1;
-        }
-    }
+	private void validateGlobals(IRModule module) {
+		Vector<IRNode> visible = [];
+		Vector<IRParam> params = [];
+		int index = 0;
+		while (index < module.global_decls.len) {
+			IRGlobalDecl declaration = module.global_decls.get(index);
+			self.validateExpression(declaration.array_size, visible, params, IRK_NONE, "array_size");
+			self.validateExpression(declaration.init, visible, params, IRK_NONE, "init");
+			index = index + 1;
+		}
+	}
 
+	private bool compilerOwnedStorage(string name) { return name.startsWith("__btrc_") && !name.startsWith("__btrc_source_"); }
 
-    private bool compilerOwnedStorage(string name) {
-        return name.startsWith("__btrc_")
-            && !name.startsWith("__btrc_source_");
-    }
+	private Map<string, bool> copyNameSet(Map<string, bool> source) {
+		Map<string, bool> result = {};
+		Vector<string> names = source.keys();
+		int index = 0;
+		while (index < names.len) {
+			result.put(names.get(index), true);
+			index = index + 1;
+		}
+		return result;
+	}
 
+	private string storageKey(SetjmpStorage storage) { return Strings.fromInt(storage.identity); }
 
-    private Map<string, bool> copyNameSet(Map<string, bool> source) {
-        Map<string, bool> result = {};
-        Vector<string> names = source.keys();
-        int index = 0;
-        while (index < names.len) {
-            result.put(names.get(index), true);
-            index = index + 1;
-        }
-        return result;
-    }
+	private void recordNodeWrites(IRNode? node, Map<string, bool> bound, Map<string, bool> modified, SetjmpCallEffects effects) {
+		Vector<SetjmpOrigin> writes = effects.flow.writesFor(node);
+		int index = 0;
+		while (index < writes.len) {
+			SetjmpOrigin origin = writes.get(index);
+			string key = self.storageKey(origin.storage);
+			if (origin.depth == 0 && !bound.has(key)) {
+				modified.put(key, true);
+			}
+			index = index + 1;
+		}
+	}
 
-    private string storageKey(SetjmpStorage storage) {
-        return Strings.fromInt(storage.identity);
-    }
+	private void collectExpressionMutations(IRNode? node, Map<string, bool> bound, Map<string, bool> modified, SetjmpCallEffects effects) {
+		if (node == null) { return; }
+		self.recordNodeWrites(node, bound, modified, effects);
+		if (node.kind == IRK_SIZEOF) { return; }
+		if (node.kind == IRK_STMT_EXPR) {
+			Map<string, bool> local = self.copyNameSet(bound);
+			self.collectMutationSequence(node.stmts, local, modified, effects);
+			self.collectExpressionMutations(node.result, local, modified, effects);
+			return;
+		}
+		self.collectExpressionMutations(node.left, bound, modified, effects);
+		self.collectExpressionMutations(node.right, bound, modified, effects);
+		self.collectExpressionMutations(node.operand, bound, modified, effects);
+		self.collectExpressionMutations(node.expr, bound, modified, effects);
+		self.collectExpressionMutations(node.obj, bound, modified, effects);
+		self.collectExpressionMutations(node.index, bound, modified, effects);
+		self.collectExpressionMutations(node.condition, bound, modified, effects);
+		self.collectExpressionMutations(node.true_expr, bound, modified, effects);
+		self.collectExpressionMutations(node.false_expr, bound, modified, effects);
+		self.collectExpressionMutations(node.init, bound, modified, effects);
+		self.collectExpressionMutations(node.value, bound, modified, effects);
+		self.collectExpressionMutations(node.target, bound, modified, effects);
+		self.collectExpressionMutations(node.update, bound, modified, effects);
+		self.collectExpressionMutations(node.result, bound, modified, effects);
+		self.collectExpressionMutations(node.array_size, bound, modified, effects);
+		int index = 0;
+		while (index < node.args.len) {
+			self.collectExpressionMutations(node.args.get(index), bound, modified, effects);
+			index = index + 1;
+		}
+	}
 
-    private void recordNodeWrites(IRNode? node, Map<string, bool> bound,
-            Map<string, bool> modified, SetjmpCallEffects effects) {
-        Vector<SetjmpOrigin> writes = effects.flow.writesFor(node);
-        int index = 0;
-        while (index < writes.len) {
-            SetjmpOrigin origin = writes.get(index);
-            string key = self.storageKey(origin.storage);
-            if (origin.depth == 0 && !bound.has(key)) {
-                modified.put(key, true);
-            }
-            index = index + 1;
-        }
-    }
+	private void collectMutationBlock(IRNode? block, Map<string, bool> inherited, Map<string, bool> modified, SetjmpCallEffects effects) {
+		if (block == null) { return; }
+		Map<string, bool> bound = self.copyNameSet(inherited);
+		self.collectMutationSequence(block.stmts, bound, modified, effects);
+	}
 
-    private void collectExpressionMutations(IRNode? node,
-            Map<string, bool> bound, Map<string, bool> modified,
-            SetjmpCallEffects effects) {
-        if (node == null) { return; }
-        self.recordNodeWrites(node, bound, modified, effects);
-        if (node.kind == IRK_SIZEOF) { return; }
-        if (node.kind == IRK_STMT_EXPR) {
-            Map<string, bool> local = self.copyNameSet(bound);
-            self.collectMutationSequence(
-                node.stmts, local, modified, effects);
-            self.collectExpressionMutations(
-                node.result, local, modified, effects);
-            return;
-        }
-        self.collectExpressionMutations(node.left, bound, modified, effects);
-        self.collectExpressionMutations(node.right, bound, modified, effects);
-        self.collectExpressionMutations(node.operand, bound, modified, effects);
-        self.collectExpressionMutations(node.expr, bound, modified, effects);
-        self.collectExpressionMutations(node.obj, bound, modified, effects);
-        self.collectExpressionMutations(node.index, bound, modified, effects);
-        self.collectExpressionMutations(node.condition, bound, modified, effects);
-        self.collectExpressionMutations(node.true_expr, bound, modified, effects);
-        self.collectExpressionMutations(node.false_expr, bound, modified, effects);
-        self.collectExpressionMutations(node.init, bound, modified, effects);
-        self.collectExpressionMutations(node.value, bound, modified, effects);
-        self.collectExpressionMutations(node.target, bound, modified, effects);
-        self.collectExpressionMutations(node.update, bound, modified, effects);
-        self.collectExpressionMutations(node.result, bound, modified, effects);
-        self.collectExpressionMutations(node.array_size, bound, modified, effects);
-        int index = 0;
-        while (index < node.args.len) {
-            self.collectExpressionMutations(
-                node.args.get(index), bound, modified, effects);
-            index = index + 1;
-        }
-    }
+	private void collectMutationSequence(Vector<IRNode> statements, Map<string, bool> bound, Map<string, bool> modified, SetjmpCallEffects effects) {
+		int index = 0;
+		while (index < statements.len) {
+			self.collectStatementMutations(statements.get(index), bound, modified, effects);
+			index = index + 1;
+		}
+	}
 
-    private void collectMutationBlock(IRNode? block, Map<string, bool> inherited,
-            Map<string, bool> modified, SetjmpCallEffects effects) {
-        if (block == null) { return; }
-        Map<string, bool> bound = self.copyNameSet(inherited);
-        self.collectMutationSequence(block.stmts, bound, modified, effects);
-    }
+	private void collectStatementMutations(IRNode statement, Map<string, bool> bound, Map<string, bool> modified, SetjmpCallEffects effects) {
+		self.recordNodeWrites(statement, bound, modified, effects);
+		if (statement.kind == IRK_VAR_DECL) {
+			self.collectExpressionMutations(statement.array_size, bound, modified, effects);
+			SetjmpStorage? storage = effects.flow.declarationStorage(statement);
+			if (storage != null) { bound.put(self.storageKey(storage), true); }
+			self.collectExpressionMutations(statement.init, bound, modified, effects);
+			return;
+		}
+		if (statement.kind == IRK_IF) {
+			self.collectExpressionMutations(statement.condition, bound, modified, effects);
+			self.collectMutationBlock(statement.then_block, bound, modified, effects);
+			self.collectMutationBlock(statement.else_block, bound, modified, effects);
+			return;
+		}
+		if (statement.kind == IRK_WHILE || statement.kind == IRK_DO_WHILE) {
+			self.collectExpressionMutations(statement.condition, bound, modified, effects);
+			self.collectMutationBlock(statement.body, bound, modified, effects);
+			return;
+		}
+		if (statement.kind == IRK_FOR) {
+			Map<string, bool> local = self.copyNameSet(bound);
+			if (statement.init != null && statement.init.kind == IRK_VAR_DECL) {
+				self.collectStatementMutations(statement.init, local, modified, effects);
+			} else {
+				self.collectExpressionMutations(statement.init, local, modified, effects);
+			}
+			self.collectExpressionMutations(statement.condition, local, modified, effects);
+			self.collectExpressionMutations(statement.update, local, modified, effects);
+			self.collectMutationBlock(statement.body, local, modified, effects);
+			return;
+		}
+		if (statement.kind == IRK_SWITCH) {
+			self.collectExpressionMutations(statement.value, bound, modified, effects);
+			int index = 0;
+			while (index < statement.args.len) {
+				IRNode caseNode = statement.args.get(index);
+				Map<string, bool> local = self.copyNameSet(bound);
+				self.collectExpressionMutations(caseNode.value, local, modified, effects);
+				self.collectMutationSequence(caseNode.stmts, local, modified, effects);
+				index = index + 1;
+			}
+			return;
+		}
+		if (statement.kind == IRK_BLOCK) {
+			self.collectMutationBlock(statement, bound, modified, effects);
+			return;
+		}
+		self.collectExpressionMutations(statement, bound, modified, effects);
+	}
 
-    private void collectMutationSequence(Vector<IRNode> statements,
-            Map<string, bool> bound, Map<string, bool> modified,
-            SetjmpCallEffects effects) {
-        int index = 0;
-        while (index < statements.len) {
-            self.collectStatementMutations(
-                statements.get(index), bound, modified, effects);
-            index = index + 1;
-        }
-    }
+	private Map<string, bool> mutatedNames(IRNode? block, SetjmpCallEffects effects) {
+		Map<string, bool> modified = {};
+		Map<string, bool> bound = {};
+		self.collectMutationBlock(block, bound, modified, effects);
+		return modified;
+	}
 
-    private void collectStatementMutations(IRNode statement,
-            Map<string, bool> bound, Map<string, bool> modified,
-            SetjmpCallEffects effects) {
-        self.recordNodeWrites(statement, bound, modified, effects);
-        if (statement.kind == IRK_VAR_DECL) {
-            self.collectExpressionMutations(
-                statement.array_size, bound, modified, effects);
-            SetjmpStorage? storage =
-                effects.flow.declarationStorage(statement);
-            if (storage != null) { bound.put(self.storageKey(storage), true); }
-            self.collectExpressionMutations(
-                statement.init, bound, modified, effects);
-            return;
-        }
-        if (statement.kind == IRK_IF) {
-            self.collectExpressionMutations(
-                statement.condition, bound, modified, effects);
-            self.collectMutationBlock(
-                statement.then_block, bound, modified, effects);
-            self.collectMutationBlock(
-                statement.else_block, bound, modified, effects);
-            return;
-        }
-        if (statement.kind == IRK_WHILE || statement.kind == IRK_DO_WHILE) {
-            self.collectExpressionMutations(
-                statement.condition, bound, modified, effects);
-            self.collectMutationBlock(
-                statement.body, bound, modified, effects);
-            return;
-        }
-        if (statement.kind == IRK_FOR) {
-            Map<string, bool> local = self.copyNameSet(bound);
-            if (statement.init != null && statement.init.kind == IRK_VAR_DECL) {
-                self.collectStatementMutations(
-                    statement.init, local, modified, effects);
-            } else {
-                self.collectExpressionMutations(
-                    statement.init, local, modified, effects);
-            }
-            self.collectExpressionMutations(
-                statement.condition, local, modified, effects);
-            self.collectExpressionMutations(
-                statement.update, local, modified, effects);
-            self.collectMutationBlock(
-                statement.body, local, modified, effects);
-            return;
-        }
-        if (statement.kind == IRK_SWITCH) {
-            self.collectExpressionMutations(
-                statement.value, bound, modified, effects);
-            int index = 0;
-            while (index < statement.args.len) {
-                IRNode caseNode = statement.args.get(index);
-                Map<string, bool> local = self.copyNameSet(bound);
-                self.collectExpressionMutations(
-                    caseNode.value, local, modified, effects);
-                self.collectMutationSequence(
-                    caseNode.stmts, local, modified, effects);
-                index = index + 1;
-            }
-            return;
-        }
-        if (statement.kind == IRK_BLOCK) {
-            self.collectMutationBlock(statement, bound, modified, effects);
-            return;
-        }
-        self.collectExpressionMutations(statement, bound, modified, effects);
-    }
+	private Map<string, bool> mutatedSequenceAfter(Vector<IRNode> statements, int start, SetjmpCallEffects effects) {
+		Map<string, bool> modified = {};
+		Map<string, bool> bound = {};
+		int index = start;
+		while (index < statements.len) {
+			self.collectStatementMutations(statements.get(index), bound, modified, effects);
+			index = index + 1;
+		}
+		return modified;
+	}
 
-    private Map<string, bool> mutatedNames(
-            IRNode? block, SetjmpCallEffects effects) {
-        Map<string, bool> modified = {};
-        Map<string, bool> bound = {};
-        self.collectMutationBlock(block, bound, modified, effects);
-        return modified;
-    }
+	private Map<string, bool> loopMutatedNames(IRNode loop, SetjmpCallEffects effects) {
+		IRNode block = IRNode();
+		block.kind = IRK_BLOCK;
+		if (loop.condition != null) {
+			block.stmts.push(IRNode.expressionStatement(loop.condition));
+		}
+		if (loop.update != null) { block.stmts.push(IRNode.expressionStatement(loop.update)); }
+		if (loop.body != null) { block.stmts.push(loop.body); }
+		return self.mutatedNames(block, effects);
+	}
 
-    private Map<string, bool> mutatedSequenceAfter(Vector<IRNode> statements,
-            int start, SetjmpCallEffects effects) {
-        Map<string, bool> modified = {};
-        Map<string, bool> bound = {};
-        int index = start;
-        while (index < statements.len) {
-            self.collectStatementMutations(
-                statements.get(index), bound, modified, effects);
-            index = index + 1;
-        }
-        return modified;
-    }
+	private bool containsSetjmp(IRNode? node) {
+		if (node == null) { return false; }
+		if (node.kind == IRK_CALL && node.callee == "setjmp") { return true; }
+		if (self.containsSetjmp(node.left) || self.containsSetjmp(node.right) || self.containsSetjmp(node.operand) || self.containsSetjmp(node.expr) || self.containsSetjmp(node.obj) || self.containsSetjmp(node.index) || self.containsSetjmp(node.condition) || self.containsSetjmp(node.true_expr) || self.containsSetjmp(node.false_expr) || self.containsSetjmp(node.init) || self.containsSetjmp(node.value) || self.containsSetjmp(node.target) || self.containsSetjmp(node.update) || self.containsSetjmp(node.result) || self.containsSetjmp(node.array_size) || self.containsSetjmp(node.then_block) || self.containsSetjmp(node.else_block) || self.containsSetjmp(node.body)) { return true; }
+		int index = 0;
+		while (index < node.args.len) {
+			if (self.containsSetjmp(node.args.get(index))) { return true; }
+			index = index + 1;
+		}
+		index = 0;
+		while (index < node.stmts.len) {
+			if (self.containsSetjmp(node.stmts.get(index))) { return true; }
+			index = index + 1;
+		}
+		return false;
+	}
 
-    private Map<string, bool> loopMutatedNames(
-            IRNode loop, SetjmpCallEffects effects) {
-        IRNode block = IRNode();
-        block.kind = IRK_BLOCK;
-        if (loop.condition != null) {
-            block.stmts.push(IRNode.expressionStatement(loop.condition));
-        }
-        if (loop.update != null) { block.stmts.push(IRNode.expressionStatement(loop.update)); }
-        if (loop.body != null) { block.stmts.push(loop.body); }
-        return self.mutatedNames(block, effects);
-    }
+	private void rejectUnmodelledCaptures(IRFunction definition, SetjmpCallEffects effects) {
+		if (!self.containsSetjmp(definition.body)) { return; }
+		int index = 0;
+		while (index < effects.flow.unknownPointerValues.len) {
+			SetjmpStorage storage = effects.flow.unknownPointerValues.get(index);
+			fprintf(stderr, "error: pointer storage object '%s' receives an unmodelled " + "pointer value in a function containing try/setjmp\n", storage.name);
+			exit(1);
+		}
+		Vector<SetjmpOrigin> escaped = effects.flow.copyOrigins(effects.flow.captures);
+		index = 0;
+		while (index < effects.flow.returns.len) {
+			SetjmpOrigin origin = effects.flow.returns.get(index);
+			if (origin.depth == 0) { effects.flow.addOrigin(escaped, origin); }
+			index = index + 1;
+		}
+		index = 0;
+		while (index < escaped.len) {
+			SetjmpOrigin origin = escaped.get(index);
+			SetjmpStorage storage = origin.storage;
+			if (origin.depth == 0 && origin.sourceExposed && storage.automatic() && !storage.compilerOwned) {
+				fprintf(stderr, "error: automatic storage object '%s' escapes into " + "unmodelled storage in a function containing try/setjmp\n", storage.name);
+				exit(1);
+			}
+			index = index + 1;
+		}
+	}
 
-    private bool containsSetjmp(IRNode? node) {
-        if (node == null) { return false; }
-        if (node.kind == IRK_CALL && node.callee == "setjmp") { return true; }
-        if (self.containsSetjmp(node.left)
-                || self.containsSetjmp(node.right)
-                || self.containsSetjmp(node.operand)
-                || self.containsSetjmp(node.expr)
-                || self.containsSetjmp(node.obj)
-                || self.containsSetjmp(node.index)
-                || self.containsSetjmp(node.condition)
-                || self.containsSetjmp(node.true_expr)
-                || self.containsSetjmp(node.false_expr)
-                || self.containsSetjmp(node.init)
-                || self.containsSetjmp(node.value)
-                || self.containsSetjmp(node.target)
-                || self.containsSetjmp(node.update)
-                || self.containsSetjmp(node.result)
-                || self.containsSetjmp(node.array_size)
-                || self.containsSetjmp(node.then_block)
-                || self.containsSetjmp(node.else_block)
-                || self.containsSetjmp(node.body)) { return true; }
-        int index = 0;
-        while (index < node.args.len) {
-            if (self.containsSetjmp(node.args.get(index))) { return true; }
-            index = index + 1;
-        }
-        index = 0;
-        while (index < node.stmts.len) {
-            if (self.containsSetjmp(node.stmts.get(index))) { return true; }
-            index = index + 1;
-        }
-        return false;
-    }
+	private Vector<IRNode> copyVisible(Vector<IRNode> source) {
+		Vector<IRNode> result = [];
+		int index = 0;
+		while (index < source.len) {
+			result.push(source.get(index));
+			index = index + 1;
+		}
+		return result;
+	}
 
-    private void rejectUnmodelledCaptures(
-            IRFunction definition, SetjmpCallEffects effects) {
-        if (!self.containsSetjmp(definition.body)) { return; }
-        int index = 0;
-        while (index < effects.flow.unknownPointerValues.len) {
-            SetjmpStorage storage =
-                effects.flow.unknownPointerValues.get(index);
-            fprintf(stderr,
-                "error: pointer storage object '%s' receives an unmodelled "
-                + "pointer value in a function containing try/setjmp\n",
-                storage.name);
-            exit(1);
-        }
-        Vector<SetjmpOrigin> escaped =
-            effects.flow.copyOrigins(effects.flow.captures);
-        index = 0;
-        while (index < effects.flow.returns.len) {
-            SetjmpOrigin origin = effects.flow.returns.get(index);
-            if (origin.depth == 0) { effects.flow.addOrigin(escaped, origin); }
-            index = index + 1;
-        }
-        index = 0;
-        while (index < escaped.len) {
-            SetjmpOrigin origin = escaped.get(index);
-            SetjmpStorage storage = origin.storage;
-            if (origin.depth == 0 && origin.sourceExposed
-                    && storage.automatic() && !storage.compilerOwned) {
-                fprintf(stderr,
-                    "error: automatic storage object '%s' escapes into "
-                    + "unmodelled storage in a function containing try/setjmp\n",
-                    storage.name);
-                exit(1);
-            }
-            index = index + 1;
-        }
-    }
+	private string visibleDeclarationKey(IRNode declaration, SetjmpCallEffects effects) {
+		SetjmpStorage? storage = effects.flow.declarationStorage(declaration);
+		return storage == null ? "" : self.storageKey(storage);
+	}
 
-    private Vector<IRNode> copyVisible(Vector<IRNode> source) {
-        Vector<IRNode> result = [];
-        int index = 0;
-        while (index < source.len) {
-            result.push(source.get(index));
-            index = index + 1;
-        }
-        return result;
-    }
+	private string visibleParameterKey(IRParam parameter, SetjmpCallEffects effects) {
+		SetjmpStorage? storage = effects.flow.parameterStorage(parameter);
+		return storage == null ? "" : self.storageKey(storage);
+	}
 
-    private string visibleDeclarationKey(
-            IRNode declaration, SetjmpCallEffects effects) {
-        SetjmpStorage? storage =
-            effects.flow.declarationStorage(declaration);
-        return storage == null ? "" : self.storageKey(storage);
-    }
-
-    private string visibleParameterKey(
-            IRParam parameter, SetjmpCallEffects effects) {
-        SetjmpStorage? storage =
-            effects.flow.parameterStorage(parameter);
-        return storage == null ? "" : self.storageKey(storage);
-    }
-
-    private void markVisible(Vector<IRNode> visible, Vector<IRParam> params,
-            Map<string, bool> modified, bool filterModified,
-            SetjmpCallEffects effects) {
-        Map<string, bool> remaining = self.copyNameSet(modified);
-        int index = 0;
-        if (!filterModified) {
-            while (index < params.len) {
-                string key = self.visibleParameterKey(
-                    params.get(index), effects);
-                if (key != "") { remaining.put(key, true); }
-                index = index + 1;
-            }
-            index = 0;
-            while (index < visible.len) {
-                string key = self.visibleDeclarationKey(
-                    visible.get(index), effects);
-                if (key != "") { remaining.put(key, true); }
-                index = index + 1;
-            }
-        } else {
-            /* GCC diagnoses generated temporaries that are initialized before a
+	private void markVisible(Vector<IRNode> visible, Vector<IRParam> params, Map<string, bool> modified, bool filterModified, SetjmpCallEffects effects) {
+		Map<string, bool> remaining = self.copyNameSet(modified);
+		int index = 0;
+		if (!filterModified) {
+			while (index < params.len) {
+				string key = self.visibleParameterKey(params.get(index), effects);
+				if (key != "") { remaining.put(key, true); }
+				index = index + 1;
+			}
+			index = 0;
+			while (index < visible.len) {
+				string key = self.visibleDeclarationKey(visible.get(index), effects);
+				if (key != "") { remaining.put(key, true); }
+				index = index + 1;
+			}
+		} else {
+			/* GCC diagnoses generated temporaries that are initialized before a
              * setjmp and consumed after its branch even without a direct write. */
-            while (index < visible.len) {
-                IRNode declaration = visible.get(index);
-                if (self.compilerOwnedStorage(declaration.name)) {
-                    string key = self.visibleDeclarationKey(
-                        declaration, effects);
-                    if (key != "") { remaining.put(key, true); }
-                }
-                index = index + 1;
-            }
-        }
-        index = visible.len - 1;
-        while (index >= 0) {
-            IRNode declaration = visible.get(index);
-            string key = self.visibleDeclarationKey(declaration, effects);
-            if (key != "" && remaining.has(key)) {
-                if (!declaration.is_static && !declaration.is_extern) {
-                    if (!declaration.is_volatile) {
-                        declaration.setjmp_inferred_volatile = true;
-                    }
-                    declaration.is_volatile = true;
-                    declaration.effective_is_volatile = true;
-                }
-                remaining.remove(key);
-            }
-            index = index - 1;
-        }
-        index = 0;
-        while (index < params.len) {
-            IRParam parameter = params.get(index);
-            string key = self.visibleParameterKey(parameter, effects);
-            if (key != "" && remaining.has(key)) {
-                if (!parameter.is_volatile) {
-                    parameter.setjmp_inferred_volatile = true;
-                }
-                parameter.is_volatile = true;
-                parameter.effective_is_volatile = true;
-            }
-            index = index + 1;
-        }
-    }
+			while (index < visible.len) {
+				IRNode declaration = visible.get(index);
+				if (self.compilerOwnedStorage(declaration.name)) {
+					string key = self.visibleDeclarationKey(declaration, effects);
+					if (key != "") { remaining.put(key, true); }
+				}
+				index = index + 1;
+			}
+		}
+		index = visible.len - 1;
+		while (index >= 0) {
+			IRNode declaration = visible.get(index);
+			string key = self.visibleDeclarationKey(declaration, effects);
+			if (key != "" && remaining.has(key)) {
+				if (!declaration.is_static && !declaration.is_extern) {
+					if (!declaration.is_volatile) {
+						declaration.setjmp_inferred_volatile = true;
+					}
+					declaration.is_volatile = true;
+					declaration.effective_is_volatile = true;
+				}
+				remaining.remove(key);
+			}
+			index = index - 1;
+		}
+		index = 0;
+		while (index < params.len) {
+			IRParam parameter = params.get(index);
+			string key = self.visibleParameterKey(parameter, effects);
+			if (key != "" && remaining.has(key)) {
+				if (!parameter.is_volatile) {
+					parameter.setjmp_inferred_volatile = true;
+				}
+				parameter.is_volatile = true;
+				parameter.effective_is_volatile = true;
+			}
+			index = index + 1;
+		}
+	}
 
-    private void scanResidual(IRNode? node, Vector<IRNode> visible,
-            Vector<IRParam> params, Map<string, bool> modified,
-            bool filterModified, SetjmpCallEffects effects) {
-        if (node == null) { return; }
-        if (node.kind == IRK_CALL && node.callee == "setjmp") {
-            self.markVisible(
-                visible, params, modified, filterModified, effects);
-            return;
-        }
-        if (node.kind == IRK_STMT_EXPR) {
-            self.scanResidual(
-                node.result, visible, params, modified, filterModified, effects);
-            return;
-        }
-        self.scanResidual(node.left, visible, params, modified, filterModified, effects);
-        self.scanResidual(node.right, visible, params, modified, filterModified, effects);
-        self.scanResidual(node.operand, visible, params, modified, filterModified, effects);
-        self.scanResidual(node.expr, visible, params, modified, filterModified, effects);
-        self.scanResidual(node.obj, visible, params, modified, filterModified, effects);
-        self.scanResidual(node.index, visible, params, modified, filterModified, effects);
-        self.scanResidual(node.condition, visible, params, modified, filterModified, effects);
-        self.scanResidual(node.true_expr, visible, params, modified, filterModified, effects);
-        self.scanResidual(node.false_expr, visible, params, modified, filterModified, effects);
-        self.scanResidual(node.array_size, visible, params, modified, filterModified, effects);
-        self.scanResidual(node.init, visible, params, modified, filterModified, effects);
-        self.scanResidual(node.value, visible, params, modified, filterModified, effects);
-        self.scanResidual(node.target, visible, params, modified, filterModified, effects);
-        self.scanResidual(node.update, visible, params, modified, filterModified, effects);
-        self.scanResidual(node.result, visible, params, modified, filterModified, effects);
-        int index = 0;
-        while (index < node.args.len) {
-            self.scanResidual(node.args.get(index), visible, params,
-                modified, filterModified, effects);
-            index = index + 1;
-        }
-    }
+	private void scanResidual(IRNode? node, Vector<IRNode> visible, Vector<IRParam> params, Map<string, bool> modified, bool filterModified, SetjmpCallEffects effects) {
+		if (node == null) { return; }
+		if (node.kind == IRK_CALL && node.callee == "setjmp") {
+			self.markVisible(visible, params, modified, filterModified, effects);
+			return;
+		}
+		if (node.kind == IRK_STMT_EXPR) {
+			self.scanResidual(node.result, visible, params, modified, filterModified, effects);
+			return;
+		}
+		self.scanResidual(node.left, visible, params, modified, filterModified, effects);
+		self.scanResidual(node.right, visible, params, modified, filterModified, effects);
+		self.scanResidual(node.operand, visible, params, modified, filterModified, effects);
+		self.scanResidual(node.expr, visible, params, modified, filterModified, effects);
+		self.scanResidual(node.obj, visible, params, modified, filterModified, effects);
+		self.scanResidual(node.index, visible, params, modified, filterModified, effects);
+		self.scanResidual(node.condition, visible, params, modified, filterModified, effects);
+		self.scanResidual(node.true_expr, visible, params, modified, filterModified, effects);
+		self.scanResidual(node.false_expr, visible, params, modified, filterModified, effects);
+		self.scanResidual(node.array_size, visible, params, modified, filterModified, effects);
+		self.scanResidual(node.init, visible, params, modified, filterModified, effects);
+		self.scanResidual(node.value, visible, params, modified, filterModified, effects);
+		self.scanResidual(node.target, visible, params, modified, filterModified, effects);
+		self.scanResidual(node.update, visible, params, modified, filterModified, effects);
+		self.scanResidual(node.result, visible, params, modified, filterModified, effects);
+		int index = 0;
+		while (index < node.args.len) {
+			self.scanResidual(node.args.get(index), visible, params, modified, filterModified, effects);
+			index = index + 1;
+		}
+	}
 
-    private void prepareDeclaration(IRNode declaration,
-            Vector<IRNode> visible, Vector<IRParam> params,
-            Map<string, bool> modified, bool filterModified,
-            SetjmpCallEffects effects) {
-        self.prepareHoists(declaration.array_size, visible, params,
-            modified, filterModified, effects);
-        self.prepareHoists(declaration.init, visible, params,
-            modified, filterModified, effects);
-        self.scanResidual(declaration.array_size, visible, params,
-            modified, filterModified, effects);
-        self.addVisible(visible, declaration);
-        self.scanResidual(declaration.init, visible, params,
-            modified, filterModified, effects);
-    }
+	private void prepareDeclaration(IRNode declaration, Vector<IRNode> visible, Vector<IRParam> params, Map<string, bool> modified, bool filterModified, SetjmpCallEffects effects) {
+		self.prepareHoists(declaration.array_size, visible, params, modified, filterModified, effects);
+		self.prepareHoists(declaration.init, visible, params, modified, filterModified, effects);
+		self.scanResidual(declaration.array_size, visible, params, modified, filterModified, effects);
+		self.addVisible(visible, declaration);
+		self.scanResidual(declaration.init, visible, params, modified, filterModified, effects);
+	}
 
-    private void prepareHoists(IRNode? node, Vector<IRNode> visible,
-            Vector<IRParam> params, Map<string, bool> modified,
-            bool filterModified, SetjmpCallEffects effects) {
-        if (node == null) { return; }
-        if (node.kind == IRK_STMT_EXPR) {
-            int index = 0;
-            while (index < node.stmts.len) {
-                IRNode declaration = node.stmts.get(index);
-                if (declaration.kind == IRK_VAR_DECL) {
-                    self.prepareDeclaration(declaration, visible, params,
-                        modified, filterModified, effects);
-                }
-                index = index + 1;
-            }
-            self.prepareHoists(node.result, visible, params,
-                modified, filterModified, effects);
-            return;
-        }
-        self.prepareHoists(node.left, visible, params, modified, filterModified, effects);
-        self.prepareHoists(node.right, visible, params, modified, filterModified, effects);
-        self.prepareHoists(node.operand, visible, params, modified, filterModified, effects);
-        self.prepareHoists(node.expr, visible, params, modified, filterModified, effects);
-        self.prepareHoists(node.obj, visible, params, modified, filterModified, effects);
-        self.prepareHoists(node.index, visible, params, modified, filterModified, effects);
-        self.prepareHoists(node.condition, visible, params, modified, filterModified, effects);
-        self.prepareHoists(node.true_expr, visible, params, modified, filterModified, effects);
-        self.prepareHoists(node.false_expr, visible, params, modified, filterModified, effects);
-        self.prepareHoists(node.array_size, visible, params, modified, filterModified, effects);
-        self.prepareHoists(node.init, visible, params, modified, filterModified, effects);
-        self.prepareHoists(node.value, visible, params, modified, filterModified, effects);
-        self.prepareHoists(node.target, visible, params, modified, filterModified, effects);
-        self.prepareHoists(node.update, visible, params, modified, filterModified, effects);
-        self.prepareHoists(node.result, visible, params, modified, filterModified, effects);
-        int index = 0;
-        while (index < node.args.len) {
-            self.prepareHoists(node.args.get(index), visible, params,
-                modified, filterModified, effects);
-            index = index + 1;
-        }
-    }
+	private void prepareHoists(IRNode? node, Vector<IRNode> visible, Vector<IRParam> params, Map<string, bool> modified, bool filterModified, SetjmpCallEffects effects) {
+		if (node == null) { return; }
+		if (node.kind == IRK_STMT_EXPR) {
+			int index = 0;
+			while (index < node.stmts.len) {
+				IRNode declaration = node.stmts.get(index);
+				if (declaration.kind == IRK_VAR_DECL) {
+					self.prepareDeclaration(declaration, visible, params, modified, filterModified, effects);
+				}
+				index = index + 1;
+			}
+			self.prepareHoists(node.result, visible, params, modified, filterModified, effects);
+			return;
+		}
+		self.prepareHoists(node.left, visible, params, modified, filterModified, effects);
+		self.prepareHoists(node.right, visible, params, modified, filterModified, effects);
+		self.prepareHoists(node.operand, visible, params, modified, filterModified, effects);
+		self.prepareHoists(node.expr, visible, params, modified, filterModified, effects);
+		self.prepareHoists(node.obj, visible, params, modified, filterModified, effects);
+		self.prepareHoists(node.index, visible, params, modified, filterModified, effects);
+		self.prepareHoists(node.condition, visible, params, modified, filterModified, effects);
+		self.prepareHoists(node.true_expr, visible, params, modified, filterModified, effects);
+		self.prepareHoists(node.false_expr, visible, params, modified, filterModified, effects);
+		self.prepareHoists(node.array_size, visible, params, modified, filterModified, effects);
+		self.prepareHoists(node.init, visible, params, modified, filterModified, effects);
+		self.prepareHoists(node.value, visible, params, modified, filterModified, effects);
+		self.prepareHoists(node.target, visible, params, modified, filterModified, effects);
+		self.prepareHoists(node.update, visible, params, modified, filterModified, effects);
+		self.prepareHoists(node.result, visible, params, modified, filterModified, effects);
+		int index = 0;
+		while (index < node.args.len) {
+			self.prepareHoists(node.args.get(index), visible, params, modified, filterModified, effects);
+			index = index + 1;
+		}
+	}
 
-    private void processExpression(IRNode? node, Vector<IRNode> visible,
-            Vector<IRParam> params, Map<string, bool> modified,
-            bool filterModified, SetjmpCallEffects effects) {
-        self.prepareHoists(
-            node, visible, params, modified, filterModified, effects);
-        self.scanResidual(
-            node, visible, params, modified, filterModified, effects);
-    }
+	private void processExpression(IRNode? node, Vector<IRNode> visible, Vector<IRParam> params, Map<string, bool> modified, bool filterModified, SetjmpCallEffects effects) {
+		self.prepareHoists(node, visible, params, modified, filterModified, effects);
+		self.scanResidual(node, visible, params, modified, filterModified, effects);
+	}
 
-    private void prepareSimple(IRNode? first, IRNode? second,
-            Vector<IRNode> visible, Vector<IRParam> params,
-            SetjmpCallEffects effects) {
-        Map<string, bool> all = {};
-        self.prepareHoists(first, visible, params, all, false, effects);
-        self.prepareHoists(second, visible, params, all, false, effects);
-        self.scanResidual(first, visible, params, all, false, effects);
-        self.scanResidual(second, visible, params, all, false, effects);
-    }
+	private void prepareSimple(IRNode? first, IRNode? second, Vector<IRNode> visible, Vector<IRParam> params, SetjmpCallEffects effects) {
+		Map<string, bool> all = {};
+		self.prepareHoists(first, visible, params, all, false, effects);
+		self.prepareHoists(second, visible, params, all, false, effects);
+		self.scanResidual(first, visible, params, all, false, effects);
+		self.scanResidual(second, visible, params, all, false, effects);
+	}
 
-    private void scanBlock(IRNode? block, Vector<IRNode> inherited,
-            Vector<IRParam> params, SetjmpCallEffects effects) {
-        if (block == null) { return; }
-        Vector<IRNode> visible = self.copyVisible(inherited);
-        int index = 0;
-        while (index < block.stmts.len) {
-            IRNode statement = block.stmts.get(index);
-            if (self.containsSetjmp(statement)) {
-                Map<string, bool> continuation = self.mutatedSequenceAfter(
-                    block.stmts, index + 1, effects);
-                self.markVisible(
-                    visible, params, continuation, true, effects);
-            }
-            self.scanStatement(statement, visible, params, effects);
-            index = index + 1;
-        }
-    }
+	private void scanBlock(IRNode? block, Vector<IRNode> inherited, Vector<IRParam> params, SetjmpCallEffects effects) {
+		if (block == null) { return; }
+		Vector<IRNode> visible = self.copyVisible(inherited);
+		int index = 0;
+		while (index < block.stmts.len) {
+			IRNode statement = block.stmts.get(index);
+			if (self.containsSetjmp(statement)) {
+				Map<string, bool> continuation = self.mutatedSequenceAfter(block.stmts, index + 1, effects);
+				self.markVisible(visible, params, continuation, true, effects);
+			}
+			self.scanStatement(statement, visible, params, effects);
+			index = index + 1;
+		}
+	}
 
-    private void markLoopVisible(IRNode statement, Vector<IRNode> visible,
-            Vector<IRParam> params, SetjmpCallEffects effects) {
-        if (!self.containsSetjmp(statement)) { return; }
-        Map<string, bool> modified =
-            self.loopMutatedNames(statement, effects);
-        self.markVisible(visible, params, modified, true, effects);
-    }
+	private void markLoopVisible(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params, SetjmpCallEffects effects) {
+		if (!self.containsSetjmp(statement)) { return; }
+		Map<string, bool> modified = self.loopMutatedNames(statement, effects);
+		self.markVisible(visible, params, modified, true, effects);
+	}
 
-    private void scanIf(IRNode statement, Vector<IRNode> visible,
-            Vector<IRParam> params, SetjmpCallEffects effects) {
-        Map<string, bool> all = {};
-        if (self.containsSetjmp(statement.condition)) {
-            Map<string, bool> modified =
-                self.mutatedNames(statement.then_block, effects);
-            Map<string, bool> catchModified =
-                self.mutatedNames(statement.else_block, effects);
-            Vector<string> catchNames = catchModified.keys();
-            int index = 0;
-            while (index < catchNames.len) {
-                modified.put(catchNames.get(index), true);
-                index = index + 1;
-            }
-            self.processExpression(
-                statement.condition, visible, params, modified, true, effects);
-        } else {
-            self.processExpression(
-                statement.condition, visible, params, all, false, effects);
-        }
-        self.scanBlock(statement.then_block, visible, params, effects);
-        self.scanBlock(statement.else_block, visible, params, effects);
-    }
+	private void scanIf(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params, SetjmpCallEffects effects) {
+		Map<string, bool> all = {};
+		if (self.containsSetjmp(statement.condition)) {
+			Map<string, bool> modified = self.mutatedNames(statement.then_block, effects);
+			Map<string, bool> catchModified = self.mutatedNames(statement.else_block, effects);
+			Vector<string> catchNames = catchModified.keys();
+			int index = 0;
+			while (index < catchNames.len) {
+				modified.put(catchNames.get(index), true);
+				index = index + 1;
+			}
+			self.processExpression(statement.condition, visible, params, modified, true, effects);
+		} else {
+			self.processExpression(statement.condition, visible, params, all, false, effects);
+		}
+		self.scanBlock(statement.then_block, visible, params, effects);
+		self.scanBlock(statement.else_block, visible, params, effects);
+	}
 
-    private void scanSwitch(IRNode statement, Vector<IRNode> visible,
-            Vector<IRParam> params, SetjmpCallEffects effects) {
-        self.prepareSimple(statement.value, null, visible, params, effects);
-        int index = 0;
-        while (index < statement.args.len) {
-            IRNode caseNode = statement.args.get(index);
-            Vector<IRNode> caseVisible = self.copyVisible(visible);
-            self.prepareSimple(
-                caseNode.value, null, caseVisible, params, effects);
-            IRNode caseBlock = IRNode();
-            caseBlock.kind = IRK_BLOCK;
-            caseBlock.stmts = caseNode.stmts;
-            if (self.containsSetjmp(caseBlock)
-                    && caseNode.falls_through) {
-                Map<string, bool> continuation = {};
-                int next = index;
-                while (next + 1 < statement.args.len
-                        && statement.args.get(next).falls_through) {
-                    next = next + 1;
-                    IRNode nextCase = statement.args.get(next);
-                    IRNode nextBlock = IRNode();
-                    nextBlock.kind = IRK_BLOCK;
-                    nextBlock.stmts = nextCase.stmts;
-                    Map<string, bool> nextMutations =
-                        self.mutatedNames(nextBlock, effects);
-                    Vector<string> names = nextMutations.keys();
-                    int nameIndex = 0;
-                    while (nameIndex < names.len) {
-                        continuation.put(names.get(nameIndex), true);
-                        nameIndex = nameIndex + 1;
-                    }
-                }
-                self.markVisible(
-                    caseVisible, params, continuation, true, effects);
-            }
-            self.scanBlock(caseBlock, caseVisible, params, effects);
-            index = index + 1;
-        }
-    }
+	private void scanSwitch(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params, SetjmpCallEffects effects) {
+		self.prepareSimple(statement.value, null, visible, params, effects);
+		int index = 0;
+		while (index < statement.args.len) {
+			IRNode caseNode = statement.args.get(index);
+			Vector<IRNode> caseVisible = self.copyVisible(visible);
+			self.prepareSimple(caseNode.value, null, caseVisible, params, effects);
+			IRNode caseBlock = IRNode();
+			caseBlock.kind = IRK_BLOCK;
+			caseBlock.stmts = caseNode.stmts;
+			if (self.containsSetjmp(caseBlock) && caseNode.falls_through) {
+				Map<string, bool> continuation = {};
+				int next = index;
+				while (next + 1 < statement.args.len && statement.args.get(next).falls_through) {
+					next = next + 1;
+					IRNode nextCase = statement.args.get(next);
+					IRNode nextBlock = IRNode();
+					nextBlock.kind = IRK_BLOCK;
+					nextBlock.stmts = nextCase.stmts;
+					Map<string, bool> nextMutations = self.mutatedNames(nextBlock, effects);
+					Vector<string> names = nextMutations.keys();
+					int nameIndex = 0;
+					while (nameIndex < names.len) {
+						continuation.put(names.get(nameIndex), true);
+						nameIndex = nameIndex + 1;
+					}
+				}
+				self.markVisible(caseVisible, params, continuation, true, effects);
+			}
+			self.scanBlock(caseBlock, caseVisible, params, effects);
+			index = index + 1;
+		}
+	}
 
-    private void scanStatement(IRNode statement, Vector<IRNode> visible,
-            Vector<IRParam> params, SetjmpCallEffects effects) {
-        Map<string, bool> all = {};
-        if (statement.kind == IRK_VAR_DECL) {
-            self.prepareDeclaration(
-                statement, visible, params, all, false, effects);
-        } else if (statement.kind == IRK_ASSIGN) {
-            self.prepareSimple(
-                statement.target, statement.value, visible, params, effects);
-        } else if (statement.kind == IRK_RETURN) {
-            self.prepareSimple(
-                statement.value, null, visible, params, effects);
-        } else if (statement.kind == IRK_EXPR_STMT) {
-            self.prepareSimple(
-                statement.expr, null, visible, params, effects);
-        } else if (statement.kind == IRK_IF) {
-            self.scanIf(statement, visible, params, effects);
-        } else if (statement.kind == IRK_WHILE) {
-            self.markLoopVisible(statement, visible, params, effects);
-            self.prepareSimple(
-                statement.condition, null, visible, params, effects);
-            self.scanBlock(statement.body, visible, params, effects);
-        } else if (statement.kind == IRK_DO_WHILE) {
-            self.markLoopVisible(statement, visible, params, effects);
-            self.processExpression(
-                statement.condition, visible, params, all, false, effects);
-            self.scanBlock(statement.body, visible, params, effects);
-        } else if (statement.kind == IRK_FOR) {
-            self.scanFor(statement, visible, params, effects);
-        } else if (statement.kind == IRK_SWITCH) {
-            self.scanSwitch(statement, visible, params, effects);
-        } else if (statement.kind == IRK_BLOCK) {
-            self.scanBlock(statement, visible, params, effects);
-        }
-    }
+	private void scanStatement(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params, SetjmpCallEffects effects) {
+		Map<string, bool> all = {};
+		if (statement.kind == IRK_VAR_DECL) {
+			self.prepareDeclaration(statement, visible, params, all, false, effects);
+		} else if (statement.kind == IRK_ASSIGN) {
+			self.prepareSimple(statement.target, statement.value, visible, params, effects);
+		} else if (statement.kind == IRK_RETURN) {
+			self.prepareSimple(statement.value, null, visible, params, effects);
+		} else if (statement.kind == IRK_EXPR_STMT) {
+			self.prepareSimple(statement.expr, null, visible, params, effects);
+		} else if (statement.kind == IRK_IF) {
+			self.scanIf(statement, visible, params, effects);
+		} else if (statement.kind == IRK_WHILE) {
+			self.markLoopVisible(statement, visible, params, effects);
+			self.prepareSimple(statement.condition, null, visible, params, effects);
+			self.scanBlock(statement.body, visible, params, effects);
+		} else if (statement.kind == IRK_DO_WHILE) {
+			self.markLoopVisible(statement, visible, params, effects);
+			self.processExpression(statement.condition, visible, params, all, false, effects);
+			self.scanBlock(statement.body, visible, params, effects);
+		} else if (statement.kind == IRK_FOR) {
+			self.scanFor(statement, visible, params, effects);
+		} else if (statement.kind == IRK_SWITCH) {
+			self.scanSwitch(statement, visible, params, effects);
+		} else if (statement.kind == IRK_BLOCK) {
+			self.scanBlock(statement, visible, params, effects);
+		}
+	}
 
-    private void prepareForInit(IRNode? init, Vector<IRNode> visible,
-            Vector<IRParam> params, SetjmpCallEffects effects) {
-        if (init == null) { return; }
-        Map<string, bool> all = {};
-        if (init.kind == IRK_ASSIGN) {
-            self.prepareHoists(
-                init.target, visible, params, all, false, effects);
-            self.prepareHoists(
-                init.value, visible, params, all, false, effects);
-        } else if (init.kind == IRK_EXPR_STMT) {
-            self.prepareHoists(
-                init.expr, visible, params, all, false, effects);
-        }
-    }
+	private void prepareForInit(IRNode? init, Vector<IRNode> visible, Vector<IRParam> params, SetjmpCallEffects effects) {
+		if (init == null) { return; }
+		Map<string, bool> all = {};
+		if (init.kind == IRK_ASSIGN) {
+			self.prepareHoists(init.target, visible, params, all, false, effects);
+			self.prepareHoists(init.value, visible, params, all, false, effects);
+		} else if (init.kind == IRK_EXPR_STMT) {
+			self.prepareHoists(init.expr, visible, params, all, false, effects);
+		}
+	}
 
-    private void scanForInit(IRNode? init, Vector<IRNode> visible,
-            Vector<IRParam> params, SetjmpCallEffects effects) {
-        if (init == null) { return; }
-        Map<string, bool> all = {};
-        if (init.kind == IRK_ASSIGN) {
-            self.scanResidual(
-                init.target, visible, params, all, false, effects);
-            self.scanResidual(
-                init.value, visible, params, all, false, effects);
-        } else if (init.kind == IRK_EXPR_STMT) {
-            self.scanResidual(
-                init.expr, visible, params, all, false, effects);
-        }
-    }
+	private void scanForInit(IRNode? init, Vector<IRNode> visible, Vector<IRParam> params, SetjmpCallEffects effects) {
+		if (init == null) { return; }
+		Map<string, bool> all = {};
+		if (init.kind == IRK_ASSIGN) {
+			self.scanResidual(init.target, visible, params, all, false, effects);
+			self.scanResidual(init.value, visible, params, all, false, effects);
+		} else if (init.kind == IRK_EXPR_STMT) {
+			self.scanResidual(init.expr, visible, params, all, false, effects);
+		}
+	}
 
-    private void scanFor(IRNode statement, Vector<IRNode> visible,
-            Vector<IRParam> params, SetjmpCallEffects effects) {
-        Map<string, bool> all = {};
-        if (statement.init != null && statement.init.kind == IRK_VAR_DECL) {
-            self.prepareHoists(statement.init.array_size,
-                visible, params, all, false, effects);
-            self.prepareHoists(statement.init.init,
-                visible, params, all, false, effects);
-        } else {
-            self.prepareForInit(statement.init, visible, params, effects);
-        }
-        self.prepareHoists(
-            statement.condition, visible, params, all, false, effects);
-        self.prepareHoists(
-            statement.update, visible, params, all, false, effects);
+	private void scanFor(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params, SetjmpCallEffects effects) {
+		Map<string, bool> all = {};
+		if (statement.init != null && statement.init.kind == IRK_VAR_DECL) {
+			self.prepareHoists(statement.init.array_size, visible, params, all, false, effects);
+			self.prepareHoists(statement.init.init, visible, params, all, false, effects);
+		} else {
+			self.prepareForInit(statement.init, visible, params, effects);
+		}
+		self.prepareHoists(statement.condition, visible, params, all, false, effects);
+		self.prepareHoists(statement.update, visible, params, all, false, effects);
 
-        Vector<IRNode> loopVisible = self.copyVisible(visible);
-        if (statement.init != null && statement.init.kind == IRK_VAR_DECL) {
-            self.scanResidual(statement.init.array_size,
-                visible, params, all, false, effects);
-            self.addVisible(loopVisible, statement.init);
-            self.scanResidual(statement.init.init,
-                loopVisible, params, all, false, effects);
-        } else {
-            self.scanForInit(statement.init, loopVisible, params, effects);
-        }
-        self.markLoopVisible(statement, loopVisible, params, effects);
-        self.scanResidual(statement.condition,
-            loopVisible, params, all, false, effects);
-        self.scanResidual(statement.update,
-            loopVisible, params, all, false, effects);
-        self.scanBlock(statement.body, loopVisible, params, effects);
-    }
+		Vector<IRNode> loopVisible = self.copyVisible(visible);
+		if (statement.init != null && statement.init.kind == IRK_VAR_DECL) {
+			self.scanResidual(statement.init.array_size, visible, params, all, false, effects);
+			self.addVisible(loopVisible, statement.init);
+			self.scanResidual(statement.init.init, loopVisible, params, all, false, effects);
+		} else {
+			self.scanForInit(statement.init, loopVisible, params, effects);
+		}
+		self.markLoopVisible(statement, loopVisible, params, effects);
+		self.scanResidual(statement.condition, loopVisible, params, all, false, effects);
+		self.scanResidual(statement.update, loopVisible, params, all, false, effects);
+		self.scanBlock(statement.body, loopVisible, params, effects);
+	}
 
-    public void apply(IRModule module) {
-        self.validateGlobals(module);
-        bool hasSetjmp = false;
-        int index = 0;
-        while (index < module.functions.len) {
-            IRFunction definition = module.functions.get(index);
-            if (definition.body != null
-                    && self.containsSetjmp(definition.body)) {
-                hasSetjmp = true;
-            }
-            index = index + 1;
-        }
-        if (!hasSetjmp) { return; }
-        self.effectsByFunction = self.effectAnalysis.analyze(module);
-        index = 0;
-        while (index < module.functions.len) {
-            IRFunction definition = module.functions.get(index);
-            if (definition.body != null) {
-                self.rejectUnmodelledCaptures(
-                    definition, self.effectsByFunction.get(definition.name));
-                Vector<IRNode> visible = [];
-                self.scanBlock(definition.body, visible, definition.params,
-                    self.effectsByFunction.get(definition.name));
-            }
-            self.validateFunction(definition);
-            index = index + 1;
-        }
-    }
+	public void apply(IRModule module) {
+		self.validateGlobals(module);
+		bool hasSetjmp = false;
+		int index = 0;
+		while (index < module.functions.len) {
+			IRFunction definition = module.functions.get(index);
+			if (definition.body != null && self.containsSetjmp(definition.body)) {
+				hasSetjmp = true;
+			}
+			index = index + 1;
+		}
+		if (!hasSetjmp) { return; }
+		self.effectsByFunction = self.effectAnalysis.analyze(module);
+		index = 0;
+		while (index < module.functions.len) {
+			IRFunction definition = module.functions.get(index);
+			if (definition.body != null) {
+				self.rejectUnmodelledCaptures(definition, self.effectsByFunction.get(definition.name));
+				Vector<IRNode> visible = [];
+				self.scanBlock(definition.body, visible, definition.params, self.effectsByFunction.get(definition.name));
+			}
+			self.validateFunction(definition);
+			index = index + 1;
+		}
+	}
 }
