@@ -9,6 +9,7 @@ NON_CORPUS_DIRECTORIES = frozenset(
         "python",
         "btrc",
         "native",
+        "formatter",
         "__pycache__",
         "expected",
     }

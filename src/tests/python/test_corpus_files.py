@@ -31,6 +31,12 @@ def test_native_programs_are_owned_by_their_dedicated_harnesses():
     assert "native/app_surface/NativeUiAppSession.btrc" not in selected
 
 
+def test_formatter_fixtures_are_owned_by_syntax_preservation_tests():
+    selected = set(language_test_files(TESTS))
+
+    assert "formatter/fixtures/ImportGroups.btrc" not in selected
+
+
 def test_textual_include_fixtures_are_not_standalone_corpus_programs():
     selected = set(language_test_files(TESTS))
 
