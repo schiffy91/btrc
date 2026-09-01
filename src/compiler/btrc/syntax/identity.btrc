@@ -780,27 +780,35 @@ class TypeIdentity {
         return false;
     }
 
-    class string genericArgumentProblem(Node typeExpr) {
-        if (typeExpr.is_const) {
+    class string genericArgumentProblemInner(
+            Node typeExpr, bool qualifiedComponent) {
+        if (!qualifiedComponent && typeExpr.is_const) {
             return "generic arguments cannot be const-qualified";
         }
-        if (typeExpr.is_static) {
+        if (!qualifiedComponent && typeExpr.is_static) {
             return "generic arguments cannot be static-qualified";
         }
-        if (typeExpr.is_extern) {
+        if (!qualifiedComponent && typeExpr.is_extern) {
             return "generic arguments cannot be extern-qualified";
         }
-        if (typeExpr.is_volatile) {
+        if (!qualifiedComponent && typeExpr.is_volatile) {
             return "generic arguments cannot be volatile-qualified";
         }
+        bool childIsStructuralComponent =
+            typeExpr.base == "Tuple" || typeExpr.base == "__fn_ptr";
         int index = 0;
         while (index < typeExpr.generic_args.len) {
-            string problem = TypeIdentity.genericArgumentProblem(
-                typeExpr.generic_args.get(index));
+            string problem = TypeIdentity.genericArgumentProblemInner(
+                typeExpr.generic_args.get(index),
+                childIsStructuralComponent);
             if (problem != "") { return problem; }
             index = index + 1;
         }
         return "";
+    }
+
+    class string genericArgumentProblem(Node typeExpr) {
+        return TypeIdentity.genericArgumentProblemInner(typeExpr, false);
     }
 
     class void fail(string message) {

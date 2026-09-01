@@ -448,11 +448,23 @@ class TypeIdentity:
 
     def generic_argument_problem(self, type_expr: TypeExpr) -> tuple[str, TypeExpr] | None:
         """Return the first unsupported generic-argument modifier."""
+        return self._generic_argument_problem(type_expr, qualified_component=False)
+
+    def _generic_argument_problem(
+        self,
+        type_expr: TypeExpr,
+        *,
+        qualified_component: bool,
+    ) -> tuple[str, TypeExpr] | None:
         for attribute, spelling in self._forbidden_generic_flags:
-            if getattr(type_expr, attribute, False):
+            if not qualified_component and getattr(type_expr, attribute, False):
                 return (f"generic arguments cannot be {spelling}-qualified", type_expr)
+        child_is_structural_component = type_expr.base in {"Tuple", "__fn_ptr"}
         for argument in type_expr.generic_args or []:
-            problem = self.generic_argument_problem(argument)
+            problem = self._generic_argument_problem(
+                argument,
+                qualified_component=child_is_structural_component,
+            )
             if problem is not None:
                 return problem
         return None

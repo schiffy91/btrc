@@ -198,6 +198,17 @@ INVALID_SPECIALIZATIONS = [
     ),
     (
         """
+        class Box<T> { public T value; }
+        class Envelope<T> { public T value; }
+        int main() {
+            Envelope<Tuple<Box<const int>, int>> invalid;
+            return 0;
+        }
+        """,
+        "cannot be const-qualified",
+    ),
+    (
+        """
         class Picker {
             public U identity<U>(U value) { return value; }
         }
@@ -238,9 +249,13 @@ def test_structural_qualified_types_remain_allowed(
 ) -> None:
     program = tmp_path / "structural_identity.btrc"
     program.write_text("""
+        class Holder<T> { public T value; }
         void consume(__fn_ptr<void, const int> callback,
                      Tuple<const int, int> values) {}
-        int main() { return 0; }
+        int main() {
+            Holder<__fn_ptr<void, const int>> holder;
+            return holder == null ? 0 : 1;
+        }
     """)
     result = _run(
         [str(selfhost_compiler), "--no-stdlib", "--no-dce", str(program)],

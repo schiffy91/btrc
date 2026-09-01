@@ -284,12 +284,15 @@ class ManagedTypeLowerer {
                 || self.context.callDefaultTypeDepth > 0);
     }
 
-    /* Semantic dispatch and runtime ownership always consume a canonical
-     * typedef-free type.  Physical storage retains the exact post-generic C
-     * declarator spelling independently via the plan's storageCType. */
+    /* Semantic dispatch resolves the outer storage alias while retaining
+     * source-spelled generic arguments.  Those arguments identify the emitted
+     * monomorphization, so recursively flattening them here would make runtime
+     * ownership call a destroy/descriptor symbol that was never emitted.
+     * Physical storage independently retains its exact post-generic C
+     * declarator spelling through the plan's storageCType. */
     private Node canonicalStorageType(Node typeExpr) {
         Node bodyType = self.bodyStorageType(typeExpr);
-        Node? canonical = SemanticTypeSystem.resolveTypedefType(
+        Node? canonical = SemanticTypeSystem.resolveOuterTypedefType(
             bodyType, self.analyzed.typedefTable);
         if (canonical == null) {
             print("internal compiler error: managed storage has no canonical semantic type");

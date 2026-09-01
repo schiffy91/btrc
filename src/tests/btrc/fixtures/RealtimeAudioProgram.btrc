@@ -3,60 +3,53 @@ import std.RealtimeAudio;
 #include <assert.h>
 
 struct GainContext {
-    float gain;
-    float total;
-    int calls;
+	float gain;
+	float total;
+	int calls;
 };
 
 typedef CFunction<int, void*, int> OffsetProcess;
 
-int addOffset(void* raw, int value) {
-    return *(int*)raw + value;
+int addOffset(void* raw, int value) { return *(int*)raw + value; }
+
+class RealtimeAudioBorrow {
+	private BorrowedClosure<RealtimeAudioProcess> _callback;
+
+	public RealtimeAudioBorrow(RealtimeAudioProcess invoke, void* context) { self._callback = new BorrowedClosure<RealtimeAudioProcess> (invoke, context); }
+
+	public RealtimeAudioProcess invokePointer() { return self._callback.invokePointer(); }
+
+	public void* context() { return self._callback.context(); }
 }
 
-@realtime void applyGain(
-        void* raw,
-        RealtimeAudioInputChannels inputs,
-        int inputChannelCount,
-        RealtimeAudioOutputChannels outputs,
-        int outputChannelCount,
-        int frameCount) {
-    GainContext* context = (GainContext*)raw;
-    if (context == null || inputs == null || outputs != null
-            || inputChannelCount != 1 || outputChannelCount != 0
-            || inputs[0] == null) {
-        return;
-    }
-    for (int frame = 0; frame < frameCount; frame++) {
-        context->total += inputs[0][frame] * context->gain;
-    }
-    context->calls++;
+@realtime void applyGain(void* raw, RealtimeAudioInputChannels inputs, int inputChannelCount, RealtimeAudioOutputChannels outputs, int outputChannelCount, int frameCount) {
+	GainContext* context = (GainContext*)raw;
+	if (context == null || inputs == null || outputs != null || inputChannelCount != 1 || outputChannelCount != 0 || inputs[0] == null) {
+		return;
+	}
+	for (int frame = 0; frame < frameCount; frame++) {
+		context->total += inputs[0][frame] * context->gain;
+	}
+	context->calls++;
 }
 
 int main() {
-    float inputSamples[3] = {1.0f, -2.0f, 0.5f};
-    RealtimeAudioInputChannel input = inputSamples;
-    GainContext context = {2.0f, 0.0f, 0};
+	float inputSamples[3] = {1.0f, -2.0f, 0.5f};
+	RealtimeAudioInputChannel input = inputSamples;
+	GainContext context = {2.0f, 0.0f, 0};
 
-    RealtimeAudioProgram program = RealtimeAudioProgram(applyGain, &context);
-    RealtimeAudioProcess invoke = program.invokePointer();
-    invoke(
-        program.context(),
-        &input,
-        1,
-        null,
-        0,
-        3);
+	RealtimeAudioBorrow borrowed = RealtimeAudioBorrow(applyGain, &context);
+	RealtimeAudioProgram program = RealtimeAudioProgram(borrowed.invokePointer(), borrowed.context());
+	RealtimeAudioProcess invoke = program.invokePointer();
+	invoke(program.context(), &input, 1, null, 0, 3);
 
-    assert(context.calls == 1);
-    assert(context.total == -1.0f);
+	assert(context.calls == 1);
+	assert(context.total == -1.0f);
 
-    int offset = 40;
-    BorrowedClosure<OffsetProcess> borrowed = new BorrowedClosure<OffsetProcess>(
-        addOffset,
-        &offset);
-    OffsetProcess add = borrowed.invokePointer();
-    assert(add(borrowed.context(), 2) == 42);
-    print("PASS RealtimeAudioProgram");
-    return 0;
+	int offset = 40;
+	BorrowedClosure<OffsetProcess> offsetBorrowed = new BorrowedClosure<OffsetProcess> (addOffset, &offset);
+	OffsetProcess add = offsetBorrowed.invokePointer();
+	assert(add(offsetBorrowed.context(), 2) == 42);
+	print("PASS RealtimeAudioProgram");
+	return 0;
 }

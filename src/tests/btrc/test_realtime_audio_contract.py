@@ -99,8 +99,13 @@ def test_realtime_audio_program_runs_from_both_frontends_with_strict_compilers(
     generated = _compile_pair(semantic_btrcc, REALTIME_AUDIO, tmp_path)
     for frontend, source in generated.items():
         emitted = source.read_text()
+        assert "BorrowedClosure_RealtimeAudioProcess" in emitted
         assert "BorrowedClosure_OffsetProcess" in emitted
         assert "btrc_RealtimeAudioProgram" in emitted
+        initializer_prototype = emitted.index("RealtimeAudioBorrow_init")
+        initializer_definition = emitted.index("RealtimeAudioBorrow_init", initializer_prototype + 1)
+        borrow_initializer = emitted[initializer_definition : emitted.index("\n}", initializer_definition)]
+        assert "BorrowedClosure_RealtimeAudioProcess_destroy" in borrow_initializer
         for compiler in STRICT_COMPILERS:
             executable = tmp_path / f"RealtimeAudioProgram-{frontend}-{Path(compiler).name}"
             built = _strict_build(compiler, source, executable)

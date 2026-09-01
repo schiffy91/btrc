@@ -208,8 +208,30 @@ def test_qualified_structural_type_arguments_remain_supported():
         type_identity=IDENTITY,
     )
     assert renderer.render(fn_ptr).startswith("__btrc_fn_ZQf")
+    assert IDENTITY.specialization_symbol("BorrowedClosure", [fn_ptr]).startswith("btrc_ZQg")
     assert IDENTITY.generic_symbol("Tuple", tuple_type.generic_args).startswith("btrc_ZQg")
     assert len(renderer.consume_function_pointer_typedefs()) == 1
+
+
+def test_structural_wrapper_does_not_hide_a_qualified_writable_specialization():
+    result = _analyze("""
+        class Box<T> { public T value; }
+        class Envelope<T> { public T value; }
+        void run() {
+            Envelope<Tuple<Box<const int>, int>> invalid;
+        }
+    """)
+
+    assert any("cannot be const-qualified" in error.lower() for error in result.errors)
+    nested_writable = _type(
+        "Tuple",
+        generic_args=[
+            _type("Box", generic_args=[_type("int", is_const=True)]),
+            _type("int"),
+        ],
+    )
+    with pytest.raises(TypeShapeError, match="const-qualified"):
+        IDENTITY.specialization_symbol("Envelope", [nested_writable])
 
 
 IDENTITY = TypeIdentity()
