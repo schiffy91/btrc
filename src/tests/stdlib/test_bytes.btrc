@@ -12,121 +12,145 @@ import std.io;
 #include <assert.h>
 
 int main() {
-    /* --- Embedded NUL round-trips in memory --- */
-    Bytes b = Bytes();
-    b.append(72);    /* 'H' */
-    b.append(0);     /* embedded NUL in the MIDDLE */
-    b.append(105);   /* 'i' */
-    assert(b.length() == 3);
-    assert(b.get(0) == 72);
-    assert(b.get(1) == 0);     /* the NUL is preserved, not a terminator */
-    assert(b.get(2) == 105);
-    print(f"in-memory NUL: len={b.length()} mid={b.get(1)}");
+	/* --- Embedded NUL round-trips in memory --- */
+	Bytes b = Bytes();
+	b.append(72);    /* 'H' */
+	b.append(0);     /* embedded NUL in the MIDDLE */
+	b.append(105);   /* 'i' */
+	assert(b.length() == 3);
+	assert(b.get(0) == 72);
+	assert(b.get(1) == 0);     /* the NUL is preserved, not a terminator */
+	assert(b.get(2) == 105);
+	print(f"in-memory NUL: len={b.length()} mid={b.get(1)}");
 
-    /* get() returns 0..255 (unsigned), even for high bytes. */
-    Bytes hi = Bytes();
-    hi.append(255);
-    hi.append(128);
-    assert(hi.get(0) == 255);
-    assert(hi.get(1) == 128);
+	/* get() returns 0..255 (unsigned), even for high bytes. */
+	Bytes hi = Bytes();
+	hi.append(255);
+	hi.append(128);
+	assert(hi.get(0) == 255);
+	assert(hi.get(1) == 128);
 
-    /* set() overwrites in place; length unchanged. */
-    b.set(1, 65);    /* replace the NUL with 'A' */
-    assert(b.get(1) == 65);
-    assert(b.length() == 3);
-    b.set(1, 0);     /* put the NUL back */
-    assert(b.get(1) == 0);
+	/* set() overwrites in place; length unchanged. */
+	b.set(1, 65);    /* replace the NUL with 'A' */
+	assert(b.get(1) == 65);
+	assert(b.length() == 3);
+	b.set(1, 0);     /* put the NUL back */
+	assert(b.get(1) == 0);
 
-    /* --- fromString (text) --- */
-    Bytes s = Bytes.fromString("abc");
-    assert(s.length() == 3);
-    assert(s.get(0) == 97);
-    assert(s.get(1) == 98);
-    assert(s.get(2) == 99);
-    print(f"fromString: len={s.length()}");
+	/* --- fromString (text) --- */
+	Bytes s = Bytes.fromString("abc");
+	assert(s.length() == 3);
+	assert(s.get(0) == 97);
+	assert(s.get(1) == 98);
+	assert(s.get(2) == 99);
+	print(f"fromString: len={s.length()}");
 
-    /* --- slice (binary-safe; clamps, supports negatives) --- */
-    Bytes sl = b.slice(0, 2);
-    assert(sl.length() == 2);
-    assert(sl.get(0) == 72);
-    assert(sl.get(1) == 0);    /* NUL inside the slice */
-    Bytes neg = s.slice(-2, 3);
-    assert(neg.length() == 2);
-    assert(neg.get(0) == 98);
-    Bytes clamped = s.slice(0, 999);
-    assert(clamped.length() == 3);
-    print(f"slice: len={sl.length()}");
+	/* --- slice (binary-safe; clamps, supports negatives) --- */
+	Bytes sl = b.slice(0, 2);
+	assert(sl.length() == 2);
+	assert(sl.get(0) == 72);
+	assert(sl.get(1) == 0);    /* NUL inside the slice */
+	Bytes neg = s.slice(-2, 3);
+	assert(neg.length() == 2);
+	assert(neg.get(0) == 98);
+	Bytes clamped = s.slice(0, 999);
+	assert(clamped.length() == 3);
+	print(f"slice: len={sl.length()}");
 
-    /* --- append / appendBytes --- */
-    Bytes cat = Bytes();
-    cat.appendBytes(s);
-    cat.appendBytes(b);
-    assert(cat.length() == 6);
-    assert(cat.get(0) == 97);
-    assert(cat.get(4) == 0);   /* the NUL from b survived the concatenation */
-    print(f"appendBytes: len={cat.length()}");
+	/* --- append / appendBytes --- */
+	Bytes cat = Bytes();
+	cat.appendBytes(s);
+	cat.appendBytes(b);
+	assert(cat.length() == 6);
+	assert(cat.get(0) == 97);
+	assert(cat.get(4) == 0);   /* the NUL from b survived the concatenation */
+	print(f"appendBytes: len={cat.length()}");
 
-    /* Self-append may grow/reallocate; it must snapshot the original length
+	/* Self-append may grow/reallocate; it must snapshot the original length
      * and use overlap-safe copying. */
-    Bytes selfAppend = Bytes.fromString("grow-me");
-    selfAppend.appendBytes(selfAppend);
-    assert(selfAppend.length() == 14);
-    assert(selfAppend.toString().equals("grow-megrow-me"));
+	Bytes selfAppend = Bytes.fromString("grow-me");
+	selfAppend.appendBytes(selfAppend);
+	assert(selfAppend.length() == 14);
+	assert(selfAppend.toString().equals("grow-megrow-me"));
 
-    /* --- equals (length + memcmp, so NUL counts) --- */
-    Bytes b2 = Bytes();
-    b2.append(72); b2.append(0); b2.append(105);
-    assert(b.equals(b2));
-    assert(b2.equals(b));
-    assert(!b.equals(s));
-    Bytes shorter = b.slice(0, 2);
-    assert(!b.equals(shorter));   /* different length */
-    print("equals: ok");
+	/* --- equals (length + memcmp, so NUL counts) --- */
+	Bytes b2 = Bytes();
+	b2.append(72); b2.append(0); b2.append(105);
+	assert(b.equals(b2));
+	assert(b2.equals(b));
+	assert(!b.equals(s));
+	Bytes shorter = b.slice(0, 2);
+	assert(!b.equals(shorter));   /* different length */
+	print("equals: ok");
 
-    /* --- toString vs toStringLossy --- */
-    Bytes txt = Bytes.fromString("hello");
-    string str = txt.toString();
-    assert(str.equals("hello"));
-    /* toString stops at the first embedded NUL (C-string semantics). */
-    string firstWord = b.toString();
-    assert((int)strlen(firstWord) == 1);   /* "H" then NUL */
-    print("toString: ok");
+	/* --- strict text validation --- */
+	assert(Bytes.fromString("plain text").isNulFreeUtf8());
+	Bytes validUtf8 = Bytes();
+	validUtf8.append(0xe2); validUtf8.append(0x82); validUtf8.append(0xac);
+	validUtf8.append(0xf0); validUtf8.append(0x9f); validUtf8.append(0x8e); validUtf8.append(0xb8);
+	assert(validUtf8.isNulFreeUtf8());
+	assert(!b.isNulFreeUtf8());
+	Bytes strayContinuation = Bytes();
+	strayContinuation.append(0x80);
+	assert(!strayContinuation.isNulFreeUtf8());
+	Bytes overlong = Bytes();
+	overlong.append(0xc0); overlong.append(0xaf);
+	assert(!overlong.isNulFreeUtf8());
+	Bytes truncated = Bytes();
+	truncated.append(0xe2); truncated.append(0x82);
+	assert(!truncated.isNulFreeUtf8());
+	Bytes surrogate = Bytes();
+	surrogate.append(0xed); surrogate.append(0xa0); surrogate.append(0x80);
+	assert(!surrogate.isNulFreeUtf8());
+	Bytes beyondUnicode = Bytes();
+	beyondUnicode.append(0xf4); beyondUnicode.append(0x90); beyondUnicode.append(0x80); beyondUnicode.append(0x80);
+	assert(!beyondUnicode.isNulFreeUtf8());
+	print("isNulFreeUtf8: ok");
 
-    /* --- HEADLINE: file with an embedded NUL round-trips byte-exactly --- */
-    string dir = FileSystem.tempDir("btrc_bytes_test");
-    assert(FileSystem.isDir(dir));
-    string path = PathTools.join(dir, "blob.bin");
+	/* --- toString vs toStringLossy --- */
+	Bytes txt = Bytes.fromString("hello");
+	string str = txt.toString();
+	assert(str.equals("hello"));
+	/* toString stops at the first embedded NUL (C-string semantics). */
+	string firstWord = b.toString();
+	assert((int)strlen(firstWord) == 1);   /* "H" then NUL */
+	print("toString: ok");
 
-    Bytes w = Bytes();
-    w.append(1);
-    w.append(0);     /* embedded NUL */
-    w.append(2);
-    w.append(0);     /* another embedded NUL */
-    w.append(255);
-    assert(w.length() == 5);
+	/* --- HEADLINE: file with an embedded NUL round-trips byte-exactly --- */
+	string dir = FileSystem.tempDir("btrc_bytes_test");
+	assert(FileSystem.isDir(dir));
+	string path = PathTools.join(dir, "blob.bin");
 
-    File fw = File(path, "wb");
-    assert(fw.ok());
-    assert(fw.writeBytes(w));
-    fw.close();
+	Bytes w = Bytes();
+	w.append(1);
+	w.append(0);     /* embedded NUL */
+	w.append(2);
+	w.append(0);     /* another embedded NUL */
+	w.append(255);
+	assert(w.length() == 5);
 
-    File fr = File(path, "rb");
-    assert(fr.ok());
-    Bytes r = fr.readBytes();
-    fr.close();
+	File fw = File(path, "wb");
+	assert(fw.ok());
+	assert(fw.writeBytes(w));
+	fw.close();
 
-    assert(r.length() == 5);          /* length preserved despite NUL bytes */
-    assert(r.get(0) == 1);
-    assert(r.get(1) == 0);            /* embedded NUL survived disk round-trip */
-    assert(r.get(2) == 2);
-    assert(r.get(3) == 0);
-    assert(r.get(4) == 255);
-    assert(r.equals(w));              /* byte-exact */
-    print(f"file round-trip: len={r.length()} nul@1={r.get(1)} nul@3={r.get(3)}");
+	File fr = File(path, "rb");
+	assert(fr.ok());
+	Bytes r = fr.readBytes();
+	fr.close();
 
-    FileSystem.removeRecursive(dir);
-    assert(!FileSystem.exists(dir));
+	assert(r.length() == 5);          /* length preserved despite NUL bytes */
+	assert(r.get(0) == 1);
+	assert(r.get(1) == 0);            /* embedded NUL survived disk round-trip */
+	assert(r.get(2) == 2);
+	assert(r.get(3) == 0);
+	assert(r.get(4) == 255);
+	assert(r.equals(w));              /* byte-exact */
+	print(f"file round-trip: len={r.length()} nul@1={r.get(1)} nul@3={r.get(3)}");
 
-    print("PASS: test_bytes");
-    return 0;
+	FileSystem.removeRecursive(dir);
+	assert(!FileSystem.exists(dir));
+
+	print("PASS: test_bytes");
+	return 0;
 }
