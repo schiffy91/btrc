@@ -1,9 +1,9 @@
 import std.io;
 import std.map;
+import std.math;
 import std.strings;
 import std.vector;
 
-#include <float.h>
 #include <locale.h>
 
 extern struct lconv* localeconv();
@@ -255,7 +255,7 @@ class JsonValue {
     }
 
     class JsonValue makeFloat(double d) {
-        if (!JsonNum.isFinite(d)) { return JsonValue.makeError(); }
+        if (!Math.isFinite(d)) { return JsonValue.makeError(); }
         var v = JsonValue();
         v.tag = 2;
         v.numVal = d;
@@ -866,7 +866,7 @@ class JsonParser {
         }
         var token = self.text.substring(start, self.pos - start);
         var d = JsonNum.toDouble(token);
-        if (!JsonNum.isFinite(d)) {
+        if (!Math.isFinite(d)) {
             self.ok = false;
             return JsonValue.makeError();
         }
@@ -893,15 +893,11 @@ class JsonNum {
         return strtod(localized, NULL);
     }
 
-    class bool isFinite(double value) {
-        return value == value && value <= DBL_MAX && value >= -DBL_MAX;
-    }
-
     /* Format a number for JSON output. Signed-64-bit integers print without a
      * decimal point; larger integral doubles and floats use %.17g, which
      * guarantees parse(stringify(v)) == v for the stored IEEE double value. */
     class string format(double value, bool isInt) {
-        if (!JsonNum.isFinite(value)) { return "null"; }
+        if (!Math.isFinite(value)) { return "null"; }
         if (isInt && value >= -9223372036854775808.0
                 && value < 9223372036854775808.0) {
             char* buf = (char*)__btrc_safe_realloc(null, (size_t)32);

@@ -513,7 +513,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     )),
     ("JsonNum", (
         BuiltinMemberSpec("toDouble", "double", "method", (("string", "token"),), "toDouble"),
-        BuiltinMemberSpec("isFinite", "bool", "method", (("double", "value"),), "isFinite"),
         BuiltinMemberSpec("format", "string", "method", (("double", "value"), ("bool", "isInt"),), "format"),
         BuiltinMemberSpec("charFromCode", "string", "method", (("int", "code"),), "charFromCode"),
         BuiltinMemberSpec("uEscape", "string", "method", (("int", "code"),), "uEscape"),
@@ -556,6 +555,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("INF", "float", "method", (), "INF"),
         BuiltinMemberSpec("abs", "int", "method", (("int", "x"),), "abs"),
         BuiltinMemberSpec("fabs", "float", "method", (("float", "x"),), "fabs"),
+        BuiltinMemberSpec("isFinite", "bool", "method", (("double", "x"),), "isFinite"),
         BuiltinMemberSpec("max", "int", "method", (("int", "a"), ("int", "b"),), "max"),
         BuiltinMemberSpec("min", "int", "method", (("int", "a"), ("int", "b"),), "min"),
         BuiltinMemberSpec("fmax", "float", "method", (("float", "a"), ("float", "b"),), "fmax"),
@@ -581,6 +581,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("atan2", "float", "method", (("float", "y"), ("float", "x"),), "atan2"),
         BuiltinMemberSpec("ceil", "float", "method", (("float", "x"),), "ceil"),
         BuiltinMemberSpec("floor", "float", "method", (("float", "x"),), "floor"),
+        BuiltinMemberSpec("floorDouble", "double", "method", (("double", "x"),), "floorDouble"),
         BuiltinMemberSpec("round", "int", "method", (("float", "x"),), "round"),
         BuiltinMemberSpec("truncate", "int", "method", (("float", "x"),), "truncate"),
         BuiltinMemberSpec("log", "float", "method", (("float", "x"),), "log"),

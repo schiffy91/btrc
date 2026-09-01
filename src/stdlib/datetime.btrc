@@ -6,11 +6,11 @@
  * DST handling — round-tripping now() through toUnix()/fromUnix() shifts by your
  * local UTC offset. Convert deliberately if you mix the two.
  */
+import std.math;
 import std.strings;
 
 #include <errno.h>
 #include <limits.h>
-#include <math.h>
 #include <stdint.h>
 #include <time.h>
 
@@ -217,7 +217,7 @@ class Timer {
          * is undefined in C.  Keep the established non-positive no-op contract
          * and fail closed for values that are not portable to signed 32-bit
          * time_t implementations. */
-        if (!isfinite(seconds) || seconds <= 0.0
+        if (!Math.isFinite(seconds) || seconds <= 0.0
                 || seconds >= 2147483647.0) {
             return;
         }

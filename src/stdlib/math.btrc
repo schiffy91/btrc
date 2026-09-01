@@ -22,6 +22,10 @@ class Math {
         return fabsf(x);
     }
 
+    class bool isFinite(double x) {
+        return isfinite(x);
+    }
+
     class int max(int a, int b) {
         if (a > b) { return a; }
         return b;
@@ -182,6 +186,7 @@ class Math {
     /* Rounding */
     class float ceil(float x)     { return ceilf(x); }
     class float floor(float x)    { return floorf(x); }
+    class double floorDouble(double x) { return floor(x); }
     class int round(float x) {
         if (isnan(x)) { return 0; }
         if (x >= (float)2147483647) { return 2147483647; }
