@@ -84,12 +84,15 @@ class DeclarationValidator {
 	}
 
 	public bool hostedTypeMatchesShape(Node typeNode, GeneratedAbiTypeRow shape) {
-		if (self.hostedNormalizedBase(typeNode.base) != shape.base || self.hostedPointerDepth(typeNode) != shape.pointer_depth || typeNode.is_const != shape.is_const || typeNode.generic_args.len != shape.generic_args.len) {
+		Node? optionalCanonical = self.types.resolveAliases(typeNode);
+		if (optionalCanonical == null) { return false; }
+		Node canonical = optionalCanonical;
+		if (self.hostedNormalizedBase(canonical.base) != shape.base || self.hostedPointerDepth(canonical) != shape.pointer_depth || canonical.is_const != shape.is_const || canonical.generic_args.len != shape.generic_args.len) {
 			return false;
 		}
 		int index = 0;
-		while (index < typeNode.generic_args.len) {
-			if (!self.hostedTypeMatchesShape(typeNode.generic_args.get(index), shape.generic_args.get(index))) {
+		while (index < canonical.generic_args.len) {
+			if (!self.hostedTypeMatchesShape(canonical.generic_args.get(index), shape.generic_args.get(index))) {
 				return false;
 			}
 			index = index + 1;

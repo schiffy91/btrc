@@ -186,7 +186,7 @@ class GeneratedHostedAbiData {
 		self.push_platform_typedef_names0();
 		self.stdlib_source_marker = "compiler:stdlib";
 		self.user_source_marker = "compiler:user";
-		self.fingerprint = "54171f3797d2a04942be26af80ab862be7f03b016d08522dfed8381ca0328c72";
+		self.fingerprint = "05a60af9faf68da0877e93090fd6e44a819210b4ababa9c39bb66afac61f8d97";
 	}
 
 	private void pushFunctions0() {
@@ -8243,9 +8243,9 @@ class GeneratedHostedAbiData {
 			[
 			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
 			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("BtrcBackgroundJobNativeRun", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("CFunction", 0, false, [GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), GeneratedAbiTypeRow("void", 1, false, self.emptyTypes())]), "value", "stored_until_unregister"),
 			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "unknown", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("BtrcBackgroundJobNativeDispose", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("CFunction", 0, false, [GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()), GeneratedAbiTypeRow("void", 1, false, self.emptyTypes())]), "value", "stored_until_unregister"),
 			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
 		],
 			false,

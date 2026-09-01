@@ -6839,7 +6839,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         name='std_background_jobs_submit',
         origin='native_background_jobs',
         result=GeneratedAbiTypeRow('int', 0, False, ()),
-        parameters=(GeneratedHostedParameterRow(GeneratedAbiTypeRow('void', 1, False, ()), 'mutate', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('unsigned long long', 0, False, ()), 'value', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('BtrcBackgroundJobNativeRun', 0, False, ()), 'value', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('void', 1, False, ()), 'unknown', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('BtrcBackgroundJobNativeDispose', 0, False, ()), 'value', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('unsigned long long', 1, False, ()), 'mutate', None),),
+        parameters=(GeneratedHostedParameterRow(GeneratedAbiTypeRow('void', 1, False, ()), 'mutate', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('unsigned long long', 0, False, ()), 'value', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('CFunction', 0, False, (GeneratedAbiTypeRow('int', 0, False, ()), GeneratedAbiTypeRow('void', 1, False, ()), GeneratedAbiTypeRow('void', 1, False, ()),)), 'value', 'stored_until_unregister'), GeneratedHostedParameterRow(GeneratedAbiTypeRow('void', 1, False, ()), 'unknown', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('CFunction', 0, False, (GeneratedAbiTypeRow('void', 0, False, ()), GeneratedAbiTypeRow('void', 1, False, ()),)), 'value', 'stored_until_unregister'), GeneratedHostedParameterRow(GeneratedAbiTypeRow('unsigned long long', 1, False, ()), 'mutate', None),),
         variadic=False,
         semantic_result=None,
         return_effect='value',
@@ -20183,4 +20183,4 @@ HOSTED_PLATFORM_TYPEDEF_NAMES: tuple[str, ...] = (
 
 HOSTED_STDLIB_SOURCE_MARKER = 'compiler:stdlib'
 HOSTED_USER_SOURCE_MARKER = 'compiler:user'
-HOSTED_ABI_FINGERPRINT = '54171f3797d2a04942be26af80ab862be7f03b016d08522dfed8381ca0328c72'
+HOSTED_ABI_FINGERPRINT = '05a60af9faf68da0877e93090fd6e44a819210b4ababa9c39bb66afac61f8d97'

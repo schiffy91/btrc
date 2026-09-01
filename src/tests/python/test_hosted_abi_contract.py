@@ -26,7 +26,7 @@ from src.compiler.python.frontend.sources import CompilerStdlibSource
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
-from src.compiler.python.syntax.ast.generated import FunctionDecl
+from src.compiler.python.syntax.ast.generated import FunctionDecl, TypedefDecl
 from tools.compiler_codegen.hosted_abi import (
     HostedAbiCatalogGenerator,
     HostedAbiManifest,
@@ -251,9 +251,12 @@ def test_hosted_type_namespace_contains_portable_and_platform_typedefs() -> None
 
 def test_every_shipped_native_source_prototype_has_an_exact_spec() -> None:
     declarations = {}
+    typedefs = {}
     for path in (SOURCE_ROOT / "stdlib").rglob("*.btrc"):
         program = Parser(Lexer(path.read_text(), str(path)).tokenize()).parse()
         for declaration in program.declarations:
+            if isinstance(declaration, TypedefDecl):
+                typedefs[declaration.alias] = declaration.original
             if (
                 isinstance(declaration, FunctionDecl)
                 and declaration.body is None
@@ -262,6 +265,7 @@ def test_every_shipped_native_source_prototype_has_an_exact_spec() -> None:
                 declarations.setdefault(declaration.name, []).append(declaration)
     assert declarations.keys() == HOSTED_NATIVE_FUNCTIONS.keys()
     analyzer = SemanticAnalyzer()
+    analyzer.index.typedef_table.update(typedefs)
     for name, variants in declarations.items():
         spec = HOSTED_NATIVE_FUNCTIONS[name]
         assert spec.parameters is not None
@@ -300,7 +304,11 @@ def test_native_app_background_jobs_and_ui_effects_are_exact() -> None:
 
     assert scroll is not None and scroll.result == abi_type("float")
     assert submit is not None
+    assert submit.parameters is not None
+    assert submit.parameters[2] == abi_type("CFunction", generic_args=(INT, VOID_PTR, VOID_PTR))
+    assert submit.parameters[4] == abi_type("CFunction", generic_args=(abi_type("void"), VOID_PTR))
     assert submit.effects == (MUTATE, VALUE, VALUE, UNKNOWN, VALUE, MUTATE)
+    assert submit.callback_lifetimes == (None, None, "stored_until_unregister", None, "stored_until_unregister", None)
     assert add_image is not None
     assert add_image.effects == (VALUE, READ, READ, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE)
     assert {

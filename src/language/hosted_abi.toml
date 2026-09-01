@@ -17108,9 +17108,9 @@ parameters_known = true
 parameters = [
   { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
   { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "BtrcBackgroundJobNativeRun", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "CFunction", pointer_depth = 0, is_const = false, generic_args = [{ base = "int", pointer_depth = 0, is_const = false }, { base = "void", pointer_depth = 1, is_const = false }, { base = "void", pointer_depth = 1, is_const = false }], effect = "value", callback_lifetime = "stored_until_unregister" },
   { base = "void", pointer_depth = 1, is_const = false, effect = "unknown" },
-  { base = "BtrcBackgroundJobNativeDispose", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "CFunction", pointer_depth = 0, is_const = false, generic_args = [{ base = "void", pointer_depth = 0, is_const = false }, { base = "void", pointer_depth = 1, is_const = false }], effect = "value", callback_lifetime = "stored_until_unregister" },
   { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
 ]
 variadic = false
