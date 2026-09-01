@@ -1,0 +1,51 @@
+/* SHA-256 known vectors plus binary-safe Bytes coverage. */
+
+import std.bytes;
+import std.sha256;
+import std.strings;
+
+#include <assert.h>
+
+int main() {
+    assert(Sha256.digest("").equals(
+        "e3b0c44298fc1c149afbf4c8996fb924"
+        + "27ae41e4649b934ca495991b7852b855"));
+    assert(Sha256.digest("abc").equals(
+        "ba7816bf8f01cfea414140de5dae2223"
+        + "b00361a396177a9cb410ff61f20015ad"));
+    assert(Sha256.digest(
+        "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+    ).equals(
+        "248d6a61d20638b8e5c026930c3e6039"
+        + "a33ce45964ff2167f6ecedd419db06c1"));
+    assert(Sha256.digest(Strings.repeat("a", 1000000)).equals(
+        "cdc76e5c9914fb9281a1c7e284d73e67"
+        + "f1809a48a497200e046d39ccc7112cd0"));
+
+    Bytes binary = Bytes();
+    binary.append(0);
+    binary.append(1);
+    binary.append(2);
+    binary.append(255);
+    assert(Sha256.digestBytes(binary).equals(
+        "3d1f57c984978ef98a18378c8166c1cb"
+        + "8ede02c03eeb6aee7e2f121dfeee3e56"));
+    assert(binary.length() == 4);
+    assert(binary.get(0) == 0);
+    assert(binary.get(3) == 255);
+
+    Bytes lengthPrefixed = Bytes();
+    lengthPrefixed.append(0);
+    lengthPrefixed.append(0);
+    lengthPrefixed.append(0);
+    lengthPrefixed.append(3);
+    lengthPrefixed.appendBytes(Bytes.fromString("abc"));
+    assert(Sha256.digestBytes(lengthPrefixed).equals(
+        "d04b72a650ce0f8ce4963330a53ee283"
+        + "2733d2baeffff3c1d8e256cca096d120"));
+    assert(Sha256.digestBytes(Bytes.fromString("abc")).equals(
+        Sha256.digest("abc")));
+
+    print("PASS: Sha256");
+    return 0;
+}

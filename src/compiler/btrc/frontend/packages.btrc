@@ -1,10 +1,10 @@
 /* Versioned package graph and native link-plan ownership. */
 
-import std.bytes;
 import std.FileSystem;
 import std.json;
 import std.map;
 import std.platform;
+import std.sha256;
 import std.strings;
 import std.toml;
 import std.vector;
@@ -14,141 +14,6 @@ class FePackageFailure {
     class void fail(string diagnostic) {
         fprintf(stderr, "error: package resolution failed: %s\n", diagnostic);
         exit(1);
-    }
-}
-
-/* Package identities are persisted without relying on a platform crypto
- * library.  Keeping this small SHA-256 owner here makes lockfiles portable
- * across the same hosts that can run the compiler. */
-class FePackageSha256 {
-    private unsigned int rotateRight(unsigned int value, int count) {
-        return (value >> count) | (value << (32 - count));
-    }
-
-    private Vector<unsigned int> roundConstants() {
-        return [
-            0x428a2f98U, 0x71374491U, 0xb5c0fbcfU, 0xe9b5dba5U,
-            0x3956c25bU, 0x59f111f1U, 0x923f82a4U, 0xab1c5ed5U,
-            0xd807aa98U, 0x12835b01U, 0x243185beU, 0x550c7dc3U,
-            0x72be5d74U, 0x80deb1feU, 0x9bdc06a7U, 0xc19bf174U,
-            0xe49b69c1U, 0xefbe4786U, 0x0fc19dc6U, 0x240ca1ccU,
-            0x2de92c6fU, 0x4a7484aaU, 0x5cb0a9dcU, 0x76f988daU,
-            0x983e5152U, 0xa831c66dU, 0xb00327c8U, 0xbf597fc7U,
-            0xc6e00bf3U, 0xd5a79147U, 0x06ca6351U, 0x14292967U,
-            0x27b70a85U, 0x2e1b2138U, 0x4d2c6dfcU, 0x53380d13U,
-            0x650a7354U, 0x766a0abbU, 0x81c2c92eU, 0x92722c85U,
-            0xa2bfe8a1U, 0xa81a664bU, 0xc24b8b70U, 0xc76c51a3U,
-            0xd192e819U, 0xd6990624U, 0xf40e3585U, 0x106aa070U,
-            0x19a4c116U, 0x1e376c08U, 0x2748774cU, 0x34b0bcb5U,
-            0x391c0cb3U, 0x4ed8aa4aU, 0x5b9cca4fU, 0x682e6ff3U,
-            0x748f82eeU, 0x78a5636fU, 0x84c87814U, 0x8cc70208U,
-            0x90befffaU, 0xa4506cebU, 0xbef9a3f7U, 0xc67178f2U
-        ];
-    }
-
-    public string digest(string source) {
-        Bytes message = Bytes();
-        int sourceLength = source.length();
-        int sourceIndex = 0;
-        while (sourceIndex < sourceLength) {
-            message.append((int)((unsigned char)source[sourceIndex]));
-            sourceIndex++;
-        }
-        unsigned long long bitLength =
-            (unsigned long long)sourceLength * 8ULL;
-        message.append(0x80);
-        while ((message.len % 64) != 56) { message.append(0); }
-        int bitShift = 56;
-        while (bitShift >= 0) {
-            message.append((int)((bitLength >> bitShift) & 0xffULL));
-            bitShift = bitShift - 8;
-        }
-
-        Vector<unsigned int> hash = [
-            0x6a09e667U, 0xbb67ae85U, 0x3c6ef372U, 0xa54ff53aU,
-            0x510e527fU, 0x9b05688cU, 0x1f83d9abU, 0x5be0cd19U
-        ];
-        Vector<unsigned int> constants = self.roundConstants();
-        int offset = 0;
-        while (offset < message.len) {
-            Vector<unsigned int> words = [];
-            int wordIndex = 0;
-            while (wordIndex < 16) {
-                int base = offset + wordIndex * 4;
-                unsigned int value = ((unsigned int)message.get(base) << 24)
-                    | ((unsigned int)message.get(base + 1) << 16)
-                    | ((unsigned int)message.get(base + 2) << 8)
-                    | (unsigned int)message.get(base + 3);
-                words.push(value);
-                wordIndex++;
-            }
-            while (wordIndex < 64) {
-                unsigned int previous15 = words.get(wordIndex - 15);
-                unsigned int previous2 = words.get(wordIndex - 2);
-                unsigned int sigma0 = self.rotateRight(previous15, 7)
-                    ^ self.rotateRight(previous15, 18)
-                    ^ (previous15 >> 3);
-                unsigned int sigma1 = self.rotateRight(previous2, 17)
-                    ^ self.rotateRight(previous2, 19)
-                    ^ (previous2 >> 10);
-                words.push(words.get(wordIndex - 16) + sigma0
-                    + words.get(wordIndex - 7) + sigma1);
-                wordIndex++;
-            }
-
-            unsigned int a = hash.get(0);
-            unsigned int b = hash.get(1);
-            unsigned int c = hash.get(2);
-            unsigned int d = hash.get(3);
-            unsigned int e = hash.get(4);
-            unsigned int f = hash.get(5);
-            unsigned int g = hash.get(6);
-            unsigned int h = hash.get(7);
-            int round = 0;
-            while (round < 64) {
-                unsigned int sum1 = self.rotateRight(e, 6)
-                    ^ self.rotateRight(e, 11) ^ self.rotateRight(e, 25);
-                unsigned int choice = (e & f) ^ ((~e) & g);
-                unsigned int temporary1 = h + sum1 + choice
-                    + constants.get(round) + words.get(round);
-                unsigned int sum0 = self.rotateRight(a, 2)
-                    ^ self.rotateRight(a, 13) ^ self.rotateRight(a, 22);
-                unsigned int majority = (a & b) ^ (a & c) ^ (b & c);
-                unsigned int temporary2 = sum0 + majority;
-                h = g;
-                g = f;
-                f = e;
-                e = d + temporary1;
-                d = c;
-                c = b;
-                b = a;
-                a = temporary1 + temporary2;
-                round++;
-            }
-            hash.set(0, hash.get(0) + a);
-            hash.set(1, hash.get(1) + b);
-            hash.set(2, hash.get(2) + c);
-            hash.set(3, hash.get(3) + d);
-            hash.set(4, hash.get(4) + e);
-            hash.set(5, hash.get(5) + f);
-            hash.set(6, hash.get(6) + g);
-            hash.set(7, hash.get(7) + h);
-            offset = offset + 64;
-        }
-
-        string digits = "0123456789abcdef";
-        StringBuilder output = StringBuilder();
-        int hashIndex = 0;
-        while (hashIndex < hash.len) {
-            int shift = 28;
-            while (shift >= 0) {
-                int nibble = (int)((hash.get(hashIndex) >> shift) & 0x0fU);
-                output.appendChar(digits[nibble]);
-                shift = shift - 4;
-            }
-            hashIndex++;
-        }
-        return output.toString();
     }
 }
 
@@ -1289,7 +1154,7 @@ class FePackageLock {
             packageValues.push(record);
             packageIndex++;
         }
-        string graphHash = FePackageSha256().digest(packageValues.stringify());
+        string graphHash = Sha256.digest(packageValues.stringify());
         JsonValue lock = JsonValue.makeObject();
         lock.set("manifest-hash", JsonValue.makeString(graphHash));
         lock.set("packages", packageValues);
@@ -1481,7 +1346,7 @@ class FePackageGraphResolver {
         self.visitingOrder.pop();
         FePackageNode node = FePackageNode(
             manifest.name, canonical, dependencies, canonical,
-            FePackageSha256().digest(source),
+            Sha256.digest(source),
             manifest.nativeDeclarations);
         self.nodesByRoot.put(canonical, node);
         return manifest.name;
