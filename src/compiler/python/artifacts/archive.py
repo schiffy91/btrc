@@ -613,11 +613,13 @@ class ArchiveCodec:
             return 0o755
         return 0o644
 
-    def _tar_info(self, entry: ArchiveEntry, bundle: Path, epoch: int) -> tarfile.TarInfo:
+    def _member_name(self, entry: ArchiveEntry, bundle: Path) -> str:
         relative = entry.path.relative_to(bundle.parent).as_posix()
-        name = relative + ("/" if entry.is_directory else "")
+        return relative + ("/" if entry.is_directory else "")
+
+    def _tar_info(self, entry: ArchiveEntry, bundle: Path, epoch: int) -> tarfile.TarInfo:
         return self.canonical_tar_info(
-            name,
+            self._member_name(entry, bundle),
             is_directory=entry.is_directory,
             mode=self._portable_mode(entry, bundle),
             size=entry.size,
@@ -647,7 +649,10 @@ class ArchiveCodec:
                     ) as archive,
                 ):
                     entries = source.discover()
-                    for entry in entries:
+                    for entry in sorted(
+                        entries,
+                        key=lambda value: self._member_name(value, bundle),
+                    ):
                         info = self._tar_info(entry, bundle, epoch)
                         if not entry.is_directory:
                             with source.open_regular(entry) as payload:
@@ -683,9 +688,11 @@ class ArchiveCodec:
                     compresslevel=9,
                 ) as archive:
                     entries = source.discover()
-                    for entry in entries:
-                        relative = entry.path.relative_to(bundle.parent).as_posix()
-                        name = relative + ("/" if entry.is_directory else "")
+                    for entry in sorted(
+                        entries,
+                        key=lambda value: self._member_name(value, bundle),
+                    ):
+                        name = self._member_name(entry, bundle)
                         info = zipfile.ZipInfo(name, self.canonical_zip_timestamp(epoch))
                         info.create_system = 3
                         if entry.is_directory:

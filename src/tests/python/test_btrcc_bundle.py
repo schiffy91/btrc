@@ -149,6 +149,36 @@ def test_windows_bundle_uses_exe_and_deterministic_zip(tmp_path: Path) -> None:
     assert _manifest(first.bundle)["executable"] == "bin/btrcc.exe"
 
 
+@pytest.mark.parametrize("target", ["linux-x64", "windows-x64"])
+def test_archive_order_is_canonical_when_file_and_directory_share_a_stem(
+    tmp_path: Path,
+    target: str,
+) -> None:
+    source_root, binary = _fixture(tmp_path / "source", target)
+    stdlib = source_root / "src/stdlib"
+    (stdlib / "feature.btrc").write_text("class Feature {}\n", encoding="utf-8")
+    (stdlib / "feature").mkdir()
+    (stdlib / "feature/README.md").write_text("feature\n", encoding="utf-8")
+
+    result = SelfhostBundleBuilder().build(
+        binary=binary,
+        target=target,
+        output_dir=tmp_path / "dist",
+        source_root=source_root,
+    )
+
+    if result.archive.suffix == ".zip":
+        with zipfile.ZipFile(result.archive) as archive:
+            names = archive.namelist()
+    else:
+        with tarfile.open(result.archive, "r:gz") as archive:
+            names = [
+                member.name + ("/" if member.isdir() and not member.name.endswith("/") else "")
+                for member in archive.getmembers()
+            ]
+    assert names == sorted(names)
+
+
 @pytest.mark.parametrize("target", ["../escape", "linux/x64", "", ".."])
 def test_invalid_target_names_are_rejected(tmp_path: Path, target: str) -> None:
     source_root, binary = _fixture(tmp_path / "source")
