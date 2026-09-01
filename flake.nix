@@ -80,6 +80,8 @@
         };
       });
       packages = eachSystem (pkgs: let
+        isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
+        isLinux = pkgs.stdenv.hostPlatform.isLinux;
         runtimePrefixes = [
           "src/compiler/python/"
           "src/devex/lsp/"
@@ -129,6 +131,17 @@
             "src/stdlib/"
           ];
           files = [ "LICENSE" ];
+          excludedPrefixes = [ ];
+        };
+        appRuntimeSource = sourceSubset {
+          prefixes = [ "src/stdlib/app/" ];
+          excludedPrefixes = [ ];
+        };
+        gpuRuntimeSource = sourceSubset {
+          prefixes = [
+            "src/stdlib/app/"
+            "src/stdlib/gpu/"
+          ];
           excludedPrefixes = [ ];
         };
         nativePlanSource = sourceSubset {
@@ -192,6 +205,110 @@
             runHook postInstall
           '';
         };
+        appFrameworks = lib.optionalString isDarwin
+          " -framework Cocoa -framework IOKit -framework CoreVideo";
+        gpuFrameworks = lib.optionalString isDarwin
+          " -framework Metal -framework QuartzCore -framework Cocoa -framework IOKit -framework CoreVideo";
+        appCompileFlags = "-DGLFW_INCLUDE_NONE -I${pkgs.glfw.dev}/include";
+        gpuCompileFlags = appCompileFlags
+          + " -DBTRC_GPU_WGPU_NATIVE -I${pkgs.wgpu-native.dev}/include/webgpu"
+          + lib.optionalString isLinux
+            " -I${pkgs.libx11.dev}/include -I${pkgs.wayland.dev}/include";
+        appPkgConfig = pkgs.writeText "btrc-app.pc.in" ''
+          prefix=@out@
+          libdir=''${prefix}/lib
+          includedir=''${prefix}/include
+
+          Name: btrc-app
+          Description: BTRC application and window runtime
+          Version: 0
+          Cflags: -I''${includedir}
+          Libs: -L''${libdir} -lbtrc_app -L${pkgs.glfw}/lib -lglfw${appFrameworks}
+        '';
+        gpuPkgConfig = pkgs.writeText "btrc-gpu.pc.in" ''
+          prefix=@out@
+          libdir=''${prefix}/lib
+          includedir=''${prefix}/include
+
+          Name: btrc-gpu
+          Description: BTRC application and WebGPU runtime
+          Version: 0
+          Cflags: -I''${includedir}
+          Libs: -L''${libdir} -lbtrc_gpu -lbtrc_app -L${pkgs.wgpu-native}/lib -lwgpu_native -L${pkgs.glfw}/lib -lglfw${gpuFrameworks}
+        '';
+        btrcApp = pkgs.stdenv.mkDerivation {
+          pname = "btrc-app";
+          version = "0";
+          src = appRuntimeSource;
+          strictDeps = true;
+          propagatedBuildInputs = [ pkgs.glfw ];
+          buildPhase = ''
+            runHook preBuild
+            $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
+              -pthread ${appCompileFlags} -Isrc/stdlib/app \
+              -c src/stdlib/app/btrc_app.c -o btrc_app.o
+            $AR rcs libbtrc_app.a btrc_app.o
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            mkdir -p "$out/include" "$out/lib/pkgconfig"
+            install -m 0644 src/stdlib/app/btrc_app.h "$out/include/"
+            install -m 0644 libbtrc_app.a "$out/lib/"
+            substitute ${appPkgConfig} "$out/lib/pkgconfig/btrc-app.pc" \
+              --replace-fail @out@ "$out"
+            runHook postInstall
+          '';
+        };
+        btrcGpu = pkgs.stdenv.mkDerivation {
+          pname = "btrc-gpu";
+          version = "0";
+          src = gpuRuntimeSource;
+          strictDeps = true;
+          buildInputs = [ btrcApp ];
+          propagatedBuildInputs = [
+            pkgs.glfw
+            pkgs.wgpu-native
+          ] ++ lib.optionals isLinux [
+            pkgs.libx11.dev
+            pkgs.wayland.dev
+          ];
+          buildPhase = ''
+            runHook preBuild
+            for source in \
+              btrc_gpu.c \
+              btrc_gpu_async.c \
+              btrc_gpu_native_ui.c \
+              btrc_gpu_surface.c; do
+              $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
+                -pthread ${gpuCompileFlags} \
+                -Isrc/stdlib/app -Isrc/stdlib/gpu \
+                -c "src/stdlib/gpu/$source" -o "''${source%.c}.o"
+            done
+            objects="btrc_gpu.o btrc_gpu_async.o btrc_gpu_native_ui.o btrc_gpu_surface.o"
+            ${lib.optionalString isDarwin ''
+              $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
+                -x objective-c ${gpuCompileFlags} \
+                -Isrc/stdlib/app -Isrc/stdlib/gpu \
+                -c src/stdlib/gpu/btrc_gpu_surface_macos.m \
+                -o btrc_gpu_surface_macos.o
+              objects="$objects btrc_gpu_surface_macos.o"
+            ''}
+            $AR rcs libbtrc_gpu.a $objects
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            mkdir -p "$out/include" "$out/lib/pkgconfig"
+            install -m 0644 src/stdlib/app/btrc_app.h "$out/include/"
+            install -m 0644 src/stdlib/gpu/btrc_gpu.h "$out/include/"
+            install -m 0644 ${btrcApp}/lib/libbtrc_app.a "$out/lib/"
+            install -m 0644 libbtrc_gpu.a "$out/lib/"
+            substitute ${gpuPkgConfig} "$out/lib/pkgconfig/btrc-gpu.pc" \
+              --replace-fail @out@ "$out"
+            runHook postInstall
+          '';
+        };
         btrc-lsp = pkgs.writeShellApplication {
           name = "btrc-lsp";
           # LSP composition resolves the same locked Git dependencies as the
@@ -250,6 +367,8 @@
         };
       in {
         inherit btrcpy btrcc btrc-lsp btrc-vscode;
+        btrc-app = btrcApp;
+        btrc-gpu = btrcGpu;
         btrc-native-plan = nativePlan;
         btrc-vscode-extension = btrc-vscode;
         inherit btrc;
@@ -273,6 +392,30 @@
           aarch64-linux = "linux-arm64";
         }.${system};
       in {
+        gpu-runtime-package = pkgs.runCommand "btrc-gpu-runtime-package-check" {
+          nativeBuildInputs = [
+            pkgs.pkg-config
+            pkgs.stdenv.cc
+          ];
+          buildInputs = [ self.packages.${system}.btrc-gpu ];
+        } ''
+          pkg-config --validate btrc-gpu
+          printf '%s\n' \
+            '#include <btrc_app.h>' \
+            '#include <btrc_gpu.h>' \
+            '#include <string.h>' \
+            'int main(void) {' \
+            '  if (std_app_error_code(0) != BTRC_APP_ERROR_NONE) { return 1; }' \
+            '  return strcmp(std_gpu_status_message(BTRC_GPU_ATTACH_INVALID_SURFACE),' \
+            '    "invalid or stale application surface") != 0;' \
+            '}' > smoke.c
+          cc -std=c11 -pedantic-errors -Wall -Wextra -Werror \
+            $(pkg-config --cflags btrc-gpu) smoke.c \
+            $(pkg-config --libs btrc-gpu) -lm -pthread -o smoke
+          ./smoke
+          mkdir -p "$out"
+          cp smoke "$out/"
+        '';
         native-package-plan = pkgs.runCommand "btrc-native-package-plan-check" {
           nativeBuildInputs = [
             pkgs.gnumake
