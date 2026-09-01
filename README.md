@@ -60,6 +60,7 @@ Plus, btrc *definitely* has bugs.
 nix develop
 make build
 nix run .#btrc -- hello.btrc -o hello.c
+nix run .#btrc-format -- check hello.btrc
 
 # Option 2: Devcontainer (VS Code)
 make devcontainer    # build container image
@@ -81,9 +82,12 @@ gcc hello.c -o hello -lm
 python3 -m src.compiler.python.main hello.btrc -o hello.c
 ```
 
-The flake exports the compiler as `packages.<system>.btrcpy`,
-`packages.<system>.btrc`, and `apps.<system>.btrc`, so downstream flakes can
-depend on BTRC directly instead of shelling into this repository.
+The flake exports the compiler and source formatter as
+`packages.<system>.btrc`, `apps.<system>.btrc`,
+`packages.<system>.btrc-format`, and `apps.<system>.btrc-format`, so downstream
+flakes can depend on BTRC directly instead of shelling into this repository.
+The formatter's complete style and exit-code contract is in
+[the devex guide](docs/devex/formatter.md).
 
 Useful compiler modes include:
 

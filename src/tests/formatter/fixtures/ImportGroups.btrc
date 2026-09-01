@@ -1,0 +1,10 @@
+#include <assert.h>
+
+import std.vector;
+
+import ./Support.btrc;
+
+import std.map;
+#include "Legacy.btrc"
+
+class ImportFixture {}

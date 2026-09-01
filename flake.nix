@@ -52,6 +52,10 @@
           type = "app";
           program = "${self.packages.${system}.btrc-lsp}/bin/btrc-lsp";
         };
+        btrc-format = {
+          type = "app";
+          program = "${self.packages.${system}.btrc-format}/bin/btrc-format";
+        };
         btrc-native-plan = {
           type = "app";
           program = "${self.packages.${system}.btrc-native-plan}/bin/btrc-native-plan";
@@ -64,7 +68,10 @@
         default = pkgs.mkShell {
           # btrc-lsp on PATH: the VSCode extension launches the language server
           # via `nix develop <workspace> --command btrc-lsp`.
-          packages = cfg.packages pkgs ++ [ self.packages.${system}.btrc-lsp ];
+          packages = cfg.packages pkgs ++ [
+            self.packages.${system}.btrc-format
+            self.packages.${system}.btrc-lsp
+          ];
           APP_CFLAGS = "-DGLFW_INCLUDE_NONE -I${pkgs.glfw.dev}/include";
           APP_LDFLAGS = "-L${pkgs.glfw}/lib -lglfw"
             + lib.optionalString isDarwin
@@ -146,6 +153,17 @@
         };
         nativePlanSource = sourceSubset {
           prefixes = [ "tools/native_plan.py" ];
+          excludedPrefixes = [ ];
+        };
+        formatterSource = sourceSubset {
+          prefixes = [
+            "src/compiler/python/lexer/"
+            "src/compiler/python/parser/"
+            "src/compiler/python/syntax/"
+            "src/devex/formatter/"
+            "src/language/"
+          ];
+          files = [ "src/devex/__init__.py" ];
           excludedPrefixes = [ ];
         };
         extensionVersion = (builtins.fromJSON (builtins.readFile ./src/devex/vscode/package.json)).version;
@@ -319,6 +337,14 @@
             exec python3 -m src.devex.lsp "$@"
           '';
         };
+        btrc-format = pkgs.writeShellApplication {
+          name = "btrc-format";
+          runtimeInputs = [ pkgs.python314 ];
+          text = ''
+            export PYTHONPATH="${formatterSource}''${PYTHONPATH:+:$PYTHONPATH}"
+            exec ${pkgs.python314}/bin/python3 -m src.devex.formatter "$@"
+          '';
+        };
         nativePlan = pkgs.writeShellApplication {
           name = "btrc-native-plan";
           runtimeInputs = [ pkgs.python314 pkgs.stdenv.cc pkgs.pkg-config ];
@@ -329,7 +355,7 @@
         };
         btrc = pkgs.symlinkJoin {
           name = "btrc-tools";
-          paths = [ btrcpy btrcc nativePlan ];
+          paths = [ btrcpy btrcc btrc-format nativePlan ];
         };
         btrc-vscode = pkgs.buildNpmPackage {
           pname = "vscode-extension-btrc";
@@ -366,7 +392,7 @@
           };
         };
       in {
-        inherit btrcpy btrcc btrc-lsp btrc-vscode;
+        inherit btrcpy btrcc btrc-format btrc-lsp btrc-vscode;
         btrc-app = btrcApp;
         btrc-gpu = btrcGpu;
         btrc-native-plan = nativePlan;

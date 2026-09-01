@@ -24,6 +24,7 @@ dev = [
 [project.scripts]
 btrcpy = "src.compiler.python.main:main"
 btrc-lsp = "src.devex.lsp.__main__:main"
+btrc-format = "src.devex.formatter.cli:main"
 
 # The project intentionally imports through the repository-level `src`
 # namespace (for example, `src.compiler.python.main`).  Setuptools' implicit
