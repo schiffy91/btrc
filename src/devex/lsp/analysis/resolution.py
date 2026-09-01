@@ -511,10 +511,6 @@ class SemanticResolver:
             index += 1
         return None
 
-    def document_position_to_resolved(self, result: DocumentAnalysis, position: lsp.Position) -> lsp.Position:
-        """Identity: all positions are native to their file in the v2 pipeline."""
-        return position
-
     def result_location(
         self, result: DocumentAnalysis, line: int, col: int, length: int = 0, file: str | None = None
     ) -> lsp.Location:

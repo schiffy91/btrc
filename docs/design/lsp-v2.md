@@ -95,8 +95,9 @@ Architecture:
 
 Key invariant: **every token and AST node lives in its own file's
 line/column space, always.** Cross-file navigation returns `(file, line,
-col)` directly off the per-file units. The `source_positions` mapping layer
-— and its entire bug class (#2) — is deleted from the LSP.
+col)` directly off the per-file units. The old concatenated
+`source_positions` remapping layer is gone; feature requests consume native
+per-file positions directly.
 
 ## 2. Atoms (one contract each)
 
@@ -117,10 +118,11 @@ col)` directly off the per-file units. The `source_positions` mapping layer
 
 - A2+A3+A4 → **incremental frontend**: keystroke work = parse(one file) + analyze.
 - A5+A6 → **correct features**: hover/definition/references/rename/semantic
-  tokens all read one index produced by the real analyzer. The heuristic pile
-  (`resolve_variable_type`, `resolve_chain_type`, `find_enclosing_class`,
-  `find_closing_brace_line`, `DefinitionMap` rebuild-per-request,
-  `document_position_to_resolved`) is deleted, not patched.
+  tokens read immutable analyzer results and snapshot-owned indexes first.
+  `SemanticResolver` retains tested lexical fallbacks for incomplete live
+  editor text: scope and brace lookup are cached per snapshot, chain and
+  variable resolution consult analyzed class/function tables, and features
+  consume per-file positions without a conversion shim.
 - A7+A8+A9 → **responsiveness**: stale-but-instant answers during bursts
   (VSCode-standard behavior), fresh within 500 ms of pausing.
 
@@ -185,14 +187,11 @@ broken to always-on.
   is real but one-time; out of scope here (document `btrc.pythonPath` as the
   fast path).
 
-## 7. Open questions for review
+## 7. Verification
 
-1. P1 keeps "active file + its import closure" as the analysis unit (like
-   today, minus re-parsing). Project-wide always-on indexing (clangd-style
-   background index of all .btrc files) is deferred to P2+ — acceptable?
-2. Analyzer structured errors: extend `AnalyzedProgram` with a parallel
-   `diags: list[Diag]` (string list kept for compatibility), or break the
-   string contract in one go?
-3. Budget enforcement in CI: hard-fail latency assertions can be flaky on
-   loaded runners — propose generous CI budgets (3× targets) with tight
-   budgets verified locally via `make bench-lsp`.
+`make test-lsp` is the executable gate. Its unit coverage exercises per-file
+composition and invalidation, immutable snapshots and caches, structured
+diagnostics, lexical fallbacks, protocol coordinates, and editor features.
+`src/tests/lsp/test_stdio_e2e.py` drives the real server over stdin/stdout so
+the same gate also covers protocol startup, document changes, diagnostics,
+and interactive requests end to end.

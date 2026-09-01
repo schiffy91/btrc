@@ -1126,8 +1126,8 @@ make bootstrap               # prove btrcc reproduces itself bit-for-bit (fixed 
 
 ## Project Structure
 
-The production compiler inventories are exact: 81 Python files and 89
-self-hosted `.btrc` files (83 compiler/generated files plus six explicit tool
+The production compiler inventories are exact: 82 Python files and 91
+self-hosted `.btrc` files (85 compiler/generated files plus six explicit tool
 entry files). The complete file-by-file contract is in
 [Compiler Structure](docs/design/compiler-structure.md); the package view is:
 
@@ -1152,7 +1152,7 @@ src/
     gpu.c                      # GPU support
 
   compiler/
-    python/                    # Exact 81-file reference compiler
+    python/                    # Exact 82-file reference compiler
       __init__.py              # Stable Compiler/Options/Result API
       main.py                  # Thin process entry point
       application/             # Compiler, CompilationPipeline, immutable results
@@ -1209,7 +1209,7 @@ src/
       runtime/                 # Generated helper data and RuntimeHelperCatalog
       artifacts/               # Archive, cache, publication, stdlib, selfhost
 
-    btrc/                      # Exact 89-file self-hosted compiler
+    btrc/                      # Exact 91-file self-hosted compiler
       btrcc_main.btrc          # Thin process entry point
       compiler.btrc            # Public Compiler application object
       cli/driver.btrc          # BtrccDriver command/process boundary

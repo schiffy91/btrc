@@ -256,7 +256,7 @@ prove the strict-import path.
 
 ### File Structure
 
-The destination contains exactly 81 production Python files:
+The destination contains exactly 82 production Python files:
 
 ```text
 src/compiler/python/
@@ -379,7 +379,7 @@ and their golden output live alongside the topic-organized corpus in
 ## btrc Compiler (src/compiler/btrc/)
 
 The self-hosted compiler implements the same six-stage pipeline with fat tagged
-AST and IR nodes. Its destination contains exactly 88 `.btrc` files: 82
+AST and IR nodes. Its destination contains exactly 91 `.btrc` files: 85
 compiler/generated files and six explicit developer-tool files. Only
 `compiler.btrc` and the thin `btrcc_main.btrc` process entry point remain at the
 package root. The owned packages are:

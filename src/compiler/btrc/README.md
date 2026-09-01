@@ -20,7 +20,7 @@ orchestration, and `pipeline/pipeline.btrc` owns ordered compilation.
 `BtrccOptions` defaults to strict imports before any of those owners can observe
 it.
 
-The destination contains exactly 89 `.btrc` files: 83 compiler/generated files
+The destination contains exactly 91 `.btrc` files: 85 compiler/generated files
 and six explicit developer-tool files. `compiler.btrc` and
 `btrcc_main.btrc` are the only `.btrc` files at this package root.
 
@@ -43,7 +43,7 @@ The exact owner packages are `cli/`, `pipeline/`, `syntax/`, `lexer/`,
 `frontend/`, `parser/`, `analyzer/`, `analyzer/ownership/`,
 `analyzer/validation/`, `ir/`, `ir/runtime/`, `ir/lowering/`,
 `ir/lowering/ownership/`, `ir/gpu/`, `ir/optimization/`,
-`ir/optimization/setjmp/`, `generated/`, and `tools/`. The complete 89-file
+`ir/optimization/setjmp/`, `generated/`, and `tools/`. The complete 91-file
 inventory is recorded in
 [`docs/design/compiler-structure.md`](../../../docs/design/compiler-structure.md).
 

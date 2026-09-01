@@ -350,7 +350,7 @@ def test_resolve_chain_static_root():
         "int main() { A a = A(); return a.go(); }\n"
     )
     a = analyze(src)
-    pos = lsputils.document_position_to_resolved(a, pos_of(src, "A a"))
+    pos = pos_of(src, "A a")
     a_idx = next(
         i for i, t in enumerate(a.tokens) if t.value == "A" and t.line == pos.line + 1 and t.col == pos.character + 1
     )
