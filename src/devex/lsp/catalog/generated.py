@@ -349,6 +349,8 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("absolute", "string", "method", (("string", "path"),), "absolute"),
     )),
     ("FileSystem", (
+        BuiltinMemberSpec("revision", "FileRevision", "method", (("FileSnapshot", "snapshot"),), "revision"),
+        BuiltinMemberSpec("openFileTreeSnapshot", "FileTreeSnapshotOpenOutcome", "method", (("string", "path"), ("FileTreeLimits", "limits"),), "openFileTreeSnapshot"),
         BuiltinMemberSpec("inspectExact", "FileSnapshotOutcome", "method", (("string", "path"),), "inspectExact"),
         BuiltinMemberSpec("openFileExact", "FileOpenOutcome", "method", (("string", "path"),), "openFileExact"),
         BuiltinMemberSpec("openRegularFileSnapshot", "RegularFileSnapshotOpenOutcome", "method", (("string", "path"), ("long long", "maximumBytes"),), "openRegularFileSnapshot"),
@@ -376,8 +378,8 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("FileSystemDiagnostics", (
         BuiltinMemberSpec("ownedHandleInventory", "FileSystemHandleInventory", "method", (), "ownedHandleInventory"),
     )),
-    ("BackgroundJobWork", (
-        BuiltinMemberSpec("cancellationRequested", "bool", "method", (("void*", "cancellation"),), "cancellationRequested"),
+    ("ExactFileSnapshot", (
+        BuiltinMemberSpec("validate", "FileSystemError*", "method", (("FileSnapshot", "expected"), ("FileSnapshotOutcome", "held"), ("string", "path"), ("string", "operation"),), "validate"),
     )),
     ("Console", (
         BuiltinMemberSpec("log", "void", "method", (("string", "msg"),), "log"),
@@ -704,6 +706,12 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("replace", "string", "method", (("string", "pattern"), ("string", "text"), ("string", "replacement"),), "replace"),
         BuiltinMemberSpec("replaceAll", "string", "method", (("string", "pattern"), ("string", "text"), ("string", "replacement"),), "replaceAll"),
         BuiltinMemberSpec("subst", "string", "method", (("string", "pattern"), ("string", "text"), ("string", "replacement"), ("bool", "all"),), "subst"),
+    )),
+    ("SpscQueues", (
+        BuiltinMemberSpec("tryOpen", "SpscQueueOpenKind", "method", (("uint", "capacity"), ("size_t", "valueSize"), ("struct SpscQueueStorage**", "output"),), "tryOpen"),
+        BuiltinMemberSpec("tryPushBorrowed", "bool", "method", (("struct SpscQueueStorage*", "queue"), ("void*", "value"),), "tryPushBorrowed"),
+        BuiltinMemberSpec("tryPopBorrowed", "bool", "method", (("struct SpscQueueStorage*", "queue"), ("void*", "output"),), "tryPopBorrowed"),
+        BuiltinMemberSpec("close", "void", "method", (("struct SpscQueueStorage*", "queue"),), "close"),
     )),
     ("Strings", (
         BuiltinMemberSpec("checkedLength", "int", "method", (("string", "s"),), "checkedLength"),
