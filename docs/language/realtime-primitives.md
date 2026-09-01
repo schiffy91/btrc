@@ -84,13 +84,47 @@ prove this fails to compile rather than silently introducing a lock.
 
 ## Canonical SPSC queue
 
-`std.spsc` defines `SpscQueue<T>`, the sole fixed-capacity SPSC queue/ring
-implementation.  `T` must be realtime POD.  Construction allocates the payload
-buffer off the realtime path; `tryPush` and `tryPop` are bounded O(1) operations
-with no allocation, destruction, locks, logging, retry loops, or blocking.
-The implementation reserves one sentinel slot and advances each cursor with a
-single branch at the end of the buffer, so neither operation uses division or
-modulo.
+`std.spsc` owns the sole fixed-capacity SPSC queue/ring implementation. Ordinary
+managed code uses `SpscQueue<T>`; `T` must be realtime POD. A stored raw callback
+instead opens the same implementation explicitly and stores only its borrowed
+storage pointer in the callback context:
+
+```btrc
+struct Command { int kind; unsigned long long token; };
+struct AudioContext { struct SpscQueueStorage* commands; };
+
+struct SpscQueueStorage* commands = null;
+SpscQueueOpenKind opened = SpscQueues.tryOpen(
+    64u, sizeof(struct Command), &commands);
+
+@realtime bool nextCommand(
+    struct AudioContext* context,
+    struct Command* output
+) {
+    return SpscQueues.tryPopBorrowed(context->commands, output);
+}
+```
+
+`tryOpen` returns `SPSC_QUEUE_OPENED`, `SPSC_QUEUE_INVALID_ARGUMENT`,
+`SPSC_QUEUE_CAPACITY_OUT_OF_RANGE`, `SPSC_QUEUE_SIZE_OVERFLOW`, or
+`SPSC_QUEUE_OUT_OF_MEMORY`. On every failure it leaves the output null. On
+success the caller owns the returned pointer and must call `SpscQueues.close`
+off the realtime path after both participating threads stop. A callback only
+borrows the pointer; it may call `tryPushBorrowed` or `tryPopBorrowed` but may
+not close it.
+
+The raw boundary copies exactly the `valueSize` fixed at open. Callers must use
+one concrete realtime-POD type and pass `sizeof(T)` plus `T*` values throughout
+that storage's lifetime. The byte-erased representation is intentional at the
+stored-C-callback boundary; the managed `SpscQueue<T>` wrapper enforces the same
+payload rule statically for ordinary code.
+
+Construction allocates the payload buffer and cursors off the realtime path.
+Borrowed push and pop are bounded operations with no allocation, destruction,
+locks, logging, retry loops, or blocking. The implementation reserves one
+sentinel slot and advances each cursor with a single branch at the end of the
+buffer, so neither operation uses division or modulo. Copy cost is bounded by
+the fixed element size supplied at open.
 
 Exactly one producer may call `tryPush`, and exactly one consumer may call
 `tryPop`.  The queue is FIFO.  A full push returns `false` without overwriting
@@ -100,5 +134,5 @@ relaxed accesses.  Destruction is only valid after both participating threads
 have stopped.
 
 The queue intentionally composes `Atomic<uint>` and raw preallocated storage in
-BTRC source.  It is not a second compiler primitive, and product repositories
+BTRC source. It is not a second compiler primitive, and product repositories
 must not carry private substitutes for it.

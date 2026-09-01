@@ -1,58 +1,173 @@
-/* btrc standard library — one bounded SPSC queue composition.
+/* btrc standard library — bounded SPSC queues.
  *
- * Construction/destruction belong off the realtime path. Exactly one producer
- * calls tryPush and exactly one consumer calls tryPop while the queue is live.
+ * SpscQueues owns the raw allocation boundary used by stored realtime
+ * callbacks. tryOpen returns a typed failure and one owning storage pointer;
+ * tryPushBorrowed/tryPopBorrowed only borrow that pointer. close must run
+ * after both participating threads have stopped and consumes the owner.
+ *
+ * SpscQueue<T> remains the managed, typed convenience wrapper for ordinary
+ * code. Its constructor preserves the historical fail-fast contract.
  */
 
+enum SpscQueueOpenKind {
+    SPSC_QUEUE_OPENED = 0,
+    SPSC_QUEUE_INVALID_ARGUMENT = 1,
+    SPSC_QUEUE_CAPACITY_OUT_OF_RANGE = 2,
+    SPSC_QUEUE_SIZE_OVERFLOW = 3,
+    SPSC_QUEUE_OUT_OF_MEMORY = 4
+};
+
+struct SpscQueueStorage {
+    unsigned char* values;
+    size_t valueSize;
+    uint slotCount;
+    Atomic<uint>* cursors;
+};
+
+enum SpscQueueCursor {
+    SPSC_QUEUE_WRITE_CURSOR = 0,
+    SPSC_QUEUE_READ_CURSOR = 1,
+    SPSC_QUEUE_CURSOR_COUNT = 2
+};
+
+@realtime static uint btrcSpscNextCursor(uint cursor, uint slotCount) {
+    cursor++;
+    return cursor == slotCount ? 0u : cursor;
+}
+
+@realtime static void btrcSpscCopy(
+    unsigned char* destination,
+    const unsigned char* source,
+    size_t count
+) {
+    for (size_t index = 0; index < count; index++) {
+        destination[index] = source[index];
+    }
+}
+
+class SpscQueues {
+    class SpscQueueOpenKind tryOpen(
+        uint capacity,
+        size_t valueSize,
+        struct SpscQueueStorage** output
+    ) {
+        if (output == null) { return SPSC_QUEUE_INVALID_ARGUMENT; }
+        *output = null;
+        if (capacity == 0u || capacity == UINT_MAX) {
+            return SPSC_QUEUE_CAPACITY_OUT_OF_RANGE;
+        }
+        if (valueSize == (size_t)0) {
+            return SPSC_QUEUE_INVALID_ARGUMENT;
+        }
+
+        uint slotCount = capacity + 1u;
+        if ((size_t)slotCount > (size_t)(-1) / valueSize) {
+            return SPSC_QUEUE_SIZE_OVERFLOW;
+        }
+
+        struct SpscQueueStorage* queue =
+            (struct SpscQueueStorage*)calloc(
+                (size_t)1, sizeof(struct SpscQueueStorage));
+        if (queue == null) { return SPSC_QUEUE_OUT_OF_MEMORY; }
+        queue->values = (unsigned char*)calloc(
+            (size_t)slotCount, valueSize);
+        queue->cursors = (Atomic<uint>*)calloc(
+            (size_t)SPSC_QUEUE_CURSOR_COUNT, sizeof(Atomic<uint>));
+        if (queue->values == null || queue->cursors == null) {
+            free(queue->values);
+            free(queue->cursors);
+            free(queue);
+            return SPSC_QUEUE_OUT_OF_MEMORY;
+        }
+
+        queue->valueSize = valueSize;
+        queue->slotCount = slotCount;
+        queue->cursors[SPSC_QUEUE_WRITE_CURSOR].init(0u);
+        queue->cursors[SPSC_QUEUE_READ_CURSOR].init(0u);
+        *output = queue;
+        return SPSC_QUEUE_OPENED;
+    }
+
+    class @realtime bool tryPushBorrowed(
+        struct SpscQueueStorage* queue,
+        const void* value
+    ) {
+        if (queue == null || value == null) { return false; }
+        uint write = queue->cursors[SPSC_QUEUE_WRITE_CURSOR]
+            .load(MemoryOrder.RELAXED);
+        uint nextWrite = btrcSpscNextCursor(write, queue->slotCount);
+        uint read = queue->cursors[SPSC_QUEUE_READ_CURSOR]
+            .load(MemoryOrder.ACQUIRE);
+        if (nextWrite == read) { return false; }
+        btrcSpscCopy(
+            queue->values + (size_t)write * queue->valueSize,
+            (const unsigned char*)value,
+            queue->valueSize
+        );
+        queue->cursors[SPSC_QUEUE_WRITE_CURSOR]
+            .store(nextWrite, MemoryOrder.RELEASE);
+        return true;
+    }
+
+    class @realtime bool tryPopBorrowed(
+        struct SpscQueueStorage* queue,
+        void* output
+    ) {
+        if (queue == null || output == null) { return false; }
+        uint read = queue->cursors[SPSC_QUEUE_READ_CURSOR]
+            .load(MemoryOrder.RELAXED);
+        uint write = queue->cursors[SPSC_QUEUE_WRITE_CURSOR]
+            .load(MemoryOrder.ACQUIRE);
+        if (read == write) { return false; }
+        btrcSpscCopy(
+            (unsigned char*)output,
+            queue->values + (size_t)read * queue->valueSize,
+            queue->valueSize
+        );
+        queue->cursors[SPSC_QUEUE_READ_CURSOR].store(
+            btrcSpscNextCursor(read, queue->slotCount),
+            MemoryOrder.RELEASE
+        );
+        return true;
+    }
+
+    class void close(struct SpscQueueStorage* queue) {
+        if (queue == null) { return; }
+        free(queue->values);
+        queue->values = null;
+        free(queue->cursors);
+        queue->cursors = null;
+        queue->valueSize = (size_t)0;
+        queue->slotCount = 0u;
+        free(queue);
+    }
+}
+
 class SpscQueue<T> {
-    private T* storage;
-    private uint slotCount;
-    private Atomic<uint> writeCursor;
-    private Atomic<uint> readCursor;
+    private struct SpscQueueStorage* queue;
 
     public SpscQueue(uint capacity) {
-        if (capacity == 0u || capacity == UINT_MAX) {
-            fprintf(stderr, "SpscQueue capacity must be in 1..UINT_MAX-1\n");
+        struct SpscQueueStorage* openedQueue = null;
+        SpscQueueOpenKind opened = SpscQueues.tryOpen(
+            capacity, sizeof(T), &openedQueue);
+        if (opened != SPSC_QUEUE_OPENED) {
+            fprintf(stderr, "SpscQueue construction failed (%d)\n", opened);
             exit(1);
         }
-        uint slots = capacity + 1u;
-        if ((size_t)slots > (size_t)(-1) / sizeof(T)) {
-            fprintf(stderr, "SpscQueue allocation size overflow\n");
-            exit(1);
-        }
-        self.storage = (T*)__btrc_safe_calloc((size_t)slots, sizeof(T));
-        self.slotCount = slots;
-        self.writeCursor.init(0u);
-        self.readCursor.init(0u);
+        self.queue = openedQueue;
     }
 
     public bool tryPush(T value) {
-        uint write = self.writeCursor.load(MemoryOrder.RELAXED);
-        uint nextWrite = write + 1u;
-        if (nextWrite == self.slotCount) { nextWrite = 0u; }
-        uint read = self.readCursor.load(MemoryOrder.ACQUIRE);
-        if (nextWrite == read) { return false; }
-        self.storage[write] = value;
-        self.writeCursor.store(nextWrite, MemoryOrder.RELEASE);
-        return true;
+        return SpscQueues.tryPushBorrowed(self.queue, &value);
     }
 
     public bool tryPop(T* output) {
-        if (output == null) { return false; }
-        uint read = self.readCursor.load(MemoryOrder.RELAXED);
-        uint write = self.writeCursor.load(MemoryOrder.ACQUIRE);
-        if (read == write) { return false; }
-        *output = self.storage[read];
-        uint nextRead = read + 1u;
-        if (nextRead == self.slotCount) { nextRead = 0u; }
-        self.readCursor.store(nextRead, MemoryOrder.RELEASE);
-        return true;
+        return SpscQueues.tryPopBorrowed(self.queue, output);
     }
 
     public void close() {
-        free(self.storage);
-        self.storage = null;
-        self.slotCount = 0u;
+        SpscQueues.close(self.queue);
+        self.queue = null;
     }
 
     public void __del__() {

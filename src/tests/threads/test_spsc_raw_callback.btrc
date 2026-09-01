@@ -1,0 +1,101 @@
+import std.spsc;
+
+struct CallbackPacket {
+    int sequence;
+    unsigned long long token;
+};
+
+struct CallbackContext {
+    struct SpscQueueStorage* packets;
+};
+
+@realtime bool consumePacket(
+    void* opaque,
+    struct CallbackPacket* output
+) {
+    struct CallbackContext* context =
+        (struct CallbackContext*)opaque;
+    return SpscQueues.tryPopBorrowed(context->packets, output);
+}
+
+int main() {
+    struct SpscQueueStorage* packets = null;
+    if (SpscQueues.tryOpen(
+            0u, sizeof(struct CallbackPacket), &packets)
+            != SPSC_QUEUE_CAPACITY_OUT_OF_RANGE
+            || packets != null) {
+        return 1;
+    }
+    if (SpscQueues.tryOpen(
+            UINT_MAX, sizeof(struct CallbackPacket), &packets)
+            != SPSC_QUEUE_CAPACITY_OUT_OF_RANGE
+            || packets != null) {
+        return 2;
+    }
+    if (SpscQueues.tryOpen(3u, (size_t)0, &packets)
+            != SPSC_QUEUE_INVALID_ARGUMENT
+            || packets != null) {
+        return 3;
+    }
+    if (SpscQueues.tryOpen(
+            UINT_MAX - 1u, (size_t)(-1), &packets)
+            != SPSC_QUEUE_SIZE_OVERFLOW
+            || packets != null) {
+        return 4;
+    }
+    if (SpscQueues.tryOpen(
+            3u, sizeof(struct CallbackPacket), &packets)
+            != SPSC_QUEUE_OPENED
+            || packets == null) {
+        return 5;
+    }
+
+    struct CallbackPacket output = {-1, 99ULL};
+    if (SpscQueues.tryPopBorrowed(packets, &output)
+            || output.sequence != -1 || output.token != 99ULL) {
+        SpscQueues.close(packets);
+        return 6;
+    }
+    if (SpscQueues.tryPushBorrowed(packets, null)
+            || SpscQueues.tryPopBorrowed(packets, null)) {
+        SpscQueues.close(packets);
+        return 7;
+    }
+
+    struct CallbackPacket first = {1, 11ULL};
+    struct CallbackPacket second = {2, 22ULL};
+    struct CallbackPacket third = {3, 33ULL};
+    struct CallbackPacket fourth = {4, 44ULL};
+    if (!SpscQueues.tryPushBorrowed(packets, &first)
+            || !SpscQueues.tryPushBorrowed(packets, &second)
+            || !SpscQueues.tryPushBorrowed(packets, &third)
+            || SpscQueues.tryPushBorrowed(packets, &fourth)) {
+        SpscQueues.close(packets);
+        return 8;
+    }
+
+    struct CallbackContext context = {packets};
+    if (!consumePacket(&context, &output)
+            || output.sequence != 1 || output.token != 11ULL
+            || !SpscQueues.tryPushBorrowed(packets, &fourth)) {
+        SpscQueues.close(packets);
+        return 9;
+    }
+    for (int expected = 2; expected <= 4; expected++) {
+        if (!consumePacket(&context, &output)
+                || output.sequence != expected
+                || output.token != (unsigned long long)expected * 11ULL) {
+            SpscQueues.close(packets);
+            return 10;
+        }
+    }
+    if (consumePacket(&context, &output)) {
+        SpscQueues.close(packets);
+        return 11;
+    }
+
+    SpscQueues.close(packets);
+    SpscQueues.close(null);
+    print("PASS spsc_raw_callback");
+    return 0;
+}
