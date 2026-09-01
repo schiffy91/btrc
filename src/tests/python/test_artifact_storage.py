@@ -62,6 +62,61 @@ def test_open_regular_closes_descriptor_when_lstat_fails(
     assert len(closed) == 1
 
 
+def test_open_regular_for_sync_adds_windows_write_access(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "artifact"
+    artifact.write_bytes(b"payload")
+    flags: list[int] = []
+    open_file = os.open
+
+    def observed(path: Path, options: int, mode: int = 0o777) -> int:
+        flags.append(options)
+        return open_file(path, options, mode)
+
+    monkeypatch.setattr(storage_module.os, "name", "nt")
+    monkeypatch.setattr(storage_module.os, "open", observed)
+    storage = ArtifactStorage()
+    ordinary_descriptor = storage.open_regular(artifact)
+    os.close(ordinary_descriptor)
+    sync_descriptor = storage.open_regular_for_sync(artifact)
+    os.close(sync_descriptor)
+
+    access_mask = os.O_WRONLY | os.O_RDWR
+    assert len(flags) == 2
+    assert flags[0] & access_mask == os.O_RDONLY
+    assert flags[1] & access_mask == os.O_WRONLY
+
+
+def test_fsync_artifact_reports_the_failing_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "artifact"
+    artifact.write_bytes(b"payload")
+
+    def fail_fsync(descriptor: int) -> None:
+        raise OSError(9, "injected bad descriptor")
+
+    monkeypatch.setattr(storage_module.os, "fsync", fail_fsync)
+    with pytest.raises(OSError, match=rf"cannot flush publication artifact: {artifact}"):
+        ArtifactStorage().fsync_artifact(artifact, is_directory=False)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires the native Windows CRT")
+def test_fsync_artifact_flushes_native_windows_file_and_tree(tmp_path: Path) -> None:
+    artifact = tmp_path / "artifact"
+    artifact.write_bytes(b"payload")
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    (tree / "nested").write_bytes(b"nested payload")
+
+    storage = ArtifactStorage()
+    storage.fsync_artifact(artifact, is_directory=False)
+    storage.fsync_artifact(tree, is_directory=True)
+
+
 def test_fsync_directory_does_not_swallow_windows_identity_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

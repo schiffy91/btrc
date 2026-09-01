@@ -147,7 +147,16 @@ class ArtifactStorage:
             os.close(descriptor)
 
     def open_regular(self, path: Path) -> int:
-        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+        return self._open_regular(path, os.O_RDONLY)
+
+    def open_regular_for_sync(self, path: Path) -> int:
+        """Open a stable file with the write access required by Windows fsync."""
+
+        access = os.O_WRONLY if os.name == "nt" else os.O_RDONLY
+        return self._open_regular(path, access)
+
+    def _open_regular(self, path: Path, access: int) -> int:
+        flags = access | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0)
         descriptor = os.open(path, flags)
         try:
@@ -169,11 +178,7 @@ class ArtifactStorage:
         """Validate an artifact recursively and force its bytes to storage."""
 
         if not is_directory:
-            descriptor = self.open_regular(path)
-            try:
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
+            self._fsync_regular_artifact(path)
             return
         entries = self.real_tree_entries(path)
         directories = []
@@ -181,15 +186,21 @@ class ArtifactStorage:
             if stat.S_ISDIR(child_metadata.st_mode):
                 directories.append(child)
             elif stat.S_ISREG(child_metadata.st_mode):
-                descriptor = self.open_regular(child)
-                try:
-                    os.fsync(descriptor)
-                finally:
-                    os.close(descriptor)
+                self._fsync_regular_artifact(child)
             else:
                 raise ValueError(f"publication artifact contains a special file: {child}")
         for child in reversed(directories):
             self.fsync_directory(child)
+
+    def _fsync_regular_artifact(self, path: Path) -> None:
+        descriptor = self.open_regular_for_sync(path)
+        try:
+            try:
+                os.fsync(descriptor)
+            except OSError as error:
+                raise OSError(error.errno, f"cannot flush publication artifact: {path}") from error
+        finally:
+            os.close(descriptor)
 
     def validate_artifact(self, path: Path, is_directory: bool) -> None:
         metadata = self.lstat_or_none(path)
