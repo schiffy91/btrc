@@ -708,6 +708,8 @@ class Lexer {
                 content = self.appendEscape(
                     content, "string", line, col);
                 if (self.failed) { return; }
+            } else if (value == '"') {
+                content = content + "\\" + f"{self.advance()}";
             } else {
                 content = content + f"{self.advance()}";
             }

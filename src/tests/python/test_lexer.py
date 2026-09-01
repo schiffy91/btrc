@@ -647,12 +647,12 @@ class TestTripleQuoteStrings:
     def test_embedded_double_quote(self):
         tokens = lex('"""he said "hi" there"""')
         assert tokens[0].type == TokenKind.STRING_LIT
-        assert tokens[0].value == '"he said "hi" there"'
+        assert tokens[0].value == '"he said \\"hi\\" there"'
 
     def test_embedded_two_double_quotes(self):
         tokens = lex('"""a""b"""')
         assert tokens[0].type == TokenKind.STRING_LIT
-        assert tokens[0].value == '"a""b"'
+        assert tokens[0].value == '"a\\"\\"b"'
 
     def test_multiple_newlines(self):
         tokens = lex('"""a\nb\nc"""')

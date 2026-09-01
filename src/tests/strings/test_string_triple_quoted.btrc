@@ -15,6 +15,9 @@ line3""";
 	// count the lines via newline occurrences
 	assert(s.count("\n") == 2);
 
+	string xml = """<?xml version="1.0"?><arrangement name="Lead"/>""";
+	assert(xml == "<?xml version=\"1.0\"?><arrangement name=\"Lead\"/>");
+
 	print("PASS: test_string_triple_quoted");
 	return 0;
 }

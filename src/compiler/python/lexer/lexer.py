@@ -384,6 +384,9 @@ class LiteralScanner:
                         col,
                         literal_kind="string",
                     )
+                elif ch == '"':
+                    chars.append("\\")
+                    chars.append(lex._advance())
                 else:
                     chars.append(lex._advance())
             raise LexerError("Unterminated triple-quoted string", line, col)
