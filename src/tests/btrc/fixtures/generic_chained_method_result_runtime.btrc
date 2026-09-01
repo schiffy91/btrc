@@ -1,0 +1,49 @@
+#include <assert.h>
+
+int configureCalls = 0;
+int outcomesAlive = 0;
+
+class ConfigureOutcome {
+    private bool _succeeded;
+
+    public ConfigureOutcome(bool succeeded) {
+        self._succeeded = succeeded;
+        outcomesAlive++;
+    }
+
+    public void __del__() { outcomesAlive--; }
+    public bool succeeded() { return self._succeeded; }
+}
+
+class Transport {
+    public Transport() {}
+
+    public ConfigureOutcome configure(int value) {
+        configureCalls++;
+        return ConfigureOutcome(value == 7);
+    }
+}
+
+class Controller<TransportT> {
+    private TransportT _transport;
+
+    public Controller(TransportT transport) {
+        self._transport = transport;
+    }
+
+    public bool start() {
+        return self._transport.configure(7).succeeded();
+    }
+}
+
+int main() {
+    Transport transport = new Transport();
+    Controller<Transport> controller = new Controller<Transport>(transport);
+    assert(controller.start());
+    assert(configureCalls == 1);
+    assert(outcomesAlive == 0);
+    delete controller;
+    delete transport;
+    print("PASS: generic chained method result");
+    return 0;
+}

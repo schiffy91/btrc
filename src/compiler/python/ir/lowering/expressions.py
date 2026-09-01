@@ -812,9 +812,15 @@ class ExpressionLowerer:
             leading.append(("callee", plan.callee, callee, callee_type, False, False, False))
         if plan.receiver is not None:
             receiver_type = self._types.resolve_active_type(self._session.type_of(plan.receiver))
+            if receiver_type is None:
+                receiver_type = plan.receiver_type
             receiver_entry = source_flow.entries.get(id(plan.receiver), source_flow.incoming)
             with provenance.at_flow(receiver_entry):
-                receiver_owned = self._ownership.lowered_result_is_owned(plan.receiver, provenance=provenance)
+                receiver_owned = self._ownership.lowered_result_is_owned(
+                    plan.receiver,
+                    provenance=provenance,
+                    result_type=receiver_type,
+                )
             leading.append(("receiver", plan.receiver, receiver, receiver_type, receiver_owned, False, False))
 
         rows = list(leading)

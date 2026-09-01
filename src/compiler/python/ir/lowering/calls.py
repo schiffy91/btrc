@@ -1991,9 +1991,7 @@ class CallLowerer:
                     dispatch = CallDispatch.BUILTIN_PRINT
                     callee = None
         elif isinstance(node.callee, FieldAccessExpr):
-            receiver_type = self._types.resolve_active_type(
-                self._types.canonical_type(self._session.type_of(node.callee.obj))
-            )
+            receiver_type = self._resolved_receiver_type(node.callee.obj)
             member_name = node.callee.field
             dispatch = self._builtin_method_dispatch(receiver_type, member_name)
             if dispatch is not None:
@@ -2001,7 +1999,7 @@ class CallLowerer:
                 declaration = None
                 receiver = node.callee.obj
             else:
-                method = self._method_target(node)
+                method = self._method_target(node, receiver_type)
                 if method is not None:
                     callee, declaration, receiver = method
                     dispatch = CallDispatch.DIRECT
@@ -2354,7 +2352,11 @@ class CallLowerer:
             return CallDispatch.BUILTIN_TO_STRING
         return None
 
-    def _method_target(self, node: CallExpr):
+    def _method_target(
+        self,
+        node: CallExpr,
+        receiver_type: TypeExpr | None = None,
+    ):
         """Resolve a declared class method to its concrete free-function symbol."""
         callee = node.callee
         if self._types.function_pointer_signature(self._session.type_of(callee)) is not None:
@@ -2367,7 +2369,8 @@ class CallLowerer:
                 if method is None:
                     return None
                 return (f"{receiver.name}_{callee.field}", method, None)
-        receiver_type = self._types.resolve_active_type(self._types.canonical_type(self._session.type_of(receiver)))
+        if receiver_type is None:
+            receiver_type = self._resolved_receiver_type(receiver)
         class_info = self._analyzed.class_table.get(receiver_type.base) if receiver_type is not None else None
         method = class_info.methods.get(callee.field) if class_info is not None else None
         if method is None:
@@ -2387,6 +2390,13 @@ class CallLowerer:
                 )
                 return (prefix, method, receiver if method.access != "class" else None)
         return (f"{prefix}_{method.name}", method, receiver if method.access != "class" else None)
+
+    def _resolved_receiver_type(self, receiver) -> TypeExpr | None:
+        """Recover the concrete type of a call-valued receiver in a generic body."""
+        receiver_type = self._types.resolve_active_type(self._types.canonical_type(self._session.type_of(receiver)))
+        if receiver_type is None and isinstance(receiver, CallExpr):
+            receiver_type = self._types.resolve_active_type(self._types.canonical_type(self.plan(receiver).result_type))
+        return receiver_type
 
     def plan_new(self, node: NewExpr, instance_type: TypeExpr) -> CallPlan:
         """Plan a constructor call without lowering any source operand."""

@@ -85,6 +85,10 @@ def _compile_reference(tmp_path: Path, fixture: Path) -> tuple[subprocess.Comple
             "generic_call_target_binding_runtime.btrc",
             ("btrc_Sized_int", "btrc_Pair_Base_p1", "btrc_Factory_int"),
         ),
+        (
+            "generic_chained_method_result_runtime.btrc",
+            ("btrc_Controller_Transport_p1",),
+        ),
     ],
 )
 def test_transitive_generic_instances_match_and_run_strictly(
@@ -113,6 +117,12 @@ def test_transitive_generic_instances_match_and_run_strictly(
         assert "btrc_Pair_Base_p1_new(" in direct_pair
         assert "__btrc_arc_retain(directBareSize)" not in emitted
         assert "__btrc_arc_retain(directBarePair)" not in emitted
+
+    if fixture_name == "generic_chained_method_result_runtime.btrc":
+        for emitted in (selfhost_source.read_text(), reference_source.read_text()):
+            assert "ConfigureOutcome_succeeded(" in emitted
+            assert ".succeeded()" not in emitted
+            assert "__btrc_arc_release" in emitted
 
     _strict_build_and_run(selfhost_source, tmp_path / f"selfhost-{fixture.stem}")
     _strict_build_and_run(reference_source, tmp_path / f"python-{fixture.stem}")
