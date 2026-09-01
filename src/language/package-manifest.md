@@ -116,6 +116,13 @@ are absolute so a consumer can run from another working directory.  Package
 and unit ordering is deterministic.  If any selected C++ or Objective-C++ unit
 is present, `linker-language` is `c++`; otherwise it is `c`.
 
+Compiler-owned standard-library modules use the same plan vocabulary. A graph
+that imports `std.background_jobs` gains one reserved `btrc_stdlib_runtime`
+package containing the exact runtime source, header, and include directory
+shipped with that compiler. Graphs that do not import the module gain nothing.
+This keeps installed and relocatable compilers self-contained without placing
+an ambient checkout archive in a supposedly reproducible plan.
+
 Make, Nix, CMake, or another build adapter may realize this plan.  Generated
 CMake is a projection of the plan and is never an independent metadata source.
 The shipped `btrc-native-plan` adapter is the canonical Make/Nix consumer. It

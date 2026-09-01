@@ -24,5 +24,10 @@ requests cancellation first. Both join every worker and dispose every unclaimed
 context before returning. Callbacks and disposers must not throw across the C
 boundary, and callbacks must eventually return after cancellation.
 
-Native consumers link `build/stdlib/background_jobs/libbtrc_background_jobs.a`
-and pthreads. `make background-jobs` builds the archive.
+When a source graph imports `std.background_jobs`, both compilers add the
+compiler-shipped `btrc_background_jobs.c` unit and include directory to the
+emitted native link plan. The canonical plan adapter therefore links the
+runtime and pthreads without a consumer-specific flag or ambient prebuilt
+archive. `make background-jobs` still builds
+`build/stdlib/background_jobs/libbtrc_background_jobs.a` for direct native
+embedding and runtime conformance tests.

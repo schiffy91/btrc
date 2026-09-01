@@ -317,6 +317,63 @@ class NativeLinkPlan:
             + "\n"
         )
 
+    def with_stdlib_background_jobs(self, stdlib_directory: str) -> NativeLinkPlan:
+        """Return a plan that owns the imported background-job runtime.
+
+        The runtime ships with the compiler data bundle.  Describing its
+        source as a native unit keeps plans relocatable and avoids coupling a
+        consumer to an ambient checkout's prebuilt archive.
+        """
+
+        package_name = "btrc_stdlib_runtime"
+        if any(package.name == package_name for package in self.packages):
+            raise IncludeResolutionError(
+                f"package identity {package_name!r} is reserved for compiler-owned stdlib runtimes"
+            )
+        root = os.path.realpath(stdlib_directory)
+        runtime = os.path.join(root, "background_jobs")
+        source = os.path.join(runtime, "btrc_background_jobs.c")
+        header = os.path.join(runtime, "btrc_background_jobs.h")
+        if not os.path.isdir(root) or not os.path.isdir(runtime):
+            raise IncludeResolutionError("std.background_jobs native runtime directory is unavailable")
+        if not os.path.isfile(source) or not os.path.isfile(header):
+            raise IncludeResolutionError("std.background_jobs native runtime sources are unavailable")
+        package = PackageNode(
+            package_name,
+            root,
+            {},
+            {"path": root},
+            "",
+        )
+        supported = ("linux", "macos")
+        declarations = (
+            NativeDeclaration(
+                "source",
+                package_name,
+                source,
+                language="c",
+                standard="c11",
+                operating_systems=supported,
+            ),
+            NativeDeclaration(
+                "header",
+                package_name,
+                header,
+                operating_systems=supported,
+            ),
+            NativeDeclaration(
+                "include-directory",
+                package_name,
+                runtime,
+                operating_systems=supported,
+            ),
+        )
+        return NativeLinkPlan(
+            self.target,
+            self.packages + (package,),
+            self.declarations + declarations,
+        )
+
 
 @dataclass(frozen=True)
 class ResolvedPackages:

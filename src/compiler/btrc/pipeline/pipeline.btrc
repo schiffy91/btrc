@@ -48,6 +48,13 @@ class CompilerPipeline {
             self.grammar, self.stdlib,
             options.includeStdlib, options.strictImports, packages);
         FeResolvedSource resolved = resolver.resolve(source, sourcePath);
+        string backgroundJobsModule = PathTools.join(
+            self.stdlib.directory(), "background_jobs.btrc");
+        if (resolved.dependencies.hasSource(
+                FeSourcePathPolicy().identity(backgroundJobsModule))) {
+            packages.linkPlan.requireStdlibBackgroundJobs(
+                self.stdlib.directory());
+        }
 
         Lexer lexer = Lexer(resolved.source, self.grammar);
         Vector<Token> tokens = lexer.tokenize();

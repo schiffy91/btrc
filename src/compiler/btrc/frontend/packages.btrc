@@ -806,6 +806,52 @@ class FeNativeLinkPlan {
         self.declarations = declarations;
     }
 
+    public void requireStdlibBackgroundJobs(string stdlibDirectory) {
+        string packageName = "btrc_stdlib_runtime";
+        int packageIndex = 0;
+        while (packageIndex < self.packages.len) {
+            if (self.packages.get(packageIndex).name.equals(packageName)) {
+                FePackageFailure.fail(
+                    f"package identity '{packageName}' is reserved for "
+                    + "compiler-owned stdlib runtimes");
+            }
+            packageIndex++;
+        }
+        string root = PathTools.absolute(stdlibDirectory);
+        string runtime = PathTools.join(root, "background_jobs");
+        string source = PathTools.join(runtime, "btrc_background_jobs.c");
+        string header = PathTools.join(runtime, "btrc_background_jobs.h");
+        if (!FileSystem.isDir(root) || !FileSystem.isDir(runtime)) {
+            FePackageFailure.fail(
+                "std.background_jobs native runtime directory is unavailable");
+        }
+        if (!FileSystem.isFile(source) || !FileSystem.isFile(header)) {
+            FePackageFailure.fail(
+                "std.background_jobs native runtime sources are unavailable");
+        }
+        Vector<string> supported = ["linux", "macos"];
+        Vector<string> architectures = [];
+        Vector<FeNativeDeclaration> runtimeDeclarations = [
+            FeNativeDeclaration(
+                "source", packageName, source, "", "c", "c11",
+                supported, architectures),
+            FeNativeDeclaration(
+                "header", packageName, header, "", "", "",
+                supported, architectures),
+            FeNativeDeclaration(
+                "include-directory", packageName, runtime, "", "", "",
+                supported, architectures)
+        ];
+        Map<string, string> dependencies = {};
+        self.packages.push(FePackageNode(
+            packageName, root, dependencies, root, "", runtimeDeclarations));
+        int runtimeIndex = 0;
+        while (runtimeIndex < runtimeDeclarations.len) {
+            self.declarations.push(runtimeDeclarations.get(runtimeIndex));
+            runtimeIndex++;
+        }
+    }
+
     private Vector<FeNativeDeclaration> selected(string kind) {
         Vector<FeNativeDeclaration> values = [];
         int index = 0;
