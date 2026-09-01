@@ -39,6 +39,16 @@ int main() {
     }
     GPU gpu = maybeGPU;
 
+    GPUShaderOutcome invalidShader = gpu.createShader("""
+        @compute @workgroup_size(1) fn invalid_main() {
+            var meta: u32 = 0u;
+        }
+    """);
+    if (invalidShader.kind != GPU_RESOURCE_CREATION_FAILED
+            || invalidShader.shader != null || invalidShader.error.isEmpty()) {
+        return 18;
+    }
+
     GPUShaderOutcome shaderCreated = gpu.createShader("""
         @vertex fn vs_main(@builtin(vertex_index) index: u32)
                 -> @builtin(position) vec4f {

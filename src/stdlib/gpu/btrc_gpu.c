@@ -225,6 +225,32 @@ static void on_device_lost(
     btrc_gpu_async_complete((BtrcGPUAsync*)ud1, (int)reason, NULL);
 }
 
+static void on_uncaptured_error(
+        WGPUDevice const* device,
+        WGPUErrorType type,
+        WGPUStringView message,
+        void* ud1,
+        void* ud2) {
+    (void)device;
+    (void)message;
+    (void)ud1;
+    (void)ud2;
+    fprintf(stderr, "[btrc-gpu] uncaptured WebGPU error: type=%d\n", (int)type);
+}
+
+static void on_error_scope(
+        WGPUPopErrorScopeStatus status,
+        WGPUErrorType type,
+        WGPUStringView message,
+        void* ud1,
+        void* ud2) {
+    (void)message;
+    (void)ud2;
+    int result = status == WGPUPopErrorScopeStatus_Success
+        ? (int)type : 0;
+    btrc_gpu_async_complete((BtrcGPUAsync*)ud1, result, NULL);
+}
+
 static void release_adapter_result(void* result) {
     if (result) { wgpuAdapterRelease((WGPUAdapter)result); }
 }
@@ -282,6 +308,10 @@ static bool request_device(GPU_* gpu, const WGPUDeviceDescriptor* descriptor) {
         .callback = on_device_lost,
         .userdata1 = lost_async,
     };
+    configured.uncapturedErrorCallbackInfo =
+        (WGPUUncapturedErrorCallbackInfo){
+            .callback = on_uncaptured_error,
+        };
     WGPUFuture future = wgpuAdapterRequestDevice(
         gpu->adapter, &configured,
         (WGPURequestDeviceCallbackInfo){
@@ -678,6 +708,9 @@ static void destroy_gpu_unchecked(GPU_* gpu) {
 void* btrc_gpu_create_shader(void* gpu_, char* wgsl_source) {
     GPU_* gpu = (GPU_*)gpu_;
     if (!gpu || !gpu->device || !wgsl_source) { return NULL; }
+    BtrcGPUAsync* validation = btrc_gpu_async_create(NULL);
+    if (!validation) { return NULL; }
+    wgpuDevicePushErrorScope(gpu->device, WGPUErrorFilter_Validation);
     WGPUShaderSourceWGSL wgsl = {
         .chain = { .sType = WGPUSType_ShaderSourceWGSL },
         .code  = { .data = wgsl_source, .length = strlen(wgsl_source) },
@@ -686,7 +719,21 @@ void* btrc_gpu_create_shader(void* gpu_, char* wgsl_source) {
         .nextInChain = (WGPUChainedStruct*)&wgsl,
     };
     WGPUShaderModule mod = wgpuDeviceCreateShaderModule(gpu->device, &desc);
-    if (!mod) {
+    WGPUFuture validation_future = wgpuDevicePopErrorScope(
+        gpu->device,
+        (WGPUPopErrorScopeCallbackInfo){
+            .mode = BTRC_GPU_ASYNC_CALLBACK_MODE,
+            .callback = on_error_scope,
+            .userdata1 = validation,
+        });
+    int validation_result = 0;
+    BtrcGPUAsyncWaitOutcome validation_wait = btrc_gpu_async_wait(
+        gpu->instance, validation_future, validation,
+        gpu_async_timeout_ns, &validation_result, NULL);
+    btrc_gpu_async_release(validation);
+    if (validation_wait != BTRC_GPU_ASYNC_COMPLETED ||
+            validation_result != (int)WGPUErrorType_NoError || !mod) {
+        if (mod) { wgpuShaderModuleRelease(mod); }
         fprintf(stderr, "[btrc-gpu] shader compilation failed\n");
         return NULL;
     }

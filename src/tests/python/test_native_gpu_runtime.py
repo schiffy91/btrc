@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[3]
 GPU = ROOT / "src" / "stdlib" / "gpu"
 APP = ROOT / "src" / "stdlib" / "app"
 HARNESS = ROOT / "src" / "tests" / "native" / "gpu_runtime_invalid.c"
+SHADER_VALIDATION_HARNESS = ROOT / "src" / "tests" / "native" / "gpu_shader_validation.c"
 SINGLETON_HARNESS = ROOT / "src" / "tests" / "native" / "gpu_compute_singleton.c"
 _COMPILE_TIMEOUT_SECONDS = 120
 _RUN_TIMEOUT_SECONDS = 90
@@ -30,12 +31,45 @@ def _runtime_sources() -> list[str]:
     sources = [
         str(APP / "btrc_app.c"),
         str(GPU / "btrc_gpu.c"),
+        str(GPU / "btrc_gpu_native_ui.c"),
         str(GPU / "btrc_gpu_async.c"),
         str(GPU / "btrc_gpu_surface.c"),
     ]
     if sys.platform == "darwin":
         sources.append(str(GPU / "btrc_gpu_surface_macos.m"))
     return sources
+
+
+def _compile_native_gpu_harness(tmp_path: Path, harness: Path, name: str) -> Path:
+    cflags = os.environ.get("GPU_CFLAGS")
+    ldflags = os.environ.get("GPU_LDFLAGS")
+    if not cflags or not ldflags:
+        pytest.skip("WebGPU/GLFW build flags are unavailable")
+
+    executable = tmp_path / name
+    subprocess.run(
+        [
+            os.environ.get("CC", "cc"),
+            *shlex.split(cflags),
+            "-DBTRC_GPU_WGPU_NATIVE",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-pedantic",
+            f"-I{GPU}",
+            f"-I{APP}",
+            str(harness),
+            *_runtime_sources(),
+            *shlex.split(ldflags),
+            "-lm",
+            "-o",
+            str(executable),
+        ],
+        check=True,
+        timeout=_COMPILE_TIMEOUT_SECONDS,
+    )
+    return executable
 
 
 def test_compute_context_singleton_uses_c11_atomic_publication() -> None:
@@ -67,6 +101,17 @@ def test_render_context_borrows_the_application_surface() -> None:
     assert "glfwInit(" not in runtime
     assert "glfwCreateWindow(" not in runtime
     assert "btrc_gpu_window_create" not in runtime
+
+
+def test_shader_creation_captures_backend_validation() -> None:
+    runtime = (GPU / "btrc_gpu.c").read_text()
+    interface = (GPU / "gpu.btrc").read_text()
+
+    assert "uncapturedErrorCallbackInfo" in runtime
+    assert "wgpuDevicePushErrorScope(gpu->device, WGPUErrorFilter_Validation);" in runtime
+    assert "wgpuDevicePopErrorScope(" in runtime
+    assert "return BTRC_GPU_RESOURCE_CREATION_FAILED;" in runtime
+    assert "GPU_RESOURCE_CREATION_FAILED = 306" in interface
 
 
 @pytest.mark.parametrize("c_compiler", ["gcc", "clang"])
@@ -116,37 +161,23 @@ def test_gpu_public_header_consumer_compiles_strict_c11(tmp_path: Path, c_compil
 
 
 def test_gpu_runtime_rejects_invalid_inputs_without_a_display(tmp_path: Path) -> None:
-    cflags = os.environ.get("GPU_CFLAGS")
-    ldflags = os.environ.get("GPU_LDFLAGS")
-    if not cflags or not ldflags:
-        pytest.skip("WebGPU/GLFW build flags are unavailable")
-
-    executable = tmp_path / "gpu-invalid"
-    subprocess.run(
-        [
-            os.environ.get("CC", "cc"),
-            *shlex.split(cflags),
-            "-DBTRC_GPU_WGPU_NATIVE",
-            "-std=c11",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-pedantic",
-            f"-I{GPU}",
-            f"-I{APP}",
-            str(HARNESS),
-            *_runtime_sources(),
-            *shlex.split(ldflags),
-            "-lm",
-            "-o",
-            str(executable),
-        ],
-        check=True,
-        timeout=_COMPILE_TIMEOUT_SECONDS,
-    )
+    executable = _compile_native_gpu_harness(tmp_path, HARNESS, "gpu-invalid")
     environment = os.environ.copy()
     environment["BTRC_NO_GPU"] = "1"
     subprocess.run([str(executable)], check=True, env=environment, timeout=_RUN_TIMEOUT_SECONDS)
+
+
+def test_native_gpu_rejects_malformed_wgsl_without_aborting(tmp_path: Path) -> None:
+    executable = _compile_native_gpu_harness(tmp_path, SHADER_VALIDATION_HARNESS, "gpu-shader-validation")
+    result = subprocess.run(
+        [str(executable)],
+        capture_output=True,
+        text=True,
+        timeout=_RUN_TIMEOUT_SECONDS,
+    )
+    if result.returncode == 77:
+        pytest.skip("no native compute adapter is available")
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize(

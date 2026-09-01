@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
+APP = ROOT / "src" / "stdlib" / "app"
 GPU = ROOT / "src" / "stdlib" / "gpu"
 ASYNC_FIXTURE = ROOT / "src" / "tests" / "native" / "gpu_async"
 PENDING_HARNESS = ROOT / "src" / "tests" / "native" / "gpu_pending_list.c"
@@ -96,7 +97,7 @@ def test_gpu_async_backend_contracts_are_explicit() -> None:
 
     assert "wgpuCreateInstance(NULL)" in runtime
     assert "timedWaitAnyEnable" not in runtime
-    assert runtime.count("BTRC_GPU_ASYNC_CALLBACK_MODE") == 3
+    assert runtime.count("BTRC_GPU_ASYNC_CALLBACK_MODE") == 5
     assert "WGPUCallbackMode_WaitAnyOnly" in async_header
     assert "WGPUCallbackMode_AllowProcessEvents" in async_header
     assert "btrc_gpu_async_wait(" in runtime
@@ -264,6 +265,7 @@ def test_gpu_runtime_core_compiles_strict_c11(
                 *shlex.split(cflags),
                 *backend_flags,
                 f"-I{GPU}",
+                f"-I{APP}",
                 "-O2",
                 "-c",
             ],
@@ -291,6 +293,7 @@ def test_gpu_runtime_cross_compiles_for_windows(tmp_path: Path, backend: str, ba
                 *shlex.split(cflags),
                 *backend_flags,
                 f"-I{GPU}",
+                f"-I{APP}",
                 "-c",
             ],
         )
