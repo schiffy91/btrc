@@ -1,0 +1,46 @@
+/* btrc standard library — exact non-owning realtime audio callback contract
+ *
+ * RealtimeAudioProgram is the managed object exchanged between product and
+ * audio-package interfaces. The producer owns its context until the package's
+ * stop barrier drains. Only native/package seams should extract the raw pair.
+ */
+
+import std.callback;
+
+typedef const float* RealtimeAudioInputChannel;
+typedef const RealtimeAudioInputChannel* RealtimeAudioInputChannels;
+typedef float* RealtimeAudioOutputChannel;
+typedef const RealtimeAudioOutputChannel* RealtimeAudioOutputChannels;
+
+typedef CFunction<
+    void,
+    void*,
+    RealtimeAudioInputChannels,
+    int,
+    RealtimeAudioOutputChannels,
+    int,
+    int
+> RealtimeAudioProcess;
+
+class RealtimeAudioProgram {
+    private RealtimeAudioProcess _process;
+    private void* _context;
+
+    public RealtimeAudioProgram(
+            RealtimeAudioProcess process,
+            void* context) {
+        if (process == null) {
+            throw "realtime audio program requires a process callback";
+        }
+        self._process = process;
+        self._context = context;
+    }
+
+    public RealtimeAudioProcess invokePointer() {
+        return self._process;
+    }
+
+    public void* context() {
+        return self._context;
+    }
+}

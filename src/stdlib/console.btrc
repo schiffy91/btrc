@@ -5,6 +5,7 @@
  *   Console.log("Hello");       // prints to stdout with newline
  *   Console.error("Oops");      // prints to stderr with newline
  *   Console.write("no newline"); // prints to stdout without newline
+ *   Console.fatal("Broken");    // flushes one diagnostic, then aborts
  */
 
 class Console {
@@ -14,6 +15,12 @@ class Console {
 
     class void error(string msg) {
         fprintf(stderr, "%s\n", __btrc_string_or_empty(msg));
+    }
+
+    class void fatal(string msg) {
+        fprintf(stderr, "%s\n", __btrc_string_or_empty(msg));
+        fflush(stderr);
+        abort();
     }
 
     class void write(string msg) {

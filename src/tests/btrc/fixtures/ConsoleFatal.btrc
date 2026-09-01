@@ -1,0 +1,6 @@
+import std.console;
+
+int main() {
+    Console.fatal("fatal-contract");
+    return 0;
+}

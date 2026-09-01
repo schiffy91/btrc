@@ -138,6 +138,12 @@ ARRAY_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("iterGet", "T", "method", (("int", "i"),), "iterGet"),
 )
 
+# Generated from src/stdlib/borrowedclosure.btrc
+BORROWEDCLOSURE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("invokePointer", "Invoke", "method", (), "invokePointer"),
+    BuiltinMemberSpec("context", "void*", "method", (), "context"),
+)
+
 # Generated from src/stdlib/ownedclosure.btrc
 OWNEDCLOSURE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("invokePointer", "Invoke", "method", (), "invokePointer"),
@@ -323,6 +329,7 @@ MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("OwnedBuffer", OWNEDBUFFER_MEMBERS),
     ("AtomicBuffer", ATOMICBUFFER_MEMBERS),
     ("Array", ARRAY_MEMBERS),
+    ("BorrowedClosure", BORROWEDCLOSURE_MEMBERS),
     ("OwnedClosure", OWNEDCLOSURE_MEMBERS),
     ("CallbackRegistration", CALLBACKREGISTRATION_MEMBERS),
     ("ListNode", LISTNODE_MEMBERS),
@@ -428,6 +435,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("Console", (
         BuiltinMemberSpec("log", "void", "method", (("string", "msg"),), "log"),
         BuiltinMemberSpec("error", "void", "method", (("string", "msg"),), "error"),
+        BuiltinMemberSpec("fatal", "void", "method", (("string", "msg"),), "fatal"),
         BuiltinMemberSpec("write", "void", "method", (("string", "msg"),), "write"),
         BuiltinMemberSpec("writeLine", "void", "method", (("string", "msg"),), "writeLine"),
     )),

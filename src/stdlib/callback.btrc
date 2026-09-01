@@ -1,11 +1,10 @@
-/* btrc standard library — exact owned callback closure and registration gate
+/* btrc standard library — exact borrowed/owned callback closures and registration gate
  *
- * CFunction<...> is one noncapturing C function-pointer word.  OwnedClosure
- * keeps the distinct C interop representation needed when an API stores a
- * callback: an exact invoke pointer, an opaque context, and the context's one
- * terminal destroy operation. CallbackRegistration adds the admission,
- * unregister, in-flight drain, and destruction order required by C APIs that
- * store that pair.
+ * CFunction<...> is one noncapturing C function-pointer word. BorrowedClosure
+ * names the non-owning invoke/context pair passed through managed interfaces.
+ * OwnedClosure adds the context's one terminal destroy operation.
+ * CallbackRegistration adds the admission, unregister, in-flight drain, and
+ * destruction order required by C APIs that store that pair.
  *
  * Invoke is intentionally the complete trampoline signature, including its
  * void* context parameter.  Callers extract both values and pass the context
@@ -13,6 +12,32 @@
  */
 
 #include <pthread.h>
+
+/* A typed, non-owning callback lease. The producer owns the context and must
+ * keep it alive until every consumer-specific stop or unregister barrier has
+ * drained. Native/package seams may extract the exact pair; product interfaces
+ * should pass this object without unpacking and repacking it. */
+class BorrowedClosure<Invoke> {
+    private Invoke _invoke;
+    private void* _context;
+
+    public BorrowedClosure(Invoke invoke, void* context) {
+        if (invoke == (Invoke)null) {
+            fprintf(stderr, "BorrowedClosure requires a nonnull invoke callback\n");
+            abort();
+        }
+        self._invoke = invoke;
+        self._context = context;
+    }
+
+    public Invoke invokePointer() {
+        return self._invoke;
+    }
+
+    public void* context() {
+        return self._context;
+    }
+}
 
 /* The low bit closes admission; every admitted callback owns two units. A
  * bounded CAS loop makes successful entry its own linearization point and
