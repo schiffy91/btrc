@@ -1,5 +1,5 @@
 .PHONY: all help build package wheel btrcc btrcc-release-c btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
-        btrcc-windows-x64 btrcc-dist test-windows app app-required gpu gpu-required gui ast-generate ast-generate-btrc \
+        btrcc-windows-x64 btrcc-dist test-windows app app-required gpu gpu-required background-jobs gui ast-generate ast-generate-btrc \
         test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
         generated-check compiler-codegen-generate compiler-codegen-check lint format format-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
@@ -27,7 +27,7 @@ PYTEST_WORKERS ?= 8
 PYTEST_ARGS ?= -q -rs -n $(PYTEST_WORKERS)
 PYTEST_SERIAL_ARGS ?= -q -rs
 
-all: generated-check build gpu gui test lint examples extension ## Build and verify everything
+all: generated-check build gpu background-jobs gui test lint examples extension ## Build and verify everything
 
 build: generated-check ## Create bin/btrcpy wrapper script
 	@mkdir -p bin
@@ -220,6 +220,20 @@ gpu-required: app-required gpu ## Build GPU runtime library; fail when productio
 		$(HOST_AR) t "$$archive" | grep -q "btrc_gpu_async\\.o$$" && \
 		$(HOST_AR) t "$$archive" | grep -q "btrc_gpu_surface\\.o$$"'
 
+background-jobs: ## Build the bounded background-job executor runtime
+	@$(NIX) bash -c '\
+		D=src/stdlib/background_jobs && O=build/stdlib/background_jobs && \
+		mkdir -p "$$O" && \
+		archive="$$O/libbtrc_background_jobs.a" && \
+		object="$$O/btrc_background_jobs.o" && \
+		rm -f "$$archive" "$$object" && \
+		trap "rm -f \"$$archive\" \"$$object\"" EXIT && \
+		$(CC) $(GPU_THREAD_FLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 \
+			-c "$$D/btrc_background_jobs.c" -o "$$object" && \
+		$(HOST_AR) rcs "$$archive" "$$object" && \
+		trap - EXIT && \
+		echo "Built: $$archive"'
+
 gui: ## Build GUI runtime (software renderer always; window backend needs GLFW)
 	@$(NIX) bash -c '\
 		D=src/stdlib/gui && O=build/stdlib/gui && mkdir -p "$$O" && \
@@ -261,7 +275,7 @@ ast-generate-btrc: compiler-codegen-generate ## Regenerate both AST catalogs thr
 
 # ─── Test ────────────────────────────────────────────────────────────────────
 
-test: generated-check test-boundaries gpu-required ## Run everything: unit + LSP + debugger + language corpus on BOTH compilers
+test: generated-check test-boundaries gpu-required background-jobs ## Run everything: unit + LSP + debugger + language corpus on BOTH compilers
 	$(NIX) $(PYTEST) src/tests/ \
 		--ignore=src/tests/btrc/test_bootstrap.py $(PYTEST_ARGS)
 	$(NIX) $(PYTEST) src/tests/btrc/test_bootstrap.py $(PYTEST_SERIAL_ARGS)

@@ -1,0 +1,555 @@
+/* A bounded, owned background executor for serialized applications.
+ *
+ * Jobs are exact noncapturing C callbacks plus one heap-owned context envelope.
+ * An accepted submission transfers that context to the executor. A rejected
+ * submission leaves it with the caller. Workers mutate the envelope; the app
+ * owner receives it only through nonblocking poll(), which establishes the
+ * publication handoff. A completion owns its envelope until takeContext() or
+ * destruction. Context disposers always run exactly once unless ownership was
+ * explicitly transferred with takeContext().
+ */
+
+typedef CFunction<int, void*, void*> BackgroundJobRun;
+typedef CFunction<void, void*> BackgroundJobDispose;
+
+struct BtrcBackgroundJobNativeCompletion {
+    int kind;
+    unsigned long long sequence;
+    unsigned long long generation;
+    void* context;
+    BackgroundJobDispose disposeContext;
+};
+
+int std_background_jobs_open(
+    int workerCount, int capacity, void** executorOut);
+int std_background_jobs_submit(
+    void* executor,
+    unsigned long long generation,
+    BackgroundJobRun run,
+    void* context,
+    BackgroundJobDispose disposeContext,
+    unsigned long long* sequenceOut);
+int std_background_jobs_cancel(
+    void* executor,
+    unsigned long long sequence,
+    unsigned long long generation);
+int std_background_jobs_cancel_generation(
+    void* executor,
+    unsigned long long generation,
+    int* requestedOut);
+int std_background_jobs_poll(
+    void* executor,
+    struct BtrcBackgroundJobNativeCompletion* completionOut);
+int std_background_jobs_outstanding(void* executor);
+int std_background_jobs_cancel_requested(
+    void* cancellation);
+int std_background_jobs_close(
+    void* executor,
+    int mode,
+    int* completedOut,
+    int* failedOut,
+    int* cancelledOut,
+    int* disposedOut);
+
+enum BackgroundJobsOpenKind {
+    BACKGROUND_JOBS_OPENED = 0,
+    BACKGROUND_JOBS_OPEN_INVALID = 1,
+    BACKGROUND_JOBS_OPEN_OUT_OF_MEMORY = 2,
+    BACKGROUND_JOBS_OPEN_THREAD_FAILED = 3
+};
+
+enum BackgroundJobSubmitKind {
+    BACKGROUND_JOB_SUBMITTED = 0,
+    BACKGROUND_JOB_QUEUE_FULL = 1,
+    BACKGROUND_JOB_SUBMIT_CLOSED = 2,
+    BACKGROUND_JOB_SUBMIT_INVALID = 3,
+    BACKGROUND_JOB_SUBMIT_NOT_OWNER = 4,
+    BACKGROUND_JOB_TICKETS_EXHAUSTED = 5
+};
+
+enum BackgroundJobCancelKind {
+    BACKGROUND_JOB_CANCEL_REQUESTED = 0,
+    BACKGROUND_JOB_ALREADY_TERMINAL = 1,
+    BACKGROUND_JOB_CANCEL_STALE = 2,
+    BACKGROUND_JOB_CANCEL_CLOSED = 3,
+    BACKGROUND_JOB_CANCEL_NOT_OWNER = 4
+};
+
+enum BackgroundJobPollKind {
+    BACKGROUND_JOB_POLL_READY = 0,
+    BACKGROUND_JOB_POLL_EMPTY = 1,
+    BACKGROUND_JOB_POLL_CLOSED = 2,
+    BACKGROUND_JOB_POLL_NOT_OWNER = 3,
+    BACKGROUND_JOB_POLL_BUSY = 4
+};
+
+enum BackgroundJobCompletionKind {
+    BACKGROUND_JOB_COMPLETED = 0,
+    BACKGROUND_JOB_FAILED = 1,
+    BACKGROUND_JOB_CANCELLED = 2
+};
+
+enum BackgroundJobsCloseMode {
+    BACKGROUND_JOBS_DRAIN = 0,
+    BACKGROUND_JOBS_CANCEL_PENDING = 1
+};
+
+enum BackgroundJobsCloseKind {
+    BACKGROUND_JOBS_CLOSED = 0,
+    BACKGROUND_JOBS_ALREADY_CLOSED = 1,
+    BACKGROUND_JOBS_CLOSE_NOT_OWNER = 2,
+    BACKGROUND_JOBS_CLOSE_INVALID_MODE = 3,
+    BACKGROUND_JOBS_CLOSE_JOIN_FAILED = 4,
+    BACKGROUND_JOBS_CLOSE_WORKER_FAILED = 5,
+    BACKGROUND_JOBS_CLOSE_SYNC_FAILED = 6
+};
+
+class BackgroundJobGeneration {
+    private unsigned long long identity;
+
+    public BackgroundJobGeneration(unsigned long long identity) {
+        if (identity == 0ULL) {
+            throw "background job generation zero is reserved";
+        }
+        self.identity = identity;
+    }
+
+    public unsigned long long value() { return self.identity; }
+}
+
+class BackgroundJobTicket {
+    private unsigned long long sequenceIdentity;
+    private BackgroundJobGeneration generationIdentity;
+
+    public BackgroundJobTicket(
+        unsigned long long sequence,
+        BackgroundJobGeneration generation
+    ) {
+        if (sequence == 0ULL || generation == null) {
+            throw "invalid background job ticket";
+        }
+        self.sequenceIdentity = sequence;
+        self.generationIdentity = generation;
+    }
+
+    public unsigned long long sequence() { return self.sequenceIdentity; }
+    public BackgroundJobGeneration generation() {
+        return self.generationIdentity;
+    }
+}
+
+class BackgroundJobCompletion {
+    public BackgroundJobCompletionKind kind;
+    public BackgroundJobTicket ticket;
+    private void* ownedContext;
+    private BackgroundJobDispose disposeContext;
+
+    public BackgroundJobCompletion(
+        BackgroundJobCompletionKind kind,
+        BackgroundJobTicket ticket,
+        void* context,
+        BackgroundJobDispose disposeContext
+    ) {
+        if (ticket == null || context == null || disposeContext == null) {
+            throw "invalid background job completion";
+        }
+        self.kind = kind;
+        self.ticket = ticket;
+        self.ownedContext = context;
+        self.disposeContext = disposeContext;
+    }
+
+    public bool hasContext() { return self.ownedContext != null; }
+
+    /* Transfer the domain envelope to the app owner. Its matching disposer is
+     * now the caller's responsibility. */
+    public void* takeContext() {
+        void* result = self.ownedContext;
+        self.ownedContext = null;
+        self.disposeContext = (BackgroundJobDispose)null;
+        return result;
+    }
+
+    public bool close() {
+        if (self.ownedContext == null) { return false; }
+        void* context = self.ownedContext;
+        BackgroundJobDispose dispose = self.disposeContext;
+        self.ownedContext = null;
+        self.disposeContext = (BackgroundJobDispose)null;
+        dispose(context);
+        return true;
+    }
+
+    public void __del__() { self.close(); }
+}
+
+class BackgroundJobsOpenOutcome {
+    public BackgroundJobsOpenKind kind;
+    public BackgroundJobExecutor? executor;
+    public string error;
+
+    public BackgroundJobsOpenOutcome(
+        BackgroundJobsOpenKind kind,
+        BackgroundJobExecutor? executor,
+        string error
+    ) {
+        self.kind = kind;
+        self.executor = executor;
+        self.error = error;
+    }
+}
+
+class BackgroundJobSubmitOutcome {
+    public BackgroundJobSubmitKind kind;
+    public BackgroundJobTicket? ticket;
+    public string error;
+
+    public BackgroundJobSubmitOutcome(
+        BackgroundJobSubmitKind kind,
+        BackgroundJobTicket? ticket,
+        string error
+    ) {
+        self.kind = kind;
+        self.ticket = ticket;
+        self.error = error;
+    }
+}
+
+class BackgroundJobCancelOutcome {
+    public BackgroundJobCancelKind kind;
+    public int requested;
+    public string error;
+
+    public BackgroundJobCancelOutcome(
+        BackgroundJobCancelKind kind,
+        int requested,
+        string error
+    ) {
+        self.kind = kind;
+        self.requested = requested;
+        self.error = error;
+    }
+}
+
+class BackgroundJobPollOutcome {
+    public BackgroundJobPollKind kind;
+    public BackgroundJobCompletion? completion;
+    public string error;
+
+    public BackgroundJobPollOutcome(
+        BackgroundJobPollKind kind,
+        BackgroundJobCompletion? completion,
+        string error
+    ) {
+        self.kind = kind;
+        self.completion = completion;
+        self.error = error;
+    }
+}
+
+class BackgroundJobsCloseOutcome {
+    public BackgroundJobsCloseKind kind;
+    public int completed;
+    public int failed;
+    public int cancelled;
+    public int disposed;
+    public string error;
+
+    public BackgroundJobsCloseOutcome(
+        BackgroundJobsCloseKind kind,
+        int completed,
+        int failed,
+        int cancelled,
+        int disposed,
+        string error
+    ) {
+        self.kind = kind;
+        self.completed = completed;
+        self.failed = failed;
+        self.cancelled = cancelled;
+        self.disposed = disposed;
+        self.error = error;
+    }
+}
+
+class BackgroundJobWork {
+    class bool cancellationRequested(void* cancellation) {
+        return std_background_jobs_cancel_requested(cancellation) != 0;
+    }
+}
+
+class BackgroundJobExecutor {
+    private void* nativeHandle;
+    private int closingMode;
+
+    private BackgroundJobExecutor(void* nativeHandle) {
+        self.nativeHandle = nativeHandle;
+        self.closingMode = -1;
+    }
+
+    class BackgroundJobsOpenOutcome open(int workerCount, int capacity) {
+        void* executor = null;
+        int status = std_background_jobs_open(
+            workerCount, capacity, &executor);
+        BackgroundJobsOpenKind kind = status >= BACKGROUND_JOBS_OPENED
+                && status <= BACKGROUND_JOBS_OPEN_THREAD_FAILED
+            ? (BackgroundJobsOpenKind)status
+            : BACKGROUND_JOBS_OPEN_THREAD_FAILED;
+        if (kind != BACKGROUND_JOBS_OPENED || executor == null) {
+            return BackgroundJobsOpenOutcome(
+                kind,
+                null,
+                kind == BACKGROUND_JOBS_OPEN_INVALID
+                    ? "worker count must be 1..16 and capacity 1..4096"
+                    : (kind == BACKGROUND_JOBS_OPEN_OUT_OF_MEMORY
+                        ? "background job executor allocation failed"
+                        : "background job worker creation failed")
+            );
+        }
+        return BackgroundJobsOpenOutcome(
+            BACKGROUND_JOBS_OPENED,
+            BackgroundJobExecutor(executor),
+            ""
+        );
+    }
+
+    public bool isOpen() {
+        return self.nativeHandle != null && self.closingMode < 0;
+    }
+
+    public int outstanding() {
+        if (!self.isOpen()) { return 0; }
+        int value = std_background_jobs_outstanding(self.nativeHandle);
+        return value < 0 ? 0 : value;
+    }
+
+    public BackgroundJobSubmitOutcome submit(
+        BackgroundJobGeneration generation,
+        BackgroundJobRun run,
+        void* context,
+        BackgroundJobDispose disposeContext
+    ) {
+        if (!self.isOpen()) {
+            return BackgroundJobSubmitOutcome(
+                BACKGROUND_JOB_SUBMIT_CLOSED,
+                null,
+                "background job executor is closed"
+            );
+        }
+        if (generation == null || run == null || context == null
+                || disposeContext == null) {
+            return BackgroundJobSubmitOutcome(
+                BACKGROUND_JOB_SUBMIT_INVALID,
+                null,
+                "background job submission is incomplete"
+            );
+        }
+        unsigned long long sequence = 0ULL;
+        int status = std_background_jobs_submit(
+            self.nativeHandle,
+            generation.value(),
+            run,
+            context,
+            disposeContext,
+            &sequence
+        );
+        BackgroundJobSubmitKind kind = status >= BACKGROUND_JOB_SUBMITTED
+                && status <= BACKGROUND_JOB_TICKETS_EXHAUSTED
+            ? (BackgroundJobSubmitKind)status
+            : BACKGROUND_JOB_SUBMIT_CLOSED;
+        if (kind != BACKGROUND_JOB_SUBMITTED || sequence == 0ULL) {
+            string error = kind == BACKGROUND_JOB_QUEUE_FULL
+                ? "background job queue is full"
+                : (kind == BACKGROUND_JOB_SUBMIT_NOT_OWNER
+                    ? "background job submission requires its owner thread"
+                    : (kind == BACKGROUND_JOB_TICKETS_EXHAUSTED
+                        ? "background job ticket sequence is exhausted"
+                        : "background job submission was rejected"));
+            return BackgroundJobSubmitOutcome(kind, null, error);
+        }
+        return BackgroundJobSubmitOutcome(
+            BACKGROUND_JOB_SUBMITTED,
+            BackgroundJobTicket(sequence, generation),
+            ""
+        );
+    }
+
+    public BackgroundJobCancelOutcome cancel(BackgroundJobTicket ticket) {
+        if (!self.isOpen()) {
+            return BackgroundJobCancelOutcome(
+                BACKGROUND_JOB_CANCEL_CLOSED, 0,
+                "background job executor is closed");
+        }
+        if (ticket == null) {
+            return BackgroundJobCancelOutcome(
+                BACKGROUND_JOB_CANCEL_STALE, 0,
+                "background job ticket is invalid");
+        }
+        int status = std_background_jobs_cancel(
+            self.nativeHandle,
+            ticket.sequence(),
+            ticket.generation().value()
+        );
+        BackgroundJobCancelKind kind = status >=
+                BACKGROUND_JOB_CANCEL_REQUESTED
+                && status <= BACKGROUND_JOB_CANCEL_NOT_OWNER
+            ? (BackgroundJobCancelKind)status
+            : BACKGROUND_JOB_CANCEL_CLOSED;
+        return BackgroundJobCancelOutcome(
+            kind,
+            kind == BACKGROUND_JOB_CANCEL_REQUESTED ? 1 : 0,
+            kind == BACKGROUND_JOB_CANCEL_NOT_OWNER
+                ? "background job cancellation requires its owner thread"
+                : (kind == BACKGROUND_JOB_CANCEL_STALE
+                    ? "background job ticket is stale" : "")
+        );
+    }
+
+    public BackgroundJobCancelOutcome cancelGeneration(
+        BackgroundJobGeneration generation
+    ) {
+        if (!self.isOpen()) {
+            return BackgroundJobCancelOutcome(
+                BACKGROUND_JOB_CANCEL_CLOSED, 0,
+                "background job executor is closed");
+        }
+        if (generation == null) {
+            return BackgroundJobCancelOutcome(
+                BACKGROUND_JOB_CANCEL_STALE, 0,
+                "background job generation is invalid");
+        }
+        int requested = 0;
+        int status = std_background_jobs_cancel_generation(
+            self.nativeHandle,
+            generation.value(),
+            &requested
+        );
+        BackgroundJobCancelKind kind = status >=
+                BACKGROUND_JOB_CANCEL_REQUESTED
+                && status <= BACKGROUND_JOB_CANCEL_NOT_OWNER
+            ? (BackgroundJobCancelKind)status
+            : BACKGROUND_JOB_CANCEL_CLOSED;
+        return BackgroundJobCancelOutcome(
+            kind,
+            requested,
+            kind == BACKGROUND_JOB_CANCEL_NOT_OWNER
+                ? "background job cancellation requires its owner thread"
+                : ""
+        );
+    }
+
+    /* Never waits for a worker or condition. A briefly-held publication lock
+     * reports BUSY so the serialized app loop can try again next turn. */
+    public BackgroundJobPollOutcome poll() {
+        if (!self.isOpen()) {
+            return BackgroundJobPollOutcome(
+                BACKGROUND_JOB_POLL_CLOSED,
+                null,
+                "background job executor is closed"
+            );
+        }
+        struct BtrcBackgroundJobNativeCompletion native;
+        int status = std_background_jobs_poll(self.nativeHandle, &native);
+        BackgroundJobPollKind kind = status >= BACKGROUND_JOB_POLL_READY
+                && status <= BACKGROUND_JOB_POLL_BUSY
+            ? (BackgroundJobPollKind)status
+            : BACKGROUND_JOB_POLL_CLOSED;
+        if (kind != BACKGROUND_JOB_POLL_READY) {
+            return BackgroundJobPollOutcome(
+                kind,
+                null,
+                kind == BACKGROUND_JOB_POLL_NOT_OWNER
+                    ? "background job polling requires its owner thread"
+                    : (kind == BACKGROUND_JOB_POLL_CLOSED
+                        ? "background job executor is closed" : "")
+            );
+        }
+        if (native.sequence == 0ULL || native.generation == 0ULL
+                || native.context == null || native.disposeContext == null
+                || native.kind < BACKGROUND_JOB_COMPLETED
+                || native.kind > BACKGROUND_JOB_CANCELLED) {
+            if (native.context != null && native.disposeContext != null) {
+                native.disposeContext(native.context);
+            }
+            return BackgroundJobPollOutcome(
+                BACKGROUND_JOB_POLL_CLOSED,
+                null,
+                "background job completion was malformed"
+            );
+        }
+        BackgroundJobGeneration generation = BackgroundJobGeneration(
+            native.generation);
+        return BackgroundJobPollOutcome(
+            BACKGROUND_JOB_POLL_READY,
+            BackgroundJobCompletion(
+                (BackgroundJobCompletionKind)native.kind,
+                BackgroundJobTicket(native.sequence, generation),
+                native.context,
+                native.disposeContext
+            ),
+            ""
+        );
+    }
+
+    public BackgroundJobsCloseOutcome close(
+        BackgroundJobsCloseMode mode = BACKGROUND_JOBS_CANCEL_PENDING
+    ) {
+        if (self.nativeHandle == null) {
+            return BackgroundJobsCloseOutcome(
+                BACKGROUND_JOBS_ALREADY_CLOSED, 0, 0, 0, 0, "");
+        }
+        if (self.closingMode >= 0 && self.closingMode != (int)mode) {
+            return BackgroundJobsCloseOutcome(
+                BACKGROUND_JOBS_CLOSE_INVALID_MODE, 0, 0, 0, 0,
+                "background job close mode cannot change during retry");
+        }
+        int completed = 0;
+        int failed = 0;
+        int cancelled = 0;
+        int disposed = 0;
+        int status = std_background_jobs_close(
+            self.nativeHandle,
+            (int)mode,
+            &completed,
+            &failed,
+            &cancelled,
+            &disposed
+        );
+        BackgroundJobsCloseKind kind = status >= BACKGROUND_JOBS_CLOSED
+                && status <= BACKGROUND_JOBS_CLOSE_SYNC_FAILED
+            ? (BackgroundJobsCloseKind)status
+            : BACKGROUND_JOBS_CLOSE_WORKER_FAILED;
+        if (kind == BACKGROUND_JOBS_CLOSE_JOIN_FAILED) {
+            self.closingMode = (int)mode;
+        } else if (kind == BACKGROUND_JOBS_CLOSED
+                || kind == BACKGROUND_JOBS_CLOSE_WORKER_FAILED) {
+            self.nativeHandle = null;
+            self.closingMode = -1;
+        }
+        string error = kind == BACKGROUND_JOBS_CLOSE_NOT_OWNER
+            ? "background job close requires its owner thread"
+            : (kind == BACKGROUND_JOBS_CLOSE_JOIN_FAILED
+                ? "background job worker join failed"
+                : (kind == BACKGROUND_JOBS_CLOSE_WORKER_FAILED
+                    ? "background job worker failed during shutdown"
+                    : (kind == BACKGROUND_JOBS_CLOSE_SYNC_FAILED
+                        ? "background job close synchronization failed"
+                        : "")));
+        return BackgroundJobsCloseOutcome(
+            kind, completed, failed, cancelled, disposed, error);
+    }
+
+    public void __del__() {
+        if (self.nativeHandle == null) { return; }
+        BackgroundJobsCloseMode mode = self.closingMode >= 0
+            ? (BackgroundJobsCloseMode)self.closingMode
+            : BACKGROUND_JOBS_CANCEL_PENDING;
+        BackgroundJobsCloseOutcome closed = self.close(mode);
+        if (closed.kind != BACKGROUND_JOBS_CLOSED
+                && closed.kind != BACKGROUND_JOBS_CLOSE_WORKER_FAILED) {
+            fprintf(stderr,
+                "BackgroundJobExecutor destruction did not join workers\n");
+            abort();
+        }
+    }
+}
