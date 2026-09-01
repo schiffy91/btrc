@@ -67,21 +67,29 @@ def _run_process(cmd, *, cwd=REPO, timeout, **kwargs):
         else {}
     )
     process = subprocess.Popen(cmd, cwd=cwd, **group_options, **kwargs)
+    timed_out = False
     try:
         stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
         _terminate_process_tree(process)
         stdout, stderr = process.communicate()
-        raise subprocess.TimeoutExpired(
-            process.args,
-            timeout,
-            output=stdout,
-            stderr=stderr,
-        ) from None
+        timed_out = True
     except BaseException:
         _terminate_process_tree(process)
         process.communicate()
         raise
+    if timed_out:
+        args = process.args
+        # A Windows Popen retains the native process handle until the object is
+        # released.  Do that before propagating the timeout: the caller may be
+        # a TemporaryDirectory context that immediately removes the executable.
+        del process
+        raise subprocess.TimeoutExpired(
+            args,
+            timeout,
+            output=stdout,
+            stderr=stderr,
+        ) from None
     return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
 
 

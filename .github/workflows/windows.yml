@@ -100,10 +100,16 @@ jobs:
           test -f dist/btrcc-windows-x64.zip.sha256
 
       - name: Prove native three-stage bootstrap fixed point
+        timeout-minutes: 150
         env:
           BTRC_CC: "zig cc -target x86_64-windows-gnu"
           BTRC_CFLAGS: "-std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include src/stdlib/win/btrc_win_compat.h"
-        run: python src/tests/btrc/test_bootstrap.py -v
+          # Windows hosted runners need more than 20 minutes for one selfhost
+          # transpile of the compiler. Keep each stage bounded independently.
+          BTRC_BOOTSTRAP_TIMEOUT_SECONDS: "3600"
+        run: |
+          python -m pytest -q src/tests/btrc/test_bootstrap_harness.py
+          python src/tests/btrc/test_bootstrap.py -v
 
       - name: Build and run a sample btrc program against its exact golden
         run: |
