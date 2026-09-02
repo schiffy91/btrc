@@ -11,7 +11,7 @@
 import std.OwnedBuffer;
 import std.RealtimeAudio;
 import std.RealtimeClock;
-import std.RealtimePractice;
+import std.RealtimeClipPractice;
 
 enum RealtimeClipTransportStatus {
 	REALTIME_CLIP_TRANSPORT_OK,
@@ -474,7 +474,7 @@ interface RealtimeClipTransportPort {
 	RealtimeAudioFormat format();
 	RealtimeClipTransportLimits limits();
 	RealtimeClipTransportLifecycle lifecycle();
-	RealtimeClipTransportStatus configurePractice(RealtimePracticeConfiguration configuration);
+	RealtimeClipTransportStatus configurePractice(RealtimeClipPracticeConfiguration configuration);
 	RealtimeClipTransportStatus disablePractice();
 	RealtimeAudioProgram realtimeProgram();
 	RealtimeClipStageOutcome stage(RealtimeClip clip);
@@ -489,8 +489,8 @@ interface RealtimeClipTransportPort {
 	RealtimeClipEventPoll pollEvent();
 	RealtimeClipClockOutcome clock(RealtimeClipToken token);
 	RealtimeClipTransportTelemetryOutcome telemetry();
-	RealtimePracticeTelemetryPoll pollPracticeTelemetry();
-	RealtimePracticeInputPoll pollPracticeInput();
+	RealtimeClipPracticeTelemetryPoll pollPracticeTelemetry();
+	RealtimeClipPracticeInputPoll pollPracticeInput();
 	RealtimeClipTransportStatus suspend();
 	RealtimeClipTransportStatus close();
 }

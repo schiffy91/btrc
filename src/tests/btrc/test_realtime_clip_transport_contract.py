@@ -15,6 +15,7 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 REPOSITORY = Path(__file__).resolve().parents[3]
 FIXTURE = Path(__file__).with_name("fixtures") / "RealtimeClipTransportContract.btrc"
 CONTRACT = REPOSITORY / "src" / "stdlib" / "RealtimeClipTransport.btrc"
+PRACTICE = REPOSITORY / "src" / "stdlib" / "RealtimeClipPractice.btrc"
 STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
@@ -76,6 +77,7 @@ def _strict_build(compiler: str, generated: Path, output: Path) -> subprocess.Co
 
 def test_contract_is_product_neutral_and_keeps_raw_mechanics_out_of_the_public_api() -> None:
     source = CONTRACT.read_text()
+    practice = PRACTICE.read_text()
     assert "interface RealtimeClipTransportPort" in source
     assert "RealtimeAudioProgram realtimeProgram();" in source
     assert "BTRSmith" not in source
@@ -83,6 +85,10 @@ def test_contract_is_product_neutral_and_keeps_raw_mechanics_out_of_the_public_a
     assert "Atomic<" not in source
     assert "SpscQueueStorage" not in source
     assert "long long* output" not in source
+    assert "RealtimePracticeConfiguration" not in source + practice
+    assert "RealtimePracticePhase" not in source + practice
+    assert "RealtimePracticeTelemetry" not in source + practice
+    assert "RealtimeClipPracticeConfiguration" in source + practice
 
 
 @pytest.mark.skipif(not STRICT_COMPILERS, reason="requires GCC or Clang")

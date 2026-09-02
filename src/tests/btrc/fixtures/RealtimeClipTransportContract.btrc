@@ -1,7 +1,7 @@
 import std.RealtimeClipTransport;
 import std.RealtimeAudio;
 import std.RealtimeClock;
-import std.RealtimePractice;
+import std.RealtimeClipPractice;
 
 #include <assert.h>
 
@@ -51,7 +51,7 @@ class DeterministicClipTransportContractFake implements RealtimeClipTransportPor
 
 	public RealtimeClipTransportLifecycle lifecycle() { return self._lifecycle; }
 
-	public RealtimeClipTransportStatus configurePractice(RealtimePracticeConfiguration configuration) { return self._lifecycle == REALTIME_CLIP_TRANSPORT_ACTIVE && configuration != null ? REALTIME_CLIP_TRANSPORT_OK : REALTIME_CLIP_TRANSPORT_WRONG_STATE; }
+	public RealtimeClipTransportStatus configurePractice(RealtimeClipPracticeConfiguration configuration) { return self._lifecycle == REALTIME_CLIP_TRANSPORT_ACTIVE && configuration != null ? REALTIME_CLIP_TRANSPORT_OK : REALTIME_CLIP_TRANSPORT_WRONG_STATE; }
 
 	public RealtimeClipTransportStatus disablePractice() { return self._lifecycle == REALTIME_CLIP_TRANSPORT_ACTIVE ? REALTIME_CLIP_TRANSPORT_OK : REALTIME_CLIP_TRANSPORT_WRONG_STATE; }
 
@@ -139,9 +139,9 @@ class DeterministicClipTransportContractFake implements RealtimeClipTransportPor
 		return RealtimeClipTransportTelemetryOutcome.available(RealtimeClipTransportTelemetry(staged, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL));
 	}
 
-	public RealtimePracticeTelemetryPoll pollPracticeTelemetry() { return self._lifecycle == REALTIME_CLIP_TRANSPORT_CLOSED ? RealtimePracticeTelemetryPoll.unavailable() : RealtimePracticeTelemetryPoll.empty(); }
+	public RealtimeClipPracticeTelemetryPoll pollPracticeTelemetry() { return self._lifecycle == REALTIME_CLIP_TRANSPORT_CLOSED ? RealtimeClipPracticeTelemetryPoll.unavailable() : RealtimeClipPracticeTelemetryPoll.empty(); }
 
-	public RealtimePracticeInputPoll pollPracticeInput() { return self._lifecycle == REALTIME_CLIP_TRANSPORT_CLOSED ? RealtimePracticeInputPoll.unavailable() : RealtimePracticeInputPoll.empty(); }
+	public RealtimeClipPracticeInputPoll pollPracticeInput() { return self._lifecycle == REALTIME_CLIP_TRANSPORT_CLOSED ? RealtimeClipPracticeInputPoll.unavailable() : RealtimeClipPracticeInputPoll.empty(); }
 
 	public RealtimeClipTransportStatus suspend() {
 		if (self._lifecycle == REALTIME_CLIP_TRANSPORT_CLOSED) { return REALTIME_CLIP_TRANSPORT_WRONG_STATE; }
@@ -185,7 +185,7 @@ int main() {
 	assert(copiedSamples[0] == 0.25f && copiedSamples[1] == -0.5f && copiedSamples[2] == 0.75f && copiedSamples[3] == 1.0f);
 
 	DeterministicClipTransportContractFake transport = DeterministicClipTransportContractFake(configuration);
-	RealtimePracticeConfiguration practice = RealtimePracticeConfiguration(transportRate, 500LL, 2, true, 300, 8, true, 0, 500, true, 32LL);
+	RealtimeClipPracticeConfiguration practice = RealtimeClipPracticeConfiguration(transportRate, 500LL, 2, true, 300, 8, true, 0, 500, true, 32LL);
 	assert(transport.configurePractice(practice) == REALTIME_CLIP_TRANSPORT_OK);
 	RealtimeClipStageOutcome staged = transport.stage(clip);
 	assert(staged.succeeded());
@@ -200,8 +200,8 @@ int main() {
 	assert(clock.succeeded() && clock.clock().frame() == 2LL && clock.clock().state() == REALTIME_CLIP_PLAYING);
 	assert(transport.telemetry().telemetry().stagedClips() == 1);
 	assert(transport.pollEvent().succeeded() && !transport.pollEvent().hasEvent());
-	assert(transport.pollPracticeInput().kind() == REALTIME_PRACTICE_INPUT_EMPTY);
-	assert(transport.pollPracticeTelemetry().kind() == REALTIME_PRACTICE_TELEMETRY_EMPTY);
+	assert(transport.pollPracticeInput().kind() == REALTIME_CLIP_PRACTICE_INPUT_EMPTY);
+	assert(transport.pollPracticeTelemetry().kind() == REALTIME_CLIP_PRACTICE_TELEMETRY_EMPTY);
 
 	RealtimeAudioProgram program = transport.realtimeProgram();
 	RealtimeAudioProcess process = program.invokePointer();
