@@ -1,0 +1,357 @@
+/* Private preallocated practice-audio mechanics for RealtimeClipTransport.
+ *
+ * The callback owns one anchored device->transport mapping for count-in,
+ * metronome, monitoring, and captured input. All queues and loops are bounded;
+ * allocation, I/O, locks, waiting, and managed ownership stay off-thread.
+ */
+
+import std.spsc;
+import std.RealtimeAudio;
+import std.RealtimeClipPractice;
+
+struct BtrcRealtimeClipPracticeConfigurationValue {
+	int configured;
+	int transportRate;
+	long long beatInterval;
+	int countInBeats;
+	int metronomeEnabled;
+	float metronomeGain;
+	int clickFrames;
+	int monitorEnabled;
+	int monitorInputChannel;
+	float monitorGain;
+	int inputLatencyKnown;
+	long long inputLatencyFrames;
+	double baseTransportFramesPerDeviceFrame;
+};
+
+struct BtrcRealtimeClipPracticeInputValue {
+	unsigned long long deviceFrame;
+	unsigned long long mappingGeneration;
+	long long transportFrame;
+	float sample;
+};
+
+struct BtrcRealtimeClipPracticeTelemetryValue {
+	unsigned long long deviceFrame;
+	unsigned long long mappingGeneration;
+	long long mappedTransportFrame;
+	int phase;
+	int monitorState;
+	unsigned long long callbacks;
+	unsigned long long capturedInputFrames;
+	unsigned long long monitoredInputFrames;
+	unsigned long long droppedInputFrames;
+	unsigned long long droppedTelemetrySnapshots;
+	unsigned long long countInClicks;
+	unsigned long long metronomeClicks;
+	int inputPeakPermille;
+	int inputLatencyKnown;
+	long long inputLatencyFrames;
+	int xrunsKnown;
+	unsigned long long xruns;
+	unsigned long long callbackViolations;
+};
+
+struct BtrcRealtimeClipPracticeContext {
+	int sampleRate;
+	int maximumBlockFrames;
+	int outputChannels;
+	struct SpscQueueStorage* inputQueue;
+	struct SpscQueueStorage* telemetryQueue;
+	struct BtrcRealtimeClipPracticeConfigurationValue configuration;
+	int phase;
+	unsigned long long mappingGeneration;
+	unsigned long long anchorDeviceFrame;
+	long long anchorTransportFrame;
+	long long playbackTargetFrame;
+	long long nextBeat;
+	double transportFramesPerDeviceFrame;
+	int clickRemaining;
+	long long lastMappedTransportFrame;
+	unsigned long long callbacks;
+	unsigned long long capturedInputFrames;
+	unsigned long long monitoredInputFrames;
+	unsigned long long droppedInputFrames;
+	unsigned long long droppedTelemetrySnapshots;
+	unsigned long long countInClicks;
+	unsigned long long metronomeClicks;
+	unsigned long long callbackViolations;
+	int monitorState;
+	int inputPeakPermille;
+};
+
+@realtime static void btrcRealtimeIncrement(unsigned long long* value) {
+	if (value != null && *value != 18446744073709551615ULL) { (*value)++; }
+}
+
+@realtime static void btrcRealtimeAdd(unsigned long long* value, unsigned long long increment) {
+	if (value == null || increment == 0ULL || *value == 18446744073709551615ULL) { return; }
+	if (increment > 18446744073709551615ULL - *value) {
+		*value = 18446744073709551615ULL;
+	} else {
+		*value += increment;
+	}
+}
+
+@realtime static bool btrcRealtimeClockScaleRaw(long long deviceDelta, long long maximumAbsoluteDelta, double transportFramesPerDeviceFrame, long long* output) {
+	if (output == null || maximumAbsoluteDelta < 0LL || transportFramesPerDeviceFrame != transportFramesPerDeviceFrame || transportFramesPerDeviceFrame <= 0.0 || transportFramesPerDeviceFrame > 384000000.0 || deviceDelta < -maximumAbsoluteDelta || deviceDelta > maximumAbsoluteDelta) { return false; }
+	double projected = (double)deviceDelta * transportFramesPerDeviceFrame;
+	if (projected != projected || projected < -9223372036854775807.0 - 1.0 || projected >= 9223372036854775807.0) { return false; }
+	*output = (long long)projected;
+	return true;
+}
+
+static void btrcRealtimeClipPracticeContextClose(struct BtrcRealtimeClipPracticeContext* context) {
+	if (context == null) { return; }
+	SpscQueues.close(context->inputQueue);
+	SpscQueues.close(context->telemetryQueue);
+	context->inputQueue = null;
+	context->telemetryQueue = null;
+	context->configuration.configured = 0;
+	context->phase = (int)REALTIME_CLIP_PRACTICE_IDLE;
+}
+
+static SpscQueueOpenKind btrcRealtimeClipPracticeContextOpen(int sampleRate, int maximumBlockFrames, int outputChannels, uint inputCapacity, uint telemetryCapacity, struct BtrcRealtimeClipPracticeContext* context) {
+	if (context == null || sampleRate <= 0 || sampleRate > 768000 || maximumBlockFrames <= 0 || maximumBlockFrames > 8192 || outputChannels <= 0 || outputChannels > 256 || inputCapacity == 0u || telemetryCapacity == 0u) { return SPSC_QUEUE_INVALID_ARGUMENT; }
+	context->sampleRate = sampleRate;
+	context->maximumBlockFrames = maximumBlockFrames;
+	context->outputChannels = outputChannels;
+	context->inputQueue = null;
+	context->telemetryQueue = null;
+	SpscQueueOpenKind inputOpened = SpscQueues.tryOpen(inputCapacity, sizeof(struct BtrcRealtimeClipPracticeInputValue), &context->inputQueue);
+	if (inputOpened != SPSC_QUEUE_OPENED) { return inputOpened; }
+	SpscQueueOpenKind telemetryOpened = SpscQueues.tryOpen(telemetryCapacity, sizeof(struct BtrcRealtimeClipPracticeTelemetryValue), &context->telemetryQueue);
+	if (telemetryOpened != SPSC_QUEUE_OPENED) {
+		btrcRealtimeClipPracticeContextClose(context);
+		return telemetryOpened;
+	}
+	context->configuration.configured = 0;
+	context->configuration.transportRate = sampleRate;
+	context->configuration.beatInterval = 1LL;
+	context->configuration.countInBeats = 0;
+	context->configuration.metronomeEnabled = 0;
+	context->configuration.metronomeGain = 0.0f;
+	context->configuration.clickFrames = 1;
+	context->configuration.monitorEnabled = 0;
+	context->configuration.monitorInputChannel = 0;
+	context->configuration.monitorGain = 0.0f;
+	context->configuration.inputLatencyKnown = 0;
+	context->configuration.inputLatencyFrames = 0LL;
+	context->configuration.baseTransportFramesPerDeviceFrame = 1.0;
+	context->phase = (int)REALTIME_CLIP_PRACTICE_IDLE;
+	context->mappingGeneration = 0ULL;
+	context->anchorDeviceFrame = 0ULL;
+	context->anchorTransportFrame = 0LL;
+	context->playbackTargetFrame = 0LL;
+	context->nextBeat = 0LL;
+	context->transportFramesPerDeviceFrame = 1.0;
+	context->clickRemaining = 0;
+	context->lastMappedTransportFrame = 0LL;
+	context->callbacks = 0ULL;
+	context->capturedInputFrames = 0ULL;
+	context->monitoredInputFrames = 0ULL;
+	context->droppedInputFrames = 0ULL;
+	context->droppedTelemetrySnapshots = 0ULL;
+	context->countInClicks = 0ULL;
+	context->metronomeClicks = 0ULL;
+	context->callbackViolations = 0ULL;
+	context->monitorState = (int)REALTIME_CLIP_INPUT_MONITOR_DISABLED;
+	context->inputPeakPermille = 0;
+	return SPSC_QUEUE_OPENED;
+}
+
+@realtime static void btrcRealtimeClipPracticeApplyConfiguration(struct BtrcRealtimeClipPracticeContext* context, struct BtrcRealtimeClipPracticeConfigurationValue* configuration) {
+	if (context == null || configuration == null) { return; }
+	context->configuration = *configuration;
+	context->phase = (int)REALTIME_CLIP_PRACTICE_IDLE;
+	context->mappingGeneration = 0ULL;
+	context->anchorDeviceFrame = 0ULL;
+	context->anchorTransportFrame = 0LL;
+	context->playbackTargetFrame = 0LL;
+	context->nextBeat = 0LL;
+	context->transportFramesPerDeviceFrame = configuration->baseTransportFramesPerDeviceFrame;
+	context->clickRemaining = 0;
+	context->lastMappedTransportFrame = 0LL;
+	context->monitorState = configuration->monitorEnabled != 0 ? (int)REALTIME_CLIP_INPUT_MONITOR_INPUT_UNAVAILABLE : (int)REALTIME_CLIP_INPUT_MONITOR_DISABLED;
+}
+
+@realtime static bool btrcRealtimeClipPracticeTryMap(struct BtrcRealtimeClipPracticeContext* context, unsigned long long deviceFrame, long long* output) {
+	if (context == null || output == null || deviceFrame > 9223372036854775807ULL || context->anchorDeviceFrame > 9223372036854775807ULL) { return false; }
+	long long delta = (long long)deviceFrame - (long long)context->anchorDeviceFrame;
+	long long scaled = 0LL;
+	long long oneDayOfDeviceFrames = (long long)context->sampleRate * 86400LL;
+	if (!btrcRealtimeClockScaleRaw(delta, oneDayOfDeviceFrames, context->transportFramesPerDeviceFrame, &scaled)) { return false; }
+	if ((scaled > 0LL && context->anchorTransportFrame > 9223372036854775807LL - scaled) || (scaled < 0LL && context->anchorTransportFrame < (-9223372036854775807LL - 1LL) - scaled)) { return false; }
+	*output = context->anchorTransportFrame + scaled;
+	return true;
+}
+
+@realtime static void btrcRealtimeClipPracticeBeginPlayback(struct BtrcRealtimeClipPracticeContext* context, unsigned long long deviceFrame, long long transportFrame, double speed, unsigned long long mappingGeneration) {
+	if (context == null || context->configuration.configured == 0) { return; }
+	long long countInFrames = (long long)context->configuration.countInBeats * context->configuration.beatInterval;
+	context->mappingGeneration = mappingGeneration;
+	context->anchorDeviceFrame = deviceFrame;
+	context->anchorTransportFrame = transportFrame - countInFrames;
+	context->playbackTargetFrame = transportFrame;
+	context->nextBeat = context->anchorTransportFrame;
+	context->transportFramesPerDeviceFrame = context->configuration.baseTransportFramesPerDeviceFrame * speed;
+	context->clickRemaining = 0;
+	context->lastMappedTransportFrame = context->anchorTransportFrame;
+	context->phase = context->configuration.countInBeats > 0 ? (int)REALTIME_CLIP_PRACTICE_COUNT_IN : (int)REALTIME_CLIP_PRACTICE_PLAYING;
+}
+
+@realtime static void btrcRealtimeClipPracticePause(struct BtrcRealtimeClipPracticeContext* context) {
+	if (context == null) { return; }
+	context->phase = (int)REALTIME_CLIP_PRACTICE_IDLE;
+	context->clickRemaining = 0;
+}
+
+@realtime static void btrcRealtimeClipPracticeDiscontinuity(struct BtrcRealtimeClipPracticeContext* context, unsigned long long deviceFrame, long long transportFrame, double speed, unsigned long long mappingGeneration, bool restartBeatGrid) {
+	if (context == null || context->configuration.configured == 0) { return; }
+	context->mappingGeneration = mappingGeneration;
+	context->anchorDeviceFrame = deviceFrame;
+	context->anchorTransportFrame = transportFrame;
+	context->playbackTargetFrame = transportFrame;
+	context->transportFramesPerDeviceFrame = context->configuration.baseTransportFramesPerDeviceFrame * speed;
+	context->lastMappedTransportFrame = transportFrame;
+	context->phase = (int)REALTIME_CLIP_PRACTICE_PLAYING;
+	context->clickRemaining = 0;
+	if (restartBeatGrid || context->nextBeat < transportFrame) { context->nextBeat = transportFrame; }
+}
+
+@realtime static float btrcRealtimeClipPracticeClamp(float sample) {
+	if (sample != sample) { return 0.0f; }
+	if (sample > 1.0f) { return 1.0f; }
+	if (sample < -1.0f) { return -1.0f; }
+	return sample;
+}
+
+@realtime static void btrcRealtimeClipPracticeStartClick(struct BtrcRealtimeClipPracticeContext* context, bool countIn) {
+	if (context->configuration.metronomeEnabled == 0) { return; }
+	context->clickRemaining = context->configuration.clickFrames;
+	if (countIn) {
+		btrcRealtimeIncrement(&context->countInClicks);
+	} else {
+		btrcRealtimeIncrement(&context->metronomeClicks);
+	}
+}
+
+@realtime static void btrcRealtimeClipPracticeScheduleClick(struct BtrcRealtimeClipPracticeContext* context, long long transportFrame) {
+	bool countIn = context->phase == (int)REALTIME_CLIP_PRACTICE_COUNT_IN;
+	if (countIn && transportFrame >= context->playbackTargetFrame) {
+		context->phase = (int)REALTIME_CLIP_PRACTICE_PLAYING;
+		countIn = false;
+	}
+	for (int catchup = 0; catchup < 64; catchup++) {
+		if (transportFrame < context->nextBeat) { break; }
+		btrcRealtimeClipPracticeStartClick(context, countIn);
+		if (context->nextBeat > 9223372036854775807LL - context->configuration.beatInterval) {
+			context->nextBeat = 9223372036854775807LL;
+			break;
+		}
+		context->nextBeat += context->configuration.beatInterval;
+		countIn = context->phase == (int)REALTIME_CLIP_PRACTICE_COUNT_IN;
+	}
+}
+
+@realtime static bool btrcRealtimeClipPracticePrepareFrame(struct BtrcRealtimeClipPracticeContext* context, unsigned long long deviceFrame, unsigned long long mappingGeneration, long long* mappedTransportFrame) {
+	if (mappedTransportFrame == null) { return true; }
+	*mappedTransportFrame = 0LL;
+	if (context == null || context->configuration.configured == 0 || context->phase == (int)REALTIME_CLIP_PRACTICE_IDLE) { return true; }
+	if (context->mappingGeneration != mappingGeneration || !btrcRealtimeClipPracticeTryMap(context, deviceFrame, mappedTransportFrame)) {
+		btrcRealtimeIncrement(&context->callbackViolations);
+		return false;
+	}
+	context->lastMappedTransportFrame = *mappedTransportFrame;
+	btrcRealtimeClipPracticeScheduleClick(context, *mappedTransportFrame);
+	return context->phase != (int)REALTIME_CLIP_PRACTICE_COUNT_IN;
+}
+
+@realtime static float btrcRealtimeClipPracticeInput(struct BtrcRealtimeClipPracticeContext* context, RealtimeAudioInputChannels inputs, int inputChannels, int frame, unsigned long long deviceFrame, unsigned long long mappingGeneration, long long mappedTransportFrame) {
+	if (inputs == null || inputChannels <= 0) {
+		context->monitorState = context->configuration.monitorEnabled != 0 ? (int)REALTIME_CLIP_INPUT_MONITOR_INPUT_UNAVAILABLE : (int)REALTIME_CLIP_INPUT_MONITOR_DISABLED;
+		return 0.0f;
+	}
+	int channel = context->configuration.monitorInputChannel;
+	if (channel >= inputChannels || inputs[channel] == null) {
+		context->monitorState = context->configuration.monitorEnabled != 0 ? (int)REALTIME_CLIP_INPUT_MONITOR_CHANNEL_UNAVAILABLE : (int)REALTIME_CLIP_INPUT_MONITOR_DISABLED;
+		return 0.0f;
+	}
+	float sample = btrcRealtimeClipPracticeClamp(inputs[channel][frame]);
+	if (context->phase == (int)REALTIME_CLIP_PRACTICE_PLAYING && mappedTransportFrame >= 0LL) {
+		long long observedTransportFrame = mappedTransportFrame;
+		if (context->configuration.inputLatencyKnown != 0) {
+			unsigned long long latency = (unsigned long long)context->configuration.inputLatencyFrames;
+			unsigned long long observedDeviceFrame = deviceFrame >= latency ? deviceFrame - latency : 0ULL;
+			if (!btrcRealtimeClipPracticeTryMap(context, observedDeviceFrame, &observedTransportFrame) || observedTransportFrame < 0LL) { observedTransportFrame = 0LL; }
+		}
+		struct BtrcRealtimeClipPracticeInputValue captured;
+		captured.deviceFrame = deviceFrame;
+		captured.mappingGeneration = mappingGeneration;
+		captured.transportFrame = observedTransportFrame;
+		captured.sample = sample;
+		if (SpscQueues.tryPushBorrowed(context->inputQueue, &captured)) {
+			btrcRealtimeIncrement(&context->capturedInputFrames);
+		} else {
+			btrcRealtimeIncrement(&context->droppedInputFrames);
+		}
+	}
+	float magnitude = sample < 0.0f ? -sample : sample;
+	int peak = (int)(magnitude * 1000.0f);
+	if (peak > context->inputPeakPermille) { context->inputPeakPermille = peak > 1000 ? 1000 : peak; }
+	if (context->configuration.monitorEnabled == 0) {
+		context->monitorState = (int)REALTIME_CLIP_INPUT_MONITOR_DISABLED;
+		return 0.0f;
+	}
+	context->monitorState = (int)REALTIME_CLIP_INPUT_MONITOR_ACTIVE;
+	btrcRealtimeIncrement(&context->monitoredInputFrames);
+	return sample * context->configuration.monitorGain;
+}
+
+@realtime static void btrcRealtimeClipPracticeMixFrame(struct BtrcRealtimeClipPracticeContext* context, RealtimeAudioInputChannels inputs, int inputChannels, RealtimeAudioOutputChannels outputs, int outputChannels, int frame, unsigned long long deviceFrame, unsigned long long mappingGeneration, long long mappedTransportFrame) {
+	if (context == null || context->configuration.configured == 0) { return; }
+	float monitor = btrcRealtimeClipPracticeInput(context, inputs, inputChannels, frame, deviceFrame, mappingGeneration, mappedTransportFrame);
+	float click = 0.0f;
+	if (context->clickRemaining > 0) {
+		click = (context->clickRemaining & 1) == 0 ? context->configuration.metronomeGain : -context->configuration.metronomeGain;
+		context->clickRemaining--;
+	}
+	for (int channel = 0; channel < outputChannels; channel++) {
+		if (outputs[channel] == null) { continue; }
+		Span<float> output = Span(outputs[channel], (size_t)(frame + 1));
+		float mixed = 0.0f;
+		if (!output.tryGet((size_t)frame, &mixed)) { continue; }
+		output.trySet((size_t)frame, btrcRealtimeClipPracticeClamp(mixed + monitor + click));
+	}
+}
+
+@realtime static void btrcRealtimeClipPracticePublish(struct BtrcRealtimeClipPracticeContext* context, unsigned long long deviceFrame, unsigned long long mappingGeneration) {
+	if (context == null) { return; }
+	btrcRealtimeIncrement(&context->callbacks);
+	struct BtrcRealtimeClipPracticeTelemetryValue telemetry;
+	telemetry.deviceFrame = deviceFrame;
+	telemetry.mappingGeneration = mappingGeneration;
+	telemetry.mappedTransportFrame = context->lastMappedTransportFrame;
+	telemetry.phase = context->phase;
+	telemetry.monitorState = context->monitorState;
+	telemetry.callbacks = context->callbacks;
+	telemetry.capturedInputFrames = context->capturedInputFrames;
+	telemetry.monitoredInputFrames = context->monitoredInputFrames;
+	telemetry.droppedInputFrames = context->droppedInputFrames;
+	telemetry.droppedTelemetrySnapshots = context->droppedTelemetrySnapshots;
+	telemetry.countInClicks = context->countInClicks;
+	telemetry.metronomeClicks = context->metronomeClicks;
+	telemetry.inputPeakPermille = context->inputPeakPermille;
+	telemetry.inputLatencyKnown = context->configuration.inputLatencyKnown;
+	telemetry.inputLatencyFrames = context->configuration.inputLatencyFrames;
+	telemetry.xrunsKnown = 0;
+	telemetry.xruns = 0ULL;
+	telemetry.callbackViolations = context->callbackViolations;
+	if (!SpscQueues.tryPushBorrowed(context->telemetryQueue, &telemetry)) { btrcRealtimeIncrement(&context->droppedTelemetrySnapshots); }
+	context->inputPeakPermille = 0;
+}
+
+static bool btrcRealtimeClipPracticeInputPop(struct BtrcRealtimeClipPracticeContext* context, struct BtrcRealtimeClipPracticeInputValue* output) { return context != null && output != null && SpscQueues.tryPopBorrowed(context->inputQueue, output); }
+
+static bool btrcRealtimeClipPracticeTelemetryPop(struct BtrcRealtimeClipPracticeContext* context, struct BtrcRealtimeClipPracticeTelemetryValue* output) { return context != null && output != null && SpscQueues.tryPopBorrowed(context->telemetryQueue, output); }
