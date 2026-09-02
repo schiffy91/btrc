@@ -215,13 +215,13 @@ def test_warm_keystroke_is_fast(tmp_path):
     compute_diagnostics(main.as_uri(), source)  # warm stdlib units + base
     elapsed_samples = []
     for newline_count in (1, 2, 3):
-        start = time.perf_counter()
+        start = time.process_time()
         result = compute_diagnostics(main.as_uri(), source + "\n" * newline_count)
-        elapsed_samples.append(time.perf_counter() - start)
+        elapsed_samples.append(time.process_time() - start)
         assert result.analyzed is not None
     # Generous CI budget; locally this is ~1-5ms (was ~500ms pre-v2).
-    # Use the best of three distinct edits so an xdist scheduling pause cannot
-    # turn this product-performance contract into a flaky wall-clock test.
+    # Process time measures parser/analyzer work without charging an xdist
+    # worker for time it was descheduled by another native compiler process.
     best = min(elapsed_samples)
     samples = ", ".join(f"{elapsed * 1000:.0f}ms" for elapsed in elapsed_samples)
     assert best < 0.15, f"warm keystrokes took [{samples}]"

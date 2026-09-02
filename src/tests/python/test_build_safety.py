@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tomllib
 from pathlib import Path
@@ -14,9 +15,12 @@ DEVCONTAINER_CONFIG = REPO_ROOT / "build"
 
 
 def _make_dry_run(*args: str) -> str:
+    environment = os.environ.copy()
+    environment.pop("PYTEST_WORKERS", None)
     result = subprocess.run(
         ["make", "--dry-run", *args],
         cwd=REPO_ROOT,
+        env=environment,
         check=True,
         capture_output=True,
         text=True,
@@ -349,7 +353,9 @@ def test_ci_builds_installable_artifacts_and_pins_external_actions():
     windows = (REPO_ROOT / ".github" / "workflows" / "windows.yml").read_text()
 
     assert "make NIX= package extension" in ci
-    assert "nix build .#btrc .#btrc-lsp .#btrc-vscode-extension --no-link" in ci
+    assert (
+        "nix build .#btrc .#btrc-lsp .#btrc-vscode-extension .#checks.x86_64-linux.gpu-runtime-package --no-link"
+    ) in ci
     assert "@main" not in ci + windows
     assert "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in ci
     assert "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in windows

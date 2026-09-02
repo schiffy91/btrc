@@ -31,7 +31,15 @@ def _edge_only_module() -> IRModule:
     declarations = [
         IRHelperDecl.from_runtime(definition) for definition in RuntimeHelperCatalog().definitions_for({helper})
     ]
-    headers = sorted({header for declaration in declarations for header in declaration.required_headers})
+    # A real hosted translation unit always carries the canonical baseline
+    # includes before optimization. The synthetic IR must preserve that input
+    # contract while proving headers added by transitive helper closure.
+    headers = sorted(
+        {
+            "stdint.h",
+            *(header for declaration in declarations for header in declaration.required_headers),
+        }
+    )
     return IRModule(
         preprocessor_decls=[IRInclude(header) for header in headers],
         helper_decls=declarations,

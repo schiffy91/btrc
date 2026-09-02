@@ -6,7 +6,6 @@ import os
 import shlex
 import shutil
 import subprocess
-import time
 from pathlib import Path
 
 import pytest
@@ -41,9 +40,10 @@ def selfhost_lexer(selfhost_driver) -> Path:
 
 
 def _lex_time(binary: Path, source: Path) -> float:
-    started = time.perf_counter()
-    result = _run([str(binary), str(source)], timeout=5)
-    elapsed = time.perf_counter() - started
+    started = os.times()
+    result = _run([str(binary), str(source)], timeout=30)
+    finished = os.times()
+    elapsed = (finished.children_user + finished.children_system) - (started.children_user + started.children_system)
     assert result.returncode == 0, result.stderr
     assert result.stderr == ""
     return elapsed

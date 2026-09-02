@@ -63,7 +63,27 @@ static _Noreturn void btrc_test_longjmp(jmp_buf environment, int status) {
 #define longjmp(environment, status) \
     btrc_test_longjmp((environment), (status))
 """
+COMPILER_RUNTIME_SYMBOLS = {
+    "_GLOBAL_OFFSET_TABLE_",
+    "__aarch64_swp1_acq",
+    "__addtf3",
+    "__divtf3",
+    "__eqtf2",
+    "__extenddftf2",
+    "__fixtfsi",
+    "__floatsitf",
+    "__floatunsitf",
+    "__getf2",
+    "__gttf2",
+    "__lttf2",
+    "__multf3",
+    "__netf2",
+    "__subtf3",
+    "__trunctfdf2",
+    "__trunctfsf2",
+}
 TLS_RUNTIME_SYMBOLS = {
+    "__tls_get_addr",
     "__emutls_get_address",
     "___emutls_get_address",
     "__tlv_bootstrap",
@@ -248,7 +268,12 @@ def test_freestanding_stdlib_links_with_zero_libc(tmp_path, monkeypatch, program
     assert r.returncode == 0, r.stderr
     nm = subprocess.run(["nm", str(obj)], capture_output=True, text=True, timeout=30)
     undefined = [line for line in nm.stdout.splitlines() if " U " in line]
-    allowed = TLS_RUNTIME_SYMBOLS if "_Thread_local" in generated else set()
+    # Freestanding excludes libc, not compiler-provided lowering helpers.
+    # AArch64 long double and atomics require these target runtime builtins;
+    # TLS support is allowed only when the generated unit actually uses TLS.
+    allowed = set(COMPILER_RUNTIME_SYMBOLS)
+    if "_Thread_local" in generated:
+        allowed.update(TLS_RUNTIME_SYMBOLS)
     unexpected = [line for line in undefined if line.split()[-1] not in allowed]
     assert not unexpected, "freestanding object has external deps:\n" + "\n".join(unexpected)
 

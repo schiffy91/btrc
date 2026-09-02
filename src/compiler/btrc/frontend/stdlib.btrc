@@ -129,16 +129,6 @@ class FeStdlibRepository {
 		return FeStdlibLookup(false, "", f"stdlib import 'std.{name}' not found\n  searched: {self.directoryPath}");
 	}
 
-	public Vector<string> rootPaths(FeStdlibRootSnapshot snapshot) {
-		Vector<string> paths = [];
-		int index = 0;
-		while (index < snapshot.count()) {
-			paths.push(snapshot.pathAt(index));
-			index++;
-		}
-		return paths;
-	}
-
 	private bool explicitModulePath(string path) {
 		string name = self.sourcePaths.baseName(path);
 		return name.equals("background_jobs.btrc") || name.equals("native_ui.btrc") || name.equals("native_ui_app.btrc");
