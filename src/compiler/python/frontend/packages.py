@@ -444,6 +444,33 @@ class NativeLinkPlan:
             self.declarations + declarations,
         )
 
+    def with_stdlib_local_application_channel(self, stdlib_directory: str) -> NativeLinkPlan:
+        """Return a plan that owns the imported local-application runtime."""
+
+        package_name = "btrc_stdlib_local_application_channel_runtime"
+        if any(package.name == package_name for package in self.packages):
+            raise IncludeResolutionError(
+                f"package identity {package_name!r} is reserved for compiler-owned stdlib runtimes"
+            )
+        root = os.path.realpath(stdlib_directory)
+        runtime = os.path.join(root, "local_application_channel")
+        source = os.path.join(runtime, "btrc_local_application_channel.c")
+        header = os.path.join(runtime, "btrc_local_application_channel.h")
+        if not os.path.isdir(root) or not os.path.isdir(runtime):
+            raise IncludeResolutionError("std.local_application_channel native runtime directory is unavailable")
+        if not os.path.isfile(source) or not os.path.isfile(header):
+            raise IncludeResolutionError("std.local_application_channel native runtime sources are unavailable")
+        package = PackageNode(package_name, root, {}, {"path": root}, "")
+        supported = ("linux", "macos", "windows")
+        declarations = (
+            NativeDeclaration(
+                "source", package_name, source, language="c", standard="c11", operating_systems=supported
+            ),
+            NativeDeclaration("header", package_name, header, operating_systems=supported),
+            NativeDeclaration("include-directory", package_name, runtime, operating_systems=supported),
+        )
+        return NativeLinkPlan(self.target, self.packages + (package,), self.declarations + declarations)
+
 
 @dataclass(frozen=True)
 class ResolvedPackages:

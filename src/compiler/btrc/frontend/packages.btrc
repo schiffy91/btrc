@@ -715,6 +715,42 @@ class FeNativeLinkPlan {
 		}
 	}
 
+	public void requireStdlibLocalApplicationChannel(string stdlibDirectory) {
+		string packageName = "btrc_stdlib_local_application_channel_runtime";
+		int packageIndex = 0;
+		while (packageIndex < self.packages.len) {
+			if (self.packages.get(packageIndex).name.equals(packageName)) {
+				FePackageFailure.fail(f"package identity '{packageName}' is reserved for compiler-owned stdlib runtimes");
+			}
+			packageIndex++;
+		}
+		string root = PathTools.absolute(stdlibDirectory);
+		string runtime = PathTools.join(root, "local_application_channel");
+		string source = PathTools.join(runtime, "btrc_local_application_channel.c");
+		string header = PathTools.join(runtime, "btrc_local_application_channel.h");
+		if (!FileSystem.isDir(root) || !FileSystem.isDir(runtime)) {
+			FePackageFailure.fail("std.local_application_channel native runtime directory is unavailable");
+		}
+		if (!FileSystem.isFile(source) || !FileSystem.isFile(header)) {
+			FePackageFailure.fail("std.local_application_channel native runtime sources are unavailable");
+		}
+		Vector<string> supported = ["linux", "macos", "windows"];
+		Vector<string> architectures = [];
+		Vector<string> modules = [];
+		Vector<FeNativeDeclaration> runtimeDeclarations = [
+			FeNativeDeclaration("source", packageName, source, "", "c", "c11", supported, architectures, modules),
+			FeNativeDeclaration("header", packageName, header, "", "", "", supported, architectures, modules),
+			FeNativeDeclaration("include-directory", packageName, runtime, "", "", "", supported, architectures, modules)
+		];
+		Map<string, string> dependencies = {};
+		self.packages.push(FePackageNode(packageName, root, dependencies, root, "", runtimeDeclarations));
+		int runtimeIndex = 0;
+		while (runtimeIndex < runtimeDeclarations.len) {
+			self.declarations.push(runtimeDeclarations.get(runtimeIndex));
+			runtimeIndex++;
+		}
+	}
+
 	private Vector<FeNativeDeclaration> selected(string kind) {
 		Vector<FeNativeDeclaration> values = [];
 		int index = 0;

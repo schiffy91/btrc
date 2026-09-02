@@ -317,6 +317,19 @@ def test_native_app_background_jobs_and_ui_effects_are_exact() -> None:
     } <= set(HOSTED_NATIVE_INTERNAL_NAMES)
 
 
+def test_local_application_channel_effects_are_exact() -> None:
+    request = hosted_function("std_local_application_channel_request")
+    poll = hosted_function("std_local_application_channel_server_poll")
+    close = hosted_function("std_local_application_channel_server_close")
+
+    assert request is not None
+    assert request.effects == (READ, READ, VALUE, MUTATE, VALUE, VALUE, MUTATE, MUTATE)
+    assert poll is not None
+    assert poll.effects == (MUTATE, MUTATE, VALUE, MUTATE, MUTATE, MUTATE)
+    assert close is not None
+    assert close.effects == (MUTATE,)
+
+
 def test_gpu_surface_attachment_uses_public_capabilities_and_private_raw_compute() -> None:
     attach = hosted_function("std_gpu_attach_surface")
     close = hosted_function("std_gpu_close")

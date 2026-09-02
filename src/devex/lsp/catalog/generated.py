@@ -606,6 +606,9 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("getStringAfter", "string", "method", (("string", "json"), ("string", "anchor"), ("string", "key"),), "getStringAfter"),
         BuiltinMemberSpec("getStringFrom", "string", "method", (("string", "json"), ("string", "key"), ("int", "from"),), "getStringFrom"),
     )),
+    ("LocalApplicationChannelClient", (
+        BuiltinMemberSpec("request", "LocalApplicationChannelClientOutcome", "method", (("string", "path"), ("Bytes", "request"), ("LocalApplicationChannelConfiguration", "configuration"), ("int", "timeoutMilliseconds"),), "request"),
+    )),
     ("Math", (
         BuiltinMemberSpec("PI", "float", "method", (), "PI"),
         BuiltinMemberSpec("E", "float", "method", (), "E"),

@@ -1073,6 +1073,11 @@ functions = [
   "std_gpu_uniform_destroy",
   "std_gpu_uniform_finalize",
   "std_gpu_uniform_set",
+  "std_local_application_channel_request",
+  "std_local_application_channel_server_close",
+  "std_local_application_channel_server_open",
+  "std_local_application_channel_server_poll",
+  "std_local_application_channel_server_respond",
   "strcasecmp",
   "strcasecmp_l",
   "strcasestr",
@@ -8101,6 +8106,11 @@ owned = [
   "std_gpu_uniform_destroy",
   "std_gpu_uniform_finalize",
   "std_gpu_uniform_set",
+  "std_local_application_channel_request",
+  "std_local_application_channel_server_close",
+  "std_local_application_channel_server_open",
+  "std_local_application_channel_server_poll",
+  "std_local_application_channel_server_respond",
   "stderr",
   "stdin",
   "stdout",
@@ -8449,6 +8459,11 @@ native = [
   "std_gpu_uniform_destroy",
   "std_gpu_uniform_finalize",
   "std_gpu_uniform_set",
+  "std_local_application_channel_request",
+  "std_local_application_channel_server_close",
+  "std_local_application_channel_server_open",
+  "std_local_application_channel_server_poll",
+  "std_local_application_channel_server_respond",
 ]
 native_internal = [
   "btrc_app_drain_owner_finalizers",
@@ -9198,6 +9213,11 @@ functions = [
   "std_gpu_uniform_destroy",
   "std_gpu_uniform_finalize",
   "std_gpu_uniform_set",
+  "std_local_application_channel_request",
+  "std_local_application_channel_server_close",
+  "std_local_application_channel_server_open",
+  "std_local_application_channel_server_poll",
+  "std_local_application_channel_server_respond",
   "strcasecmp",
   "strcasecmp_l",
   "strcasestr",
@@ -17527,6 +17547,88 @@ parameters = [
   { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
   { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
   { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_local_application_channel_request"
+origin = "native_local_application_channel"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "char", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "unsigned char", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned char", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_local_application_channel_server_close"
+origin = "native_local_application_channel"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 2, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_local_application_channel_server_open"
+origin = "native_local_application_channel"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "char", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "void", pointer_depth = 2, is_const = false, effect = "mutate" },
+  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_local_application_channel_server_poll"
+origin = "native_local_application_channel"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "unsigned char", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_local_application_channel_server_respond"
+origin = "native_local_application_channel"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned char", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
 ]
 variadic = false
 return_effect = "value"

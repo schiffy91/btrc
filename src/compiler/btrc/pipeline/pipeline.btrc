@@ -44,6 +44,10 @@ class CompilerPipeline {
 		if (resolved.dependencies.hasSource(FeSourcePathPolicy().identity(backgroundJobsModule))) {
 			packages.linkPlan.requireStdlibBackgroundJobs(self.stdlib.directory());
 		}
+		string localApplicationChannelModule = PathTools.join(self.stdlib.directory(), "local_application_channel.btrc");
+		if (resolved.dependencies.hasSource(FeSourcePathPolicy().identity(localApplicationChannelModule))) {
+			packages.linkPlan.requireStdlibLocalApplicationChannel(self.stdlib.directory());
+		}
 
 		Lexer lexer = Lexer(resolved.source, self.grammar);
 		Vector<Token> tokens = lexer.tokenize();

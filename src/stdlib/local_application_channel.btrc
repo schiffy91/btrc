@@ -1,0 +1,222 @@
+/* A bounded same-user request channel owned by a native application loop.
+ *
+ * The server is deliberately poll-driven: accepting peers, consuming partial
+ * frames, publishing one request, and flushing responses never blocks the
+ * owner loop. LocalApplicationChannelClient.request is the bounded synchronous
+ * adapter for CLI/MCP processes. The native transport is private implementation
+ * detail; application policy and payload serialization remain with the caller.
+ */
+import std.OwnedBuffer;
+import std.bytes;
+
+int std_local_application_channel_server_open(const char* path, int maximumClients, int maximumMessageBytes, int idleTimeoutMilliseconds, int workBytesPerPoll, void** serverOut, int* nativeErrorOut);
+int std_local_application_channel_server_poll(void* server, unsigned char* requestBuffer, int requestCapacity, unsigned long long* requestIdentityOut, int* requestLengthOut, int* nativeErrorOut);
+int std_local_application_channel_server_respond(void* server, unsigned long long requestIdentity, const unsigned char* response, int responseLength, int* nativeErrorOut);
+int std_local_application_channel_server_close(void** server);
+int std_local_application_channel_request(const char* path, const unsigned char* request, int requestLength, unsigned char* responseBuffer, int responseCapacity, int timeoutMilliseconds, int* responseLengthOut, int* nativeErrorOut);
+
+enum LocalApplicationChannelOpenKind {
+	LOCAL_APPLICATION_CHANNEL_OPENED = 0,
+	LOCAL_APPLICATION_CHANNEL_OPEN_INVALID = 1,
+	LOCAL_APPLICATION_CHANNEL_OPEN_UNSUPPORTED = 2,
+	LOCAL_APPLICATION_CHANNEL_OPEN_INSECURE_PARENT = 3,
+	LOCAL_APPLICATION_CHANNEL_OPEN_PATH_CONFLICT = 4,
+	LOCAL_APPLICATION_CHANNEL_OPEN_ALREADY_RUNNING = 5,
+	LOCAL_APPLICATION_CHANNEL_OPEN_RESOURCE_FAILED = 6
+};
+
+enum LocalApplicationChannelPollKind {
+	LOCAL_APPLICATION_CHANNEL_POLL_REQUEST = 0,
+	LOCAL_APPLICATION_CHANNEL_POLL_IDLE = 1,
+	LOCAL_APPLICATION_CHANNEL_POLL_WORK_REMAINS = 2,
+	LOCAL_APPLICATION_CHANNEL_POLL_CLOSED = 3,
+	LOCAL_APPLICATION_CHANNEL_POLL_INVALID_BUFFER = 4,
+	LOCAL_APPLICATION_CHANNEL_POLL_FAILED = 5
+};
+
+enum LocalApplicationChannelResponseKind {
+	LOCAL_APPLICATION_CHANNEL_RESPONSE_QUEUED = 0,
+	LOCAL_APPLICATION_CHANNEL_RESPONSE_STALE = 1,
+	LOCAL_APPLICATION_CHANNEL_RESPONSE_TOO_LARGE = 2,
+	LOCAL_APPLICATION_CHANNEL_RESPONSE_CLOSED = 3,
+	LOCAL_APPLICATION_CHANNEL_RESPONSE_INVALID = 4,
+	LOCAL_APPLICATION_CHANNEL_RESPONSE_RESOURCE_FAILED = 5
+};
+
+enum LocalApplicationChannelRequestKind {
+	LOCAL_APPLICATION_CHANNEL_REQUEST_COMPLETED = 0,
+	LOCAL_APPLICATION_CHANNEL_REQUEST_INVALID = 1,
+	LOCAL_APPLICATION_CHANNEL_REQUEST_UNSUPPORTED = 2,
+	LOCAL_APPLICATION_CHANNEL_REQUEST_UNAVAILABLE = 3,
+	LOCAL_APPLICATION_CHANNEL_REQUEST_TIMED_OUT = 4,
+	LOCAL_APPLICATION_CHANNEL_REQUEST_PROTOCOL_FAILED = 5,
+	LOCAL_APPLICATION_CHANNEL_REQUEST_RESPONSE_TOO_LARGE = 6,
+	LOCAL_APPLICATION_CHANNEL_REQUEST_SECURITY_REJECTED = 7,
+	LOCAL_APPLICATION_CHANNEL_REQUEST_IO_FAILED = 8
+};
+
+class LocalApplicationChannelConfiguration {
+	private int clientLimit;
+	private int messageByteLimit;
+	private int idleTimeout;
+	private int pollWorkByteLimit;
+
+	public LocalApplicationChannelConfiguration(int maximumClients, int maximumMessageBytes, int idleTimeoutMilliseconds, int workBytesPerPoll) {
+		self.clientLimit = maximumClients;
+		self.messageByteLimit = maximumMessageBytes;
+		self.idleTimeout = idleTimeoutMilliseconds;
+		self.pollWorkByteLimit = workBytesPerPoll;
+	}
+
+	class LocalApplicationChannelConfiguration standard() { return LocalApplicationChannelConfiguration(8, 65536, 30000, 65536); }
+
+	public int maximumClients() { return self.clientLimit; }
+
+	public int maximumMessageBytes() { return self.messageByteLimit; }
+
+	public int idleTimeoutMilliseconds() { return self.idleTimeout; }
+
+	public int workBytesPerPoll() { return self.pollWorkByteLimit; }
+
+	public bool valid() { return self.clientLimit >= 1 && self.clientLimit <= 32 && self.messageByteLimit >= 1 && self.messageByteLimit <= 1048576 && self.idleTimeout >= 100 && self.idleTimeout <= 300000 && self.pollWorkByteLimit >= 1 && self.pollWorkByteLimit <= 1048576; }
+}
+
+class LocalApplicationChannelRequest {
+	private void* serverIdentity;
+	private unsigned long long requestIdentity;
+	private Bytes requestPayload;
+
+	public LocalApplicationChannelRequest(void* owner, unsigned long long identity, Bytes payload) {
+		if (owner == null || identity == 0ULL || payload == null) { throw "invalid local application channel request"; }
+		self.serverIdentity = owner;
+		self.requestIdentity = identity;
+		self.requestPayload = payload;
+	}
+
+	public unsigned long long identity() { return self.requestIdentity; }
+
+	public Bytes payload() { return self.requestPayload; }
+
+	public bool belongsTo(void* owner) { return owner != null && self.serverIdentity == owner; }
+}
+
+class LocalApplicationChannelServerOpenOutcome {
+	public LocalApplicationChannelOpenKind kind;
+	public LocalApplicationChannelServer? server;
+	public int nativeError;
+
+	public LocalApplicationChannelServerOpenOutcome(LocalApplicationChannelOpenKind kind, LocalApplicationChannelServer? server, int nativeError) {
+		self.kind = kind;
+		self.server = server;
+		self.nativeError = nativeError;
+	}
+
+	public bool opened() { return self.kind == LOCAL_APPLICATION_CHANNEL_OPENED && self.server != null; }
+}
+
+class LocalApplicationChannelPollOutcome {
+	public LocalApplicationChannelPollKind kind;
+	public LocalApplicationChannelRequest? request;
+	public int nativeError;
+
+	public LocalApplicationChannelPollOutcome(LocalApplicationChannelPollKind kind, LocalApplicationChannelRequest? request, int nativeError) {
+		self.kind = kind;
+		self.request = request;
+		self.nativeError = nativeError;
+	}
+
+	public bool ready() { return self.kind == LOCAL_APPLICATION_CHANNEL_POLL_REQUEST && self.request != null; }
+}
+
+class LocalApplicationChannelResponseOutcome {
+	public LocalApplicationChannelResponseKind kind;
+	public int nativeError;
+
+	public LocalApplicationChannelResponseOutcome(LocalApplicationChannelResponseKind kind, int nativeError) {
+		self.kind = kind;
+		self.nativeError = nativeError;
+	}
+
+	public bool queued() { return self.kind == LOCAL_APPLICATION_CHANNEL_RESPONSE_QUEUED; }
+}
+
+class LocalApplicationChannelClientOutcome {
+	public LocalApplicationChannelRequestKind kind;
+	public Bytes response;
+	public int nativeError;
+
+	public LocalApplicationChannelClientOutcome(LocalApplicationChannelRequestKind kind, Bytes response, int nativeError) {
+		self.kind = kind;
+		self.response = response;
+		self.nativeError = nativeError;
+	}
+
+	public bool completed() { return self.kind == LOCAL_APPLICATION_CHANNEL_REQUEST_COMPLETED; }
+}
+
+class LocalApplicationChannelServer {
+	private void* nativeServer;
+	private LocalApplicationChannelConfiguration configuration;
+	private OwnedBuffer<char> requestBuffer;
+
+	private LocalApplicationChannelServer(void* nativeServer, LocalApplicationChannelConfiguration configuration, OwnedBuffer<char> requestBuffer) {
+		self.nativeServer = nativeServer;
+		self.configuration = configuration;
+		self.requestBuffer = requestBuffer;
+	}
+
+	class LocalApplicationChannelServerOpenOutcome open(string path, LocalApplicationChannelConfiguration configuration) {
+		if (path == null || path.isEmpty() || configuration == null || !configuration.valid()) { return LocalApplicationChannelServerOpenOutcome(LOCAL_APPLICATION_CHANNEL_OPEN_INVALID, null, 0); }
+		OwnedBuffer<char> requestBuffer = OwnedBuffer((size_t)configuration.maximumMessageBytes());
+		if (!requestBuffer.opened()) { return LocalApplicationChannelServerOpenOutcome(LOCAL_APPLICATION_CHANNEL_OPEN_RESOURCE_FAILED, null, 0); }
+		void* nativeServer = null;
+		int nativeError = 0;
+		LocalApplicationChannelOpenKind kind = (LocalApplicationChannelOpenKind)std_local_application_channel_server_open(path, configuration.maximumClients(), configuration.maximumMessageBytes(), configuration.idleTimeoutMilliseconds(), configuration.workBytesPerPoll(), &nativeServer, &nativeError);
+		if (kind != LOCAL_APPLICATION_CHANNEL_OPENED || nativeServer == null) {
+			requestBuffer.close();
+			return LocalApplicationChannelServerOpenOutcome(kind, null, nativeError);
+		}
+		return LocalApplicationChannelServerOpenOutcome(kind, LocalApplicationChannelServer(nativeServer, configuration, requestBuffer), nativeError);
+	}
+
+	public LocalApplicationChannelPollOutcome poll() {
+		if (self.nativeServer == null) { return LocalApplicationChannelPollOutcome(LOCAL_APPLICATION_CHANNEL_POLL_CLOSED, null, 0); }
+		unsigned long long requestIdentity = 0ULL;
+		int requestLength = 0;
+		int nativeError = 0;
+		LocalApplicationChannelPollKind kind = (LocalApplicationChannelPollKind)std_local_application_channel_server_poll(self.nativeServer, (unsigned char*)self.requestBuffer.borrow(), self.configuration.maximumMessageBytes(), &requestIdentity, &requestLength, &nativeError);
+		if (kind != LOCAL_APPLICATION_CHANNEL_POLL_REQUEST) { return LocalApplicationChannelPollOutcome(kind, null, nativeError); }
+		if (requestIdentity == 0ULL || requestLength < 0 || requestLength > self.configuration.maximumMessageBytes()) { return LocalApplicationChannelPollOutcome(LOCAL_APPLICATION_CHANNEL_POLL_FAILED, null, nativeError); }
+		Bytes payload = Bytes.fromRaw((char*)self.requestBuffer.borrow(), requestLength);
+		return LocalApplicationChannelPollOutcome(kind, LocalApplicationChannelRequest(self.nativeServer, requestIdentity, payload), nativeError);
+	}
+
+	public LocalApplicationChannelResponseOutcome respond(LocalApplicationChannelRequest request, Bytes response) {
+		if (self.nativeServer == null) { return LocalApplicationChannelResponseOutcome(LOCAL_APPLICATION_CHANNEL_RESPONSE_CLOSED, 0); }
+		if (request == null || response == null || !request.belongsTo(self.nativeServer)) { return LocalApplicationChannelResponseOutcome(LOCAL_APPLICATION_CHANNEL_RESPONSE_INVALID, 0); }
+		int nativeError = 0;
+		LocalApplicationChannelResponseKind kind = (LocalApplicationChannelResponseKind)std_local_application_channel_server_respond(self.nativeServer, request.identity(), (const unsigned char*)response.data, response.len, &nativeError);
+		return LocalApplicationChannelResponseOutcome(kind, nativeError);
+	}
+
+	public void close() {
+		if (self.nativeServer != null) { std_local_application_channel_server_close(&self.nativeServer); }
+		self.requestBuffer.close();
+	}
+
+	public void __del__() { self.close(); }
+}
+
+class LocalApplicationChannelClient {
+	class LocalApplicationChannelClientOutcome request(string path, Bytes request, LocalApplicationChannelConfiguration configuration, int timeoutMilliseconds) {
+		if (path == null || path.isEmpty() || request == null || configuration == null || !configuration.valid() || request.len > configuration.maximumMessageBytes() || timeoutMilliseconds < 1 || timeoutMilliseconds > 300000) { return LocalApplicationChannelClientOutcome(LOCAL_APPLICATION_CHANNEL_REQUEST_INVALID, Bytes(), 0); }
+		OwnedBuffer<char> responseBuffer = OwnedBuffer((size_t)configuration.maximumMessageBytes());
+		if (!responseBuffer.opened()) { return LocalApplicationChannelClientOutcome(LOCAL_APPLICATION_CHANNEL_REQUEST_IO_FAILED, Bytes(), 0); }
+		int responseLength = 0;
+		int nativeError = 0;
+		LocalApplicationChannelRequestKind kind = (LocalApplicationChannelRequestKind)std_local_application_channel_request(path, (const unsigned char*)request.data, request.len, (unsigned char*)responseBuffer.borrow(), configuration.maximumMessageBytes(), timeoutMilliseconds, &responseLength, &nativeError);
+		Bytes response = kind == LOCAL_APPLICATION_CHANNEL_REQUEST_COMPLETED && responseLength >= 0 && responseLength <= configuration.maximumMessageBytes() ? Bytes.fromRaw((char*)responseBuffer.borrow(), responseLength) : Bytes();
+		responseBuffer.close();
+		return LocalApplicationChannelClientOutcome(kind, response, nativeError);
+	}
+}

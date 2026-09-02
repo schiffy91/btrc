@@ -1,0 +1,60 @@
+// BTRC_TEST_REQUIRES: local-application-channel
+import std.bytes;
+import std.datetime;
+import std.FileSystem;
+import std.local_application_channel;
+
+#include <assert.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+int main() {
+	string directory = FileSystem.tempDir("btrc-local-channel");
+	assert(!directory.isEmpty());
+	string endpoint = f"{directory}/application.sock";
+	LocalApplicationChannelConfiguration configuration = LocalApplicationChannelConfiguration(4, 4096, 5000, 16);
+	LocalApplicationChannelServerOpenOutcome opened = LocalApplicationChannelServer.open(endpoint, configuration);
+	assert(opened.opened());
+	LocalApplicationChannelServer server = opened.server;
+	LocalApplicationChannelServerOpenOutcome duplicate = LocalApplicationChannelServer.open(endpoint, configuration);
+	assert(duplicate.kind == LOCAL_APPLICATION_CHANNEL_OPEN_ALREADY_RUNNING);
+
+	pid_t child = fork();
+	assert(child >= (pid_t)0);
+	if (child == (pid_t)0) {
+		Bytes request = Bytes.fromString("agent-command");
+		LocalApplicationChannelClientOutcome response = LocalApplicationChannelClient.request(endpoint, request, configuration, 5000);
+		if (!response.completed() || !response.response.toStringLossy().equals("application-state")) { _exit(10); }
+		_exit(0);
+	}
+
+	LocalApplicationChannelRequest? delivered = null;
+	int polls = 0;
+	while (delivered == null && polls < 10000) {
+		LocalApplicationChannelPollOutcome polled = server.poll();
+		if (polled.ready()) { delivered = polled.request; }
+		else { assert(polled.kind == LOCAL_APPLICATION_CHANNEL_POLL_IDLE || polled.kind == LOCAL_APPLICATION_CHANNEL_POLL_WORK_REMAINS); }
+		polls++;
+	}
+	assert(delivered != null);
+	LocalApplicationChannelRequest request = delivered;
+	assert(request.payload().toStringLossy().equals("agent-command"));
+	assert(server.respond(request, Bytes.fromString("application-state")).queued());
+
+	int childStatus = 0;
+	int waited = 0;
+	while (waitpid(child, &childStatus, WNOHANG) == (pid_t)0 && waited < 10000) {
+		LocalApplicationChannelPollOutcome flushed = server.poll();
+		assert(flushed.kind == LOCAL_APPLICATION_CHANNEL_POLL_IDLE || flushed.kind == LOCAL_APPLICATION_CHANNEL_POLL_WORK_REMAINS);
+		waited++;
+	}
+	assert(WIFEXITED(childStatus) && WEXITSTATUS(childStatus) == 0);
+	assert(server.respond(request, Bytes.fromString("duplicate")).kind == LOCAL_APPLICATION_CHANNEL_RESPONSE_STALE);
+	server.close();
+	assert(access(endpoint, F_OK) != 0);
+	assert(FileSystem.removeRecursive(directory) == 0);
+	print("PASS: local application channel conformance");
+	return 0;
+}

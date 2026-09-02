@@ -1,5 +1,5 @@
 .PHONY: all help build package wheel btrcc btrcc-release-c btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
-        btrcc-windows-x64 btrcc-dist test-windows app app-required gpu gpu-required background-jobs gui ast-generate ast-generate-btrc \
+        btrcc-windows-x64 btrcc-dist test-windows app app-required gpu gpu-required background-jobs local-application-channel gui ast-generate ast-generate-btrc \
         test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
         generated-check compiler-codegen-generate compiler-codegen-check lint format format-check format-btrc format-btrc-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
@@ -31,7 +31,7 @@ BTRC_FORMAT_PATHS := src examples bench
 # Keep exclusions exact: btrc-format rejects missing or undiscovered paths.
 BTRC_FORMAT_EXCLUDES := --exclude src/tests/formatter/fixtures/ImportGroups.btrc
 
-all: generated-check build gpu background-jobs gui test lint examples extension ## Build and verify everything
+all: generated-check build gpu background-jobs local-application-channel gui test lint examples extension ## Build and verify everything
 
 build: generated-check ## Create bin/btrcpy wrapper script
 	@mkdir -p bin
@@ -241,6 +241,19 @@ background-jobs: ## Build the bounded background-job executor runtime
 		trap - EXIT && \
 		echo "Built: $$archive"'
 
+local-application-channel: ## Build the bounded same-user application channel runtime
+	@$(NIX) bash -c '\
+		D=src/stdlib/local_application_channel && O=build/stdlib/local_application_channel && \
+		mkdir -p "$$O" && \
+		archive="$$O/libbtrc_local_application_channel.a" && \
+		object="$$O/btrc_local_application_channel.o" && \
+		rm -f "$$archive" "$$object" && \
+		trap "rm -f \"$$archive\" \"$$object\"" EXIT && \
+		$(CC) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_local_application_channel.c" -o "$$object" && \
+		$(HOST_AR) rcs "$$archive" "$$object" && \
+		trap - EXIT && \
+		echo "Built: $$archive"'
+
 gui: ## Build GUI runtime (software renderer always; window backend needs GLFW)
 	@$(NIX) bash -c '\
 		D=src/stdlib/gui && O=build/stdlib/gui && mkdir -p "$$O" && \
@@ -282,7 +295,7 @@ ast-generate-btrc: compiler-codegen-generate ## Regenerate both AST catalogs thr
 
 # ─── Test ────────────────────────────────────────────────────────────────────
 
-test: generated-check test-boundaries gpu-required background-jobs ## Run everything: unit + LSP + debugger + language corpus on BOTH compilers
+test: generated-check test-boundaries gpu-required background-jobs local-application-channel ## Run everything: unit + LSP + debugger + language corpus on BOTH compilers
 	$(NIX) $(PYTEST) src/tests/ \
 		--ignore=src/tests/btrc/test_bootstrap.py $(PYTEST_ARGS)
 	$(NIX) $(PYTEST) src/tests/btrc/test_bootstrap.py $(PYTEST_SERIAL_ARGS)
