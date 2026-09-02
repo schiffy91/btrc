@@ -2,6 +2,7 @@
  * lifecycle coverage. POSIX calls are confined to test setup and races. */
 import std.bytes;
 import std.FileSystem;
+import std.FileSystemHandles;
 
 #include <assert.h>
 #include <errno.h>

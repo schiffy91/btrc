@@ -9,7 +9,7 @@ SELFHOST = REPO / "src/compiler/btrc"
 
 
 def test_type_reachability_scans_each_type_field_once() -> None:
-    source = (SELFHOST / "ir/optimization/optimizer.btrc").read_text()
+    source = (SELFHOST / "ir/optimization/optimizer.btrc").read_text().expandtabs(4)
     scanner_start = source.index("private void scanTextForKnownNames(")
     scanner_end = source.index("\n    }\n", scanner_start)
     scanner = source[scanner_start:scanner_end]

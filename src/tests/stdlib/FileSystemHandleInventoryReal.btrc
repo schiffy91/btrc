@@ -1,4 +1,5 @@
 import std.FileSystem;
+import std.FileSystemHandles;
 
 #include <assert.h>
 

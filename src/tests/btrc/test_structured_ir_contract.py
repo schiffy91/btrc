@@ -75,10 +75,12 @@ def test_top_level_declarations_are_typed_end_to_end() -> None:
     registration = types[
         types.index("private string functionPointerName(") : types.index("private bool aliasBaseIsReference(")
     ]
-    canonicalize = registration.index("SemanticTypeSystem.resolveTypedefType(")
-    register_nested = registration.index("self.lower(canonical)")
+    # Preserve named typedef boundaries while still registering directly
+    # nested callback spellings before the outer function-pointer declaration.
+    register_nested = registration.index("self.lower(typeExpr.generic_args.get(component))")
     register_outer = registration.index("self.functionPointerOrder.push(mangled)")
-    assert canonicalize < register_nested < register_outer
+    assert register_nested < register_outer
+    assert "SemanticTypeSystem.resolveTypedefType(" not in registration
     assert "self.analyzed.fnPtr" not in registration
 
 

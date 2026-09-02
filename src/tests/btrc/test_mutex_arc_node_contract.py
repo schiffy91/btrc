@@ -21,7 +21,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_selfhost_mutex_transport_storage_resolves_active_specialization() -> None:
-    source = (REPO / "src/compiler/btrc/ir/lowering/concurrency.btrc").read_text()
+    source = (REPO / "src/compiler/btrc/ir/lowering/concurrency.btrc").read_text().expandtabs(4)
     start = source.index("    public string threadResultStorageC(")
     end = source.index("\n    }", start)
     storage = source[start:end]

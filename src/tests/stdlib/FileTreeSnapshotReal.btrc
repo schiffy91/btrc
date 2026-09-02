@@ -1,5 +1,7 @@
 /* Real deterministic traversal, bounds, cancellation, and handle ownership. */
 import std.FileSystem;
+import std.FileSystemHandles;
+import std.FileTree;
 import std.io;
 
 #include <assert.h>

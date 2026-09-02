@@ -17,7 +17,7 @@ PROCESS_RUNTIME = "\n".join(helper.c_source for helper in PROCESS_HELPERS.values
 def test_child_branch_uses_only_precomputed_async_signal_safe_inputs() -> None:
     source = PROCESS.read_text()
     child = source.split("if (child == (pid_t)0) {", 1)[1]
-    child = child.split("\n        ChildProcessArguments.freeEntries(execArguments);", 1)[0]
+    child = child.split("ChildProcessArguments.freeEntries(execArguments);", 1)[0]
 
     for required in (
         "setpgid(",
@@ -155,7 +155,7 @@ def test_foreground_children_take_the_terminal_from_precomputed_inputs() -> None
     source = PROCESS.read_text()
     run = source.split("class ExecResult run", 1)[1]
     child = run.split("if (child == (pid_t)0) {", 1)[1]
-    child = child.split("\n        bool signalRestoreFailed", 1)[0]
+    child = child.split("bool signalRestoreFailed", 1)[0]
 
     assert "bool foreground = false" in run
     # The child branch may only use inputs resolved before fork().
@@ -164,7 +164,8 @@ def test_foreground_children_take_the_terminal_from_precomputed_inputs() -> None
     assert resolve < fork
     assert "__btrc_terminal_foreground_group(terminalDescriptor)" in run
     assert "__btrc_controlling_terminal_descriptor()" not in child
-    assert "__btrc_terminal_adopt_foreground(\n                    terminalDescriptor, getpid())" in child
+    normalized_child = " ".join(child.split())
+    assert "__btrc_terminal_adopt_foreground(terminalDescriptor, getpid())" in normalized_child
 
     # posix_spawn offers no race-free handoff, so a foreground child never uses it.
     spawn = run.index("__btrc_posix_spawn_cloexec(")
@@ -329,7 +330,7 @@ def test_child_descriptor_capabilities_are_leased_and_fail_closed() -> None:
     source = PROCESS.read_text()
     run = source.split("class ExecResult run", 1)[1]
     child = run.split("if (child == (pid_t)0) {", 1)[1]
-    child = child.split("\n        bool signalRestoreFailed", 1)[0]
+    child = child.split("bool signalRestoreFailed", 1)[0]
     assert "class ChildDescriptorMapping" in source
     assert "int sourceDescriptor" in source
     assert "int childDescriptor" in source

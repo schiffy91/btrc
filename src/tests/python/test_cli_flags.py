@@ -40,6 +40,7 @@ def compile_btrc(tmp_path, monkeypatch, source, *flags, name="prog"):
 
 PURE = "int sq(int n) { return n * n; }\nint main() { return sq(7); }\n"
 PRINTS = 'int main() { print("hi"); return 0; }\n'
+HAS_UNUSED_FUNCTION = 'int unused() { return 17; }\nint main() { print("hi"); return 0; }\n'
 USES_VECTOR = (
     "import std.vector;\n"
     "int main() { Vector<int> v = [1, 2, 3]; v.push(4);\n  int t = 0; for x in v { t = t + x; } print(t); return 0; }\n"
@@ -175,17 +176,21 @@ def test_dce_keeps_one_liner_small(tmp_path, monkeypatch):
     assert len(c.splitlines()) < 1500
 
 
-def test_no_dce_emits_full_stdlib(tmp_path, monkeypatch):
-    lean, _ = compile_btrc(tmp_path, monkeypatch, PRINTS, "--relaxed-imports", name="lean")
+def test_no_dce_retains_unreferenced_declarations(tmp_path, monkeypatch):
+    # DCE is scoped to the resolved program. Root stdlib units can themselves
+    # import nested modules, so concatenating every root unit in relaxed mode is
+    # neither a valid program nor the CLI contract.
+    lean, _ = compile_btrc(tmp_path, monkeypatch, HAS_UNUSED_FUNCTION, name="lean")
     full, _ = compile_btrc(
         tmp_path,
         monkeypatch,
-        PRINTS,
-        "--relaxed-imports",
+        HAS_UNUSED_FUNCTION,
         "--no-dce",
         name="full",
     )
-    assert len(full.splitlines()) > 3 * len(lean.splitlines())
+    assert "int unused(void)" not in lean
+    assert "int unused(void)" in full
+    assert len(full.splitlines()) > len(lean.splitlines())
 
 
 def test_dce_prunes_unused_stdlib_structs(tmp_path, monkeypatch):

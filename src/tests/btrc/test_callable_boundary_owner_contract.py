@@ -133,7 +133,9 @@ def test_callable_boundary_policy_is_per_lowerer_and_context_is_per_operation() 
     # The reusable policy keeps immutable classification only. Per-body facts
     # live on the explicitly constructed CallableFlowState.
     private_state = [
-        line.strip() for line in owner.splitlines() if line.startswith("    private ") and line.rstrip().endswith(";")
+        line.strip()
+        for line in owner.splitlines()
+        if line.strip().startswith("private ") and line.rstrip().endswith(";")
     ]
     assert private_state == ["private CallableValueSemantics values;"]
     assert "private Map<" not in owner
@@ -207,7 +209,8 @@ def test_callable_persistent_storage_consumes_flow_owned_risk_facts() -> None:
     assert "private CallableValueSemantics callableValues;" in declarations
     assert "CallableValueSemantics callableValues," in declarations
     assert declarations.count("self.callableValues,") == 3
-    assert "self.cleanupSlots,\n            callableValues, callableBoundaries," in lowerer
+    normalized_lowerer = " ".join(lowerer.split())
+    assert "self.cleanupSlots, callableValues, callableBoundaries," in normalized_lowerer
     assert statements.count("callableFlow.persistentStorageUnsafe(") == 3
 
 

@@ -18,10 +18,12 @@ def _function(source: str, signature: str) -> str:
 
 
 def test_member_queries_use_complete_constant_time_indexes() -> None:
-    analyzer = (SELFHOST / "analyzer/models.btrc").read_text()
-    index = (SELFHOST / "analyzer/declarations.btrc").read_text()
-    types = (SELFHOST / "analyzer/types.btrc").read_text()
-    analyzer_stage = (SELFHOST / "analyzer/stage.btrc").read_text()
+    # These are semantic source-shape contracts, not indentation-style
+    # contracts. Canonicalize tabs solely for the bounded method slices below.
+    analyzer = (SELFHOST / "analyzer/models.btrc").read_text().expandtabs(4)
+    index = (SELFHOST / "analyzer/declarations.btrc").read_text().expandtabs(4)
+    types = (SELFHOST / "analyzer/types.btrc").read_text().expandtabs(4)
+    analyzer_stage = (SELFHOST / "analyzer/stage.btrc").read_text().expandtabs(4)
 
     for signature in (
         "    public Node? classMember(",

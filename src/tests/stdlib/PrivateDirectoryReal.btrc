@@ -3,6 +3,7 @@
  * the typed mutable filesystem capability for product behavior. */
 import std.bytes;
 import std.FileSystem;
+import std.FileSystemHandles;
 
 #include <assert.h>
 #include <errno.h>

@@ -133,12 +133,11 @@ PUBLIC_ENTRY_POINTS = frozenset(
     }
 )
 
-# Public surfaces that only external probes exercise: the dependency graph's
-# membership query and the two identity spellings the shared type-identity
-# contract pins in both compilers (see fixtures/type_identity_driver.btrc).
+# Public identity spellings that only external probes exercise. The shared
+# type-identity contract pins them in both compilers (see
+# fixtures/type_identity_driver.btrc).
 INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
     {
-        ("FeDependencyGraph", "hasSource"),
         ("TypeComposition", "substitutionPointerDepth"),
         ("TypeIdentity", "symbolComponent"),
     }
@@ -542,7 +541,7 @@ def test_gpu_call_classification_has_one_semantic_owner() -> None:
     assert "callResolvesToBuiltin(" not in contextual
     assert calls.count("self.gpu.callResolvesToIntrinsic(") == 2
     assert calls.count("self.gpu.callResolvesToSourceSymbol(") == 1
-    assert "self.state.gpuCallable\n            && !self.state.inParameterDefault" in calls
+    assert "self.state.gpuCallable && !self.state.inParameterDefault" in " ".join(calls.split())
     assert wgsl.count("self.semantics.callResolvesToSourceSymbol(") == 1
     assert "callResolvesToBuiltin(" not in calls
     assert "callResolvesToBuiltin(" not in wgsl

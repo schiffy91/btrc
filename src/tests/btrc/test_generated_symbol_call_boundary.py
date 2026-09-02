@@ -19,12 +19,12 @@ REPO = Path(__file__).resolve().parents[3]
 
 
 def test_name_validator_owns_closed_generated_symbol_policy() -> None:
-    names = (REPO / "src/compiler/btrc/analyzer/validation/names.btrc").read_text()
-    calls = (REPO / "src/compiler/btrc/analyzer/validation/calls.btrc").read_text()
-    expressions = (REPO / "src/compiler/btrc/analyzer/validation/expressions.btrc").read_text()
-    identity = (REPO / "src/compiler/btrc/syntax/identity.btrc").read_text()
-    analyzer = (REPO / "src/compiler/btrc/analyzer/analyzer.btrc").read_text()
-    validator = (REPO / "src/compiler/btrc/analyzer/validation/validator.btrc").read_text()
+    names = (REPO / "src/compiler/btrc/analyzer/validation/names.btrc").read_text().expandtabs(4)
+    calls = (REPO / "src/compiler/btrc/analyzer/validation/calls.btrc").read_text().expandtabs(4)
+    expressions = (REPO / "src/compiler/btrc/analyzer/validation/expressions.btrc").read_text().expandtabs(4)
+    identity = (REPO / "src/compiler/btrc/syntax/identity.btrc").read_text().expandtabs(4)
+    analyzer = (REPO / "src/compiler/btrc/analyzer/analyzer.btrc").read_text().expandtabs(4)
+    validator = (REPO / "src/compiler/btrc/analyzer/validation/validator.btrc").read_text().expandtabs(4)
 
     claim_start = names.index("    public void claimGeneratedSymbol(")
     claim_end = names.index("\n    public void claimGpuSymbols(", claim_start)
@@ -44,7 +44,7 @@ def test_name_validator_owns_closed_generated_symbol_policy() -> None:
     assert "import ../generics.btrc;" in names
     assert "import ../generics.btrc;" not in calls
     assert "self.names.deferGeneratedSymbolCall(expression, vars);" in expressions
-    assert "self.names.deferGeneratedSymbolReference(\n                expression, vars, known);" in expressions
+    assert "self.names.deferGeneratedSymbolReference(expression, vars, known);" in " ".join(expressions.split())
     assert "private bool couldBeLateGeneratedSymbol(string symbol)" in names
     assert "private bool genericMethodStemMatches(string symbol," in names
     assert "private bool genericTemplateSymbolMatches(" in names

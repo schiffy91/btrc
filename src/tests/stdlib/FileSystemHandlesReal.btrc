@@ -3,6 +3,7 @@
  * only the generic handle surface under test. */
 import std.bytes;
 import std.FileSystem;
+import std.FileSystemHandles;
 import std.io;
 
 #include <assert.h>

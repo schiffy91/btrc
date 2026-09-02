@@ -1,4 +1,5 @@
 import std.RealtimeAudio;
+import std.callback;
 
 #include <assert.h>
 

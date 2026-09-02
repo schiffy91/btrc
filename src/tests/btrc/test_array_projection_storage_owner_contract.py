@@ -13,7 +13,9 @@ def test_array_projection_storage_has_one_stateful_domain_owner() -> None:
 
     owner = storage.split("class StorageValidator {", 1)[1]
     private_state = [
-        line.strip() for line in owner.splitlines() if line.startswith("    private ") and line.rstrip().endswith(";")
+        line.strip()
+        for line in owner.splitlines()
+        if line.strip().startswith("private ") and line.rstrip().endswith(";")
     ]
 
     assert private_state == [

@@ -35,7 +35,9 @@ def test_assignment_owner_keeps_only_durable_domain_collaborators() -> None:
     assignment = _source("ir/lowering/assignments.btrc")
     owner = assignment.split("class AssignmentLowerer {", 1)[1]
     private_state = [
-        line.strip() for line in owner.splitlines() if line.startswith("    private ") and line.rstrip().endswith(";")
+        line.strip()
+        for line in owner.splitlines()
+        if line.strip().startswith("private ") and line.rstrip().endswith(";")
     ]
     assert private_state == [
         "private ExpressionTypeResolver expressionTypes;",

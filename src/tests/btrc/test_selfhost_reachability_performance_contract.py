@@ -13,7 +13,7 @@ SELFHOST = REPO / "src/compiler/btrc"
 
 
 def test_structured_reachability_uses_exact_map_membership() -> None:
-    optimizer = (SELFHOST / "ir/optimization/optimizer.btrc").read_text()
+    optimizer = (SELFHOST / "ir/optimization/optimizer.btrc").read_text().expandtabs(4)
     start = optimizer.index("private void collectFuncRefs(")
     end = optimizer.index("\n    }\n\n    private void eliminateDeadFunctions", start)
     collector = optimizer[start:end]
