@@ -591,7 +591,9 @@ static void btrcRealtimeClipTransportOwnerDrainRetirements(struct BtrcRealtimeCl
 static void btrcRealtimeClipTransportOwnerDispose(struct BtrcRealtimeClipTransportOwner* owner) {
 	if (owner == null) { return; }
 	if (owner->context != null && owner->context->atomics != null) { owner->context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_CLOSED].store(1u, MemoryOrder.RELEASE); }
-	for (int index = 0; index < owner->maximumControlSlots; index++) { btrcRealtimeClipTransportControlSlotClose(&owner->controlSlots[index]); }
+	if (owner->controlSlots != null) {
+		for (int index = 0; index < owner->maximumControlSlots; index++) { btrcRealtimeClipTransportControlSlotClose(&owner->controlSlots[index]); }
+	}
 	btrcRealtimeClipTransportContextClose(&owner->context, &owner->contextStorage, &owner->atomicsStorage);
 	owner->controlSlots = null;
 	OwnedBuffers.close(&owner->controlSlotsStorage);
