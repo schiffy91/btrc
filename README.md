@@ -1023,6 +1023,16 @@ File out = File("output.txt", "w");
 out.writeLine("hello");
 out.close();
 
+// Bounded protocol input. Oversized lines are drained before returning.
+File protocol = File("protocol.pipe", "r");
+if (protocol.ok()) {
+    FileLineReadOutcome line = protocol.readLineBounded(65536);
+    if (line.hasLine() && line.lineIsNulFreeUtf8()) {
+        string text = line.lineText();
+    }
+    protocol.close();
+}
+
 // Static helpers
 bool exists = Path.exists("data.txt");
 string content = Path.readAll("data.txt");

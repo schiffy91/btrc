@@ -1,0 +1,109 @@
+import std.bytes;
+import std.FileSystem;
+import std.io;
+
+#include <assert.h>
+
+class BoundedLineReadTest {
+	class void writeBytes(string path, Bytes bytes) {
+		File output = File(path, "wb");
+		assert(output.ok());
+		assert(output.writeBytes(bytes));
+		assert(output.close());
+	}
+}
+
+int main() {
+	string directory = FileSystem.tempDir("btrc_bounded_line");
+	assert(FileSystem.isDir(directory));
+
+	string sequencePath = PathTools.join(directory, "sequence.txt");
+	assert(Path.writeAll(sequencePath, "abc\r\nwxyz\nnext\nlast"));
+	File sequence = File(sequencePath, "rb");
+	assert(sequence.ok());
+
+	FileLineReadOutcome exact = sequence.readLineBounded(3);
+	assert(exact.kind() == FILE_LINE_READ_LINE);
+	assert(exact.hasLine() && !exact.atEnd() && !exact.limitExceeded() && !exact.ioFailed());
+	assert(exact.lineIsNulFreeUtf8());
+	assert(exact.lineText() == "abc");
+	Bytes copied = exact.lineBytes();
+	assert(copied.length() == 3 && copied.get(0) == 'a');
+	copied.set(0, 'z');
+	assert(exact.lineText() == "abc");
+
+	FileLineReadOutcome oversized = sequence.readLineBounded(3);
+	assert(oversized.kind() == FILE_LINE_READ_LIMIT_EXCEEDED);
+	assert(oversized.limitExceeded());
+	FileLineReadOutcome recovered = sequence.readLineBounded(4);
+	assert(recovered.hasLine() && recovered.lineText() == "next");
+	FileLineReadOutcome unterminated = sequence.readLineBounded(4);
+	assert(unterminated.hasLine() && unterminated.lineText() == "last");
+	FileLineReadOutcome end = sequence.readLineBounded(4);
+	assert(end.kind() == FILE_LINE_READ_END && end.atEnd());
+	assert(sequence.close());
+
+	string zeroPath = PathTools.join(directory, "zero.txt");
+	assert(Path.writeAll(zeroPath, "\r\nx\n"));
+	File zero = File(zeroPath, "rb");
+	bool rejectedNegative = false;
+	try {
+		zero.readLineBounded(-1);
+	} catch (string error) {
+		rejectedNegative = error == "bounded line maximumBytes is negative";
+	}
+	assert(rejectedNegative);
+	FileLineReadOutcome empty = zero.readLineBounded(0);
+	assert(empty.hasLine() && empty.lineBytes().isEmpty());
+	assert(zero.readLineBounded(0).limitExceeded());
+	assert(zero.readLineBounded(0).atEnd());
+	assert(zero.close());
+
+	string binaryPath = PathTools.join(directory, "binary.txt");
+	Bytes binary = Bytes();
+	binary.append('a');
+	binary.append(0);
+	binary.append('b');
+	binary.append('\n');
+	BoundedLineReadTest.writeBytes(binaryPath, binary);
+	File binaryInput = File(binaryPath, "rb");
+	FileLineReadOutcome embeddedNul = binaryInput.readLineBounded(3);
+	assert(embeddedNul.hasLine());
+	Bytes preserved = embeddedNul.lineBytes();
+	assert(preserved.length() == 3 && preserved.get(0) == 'a' && preserved.get(1) == 0 && preserved.get(2) == 'b');
+	assert(!embeddedNul.lineIsNulFreeUtf8());
+	bool rejectedNulText = false;
+	try {
+		embeddedNul.lineText();
+	} catch (string error) {
+		rejectedNulText = error == "bounded line is not NUL-free UTF-8";
+	}
+	assert(rejectedNulText);
+	assert(binaryInput.close());
+
+	string invalidUtf8Path = PathTools.join(directory, "invalid-utf8.txt");
+	Bytes invalidUtf8 = Bytes();
+	invalidUtf8.append(0xff);
+	invalidUtf8.append('\n');
+	BoundedLineReadTest.writeBytes(invalidUtf8Path, invalidUtf8);
+	File invalidUtf8Input = File(invalidUtf8Path, "rb");
+	FileLineReadOutcome invalidText = invalidUtf8Input.readLineBounded(1);
+	assert(invalidText.hasLine() && !invalidText.lineIsNulFreeUtf8());
+	bool rejectedInvalidUtf8Text = false;
+	try {
+		invalidText.lineText();
+	} catch (string error) {
+		rejectedInvalidUtf8Text = error == "bounded line is not NUL-free UTF-8";
+	}
+	assert(rejectedInvalidUtf8Text);
+	assert(invalidUtf8Input.close());
+
+	File missing = File(PathTools.join(directory, "missing.txt"), "rb");
+	FileLineReadOutcome failed = missing.readLineBounded(64);
+	assert(failed.kind() == FILE_LINE_READ_IO_FAILED && failed.ioFailed());
+
+	FileSystem.removeRecursive(directory);
+	assert(!FileSystem.exists(directory));
+	print("PASS: bounded line reads enforce limits and preserve stream alignment");
+	return 0;
+}

@@ -1,0 +1,1 @@
+PASS: bounded line reads enforce limits and preserve stream alignment

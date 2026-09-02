@@ -8,6 +8,68 @@ import std.vector;
 
 #include <sys/stat.h>
 
+enum FileLineReadKind {
+	FILE_LINE_READ_LINE = 0,
+	FILE_LINE_READ_END = 1,
+	FILE_LINE_READ_LIMIT_EXCEEDED = 2,
+	FILE_LINE_READ_IO_FAILED = 3
+};
+
+/* Owned result of one bounded line read.
+ *
+ * A line owns its exact payload bytes, excluding LF or a single CR paired
+ * with LF. Binary callers can take a copied Bytes snapshot; text callers use
+ * lineText(), which rejects embedded NUL and invalid UTF-8 before conversion.
+ */
+class FileLineReadOutcome {
+	private FileLineReadKind outcomeKind;
+	private Bytes? linePayload;
+
+	private FileLineReadOutcome(FileLineReadKind kind, Bytes? payload) {
+		if ((kind == FILE_LINE_READ_LINE) != (payload != null)) { throw "invalid bounded line read outcome"; }
+		self.outcomeKind = kind;
+		self.linePayload = payload;
+	}
+
+	class FileLineReadOutcome withLine(Bytes payload) {
+		if (payload == null) { throw "bounded line payload is null"; }
+		return FileLineReadOutcome(FILE_LINE_READ_LINE, payload);
+	}
+
+	class FileLineReadOutcome end() { return FileLineReadOutcome(FILE_LINE_READ_END, null); }
+
+	class FileLineReadOutcome exceededLimit() { return FileLineReadOutcome(FILE_LINE_READ_LIMIT_EXCEEDED, null); }
+
+	class FileLineReadOutcome failed() { return FileLineReadOutcome(FILE_LINE_READ_IO_FAILED, null); }
+
+	public FileLineReadKind kind() { return self.outcomeKind; }
+
+	public bool hasLine() { return self.outcomeKind == FILE_LINE_READ_LINE; }
+
+	public bool atEnd() { return self.outcomeKind == FILE_LINE_READ_END; }
+
+	public bool limitExceeded() { return self.outcomeKind == FILE_LINE_READ_LIMIT_EXCEEDED; }
+
+	public bool ioFailed() { return self.outcomeKind == FILE_LINE_READ_IO_FAILED; }
+
+	/* Return an independent copy so callers cannot mutate the owned outcome. */
+	public Bytes lineBytes() {
+		if (self.linePayload == null) { throw "bounded line read has no line"; }
+		return self.linePayload.slice(0, self.linePayload.length());
+	}
+
+	public bool lineIsNulFreeUtf8() {
+		if (self.linePayload == null) { throw "bounded line read has no line"; }
+		return self.linePayload.isNulFreeUtf8();
+	}
+
+	public string lineText() {
+		if (self.linePayload == null) { throw "bounded line read has no line"; }
+		if (!self.linePayload.isNulFreeUtf8()) { throw "bounded line is not NUL-free UTF-8"; }
+		return self.linePayload.toStringLossy();
+	}
+}
+
 class File {
 	private FILE* handle;
 	private string path;
@@ -55,6 +117,69 @@ class File {
 		}
 		if (ch == EOF && ferror(self.handle)) { self.io_failed = true; }
 		return line.toStringLossy();
+	}
+
+	/* Read one line while allocating at most maximumBytes of payload.
+	 *
+	 * LF and a single CR immediately before LF are terminators and are not
+	 * returned or charged to the payload bound. A line that exceeds the bound
+	 * is drained through its terminator (or EOF) before LIMIT_EXCEEDED returns,
+	 * so the next call starts at the next line. An I/O failure while draining
+	 * takes precedence because alignment could not be proven.
+	 */
+	public FileLineReadOutcome readLineBounded(int maximumBytes) {
+		if (maximumBytes < 0) { throw "bounded line maximumBytes is negative"; }
+		if (!self.is_open || self.io_failed) { return FileLineReadOutcome.failed(); }
+
+		Bytes line = Bytes();
+		bool exceeded = false;
+		bool pendingCarriageReturn = false;
+		int ch = fgetc(self.handle);
+		while (ch != EOF) {
+			if (ch == '\n') {
+				if (exceeded) { return FileLineReadOutcome.exceededLimit(); }
+				return FileLineReadOutcome.withLine(line);
+			}
+
+			/* Delay one CR so CRLF is treated as one terminator without making
+			 * an exact-bound payload appear one byte too large. */
+			if (pendingCarriageReturn) {
+				if (!exceeded) {
+					if (line.length() >= maximumBytes) {
+						exceeded = true;
+					} else {
+						line.append('\r');
+					}
+				}
+				pendingCarriageReturn = false;
+			}
+
+			if (ch == '\r') {
+				pendingCarriageReturn = true;
+			} else if (!exceeded) {
+				if (line.length() >= maximumBytes) {
+					exceeded = true;
+				} else {
+					line.append(ch);
+				}
+			}
+			ch = fgetc(self.handle);
+		}
+
+		if (ferror(self.handle)) {
+			self.io_failed = true;
+			return FileLineReadOutcome.failed();
+		}
+		if (pendingCarriageReturn && !exceeded) {
+			if (line.length() >= maximumBytes) {
+				exceeded = true;
+			} else {
+				line.append('\r');
+			}
+		}
+		if (exceeded) { return FileLineReadOutcome.exceededLimit(); }
+		if (!line.isEmpty()) { return FileLineReadOutcome.withLine(line); }
+		return FileLineReadOutcome.end();
 	}
 
 	public Vector<string> readLines() {
