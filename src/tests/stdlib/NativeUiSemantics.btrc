@@ -1,4 +1,6 @@
+import std.image;
 import std.native_ui;
+import std.strings;
 
 #include <assert.h>
 
