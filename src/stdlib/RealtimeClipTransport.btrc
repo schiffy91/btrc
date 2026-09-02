@@ -1,0 +1,496 @@
+/* btrc standard library — generic clip transport contract.
+ *
+ * RealtimeClipTransportPort is the compile-time contract shared by product
+ * adapters and the preallocated stdlib implementation. The control thread owns
+ * clips and transport values. realtimeProgram() lends one non-owning callback
+ * pair until suspend() returns; it must not be retained across that drain
+ * barrier or close(). Commands, events, retirements, capture, and telemetry are
+ * all bounded by RealtimeClipTransportLimits.
+ */
+
+import std.OwnedBuffer;
+import std.RealtimeAudio;
+import std.RealtimeClock;
+import std.RealtimePractice;
+
+enum RealtimeClipTransportStatus {
+	REALTIME_CLIP_TRANSPORT_OK,
+	REALTIME_CLIP_TRANSPORT_INVALID_ARGUMENT,
+	REALTIME_CLIP_TRANSPORT_WRONG_STATE,
+	REALTIME_CLIP_TRANSPORT_NOT_FOUND,
+	REALTIME_CLIP_TRANSPORT_CAPACITY_EXHAUSTED,
+	REALTIME_CLIP_TRANSPORT_LIMIT_EXCEEDED,
+	REALTIME_CLIP_TRANSPORT_OUT_OF_MEMORY,
+	REALTIME_CLIP_TRANSPORT_FAILED
+};
+
+class RealtimeAudioFormat {
+	private int _sampleRate;
+	private int _channels;
+
+	public RealtimeAudioFormat(int sampleRate, int channels) {
+		if (sampleRate <= 0 || sampleRate > 768000 || channels <= 0 || channels > 256) { throw "invalid realtime audio format"; }
+		self._sampleRate = sampleRate;
+		self._channels = channels;
+	}
+
+	public int sampleRate() { return self._sampleRate; }
+
+	public int channels() { return self._channels; }
+
+	public bool equals(RealtimeAudioFormat other) { return other != null && self._sampleRate == other._sampleRate && self._channels == other._channels; }
+}
+
+class RealtimeClipTransportLimits {
+	private int _maximumBlockFrames;
+	private int _maximumStagedClips;
+	private int _commandCapacity;
+	private int _eventCapacity;
+	private int _retirementCapacity;
+	private int _captureCapacity;
+	private int _telemetryCapacity;
+
+	public RealtimeClipTransportLimits(int maximumBlockFrames, int maximumStagedClips, int commandCapacity, int eventCapacity, int retirementCapacity, int captureCapacity, int telemetryCapacity) {
+		if (maximumBlockFrames <= 0 || maximumBlockFrames > 8192 || maximumStagedClips <= 0 || maximumStagedClips > 4096 || commandCapacity <= 0 || commandCapacity > 65536 || eventCapacity <= 0 || eventCapacity > 65536 || retirementCapacity < maximumStagedClips || retirementCapacity > 65536 || captureCapacity < maximumBlockFrames || captureCapacity > 16777216 || telemetryCapacity <= 0 || telemetryCapacity > 65536) { throw "invalid realtime clip transport limits"; }
+		self._maximumBlockFrames = maximumBlockFrames;
+		self._maximumStagedClips = maximumStagedClips;
+		self._commandCapacity = commandCapacity;
+		self._eventCapacity = eventCapacity;
+		self._retirementCapacity = retirementCapacity;
+		self._captureCapacity = captureCapacity;
+		self._telemetryCapacity = telemetryCapacity;
+	}
+
+	public int maximumBlockFrames() { return self._maximumBlockFrames; }
+
+	public int maximumStagedClips() { return self._maximumStagedClips; }
+
+	public int commandCapacity() { return self._commandCapacity; }
+
+	public int eventCapacity() { return self._eventCapacity; }
+
+	public int retirementCapacity() { return self._retirementCapacity; }
+
+	public int captureCapacity() { return self._captureCapacity; }
+
+	public int telemetryCapacity() { return self._telemetryCapacity; }
+}
+
+class RealtimeClipTransportConfiguration {
+	private RealtimeAudioFormat _format;
+	private RealtimeClipTransportLimits _limits;
+
+	public RealtimeClipTransportConfiguration(RealtimeAudioFormat format, RealtimeClipTransportLimits limits) {
+		if (format == null || limits == null) { throw "invalid realtime clip transport configuration"; }
+		self._format = format;
+		self._limits = limits;
+	}
+
+	public RealtimeAudioFormat format() { return self._format; }
+
+	public RealtimeClipTransportLimits limits() { return self._limits; }
+}
+
+class RealtimeClip {
+	private RealtimeAudioFormat _format;
+	private long long _frames;
+	private OwnedBuffer<float>? _samples;
+	private bool _closed;
+
+	private RealtimeClip(RealtimeAudioFormat format, long long frames, OwnedBuffer<float> samples) {
+		self._format = format;
+		self._frames = frames;
+		self._samples = samples;
+		self._closed = false;
+	}
+
+	class RealtimeClipOpenOutcome open(RealtimeAudioFormat format, long long frames) {
+		if (format == null || frames <= 0LL) { return RealtimeClipOpenOutcome.failed(REALTIME_CLIP_TRANSPORT_INVALID_ARGUMENT); }
+		unsigned long long channels = (unsigned long long)format.channels();
+		unsigned long long unsignedFrames = (unsigned long long)frames;
+		if (unsignedFrames > (unsigned long long)SIZE_MAX / channels) { return RealtimeClipOpenOutcome.failed(REALTIME_CLIP_TRANSPORT_LIMIT_EXCEEDED); }
+		unsigned long long sampleCount = unsignedFrames * channels;
+		if (sampleCount > (unsigned long long)SIZE_MAX) { return RealtimeClipOpenOutcome.failed(REALTIME_CLIP_TRANSPORT_LIMIT_EXCEEDED); }
+		OwnedBuffer<float> samples = OwnedBuffer((size_t)sampleCount);
+		if (!samples.opened()) {
+			RealtimeClipTransportStatus failure = samples.status() == OWNED_BUFFER_OUT_OF_MEMORY ? REALTIME_CLIP_TRANSPORT_OUT_OF_MEMORY : REALTIME_CLIP_TRANSPORT_LIMIT_EXCEEDED;
+			samples.close();
+			return RealtimeClipOpenOutcome.failed(failure);
+		}
+		return RealtimeClipOpenOutcome.opened(RealtimeClip(format, frames, samples));
+	}
+
+	public RealtimeAudioFormat format() { return self._format; }
+
+	public long long frames() { return self._frames; }
+
+	public bool isOpen() { return !self._closed && self._samples != null && self._samples.opened(); }
+
+	public bool tryWriteChannel(int channel, long long firstFrame, Span<const float> source) {
+		if (!self.isOpen() || channel < 0 || channel >= self._format.channels() || firstFrame < 0LL || firstFrame > self._frames || !source.isValid() || (unsigned long long)source.length() > (unsigned long long)(self._frames - firstFrame)) { return false; }
+		for (size_t index = (size_t)0; index < source.length(); index++) {
+			float sample = 0.0f;
+			if (!source.tryGet(index, &sample) || !isfinite(sample)) { return false; }
+		}
+		OwnedBuffer<float>? samples = self._samples;
+		if (samples == null) { return false; }
+		for (size_t index = (size_t)0; index < source.length(); index++) {
+			float sample = 0.0f;
+			if (!source.tryGet(index, &sample) || !samples.set((size_t)((long long)channel * self._frames + firstFrame) + index, sample)) { return false; }
+		}
+		return true;
+	}
+
+	public bool tryCopyChannel(int channel, long long firstFrame, Span<float> destination) {
+		if (!self.isOpen() || channel < 0 || channel >= self._format.channels() || firstFrame < 0LL || firstFrame > self._frames || !destination.isValid() || (unsigned long long)destination.length() > (unsigned long long)(self._frames - firstFrame)) { return false; }
+		OwnedBuffer<float>? samples = self._samples;
+		if (samples == null) { return false; }
+		for (size_t index = (size_t)0; index < destination.length(); index++) {
+			float sample = 0.0f;
+			if (!samples.tryGet((size_t)((long long)channel * self._frames + firstFrame) + index, &sample) || !destination.trySet(index, sample)) { return false; }
+		}
+		return true;
+	}
+
+	public bool close() {
+		if (self._closed) { return true; }
+		OwnedBuffer<float>? samples = self._samples;
+		self._samples = null;
+		self._closed = true;
+		if (samples != null) { samples.close(); }
+		return true;
+	}
+
+	public void __del__() { self.close(); }
+}
+
+class RealtimeClipOpenOutcome {
+	private RealtimeClipTransportStatus _status;
+	private RealtimeClip? _clip;
+
+	private RealtimeClipOpenOutcome(RealtimeClipTransportStatus status, RealtimeClip? clip) {
+		if ((status == REALTIME_CLIP_TRANSPORT_OK) != (clip != null)) { throw "invalid realtime clip open outcome"; }
+		self._status = status;
+		self._clip = clip;
+	}
+
+	class RealtimeClipOpenOutcome opened(RealtimeClip clip) { return RealtimeClipOpenOutcome(REALTIME_CLIP_TRANSPORT_OK, clip); }
+
+	class RealtimeClipOpenOutcome failed(RealtimeClipTransportStatus status) {
+		if (status == REALTIME_CLIP_TRANSPORT_OK) { throw "successful realtime clip open requires a clip"; }
+		return RealtimeClipOpenOutcome(status, null);
+	}
+
+	public RealtimeClipTransportStatus status() { return self._status; }
+
+	public bool succeeded() { return self._status == REALTIME_CLIP_TRANSPORT_OK; }
+
+	public RealtimeClip clip() {
+		if (self._clip == null) { throw "realtime clip is unavailable"; }
+		return self._clip;
+	}
+}
+
+class RealtimeClipToken {
+	private unsigned long long _value;
+
+	public RealtimeClipToken(unsigned long long value) {
+		if (value == 0ULL) { throw "invalid realtime clip token"; }
+		self._value = value;
+	}
+
+	public unsigned long long value() { return self._value; }
+
+	public bool equals(RealtimeClipToken other) { return other != null && self._value == other._value; }
+}
+
+class RealtimeClipStageOutcome {
+	private RealtimeClipTransportStatus _status;
+	private RealtimeClipToken? _token;
+
+	private RealtimeClipStageOutcome(RealtimeClipTransportStatus status, RealtimeClipToken? token) {
+		if ((status == REALTIME_CLIP_TRANSPORT_OK) != (token != null)) { throw "invalid realtime clip stage outcome"; }
+		self._status = status;
+		self._token = token;
+	}
+
+	class RealtimeClipStageOutcome staged(RealtimeClipToken token) { return RealtimeClipStageOutcome(REALTIME_CLIP_TRANSPORT_OK, token); }
+
+	class RealtimeClipStageOutcome failed(RealtimeClipTransportStatus status) {
+		if (status == REALTIME_CLIP_TRANSPORT_OK) { throw "successful realtime clip stage requires a token"; }
+		return RealtimeClipStageOutcome(status, null);
+	}
+
+	public RealtimeClipTransportStatus status() { return self._status; }
+
+	public bool succeeded() { return self._status == REALTIME_CLIP_TRANSPORT_OK; }
+
+	public RealtimeClipToken token() {
+		if (self._token == null) { throw "realtime clip token is unavailable"; }
+		return self._token;
+	}
+}
+
+enum RealtimeClipTransportLifecycle {
+	REALTIME_CLIP_TRANSPORT_ACTIVE,
+	REALTIME_CLIP_TRANSPORT_DRAINED,
+	REALTIME_CLIP_TRANSPORT_CLOSED
+};
+
+enum RealtimeClipPlaybackState {
+	REALTIME_CLIP_STAGED,
+	REALTIME_CLIP_PAUSED,
+	REALTIME_CLIP_PLAYING
+};
+
+class RealtimePlaybackVolume {
+	private int _permille;
+
+	public RealtimePlaybackVolume(int permille) {
+		if (permille < 0 || permille > 1000) { throw "invalid realtime playback volume"; }
+		self._permille = permille;
+	}
+
+	class RealtimePlaybackVolume unity() { return RealtimePlaybackVolume(1000); }
+
+	public int permille() { return self._permille; }
+
+	public bool equals(RealtimePlaybackVolume other) { return other != null && self._permille == other._permille; }
+}
+
+class RealtimePlaybackLoop {
+	private bool _enabled;
+	private long long _startFrame;
+	private long long _endFrame;
+
+	private RealtimePlaybackLoop(bool enabled, long long startFrame, long long endFrame) {
+		if ((enabled && (startFrame < 0LL || endFrame <= startFrame)) || (!enabled && (startFrame != 0LL || endFrame != 0LL))) { throw "invalid realtime playback loop"; }
+		self._enabled = enabled;
+		self._startFrame = startFrame;
+		self._endFrame = endFrame;
+	}
+
+	class RealtimePlaybackLoop disabled() { return RealtimePlaybackLoop(false, 0LL, 0LL); }
+
+	class RealtimePlaybackLoop active(long long startFrame, long long endFrame) { return RealtimePlaybackLoop(true, startFrame, endFrame); }
+
+	public bool enabled() { return self._enabled; }
+
+	public long long startFrame() { return self._startFrame; }
+
+	public long long endFrame() { return self._endFrame; }
+}
+
+enum RealtimeClipEventKind {
+	REALTIME_CLIP_ACTIVATED,
+	REALTIME_CLIP_REPLACED,
+	REALTIME_CLIP_CANCELLED,
+	REALTIME_CLIP_COMPLETED
+};
+
+class RealtimeClipEvent {
+	private RealtimeClipEventKind _kind;
+	private RealtimeClipToken _token;
+
+	public RealtimeClipEvent(RealtimeClipEventKind kind, RealtimeClipToken token) {
+		if (token == null) { throw "invalid realtime clip event"; }
+		self._kind = kind;
+		self._token = token;
+	}
+
+	public RealtimeClipEventKind kind() { return self._kind; }
+
+	public RealtimeClipToken token() { return self._token; }
+}
+
+class RealtimeClipEventPoll {
+	private RealtimeClipTransportStatus _status;
+	private RealtimeClipEvent? _event;
+
+	private RealtimeClipEventPoll(RealtimeClipTransportStatus status, RealtimeClipEvent? event) {
+		if (status != REALTIME_CLIP_TRANSPORT_OK && event != null) { throw "invalid realtime clip event poll"; }
+		self._status = status;
+		self._event = event;
+	}
+
+	class RealtimeClipEventPoll event(RealtimeClipEvent event) { return RealtimeClipEventPoll(REALTIME_CLIP_TRANSPORT_OK, event); }
+
+	class RealtimeClipEventPoll empty() { return RealtimeClipEventPoll(REALTIME_CLIP_TRANSPORT_OK, null); }
+
+	class RealtimeClipEventPoll failed(RealtimeClipTransportStatus status) {
+		if (status == REALTIME_CLIP_TRANSPORT_OK) { throw "successful realtime clip event poll requires event() or empty()"; }
+		return RealtimeClipEventPoll(status, null);
+	}
+
+	public RealtimeClipTransportStatus status() { return self._status; }
+
+	public bool succeeded() { return self._status == REALTIME_CLIP_TRANSPORT_OK; }
+
+	public bool hasEvent() { return self._event != null; }
+
+	public RealtimeClipEvent value() {
+		if (self._event == null) { throw "realtime clip event is unavailable"; }
+		return self._event;
+	}
+}
+
+class RealtimeClipClock {
+	private RealtimeClipToken _token;
+	private RealtimeClipPlaybackState _state;
+	private long long _frame;
+	private long long _deviceFrame;
+	private long long _mappingGeneration;
+	private long long _totalFrames;
+	private RealtimePlaybackSpeed _speed;
+	private RealtimePlaybackVolume _volume;
+	private RealtimePlaybackLoop _loop;
+
+	public RealtimeClipClock(RealtimeClipToken token, RealtimeClipPlaybackState state, long long frame, long long deviceFrame, long long mappingGeneration, long long totalFrames, RealtimePlaybackSpeed speed, RealtimePlaybackVolume volume, RealtimePlaybackLoop loop) {
+		if (token == null || frame < 0LL || deviceFrame < 0LL || mappingGeneration < 0LL || totalFrames <= 0LL || frame > totalFrames || speed == null || volume == null || loop == null || (loop.enabled() && loop.endFrame() > totalFrames)) { throw "invalid realtime clip clock"; }
+		self._token = token;
+		self._state = state;
+		self._frame = frame;
+		self._deviceFrame = deviceFrame;
+		self._mappingGeneration = mappingGeneration;
+		self._totalFrames = totalFrames;
+		self._speed = speed;
+		self._volume = volume;
+		self._loop = loop;
+	}
+
+	public RealtimeClipToken token() { return self._token; }
+
+	public RealtimeClipPlaybackState state() { return self._state; }
+
+	public long long frame() { return self._frame; }
+
+	public long long deviceFrame() { return self._deviceFrame; }
+
+	public long long mappingGeneration() { return self._mappingGeneration; }
+
+	public long long totalFrames() { return self._totalFrames; }
+
+	public RealtimePlaybackSpeed speed() { return self._speed; }
+
+	public RealtimePlaybackVolume volume() { return self._volume; }
+
+	public RealtimePlaybackLoop loop() { return self._loop; }
+}
+
+class RealtimeClipClockOutcome {
+	private RealtimeClipTransportStatus _status;
+	private RealtimeClipClock? _clock;
+
+	private RealtimeClipClockOutcome(RealtimeClipTransportStatus status, RealtimeClipClock? clock) {
+		if ((status == REALTIME_CLIP_TRANSPORT_OK) != (clock != null)) { throw "invalid realtime clip clock outcome"; }
+		self._status = status;
+		self._clock = clock;
+	}
+
+	class RealtimeClipClockOutcome available(RealtimeClipClock clock) { return RealtimeClipClockOutcome(REALTIME_CLIP_TRANSPORT_OK, clock); }
+
+	class RealtimeClipClockOutcome failed(RealtimeClipTransportStatus status) {
+		if (status == REALTIME_CLIP_TRANSPORT_OK) { throw "successful realtime clip clock outcome requires a clock"; }
+		return RealtimeClipClockOutcome(status, null);
+	}
+
+	public RealtimeClipTransportStatus status() { return self._status; }
+
+	public bool succeeded() { return self._status == REALTIME_CLIP_TRANSPORT_OK; }
+
+	public RealtimeClipClock clock() {
+		if (self._clock == null) { throw "realtime clip clock is unavailable"; }
+		return self._clock;
+	}
+}
+
+class RealtimeClipTransportTelemetry {
+	private int _stagedClips;
+	private unsigned long long _renderCalls;
+	private unsigned long long _renderedFrames;
+	private unsigned long long _silentFrames;
+	private unsigned long long _completedClips;
+	private unsigned long long _droppedEvents;
+	private unsigned long long _droppedRetirements;
+	private unsigned long long _rejectedCommands;
+
+	public RealtimeClipTransportTelemetry(int stagedClips, unsigned long long renderCalls, unsigned long long renderedFrames, unsigned long long silentFrames, unsigned long long completedClips, unsigned long long droppedEvents, unsigned long long droppedRetirements, unsigned long long rejectedCommands) {
+		if (stagedClips < 0) { throw "invalid realtime clip transport telemetry"; }
+		self._stagedClips = stagedClips;
+		self._renderCalls = renderCalls;
+		self._renderedFrames = renderedFrames;
+		self._silentFrames = silentFrames;
+		self._completedClips = completedClips;
+		self._droppedEvents = droppedEvents;
+		self._droppedRetirements = droppedRetirements;
+		self._rejectedCommands = rejectedCommands;
+	}
+
+	public int stagedClips() { return self._stagedClips; }
+
+	public unsigned long long renderCalls() { return self._renderCalls; }
+
+	public unsigned long long renderedFrames() { return self._renderedFrames; }
+
+	public unsigned long long silentFrames() { return self._silentFrames; }
+
+	public unsigned long long completedClips() { return self._completedClips; }
+
+	public unsigned long long droppedEvents() { return self._droppedEvents; }
+
+	public unsigned long long droppedRetirements() { return self._droppedRetirements; }
+
+	public unsigned long long rejectedCommands() { return self._rejectedCommands; }
+}
+
+class RealtimeClipTransportTelemetryOutcome {
+	private RealtimeClipTransportStatus _status;
+	private RealtimeClipTransportTelemetry? _telemetry;
+
+	private RealtimeClipTransportTelemetryOutcome(RealtimeClipTransportStatus status, RealtimeClipTransportTelemetry? telemetry) {
+		if ((status == REALTIME_CLIP_TRANSPORT_OK) != (telemetry != null)) { throw "invalid realtime clip transport telemetry outcome"; }
+		self._status = status;
+		self._telemetry = telemetry;
+	}
+
+	class RealtimeClipTransportTelemetryOutcome available(RealtimeClipTransportTelemetry telemetry) { return RealtimeClipTransportTelemetryOutcome(REALTIME_CLIP_TRANSPORT_OK, telemetry); }
+
+	class RealtimeClipTransportTelemetryOutcome failed(RealtimeClipTransportStatus status) {
+		if (status == REALTIME_CLIP_TRANSPORT_OK) { throw "successful realtime clip transport telemetry outcome requires telemetry"; }
+		return RealtimeClipTransportTelemetryOutcome(status, null);
+	}
+
+	public RealtimeClipTransportStatus status() { return self._status; }
+
+	public bool succeeded() { return self._status == REALTIME_CLIP_TRANSPORT_OK; }
+
+	public RealtimeClipTransportTelemetry telemetry() {
+		if (self._telemetry == null) { throw "realtime clip transport telemetry is unavailable"; }
+		return self._telemetry;
+	}
+}
+
+interface RealtimeClipTransportPort {
+	RealtimeAudioFormat format();
+	RealtimeClipTransportLimits limits();
+	RealtimeClipTransportLifecycle lifecycle();
+	RealtimeClipTransportStatus configurePractice(RealtimePracticeConfiguration configuration);
+	RealtimeClipTransportStatus disablePractice();
+	RealtimeAudioProgram realtimeProgram();
+	RealtimeClipStageOutcome stage(RealtimeClip clip);
+	RealtimeClipTransportStatus activate(RealtimeClipToken token);
+	RealtimeClipTransportStatus cancel(RealtimeClipToken token);
+	RealtimeClipTransportStatus play(RealtimeClipToken token);
+	RealtimeClipTransportStatus pause(RealtimeClipToken token);
+	RealtimeClipTransportStatus seek(RealtimeClipToken token, long long frame);
+	RealtimeClipTransportStatus setSpeed(RealtimeClipToken token, RealtimePlaybackSpeed speed);
+	RealtimeClipTransportStatus setVolume(RealtimeClipToken token, RealtimePlaybackVolume volume);
+	RealtimeClipTransportStatus setLoop(RealtimeClipToken token, RealtimePlaybackLoop loop);
+	RealtimeClipEventPoll pollEvent();
+	RealtimeClipClockOutcome clock(RealtimeClipToken token);
+	RealtimeClipTransportTelemetryOutcome telemetry();
+	RealtimePracticeTelemetryPoll pollPracticeTelemetry();
+	RealtimePracticeInputPoll pollPracticeInput();
+	RealtimeClipTransportStatus suspend();
+	RealtimeClipTransportStatus close();
+}

@@ -1,0 +1,217 @@
+import std.RealtimeClipTransport;
+import std.RealtimeAudio;
+import std.RealtimeClock;
+import std.RealtimePractice;
+
+#include <assert.h>
+
+/* This fake proves consumer conformance only. It does not model the device
+ * boundary, queue ordering, callback concurrency, or ownership reclamation. */
+@realtime void deterministicContractProcess(void* raw, RealtimeAudioInputChannels inputs, int inputChannels, RealtimeAudioOutputChannels outputs, int outputChannels, int frames) {
+	(void*)raw;
+	(void*)inputs;
+	if (inputChannels < 0) { return; }
+	for (int channel = 0; channel < outputChannels; channel++) {
+		if (outputs == null || outputs[channel] == null) { continue; }
+		Span<float> output = Span(outputs[channel], (size_t)frames);
+		for (int frame = 0; frame < frames; frame++) { output.trySet((size_t)frame, 0.0f); }
+	}
+}
+
+class DeterministicClipTransportContractFake implements RealtimeClipTransportPort {
+	private RealtimeClipTransportConfiguration _configuration;
+	private RealtimeClipTransportLifecycle _lifecycle;
+	private RealtimeClipToken? _staged;
+	private RealtimeClipToken? _active;
+	private long long _activeFrames;
+	private long long _frame;
+	private RealtimeClipPlaybackState _state;
+	private RealtimePlaybackSpeed _speed;
+	private RealtimePlaybackVolume _volume;
+	private RealtimePlaybackLoop _loop;
+	private unsigned long long _nextToken;
+
+	public DeterministicClipTransportContractFake(RealtimeClipTransportConfiguration configuration) {
+		self._configuration = configuration;
+		self._lifecycle = REALTIME_CLIP_TRANSPORT_ACTIVE;
+		self._staged = null;
+		self._active = null;
+		self._activeFrames = 0LL;
+		self._frame = 0LL;
+		self._state = REALTIME_CLIP_STAGED;
+		self._speed = RealtimePlaybackSpeed(1.0);
+		self._volume = RealtimePlaybackVolume.unity();
+		self._loop = RealtimePlaybackLoop.disabled();
+		self._nextToken = 1ULL;
+	}
+
+	public RealtimeAudioFormat format() { return self._configuration.format(); }
+
+	public RealtimeClipTransportLimits limits() { return self._configuration.limits(); }
+
+	public RealtimeClipTransportLifecycle lifecycle() { return self._lifecycle; }
+
+	public RealtimeClipTransportStatus configurePractice(RealtimePracticeConfiguration configuration) { return self._lifecycle == REALTIME_CLIP_TRANSPORT_ACTIVE && configuration != null ? REALTIME_CLIP_TRANSPORT_OK : REALTIME_CLIP_TRANSPORT_WRONG_STATE; }
+
+	public RealtimeClipTransportStatus disablePractice() { return self._lifecycle == REALTIME_CLIP_TRANSPORT_ACTIVE ? REALTIME_CLIP_TRANSPORT_OK : REALTIME_CLIP_TRANSPORT_WRONG_STATE; }
+
+	public RealtimeAudioProgram realtimeProgram() {
+		if (self._lifecycle != REALTIME_CLIP_TRANSPORT_ACTIVE) { throw "contract fake cannot lend a drained realtime program"; }
+		return RealtimeAudioProgram(deterministicContractProcess, null);
+	}
+
+	public RealtimeClipStageOutcome stage(RealtimeClip clip) {
+		if (self._lifecycle != REALTIME_CLIP_TRANSPORT_ACTIVE) { return RealtimeClipStageOutcome.failed(REALTIME_CLIP_TRANSPORT_WRONG_STATE); }
+		if (clip == null || !clip.isOpen() || !clip.format().equals(self.format())) { return RealtimeClipStageOutcome.failed(REALTIME_CLIP_TRANSPORT_INVALID_ARGUMENT); }
+		RealtimeClipToken token = RealtimeClipToken(self._nextToken);
+		self._nextToken++;
+		self._staged = token;
+		self._activeFrames = clip.frames();
+		return RealtimeClipStageOutcome.staged(token);
+	}
+
+	public RealtimeClipTransportStatus activate(RealtimeClipToken token) {
+		if (self._lifecycle != REALTIME_CLIP_TRANSPORT_ACTIVE) { return REALTIME_CLIP_TRANSPORT_WRONG_STATE; }
+		if (token == null || self._staged == null || !self._staged.equals(token)) { return REALTIME_CLIP_TRANSPORT_NOT_FOUND; }
+		self._active = token;
+		self._frame = 0LL;
+		self._state = REALTIME_CLIP_PAUSED;
+		return REALTIME_CLIP_TRANSPORT_OK;
+	}
+
+	public RealtimeClipTransportStatus cancel(RealtimeClipToken token) {
+		if (!self.hasActive(token)) { return REALTIME_CLIP_TRANSPORT_NOT_FOUND; }
+		self._active = null;
+		self._staged = null;
+		return REALTIME_CLIP_TRANSPORT_OK;
+	}
+
+	public RealtimeClipTransportStatus play(RealtimeClipToken token) {
+		if (!self.hasActive(token)) { return REALTIME_CLIP_TRANSPORT_NOT_FOUND; }
+		self._state = REALTIME_CLIP_PLAYING;
+		return REALTIME_CLIP_TRANSPORT_OK;
+	}
+
+	public RealtimeClipTransportStatus pause(RealtimeClipToken token) {
+		if (!self.hasActive(token)) { return REALTIME_CLIP_TRANSPORT_NOT_FOUND; }
+		self._state = REALTIME_CLIP_PAUSED;
+		return REALTIME_CLIP_TRANSPORT_OK;
+	}
+
+	public RealtimeClipTransportStatus seek(RealtimeClipToken token, long long frame) {
+		if (!self.hasActive(token)) { return REALTIME_CLIP_TRANSPORT_NOT_FOUND; }
+		if (frame < 0LL || frame > self._activeFrames) { return REALTIME_CLIP_TRANSPORT_INVALID_ARGUMENT; }
+		self._frame = frame;
+		return REALTIME_CLIP_TRANSPORT_OK;
+	}
+
+	public RealtimeClipTransportStatus setSpeed(RealtimeClipToken token, RealtimePlaybackSpeed speed) {
+		if (!self.hasActive(token)) { return REALTIME_CLIP_TRANSPORT_NOT_FOUND; }
+		if (speed == null) { return REALTIME_CLIP_TRANSPORT_INVALID_ARGUMENT; }
+		self._speed = speed;
+		return REALTIME_CLIP_TRANSPORT_OK;
+	}
+
+	public RealtimeClipTransportStatus setVolume(RealtimeClipToken token, RealtimePlaybackVolume volume) {
+		if (!self.hasActive(token)) { return REALTIME_CLIP_TRANSPORT_NOT_FOUND; }
+		if (volume == null) { return REALTIME_CLIP_TRANSPORT_INVALID_ARGUMENT; }
+		self._volume = volume;
+		return REALTIME_CLIP_TRANSPORT_OK;
+	}
+
+	public RealtimeClipTransportStatus setLoop(RealtimeClipToken token, RealtimePlaybackLoop loop) {
+		if (!self.hasActive(token)) { return REALTIME_CLIP_TRANSPORT_NOT_FOUND; }
+		if (loop == null || (loop.enabled() && loop.endFrame() > self._activeFrames)) { return REALTIME_CLIP_TRANSPORT_INVALID_ARGUMENT; }
+		self._loop = loop;
+		return REALTIME_CLIP_TRANSPORT_OK;
+	}
+
+	public RealtimeClipEventPoll pollEvent() { return self._lifecycle == REALTIME_CLIP_TRANSPORT_CLOSED ? RealtimeClipEventPoll.failed(REALTIME_CLIP_TRANSPORT_WRONG_STATE) : RealtimeClipEventPoll.empty(); }
+
+	public RealtimeClipClockOutcome clock(RealtimeClipToken token) {
+		if (!self.hasActive(token)) { return RealtimeClipClockOutcome.failed(REALTIME_CLIP_TRANSPORT_NOT_FOUND); }
+		return RealtimeClipClockOutcome.available(RealtimeClipClock(token, self._state, self._frame, 0LL, 1LL, self._activeFrames, self._speed, self._volume, self._loop));
+	}
+
+	public RealtimeClipTransportTelemetryOutcome telemetry() {
+		if (self._lifecycle == REALTIME_CLIP_TRANSPORT_CLOSED) { return RealtimeClipTransportTelemetryOutcome.failed(REALTIME_CLIP_TRANSPORT_WRONG_STATE); }
+		int staged = self._staged == null ? 0 : 1;
+		return RealtimeClipTransportTelemetryOutcome.available(RealtimeClipTransportTelemetry(staged, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL));
+	}
+
+	public RealtimePracticeTelemetryPoll pollPracticeTelemetry() { return self._lifecycle == REALTIME_CLIP_TRANSPORT_CLOSED ? RealtimePracticeTelemetryPoll.unavailable() : RealtimePracticeTelemetryPoll.empty(); }
+
+	public RealtimePracticeInputPoll pollPracticeInput() { return self._lifecycle == REALTIME_CLIP_TRANSPORT_CLOSED ? RealtimePracticeInputPoll.unavailable() : RealtimePracticeInputPoll.empty(); }
+
+	public RealtimeClipTransportStatus suspend() {
+		if (self._lifecycle == REALTIME_CLIP_TRANSPORT_CLOSED) { return REALTIME_CLIP_TRANSPORT_WRONG_STATE; }
+		self._lifecycle = REALTIME_CLIP_TRANSPORT_DRAINED;
+		if (self._active != null) { self._state = REALTIME_CLIP_PAUSED; }
+		return REALTIME_CLIP_TRANSPORT_OK;
+	}
+
+	public RealtimeClipTransportStatus close() {
+		if (self._lifecycle == REALTIME_CLIP_TRANSPORT_CLOSED) { return REALTIME_CLIP_TRANSPORT_OK; }
+		if (self._lifecycle != REALTIME_CLIP_TRANSPORT_DRAINED) { return REALTIME_CLIP_TRANSPORT_WRONG_STATE; }
+		self._active = null;
+		self._staged = null;
+		self._lifecycle = REALTIME_CLIP_TRANSPORT_CLOSED;
+		return REALTIME_CLIP_TRANSPORT_OK;
+	}
+
+	private bool hasActive(RealtimeClipToken token) { return self._lifecycle == REALTIME_CLIP_TRANSPORT_ACTIVE && token != null && self._active != null && self._active.equals(token); }
+}
+
+int main() {
+	RealtimeFrameRate deviceRate = RealtimeFrameRate(1000);
+	RealtimeFrameRate transportRate = RealtimeFrameRate(2000);
+	RealtimeClockMapping mapping = RealtimeClockMapping(1000LL, 200LL, deviceRate, transportRate, RealtimePlaybackSpeed(1.5), 1000LL, 7LL);
+	RealtimeClockMapOutcome mapped = mapping.mapDeviceFrame(1010LL, 0LL, 1000LL);
+	assert(mapped.succeeded() && mapped.transportFrame() == 230LL);
+	RealtimeClockMapOutcome clamped = mapping.mapDeviceFrame(900LL, 0LL, 1000LL);
+	assert(clamped.succeeded() && clamped.transportFrame() == 0LL);
+	assert(mapping.mapDeviceFrame(3001LL, 0LL, 1000LL).status() == REALTIME_CLOCK_DELTA_OUT_OF_RANGE);
+
+	RealtimeAudioFormat format = RealtimeAudioFormat(48000, 2);
+	RealtimeClipTransportLimits limits = RealtimeClipTransportLimits(256, 4, 8, 8, 4, 2048, 8);
+	RealtimeClipTransportConfiguration configuration = RealtimeClipTransportConfiguration(format, limits);
+	RealtimeClipOpenOutcome opened = RealtimeClip.open(format, 4LL);
+	assert(opened.succeeded());
+	RealtimeClip clip = opened.clip();
+	const float sourceSamples[4] = {0.25f, -0.5f, 0.75f, 1.0f};
+	assert(clip.tryWriteChannel(1, 0LL, Span(sourceSamples)));
+	float copiedSamples[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+	assert(clip.tryCopyChannel(1, 0LL, Span(copiedSamples)));
+	assert(copiedSamples[0] == 0.25f && copiedSamples[1] == -0.5f && copiedSamples[2] == 0.75f && copiedSamples[3] == 1.0f);
+
+	DeterministicClipTransportContractFake transport = DeterministicClipTransportContractFake(configuration);
+	RealtimePracticeConfiguration practice = RealtimePracticeConfiguration(transportRate, 500LL, 2, true, 300, 8, true, 0, 500, true, 32LL);
+	assert(transport.configurePractice(practice) == REALTIME_CLIP_TRANSPORT_OK);
+	RealtimeClipStageOutcome staged = transport.stage(clip);
+	assert(staged.succeeded());
+	RealtimeClipToken token = staged.token();
+	assert(transport.activate(token) == REALTIME_CLIP_TRANSPORT_OK);
+	assert(transport.play(token) == REALTIME_CLIP_TRANSPORT_OK);
+	assert(transport.seek(token, 2LL) == REALTIME_CLIP_TRANSPORT_OK);
+	assert(transport.setSpeed(token, RealtimePlaybackSpeed(0.5)) == REALTIME_CLIP_TRANSPORT_OK);
+	assert(transport.setVolume(token, RealtimePlaybackVolume(750)) == REALTIME_CLIP_TRANSPORT_OK);
+	assert(transport.setLoop(token, RealtimePlaybackLoop.active(1LL, 4LL)) == REALTIME_CLIP_TRANSPORT_OK);
+	RealtimeClipClockOutcome clock = transport.clock(token);
+	assert(clock.succeeded() && clock.clock().frame() == 2LL && clock.clock().state() == REALTIME_CLIP_PLAYING);
+	assert(transport.telemetry().telemetry().stagedClips() == 1);
+	assert(transport.pollEvent().succeeded() && !transport.pollEvent().hasEvent());
+	assert(transport.pollPracticeInput().kind() == REALTIME_PRACTICE_INPUT_EMPTY);
+	assert(transport.pollPracticeTelemetry().kind() == REALTIME_PRACTICE_TELEMETRY_EMPTY);
+
+	RealtimeAudioProgram program = transport.realtimeProgram();
+	RealtimeAudioProcess process = program.invokePointer();
+	assert(process != null);
+	process(program.context(), null, 0, null, 0, 0);
+	assert(transport.suspend() == REALTIME_CLIP_TRANSPORT_OK);
+	assert(transport.lifecycle() == REALTIME_CLIP_TRANSPORT_DRAINED);
+	assert(transport.close() == REALTIME_CLIP_TRANSPORT_OK);
+	assert(transport.close() == REALTIME_CLIP_TRANSPORT_OK);
+	assert(clip.close());
+	print("PASS RealtimeClipTransportContract");
+	return 0;
+}

@@ -1,0 +1,119 @@
+/* btrc standard library — immutable realtime clock values.
+ *
+ * RealtimeClockMapping is the control/worker-thread projection API. It owns
+ * validation, bounded deltas, overflow handling, and clamping without exposing
+ * pointer-output helpers. Callback implementations may use equivalent private
+ * POD helpers, but every public observation is represented by these values.
+ */
+
+enum RealtimeClockMapStatus {
+	REALTIME_CLOCK_MAPPED,
+	REALTIME_CLOCK_INVALID_ARGUMENT,
+	REALTIME_CLOCK_DELTA_OUT_OF_RANGE,
+	REALTIME_CLOCK_OVERFLOW
+};
+
+class RealtimeFrameRate {
+	private int _framesPerSecond;
+
+	public RealtimeFrameRate(int framesPerSecond) {
+		if (framesPerSecond <= 0 || framesPerSecond > 768000) { throw "invalid realtime frame rate"; }
+		self._framesPerSecond = framesPerSecond;
+	}
+
+	public int framesPerSecond() { return self._framesPerSecond; }
+
+	public bool equals(RealtimeFrameRate other) { return other != null && self._framesPerSecond == other._framesPerSecond; }
+}
+
+class RealtimePlaybackSpeed {
+	private double _value;
+
+	public RealtimePlaybackSpeed(double value) {
+		if (!isfinite(value) || value < 0.25 || value > 4.0) { throw "invalid realtime playback speed"; }
+		self._value = value;
+	}
+
+	public double value() { return self._value; }
+
+	public bool equals(RealtimePlaybackSpeed other) { return other != null && self._value == other._value; }
+}
+
+class RealtimeClockMapOutcome {
+	private RealtimeClockMapStatus _status;
+	private long long _transportFrame;
+	private bool _hasTransportFrame;
+
+	private RealtimeClockMapOutcome(RealtimeClockMapStatus status, long long transportFrame, bool hasTransportFrame) {
+		if ((status == REALTIME_CLOCK_MAPPED) != hasTransportFrame) { throw "invalid realtime clock map outcome"; }
+		self._status = status;
+		self._transportFrame = transportFrame;
+		self._hasTransportFrame = hasTransportFrame;
+	}
+
+	class RealtimeClockMapOutcome mapped(long long transportFrame) { return RealtimeClockMapOutcome(REALTIME_CLOCK_MAPPED, transportFrame, true); }
+
+	class RealtimeClockMapOutcome failed(RealtimeClockMapStatus status) {
+		if (status == REALTIME_CLOCK_MAPPED) { throw "mapped status requires a transport frame"; }
+		return RealtimeClockMapOutcome(status, 0LL, false);
+	}
+
+	public RealtimeClockMapStatus status() { return self._status; }
+
+	public bool succeeded() { return self._status == REALTIME_CLOCK_MAPPED; }
+
+	public long long transportFrame() {
+		if (!self.succeeded()) { throw "mapped transport frame is unavailable"; }
+		return self._transportFrame;
+	}
+}
+
+class RealtimeClockMapping {
+	private long long _anchorDeviceFrame;
+	private long long _anchorTransportFrame;
+	private RealtimeFrameRate _deviceRate;
+	private RealtimeFrameRate _transportRate;
+	private RealtimePlaybackSpeed _speed;
+	private long long _maximumAbsoluteDeviceDelta;
+	private long long _generation;
+
+	public RealtimeClockMapping(long long anchorDeviceFrame, long long anchorTransportFrame, RealtimeFrameRate deviceRate, RealtimeFrameRate transportRate, RealtimePlaybackSpeed speed, long long maximumAbsoluteDeviceDelta, long long generation) {
+		if (anchorDeviceFrame < 0LL || deviceRate == null || transportRate == null || transportRate.framesPerSecond() > 384000 || speed == null || maximumAbsoluteDeviceDelta <= 0LL || generation < 0LL) { throw "invalid realtime clock mapping"; }
+		self._anchorDeviceFrame = anchorDeviceFrame;
+		self._anchorTransportFrame = anchorTransportFrame;
+		self._deviceRate = deviceRate;
+		self._transportRate = transportRate;
+		self._speed = speed;
+		self._maximumAbsoluteDeviceDelta = maximumAbsoluteDeviceDelta;
+		self._generation = generation;
+	}
+
+	public long long anchorDeviceFrame() { return self._anchorDeviceFrame; }
+
+	public long long anchorTransportFrame() { return self._anchorTransportFrame; }
+
+	public RealtimeFrameRate deviceRate() { return self._deviceRate; }
+
+	public RealtimeFrameRate transportRate() { return self._transportRate; }
+
+	public RealtimePlaybackSpeed speed() { return self._speed; }
+
+	public long long maximumAbsoluteDeviceDelta() { return self._maximumAbsoluteDeviceDelta; }
+
+	public long long generation() { return self._generation; }
+
+	public RealtimeClockMapOutcome mapDeviceFrame(long long observedDeviceFrame, long long minimumTransportFrame, long long maximumTransportFrame) {
+		if (observedDeviceFrame < 0LL || minimumTransportFrame > maximumTransportFrame) { return RealtimeClockMapOutcome.failed(REALTIME_CLOCK_INVALID_ARGUMENT); }
+		long long deviceDelta = observedDeviceFrame - self._anchorDeviceFrame;
+		if (deviceDelta < -self._maximumAbsoluteDeviceDelta || deviceDelta > self._maximumAbsoluteDeviceDelta) { return RealtimeClockMapOutcome.failed(REALTIME_CLOCK_DELTA_OUT_OF_RANGE); }
+		double scale = ((double)self._transportRate.framesPerSecond() * self._speed.value()) / (double)self._deviceRate.framesPerSecond();
+		double projected = (double)deviceDelta * scale;
+		if (!isfinite(projected) || projected < -9223372036854775807.0 - 1.0 || projected >= 9223372036854775807.0) { return RealtimeClockMapOutcome.failed(REALTIME_CLOCK_OVERFLOW); }
+		long long scaled = (long long)projected;
+		if ((scaled > 0LL && self._anchorTransportFrame > 9223372036854775807LL - scaled) || (scaled < 0LL && self._anchorTransportFrame < (-9223372036854775807LL - 1LL) - scaled)) { return RealtimeClockMapOutcome.failed(REALTIME_CLOCK_OVERFLOW); }
+		long long mapped = self._anchorTransportFrame + scaled;
+		if (mapped < minimumTransportFrame) { mapped = minimumTransportFrame; }
+		if (mapped > maximumTransportFrame) { mapped = maximumTransportFrame; }
+		return RealtimeClockMapOutcome.mapped(mapped);
+	}
+}

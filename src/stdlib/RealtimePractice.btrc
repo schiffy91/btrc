@@ -1,0 +1,235 @@
+/* btrc standard library — product-neutral practice-audio values.
+ *
+ * These immutable values cross the control/worker side of a realtime clip
+ * transport. Callback storage and queues are implementation details; callers
+ * receive bounded capture and telemetry polls with explicit availability.
+ */
+
+import std.RealtimeClock;
+
+class RealtimePracticeConfiguration {
+	private RealtimeFrameRate _transportRate;
+	private long long _beatIntervalFrames;
+	private int _countInBeats;
+	private bool _metronomeEnabled;
+	private int _metronomeGainPermille;
+	private int _clickFrames;
+	private bool _monitorEnabled;
+	private int _monitorInputChannel;
+	private int _monitorGainPermille;
+	private bool _inputLatencyKnown;
+	private long long _inputLatencyFrames;
+
+	public RealtimePracticeConfiguration(RealtimeFrameRate transportRate, long long beatIntervalFrames, int countInBeats, bool metronomeEnabled, int metronomeGainPermille, int clickFrames, bool monitorEnabled, int monitorInputChannel, int monitorGainPermille, bool inputLatencyKnown = false, long long inputLatencyFrames = 0LL) {
+		if (transportRate == null || transportRate.framesPerSecond() > 384000 || beatIntervalFrames <= 0LL || beatIntervalFrames > 144115188075855871LL || countInBeats < 0 || countInBeats > 64 || metronomeGainPermille < 0 || metronomeGainPermille > 1000 || clickFrames <= 0 || clickFrames > 8192 || monitorInputChannel < 0 || monitorInputChannel > 255 || monitorGainPermille < 0 || monitorGainPermille > 2000 || inputLatencyFrames < 0LL || (!inputLatencyKnown && inputLatencyFrames != 0LL)) { throw "invalid realtime practice configuration"; }
+		self._transportRate = transportRate;
+		self._beatIntervalFrames = beatIntervalFrames;
+		self._countInBeats = countInBeats;
+		self._metronomeEnabled = metronomeEnabled;
+		self._metronomeGainPermille = metronomeGainPermille;
+		self._clickFrames = clickFrames;
+		self._monitorEnabled = monitorEnabled;
+		self._monitorInputChannel = monitorInputChannel;
+		self._monitorGainPermille = monitorGainPermille;
+		self._inputLatencyKnown = inputLatencyKnown;
+		self._inputLatencyFrames = inputLatencyFrames;
+	}
+
+	public RealtimeFrameRate transportRate() { return self._transportRate; }
+
+	public long long beatIntervalFrames() { return self._beatIntervalFrames; }
+
+	public int countInBeats() { return self._countInBeats; }
+
+	public bool metronomeEnabled() { return self._metronomeEnabled; }
+
+	public int metronomeGainPermille() { return self._metronomeGainPermille; }
+
+	public int clickFrames() { return self._clickFrames; }
+
+	public bool monitorEnabled() { return self._monitorEnabled; }
+
+	public int monitorInputChannel() { return self._monitorInputChannel; }
+
+	public int monitorGainPermille() { return self._monitorGainPermille; }
+
+	public bool inputLatencyKnown() { return self._inputLatencyKnown; }
+
+	public long long inputLatencyFrames() { return self._inputLatencyFrames; }
+}
+
+enum RealtimePracticePhase {
+	REALTIME_PRACTICE_IDLE,
+	REALTIME_PRACTICE_COUNT_IN,
+	REALTIME_PRACTICE_PLAYING
+};
+
+enum RealtimeInputMonitorState {
+	REALTIME_INPUT_MONITOR_DISABLED,
+	REALTIME_INPUT_MONITOR_ACTIVE,
+	REALTIME_INPUT_MONITOR_INPUT_UNAVAILABLE,
+	REALTIME_INPUT_MONITOR_CHANNEL_UNAVAILABLE
+};
+
+class RealtimePracticeInputSample {
+	private long long _deviceFrame;
+	private long long _mappingGeneration;
+	private long long _transportFrame;
+	private float _sample;
+
+	public RealtimePracticeInputSample(long long deviceFrame, long long mappingGeneration, long long transportFrame, float sample) {
+		if (deviceFrame < 0LL || mappingGeneration <= 0LL || transportFrame < 0LL || !isfinite(sample) || sample < -1.0f || sample > 1.0f) { throw "invalid realtime practice input sample"; }
+		self._deviceFrame = deviceFrame;
+		self._mappingGeneration = mappingGeneration;
+		self._transportFrame = transportFrame;
+		self._sample = sample;
+	}
+
+	public long long deviceFrame() { return self._deviceFrame; }
+
+	public long long mappingGeneration() { return self._mappingGeneration; }
+
+	public long long transportFrame() { return self._transportFrame; }
+
+	public float sample() { return self._sample; }
+}
+
+enum RealtimePracticeInputPollKind {
+	REALTIME_PRACTICE_INPUT_AVAILABLE,
+	REALTIME_PRACTICE_INPUT_EMPTY,
+	REALTIME_PRACTICE_INPUT_UNAVAILABLE
+};
+
+class RealtimePracticeInputPoll {
+	private RealtimePracticeInputPollKind _kind;
+	private RealtimePracticeInputSample? _sample;
+
+	private RealtimePracticeInputPoll(RealtimePracticeInputPollKind kind, RealtimePracticeInputSample? sample) {
+		if ((kind == REALTIME_PRACTICE_INPUT_AVAILABLE) != (sample != null)) { throw "invalid realtime practice input poll"; }
+		self._kind = kind;
+		self._sample = sample;
+	}
+
+	class RealtimePracticeInputPoll available(RealtimePracticeInputSample sample) { return RealtimePracticeInputPoll(REALTIME_PRACTICE_INPUT_AVAILABLE, sample); }
+
+	class RealtimePracticeInputPoll empty() { return RealtimePracticeInputPoll(REALTIME_PRACTICE_INPUT_EMPTY, null); }
+
+	class RealtimePracticeInputPoll unavailable() { return RealtimePracticeInputPoll(REALTIME_PRACTICE_INPUT_UNAVAILABLE, null); }
+
+	public RealtimePracticeInputPollKind kind() { return self._kind; }
+
+	public RealtimePracticeInputSample sample() {
+		if (self._sample == null) { throw "realtime practice input sample is unavailable"; }
+		return self._sample;
+	}
+}
+
+class RealtimePracticeTelemetry {
+	private long long _deviceFrame;
+	private long long _mappingGeneration;
+	private long long _mappedTransportFrame;
+	private RealtimePracticePhase _phase;
+	private RealtimeInputMonitorState _monitorState;
+	private unsigned long long _callbacks;
+	private unsigned long long _capturedInputFrames;
+	private unsigned long long _monitoredInputFrames;
+	private unsigned long long _droppedInputFrames;
+	private unsigned long long _droppedTelemetrySnapshots;
+	private unsigned long long _countInClicks;
+	private unsigned long long _metronomeClicks;
+	private int _inputPeakPermille;
+	private bool _inputLatencyKnown;
+	private long long _inputLatencyFrames;
+	private bool _xrunsKnown;
+	private unsigned long long _xruns;
+	private unsigned long long _callbackViolations;
+
+	public RealtimePracticeTelemetry(long long deviceFrame, long long mappingGeneration, long long mappedTransportFrame, RealtimePracticePhase phase, RealtimeInputMonitorState monitorState, unsigned long long callbacks, unsigned long long capturedInputFrames, unsigned long long monitoredInputFrames, unsigned long long droppedInputFrames, unsigned long long droppedTelemetrySnapshots, unsigned long long countInClicks, unsigned long long metronomeClicks, int inputPeakPermille, bool inputLatencyKnown, long long inputLatencyFrames, bool xrunsKnown, unsigned long long xruns, unsigned long long callbackViolations) {
+		if (deviceFrame < 0LL || mappingGeneration < 0LL || inputPeakPermille < 0 || inputPeakPermille > 1000 || inputLatencyFrames < 0LL || (!inputLatencyKnown && inputLatencyFrames != 0LL) || (!xrunsKnown && xruns != 0ULL)) { throw "invalid realtime practice telemetry"; }
+		self._deviceFrame = deviceFrame;
+		self._mappingGeneration = mappingGeneration;
+		self._mappedTransportFrame = mappedTransportFrame;
+		self._phase = phase;
+		self._monitorState = monitorState;
+		self._callbacks = callbacks;
+		self._capturedInputFrames = capturedInputFrames;
+		self._monitoredInputFrames = monitoredInputFrames;
+		self._droppedInputFrames = droppedInputFrames;
+		self._droppedTelemetrySnapshots = droppedTelemetrySnapshots;
+		self._countInClicks = countInClicks;
+		self._metronomeClicks = metronomeClicks;
+		self._inputPeakPermille = inputPeakPermille;
+		self._inputLatencyKnown = inputLatencyKnown;
+		self._inputLatencyFrames = inputLatencyFrames;
+		self._xrunsKnown = xrunsKnown;
+		self._xruns = xruns;
+		self._callbackViolations = callbackViolations;
+	}
+
+	public long long deviceFrame() { return self._deviceFrame; }
+
+	public long long mappingGeneration() { return self._mappingGeneration; }
+
+	/* Negative only while count-in is ahead of transport frame zero. */
+	public long long mappedTransportFrame() { return self._mappedTransportFrame; }
+
+	public RealtimePracticePhase phase() { return self._phase; }
+
+	public RealtimeInputMonitorState monitorState() { return self._monitorState; }
+
+	public unsigned long long callbacks() { return self._callbacks; }
+
+	public unsigned long long capturedInputFrames() { return self._capturedInputFrames; }
+
+	public unsigned long long monitoredInputFrames() { return self._monitoredInputFrames; }
+
+	public unsigned long long droppedInputFrames() { return self._droppedInputFrames; }
+
+	public unsigned long long droppedTelemetrySnapshots() { return self._droppedTelemetrySnapshots; }
+
+	public unsigned long long countInClicks() { return self._countInClicks; }
+
+	public unsigned long long metronomeClicks() { return self._metronomeClicks; }
+
+	public int inputPeakPermille() { return self._inputPeakPermille; }
+
+	public bool inputLatencyKnown() { return self._inputLatencyKnown; }
+
+	public long long inputLatencyFrames() { return self._inputLatencyFrames; }
+
+	public bool xrunsKnown() { return self._xrunsKnown; }
+
+	public unsigned long long xruns() { return self._xruns; }
+
+	public unsigned long long callbackViolations() { return self._callbackViolations; }
+}
+
+enum RealtimePracticeTelemetryPollKind {
+	REALTIME_PRACTICE_TELEMETRY_AVAILABLE,
+	REALTIME_PRACTICE_TELEMETRY_EMPTY,
+	REALTIME_PRACTICE_TELEMETRY_UNAVAILABLE
+};
+
+class RealtimePracticeTelemetryPoll {
+	private RealtimePracticeTelemetryPollKind _kind;
+	private RealtimePracticeTelemetry? _telemetry;
+
+	private RealtimePracticeTelemetryPoll(RealtimePracticeTelemetryPollKind kind, RealtimePracticeTelemetry? telemetry) {
+		if ((kind == REALTIME_PRACTICE_TELEMETRY_AVAILABLE) != (telemetry != null)) { throw "invalid realtime practice telemetry poll"; }
+		self._kind = kind;
+		self._telemetry = telemetry;
+	}
+
+	class RealtimePracticeTelemetryPoll available(RealtimePracticeTelemetry telemetry) { return RealtimePracticeTelemetryPoll(REALTIME_PRACTICE_TELEMETRY_AVAILABLE, telemetry); }
+
+	class RealtimePracticeTelemetryPoll empty() { return RealtimePracticeTelemetryPoll(REALTIME_PRACTICE_TELEMETRY_EMPTY, null); }
+
+	class RealtimePracticeTelemetryPoll unavailable() { return RealtimePracticeTelemetryPoll(REALTIME_PRACTICE_TELEMETRY_UNAVAILABLE, null); }
+
+	public RealtimePracticeTelemetryPollKind kind() { return self._kind; }
+
+	public RealtimePracticeTelemetry telemetry() {
+		if (self._telemetry == null) { throw "realtime practice telemetry is unavailable"; }
+		return self._telemetry;
+	}
+}
