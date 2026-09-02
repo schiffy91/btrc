@@ -26,11 +26,14 @@
 import std.vector;
 
 class Strings {
+	/* Raw C memory boundaries repeat this nonnegative postcondition locally so
+	 * strict optimizing compilers can prove every signed-to-size_t conversion. */
 	class int checkedLength(string s) { return __btrc_string_length(s); }
 
 	class string copy(string s) {
 		if (s == null) { s = ""; }
 		int length = Strings.checkedLength(s);
+		if (length < 0) { abort(); }
 		char* result = (char*)__btrc_safe_realloc(NULL, (size_t)length + (size_t)1);
 		memcpy(result, s, (size_t)length);
 		result[length] = '\0';
@@ -272,6 +275,7 @@ class Strings {
 	class string capitalize(string s) {
 		if (s == null) { return Strings.copy(""); }
 		int slen = Strings.checkedLength(s);
+		if (slen < 0) { abort(); }
 		char* result = (char*)__btrc_safe_realloc(NULL, (size_t)slen + (size_t)1);
 		for i in range(slen) { result[i] = (char)tolower((unsigned char)s[i]); }
 		if (slen > 0) {
@@ -327,6 +331,7 @@ class Strings {
 	class string padLeft(string s, int width, char fill) {
 		if (s == null) { s = ""; }
 		int slen = Strings.checkedLength(s);
+		if (slen < 0) { abort(); }
 		if (slen >= width) { return Strings.copy(s); }
 		int pad = width - slen;
 		if (width > 2147483646) {
@@ -380,11 +385,13 @@ class Strings {
 	class string lstrip(string s) {
 		if (s == null) { return Strings.copy(""); }
 		int slen = Strings.checkedLength(s);
+		if (slen < 0) { abort(); }
 		int start = 0;
 		while (start < slen && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r')) {
 			start++;
 		}
 		int newlen = slen - start;
+		if (newlen < 0) { abort(); }
 		char* result = (char*)__btrc_safe_realloc(NULL, (size_t)newlen + (size_t)1);
 		memcpy(result, (char*)s + start, newlen);
 		result[newlen] = '\0';
@@ -394,6 +401,7 @@ class Strings {
 	class string rstrip(string s) {
 		if (s == null) { return Strings.copy(""); }
 		int slen = Strings.checkedLength(s);
+		if (slen < 0) { abort(); }
 		int end = slen;
 		while (end > 0 && (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '\n' || s[end - 1] == '\r')) {
 			end--;

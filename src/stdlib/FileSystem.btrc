@@ -562,6 +562,8 @@ class PathTools {
 			start--;
 		}
 		int outLen = end - start + 1;
+		/* Keep the signed length proof adjacent to the raw C allocation. */
+		if (outLen < 0) { abort(); }
 		char* result = (char*)__btrc_safe_realloc(NULL, (size_t)outLen + (size_t)1);
 		memcpy(result, (char*)path + start, (size_t)outLen);
 		result[outLen] = '\0';
@@ -583,6 +585,7 @@ class PathTools {
 		if (end < rootLength) {
 			return rootLength > 0 ? path.substring(0, rootLength) : ".";
 		}
+		if (end < 0) { abort(); }
 		char* result = (char*)__btrc_safe_realloc(NULL, (size_t)end + (size_t)1);
 		memcpy(result, path, (size_t)end);
 		result[end] = '\0';
