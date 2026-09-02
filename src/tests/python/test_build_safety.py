@@ -9,6 +9,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MAKEFILE = REPO_ROOT / "Makefile"
+FLAKE = REPO_ROOT / "flake.nix"
 DEVCONTAINER_CONFIG = REPO_ROOT / "build"
 
 
@@ -53,6 +54,11 @@ def test_default_pytest_parallelism_is_bounded_and_configurable():
     assert " -n 8" in default
     assert " -n auto" not in default
     assert " -n 2" in constrained
+
+
+def test_dev_shell_does_not_inject_fortify_into_strict_o0_tests() -> None:
+    flake = FLAKE.read_text()
+    assert 'hardeningDisable = [ "fortify" "fortify3" ];' in flake
 
 
 def test_memory_intensive_bootstrap_runs_after_the_parallel_suite():

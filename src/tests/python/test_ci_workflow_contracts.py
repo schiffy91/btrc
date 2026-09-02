@@ -83,6 +83,7 @@ def test_linux_x64_ci_runs_and_uploads_the_archived_bundle() -> None:
     assert "mktemp -d" in job
     assert "src/tests/strings/expected/test_braces_in_code_gen.stdout" in job
     assert "-std=c11 -pedantic-errors -Wall -Wextra -Werror" in job
+    assert job.count("PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600") == 2
     _assert_linux_archive_smoke(job, "linux-x64")
 
 
@@ -99,20 +100,23 @@ def test_macos_ci_matrix_runs_and_uploads_both_archived_bundles() -> None:
     workflow = _workflow("macos.yml")
     job = _job(workflow, "native-bundle")
 
-    assert re.search(r"(?m)^\s+- runner: macos-15\s*$", job)
-    assert re.search(r"(?m)^\s+- runner: macos-15-intel\s*$", job)
-    assert "target: macos-arm64" in job and "machine: arm64" in job
-    assert "target: macos-x64" in job and "machine: x86_64" in job
+    assert len(re.findall(r"(?m)^\s+- runner: macos-15\s*$", job)) == 2
+    assert "macos-15-intel" not in job
+    assert "target: macos-arm64" in job and "bundle_machine: arm64" in job
+    assert "target: macos-x64" in job and "bundle_machine: x86_64" in job
+    assert "rosetta: false" in job and "rosetta: true" in job
     assert "runs-on: ${{ matrix.runner }}" in job
-    assert 'test "$(uname -m)" = "${{ matrix.machine }}"' in job
+    assert job.count('test "$(uname -m)" = arm64') >= 2
+    assert 'lipo -archs "$compiler" | grep -qw "${{ matrix.bundle_machine }}"' in job
+    assert "arch -x86_64" in job
     assert 'make NIX= "btrcc-${{ matrix.target }}"' in job
     assert "btrcc_bundle" not in job
     assert "dist/btrcc-${{ matrix.target }}.tar.gz" in job
     assert "tar -xzf" in job
     assert 'root="$work/btrcc-${{ matrix.target }}"' in job
     assert 'compiler="$root/bin/btrcc"' in job
-    assert 'actual_stdlib=$(cd "$run" && "$compiler" --stdlib-dir)' in job
-    assert '(cd "$run" && "$compiler" "$source")' in job
+    assert 'actual_stdlib=$(cd "$run" && "${compiler_command[@]}" --stdlib-dir)' in job
+    assert '(cd "$run" && "${compiler_command[@]}" "$source")' in job
     assert 'test "$actual_stdlib" = "$expected_stdlib"' in job
     assert 'cmp "$run/program.stdout" "$expected"' in job
     _assert_archive_upload(job, "dist/btrcc-${{ matrix.target }}.tar.gz")
@@ -126,7 +130,7 @@ def test_windows_ci_runs_and_uploads_the_extracted_zip() -> None:
     assert "cache-dependency-path: src/devex/vscode/package-lock.json" in job
     extension = _step_containing(job, "npm test")
     assert "working-directory:" not in extension
-    assert "python -m pip install ." in extension
+    assert "python -m pip install '.[dev]'" in extension
     assert "node src/devex/vscode/packaging/prepare.js" in extension
     assert "cd build/devex/vscode" in extension
     assert "npm ci" in extension

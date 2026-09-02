@@ -66,6 +66,11 @@
         system = pkgs.stdenv.hostPlatform.system;
       in {
         default = pkgs.mkShell {
+          # The test suite deliberately compiles strict C at -O0. Nixpkgs'
+          # fortify setup diagnoses -O0 as a preprocessor warning, and -Werror
+          # correctly promotes it. Release derivations retain their hardening;
+          # only the interactive/test shell disables this incompatible pair.
+          hardeningDisable = [ "fortify" "fortify3" ];
           # btrc-lsp on PATH: the VSCode extension launches the language server
           # via `nix develop <workspace> --command btrc-lsp`.
           packages = cfg.packages pkgs ++ [
