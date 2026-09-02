@@ -1,0 +1,118 @@
+import std.native_ui;
+
+#include <assert.h>
+
+class NativeUiSemanticTest {
+	class bool hasEvent(NativeUiEventBatch batch, NativeUiEventKind kind) {
+		for (int index = 0; index < batch.eventCount(); index++) {
+			if (batch.eventAt(index).kind() == kind) { return true; }
+		}
+		return false;
+	}
+}
+
+int main() {
+	NativeUiSemantics toggle = NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_TOGGLE_BUTTON, "Playback", "Starts or pauses playback", "Playing", NATIVE_UI_SEMANTIC_LIVE_POLITE).pressed(NATIVE_UI_SEMANTIC_TOGGLE_ON).expanded(NATIVE_UI_SEMANTIC_EXPANSION_OFF).busy(true).readOnly(true);
+	assert(toggle.valid());
+	assert(toggle.role() == NATIVE_UI_SEMANTIC_ROLE_TOGGLE_BUTTON);
+	assert(toggle.label() == "Playback");
+	assert(toggle.hint() == "Starts or pauses playback");
+	assert(toggle.value() == "Playing");
+	assert(toggle.live() == NATIVE_UI_SEMANTIC_LIVE_POLITE);
+	assert(toggle.checkedState() == NATIVE_UI_SEMANTIC_TOGGLE_UNSET);
+	assert(toggle.pressedState() == NATIVE_UI_SEMANTIC_TOGGLE_ON);
+	assert(toggle.expansionState() == NATIVE_UI_SEMANTIC_EXPANSION_OFF);
+	assert(toggle.isBusy());
+	assert(toggle.isReadOnly());
+	assert(NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_TOGGLE_BUTTON).checked(NATIVE_UI_SEMANTIC_TOGGLE_MIXED).pressed(NATIVE_UI_SEMANTIC_TOGGLE_OFF).valid());
+
+	assert(!NativeUiSemantics((NativeUiSemanticRole)99).valid());
+	assert(!NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_STATUS, "", "", "", (NativeUiSemanticLiveMode)99).valid());
+	assert(!NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_STATUS, "", "\xc3").valid());
+	assert(!NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_CHECKBOX).checked((NativeUiSemanticToggleState)99).valid());
+	assert(!NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_BUTTON).expanded((NativeUiSemanticExpansionState)99).valid());
+	StringBuilder longLabel = StringBuilder();
+	for (int index = 0; index < 513; index++) { longLabel.append("x"); }
+	assert(!NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_STATUS, longLabel.toString()).valid());
+
+	NativeUiElement enabledButton = NativeUiElement.button("enabled", "Play").selected(true).semantics(toggle);
+	NativeUiElement disabledButton = NativeUiElement.button("disabled", "Unavailable").enabled(false).semantics(NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_BUTTON, "Unavailable"));
+	NativeUiElement focusTarget = NativeUiElement.text("tab", "Practice").focusable(true).semantics(NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_TAB, "Practice tab").expanded(NATIVE_UI_SEMANTIC_EXPANSION_ON));
+	Image rangeImage = Image(80, 20);
+	NativeUiElement disabledRange = NativeUiElement.image("disabled-range", rangeImage, "Position").semanticRange(NativeUiSemanticRange.horizontal("Position", 0LL, 100LL, 50LL)).enabled(false);
+	NativeUiElement disabledInput = NativeUiElement.textInput("disabled-input", "old", "Unavailable input", 16).enabled(false);
+	NativeUiElement root = NativeUiElement.column("root").child(enabledButton).child(disabledButton).child(focusTarget).child(disabledRange).child(disabledInput);
+	NativeUiRenderer renderer = NativeUiRenderer();
+	NativeUiFrame frame = renderer.layout(root, 240, 240);
+	assert(frame.ok());
+
+	NativeUiResolvedSemantics enabled = frame.boxFor("enabled").resolvedSemantics();
+	assert(enabled.role() == NATIVE_UI_SEMANTIC_ROLE_TOGGLE_BUTTON);
+	assert(enabled.enabled() && enabled.selected() && enabled.focusable() && !enabled.focused());
+	assert(enabled.label() == "Playback" && enabled.hint() == "Starts or pauses playback" && enabled.value() == "Playing");
+	assert(enabled.live() == NATIVE_UI_SEMANTIC_LIVE_POLITE);
+	assert(enabled.pressedState() == NATIVE_UI_SEMANTIC_TOGGLE_ON);
+	assert(enabled.expansionState() == NATIVE_UI_SEMANTIC_EXPANSION_OFF);
+	assert(enabled.isBusy() && enabled.isReadOnly());
+	assert(frame.resolvedSemanticsFor("enabled") != null);
+	assert(frame.resolvedSemanticsFor("missing") == null);
+
+	NativeUiResolvedSemantics disabled = frame.boxFor("disabled").resolvedSemantics();
+	assert(!disabled.enabled() && !disabled.focusable() && !disabled.focused());
+	assert(disabledButton.hasFocusableOverride() == false);
+	disabledButton.focusable(true);
+	assert(disabledButton.hasFocusableOverride() && disabledButton.focusableOverride());
+	assert(!disabledButton.isFocusable());
+	assert(NativeUiElement.button("not-focusable", "No focus").focusable(false).isFocusable() == false);
+	assert(NativeUiElement.text("automatic", "Text").effectiveSemanticRole() == NATIVE_UI_SEMANTIC_ROLE_TEXT);
+	assert(NativeUiElement.image("automatic-image", rangeImage, "Image").effectiveSemanticRole() == NATIVE_UI_SEMANTIC_ROLE_IMAGE);
+	assert(disabledRange.effectiveSemanticRole() == NATIVE_UI_SEMANTIC_ROLE_SLIDER);
+
+	assert(renderer.activate("enabled").eventCount() == 1);
+	assert(renderer.activate("enabled").eventAt(0).kind() == NATIVE_UI_CLICKED);
+	assert(renderer.activate("tab").eventCount() == 1);
+	assert(renderer.activate("disabled").eventCount() == 0);
+
+	renderer.focusNext();
+	assert(renderer.focusedId() == "enabled");
+	assert(renderer.currentFrame().boxFor("enabled").resolvedSemantics().focused());
+	renderer.focusNext();
+	assert(renderer.focusedId() == "tab");
+	assert(!renderer.currentFrame().boxFor("enabled").resolvedSemantics().focused());
+	assert(renderer.currentFrame().boxFor("tab").resolvedSemantics().focused());
+	renderer.focusNext();
+	assert(renderer.focusedId() == "enabled");
+	renderer.blur();
+	assert(renderer.focusedId().isEmpty());
+	assert(!renderer.currentFrame().boxFor("enabled").resolvedSemantics().focused());
+
+	NativeUiLayoutBox disabledBox = renderer.currentFrame().boxFor("disabled");
+	int disabledX = disabledBox.bounds.x + 2;
+	int disabledY = disabledBox.bounds.y + 2;
+	assert(renderer.pointerMoved(disabledX, disabledY).eventCount() == 0);
+	assert(renderer.hoveredId().isEmpty());
+	assert(renderer.pointerPressed(disabledX, disabledY).eventCount() == 0);
+	assert(!NativeUiSemanticTest.hasEvent(renderer.pointerReleased(disabledX, disabledY), NATIVE_UI_CLICKED));
+
+	NativeUiLayoutBox rangeBox = renderer.currentFrame().boxFor("disabled-range");
+	int rangeX = rangeBox.bounds.x + 2;
+	int rangeY = rangeBox.bounds.y + 2;
+	assert(renderer.pointerMoved(rangeX, rangeY).eventCount() == 0);
+	assert(renderer.pointerPressed(rangeX, rangeY).eventCount() == 0);
+	assert(renderer.capturedRangeId().isEmpty());
+	assert(renderer.adjustRange("disabled-range", NATIVE_UI_RANGE_ADJUST_SMALL_INCREMENT).eventCount() == 0);
+	assert(!NativeUiSemanticTest.hasEvent(renderer.wheelBy(0, 40), NATIVE_UI_RANGE_WHEEL));
+
+	NativeUiLayoutBox inputBox = renderer.currentFrame().boxFor("disabled-input");
+	renderer.pointerPressed(inputBox.bounds.x + 2, inputBox.bounds.y + 2);
+	assert(renderer.focusedId().isEmpty());
+	assert(renderer.textEntered("x").eventCount() == 0);
+	assert(renderer.backspace().eventCount() == 0);
+
+	NativeUiFrame semanticCss = NativeUiRenderer().render(NativeUiElement.button("css", "CSS").style("selected: true"), 80, 40);
+	assert(!semanticCss.ok());
+	assert(semanticCss.status == NATIVE_UI_FRAME_INVALID_STYLE);
+
+	print("PASS: typed native UI semantics and disabled interaction");
+	return 0;
+}

@@ -12,6 +12,8 @@ import std.image;
 import std.strings;
 import std.vector;
 
+#include "native_ui/Semantics.btrc"
+
 enum NativeUiElementKind {
 	NATIVE_UI_COLUMN = 0,
 	NATIVE_UI_GRID = 1,
@@ -522,6 +524,11 @@ class NativeUiElement {
 	private string placeholderValue;
 	private int textInputMaxBytesValue;
 	private NativeUiSemanticRange? semanticRangeValue;
+	private NativeUiSemantics semanticsValue;
+	private bool enabledValue;
+	private bool selectedValue;
+	private bool hasFocusableOverrideValue;
+	private bool focusableOverrideValue;
 
 	private NativeUiElement(NativeUiElementKind kind, string id, string text, Image? image, string alt) {
 		self.elementKind = kind;
@@ -538,6 +545,11 @@ class NativeUiElement {
 		self.placeholderValue = "";
 		self.textInputMaxBytesValue = 0;
 		self.semanticRangeValue = null;
+		self.semanticsValue = NativeUiSemantics();
+		self.enabledValue = true;
+		self.selectedValue = false;
+		self.hasFocusableOverrideValue = false;
+		self.focusableOverrideValue = false;
 	}
 
 	class NativeUiElement column(string id) { return NativeUiElement(NATIVE_UI_COLUMN, id, "", null, ""); }
@@ -585,6 +597,27 @@ class NativeUiElement {
 		return self;
 	}
 
+	public NativeUiElement enabled(bool value) {
+		self.enabledValue = value;
+		return self;
+	}
+
+	public NativeUiElement selected(bool value) {
+		self.selectedValue = value;
+		return self;
+	}
+
+	public NativeUiElement focusable(bool value) {
+		self.hasFocusableOverrideValue = true;
+		self.focusableOverrideValue = value;
+		return self;
+	}
+
+	public NativeUiElement semantics(NativeUiSemantics descriptor) {
+		self.semanticsValue = descriptor;
+		return self;
+	}
+
 	public NativeUiElement child(NativeUiElement value) {
 		self.childValues.push(value);
 		return self;
@@ -615,6 +648,35 @@ class NativeUiElement {
 	public int textInputMaxBytes() { return self.textInputMaxBytesValue; }
 
 	public NativeUiSemanticRange? semanticRangeDescriptor() { return self.semanticRangeValue; }
+
+	public NativeUiSemantics semanticDescriptor() { return self.semanticsValue; }
+
+	public bool isEnabled() { return self.enabledValue; }
+
+	public bool isSelected() { return self.selectedValue; }
+
+	public bool hasFocusableOverride() { return self.hasFocusableOverrideValue; }
+
+	public bool focusableOverride() { return self.focusableOverrideValue; }
+
+	public NativeUiSemanticRole effectiveSemanticRole() {
+		NativeUiSemanticRole declared = self.semanticsValue.role();
+		if (declared != NATIVE_UI_SEMANTIC_ROLE_AUTOMATIC) { return declared; }
+		if (self.semanticRangeValue != null) { return NATIVE_UI_SEMANTIC_ROLE_SLIDER; }
+		if (self.elementKind == NATIVE_UI_COLUMN) { return NATIVE_UI_SEMANTIC_ROLE_GROUP; }
+		if (self.elementKind == NATIVE_UI_GRID || self.elementKind == NATIVE_UI_VIRTUAL_GRID) { return NATIVE_UI_SEMANTIC_ROLE_GRID; }
+		if (self.elementKind == NATIVE_UI_TEXT) { return NATIVE_UI_SEMANTIC_ROLE_TEXT; }
+		if (self.elementKind == NATIVE_UI_IMAGE) { return NATIVE_UI_SEMANTIC_ROLE_IMAGE; }
+		if (self.elementKind == NATIVE_UI_BUTTON) { return NATIVE_UI_SEMANTIC_ROLE_BUTTON; }
+		return NATIVE_UI_SEMANTIC_ROLE_TEXT_FIELD;
+	}
+
+	public bool isFocusable() {
+		if (!self.enabledValue) { return false; }
+		if (self.hasFocusableOverrideValue) { return self.focusableOverrideValue; }
+		NativeUiSemanticRole role = self.effectiveSemanticRole();
+		return role == NATIVE_UI_SEMANTIC_ROLE_BUTTON || role == NATIVE_UI_SEMANTIC_ROLE_TOGGLE_BUTTON || role == NATIVE_UI_SEMANTIC_ROLE_CHECKBOX || role == NATIVE_UI_SEMANTIC_ROLE_TAB || role == NATIVE_UI_SEMANTIC_ROLE_SLIDER || role == NATIVE_UI_SEMANTIC_ROLE_TEXT_FIELD || role == NATIVE_UI_SEMANTIC_ROLE_RADIO;
+	}
 
 	public int childCount() { return self.childValues.len; }
 

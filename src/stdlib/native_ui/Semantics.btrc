@@ -1,0 +1,234 @@
+/* Backend-neutral semantic values for std.native_ui. */
+
+enum NativeUiSemanticRole {
+	NATIVE_UI_SEMANTIC_ROLE_AUTOMATIC = 0,
+	NATIVE_UI_SEMANTIC_ROLE_GROUP = 1,
+	NATIVE_UI_SEMANTIC_ROLE_TEXT = 2,
+	NATIVE_UI_SEMANTIC_ROLE_IMAGE = 3,
+	NATIVE_UI_SEMANTIC_ROLE_BUTTON = 4,
+	NATIVE_UI_SEMANTIC_ROLE_TOGGLE_BUTTON = 5,
+	NATIVE_UI_SEMANTIC_ROLE_CHECKBOX = 6,
+	NATIVE_UI_SEMANTIC_ROLE_TAB = 7,
+	NATIVE_UI_SEMANTIC_ROLE_TAB_LIST = 8,
+	NATIVE_UI_SEMANTIC_ROLE_GRID = 9,
+	NATIVE_UI_SEMANTIC_ROLE_GRID_CELL = 10,
+	NATIVE_UI_SEMANTIC_ROLE_LIST = 11,
+	NATIVE_UI_SEMANTIC_ROLE_LIST_ITEM = 12,
+	NATIVE_UI_SEMANTIC_ROLE_HEADING = 13,
+	NATIVE_UI_SEMANTIC_ROLE_STATUS = 14,
+	NATIVE_UI_SEMANTIC_ROLE_ALERT = 15,
+	NATIVE_UI_SEMANTIC_ROLE_SLIDER = 16,
+	NATIVE_UI_SEMANTIC_ROLE_TEXT_FIELD = 17,
+	NATIVE_UI_SEMANTIC_ROLE_RADIO = 18,
+	NATIVE_UI_SEMANTIC_ROLE_RADIO_GROUP = 19,
+	NATIVE_UI_SEMANTIC_ROLE_TOOLBAR = 20,
+	NATIVE_UI_SEMANTIC_ROLE_NAVIGATION = 21,
+	NATIVE_UI_SEMANTIC_ROLE_MAIN = 22,
+	NATIVE_UI_SEMANTIC_ROLE_SEPARATOR = 23,
+	NATIVE_UI_SEMANTIC_ROLE_PROGRESS = 24
+};
+
+enum NativeUiSemanticLiveMode {
+	NATIVE_UI_SEMANTIC_LIVE_OFF = 0,
+	NATIVE_UI_SEMANTIC_LIVE_POLITE = 1,
+	NATIVE_UI_SEMANTIC_LIVE_ASSERTIVE = 2
+};
+
+enum NativeUiSemanticToggleState {
+	NATIVE_UI_SEMANTIC_TOGGLE_UNSET = 0,
+	NATIVE_UI_SEMANTIC_TOGGLE_OFF = 1,
+	NATIVE_UI_SEMANTIC_TOGGLE_ON = 2,
+	NATIVE_UI_SEMANTIC_TOGGLE_MIXED = 3
+};
+
+enum NativeUiSemanticExpansionState {
+	NATIVE_UI_SEMANTIC_EXPANSION_UNSET = 0,
+	NATIVE_UI_SEMANTIC_EXPANSION_OFF = 1,
+	NATIVE_UI_SEMANTIC_EXPANSION_ON = 2
+};
+
+class NativeUiSemanticText {
+	class int byteAt(string value, int index) { return (int)(unsigned char)value[index]; }
+
+	class bool continuation(int value) { return value >= 0x80 && value <= 0xBF; }
+
+	class int scalarWidth(string value, int index) {
+		if (value == null || index < 0 || index >= value.len()) { return 0; }
+		int remaining = value.len() - index;
+		int first = NativeUiSemanticText.byteAt(value, index);
+		if (first == 0) { return 0; }
+		if (first <= 0x7F) { return 1; }
+		if (first >= 0xC2 && first <= 0xDF && remaining >= 2 && NativeUiSemanticText.continuation(NativeUiSemanticText.byteAt(value, index + 1))) { return 2; }
+		if (remaining >= 3) {
+			int second = NativeUiSemanticText.byteAt(value, index + 1);
+			int third = NativeUiSemanticText.byteAt(value, index + 2);
+			bool validSecond = (first == 0xE0 && second >= 0xA0 && second <= 0xBF) || (first >= 0xE1 && first <= 0xEC && NativeUiSemanticText.continuation(second)) || (first == 0xED && second >= 0x80 && second <= 0x9F) || (first >= 0xEE && first <= 0xEF && NativeUiSemanticText.continuation(second));
+			if (validSecond && NativeUiSemanticText.continuation(third)) { return 3; }
+		}
+		if (remaining >= 4) {
+			int second = NativeUiSemanticText.byteAt(value, index + 1);
+			int third = NativeUiSemanticText.byteAt(value, index + 2);
+			int fourth = NativeUiSemanticText.byteAt(value, index + 3);
+			bool validSecond = (first == 0xF0 && second >= 0x90 && second <= 0xBF) || (first >= 0xF1 && first <= 0xF3 && NativeUiSemanticText.continuation(second)) || (first == 0xF4 && second >= 0x80 && second <= 0x8F);
+			if (validSecond && NativeUiSemanticText.continuation(third) && NativeUiSemanticText.continuation(fourth)) { return 4; }
+		}
+		return 0;
+	}
+
+	class bool valid(string value, int maximumBytes) {
+		if (value == null || value.len() > maximumBytes) { return false; }
+		int index = 0;
+		while (index < value.len()) {
+			int width = NativeUiSemanticText.scalarWidth(value, index);
+			if (width == 0) { return false; }
+			index += width;
+		}
+		return true;
+	}
+}
+
+class NativeUiSemantics {
+	private NativeUiSemanticRole roleValue;
+	private string labelValue;
+	private string hintValue;
+	private string semanticValue;
+	private NativeUiSemanticLiveMode liveValue;
+	private NativeUiSemanticToggleState checkedValue;
+	private NativeUiSemanticToggleState pressedValue;
+	private NativeUiSemanticExpansionState expandedValue;
+	private bool busyValue;
+	private bool readOnlyValue;
+
+	public NativeUiSemantics(NativeUiSemanticRole role = NATIVE_UI_SEMANTIC_ROLE_AUTOMATIC, string label = "", string hint = "", string value = "", NativeUiSemanticLiveMode live = NATIVE_UI_SEMANTIC_LIVE_OFF) {
+		self.roleValue = role;
+		self.labelValue = label;
+		self.hintValue = hint;
+		self.semanticValue = value;
+		self.liveValue = live;
+		self.checkedValue = NATIVE_UI_SEMANTIC_TOGGLE_UNSET;
+		self.pressedValue = NATIVE_UI_SEMANTIC_TOGGLE_UNSET;
+		self.expandedValue = NATIVE_UI_SEMANTIC_EXPANSION_UNSET;
+		self.busyValue = false;
+		self.readOnlyValue = false;
+	}
+
+	public NativeUiSemantics checked(NativeUiSemanticToggleState state) {
+		self.checkedValue = state;
+		return self;
+	}
+
+	public NativeUiSemantics pressed(NativeUiSemanticToggleState state) {
+		self.pressedValue = state;
+		return self;
+	}
+
+	public NativeUiSemantics expanded(NativeUiSemanticExpansionState state) {
+		self.expandedValue = state;
+		return self;
+	}
+
+	public NativeUiSemantics busy(bool value) {
+		self.busyValue = value;
+		return self;
+	}
+
+	public NativeUiSemantics readOnly(bool value) {
+		self.readOnlyValue = value;
+		return self;
+	}
+
+	public NativeUiSemanticRole role() { return self.roleValue; }
+
+	public string label() { return self.labelValue; }
+
+	public string hint() { return self.hintValue; }
+
+	public string value() { return self.semanticValue; }
+
+	public NativeUiSemanticLiveMode live() { return self.liveValue; }
+
+	public NativeUiSemanticToggleState checkedState() { return self.checkedValue; }
+
+	public NativeUiSemanticToggleState pressedState() { return self.pressedValue; }
+
+	public NativeUiSemanticExpansionState expansionState() { return self.expandedValue; }
+
+	public bool isBusy() { return self.busyValue; }
+
+	public bool isReadOnly() { return self.readOnlyValue; }
+
+	private bool validRole() { return self.roleValue >= NATIVE_UI_SEMANTIC_ROLE_AUTOMATIC && self.roleValue <= NATIVE_UI_SEMANTIC_ROLE_PROGRESS; }
+
+	private bool validLive() { return self.liveValue >= NATIVE_UI_SEMANTIC_LIVE_OFF && self.liveValue <= NATIVE_UI_SEMANTIC_LIVE_ASSERTIVE; }
+
+	private bool validToggle(NativeUiSemanticToggleState state) { return state >= NATIVE_UI_SEMANTIC_TOGGLE_UNSET && state <= NATIVE_UI_SEMANTIC_TOGGLE_MIXED; }
+
+	private bool validExpansion() { return self.expandedValue >= NATIVE_UI_SEMANTIC_EXPANSION_UNSET && self.expandedValue <= NATIVE_UI_SEMANTIC_EXPANSION_ON; }
+
+	public bool valid() {
+		if (!self.validRole() || !self.validLive() || !self.validToggle(self.checkedValue) || !self.validToggle(self.pressedValue) || !self.validExpansion()) { return false; }
+		return NativeUiSemanticText.valid(self.labelValue, 512) && NativeUiSemanticText.valid(self.hintValue, 512) && NativeUiSemanticText.valid(self.semanticValue, 512);
+	}
+}
+
+class NativeUiResolvedSemantics {
+	private NativeUiSemanticRole roleValue;
+	private string labelValue;
+	private string hintValue;
+	private string semanticValue;
+	private NativeUiSemanticLiveMode liveValue;
+	private NativeUiSemanticToggleState checkedValue;
+	private NativeUiSemanticToggleState pressedValue;
+	private NativeUiSemanticExpansionState expandedValue;
+	private bool enabledValue;
+	private bool selectedValue;
+	private bool focusableValue;
+	private bool focusedValue;
+	private bool busyValue;
+	private bool readOnlyValue;
+
+	public NativeUiResolvedSemantics(NativeUiSemanticRole role, string label, string hint, string value, NativeUiSemanticLiveMode live, NativeUiSemanticToggleState checked, NativeUiSemanticToggleState pressed, NativeUiSemanticExpansionState expanded, bool enabled, bool selected, bool focusable, bool focused, bool busy, bool readOnly) {
+		self.roleValue = role;
+		self.labelValue = label;
+		self.hintValue = hint;
+		self.semanticValue = value;
+		self.liveValue = live;
+		self.checkedValue = checked;
+		self.pressedValue = pressed;
+		self.expandedValue = expanded;
+		self.enabledValue = enabled;
+		self.selectedValue = selected;
+		self.focusableValue = focusable;
+		self.focusedValue = focused;
+		self.busyValue = busy;
+		self.readOnlyValue = readOnly;
+	}
+
+	public NativeUiSemanticRole role() { return self.roleValue; }
+
+	public string label() { return self.labelValue; }
+
+	public string hint() { return self.hintValue; }
+
+	public string value() { return self.semanticValue; }
+
+	public NativeUiSemanticLiveMode live() { return self.liveValue; }
+
+	public NativeUiSemanticToggleState checkedState() { return self.checkedValue; }
+
+	public NativeUiSemanticToggleState pressedState() { return self.pressedValue; }
+
+	public NativeUiSemanticExpansionState expansionState() { return self.expandedValue; }
+
+	public bool enabled() { return self.enabledValue; }
+
+	public bool selected() { return self.selectedValue; }
+
+	public bool focusable() { return self.focusableValue; }
+
+	public bool focused() { return self.focusedValue; }
+
+	public bool isBusy() { return self.busyValue; }
+
+	public bool isReadOnly() { return self.readOnlyValue; }
+}

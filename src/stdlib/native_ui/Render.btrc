@@ -41,16 +41,7 @@ class NativeUiTextInput {
 		return 0;
 	}
 
-	class bool validUtf8(string value) {
-		if (value == null) { return false; }
-		int index = 0;
-		while (index < value.len()) {
-			int width = NativeUiTextInput.scalarWidth(value, index);
-			if (width == 0) { return false; }
-			index += width;
-		}
-		return true;
-	}
+	class bool validUtf8(string value) { return NativeUiSemanticText.valid(value, 2147483647); }
 
 	class int previousBoundary(string value, int offset) {
 		if (value == null || offset <= 0) { return 0; }
@@ -173,25 +164,47 @@ class NativeUiLayoutBox {
 	public NativeUiRect bounds;
 	public int depth;
 	public NativeUiResolvedStyle style;
+	private NativeUiResolvedSemantics semanticsValue;
 
 	public NativeUiLayoutBox(NativeUiElement element, NativeUiRect bounds, int depth, NativeUiResolvedStyle style) {
 		self.element = element;
 		self.bounds = bounds;
 		self.depth = depth;
 		self.style = style;
+		self.resolveSemantics(false);
 	}
 
 	public string id() { return self.element.id(); }
 
 	public NativeUiElementKind kind() { return self.element.kind(); }
 
-	public bool adjustable() { return self.element.semanticRangeDescriptor() != null; }
+	public void resolveSemantics(bool focused) {
+		NativeUiSemantics declared = self.element.semanticDescriptor();
+		bool focusable = self.element.isFocusable();
+		self.semanticsValue = NativeUiResolvedSemantics(self.element.effectiveSemanticRole(), declared.label(), declared.hint(), declared.value(), declared.live(), declared.checkedState(), declared.pressedState(), declared.expansionState(), self.element.isEnabled(), self.element.isSelected(), focusable, focused && focusable, declared.isBusy(), declared.isReadOnly());
+	}
 
-	public bool interactive() { return self.adjustable() || self.element.kind() == NATIVE_UI_BUTTON || self.element.kind() == NATIVE_UI_TEXT_INPUT; }
+	public NativeUiResolvedSemantics resolvedSemantics() { return self.semanticsValue; }
 
-	public bool clickable() { return !self.adjustable() && self.element.kind() == NATIVE_UI_BUTTON; }
+	public bool enabled() { return self.semanticsValue.enabled(); }
 
-	public bool focusable() { return self.adjustable() || self.element.kind() == NATIVE_UI_TEXT_INPUT; }
+	public bool selected() { return self.semanticsValue.selected(); }
+
+	public bool focused() { return self.semanticsValue.focused(); }
+
+	public bool adjustable() { return self.enabled() && self.element.semanticRangeDescriptor() != null; }
+
+	public bool interactive() { return self.enabled() && (self.adjustable() || self.element.kind() == NATIVE_UI_BUTTON || self.element.kind() == NATIVE_UI_TEXT_INPUT || self.focusable()); }
+
+	public bool clickable() { return self.enabled() && !self.adjustable() && self.element.kind() == NATIVE_UI_BUTTON; }
+
+	public bool focusable() { return self.semanticsValue.focusable(); }
+
+	public bool accessibilityActivatable() {
+		if (!self.enabled()) { return false; }
+		NativeUiSemanticRole role = self.semanticsValue.role();
+		return role == NATIVE_UI_SEMANTIC_ROLE_BUTTON || role == NATIVE_UI_SEMANTIC_ROLE_TOGGLE_BUTTON || role == NATIVE_UI_SEMANTIC_ROLE_CHECKBOX || role == NATIVE_UI_SEMANTIC_ROLE_TAB || role == NATIVE_UI_SEMANTIC_ROLE_RADIO;
+	}
 }
 
 class NativeUiFrame {
@@ -238,6 +251,12 @@ class NativeUiFrame {
 			if (box.id().equals(identity)) { return box; }
 		}
 		return null;
+	}
+
+	public NativeUiResolvedSemantics? resolvedSemanticsFor(string identity) {
+		NativeUiLayoutBox? optionalBox = self.boxFor(identity);
+		if (optionalBox == null) { return null; }
+		return optionalBox.resolvedSemantics();
 	}
 
 	public NativeUiVirtualGridViewport? virtualGridFor(string identity) {
@@ -519,13 +538,18 @@ class NativeUiLayout {
 			context.fail(NATIVE_UI_FRAME_INVALID_TREE, f"native UI text input is invalid or exceeds its byte bound: " + f"{element.id()}");
 			return null;
 		}
+		NativeUiSemantics semantics = element.semanticDescriptor();
+		if (!semantics.valid()) {
+			context.fail(NATIVE_UI_FRAME_INVALID_TREE, f"native UI semantics are invalid: {element.id()}");
+			return null;
+		}
 		NativeUiSemanticRange? optionalRange = element.semanticRangeDescriptor();
-		if (optionalRange != null && (!optionalRange.valid() || !NativeUiTextInput.validUtf8(optionalRange.label()))) {
+		if (optionalRange != null && (!optionalRange.valid() || !NativeUiSemanticText.valid(optionalRange.label(), 512))) {
 			context.fail(NATIVE_UI_FRAME_INVALID_TREE, f"native UI semantic range is invalid: {element.id()}");
 			return null;
 		}
 		int rangeLabelBytes = optionalRange == null ? 0 : optionalRange.label().len();
-		context.metadataBytes += (long long)element.id().len() + (long long)element.inlineStyle().len() + (long long)element.cssClass().len() + (long long)element.contentText().len() + (long long)element.placeholderText().len() + (long long)element.imageAlt().len() + (long long)rangeLabelBytes;
+		context.metadataBytes += (long long)element.id().len() + (long long)element.inlineStyle().len() + (long long)element.cssClass().len() + (long long)element.contentText().len() + (long long)element.placeholderText().len() + (long long)element.imageAlt().len() + (long long)semantics.label().len() + (long long)semantics.hint().len() + (long long)semantics.value().len() + (long long)rangeLabelBytes;
 		if (context.metadataBytes > 4194304LL) {
 			context.fail(NATIVE_UI_FRAME_LIMIT_EXCEEDED, "native UI tree metadata exceeds 4 MiB");
 			return null;
@@ -1082,6 +1106,7 @@ class NativeUiRenderer {
 		Vector<NativeUiLayoutBox> boxes = [];
 		NativeUiLayout.place(measured, 0, 0, width, 0, boxes);
 		if (synchronizeInput) { self.synchronizeFocus(boxes); }
+		for box in boxes { box.resolveSemantics(box.id().equals(self.focusedIdentity)); }
 		Image image = proofRaster ? Image(width, height) : Image.empty();
 		if (proofRaster) {
 			NativeUiRaster.frame(image, boxes, self.themeValue, self.hoveredIdentity, self.focusedIdentity, self.focusedInputValue, self.focusedCaretByteOffset, self.scrollXValue, self.scrollYValue);
@@ -1184,6 +1209,10 @@ class NativeUiRenderer {
 			NativeUiPointerSample sample = self.pointerSample(target, x, y);
 			self.rememberRangeSample(sample);
 			events.push(NativeUiEvent.rangePointerPressed(target.id(), sample));
+		} else if (optionalTarget != null && optionalTarget.clickable()) {
+			NativeUiLayoutBox target = optionalTarget;
+			if (target.focusable()) { self.focus(target); }
+			self.pressedIdentity = target.id();
 		} else if (optionalTarget != null && optionalTarget.focusable()) {
 			NativeUiLayoutBox target = optionalTarget;
 			self.focus(target);
@@ -1323,6 +1352,15 @@ class NativeUiRenderer {
 	}
 
 	public NativeUiEventBatch adjustFocusedRange(NativeUiRangeAdjustment adjustment) { return self.adjustRange(self.focusedIdentity, adjustment); }
+
+	public NativeUiEventBatch activate(string elementId) {
+		Vector<NativeUiEvent> events = [];
+		if (!self.frameValue.ok()) { return NativeUiEventBatch(self.frameValue, events); }
+		NativeUiLayoutBox? optionalBox = self.frameValue.boxFor(elementId);
+		if (optionalBox == null || !optionalBox.accessibilityActivatable()) { return NativeUiEventBatch(self.frameValue, events); }
+		events.push(NativeUiEvent.clicked(elementId));
+		return NativeUiEventBatch(self.frameValue, events);
+	}
 
 	public NativeUiEventBatch wheelBy(int x, int y) {
 		if (!self.frameValue.ok()) {

@@ -390,7 +390,7 @@
           version = extensionVersion;
           src = extensionSource;
           sourceRoot = "source/src/devex/vscode";
-          npmDepsHash = "sha256-uYKvOVG3y2nSDoXmMqNAG09uCm1U/Cxv5COyVXYMwZY=";
+          npmDepsHash = "sha256-xm6xxb4Nz1kYBJSRBkO3hJmOsw7vZRUkOkZtLQq+MWI=";
           npmInstallFlags = [ "--ignore-scripts" ];
           npmRebuildFlags = [ "--ignore-scripts" ];
           nodejs = pkgs.nodejs_22;

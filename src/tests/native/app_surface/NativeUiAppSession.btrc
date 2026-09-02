@@ -176,6 +176,12 @@ int main() {
 	assert(clicked.eventCount() >= 1);
 	assert(clicked.eventAt(clicked.eventCount() - 1).kind() == NATIVE_UI_CLICKED);
 	assert(clicked.eventAt(clicked.eventCount() - 1).elementId() == "album:one");
+	assert(session.input().focusedId() == "album:one");
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_ENTER, 0);
+	NativeUiEventBatch keyboardActivated = session.dispatch(application.poll());
+	assert(keyboardActivated.eventCount() == 1);
+	assert(keyboardActivated.eventAt(0).kind() == NATIVE_UI_CLICKED);
+	assert(keyboardActivated.eventAt(0).elementId() == "album:one");
 
 	NativeUiElement duplicate = NativeUiElement.column("duplicate").child(NativeUiElement.text("same", "one")).child(NativeUiElement.text("same", "two"));
 	int framesBeforeReject = fake_gpu_frame_begin_count();

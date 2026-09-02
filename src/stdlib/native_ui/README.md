@@ -3,6 +3,23 @@
 `std.native_ui` keeps rendering and input portable without exposing platform
 handles. `NativeUiStyleSheet` and per-element styles affect appearance only.
 
+## Semantic state
+
+Attach `NativeUiSemantics` with `NativeUiElement.semantics(...)`; element
+`enabled`, `selected`, and `focusable` remain typed properties rather than CSS.
+Roles are backend-neutral. Label, hint, and value are independently optional,
+limited to 512 bytes, and validated as NUL-free UTF-8. Checked and pressed use
+`NativeUiSemanticToggleState`; expanded uses
+`NativeUiSemanticExpansionState`; live regions use
+`NativeUiSemanticLiveMode`.
+
+Disabled elements cannot be hit, focused, edited, adjusted, or activated.
+`NativeUiRenderer.activate(...)` is the accessibility activation boundary, and
+Enter/Space use it for the focused control. Actual focus is renderer-owned:
+inspect `NativeUiResolvedSemantics.focused()` through a frame or layout box.
+There is no declarative focused flag, and style declarations cannot alter
+semantic values.
+
 ## Semantic ranges
 
 Attach `NativeUiSemanticRange.horizontal(...)` or `.vertical(...)` with

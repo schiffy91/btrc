@@ -354,6 +354,9 @@ class NativeUiAppSession {
 			if (keyboard.key == APP_KEY_TAB && keyboard.action == APP_KEY_PRESSED) {
 				return self.renderer.focusNext(keyboard.modifiers.shift);
 			}
+			if ((keyboard.key == APP_KEY_ENTER || keyboard.key == APP_KEY_SPACE) && keyboard.action == APP_KEY_PRESSED) {
+				return self.renderer.activate(self.renderer.focusedId());
+			}
 			if (keyboard.key == APP_KEY_ESCAPE && keyboard.action == APP_KEY_PRESSED) {
 				return self.renderer.blur();
 			}
