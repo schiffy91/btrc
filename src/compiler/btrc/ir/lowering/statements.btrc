@@ -1148,6 +1148,15 @@ class StatementLowerer {
 		setjmpArgs.push(IRNode.fieldAccess(frame, "env", true));
 		IRNode tcIf = self.controlFlow.materializeConditional(ConditionalPlan(IRNode.binary(IRNode.call("setjmp", setjmpArgs), "==", IRNode.literal("0")), tryBody, catchBody));
 		out.push(tcIf);
+		if (node.finally_block == null && tryFlows.len == 0) {
+			/* GCC 15 with ASan can conservatively treat a setjmp-backed
+			 * conditional containing a VLA as falling through even when both
+			 * structured branches terminate. Materialize the impossible edge. */
+			Vector<IRNode> abortArgs = [];
+			IRNode abortCall = IRNode.call("abort", abortArgs);
+			abortCall.never_returns = true;
+			out.push(IRNode.expressionStatement(abortCall));
+		}
 
 		/* finally block: emitted inline after the if. */
 		if (node.finally_block != null) {

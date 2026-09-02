@@ -1523,6 +1523,20 @@ class ExceptionLowerer:
                 else_block=plan.catch_body,
             )
         )
+        if not plan.source.finally_block and not plan.continuation_flows:
+            # Both structured branches terminate, but GCC 15 with ASan can
+            # conservatively treat a setjmp-backed conditional containing a
+            # VLA as falling through. Keep the impossible edge explicit in C
+            # without changing the source-level control-flow contract.
+            plan.statements.append(
+                IRExprStmt(
+                    expr=IRCall(
+                        callee="abort",
+                        args=[],
+                        never_returns=True,
+                    )
+                )
+            )
         if plan.source.finally_block:
             if plan.finally_body is None or plan.finally_result is None:
                 raise CodegenError("finally branch was not materialized")

@@ -1235,6 +1235,8 @@ def test_borrowed_fixed_array_gpu_input_projection_is_exception_safe(
     run_start = generated.index("int Holder_run(Holder* self) {")
     run_end = generated.index("\nint main(", run_start)
     run_body = generated[run_start:run_end]
+    holder_end = generated.index("\n}", run_start) + 2
+    assert generated[run_start:holder_end].rstrip().endswith("(void)(abort());\n}")
     kept_match = re.search(r"Owner\*(?: volatile)? (__btrc_kept_operand_\d+);", run_body)
     assert kept_match is not None
     kept = kept_match.group(1)
@@ -1508,6 +1510,8 @@ def test_borrowed_auto_property_gpu_output_is_pinned_before_rhs_effect(
     run_start = generated.index("int Holder_run(Holder* self) {")
     run_end = generated.index("\nint main(", run_start)
     run_body = generated[run_start:run_end]
+    holder_end = generated.index("\n}", run_start) + 2
+    assert generated[run_start:holder_end].rstrip().endswith("(void)(abort());\n}")
     target_match = re.search(
         r"Vector_int\*(?: volatile)? (__gpu_output_target_\d+) = NULL;",
         run_body,

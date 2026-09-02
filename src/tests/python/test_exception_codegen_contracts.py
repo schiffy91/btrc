@@ -517,6 +517,20 @@ def test_try_frames_are_indirect_and_catch_messages_are_owned():
     assert "__btrc_str_track(__btrc_strdup(__btrc_error_msg))" in emitted
 
 
+def test_terminating_try_catch_materializes_the_impossible_c_edge():
+    emitted = emit_c("""
+        int choose() {
+            try { return 1; } catch (string error) { return 2; }
+        }
+        int main() { return choose() == 1 ? 0 : 1; }
+    """)
+
+    start = emitted.index("int choose(void) {")
+    end = emitted.index("\n}", start)
+    body = emitted[start:end]
+    assert body.rstrip().endswith("(void)(abort());")
+
+
 def test_string_exception_cleanup_uses_non_arc_unwind_path():
     emitted = emit_c("""
         void fail(string input) {
