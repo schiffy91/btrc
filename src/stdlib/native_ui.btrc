@@ -211,6 +211,22 @@ class NativeUiStyle {
 				if (!NativeUiStyle.pixels(value, false)) {
 					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, f"{property} requires a positive px value");
 				}
+			} else if (property.equals("font-size")) {
+				if (!NativeUiStyle.pixels(value, false) || Strings.toInt(value.substring(0, value.len() - 2)) < 8 || Strings.toInt(value.substring(0, value.len() - 2)) > 256) {
+					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "font-size requires 8px..256px");
+				}
+			} else if (property.equals("line-height")) {
+				if (!NativeUiStyle.pixels(value, false) || Strings.toInt(value.substring(0, value.len() - 2)) < 8 || Strings.toInt(value.substring(0, value.len() - 2)) > 512) {
+					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "line-height requires 8px..512px");
+				}
+			} else if (property.equals("font-weight")) {
+				if (value != "400" && value != "500" && value != "600" && value != "700") {
+					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "font-weight requires 400, 500, 600, or 700");
+				}
+			} else if (property.equals("text-align")) {
+				if (value != "left" && value != "center" && value != "right") {
+					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "text-align requires left, center, or right");
+				}
 			} else if (property.equals("background-color") || property.equals("color")) {
 				if (!NativeUiStyle.color(value)) {
 					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, f"{property} requires #RRGGBB or #RRGGBBAA");

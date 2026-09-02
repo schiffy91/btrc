@@ -29,8 +29,9 @@ int main() {
 	assert(attached.kind == GPU_ATTACHED);
 	GPU gpu = attached.gpu;
 
-	NativeUiStyleSheet sheet = NativeUiStyleSheet().rule("root", "gap: 6px; padding: 6px").rule("card", "border-radius: 6px; color: #ffffff");
-	NativeUiAppAttachOutcome uiAttached = NativeUiAppSession.attach(window, gpu, sheet);
+	NativeUiStyleSheet sheet = NativeUiStyleSheet().rule("root", "gap: 6px; padding: 6px").rule("card", "border-radius: 6px; color: #ffffff; font-size: 18px; line-height: 22px; font-weight: 600; text-align: center");
+	NativeUiTypography typography = NativeUiTypography();
+	NativeUiAppAttachOutcome uiAttached = NativeUiAppSession.attach(window, gpu, sheet, null, typography);
 	assert(uiAttached.kind == NATIVE_UI_APP_ATTACHED);
 	NativeUiAppSession session = uiAttached.session;
 

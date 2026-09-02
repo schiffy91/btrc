@@ -86,26 +86,29 @@ class NativeUiAppSession {
 	private GPU gpu;
 	private NativeUiRenderer renderer;
 	private NativeUiTheme theme;
+	private NativeUiTypography typography;
 	private unsigned long long compositorIdentity;
 	private unsigned long long ownerReceipt;
 	private bool prepared;
 
-	private NativeUiAppSession(ApplicationWindow window, GPU gpu, NativeUiStyleSheet styleSheet, NativeUiTheme theme, unsigned long long compositorIdentity, unsigned long long ownerReceipt) {
+	private NativeUiAppSession(ApplicationWindow window, GPU gpu, NativeUiStyleSheet styleSheet, NativeUiTheme theme, NativeUiTypography typography, unsigned long long compositorIdentity, unsigned long long ownerReceipt) {
 		self.window = window;
 		self.gpu = gpu;
-		self.renderer = NativeUiRenderer(theme, styleSheet);
+		self.renderer = NativeUiRenderer(theme, styleSheet, typography);
 		self.theme = theme;
+		self.typography = typography;
 		self.compositorIdentity = compositorIdentity;
 		self.ownerReceipt = ownerReceipt;
 		self.prepared = false;
 	}
 
-	class NativeUiAppAttachOutcome attach(ApplicationWindow window, GPU gpu, NativeUiStyleSheet? styleSheet = null, NativeUiTheme? theme = null) {
+	class NativeUiAppAttachOutcome attach(ApplicationWindow window, GPU gpu, NativeUiStyleSheet? styleSheet = null, NativeUiTheme? theme = null, NativeUiTypography? typography = null) {
 		if (window == null || gpu == null || !window.isOpen() || !gpu.isOpen()) {
 			return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACH_REJECTED, null, "native UI requires an open std.app window and std.gpu");
 		}
 		NativeUiStyleSheet resolvedSheet = styleSheet == null ? NativeUiStyleSheet() : styleSheet;
 		NativeUiTheme resolvedTheme = theme == null ? NativeUiTheme.nativeDefault() : theme;
+		NativeUiTypography resolvedTypography = typography == null ? NativeUiTypography() : typography;
 		if (!resolvedSheet.ok()) {
 			return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACH_REJECTED, null, resolvedSheet.issue().message());
 		}
@@ -118,7 +121,7 @@ class NativeUiAppSession {
 			}
 			return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACH_REJECTED, null, std_gpu_status_message(status));
 		}
-		return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACHED, NativeUiAppSession(window, gpu, resolvedSheet, resolvedTheme, compositor, receipt), "");
+		return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACHED, NativeUiAppSession(window, gpu, resolvedSheet, resolvedTheme, resolvedTypography, compositor, receipt), "");
 	}
 
 	public bool isOpen() { return self.compositorIdentity != 0ULL && self.ownerReceipt != 0ULL && self.window.isOpen() && self.gpu.isOpen(); }
@@ -137,20 +140,28 @@ class NativeUiAppSession {
 		return GPUResourceOutcome(kind, kind == GPU_RESOURCE_READY ? "" : std_gpu_status_message(status));
 	}
 
-	private GPUResourceOutcome addText(string text, float x, float y, NativeUiColor color, int viewportWidth) {
+	private GPUResourceOutcome addText(string text, float x, float y, NativeUiColor color, int viewportWidth, NativeUiResolvedStyle style) {
 		float cursor = x;
+		float glyphWidth = (float)self.typography.glyphWidth(style.fontSize);
+		float glyphHeight = (float)self.typography.glyphHeight(style.fontSize);
+		float glyphY = y + (float)(style.lineHeight - self.typography.glyphHeight(style.fontSize)) / 2.0f;
+		float advance = (float)self.typography.advance(style.fontSize);
 		int index = 0;
 		while (index < text.len()) {
 			if (cursor >= (float)viewportWidth) { break; }
-			unsigned long long glyph = NativeUiRaster.glyph(text[index]);
+			unsigned long long glyph = self.typography.glyph(text[index]);
 			if (glyph != 0ULL) {
-				int status = std_gpu_native_ui_add_glyph(self.compositorIdentity, cursor, y, 10.0f, 14.0f, self.channel(color.red), self.channel(color.green), self.channel(color.blue), self.channel(color.alpha), glyph);
+				int status = std_gpu_native_ui_add_glyph(self.compositorIdentity, cursor, glyphY, glyphWidth, glyphHeight, self.channel(color.red), self.channel(color.green), self.channel(color.blue), self.channel(color.alpha), glyph);
 				if (status != GPU_RESOURCE_READY) {
 					return GPUResourceOutcome((GPUResourceKind)status, std_gpu_status_message(status));
 				}
+				if (style.fontWeight >= 600 && cursor + 1.0f < (float)viewportWidth) {
+					int boldStatus = std_gpu_native_ui_add_glyph(self.compositorIdentity, cursor + 1.0f, glyphY, glyphWidth, glyphHeight, self.channel(color.red), self.channel(color.green), self.channel(color.blue), self.channel(color.alpha), glyph);
+					if (boldStatus != GPU_RESOURCE_READY) { return GPUResourceOutcome((GPUResourceKind)boldStatus, std_gpu_status_message(boldStatus)); }
+				}
 			}
 			index = NativeUiTextInput.nextBoundary(text, index);
-			cursor += 12.0f;
+			cursor += advance;
 		}
 		return GPUResourceOutcome(GPU_RESOURCE_READY, "");
 	}
@@ -186,12 +197,14 @@ class NativeUiAppSession {
 				string value = self.renderer.displayValue(box.element);
 				bool placeholder = value.isEmpty();
 				string visibleValue = placeholder ? box.element.placeholderText() : value;
-				GPUResourceOutcome text = self.addText(visibleValue, (float)(x + style.padding), (float)(y + (box.bounds.height - 14) / 2), placeholder ? self.theme.mutedText : (style.hasForeground ? style.foreground : self.theme.text), frame.viewport.width());
+				NativeUiTextMetrics metrics = self.typography.measure(visibleValue, style.fontSize, style.lineHeight);
+				int textX = self.typography.alignedX(x, box.bounds.width, style.padding, metrics.width(), style.textAlignment);
+				GPUResourceOutcome text = self.addText(visibleValue, (float)textX, (float)(y + (box.bounds.height - style.lineHeight) / 2), placeholder ? self.theme.mutedText : (style.hasForeground ? style.foreground : self.theme.text), frame.viewport.width(), style);
 				if (text.kind != GPU_RESOURCE_READY) { return text; }
 				if (hasFocus) {
-					int caretX = x + style.padding + NativeUiTextInput.scalarCount(value, self.renderer.focusedCaret()) * 12;
+					int caretX = textX + NativeUiTextInput.scalarCount(value, self.renderer.focusedCaret()) * self.typography.advance(style.fontSize);
 					if (caretX >= x + style.padding && caretX < x + box.bounds.width - style.padding + 1) {
-						GPUResourceOutcome caret = self.addRect((float)caretX, (float)(y + (box.bounds.height - 16) / 2), 2.0f, 16.0f, style.hasForeground ? style.foreground : self.theme.text, 0.0f);
+						GPUResourceOutcome caret = self.addRect((float)caretX, (float)(y + (box.bounds.height - style.lineHeight) / 2), 2.0f, (float)style.lineHeight, style.hasForeground ? style.foreground : self.theme.text, 0.0f);
 						if (caret.kind != GPU_RESOURCE_READY) {
 							return caret;
 						}
@@ -204,7 +217,9 @@ class NativeUiAppSession {
 					return rectangle;
 				}
 				NativeUiColor label = highlighted ? self.theme.accentText : (style.hasForeground ? style.foreground : self.theme.text);
-				GPUResourceOutcome text = self.addText(box.element.contentText(), (float)(x + style.padding), (float)(y + style.padding), label, frame.viewport.width());
+				NativeUiTextMetrics metrics = self.typography.measure(box.element.contentText(), style.fontSize, style.lineHeight);
+				int textX = self.typography.alignedX(x, box.bounds.width, style.padding, metrics.width(), style.textAlignment);
+				GPUResourceOutcome text = self.addText(box.element.contentText(), (float)textX, (float)(y + style.padding), label, frame.viewport.width(), style);
 				if (text.kind != GPU_RESOURCE_READY) { return text; }
 			} else {
 				if (style.hasBackground) {
@@ -214,7 +229,9 @@ class NativeUiAppSession {
 					}
 				}
 				if (box.kind() == NATIVE_UI_TEXT) {
-					GPUResourceOutcome text = self.addText(box.element.contentText(), (float)(x + style.padding), (float)(y + style.padding), style.hasForeground ? style.foreground : self.theme.text, frame.viewport.width());
+					NativeUiTextMetrics metrics = self.typography.measure(box.element.contentText(), style.fontSize, style.lineHeight);
+					int textX = self.typography.alignedX(x, box.bounds.width, style.padding, metrics.width(), style.textAlignment);
+					GPUResourceOutcome text = self.addText(box.element.contentText(), (float)textX, (float)(y + style.padding), style.hasForeground ? style.foreground : self.theme.text, frame.viewport.width(), style);
 					if (text.kind != GPU_RESOURCE_READY) { return text; }
 				} else if (box.kind() == NATIVE_UI_IMAGE) {
 					int imageWidth = box.bounds.width - style.padding * 2;

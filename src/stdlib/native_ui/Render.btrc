@@ -78,6 +78,8 @@ class NativeUiTextInput {
 	}
 }
 
+#include "Typography.btrc"
+
 enum NativeUiFrameStatus {
 	NATIVE_UI_FRAME_READY = 0,
 	NATIVE_UI_FRAME_INVALID_VIEWPORT = 1,
@@ -364,6 +366,10 @@ class NativeUiResolvedStyle {
 	public int radius;
 	public int width;
 	public int height;
+	public int fontSize;
+	public int lineHeight;
+	public int fontWeight;
+	public NativeUiTextAlignment textAlignment;
 	public bool hasBackground;
 	public NativeUiColor background;
 	public bool hasForeground;
@@ -375,6 +381,10 @@ class NativeUiResolvedStyle {
 		self.radius = kind == NATIVE_UI_BUTTON || kind == NATIVE_UI_TEXT_INPUT ? 8 : 0;
 		self.width = 0;
 		self.height = 0;
+		self.fontSize = 14;
+		self.lineHeight = 14;
+		self.fontWeight = 400;
+		self.textAlignment = kind == NATIVE_UI_BUTTON ? NATIVE_UI_TEXT_ALIGN_CENTER : NATIVE_UI_TEXT_ALIGN_LEFT;
 		self.hasBackground = false;
 		self.background = NativeUiColor(0, 0, 0, 0);
 		self.hasForeground = false;
@@ -402,6 +412,14 @@ class NativeUiResolvedStyle {
 				self.width = NativeUiResolvedStyle.pixelValue(value);
 			} else if (property.equals("height")) {
 				self.height = NativeUiResolvedStyle.pixelValue(value);
+			} else if (property.equals("font-size")) {
+				self.fontSize = NativeUiResolvedStyle.pixelValue(value);
+			} else if (property.equals("line-height")) {
+				self.lineHeight = NativeUiResolvedStyle.pixelValue(value);
+			} else if (property.equals("font-weight")) {
+				self.fontWeight = Strings.toInt(value);
+			} else if (property.equals("text-align")) {
+				self.textAlignment = value == "center" ? NATIVE_UI_TEXT_ALIGN_CENTER : (value == "right" ? NATIVE_UI_TEXT_ALIGN_RIGHT : NATIVE_UI_TEXT_ALIGN_LEFT);
 			} else if (property.equals("background-color")) {
 				self.hasBackground = true;
 				self.background = NativeUiColor.hex(value);
@@ -418,6 +436,9 @@ class NativeUiResolvedStyle {
 			style.apply(sheet.cssFor(element.cssClass()));
 		}
 		style.apply(element.inlineStyle());
+		if (style.lineHeight < style.fontSize) {
+			style.lineHeight = style.fontSize;
+		}
 		return style;
 	}
 }
@@ -447,8 +468,9 @@ class NativeUiBuildContext {
 	public long long imagePixels;
 	public long long metadataBytes;
 	public NativeUiStyleSheet sheet;
+	public NativeUiTypography typography;
 
-	public NativeUiBuildContext(NativeUiStyleSheet sheet) {
+	public NativeUiBuildContext(NativeUiStyleSheet sheet, NativeUiTypography typography) {
 		self.status = NATIVE_UI_FRAME_READY;
 		self.error = "";
 		self.styleIssue = NativeUiStyleError.valid();
@@ -457,6 +479,7 @@ class NativeUiBuildContext {
 		self.imagePixels = 0LL;
 		self.metadataBytes = 0LL;
 		self.sheet = sheet;
+		self.typography = typography;
 	}
 
 	public void fail(NativeUiFrameStatus status, string error) {
@@ -530,6 +553,10 @@ class NativeUiLayout {
 			context.fail(NATIVE_UI_FRAME_INVALID_TREE, f"native UI text input requires non-null UTF-8 text: " + f"{element.id()}");
 			return null;
 		}
+		if ((element.kind() == NATIVE_UI_TEXT || element.kind() == NATIVE_UI_BUTTON) && !NativeUiTextInput.validUtf8(element.contentText())) {
+			context.fail(NATIVE_UI_FRAME_INVALID_TREE, f"native UI content requires valid UTF-8 text: " + f"{element.id()}");
+			return null;
+		}
 		if (element.inlineStyle().len() > 4096 || element.cssClass().len() > 128 || element.contentText().len() > 4096 || element.placeholderText().len() > 4096 || element.imageAlt().len() > 4096) {
 			context.fail(NATIVE_UI_FRAME_LIMIT_EXCEEDED, f"native UI element metadata exceeds its bound: {element.id()}");
 			return null;
@@ -562,11 +589,12 @@ class NativeUiLayout {
 		if (innerWidth < 1) { innerWidth = 1; }
 
 		if (element.kind() == NATIVE_UI_TEXT) {
-			measured.width = NativeUiLayout.minimum(availableWidth, NativeUiTextInput.scalarCount(element.contentText(), element.contentText().len()) * 12 + inset);
-			measured.height = 14 + inset;
+			NativeUiTextMetrics textMetrics = context.typography.measure(element.contentText(), style.fontSize, style.lineHeight);
+			measured.width = NativeUiLayout.minimum(availableWidth, textMetrics.width() + inset);
+			measured.height = textMetrics.height() + inset;
 		} else if (element.kind() == NATIVE_UI_TEXT_INPUT) {
 			measured.width = availableWidth;
-			measured.height = NativeUiLayout.maximum(36, 14 + inset);
+			measured.height = NativeUiLayout.maximum(36, style.lineHeight + inset);
 		} else if (element.kind() == NATIVE_UI_IMAGE) {
 			Image? optionalImage = element.contentImage();
 			if (optionalImage == null || optionalImage.isEmpty()) {
@@ -667,11 +695,12 @@ class NativeUiLayout {
 					childrenHeight += (long long)child.height;
 					childrenWidth = NativeUiLayout.maximum(childrenWidth, child.width);
 				}
-				int labelHeight = element.kind() == NATIVE_UI_BUTTON ? 20 : 0;
+				int labelHeight = element.kind() == NATIVE_UI_BUTTON ? NativeUiLayout.maximum(20, style.lineHeight) : 0;
 				if (labelHeight > 0 && childrenHeight > 0LL) {
 					childrenHeight += (long long)style.gap;
 				}
-				measured.width = element.kind() == NATIVE_UI_BUTTON ? NativeUiLayout.minimum(availableWidth, NativeUiLayout.maximum(element.contentText().len() * 12 + inset, childrenWidth + inset)) : availableWidth;
+				int labelWidth = element.kind() == NATIVE_UI_BUTTON ? context.typography.measure(element.contentText(), style.fontSize, style.lineHeight).width() : 0;
+				measured.width = element.kind() == NATIVE_UI_BUTTON ? NativeUiLayout.minimum(availableWidth, NativeUiLayout.maximum(labelWidth + inset, childrenWidth + inset)) : availableWidth;
 				long long totalHeight = (long long)labelHeight + childrenHeight + (long long)inset;
 				if (totalHeight > 1000000000LL) {
 					context.fail(NATIVE_UI_FRAME_LIMIT_EXCEEDED, "native UI column content exceeds 1 billion pixels");
@@ -730,7 +759,7 @@ class NativeUiLayout {
 		} else if (node.children.len > 0) {
 			int cursorY = innerY;
 			if (node.element.kind() == NATIVE_UI_BUTTON) {
-				cursorY += 20 + node.style.gap;
+				cursorY += NativeUiLayout.maximum(20, node.style.lineHeight) + node.style.gap;
 			}
 			for child in node.children {
 				NativeUiLayout.place(child, innerX, cursorY, innerWidth, depth + 1, boxes);
@@ -829,67 +858,32 @@ class NativeUiRaster {
 		}
 	}
 
-	class unsigned long long glyph(char raw) {
-		char value = raw >= 'a' && raw <= 'z' ? raw - 'a' + 'A' : raw;
-		switch (value) {
-			case '0': return 0x3a33ae62eULL;
-			case '1': return 0x3884210c4ULL;
-			case '2': return 0x7c444422eULL;
-			case '3': return 0x3e107420fULL;
-			case '4': return 0x211f4a988ULL;
-			case '5': return 0x3e107843fULL;
-			case '6': return 0x3a317842eULL;
-			case '7': return 0x8422221fULL;
-			case '8': return 0x3a317462eULL;
-			case '9': return 0x3a10f462eULL;
-			case 'A': return 0x4631fc62eULL;
-			case 'B': return 0x3e317c62fULL;
-			case 'C': return 0x78210843eULL;
-			case 'D': return 0x3e318c62fULL;
-			case 'E': return 0x7c217843fULL;
-			case 'F': return 0x4217843fULL;
-			case 'G': return 0x7a31e843eULL;
-			case 'H': return 0x4631fc631ULL;
-			case 'I': return 0x7c842109fULL;
-			case 'J': return 0x19294211cULL;
-			case 'K': return 0x452519531ULL;
-			case 'L': return 0x7c2108421ULL;
-			case 'M': return 0x4631ad771ULL;
-			case 'N': return 0x4631cd671ULL;
-			case 'O': return 0x3a318c62eULL;
-			case 'P': return 0x4217c62fULL;
-			case 'Q': return 0x59358c62eULL;
-			case 'R': return 0x45257c62fULL;
-			case 'S': return 0x3e107043eULL;
-			case 'T': return 0x10842109fULL;
-			case 'U': return 0x3a318c631ULL;
-			case 'V': return 0x11518c631ULL;
-			case 'W': return 0x2ab5ac631ULL;
-			case 'X': return 0x462a22a31ULL;
-			case 'Y': return 0x108422a31ULL;
-			case 'Z': return 0x7c222221fULL;
-			case '-': return 0x00003e000ULL;
-			case '.': return 0x300000000ULL;
-			case ':': return 0x018000180ULL;
-			default: return value == ' ' ? 0ULL : 0x2318c62a2ULL;
-		}
-	}
-
-	class void text(Image image, int x, int y, string value, NativeUiColor color) {
+	class void text(Image image, int x, int y, string value, NativeUiColor color, NativeUiResolvedStyle style, NativeUiTypography typography) {
+		int glyphWidth = typography.glyphWidth(style.fontSize);
+		int glyphHeight = typography.glyphHeight(style.fontSize);
+		int advance = typography.advance(style.fontSize);
+		int glyphY = y + (style.lineHeight - glyphHeight) / 2;
+		int boldExtra = style.fontWeight >= 600 ? 1 : 0;
 		int cursor = x;
 		int index = 0;
 		while (index < value.len()) {
-			unsigned long long glyph = NativeUiRaster.glyph(value[index]);
+			unsigned long long glyph = typography.glyph(value[index]);
 			for (int row = 0; row < 7; row++) {
 				for (int column = 0; column < 5; column++) {
 					int bit = row * 5 + column;
 					if (((glyph >> bit) & 1ULL) != 0ULL) {
-						NativeUiRaster.fillRect(image, cursor + column * 2, y + row * 2, 2, 2, color);
+						int cellX = column * glyphWidth / 5;
+						int cellY = row * glyphHeight / 7;
+						int cellWidth = (column + 1) * glyphWidth / 5 - cellX + boldExtra;
+						int cellHeight = (row + 1) * glyphHeight / 7 - cellY;
+						if (cellWidth < 1) { cellWidth = 1; }
+						if (cellHeight < 1) { cellHeight = 1; }
+						NativeUiRaster.fillRect(image, cursor + cellX, glyphY + cellY, cellWidth, cellHeight, color);
 					}
 				}
 			}
 			index = NativeUiTextInput.nextBoundary(value, index);
-			cursor += 12;
+			cursor += advance;
 			if (cursor >= image.width) { return; }
 		}
 	}
@@ -914,7 +908,7 @@ class NativeUiRaster {
 		}
 	}
 
-	class void frame(Image image, Vector<NativeUiLayoutBox> boxes, NativeUiTheme theme, string hovered, string focused, string focusedValue, int caretByteOffset, int scrollX, int scrollY) {
+	class void frame(Image image, Vector<NativeUiLayoutBox> boxes, NativeUiTheme theme, NativeUiTypography typography, string hovered, string focused, string focusedValue, int caretByteOffset, int scrollX, int scrollY) {
 		NativeUiRaster.fillRect(image, 0, 0, image.width, image.height, theme.background);
 		for box in boxes {
 			NativeUiResolvedStyle style = box.style;
@@ -930,24 +924,30 @@ class NativeUiRaster {
 				string value = hasFocus ? focusedValue : box.element.contentText();
 				bool placeholder = value.isEmpty();
 				string visibleValue = placeholder ? box.element.placeholderText() : value;
-				NativeUiRaster.text(image, x + style.padding, y + (box.bounds.height - 14) / 2, visibleValue, placeholder ? theme.mutedText : (style.hasForeground ? style.foreground : theme.text));
+				NativeUiTextMetrics metrics = typography.measure(visibleValue, style.fontSize, style.lineHeight);
+				int textX = typography.alignedX(x, box.bounds.width, style.padding, metrics.width(), style.textAlignment);
+				NativeUiRaster.text(image, textX, y + (box.bounds.height - style.lineHeight) / 2, visibleValue, placeholder ? theme.mutedText : (style.hasForeground ? style.foreground : theme.text), style, typography);
 				if (hasFocus) {
-					int caretX = x + style.padding + NativeUiTextInput.scalarCount(value, caretByteOffset) * 12;
+					int caretX = textX + NativeUiTextInput.scalarCount(value, caretByteOffset) * typography.advance(style.fontSize);
 					if (caretX >= x + style.padding && caretX < x + box.bounds.width - style.padding + 1) {
-						NativeUiRaster.fillRect(image, caretX, y + (box.bounds.height - 16) / 2, 2, 16, style.hasForeground ? style.foreground : theme.text);
+						NativeUiRaster.fillRect(image, caretX, y + (box.bounds.height - style.lineHeight) / 2, 2, style.lineHeight, style.hasForeground ? style.foreground : theme.text);
 					}
 				}
 			} else if (box.element.kind() == NATIVE_UI_BUTTON) {
 				NativeUiColor fill = box.id().equals(hovered) ? theme.accent : theme.panel;
 				NativeUiRaster.fillRect(image, x, y, box.bounds.width, box.bounds.height, fill, style.radius);
 				NativeUiColor label = box.id().equals(hovered) ? theme.accentText : (style.hasForeground ? style.foreground : theme.text);
-				NativeUiRaster.text(image, x + style.padding, y + style.padding, box.element.contentText(), label);
+				NativeUiTextMetrics metrics = typography.measure(box.element.contentText(), style.fontSize, style.lineHeight);
+				int textX = typography.alignedX(x, box.bounds.width, style.padding, metrics.width(), style.textAlignment);
+				NativeUiRaster.text(image, textX, y + style.padding, box.element.contentText(), label, style, typography);
 			} else {
 				if (style.hasBackground) {
 					NativeUiRaster.fillRect(image, x, y, box.bounds.width, box.bounds.height, style.background, style.radius);
 				}
 				if (box.element.kind() == NATIVE_UI_TEXT) {
-					NativeUiRaster.text(image, x + style.padding, y + style.padding, box.element.contentText(), style.hasForeground ? style.foreground : theme.text);
+					NativeUiTextMetrics metrics = typography.measure(box.element.contentText(), style.fontSize, style.lineHeight);
+					int textX = typography.alignedX(x, box.bounds.width, style.padding, metrics.width(), style.textAlignment);
+					NativeUiRaster.text(image, textX, y + style.padding, box.element.contentText(), style.hasForeground ? style.foreground : theme.text, style, typography);
 				} else if (box.element.kind() == NATIVE_UI_IMAGE) {
 					Image? optionalImage = box.element.contentImage();
 					if (optionalImage != null && !optionalImage.isEmpty()) {
@@ -964,6 +964,7 @@ class NativeUiRaster {
 class NativeUiRenderer {
 	private NativeUiTheme themeValue;
 	private NativeUiStyleSheet sheetValue;
+	private NativeUiTypography typographyValue;
 	private NativeUiElement? rootValue;
 	private NativeUiFrame frameValue;
 	private int widthValue;
@@ -983,9 +984,10 @@ class NativeUiRenderer {
 	private int focusedMaxBytes;
 	private bool proofRasterValue;
 
-	public NativeUiRenderer(NativeUiTheme? theme = null, NativeUiStyleSheet? styleSheet = null) {
+	public NativeUiRenderer(NativeUiTheme? theme = null, NativeUiStyleSheet? styleSheet = null, NativeUiTypography? typography = null) {
 		self.themeValue = theme == null ? NativeUiTheme.nativeDefault() : theme;
 		self.sheetValue = styleSheet == null ? NativeUiStyleSheet() : styleSheet;
+		self.typographyValue = typography == null ? NativeUiTypography() : typography;
 		self.rootValue = null;
 		self.widthValue = 0;
 		self.heightValue = 0;
@@ -1007,6 +1009,8 @@ class NativeUiRenderer {
 	}
 
 	class NativeUiRenderer styled(NativeUiStyleSheet styleSheet) { return NativeUiRenderer(null, styleSheet); }
+
+	public NativeUiTypography typography() { return self.typographyValue; }
 
 	public NativeUiFrame currentFrame() { return self.frameValue; }
 
@@ -1090,7 +1094,7 @@ class NativeUiRenderer {
 			self.frameValue = NativeUiFrame.failed(NATIVE_UI_FRAME_INVALID_STYLE, self.sheetValue.issue().message(), self.sheetValue.issue(), width, height, self.scrollXValue, self.scrollYValue);
 			return self.frameValue;
 		}
-		NativeUiBuildContext context = NativeUiBuildContext(self.sheetValue);
+		NativeUiBuildContext context = NativeUiBuildContext(self.sheetValue, self.typographyValue);
 		NativeUiMeasuredNode? optionalMeasured = NativeUiLayout.measure(root, width, 0, context);
 		if (optionalMeasured == null) {
 			self.frameValue = NativeUiFrame.failed(context.status, context.error, context.styleIssue, width, height, self.scrollXValue, self.scrollYValue);
@@ -1109,7 +1113,7 @@ class NativeUiRenderer {
 		for box in boxes { box.resolveSemantics(box.id().equals(self.focusedIdentity)); }
 		Image image = proofRaster ? Image(width, height) : Image.empty();
 		if (proofRaster) {
-			NativeUiRaster.frame(image, boxes, self.themeValue, self.hoveredIdentity, self.focusedIdentity, self.focusedInputValue, self.focusedCaretByteOffset, self.scrollXValue, self.scrollYValue);
+			NativeUiRaster.frame(image, boxes, self.themeValue, self.typographyValue, self.hoveredIdentity, self.focusedIdentity, self.focusedInputValue, self.focusedCaretByteOffset, self.scrollXValue, self.scrollYValue);
 		}
 		NativeUiViewportMetrics viewport = NativeUiViewportMetrics(width, height, self.scrollXValue, self.scrollYValue);
 		Vector<NativeUiVirtualGridViewport> virtualGrids = NativeUiLayout.virtualGridViewports(boxes, viewport);

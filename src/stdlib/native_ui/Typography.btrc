@@ -1,0 +1,122 @@
+/* Bounded typography contract shared by native UI layout and presenters.
+ *
+ * The deterministic provider keeps proof rasters and tests platform-neutral.
+ * Platform providers can implement this same session-owned contract without
+ * introducing ambient font state or changing application element trees.
+ */
+
+enum NativeUiTextAlignment {
+	NATIVE_UI_TEXT_ALIGN_LEFT = 0,
+	NATIVE_UI_TEXT_ALIGN_CENTER = 1,
+	NATIVE_UI_TEXT_ALIGN_RIGHT = 2
+};
+
+class NativeUiTextMetrics {
+	private int widthValue;
+	private int heightValue;
+	private int ascentValue;
+	private int descentValue;
+	private int advanceValue;
+
+	public NativeUiTextMetrics(int width, int height, int ascent, int descent, int advance) {
+		if (width < 0 || width > 1000000000 || height < 1 || height > 4096 || ascent < 1 || ascent > height || descent < 0 || descent > height || ascent + descent > height || advance < 1 || advance > 4096) { throw "invalid native UI text metrics"; }
+		self.widthValue = width;
+		self.heightValue = height;
+		self.ascentValue = ascent;
+		self.descentValue = descent;
+		self.advanceValue = advance;
+	}
+
+	public int width() { return self.widthValue; }
+
+	public int height() { return self.heightValue; }
+
+	public int ascent() { return self.ascentValue; }
+
+	public int descent() { return self.descentValue; }
+
+	public int advance() { return self.advanceValue; }
+}
+
+class NativeUiTypography {
+	public NativeUiTypography() {}
+
+	public int glyphWidth(int fontSize) {
+		int width = fontSize * 5 / 7;
+		return width < 1 ? 1 : width;
+	}
+
+	public int glyphHeight(int fontSize) { return fontSize; }
+
+	public int advance(int fontSize) {
+		int value = fontSize * 6 / 7;
+		return value < 1 ? 1 : value;
+	}
+
+	public NativeUiTextMetrics measure(string value, int fontSize, int lineHeight) {
+		if (value == null || fontSize < 8 || fontSize > 256 || lineHeight < fontSize || lineHeight > 512 || !NativeUiTextInput.validUtf8(value)) { throw "invalid native UI text measurement"; }
+		int scalarCount = NativeUiTextInput.scalarCount(value, value.len());
+		int advance = self.advance(fontSize);
+		long long width = (long long)scalarCount * (long long)advance;
+		if (width > 1000000000LL) { throw "native UI text measurement exceeds its bound"; }
+		int ascent = fontSize * 4 / 5;
+		if (ascent < 1) { ascent = 1; }
+		int descent = fontSize - ascent;
+		return NativeUiTextMetrics((int)width, lineHeight, ascent, descent, advance);
+	}
+
+	public int alignedX(int outerX, int outerWidth, int padding, int textWidth, NativeUiTextAlignment alignment) {
+		int innerWidth = outerWidth - padding * 2;
+		if (innerWidth < 0) { innerWidth = 0; }
+		int visibleWidth = textWidth < innerWidth ? textWidth : innerWidth;
+		if (alignment == NATIVE_UI_TEXT_ALIGN_CENTER) { return outerX + padding + (innerWidth - visibleWidth) / 2; }
+		if (alignment == NATIVE_UI_TEXT_ALIGN_RIGHT) { return outerX + padding + innerWidth - visibleWidth; }
+		return outerX + padding;
+	}
+
+	public unsigned long long glyph(char raw) {
+		char value = raw >= 'a' && raw <= 'z' ? raw - 'a' + 'A' : raw;
+		switch (value) {
+			case '0': return 0x3a33ae62eULL;
+			case '1': return 0x3884210c4ULL;
+			case '2': return 0x7c444422eULL;
+			case '3': return 0x3e107420fULL;
+			case '4': return 0x211f4a988ULL;
+			case '5': return 0x3e107843fULL;
+			case '6': return 0x3a317842eULL;
+			case '7': return 0x8422221fULL;
+			case '8': return 0x3a317462eULL;
+			case '9': return 0x3a10f462eULL;
+			case 'A': return 0x4631fc62eULL;
+			case 'B': return 0x3e317c62fULL;
+			case 'C': return 0x78210843eULL;
+			case 'D': return 0x3e318c62fULL;
+			case 'E': return 0x7c217843fULL;
+			case 'F': return 0x4217843fULL;
+			case 'G': return 0x7a31e843eULL;
+			case 'H': return 0x4631fc631ULL;
+			case 'I': return 0x7c842109fULL;
+			case 'J': return 0x19294211cULL;
+			case 'K': return 0x452519531ULL;
+			case 'L': return 0x7c2108421ULL;
+			case 'M': return 0x4631ad771ULL;
+			case 'N': return 0x4631cd671ULL;
+			case 'O': return 0x3a318c62eULL;
+			case 'P': return 0x4217c62fULL;
+			case 'Q': return 0x59358c62eULL;
+			case 'R': return 0x45257c62fULL;
+			case 'S': return 0x3e107043eULL;
+			case 'T': return 0x10842109fULL;
+			case 'U': return 0x3a318c631ULL;
+			case 'V': return 0x11518c631ULL;
+			case 'W': return 0x2ab5ac631ULL;
+			case 'X': return 0x462a22a31ULL;
+			case 'Y': return 0x108422a31ULL;
+			case 'Z': return 0x7c222221fULL;
+			case '-': return 0x00003e000ULL;
+			case '.': return 0x300000000ULL;
+			case ':': return 0x018000180ULL;
+			default: return value == ' ' ? 0ULL : 0x2318c62a2ULL;
+		}
+	}
+}

@@ -39,6 +39,18 @@ int main() {
 	assert(rootBox.style.gap == 4);
 	assert(rootBox.style.hasBackground);
 	assert(rootBox.style.background.red == 17);
+	NativeUiTypography typography = NativeUiTypography();
+	NativeUiTextMetrics headingMetrics = typography.measure("AB", 28, 34);
+	assert(headingMetrics.width() == 48 && headingMetrics.height() == 34 && headingMetrics.advance() == 24);
+	assert(typography.alignedX(10, 100, 8, 48, NATIVE_UI_TEXT_ALIGN_LEFT) == 18);
+	assert(typography.alignedX(10, 100, 8, 48, NATIVE_UI_TEXT_ALIGN_CENTER) == 36);
+	assert(typography.alignedX(10, 100, 8, 48, NATIVE_UI_TEXT_ALIGN_RIGHT) == 54);
+	NativeUiRenderer typographyRenderer = NativeUiRenderer(null, null, typography);
+	NativeUiFrame typographyFrame = typographyRenderer.render(NativeUiElement.text("heading", "AB").style("width: 100px; padding: 8px; font-size: 28px; line-height: 34px; font-weight: 600; text-align: right"), 160, 80);
+	assert(typographyFrame.ok());
+	NativeUiLayoutBox heading = typographyFrame.boxFor("heading");
+	assert(typographyFrame.contentWidth == 100 && heading.bounds.width == 160 && heading.bounds.height == 50);
+	assert(heading.style.fontSize == 28 && heading.style.lineHeight == 34 && heading.style.fontWeight == 600 && heading.style.textAlignment == NATIVE_UI_TEXT_ALIGN_RIGHT);
 
 	NativeUiRenderer layoutRenderer = NativeUiRenderer.styled(sheet);
 	for (int iteration = 0; iteration < 32; iteration++) {
@@ -287,6 +299,7 @@ int main() {
 	assertRejected(NativeUiRenderer().render(NativeUiElement.text("viewport", "bad"), 0, 80), NATIVE_UI_FRAME_INVALID_VIEWPORT);
 
 	assertRejected(NativeUiRenderer().render(NativeUiElement.textInput("bad-utf8", "\xc3", "", 8), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	assertRejected(NativeUiRenderer().render(NativeUiElement.text("bad-content-utf8", "\xc3"), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
 	assertRejected(NativeUiRenderer().render(NativeUiElement.textInput("bad-bound", "four", "", 3), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
 	assertRejected(NativeUiRenderer().render(NativeUiElement.textInput("bad-max", "", "", 0), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
 	assertRejected(NativeUiRenderer().render(NativeUiElement.textInput("bad-placeholder", "", "\xc3", 8), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
