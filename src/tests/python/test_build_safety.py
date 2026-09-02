@@ -16,7 +16,8 @@ DEVCONTAINER_CONFIG = REPO_ROOT / "build"
 
 def _make_dry_run(*args: str) -> str:
     environment = os.environ.copy()
-    environment.pop("PYTEST_WORKERS", None)
+    for inherited_make_state in ("PYTEST_WORKERS", "MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES"):
+        environment.pop(inherited_make_state, None)
     result = subprocess.run(
         ["make", "--dry-run", *args],
         cwd=REPO_ROOT,

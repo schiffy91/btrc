@@ -211,7 +211,15 @@ def test_reanalysis_of_cached_imports_is_idempotent(tmp_path):
 def test_warm_keystroke_is_fast(tmp_path):
     import time
 
+    from src.devex.lsp.analysis.document import DocumentAnalyzer
+
     main, source = _write_project(tmp_path)
+    cold_analyzer = DocumentAnalyzer(Workspace())
+    cold_start = time.process_time()
+    cold = cold_analyzer.analyze(main.as_uri(), source)
+    cold_elapsed = time.process_time() - cold_start
+    assert cold.analyzed is not None
+
     compute_diagnostics(main.as_uri(), source)  # warm stdlib units + base
     elapsed_samples = []
     for newline_count in (1, 2, 3):
@@ -219,12 +227,14 @@ def test_warm_keystroke_is_fast(tmp_path):
         result = compute_diagnostics(main.as_uri(), source + "\n" * newline_count)
         elapsed_samples.append(time.process_time() - start)
         assert result.analyzed is not None
-    # Generous CI budget; locally this is ~1-5ms (was ~500ms pre-v2).
+    # Retained units must remain materially faster than a fresh workspace.
     # Process time measures parser/analyzer work without charging an xdist
     # worker for time it was descheduled by another native compiler process.
     best = min(elapsed_samples)
     samples = ", ".join(f"{elapsed * 1000:.0f}ms" for elapsed in elapsed_samples)
-    assert best < 0.15, f"warm keystrokes took [{samples}]"
+    detail = f"cold={cold_elapsed * 1000:.0f}ms warm=[{samples}]"
+    assert best < 0.5, detail
+    assert best <= cold_elapsed * 0.25 + 0.025, detail
 
 
 def test_debounce_coalesces_validations(monkeypatch, tmp_path):

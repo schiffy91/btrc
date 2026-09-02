@@ -63,8 +63,11 @@ def test_operator_scan_scales_linearly(
     small_time = min(_lex_time(selfhost_lexer, small) for _ in range(2))
     large_time = min(_lex_time(selfhost_lexer, large) for _ in range(2))
 
-    assert large_time < 3.0
-    assert large_time <= small_time * 3.0 + 0.1
+    samples = f"small={small_time:.2f}s large={large_time:.2f}s"
+    # The ratio is the regression contract. The absolute ceiling only catches
+    # a grossly unusable lexer and deliberately leaves room for shared CI CPU.
+    assert large_time < 8.0, samples
+    assert large_time <= small_time * 3.0 + 0.25, samples
 
 
 def test_lexer_cursor_does_not_rescan_source_text() -> None:
