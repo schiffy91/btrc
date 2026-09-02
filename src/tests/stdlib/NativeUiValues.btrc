@@ -1,5 +1,6 @@
 import std.image;
 import std.native_ui;
+import std.vector;
 
 #include <assert.h>
 
@@ -30,6 +31,40 @@ int main() {
 	assert(query.placeholderText() == "Search albums");
 	assert(query.textInputMaxBytes() == 64);
 	assert(query.styleError().ok());
+	Vector<NativeUiSelectOption> monitorOptions = [];
+	monitorOptions.push(NativeUiSelectOption("song-effects", "Song effects"));
+	monitorOptions.push(NativeUiSelectOption("raw-signal", "Raw signal"));
+	monitorOptions.push(NativeUiSelectOption("unavailable", "Unavailable", false));
+	NativeUiSelect monitorDescriptor = NativeUiSelect(monitorOptions, "song-effects");
+	assert(monitorDescriptor.valid());
+	assert(monitorDescriptor.optionCount() == 3);
+	assert(monitorDescriptor.optionAt(1).value() == "raw-signal");
+	assert(monitorDescriptor.optionAt(1).label() == "Raw signal");
+	assert(!monitorDescriptor.optionAt(2).enabled());
+	assert(monitorDescriptor.selectedIndex() == 0);
+	assert(monitorDescriptor.selectedValue() == "song-effects");
+	assert(monitorDescriptor.selectedLabel() == "Song effects");
+	NativeUiElement monitor = NativeUiElement.select("monitor", monitorDescriptor);
+	assert(monitor.kind() == NATIVE_UI_SELECT);
+	assert(monitor.contentText() == "Song effects");
+	assert(monitor.selectDescriptor() != null);
+	NativeUiSelect resolvedMonitorDescriptor = monitor.selectDescriptor();
+	assert(resolvedMonitorDescriptor.selectedValue() == "song-effects");
+	NativeUiEvent selected = NativeUiEvent.selectionChanged("monitor", "raw-signal");
+	assert(selected.kind() == NATIVE_UI_SELECTION_CHANGED);
+	assert(selected.elementId() == "monitor");
+	assert(selected.value() == "raw-signal");
+	Vector<NativeUiSelectOption> duplicateOptions = [];
+	duplicateOptions.push(NativeUiSelectOption("same", "First"));
+	duplicateOptions.push(NativeUiSelectOption("same", "Second"));
+	assert(!NativeUiSelect(duplicateOptions, "same").valid());
+	assert(!NativeUiSelect(monitorOptions, "missing").valid());
+	Vector<NativeUiSelectOption> tooManyOptions = [];
+	for (int index = 0; index < 129; index++) { tooManyOptions.push(NativeUiSelectOption(f"value-{index}", f"Option {index}")); }
+	assert(!NativeUiSelect(tooManyOptions, "value-0").valid());
+	Vector<NativeUiSelectOption> emptyLabelOptions = [];
+	emptyLabelOptions.push(NativeUiSelectOption("empty-label", ""));
+	assert(!NativeUiSelect(emptyLabelOptions, "empty-label").valid());
 	NativeUiElement typography = NativeUiElement.text("typography", "Editorial heading").style("font-size: 28px; line-height: 34px; font-weight: 600; text-align: center");
 	assert(typography.styleError().ok());
 	assert(!NativeUiElement.text("small-type", "bad").style("font-size: 7px").styleError().ok());

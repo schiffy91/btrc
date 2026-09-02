@@ -3,6 +3,7 @@ import std.gpu;
 import std.image;
 import std.native_ui;
 import std.native_ui_app;
+import std.vector;
 
 #include <assert.h>
 #include "fake_app_gpu_runtime.h"
@@ -60,6 +61,52 @@ int main() {
 	NativeUiPresentOutcome unchanged = session.present(root);
 	assert(unchanged.kind == NATIVE_UI_PRESENTED);
 	assert(fake_native_ui_upload_count() == 1);
+
+	Vector<NativeUiSelectOption> monitorOptions = [];
+	monitorOptions.push(NativeUiSelectOption("song-effects", "Song effects"));
+	monitorOptions.push(NativeUiSelectOption("raw-signal", "Raw signal"));
+	NativeUiElement monitorRoot = NativeUiElement.column("settings").className("root").child(NativeUiElement.select("monitor", NativeUiSelect(monitorOptions, "song-effects")).semantics(NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_AUTOMATIC, "Monitor")));
+	assert(session.present(monitorRoot).kind == NATIVE_UI_PRESENTED);
+	int collapsedSelectCommands = session.commandCount();
+	NativeUiLayoutBox monitor = session.input().currentFrame().boxFor("monitor");
+	fake_platform_push_pointer(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, (float)(monitor.bounds.x + 4), (float)(monitor.bounds.y + 4), 0);
+	assert(session.dispatch(application.poll()).eventCount() <= 1);
+	fake_platform_push_pointer(APP_POINTER_RELEASED, APP_POINTER_BUTTON_PRIMARY, (float)(monitor.bounds.x + 4), (float)(monitor.bounds.y + 4), 0);
+	assert(session.dispatch(application.poll()).eventCount() == 0);
+	assert(session.input().expandedSelectId() == "monitor");
+	assert(session.present(monitorRoot).kind == NATIVE_UI_PRESENTED);
+	assert(session.commandCount() > collapsedSelectCommands);
+	NativeUiSelectPopup monitorPopup = session.input().selectPopup();
+	assert(monitorPopup.visible() && monitorPopup.ownerId() == "monitor");
+	NativeUiRect rawSignalOption = monitorPopup.optionBounds(1);
+	int rawSignalX = rawSignalOption.x + 4;
+	int rawSignalY = rawSignalOption.y + rawSignalOption.height / 2;
+	fake_platform_push_pointer(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, (float)rawSignalX, (float)rawSignalY, 0);
+	session.dispatch(application.poll());
+	fake_platform_push_pointer(APP_POINTER_RELEASED, APP_POINTER_BUTTON_PRIMARY, (float)rawSignalX, (float)rawSignalY, 0);
+	NativeUiEventBatch monitorSelected = session.dispatch(application.poll());
+	assert(monitorSelected.eventCount() == 1);
+	assert(monitorSelected.eventAt(0).kind() == NATIVE_UI_SELECTION_CHANGED);
+	assert(monitorSelected.eventAt(0).elementId() == "monitor");
+	assert(monitorSelected.eventAt(0).value() == "raw-signal");
+	NativeUiElement rawMonitorRoot = NativeUiElement.column("settings").className("root").child(NativeUiElement.select("monitor", NativeUiSelect(monitorOptions, "raw-signal")).semantics(NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_AUTOMATIC, "Monitor")));
+	assert(session.present(rawMonitorRoot).kind == NATIVE_UI_PRESENTED);
+	NativeUiLayoutBox rawMonitor = session.input().currentFrame().boxFor("monitor");
+	assert(rawMonitor.resolvedSemantics().value() == "Raw signal");
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_DOWN, 0);
+	assert(session.dispatch(application.poll()).eventCount() == 0);
+	assert(session.input().expandedSelectId() == "monitor");
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_UP, 0);
+	assert(session.dispatch(application.poll()).eventCount() == 0);
+	assert(session.input().highlightedSelectIndex() == 0);
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_ENTER, 0);
+	NativeUiEventBatch keyboardMonitorSelected = session.dispatch(application.poll());
+	assert(keyboardMonitorSelected.eventCount() == 1);
+	assert(keyboardMonitorSelected.eventAt(0).kind() == NATIVE_UI_SELECTION_CHANGED);
+	assert(keyboardMonitorSelected.eventAt(0).value() == "song-effects");
+	assert(session.input().expandedSelectId().isEmpty());
+	assert(session.input().focusedId() == "monitor");
+	assert(session.present(root).kind == NATIVE_UI_PRESENTED);
 
 	NativeUiLayoutBox query = session.input().currentFrame().boxFor("query");
 	AppWindowEvent focusQuery = AppWindowEvent(APP_EVENT_POINTER);

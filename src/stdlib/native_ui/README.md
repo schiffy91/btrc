@@ -43,3 +43,20 @@ adjustments, and Control/Command+arrow for minimum or maximum. Accessibility
 adapters can call `adjustRange` directly with the same semantic adjustment.
 Button clicks, text input, and ordinary scrolling retain their existing event
 contracts.
+
+## Select controls
+
+Build a controlled select with `NativeUiElement.select(id,
+NativeUiSelect(options, selectedValue))`. Every `NativeUiSelectOption` has a
+stable, non-empty `value`, a user-facing `label`, and an optional enabled flag.
+Values are compared exactly; options must be unique, the selected value must
+exist, and descriptors are bounded and UTF-8 validated.
+
+Pointer or Enter/Space activation opens the renderer-owned menu. Arrow keys
+move across enabled options, Escape closes the menu while preserving focus,
+and Tab closes it while moving focus. A committed change emits
+`NATIVE_UI_SELECTION_CHANGED`; `NativeUiEvent.value()` carries the stable
+option value, never its presentation label. The application accepts that
+proposal by supplying the selected value in its next tree. Resolved semantics
+use the combo-box role, selected label as the default semantic value, and the
+actual open/closed state.

@@ -1,5 +1,6 @@
 import std.image;
 import std.native_ui;
+import std.vector;
 
 #include <assert.h>
 
@@ -128,6 +129,70 @@ int main() {
 	controlledRenderer.layout(NativeUiElement.textInput("controlled", "server", "", 16), 200, 48);
 	assert(controlledRenderer.focusedValue() == "server");
 	assert(controlledRenderer.focusedCaret() == 6);
+
+	Vector<NativeUiSelectOption> selectOptions = [];
+	selectOptions.push(NativeUiSelectOption("song-effects", "Song effects"));
+	selectOptions.push(NativeUiSelectOption("unavailable", "Unavailable", false));
+	selectOptions.push(NativeUiSelectOption("raw-signal", "Raw signal"));
+	NativeUiElement selectElement = NativeUiElement.select("monitor", NativeUiSelect(selectOptions, "song-effects"));
+	NativeUiRenderer selectRenderer = NativeUiRenderer();
+	NativeUiFrame selectFrame = selectRenderer.render(selectElement, 240, 200);
+	assert(selectFrame.ok());
+	NativeUiLayoutBox selectBox = selectFrame.boxFor("monitor");
+	assert(selectBox.bounds.height == 36 && selectBox.selectable());
+	selectRenderer.pointerPressed(selectBox.bounds.x + 4, selectBox.bounds.y + 4);
+	NativeUiEventBatch openedSelect = selectRenderer.pointerReleased(selectBox.bounds.x + 4, selectBox.bounds.y + 4);
+	assert(openedSelect.eventCount() == 0);
+	assert(selectRenderer.expandedSelectId() == "monitor");
+	NativeUiSelectPopup popup = selectRenderer.selectPopup();
+	assert(popup.visible() && popup.ownerId() == "monitor");
+	assert(popup.firstOptionIndex() == 0 && popup.visibleOptionCount() == 3 && popup.rowHeight() == 36);
+	assert(popup.bounds().y == selectBox.bounds.y + selectBox.bounds.height);
+	assert(openedSelect.frame.image.data[(popup.bounds().y * openedSelect.frame.image.width + popup.bounds().x + popup.bounds().width / 2) * 4] == 205);
+	assert(openedSelect.frame.image.data[((popup.bounds().y + 2) * openedSelect.frame.image.width + popup.bounds().x + 2) * 4] == 24);
+	NativeUiRect rawOption = popup.optionBounds(2);
+	int rawX = rawOption.x + 4;
+	int rawY = rawOption.y + rawOption.height / 2;
+	selectRenderer.pointerPressed(rawX, rawY);
+	NativeUiEventBatch pointerSelected = selectRenderer.pointerReleased(rawX, rawY);
+	assert(pointerSelected.eventCount() == 1);
+	assert(pointerSelected.eventAt(0).kind() == NATIVE_UI_SELECTION_CHANGED);
+	assert(pointerSelected.eventAt(0).elementId() == "monitor");
+	assert(pointerSelected.eventAt(0).value() == "raw-signal");
+	assert(selectRenderer.expandedSelectId().isEmpty());
+	assert(selectRenderer.focusedId() == "monitor");
+	NativeUiElement controlledSelect = NativeUiElement.select("monitor", NativeUiSelect(selectOptions, "raw-signal"));
+	assert(selectRenderer.render(controlledSelect, 240, 200).ok());
+	NativeUiLayoutBox controlledSelectBox = selectRenderer.currentFrame().boxFor("monitor");
+	NativeUiSelect controlledSelectDescriptor = controlledSelectBox.element.selectDescriptor();
+	assert(controlledSelectDescriptor.selectedValue() == "raw-signal");
+	selectRenderer.activate("monitor");
+	NativeUiRect disabledOption = selectRenderer.selectPopup().optionBounds(1);
+	selectRenderer.pointerPressed(disabledOption.x + 4, disabledOption.y + 4);
+	assert(selectRenderer.pointerReleased(disabledOption.x + 4, disabledOption.y + 4).eventCount() == 0);
+	assert(selectRenderer.expandedSelectId() == "monitor");
+	selectRenderer.dismiss();
+	assert(selectRenderer.focusedId() == "monitor");
+	selectRenderer.navigateFocusedSelect(-1);
+	assert(selectRenderer.expandedSelectId() == "monitor");
+	assert(selectRenderer.highlightedSelectIndex() == 2);
+	selectRenderer.navigateFocusedSelect(-1);
+	assert(selectRenderer.highlightedSelectIndex() == 0);
+	NativeUiEventBatch keyboardSelected = selectRenderer.activate("monitor");
+	assert(keyboardSelected.eventCount() == 1);
+	assert(keyboardSelected.eventAt(0).kind() == NATIVE_UI_SELECTION_CHANGED);
+	assert(keyboardSelected.eventAt(0).value() == "song-effects");
+
+	Vector<NativeUiSelectOption> noOptions = [];
+	assertRejected(NativeUiRenderer().render(NativeUiElement.select("empty-select", NativeUiSelect(noOptions, "none")), 120, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	Vector<NativeUiSelectOption> duplicateSelectOptions = [];
+	duplicateSelectOptions.push(NativeUiSelectOption("same", "First"));
+	duplicateSelectOptions.push(NativeUiSelectOption("same", "Second"));
+	assertRejected(NativeUiRenderer().render(NativeUiElement.select("duplicate-select", NativeUiSelect(duplicateSelectOptions, "same")), 120, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	assertRejected(NativeUiRenderer().render(NativeUiElement.select("missing-selection", NativeUiSelect(selectOptions, "missing")), 120, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	Vector<NativeUiSelectOption> invalidUtf8Options = [];
+	invalidUtf8Options.push(NativeUiSelectOption("bad", "\xc3"));
+	assertRejected(NativeUiRenderer().render(NativeUiElement.select("invalid-option", NativeUiSelect(invalidUtf8Options, "bad")), 120, 80), NATIVE_UI_FRAME_INVALID_TREE);
 
 	NativeUiSemanticRange maximumEdge = NativeUiSemanticRange.horizontal("Maximum edge", -10LL, 9223372036854775807LL, 9223372036854775806LL, 10LL, 100LL);
 	assert(maximumEdge.valid());

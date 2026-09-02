@@ -187,6 +187,40 @@ class NativeUiAppSession {
 		return screenX < viewport.width() && screenY < viewport.height() && screenX + box.bounds.width > 0 && screenY + box.bounds.height > 0;
 	}
 
+	private GPUResourceOutcome buildSelectPopup(NativeUiFrame frame) {
+		NativeUiSelectPopup popup = self.renderer.selectPopup();
+		if (!popup.visible()) { return GPUResourceOutcome(GPU_RESOURCE_READY, ""); }
+		NativeUiLayoutBox? optionalBox = frame.boxFor(popup.ownerId());
+		if (optionalBox == null) { return GPUResourceOutcome(GPU_RESOURCE_INTERNAL_ERROR, "native UI select popup owner is missing"); }
+		NativeUiSelect? optionalSelect = optionalBox.element.selectDescriptor();
+		if (optionalSelect == null) { return GPUResourceOutcome(GPU_RESOURCE_INTERNAL_ERROR, "native UI select popup descriptor is missing"); }
+		NativeUiLayoutBox box = optionalBox;
+		NativeUiSelect descriptor = optionalSelect;
+		NativeUiRect popupBounds = popup.bounds();
+		GPUResourceOutcome border = self.addRect((float)popupBounds.x, (float)popupBounds.y, (float)popupBounds.width, (float)popupBounds.height, self.theme.border, (float)box.style.radius);
+		if (border.kind != GPU_RESOURCE_READY) { return border; }
+		if (popupBounds.width > 2 && popupBounds.height > 2) {
+			GPUResourceOutcome background = self.addRect((float)(popupBounds.x + 1), (float)(popupBounds.y + 1), (float)(popupBounds.width - 2), (float)(popupBounds.height - 2), self.theme.panel, (float)(box.style.radius > 0 ? box.style.radius - 1 : 0));
+			if (background.kind != GPU_RESOURCE_READY) { return background; }
+		}
+		for (int index = popup.firstOptionIndex(); index < popup.firstOptionIndex() + popup.visibleOptionCount(); index++) {
+			NativeUiSelectOption option = descriptor.optionAt(index);
+			NativeUiRect row = popup.optionBounds(index);
+			bool highlighted = option.enabled() && index == self.renderer.highlightedSelectIndex();
+			if (highlighted) {
+				GPUResourceOutcome highlight = self.addRect((float)row.x, (float)row.y, (float)row.width, (float)row.height, self.theme.accent, 0.0f);
+				if (highlight.kind != GPU_RESOURCE_READY) { return highlight; }
+			} else if (index == descriptor.selectedIndex()) {
+				GPUResourceOutcome selected = self.addRect((float)row.x, (float)row.y, 3.0f, (float)row.height, self.theme.accent, 0.0f);
+				if (selected.kind != GPU_RESOURCE_READY) { return selected; }
+			}
+			NativeUiColor color = !option.enabled() ? self.theme.mutedText : (highlighted ? self.theme.accentText : (box.style.hasForeground ? box.style.foreground : self.theme.text));
+			GPUResourceOutcome label = self.addText(option.label(), (float)(row.x + box.style.padding), (float)(row.y + (row.height - box.style.lineHeight) / 2), color, frame.viewport.width(), box.style);
+			if (label.kind != GPU_RESOURCE_READY) { return label; }
+		}
+		return GPUResourceOutcome(GPU_RESOURCE_READY, "");
+	}
+
 	private GPUResourceOutcome buildDisplayList(NativeUiFrame frame) {
 		int status = std_gpu_native_ui_begin(self.compositorIdentity, frame.viewport.width(), frame.viewport.height());
 		if (status != GPU_RESOURCE_READY) {
@@ -225,6 +259,26 @@ class NativeUiAppSession {
 							return caret;
 						}
 					}
+				}
+			} else if (box.kind() == NATIVE_UI_SELECT) {
+				NativeUiSelectPopup popup = self.renderer.selectPopup();
+				bool hasFocus = box.id().equals(focused);
+				bool expanded = popup.visible() && popup.ownerId().equals(box.id());
+				GPUResourceOutcome border = self.addRect((float)x, (float)y, (float)box.bounds.width, (float)box.bounds.height, hasFocus || expanded ? self.theme.accent : self.theme.border, (float)style.radius);
+				if (border.kind != GPU_RESOURCE_READY) { return border; }
+				if (box.bounds.width > 2 && box.bounds.height > 2) {
+					GPUResourceOutcome field = self.addRect((float)(x + 1), (float)(y + 1), (float)(box.bounds.width - 2), (float)(box.bounds.height - 2), style.hasBackground ? style.background : self.theme.panel, (float)(style.radius > 0 ? style.radius - 1 : 0));
+					if (field.kind != GPU_RESOURCE_READY) { return field; }
+				}
+				NativeUiSelect? optionalSelect = box.element.selectDescriptor();
+				if (optionalSelect != null) {
+					NativeUiSelect descriptor = optionalSelect;
+					NativeUiColor labelColor = box.enabled() ? (style.hasForeground ? style.foreground : self.theme.text) : self.theme.mutedText;
+					GPUResourceOutcome label = self.addText(descriptor.selectedLabel(), (float)(x + style.padding), (float)(y + (box.bounds.height - style.lineHeight) / 2), labelColor, frame.viewport.width(), style);
+					if (label.kind != GPU_RESOURCE_READY) { return label; }
+					int arrowX = x + box.bounds.width - style.padding - self.typography.advance(style.fontSize);
+					GPUResourceOutcome arrow = self.addText(expanded ? "^" : "v", (float)arrowX, (float)(y + (box.bounds.height - style.lineHeight) / 2), style.hasForeground ? style.foreground : self.theme.mutedText, frame.viewport.width(), style);
+					if (arrow.kind != GPU_RESOURCE_READY) { return arrow; }
 				}
 			} else if (box.kind() == NATIVE_UI_BUTTON) {
 				NativeUiColor fill = highlighted ? self.theme.accent : (style.hasBackground ? style.background : self.theme.panel);
@@ -268,7 +322,7 @@ class NativeUiAppSession {
 				}
 			}
 		}
-		return GPUResourceOutcome(GPU_RESOURCE_READY, "");
+		return self.buildSelectPopup(frame);
 	}
 
 	public NativeUiPrepareOutcome prepare(NativeUiElement root) {
@@ -375,6 +429,12 @@ class NativeUiAppSession {
 			if (adjustment != NATIVE_UI_RANGE_ADJUST_NONE) {
 				return self.renderer.adjustFocusedRange(adjustment);
 			}
+			if (keyboard.key == APP_KEY_UP) {
+				return self.renderer.navigateFocusedSelect(-1);
+			}
+			if (keyboard.key == APP_KEY_DOWN) {
+				return self.renderer.navigateFocusedSelect(1);
+			}
 			if (keyboard.key == APP_KEY_BACKSPACE) {
 				return self.renderer.backspace();
 			}
@@ -391,7 +451,7 @@ class NativeUiAppSession {
 				return self.renderer.activate(self.renderer.focusedId());
 			}
 			if (keyboard.key == APP_KEY_ESCAPE && keyboard.action == APP_KEY_PRESSED) {
-				return self.renderer.blur();
+				return self.renderer.dismiss();
 			}
 			return self.noEvents();
 		}

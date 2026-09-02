@@ -25,7 +25,8 @@ enum NativeUiSemanticRole {
 	NATIVE_UI_SEMANTIC_ROLE_NAVIGATION = 21,
 	NATIVE_UI_SEMANTIC_ROLE_MAIN = 22,
 	NATIVE_UI_SEMANTIC_ROLE_SEPARATOR = 23,
-	NATIVE_UI_SEMANTIC_ROLE_PROGRESS = 24
+	NATIVE_UI_SEMANTIC_ROLE_PROGRESS = 24,
+	NATIVE_UI_SEMANTIC_ROLE_COMBO_BOX = 25
 };
 
 enum NativeUiSemanticLiveMode {
@@ -157,7 +158,7 @@ class NativeUiSemantics {
 
 	public bool isReadOnly() { return self.readOnlyValue; }
 
-	private bool validRole() { return self.roleValue >= NATIVE_UI_SEMANTIC_ROLE_AUTOMATIC && self.roleValue <= NATIVE_UI_SEMANTIC_ROLE_PROGRESS; }
+	private bool validRole() { return self.roleValue >= NATIVE_UI_SEMANTIC_ROLE_AUTOMATIC && self.roleValue <= NATIVE_UI_SEMANTIC_ROLE_COMBO_BOX; }
 
 	private bool validLive() { return self.liveValue >= NATIVE_UI_SEMANTIC_LIVE_OFF && self.liveValue <= NATIVE_UI_SEMANTIC_LIVE_ASSERTIVE; }
 

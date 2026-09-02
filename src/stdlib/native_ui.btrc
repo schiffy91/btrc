@@ -21,7 +21,8 @@ enum NativeUiElementKind {
 	NATIVE_UI_IMAGE = 3,
 	NATIVE_UI_BUTTON = 4,
 	NATIVE_UI_VIRTUAL_GRID = 5,
-	NATIVE_UI_TEXT_INPUT = 6
+	NATIVE_UI_TEXT_INPUT = 6,
+	NATIVE_UI_SELECT = 7
 };
 
 enum NativeUiEventKind {
@@ -36,7 +37,8 @@ enum NativeUiEventKind {
 	NATIVE_UI_RANGE_POINTER_RELEASED = 8,
 	NATIVE_UI_RANGE_POINTER_CANCELLED = 9,
 	NATIVE_UI_RANGE_WHEEL = 10,
-	NATIVE_UI_RANGE_ADJUSTED = 11
+	NATIVE_UI_RANGE_ADJUSTED = 11,
+	NATIVE_UI_SELECTION_CHANGED = 12
 };
 
 enum NativeUiRangeAxis {
@@ -367,6 +369,77 @@ class NativeUiVirtualGrid {
 	public bool ok() { return self.issueValue.ok(); }
 }
 
+class NativeUiSelectOption {
+	private string stableValue;
+	private string labelValue;
+	private bool enabledValue;
+
+	public NativeUiSelectOption(string value, string label, bool enabled = true) {
+		self.stableValue = value;
+		self.labelValue = label;
+		self.enabledValue = enabled;
+	}
+
+	public string value() { return self.stableValue; }
+
+	public string label() { return self.labelValue; }
+
+	public bool enabled() { return self.enabledValue; }
+
+	public bool valid() { return NativeUiSemanticText.valid(self.stableValue, 512) && !self.stableValue.isEmpty() && NativeUiSemanticText.valid(self.labelValue, 512) && !self.labelValue.isEmpty(); }
+}
+
+class NativeUiSelect {
+	private Vector<NativeUiSelectOption> optionValues;
+	private string selectedStableValue;
+
+	public NativeUiSelect(Vector<NativeUiSelectOption> options, string selectedValue) {
+		self.optionValues = [];
+		for option in options { self.optionValues.push(option); }
+		self.selectedStableValue = selectedValue;
+	}
+
+	public int optionCount() { return self.optionValues.len; }
+
+	public NativeUiSelectOption optionAt(int index) { return self.optionValues.get(index); }
+
+	public string selectedValue() { return self.selectedStableValue; }
+
+	public int indexOfValue(string value) {
+		if (value == null) { return -1; }
+		for (int index = 0; index < self.optionValues.len; index++) {
+			NativeUiSelectOption option = self.optionValues.get(index);
+			if (option != null && option.value().equals(value)) { return index; }
+		}
+		return -1;
+	}
+
+	public int selectedIndex() { return self.indexOfValue(self.selectedStableValue); }
+
+	public string selectedLabel() {
+		int index = self.selectedIndex();
+		return index < 0 ? "" : self.optionValues.get(index).label();
+	}
+
+	public long long metadataBytes() {
+		long long total = (long long)self.selectedStableValue.len();
+		for option in self.optionValues { total += (long long)option.value().len() + (long long)option.label().len(); }
+		return total;
+	}
+
+	public bool valid() {
+		if (self.optionValues.len < 1 || self.optionValues.len > 128 || !NativeUiSemanticText.valid(self.selectedStableValue, 512) || self.selectedStableValue.isEmpty()) { return false; }
+		for (int index = 0; index < self.optionValues.len; index++) {
+			NativeUiSelectOption option = self.optionValues.get(index);
+			if (option == null || !option.valid()) { return false; }
+			for (int prior = 0; prior < index; prior++) {
+				if (self.optionValues.get(prior).value().equals(option.value())) { return false; }
+			}
+		}
+		return self.selectedIndex() >= 0 && self.metadataBytes() <= 131072LL;
+	}
+}
+
 class NativeUiViewportMetrics {
 	private int metricWidth;
 	private int metricHeight;
@@ -494,6 +567,8 @@ class NativeUiEvent {
 
 	class NativeUiEvent valueChanged(string elementId, string value) { return NativeUiEvent(NATIVE_UI_VALUE_CHANGED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, value, null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
 
+	class NativeUiEvent selectionChanged(string elementId, string value) { return NativeUiEvent(NATIVE_UI_SELECTION_CHANGED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, value, null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
 	class NativeUiEvent rangePointerPressed(string elementId, NativeUiPointerSample pointer) { return NativeUiEvent(NATIVE_UI_RANGE_POINTER_PRESSED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, "", pointer, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
 
 	class NativeUiEvent rangePointerMoved(string elementId, NativeUiPointerSample pointer) { return NativeUiEvent(NATIVE_UI_RANGE_POINTER_MOVED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, "", pointer, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
@@ -537,6 +612,7 @@ class NativeUiElement {
 	private Vector<NativeUiElement> childValues;
 	private NativeUiStyleError styleErrorValue;
 	private NativeUiVirtualGrid? virtualGridValue;
+	private NativeUiSelect? selectValue;
 	private string placeholderValue;
 	private int textInputMaxBytesValue;
 	private NativeUiSemanticRange? semanticRangeValue;
@@ -558,6 +634,7 @@ class NativeUiElement {
 		self.childValues = [];
 		self.styleErrorValue = NativeUiStyleError.valid();
 		self.virtualGridValue = null;
+		self.selectValue = null;
 		self.placeholderValue = "";
 		self.textInputMaxBytesValue = 0;
 		self.semanticRangeValue = null;
@@ -588,6 +665,12 @@ class NativeUiElement {
 		NativeUiElement element = NativeUiElement(NATIVE_UI_TEXT_INPUT, id, value, null, "");
 		element.placeholderValue = placeholder;
 		element.textInputMaxBytesValue = maxBytes;
+		return element;
+	}
+
+	class NativeUiElement select(string id, NativeUiSelect descriptor) {
+		NativeUiElement element = NativeUiElement(NATIVE_UI_SELECT, id, descriptor == null ? "" : descriptor.selectedLabel(), null, "");
+		element.selectValue = descriptor;
 		return element;
 	}
 
@@ -659,6 +742,8 @@ class NativeUiElement {
 
 	public NativeUiVirtualGrid? virtualGridDescriptor() { return self.virtualGridValue; }
 
+	public NativeUiSelect? selectDescriptor() { return self.selectValue; }
+
 	public string placeholderText() { return self.placeholderValue; }
 
 	public int textInputMaxBytes() { return self.textInputMaxBytesValue; }
@@ -684,6 +769,7 @@ class NativeUiElement {
 		if (self.elementKind == NATIVE_UI_TEXT) { return NATIVE_UI_SEMANTIC_ROLE_TEXT; }
 		if (self.elementKind == NATIVE_UI_IMAGE) { return NATIVE_UI_SEMANTIC_ROLE_IMAGE; }
 		if (self.elementKind == NATIVE_UI_BUTTON) { return NATIVE_UI_SEMANTIC_ROLE_BUTTON; }
+		if (self.elementKind == NATIVE_UI_SELECT) { return NATIVE_UI_SEMANTIC_ROLE_COMBO_BOX; }
 		return NATIVE_UI_SEMANTIC_ROLE_TEXT_FIELD;
 	}
 
@@ -691,7 +777,7 @@ class NativeUiElement {
 		if (!self.enabledValue) { return false; }
 		if (self.hasFocusableOverrideValue) { return self.focusableOverrideValue; }
 		NativeUiSemanticRole role = self.effectiveSemanticRole();
-		return role == NATIVE_UI_SEMANTIC_ROLE_BUTTON || role == NATIVE_UI_SEMANTIC_ROLE_TOGGLE_BUTTON || role == NATIVE_UI_SEMANTIC_ROLE_CHECKBOX || role == NATIVE_UI_SEMANTIC_ROLE_TAB || role == NATIVE_UI_SEMANTIC_ROLE_SLIDER || role == NATIVE_UI_SEMANTIC_ROLE_TEXT_FIELD || role == NATIVE_UI_SEMANTIC_ROLE_RADIO;
+		return role == NATIVE_UI_SEMANTIC_ROLE_BUTTON || role == NATIVE_UI_SEMANTIC_ROLE_TOGGLE_BUTTON || role == NATIVE_UI_SEMANTIC_ROLE_CHECKBOX || role == NATIVE_UI_SEMANTIC_ROLE_TAB || role == NATIVE_UI_SEMANTIC_ROLE_SLIDER || role == NATIVE_UI_SEMANTIC_ROLE_TEXT_FIELD || role == NATIVE_UI_SEMANTIC_ROLE_RADIO || role == NATIVE_UI_SEMANTIC_ROLE_COMBO_BOX;
 	}
 
 	public int childCount() { return self.childValues.len; }

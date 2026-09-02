@@ -161,6 +161,49 @@ class NativeUiRect {
 	}
 }
 
+class NativeUiSelectPopup {
+	private bool visibleValue;
+	private string ownerIdentity;
+	private NativeUiRect boundsValue;
+	private int firstOptionValue;
+	private int visibleOptionCountValue;
+	private int rowHeightValue;
+
+	public NativeUiSelectPopup(bool visible, string ownerId, NativeUiRect bounds, int firstOption, int visibleOptionCount, int rowHeight) {
+		self.visibleValue = visible;
+		self.ownerIdentity = ownerId;
+		self.boundsValue = bounds;
+		self.firstOptionValue = firstOption;
+		self.visibleOptionCountValue = visibleOptionCount;
+		self.rowHeightValue = rowHeight;
+	}
+
+	class NativeUiSelectPopup hidden() { return NativeUiSelectPopup(false, "", NativeUiRect(0, 0, 0, 0), 0, 0, 0); }
+
+	public bool visible() { return self.visibleValue; }
+
+	public string ownerId() { return self.ownerIdentity; }
+
+	public NativeUiRect bounds() { return self.boundsValue; }
+
+	public int firstOptionIndex() { return self.firstOptionValue; }
+
+	public int visibleOptionCount() { return self.visibleOptionCountValue; }
+
+	public int rowHeight() { return self.rowHeightValue; }
+
+	public NativeUiRect optionBounds(int optionIndex) {
+		if (!self.visibleValue || optionIndex < self.firstOptionValue || optionIndex >= self.firstOptionValue + self.visibleOptionCountValue) { return NativeUiRect(0, 0, 0, 0); }
+		return NativeUiRect(self.boundsValue.x + 1, self.boundsValue.y + 1 + (optionIndex - self.firstOptionValue) * self.rowHeightValue, self.boundsValue.width - 2, self.rowHeightValue);
+	}
+
+	public int optionAt(int x, int y) {
+		if (!self.visibleValue || !self.boundsValue.contains(x, y) || x <= self.boundsValue.x || x >= self.boundsValue.x + self.boundsValue.width - 1 || y <= self.boundsValue.y || y >= self.boundsValue.y + self.boundsValue.height - 1) { return -1; }
+		int localRow = (y - self.boundsValue.y - 1) / self.rowHeightValue;
+		return localRow < 0 || localRow >= self.visibleOptionCountValue ? -1 : self.firstOptionValue + localRow;
+	}
+}
+
 class NativeUiLayoutBox {
 	public NativeUiElement element;
 	public NativeUiRect bounds;
@@ -173,17 +216,27 @@ class NativeUiLayoutBox {
 		self.bounds = bounds;
 		self.depth = depth;
 		self.style = style;
-		self.resolveSemantics(false);
+		self.resolveSemantics(false, false);
 	}
 
 	public string id() { return self.element.id(); }
 
 	public NativeUiElementKind kind() { return self.element.kind(); }
 
-	public void resolveSemantics(bool focused) {
+	public void resolveSemantics(bool focused, bool selectExpanded) {
 		NativeUiSemantics declared = self.element.semanticDescriptor();
 		bool focusable = self.element.isFocusable();
-		self.semanticsValue = NativeUiResolvedSemantics(self.element.effectiveSemanticRole(), declared.label(), declared.hint(), declared.value(), declared.live(), declared.checkedState(), declared.pressedState(), declared.expansionState(), self.element.isEnabled(), self.element.isSelected(), focusable, focused && focusable, declared.isBusy(), declared.isReadOnly());
+		string semanticValue = declared.value();
+		NativeUiSemanticExpansionState expansion = declared.expansionState();
+		if (self.element.kind() == NATIVE_UI_SELECT) {
+			NativeUiSelect? optionalSelect = self.element.selectDescriptor();
+			if (semanticValue.isEmpty() && optionalSelect != null) {
+				NativeUiSelect descriptor = optionalSelect;
+				semanticValue = descriptor.selectedLabel();
+			}
+			expansion = selectExpanded ? NATIVE_UI_SEMANTIC_EXPANSION_ON : NATIVE_UI_SEMANTIC_EXPANSION_OFF;
+		}
+		self.semanticsValue = NativeUiResolvedSemantics(self.element.effectiveSemanticRole(), declared.label(), declared.hint(), semanticValue, declared.live(), declared.checkedState(), declared.pressedState(), expansion, self.element.isEnabled(), self.element.isSelected(), focusable, focused && focusable, declared.isBusy(), declared.isReadOnly());
 	}
 
 	public NativeUiResolvedSemantics resolvedSemantics() { return self.semanticsValue; }
@@ -196,7 +249,9 @@ class NativeUiLayoutBox {
 
 	public bool adjustable() { return self.enabled() && self.element.semanticRangeDescriptor() != null; }
 
-	public bool interactive() { return self.enabled() && (self.adjustable() || self.element.kind() == NATIVE_UI_BUTTON || self.element.kind() == NATIVE_UI_TEXT_INPUT || self.focusable()); }
+	public bool selectable() { return self.enabled() && self.element.kind() == NATIVE_UI_SELECT && self.element.selectDescriptor() != null; }
+
+	public bool interactive() { return self.enabled() && (self.adjustable() || self.selectable() || self.element.kind() == NATIVE_UI_BUTTON || self.element.kind() == NATIVE_UI_TEXT_INPUT || self.focusable()); }
 
 	public bool clickable() { return self.enabled() && !self.adjustable() && self.element.kind() == NATIVE_UI_BUTTON; }
 
@@ -205,7 +260,7 @@ class NativeUiLayoutBox {
 	public bool accessibilityActivatable() {
 		if (!self.enabled()) { return false; }
 		NativeUiSemanticRole role = self.semanticsValue.role();
-		return role == NATIVE_UI_SEMANTIC_ROLE_BUTTON || role == NATIVE_UI_SEMANTIC_ROLE_TOGGLE_BUTTON || role == NATIVE_UI_SEMANTIC_ROLE_CHECKBOX || role == NATIVE_UI_SEMANTIC_ROLE_TAB || role == NATIVE_UI_SEMANTIC_ROLE_RADIO;
+		return role == NATIVE_UI_SEMANTIC_ROLE_BUTTON || role == NATIVE_UI_SEMANTIC_ROLE_TOGGLE_BUTTON || role == NATIVE_UI_SEMANTIC_ROLE_CHECKBOX || role == NATIVE_UI_SEMANTIC_ROLE_TAB || role == NATIVE_UI_SEMANTIC_ROLE_RADIO || role == NATIVE_UI_SEMANTIC_ROLE_COMBO_BOX;
 	}
 }
 
@@ -377,8 +432,8 @@ class NativeUiResolvedStyle {
 
 	public NativeUiResolvedStyle(NativeUiElementKind kind) {
 		self.gap = kind == NATIVE_UI_GRID || kind == NATIVE_UI_VIRTUAL_GRID ? 12 : 8;
-		self.padding = kind == NATIVE_UI_COLUMN || kind == NATIVE_UI_GRID || kind == NATIVE_UI_VIRTUAL_GRID ? 12 : (kind == NATIVE_UI_BUTTON || kind == NATIVE_UI_TEXT_INPUT ? 10 : 2);
-		self.radius = kind == NATIVE_UI_BUTTON || kind == NATIVE_UI_TEXT_INPUT ? 8 : 0;
+		self.padding = kind == NATIVE_UI_COLUMN || kind == NATIVE_UI_GRID || kind == NATIVE_UI_VIRTUAL_GRID ? 12 : (kind == NATIVE_UI_BUTTON || kind == NATIVE_UI_TEXT_INPUT || kind == NATIVE_UI_SELECT ? 10 : 2);
+		self.radius = kind == NATIVE_UI_BUTTON || kind == NATIVE_UI_TEXT_INPUT || kind == NATIVE_UI_SELECT ? 8 : 0;
 		self.width = 0;
 		self.height = 0;
 		self.fontSize = 14;
@@ -553,6 +608,11 @@ class NativeUiLayout {
 			context.fail(NATIVE_UI_FRAME_INVALID_TREE, f"native UI text input requires non-null UTF-8 text: " + f"{element.id()}");
 			return null;
 		}
+		NativeUiSelect? optionalSelect = element.selectDescriptor();
+		if (element.kind() == NATIVE_UI_SELECT && (optionalSelect == null || !optionalSelect.valid())) {
+			context.fail(NATIVE_UI_FRAME_INVALID_TREE, f"native UI select requires unique options and an exact selected value: {element.id()}");
+			return null;
+		}
 		if ((element.kind() == NATIVE_UI_TEXT || element.kind() == NATIVE_UI_BUTTON) && !NativeUiTextInput.validUtf8(element.contentText())) {
 			context.fail(NATIVE_UI_FRAME_INVALID_TREE, f"native UI content requires valid UTF-8 text: " + f"{element.id()}");
 			return null;
@@ -576,7 +636,8 @@ class NativeUiLayout {
 			return null;
 		}
 		int rangeLabelBytes = optionalRange == null ? 0 : optionalRange.label().len();
-		context.metadataBytes += (long long)element.id().len() + (long long)element.inlineStyle().len() + (long long)element.cssClass().len() + (long long)element.contentText().len() + (long long)element.placeholderText().len() + (long long)element.imageAlt().len() + (long long)semantics.label().len() + (long long)semantics.hint().len() + (long long)semantics.value().len() + (long long)rangeLabelBytes;
+		long long selectMetadataBytes = optionalSelect == null ? 0LL : optionalSelect.metadataBytes();
+		context.metadataBytes += (long long)element.id().len() + (long long)element.inlineStyle().len() + (long long)element.cssClass().len() + (long long)element.contentText().len() + (long long)element.placeholderText().len() + (long long)element.imageAlt().len() + (long long)semantics.label().len() + (long long)semantics.hint().len() + (long long)semantics.value().len() + (long long)rangeLabelBytes + selectMetadataBytes;
 		if (context.metadataBytes > 4194304LL) {
 			context.fail(NATIVE_UI_FRAME_LIMIT_EXCEEDED, "native UI tree metadata exceeds 4 MiB");
 			return null;
@@ -592,7 +653,7 @@ class NativeUiLayout {
 			NativeUiTextMetrics textMetrics = context.typography.measure(element.contentText(), style.fontSize, style.lineHeight, style.fontWeight);
 			measured.width = NativeUiLayout.minimum(availableWidth, textMetrics.width() + inset);
 			measured.height = textMetrics.height() + inset;
-		} else if (element.kind() == NATIVE_UI_TEXT_INPUT) {
+		} else if (element.kind() == NATIVE_UI_TEXT_INPUT || element.kind() == NATIVE_UI_SELECT) {
 			measured.width = availableWidth;
 			measured.height = NativeUiLayout.maximum(36, style.lineHeight + inset);
 		} else if (element.kind() == NATIVE_UI_IMAGE) {
@@ -908,7 +969,35 @@ class NativeUiRaster {
 		}
 	}
 
-	class void frame(Image image, Vector<NativeUiLayoutBox> boxes, NativeUiTheme theme, NativeUiTypography typography, string hovered, string focused, string focusedValue, int caretByteOffset, int scrollX, int scrollY) {
+	class void selectPopup(Image image, Vector<NativeUiLayoutBox> boxes, NativeUiSelectPopup popup, int highlightedOption, NativeUiTheme theme, NativeUiTypography typography) {
+		if (!popup.visible()) { return; }
+		for box in boxes {
+			if (!box.id().equals(popup.ownerId())) { continue; }
+			NativeUiSelect? optionalSelect = box.element.selectDescriptor();
+			if (optionalSelect == null) { return; }
+			NativeUiSelect descriptor = optionalSelect;
+			NativeUiRect popupBounds = popup.bounds();
+			NativeUiRaster.fillRect(image, popupBounds.x, popupBounds.y, popupBounds.width, popupBounds.height, theme.border, box.style.radius);
+			if (popupBounds.width > 2 && popupBounds.height > 2) {
+				NativeUiRaster.fillRect(image, popupBounds.x + 1, popupBounds.y + 1, popupBounds.width - 2, popupBounds.height - 2, theme.panel, box.style.radius > 0 ? box.style.radius - 1 : 0);
+			}
+			for (int index = popup.firstOptionIndex(); index < popup.firstOptionIndex() + popup.visibleOptionCount(); index++) {
+				NativeUiSelectOption option = descriptor.optionAt(index);
+				NativeUiRect row = popup.optionBounds(index);
+				bool highlighted = option.enabled() && index == highlightedOption;
+				if (highlighted) {
+					NativeUiRaster.fillRect(image, row.x, row.y, row.width, row.height, theme.accent, 0);
+				} else if (index == descriptor.selectedIndex()) {
+					NativeUiRaster.fillRect(image, row.x, row.y, 3, row.height, theme.accent, 0);
+				}
+				NativeUiColor label = !option.enabled() ? theme.mutedText : (highlighted ? theme.accentText : (box.style.hasForeground ? box.style.foreground : theme.text));
+				NativeUiRaster.text(image, row.x + box.style.padding, row.y + (row.height - box.style.lineHeight) / 2, option.label(), label, box.style, typography);
+			}
+			return;
+		}
+	}
+
+	class void frame(Image image, Vector<NativeUiLayoutBox> boxes, NativeUiTheme theme, NativeUiTypography typography, string hovered, string focused, string focusedValue, int caretByteOffset, int scrollX, int scrollY, NativeUiSelectPopup popup, int highlightedOption) {
 		NativeUiRaster.fillRect(image, 0, 0, image.width, image.height, theme.background);
 		for box in boxes {
 			NativeUiResolvedStyle style = box.style;
@@ -932,6 +1021,23 @@ class NativeUiRaster {
 					if (caretX >= x + style.padding && caretX < x + box.bounds.width - style.padding + 1) {
 						NativeUiRaster.fillRect(image, caretX, y + (box.bounds.height - style.lineHeight) / 2, 2, style.lineHeight, style.hasForeground ? style.foreground : theme.text);
 					}
+				}
+			} else if (box.element.kind() == NATIVE_UI_SELECT) {
+				bool hasFocus = box.id().equals(focused);
+				bool expanded = popup.visible() && popup.ownerId().equals(box.id());
+				NativeUiRaster.fillRect(image, x, y, box.bounds.width, box.bounds.height, hasFocus || expanded ? theme.accent : theme.border, style.radius);
+				NativeUiColor fill = style.hasBackground ? style.background : theme.panel;
+				if (box.bounds.width > 2 && box.bounds.height > 2) {
+					NativeUiRaster.fillRect(image, x + 1, y + 1, box.bounds.width - 2, box.bounds.height - 2, fill, style.radius > 0 ? style.radius - 1 : 0);
+				}
+				NativeUiSelect? optionalSelect = box.element.selectDescriptor();
+				if (optionalSelect != null) {
+					NativeUiSelect descriptor = optionalSelect;
+					string label = descriptor.selectedLabel();
+					NativeUiColor labelColor = box.enabled() ? (style.hasForeground ? style.foreground : theme.text) : theme.mutedText;
+					NativeUiRaster.text(image, x + style.padding, y + (box.bounds.height - style.lineHeight) / 2, label, labelColor, style, typography);
+					int arrowX = x + box.bounds.width - style.padding - typography.advance(style.fontSize);
+					NativeUiRaster.text(image, arrowX, y + (box.bounds.height - style.lineHeight) / 2, expanded ? "^" : "v", style.hasForeground ? style.foreground : theme.mutedText, style, typography);
 				}
 			} else if (box.element.kind() == NATIVE_UI_BUTTON) {
 				NativeUiColor fill = box.id().equals(hovered) ? theme.accent : (style.hasBackground ? style.background : theme.panel);
@@ -958,6 +1064,7 @@ class NativeUiRaster {
 				}
 			}
 		}
+		NativeUiRaster.selectPopup(image, boxes, popup, highlightedOption, theme, typography);
 	}
 }
 
@@ -982,6 +1089,12 @@ class NativeUiRenderer {
 	private string focusedInputValue;
 	private int focusedCaretByteOffset;
 	private int focusedMaxBytes;
+	private string expandedSelectIdentity;
+	private int highlightedSelectOption;
+	private int pressedSelectOption;
+	private string pressedSelectStableValue;
+	private bool pressedSelectWasExpanded;
+	private NativeUiSelectPopup selectPopupValue;
 	private bool proofRasterValue;
 
 	public NativeUiRenderer(NativeUiTheme? theme = null, NativeUiStyleSheet? styleSheet = null, NativeUiTypography? typography = null) {
@@ -1004,6 +1117,12 @@ class NativeUiRenderer {
 		self.focusedInputValue = "";
 		self.focusedCaretByteOffset = 0;
 		self.focusedMaxBytes = 0;
+		self.expandedSelectIdentity = "";
+		self.highlightedSelectOption = -1;
+		self.pressedSelectOption = -1;
+		self.pressedSelectStableValue = "";
+		self.pressedSelectWasExpanded = false;
+		self.selectPopupValue = NativeUiSelectPopup.hidden();
 		self.proofRasterValue = false;
 		self.frameValue = NativeUiFrame.failed(NATIVE_UI_FRAME_INVALID_VIEWPORT, "native UI has not rendered a viewport", NativeUiStyleError.valid(), 0, 0, 0, 0);
 	}
@@ -1026,6 +1145,12 @@ class NativeUiRenderer {
 
 	public int focusedCaret() { return self.focusedCaretByteOffset; }
 
+	public string expandedSelectId() { return self.expandedSelectIdentity; }
+
+	public int highlightedSelectIndex() { return self.highlightedSelectOption; }
+
+	public NativeUiSelectPopup selectPopup() { return self.selectPopupValue; }
+
 	public string displayValue(NativeUiElement element) {
 		if (element.kind() == NATIVE_UI_TEXT_INPUT && element.id().equals(self.focusedIdentity) && self.focusedMaxBytes > 0) {
 			return self.focusedInputValue;
@@ -1033,11 +1158,21 @@ class NativeUiRenderer {
 		return element.contentText();
 	}
 
+	private void closeSelect() {
+		self.expandedSelectIdentity = "";
+		self.highlightedSelectOption = -1;
+		self.pressedSelectOption = -1;
+		self.pressedSelectStableValue = "";
+		self.pressedSelectWasExpanded = false;
+		self.selectPopupValue = NativeUiSelectPopup.hidden();
+	}
+
 	private void clearFocus() {
 		self.focusedIdentity = "";
 		self.focusedInputValue = "";
 		self.focusedCaretByteOffset = 0;
 		self.focusedMaxBytes = 0;
+		self.closeSelect();
 	}
 
 	private void focus(NativeUiLayoutBox box) {
@@ -1045,7 +1180,8 @@ class NativeUiRenderer {
 			self.clearFocus();
 			return;
 		}
-		if (box.adjustable()) {
+		if (!self.expandedSelectIdentity.isEmpty() && !box.id().equals(self.expandedSelectIdentity)) { self.closeSelect(); }
+		if (box.adjustable() || box.selectable()) {
 			self.focusedIdentity = box.id();
 			self.focusedInputValue = "";
 			self.focusedCaretByteOffset = 0;
@@ -1064,7 +1200,7 @@ class NativeUiRenderer {
 		if (self.focusedIdentity.isEmpty()) { return; }
 		for box in boxes {
 			if (box.focusable() && box.id().equals(self.focusedIdentity)) {
-				if (box.adjustable()) {
+				if (box.adjustable() || box.selectable()) {
 					self.focusedInputValue = "";
 					self.focusedCaretByteOffset = 0;
 					self.focusedMaxBytes = 0;
@@ -1079,6 +1215,110 @@ class NativeUiRenderer {
 			}
 		}
 		self.clearFocus();
+	}
+
+	private void synchronizeHover(Vector<NativeUiLayoutBox> boxes) {
+		if (self.hoveredIdentity.isEmpty()) { return; }
+		for box in boxes {
+			if (box.id().equals(self.hoveredIdentity) && box.interactive()) { return; }
+		}
+		self.hoveredIdentity = "";
+	}
+
+	private NativeUiLayoutBox? selectBoxFor(string identity) {
+		if (identity.isEmpty() || !self.frameValue.ok()) { return null; }
+		NativeUiLayoutBox? optionalBox = self.frameValue.boxFor(identity);
+		if (optionalBox == null || !optionalBox.selectable()) { return null; }
+		return optionalBox;
+	}
+
+	private int firstEnabledOption(NativeUiSelect descriptor) {
+		for (int index = 0; index < descriptor.optionCount(); index++) {
+			if (descriptor.optionAt(index).enabled()) { return index; }
+		}
+		return -1;
+	}
+
+	private int adjacentEnabledOption(NativeUiSelect descriptor, int start, int direction) {
+		if (descriptor.optionCount() == 0 || direction == 0) { return -1; }
+		int index = start;
+		for (int attempts = 0; attempts < descriptor.optionCount(); attempts++) {
+			index += direction;
+			if (index < 0) { index = descriptor.optionCount() - 1; }
+			if (index >= descriptor.optionCount()) { index = 0; }
+			if (descriptor.optionAt(index).enabled()) { return index; }
+		}
+		return -1;
+	}
+
+	private void openSelect(NativeUiLayoutBox box) {
+		NativeUiSelect? optionalSelect = box.element.selectDescriptor();
+		if (optionalSelect == null || !box.selectable()) { return; }
+		NativeUiSelect descriptor = optionalSelect;
+		self.expandedSelectIdentity = box.id();
+		self.highlightedSelectOption = descriptor.selectedIndex();
+		if (self.highlightedSelectOption < 0 || !descriptor.optionAt(self.highlightedSelectOption).enabled()) {
+			self.highlightedSelectOption = self.firstEnabledOption(descriptor);
+		}
+	}
+
+	private void synchronizeSelect(Vector<NativeUiLayoutBox> boxes) {
+		if (self.expandedSelectIdentity.isEmpty()) { return; }
+		for box in boxes {
+			if (!box.id().equals(self.expandedSelectIdentity) || !box.selectable()) { continue; }
+			NativeUiSelect? optionalSelect = box.element.selectDescriptor();
+			if (optionalSelect == null) { break; }
+			NativeUiSelect descriptor = optionalSelect;
+			if (self.highlightedSelectOption < 0 || self.highlightedSelectOption >= descriptor.optionCount() || !descriptor.optionAt(self.highlightedSelectOption).enabled()) {
+				self.highlightedSelectOption = self.firstEnabledOption(descriptor);
+			}
+			if (!self.pressedSelectStableValue.isEmpty()) {
+				self.pressedSelectOption = descriptor.indexOfValue(self.pressedSelectStableValue);
+				if (self.pressedSelectOption < 0 || !descriptor.optionAt(self.pressedSelectOption).enabled()) {
+					self.pressedSelectOption = -1;
+					self.pressedSelectStableValue = "";
+				}
+			}
+			return;
+		}
+		self.closeSelect();
+	}
+
+	private NativeUiSelectPopup resolveSelectPopup(Vector<NativeUiLayoutBox> boxes, int viewportWidth, int viewportHeight) {
+		if (self.expandedSelectIdentity.isEmpty()) { return NativeUiSelectPopup.hidden(); }
+		for box in boxes {
+			if (!box.id().equals(self.expandedSelectIdentity) || !box.selectable()) { continue; }
+			NativeUiSelect? optionalSelect = box.element.selectDescriptor();
+			if (optionalSelect == null) { return NativeUiSelectPopup.hidden(); }
+			NativeUiSelect descriptor = optionalSelect;
+			int rowHeight = NativeUiLayout.maximum(36, box.style.lineHeight + box.style.padding * 2);
+			int visibleCount = NativeUiLayout.minimum(8, descriptor.optionCount());
+			int viewportRows = (viewportHeight - 2) / rowHeight;
+			if (viewportRows < 1) { viewportRows = 1; }
+			visibleCount = NativeUiLayout.minimum(visibleCount, viewportRows);
+			int anchorIndex = self.highlightedSelectOption >= 0 ? self.highlightedSelectOption : descriptor.selectedIndex();
+			int firstIndex = self.selectPopupValue.visible() && self.selectPopupValue.ownerId().equals(box.id()) ? self.selectPopupValue.firstOptionIndex() : anchorIndex - visibleCount / 2;
+			if (anchorIndex < firstIndex) { firstIndex = anchorIndex; }
+			if (anchorIndex >= firstIndex + visibleCount) { firstIndex = anchorIndex - visibleCount + 1; }
+			if (firstIndex < 0) { firstIndex = 0; }
+			if (firstIndex + visibleCount > descriptor.optionCount()) { firstIndex = descriptor.optionCount() - visibleCount; }
+			int popupHeight = visibleCount * rowHeight + 2;
+			int screenX = box.bounds.x - self.scrollXValue;
+			int popupWidth = box.bounds.width;
+			if (popupWidth > viewportWidth) { popupWidth = viewportWidth; }
+			if (screenX < 0) { screenX = 0; }
+			if (screenX + popupWidth > viewportWidth) { screenX = viewportWidth - popupWidth; }
+			int belowY = box.bounds.y - self.scrollYValue + box.bounds.height;
+			int aboveY = box.bounds.y - self.scrollYValue - popupHeight;
+			int popupY = belowY + popupHeight <= viewportHeight ? belowY : aboveY;
+			if (popupY < 0) { popupY = 0; }
+			if (popupY + popupHeight > viewportHeight) {
+				popupY = viewportHeight - popupHeight;
+				if (popupY < 0) { popupY = 0; }
+			}
+			return NativeUiSelectPopup(true, box.id(), NativeUiRect(screenX, popupY, popupWidth, popupHeight), firstIndex, visibleCount, rowHeight);
+		}
+		return NativeUiSelectPopup.hidden();
 	}
 
 	private NativeUiFrame buildFrame(NativeUiElement root, int width, int height, bool proofRaster, bool synchronizeInput) {
@@ -1109,11 +1349,16 @@ class NativeUiRenderer {
 		self.scrollXValue = 0;
 		Vector<NativeUiLayoutBox> boxes = [];
 		NativeUiLayout.place(measured, 0, 0, width, 0, boxes);
-		if (synchronizeInput) { self.synchronizeFocus(boxes); }
-		for box in boxes { box.resolveSemantics(box.id().equals(self.focusedIdentity)); }
+		if (synchronizeInput) {
+			self.synchronizeFocus(boxes);
+			self.synchronizeHover(boxes);
+		}
+		self.synchronizeSelect(boxes);
+		self.selectPopupValue = self.resolveSelectPopup(boxes, width, height);
+		for box in boxes { box.resolveSemantics(box.id().equals(self.focusedIdentity), box.id().equals(self.expandedSelectIdentity)); }
 		Image image = proofRaster ? Image(width, height) : Image.empty();
 		if (proofRaster) {
-			NativeUiRaster.frame(image, boxes, self.themeValue, self.typographyValue, self.hoveredIdentity, self.focusedIdentity, self.focusedInputValue, self.focusedCaretByteOffset, self.scrollXValue, self.scrollYValue);
+			NativeUiRaster.frame(image, boxes, self.themeValue, self.typographyValue, self.hoveredIdentity, self.focusedIdentity, self.focusedInputValue, self.focusedCaretByteOffset, self.scrollXValue, self.scrollYValue, self.selectPopupValue, self.highlightedSelectOption);
 		}
 		NativeUiViewportMetrics viewport = NativeUiViewportMetrics(width, height, self.scrollXValue, self.scrollYValue);
 		Vector<NativeUiVirtualGridViewport> virtualGrids = NativeUiLayout.virtualGridViewports(boxes, viewport);
@@ -1134,7 +1379,8 @@ class NativeUiRenderer {
 	}
 
 	private void hoverEvents(Vector<NativeUiEvent> events) {
-		string next = self.frameValue.ok() ? self.frameValue.hitId(self.pointerXValue, self.pointerYValue, true) : "";
+		bool insideSelectPopup = self.selectPopupValue.visible() && self.selectPopupValue.bounds().contains(self.pointerXValue, self.pointerYValue);
+		string next = insideSelectPopup ? self.expandedSelectIdentity : (self.frameValue.ok() ? self.frameValue.hitId(self.pointerXValue, self.pointerYValue, true) : "");
 		if (next.equals(self.hoveredIdentity)) { return; }
 		if (!self.hoveredIdentity.isEmpty()) {
 			events.push(NativeUiEvent.hoverLeft(self.hoveredIdentity));
@@ -1184,6 +1430,17 @@ class NativeUiRenderer {
 		self.pointerXValue = x;
 		self.pointerYValue = y;
 		Vector<NativeUiEvent> events = [];
+		int optionIndex = self.selectPopupValue.optionAt(x, y);
+		if (optionIndex >= 0) {
+			NativeUiLayoutBox? optionalSelectBox = self.selectBoxFor(self.expandedSelectIdentity);
+			if (optionalSelectBox != null) {
+				NativeUiSelect? optionalSelect = optionalSelectBox.element.selectDescriptor();
+				if (optionalSelect != null && optionalSelect.optionAt(optionIndex).enabled() && optionIndex != self.highlightedSelectOption) {
+					self.highlightedSelectOption = optionIndex;
+					self.rerender();
+				}
+			}
+		}
 		self.hoverEvents(events);
 		if (!self.rangeCaptureIdentity.isEmpty()) {
 			NativeUiLayoutBox? optionalCaptured = self.rangeBoxFor(self.rangeCaptureIdentity);
@@ -1204,6 +1461,25 @@ class NativeUiRenderer {
 		Vector<NativeUiEvent> events = [];
 		self.hoverEvents(events);
 		self.cancelRangeCapture(events);
+		int popupOption = self.selectPopupValue.optionAt(x, y);
+		if (popupOption >= 0) {
+			NativeUiLayoutBox? optionalSelectBox = self.selectBoxFor(self.expandedSelectIdentity);
+			if (optionalSelectBox != null) {
+				NativeUiSelect? optionalSelect = optionalSelectBox.element.selectDescriptor();
+				if (optionalSelect != null && optionalSelect.optionAt(popupOption).enabled()) {
+					self.focus(optionalSelectBox);
+					self.highlightedSelectOption = popupOption;
+					self.pressedSelectOption = popupOption;
+					self.pressedSelectStableValue = optionalSelect.optionAt(popupOption).value();
+					self.pressedIdentity = "";
+					self.rerender();
+				}
+			}
+			return NativeUiEventBatch(self.frameValue, events);
+		}
+		if (self.selectPopupValue.visible() && self.selectPopupValue.bounds().contains(x, y)) {
+			return NativeUiEventBatch(self.frameValue, events);
+		}
 		NativeUiLayoutBox? optionalTarget = self.frameValue.ok() ? self.frameValue.hitBox(x, y, true) : null;
 		if (optionalTarget != null && optionalTarget.adjustable()) {
 			NativeUiLayoutBox target = optionalTarget;
@@ -1213,11 +1489,20 @@ class NativeUiRenderer {
 			NativeUiPointerSample sample = self.pointerSample(target, x, y);
 			self.rememberRangeSample(sample);
 			events.push(NativeUiEvent.rangePointerPressed(target.id(), sample));
+		} else if (optionalTarget != null && optionalTarget.selectable()) {
+			NativeUiLayoutBox target = optionalTarget;
+			self.focus(target);
+			self.pressedSelectWasExpanded = target.id().equals(self.expandedSelectIdentity);
+			self.pressedIdentity = target.id();
+			self.pressedSelectOption = -1;
+			self.pressedSelectStableValue = "";
 		} else if (optionalTarget != null && optionalTarget.clickable()) {
+			self.closeSelect();
 			NativeUiLayoutBox target = optionalTarget;
 			if (target.focusable()) { self.focus(target); }
 			self.pressedIdentity = target.id();
 		} else if (optionalTarget != null && optionalTarget.focusable()) {
+			self.closeSelect();
 			NativeUiLayoutBox target = optionalTarget;
 			self.focus(target);
 			self.pressedIdentity = "";
@@ -1234,6 +1519,25 @@ class NativeUiRenderer {
 		self.pointerYValue = y;
 		Vector<NativeUiEvent> events = [];
 		self.hoverEvents(events);
+		if (self.pressedSelectOption >= 0) {
+			int pressedOption = self.pressedSelectOption;
+			int releasedOption = self.selectPopupValue.optionAt(x, y);
+			NativeUiLayoutBox? optionalSelectBox = self.selectBoxFor(self.expandedSelectIdentity);
+			if (releasedOption == pressedOption && optionalSelectBox != null) {
+				NativeUiSelect? optionalSelect = optionalSelectBox.element.selectDescriptor();
+				if (optionalSelect != null) {
+					NativeUiSelect descriptor = optionalSelect;
+					NativeUiSelectOption option = descriptor.optionAt(pressedOption);
+					if (option.enabled() && option.value().equals(self.pressedSelectStableValue) && !option.value().equals(descriptor.selectedValue())) {
+						events.push(NativeUiEvent.selectionChanged(optionalSelectBox.id(), option.value()));
+					}
+				}
+			}
+			self.pressedIdentity = "";
+			self.closeSelect();
+			self.rerender();
+			return NativeUiEventBatch(self.frameValue, events);
+		}
 		bool capturedRange = !self.rangeCaptureIdentity.isEmpty();
 		if (capturedRange) {
 			NativeUiLayoutBox? optionalCaptured = self.rangeBoxFor(self.rangeCaptureIdentity);
@@ -1245,13 +1549,22 @@ class NativeUiRenderer {
 				events.push(NativeUiEvent.rangePointerReleased(self.rangeCaptureIdentity, sample));
 				self.clearRangeCapture();
 			}
-		} else {
-			string target = self.frameValue.ok() ? self.frameValue.clickableId(x, y) : "";
-			if (!self.pressedIdentity.isEmpty() && target.equals(self.pressedIdentity)) {
-				events.push(NativeUiEvent.clicked(target));
+		} else if (!self.pressedIdentity.isEmpty()) {
+			NativeUiLayoutBox? optionalReleased = self.frameValue.ok() ? self.frameValue.hitBox(x, y, true) : null;
+			if (optionalReleased != null && optionalReleased.id().equals(self.pressedIdentity) && optionalReleased.selectable()) {
+				if (self.pressedSelectWasExpanded) {
+					self.closeSelect();
+				} else {
+					self.openSelect(optionalReleased);
+				}
+				self.rerender();
+			} else {
+				string target = self.frameValue.ok() ? self.frameValue.clickableId(x, y) : "";
+				if (target.equals(self.pressedIdentity)) { events.push(NativeUiEvent.clicked(target)); }
 			}
 		}
 		self.pressedIdentity = "";
+		self.pressedSelectWasExpanded = false;
 		return NativeUiEventBatch(self.frameValue, events);
 	}
 
@@ -1259,6 +1572,7 @@ class NativeUiRenderer {
 		Vector<NativeUiEvent> events = [];
 		self.pressedIdentity = "";
 		self.cancelRangeCapture(events);
+		self.closeSelect();
 		self.rerender();
 		return NativeUiEventBatch(self.frameValue, events);
 	}
@@ -1315,6 +1629,7 @@ class NativeUiRenderer {
 
 	public NativeUiEventBatch focusNext(bool reverse = false) {
 		Vector<NativeUiEvent> events = [];
+		self.closeSelect();
 		Vector<NativeUiLayoutBox> fields = [];
 		for box in self.frameValue.boxes {
 			if (box.focusable()) { fields.push(box); }
@@ -1341,6 +1656,33 @@ class NativeUiRenderer {
 		return self.inputBatch(events);
 	}
 
+	public NativeUiEventBatch dismiss() {
+		Vector<NativeUiEvent> events = [];
+		if (!self.expandedSelectIdentity.isEmpty()) {
+			self.closeSelect();
+			return self.inputBatch(events);
+		}
+		self.clearFocus();
+		return self.inputBatch(events);
+	}
+
+	public NativeUiEventBatch navigateFocusedSelect(int direction) {
+		Vector<NativeUiEvent> events = [];
+		if (direction != -1 && direction != 1) { return NativeUiEventBatch(self.frameValue, events); }
+		NativeUiLayoutBox? optionalBox = self.selectBoxFor(self.focusedIdentity);
+		if (optionalBox == null) { return NativeUiEventBatch(self.frameValue, events); }
+		NativeUiSelect? optionalSelect = optionalBox.element.selectDescriptor();
+		if (optionalSelect == null) { return NativeUiEventBatch(self.frameValue, events); }
+		NativeUiSelect descriptor = optionalSelect;
+		if (!optionalBox.id().equals(self.expandedSelectIdentity)) {
+			self.openSelect(optionalBox);
+		} else {
+			int next = self.adjacentEnabledOption(descriptor, self.highlightedSelectOption, direction);
+			if (next >= 0) { self.highlightedSelectOption = next; }
+		}
+		return self.inputBatch(events);
+	}
+
 	private bool validRangeAdjustment(NativeUiRangeAdjustment adjustment) { return adjustment == NATIVE_UI_RANGE_ADJUST_SMALL_DECREMENT || adjustment == NATIVE_UI_RANGE_ADJUST_SMALL_INCREMENT || adjustment == NATIVE_UI_RANGE_ADJUST_LARGE_DECREMENT || adjustment == NATIVE_UI_RANGE_ADJUST_LARGE_INCREMENT || adjustment == NATIVE_UI_RANGE_ADJUST_MINIMUM || adjustment == NATIVE_UI_RANGE_ADJUST_MAXIMUM; }
 
 	public NativeUiEventBatch adjustRange(string elementId, NativeUiRangeAdjustment adjustment) {
@@ -1362,6 +1704,22 @@ class NativeUiRenderer {
 		if (!self.frameValue.ok()) { return NativeUiEventBatch(self.frameValue, events); }
 		NativeUiLayoutBox? optionalBox = self.frameValue.boxFor(elementId);
 		if (optionalBox == null || !optionalBox.accessibilityActivatable()) { return NativeUiEventBatch(self.frameValue, events); }
+		if (optionalBox.selectable()) {
+			NativeUiSelect? optionalSelect = optionalBox.element.selectDescriptor();
+			if (optionalSelect == null) { return NativeUiEventBatch(self.frameValue, events); }
+			NativeUiSelect descriptor = optionalSelect;
+			if (optionalBox.id().equals(self.expandedSelectIdentity)) {
+				if (self.highlightedSelectOption >= 0) {
+					NativeUiSelectOption option = descriptor.optionAt(self.highlightedSelectOption);
+					if (option.enabled() && !option.value().equals(descriptor.selectedValue())) { events.push(NativeUiEvent.selectionChanged(elementId, option.value())); }
+				}
+				self.closeSelect();
+			} else {
+				self.focus(optionalBox);
+				self.openSelect(optionalBox);
+			}
+			return self.inputBatch(events);
+		}
 		events.push(NativeUiEvent.clicked(elementId));
 		return NativeUiEventBatch(self.frameValue, events);
 	}
@@ -1370,6 +1728,10 @@ class NativeUiRenderer {
 		if (!self.frameValue.ok()) {
 			Vector<NativeUiEvent> noEvents = [];
 			return NativeUiEventBatch(self.frameValue, noEvents);
+		}
+		if (self.selectPopupValue.visible() && self.selectPopupValue.bounds().contains(self.pointerXValue, self.pointerYValue)) {
+			int delta = y != 0 ? y : x;
+			if (delta != 0) { return self.navigateFocusedSelect(delta > 0 ? 1 : -1); }
 		}
 		NativeUiLayoutBox? optionalBox = self.frameValue.adjustableBox(self.pointerXValue, self.pointerYValue);
 		if (optionalBox == null) { return self.scrollBy(x, y); }
@@ -1390,6 +1752,7 @@ class NativeUiRenderer {
 		if (!self.frameValue.ok()) {
 			return NativeUiEventBatch(self.frameValue, events);
 		}
+		self.closeSelect();
 		string target = self.frameValue.scrollOwnerId(self.pointerXValue, self.pointerYValue);
 		if (target.isEmpty() && self.rootValue != null) {
 			target = self.rootValue.id();
