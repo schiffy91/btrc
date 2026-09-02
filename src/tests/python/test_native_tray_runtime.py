@@ -116,10 +116,17 @@ def test_linux_tray_survives_session_bus_disconnect(tmp_path: Path) -> None:
     # sun_path caps unix sockets at 108 bytes; pytest's tmp_path embeds the
     # username and test name, which can exceed that. Bind somewhere short.
     socket_dir = tempfile.mkdtemp(dir="/tmp", prefix="btrc-bus-")
+    daemon_root = Path(os.path.realpath(daemon_path)).parent.parent
+    packaged_session_config = daemon_root / "share" / "dbus-1" / "session.conf"
+    session_config = (
+        [f"--config-file={packaged_session_config}"]
+        if packaged_session_config.is_file()
+        else ["--session"]
+    )
     daemon = subprocess.Popen(
         [
             daemon_path,
-            "--session",
+            *session_config,
             "--nofork",
             "--nopidfile",
             "--print-address=1",
