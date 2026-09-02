@@ -15,6 +15,7 @@ from tools.native_plan import NativePlanBuilder
 
 REPO = Path(__file__).resolve().parents[3]
 EXAMPLE = REPO / "examples" / "native-package"
+C_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _environment() -> dict[str, str]:
@@ -64,6 +65,88 @@ def _manifest(path: Path, name: str, dependencies: str = "", native: str = "") -
         encoding="utf-8",
     )
     (path / "src").mkdir(exist_ok=True)
+
+
+def _assert_strict_c_program(generated: Path, output: Path, compiler: str) -> None:
+    build = subprocess.run(
+        [
+            compiler,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-O2",
+            str(generated),
+            "-pthread",
+            "-lm",
+            "-o",
+            str(output),
+        ],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    assert build.returncode == 0, build.stderr
+    executed = subprocess.run(
+        [str(output)],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert executed.returncode == 0, executed.stderr
+
+
+@pytest.mark.parametrize("legacy_manifest", (False, True), ids=("no-manifest", "legacy-manifest"))
+def test_empty_native_plan_preserves_explicit_target_with_frontend_parity(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    legacy_manifest: bool,
+) -> None:
+    root = tmp_path / ("legacy" if legacy_manifest else "plain")
+    root.mkdir()
+    source = root / "main.btrc"
+    source.write_text("int main() { return 0; }\n", encoding="utf-8")
+    if legacy_manifest:
+        (root / "btrc.toml").write_text(
+            '[package]\nname = "legacy"\n',
+            encoding="utf-8",
+        )
+    reference_c = tmp_path / f"{root.name}.reference.c"
+    selfhost_c = tmp_path / f"{root.name}.selfhost.c"
+    reference_plan = tmp_path / f"{root.name}.reference.json"
+    selfhost_plan = tmp_path / f"{root.name}.selfhost.json"
+
+    reference = _reference(
+        source,
+        reference_c,
+        reference_plan,
+        target="macos-arm64",
+    )
+    selfhost = _selfhost(
+        semantic_btrcc,
+        source,
+        selfhost_plan,
+        target="macos-arm64",
+    )
+
+    assert reference.returncode == 0, reference.stderr
+    assert selfhost.returncode == 0, selfhost.stderr
+    selfhost_c.write_text(selfhost.stdout, encoding="utf-8")
+    assert selfhost_plan.read_bytes() == reference_plan.read_bytes()
+    assert json.loads(selfhost_plan.read_text(encoding="utf-8"))["target"] == {
+        "arch": "aarch64",
+        "os": "macos",
+    }
+    for frontend, generated in (("reference", reference_c), ("selfhost", selfhost_c)):
+        for compiler in C_COMPILERS:
+            _assert_strict_c_program(
+                generated,
+                tmp_path / f"{root.name}-{frontend}-{Path(compiler).name}",
+                compiler,
+            )
 
 
 def _module_projection_project(tmp_path: Path) -> Path:

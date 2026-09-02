@@ -1298,13 +1298,21 @@ class FePackageGraphResolver {
 		return manifest.name;
 	}
 
+	private FePackageTarget planTarget(string targetValue) {
+		if (targetValue == null || targetValue.isEmpty()) {
+			return FePackageTarget("", "");
+		}
+		return FePackageTarget.parse(targetValue);
+	}
+
 	public FeResolvedPackages resolveFor(string sourcePath, string targetValue) {
+		FePackageTarget target = self.planTarget(targetValue);
 		string manifestPath = self.findManifest(sourcePath);
 		if (manifestPath.isEmpty()) {
 			Map<string, FePackageNode> emptyNodes = {};
 			Vector<FePackageNode> emptyPackages = [];
 			Vector<FeNativeDeclaration> emptyDeclarations = [];
-			FeNativeLinkPlan emptyPlan = FeNativeLinkPlan(FePackageTarget("", ""), emptyPackages, emptyDeclarations);
+			FeNativeLinkPlan emptyPlan = FeNativeLinkPlan(target, emptyPackages, emptyDeclarations);
 			return FeResolvedPackages(false, "", "", emptyNodes, emptyPlan);
 		}
 		string rootSource = self.sourceFiles.readRequired(manifestPath);
@@ -1312,10 +1320,10 @@ class FePackageGraphResolver {
 			Map<string, FePackageNode> legacyNodes = {};
 			Vector<FePackageNode> legacyPackages = [];
 			Vector<FeNativeDeclaration> legacyDeclarations = [];
-			FeNativeLinkPlan legacyPlan = FeNativeLinkPlan(FePackageTarget("", ""), legacyPackages, legacyDeclarations);
+			FeNativeLinkPlan legacyPlan = FeNativeLinkPlan(target, legacyPackages, legacyDeclarations);
 			return FeResolvedPackages(false, manifestPath, "", legacyNodes, legacyPlan);
 		}
-		FePackageTarget target = FePackageTarget.parse(targetValue);
+		target = FePackageTarget.parse(targetValue);
 		string root = PathTools.absolute(PathTools.dirname(manifestPath));
 		string lockPath = PathTools.join(root, "btrc.lock");
 		FePackageLock lock = FePackageLock(self.sourceFiles);
