@@ -86,6 +86,11 @@ typedef struct {
     uint64_t generation;
     uint64_t cached_image_pixels;
     uint64_t frame_image_pixels;
+#ifdef BTRC_GPU_NATIVE_UI_CACHE_TEST
+    unsigned char* test_last_upload;
+    int test_last_upload_width;
+    int test_last_upload_height;
+#endif
 } BtrcNativeUi;
 
 #ifndef BTRC_GPU_NATIVE_UI_CACHE_TEST
@@ -280,6 +285,8 @@ void btrc_gpu_native_ui_destroy(void* compositor) {
     if (ui->command_pipeline) {
         wgpuRenderPipelineRelease(ui->command_pipeline);
     }
+#else
+    free(ui->test_last_upload);
 #endif
     free(ui->images);
     free(ui->order);
@@ -656,13 +663,18 @@ static bool upload_image(
         BtrcNativeUiImage* image,
         const unsigned char* rgba) {
 #ifdef BTRC_GPU_NATIVE_UI_CACHE_TEST
-    (void)ui;
-    (void)image;
-    (void)rgba;
     if (native_ui_test_fail_upload) {
         native_ui_test_fail_upload = false;
         return false;
     }
+    size_t bytes = (size_t)image->width * (size_t)image->height * 4u;
+    unsigned char* snapshot = (unsigned char*)malloc(bytes);
+    if (!snapshot) { return false; }
+    memcpy(snapshot, rgba, bytes);
+    free(ui->test_last_upload);
+    ui->test_last_upload = snapshot;
+    ui->test_last_upload_width = image->width;
+    ui->test_last_upload_height = image->height;
     native_ui_test_uploads++;
     return true;
 #else
@@ -1105,6 +1117,22 @@ int btrc_gpu_native_ui_test_placement_count(void* compositor) {
 uint64_t btrc_gpu_native_ui_test_cached_pixels(void* compositor) {
     BtrcNativeUi* ui = (BtrcNativeUi*)compositor;
     return ui ? ui->cached_image_pixels : 0;
+}
+
+bool btrc_gpu_native_ui_test_last_upload(
+        void* compositor,
+        const unsigned char** rgba_out,
+        int* width_out,
+        int* height_out) {
+    BtrcNativeUi* ui = (BtrcNativeUi*)compositor;
+    if (!ui || !rgba_out || !width_out || !height_out ||
+        !ui->test_last_upload) {
+        return false;
+    }
+    *rgba_out = ui->test_last_upload;
+    *width_out = ui->test_last_upload_width;
+    *height_out = ui->test_last_upload_height;
+    return true;
 }
 
 bool btrc_gpu_native_ui_test_has_image(

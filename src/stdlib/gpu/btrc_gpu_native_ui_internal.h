@@ -69,6 +69,13 @@ void btrc_gpu_native_ui_test_fail_next_upload(void);
 int btrc_gpu_native_ui_test_upload_count(void);
 int btrc_gpu_native_ui_test_placement_count(void* compositor);
 uint64_t btrc_gpu_native_ui_test_cached_pixels(void* compositor);
+/* The returned snapshot is borrowed until the next upload or compositor
+ * destruction. */
+bool btrc_gpu_native_ui_test_last_upload(
+    void* compositor,
+    const unsigned char** rgba_out,
+    int* width_out,
+    int* height_out);
 bool btrc_gpu_native_ui_test_has_image(
     void* compositor, const char* identity);
 #endif

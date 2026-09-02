@@ -4,6 +4,22 @@
 #include <stddef.h>
 #include <stdio.h>
 
+static size_t alpha_sum(
+        const BtrcNativeUiTextBitmap* bitmap,
+        int first_row,
+        int row_count) {
+    size_t sum = 0;
+    int last_row = first_row + row_count;
+    for (int row = first_row; row < last_row; ++row) {
+        for (int column = 0; column < bitmap->width; ++column) {
+            size_t pixel = (size_t)row * (size_t)bitmap->width +
+                (size_t)column;
+            sum += bitmap->rgba[pixel * 4u + 3u];
+        }
+    }
+    return sum;
+}
+
 int main(void) {
     assert(btrc_gpu_native_ui_text_available());
 
@@ -44,6 +60,17 @@ int main(void) {
     assert(antialiased > 0);
     btrc_gpu_native_ui_text_bitmap_release(&bitmap);
     assert(bitmap.rgba == NULL && bitmap.width == 0 && bitmap.height == 0);
+
+    BtrcNativeUiTextBitmap asymmetric;
+    assert(btrc_gpu_native_ui_text_rasterize(
+        "F", 64, 80, 600, 1.0f, &asymmetric));
+    size_t upper_alpha = alpha_sum(&asymmetric, 0, asymmetric.height / 2);
+    size_t lower_alpha = alpha_sum(
+        &asymmetric,
+        asymmetric.height / 2,
+        asymmetric.height - asymmetric.height / 2);
+    assert(upper_alpha > lower_alpha);
+    btrc_gpu_native_ui_text_bitmap_release(&asymmetric);
 
     puts("PASS: macOS system typography provider");
     return 0;

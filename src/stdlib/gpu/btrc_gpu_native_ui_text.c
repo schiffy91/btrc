@@ -288,9 +288,8 @@ bool btrc_gpu_native_ui_text_rasterize(
     CGContextRelease(context);
 
     for (int row = 0; row < pixel_height; ++row) {
-        int source_row = pixel_height - row - 1;
         for (int column = 0; column < pixel_width; ++column) {
-            size_t source = (size_t)source_row * (size_t)pixel_width +
+            size_t source = (size_t)row * (size_t)pixel_width +
                 (size_t)column;
             size_t target = ((size_t)row * (size_t)pixel_width +
                 (size_t)column) * 4u;
