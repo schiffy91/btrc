@@ -301,6 +301,7 @@
             pkgs.wgpu-native
           ] ++ lib.optionals isLinux [
             pkgs.libx11.dev
+            pkgs.libxrandr.dev
             pkgs.wayland.dev
           ];
           buildPhase = ''
