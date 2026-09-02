@@ -15,6 +15,8 @@ pytestmark = pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
 
 
 _FAKE_STORED_CALLBACK = r"""
+#define _POSIX_C_SOURCE 200809L
+
 #include <pthread.h>
 #include <sched.h>
 #include <stdatomic.h>
