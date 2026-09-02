@@ -934,7 +934,7 @@ class NativeUiRaster {
 					}
 				}
 			} else if (box.element.kind() == NATIVE_UI_BUTTON) {
-				NativeUiColor fill = box.id().equals(hovered) ? theme.accent : theme.panel;
+				NativeUiColor fill = box.id().equals(hovered) ? theme.accent : (style.hasBackground ? style.background : theme.panel);
 				NativeUiRaster.fillRect(image, x, y, box.bounds.width, box.bounds.height, fill, style.radius);
 				NativeUiColor label = box.id().equals(hovered) ? theme.accentText : (style.hasForeground ? style.foreground : theme.text);
 				NativeUiTextMetrics metrics = typography.measure(box.element.contentText(), style.fontSize, style.lineHeight, style.fontWeight);

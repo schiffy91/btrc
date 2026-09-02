@@ -70,6 +70,11 @@ static int uniform_float_count;
 static int native_ui_command_count;
 static int native_ui_image_count;
 static int native_ui_upload_count;
+static bool native_ui_has_first_rect;
+static float native_ui_first_rect_red;
+static float native_ui_first_rect_green;
+static float native_ui_first_rect_blue;
+static float native_ui_first_rect_alpha;
 static int frame_begin_count;
 static int frame_present_count;
 static FakeUiImage native_ui_images[FAKE_UI_IMAGE_CAPACITY];
@@ -233,6 +238,11 @@ void fake_platform_reset(void) {
     native_ui_command_count = 0;
     native_ui_image_count = 0;
     native_ui_upload_count = 0;
+    native_ui_has_first_rect = false;
+    native_ui_first_rect_red = 0.0f;
+    native_ui_first_rect_green = 0.0f;
+    native_ui_first_rect_blue = 0.0f;
+    native_ui_first_rect_alpha = 0.0f;
     frame_begin_count = 0;
     frame_present_count = 0;
     memset(native_ui_images, 0, sizeof(native_ui_images));
@@ -402,6 +412,10 @@ void fake_gpu_set_next_resource_result(
     resource_result_publish_receipt = publish_receipt != 0;
 }
 int fake_native_ui_upload_count(void) { return native_ui_upload_count; }
+int fake_native_ui_first_rect_red(void) { return native_ui_has_first_rect ? (int)(native_ui_first_rect_red * 255.0f + 0.5f) : -1; }
+int fake_native_ui_first_rect_green(void) { return native_ui_has_first_rect ? (int)(native_ui_first_rect_green * 255.0f + 0.5f) : -1; }
+int fake_native_ui_first_rect_blue(void) { return native_ui_has_first_rect ? (int)(native_ui_first_rect_blue * 255.0f + 0.5f) : -1; }
+int fake_native_ui_first_rect_alpha(void) { return native_ui_has_first_rect ? (int)(native_ui_first_rect_alpha * 255.0f + 0.5f) : -1; }
 int fake_gpu_frame_begin_count(void) { return frame_begin_count; }
 int fake_gpu_frame_present_count(void) { return frame_present_count; }
 char* fake_platform_lifecycle(void) { return lifecycle; }
@@ -1174,6 +1188,7 @@ int std_gpu_native_ui_begin(
     }
     native_ui_begun = true;
     native_ui_command_count = 0;
+    native_ui_has_first_rect = false;
     return BTRC_GPU_RESOURCE_READY;
 }
 
@@ -1188,7 +1203,7 @@ int std_gpu_native_ui_add_rect(
         float blue,
         float alpha,
         float radius) {
-    (void)x; (void)y; (void)red; (void)green; (void)blue; (void)alpha;
+    (void)x; (void)y;
     if (compositor != UINT64_C(404) || !native_ui_open) {
         return BTRC_GPU_RESOURCE_INVALID_RESOURCE;
     }
@@ -1197,6 +1212,13 @@ int std_gpu_native_ui_add_rect(
     if (!native_ui_begun || width <= 0.0f || height <= 0.0f ||
         radius < 0.0f || native_ui_command_count >= 16384) {
         return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    if (!native_ui_has_first_rect) {
+        native_ui_has_first_rect = true;
+        native_ui_first_rect_red = red;
+        native_ui_first_rect_green = green;
+        native_ui_first_rect_blue = blue;
+        native_ui_first_rect_alpha = alpha;
     }
     native_ui_command_count++;
     return BTRC_GPU_RESOURCE_READY;

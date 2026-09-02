@@ -68,6 +68,11 @@ int main() {
 	NativeUiLayoutBox heading = typographyFrame.boxFor("heading");
 	assert(typographyFrame.contentWidth == 100 && heading.bounds.width == 160 && heading.bounds.height == 50);
 	assert(heading.style.fontSize == 28 && heading.style.lineHeight == 34 && heading.style.fontWeight == 600 && heading.style.textAlignment == NATIVE_UI_TEXT_ALIGN_RIGHT);
+	NativeUiFrame styledButtonFrame = NativeUiRenderer().render(NativeUiElement.button("styled-button", "").style("padding: 0px; border-radius: 0px; background-color: #393c43ff; color: #ffffffff"), 40, 36);
+	assert(styledButtonFrame.ok());
+	NativeUiLayoutBox styledButton = styledButtonFrame.boxFor("styled-button");
+	assert(styledButton.style.hasBackground && styledButton.style.background.red == 57 && styledButton.style.background.green == 60 && styledButton.style.background.blue == 67 && styledButton.style.background.alpha == 255);
+	assert(styledButtonFrame.image.data[0] == 57 && styledButtonFrame.image.data[1] == 60 && styledButtonFrame.image.data[2] == 67 && styledButtonFrame.image.data[3] == 255);
 
 	NativeUiRenderer layoutRenderer = NativeUiRenderer.styled(sheet);
 	for (int iteration = 0; iteration < 32; iteration++) {

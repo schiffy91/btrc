@@ -10,6 +10,10 @@ import std.native_ui_app;
 void fake_platform_reset();
 void fake_gpu_set_next_frame(int status);
 int fake_native_ui_upload_count();
+int fake_native_ui_first_rect_red();
+int fake_native_ui_first_rect_green();
+int fake_native_ui_first_rect_blue();
+int fake_native_ui_first_rect_alpha();
 int fake_gpu_frame_begin_count();
 int fake_gpu_frame_present_count();
 string fake_platform_lifecycle();
@@ -34,6 +38,9 @@ int main() {
 	NativeUiAppAttachOutcome uiAttached = NativeUiAppSession.attach(window, gpu, sheet, null, typography);
 	assert(uiAttached.kind == NATIVE_UI_APP_ATTACHED);
 	NativeUiAppSession session = uiAttached.session;
+	NativeUiPresentOutcome styledButtonPresented = session.present(NativeUiElement.button("styled-button", "").style("padding: 0px; border-radius: 0px; background-color: #393c43ff; color: #ffffffff"));
+	assert(styledButtonPresented.kind == NATIVE_UI_PRESENTED);
+	assert(fake_native_ui_first_rect_red() == 57 && fake_native_ui_first_rect_green() == 60 && fake_native_ui_first_rect_blue() == 67 && fake_native_ui_first_rect_alpha() == 255);
 
 	Image artwork = Image(2, 2);
 	artwork.setRGBA(0, 0, 220, 40, 20, 255);
@@ -47,8 +54,8 @@ int main() {
 	assert(session.commandCount() > 0);
 	assert(session.cachedImageCount() == 1);
 	assert(fake_native_ui_upload_count() == 1);
-	assert(fake_gpu_frame_begin_count() == 1);
-	assert(fake_gpu_frame_present_count() == 1);
+	assert(fake_gpu_frame_begin_count() == 2);
+	assert(fake_gpu_frame_present_count() == 2);
 
 	NativeUiPresentOutcome unchanged = session.present(root);
 	assert(unchanged.kind == NATIVE_UI_PRESENTED);

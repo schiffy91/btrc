@@ -227,7 +227,7 @@ class NativeUiAppSession {
 					}
 				}
 			} else if (box.kind() == NATIVE_UI_BUTTON) {
-				NativeUiColor fill = highlighted ? self.theme.accent : self.theme.panel;
+				NativeUiColor fill = highlighted ? self.theme.accent : (style.hasBackground ? style.background : self.theme.panel);
 				GPUResourceOutcome rectangle = self.addRect((float)x, (float)y, (float)box.bounds.width, (float)box.bounds.height, fill, (float)style.radius);
 				if (rectangle.kind != GPU_RESOURCE_READY) {
 					return rectangle;

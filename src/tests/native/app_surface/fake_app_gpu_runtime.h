@@ -28,6 +28,10 @@ void fake_gpu_set_device_lost(int lost);
 void fake_gpu_set_next_resource_result(
     int status, int publish_identity, int publish_receipt);
 int fake_native_ui_upload_count(void);
+int fake_native_ui_first_rect_red(void);
+int fake_native_ui_first_rect_green(void);
+int fake_native_ui_first_rect_blue(void);
+int fake_native_ui_first_rect_alpha(void);
 int fake_gpu_frame_begin_count(void);
 int fake_gpu_frame_present_count(void);
 char* fake_platform_lifecycle(void);
