@@ -1,0 +1,542 @@
+/* Product-neutral audio-device discovery, negotiation, and lifecycle contract.
+ *
+ * Providers may use different native backends, but must publish immutable
+ * inventory snapshots and return negotiated formats before start(). The
+ * realtime program context remains owned by its producer through drain(); a
+ * successful drain is the hard barrier after which no callback can touch it.
+ */
+
+import std.bytes;
+import std.console;
+import std.RealtimeAudio;
+import std.vector;
+
+enum AudioDeviceStatus {
+	AUDIO_DEVICE_OK,
+	AUDIO_DEVICE_INVALID_ARGUMENT,
+	AUDIO_DEVICE_STALE_INVENTORY,
+	AUDIO_DEVICE_NOT_FOUND,
+	AUDIO_DEVICE_UNSUPPORTED_FORMAT,
+	AUDIO_DEVICE_PERMISSION_DENIED,
+	AUDIO_DEVICE_UNAVAILABLE,
+	AUDIO_DEVICE_WRONG_STATE,
+	AUDIO_DEVICE_BUSY,
+	AUDIO_DEVICE_FAILED
+};
+
+string audioDeviceStatusMessage(AudioDeviceStatus status) {
+	if (status == AUDIO_DEVICE_OK) { return ""; }
+	if (status == AUDIO_DEVICE_INVALID_ARGUMENT) { return "invalid audio device request"; }
+	if (status == AUDIO_DEVICE_STALE_INVENTORY) { return "audio device inventory changed"; }
+	if (status == AUDIO_DEVICE_NOT_FOUND) { return "audio device was not found"; }
+	if (status == AUDIO_DEVICE_UNSUPPORTED_FORMAT) { return "audio stream format is unsupported"; }
+	if (status == AUDIO_DEVICE_PERMISSION_DENIED) { return "audio device permission was denied"; }
+	if (status == AUDIO_DEVICE_UNAVAILABLE) { return "audio device is unavailable"; }
+	if (status == AUDIO_DEVICE_WRONG_STATE) { return "audio session is in the wrong state"; }
+	if (status == AUDIO_DEVICE_BUSY) { return "audio device is busy"; }
+	return "audio device operation failed";
+}
+
+class AudioDeviceOperationOutcome {
+	private AudioDeviceStatus _status;
+	private string _message;
+
+	public AudioDeviceOperationOutcome(AudioDeviceStatus status, string message = "") {
+		if ((int)status < (int)AUDIO_DEVICE_OK || (int)status > (int)AUDIO_DEVICE_FAILED) { throw "invalid audio device status"; }
+		if (status == AUDIO_DEVICE_OK && !message.isEmpty()) { throw "successful audio device operation cannot carry an error"; }
+		if (message.len() > 1024 || !Bytes.fromString(message).isNulFreeUtf8()) { throw "audio device error is invalid or overbound"; }
+		self._status = status;
+		self._message = status == AUDIO_DEVICE_OK ? "" : (message.isEmpty() ? audioDeviceStatusMessage(status) : message);
+	}
+
+	class AudioDeviceOperationOutcome fromStatus(AudioDeviceStatus status) { return AudioDeviceOperationOutcome(status); }
+
+	public AudioDeviceStatus status() { return self._status; }
+
+	public bool succeeded() { return self._status == AUDIO_DEVICE_OK; }
+
+	public string message() { return self._message; }
+}
+
+class AudioSampleRateRange {
+	private int _minimum;
+	private int _maximum;
+
+	public AudioSampleRateRange(int minimum, int maximum) {
+		if (minimum < 8000 || maximum < minimum || maximum > 768000) { throw "invalid audio sample-rate range"; }
+		self._minimum = minimum;
+		self._maximum = maximum;
+	}
+
+	class AudioSampleRateRange exact(int sampleRate) { return AudioSampleRateRange(sampleRate, sampleRate); }
+
+	public int minimum() { return self._minimum; }
+
+	public int maximum() { return self._maximum; }
+
+	public bool contains(int sampleRate) { return sampleRate >= self._minimum && sampleRate <= self._maximum; }
+}
+
+enum AudioStreamCapabilityKind {
+	AUDIO_STREAM_CAPABILITY_UNKNOWN,
+	AUDIO_STREAM_CAPABILITY_AVAILABLE
+};
+
+class AudioStreamCapability {
+	private AudioStreamCapabilityKind _kind;
+	private Vector<AudioSampleRateRange> _sampleRates;
+	private int _currentSampleRate;
+	private int _minimumBufferFrames;
+	private int _maximumBufferFrames;
+	private int _currentBufferFrames;
+
+	private AudioStreamCapability(AudioStreamCapabilityKind kind, Vector<AudioSampleRateRange> sampleRates, int currentSampleRate, int minimumBufferFrames, int maximumBufferFrames, int currentBufferFrames) {
+		if (sampleRates == null || sampleRates.len > 64) { throw "audio stream capability sample rates are invalid or overbound"; }
+		bool available = kind == AUDIO_STREAM_CAPABILITY_AVAILABLE;
+		if (available != (!sampleRates.isEmpty() && currentSampleRate >= 8000 && currentSampleRate <= 768000 && minimumBufferFrames >= 1 && maximumBufferFrames >= minimumBufferFrames && maximumBufferFrames <= 65536 && currentBufferFrames >= minimumBufferFrames && currentBufferFrames <= maximumBufferFrames)) { throw "invalid audio stream capability"; }
+		if (!available && (currentSampleRate != 0 || minimumBufferFrames != 0 || maximumBufferFrames != 0 || currentBufferFrames != 0)) { throw "unknown audio stream capability cannot claim values"; }
+		bool includesCurrentSampleRate = !available;
+		for (int index = 0; index < sampleRates.len; index++) {
+			AudioSampleRateRange range = sampleRates.get(index);
+			if (index > 0 && sampleRates.get(index - 1).maximum() >= range.minimum()) { throw "audio sample-rate ranges must be sorted and disjoint"; }
+			if (range.contains(currentSampleRate)) { includesCurrentSampleRate = true; }
+		}
+		if (!includesCurrentSampleRate) { throw "current audio sample rate is outside the advertised ranges"; }
+		self._kind = kind;
+		self._sampleRates = sampleRates.copy();
+		self._currentSampleRate = currentSampleRate;
+		self._minimumBufferFrames = minimumBufferFrames;
+		self._maximumBufferFrames = maximumBufferFrames;
+		self._currentBufferFrames = currentBufferFrames;
+	}
+
+	class AudioStreamCapability unknown() { return AudioStreamCapability(AUDIO_STREAM_CAPABILITY_UNKNOWN, new Vector<AudioSampleRateRange> (), 0, 0, 0, 0); }
+
+	class AudioStreamCapability available(Vector<AudioSampleRateRange> sampleRates, int currentSampleRate, int minimumBufferFrames, int maximumBufferFrames, int currentBufferFrames) { return AudioStreamCapability(AUDIO_STREAM_CAPABILITY_AVAILABLE, sampleRates, currentSampleRate, minimumBufferFrames, maximumBufferFrames, currentBufferFrames); }
+
+	public AudioStreamCapabilityKind kind() { return self._kind; }
+
+	public bool isKnown() { return self._kind == AUDIO_STREAM_CAPABILITY_AVAILABLE; }
+
+	public int sampleRateRangeCount() { return self._sampleRates.len; }
+
+	public AudioSampleRateRange sampleRateRangeAt(int index) { return self._sampleRates.get(index); }
+
+	public bool supportsSampleRate(int sampleRate) {
+		if (!self.isKnown()) { return false; }
+		for (int index = 0; index < self._sampleRates.len; index++) { if (self._sampleRates.get(index).contains(sampleRate)) { return true; } }
+		return false;
+	}
+
+	public bool supportsBufferFrames(int frames) { return self.isKnown() && frames >= self._minimumBufferFrames && frames <= self._maximumBufferFrames; }
+
+	public int currentSampleRate() {
+		if (!self.isKnown()) { throw "audio stream sample rate is unknown"; }
+		return self._currentSampleRate;
+	}
+
+	public int minimumBufferFrames() {
+		if (!self.isKnown()) { throw "audio stream buffer range is unknown"; }
+		return self._minimumBufferFrames;
+	}
+
+	public int maximumBufferFrames() {
+		if (!self.isKnown()) { throw "audio stream buffer range is unknown"; }
+		return self._maximumBufferFrames;
+	}
+
+	public int currentBufferFrames() {
+		if (!self.isKnown()) { throw "audio stream buffer size is unknown"; }
+		return self._currentBufferFrames;
+	}
+}
+
+class AudioDeviceDescriptor {
+	private string _id;
+	private string _name;
+	private int _inputChannels;
+	private int _outputChannels;
+	private bool _defaultInput;
+	private bool _defaultOutput;
+	private AudioStreamCapability _streamCapability;
+
+	public AudioDeviceDescriptor(string id, string name, int inputChannels, int outputChannels, bool defaultInput, bool defaultOutput, AudioStreamCapability streamCapability) {
+		if (id.isEmpty() || id.len() > 511 || name.isEmpty() || name.len() > 511 || !Bytes.fromString(id).isNulFreeUtf8() || !Bytes.fromString(name).isNulFreeUtf8() || inputChannels < 0 || inputChannels > 256 || outputChannels < 0 || outputChannels > 256 || (inputChannels == 0 && outputChannels == 0) || (defaultInput && inputChannels == 0) || (defaultOutput && outputChannels == 0) || streamCapability == null) { throw "invalid audio device descriptor"; }
+		self._id = id;
+		self._name = name;
+		self._inputChannels = inputChannels;
+		self._outputChannels = outputChannels;
+		self._defaultInput = defaultInput;
+		self._defaultOutput = defaultOutput;
+		self._streamCapability = streamCapability;
+	}
+
+	public string id() { return self._id; }
+
+	public string name() { return self._name; }
+
+	public int inputChannels() { return self._inputChannels; }
+
+	public int outputChannels() { return self._outputChannels; }
+
+	public bool hasInput() { return self._inputChannels > 0; }
+
+	public bool hasOutput() { return self._outputChannels > 0; }
+
+	public bool isDefaultInput() { return self._defaultInput; }
+
+	public bool isDefaultOutput() { return self._defaultOutput; }
+
+	public AudioStreamCapability streamCapability() { return self._streamCapability; }
+}
+
+/* Generation changes whenever topology, defaults, or selectable capabilities
+ * change. Providers reject an open request carrying an older generation. */
+class AudioDeviceInventory {
+	private unsigned long long _generation;
+	private Vector<AudioDeviceDescriptor> _devices;
+
+	public AudioDeviceInventory(unsigned long long generation, Vector<AudioDeviceDescriptor> devices) {
+		if (generation == 0ULL || devices == null || devices.len > 256) { throw "invalid audio device inventory"; }
+		for (int index = 0; index < devices.len; index++) {
+			AudioDeviceDescriptor device = devices.get(index);
+			for (int previous = 0; previous < index; previous++) {
+				AudioDeviceDescriptor earlier = devices.get(previous);
+				if (earlier.id() == device.id() || (earlier.isDefaultInput() && device.isDefaultInput()) || (earlier.isDefaultOutput() && device.isDefaultOutput())) { throw "audio device inventory identities or defaults are ambiguous"; }
+			}
+		}
+		self._generation = generation;
+		self._devices = devices.copy();
+	}
+
+	public unsigned long long generation() { return self._generation; }
+
+	public int count() { return self._devices.len; }
+
+	public AudioDeviceDescriptor at(int index) { return self._devices.get(index); }
+
+	public AudioDeviceDescriptor? find(string id) {
+		for (int index = 0; index < self._devices.len; index++) { if (self._devices.get(index).id() == id) { return self._devices.get(index); } }
+		return null;
+	}
+
+	public AudioDeviceDescriptor? defaultInput() {
+		for (int index = 0; index < self._devices.len; index++) { if (self._devices.get(index).isDefaultInput()) { return self._devices.get(index); } }
+		return null;
+	}
+
+	public AudioDeviceDescriptor? defaultOutput() {
+		for (int index = 0; index < self._devices.len; index++) { if (self._devices.get(index).isDefaultOutput()) { return self._devices.get(index); } }
+		return null;
+	}
+}
+
+class AudioDeviceInventoryOutcome {
+	private AudioDeviceStatus _status;
+	private AudioDeviceInventory? _inventory;
+	private string _message;
+
+	private AudioDeviceInventoryOutcome(AudioDeviceStatus status, AudioDeviceInventory? inventory, string message) {
+		if ((int)status < (int)AUDIO_DEVICE_OK || (int)status > (int)AUDIO_DEVICE_FAILED || message.len() > 1024 || !Bytes.fromString(message).isNulFreeUtf8()) { throw "invalid audio device inventory status"; }
+		if ((status == AUDIO_DEVICE_OK) != (inventory != null && message.isEmpty())) { throw "invalid audio device inventory outcome"; }
+		self._status = status;
+		self._inventory = inventory;
+		self._message = status == AUDIO_DEVICE_OK ? "" : (message.isEmpty() ? audioDeviceStatusMessage(status) : message);
+	}
+
+	class AudioDeviceInventoryOutcome available(AudioDeviceInventory inventory) { return AudioDeviceInventoryOutcome(AUDIO_DEVICE_OK, inventory, ""); }
+
+	class AudioDeviceInventoryOutcome failed(AudioDeviceStatus status, string message = "") {
+		if (status == AUDIO_DEVICE_OK) { throw "failed audio inventory requires an error status"; }
+		return AudioDeviceInventoryOutcome(status, null, message);
+	}
+
+	public AudioDeviceStatus status() { return self._status; }
+
+	public bool succeeded() { return self._status == AUDIO_DEVICE_OK; }
+
+	public AudioDeviceInventory inventory() {
+		if (self._inventory == null) { throw "audio device inventory is unavailable"; }
+		return self._inventory;
+	}
+
+	public string message() { return self._message; }
+}
+
+class AudioChannelSelection {
+	private Vector<int> _indices;
+
+	public AudioChannelSelection(Vector<int> indices) {
+		if (indices == null || indices.isEmpty() || indices.len > 256) { throw "audio channel selection is empty or overbound"; }
+		for (int index = 0; index < indices.len; index++) {
+			int channel = indices.get(index);
+			if (channel < 0 || channel > 255 || (index > 0 && indices.get(index - 1) >= channel)) { throw "audio channel indices must be unique and strictly increasing"; }
+		}
+		self._indices = indices.copy();
+	}
+
+	class AudioChannelSelection leading(int count) {
+		if (count <= 0 || count > 256) { throw "invalid leading audio channel count"; }
+		Vector<int> indices = new Vector<int>();
+		for (int index = 0; index < count; index++) { indices.push(index); }
+		return AudioChannelSelection(indices);
+	}
+
+	public int count() { return self._indices.len; }
+
+	public int at(int index) { return self._indices.get(index); }
+
+	public bool fits(int availableChannels) { return availableChannels > 0 && self._indices.get(self._indices.len - 1) < availableChannels; }
+}
+
+class AudioStreamRequest {
+	private int _sampleRate;
+	private int _bufferFrames;
+
+	public AudioStreamRequest(int sampleRate, int bufferFrames) {
+		if (sampleRate < 8000 || sampleRate > 768000 || bufferFrames < 16 || bufferFrames > 8192) { throw "invalid audio stream request"; }
+		self._sampleRate = sampleRate;
+		self._bufferFrames = bufferFrames;
+	}
+
+	class AudioStreamRequest defaults() { return AudioStreamRequest(48000, 128); }
+
+	public int sampleRate() { return self._sampleRate; }
+
+	public int bufferFrames() { return self._bufferFrames; }
+}
+
+class DuplexAudioOpenRequest {
+	private unsigned long long _inventoryGeneration;
+	private string _inputDeviceId;
+	private AudioChannelSelection? _inputChannels;
+	private string _outputDeviceId;
+	private AudioChannelSelection _outputChannels;
+	private AudioStreamRequest _stream;
+
+	public DuplexAudioOpenRequest(unsigned long long inventoryGeneration, string inputDeviceId, AudioChannelSelection? inputChannels, string outputDeviceId, AudioChannelSelection outputChannels, AudioStreamRequest stream) {
+		if (inventoryGeneration == 0ULL || (inputDeviceId.isEmpty() != (inputChannels == null)) || outputDeviceId.isEmpty() || outputChannels == null || stream == null || inputDeviceId.len() > 511 || outputDeviceId.len() > 511 || !Bytes.fromString(inputDeviceId).isNulFreeUtf8() || !Bytes.fromString(outputDeviceId).isNulFreeUtf8()) { throw "invalid duplex audio open request"; }
+		self._inventoryGeneration = inventoryGeneration;
+		self._inputDeviceId = inputDeviceId;
+		self._inputChannels = inputChannels;
+		self._outputDeviceId = outputDeviceId;
+		self._outputChannels = outputChannels;
+		self._stream = stream;
+	}
+
+	class DuplexAudioOpenRequest outputOnly(unsigned long long inventoryGeneration, string outputDeviceId, AudioChannelSelection outputChannels, AudioStreamRequest? stream = null) { return DuplexAudioOpenRequest(inventoryGeneration, "", null, outputDeviceId, outputChannels, stream == null ? AudioStreamRequest.defaults() : stream); }
+
+	class DuplexAudioOpenRequest duplex(unsigned long long inventoryGeneration, string inputDeviceId, AudioChannelSelection inputChannels, string outputDeviceId, AudioChannelSelection outputChannels, AudioStreamRequest? stream = null) { return DuplexAudioOpenRequest(inventoryGeneration, inputDeviceId, inputChannels, outputDeviceId, outputChannels, stream == null ? AudioStreamRequest.defaults() : stream); }
+
+	public unsigned long long inventoryGeneration() { return self._inventoryGeneration; }
+
+	public bool hasInput() { return self._inputChannels != null; }
+
+	public string inputDeviceId() { return self._inputDeviceId; }
+
+	public AudioChannelSelection inputChannels() {
+		if (self._inputChannels == null) { throw "output-only audio request has no input channels"; }
+		return self._inputChannels;
+	}
+
+	public string outputDeviceId() { return self._outputDeviceId; }
+
+	public AudioChannelSelection outputChannels() { return self._outputChannels; }
+
+	public AudioStreamRequest stream() { return self._stream; }
+
+	public AudioDeviceStatus validate(AudioDeviceInventory inventory) {
+		if (inventory == null) { return AUDIO_DEVICE_INVALID_ARGUMENT; }
+		if (inventory.generation() != self._inventoryGeneration) { return AUDIO_DEVICE_STALE_INVENTORY; }
+		AudioDeviceDescriptor? output = inventory.find(self._outputDeviceId);
+		if (output == null) { return AUDIO_DEVICE_NOT_FOUND; }
+		if (!self._outputChannels.fits(output.outputChannels())) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
+		AudioStreamCapability outputCapability = output.streamCapability();
+		if (outputCapability.isKnown() && (!outputCapability.supportsSampleRate(self._stream.sampleRate()) || !outputCapability.supportsBufferFrames(self._stream.bufferFrames()))) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
+		if (self._inputChannels != null) {
+			AudioDeviceDescriptor? input = inventory.find(self._inputDeviceId);
+			AudioChannelSelection selectedInput = self.inputChannels();
+			if (input == null) { return AUDIO_DEVICE_NOT_FOUND; }
+			if (!selectedInput.fits(input.inputChannels())) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
+			AudioStreamCapability inputCapability = input.streamCapability();
+			if (inputCapability.isKnown() && (!inputCapability.supportsSampleRate(self._stream.sampleRate()) || !inputCapability.supportsBufferFrames(self._stream.bufferFrames()))) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
+		}
+		return AUDIO_DEVICE_OK;
+	}
+}
+
+/* These are callback-facing client formats, not necessarily the devices'
+ * native formats. A split-device provider performs conversion before the
+ * callback so both spans share one frame domain and one buffer-frame count. */
+class DuplexAudioNegotiatedFormat {
+	private unsigned long long _inventoryGeneration;
+	private string _inputDeviceId;
+	private RealtimeAudioFormat? _inputFormat;
+	private string _outputDeviceId;
+	private RealtimeAudioFormat _outputFormat;
+	private int _bufferFrames;
+
+	public DuplexAudioNegotiatedFormat(unsigned long long inventoryGeneration, string inputDeviceId, RealtimeAudioFormat? inputFormat, string outputDeviceId, RealtimeAudioFormat outputFormat, int bufferFrames) {
+		if (inventoryGeneration == 0ULL || (inputDeviceId.isEmpty() != (inputFormat == null)) || outputDeviceId.isEmpty() || outputFormat == null || (inputFormat != null && inputFormat.sampleRate() != outputFormat.sampleRate()) || bufferFrames < 1 || bufferFrames > 65536 || inputDeviceId.len() > 511 || outputDeviceId.len() > 511 || !Bytes.fromString(inputDeviceId).isNulFreeUtf8() || !Bytes.fromString(outputDeviceId).isNulFreeUtf8()) { throw "invalid negotiated duplex audio format"; }
+		self._inventoryGeneration = inventoryGeneration;
+		self._inputDeviceId = inputDeviceId;
+		self._inputFormat = inputFormat;
+		self._outputDeviceId = outputDeviceId;
+		self._outputFormat = outputFormat;
+		self._bufferFrames = bufferFrames;
+	}
+
+	public unsigned long long inventoryGeneration() { return self._inventoryGeneration; }
+
+	public bool hasInput() { return self._inputFormat != null; }
+
+	public string inputDeviceId() { return self._inputDeviceId; }
+
+	public RealtimeAudioFormat inputFormat() {
+		if (self._inputFormat == null) { throw "negotiated audio format has no input"; }
+		return self._inputFormat;
+	}
+
+	public string outputDeviceId() { return self._outputDeviceId; }
+
+	public RealtimeAudioFormat outputFormat() { return self._outputFormat; }
+
+	public int bufferFrames() { return self._bufferFrames; }
+}
+
+enum DuplexAudioSessionState {
+	DUPLEX_AUDIO_SESSION_READY,
+	DUPLEX_AUDIO_SESSION_RUNNING,
+	DUPLEX_AUDIO_SESSION_SUSPENDED,
+	DUPLEX_AUDIO_SESSION_DRAINED,
+	DUPLEX_AUDIO_SESSION_CLOSED
+};
+
+typedef CFunction<AudioDeviceStatus, void*> AudioDeviceSessionOperation;
+typedef CFunction<unsigned long long, void*> AudioDeviceSessionEpoch;
+typedef CFunction<void, void*> AudioDeviceSessionDispose;
+
+/* Sessions are deliberately one-shot. suspend() closes callback admission;
+ * drain() waits for every admitted callback and is the reclamation barrier;
+ * close() then releases native state. Playback pause belongs in the program. */
+class DuplexAudioSession {
+	private DuplexAudioNegotiatedFormat _format;
+	private RealtimeAudioProgram _program;
+	private void* _backend;
+	private AudioDeviceSessionOperation _start;
+	private AudioDeviceSessionOperation _suspend;
+	private AudioDeviceSessionOperation _drain;
+	private AudioDeviceSessionOperation _close;
+	private AudioDeviceSessionEpoch _epoch;
+	private AudioDeviceSessionDispose _dispose;
+	private DuplexAudioSessionState _state;
+	private unsigned long long _streamEpoch;
+
+	public DuplexAudioSession(DuplexAudioNegotiatedFormat format, RealtimeAudioProgram program, void* backend, AudioDeviceSessionOperation start, AudioDeviceSessionOperation suspend, AudioDeviceSessionOperation drain, AudioDeviceSessionOperation close, AudioDeviceSessionEpoch epoch, AudioDeviceSessionDispose dispose) {
+		if (format == null || program == null || backend == null || start == null || suspend == null || drain == null || close == null || epoch == null || dispose == null) { throw "duplex audio session backend is incomplete"; }
+		self._format = format;
+		self._program = program;
+		self._backend = backend;
+		self._start = start;
+		self._suspend = suspend;
+		self._drain = drain;
+		self._close = close;
+		self._epoch = epoch;
+		self._dispose = dispose;
+		self._state = DUPLEX_AUDIO_SESSION_READY;
+		self._streamEpoch = 0ULL;
+	}
+
+	public DuplexAudioNegotiatedFormat format() { return self._format; }
+
+	public DuplexAudioSessionState state() { return self._state; }
+
+	public unsigned long long streamEpoch() { return self._streamEpoch; }
+
+	public bool isOpen() { return self._state != DUPLEX_AUDIO_SESSION_CLOSED; }
+
+	public AudioDeviceOperationOutcome start() {
+		if (self._state != DUPLEX_AUDIO_SESSION_READY) { return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_WRONG_STATE); }
+		AudioDeviceStatus status = self._start(self._backend);
+		if (status != AUDIO_DEVICE_OK) { return AudioDeviceOperationOutcome.fromStatus(status); }
+		unsigned long long epoch = self._epoch(self._backend);
+		if (epoch == 0ULL) { Console.fatal("audio backend started without a stream epoch"); }
+		self._streamEpoch = epoch;
+		self._state = DUPLEX_AUDIO_SESSION_RUNNING;
+		return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_OK);
+	}
+
+	public AudioDeviceOperationOutcome suspend() {
+		if (self._state != DUPLEX_AUDIO_SESSION_RUNNING) { return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_WRONG_STATE); }
+		AudioDeviceStatus status = self._suspend(self._backend);
+		if (status == AUDIO_DEVICE_OK) { self._state = DUPLEX_AUDIO_SESSION_SUSPENDED; }
+		return AudioDeviceOperationOutcome.fromStatus(status);
+	}
+
+	public AudioDeviceOperationOutcome drain() {
+		if (self._state != DUPLEX_AUDIO_SESSION_SUSPENDED) { return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_WRONG_STATE); }
+		AudioDeviceStatus status = self._drain(self._backend);
+		if (status == AUDIO_DEVICE_OK) { self._state = DUPLEX_AUDIO_SESSION_DRAINED; }
+		return AudioDeviceOperationOutcome.fromStatus(status);
+	}
+
+	public AudioDeviceOperationOutcome close() {
+		if (self._state == DUPLEX_AUDIO_SESSION_CLOSED) { return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_OK); }
+		if (self._state != DUPLEX_AUDIO_SESSION_READY && self._state != DUPLEX_AUDIO_SESSION_DRAINED) { return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_WRONG_STATE); }
+		AudioDeviceStatus status = self._close(self._backend);
+		if (status != AUDIO_DEVICE_OK) { return AudioDeviceOperationOutcome.fromStatus(status); }
+		self._dispose(self._backend);
+		self._backend = null;
+		self._state = DUPLEX_AUDIO_SESSION_CLOSED;
+		return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_OK);
+	}
+
+	public void __del__() {
+		if (self._state == DUPLEX_AUDIO_SESSION_RUNNING && !self.suspend().succeeded()) { Console.fatal("audio session could not suspend during destruction"); }
+		if (self._state == DUPLEX_AUDIO_SESSION_SUSPENDED && !self.drain().succeeded()) { Console.fatal("audio session could not drain during destruction"); }
+		if (self._state != DUPLEX_AUDIO_SESSION_CLOSED && !self.close().succeeded()) { Console.fatal("audio session could not close during destruction"); }
+	}
+}
+
+class DuplexAudioSessionOpenOutcome {
+	private AudioDeviceStatus _status;
+	private DuplexAudioSession? _session;
+	private string _message;
+
+	private DuplexAudioSessionOpenOutcome(AudioDeviceStatus status, DuplexAudioSession? session, string message) {
+		if ((int)status < (int)AUDIO_DEVICE_OK || (int)status > (int)AUDIO_DEVICE_FAILED || message.len() > 1024 || !Bytes.fromString(message).isNulFreeUtf8()) { throw "invalid duplex audio session status"; }
+		if ((status == AUDIO_DEVICE_OK) != (session != null && message.isEmpty())) { throw "invalid duplex audio session outcome"; }
+		self._status = status;
+		self._session = session;
+		self._message = status == AUDIO_DEVICE_OK ? "" : (message.isEmpty() ? audioDeviceStatusMessage(status) : message);
+	}
+
+	class DuplexAudioSessionOpenOutcome opened(DuplexAudioSession session) { return DuplexAudioSessionOpenOutcome(AUDIO_DEVICE_OK, session, ""); }
+
+	class DuplexAudioSessionOpenOutcome failed(AudioDeviceStatus status, string message = "") {
+		if (status == AUDIO_DEVICE_OK) { throw "failed duplex audio open requires an error status"; }
+		return DuplexAudioSessionOpenOutcome(status, null, message);
+	}
+
+	public AudioDeviceStatus status() { return self._status; }
+
+	public bool succeeded() { return self._status == AUDIO_DEVICE_OK; }
+
+	public DuplexAudioSession session() {
+		if (self._session == null) { throw "duplex audio session is unavailable"; }
+		return self._session;
+	}
+
+	public string message() { return self._message; }
+}
+
+/* Interfaces are compile-time conformance contracts in BTRC. Consumers keep
+ * the concrete provider type; they do not erase it into this interface.
+ * inventory() is a fresh immutable snapshot. openDuplex() rejects a stale
+ * generation and returns authoritative callback-facing formats before start. */
+interface AudioDeviceProvider {
+	bool isOpen();
+	AudioDeviceInventoryOutcome inventory();
+	DuplexAudioSessionOpenOutcome openDuplex(DuplexAudioOpenRequest request, RealtimeAudioProgram program);
+	AudioDeviceOperationOutcome close();
+}

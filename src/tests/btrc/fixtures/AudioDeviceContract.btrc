@@ -1,0 +1,130 @@
+import std.AudioDevice;
+
+#include <assert.h>
+
+struct FakeAudioSessionBackend {
+	int state;
+	unsigned long long epoch;
+};
+
+AudioDeviceStatus fakeAudioStart(void* raw) {
+	struct FakeAudioSessionBackend* backend = (struct FakeAudioSessionBackend*)raw;
+	if (backend == null || backend->state != 0) { return AUDIO_DEVICE_WRONG_STATE; }
+	backend->state = 1;
+	backend->epoch++;
+	return AUDIO_DEVICE_OK;
+}
+
+AudioDeviceStatus fakeAudioSuspend(void* raw) {
+	struct FakeAudioSessionBackend* backend = (struct FakeAudioSessionBackend*)raw;
+	if (backend == null || backend->state != 1) { return AUDIO_DEVICE_WRONG_STATE; }
+	backend->state = 2;
+	return AUDIO_DEVICE_OK;
+}
+
+AudioDeviceStatus fakeAudioDrain(void* raw) {
+	struct FakeAudioSessionBackend* backend = (struct FakeAudioSessionBackend*)raw;
+	if (backend == null || backend->state != 2) { return AUDIO_DEVICE_WRONG_STATE; }
+	backend->state = 3;
+	return AUDIO_DEVICE_OK;
+}
+
+AudioDeviceStatus fakeAudioClose(void* raw) {
+	struct FakeAudioSessionBackend* backend = (struct FakeAudioSessionBackend*)raw;
+	if (backend == null || (backend->state != 0 && backend->state != 3)) { return AUDIO_DEVICE_WRONG_STATE; }
+	backend->state = 4;
+	return AUDIO_DEVICE_OK;
+}
+
+unsigned long long fakeAudioEpoch(void* raw) {
+	struct FakeAudioSessionBackend* backend = (struct FakeAudioSessionBackend*)raw;
+	return backend == null ? 0ULL : backend->epoch;
+}
+
+void fakeAudioDispose(void* raw) { free(raw); }
+
+@realtime void fakeAudioProcess(void* context, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {
+	(void*)context;
+	(void)block;
+	(void)inputs;
+	size_t outputSampleCount = outputs.length();
+	for (size_t index = 0u; index < outputSampleCount; index++) { outputs.trySet(index, 0.0f); }
+}
+
+class FakeAudioDeviceProvider implements AudioDeviceProvider {
+	private bool _open;
+	private unsigned long long _generation;
+
+	public FakeAudioDeviceProvider() {
+		self._open = true;
+		self._generation = 7ULL;
+	}
+
+	public bool isOpen() { return self._open; }
+
+	public AudioDeviceInventoryOutcome inventory() {
+		if (!self._open) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_WRONG_STATE); }
+		Vector<AudioSampleRateRange> rates = [AudioSampleRateRange.exact(44100), AudioSampleRateRange.exact(48000), AudioSampleRateRange(88200, 96000)];
+		AudioStreamCapability known = AudioStreamCapability.available(rates, 48000, 32, 1024, 128);
+		Vector<AudioDeviceDescriptor> devices = [AudioDeviceDescriptor("input-device", "Guitar Input", 2, 0, true, false, known), AudioDeviceDescriptor("output-device", "Studio Output", 0, 2, false, true, AudioStreamCapability.unknown())];
+		return AudioDeviceInventoryOutcome.available(AudioDeviceInventory(self._generation, devices));
+	}
+
+	public DuplexAudioSessionOpenOutcome openDuplex(DuplexAudioOpenRequest request, RealtimeAudioProgram program) {
+		if (!self._open || request == null || program == null) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_INVALID_ARGUMENT); }
+		if (request.inventoryGeneration() != self._generation) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_STALE_INVENTORY); }
+		if (!request.hasInput() || request.inputDeviceId() != "input-device" || request.outputDeviceId() != "output-device" || request.inputChannels().count() != 1 || request.outputChannels().count() != 2) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_NOT_FOUND); }
+		if (request.stream().sampleRate() != 48000 || request.stream().bufferFrames() != 128) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_UNSUPPORTED_FORMAT); }
+		struct FakeAudioSessionBackend* backend = (struct FakeAudioSessionBackend*)calloc(1, sizeof(struct FakeAudioSessionBackend));
+		if (backend == null) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_FAILED); }
+		DuplexAudioNegotiatedFormat format = DuplexAudioNegotiatedFormat(self._generation, request.inputDeviceId(), RealtimeAudioFormat(48000, 1), request.outputDeviceId(), RealtimeAudioFormat(48000, 2), 128);
+		return DuplexAudioSessionOpenOutcome.opened(DuplexAudioSession(format, program, backend, fakeAudioStart, fakeAudioSuspend, fakeAudioDrain, fakeAudioClose, fakeAudioEpoch, fakeAudioDispose));
+	}
+
+	public AudioDeviceOperationOutcome close() {
+		self._open = false;
+		return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_OK);
+	}
+}
+
+int main() {
+	FakeAudioDeviceProvider provider = FakeAudioDeviceProvider();
+	AudioDeviceInventoryOutcome inventoryOutcome = provider.inventory();
+	assert(inventoryOutcome.succeeded());
+	AudioDeviceInventory inventory = inventoryOutcome.inventory();
+	assert(inventory.generation() == 7ULL && inventory.count() == 2);
+	assert(inventory.at(0).hasInput() && !inventory.at(0).hasOutput());
+	assert(!inventory.at(1).hasInput() && inventory.at(1).hasOutput());
+	AudioDeviceDescriptor? defaultInput = inventory.defaultInput();
+	AudioDeviceDescriptor? defaultOutput = inventory.defaultOutput();
+	assert(defaultInput != null && defaultInput.id() == "input-device");
+	assert(defaultOutput != null && defaultOutput.id() == "output-device");
+	AudioStreamCapability inputCapability = inventory.at(0).streamCapability();
+	assert(inputCapability.isKnown() && inputCapability.sampleRateRangeCount() == 3);
+	assert(inputCapability.supportsSampleRate(48000) && inputCapability.supportsSampleRate(90000));
+	assert(!inputCapability.supportsSampleRate(192000) && inputCapability.supportsBufferFrames(128));
+	assert(inputCapability.minimumBufferFrames() == 32 && inputCapability.maximumBufferFrames() == 1024 && inputCapability.currentBufferFrames() == 128);
+	assert(!inventory.at(1).streamCapability().isKnown());
+
+	DuplexAudioOpenRequest request = DuplexAudioOpenRequest.duplex(inventory.generation(), "input-device", AudioChannelSelection.leading(1), "output-device", AudioChannelSelection.leading(2), AudioStreamRequest.defaults());
+	assert(request.validate(inventory) == AUDIO_DEVICE_OK);
+	DuplexAudioOpenRequest stale = DuplexAudioOpenRequest.duplex(8ULL, "input-device", AudioChannelSelection.leading(1), "output-device", AudioChannelSelection.leading(2), AudioStreamRequest.defaults());
+	assert(stale.validate(inventory) == AUDIO_DEVICE_STALE_INVENTORY);
+	RealtimeAudioProgram program = RealtimeAudioProgram(fakeAudioProcess, null);
+	DuplexAudioSessionOpenOutcome opened = provider.openDuplex(request, program);
+	assert(opened.succeeded());
+	DuplexAudioSession session = opened.session();
+	assert(session.state() == DUPLEX_AUDIO_SESSION_READY && session.streamEpoch() == 0ULL);
+	assert(session.format().inputDeviceId() == "input-device" && session.format().inputFormat().channels() == 1);
+	assert(session.format().outputDeviceId() == "output-device" && session.format().outputFormat().channels() == 2 && session.format().bufferFrames() == 128);
+	assert(!session.drain().succeeded());
+	assert(session.start().succeeded() && session.state() == DUPLEX_AUDIO_SESSION_RUNNING && session.streamEpoch() == 1ULL);
+	assert(!session.close().succeeded());
+	assert(session.suspend().succeeded() && session.state() == DUPLEX_AUDIO_SESSION_SUSPENDED);
+	assert(session.drain().succeeded() && session.state() == DUPLEX_AUDIO_SESSION_DRAINED);
+	assert(session.close().succeeded() && session.state() == DUPLEX_AUDIO_SESSION_CLOSED && !session.isOpen());
+	assert(session.close().succeeded());
+	assert(provider.close().succeeded() && !provider.isOpen());
+	print("PASS AudioDeviceContract");
+	return 0;
+}
