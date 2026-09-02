@@ -270,7 +270,18 @@
             $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
               -pthread ${appCompileFlags} -Isrc/stdlib/app \
               -c src/stdlib/app/btrc_app.c -o btrc_app.o
-            $AR rcs libbtrc_app.a btrc_app.o
+            ${if isDarwin then ''
+              $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
+                -x objective-c ${appCompileFlags} -Isrc/stdlib/app \
+                -c src/stdlib/app/btrc_app_directory_picker_macos.m \
+                -o btrc_app_directory_picker.o
+            '' else ''
+              $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
+                ${appCompileFlags} -Isrc/stdlib/app \
+                -c src/stdlib/app/btrc_app_directory_picker_stub.c \
+                -o btrc_app_directory_picker.o
+            ''}
+            $AR rcs libbtrc_app.a btrc_app.o btrc_app_directory_picker.o
             runHook postBuild
           '';
           installPhase = ''

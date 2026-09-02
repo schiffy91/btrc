@@ -16,6 +16,9 @@ void fake_platform_push_surface(
     float scale_x,
     float scale_y);
 void fake_platform_push_close(void);
+void fake_platform_set_directory_picker(int outcome, char* directory, int error);
+char* fake_platform_directory_picker_title(void);
+char* fake_platform_directory_picker_initial_directory(void);
 void fake_platform_expire_surface(unsigned long long surface);
 void fake_gpu_fail_next_attach(int status);
 void fake_gpu_malformed_next_attach(int status, int publish_handle);

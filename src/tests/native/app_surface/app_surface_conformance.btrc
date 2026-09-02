@@ -9,6 +9,9 @@ void fake_platform_push_keyboard(int action, int key, int modifiers);
 void fake_platform_push_text(string text);
 void fake_platform_push_surface(int kind, int logicalWidth, int logicalHeight, int framebufferWidth, int framebufferHeight, float scaleX, float scaleY);
 void fake_platform_push_close();
+void fake_platform_set_directory_picker(int outcome, string directory, int error);
+string fake_platform_directory_picker_title();
+string fake_platform_directory_picker_initial_directory();
 void fake_platform_expire_surface(unsigned long long surface);
 void fake_gpu_fail_next_attach(int status);
 void fake_gpu_malformed_next_attach(int status, int publishHandle);
@@ -68,6 +71,76 @@ GPUUniform readyUniform(GPU gpu) {
 	GPUUniform? uniform = created.uniform;
 	assert(uniform != null);
 	return uniform;
+}
+
+void directoryPickerOutcomes() {
+	fake_platform_reset();
+	Application application = new Application();
+	ApplicationWindow window = openedWindow(application);
+
+	AppDirectoryPickerOutcome invalid = window.chooseDirectory(new AppDirectoryPickerRequest(""));
+	assert(invalid.kind == APP_DIRECTORY_PICKER_FAILED);
+	AppError? invalidError = invalid.error;
+	if (invalidError == null) { assert(false); return; }
+	AppError invalidValue = invalidError;
+	assert(invalidValue.code == APP_ERROR_INVALID_ARGUMENT);
+
+	fake_platform_set_directory_picker(APP_DIRECTORY_PICKER_SELECTED, "/Music/Library", APP_ERROR_NONE);
+	AppDirectoryPickerOutcome selected = window.chooseDirectory(new AppDirectoryPickerRequest("Choose a library", "/Music"));
+	assert(selected.kind == APP_DIRECTORY_PICKER_SELECTED);
+	assert(selected.directory.equals("/Music/Library"));
+	assert(selected.error == null);
+	assert(fake_platform_directory_picker_title().equals("Choose a library"));
+	assert(fake_platform_directory_picker_initial_directory().equals("/Music"));
+
+	fake_platform_set_directory_picker(APP_DIRECTORY_PICKER_CANCELLED, "", APP_ERROR_NONE);
+	AppDirectoryPickerOutcome cancelled = window.chooseDirectory(new AppDirectoryPickerRequest("Choose elsewhere"));
+	assert(cancelled.kind == APP_DIRECTORY_PICKER_CANCELLED);
+	assert(cancelled.directory.isEmpty() && cancelled.error == null);
+	assert(selected.directory.equals("/Music/Library"));
+
+	fake_platform_set_directory_picker(APP_DIRECTORY_PICKER_FAILED, "", APP_ERROR_BACKEND_UNAVAILABLE);
+	AppDirectoryPickerOutcome failed = window.chooseDirectory(new AppDirectoryPickerRequest("Unavailable"));
+	assert(failed.kind == APP_DIRECTORY_PICKER_FAILED);
+	AppError? failedError = failed.error;
+	if (failedError == null) { assert(false); return; }
+	AppError failedValue = failedError;
+	assert(failedValue.code == APP_ERROR_BACKEND_UNAVAILABLE);
+
+	fake_platform_set_directory_picker(APP_DIRECTORY_PICKER_SELECTED, "", APP_ERROR_NONE);
+	AppDirectoryPickerOutcome emptySelection = window.chooseDirectory(new AppDirectoryPickerRequest("Malformed"));
+	assert(emptySelection.kind == APP_DIRECTORY_PICKER_FAILED);
+	AppError? emptySelectionError = emptySelection.error;
+	if (emptySelectionError == null) { assert(false); return; }
+	AppError emptySelectionValue = emptySelectionError;
+	assert(emptySelectionValue.code == APP_ERROR_INTERNAL);
+
+	fake_platform_set_directory_picker(99, "", APP_ERROR_NONE);
+	AppDirectoryPickerOutcome unknown = window.chooseDirectory(new AppDirectoryPickerRequest("Unknown"));
+	assert(unknown.kind == APP_DIRECTORY_PICKER_FAILED);
+	AppError? unknownError = unknown.error;
+	if (unknownError == null) { assert(false); return; }
+	AppError unknownValue = unknownError;
+	assert(unknownValue.code == APP_ERROR_INTERNAL);
+
+	Thread<int> wrongThread = spawn(() => {
+			AppDirectoryPickerOutcome outcome = window.chooseDirectory(new AppDirectoryPickerRequest("Wrong thread"));
+			AppError? error = outcome.error;
+			if (error == null) { return 1; }
+			AppError value = error;
+			return outcome.kind == APP_DIRECTORY_PICKER_FAILED && value.code == APP_ERROR_NOT_MAIN_THREAD ? 0 : 1;
+		});
+	assert(wrongThread.join() == 0);
+
+	assert(window.close().kind == APP_CLOSED);
+	AppDirectoryPickerOutcome closed = window.chooseDirectory(new AppDirectoryPickerRequest("Closed"));
+	assert(closed.kind == APP_DIRECTORY_PICKER_FAILED);
+	AppError? closedError = closed.error;
+	if (closedError == null) { assert(false); return; }
+	AppError closedValue = closedError;
+	assert(closedValue.code == APP_ERROR_CLOSED);
+	assert(application.close().kind == APP_CLOSED);
+	assert(fake_platform_live_resources() == 0);
 }
 
 void ownerAndDescriptorFailures() {
@@ -485,6 +558,7 @@ void workerLastReferenceCleanup() {
 }
 
 int main() {
+	directoryPickerOutcomes();
 	ownerAndDescriptorFailures();
 	orderedEventsAndOverflow();
 	partialAttachAndFrameFailures();

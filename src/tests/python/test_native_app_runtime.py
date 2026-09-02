@@ -15,6 +15,7 @@ GUI = ROOT / "src" / "stdlib" / "gui"
 FIXTURE = ROOT / "src" / "tests" / "native" / "app_surface"
 FAKE_GLFW = FIXTURE / "fake_glfw"
 HARNESS = FIXTURE / "actual_app_runtime.c"
+DIRECTORY_PICKER_PROBE = FIXTURE / "directory_picker_macos_probe.c"
 COMPILE_TIMEOUT = 120
 RUN_TIMEOUT = 30
 
@@ -243,4 +244,48 @@ def test_actual_app_runtime_state_machine_under_clang_sanitizers(
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == "PASS: actual std.app runtime state machine\n"
+    assert result.stderr == ""
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS native provider")
+def test_macos_directory_picker_native_provider(tmp_path: Path) -> None:
+    compiler = "/usr/bin/clang"
+    provider_object = tmp_path / "directory-picker-provider.o"
+    probe_object = tmp_path / "directory-picker-probe.o"
+    executable = tmp_path / "directory-picker-probe"
+    strict = [
+        "-std=c11",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-pedantic-errors",
+        f"-I{APP}",
+    ]
+    subprocess.run(
+        [
+            compiler,
+            *strict,
+            "-x",
+            "objective-c",
+            "-c",
+            str(APP / "btrc_app_directory_picker_macos.m"),
+            "-o",
+            str(provider_object),
+        ],
+        check=True,
+        timeout=COMPILE_TIMEOUT,
+    )
+    subprocess.run(
+        [compiler, *strict, "-c", str(DIRECTORY_PICKER_PROBE), "-o", str(probe_object)],
+        check=True,
+        timeout=COMPILE_TIMEOUT,
+    )
+    subprocess.run(
+        [compiler, str(provider_object), str(probe_object), "-pthread", "-framework", "Cocoa", "-o", str(executable)],
+        check=True,
+        timeout=COMPILE_TIMEOUT,
+    )
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "PASS: macOS directory picker native provider\n"
     assert result.stderr == ""

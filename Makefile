@@ -9,6 +9,7 @@
 SHELL       := /bin/bash
 NIX         := nix develop --command
 HOST_AR     := $(if $(filter Darwin,$(shell uname -s)),/usr/bin/ar,ar)
+APP_OBJC    ?= clang
 GPU_OBJC    ?= clang
 # The repository links wgpu-native, whose WaitAny entry point aborts. Override
 # this only when linking a conforming webgpu.h implementation such as Dawn.
@@ -167,15 +168,22 @@ test-windows: btrcc-windows-x64 ## Build Windows btrcc bundle + sample; run samp
 app: ## Build the sole application/window runtime (skips if GLFW is missing)
 	@$(NIX) bash -c '\
 		D=src/stdlib/app && O=build/stdlib/app && mkdir -p "$$O" && \
-		archive="$$O/libbtrc_app.a" && object="$$O/btrc_app.o" && \
-		rm -f "$$archive" "$$object" && \
-		trap "rm -f \"$$archive\" \"$$object\"" EXIT && \
+		archive="$$O/libbtrc_app.a" && object="$$O/btrc_app.o" && provider="$$O/btrc_app_directory_picker.o" && \
+		rm -f "$$archive" "$$object" "$$provider" && \
+		trap "rm -f \"$$archive\" \"$$object\" \"$$provider\"" EXIT && \
 		if ! $(CC) $$APP_CFLAGS -std=c11 -I"$$D" -E "$$D/btrc_app.c" -o /dev/null 2>/dev/null; then \
 			echo "Application runtime skipped (missing GLFW headers)"; exit 0; \
 		fi && \
 		$(CC) $$APP_CFLAGS $(GPU_THREAD_FLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 \
 			-c "$$D/btrc_app.c" -o "$$object" && \
-		$(HOST_AR) rcs "$$archive" "$$object" && \
+		if [ "$$(uname -s)" = Darwin ]; then \
+			$(APP_OBJC) $$APP_CFLAGS $(NATIVE_CFLAGS) -x objective-c -I"$$D" -O2 \
+				-c "$$D/btrc_app_directory_picker_macos.m" -o "$$provider"; \
+		else \
+			$(CC) $$APP_CFLAGS $(NATIVE_CFLAGS) -I"$$D" -O2 \
+				-c "$$D/btrc_app_directory_picker_stub.c" -o "$$provider"; \
+		fi && \
+		$(HOST_AR) rcs "$$archive" "$$object" "$$provider" && \
 		trap - EXIT && \
 		echo "Built: $$archive"'
 

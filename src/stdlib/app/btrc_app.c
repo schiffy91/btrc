@@ -1,4 +1,5 @@
 #include "btrc_app.h"
+#include "btrc_app_directory_picker_internal.h"
 #include "btrc_app_surface_internal.h"
 
 #ifndef GLFW_INCLUDE_NONE
@@ -16,7 +17,7 @@
 #include <pthread.h>
 #endif
 
-enum { BTRC_APP_EVENT_CAPACITY = 64 };
+enum { BTRC_APP_EVENT_CAPACITY = 64, BTRC_APP_DIRECTORY_CAPACITY = 32768 };
 
 typedef struct {
     int kind;
@@ -59,6 +60,7 @@ typedef struct {
     unsigned int event_count;
     bool event_overflow;
     BtrcAppEvent current_event;
+    char selected_directory[BTRC_APP_DIRECTORY_CAPACITY];
 #if defined(_WIN32)
     DWORD owner_thread;
 #else
@@ -193,6 +195,7 @@ static void drain_app_finalizers_locked(void) {
             application->event_head = 0;
             application->event_count = 0;
             application->event_overflow = false;
+            application->selected_directory[0] = '\0';
             application->pending_window_finalize = 0;
         }
     }
@@ -672,6 +675,7 @@ unsigned long long std_app_window_open(
     application->event_head = 0;
     application->event_count = 0;
     application->event_overflow = false;
+    application->selected_directory[0] = '\0';
     memset(&application->current_event, 0, sizeof(application->current_event));
     glfwSetWindowUserPointer(window, application);
     glfwSetCursorPosCallback(window, on_cursor);
@@ -688,6 +692,57 @@ unsigned long long std_app_window_open(
     *owner_receipt_out = application->window_owner_receipt;
     state_lock_leave();
     return result;
+}
+
+int std_app_window_choose_directory(unsigned long long window_id, char* title, char* initial_directory) {
+	btrc_app_drain_owner_finalizers();
+	state_lock_enter();
+	BtrcApplication* application = find_window(window_id);
+	if (!application || !on_owner_thread(application)) {
+		fail(application, application ? BTRC_APP_ERROR_NOT_MAIN_THREAD : BTRC_APP_ERROR_NOT_OPEN);
+		state_lock_leave();
+		return BTRC_APP_DIRECTORY_PICKER_FAILED;
+	}
+	application->selected_directory[0] = '\0';
+	if (!title || title[0] == '\0' || !initial_directory) {
+		fail(application, BTRC_APP_ERROR_INVALID_ARGUMENT);
+		state_lock_leave();
+		return BTRC_APP_DIRECTORY_PICKER_FAILED;
+	}
+	int provider_error = BTRC_APP_ERROR_NONE;
+	int outcome = btrc_app_platform_choose_directory(title, initial_directory, application->selected_directory, sizeof(application->selected_directory), &provider_error);
+	if (outcome == BTRC_APP_DIRECTORY_PICKER_SELECTED && application->selected_directory[0] != '\0') {
+		clear_error(application);
+		state_lock_leave();
+		return outcome;
+	}
+	application->selected_directory[0] = '\0';
+	if (outcome == BTRC_APP_DIRECTORY_PICKER_CANCELLED) {
+		clear_error(application);
+		state_lock_leave();
+		return outcome;
+	}
+	if (provider_error <= BTRC_APP_ERROR_NONE || provider_error > BTRC_APP_ERROR_INTERNAL) { provider_error = BTRC_APP_ERROR_INTERNAL; }
+	fail(application, provider_error);
+	state_lock_leave();
+	return BTRC_APP_DIRECTORY_PICKER_FAILED;
+}
+
+char* std_app_window_selected_directory(unsigned long long window_id) {
+	static _Thread_local char selected_directory[BTRC_APP_DIRECTORY_CAPACITY];
+	btrc_app_drain_owner_finalizers();
+	state_lock_enter();
+	BtrcApplication* application = find_window(window_id);
+	if (!application || !on_owner_thread(application)) {
+		selected_directory[0] = '\0';
+		fail(application, application ? BTRC_APP_ERROR_NOT_MAIN_THREAD : BTRC_APP_ERROR_NOT_OPEN);
+		state_lock_leave();
+		return selected_directory;
+	}
+	memcpy(selected_directory, application->selected_directory, sizeof(selected_directory));
+	clear_error(application);
+	state_lock_leave();
+	return selected_directory;
 }
 
 unsigned long long std_app_surface_create(
@@ -1094,6 +1149,7 @@ int std_app_window_close(
     application->event_head = 0;
     application->event_count = 0;
     application->event_overflow = false;
+    application->selected_directory[0] = '\0';
     clear_error(application);
     state_lock_leave();
     return BTRC_APP_ERROR_NONE;

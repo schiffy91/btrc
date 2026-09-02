@@ -11,7 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 
-enum { EVENT_CAPACITY = 64, LIFECYCLE_CAPACITY = 1024 };
+enum { EVENT_CAPACITY = 64, LIFECYCLE_CAPACITY = 1024, DIRECTORY_CAPACITY = 4096, DIRECTORY_REQUEST_CAPACITY = 256 };
 enum { FAKE_UI_IMAGE_CAPACITY = 64 };
 
 typedef struct {
@@ -97,6 +97,11 @@ static unsigned int event_head;
 static unsigned int event_count;
 static bool event_overflow;
 static FakeEvent current_event;
+static int directory_picker_outcome;
+static int directory_picker_error;
+static char directory_picker_path[DIRECTORY_CAPACITY];
+static char directory_picker_title[DIRECTORY_REQUEST_CAPACITY];
+static char directory_picker_initial_directory[DIRECTORY_CAPACITY];
 static char lifecycle[LIFECYCLE_CAPACITY];
 static bool owner_thread_set;
 static pthread_t owner_thread;
@@ -254,6 +259,11 @@ void fake_platform_reset(void) {
     event_count = 0;
     event_overflow = false;
     memset(&current_event, 0, sizeof(current_event));
+    directory_picker_outcome = BTRC_APP_DIRECTORY_PICKER_CANCELLED;
+    directory_picker_error = BTRC_APP_ERROR_NONE;
+    directory_picker_path[0] = '\0';
+    directory_picker_title[0] = '\0';
+    directory_picker_initial_directory[0] = '\0';
     lifecycle[0] = '\0';
     owner_thread_set = false;
     pending_application_finalize = 0;
@@ -353,6 +363,15 @@ void fake_platform_push_close(void) {
     event.kind = BTRC_APP_EVENT_CLOSE_REQUESTED;
     push(event);
 }
+
+void fake_platform_set_directory_picker(int outcome, char* directory, int error) {
+    directory_picker_outcome = outcome;
+    directory_picker_error = error;
+    snprintf(directory_picker_path, sizeof(directory_picker_path), "%s", directory ? directory : "");
+}
+
+char* fake_platform_directory_picker_title(void) { return directory_picker_title; }
+char* fake_platform_directory_picker_initial_directory(void) { return directory_picker_initial_directory; }
 
 void fake_platform_expire_surface(unsigned long long identity) {
     if (surface_owner && !surface_attached && identity == surface_id) {
@@ -473,6 +492,46 @@ unsigned long long std_app_window_open(
     window_open = true;
     last_error = BTRC_APP_ERROR_NONE;
     return window_id;
+}
+
+int std_app_window_choose_directory(unsigned long long identity, char* title, char* initial_directory) {
+    if (!window_open || identity != window_id) {
+        last_error = BTRC_APP_ERROR_NOT_OPEN;
+        return BTRC_APP_DIRECTORY_PICKER_FAILED;
+    }
+    if (!on_owner_thread()) {
+        last_error = BTRC_APP_ERROR_NOT_MAIN_THREAD;
+        return BTRC_APP_DIRECTORY_PICKER_FAILED;
+    }
+    if (!title || title[0] == '\0' || !initial_directory) {
+        last_error = BTRC_APP_ERROR_INVALID_ARGUMENT;
+        return BTRC_APP_DIRECTORY_PICKER_FAILED;
+    }
+    snprintf(directory_picker_title, sizeof(directory_picker_title), "%s", title);
+    snprintf(directory_picker_initial_directory, sizeof(directory_picker_initial_directory), "%s", initial_directory);
+    if (directory_picker_outcome == BTRC_APP_DIRECTORY_PICKER_CANCELLED) {
+        directory_picker_path[0] = '\0';
+        last_error = BTRC_APP_ERROR_NONE;
+        return directory_picker_outcome;
+    }
+    if (directory_picker_outcome == BTRC_APP_DIRECTORY_PICKER_SELECTED) {
+        last_error = BTRC_APP_ERROR_NONE;
+        return directory_picker_outcome;
+    }
+    last_error = directory_picker_error;
+    return directory_picker_outcome;
+}
+
+char* std_app_window_selected_directory(unsigned long long identity) {
+    if (!window_open || identity != window_id) {
+        last_error = BTRC_APP_ERROR_NOT_OPEN;
+        return "";
+    }
+    if (!on_owner_thread()) {
+        last_error = BTRC_APP_ERROR_NOT_MAIN_THREAD;
+        return "";
+    }
+    return directory_picker_path;
 }
 
 unsigned long long std_app_surface_create(
