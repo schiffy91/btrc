@@ -281,9 +281,6 @@ static bool request_adapter(GPU_* gpu,
         status != (int)WGPURequestAdapterStatus_Success ||
         !result) {
         release_adapter_result(result);
-        fprintf(stderr,
-                "[btrc-gpu] adapter request failed: wait=%d status=%d\n",
-                (int)outcome, status);
         return false;
     }
     gpu->adapter = (WGPUAdapter)result;
@@ -330,9 +327,6 @@ static bool request_device(GPU_* gpu, const WGPUDeviceDescriptor* descriptor) {
         !result) {
         release_device_result(result);
         btrc_gpu_async_release(lost_async);
-        fprintf(stderr,
-                "[btrc-gpu] device request failed: wait=%d status=%d\n",
-                (int)outcome, status);
         return false;
     }
     gpu->device = (WGPUDevice)result;

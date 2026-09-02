@@ -1,6 +1,6 @@
 #include "btrc_gpu_compute_internal.h"
 
-#include <stdint.h>
+#include <limits.h>
 #include <stdio.h>
 
 static int failures = 0;
@@ -13,8 +13,8 @@ static void check(int condition, const char* message) {
 }
 
 int main(void) {
-    uint64_t render_gpu = UINT64_MAX;
-    uint64_t render_gpu_receipt = UINT64_MAX;
+    unsigned long long render_gpu = ULLONG_MAX;
+    unsigned long long render_gpu_receipt = ULLONG_MAX;
 
     check(!btrc_gpu_available(), "BTRC_NO_GPU disables the probe");
     check(btrc_gpu_acquire_compute() == NULL,

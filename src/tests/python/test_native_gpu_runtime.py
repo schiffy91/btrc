@@ -114,6 +114,20 @@ def test_shader_creation_captures_backend_validation() -> None:
     assert "GPU_RESOURCE_CREATION_FAILED = 306" in interface
 
 
+def test_headless_gpu_probe_is_quiet_when_no_adapter_exists() -> None:
+    runtime = (GPU / "btrc_gpu.c").read_text()
+    request_adapter = runtime[
+        runtime.index("static bool request_adapter(") : runtime.index("static bool request_device(")
+    ]
+    request_device = runtime[
+        runtime.index("static bool request_device(") : runtime.index("static bool device_is_lost(")
+    ]
+
+    assert "fprintf" not in request_adapter
+    assert "fprintf" not in request_device
+    assert 'fprintf(stderr, "[btrc-gpu] no suitable GPU adapter found' in runtime
+
+
 @pytest.mark.parametrize("c_compiler", ["gcc", "clang"])
 def test_compute_context_cas_publication_is_deterministic(tmp_path: Path, c_compiler: str) -> None:
     if not shutil.which(c_compiler):

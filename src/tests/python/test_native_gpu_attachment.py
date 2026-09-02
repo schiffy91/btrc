@@ -62,6 +62,7 @@ def _compile_actual_runtime(
         f"-I{FIXTURE}",
     ]
     gpu_object = output.with_suffix(".gpu.o")
+    native_ui_object = output.with_suffix(".native-ui.o")
     async_object = output.with_suffix(".async.o")
     harness_object = output.with_suffix(".harness.o")
     subprocess.run(
@@ -73,6 +74,17 @@ def _compile_actual_runtime(
             str(GPU / "btrc_gpu.c"),
             "-o",
             str(gpu_object),
+        ],
+        check=True,
+        timeout=COMPILE_TIMEOUT,
+    )
+    subprocess.run(
+        [
+            *strict,
+            "-c",
+            str(GPU / "btrc_gpu_native_ui.c"),
+            "-o",
+            str(native_ui_object),
         ],
         check=True,
         timeout=COMPILE_TIMEOUT,
@@ -106,6 +118,7 @@ def _compile_actual_runtime(
             compiler,
             *(extra_flags or []),
             str(gpu_object),
+            str(native_ui_object),
             str(async_object),
             str(harness_object),
             *shlex.split(ldflags),
@@ -147,6 +160,7 @@ def _compile_integrated_runtime(
     ]
     app_object = output.with_suffix(".app.o")
     gpu_object = output.with_suffix(".gpu.o")
+    native_ui_object = output.with_suffix(".native-ui.o")
     async_object = output.with_suffix(".async.o")
     fake_glfw_object = output.with_suffix(".fake-glfw.o")
     harness_object = output.with_suffix(".harness.o")
@@ -179,6 +193,17 @@ def _compile_integrated_runtime(
     subprocess.run(
         [
             *strict,
+            "-c",
+            str(GPU / "btrc_gpu_native_ui.c"),
+            "-o",
+            str(native_ui_object),
+        ],
+        check=True,
+        timeout=COMPILE_TIMEOUT,
+    )
+    subprocess.run(
+        [
+            *strict,
             "-include",
             str(INTEGRATED_ASYNC_REDIRECT),
             "-c",
@@ -204,6 +229,7 @@ def _compile_integrated_runtime(
             *(extra_flags or []),
             str(app_object),
             str(gpu_object),
+            str(native_ui_object),
             str(async_object),
             str(fake_glfw_object),
             str(harness_object),
