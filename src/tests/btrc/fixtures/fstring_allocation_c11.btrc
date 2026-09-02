@@ -1,0 +1,8 @@
+#include <stdio.h>
+
+int main() {
+	string empty = "";
+	print(f"{empty}");
+	printf("PASS: formatted string allocation is non-null\n");
+	return 0;
+}

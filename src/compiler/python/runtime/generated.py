@@ -510,8 +510,10 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'static inline char* __btrc_string_alloc(int length) {\n    if (length < 0'
             ') {\n        fprintf(stderr, "btrc: negative string allocation\\n"); exit('
             '1);\n    }\n    char* result = (char*)__btrc_safe_realloc(\n        NULL, ('
-            "size_t)length + 1);\n    result[length] = '\\0';\n    return __btrc_string_"
-            'adopt(result);\n}'
+            "size_t)length + 1);\n    result[length] = '\\0';\n    char* adopted = __btr"
+            'c_string_adopt(result);\n    if (!adopted) {\n        fprintf(stderr, "btr'
+            'c: string allocation adoption failed\\n"); exit(1);\n    }\n    return adop'
+            'ted;\n}'
         ),
         depends_on=('__btrc_safe_realloc', '__btrc_string_adopt'),
         required_headers=(),

@@ -204,7 +204,11 @@ static inline char* __btrc_string_alloc(int length) {
     char* result = (char*)__btrc_safe_realloc(
         NULL, (size_t)length + 1);
     result[length] = '\0';
-    return __btrc_string_adopt(result);
+    char* adopted = __btrc_string_adopt(result);
+    if (!adopted) {
+        fprintf(stderr, "btrc: string allocation adoption failed\n"); exit(1);
+    }
+    return adopted;
 }
 /* btrc-runtime-helper:end __btrc_string_alloc */
 /* btrc-runtime-helper:begin __btrc_ascii_upper */
