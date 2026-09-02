@@ -108,6 +108,7 @@ class DeclarationLowerer:
                 return_type=CType(text="const char*"),
                 params=[IRParam(c_type=CType(text=decl.name), name="val")],
                 is_static=True,
+                archive_export=True,
                 body=IRBlock(stmts=[IRSwitch(value=IRVar(name="val"), cases=cases)]),
             )
         )
@@ -200,6 +201,7 @@ class DeclarationLowerer:
                 return_type=CType(text="const char*"),
                 params=[IRParam(c_type=CType(text=name), name="val")],
                 is_static=True,
+                archive_export=True,
                 body=IRBlock(
                     stmts=[IRSwitch(value=IRFieldAccess(obj=IRVar(name="val"), field="tag", arrow=False), cases=cases)]
                 ),

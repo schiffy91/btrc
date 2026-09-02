@@ -401,7 +401,7 @@ class FeImportResolver {
 		if (FeSourceText(spec).startsWithAt(0, "std.")) {
 			string rest = spec.substring(4, spec.length() - 4);
 			if (rest.equals("*") || rest.equals("**")) {
-				return self.stdlib.rootPaths(self.stdlibSnapshot);
+				return self.stdlib.relaxedRootPaths(self.stdlibSnapshot);
 			}
 			Vector<string> names = self.stdlibModuleNames(rest);
 			if (names.len == 0) { self.rejectInvalidSpec(spec); }
@@ -820,7 +820,7 @@ class FeFrontendResolver {
 		int fileIndex = 0;
 		while (fileIndex < snapshot.count()) {
 			string content = snapshot.sourceAt(fileIndex);
-			if (!self.namesIntersect(self.definedTypeNames(content), userNames)) {
+			if (self.stdlib.relaxedCompositionPath(snapshot.pathAt(fileIndex)) && !self.namesIntersect(self.definedTypeNames(content), userNames)) {
 				Vector<string> fileLines = self.sourceWithoutImports(content);
 				int lineIndex = 0;
 				while (lineIndex < fileLines.len) {

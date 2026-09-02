@@ -326,6 +326,7 @@ class DeclarationLowerer {
 		fn.name = name + "_toString";
 		fn.return_type = "const char*";
 		fn.is_static = true;
+		fn.archive_export = true;
 		fn.params.push(IRParam(name, "val"));
 		fn.body = IRNode.block(bodyStmts);
 		return fn;

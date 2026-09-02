@@ -343,6 +343,8 @@ def test_build_stdlib_writes_archive(tmp_path, monkeypatch, capsys):
     assert "extern void** __btrc_suspects;" in header
     assert "extern int __btrc_suspect_cap;" in header
     assert "void __btrc_cycle_state_cleanup(void);" in header
+    assert "const char* FileKind_toString(FileKind val);" in header
+    assert "static const char* FileKind_toString(FileKind val);" not in header
     assert "static void __btrc_cycle_state_cleanup(void)" not in header
     assert "static _Thread_local void** __btrc_destroyed" not in header
     assert "_Thread_local void** __btrc_suspects" not in header
@@ -354,6 +356,8 @@ def test_build_stdlib_writes_archive(tmp_path, monkeypatch, capsys):
     assert "_Thread_local int __btrc_cleanup_cap = 64;" in impl
     assert "void** __btrc_suspects = NULL;" in impl
     assert "int __btrc_suspect_cap = 0;" in impl
+    assert "const char* FileKind_toString(FileKind val) {" in impl
+    assert "static const char* FileKind_toString(FileKind val) {" not in impl
     assert "void __btrc_cycle_state_cleanup(void) {" in impl
     assert "static _Thread_local void** __btrc_destroyed" not in impl
     assert "_Thread_local void** __btrc_suspects" not in impl

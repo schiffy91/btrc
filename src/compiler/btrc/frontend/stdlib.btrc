@@ -139,6 +139,28 @@ class FeStdlibRepository {
 		return paths;
 	}
 
+	private bool explicitModulePath(string path) {
+		string name = self.sourcePaths.baseName(path);
+		return name.equals("background_jobs.btrc") || name.equals("native_ui.btrc") || name.equals("native_ui_app.btrc");
+	}
+
+	/* Legacy relaxed composition and the core archive strip imports before
+     * concatenating root modules. Native adapters with nested source-graph or
+     * compiler-owned native-link dependencies remain explicit imports so the
+     * resolver retains those requirements. */
+	public bool relaxedCompositionPath(string path) { return !self.explicitModulePath(path); }
+
+	public Vector<string> relaxedRootPaths(FeStdlibRootSnapshot snapshot) {
+		Vector<string> paths = [];
+		int index = 0;
+		while (index < snapshot.count()) {
+			string path = snapshot.pathAt(index);
+			if (self.relaxedCompositionPath(path)) { paths.push(path); }
+			index++;
+		}
+		return paths;
+	}
+
 	public string readSourceForCompilation(string path, FeStdlibRootSnapshot snapshot) {
 		int index = self.snapshotIndexOf(snapshot, path);
 		if (index >= 0) { return snapshot.sourceAt(index); }

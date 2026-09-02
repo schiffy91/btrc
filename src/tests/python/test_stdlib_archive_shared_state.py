@@ -413,7 +413,12 @@ def _compile_object(
             "-Wall",
             "-Wextra",
             "-Werror",
-            "-O1",
+            # This gate proves the archive's cross-translation-unit ownership
+            # contract, not optimizer diagnostics. GCC's O1 range propagation
+            # loses the non-negative postcondition of __btrc_string_length
+            # across generated wrapper calls and reports false
+            # -Wstringop-overflow findings for otherwise guarded memcpy sizes.
+            "-O0",
             f"-I{include_dir}",
             "-c",
             str(source),

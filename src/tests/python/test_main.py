@@ -540,6 +540,26 @@ def test_discover_stdlib_files():
     assert "strings.btrc" in files
 
 
+def test_native_adapters_remain_explicit_stdlib_modules():
+    explicit_modules = (
+        "background_jobs.btrc",
+        "native_ui.btrc",
+        "native_ui_app.btrc",
+    )
+    discovered = STDLIB.discover_files()
+    relaxed = STDLIB.relaxed_composition_files()
+
+    for module in explicit_modules:
+        assert module in discovered
+        assert module not in relaxed
+        assert STDLIB.find_file(module) is not None
+
+    source = STDLIB.source("")
+    assert "class BackgroundJobExecutor" not in source
+    assert "class NativeUiElement" not in source
+    assert "class NativeUiAppSession" not in source
+
+
 def test_get_stdlib_source_skips_redefined():
     # User redefining Vector means vector.btrc is skipped → shorter output.
     full = STDLIB.source("")

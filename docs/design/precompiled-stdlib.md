@@ -56,9 +56,13 @@ treat an in-progress journal as a retryable archive-version mismatch.
 
 ## Build flow
 
-`--build-stdlib` runs the canonical stdlib through the normal compiler pipeline
-with dead-code elimination disabled, then transforms the resulting IR for
-separate linkage:
+`--build-stdlib` runs the canonical core stdlib through the normal compiler
+pipeline with dead-code elimination disabled, then transforms the resulting IR
+for separate linkage. Native adapters such as `std.background_jobs`,
+`std.native_ui`, and `std.native_ui_app` stay explicit imports so their nested
+source graph and native link plan remain intact.
+
+The archive transform then:
 
 1. Concrete generic instances and structured callbacks exported by the stdlib
    become external definitions with matching external prototypes.

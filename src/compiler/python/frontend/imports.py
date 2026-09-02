@@ -96,7 +96,9 @@ class ImportResolver:
     ) -> list[str]:
         """Resolve a parsed import specification to filesystem paths."""
         if isinstance(spec, StdGlob):
-            return [os.path.join(self.stdlib.directory(), filename) for filename in self.stdlib.discover_files()]
+            return [
+                os.path.join(self.stdlib.directory(), filename) for filename in self.stdlib.relaxed_composition_files()
+            ]
         if isinstance(spec, StdModules):
             return [self._stdlib_module_path(name) for name in spec.names]
         if isinstance(spec, PackagePath):
