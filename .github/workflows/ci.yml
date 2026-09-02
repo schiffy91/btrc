@@ -23,9 +23,9 @@ jobs:
       - run: nix build .#btrc .#btrc-lsp .#btrc-vscode-extension --no-link
       - run: make devcontainer
       - run: chmod -R a+w .
-      - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= lint format-check
-      - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= package extension
-      - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= btrcc-linux-x64
+      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= lint format-check
+      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= package extension
+      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= btrcc-linux-x64
       - name: Run the relocatable Linux x64 compiler bundle
         run: |
           set -euo pipefail
@@ -73,9 +73,10 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=all -- "${paths[@]}")"
       # Each pytest worker also runs native compilers. Keep the four-core
       # release runner within its real CPU/memory envelope and allow one slow
-      # self-host transpile to make progress under shared load.
-      - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 gpu-required test
-      - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 test-c11
+      # self-host transpile to make progress under shared load. The init owner
+      # reaps daemon-test grandchildren after process-group termination.
+      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 gpu-required test
+      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 test-c11
 
   linux-arm64-bundle:
     runs-on: ubuntu-24.04-arm

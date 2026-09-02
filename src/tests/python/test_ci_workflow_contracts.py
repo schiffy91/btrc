@@ -84,6 +84,7 @@ def test_linux_x64_ci_runs_and_uploads_the_archived_bundle() -> None:
     assert "src/tests/strings/expected/test_braces_in_code_gen.stdout" in job
     assert "-std=c11 -pedantic-errors -Wall -Wextra -Werror" in job
     assert job.count("PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600") == 2
+    assert job.count('podman run --rm --init -v "$PWD:/workspace"') == 5
     _assert_linux_archive_smoke(job, "linux-x64")
 
 
