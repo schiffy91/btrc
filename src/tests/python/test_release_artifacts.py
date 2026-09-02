@@ -80,7 +80,8 @@ def test_production_test_targets_require_gpu_and_cover_both_compilers() -> None:
     assert "gpu-required" in c11_rule and "btrcc" in c11_rule
     assert 'BTRC_TEST_BTRCC="$(abspath bin/btrcc)"' in c11_recipe
     assert "--compilers=python,btrc" in c11_recipe
-    assert "make NIX= gpu-required test" in ci
+    assert "PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 gpu-required test" in ci
+    assert ".#checks.x86_64-linux.gpu-runtime-package" in ci
 
 
 def _write_fake_native_tools(directory: Path) -> tuple[Path, Path]:

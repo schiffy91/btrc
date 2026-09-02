@@ -20,7 +20,7 @@ jobs:
 
       - run: nix flake check --no-build
       - run: nix develop --command make NIX= generated-check
-      - run: nix build .#btrc .#btrc-lsp .#btrc-vscode-extension --no-link
+      - run: nix build .#btrc .#btrc-lsp .#btrc-vscode-extension .#checks.x86_64-linux.gpu-runtime-package --no-link
       - run: make devcontainer
       - run: chmod -R a+w .
       - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= lint format-check

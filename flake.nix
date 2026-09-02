@@ -275,9 +275,16 @@
           '';
           installPhase = ''
             runHook preInstall
-            mkdir -p "$out/include" "$out/lib/pkgconfig"
+            licenseRoot="$out/share/licenses/btrc"
+            mkdir -p \
+              "$out/include" \
+              "$out/lib/pkgconfig" \
+              "$licenseRoot/third-party/glfw"
             install -m 0644 src/stdlib/app/btrc_app.h "$out/include/"
             install -m 0644 libbtrc_app.a "$out/lib/"
+            install -m 0644 ${./LICENSE} "$licenseRoot/LICENSE"
+            install -m 0644 ${pkgs.glfw.src}/LICENSE.md \
+              "$licenseRoot/third-party/glfw/LICENSE.md"
             substitute ${appPkgConfig} "$out/lib/pkgconfig/btrc-app.pc" \
               --replace-fail @out@ "$out"
             runHook postInstall
@@ -322,11 +329,26 @@
           '';
           installPhase = ''
             runHook preInstall
-            mkdir -p "$out/include" "$out/lib/pkgconfig"
+            licenseRoot="$out/share/licenses/btrc"
+            mkdir -p \
+              "$out/include" \
+              "$out/lib/pkgconfig" \
+              "$licenseRoot/third-party/glfw" \
+              "$licenseRoot/third-party/wgpu-native" \
+              "$licenseRoot/third-party/webgpu-headers"
             install -m 0644 src/stdlib/app/btrc_app.h "$out/include/"
             install -m 0644 src/stdlib/gpu/btrc_gpu.h "$out/include/"
             install -m 0644 ${btrcApp}/lib/libbtrc_app.a "$out/lib/"
             install -m 0644 libbtrc_gpu.a "$out/lib/"
+            install -m 0644 ${./LICENSE} "$licenseRoot/LICENSE"
+            install -m 0644 ${pkgs.glfw.src}/LICENSE.md \
+              "$licenseRoot/third-party/glfw/LICENSE.md"
+            install -m 0644 ${pkgs.wgpu-native.src}/LICENSE.APACHE \
+              "$licenseRoot/third-party/wgpu-native/LICENSE.APACHE"
+            install -m 0644 ${pkgs.wgpu-native.src}/LICENSE.MIT \
+              "$licenseRoot/third-party/wgpu-native/LICENSE.MIT"
+            install -m 0644 ${pkgs.wgpu-native.src}/ffi/webgpu-headers/LICENSE \
+              "$licenseRoot/third-party/webgpu-headers/LICENSE"
             substitute ${gpuPkgConfig} "$out/lib/pkgconfig/btrc-gpu.pc" \
               --replace-fail @out@ "$out"
             runHook postInstall
@@ -431,6 +453,20 @@
           buildInputs = [ self.packages.${system}.btrc-gpu ];
         } ''
           pkg-config --validate btrc-gpu
+          appLicenseRoot=${self.packages.${system}.btrc-app}/share/licenses/btrc
+          gpuLicenseRoot=${self.packages.${system}.btrc-gpu}/share/licenses/btrc
+          cmp ${./LICENSE} "$appLicenseRoot/LICENSE"
+          cmp ${pkgs.glfw.src}/LICENSE.md \
+            "$appLicenseRoot/third-party/glfw/LICENSE.md"
+          cmp ${./LICENSE} "$gpuLicenseRoot/LICENSE"
+          cmp ${pkgs.glfw.src}/LICENSE.md \
+            "$gpuLicenseRoot/third-party/glfw/LICENSE.md"
+          cmp ${pkgs.wgpu-native.src}/LICENSE.APACHE \
+            "$gpuLicenseRoot/third-party/wgpu-native/LICENSE.APACHE"
+          cmp ${pkgs.wgpu-native.src}/LICENSE.MIT \
+            "$gpuLicenseRoot/third-party/wgpu-native/LICENSE.MIT"
+          cmp ${pkgs.wgpu-native.src}/ffi/webgpu-headers/LICENSE \
+            "$gpuLicenseRoot/third-party/webgpu-headers/LICENSE"
           printf '%s\n' \
             '#include <btrc_app.h>' \
             '#include <btrc_gpu.h>' \
