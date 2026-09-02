@@ -2,7 +2,7 @@
   "name": "btrc",
   "displayName": "btrc Language",
   "description": "Language support for btrc — a language that transpiles to C",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "license": "MIT",
   "publisher": "btrc-dev",
   "engines": {

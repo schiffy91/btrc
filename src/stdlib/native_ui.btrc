@@ -28,8 +28,94 @@ enum NativeUiEventKind {
 	NATIVE_UI_HOVER_LEFT = 2,
 	NATIVE_UI_SCROLLED = 3,
 	NATIVE_UI_VIEWPORT_CHANGED = 4,
-	NATIVE_UI_VALUE_CHANGED = 5
+	NATIVE_UI_VALUE_CHANGED = 5,
+	NATIVE_UI_RANGE_POINTER_PRESSED = 6,
+	NATIVE_UI_RANGE_POINTER_MOVED = 7,
+	NATIVE_UI_RANGE_POINTER_RELEASED = 8,
+	NATIVE_UI_RANGE_POINTER_CANCELLED = 9,
+	NATIVE_UI_RANGE_WHEEL = 10,
+	NATIVE_UI_RANGE_ADJUSTED = 11
 };
+
+enum NativeUiRangeAxis {
+	NATIVE_UI_RANGE_HORIZONTAL = 0,
+	NATIVE_UI_RANGE_VERTICAL = 1
+};
+
+enum NativeUiRangeAdjustment {
+	NATIVE_UI_RANGE_ADJUST_NONE = 0,
+	NATIVE_UI_RANGE_ADJUST_SMALL_DECREMENT = 1,
+	NATIVE_UI_RANGE_ADJUST_SMALL_INCREMENT = 2,
+	NATIVE_UI_RANGE_ADJUST_LARGE_DECREMENT = 3,
+	NATIVE_UI_RANGE_ADJUST_LARGE_INCREMENT = 4,
+	NATIVE_UI_RANGE_ADJUST_MINIMUM = 5,
+	NATIVE_UI_RANGE_ADJUST_MAXIMUM = 6
+};
+
+class NativeUiSemanticRange {
+	private NativeUiRangeAxis axisValue;
+	private string labelValue;
+	private long long minimumValue;
+	private long long maximumValue;
+	private long long currentValue;
+	private long long smallStepValue;
+	private long long largeStepValue;
+
+	private NativeUiSemanticRange(NativeUiRangeAxis axis, string label, long long minimum, long long maximum, long long value, long long smallStep, long long largeStep) {
+		self.axisValue = axis;
+		self.labelValue = label;
+		self.minimumValue = minimum;
+		self.maximumValue = maximum;
+		self.currentValue = value;
+		self.smallStepValue = smallStep;
+		self.largeStepValue = largeStep;
+	}
+
+	class NativeUiSemanticRange horizontal(string label, long long minimum, long long maximum, long long value, long long smallStep = 1LL, long long largeStep = 10LL) { return NativeUiSemanticRange(NATIVE_UI_RANGE_HORIZONTAL, label, minimum, maximum, value, smallStep, largeStep); }
+
+	class NativeUiSemanticRange vertical(string label, long long minimum, long long maximum, long long value, long long smallStep = 1LL, long long largeStep = 10LL) { return NativeUiSemanticRange(NATIVE_UI_RANGE_VERTICAL, label, minimum, maximum, value, smallStep, largeStep); }
+
+	public NativeUiRangeAxis axis() { return self.axisValue; }
+
+	public string label() { return self.labelValue; }
+
+	public long long minimum() { return self.minimumValue; }
+
+	public long long maximum() { return self.maximumValue; }
+
+	public long long value() { return self.currentValue; }
+
+	public long long smallStep() { return self.smallStepValue; }
+
+	public long long largeStep() { return self.largeStepValue; }
+
+	public bool valid() { return self.labelValue != null && !self.labelValue.isEmpty() && self.labelValue.len() <= 512 && self.minimumValue <= self.maximumValue && self.currentValue >= self.minimumValue && self.currentValue <= self.maximumValue && self.smallStepValue > 0LL && self.largeStepValue > 0LL; }
+
+	private long long incremented(long long step) {
+		if (self.currentValue >= self.maximumValue) { return self.maximumValue; }
+		if (self.currentValue > 9223372036854775807LL - step) { return self.maximumValue; }
+		long long candidate = self.currentValue + step;
+		return candidate > self.maximumValue ? self.maximumValue : candidate;
+	}
+
+	private long long decremented(long long step) {
+		if (self.currentValue <= self.minimumValue) { return self.minimumValue; }
+		if (self.currentValue < (-9223372036854775807LL - 1LL) + step) { return self.minimumValue; }
+		long long candidate = self.currentValue - step;
+		return candidate < self.minimumValue ? self.minimumValue : candidate;
+	}
+
+	public long long adjustedValue(NativeUiRangeAdjustment adjustment) {
+		if (!self.valid() || adjustment == NATIVE_UI_RANGE_ADJUST_NONE) { return self.currentValue; }
+		if (adjustment == NATIVE_UI_RANGE_ADJUST_MINIMUM) { return self.minimumValue; }
+		if (adjustment == NATIVE_UI_RANGE_ADJUST_MAXIMUM) { return self.maximumValue; }
+		if (adjustment == NATIVE_UI_RANGE_ADJUST_SMALL_DECREMENT) { return self.decremented(self.smallStepValue); }
+		if (adjustment == NATIVE_UI_RANGE_ADJUST_SMALL_INCREMENT) { return self.incremented(self.smallStepValue); }
+		if (adjustment == NATIVE_UI_RANGE_ADJUST_LARGE_DECREMENT) { return self.decremented(self.largeStepValue); }
+		if (adjustment == NATIVE_UI_RANGE_ADJUST_LARGE_INCREMENT) { return self.incremented(self.largeStepValue); }
+		return self.currentValue;
+	}
+}
 
 enum NativeUiStyleErrorCode {
 	NATIVE_UI_STYLE_VALID = 0,
@@ -299,6 +385,20 @@ class NativeUiScrollDelta {
 	public int y() { return self.deltaY; }
 }
 
+class NativeUiPointerSample {
+	private int coordinateValue;
+	private int extentValue;
+
+	public NativeUiPointerSample(int coordinate, int extent) {
+		self.coordinateValue = coordinate;
+		self.extentValue = extent;
+	}
+
+	public int coordinate() { return self.coordinateValue; }
+
+	public int extent() { return self.extentValue; }
+}
+
 class NativeUiVirtualGridViewport {
 	private string gridIdentity;
 	private int totalCountValue;
@@ -348,27 +448,45 @@ class NativeUiEvent {
 	private NativeUiScrollDelta scrollValue;
 	private NativeUiVirtualGridViewport? virtualGridViewportValue;
 	private string inputValue;
+	private NativeUiPointerSample? pointerValue;
+	private NativeUiRangeAdjustment rangeAdjustmentValue;
+	private long long resultingRangeValue;
 
-	private NativeUiEvent(NativeUiEventKind kind, string elementId, NativeUiViewportMetrics viewport, NativeUiScrollDelta scroll, NativeUiVirtualGridViewport? virtualGridViewport, string value) {
+	private NativeUiEvent(NativeUiEventKind kind, string elementId, NativeUiViewportMetrics viewport, NativeUiScrollDelta scroll, NativeUiVirtualGridViewport? virtualGridViewport, string value, NativeUiPointerSample? pointer, NativeUiRangeAdjustment rangeAdjustment, long long rangeValue) {
 		self.eventKind = kind;
 		self.targetIdentity = elementId;
 		self.viewportValue = viewport;
 		self.scrollValue = scroll;
 		self.virtualGridViewportValue = virtualGridViewport;
 		self.inputValue = value;
+		self.pointerValue = pointer;
+		self.rangeAdjustmentValue = rangeAdjustment;
+		self.resultingRangeValue = rangeValue;
 	}
 
-	class NativeUiEvent clicked(string elementId) { return NativeUiEvent(NATIVE_UI_CLICKED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, ""); }
+	class NativeUiEvent clicked(string elementId) { return NativeUiEvent(NATIVE_UI_CLICKED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, "", null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
 
-	class NativeUiEvent hoverEntered(string elementId) { return NativeUiEvent(NATIVE_UI_HOVER_ENTERED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, ""); }
+	class NativeUiEvent hoverEntered(string elementId) { return NativeUiEvent(NATIVE_UI_HOVER_ENTERED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, "", null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
 
-	class NativeUiEvent hoverLeft(string elementId) { return NativeUiEvent(NATIVE_UI_HOVER_LEFT, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, ""); }
+	class NativeUiEvent hoverLeft(string elementId) { return NativeUiEvent(NATIVE_UI_HOVER_LEFT, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, "", null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
 
-	class NativeUiEvent scrolled(string elementId, NativeUiViewportMetrics resultingViewport, NativeUiScrollDelta delta, NativeUiVirtualGridViewport? virtualGridViewport = null) { return NativeUiEvent(NATIVE_UI_SCROLLED, elementId, resultingViewport, delta, virtualGridViewport, ""); }
+	class NativeUiEvent scrolled(string elementId, NativeUiViewportMetrics resultingViewport, NativeUiScrollDelta delta, NativeUiVirtualGridViewport? virtualGridViewport = null) { return NativeUiEvent(NATIVE_UI_SCROLLED, elementId, resultingViewport, delta, virtualGridViewport, "", null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
 
-	class NativeUiEvent viewportChanged(string elementId, NativeUiViewportMetrics metrics, NativeUiVirtualGridViewport? virtualGridViewport = null) { return NativeUiEvent(NATIVE_UI_VIEWPORT_CHANGED, elementId, metrics, NativeUiScrollDelta(0, 0), virtualGridViewport, ""); }
+	class NativeUiEvent viewportChanged(string elementId, NativeUiViewportMetrics metrics, NativeUiVirtualGridViewport? virtualGridViewport = null) { return NativeUiEvent(NATIVE_UI_VIEWPORT_CHANGED, elementId, metrics, NativeUiScrollDelta(0, 0), virtualGridViewport, "", null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
 
-	class NativeUiEvent valueChanged(string elementId, string value) { return NativeUiEvent(NATIVE_UI_VALUE_CHANGED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, value); }
+	class NativeUiEvent valueChanged(string elementId, string value) { return NativeUiEvent(NATIVE_UI_VALUE_CHANGED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, value, null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
+	class NativeUiEvent rangePointerPressed(string elementId, NativeUiPointerSample pointer) { return NativeUiEvent(NATIVE_UI_RANGE_POINTER_PRESSED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, "", pointer, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
+	class NativeUiEvent rangePointerMoved(string elementId, NativeUiPointerSample pointer) { return NativeUiEvent(NATIVE_UI_RANGE_POINTER_MOVED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, "", pointer, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
+	class NativeUiEvent rangePointerReleased(string elementId, NativeUiPointerSample pointer) { return NativeUiEvent(NATIVE_UI_RANGE_POINTER_RELEASED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, "", pointer, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
+	class NativeUiEvent rangePointerCancelled(string elementId, NativeUiPointerSample pointer) { return NativeUiEvent(NATIVE_UI_RANGE_POINTER_CANCELLED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, "", pointer, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
+	class NativeUiEvent rangeWheel(string elementId, NativeUiScrollDelta delta, NativeUiRangeAdjustment adjustment, long long resultingValue) { return NativeUiEvent(NATIVE_UI_RANGE_WHEEL, elementId, NativeUiViewportMetrics(0, 0, 0, 0), delta, null, "", null, adjustment, resultingValue); }
+
+	class NativeUiEvent rangeAdjusted(string elementId, NativeUiRangeAdjustment adjustment, long long resultingValue) { return NativeUiEvent(NATIVE_UI_RANGE_ADJUSTED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, "", null, adjustment, resultingValue); }
 
 	public NativeUiEventKind kind() { return self.eventKind; }
 
@@ -381,6 +499,12 @@ class NativeUiEvent {
 	public NativeUiVirtualGridViewport? virtualGridViewport() { return self.virtualGridViewportValue; }
 
 	public string value() { return self.inputValue; }
+
+	public NativeUiPointerSample? pointer() { return self.pointerValue; }
+
+	public NativeUiRangeAdjustment rangeAdjustment() { return self.rangeAdjustmentValue; }
+
+	public long long rangeValue() { return self.resultingRangeValue; }
 }
 
 class NativeUiElement {
@@ -397,6 +521,7 @@ class NativeUiElement {
 	private NativeUiVirtualGrid? virtualGridValue;
 	private string placeholderValue;
 	private int textInputMaxBytesValue;
+	private NativeUiSemanticRange? semanticRangeValue;
 
 	private NativeUiElement(NativeUiElementKind kind, string id, string text, Image? image, string alt) {
 		self.elementKind = kind;
@@ -412,6 +537,7 @@ class NativeUiElement {
 		self.virtualGridValue = null;
 		self.placeholderValue = "";
 		self.textInputMaxBytesValue = 0;
+		self.semanticRangeValue = null;
 	}
 
 	class NativeUiElement column(string id) { return NativeUiElement(NATIVE_UI_COLUMN, id, "", null, ""); }
@@ -454,6 +580,11 @@ class NativeUiElement {
 		return self;
 	}
 
+	public NativeUiElement semanticRange(NativeUiSemanticRange descriptor) {
+		self.semanticRangeValue = descriptor;
+		return self;
+	}
+
 	public NativeUiElement child(NativeUiElement value) {
 		self.childValues.push(value);
 		return self;
@@ -482,6 +613,8 @@ class NativeUiElement {
 	public string placeholderText() { return self.placeholderValue; }
 
 	public int textInputMaxBytes() { return self.textInputMaxBytesValue; }
+
+	public NativeUiSemanticRange? semanticRangeDescriptor() { return self.semanticRangeValue; }
 
 	public int childCount() { return self.childValues.len; }
 

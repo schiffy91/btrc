@@ -36,7 +36,8 @@ int main() {
 
 	Image artwork = Image(2, 2);
 	artwork.setRGBA(0, 0, 220, 40, 20, 255);
-	NativeUiElement root = NativeUiElement.column("library").className("root").child(NativeUiElement.text("heading", "Albums")).child(NativeUiElement.textInput("query", "a", "Search albums", 16)).child(NativeUiElement.button("album:one", "Album One").className("card").child(NativeUiElement.image("art:one", artwork, "Album One").imageRevision(1ULL)));
+	NativeUiSemanticRange transportRange = NativeUiSemanticRange.horizontal("Song position", 0LL, 1000LL, 100LL, 5LL, 50LL);
+	NativeUiElement root = NativeUiElement.column("library").className("root").child(NativeUiElement.text("transport-range", "Albums").semanticRange(transportRange)).child(NativeUiElement.textInput("query", "a", "Search albums", 16)).child(NativeUiElement.button("album:one", "Album One").className("card").child(NativeUiElement.image("art:one", artwork, "Album One").imageRevision(1ULL)));
 
 	NativeUiPresentOutcome first = session.present(root);
 	assert(first.kind == NATIVE_UI_PRESENTED);
@@ -82,7 +83,7 @@ int main() {
 	assert(session.input().focusedValue() == "a\xc3\xa9");
 
 	artwork.setRGBA(0, 0, 10, 200, 30, 255);
-	NativeUiElement revisedRoot = NativeUiElement.column("library").className("root").child(NativeUiElement.text("heading", "Albums")).child(NativeUiElement.textInput("query", "a\xc3\xa9", "Search albums", 16)).child(NativeUiElement.button("album:one", "Album One").className("card").child(NativeUiElement.image("art:one", artwork, "Album One").imageRevision(2ULL)));
+	NativeUiElement revisedRoot = NativeUiElement.column("library").className("root").child(NativeUiElement.text("transport-range", "Albums").semanticRange(transportRange)).child(NativeUiElement.textInput("query", "a\xc3\xa9", "Search albums", 16)).child(NativeUiElement.button("album:one", "Album One").className("card").child(NativeUiElement.image("art:one", artwork, "Album One").imageRevision(2ULL)));
 	assert(session.present(revisedRoot).kind == NATIVE_UI_PRESENTED);
 	assert(fake_native_ui_upload_count() == 2);
 	assert(session.input().focusedId() == "query");
@@ -92,7 +93,75 @@ int main() {
 	assert(session.input().focusedId().isEmpty());
 	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_TAB, 0);
 	assert(session.dispatch(application.poll()).eventCount() == 0);
+	assert(session.input().focusedId() == "transport-range");
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_TAB, 0);
+	assert(session.dispatch(application.poll()).eventCount() == 0);
 	assert(session.input().focusedId() == "query");
+
+	NativeUiLayoutBox transport = session.input().currentFrame().boxFor("transport-range");
+	int transportX = transport.bounds.x + 10;
+	int transportY = transport.bounds.y + 4;
+	fake_platform_push_pointer(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, (float)transportX, (float)transportY, 0);
+	NativeUiEventBatch rangePressed = session.dispatch(application.poll());
+	assert(rangePressed.eventCount() >= 1);
+	assert(rangePressed.eventAt(rangePressed.eventCount() - 1).kind() == NATIVE_UI_RANGE_POINTER_PRESSED);
+	NativeUiPointerSample? optionalPressedPointer = rangePressed.eventAt(rangePressed.eventCount() - 1).pointer();
+	assert(optionalPressedPointer != null);
+	NativeUiPointerSample pressedPointer = optionalPressedPointer;
+	assert(pressedPointer.coordinate() == 10);
+	assert(session.input().focusedId() == "transport-range");
+	fake_platform_push_pointer(APP_POINTER_MOVED, APP_POINTER_BUTTON_NONE, (float)(transport.bounds.x + transport.bounds.width + 12), (float)transportY, 0);
+	NativeUiEventBatch rangeMoved = session.dispatch(application.poll());
+	assert(rangeMoved.eventAt(rangeMoved.eventCount() - 1).kind() == NATIVE_UI_RANGE_POINTER_MOVED);
+	NativeUiPointerSample? optionalMovedPointer = rangeMoved.eventAt(rangeMoved.eventCount() - 1).pointer();
+	assert(optionalMovedPointer != null);
+	NativeUiPointerSample movedPointer = optionalMovedPointer;
+	assert(movedPointer.coordinate() == transport.bounds.width + 12);
+	fake_platform_push_pointer(APP_POINTER_RELEASED, APP_POINTER_BUTTON_PRIMARY, (float)(transport.bounds.x - 7), (float)transportY, 0);
+	NativeUiEventBatch rangeReleased = session.dispatch(application.poll());
+	assert(rangeReleased.eventAt(rangeReleased.eventCount() - 1).kind() == NATIVE_UI_RANGE_POINTER_RELEASED);
+	NativeUiPointerSample? optionalReleasedPointer = rangeReleased.eventAt(rangeReleased.eventCount() - 1).pointer();
+	assert(optionalReleasedPointer != null);
+	NativeUiPointerSample releasedPointer = optionalReleasedPointer;
+	assert(releasedPointer.coordinate() == -7);
+
+	fake_platform_push_pointer(APP_POINTER_MOVED, APP_POINTER_BUTTON_NONE, (float)transportX, (float)transportY, 0);
+	session.dispatch(application.poll());
+	fake_platform_push_scroll(0.0f, -1.0f);
+	NativeUiEventBatch rangeWheel = session.dispatch(application.poll());
+	assert(rangeWheel.eventCount() == 1);
+	assert(rangeWheel.eventAt(0).kind() == NATIVE_UI_RANGE_WHEEL);
+	assert(rangeWheel.eventAt(0).scroll().y() == 40);
+	assert(rangeWheel.eventAt(0).rangeAdjustment() == NATIVE_UI_RANGE_ADJUST_SMALL_INCREMENT);
+	assert(rangeWheel.eventAt(0).rangeValue() == 105LL);
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_LEFT, 0);
+	NativeUiEventBatch smallAdjustment = session.dispatch(application.poll());
+	assert(smallAdjustment.eventAt(0).rangeAdjustment() == NATIVE_UI_RANGE_ADJUST_SMALL_DECREMENT);
+	assert(smallAdjustment.eventAt(0).rangeValue() == 95LL);
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_RIGHT, 1);
+	NativeUiEventBatch largeAdjustment = session.dispatch(application.poll());
+	assert(largeAdjustment.eventAt(0).rangeAdjustment() == NATIVE_UI_RANGE_ADJUST_LARGE_INCREMENT);
+	assert(largeAdjustment.eventAt(0).rangeValue() == 150LL);
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_RIGHT, 2);
+	NativeUiEventBatch maximumAdjustment = session.dispatch(application.poll());
+	assert(maximumAdjustment.eventAt(0).rangeAdjustment() == NATIVE_UI_RANGE_ADJUST_MAXIMUM);
+	assert(maximumAdjustment.eventAt(0).rangeValue() == 1000LL);
+	NativeUiSemanticRange verticalTransportRange = NativeUiSemanticRange.vertical("Song position", 0LL, 1000LL, 100LL, 5LL, 50LL);
+	NativeUiElement verticalRoot = NativeUiElement.column("library").className("root").child(NativeUiElement.text("transport-range", "Albums").semanticRange(verticalTransportRange)).child(NativeUiElement.textInput("query", "a\xc3\xa9", "Search albums", 16)).child(NativeUiElement.button("album:one", "Album One").className("card").child(NativeUiElement.image("art:one", artwork, "Album One").imageRevision(2ULL)));
+	assert(session.present(verticalRoot).kind == NATIVE_UI_PRESENTED);
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_UP, 0);
+	NativeUiEventBatch verticalSmall = session.dispatch(application.poll());
+	assert(verticalSmall.eventAt(0).rangeAdjustment() == NATIVE_UI_RANGE_ADJUST_SMALL_INCREMENT);
+	assert(verticalSmall.eventAt(0).rangeValue() == 105LL);
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_DOWN, 1);
+	NativeUiEventBatch verticalLarge = session.dispatch(application.poll());
+	assert(verticalLarge.eventAt(0).rangeAdjustment() == NATIVE_UI_RANGE_ADJUST_LARGE_DECREMENT);
+	assert(verticalLarge.eventAt(0).rangeValue() == 50LL);
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_DOWN, 8);
+	NativeUiEventBatch verticalMinimum = session.dispatch(application.poll());
+	assert(verticalMinimum.eventAt(0).rangeAdjustment() == NATIVE_UI_RANGE_ADJUST_MINIMUM);
+	assert(verticalMinimum.eventAt(0).rangeValue() == 0LL);
+	assert(session.present(revisedRoot).kind == NATIVE_UI_PRESENTED);
 
 	NativeUiLayoutBox button = session.input().currentFrame().boxFor("album:one");
 	int pointerX = button.bounds.x + 2;
@@ -124,6 +193,19 @@ int main() {
 	NativeUiPresentOutcome deferred = session.present(revisedRoot);
 	assert(deferred.kind == NATIVE_UI_PRESENT_DEFERRED);
 	assert(deferred.gpuFrame == GPU_FRAME_OUTDATED);
+
+	fake_platform_push_pointer(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, (float)transportX, (float)transportY, 0);
+	session.dispatch(application.poll());
+	NativeUiEventBatch failureCancelled = session.dispatch(AppWindowEvent(APP_EVENT_FAILED));
+	assert(failureCancelled.eventCount() == 1);
+	assert(failureCancelled.eventAt(0).kind() == NATIVE_UI_RANGE_POINTER_CANCELLED);
+	fake_platform_push_pointer(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, (float)transportX, (float)transportY, 0);
+	session.dispatch(application.poll());
+	fake_platform_push_close();
+	NativeUiEventBatch closeCancelled = session.dispatch(application.poll());
+	assert(closeCancelled.eventCount() == 1);
+	assert(closeCancelled.eventAt(0).kind() == NATIVE_UI_RANGE_POINTER_CANCELLED);
+	assert(session.input().pointerCancelled().eventCount() == 0);
 
 	assert(session.close().kind == GPU_CLOSED);
 	assert(gpu.close().kind == GPU_CLOSED);

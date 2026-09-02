@@ -291,6 +291,25 @@ class NativeUiAppSession {
 		return NativeUiEventBatch(self.renderer.currentFrame(), events);
 	}
 
+	private NativeUiRangeAdjustment rangeAdjustment(AppKeyboardEvent keyboard) {
+		if (self.renderer.focusedId().isEmpty()) { return NATIVE_UI_RANGE_ADJUST_NONE; }
+		NativeUiLayoutBox? optionalBox = self.renderer.currentFrame().boxFor(self.renderer.focusedId());
+		if (optionalBox == null) { return NATIVE_UI_RANGE_ADJUST_NONE; }
+		NativeUiSemanticRange? optionalDescriptor = optionalBox.element.semanticRangeDescriptor();
+		if (optionalDescriptor == null) { return NATIVE_UI_RANGE_ADJUST_NONE; }
+		NativeUiSemanticRange descriptor = optionalDescriptor;
+		bool decrement = (descriptor.axis() == NATIVE_UI_RANGE_HORIZONTAL && keyboard.key == APP_KEY_LEFT) || (descriptor.axis() == NATIVE_UI_RANGE_VERTICAL && keyboard.key == APP_KEY_DOWN);
+		bool increment = (descriptor.axis() == NATIVE_UI_RANGE_HORIZONTAL && keyboard.key == APP_KEY_RIGHT) || (descriptor.axis() == NATIVE_UI_RANGE_VERTICAL && keyboard.key == APP_KEY_UP);
+		if (!decrement && !increment) { return NATIVE_UI_RANGE_ADJUST_NONE; }
+		if (keyboard.modifiers.control || keyboard.modifiers.command) {
+			return decrement ? NATIVE_UI_RANGE_ADJUST_MINIMUM : NATIVE_UI_RANGE_ADJUST_MAXIMUM;
+		}
+		if (keyboard.modifiers.shift) {
+			return decrement ? NATIVE_UI_RANGE_ADJUST_LARGE_DECREMENT : NATIVE_UI_RANGE_ADJUST_LARGE_INCREMENT;
+		}
+		return decrement ? NATIVE_UI_RANGE_ADJUST_SMALL_DECREMENT : NATIVE_UI_RANGE_ADJUST_SMALL_INCREMENT;
+	}
+
 	public NativeUiEventBatch dispatch(AppWindowEvent event) {
 		if (event == null) { return self.noEvents(); }
 		if (event.kind == APP_EVENT_POINTER && event.pointer != null) {
@@ -310,7 +329,7 @@ class NativeUiAppSession {
 		}
 		if (event.kind == APP_EVENT_SCROLLED && event.scroll != null) {
 			AppScrollEvent scroll = event.scroll;
-			return self.renderer.scrollBy((int)(-scroll.deltaX * 40.0f), (int)(-scroll.deltaY * 40.0f));
+			return self.renderer.wheelBy((int)(-scroll.deltaX * 40.0f), (int)(-scroll.deltaY * 40.0f));
 		}
 		if (event.kind == APP_EVENT_TEXT) {
 			return self.renderer.textEntered(event.text);
@@ -319,6 +338,10 @@ class NativeUiAppSession {
 			AppKeyboardEvent keyboard = event.keyboard;
 			bool active = keyboard.action == APP_KEY_PRESSED || keyboard.action == APP_KEY_REPEATED;
 			if (!active) { return self.noEvents(); }
+			NativeUiRangeAdjustment adjustment = self.rangeAdjustment(keyboard);
+			if (adjustment != NATIVE_UI_RANGE_ADJUST_NONE) {
+				return self.renderer.adjustFocusedRange(adjustment);
+			}
 			if (keyboard.key == APP_KEY_BACKSPACE) {
 				return self.renderer.backspace();
 			}
