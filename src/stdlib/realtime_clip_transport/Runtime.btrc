@@ -1,0 +1,828 @@
+/* Private preallocated callback mechanics for RealtimeClipTransport.
+ *
+ * The callback context is raw POD so the device thread never enters ARC. Its
+ * command/event/retirement queues borrow fixed std.spsc storage. Allocation,
+ * reclamation, lifecycle transitions, and managed values stay off-thread.
+ */
+
+import std.spsc;
+import std.OwnedBuffer;
+import std.RealtimeAudio;
+
+import ./PracticeRuntime.btrc;
+
+enum BtrcRealtimeClipTransportAtomicIndex {
+	BTRC_REALTIME_CLIP_TRANSPORT_CLOSED,
+	BTRC_REALTIME_CLIP_TRANSPORT_SUSPENDED,
+	BTRC_REALTIME_CLIP_TRANSPORT_IN_FLIGHT,
+	BTRC_REALTIME_CLIP_TRANSPORT_DROPPED_EVENTS,
+	BTRC_REALTIME_CLIP_TRANSPORT_DROPPED_RETIREMENTS,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_VERSION,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_TOKEN_LOW,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_TOKEN_HIGH,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_STATE,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_FRAME_LOW,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_FRAME_HIGH,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_TOTAL_LOW,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_TOTAL_HIGH,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_SPEED_MILLION,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_VOLUME_PERMILLE,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_LOOP_ENABLED,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_LOOP_START_LOW,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_LOOP_START_HIGH,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_LOOP_END_LOW,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_LOOP_END_HIGH,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_SEQUENCE_LOW,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_SEQUENCE_HIGH,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_RENDERED_LOW,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_RENDERED_HIGH,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_SILENT_LOW,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_SILENT_HIGH,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_COMPLETED_LOW,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_COMPLETED_HIGH,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_MAPPING_GENERATION_LOW,
+	BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_MAPPING_GENERATION_HIGH,
+	BTRC_REALTIME_CLIP_TRANSPORT_ATOMIC_COUNT
+};
+
+enum BtrcRealtimeClipTransportCommandKind {
+	BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_ACTIVATE,
+	BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_CANCEL,
+	BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_PLAY,
+	BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_PAUSE,
+	BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_SEEK,
+	BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_SPEED,
+	BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_VOLUME,
+	BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_LOOP,
+	BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_CONFIGURE_PRACTICE
+};
+
+enum BtrcRealtimeClipTransportControlState {
+	BTRC_REALTIME_CLIP_TRANSPORT_CONTROL_FREE,
+	BTRC_REALTIME_CLIP_TRANSPORT_CONTROL_STAGED,
+	BTRC_REALTIME_CLIP_TRANSPORT_CONTROL_HANDED
+};
+
+struct BtrcRealtimeClipTransportCommand {
+	int kind;
+	unsigned long long token;
+	float* samples;
+	long long frames;
+	long long frame;
+	double speed;
+	int volumePermille;
+	int loopEnabled;
+	long long loopStart;
+	long long loopEnd;
+	struct BtrcRealtimeClipPracticeConfigurationValue practice;
+};
+
+struct BtrcRealtimeClipTransportEventValue {
+	int kind;
+	unsigned long long token;
+};
+
+struct BtrcRealtimeClipTransportRetirement {
+	unsigned long long token;
+	float* samples;
+};
+
+struct BtrcRealtimeClipTransportSnapshotValue {
+	unsigned long long token;
+	int state;
+	long long frame;
+	long long totalFrames;
+	double speed;
+	int volumePermille;
+	int loopEnabled;
+	long long loopStart;
+	long long loopEnd;
+	unsigned long long renderSequence;
+	unsigned long long renderedFrames;
+	unsigned long long silentFrames;
+	unsigned long long completedClips;
+	unsigned long long mappingGeneration;
+};
+
+struct BtrcRealtimeClipTransportControlSlot {
+	int state;
+	unsigned long long token;
+	struct OwnedBufferStorage* samplesOwner;
+	float* samples;
+	long long frames;
+};
+
+struct BtrcRealtimeClipTransportContext {
+	int channels;
+	int blockFrames;
+	uint maximumCommands;
+	struct SpscQueueStorage* commandQueue;
+	struct SpscQueueStorage* eventQueue;
+	struct SpscQueueStorage* retirementQueue;
+	Atomic<uint>* atomics;
+	unsigned long long activeToken;
+	float* activeSamples;
+	long long activeFrames;
+	int playbackState;
+	long double position;
+	double speed;
+	int volumePermille;
+	int loopEnabled;
+	long long loopStart;
+	long long loopEnd;
+	unsigned long long renderCalls;
+	unsigned long long renderedFrames;
+	unsigned long long silentFrames;
+	unsigned long long completedClips;
+	unsigned long long mappingGeneration;
+	struct BtrcRealtimeClipPracticeContext practice;
+};
+
+struct BtrcRealtimeClipTransportOwner {
+	struct OwnedBufferStorage* ownerStorage;
+	struct OwnedBufferStorage* contextStorage;
+	struct OwnedBufferStorage* atomicsStorage;
+	struct OwnedBufferStorage* controlSlotsStorage;
+	struct BtrcRealtimeClipTransportContext* context;
+	struct BtrcRealtimeClipTransportControlSlot* controlSlots;
+	int maximumControlSlots;
+	unsigned long long nextToken;
+	unsigned long long rejectedCommands;
+};
+
+static unsigned long long btrcRealtimeClipTransportJoin(uint low, uint high) { return ((unsigned long long)high << 32u) | (unsigned long long)low; }
+
+static OwnedBufferOpenKind btrcRealtimeClipTransportQueueOpenKind(SpscQueueOpenKind opened) {
+	if (opened == SPSC_QUEUE_OUT_OF_MEMORY) { return OWNED_BUFFER_OUT_OF_MEMORY; }
+	if (opened == SPSC_QUEUE_CAPACITY_OUT_OF_RANGE) { return OWNED_BUFFER_COUNT_OUT_OF_RANGE; }
+	if (opened == SPSC_QUEUE_SIZE_OVERFLOW) { return OWNED_BUFFER_SIZE_OVERFLOW; }
+	return OWNED_BUFFER_INVALID_ARGUMENT;
+}
+
+static void btrcRealtimeClipTransportControlSlotClose(struct BtrcRealtimeClipTransportControlSlot* slot) {
+	if (slot == null) { return; }
+	OwnedBuffers.close(&slot->samplesOwner);
+	slot->state = 0;
+	slot->token = 0ULL;
+	slot->samples = null;
+	slot->frames = 0LL;
+}
+
+static void btrcRealtimeClipTransportContextClose(struct BtrcRealtimeClipTransportContext** context, struct OwnedBufferStorage** contextOwner, struct OwnedBufferStorage** atomicsOwner) {
+	if (context != null && *context != null) {
+		btrcRealtimeClipPracticeContextClose(&(*context)->practice);
+		SpscQueues.close((*context)->commandQueue);
+		SpscQueues.close((*context)->eventQueue);
+		SpscQueues.close((*context)->retirementQueue);
+		(*context)->commandQueue = null;
+		(*context)->eventQueue = null;
+		(*context)->retirementQueue = null;
+		(*context)->atomics = null;
+			*context = null;
+	}
+	OwnedBuffers.close(atomicsOwner);
+	OwnedBuffers.close(contextOwner);
+}
+
+static OwnedBufferOpenKind btrcRealtimeClipTransportContextOpen(int sampleRate, int channels, int blockFrames, int maximumCommands, int maximumEvents, int maximumRetirements, int maximumCapturedFrames, int maximumTelemetrySnapshots, struct BtrcRealtimeClipTransportContext** outputContext, struct OwnedBufferStorage** outputContextOwner, struct OwnedBufferStorage** outputAtomicsOwner) {
+	if (outputContext == null || outputContextOwner == null || outputAtomicsOwner == null) { return OWNED_BUFFER_INVALID_ARGUMENT; }
+		*outputContext = null;
+		*outputContextOwner = null;
+		*outputAtomicsOwner = null;
+	if (sampleRate <= 0 || sampleRate > 768000 || channels <= 0 || channels > 256 || blockFrames <= 0 || blockFrames > 8192 || maximumCommands <= 0 || maximumEvents <= 0 || maximumRetirements <= 0 || maximumCapturedFrames <= 0 || maximumTelemetrySnapshots <= 0) { return OWNED_BUFFER_INVALID_ARGUMENT; }
+
+	struct OwnedBufferStorage* contextOwner = null;
+	struct OwnedBufferStorage* atomicsOwner = null;
+	OwnedBufferOpenKind contextOpened = OwnedBuffers.tryOpen((size_t)1, sizeof(struct BtrcRealtimeClipTransportContext), &contextOwner);
+	if (contextOpened != OWNED_BUFFER_OPENED) { return contextOpened; }
+	struct BtrcRealtimeClipTransportContext* context = (struct BtrcRealtimeClipTransportContext*)OwnedBuffers.borrow(contextOwner, sizeof(struct BtrcRealtimeClipTransportContext));
+	if (context == null) {
+		OwnedBuffers.close(&contextOwner);
+		return OWNED_BUFFER_INVALID_ARGUMENT;
+	}
+	context->channels = channels;
+	context->blockFrames = blockFrames;
+	context->maximumCommands = (uint)maximumCommands;
+	SpscQueueOpenKind commandsOpened = SpscQueues.tryOpen((uint)maximumCommands, sizeof(struct BtrcRealtimeClipTransportCommand), &context->commandQueue);
+	SpscQueueOpenKind eventsOpened = commandsOpened == SPSC_QUEUE_OPENED ? SpscQueues.tryOpen((uint)maximumEvents, sizeof(struct BtrcRealtimeClipTransportEventValue), &context->eventQueue) : commandsOpened;
+	SpscQueueOpenKind retirementsOpened = eventsOpened == SPSC_QUEUE_OPENED ? SpscQueues.tryOpen((uint)maximumRetirements, sizeof(struct BtrcRealtimeClipTransportRetirement), &context->retirementQueue) : eventsOpened;
+	SpscQueueOpenKind practiceOpened = retirementsOpened == SPSC_QUEUE_OPENED ? btrcRealtimeClipPracticeContextOpen(sampleRate, blockFrames, channels, (uint)maximumCapturedFrames, (uint)maximumTelemetrySnapshots, &context->practice) : retirementsOpened;
+	if (commandsOpened != SPSC_QUEUE_OPENED || eventsOpened != SPSC_QUEUE_OPENED || retirementsOpened != SPSC_QUEUE_OPENED || practiceOpened != SPSC_QUEUE_OPENED) {
+		OwnedBufferOpenKind failure = commandsOpened != SPSC_QUEUE_OPENED ? btrcRealtimeClipTransportQueueOpenKind(commandsOpened) : (eventsOpened != SPSC_QUEUE_OPENED ? btrcRealtimeClipTransportQueueOpenKind(eventsOpened) : (retirementsOpened != SPSC_QUEUE_OPENED ? btrcRealtimeClipTransportQueueOpenKind(retirementsOpened) : btrcRealtimeClipTransportQueueOpenKind(practiceOpened)));
+		btrcRealtimeClipTransportContextClose(&context, &contextOwner, &atomicsOwner);
+		return failure;
+	}
+	OwnedBufferOpenKind atomicsOpened = OwnedBuffers.tryOpen((size_t)BTRC_REALTIME_CLIP_TRANSPORT_ATOMIC_COUNT, sizeof(Atomic<uint>), &atomicsOwner);
+	if (atomicsOpened != OWNED_BUFFER_OPENED) {
+		btrcRealtimeClipTransportContextClose(&context, &contextOwner, &atomicsOwner);
+		return atomicsOpened;
+	}
+	context->atomics = (Atomic<uint>*)OwnedBuffers.borrow(atomicsOwner, sizeof(Atomic<uint>));
+	if (context->atomics == null) {
+		btrcRealtimeClipTransportContextClose(&context, &contextOwner, &atomicsOwner);
+		return OWNED_BUFFER_INVALID_ARGUMENT;
+	}
+	for (int index = 0; index < (int)BTRC_REALTIME_CLIP_TRANSPORT_ATOMIC_COUNT; index++) { context->atomics[index].init(0u); }
+	context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_SPEED_MILLION].store(1000000u, MemoryOrder.RELAXED);
+	context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_VOLUME_PERMILLE].store(1000u, MemoryOrder.RELAXED);
+	context->speed = 1.0;
+	context->volumePermille = 1000;
+		*outputContext = context;
+		*outputContextOwner = contextOwner;
+		*outputAtomicsOwner = atomicsOwner;
+	return OWNED_BUFFER_OPENED;
+}
+
+static bool btrcRealtimeClipTransportCommandPush(struct BtrcRealtimeClipTransportContext* context, struct BtrcRealtimeClipTransportCommand command) { return context != null && SpscQueues.tryPushBorrowed(context->commandQueue, &command); }
+
+static void btrcRealtimeClipTransportCommandInitialize(struct BtrcRealtimeClipTransportCommand* command, int kind, unsigned long long token) {
+	if (command == null) { return; }
+	command->kind = kind;
+	command->token = token;
+	command->samples = null;
+	command->frames = 0LL;
+	command->frame = 0LL;
+	command->speed = 1.0;
+	command->volumePermille = 1000;
+	command->loopEnabled = 0;
+	command->loopStart = 0LL;
+	command->loopEnd = 0LL;
+	command->practice.configured = 0;
+	command->practice.transportRate = 1;
+	command->practice.beatInterval = 1LL;
+	command->practice.countInBeats = 0;
+	command->practice.metronomeEnabled = 0;
+	command->practice.metronomeGain = 0.0f;
+	command->practice.clickFrames = 1;
+	command->practice.monitorEnabled = 0;
+	command->practice.monitorInputChannel = 0;
+	command->practice.monitorGain = 0.0f;
+	command->practice.inputLatencyKnown = 0;
+	command->practice.inputLatencyFrames = 0LL;
+	command->practice.baseTransportFramesPerDeviceFrame = 1.0;
+}
+
+@realtime static bool btrcRealtimeClipTransportCommandPop(struct BtrcRealtimeClipTransportContext* context, struct BtrcRealtimeClipTransportCommand* command) { return context != null && SpscQueues.tryPopBorrowed(context->commandQueue, command); }
+
+@realtime static void btrcRealtimeClipTransportIncrementAtomic(Atomic<uint>* value) {
+	if (value == null) { return; }
+	uint current = value->load(MemoryOrder.RELAXED);
+	if (current != UINT_MAX) { value->store(current + 1u, MemoryOrder.RELAXED); }
+}
+
+@realtime static bool btrcRealtimeClipTransportEventPush(struct BtrcRealtimeClipTransportContext* context, int kind, unsigned long long token) {
+	struct BtrcRealtimeClipTransportEventValue event;
+	event.kind = kind;
+	event.token = token;
+	if (!SpscQueues.tryPushBorrowed(context->eventQueue, &event)) {
+		btrcRealtimeClipTransportIncrementAtomic(&context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_DROPPED_EVENTS]);
+		return false;
+	}
+	return true;
+}
+
+static bool btrcRealtimeClipTransportEventPop(struct BtrcRealtimeClipTransportContext* context, struct BtrcRealtimeClipTransportEventValue* event) { return context != null && event != null && SpscQueues.tryPopBorrowed(context->eventQueue, event); }
+
+@realtime static bool btrcRealtimeClipTransportRetirementPush(struct BtrcRealtimeClipTransportContext* context, unsigned long long token, float* samples) {
+	struct BtrcRealtimeClipTransportRetirement retirement;
+	retirement.token = token;
+	retirement.samples = samples;
+	if (!SpscQueues.tryPushBorrowed(context->retirementQueue, &retirement)) {
+		btrcRealtimeClipTransportIncrementAtomic(&context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_DROPPED_RETIREMENTS]);
+		return false;
+	}
+	return true;
+}
+
+static bool btrcRealtimeClipTransportRetirementPop(struct BtrcRealtimeClipTransportContext* context, struct BtrcRealtimeClipTransportRetirement* retirement) { return context != null && retirement != null && SpscQueues.tryPopBorrowed(context->retirementQueue, retirement); }
+
+@realtime static void btrcRealtimeClipTransportStoreSplit(struct BtrcRealtimeClipTransportContext* context, int lowIndex, int highIndex, unsigned long long value) {
+	context->atomics[lowIndex].store((uint)(value & 4294967295ULL), MemoryOrder.RELAXED);
+	context->atomics[highIndex].store((uint)(value >> 32u), MemoryOrder.RELAXED);
+}
+
+@realtime static void btrcRealtimeClipTransportPublishSnapshot(struct BtrcRealtimeClipTransportContext* context) {
+	context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_VERSION].fetchAdd(1u, MemoryOrder.ACQ_REL);
+	btrcRealtimeClipTransportStoreSplit(context, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_TOKEN_LOW, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_TOKEN_HIGH, context->activeToken);
+	context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_STATE].store((uint)context->playbackState, MemoryOrder.RELAXED);
+	btrcRealtimeClipTransportStoreSplit(context, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_FRAME_LOW, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_FRAME_HIGH, (unsigned long long)context->position);
+	btrcRealtimeClipTransportStoreSplit(context, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_TOTAL_LOW, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_TOTAL_HIGH, (unsigned long long)context->activeFrames);
+	context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_SPEED_MILLION].store((uint)(context->speed * 1000000.0 + 0.5), MemoryOrder.RELAXED);
+	context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_VOLUME_PERMILLE].store((uint)context->volumePermille, MemoryOrder.RELAXED);
+	context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_LOOP_ENABLED].store((uint)context->loopEnabled, MemoryOrder.RELAXED);
+	btrcRealtimeClipTransportStoreSplit(context, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_LOOP_START_LOW, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_LOOP_START_HIGH, (unsigned long long)context->loopStart);
+	btrcRealtimeClipTransportStoreSplit(context, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_LOOP_END_LOW, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_LOOP_END_HIGH, (unsigned long long)context->loopEnd);
+	btrcRealtimeClipTransportStoreSplit(context, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_SEQUENCE_LOW, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_SEQUENCE_HIGH, context->renderCalls);
+	btrcRealtimeClipTransportStoreSplit(context, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_RENDERED_LOW, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_RENDERED_HIGH, context->renderedFrames);
+	btrcRealtimeClipTransportStoreSplit(context, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_SILENT_LOW, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_SILENT_HIGH, context->silentFrames);
+	btrcRealtimeClipTransportStoreSplit(context, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_COMPLETED_LOW, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_COMPLETED_HIGH, context->completedClips);
+	btrcRealtimeClipTransportStoreSplit(context, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_MAPPING_GENERATION_LOW, BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_MAPPING_GENERATION_HIGH, context->mappingGeneration);
+	context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_VERSION].fetchAdd(1u, MemoryOrder.RELEASE);
+}
+
+static bool btrcRealtimeClipTransportReadSnapshot(struct BtrcRealtimeClipTransportContext* context, struct BtrcRealtimeClipTransportSnapshotValue* snapshot) {
+	if (context == null || snapshot == null) { return false; }
+	for (int attempt = 0; attempt < 16; attempt++) {
+		uint before = context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_VERSION].load(MemoryOrder.ACQUIRE);
+		if ((before & 1u) != 0u) { continue; }
+		snapshot->token = btrcRealtimeClipTransportJoin(context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_TOKEN_LOW].load(MemoryOrder.RELAXED), context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_TOKEN_HIGH].load(MemoryOrder.RELAXED));
+		snapshot->state = (int)context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_STATE].load(MemoryOrder.RELAXED);
+		snapshot->frame = (long long)btrcRealtimeClipTransportJoin(context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_FRAME_LOW].load(MemoryOrder.RELAXED), context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_FRAME_HIGH].load(MemoryOrder.RELAXED));
+		snapshot->totalFrames = (long long)btrcRealtimeClipTransportJoin(context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_TOTAL_LOW].load(MemoryOrder.RELAXED), context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_TOTAL_HIGH].load(MemoryOrder.RELAXED));
+		snapshot->speed = (double)context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_SPEED_MILLION].load(MemoryOrder.RELAXED) / 1000000.0;
+		snapshot->volumePermille = (int)context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_VOLUME_PERMILLE].load(MemoryOrder.RELAXED);
+		snapshot->loopEnabled = (int)context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_LOOP_ENABLED].load(MemoryOrder.RELAXED);
+		snapshot->loopStart = (long long)btrcRealtimeClipTransportJoin(context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_LOOP_START_LOW].load(MemoryOrder.RELAXED), context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_LOOP_START_HIGH].load(MemoryOrder.RELAXED));
+		snapshot->loopEnd = (long long)btrcRealtimeClipTransportJoin(context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_LOOP_END_LOW].load(MemoryOrder.RELAXED), context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_LOOP_END_HIGH].load(MemoryOrder.RELAXED));
+		snapshot->renderSequence = btrcRealtimeClipTransportJoin(context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_SEQUENCE_LOW].load(MemoryOrder.RELAXED), context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_SEQUENCE_HIGH].load(MemoryOrder.RELAXED));
+		snapshot->renderedFrames = btrcRealtimeClipTransportJoin(context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_RENDERED_LOW].load(MemoryOrder.RELAXED), context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_RENDERED_HIGH].load(MemoryOrder.RELAXED));
+		snapshot->silentFrames = btrcRealtimeClipTransportJoin(context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_SILENT_LOW].load(MemoryOrder.RELAXED), context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_SILENT_HIGH].load(MemoryOrder.RELAXED));
+		snapshot->completedClips = btrcRealtimeClipTransportJoin(context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_COMPLETED_LOW].load(MemoryOrder.RELAXED), context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_COMPLETED_HIGH].load(MemoryOrder.RELAXED));
+		snapshot->mappingGeneration = btrcRealtimeClipTransportJoin(context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_MAPPING_GENERATION_LOW].load(MemoryOrder.RELAXED), context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_MAPPING_GENERATION_HIGH].load(MemoryOrder.RELAXED));
+		uint after = context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_VERSION].load(MemoryOrder.ACQUIRE);
+		if (before == after) { return true; }
+	}
+	return false;
+}
+
+@realtime static unsigned long long btrcRealtimeClipTransportDeviceFrame(struct BtrcRealtimeClipTransportContext* context) {
+	if (context->silentFrames > 18446744073709551615ULL - context->renderedFrames) { return 18446744073709551615ULL; }
+	return context->renderedFrames + context->silentFrames;
+}
+
+@realtime static void btrcRealtimeClipTransportAdvanceMapping(struct BtrcRealtimeClipTransportContext* context) {
+	if (context->mappingGeneration == 18446744073709551615ULL) {
+		btrcRealtimeIncrement(&context->practice.callbackViolations);
+		return;
+	}
+	context->mappingGeneration++;
+}
+
+@realtime static void btrcRealtimeClipTransportRetireActive(struct BtrcRealtimeClipTransportContext* context, int eventKind) {
+	if (context->activeToken == 0ULL) { return; }
+	unsigned long long token = context->activeToken;
+	float* samples = context->activeSamples;
+	context->activeToken = 0ULL;
+	context->activeSamples = null;
+	context->activeFrames = 0LL;
+	context->playbackState = 0;
+	context->position = (long double)0.0;
+	context->speed = 1.0;
+	context->volumePermille = 1000;
+	context->loopEnabled = 0;
+	context->loopStart = 0LL;
+	context->loopEnd = 0LL;
+	btrcRealtimeClipPracticePause(&context->practice);
+	if (eventKind == 3) { btrcRealtimeIncrement(&context->completedClips); }
+	btrcRealtimeClipTransportEventPush(context, eventKind, token);
+	btrcRealtimeClipTransportRetirementPush(context, token, samples);
+}
+
+@realtime static void btrcRealtimeClipTransportApplyCommand(struct BtrcRealtimeClipTransportContext* context, struct BtrcRealtimeClipTransportCommand* command, unsigned long long deviceFrame) {
+	if (command->kind == BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_CONFIGURE_PRACTICE) {
+		btrcRealtimeClipPracticeApplyConfiguration(&context->practice, &command->practice);
+		if (context->activeToken != 0ULL && context->playbackState == 2 && command->practice.configured != 0) {
+			btrcRealtimeClipTransportAdvanceMapping(context);
+			btrcRealtimeClipPracticeDiscontinuity(&context->practice, deviceFrame, (long long)context->position, context->speed, context->mappingGeneration, true);
+		}
+		return;
+	}
+	if (command->kind == BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_ACTIVATE) {
+		if (context->activeToken != 0ULL && context->activeToken != command->token) { btrcRealtimeClipTransportRetireActive(context, 1); }
+		context->activeToken = command->token;
+		context->activeSamples = command->samples;
+		context->activeFrames = command->frames;
+		context->playbackState = 1;
+		context->position = (long double)0.0;
+		context->speed = 1.0;
+		context->volumePermille = 1000;
+		context->loopEnabled = 0;
+		context->loopStart = 0LL;
+		context->loopEnd = 0LL;
+		btrcRealtimeClipTransportAdvanceMapping(context);
+		btrcRealtimeClipPracticePause(&context->practice);
+		btrcRealtimeClipTransportEventPush(context, 0, command->token);
+		return;
+	}
+	if (command->kind == BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_CANCEL) {
+		if (context->activeToken == command->token) {
+			btrcRealtimeClipTransportRetireActive(context, 2);
+		} else if (command->samples != null) {
+			btrcRealtimeClipTransportEventPush(context, 2, command->token);
+			btrcRealtimeClipTransportRetirementPush(context, command->token, command->samples);
+		}
+		return;
+	}
+	if (context->activeToken != command->token) { return; }
+	if (command->kind == BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_PLAY) {
+		if (context->playbackState != 2) {
+			btrcRealtimeClipTransportAdvanceMapping(context);
+			btrcRealtimeClipPracticeBeginPlayback(&context->practice, deviceFrame, (long long)context->position, context->speed, context->mappingGeneration);
+		}
+		context->playbackState = 2;
+	} else if (command->kind == BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_PAUSE) {
+		context->playbackState = 1;
+		btrcRealtimeClipPracticePause(&context->practice);
+	} else if (command->kind == BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_SEEK) {
+		context->position = (long double)command->frame;
+		btrcRealtimeClipTransportAdvanceMapping(context);
+		if (context->playbackState == 2) { btrcRealtimeClipPracticeDiscontinuity(&context->practice, deviceFrame, command->frame, context->speed, context->mappingGeneration, true); }
+	} else if (command->kind == BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_SPEED) {
+		bool changed = context->speed != command->speed;
+		context->speed = command->speed;
+		if (changed) {
+			btrcRealtimeClipTransportAdvanceMapping(context);
+			if (context->playbackState == 2) { btrcRealtimeClipPracticeDiscontinuity(&context->practice, deviceFrame, (long long)context->position, context->speed, context->mappingGeneration, false); }
+		}
+	} else if (command->kind == BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_VOLUME) {
+		context->volumePermille = command->volumePermille;
+	} else if (command->kind == BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_LOOP) {
+		context->loopEnabled = command->loopEnabled;
+		context->loopStart = command->loopStart;
+		context->loopEnd = command->loopEnd;
+		if (context->loopEnabled != 0 && (context->position < (long double)context->loopStart || context->position >= (long double)context->loopEnd)) {
+			context->position = (long double)context->loopStart;
+			btrcRealtimeClipTransportAdvanceMapping(context);
+			if (context->playbackState == 2) { btrcRealtimeClipPracticeDiscontinuity(&context->practice, deviceFrame, context->loopStart, context->speed, context->mappingGeneration, true); }
+		}
+	}
+}
+
+@realtime static void btrcRealtimeClipTransportDrainCommands(struct BtrcRealtimeClipTransportContext* context, unsigned long long deviceFrame) {
+	for (uint attempt = 0u; attempt < 65536u; attempt++) {
+		if (attempt >= context->maximumCommands) { break; }
+		struct BtrcRealtimeClipTransportCommand command;
+		if (!btrcRealtimeClipTransportCommandPop(context, &command)) { break; }
+		btrcRealtimeClipTransportApplyCommand(context, &command, deviceFrame);
+	}
+}
+
+@realtime static void btrcRealtimeClipTransportClear(RealtimeAudioOutputChannels outputs, int channels, int frames) {
+	if (outputs == null || channels < 0 || channels > 256 || frames < 0 || frames > 8192) { return; }
+	for (int channel = 0; channel < channels; channel++) {
+		if (outputs[channel] == null) { continue; }
+		Span<float> output = Span(outputs[channel], (size_t)frames);
+		for (int frame = 0; frame < frames; frame++) { output.trySet((size_t)frame, 0.0f); }
+	}
+}
+
+@realtime static int btrcRealtimeClipTransportRenderRaw(struct BtrcRealtimeClipTransportContext* context, RealtimeAudioInputChannels inputs, int inputChannels, RealtimeAudioOutputChannels outputs, int channels, int frames) {
+	if (context == null || outputs == null || channels != context->channels || inputChannels < 0 || inputChannels > 256 || frames < 0 || frames > context->blockFrames) { return 1; }
+	for (int channel = 0; channel < channels; channel++) {
+		if (outputs[channel] == null) { return 1; }
+	}
+	uint previous = context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_IN_FLIGHT].fetchAdd(1u, MemoryOrder.ACQ_REL);
+	if (previous != 0u) {
+		btrcRealtimeClipTransportClear(outputs, channels, frames);
+		context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_IN_FLIGHT].fetchSub(1u, MemoryOrder.RELEASE);
+		return 2;
+	}
+	if (context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_CLOSED].load(MemoryOrder.ACQUIRE) != 0u) {
+		btrcRealtimeClipTransportClear(outputs, channels, frames);
+		context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_IN_FLIGHT].fetchSub(1u, MemoryOrder.RELEASE);
+		return 2;
+	}
+
+	btrcRealtimeClipTransportClear(outputs, channels, frames);
+	btrcRealtimeIncrement(&context->renderCalls);
+	unsigned long long blockDeviceFrame = btrcRealtimeClipTransportDeviceFrame(context);
+	btrcRealtimeClipTransportDrainCommands(context, blockDeviceFrame);
+	bool suspended = context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SUSPENDED].load(MemoryOrder.ACQUIRE) != 0u;
+	if (suspended && context->activeToken != 0ULL) {
+		context->playbackState = 1;
+		btrcRealtimeClipPracticePause(&context->practice);
+	}
+
+	int produced = 0;
+	if (!suspended && context->activeToken != 0ULL && context->playbackState == 2) {
+		for (int outputFrame = 0; outputFrame < frames; outputFrame++) {
+			unsigned long long deviceFrame = blockDeviceFrame > 18446744073709551615ULL - (unsigned long long)outputFrame ? 18446744073709551615ULL : blockDeviceFrame + (unsigned long long)outputFrame;
+			if (context->loopEnabled != 0 && context->position >= (long double)context->loopEnd) {
+				long double loopLength = (long double)(context->loopEnd - context->loopStart);
+				for (int wrapAttempt = 0; wrapAttempt < 4; wrapAttempt++) {
+					if (context->position < (long double)context->loopEnd) { break; }
+					context->position -= loopLength;
+				}
+				if (context->position >= (long double)context->loopEnd) { context->position = (long double)context->loopStart; }
+				btrcRealtimeClipTransportAdvanceMapping(context);
+				btrcRealtimeClipPracticeDiscontinuity(&context->practice, deviceFrame, (long long)context->position, context->speed, context->mappingGeneration, true);
+			}
+			if (context->position >= (long double)context->activeFrames) {
+				btrcRealtimeClipTransportRetireActive(context, 3);
+				break;
+			}
+			long long mappedTransportFrame = (long long)context->position;
+			bool backingAllowed = btrcRealtimeClipPracticePrepareFrame(&context->practice, deviceFrame, context->mappingGeneration, &mappedTransportFrame);
+			if (backingAllowed) {
+				long long first = (long long)context->position;
+				long long second = first + 1LL;
+				if (second >= context->activeFrames) { second = context->activeFrames - 1LL; }
+				long double fraction = context->position - (long double)first;
+				for (int channel = 0; channel < channels; channel++) {
+					float* source = context->activeSamples + (long long)channel * context->activeFrames;
+					Span<float> output = Span(outputs[channel], (size_t)frames);
+					long double sample = (long double)source[first] + ((long double)source[second] - (long double)source[first]) * fraction;
+					output.trySet((size_t)outputFrame, (float)(sample * (long double)context->volumePermille * (long double)0.001));
+				}
+				produced++;
+				context->position += (long double)context->speed;
+			}
+			btrcRealtimeClipPracticeMixFrame(&context->practice, inputs, inputChannels, outputs, channels, outputFrame, deviceFrame, context->mappingGeneration, mappedTransportFrame);
+			if (backingAllowed && context->loopEnabled == 0 && context->position >= (long double)context->activeFrames) {
+				btrcRealtimeClipTransportRetireActive(context, 3);
+				break;
+			}
+		}
+	}
+	btrcRealtimeAdd(&context->renderedFrames, (unsigned long long)produced);
+	btrcRealtimeAdd(&context->silentFrames, (unsigned long long)(frames - produced));
+	unsigned long long endDeviceFrame = blockDeviceFrame > 18446744073709551615ULL - (unsigned long long)frames ? 18446744073709551615ULL : blockDeviceFrame + (unsigned long long)frames;
+	btrcRealtimeClipPracticePublish(&context->practice, endDeviceFrame, context->mappingGeneration);
+	btrcRealtimeClipTransportPublishSnapshot(context);
+	context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_IN_FLIGHT].fetchSub(1u, MemoryOrder.RELEASE);
+	return 0;
+}
+
+@realtime static void btrcRealtimeClipTransportProcess(void* opaque, RealtimeAudioInputChannels inputs, int inputChannels, RealtimeAudioOutputChannels outputs, int outputChannels, int frames) {
+	struct BtrcRealtimeClipTransportContext* context = (struct BtrcRealtimeClipTransportContext*)opaque;
+	int status = btrcRealtimeClipTransportRenderRaw(context, inputs, inputChannels, outputs, outputChannels, frames);
+	if (status != 0) { btrcRealtimeClipTransportClear(outputs, outputChannels, frames); }
+}
+
+enum BtrcRealtimeClipTransportStatusValue {
+	BTRC_REALTIME_CLIP_TRANSPORT_STATUS_OK,
+	BTRC_REALTIME_CLIP_TRANSPORT_STATUS_INVALID_ARGUMENT,
+	BTRC_REALTIME_CLIP_TRANSPORT_STATUS_WRONG_STATE,
+	BTRC_REALTIME_CLIP_TRANSPORT_STATUS_NOT_FOUND,
+	BTRC_REALTIME_CLIP_TRANSPORT_STATUS_CAPACITY_EXHAUSTED,
+	BTRC_REALTIME_CLIP_TRANSPORT_STATUS_LIMIT_EXCEEDED,
+	BTRC_REALTIME_CLIP_TRANSPORT_STATUS_OUT_OF_MEMORY,
+	BTRC_REALTIME_CLIP_TRANSPORT_STATUS_FAILED
+};
+
+static int btrcRealtimeClipTransportBufferStatus(OwnedBufferOpenKind status) {
+	if (status == OWNED_BUFFER_OUT_OF_MEMORY) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_OUT_OF_MEMORY; }
+	if (status == OWNED_BUFFER_COUNT_OUT_OF_RANGE || status == OWNED_BUFFER_SIZE_OVERFLOW) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_LIMIT_EXCEEDED; }
+	return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_INVALID_ARGUMENT;
+}
+
+static void btrcRealtimeClipTransportOwnerReject(struct BtrcRealtimeClipTransportOwner* owner) {
+	if (owner != null) { btrcRealtimeIncrement(&owner->rejectedCommands); }
+}
+
+static struct BtrcRealtimeClipTransportControlSlot* btrcRealtimeClipTransportOwnerSlot(struct BtrcRealtimeClipTransportOwner* owner, unsigned long long token) {
+	if (owner == null || token == 0ULL) { return null; }
+	for (int index = 0; index < owner->maximumControlSlots; index++) {
+		struct BtrcRealtimeClipTransportControlSlot* slot = &owner->controlSlots[index];
+		if (slot->state != (int)BTRC_REALTIME_CLIP_TRANSPORT_CONTROL_FREE && slot->token == token) { return slot; }
+	}
+	return null;
+}
+
+static void btrcRealtimeClipTransportOwnerDrainRetirements(struct BtrcRealtimeClipTransportOwner* owner) {
+	if (owner == null || owner->context == null) { return; }
+	struct BtrcRealtimeClipTransportRetirement retirement;
+	while (btrcRealtimeClipTransportRetirementPop(owner->context, &retirement)) {
+		struct BtrcRealtimeClipTransportControlSlot* slot = btrcRealtimeClipTransportOwnerSlot(owner, retirement.token);
+		if (slot != null && slot->state == (int)BTRC_REALTIME_CLIP_TRANSPORT_CONTROL_HANDED && slot->samples == retirement.samples) { btrcRealtimeClipTransportControlSlotClose(slot); }
+	}
+}
+
+static void btrcRealtimeClipTransportOwnerDispose(struct BtrcRealtimeClipTransportOwner* owner) {
+	if (owner == null) { return; }
+	if (owner->context != null && owner->context->atomics != null) { owner->context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_CLOSED].store(1u, MemoryOrder.RELEASE); }
+	for (int index = 0; index < owner->maximumControlSlots; index++) { btrcRealtimeClipTransportControlSlotClose(&owner->controlSlots[index]); }
+	btrcRealtimeClipTransportContextClose(&owner->context, &owner->contextStorage, &owner->atomicsStorage);
+	owner->controlSlots = null;
+	OwnedBuffers.close(&owner->controlSlotsStorage);
+	struct OwnedBufferStorage* ownerStorage = owner->ownerStorage;
+	owner->ownerStorage = null;
+	OwnedBuffers.close(&ownerStorage);
+}
+
+static int btrcRealtimeClipTransportOwnerOpen(int sampleRate, int channels, int maximumBlockFrames, int maximumStagedClips, int commandCapacity, int eventCapacity, int retirementCapacity, int captureCapacity, int telemetryCapacity, void** output) {
+	if (output == null) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_INVALID_ARGUMENT; }
+		*output = null;
+	struct OwnedBufferStorage* ownerStorage = null;
+	OwnedBufferOpenKind ownerOpened = OwnedBuffers.tryOpen((size_t)1, sizeof(struct BtrcRealtimeClipTransportOwner), &ownerStorage);
+	if (ownerOpened != OWNED_BUFFER_OPENED) { return btrcRealtimeClipTransportBufferStatus(ownerOpened); }
+	struct BtrcRealtimeClipTransportOwner* owner = (struct BtrcRealtimeClipTransportOwner*)OwnedBuffers.borrow(ownerStorage, sizeof(struct BtrcRealtimeClipTransportOwner));
+	if (owner == null) {
+		OwnedBuffers.close(&ownerStorage);
+		return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_FAILED;
+	}
+	owner->ownerStorage = ownerStorage;
+	owner->maximumControlSlots = maximumStagedClips;
+	owner->nextToken = 1ULL;
+	OwnedBufferOpenKind slotsOpened = OwnedBuffers.tryOpen((size_t)maximumStagedClips, sizeof(struct BtrcRealtimeClipTransportControlSlot), &owner->controlSlotsStorage);
+	if (slotsOpened != OWNED_BUFFER_OPENED) {
+		int failure = btrcRealtimeClipTransportBufferStatus(slotsOpened);
+		btrcRealtimeClipTransportOwnerDispose(owner);
+		return failure;
+	}
+	owner->controlSlots = (struct BtrcRealtimeClipTransportControlSlot*)OwnedBuffers.borrow(owner->controlSlotsStorage, sizeof(struct BtrcRealtimeClipTransportControlSlot));
+	if (owner->controlSlots == null) {
+		btrcRealtimeClipTransportOwnerDispose(owner);
+		return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_FAILED;
+	}
+	OwnedBufferOpenKind contextOpened = btrcRealtimeClipTransportContextOpen(sampleRate, channels, maximumBlockFrames, commandCapacity, eventCapacity, retirementCapacity, captureCapacity, telemetryCapacity, &owner->context, &owner->contextStorage, &owner->atomicsStorage);
+	if (contextOpened != OWNED_BUFFER_OPENED) {
+		int failure = btrcRealtimeClipTransportBufferStatus(contextOpened);
+		btrcRealtimeClipTransportOwnerDispose(owner);
+		return failure;
+	}
+		*output = owner;
+	return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_OK;
+}
+
+static void btrcRealtimeClipTransportOwnerClose(void** opaque) {
+	if (opaque == null || *opaque == null) { return; }
+	struct BtrcRealtimeClipTransportOwner* owner = (struct BtrcRealtimeClipTransportOwner*)*opaque;
+		*opaque = null;
+	btrcRealtimeClipTransportOwnerDispose(owner);
+}
+
+static int btrcRealtimeClipTransportOwnerStageBegin(void* opaque, long long frames, unsigned long long* outputToken, float** outputSamples) {
+	if (outputToken == null || outputSamples == null) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_INVALID_ARGUMENT; }
+		*outputToken = 0ULL;
+		*outputSamples = null;
+	struct BtrcRealtimeClipTransportOwner* owner = (struct BtrcRealtimeClipTransportOwner*)opaque;
+	if (owner == null || owner->context == null || frames <= 0LL) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_INVALID_ARGUMENT; }
+	btrcRealtimeClipTransportOwnerDrainRetirements(owner);
+	struct BtrcRealtimeClipTransportControlSlot* available = null;
+	for (int index = 0; index < owner->maximumControlSlots; index++) {
+		if (owner->controlSlots[index].state == (int)BTRC_REALTIME_CLIP_TRANSPORT_CONTROL_FREE) {
+			available = &owner->controlSlots[index];
+			break;
+		}
+	}
+	if (available == null || owner->nextToken == 0ULL) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_CAPACITY_EXHAUSTED; }
+	unsigned long long unsignedFrames = (unsigned long long)frames;
+	unsigned long long channels = (unsigned long long)owner->context->channels;
+	if (unsignedFrames > (unsigned long long)SIZE_MAX / channels) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_LIMIT_EXCEEDED; }
+	struct OwnedBufferStorage* samplesOwner = null;
+	OwnedBufferOpenKind opened = OwnedBuffers.tryOpen((size_t)(unsignedFrames * channels), sizeof(float), &samplesOwner);
+	if (opened != OWNED_BUFFER_OPENED) { return btrcRealtimeClipTransportBufferStatus(opened); }
+	float* samples = (float*)OwnedBuffers.borrow(samplesOwner, sizeof(float));
+	if (samples == null) {
+		OwnedBuffers.close(&samplesOwner);
+		return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_FAILED;
+	}
+	unsigned long long token = owner->nextToken;
+	owner->nextToken = token == ULLONG_MAX ? 0ULL : token + 1ULL;
+	available->state = (int)BTRC_REALTIME_CLIP_TRANSPORT_CONTROL_STAGED;
+	available->token = token;
+	available->samplesOwner = samplesOwner;
+	available->samples = samples;
+	available->frames = frames;
+		*outputToken = token;
+		*outputSamples = samples;
+	return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_OK;
+}
+
+static void btrcRealtimeClipTransportOwnerStageAbort(void* opaque, unsigned long long token) {
+	struct BtrcRealtimeClipTransportOwner* owner = (struct BtrcRealtimeClipTransportOwner*)opaque;
+	struct BtrcRealtimeClipTransportControlSlot* slot = btrcRealtimeClipTransportOwnerSlot(owner, token);
+	if (slot != null && slot->state == (int)BTRC_REALTIME_CLIP_TRANSPORT_CONTROL_STAGED) { btrcRealtimeClipTransportControlSlotClose(slot); }
+}
+
+static int btrcRealtimeClipTransportOwnerPush(struct BtrcRealtimeClipTransportOwner* owner, struct BtrcRealtimeClipTransportCommand command) {
+	if (owner != null && owner->context != null && btrcRealtimeClipTransportCommandPush(owner->context, command)) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_OK; }
+	btrcRealtimeClipTransportOwnerReject(owner);
+	return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_CAPACITY_EXHAUSTED;
+}
+
+static int btrcRealtimeClipTransportOwnerActivate(void* opaque, unsigned long long token) {
+	struct BtrcRealtimeClipTransportOwner* owner = (struct BtrcRealtimeClipTransportOwner*)opaque;
+	btrcRealtimeClipTransportOwnerDrainRetirements(owner);
+	struct BtrcRealtimeClipTransportControlSlot* slot = btrcRealtimeClipTransportOwnerSlot(owner, token);
+	if (slot == null) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_NOT_FOUND; }
+	if (slot->state != (int)BTRC_REALTIME_CLIP_TRANSPORT_CONTROL_STAGED) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_WRONG_STATE; }
+	struct BtrcRealtimeClipTransportCommand command;
+	btrcRealtimeClipTransportCommandInitialize(&command, (int)BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_ACTIVATE, token);
+	command.samples = slot->samples;
+	command.frames = slot->frames;
+	int status = btrcRealtimeClipTransportOwnerPush(owner, command);
+	if (status == (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_OK) { slot->state = (int)BTRC_REALTIME_CLIP_TRANSPORT_CONTROL_HANDED; }
+	return status;
+}
+
+static int btrcRealtimeClipTransportOwnerCancel(void* opaque, unsigned long long token) {
+	struct BtrcRealtimeClipTransportOwner* owner = (struct BtrcRealtimeClipTransportOwner*)opaque;
+	btrcRealtimeClipTransportOwnerDrainRetirements(owner);
+	struct BtrcRealtimeClipTransportControlSlot* slot = btrcRealtimeClipTransportOwnerSlot(owner, token);
+	if (slot == null) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_NOT_FOUND; }
+	struct BtrcRealtimeClipTransportCommand command;
+	btrcRealtimeClipTransportCommandInitialize(&command, (int)BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_CANCEL, token);
+	if (slot->state == (int)BTRC_REALTIME_CLIP_TRANSPORT_CONTROL_STAGED) { command.samples = slot->samples; }
+	int status = btrcRealtimeClipTransportOwnerPush(owner, command);
+	if (status == (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_OK && slot->state == (int)BTRC_REALTIME_CLIP_TRANSPORT_CONTROL_STAGED) { slot->state = (int)BTRC_REALTIME_CLIP_TRANSPORT_CONTROL_HANDED; }
+	return status;
+}
+
+static int btrcRealtimeClipTransportOwnerControl(void* opaque, unsigned long long token, int kind, long long frame, double speed, int volumePermille, int loopEnabled, long long loopStart, long long loopEnd) {
+	struct BtrcRealtimeClipTransportOwner* owner = (struct BtrcRealtimeClipTransportOwner*)opaque;
+	btrcRealtimeClipTransportOwnerDrainRetirements(owner);
+	struct BtrcRealtimeClipTransportControlSlot* slot = btrcRealtimeClipTransportOwnerSlot(owner, token);
+	if (slot == null) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_NOT_FOUND; }
+	if (slot->state != (int)BTRC_REALTIME_CLIP_TRANSPORT_CONTROL_HANDED) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_WRONG_STATE; }
+	if (kind == (int)BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_SEEK && (frame < 0LL || frame > slot->frames)) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_INVALID_ARGUMENT; }
+	if (kind == (int)BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_LOOP && loopEnabled != 0 && (loopStart < 0LL || loopEnd <= loopStart || loopEnd > slot->frames)) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_INVALID_ARGUMENT; }
+	struct BtrcRealtimeClipTransportCommand command;
+	btrcRealtimeClipTransportCommandInitialize(&command, kind, token);
+	command.frame = frame;
+	command.speed = speed;
+	command.volumePermille = volumePermille;
+	command.loopEnabled = loopEnabled;
+	command.loopStart = loopStart;
+	command.loopEnd = loopEnd;
+	return btrcRealtimeClipTransportOwnerPush(owner, command);
+}
+
+static int btrcRealtimeClipTransportOwnerConfigurePractice(void* opaque, int configured, int transportRate, long long beatInterval, int countInBeats, int metronomeEnabled, int metronomeGainPermille, int clickFrames, int monitorEnabled, int monitorInputChannel, int monitorGainPermille, int inputLatencyKnown, long long inputLatencyFrames) {
+	struct BtrcRealtimeClipTransportOwner* owner = (struct BtrcRealtimeClipTransportOwner*)opaque;
+	if (owner == null || owner->context == null) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_WRONG_STATE; }
+	struct BtrcRealtimeClipTransportCommand command;
+	btrcRealtimeClipTransportCommandInitialize(&command, (int)BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_CONFIGURE_PRACTICE, 0ULL);
+	command.practice.configured = configured;
+	command.practice.transportRate = transportRate;
+	command.practice.beatInterval = beatInterval;
+	command.practice.countInBeats = countInBeats;
+	command.practice.metronomeEnabled = metronomeEnabled;
+	command.practice.metronomeGain = (float)metronomeGainPermille / 1000.0f;
+	command.practice.clickFrames = clickFrames;
+	command.practice.monitorEnabled = monitorEnabled;
+	command.practice.monitorInputChannel = monitorInputChannel;
+	command.practice.monitorGain = (float)monitorGainPermille / 1000.0f;
+	command.practice.inputLatencyKnown = inputLatencyKnown;
+	command.practice.inputLatencyFrames = inputLatencyFrames;
+	command.practice.baseTransportFramesPerDeviceFrame = (double)transportRate / (double)owner->context->practice.sampleRate;
+	return btrcRealtimeClipTransportOwnerPush(owner, command);
+}
+
+static int btrcRealtimeClipTransportOwnerPollEvent(void* opaque, int* outputKind, unsigned long long* outputToken) {
+	if (outputKind == null || outputToken == null) { return -1; }
+		*outputKind = 0;
+		*outputToken = 0ULL;
+	struct BtrcRealtimeClipTransportOwner* owner = (struct BtrcRealtimeClipTransportOwner*)opaque;
+	if (owner == null || owner->context == null) { return -1; }
+	btrcRealtimeClipTransportOwnerDrainRetirements(owner);
+	struct BtrcRealtimeClipTransportEventValue event;
+	if (!btrcRealtimeClipTransportEventPop(owner->context, &event)) { return 0; }
+		*outputKind = event.kind;
+		*outputToken = event.token;
+	return 1;
+}
+
+static int btrcRealtimeClipTransportOwnerReadClock(void* opaque, unsigned long long token, struct BtrcRealtimeClipTransportSnapshotValue* output) {
+	if (output == null) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_INVALID_ARGUMENT; }
+	struct BtrcRealtimeClipTransportOwner* owner = (struct BtrcRealtimeClipTransportOwner*)opaque;
+	btrcRealtimeClipTransportOwnerDrainRetirements(owner);
+	struct BtrcRealtimeClipTransportControlSlot* slot = btrcRealtimeClipTransportOwnerSlot(owner, token);
+	if (slot == null || slot->state != (int)BTRC_REALTIME_CLIP_TRANSPORT_CONTROL_HANDED) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_NOT_FOUND; }
+	if (!btrcRealtimeClipTransportReadSnapshot(owner->context, output)) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_FAILED; }
+	if (output->token != token) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_NOT_FOUND; }
+	return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_OK;
+}
+
+static bool btrcRealtimeClipTransportOwnerReadTelemetry(void* opaque, struct BtrcRealtimeClipTransportSnapshotValue* output, int* outputStagedClips, unsigned long long* outputDroppedEvents, unsigned long long* outputDroppedRetirements, unsigned long long* outputRejectedCommands) {
+	if (output == null || outputStagedClips == null || outputDroppedEvents == null || outputDroppedRetirements == null || outputRejectedCommands == null) { return false; }
+	struct BtrcRealtimeClipTransportOwner* owner = (struct BtrcRealtimeClipTransportOwner*)opaque;
+	if (owner == null || owner->context == null) { return false; }
+	btrcRealtimeClipTransportOwnerDrainRetirements(owner);
+	int stagedClips = 0;
+	for (int index = 0; index < owner->maximumControlSlots; index++) {
+		if (owner->controlSlots[index].state != (int)BTRC_REALTIME_CLIP_TRANSPORT_CONTROL_FREE) { stagedClips++; }
+	}
+	if (!btrcRealtimeClipTransportReadSnapshot(owner->context, output)) { return false; }
+		*outputStagedClips = stagedClips;
+		*outputDroppedEvents = (unsigned long long)owner->context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_DROPPED_EVENTS].load(MemoryOrder.ACQUIRE);
+		*outputDroppedRetirements = (unsigned long long)owner->context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_DROPPED_RETIREMENTS].load(MemoryOrder.ACQUIRE);
+		*outputRejectedCommands = owner->rejectedCommands;
+	return true;
+}
+
+static bool btrcRealtimeClipTransportOwnerPollPracticeInput(void* opaque, struct BtrcRealtimeClipPracticeInputValue* output) {
+	struct BtrcRealtimeClipTransportOwner* owner = (struct BtrcRealtimeClipTransportOwner*)opaque;
+	return owner != null && owner->context != null && btrcRealtimeClipPracticeInputPop(&owner->context->practice, output);
+}
+
+static bool btrcRealtimeClipTransportOwnerPollPracticeTelemetry(void* opaque, struct BtrcRealtimeClipPracticeTelemetryValue* output) {
+	struct BtrcRealtimeClipTransportOwner* owner = (struct BtrcRealtimeClipTransportOwner*)opaque;
+	return owner != null && owner->context != null && btrcRealtimeClipPracticeTelemetryPop(&owner->context->practice, output);
+}
+
+static void* btrcRealtimeClipTransportOwnerContext(void* opaque) {
+	struct BtrcRealtimeClipTransportOwner* owner = (struct BtrcRealtimeClipTransportOwner*)opaque;
+	return owner == null ? null : owner->context;
+}
+
+static bool btrcRealtimeClipTransportOwnerSuspend(void* opaque) {
+	struct BtrcRealtimeClipTransportOwner* owner = (struct BtrcRealtimeClipTransportOwner*)opaque;
+	if (owner == null || owner->context == null) { return false; }
+	owner->context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SUSPENDED].store(1u, MemoryOrder.RELEASE);
+	for (int attempt = 0; attempt < 65536; attempt++) {
+		if (owner->context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_IN_FLIGHT].load(MemoryOrder.ACQUIRE) == 0u) { return true; }
+	}
+	return false;
+}

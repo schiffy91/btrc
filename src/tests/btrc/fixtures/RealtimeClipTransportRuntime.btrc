@@ -1,0 +1,121 @@
+import std.RealtimeAudio;
+import std.RealtimeClipPractice;
+import std.RealtimeClipTransport;
+import std.RealtimeClock;
+
+#include <assert.h>
+
+RealtimeClipTransport openTransport(RealtimeAudioFormat format) {
+	RealtimeClipTransportLimits limits = RealtimeClipTransportLimits(16, 4, 16, 16, 4, 64, 8);
+	RealtimeClipTransportOpenOutcome opened = RealtimeClipTransport.open(RealtimeClipTransportConfiguration(format, limits));
+	assert(opened.succeeded());
+	return opened.transport();
+}
+
+void provePlaybackAndOwnership() {
+	RealtimeAudioFormat format = RealtimeAudioFormat(1000, 1);
+	RealtimeClipOpenOutcome clipOpened = RealtimeClip.open(format, 4LL);
+	assert(clipOpened.succeeded());
+	RealtimeClip clip = clipOpened.clip();
+	const float source[4] = {0.25f, 0.5f, 0.75f, 1.0f};
+	assert(clip.tryWriteChannel(0, 0LL, Span(source)));
+
+	RealtimeClipTransport transport = openTransport(format);
+	RealtimeClipStageOutcome staged = transport.stage(clip);
+	assert(staged.succeeded());
+	RealtimeClipToken token = staged.token();
+	const float replacement[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+	assert(clip.tryWriteChannel(0, 0LL, Span(replacement)));
+	assert(clip.close());
+
+	assert(transport.activate(token) == REALTIME_CLIP_TRANSPORT_OK);
+	assert(transport.play(token) == REALTIME_CLIP_TRANSPORT_OK);
+	RealtimeAudioProgram program = transport.realtimeProgram();
+	RealtimeAudioProcess process = program.invokePointer();
+	float firstBlock[2] = {-1.0f, -1.0f};
+	RealtimeAudioOutputChannel firstOutputs[1] = {firstBlock};
+	process(program.context(), null, 0, (RealtimeAudioOutputChannels)firstOutputs, 1, 2);
+	assert(firstBlock[0] == 0.25f && firstBlock[1] == 0.5f);
+	RealtimeClipEventPoll activated = transport.pollEvent();
+	assert(activated.succeeded() && activated.hasEvent() && activated.value().kind() == REALTIME_CLIP_ACTIVATED && activated.value().token().equals(token));
+	RealtimeClipClockOutcome firstClock = transport.clock(token);
+	assert(firstClock.succeeded() && firstClock.clock().state() == REALTIME_CLIP_PLAYING && firstClock.clock().frame() == 2LL && firstClock.clock().deviceFrame() == 2LL);
+
+	assert(transport.seek(token, 1LL) == REALTIME_CLIP_TRANSPORT_OK);
+	assert(transport.setVolume(token, RealtimePlaybackVolume(500)) == REALTIME_CLIP_TRANSPORT_OK);
+	assert(transport.setLoop(token, RealtimePlaybackLoop.active(1LL, 3LL)) == REALTIME_CLIP_TRANSPORT_OK);
+	float loopBlock[4] = {-1.0f, -1.0f, -1.0f, -1.0f};
+	RealtimeAudioOutputChannel loopOutputs[1] = {loopBlock};
+	process(program.context(), null, 0, (RealtimeAudioOutputChannels)loopOutputs, 1, 4);
+	assert(loopBlock[0] == 0.25f && loopBlock[1] == 0.375f && loopBlock[2] == 0.25f && loopBlock[3] == 0.375f);
+	RealtimeClipClockOutcome loopClock = transport.clock(token);
+	assert(loopClock.succeeded() && loopClock.clock().frame() == 3LL && loopClock.clock().loop().enabled());
+
+	assert(transport.pause(token) == REALTIME_CLIP_TRANSPORT_OK);
+	float pausedBlock[2] = {1.0f, 1.0f};
+	RealtimeAudioOutputChannel pausedOutputs[1] = {pausedBlock};
+	process(program.context(), null, 0, (RealtimeAudioOutputChannels)pausedOutputs, 1, 2);
+	assert(pausedBlock[0] == 0.0f && pausedBlock[1] == 0.0f);
+	assert(transport.clock(token).clock().state() == REALTIME_CLIP_PAUSED);
+
+	assert(transport.cancel(token) == REALTIME_CLIP_TRANSPORT_OK);
+	process(program.context(), null, 0, (RealtimeAudioOutputChannels)pausedOutputs, 1, 0);
+	RealtimeClipEventPoll cancelled = transport.pollEvent();
+	assert(cancelled.succeeded() && cancelled.hasEvent() && cancelled.value().kind() == REALTIME_CLIP_CANCELLED);
+	assert(transport.telemetry().telemetry().stagedClips() == 0);
+	assert(transport.suspend() == REALTIME_CLIP_TRANSPORT_OK);
+	assert(transport.lifecycle() == REALTIME_CLIP_TRANSPORT_DRAINED);
+	assert(transport.close() == REALTIME_CLIP_TRANSPORT_OK);
+	assert(transport.close() == REALTIME_CLIP_TRANSPORT_OK);
+}
+
+void proveCaptureAndPracticeClock() {
+	RealtimeAudioFormat format = RealtimeAudioFormat(1000, 1);
+	RealtimeClipOpenOutcome clipOpened = RealtimeClip.open(format, 8LL);
+	assert(clipOpened.succeeded());
+	RealtimeClip clip = clipOpened.clip();
+	const float silence[8] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+	assert(clip.tryWriteChannel(0, 0LL, Span(silence)));
+	RealtimeClipTransport transport = openTransport(format);
+	RealtimeClipPracticeConfiguration practice = RealtimeClipPracticeConfiguration(RealtimeFrameRate(1000), 2LL, 0, false, 0, 1, true, 0, 500);
+	assert(transport.configurePractice(practice) == REALTIME_CLIP_TRANSPORT_OK);
+	RealtimeClipStageOutcome staged = transport.stage(clip);
+	assert(staged.succeeded());
+	RealtimeClipToken token = staged.token();
+	assert(clip.close());
+	assert(transport.activate(token) == REALTIME_CLIP_TRANSPORT_OK);
+	assert(transport.play(token) == REALTIME_CLIP_TRANSPORT_OK);
+
+	RealtimeAudioProgram program = transport.realtimeProgram();
+	RealtimeAudioProcess process = program.invokePointer();
+	const float inputBlock[3] = {0.5f, -0.5f, 0.25f};
+	RealtimeAudioInputChannel inputs[1] = {inputBlock};
+	float outputBlock[3] = {0.0f, 0.0f, 0.0f};
+	RealtimeAudioOutputChannel outputs[1] = {outputBlock};
+	process(program.context(), inputs, 1, (RealtimeAudioOutputChannels)outputs, 1, 3);
+	assert(outputBlock[0] == 0.25f && outputBlock[1] == -0.25f && outputBlock[2] == 0.125f);
+
+	RealtimeClipPracticeInputPoll first = transport.pollPracticeInput();
+	RealtimeClipPracticeInputPoll second = transport.pollPracticeInput();
+	RealtimeClipPracticeInputPoll third = transport.pollPracticeInput();
+	assert(first.kind() == REALTIME_CLIP_PRACTICE_INPUT_AVAILABLE && first.sample().transportFrame() == 0LL && first.sample().sample() == 0.5f);
+	assert(second.kind() == REALTIME_CLIP_PRACTICE_INPUT_AVAILABLE && second.sample().transportFrame() == 1LL && second.sample().sample() == -0.5f);
+	assert(third.kind() == REALTIME_CLIP_PRACTICE_INPUT_AVAILABLE && third.sample().transportFrame() == 2LL && third.sample().sample() == 0.25f);
+	assert(transport.pollPracticeInput().kind() == REALTIME_CLIP_PRACTICE_INPUT_EMPTY);
+	RealtimeClipPracticeTelemetryPoll telemetry = transport.pollPracticeTelemetry();
+	assert(telemetry.kind() == REALTIME_CLIP_PRACTICE_TELEMETRY_AVAILABLE);
+	assert(telemetry.telemetry().phase() == REALTIME_CLIP_PRACTICE_PLAYING);
+	assert(telemetry.telemetry().monitorState() == REALTIME_CLIP_INPUT_MONITOR_ACTIVE);
+	assert(telemetry.telemetry().capturedInputFrames() == 3ULL && telemetry.telemetry().monitoredInputFrames() == 3ULL && telemetry.telemetry().inputPeakPermille() == 500);
+	assert(telemetry.telemetry().callbackViolations() == 0ULL);
+
+	assert(transport.suspend() == REALTIME_CLIP_TRANSPORT_OK);
+	assert(transport.close() == REALTIME_CLIP_TRANSPORT_OK);
+}
+
+int main() {
+	provePlaybackAndOwnership();
+	proveCaptureAndPracticeClock();
+	print("PASS RealtimeClipTransportRuntime");
+	return 0;
+}
