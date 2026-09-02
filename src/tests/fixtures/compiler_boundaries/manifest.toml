@@ -209,6 +209,7 @@ channels = [
   "helper.Set_filter",
   "helper.Set_findIndex",
   "helper.Set_forEach",
+  "helper.__btrc_application_directories_platform",
   "helper.__btrc_arc_abandon",
   "helper.__btrc_arc_abandon_callback_state",
   "helper.__btrc_arc_abandon_graph",
@@ -1365,6 +1366,10 @@ boundary = "runtime-helper-source"
 channel = "asset.core_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.core_c.bin"
 baseline_sha256 = "9073d4d1c0363d79bc29c168852ab117112c4f0796256864c553d5430f804cac"
+accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.core_c.bin"
+accepted_sha256 = "946f3cc39d1f2cb8b73abd73d3bdc89c150b3a2331694683c1b03503a23ebdd5"
+reason = "ApplicationDirectories resolves macOS, Linux, and future Windows policy through a compiler-owned runtime platform discriminator."
+regressions = ["src/tests/python/test_application_directories_contract.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-source.asset.cycles_c"
@@ -3865,6 +3870,16 @@ baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0227.bin"
 baseline_sha256 = "700ca75c735c5776b3d798993630c6af8e9f80e39e6c9b93f9eb415d50b4ff71"
 
 [[records]]
+id = "runtime-catalog.shared.runtime-metadata.0228"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_application_directories_platform"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0228.bin"
+baseline_sha256 = "297a9a957afa03850c568ff30ba4f410f7f0ef33357ba32f5891d123877a8cc3"
+
+[[records]]
 id = "runtime-catalog.shared.runtime-order.python"
 fixture = "runtime-catalog"
 capability = "shared.runtime-order"
@@ -3872,11 +3887,11 @@ compiler = "shared"
 boundary = "runtime-helper-order"
 channel = "python"
 baseline_path = "baseline/runtime-catalog.shared.runtime-order.python.bin"
-baseline_sha256 = "a3c36dbfe5001c2da0c39c71273c845756f0c2644249f63b85ed6f646014b2ba"
+baseline_sha256 = "37e2442001713cb436302de380466e70ae4d1c6123368fbd0b4e30f5021b422a"
 accepted_path = "accepted/runtime-catalog.shared.runtime-order.python.bin"
-accepted_sha256 = "495e4e175d5b8c7cc4447bf57a1dfbede15dc8f5f6cddfcf3599ca5df1358d1d"
-reason = "ChildProcess.run gained an opt-in foreground mode that hands the controlling terminal to the child's process group, so the process runtime asset and helper order carry three new terminal helpers."
-regressions = ["src/tests/python/test_stdlib_process_security.py"]
+accepted_sha256 = "c7933b7eed8c8618614a451a18701675121e963363520bb6ef036df8fc0fcfbc"
+reason = "The accepted order retains the reviewed runtime thread-types delta; ApplicationDirectories extends both order universes with its platform discriminator."
+regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_application_directories_contract.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-order.btrc"
@@ -3886,11 +3901,11 @@ compiler = "shared"
 boundary = "runtime-helper-order"
 channel = "btrc"
 baseline_path = "baseline/runtime-catalog.shared.runtime-order.btrc.bin"
-baseline_sha256 = "a65cb39c405ddfa854262ec210a27dca389bd75a7fb67cb9d3c598a9f26248fb"
+baseline_sha256 = "213371cc7e12185e6643930ec91b4a3016d51ab6add711a63cd7d41b6c85dea2"
 accepted_path = "accepted/runtime-catalog.shared.runtime-order.btrc.bin"
-accepted_sha256 = "120b8cfde94aa7c8b7356d14f516735a05a98dc7566b298504d367dfa3155528"
-reason = "ChildProcess.run gained an opt-in foreground mode that hands the controlling terminal to the child's process group, so the process runtime asset and helper order carry three new terminal helpers."
-regressions = ["src/tests/python/test_stdlib_process_security.py"]
+accepted_sha256 = "1c305bbb9bd5454df990e2a58074d7ca4bf6c12ed89508c8f9295e064b5ebf90"
+reason = "The accepted order retains the reviewed runtime thread-types delta; ApplicationDirectories extends both order universes with its platform discriminator."
+regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_application_directories_contract.py"]
 
 [[equalities]]
 id = "surface.tokens.artifact"
