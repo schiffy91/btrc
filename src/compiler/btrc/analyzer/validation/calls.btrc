@@ -292,7 +292,9 @@ class CallValidator {
 					self.validateSignature(constructorName, constructor.params, call, noSubstitutions, false, vars);
 					self.ownership.validateTransferredArguments(constructor, call, vars);
 					if (constructorName == "CallbackRegistration") {
-						self.validateCallbackRegistrationInvoke(constructor, call, vars);
+						self.validateDirectRealtimeCallback(constructorName, constructor, call, vars, "invoke");
+					} else if (constructorName == "RealtimeAudioProgram") {
+						self.validateDirectRealtimeCallback(constructorName, constructor, call, vars, "process");
 					}
 				}
 				return;
@@ -320,7 +322,9 @@ class CallValidator {
 				self.validateSignature(constructorName, constructor.params, call, substitutions, false, vars);
 				self.ownership.validateTransferredArguments(constructor, call, vars);
 				if (constructorName == "CallbackRegistration") {
-					self.validateCallbackRegistrationInvoke(constructor, call, vars);
+					self.validateDirectRealtimeCallback(constructorName, constructor, call, vars, "invoke");
+				} else if (constructorName == "RealtimeAudioProgram") {
+					self.validateDirectRealtimeCallback(constructorName, constructor, call, vars, "process");
 				}
 				return;
 			}
@@ -438,28 +442,28 @@ class CallValidator {
 		self.ownership.validateTransferredArguments(concreteMethod, call, vars);
 	}
 
-	public void validateCallbackRegistrationInvoke(Node constructor, Node call, Map<string, Node> vars) {
-		int invokeParameter = -1;
+	public void validateDirectRealtimeCallback(string className, Node constructor, Node call, Map<string, Node> vars, string parameterName) {
+		int callbackParameter = -1;
 		int parameterIndex = 0;
 		while (parameterIndex < constructor.params.len) {
-			if (constructor.params.get(parameterIndex).name == "invoke") {
-				invokeParameter = parameterIndex;
+			if (constructor.params.get(parameterIndex).name == parameterName) {
+				callbackParameter = parameterIndex;
 			}
 			parameterIndex = parameterIndex + 1;
 		}
-		Node? invoke = null;
+		Node? callback = null;
 		int positional = 0;
 		int argumentIndex = 0;
 		while (argumentIndex < call.args.len) {
 			string argumentName = argumentIndex < call.arg_names.len ? call.arg_names.get(argumentIndex) : "";
-			if (argumentName == "invoke" || (argumentName == "" && positional == invokeParameter)) {
-				invoke = call.args.get(argumentIndex);
+			if (argumentName == parameterName || (argumentName == "" && positional == callbackParameter)) {
+				callback = call.args.get(argumentIndex);
 			}
 			if (argumentName == "") { positional = positional + 1; }
 			argumentIndex = argumentIndex + 1;
 		}
-		if (invoke == null || invoke.kind != NK_IDENTIFIER || vars.has(invoke.name) || !self.state.analyzed.funcTable.has(invoke.name) || !self.state.analyzed.funcTable.get(invoke.name).is_realtime) {
-			TypeValidator.fail("CallbackRegistration invoke must be a direct named " + "@realtime function", invoke == null ? call : invoke);
+		if (callback == null || callback.kind != NK_IDENTIFIER || vars.has(callback.name) || !self.state.analyzed.funcTable.has(callback.name) || !self.state.analyzed.funcTable.get(callback.name).is_realtime) {
+			TypeValidator.fail(className + " " + parameterName + " must be a direct named " + "@realtime function", callback == null ? call : callback);
 		}
 	}
 

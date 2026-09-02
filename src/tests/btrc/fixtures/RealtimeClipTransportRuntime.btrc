@@ -12,6 +12,11 @@ RealtimeClipTransport openTransport(RealtimeAudioFormat format) {
 	return opened.transport();
 }
 
+void invokeBlock(RealtimeAudioProcess process, void* context, const float* inputs, int inputChannels, float* outputs, int outputChannels, int frames, unsigned long long inputDeviceFrame, unsigned long long outputDeviceFrame, unsigned long long streamEpoch, uint flags) {
+	struct AudioBlockView block = {inputChannels, outputChannels, frames, inputDeviceFrame, outputDeviceFrame, streamEpoch, 0ULL, flags};
+	process(context, block, Span(inputs, (size_t)(inputChannels * frames)), Span(outputs, (size_t)(outputChannels * frames)));
+}
+
 void provePlaybackAndOwnership() {
 	RealtimeAudioFormat format = RealtimeAudioFormat(1000, 1);
 	RealtimeClipOpenOutcome clipOpened = RealtimeClip.open(format, 4LL);
@@ -33,8 +38,7 @@ void provePlaybackAndOwnership() {
 	RealtimeAudioProgram program = transport.realtimeProgram();
 	RealtimeAudioProcess process = program.invokePointer();
 	float firstBlock[2] = {-1.0f, -1.0f};
-	RealtimeAudioOutputChannel firstOutputs[1] = {firstBlock};
-	process(program.context(), null, 0, (RealtimeAudioOutputChannels)firstOutputs, 1, 2);
+	invokeBlock(process, program.context(), null, 0, firstBlock, 1, 2, 0ULL, 0ULL, 1ULL, (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY);
 	assert(firstBlock[0] == 0.25f && firstBlock[1] == 0.5f);
 	RealtimeClipEventPoll activated = transport.pollEvent();
 	assert(activated.succeeded() && activated.hasEvent() && activated.value().kind() == REALTIME_CLIP_ACTIVATED && activated.value().token().equals(token));
@@ -45,21 +49,19 @@ void provePlaybackAndOwnership() {
 	assert(transport.setVolume(token, RealtimePlaybackVolume(500)) == REALTIME_CLIP_TRANSPORT_OK);
 	assert(transport.setLoop(token, RealtimePlaybackLoop.active(1LL, 3LL)) == REALTIME_CLIP_TRANSPORT_OK);
 	float loopBlock[4] = {-1.0f, -1.0f, -1.0f, -1.0f};
-	RealtimeAudioOutputChannel loopOutputs[1] = {loopBlock};
-	process(program.context(), null, 0, (RealtimeAudioOutputChannels)loopOutputs, 1, 4);
+	invokeBlock(process, program.context(), null, 0, loopBlock, 1, 4, 0ULL, 2ULL, 1ULL, (uint)AUDIO_BLOCK_CONTINUOUS);
 	assert(loopBlock[0] == 0.25f && loopBlock[1] == 0.375f && loopBlock[2] == 0.25f && loopBlock[3] == 0.375f);
 	RealtimeClipClockOutcome loopClock = transport.clock(token);
 	assert(loopClock.succeeded() && loopClock.clock().frame() == 3LL && loopClock.clock().loop().enabled());
 
 	assert(transport.pause(token) == REALTIME_CLIP_TRANSPORT_OK);
 	float pausedBlock[2] = {1.0f, 1.0f};
-	RealtimeAudioOutputChannel pausedOutputs[1] = {pausedBlock};
-	process(program.context(), null, 0, (RealtimeAudioOutputChannels)pausedOutputs, 1, 2);
+	invokeBlock(process, program.context(), null, 0, pausedBlock, 1, 2, 0ULL, 6ULL, 1ULL, (uint)AUDIO_BLOCK_CONTINUOUS);
 	assert(pausedBlock[0] == 0.0f && pausedBlock[1] == 0.0f);
 	assert(transport.clock(token).clock().state() == REALTIME_CLIP_PAUSED);
 
 	assert(transport.cancel(token) == REALTIME_CLIP_TRANSPORT_OK);
-	process(program.context(), null, 0, (RealtimeAudioOutputChannels)pausedOutputs, 1, 0);
+	invokeBlock(process, program.context(), null, 0, pausedBlock, 1, 0, 0ULL, 8ULL, 1ULL, (uint)AUDIO_BLOCK_CONTINUOUS);
 	RealtimeClipEventPoll cancelled = transport.pollEvent();
 	assert(cancelled.succeeded() && cancelled.hasEvent() && cancelled.value().kind() == REALTIME_CLIP_CANCELLED);
 	assert(transport.telemetry().telemetry().stagedClips() == 0);
@@ -89,10 +91,8 @@ void proveCaptureAndPracticeClock() {
 	RealtimeAudioProgram program = transport.realtimeProgram();
 	RealtimeAudioProcess process = program.invokePointer();
 	const float inputBlock[3] = {0.5f, -0.5f, 0.25f};
-	RealtimeAudioInputChannel inputs[1] = {inputBlock};
 	float outputBlock[3] = {0.0f, 0.0f, 0.0f};
-	RealtimeAudioOutputChannel outputs[1] = {outputBlock};
-	process(program.context(), inputs, 1, (RealtimeAudioOutputChannels)outputs, 1, 3);
+	invokeBlock(process, program.context(), inputBlock, 1, outputBlock, 1, 3, 0ULL, 0ULL, 1ULL, (uint)(AUDIO_BLOCK_INPUT_DISCONTINUITY | AUDIO_BLOCK_OUTPUT_DISCONTINUITY));
 	assert(outputBlock[0] == 0.25f && outputBlock[1] == -0.25f && outputBlock[2] == 0.125f);
 
 	RealtimeClipPracticeInputPoll first = transport.pollPracticeInput();

@@ -1,18 +1,53 @@
 /* btrc standard library — exact non-owning realtime audio callback contract
  *
- * RealtimeAudioProgram is the managed object exchanged between product and
- * audio-package interfaces. The producer owns its context until the package's
- * stop barrier drains. Only native/package seams should extract the raw pair.
+ * RealtimeAudioProgram is the managed object exchanged between a prepared
+ * processor and an audio-device provider. The producer owns its context until
+ * the provider's suspend barrier drains. Only native/provider seams extract
+ * the raw pair. AudioBlockView contains clocks and dimensions by value; input
+ * and output samples arrive as nonescaping interleaved Span<T> borrows whose
+ * storage cannot be retained in BTRC fields, globals, returns, or aggregates.
  */
 
 import std.callback;
 
-typedef const float* RealtimeAudioInputChannel;
-typedef const RealtimeAudioInputChannel* RealtimeAudioInputChannels;
-typedef float* RealtimeAudioOutputChannel;
-typedef const RealtimeAudioOutputChannel* RealtimeAudioOutputChannels;
+enum AudioBlockFlags {
+	AUDIO_BLOCK_CONTINUOUS = 0,
+	AUDIO_BLOCK_INPUT_DISCONTINUITY = 1,
+	AUDIO_BLOCK_OUTPUT_DISCONTINUITY = 2
+};
 
-typedef CFunction< void, void*, RealtimeAudioInputChannels, int, RealtimeAudioOutputChannels, int, int > RealtimeAudioProcess;
+struct AudioBlockView {
+	int inputChannelCount;
+	int outputChannelCount;
+	int frameCount;
+	/* Device frames identify the first input/output sample and remain monotonic
+	 * within streamEpoch. An epoch change invalidates prior frame mappings; the
+	 * corresponding discontinuity flag marks a non-contiguous first block. */
+	unsigned long long inputDeviceFrame;
+	unsigned long long outputDeviceFrame;
+	unsigned long long streamEpoch;
+	unsigned long long hostTimeNanoseconds;
+	uint flags;
+};
+
+typedef CFunction< void, void*, struct AudioBlockView, Span<const float>, Span<float> > RealtimeAudioProcess;
+
+class RealtimeAudioFormat {
+	private int _sampleRate;
+	private int _channels;
+
+	public RealtimeAudioFormat(int sampleRate, int channels) {
+		if (sampleRate <= 0 || sampleRate > 768000 || channels <= 0 || channels > 256) { throw "invalid realtime audio format"; }
+		self._sampleRate = sampleRate;
+		self._channels = channels;
+	}
+
+	public int sampleRate() { return self._sampleRate; }
+
+	public int channels() { return self._channels; }
+
+	public bool equals(RealtimeAudioFormat other) { return other != null && self._sampleRate == other._sampleRate && self._channels == other._channels; }
+}
 
 class RealtimeAudioProgram {
 	private RealtimeAudioProcess _process;

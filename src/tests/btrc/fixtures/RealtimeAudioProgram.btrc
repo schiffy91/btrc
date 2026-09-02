@@ -1,5 +1,4 @@
 import std.RealtimeAudio;
-import std.callback;
 
 #include <assert.h>
 
@@ -7,50 +6,46 @@ struct GainContext {
 	float gain;
 	float total;
 	int calls;
+	unsigned long long inputDeviceFrame;
+	unsigned long long outputDeviceFrame;
+	unsigned long long streamEpoch;
+	unsigned long long hostTimeNanoseconds;
+	uint flags;
 };
 
-typedef CFunction<int, void*, int> OffsetProcess;
-
-int addOffset(void* raw, int value) { return *(int*)raw + value; }
-
-class RealtimeAudioBorrow {
-	private BorrowedClosure<RealtimeAudioProcess> _callback;
-
-	public RealtimeAudioBorrow(RealtimeAudioProcess invoke, void* context) { self._callback = new BorrowedClosure<RealtimeAudioProcess> (invoke, context); }
-
-	public RealtimeAudioProcess invokePointer() { return self._callback.invokePointer(); }
-
-	public void* context() { return self._callback.context(); }
-}
-
-@realtime void applyGain(void* raw, RealtimeAudioInputChannels inputs, int inputChannelCount, RealtimeAudioOutputChannels outputs, int outputChannelCount, int frameCount) {
+@realtime void applyGain(void* raw, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {
 	GainContext* context = (GainContext*)raw;
-	if (context == null || inputs == null || outputs != null || inputChannelCount != 1 || outputChannelCount != 0 || inputs[0] == null) {
+	if (context == null || !inputs.isValid() || !outputs.isValid() || block.inputChannelCount != 1 || block.outputChannelCount != 0 || !outputs.isEmpty()) {
 		return;
 	}
+	int frameCount = block.frameCount;
 	for (int frame = 0; frame < frameCount; frame++) {
-		context->total += inputs[0][frame] * context->gain;
+		float sample = 0.0f;
+		if (inputs.tryGet((size_t)frame, &sample)) { context->total += sample * context->gain; }
 	}
 	context->calls++;
+	context->inputDeviceFrame = block.inputDeviceFrame;
+	context->outputDeviceFrame = block.outputDeviceFrame;
+	context->streamEpoch = block.streamEpoch;
+	context->hostTimeNanoseconds = block.hostTimeNanoseconds;
+	context->flags = block.flags;
 }
 
 int main() {
-	float inputSamples[3] = {1.0f, -2.0f, 0.5f};
-	RealtimeAudioInputChannel input = inputSamples;
-	GainContext context = {2.0f, 0.0f, 0};
+	const float inputSamples[3] = {1.0f, -2.0f, 0.5f};
+	GainContext context = {2.0f, 0.0f, 0, 0ULL, 0ULL, 0ULL, 0ULL, 0u};
 
-	RealtimeAudioBorrow borrowed = RealtimeAudioBorrow(applyGain, &context);
-	RealtimeAudioProgram program = RealtimeAudioProgram(borrowed.invokePointer(), borrowed.context());
+	RealtimeAudioProgram program = RealtimeAudioProgram(applyGain, &context);
 	RealtimeAudioProcess invoke = program.invokePointer();
-	invoke(program.context(), &input, 1, null, 0, 3);
+	struct AudioBlockView block = {1, 0, 3, 41ULL, 73ULL, 5ULL, 9001ULL, (uint)(AUDIO_BLOCK_INPUT_DISCONTINUITY | AUDIO_BLOCK_OUTPUT_DISCONTINUITY)};
+	invoke(program.context(), block, Span(inputSamples), Span((float*)null, (size_t)0));
 
 	assert(context.calls == 1);
 	assert(context.total == -1.0f);
-
-	int offset = 40;
-	BorrowedClosure<OffsetProcess> offsetBorrowed = new BorrowedClosure<OffsetProcess> (addOffset, &offset);
-	OffsetProcess add = offsetBorrowed.invokePointer();
-	assert(add(offsetBorrowed.context(), 2) == 42);
+	assert(context.inputDeviceFrame == 41ULL && context.outputDeviceFrame == 73ULL);
+	assert(context.streamEpoch == 5ULL && context.hostTimeNanoseconds == 9001ULL);
+	assert((context.flags & (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY) != 0u);
+	assert((context.flags & (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY) != 0u);
 	print("PASS RealtimeAudioProgram");
 	return 0;
 }

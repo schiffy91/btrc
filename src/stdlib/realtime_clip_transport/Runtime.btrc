@@ -457,33 +457,29 @@ static bool btrcRealtimeClipTransportReadSnapshot(struct BtrcRealtimeClipTranspo
 	}
 }
 
-@realtime static void btrcRealtimeClipTransportClear(RealtimeAudioOutputChannels outputs, int channels, int frames) {
-	if (outputs == null || channels < 0 || channels > 256 || frames < 0 || frames > 8192) { return; }
-	for (int channel = 0; channel < channels; channel++) {
-		if (outputs[channel] == null) { continue; }
-		Span<float> output = Span(outputs[channel], (size_t)frames);
-		for (int frame = 0; frame < frames; frame++) { output.trySet((size_t)frame, 0.0f); }
-	}
+@realtime static void btrcRealtimeClipTransportClear(Span<float> outputs) {
+	size_t outputSampleCount = outputs.length();
+	for (size_t sampleIndex = 0u; sampleIndex < outputSampleCount; sampleIndex++) { outputs.trySet(sampleIndex, 0.0f); }
 }
 
-@realtime static int btrcRealtimeClipTransportRenderRaw(struct BtrcRealtimeClipTransportContext* context, RealtimeAudioInputChannels inputs, int inputChannels, RealtimeAudioOutputChannels outputs, int channels, int frames) {
-	if (context == null || outputs == null || channels != context->channels || inputChannels < 0 || inputChannels > 256 || frames < 0 || frames > context->blockFrames) { return 1; }
-	for (int channel = 0; channel < channels; channel++) {
-		if (outputs[channel] == null) { return 1; }
-	}
+@realtime static int btrcRealtimeClipTransportRenderRaw(struct BtrcRealtimeClipTransportContext* context, Span<const float> inputs, int inputChannels, Span<float> outputs, int channels, int frames) {
+	if (context == null || !inputs.isValid() || !outputs.isValid() || channels != context->channels || inputChannels < 0 || inputChannels > 256 || frames < 0 || frames > context->blockFrames) { return 1; }
+	size_t expectedInputSamples = (size_t)inputChannels * (size_t)frames;
+	size_t expectedOutputSamples = (size_t)channels * (size_t)frames;
+	if (inputs.length() != expectedInputSamples || outputs.length() != expectedOutputSamples) { return 1; }
 	uint previous = context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_IN_FLIGHT].fetchAdd(1u, MemoryOrder.ACQ_REL);
 	if (previous != 0u) {
-		btrcRealtimeClipTransportClear(outputs, channels, frames);
+		btrcRealtimeClipTransportClear(outputs);
 		context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_IN_FLIGHT].fetchSub(1u, MemoryOrder.RELEASE);
 		return 2;
 	}
 	if (context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_CLOSED].load(MemoryOrder.ACQUIRE) != 0u) {
-		btrcRealtimeClipTransportClear(outputs, channels, frames);
+		btrcRealtimeClipTransportClear(outputs);
 		context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_IN_FLIGHT].fetchSub(1u, MemoryOrder.RELEASE);
 		return 2;
 	}
 
-	btrcRealtimeClipTransportClear(outputs, channels, frames);
+	btrcRealtimeClipTransportClear(outputs);
 	btrcRealtimeIncrement(&context->renderCalls);
 	unsigned long long blockDeviceFrame = btrcRealtimeClipTransportDeviceFrame(context);
 	btrcRealtimeClipTransportDrainCommands(context, blockDeviceFrame);
@@ -520,9 +516,9 @@ static bool btrcRealtimeClipTransportReadSnapshot(struct BtrcRealtimeClipTranspo
 				long double fraction = context->position - (long double)first;
 				for (int channel = 0; channel < channels; channel++) {
 					float* source = context->activeSamples + (long long)channel * context->activeFrames;
-					Span<float> output = Span(outputs[channel], (size_t)frames);
 					long double sample = (long double)source[first] + ((long double)source[second] - (long double)source[first]) * fraction;
-					output.trySet((size_t)outputFrame, (float)(sample * (long double)context->volumePermille * (long double)0.001));
+					size_t outputIndex = (size_t)outputFrame * (size_t)channels + (size_t)channel;
+					outputs.trySet(outputIndex, (float)(sample * (long double)context->volumePermille * (long double)0.001));
 				}
 				produced++;
 				context->position += (long double)context->speed;
@@ -543,10 +539,10 @@ static bool btrcRealtimeClipTransportReadSnapshot(struct BtrcRealtimeClipTranspo
 	return 0;
 }
 
-@realtime static void btrcRealtimeClipTransportProcess(void* opaque, RealtimeAudioInputChannels inputs, int inputChannels, RealtimeAudioOutputChannels outputs, int outputChannels, int frames) {
+@realtime static void btrcRealtimeClipTransportProcess(void* opaque, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {
 	struct BtrcRealtimeClipTransportContext* context = (struct BtrcRealtimeClipTransportContext*)opaque;
-	int status = btrcRealtimeClipTransportRenderRaw(context, inputs, inputChannels, outputs, outputChannels, frames);
-	if (status != 0) { btrcRealtimeClipTransportClear(outputs, outputChannels, frames); }
+	int status = btrcRealtimeClipTransportRenderRaw(context, inputs, block.inputChannelCount, outputs, block.outputChannelCount, block.frameCount);
+	if (status != 0) { btrcRealtimeClipTransportClear(outputs); }
 }
 
 enum BtrcRealtimeClipTransportStatusValue {

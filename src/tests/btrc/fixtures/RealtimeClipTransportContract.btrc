@@ -7,15 +7,11 @@ import std.RealtimeClipPractice;
 
 /* This fake proves consumer conformance only. It does not model the device
  * boundary, queue ordering, callback concurrency, or ownership reclamation. */
-@realtime void deterministicContractProcess(void* raw, RealtimeAudioInputChannels inputs, int inputChannels, RealtimeAudioOutputChannels outputs, int outputChannels, int frames) {
+@realtime void deterministicContractProcess(void* raw, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {
 	(void*)raw;
-	(void*)inputs;
-	if (inputChannels < 0) { return; }
-	for (int channel = 0; channel < outputChannels; channel++) {
-		if (outputs == null || outputs[channel] == null) { continue; }
-		Span<float> output = Span(outputs[channel], (size_t)frames);
-		for (int frame = 0; frame < frames; frame++) { output.trySet((size_t)frame, 0.0f); }
-	}
+	if (!inputs.isValid() || !outputs.isValid() || block.inputChannelCount < 0) { return; }
+	size_t outputSampleCount = outputs.length();
+	for (size_t sampleIndex = 0u; sampleIndex < outputSampleCount; sampleIndex++) { outputs.trySet(sampleIndex, 0.0f); }
 }
 
 class DeterministicClipTransportContractFake implements RealtimeClipTransportPort {
@@ -206,7 +202,8 @@ int main() {
 	RealtimeAudioProgram program = transport.realtimeProgram();
 	RealtimeAudioProcess process = program.invokePointer();
 	assert(process != null);
-	process(program.context(), null, 0, null, 0, 0);
+	struct AudioBlockView block = {0, 0, 0, 0ULL, 0ULL, 1ULL, 0ULL, (uint)AUDIO_BLOCK_CONTINUOUS};
+	process(program.context(), block, Span((const float*)null, (size_t)0), Span((float*)null, (size_t)0));
 	assert(transport.suspend() == REALTIME_CLIP_TRANSPORT_OK);
 	assert(transport.lifecycle() == REALTIME_CLIP_TRANSPORT_DRAINED);
 	assert(transport.close() == REALTIME_CLIP_TRANSPORT_OK);

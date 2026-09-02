@@ -26,23 +26,6 @@ enum RealtimeClipTransportStatus {
 	REALTIME_CLIP_TRANSPORT_FAILED
 };
 
-class RealtimeAudioFormat {
-	private int _sampleRate;
-	private int _channels;
-
-	public RealtimeAudioFormat(int sampleRate, int channels) {
-		if (sampleRate <= 0 || sampleRate > 768000 || channels <= 0 || channels > 256) { throw "invalid realtime audio format"; }
-		self._sampleRate = sampleRate;
-		self._channels = channels;
-	}
-
-	public int sampleRate() { return self._sampleRate; }
-
-	public int channels() { return self._channels; }
-
-	public bool equals(RealtimeAudioFormat other) { return other != null && self._sampleRate == other._sampleRate && self._channels == other._channels; }
-}
-
 class RealtimeClipTransportLimits {
 	private int _maximumBlockFrames;
 	private int _maximumStagedClips;

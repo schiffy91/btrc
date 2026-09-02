@@ -77,6 +77,10 @@ def _compile_pair(
             "Global 'escaped' cannot store nonescaping Span<T>",
         ),
         (
+            "typedef CFunction<Span<int>, void*> ReturningCallback; int main() { return 0; }",
+            "Generic argument 1 of Typedef 'ReturningCallback' cannot be nonescaping Span<T>",
+        ),
+        (
             "void inspect(Atomic<string>* value) {} int main() { return 0; }",
             "Atomic<T> payload must be bool, int, uint, or a raw pointer",
         ),
@@ -125,6 +129,7 @@ def _compile_pair(
     ),
     ids=(
         "span-escape",
+        "span-callback-return",
         "atomic-pointer-payload",
         "load-order",
         "cas-order",
@@ -167,6 +172,15 @@ def test_valid_primitives_have_strict_c11_runtime_parity(
         semantic_btrcc,
         tmp_path,
         """
+        typedef CFunction<int, Span<const int>> BorrowingCallback;
+        int sumSpan(Span<const int> values) {
+            int first = 0;
+            int second = 0;
+            int third = 0;
+            if (!values.tryGet(0, &first) || !values.tryGet(1, &second) ||
+                    !values.tryGet(2, &third)) { return -1; }
+            return first + second + third;
+        }
         uint readAtomic(Atomic<uint>* value) {
             return value->load(MemoryOrder.ACQUIRE);
         }
@@ -185,6 +199,8 @@ def test_valid_primitives_have_strict_c11_runtime_parity(
             int sum = 0;
             for value in view { sum += value; }
             if (sum != 41) { return 4; }
+            BorrowingCallback callback = sumSpan;
+            if (callback(Span((const int*)values, (size_t)3)) != 41) { return 7; }
             Atomic<uint> state = Atomic(1u);
             if (readAtomic(&state) != 1u || !advanceAtomic(&state)) { return 5; }
             return state.load(MemoryOrder.ACQUIRE) == 2u ? 0 : 6;

@@ -1359,9 +1359,12 @@ class TypeSystem:
             return False
         if canonical.base == "Span":
             return True
-        arguments = canonical.generic_args or []
+        # A function pointer stores only executable code, not the values passed
+        # through its parameter slots. Each slot is still validated below in
+        # its own parameter/return domain.
         if canonical.base == "__fn_ptr":
-            arguments = arguments[1:]
+            return False
+        arguments = canonical.generic_args or []
         if any(self.contains_span_storage(argument, visiting) for argument in arguments):
             return True
         if canonical.pointer_depth > 0:
@@ -1660,7 +1663,8 @@ class TypeSystem:
         arguments = type_expr.generic_args or []
         for index, argument in enumerate(arguments):
             result_slot = type_expr.base in {"__fn_ptr", "Thread"} and index == 0
-            argument_role = "return" if result_slot else "object"
+            parameter_slot = type_expr.base == "__fn_ptr" and index > 0
+            argument_role = "return" if result_slot else "parameter" if parameter_slot else "object"
             self.validate_declared_type(
                 argument,
                 f"Generic argument {index + 1} of {subject}",

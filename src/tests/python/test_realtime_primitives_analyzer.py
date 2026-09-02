@@ -36,6 +36,24 @@ def test_valid_atomic_and_span_surface_is_accepted() -> None:
     assert errors == []
 
 
+def test_cfunction_may_borrow_span_parameters_without_storing_them() -> None:
+    errors = _errors(
+        """
+        typedef CFunction<int, Span<const int>> BorrowingCallback;
+        int sum(Span<const int> values) { return values.length() == (size_t)2 ? 3 : -1; }
+        class CallbackHolder {
+            public BorrowingCallback callback;
+            public CallbackHolder(BorrowingCallback callback) { self.callback = callback; }
+        }
+        int main() {
+            CallbackHolder holder = new CallbackHolder(sum);
+            return holder.callback == null ? 1 : 0;
+        }
+        """
+    )
+    assert errors == []
+
+
 def test_atomic_owner_can_be_used_through_an_explicit_pointer() -> None:
     errors = _errors(
         """
@@ -122,6 +140,10 @@ def test_atomic_pointer_inside_generic_storage_is_not_an_owner_copy() -> None:
         (
             "Span<int> leak(Span<int> value) { return value; }",
             "Return type of function 'leak' cannot be nonescaping Span<T>",
+        ),
+        (
+            "typedef CFunction<Span<int>, void*> ReturningCallback; int main() { return 0; }",
+            "Generic argument 1 of Typedef 'ReturningCallback' cannot be nonescaping Span<T>",
         ),
         (
             "class Holder { public Span<int> value; } int main() { return 0; }",

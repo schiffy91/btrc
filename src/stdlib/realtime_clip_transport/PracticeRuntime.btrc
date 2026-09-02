@@ -268,17 +268,23 @@ static SpscQueueOpenKind btrcRealtimeClipPracticeContextOpen(int sampleRate, int
 	return context->phase != (int)REALTIME_CLIP_PRACTICE_COUNT_IN;
 }
 
-@realtime static float btrcRealtimeClipPracticeInput(struct BtrcRealtimeClipPracticeContext* context, RealtimeAudioInputChannels inputs, int inputChannels, int frame, unsigned long long deviceFrame, unsigned long long mappingGeneration, long long mappedTransportFrame) {
-	if (inputs == null || inputChannels <= 0) {
+@realtime static float btrcRealtimeClipPracticeInput(struct BtrcRealtimeClipPracticeContext* context, Span<const float> inputs, int inputChannels, int frame, unsigned long long deviceFrame, unsigned long long mappingGeneration, long long mappedTransportFrame) {
+	if (!inputs.isValid() || inputChannels <= 0 || inputs.isEmpty()) {
 		context->monitorState = context->configuration.monitorEnabled != 0 ? (int)REALTIME_CLIP_INPUT_MONITOR_INPUT_UNAVAILABLE : (int)REALTIME_CLIP_INPUT_MONITOR_DISABLED;
 		return 0.0f;
 	}
 	int channel = context->configuration.monitorInputChannel;
-	if (channel >= inputChannels || inputs[channel] == null) {
+	if (channel >= inputChannels) {
 		context->monitorState = context->configuration.monitorEnabled != 0 ? (int)REALTIME_CLIP_INPUT_MONITOR_CHANNEL_UNAVAILABLE : (int)REALTIME_CLIP_INPUT_MONITOR_DISABLED;
 		return 0.0f;
 	}
-	float sample = btrcRealtimeClipPracticeClamp(inputs[channel][frame]);
+	float inputSample = 0.0f;
+	size_t sampleIndex = (size_t)frame * (size_t)inputChannels + (size_t)channel;
+	if (!inputs.tryGet(sampleIndex, &inputSample)) {
+		context->monitorState = context->configuration.monitorEnabled != 0 ? (int)REALTIME_CLIP_INPUT_MONITOR_INPUT_UNAVAILABLE : (int)REALTIME_CLIP_INPUT_MONITOR_DISABLED;
+		return 0.0f;
+	}
+	float sample = btrcRealtimeClipPracticeClamp(inputSample);
 	if (context->phase == (int)REALTIME_CLIP_PRACTICE_PLAYING && mappedTransportFrame >= 0LL) {
 		long long observedTransportFrame = mappedTransportFrame;
 		if (context->configuration.inputLatencyKnown != 0) {
@@ -309,7 +315,7 @@ static SpscQueueOpenKind btrcRealtimeClipPracticeContextOpen(int sampleRate, int
 	return sample * context->configuration.monitorGain;
 }
 
-@realtime static void btrcRealtimeClipPracticeMixFrame(struct BtrcRealtimeClipPracticeContext* context, RealtimeAudioInputChannels inputs, int inputChannels, RealtimeAudioOutputChannels outputs, int outputChannels, int frame, unsigned long long deviceFrame, unsigned long long mappingGeneration, long long mappedTransportFrame) {
+@realtime static void btrcRealtimeClipPracticeMixFrame(struct BtrcRealtimeClipPracticeContext* context, Span<const float> inputs, int inputChannels, Span<float> outputs, int outputChannels, int frame, unsigned long long deviceFrame, unsigned long long mappingGeneration, long long mappedTransportFrame) {
 	if (context == null || context->configuration.configured == 0) { return; }
 	float monitor = btrcRealtimeClipPracticeInput(context, inputs, inputChannels, frame, deviceFrame, mappingGeneration, mappedTransportFrame);
 	float click = 0.0f;
@@ -318,11 +324,10 @@ static SpscQueueOpenKind btrcRealtimeClipPracticeContextOpen(int sampleRate, int
 		context->clickRemaining--;
 	}
 	for (int channel = 0; channel < outputChannels; channel++) {
-		if (outputs[channel] == null) { continue; }
-		Span<float> output = Span(outputs[channel], (size_t)(frame + 1));
+		size_t sampleIndex = (size_t)frame * (size_t)outputChannels + (size_t)channel;
 		float mixed = 0.0f;
-		if (!output.tryGet((size_t)frame, &mixed)) { continue; }
-		output.trySet((size_t)frame, btrcRealtimeClipPracticeClamp(mixed + monitor + click));
+		if (!outputs.tryGet(sampleIndex, &mixed)) { continue; }
+		outputs.trySet(sampleIndex, btrcRealtimeClipPracticeClamp(mixed + monitor + click));
 	}
 }
 
