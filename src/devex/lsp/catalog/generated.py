@@ -349,6 +349,10 @@ MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
 
 # Generated from stdlib .btrc files
 STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
+    ("ApplicationDirectories", (
+        BuiltinMemberSpec("resolve", "ApplicationDirectoryRootsOutcome", "method", (("ApplicationDirectoryLimits", "limits"),), "resolve"),
+        BuiltinMemberSpec("resolveStandard", "ApplicationDirectoryRootsOutcome", "method", (), "resolveStandard"),
+    )),
     ("BitPattern32", (
         BuiltinMemberSpec("signedInteger", "int", "method", (("uint", "bits"),), "signedInteger"),
         BuiltinMemberSpec("floatingPoint", "float", "method", (("uint", "bits"),), "floatingPoint"),

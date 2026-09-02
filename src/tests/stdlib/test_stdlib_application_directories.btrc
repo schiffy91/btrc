@@ -1,0 +1,34 @@
+import std.ApplicationDirectories;
+
+#include <assert.h>
+
+class ApplicationDirectoryTest {
+	class bool normalized(string path) { return !path.isEmpty() && path[0] == '/' && (path.equals("/") || path[path.len() - 1] != '/') && !path.contains("//") && !path.contains("/./") && !path.contains("/../"); }
+}
+
+int main() {
+	ApplicationDirectoryRootsOutcome invalid = ApplicationDirectories.resolve(ApplicationDirectoryLimits(0));
+	assert(!invalid.ok());
+	assert(invalid.error().kind() == APP_DIRECTORY_INVALID_ARGUMENT);
+	assert(invalid.error().nativeCode() == 0);
+	assert(!invalid.error().message().isEmpty());
+
+	ApplicationDirectoryRootsOutcome limited = ApplicationDirectories.resolve(ApplicationDirectoryLimits(1));
+	int platform = __btrc_application_directories_platform();
+	if (platform == 1 || platform == 2) {
+		assert(!limited.ok());
+		assert(limited.error().kind() == APP_DIRECTORY_PATH_TOO_LONG);
+
+		ApplicationDirectoryRootsOutcome resolved = ApplicationDirectories.resolveStandard();
+		assert(resolved.ok());
+		assert(ApplicationDirectoryTest.normalized(resolved.roots().stateRoot()));
+		assert(ApplicationDirectoryTest.normalized(resolved.roots().cacheRoot()));
+		assert(ApplicationDirectoryTest.normalized(resolved.roots().configRoot()));
+	} else {
+		assert(!limited.ok());
+		assert(limited.error().kind() == APP_DIRECTORY_UNSUPPORTED);
+	}
+
+	print("PASS: bounded platform application directory roots");
+	return 0;
+}

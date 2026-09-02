@@ -5002,6 +5002,23 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         source_visible=True,
         realtime_effect='unknown',
     ),
+    GeneratedRuntimeHelperRow(
+        category='runtime',
+        name='__btrc_application_directories_platform',
+        c_source=(
+            'static inline int __btrc_application_directories_platform(void) {\n#if de'
+            'fined(BTRC_APPLICATION_DIRECTORIES_PLATFORM_OVERRIDE)\n    return BTRC_AP'
+            'PLICATION_DIRECTORIES_PLATFORM_OVERRIDE;\n#elif defined(__APPLE__)\n    re'
+            'turn 1;\n#elif defined(__linux__)\n    return 2;\n#elif defined(_WIN32)\n   '
+            ' return 3;\n#else\n    return 0;\n#endif\n}'
+        ),
+        depends_on=(),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='safe',
+    ),
 )
 
 INTRINSIC_EFFECT_ROWS: tuple[GeneratedIntrinsicEffectRow, ...] = (

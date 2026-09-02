@@ -1038,6 +1038,24 @@ Console.log("message");            // stdout + newline
 Console.error("problem");          // stderr + newline
 ```
 
+#### Application directories
+
+```btrc
+import std.ApplicationDirectories;
+
+ApplicationDirectoryRootsOutcome resolved = ApplicationDirectories.resolve(ApplicationDirectoryLimits.standard());
+if (resolved.ok()) {
+	string state = resolved.roots().stateRoot();
+	string cache = resolved.roots().cacheRoot();
+	string config = resolved.roots().configRoot();
+}
+```
+
+The returned paths are absolute, lexically normalized per-user roots. The API
+does not create them or append an application name. macOS uses Application
+Support/Caches; Linux follows XDG with HOME fallbacks. Errors and path limits
+are explicit.
+
 #### Result
 
 ```

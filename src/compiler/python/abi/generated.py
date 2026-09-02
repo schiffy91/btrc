@@ -53,6 +53,23 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
+        name='__btrc_application_directories_platform',
+        origin='runtime',
+        result=GeneratedAbiTypeRow('int', 0, False, ()),
+        parameters=(),
+        variadic=False,
+        semantic_result=None,
+        return_effect='value',
+        return_alias_parameter=None,
+        return_alias_null_effect=None,
+        raw_lifetime=False,
+        return_deallocator=None,
+        return_alias_shape=None,
+        consume_deallocator=None,
+        return_alias_null_deallocator=None,
+        realtime_effect='safe',
+    ),
+    GeneratedHostedFunctionRow(
         name='__btrc_close_descriptors_except',
         origin='runtime',
         result=GeneratedAbiTypeRow('int', 0, False, ()),
@@ -8235,6 +8252,7 @@ HOSTED_FUNCTION_NAMES: tuple[str, ...] = (
     'GetFileAttributesA',
     'RemoveDirectoryA',
     '_Exit',
+    '__btrc_application_directories_platform',
     '__btrc_close_descriptors_except',
     '__btrc_close_descriptors_except_many',
     '__btrc_close_descriptors_from',
@@ -14901,6 +14919,7 @@ HOSTED_OWNED_NAMES: tuple[str, ...] = (
     '_IOLBF',
     '_IONBF',
     '__bool_true_false_are_defined',
+    '__btrc_application_directories_platform',
     '__btrc_close_descriptors_except',
     '__btrc_close_descriptors_except_many',
     '__btrc_close_descriptors_from',
@@ -20183,4 +20202,4 @@ HOSTED_PLATFORM_TYPEDEF_NAMES: tuple[str, ...] = (
 
 HOSTED_STDLIB_SOURCE_MARKER = 'compiler:stdlib'
 HOSTED_USER_SOURCE_MARKER = 'compiler:user'
-HOSTED_ABI_FINGERPRINT = '05a60af9faf68da0877e93090fd6e44a819210b4ababa9c39bb66afac61f8d97'
+HOSTED_ABI_FINGERPRINT = '60f052f84df4d7ec3665b18e2040e7a53935ec5ab9c1486c58c07153c5d6134d'

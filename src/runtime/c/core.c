@@ -232,3 +232,18 @@ static inline unsigned int __btrc_hash_str(const char* s) {
     return h;
 }
 /* btrc-runtime-helper:end __btrc_hash_str */
+/* btrc-runtime-helper:begin __btrc_application_directories_platform */
+static inline int __btrc_application_directories_platform(void) {
+#if defined(BTRC_APPLICATION_DIRECTORIES_PLATFORM_OVERRIDE)
+    return BTRC_APPLICATION_DIRECTORIES_PLATFORM_OVERRIDE;
+#elif defined(__APPLE__)
+    return 1;
+#elif defined(__linux__)
+    return 2;
+#elif defined(_WIN32)
+    return 3;
+#else
+    return 0;
+#endif
+}
+/* btrc-runtime-helper:end __btrc_application_directories_platform */

@@ -2463,3 +2463,13 @@ dependencies = [
 headers = ["string.h"]
 source_visible = false
 order = { python = 223, btrc = 208 }
+
+[[helpers]]
+name = "__btrc_application_directories_platform"
+category = "runtime"
+asset = "core.c"
+dependencies = []
+headers = []
+source_visible = true
+realtime_effect = "safe"
+order = { python = 227, btrc = 212 }

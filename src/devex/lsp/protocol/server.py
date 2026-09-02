@@ -42,7 +42,7 @@ class BtrcLanguageServer(LanguageServer):
         debounce_seconds: float | None = None,
         compiler_workspace: Workspace | None = None,
     ) -> None:
-        super().__init__("btrc-lsp", "0.1.0")
+        super().__init__("btrc-lsp", "0.1.1")
         self.logger = logging.getLogger("btrc-lsp")
         self.debounce_seconds = self.DEFAULT_DEBOUNCE_SECONDS if debounce_seconds is None else debounce_seconds
 

@@ -186,7 +186,7 @@ class GeneratedHostedAbiData {
 		self.push_platform_typedef_names0();
 		self.stdlib_source_marker = "compiler:stdlib";
 		self.user_source_marker = "compiler:user";
-		self.fingerprint = "05a60af9faf68da0877e93090fd6e44a819210b4ababa9c39bb66afac61f8d97";
+		self.fingerprint = "60f052f84df4d7ec3665b18e2040e7a53935ec5ab9c1486c58c07153c5d6134d";
 	}
 
 	private void pushFunctions0() {
@@ -210,6 +210,7 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow("__btrc_application_directories_platform", "runtime", GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "safe"));
 		self.functions.push(GeneratedHostedFunctionRow(
 			"__btrc_close_descriptors_except",
 			"runtime",
@@ -897,6 +898,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions1() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"asinf",
 			"math",
@@ -917,9 +921,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions1() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"asinh",
 			"math",
@@ -1679,6 +1680,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions2() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"btrc_gpu_read_buffer_checked",
 			"native_gpu",
@@ -1702,9 +1706,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions2() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"btrc_gpu_set_uniform",
 			"native_gpu",
@@ -2527,6 +2528,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions3() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"btrc_tray_set_item_checked",
 			"native_tray",
@@ -2549,9 +2553,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions3() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"btrc_tray_set_menu",
 			"native_tray",
@@ -3323,6 +3324,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions4() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"exp2",
 			"math",
@@ -3343,9 +3347,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions4() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"exp2f",
 			"math",
@@ -4148,6 +4149,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions5() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"fmodl",
 			"math",
@@ -4169,9 +4173,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions5() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"fnmatch",
 			"posix",
@@ -4909,6 +4910,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions6() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"isspace",
 			"ctype",
@@ -4929,9 +4933,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions6() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"isupper",
 			"ctype",
@@ -5733,6 +5734,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions7() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"nearbyintf",
 			"math",
@@ -5753,9 +5757,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions7() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"nearbyintl",
 			"math",
@@ -6553,6 +6554,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions8() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"remainderf",
 			"math",
@@ -6574,9 +6578,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions8() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"remainderl",
 			"math",
@@ -7387,6 +7388,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions9() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_app_create",
 			"native_app",
@@ -7407,9 +7411,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions9() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_app_error_code",
 			"native_app",
@@ -8211,6 +8212,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions10() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_background_jobs_poll",
 			"native_background_jobs",
@@ -8232,9 +8236,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions10() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_background_jobs_submit",
 			"native_background_jobs",
@@ -9094,6 +9095,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions11() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"strncmp",
 			"string",
@@ -9116,9 +9120,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions11() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"strncpy",
 			"string",
@@ -9908,6 +9909,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions12() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"unsetenv",
 			"posix_process",
@@ -9928,9 +9932,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions12() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"waitpid",
 			"posix_process",
@@ -9981,6 +9982,7 @@ class GeneratedHostedAbiData {
 		self.function_names.push("GetFileAttributesA");
 		self.function_names.push("RemoveDirectoryA");
 		self.function_names.push("_Exit");
+		self.function_names.push("__btrc_application_directories_platform");
 		self.function_names.push("__btrc_close_descriptors_except");
 		self.function_names.push("__btrc_close_descriptors_except_many");
 		self.function_names.push("__btrc_close_descriptors_from");
@@ -10227,10 +10229,10 @@ class GeneratedHostedAbiData {
 		self.function_names.push("erfc");
 		self.function_names.push("erfcf");
 		self.function_names.push("erfcl");
-		self.function_names.push("erff");
 	}
 
 	private void push_function_names1() {
+		self.function_names.push("erff");
 		self.function_names.push("erfl");
 		self.function_names.push("exchangedata");
 		self.function_names.push("execl");
@@ -10480,10 +10482,10 @@ class GeneratedHostedAbiData {
 		self.function_names.push("isblank");
 		self.function_names.push("iscntrl");
 		self.function_names.push("isdigit");
-		self.function_names.push("isfdtype");
 	}
 
 	private void push_function_names2() {
+		self.function_names.push("isfdtype");
 		self.function_names.push("isgraph");
 		self.function_names.push("isinff");
 		self.function_names.push("isinfl");
@@ -10733,10 +10735,10 @@ class GeneratedHostedAbiData {
 		self.function_names.push("pthread_mutex_destroy");
 		self.function_names.push("pthread_mutex_getprioceiling");
 		self.function_names.push("pthread_mutex_init");
-		self.function_names.push("pthread_mutex_lock");
 	}
 
 	private void push_function_names3() {
+		self.function_names.push("pthread_mutex_lock");
 		self.function_names.push("pthread_mutex_setprioceiling");
 		self.function_names.push("pthread_mutex_timedlock");
 		self.function_names.push("pthread_mutex_trylock");
@@ -10986,10 +10988,10 @@ class GeneratedHostedAbiData {
 		self.function_names.push("std_app_event_logical_height");
 		self.function_names.push("std_app_event_logical_width");
 		self.function_names.push("std_app_event_modifiers");
-		self.function_names.push("std_app_event_pointer_action");
 	}
 
 	private void push_function_names4() {
+		self.function_names.push("std_app_event_pointer_action");
 		self.function_names.push("std_app_event_pointer_button");
 		self.function_names.push("std_app_event_pointer_x");
 		self.function_names.push("std_app_event_pointer_y");
@@ -16717,6 +16719,7 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("_IOLBF");
 		self.owned_names.push("_IONBF");
 		self.owned_names.push("__bool_true_false_are_defined");
+		self.owned_names.push("__btrc_application_directories_platform");
 		self.owned_names.push("__btrc_close_descriptors_except");
 		self.owned_names.push("__btrc_close_descriptors_except_many");
 		self.owned_names.push("__btrc_close_descriptors_from");
@@ -16842,10 +16845,10 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("atomic_ptrdiff_t");
 		self.owned_names.push("atomic_schar");
 		self.owned_names.push("atomic_short");
-		self.owned_names.push("atomic_signal_fence");
 	}
 
 	private void push_owned_names10() {
+		self.owned_names.push("atomic_signal_fence");
 		self.owned_names.push("atomic_size_t");
 		self.owned_names.push("atomic_store");
 		self.owned_names.push("atomic_store_explicit");
@@ -17095,10 +17098,10 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("fattributiontag");
 		self.owned_names.push("fattributiontag_t");
 		self.owned_names.push("fchdir");
-		self.owned_names.push("fchecklv");
 	}
 
 	private void push_owned_names11() {
+		self.owned_names.push("fchecklv");
 		self.owned_names.push("fchecklv_t");
 		self.owned_names.push("fchflags");
 		self.owned_names.push("fchmod");
@@ -17348,10 +17351,10 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("inet6_option_space");
 		self.owned_names.push("inet6_rth_add");
 		self.owned_names.push("inet6_rth_getaddr");
-		self.owned_names.push("inet6_rth_init");
 	}
 
 	private void push_owned_names12() {
+		self.owned_names.push("inet6_rth_init");
 		self.owned_names.push("inet6_rth_reverse");
 		self.owned_names.push("inet6_rth_segments");
 		self.owned_names.push("inet6_rth_space");
@@ -17601,10 +17604,10 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("nearbyintf");
 		self.owned_names.push("nearbyintl");
 		self.owned_names.push("nextafter");
-		self.owned_names.push("nextafterf");
 	}
 
 	private void push_owned_names13() {
+		self.owned_names.push("nextafterf");
 		self.owned_names.push("nextafterl");
 		self.owned_names.push("nexttoward");
 		self.owned_names.push("nexttowardf");
@@ -17854,10 +17857,10 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("remainder");
 		self.owned_names.push("remainderf");
 		self.owned_names.push("remainderl");
-		self.owned_names.push("remove");
 	}
 
 	private void push_owned_names14() {
+		self.owned_names.push("remove");
 		self.owned_names.push("remquo");
 		self.owned_names.push("remquof");
 		self.owned_names.push("remquol");
@@ -18107,10 +18110,10 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("std_app_poll");
 		self.owned_names.push("std_app_surface_attach");
 		self.owned_names.push("std_app_surface_create");
-		self.owned_names.push("std_app_surface_detach");
 	}
 
 	private void push_owned_names15() {
+		self.owned_names.push("std_app_surface_detach");
 		self.owned_names.push("std_app_surface_finalize");
 		self.owned_names.push("std_app_surface_generation");
 		self.owned_names.push("std_app_surface_glfw");
@@ -18360,10 +18363,10 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("va_arg");
 		self.owned_names.push("va_copy");
 		self.owned_names.push("va_end");
-		self.owned_names.push("va_start");
 	}
 
 	private void push_owned_names16() {
+		self.owned_names.push("va_start");
 		self.owned_names.push("valloc");
 		self.owned_names.push("vfork");
 		self.owned_names.push("vfprintf");
