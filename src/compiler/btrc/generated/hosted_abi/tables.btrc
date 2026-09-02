@@ -186,7 +186,7 @@ class GeneratedHostedAbiData {
 		self.push_platform_typedef_names0();
 		self.stdlib_source_marker = "compiler:stdlib";
 		self.user_source_marker = "compiler:user";
-		self.fingerprint = "b429998f9e5796b79e85ac0e2ae12a95f35e681946d693d1eeaab5b65fd7d622";
+		self.fingerprint = "2d8019cb6371e8a21f2a4aa9d50f88c4a6487e715223bfebbf334a832501e0e9";
 	}
 
 	private void pushFunctions0() {
@@ -7896,6 +7896,28 @@ class GeneratedHostedAbiData {
 			"",
 			"unknown"));
 		self.functions.push(GeneratedHostedFunctionRow(
+			"std_app_window_choose_directory",
+			"native_app",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()), "read", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()), "read", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
 			"std_app_window_close",
 			"native_app",
 			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
@@ -8082,6 +8104,26 @@ class GeneratedHostedAbiData {
 			"",
 			"unknown"));
 		self.functions.push(GeneratedHostedFunctionRow(
+			"std_app_window_selected_directory",
+			"native_app",
+			GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()),
+			"independent",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
 			"std_background_jobs_cancel",
 			"native_background_jobs",
 			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
@@ -8170,6 +8212,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions10() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_background_jobs_open",
 			"native_background_jobs",
@@ -8212,9 +8257,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions10() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_background_jobs_poll",
 			"native_background_jobs",
@@ -9089,6 +9131,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions11() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"strcat",
 			"string",
@@ -9131,9 +9176,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions11() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"strcmp",
 			"string",
@@ -9927,6 +9969,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions12() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"time",
 			"posix_process",
@@ -9948,9 +9993,6 @@ class GeneratedHostedAbiData {
 			"",
 			"unknown"));
 		self.functions.push(GeneratedHostedFunctionRow("tmpfile", "stdio", GeneratedAbiTypeRow("FILE", 1, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("FILE", 1, false, self.emptyTypes()), "independent", -1, "", false, "fclose", "", "", "", "unknown"));
-	}
-
-	private void pushFunctions12() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"tolower",
 			"ctype",
@@ -11212,6 +11254,7 @@ class GeneratedHostedAbiData {
 		self.function_names.push("std_app_surface_glfw");
 		self.function_names.push("std_app_surface_lease_generation");
 		self.function_names.push("std_app_surface_release");
+		self.function_names.push("std_app_window_choose_directory");
 		self.function_names.push("std_app_window_close");
 		self.function_names.push("std_app_window_finalize");
 		self.function_names.push("std_app_window_framebuffer_height");
@@ -11221,6 +11264,7 @@ class GeneratedHostedAbiData {
 		self.function_names.push("std_app_window_open");
 		self.function_names.push("std_app_window_scale_x");
 		self.function_names.push("std_app_window_scale_y");
+		self.function_names.push("std_app_window_selected_directory");
 		self.function_names.push("std_background_jobs_cancel");
 		self.function_names.push("std_background_jobs_cancel_generation");
 		self.function_names.push("std_background_jobs_cancel_requested");
@@ -18329,6 +18373,7 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("std_app_surface_glfw");
 		self.owned_names.push("std_app_surface_lease_generation");
 		self.owned_names.push("std_app_surface_release");
+		self.owned_names.push("std_app_window_choose_directory");
 		self.owned_names.push("std_app_window_close");
 		self.owned_names.push("std_app_window_finalize");
 		self.owned_names.push("std_app_window_framebuffer_height");
@@ -18338,6 +18383,7 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("std_app_window_open");
 		self.owned_names.push("std_app_window_scale_x");
 		self.owned_names.push("std_app_window_scale_y");
+		self.owned_names.push("std_app_window_selected_directory");
 		self.owned_names.push("std_background_jobs_cancel");
 		self.owned_names.push("std_background_jobs_cancel_generation");
 		self.owned_names.push("std_background_jobs_cancel_requested");
@@ -18571,11 +18617,11 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("uuid_generate");
 		self.owned_names.push("uuid_generate_random");
 		self.owned_names.push("uuid_generate_time");
-		self.owned_names.push("uuid_is_null");
-		self.owned_names.push("uuid_parse");
 	}
 
 	private void push_owned_names16() {
+		self.owned_names.push("uuid_is_null");
+		self.owned_names.push("uuid_parse");
 		self.owned_names.push("uuid_string_t");
 		self.owned_names.push("uuid_t");
 		self.owned_names.push("uuid_unparse");
@@ -18689,6 +18735,7 @@ class GeneratedHostedAbiData {
 		self.native_names.push("std_app_surface_finalize");
 		self.native_names.push("std_app_surface_generation");
 		self.native_names.push("std_app_surface_release");
+		self.native_names.push("std_app_window_choose_directory");
 		self.native_names.push("std_app_window_close");
 		self.native_names.push("std_app_window_finalize");
 		self.native_names.push("std_app_window_framebuffer_height");
@@ -18698,6 +18745,7 @@ class GeneratedHostedAbiData {
 		self.native_names.push("std_app_window_open");
 		self.native_names.push("std_app_window_scale_x");
 		self.native_names.push("std_app_window_scale_y");
+		self.native_names.push("std_app_window_selected_directory");
 		self.native_names.push("std_background_jobs_cancel");
 		self.native_names.push("std_background_jobs_cancel_generation");
 		self.native_names.push("std_background_jobs_cancel_requested");
@@ -19459,6 +19507,7 @@ class GeneratedHostedAbiData {
 		self.platform_function_names.push("std_app_surface_glfw");
 		self.platform_function_names.push("std_app_surface_lease_generation");
 		self.platform_function_names.push("std_app_surface_release");
+		self.platform_function_names.push("std_app_window_choose_directory");
 		self.platform_function_names.push("std_app_window_close");
 		self.platform_function_names.push("std_app_window_finalize");
 		self.platform_function_names.push("std_app_window_framebuffer_height");
@@ -19468,6 +19517,7 @@ class GeneratedHostedAbiData {
 		self.platform_function_names.push("std_app_window_open");
 		self.platform_function_names.push("std_app_window_scale_x");
 		self.platform_function_names.push("std_app_window_scale_y");
+		self.platform_function_names.push("std_app_window_selected_directory");
 		self.platform_function_names.push("std_background_jobs_cancel");
 		self.platform_function_names.push("std_background_jobs_cancel_generation");
 		self.platform_function_names.push("std_background_jobs_cancel_requested");
@@ -19576,11 +19626,11 @@ class GeneratedHostedAbiData {
 		self.platform_function_names.push("umaskx_np");
 		self.platform_function_names.push("undelete");
 		self.platform_function_names.push("unlink");
-		self.platform_function_names.push("unlinkat");
-		self.platform_function_names.push("unlockpt");
 	}
 
 	private void push_platform_function_names3() {
+		self.platform_function_names.push("unlinkat");
+		self.platform_function_names.push("unlockpt");
 		self.platform_function_names.push("unsetenv");
 		self.platform_function_names.push("unwhiteout");
 		self.platform_function_names.push("user_from_uid");

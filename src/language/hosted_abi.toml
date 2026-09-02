@@ -1028,6 +1028,7 @@ functions = [
   "std_app_surface_glfw",
   "std_app_surface_lease_generation",
   "std_app_surface_release",
+  "std_app_window_choose_directory",
   "std_app_window_close",
   "std_app_window_finalize",
   "std_app_window_framebuffer_height",
@@ -1037,6 +1038,7 @@ functions = [
   "std_app_window_open",
   "std_app_window_scale_x",
   "std_app_window_scale_y",
+  "std_app_window_selected_directory",
   "std_background_jobs_cancel",
   "std_background_jobs_cancel_generation",
   "std_background_jobs_cancel_requested",
@@ -8064,6 +8066,7 @@ owned = [
   "std_app_surface_glfw",
   "std_app_surface_lease_generation",
   "std_app_surface_release",
+  "std_app_window_choose_directory",
   "std_app_window_close",
   "std_app_window_finalize",
   "std_app_window_framebuffer_height",
@@ -8073,6 +8076,7 @@ owned = [
   "std_app_window_open",
   "std_app_window_scale_x",
   "std_app_window_scale_y",
+  "std_app_window_selected_directory",
   "std_background_jobs_cancel",
   "std_background_jobs_cancel_generation",
   "std_background_jobs_cancel_requested",
@@ -8420,6 +8424,7 @@ native = [
   "std_app_surface_finalize",
   "std_app_surface_generation",
   "std_app_surface_release",
+  "std_app_window_choose_directory",
   "std_app_window_close",
   "std_app_window_finalize",
   "std_app_window_framebuffer_height",
@@ -8429,6 +8434,7 @@ native = [
   "std_app_window_open",
   "std_app_window_scale_x",
   "std_app_window_scale_y",
+  "std_app_window_selected_directory",
   "std_background_jobs_cancel",
   "std_background_jobs_cancel_generation",
   "std_background_jobs_cancel_requested",
@@ -9183,6 +9189,7 @@ functions = [
   "std_app_surface_glfw",
   "std_app_surface_lease_generation",
   "std_app_surface_release",
+  "std_app_window_choose_directory",
   "std_app_window_close",
   "std_app_window_finalize",
   "std_app_window_framebuffer_height",
@@ -9192,6 +9199,7 @@ functions = [
   "std_app_window_open",
   "std_app_window_scale_x",
   "std_app_window_scale_y",
+  "std_app_window_selected_directory",
   "std_background_jobs_cancel",
   "std_background_jobs_cancel_generation",
   "std_background_jobs_cancel_requested",
@@ -16942,6 +16950,20 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
+name = "std_app_window_choose_directory"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
 name = "std_app_window_close"
 origin = "native_app"
 result = { base = "int", pointer_depth = 0, is_const = false }
@@ -17053,6 +17075,18 @@ parameters = [
 ]
 variadic = false
 return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_window_selected_directory"
+origin = "native_app"
+result = { base = "char", pointer_depth = 1, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "independent"
 raw_lifetime = false
 
 [[functions]]

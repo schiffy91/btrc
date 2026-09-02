@@ -9,6 +9,8 @@ int std_app_error_code(unsigned long long application);
 string std_app_error_message(unsigned long long application);
 unsigned long long std_app_window_open(unsigned long long application, string title, int width, int height, unsigned long long* ownerReceiptOut);
 int std_app_window_close(unsigned long long window, unsigned long long ownerReceipt);
+int std_app_window_choose_directory(unsigned long long window, string title, string initialDirectory);
+string std_app_window_selected_directory(unsigned long long window);
 unsigned long long std_app_surface_create(unsigned long long window, unsigned long long* ownerReceiptOut);
 unsigned long long std_app_surface_generation(unsigned long long surface);
 int std_app_surface_release(unsigned long long surface, unsigned long long ownerReceipt);
@@ -276,6 +278,42 @@ class AppSurfaceOpenOutcome {
 	}
 }
 
+class AppDirectoryPickerRequest {
+	public string title;
+	public string initialDirectory;
+
+	public AppDirectoryPickerRequest(string title, string initialDirectory = "") {
+		self.title = title;
+		self.initialDirectory = initialDirectory;
+	}
+
+	public bool isValid() { return !self.title.isEmpty(); }
+}
+
+enum AppDirectoryPickerKind {
+	APP_DIRECTORY_PICKER_SELECTED = 1,
+	APP_DIRECTORY_PICKER_CANCELLED = 2,
+	APP_DIRECTORY_PICKER_FAILED = 3
+};
+
+class AppDirectoryPickerOutcome {
+	public AppDirectoryPickerKind kind;
+	public string directory;
+	public AppError? error;
+
+	private AppDirectoryPickerOutcome(AppDirectoryPickerKind kind, string directory, AppError? error) {
+		self.kind = kind;
+		self.directory = directory;
+		self.error = error;
+	}
+
+	class AppDirectoryPickerOutcome selected(string directory) { return new AppDirectoryPickerOutcome(APP_DIRECTORY_PICKER_SELECTED, directory, null); }
+
+	class AppDirectoryPickerOutcome cancelled() { return new AppDirectoryPickerOutcome(APP_DIRECTORY_PICKER_CANCELLED, "", null); }
+
+	class AppDirectoryPickerOutcome failed(AppError error) { return new AppDirectoryPickerOutcome(APP_DIRECTORY_PICKER_FAILED, "", error); }
+}
+
 class Application {
 	private unsigned long long identity;
 	private unsigned long long ownerReceipt;
@@ -376,6 +414,8 @@ class ApplicationWindow {
 		self.ownerReceipt = ownerReceipt;
 	}
 
+	private AppError lastError() { return new AppError((AppErrorCode)std_app_error_code(self.identity), std_app_error_message(self.identity)); }
+
 	class AppWindowOpenOutcome open(Application application, AppWindowDescriptor descriptor) {
 		unsigned long long applicationIdentity = application.applicationIdentity();
 		unsigned long long ownerReceipt = 0ULL;
@@ -391,6 +431,20 @@ class ApplicationWindow {
 	public unsigned long long windowIdentity() { return self.identity; }
 
 	public bool isOpen() { return self.identity != 0ULL && self.ownerReceipt != 0ULL; }
+
+	/* The native modal session is bounded by this call. Closing the panel is an
+	 * explicit cancellation; the window must remain open for the whole call. */
+	public AppDirectoryPickerOutcome chooseDirectory(AppDirectoryPickerRequest request) {
+		if (!self.isOpen()) { return AppDirectoryPickerOutcome.failed(new AppError(APP_ERROR_CLOSED, "window is closed")); }
+		if (!request.isValid()) { return AppDirectoryPickerOutcome.failed(new AppError(APP_ERROR_INVALID_ARGUMENT, "invalid directory picker request")); }
+		int status = std_app_window_choose_directory(self.identity, request.title, request.initialDirectory);
+		if (status == APP_DIRECTORY_PICKER_CANCELLED) { return AppDirectoryPickerOutcome.cancelled(); }
+		if (status == APP_DIRECTORY_PICKER_FAILED) { return AppDirectoryPickerOutcome.failed(self.lastError()); }
+		if (status != APP_DIRECTORY_PICKER_SELECTED) { return AppDirectoryPickerOutcome.failed(new AppError(APP_ERROR_INTERNAL, "directory picker returned an unknown outcome")); }
+		string directory = Strings.copy(std_app_window_selected_directory(self.identity));
+		if (directory.isEmpty()) { return AppDirectoryPickerOutcome.failed(new AppError(APP_ERROR_INTERNAL, "directory picker selected an empty path")); }
+		return AppDirectoryPickerOutcome.selected(directory);
+	}
 
 	public AppSurfaceMetrics metrics() {
 		AppSurfaceMetrics metrics = new AppSurfaceMetrics(0, 0, 0, 0, 0.0f, 0.0f);

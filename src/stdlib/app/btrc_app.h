@@ -41,6 +41,12 @@ enum {
 };
 
 enum {
+    BTRC_APP_DIRECTORY_PICKER_SELECTED = 1,
+    BTRC_APP_DIRECTORY_PICKER_CANCELLED = 2,
+    BTRC_APP_DIRECTORY_PICKER_FAILED = 3,
+};
+
+enum {
     BTRC_APP_EVENT_IDLE = 0,
     BTRC_APP_EVENT_POINTER = 1,
     BTRC_APP_EVENT_KEYBOARD = 2,
@@ -108,6 +114,9 @@ unsigned long long std_app_window_open(
     unsigned long long* owner_receipt_out);
 int std_app_window_close(
     unsigned long long window, unsigned long long owner_receipt);
+int std_app_window_choose_directory(
+    unsigned long long window, char* title, char* initial_directory);
+char* std_app_window_selected_directory(unsigned long long window);
 
 unsigned long long std_app_surface_create(
     unsigned long long window, unsigned long long* owner_receipt_out);
