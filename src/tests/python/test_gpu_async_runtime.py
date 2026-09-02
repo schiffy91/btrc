@@ -215,8 +215,10 @@ def test_gpu_archive_rule_asserts_runtime_membership() -> None:
     assert archive_cleanup < dependency_probe
     assert '-E "$$D/$$source" -o /dev/null' in makefile
     assert '-E "$$D/btrc_gpu_surface_macos.m" -o /dev/null' in makefile
+    assert "btrc_gpu_native_ui.o $$O/btrc_gpu_native_ui_text.o" in makefile
     assert "btrc_gpu_async.o $$O/btrc_gpu_surface.o" in makefile
     assert r'grep -q "btrc_gpu_async\\.o$$"' in makefile
+    assert r'grep -q "btrc_gpu_native_ui_text\\.o$$"' in makefile
     assert r'grep -q "btrc_gpu_surface\\.o$$"' in makefile
 
 

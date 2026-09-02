@@ -3,6 +3,18 @@ import std.native_ui;
 
 #include <assert.h>
 
+int platformTypographyMeasure(unsigned long long provider, string value, int fontSize, int lineHeight, int fontWeight, int* widthOut, int* heightOut, int* ascentOut, int* descentOut, int* advanceOut) {
+	assert(provider == 42ULL);
+	assert(value == "System");
+	assert(fontSize == 20 && lineHeight == 26 && fontWeight == 600);
+	widthOut[0] = 71;
+	heightOut[0] = 26;
+	ascentOut[0] = 18;
+	descentOut[0] = 5;
+	advanceOut[0] = 15;
+	return 1;
+}
+
 NativeUiElement deepVirtualGrid() {
 	NativeUiElement grid = NativeUiElement.virtualGrid("albums", NativeUiVirtualGrid(2000, 4, 40, 1984)).className("album-grid");
 	for (int index = 1984; index < 2000; index++) {
@@ -42,6 +54,11 @@ int main() {
 	NativeUiTypography typography = NativeUiTypography();
 	NativeUiTextMetrics headingMetrics = typography.measure("AB", 28, 34);
 	assert(headingMetrics.width() == 48 && headingMetrics.height() == 34 && headingMetrics.advance() == 24);
+	assert(!typography.platformBacked());
+	NativeUiTypography platformTypography = NativeUiTypography.platform(42ULL, platformTypographyMeasure);
+	NativeUiTextMetrics platformMetrics = platformTypography.measure("System", 20, 26, 600);
+	assert(platformTypography.platformBacked());
+	assert(platformMetrics.width() == 71 && platformMetrics.height() == 26 && platformMetrics.ascent() == 18 && platformMetrics.descent() == 5 && platformMetrics.advance() == 15);
 	assert(typography.alignedX(10, 100, 8, 48, NATIVE_UI_TEXT_ALIGN_LEFT) == 18);
 	assert(typography.alignedX(10, 100, 8, 48, NATIVE_UI_TEXT_ALIGN_CENTER) == 36);
 	assert(typography.alignedX(10, 100, 8, 48, NATIVE_UI_TEXT_ALIGN_RIGHT) == 54);

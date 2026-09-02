@@ -115,6 +115,12 @@ def darwin_gpu_flags() -> tuple[list[str], str | None]:
         "IOKit",
         "-framework",
         "CoreVideo",
+        "-framework",
+        "CoreText",
+        "-framework",
+        "CoreGraphics",
+        "-framework",
+        "CoreFoundation",
     ], None
 
 

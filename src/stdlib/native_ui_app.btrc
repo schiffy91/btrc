@@ -16,12 +16,17 @@ int std_gpu_native_ui_create(unsigned long long gpu, unsigned long long* composi
 int std_gpu_native_ui_begin(unsigned long long compositor, int logicalWidth, int logicalHeight);
 int std_gpu_native_ui_add_rect(unsigned long long compositor, float x, float y, float width, float height, float red, float green, float blue, float alpha, float radius);
 int std_gpu_native_ui_add_glyph(unsigned long long compositor, float x, float y, float width, float height, float red, float green, float blue, float alpha, unsigned long long glyphBits);
+int std_gpu_native_ui_system_typography_available(unsigned long long compositor);
+int std_gpu_native_ui_measure_text(unsigned long long compositor, string text, int fontSize, int lineHeight, int fontWeight, int* widthOut, int* heightOut, int* ascentOut, int* descentOut, int* advanceOut);
+int std_gpu_native_ui_add_text(unsigned long long compositor, string text, float x, float y, int fontSize, int lineHeight, int fontWeight, float backingScale, float red, float green, float blue, float alpha);
 int std_gpu_native_ui_add_image(unsigned long long compositor, string identity, unsigned char* rgba, int sourceWidth, int sourceHeight, unsigned long long sourceRevision, float x, float y, float width, float height);
 int std_gpu_native_ui_draw(unsigned long long gpu, unsigned long long compositor);
 int std_gpu_native_ui_destroy(unsigned long long compositor, unsigned long long ownerReceipt);
 void std_gpu_native_ui_finalize(unsigned long long compositor, unsigned long long ownerReceipt);
 int std_gpu_native_ui_command_count(unsigned long long compositor);
 int std_gpu_native_ui_image_count(unsigned long long compositor);
+
+int nativeUiPlatformMeasure(unsigned long long compositor, string text, int fontSize, int lineHeight, int fontWeight, int* widthOut, int* heightOut, int* ascentOut, int* descentOut, int* advanceOut) { return std_gpu_native_ui_measure_text(compositor, text, fontSize, lineHeight, fontWeight, widthOut, heightOut, ascentOut, descentOut, advanceOut) == GPU_RESOURCE_READY ? 1 : 0; }
 
 enum NativeUiAppAttachKind {
 	NATIVE_UI_APP_ATTACHED = 0,
@@ -121,6 +126,9 @@ class NativeUiAppSession {
 			}
 			return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACH_REJECTED, null, std_gpu_status_message(status));
 		}
+		if (typography == null && std_gpu_native_ui_system_typography_available(compositor) != 0) {
+			resolvedTypography = NativeUiTypography.platform(compositor, nativeUiPlatformMeasure);
+		}
 		return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACHED, NativeUiAppSession(window, gpu, resolvedSheet, resolvedTheme, resolvedTypography, compositor, receipt), "");
 	}
 
@@ -141,6 +149,13 @@ class NativeUiAppSession {
 	}
 
 	private GPUResourceOutcome addText(string text, float x, float y, NativeUiColor color, int viewportWidth, NativeUiResolvedStyle style) {
+		if (self.typography.platformBacked()) {
+			AppSurfaceMetrics metrics = self.window.metrics();
+			float backingScale = metrics.scaleX > metrics.scaleY ? metrics.scaleX : metrics.scaleY;
+			int status = std_gpu_native_ui_add_text(self.compositorIdentity, text, x, y, style.fontSize, style.lineHeight, style.fontWeight, backingScale, self.channel(color.red), self.channel(color.green), self.channel(color.blue), self.channel(color.alpha));
+			GPUResourceKind kind = status >= GPU_RESOURCE_READY && status <= GPU_RESOURCE_INTERNAL_ERROR ? (GPUResourceKind)status : GPU_RESOURCE_INTERNAL_ERROR;
+			return GPUResourceOutcome(kind, kind == GPU_RESOURCE_READY ? "" : std_gpu_status_message(status));
+		}
 		float cursor = x;
 		float glyphWidth = (float)self.typography.glyphWidth(style.fontSize);
 		float glyphHeight = (float)self.typography.glyphHeight(style.fontSize);
@@ -197,12 +212,13 @@ class NativeUiAppSession {
 				string value = self.renderer.displayValue(box.element);
 				bool placeholder = value.isEmpty();
 				string visibleValue = placeholder ? box.element.placeholderText() : value;
-				NativeUiTextMetrics metrics = self.typography.measure(visibleValue, style.fontSize, style.lineHeight);
+				NativeUiTextMetrics metrics = self.typography.measure(visibleValue, style.fontSize, style.lineHeight, style.fontWeight);
 				int textX = self.typography.alignedX(x, box.bounds.width, style.padding, metrics.width(), style.textAlignment);
 				GPUResourceOutcome text = self.addText(visibleValue, (float)textX, (float)(y + (box.bounds.height - style.lineHeight) / 2), placeholder ? self.theme.mutedText : (style.hasForeground ? style.foreground : self.theme.text), frame.viewport.width(), style);
 				if (text.kind != GPU_RESOURCE_READY) { return text; }
 				if (hasFocus) {
-					int caretX = textX + NativeUiTextInput.scalarCount(value, self.renderer.focusedCaret()) * self.typography.advance(style.fontSize);
+					string caretPrefix = value.substring(0, self.renderer.focusedCaret());
+					int caretX = textX + self.typography.measure(caretPrefix, style.fontSize, style.lineHeight, style.fontWeight).width();
 					if (caretX >= x + style.padding && caretX < x + box.bounds.width - style.padding + 1) {
 						GPUResourceOutcome caret = self.addRect((float)caretX, (float)(y + (box.bounds.height - style.lineHeight) / 2), 2.0f, (float)style.lineHeight, style.hasForeground ? style.foreground : self.theme.text, 0.0f);
 						if (caret.kind != GPU_RESOURCE_READY) {
@@ -217,7 +233,7 @@ class NativeUiAppSession {
 					return rectangle;
 				}
 				NativeUiColor label = highlighted ? self.theme.accentText : (style.hasForeground ? style.foreground : self.theme.text);
-				NativeUiTextMetrics metrics = self.typography.measure(box.element.contentText(), style.fontSize, style.lineHeight);
+				NativeUiTextMetrics metrics = self.typography.measure(box.element.contentText(), style.fontSize, style.lineHeight, style.fontWeight);
 				int textX = self.typography.alignedX(x, box.bounds.width, style.padding, metrics.width(), style.textAlignment);
 				GPUResourceOutcome text = self.addText(box.element.contentText(), (float)textX, (float)(y + style.padding), label, frame.viewport.width(), style);
 				if (text.kind != GPU_RESOURCE_READY) { return text; }
@@ -229,7 +245,7 @@ class NativeUiAppSession {
 					}
 				}
 				if (box.kind() == NATIVE_UI_TEXT) {
-					NativeUiTextMetrics metrics = self.typography.measure(box.element.contentText(), style.fontSize, style.lineHeight);
+					NativeUiTextMetrics metrics = self.typography.measure(box.element.contentText(), style.fontSize, style.lineHeight, style.fontWeight);
 					int textX = self.typography.alignedX(x, box.bounds.width, style.padding, metrics.width(), style.textAlignment);
 					GPUResourceOutcome text = self.addText(box.element.contentText(), (float)textX, (float)(y + style.padding), style.hasForeground ? style.foreground : self.theme.text, frame.viewport.width(), style);
 					if (text.kind != GPU_RESOURCE_READY) { return text; }

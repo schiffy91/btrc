@@ -301,6 +301,8 @@ def test_native_app_background_jobs_and_ui_effects_are_exact() -> None:
     scroll = hosted_function("std_app_event_scroll_x")
     submit = hosted_function("std_background_jobs_submit")
     add_image = hosted_function("std_gpu_native_ui_add_image")
+    add_text = hosted_function("std_gpu_native_ui_add_text")
+    measure_text = hosted_function("std_gpu_native_ui_measure_text")
 
     assert scroll is not None and scroll.result == abi_type("float")
     assert submit is not None
@@ -311,8 +313,13 @@ def test_native_app_background_jobs_and_ui_effects_are_exact() -> None:
     assert submit.callback_lifetimes == (None, None, "stored_until_unregister", None, "stored_until_unregister", None)
     assert add_image is not None
     assert add_image.effects == (VALUE, READ, READ, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE)
+    assert add_text is not None
+    assert add_text.effects == (VALUE, READ, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE)
+    assert measure_text is not None
+    assert measure_text.effects == (VALUE, READ, VALUE, VALUE, VALUE, MUTATE, MUTATE, MUTATE, MUTATE, MUTATE)
     assert {
         "btrc_gpu_native_ui_create",
+        "btrc_gpu_native_ui_text_measure",
         "btrc_gpu_native_ui_test_fail_next_upload",
     } <= set(HOSTED_NATIVE_INTERNAL_NAMES)
 

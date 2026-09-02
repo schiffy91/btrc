@@ -32,6 +32,7 @@ def _runtime_sources() -> list[str]:
         str(APP / "btrc_app.c"),
         str(GPU / "btrc_gpu.c"),
         str(GPU / "btrc_gpu_native_ui.c"),
+        str(GPU / "btrc_gpu_native_ui_text.c"),
         str(GPU / "btrc_gpu_async.c"),
         str(GPU / "btrc_gpu_surface.c"),
     ]

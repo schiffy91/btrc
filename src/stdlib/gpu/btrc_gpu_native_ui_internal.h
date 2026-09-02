@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <webgpu.h>
 
+#include "btrc_gpu_native_ui_text_internal.h"
+
 /* Private std.native_ui compositor. The device, queue, format, and active
  * render pass are borrowed from the one std.gpu owner; this layer cannot
  * create or present a window, surface, adapter, or device. */
@@ -35,6 +37,26 @@ bool btrc_gpu_native_ui_add_image(
     float y,
     float width,
     float height);
+bool btrc_gpu_native_ui_measure_text(
+    void* compositor,
+    const char* text,
+    int font_size,
+    int line_height,
+    int font_weight,
+    BtrcNativeUiTextMetrics* metrics_out);
+bool btrc_gpu_native_ui_add_text(
+    void* compositor,
+    const char* text,
+    float x,
+    float y,
+    int font_size,
+    int line_height,
+    int font_weight,
+    float backing_scale,
+    float red,
+    float green,
+    float blue,
+    float alpha);
 bool btrc_gpu_native_ui_draw(
     void* compositor, WGPURenderPassEncoder active_pass);
 

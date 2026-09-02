@@ -86,7 +86,7 @@
               " -I${pkgs.wayland.dev}/include";
           GPU_LDFLAGS = "-L${pkgs.wgpu-native}/lib -lwgpu_native -L${pkgs.glfw}/lib -lglfw"
             + lib.optionalString isDarwin
-              " -framework Metal -framework QuartzCore -framework Cocoa -framework IOKit -framework CoreVideo";
+              " -framework Metal -framework QuartzCore -framework Cocoa -framework IOKit -framework CoreVideo -framework CoreText -framework CoreGraphics -framework CoreFoundation";
           FONT_CFLAGS = "-I${pkgs.freetype.dev}/include/freetype2";
           FONT_LDFLAGS = "-L${pkgs.freetype}/lib -lfreetype";
         };
@@ -231,7 +231,7 @@
         appFrameworks = lib.optionalString isDarwin
           " -framework Cocoa -framework IOKit -framework CoreVideo";
         gpuFrameworks = lib.optionalString isDarwin
-          " -framework Metal -framework QuartzCore -framework Cocoa -framework IOKit -framework CoreVideo";
+          " -framework Metal -framework QuartzCore -framework Cocoa -framework IOKit -framework CoreVideo -framework CoreText -framework CoreGraphics -framework CoreFoundation";
         appCompileFlags = "-DGLFW_INCLUDE_NONE -I${pkgs.glfw.dev}/include";
         gpuCompileFlags = appCompileFlags
           + " -DBTRC_GPU_WGPU_NATIVE -I${pkgs.wgpu-native.dev}/include/webgpu"
@@ -310,13 +310,14 @@
               btrc_gpu.c \
               btrc_gpu_async.c \
               btrc_gpu_native_ui.c \
+              btrc_gpu_native_ui_text.c \
               btrc_gpu_surface.c; do
               $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
                 -pthread ${gpuCompileFlags} \
                 -Isrc/stdlib/app -Isrc/stdlib/gpu \
                 -c "src/stdlib/gpu/$source" -o "''${source%.c}.o"
             done
-            objects="btrc_gpu.o btrc_gpu_async.o btrc_gpu_native_ui.o btrc_gpu_surface.o"
+            objects="btrc_gpu.o btrc_gpu_async.o btrc_gpu_native_ui.o btrc_gpu_native_ui_text.o btrc_gpu_surface.o"
             ${lib.optionalString isDarwin ''
               $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
                 -x objective-c ${gpuCompileFlags} \

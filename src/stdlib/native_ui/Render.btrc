@@ -589,7 +589,7 @@ class NativeUiLayout {
 		if (innerWidth < 1) { innerWidth = 1; }
 
 		if (element.kind() == NATIVE_UI_TEXT) {
-			NativeUiTextMetrics textMetrics = context.typography.measure(element.contentText(), style.fontSize, style.lineHeight);
+			NativeUiTextMetrics textMetrics = context.typography.measure(element.contentText(), style.fontSize, style.lineHeight, style.fontWeight);
 			measured.width = NativeUiLayout.minimum(availableWidth, textMetrics.width() + inset);
 			measured.height = textMetrics.height() + inset;
 		} else if (element.kind() == NATIVE_UI_TEXT_INPUT) {
@@ -699,7 +699,7 @@ class NativeUiLayout {
 				if (labelHeight > 0 && childrenHeight > 0LL) {
 					childrenHeight += (long long)style.gap;
 				}
-				int labelWidth = element.kind() == NATIVE_UI_BUTTON ? context.typography.measure(element.contentText(), style.fontSize, style.lineHeight).width() : 0;
+				int labelWidth = element.kind() == NATIVE_UI_BUTTON ? context.typography.measure(element.contentText(), style.fontSize, style.lineHeight, style.fontWeight).width() : 0;
 				measured.width = element.kind() == NATIVE_UI_BUTTON ? NativeUiLayout.minimum(availableWidth, NativeUiLayout.maximum(labelWidth + inset, childrenWidth + inset)) : availableWidth;
 				long long totalHeight = (long long)labelHeight + childrenHeight + (long long)inset;
 				if (totalHeight > 1000000000LL) {
@@ -924,7 +924,7 @@ class NativeUiRaster {
 				string value = hasFocus ? focusedValue : box.element.contentText();
 				bool placeholder = value.isEmpty();
 				string visibleValue = placeholder ? box.element.placeholderText() : value;
-				NativeUiTextMetrics metrics = typography.measure(visibleValue, style.fontSize, style.lineHeight);
+				NativeUiTextMetrics metrics = typography.measure(visibleValue, style.fontSize, style.lineHeight, style.fontWeight);
 				int textX = typography.alignedX(x, box.bounds.width, style.padding, metrics.width(), style.textAlignment);
 				NativeUiRaster.text(image, textX, y + (box.bounds.height - style.lineHeight) / 2, visibleValue, placeholder ? theme.mutedText : (style.hasForeground ? style.foreground : theme.text), style, typography);
 				if (hasFocus) {
@@ -937,7 +937,7 @@ class NativeUiRaster {
 				NativeUiColor fill = box.id().equals(hovered) ? theme.accent : theme.panel;
 				NativeUiRaster.fillRect(image, x, y, box.bounds.width, box.bounds.height, fill, style.radius);
 				NativeUiColor label = box.id().equals(hovered) ? theme.accentText : (style.hasForeground ? style.foreground : theme.text);
-				NativeUiTextMetrics metrics = typography.measure(box.element.contentText(), style.fontSize, style.lineHeight);
+				NativeUiTextMetrics metrics = typography.measure(box.element.contentText(), style.fontSize, style.lineHeight, style.fontWeight);
 				int textX = typography.alignedX(x, box.bounds.width, style.padding, metrics.width(), style.textAlignment);
 				NativeUiRaster.text(image, textX, y + style.padding, box.element.contentText(), label, style, typography);
 			} else {
@@ -945,7 +945,7 @@ class NativeUiRaster {
 					NativeUiRaster.fillRect(image, x, y, box.bounds.width, box.bounds.height, style.background, style.radius);
 				}
 				if (box.element.kind() == NATIVE_UI_TEXT) {
-					NativeUiTextMetrics metrics = typography.measure(box.element.contentText(), style.fontSize, style.lineHeight);
+					NativeUiTextMetrics metrics = typography.measure(box.element.contentText(), style.fontSize, style.lineHeight, style.fontWeight);
 					int textX = typography.alignedX(x, box.bounds.width, style.padding, metrics.width(), style.textAlignment);
 					NativeUiRaster.text(image, textX, y + style.padding, box.element.contentText(), style.hasForeground ? style.foreground : theme.text, style, typography);
 				} else if (box.element.kind() == NATIVE_UI_IMAGE) {

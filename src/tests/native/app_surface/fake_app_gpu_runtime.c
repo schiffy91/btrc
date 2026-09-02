@@ -1160,6 +1160,66 @@ int std_gpu_native_ui_add_glyph(
         red, green, blue, alpha, 0.0f);
 }
 
+int std_gpu_native_ui_system_typography_available(
+        unsigned long long compositor) {
+    (void)compositor;
+    return 0;
+}
+
+int std_gpu_native_ui_measure_text(
+        unsigned long long compositor,
+        char* text,
+        int font_size,
+        int line_height,
+        int font_weight,
+        int* width_out,
+        int* height_out,
+        int* ascent_out,
+        int* descent_out,
+        int* advance_out) {
+    (void)compositor;
+    (void)text;
+    (void)font_size;
+    (void)line_height;
+    (void)font_weight;
+    (void)width_out;
+    (void)height_out;
+    (void)ascent_out;
+    (void)descent_out;
+    (void)advance_out;
+    return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+}
+
+int std_gpu_native_ui_add_text(
+        unsigned long long compositor,
+        char* text,
+        float x,
+        float y,
+        int font_size,
+        int line_height,
+        int font_weight,
+        float backing_scale,
+        float red,
+        float green,
+        float blue,
+        float alpha) {
+    (void)text;
+    (void)font_size;
+    (void)font_weight;
+    (void)backing_scale;
+    return std_gpu_native_ui_add_rect(
+        compositor,
+        x,
+        y,
+        1.0f,
+        (float)line_height,
+        red,
+        green,
+        blue,
+        alpha,
+        0.0f);
+}
+
 int std_gpu_native_ui_add_image(
         unsigned long long compositor,
         char* identity,

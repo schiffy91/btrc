@@ -1,8 +1,10 @@
 #include "btrc_gpu_native_ui_internal.h"
+#include "btrc_gpu_native_ui_text_internal.h"
 
 #include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -47,6 +49,7 @@ typedef struct {
 typedef struct {
     float rect[4];
     float viewport[4];
+    float color[4];
 } BtrcNativeUiImagePlacement;
 
 typedef struct {
@@ -153,7 +156,7 @@ static const char* native_ui_wgsl =
     "  }\n"
     "  return input.color;\n"
     "}\n"
-    "struct ImagePlacement { rect: vec4f, viewport: vec4f }\n"
+    "struct ImagePlacement { rect: vec4f, viewport: vec4f, color: vec4f }\n"
     /* Keep image bindings distinct from the command pipeline's binding 0.
      * A WGSL module cannot declare two globals at the same group/binding even
      * when separate entry points use them. Auto-layout still exposes only the
@@ -164,6 +167,7 @@ static const char* native_ui_wgsl =
     "struct ImageOut {\n"
     "  @builtin(position) position: vec4f,\n"
     "  @location(0) uv: vec2f,\n"
+    "  @location(1) @interpolate(flat) color: vec4f,\n"
     "}\n"
     "@vertex fn vs_image(\n"
     "    @builtin(vertex_index) vertex_index: u32,\n"
@@ -177,10 +181,11 @@ static const char* native_ui_wgsl =
     "  var output: ImageOut;\n"
     "  output.position = vec4f(clip, 0.0, 1.0);\n"
     "  output.uv = uv;\n"
+    "  output.color = image_uniform.color;\n"
     "  return output;\n"
     "}\n"
     "@fragment fn fs_image(input: ImageOut) -> @location(0) vec4f {\n"
-    "  return textureSample(image_texture, image_sampler, input.uv);\n"
+    "  return textureSample(image_texture, image_sampler, input.uv) * input.color;\n"
     "}\n";
 
 static WGPUShaderModule create_shader(WGPUDevice device) {
@@ -697,7 +702,55 @@ static bool upload_image(
 #endif
 }
 
-bool btrc_gpu_native_ui_add_image(
+static bool place_image(
+        BtrcNativeUi* ui,
+        int image_index,
+        float x,
+        float y,
+        float width,
+        float height,
+        float red,
+        float green,
+        float blue,
+        float alpha) {
+    if (!ui || image_index < 0 || image_index >= ui->image_count ||
+        ui->logical_width <= 0 || ui->logical_height <= 0 ||
+        width <= 0.0f || height <= 0.0f ||
+        ui->order_count >= UI_MAX_ORDER ||
+        ui->placement_count >= UI_MAX_ORDER) {
+        return false;
+    }
+    BtrcNativeUiImage* image = &ui->images[image_index];
+    uint64_t pixels = (uint64_t)(unsigned int)image->width
+        * (uint64_t)(unsigned int)image->height;
+    if (ui->frame_image_pixels > UI_MAX_IMAGE_PIXELS - pixels) {
+        return false;
+    }
+    int placement = ui->placement_count++;
+    BtrcNativeUiImagePlacement* placed = &ui->placements[placement];
+    placed->rect[0] = x;
+    placed->rect[1] = y;
+    placed->rect[2] = width;
+    placed->rect[3] = height;
+    placed->viewport[0] = (float)ui->logical_width;
+    placed->viewport[1] = (float)ui->logical_height;
+    placed->viewport[2] = 0.0f;
+    placed->viewport[3] = 0.0f;
+    placed->color[0] = red;
+    placed->color[1] = green;
+    placed->color[2] = blue;
+    placed->color[3] = alpha;
+    image->last_used_generation = ui->generation;
+    ui->frame_image_pixels += pixels;
+    ui->order[ui->order_count++] = (BtrcNativeUiOrder){
+        .kind = 1,
+        .index = (uint32_t)image_index,
+        .placement = (uint32_t)placement,
+    };
+    return true;
+}
+
+static bool add_image(
         void* compositor,
         const char* identity,
         const unsigned char* rgba,
@@ -707,14 +760,20 @@ bool btrc_gpu_native_ui_add_image(
         float x,
         float y,
         float width,
-        float height) {
+        float height,
+        size_t maximum_identity_length,
+        float red,
+        float green,
+        float blue,
+        float alpha) {
     BtrcNativeUi* ui = (BtrcNativeUi*)compositor;
     if (!ui || !identity || identity[0] == '\0' || !rgba ||
         source_width <= 0 || source_height <= 0 ||
         source_width > UI_MAX_IMAGE_DIMENSION ||
         source_height > UI_MAX_IMAGE_DIMENSION ||
         width <= 0.0f || height <= 0.0f ||
-        strlen(identity) > 512u || ui->order_count >= UI_MAX_ORDER ||
+        strlen(identity) > maximum_identity_length ||
+        ui->order_count >= UI_MAX_ORDER ||
         ui->placement_count >= UI_MAX_ORDER) {
         return false;
     }
@@ -804,24 +863,150 @@ bool btrc_gpu_native_ui_add_image(
         image->source_revision = source_revision;
     }
 
-    int placement = ui->placement_count++;
-    BtrcNativeUiImagePlacement* placed = &ui->placements[placement];
-    placed->rect[0] = x;
-    placed->rect[1] = y;
-    placed->rect[2] = width;
-    placed->rect[3] = height;
-    placed->viewport[0] = (float)ui->logical_width;
-    placed->viewport[1] = (float)ui->logical_height;
-    placed->viewport[2] = 0.0f;
-    placed->viewport[3] = 0.0f;
-    image->last_used_generation = ui->generation;
-    ui->frame_image_pixels += pixels;
-    ui->order[ui->order_count++] = (BtrcNativeUiOrder){
-        .kind = 1,
-        .index = (uint32_t)index,
-        .placement = (uint32_t)placement,
-    };
-    return true;
+    return place_image(
+        ui, index, x, y, width, height, red, green, blue, alpha);
+}
+
+bool btrc_gpu_native_ui_add_image(
+        void* compositor,
+        const char* identity,
+        const unsigned char* rgba,
+        int source_width,
+        int source_height,
+        uint64_t source_revision,
+        float x,
+        float y,
+        float width,
+        float height) {
+    return add_image(
+        compositor,
+        identity,
+        rgba,
+        source_width,
+        source_height,
+        source_revision,
+        x,
+        y,
+        width,
+        height,
+        512u,
+        1.0f,
+        1.0f,
+        1.0f,
+        1.0f);
+}
+
+bool btrc_gpu_native_ui_measure_text(
+        void* compositor,
+        const char* text,
+        int font_size,
+        int line_height,
+        int font_weight,
+        BtrcNativeUiTextMetrics* metrics_out) {
+    return compositor && btrc_gpu_native_ui_text_measure(
+        text, font_size, line_height, font_weight, metrics_out);
+}
+
+bool btrc_gpu_native_ui_add_text(
+        void* compositor,
+        const char* text,
+        float x,
+        float y,
+        int font_size,
+        int line_height,
+        int font_weight,
+        float backing_scale,
+        float red,
+        float green,
+        float blue,
+        float alpha) {
+    BtrcNativeUi* ui = (BtrcNativeUi*)compositor;
+    if (!ui || !text || backing_scale < 0.5f || backing_scale > 4.0f) { return false; }
+    if (text[0] == '\0') { return true; }
+    BtrcNativeUiTextMetrics metrics;
+    if (!btrc_gpu_native_ui_text_measure(
+            text, font_size, line_height, font_weight, &metrics)) {
+        return false;
+    }
+    if (metrics.width == 0) { return true; }
+    uint32_t scale_bits = 0;
+    memcpy(&scale_bits, &backing_scale, sizeof(scale_bits));
+    int prefix_length = snprintf(
+        NULL,
+        0,
+        "system-text:%d:%d:%d:%08x:",
+        font_size,
+        line_height,
+        font_weight,
+        scale_bits);
+    if (prefix_length < 0) { return false; }
+    size_t text_length = strlen(text);
+    if ((size_t)prefix_length > SIZE_MAX - text_length - 1u) {
+        return false;
+    }
+    size_t identity_bytes = (size_t)prefix_length + text_length + 1u;
+    char* identity = (char*)malloc(identity_bytes);
+    if (!identity) { return false; }
+    int written = snprintf(
+        identity,
+        identity_bytes,
+        "system-text:%d:%d:%d:%08x:%s",
+        font_size,
+        line_height,
+        font_weight,
+        scale_bits,
+        text);
+    if (written != (int)(identity_bytes - 1u)) {
+        free(identity);
+        return false;
+    }
+    int image_index = find_image(ui, identity);
+    if (image_index >= 0) {
+        bool placed = place_image(
+            ui,
+            image_index,
+            x,
+            y,
+            (float)metrics.width,
+            (float)line_height,
+            red,
+            green,
+            blue,
+            alpha);
+        free(identity);
+        return placed;
+    }
+    BtrcNativeUiTextBitmap bitmap;
+    bool rasterized = btrc_gpu_native_ui_text_rasterize(
+        text,
+        font_size,
+        line_height,
+        font_weight,
+        backing_scale,
+        &bitmap);
+    if (!rasterized) {
+        free(identity);
+        return false;
+    }
+    bool added = add_image(
+        ui,
+        identity,
+        bitmap.rgba,
+        bitmap.width,
+        bitmap.height,
+        1u,
+        x,
+        y,
+        (float)metrics.width,
+        (float)line_height,
+        identity_bytes - 1u,
+        red,
+        green,
+        blue,
+        alpha);
+    btrc_gpu_native_ui_text_bitmap_release(&bitmap);
+    free(identity);
+    return added;
 }
 
 bool btrc_gpu_native_ui_draw(

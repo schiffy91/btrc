@@ -2082,6 +2082,111 @@ int std_gpu_native_ui_add_glyph(
     return status;
 }
 
+int std_gpu_native_ui_system_typography_available(
+        unsigned long long compositor_id) {
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    GPURenderResource_* resource = NULL;
+    int status = native_ui_resource_locked(
+        compositor_id, &gpu, &resource);
+    (void)gpu;
+    (void)resource;
+    int available = status == BTRC_GPU_RESOURCE_READY &&
+        btrc_gpu_native_ui_text_available() ? 1 : 0;
+    render_lock_leave();
+    return available;
+}
+
+int std_gpu_native_ui_measure_text(
+        unsigned long long compositor_id,
+        char* text,
+        int font_size,
+        int line_height,
+        int font_weight,
+        int* width_out,
+        int* height_out,
+        int* ascent_out,
+        int* descent_out,
+        int* advance_out) {
+    if (!width_out || !height_out || !ascent_out || !descent_out ||
+        !advance_out) {
+        return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    *width_out = 0;
+    *height_out = 0;
+    *ascent_out = 0;
+    *descent_out = 0;
+    *advance_out = 0;
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    GPURenderResource_* resource = NULL;
+    int status = native_ui_resource_locked(
+        compositor_id, &gpu, &resource);
+    (void)gpu;
+    BtrcNativeUiTextMetrics metrics;
+    if (status == BTRC_GPU_RESOURCE_READY &&
+        !btrc_gpu_native_ui_measure_text(
+            resource->resource,
+            text,
+            font_size,
+            line_height,
+            font_weight,
+            &metrics)) {
+        status = BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    if (status == BTRC_GPU_RESOURCE_READY) {
+        *width_out = metrics.width;
+        *height_out = metrics.height;
+        *ascent_out = metrics.ascent;
+        *descent_out = metrics.descent;
+        *advance_out = metrics.advance;
+    }
+    render_lock_leave();
+    return status;
+}
+
+int std_gpu_native_ui_add_text(
+        unsigned long long compositor_id,
+        char* text,
+        float x,
+        float y,
+        int font_size,
+        int line_height,
+        int font_weight,
+        float backing_scale,
+        float red,
+        float green,
+        float blue,
+        float alpha) {
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    GPURenderResource_* resource = NULL;
+    int status = native_ui_resource_locked(
+        compositor_id, &gpu, &resource);
+    (void)gpu;
+    if (status == BTRC_GPU_RESOURCE_READY &&
+        !btrc_gpu_native_ui_add_text(
+            resource->resource,
+            text,
+            x,
+            y,
+            font_size,
+            line_height,
+            font_weight,
+            backing_scale,
+            red,
+            green,
+            blue,
+            alpha)) {
+        status = BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    render_lock_leave();
+    return status;
+}
+
 int std_gpu_native_ui_add_image(
         unsigned long long compositor_id,
         char* identity,

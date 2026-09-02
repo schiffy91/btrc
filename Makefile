@@ -197,8 +197,13 @@ gpu: app ## Build GPU runtime library (skips if deps missing)
 				-E "$$D/$$source" -o /dev/null 2>/dev/null || probe_ok=0; \
 		done && \
 		if [ "$$(uname -s)" = Darwin ]; then \
+			$(GPU_OBJC) $$GPU_CFLAGS -x c -I"$$D" \
+				-E "$$D/btrc_gpu_native_ui_text.c" -o /dev/null 2>/dev/null || probe_ok=0; \
 			$(GPU_OBJC) $$GPU_CFLAGS -x objective-c -I"$$D" \
 				-E "$$D/btrc_gpu_surface_macos.m" -o /dev/null 2>/dev/null || probe_ok=0; \
+		else \
+			$(CC) $$GPU_CFLAGS -std=c11 -I"$$D" \
+				-E "$$D/btrc_gpu_native_ui_text.c" -o /dev/null 2>/dev/null || probe_ok=0; \
 		fi && \
 		if [ "$$probe_ok" -ne 1 ]; then \
 			echo "GPU runtime skipped (missing windowing/WebGPU headers)"; exit 0; \
@@ -207,14 +212,20 @@ gpu: app ## Build GPU runtime library (skips if deps missing)
 		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_native_ui.c" -o "$$O/btrc_gpu_native_ui.o" && \
 		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_async.c" -o "$$O/btrc_gpu_async.o" && \
 		$(CC) $$GPU_CFLAGS $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_surface.c" -o "$$O/btrc_gpu_surface.o" && \
-		objects="$$O/btrc_gpu.o $$O/btrc_gpu_native_ui.o $$O/btrc_gpu_async.o $$O/btrc_gpu_surface.o" && \
+		objects="$$O/btrc_gpu.o $$O/btrc_gpu_native_ui.o $$O/btrc_gpu_native_ui_text.o $$O/btrc_gpu_async.o $$O/btrc_gpu_surface.o" && \
 		if [ "$$(uname -s)" = Darwin ]; then \
+			$(GPU_OBJC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(NATIVE_CFLAGS) -x c -I"$$D" -O2 \
+				-c "$$D/btrc_gpu_native_ui_text.c" -o "$$O/btrc_gpu_native_ui_text.o" && \
 			$(GPU_OBJC) $$GPU_CFLAGS $(NATIVE_CFLAGS) -x objective-c -I"$$D" -O2 \
 				-c "$$D/btrc_gpu_surface_macos.m" -o "$$O/btrc_gpu_surface_macos.o" && \
 			objects="$$objects $$O/btrc_gpu_surface_macos.o"; \
+		else \
+			$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 \
+				-c "$$D/btrc_gpu_native_ui_text.c" -o "$$O/btrc_gpu_native_ui_text.o"; \
 		fi && \
 		$(HOST_AR) rcs "$$O/libbtrc_gpu.a" $$objects && \
 		$(HOST_AR) t "$$O/libbtrc_gpu.a" | grep -q "btrc_gpu_async\\.o$$" && \
+		$(HOST_AR) t "$$O/libbtrc_gpu.a" | grep -q "btrc_gpu_native_ui_text\\.o$$" && \
 		$(HOST_AR) t "$$O/libbtrc_gpu.a" | grep -q "btrc_gpu_surface\\.o$$" && \
 		echo "Built: $$O/libbtrc_gpu.a"'
 
@@ -225,6 +236,7 @@ gpu-required: app-required gpu ## Build GPU runtime library; fail when productio
 			exit 1; \
 		}; \
 		$(HOST_AR) t "$$archive" | grep -q "btrc_gpu_async\\.o$$" && \
+		$(HOST_AR) t "$$archive" | grep -q "btrc_gpu_native_ui_text\\.o$$" && \
 		$(HOST_AR) t "$$archive" | grep -q "btrc_gpu_surface\\.o$$"'
 
 background-jobs: ## Build the bounded background-job executor runtime

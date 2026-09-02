@@ -17,6 +17,19 @@ COMPILE_TIMEOUT = 180
 RUN_TIMEOUT = 90
 
 
+def _macos_typography_frameworks() -> list[str]:
+    if sys.platform != "darwin":
+        return []
+    return [
+        "-framework",
+        "CoreText",
+        "-framework",
+        "CoreGraphics",
+        "-framework",
+        "CoreFoundation",
+    ]
+
+
 def _transpile(
     frontend: str,
     output: Path,
@@ -155,10 +168,12 @@ def test_native_ui_cache_multi_evicts_and_recovers_atomically(
             "-Werror",
             "-pedantic-errors",
             "-DBTRC_GPU_NATIVE_UI_CACHE_TEST",
+            "-DBTRC_NATIVE_UI_DISABLE_SYSTEM_TYPOGRAPHY",
             "-DBTRC_NATIVE_UI_MAX_IMAGES=3",
             "-DBTRC_NATIVE_UI_MAX_IMAGE_PIXELS=8",
             f"-I{GPU}",
             str(GPU / "btrc_gpu_native_ui.c"),
+            str(GPU / "btrc_gpu_native_ui_text.c"),
             str(FIXTURE / "native_ui_cache_smoke.c"),
             "-o",
             str(executable),
@@ -176,4 +191,82 @@ def test_native_ui_cache_multi_evicts_and_recovers_atomically(
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == "PASS: native UI cache policy\n"
+    assert result.stderr == ""
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="CoreText is a macOS provider")
+def test_native_ui_macos_provider_measures_and_rasterizes_system_text(
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "native-ui-system-typography"
+    compile_result = subprocess.run(
+        [
+            "clang",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-pedantic-errors",
+            f"-I{GPU}",
+            str(GPU / "btrc_gpu_native_ui_text.c"),
+            str(FIXTURE / "NativeUiSystemTypography.c"),
+            *_macos_typography_frameworks(),
+            "-o",
+            str(executable),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=COMPILE_TIMEOUT,
+    )
+    assert compile_result.returncode == 0, compile_result.stderr
+    result = subprocess.run(
+        [str(executable)],
+        capture_output=True,
+        text=True,
+        timeout=RUN_TIMEOUT,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "PASS: macOS system typography provider\n"
+    assert result.stderr == ""
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="CoreText is a macOS provider")
+def test_native_ui_macos_compositor_caches_system_text_runs(
+    tmp_path: Path,
+) -> None:
+    gpu_flags = shlex.split(os.environ.get("GPU_CFLAGS", ""))
+    if not gpu_flags:
+        pytest.skip("GPU_CFLAGS is required for the pinned WebGPU headers")
+    executable = tmp_path / "native-ui-system-typography-compositor"
+    compile_result = subprocess.run(
+        [
+            "clang",
+            *gpu_flags,
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-pedantic-errors",
+            "-DBTRC_GPU_NATIVE_UI_CACHE_TEST",
+            f"-I{GPU}",
+            str(GPU / "btrc_gpu_native_ui.c"),
+            str(GPU / "btrc_gpu_native_ui_text.c"),
+            str(FIXTURE / "NativeUiSystemTypographyCompositor.c"),
+            *_macos_typography_frameworks(),
+            "-o",
+            str(executable),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=COMPILE_TIMEOUT,
+    )
+    assert compile_result.returncode == 0, compile_result.stderr
+    result = subprocess.run(
+        [str(executable)],
+        capture_output=True,
+        text=True,
+        timeout=RUN_TIMEOUT,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "PASS: macOS system typography compositor\n"
     assert result.stderr == ""

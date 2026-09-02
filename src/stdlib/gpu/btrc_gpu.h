@@ -136,6 +136,32 @@ int std_gpu_native_ui_add_glyph(
     float x, float y, float width, float height,
     float red, float green, float blue, float alpha,
     unsigned long long glyph_bits);
+int std_gpu_native_ui_system_typography_available(
+    unsigned long long compositor);
+int std_gpu_native_ui_measure_text(
+    unsigned long long compositor,
+    char* text,
+    int font_size,
+    int line_height,
+    int font_weight,
+    int* width_out,
+    int* height_out,
+    int* ascent_out,
+    int* descent_out,
+    int* advance_out);
+int std_gpu_native_ui_add_text(
+    unsigned long long compositor,
+    char* text,
+    float x,
+    float y,
+    int font_size,
+    int line_height,
+    int font_weight,
+    float backing_scale,
+    float red,
+    float green,
+    float blue,
+    float alpha);
 int std_gpu_native_ui_add_image(
     unsigned long long compositor,
     char* identity,

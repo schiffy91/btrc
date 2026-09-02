@@ -11,6 +11,8 @@ enum NativeUiTextAlignment {
 	NATIVE_UI_TEXT_ALIGN_RIGHT = 2
 };
 
+typedef CFunction<int, unsigned long long, string, int, int, int, int*, int*, int*, int*, int*> NativeUiTypographyMeasure;
+
 class NativeUiTextMetrics {
 	private int widthValue;
 	private int heightValue;
@@ -39,7 +41,18 @@ class NativeUiTextMetrics {
 }
 
 class NativeUiTypography {
-	public NativeUiTypography() {}
+	private unsigned long long providerIdentityValue;
+	private NativeUiTypographyMeasure providerMeasureValue;
+
+	public NativeUiTypography(unsigned long long providerIdentity = 0ULL, NativeUiTypographyMeasure providerMeasure = (NativeUiTypographyMeasure)null) {
+		if ((providerIdentity == 0ULL) != (providerMeasure == null)) { throw "invalid native UI typography provider"; }
+		self.providerIdentityValue = providerIdentity;
+		self.providerMeasureValue = providerMeasure;
+	}
+
+	class NativeUiTypography platform(unsigned long long providerIdentity, NativeUiTypographyMeasure providerMeasure) { return NativeUiTypography(providerIdentity, providerMeasure); }
+
+	public bool platformBacked() { return self.providerIdentityValue != 0ULL && self.providerMeasureValue != null; }
 
 	public int glyphWidth(int fontSize) {
 		int width = fontSize * 5 / 7;
@@ -53,8 +66,17 @@ class NativeUiTypography {
 		return value < 1 ? 1 : value;
 	}
 
-	public NativeUiTextMetrics measure(string value, int fontSize, int lineHeight) {
-		if (value == null || fontSize < 8 || fontSize > 256 || lineHeight < fontSize || lineHeight > 512 || !NativeUiTextInput.validUtf8(value)) { throw "invalid native UI text measurement"; }
+	public NativeUiTextMetrics measure(string value, int fontSize, int lineHeight, int fontWeight = 400) {
+		if (value == null || fontSize < 8 || fontSize > 256 || lineHeight < fontSize || lineHeight > 512 || (fontWeight != 400 && fontWeight != 500 && fontWeight != 600 && fontWeight != 700) || !NativeUiTextInput.validUtf8(value)) { throw "invalid native UI text measurement"; }
+		if (self.platformBacked()) {
+			int width = 0;
+			int height = 0;
+			int ascent = 0;
+			int descent = 0;
+			int advance = 0;
+			if (self.providerMeasureValue(self.providerIdentityValue, value, fontSize, lineHeight, fontWeight, &width, &height, &ascent, &descent, &advance) == 0) { throw "native UI typography provider rejected measurement"; }
+			return NativeUiTextMetrics(width, height, ascent, descent, advance);
+		}
 		int scalarCount = NativeUiTextInput.scalarCount(value, value.len());
 		int advance = self.advance(fontSize);
 		long long width = (long long)scalarCount * (long long)advance;
