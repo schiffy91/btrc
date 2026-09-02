@@ -119,9 +119,7 @@ def test_linux_tray_survives_session_bus_disconnect(tmp_path: Path) -> None:
     daemon_root = Path(os.path.realpath(daemon_path)).parent.parent
     packaged_session_config = daemon_root / "share" / "dbus-1" / "session.conf"
     session_config = (
-        [f"--config-file={packaged_session_config}"]
-        if packaged_session_config.is_file()
-        else ["--session"]
+        [f"--config-file={packaged_session_config}"] if packaged_session_config.is_file() else ["--session"]
     )
     daemon = subprocess.Popen(
         [
