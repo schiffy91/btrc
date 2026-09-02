@@ -232,6 +232,40 @@ class Demo {
     assert "\t\tbool localHeader =\n\t\t\tfirst\n\t\t\t&& second;" in result
 
 
+def test_pointer_declarations_dereferences_and_multiplication_use_operator_context() -> None:
+    fixture = Path(__file__).with_name("fixtures") / "PointerExpressions.btrc"
+    source = fixture.read_text(encoding="utf-8")
+
+    result = BtrcFormatter().format(source, str(fixture))
+
+    assert "static void addScaled(int* value, int scale)" in result
+    assert "\n\t// A dereference begins a statement; multiplication remains binary.\n\t*value += scale;" in result
+    assert "\n\t*value = *value * 2;" in result
+    assert "\n\tint* pointer = &value;" in result
+    assert "\n\tint product = *pointer * value;" in result
+    assert result == source
+    assert BtrcFormatter().format(result, str(fixture)) == result
+
+
+def test_unary_dereference_and_binary_multiplication_keep_distinct_multiline_indentation() -> None:
+    source = """\
+void update(int* value, int left, int right) {
+    *value = left;
+    int product =
+        left
+        * right;
+    *value += product;
+}
+"""
+
+    result = formatted(source, single_line_statements=False, compact_trivial_functions=False)
+
+    assert "\n\t*value = left;" in result
+    assert "\n\tint product =\n\t\tleft\n\t\t* right;" in result
+    assert "\n\t*value += product;" in result
+    assert formatted(result, single_line_statements=False, compact_trivial_functions=False) == result
+
+
 def test_statement_line_comments_prevent_unsafe_joining() -> None:
     source = """\
 class Demo {

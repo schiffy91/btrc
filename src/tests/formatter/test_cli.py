@@ -80,6 +80,23 @@ def test_check_and_write_modes_have_stable_exit_codes(tmp_path: Path, capsys: py
     assert main(["check", os.fspath(source)]) == 0
 
 
+def test_write_repairs_pointer_statement_indentation_then_check_is_idempotent(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fixture = Path(__file__).with_name("fixtures") / "PointerExpressions.btrc"
+    canonical = fixture.read_text(encoding="utf-8")
+    source = tmp_path / fixture.name
+    source.write_text(canonical.replace("\t*value += scale;", "\t\t*value += scale;"), encoding="utf-8")
+
+    assert main(["check", os.fspath(source)]) == 1
+    assert "BTRC-FMT001" in capsys.readouterr().err
+    assert main(["write", os.fspath(source)]) == 0
+    assert source.read_text(encoding="utf-8") == canonical
+    assert main(["check", os.fspath(source)]) == 0
+    assert main(["write", os.fspath(source)]) == 0
+
+
 def test_check_diff_and_recursive_discovery_are_deterministic(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

@@ -371,6 +371,8 @@ class BtrcFormatter:
             "(",
             "[",
             "{",
+            "}",
+            ";",
             "!",
             "~",
             "++",
@@ -807,6 +809,14 @@ class BtrcFormatter:
             "case",
         }
 
+    @classmethod
+    def _line_starts_with_continuation(cls, first: Lexeme | None, previous: Lexeme | None) -> bool:
+        if first is None or first.text not in cls._LEADING_CONTINUATION_TOKENS:
+            return False
+        if first.text in cls._AMBIGUOUS_PREFIX_OPERATORS:
+            return not cls._is_prefix_operator(previous)
+        return True
+
     def _compact_trivial_functions(self, source: str) -> str:
         if not self.style.compact_trivial_functions:
             return source
@@ -968,7 +978,7 @@ class BtrcFormatter:
 
         brace_depth = 0
         paren_depth = 0
-        previous_token = ""
+        previous_token: Lexeme | None = None
         rendered: list[str] = []
         for line in view.lines:
             text = line.text
@@ -978,15 +988,16 @@ class BtrcFormatter:
             elif not text.strip():
                 rendered.append("")
             else:
-                first = line_tokens[0].text if line_tokens else ""
+                first_token = line_tokens[0] if line_tokens else None
+                first = first_token.text if first_token is not None else ""
                 if line_tokens and line_tokens[0].kind is LexemeKind.PREPROCESSOR:
                     level = 0
                 else:
                     level = brace_depth - (1 if first == "}" else 0)
                     if (
                         (paren_depth > 0 and first not in {")", "]"})
-                        or first in self._LEADING_CONTINUATION_TOKENS
-                        or previous_token in self._TRAILING_CONTINUATION_TOKENS
+                        or self._line_starts_with_continuation(first_token, previous_token)
+                        or (previous_token is not None and previous_token.text in self._TRAILING_CONTINUATION_TOKENS)
                     ):
                         level += 1
                 rendered.append(self.style.indentation(max(level, 0)) + text.lstrip(" \t").rstrip(" \t"))
@@ -1003,7 +1014,7 @@ class BtrcFormatter:
                 elif lexeme.text in {")", "]"}:
                     paren_depth = max(paren_depth - 1, 0)
             if line_tokens:
-                previous_token = line_tokens[-1].text
+                previous_token = line_tokens[-1]
 
         had_final_newline = source.endswith("\n")
         result = "\n".join(rendered)

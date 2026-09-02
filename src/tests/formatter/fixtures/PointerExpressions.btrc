@@ -1,0 +1,17 @@
+#include <assert.h>
+
+static void addScaled(int* value, int scale) {
+	// A dereference begins a statement; multiplication remains binary.
+	*value += scale;
+	*value = *value * 2;
+}
+
+int main() {
+	int value = 3;
+	int* pointer = &value;
+	addScaled(pointer, 4);
+	int product = *pointer * value;
+	assert(product == 42);
+	print("PASS: PointerExpressions");
+	return 0;
+}
