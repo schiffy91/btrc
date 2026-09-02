@@ -20,7 +20,7 @@ int main() {
 	assert(sizeof(arr) == (size_t)3 * sizeof(int*));
 
 	// mutate the pointee through the array element; the original changes
-		*arr[1] = 9;
+	*arr[1] = 9;
 	assert(b == 9);
 	assert(*arr[1] == 9);
 

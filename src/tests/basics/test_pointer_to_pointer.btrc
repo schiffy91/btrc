@@ -9,16 +9,16 @@ int main() {
 	assert(**pp == 7);
 
 	// mutate through the single pointer, observe via double pointer
-		*p = 9;
+	*p = 9;
 	assert(**pp == 9);
 
 	// mutate directly via double dereference
-		**pp = 11;
+	**pp = 11;
 	assert(x == 11);
 
 	// re-target the inner pointer through pp; p now points at y
 	int y = 100;
-		*pp = &y;
+	*pp = &y;
 	assert(**pp == 100);
 	assert(*p == 100);
 

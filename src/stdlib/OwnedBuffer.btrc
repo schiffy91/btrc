@@ -31,7 +31,7 @@ struct OwnedBufferStorage {
 class OwnedBuffers {
 	class OwnedBufferOpenKind tryOpen(size_t count, size_t valueSize, struct OwnedBufferStorage** output) {
 		if (output == null) { return OWNED_BUFFER_INVALID_ARGUMENT; }
-			*output = null;
+		*output = null;
 		if (count == (size_t)0) {
 			return OWNED_BUFFER_COUNT_OUT_OF_RANGE;
 		}
@@ -51,7 +51,7 @@ class OwnedBuffers {
 		}
 		storage->count = count;
 		storage->valueSize = valueSize;
-			*output = storage;
+		*output = storage;
 		return OWNED_BUFFER_OPENED;
 	}
 
@@ -71,11 +71,11 @@ class OwnedBuffers {
 
 	class bool tryPointerAt(struct OwnedBufferStorage* storage, size_t expectedValueSize, size_t index, void** output) {
 		if (output == null) { return false; }
-			*output = null;
+		*output = null;
 		if (storage == null || expectedValueSize == (size_t)0 || storage->valueSize != expectedValueSize || index >= storage->count) {
 			return false;
 		}
-			*output = storage->values + index * storage->valueSize;
+		*output = storage->values + index * storage->valueSize;
 		return true;
 	}
 
@@ -111,7 +111,7 @@ class OwnedBuffers {
 	class void close(struct OwnedBufferStorage** owner) {
 		if (owner == null || *owner == null) { return; }
 		struct OwnedBufferStorage* storage = *owner;
-			*owner = null;
+		*owner = null;
 		free(storage->values);
 		storage->values = null;
 		storage->count = (size_t)0;

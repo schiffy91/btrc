@@ -44,7 +44,7 @@ int main() {
 	int values[3];
 	int* start = &values[0];
 	int* end = start + 2;
-		*end = 9;
+	*end = 9;
 	assert(values[2] == 9);
 	assert(end - start == 2);
 	return 0;

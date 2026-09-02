@@ -44,7 +44,7 @@ enum SpscQueueCursor {
 class SpscQueues {
 	class SpscQueueOpenKind tryOpen(uint capacity, size_t valueSize, struct SpscQueueStorage** output) {
 		if (output == null) { return SPSC_QUEUE_INVALID_ARGUMENT; }
-			*output = null;
+		*output = null;
 		if (capacity == 0u || capacity == UINT_MAX) {
 			return SPSC_QUEUE_CAPACITY_OUT_OF_RANGE;
 		}
@@ -72,7 +72,7 @@ class SpscQueues {
 		queue->slotCount = slotCount;
 		queue->cursors[SPSC_QUEUE_WRITE_CURSOR].init(0u);
 		queue->cursors[SPSC_QUEUE_READ_CURSOR].init(0u);
-			*output = queue;
+		*output = queue;
 		return SPSC_QUEUE_OPENED;
 	}
 

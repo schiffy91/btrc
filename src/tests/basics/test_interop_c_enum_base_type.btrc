@@ -17,7 +17,7 @@ int main() {
 
 	enum Color* p = &c;
 	assert(*p == GREEN);
-		*p = BLUE;
+	*p = BLUE;
 	assert(c == BLUE);
 
 	assert(rank(RED) == 0);

@@ -11,7 +11,7 @@ int main() {
 	assert(*p == 7);
 
 	// Write through the pointer mutates the original.
-		*p = 9;
+	*p = 9;
 	assert(x == 9);
 
 	// Dereference in an arithmetic expression.
@@ -21,7 +21,7 @@ int main() {
 	// Pointer to a second variable; the two are independent.
 	int z = 100;
 	int* q = &z;
-		*q = *q + 5;
+	*q = *q + 5;
 	assert(z == 105);
 	assert(x == 9);
 

@@ -11,7 +11,7 @@ void destroyContext(void* raw) {
 
 int main() {
 	int* context = (int*)malloc(sizeof(int));
-		*context = 40;
+	*context = 40;
 	OwnedClosure<CFunction<int, void*, int>> closure = new OwnedClosure<CFunction<int, void*, int>> (addContext, context, destroyContext);
 	CFunction<int, void*, int> invoke = closure.invokePointer();
 	assert(invoke(closure.context(), 2) == 42);

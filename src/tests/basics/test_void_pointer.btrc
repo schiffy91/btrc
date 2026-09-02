@@ -8,7 +8,7 @@ int main() {
 	assert(*ip == 5);
 
 	// mutate through the recovered pointer
-		*ip = 42;
+	*ip = 42;
 	assert(x == 42);
 
 	// round-trip a double through void*

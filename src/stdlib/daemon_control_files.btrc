@@ -91,7 +91,7 @@ class DaemonControlFiles {
 		if (!DaemonControlFiles.secureParent(path) || lstat(path, &inspected) != 0 || !S_ISREG(inspected.st_mode) || S_ISLNK(inspected.st_mode) || (uid_t)inspected.st_uid != geteuid() || inspected.st_nlink != (nlink_t)1 || (inspected.st_mode & (mode_t)0777) != (mode_t)0600) {
 			return false;
 		}
-			*status = inspected;
+		*status = inspected;
 		return true;
 	}
 

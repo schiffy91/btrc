@@ -178,7 +178,7 @@ static void btrcRealtimeClipTransportContextClose(struct BtrcRealtimeClipTranspo
 		(*context)->eventQueue = null;
 		(*context)->retirementQueue = null;
 		(*context)->atomics = null;
-			*context = null;
+		*context = null;
 	}
 	OwnedBuffers.close(atomicsOwner);
 	OwnedBuffers.close(contextOwner);
@@ -186,9 +186,9 @@ static void btrcRealtimeClipTransportContextClose(struct BtrcRealtimeClipTranspo
 
 static OwnedBufferOpenKind btrcRealtimeClipTransportContextOpen(int sampleRate, int channels, int blockFrames, int maximumCommands, int maximumEvents, int maximumRetirements, int maximumCapturedFrames, int maximumTelemetrySnapshots, struct BtrcRealtimeClipTransportContext** outputContext, struct OwnedBufferStorage** outputContextOwner, struct OwnedBufferStorage** outputAtomicsOwner) {
 	if (outputContext == null || outputContextOwner == null || outputAtomicsOwner == null) { return OWNED_BUFFER_INVALID_ARGUMENT; }
-		*outputContext = null;
-		*outputContextOwner = null;
-		*outputAtomicsOwner = null;
+	*outputContext = null;
+	*outputContextOwner = null;
+	*outputAtomicsOwner = null;
 	if (sampleRate <= 0 || sampleRate > 768000 || channels <= 0 || channels > 256 || blockFrames <= 0 || blockFrames > 8192 || maximumCommands <= 0 || maximumEvents <= 0 || maximumRetirements <= 0 || maximumCapturedFrames <= 0 || maximumTelemetrySnapshots <= 0) { return OWNED_BUFFER_INVALID_ARGUMENT; }
 
 	struct OwnedBufferStorage* contextOwner = null;
@@ -227,9 +227,9 @@ static OwnedBufferOpenKind btrcRealtimeClipTransportContextOpen(int sampleRate, 
 	context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_SNAPSHOT_VOLUME_PERMILLE].store(1000u, MemoryOrder.RELAXED);
 	context->speed = 1.0;
 	context->volumePermille = 1000;
-		*outputContext = context;
-		*outputContextOwner = contextOwner;
-		*outputAtomicsOwner = atomicsOwner;
+	*outputContext = context;
+	*outputContextOwner = contextOwner;
+	*outputAtomicsOwner = atomicsOwner;
 	return OWNED_BUFFER_OPENED;
 }
 
@@ -604,7 +604,7 @@ static void btrcRealtimeClipTransportOwnerDispose(struct BtrcRealtimeClipTranspo
 
 static int btrcRealtimeClipTransportOwnerOpen(int sampleRate, int channels, int maximumBlockFrames, int maximumStagedClips, int commandCapacity, int eventCapacity, int retirementCapacity, int captureCapacity, int telemetryCapacity, void** output) {
 	if (output == null) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_INVALID_ARGUMENT; }
-		*output = null;
+	*output = null;
 	struct OwnedBufferStorage* ownerStorage = null;
 	OwnedBufferOpenKind ownerOpened = OwnedBuffers.tryOpen((size_t)1, sizeof(struct BtrcRealtimeClipTransportOwner), &ownerStorage);
 	if (ownerOpened != OWNED_BUFFER_OPENED) { return btrcRealtimeClipTransportBufferStatus(ownerOpened); }
@@ -633,21 +633,21 @@ static int btrcRealtimeClipTransportOwnerOpen(int sampleRate, int channels, int 
 		btrcRealtimeClipTransportOwnerDispose(owner);
 		return failure;
 	}
-		*output = owner;
+	*output = owner;
 	return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_OK;
 }
 
 static void btrcRealtimeClipTransportOwnerClose(void** opaque) {
 	if (opaque == null || *opaque == null) { return; }
 	struct BtrcRealtimeClipTransportOwner* owner = (struct BtrcRealtimeClipTransportOwner*)*opaque;
-		*opaque = null;
+	*opaque = null;
 	btrcRealtimeClipTransportOwnerDispose(owner);
 }
 
 static int btrcRealtimeClipTransportOwnerStageBegin(void* opaque, long long frames, unsigned long long* outputToken, float** outputSamples) {
 	if (outputToken == null || outputSamples == null) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_INVALID_ARGUMENT; }
-		*outputToken = 0ULL;
-		*outputSamples = null;
+	*outputToken = 0ULL;
+	*outputSamples = null;
 	struct BtrcRealtimeClipTransportOwner* owner = (struct BtrcRealtimeClipTransportOwner*)opaque;
 	if (owner == null || owner->context == null || frames <= 0LL) { return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_INVALID_ARGUMENT; }
 	btrcRealtimeClipTransportOwnerDrainRetirements(owner);
@@ -677,8 +677,8 @@ static int btrcRealtimeClipTransportOwnerStageBegin(void* opaque, long long fram
 	available->samplesOwner = samplesOwner;
 	available->samples = samples;
 	available->frames = frames;
-		*outputToken = token;
-		*outputSamples = samples;
+	*outputToken = token;
+	*outputSamples = samples;
 	return (int)BTRC_REALTIME_CLIP_TRANSPORT_STATUS_OK;
 }
 
@@ -764,15 +764,15 @@ static int btrcRealtimeClipTransportOwnerConfigurePractice(void* opaque, int con
 
 static int btrcRealtimeClipTransportOwnerPollEvent(void* opaque, int* outputKind, unsigned long long* outputToken) {
 	if (outputKind == null || outputToken == null) { return -1; }
-		*outputKind = 0;
-		*outputToken = 0ULL;
+	*outputKind = 0;
+	*outputToken = 0ULL;
 	struct BtrcRealtimeClipTransportOwner* owner = (struct BtrcRealtimeClipTransportOwner*)opaque;
 	if (owner == null || owner->context == null) { return -1; }
 	btrcRealtimeClipTransportOwnerDrainRetirements(owner);
 	struct BtrcRealtimeClipTransportEventValue event;
 	if (!btrcRealtimeClipTransportEventPop(owner->context, &event)) { return 0; }
-		*outputKind = event.kind;
-		*outputToken = event.token;
+	*outputKind = event.kind;
+	*outputToken = event.token;
 	return 1;
 }
 
@@ -797,10 +797,10 @@ static bool btrcRealtimeClipTransportOwnerReadTelemetry(void* opaque, struct Btr
 		if (owner->controlSlots[index].state != (int)BTRC_REALTIME_CLIP_TRANSPORT_CONTROL_FREE) { stagedClips++; }
 	}
 	if (!btrcRealtimeClipTransportReadSnapshot(owner->context, output)) { return false; }
-		*outputStagedClips = stagedClips;
-		*outputDroppedEvents = (unsigned long long)owner->context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_DROPPED_EVENTS].load(MemoryOrder.ACQUIRE);
-		*outputDroppedRetirements = (unsigned long long)owner->context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_DROPPED_RETIREMENTS].load(MemoryOrder.ACQUIRE);
-		*outputRejectedCommands = owner->rejectedCommands;
+	*outputStagedClips = stagedClips;
+	*outputDroppedEvents = (unsigned long long)owner->context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_DROPPED_EVENTS].load(MemoryOrder.ACQUIRE);
+	*outputDroppedRetirements = (unsigned long long)owner->context->atomics[BTRC_REALTIME_CLIP_TRANSPORT_DROPPED_RETIREMENTS].load(MemoryOrder.ACQUIRE);
+	*outputRejectedCommands = owner->rejectedCommands;
 	return true;
 }
 
