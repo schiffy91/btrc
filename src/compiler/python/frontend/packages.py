@@ -471,6 +471,36 @@ class NativeLinkPlan:
         )
         return NativeLinkPlan(self.target, self.packages + (package,), self.declarations + declarations)
 
+    def with_stdlib_core_audio_device(self, stdlib_directory: str) -> NativeLinkPlan:
+        """Return a plan that owns the imported macOS CoreAudio runtime."""
+
+        package_name = "btrc_stdlib_core_audio_device_runtime"
+        if any(package.name == package_name for package in self.packages):
+            raise IncludeResolutionError(
+                f"package identity {package_name!r} is reserved for compiler-owned stdlib runtimes"
+            )
+        root = os.path.realpath(stdlib_directory)
+        runtime = os.path.join(root, "core_audio_device")
+        source = os.path.join(runtime, "btrc_core_audio_device.c")
+        header = os.path.join(runtime, "btrc_core_audio_device.h")
+        if not os.path.isdir(root) or not os.path.isdir(runtime):
+            raise IncludeResolutionError("std.CoreAudioDevice native runtime directory is unavailable")
+        if not os.path.isfile(source) or not os.path.isfile(header):
+            raise IncludeResolutionError("std.CoreAudioDevice native runtime sources are unavailable")
+        package = PackageNode(package_name, root, {}, {"path": root}, "")
+        supported = ("macos",)
+        declarations = (
+            NativeDeclaration(
+                "source", package_name, source, language="c", standard="c11", operating_systems=supported
+            ),
+            NativeDeclaration("header", package_name, header, operating_systems=supported),
+            NativeDeclaration("include-directory", package_name, runtime, operating_systems=supported),
+            NativeDeclaration("framework", package_name, "AudioToolbox", operating_systems=supported),
+            NativeDeclaration("framework", package_name, "CoreAudio", operating_systems=supported),
+            NativeDeclaration("framework", package_name, "CoreFoundation", operating_systems=supported),
+        )
+        return NativeLinkPlan(self.target, self.packages + (package,), self.declarations + declarations)
+
 
 @dataclass(frozen=True)
 class ResolvedPackages:

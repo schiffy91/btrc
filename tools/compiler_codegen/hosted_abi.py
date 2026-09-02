@@ -543,15 +543,18 @@ class HostedAbiManifest:
 
     @classmethod
     def _validate_type_shape(cls, shape: HostedAbiTypeSpec, context: str) -> None:
-        if shape.generic_args and shape.base != "CFunction":
+        if shape.generic_args and shape.base not in {"CFunction", "Span"}:
             raise HostedAbiManifestError(
-                f"{context} contains generic hosted type {shape.base!r}; only CFunction is supported"
+                f"{context} contains unsupported generic hosted type {shape.base!r}"
             )
         if shape.base == "CFunction":
             if shape.pointer_depth != 0 or shape.is_const or not shape.generic_args:
                 raise HostedAbiManifestError(
                     f"{context} contains an invalid CFunction shape"
                 )
+        if shape.base == "Span":
+            if shape.pointer_depth != 0 or shape.is_const or len(shape.generic_args) != 1:
+                raise HostedAbiManifestError(f"{context} contains an invalid Span shape")
         for argument in shape.generic_args:
             cls._validate_type_shape(argument, context)
 

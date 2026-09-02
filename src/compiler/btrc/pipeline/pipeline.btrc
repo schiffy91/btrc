@@ -48,6 +48,10 @@ class CompilerPipeline {
 		if (resolved.dependencies.hasSource(FeSourcePathPolicy().identity(localApplicationChannelModule))) {
 			packages.linkPlan.requireStdlibLocalApplicationChannel(self.stdlib.directory());
 		}
+		string coreAudioDeviceModule = PathTools.join(self.stdlib.directory(), "CoreAudioDevice.btrc");
+		if (resolved.dependencies.hasSource(FeSourcePathPolicy().identity(coreAudioDeviceModule))) {
+			packages.linkPlan.requireStdlibCoreAudioDevice(self.stdlib.directory());
+		}
 
 		Lexer lexer = Lexer(resolved.source, self.grammar);
 		Vector<Token> tokens = lexer.tokenize();

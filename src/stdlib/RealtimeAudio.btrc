@@ -30,7 +30,9 @@ struct AudioBlockView {
 	uint flags;
 };
 
-typedef CFunction< void, void*, struct AudioBlockView, Span<const float>, Span<float> > RealtimeAudioProcess;
+typedef Span<const float> RealtimeAudioInputSamples;
+typedef Span<float> RealtimeAudioOutputSamples;
+typedef CFunction< void, void*, struct AudioBlockView, RealtimeAudioInputSamples, RealtimeAudioOutputSamples > RealtimeAudioProcess;
 
 class RealtimeAudioFormat {
 	private int _sampleRate;

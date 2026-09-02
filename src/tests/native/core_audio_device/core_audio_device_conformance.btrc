@@ -1,0 +1,64 @@
+import std.CoreAudioDevice;
+
+#include <assert.h>
+#include <time.h>
+
+struct CoreAudioConformanceContext {
+	Atomic<uint>* callbacks;
+	Atomic<uint>* failure;
+	Atomic<uint>* firstDiscontinuity;
+};
+
+@realtime void coreAudioConformanceProcess(void* rawContext, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {
+	struct CoreAudioConformanceContext* context = (struct CoreAudioConformanceContext*)rawContext;
+	if (context == null) { return; }
+	uint invocation = context->callbacks->fetchAdd(1u, MemoryOrder.RELAXED);
+	if (block.inputChannelCount != 0 || block.outputChannelCount != 1 || block.frameCount <= 0 || block.streamEpoch == 0ULL || !inputs.isEmpty() || outputs.length() != (size_t)block.frameCount) { context->failure->store(1u, MemoryOrder.RELAXED); }
+	if (invocation == 0u && (block.flags & (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY) != 0u) { context->firstDiscontinuity->store(1u, MemoryOrder.RELAXED); }
+	int frameCount = block.frameCount;
+	for (int frame = 0; frame < frameCount; frame++) { outputs.trySet((size_t)frame, 0.0f); }
+}
+
+int main() {
+	CoreAudioDeviceProviderOpenOutcome opened = CoreAudioDeviceProvider.open();
+	if (!opened.succeeded()) { print("SKIP: CoreAudio provider unavailable"); return 0; }
+	CoreAudioDeviceProvider provider = opened.provider();
+	AudioDeviceInventoryOutcome inventoried = provider.inventory();
+	assert(inventoried.succeeded());
+	AudioDeviceInventory inventory = inventoried.inventory();
+	AudioDeviceDescriptor? selected = inventory.defaultOutput();
+	if (selected == null) {
+		for (int index = 0; index < inventory.count(); index++) { if (selected == null && inventory.at(index).hasOutput()) { selected = inventory.at(index); } }
+	}
+	if (selected == null || !selected.streamCapability().isKnown() || selected.streamCapability().currentBufferFrames() < 16 || selected.streamCapability().currentBufferFrames() > 8192) { assert(provider.close().succeeded()); print("SKIP: CoreAudio output capability unavailable"); return 0; }
+	AudioDeviceDescriptor output = selected;
+	AudioStreamCapability capability = output.streamCapability();
+	AudioStreamRequest stream = AudioStreamRequest(capability.currentSampleRate(), capability.currentBufferFrames());
+	Atomic<uint> callbacks;
+	Atomic<uint> failure;
+	Atomic<uint> firstDiscontinuity;
+	callbacks.init(0u);
+	failure.init(0u);
+	firstDiscontinuity.init(0u);
+	struct CoreAudioConformanceContext context = {&callbacks, &failure, &firstDiscontinuity};
+	RealtimeAudioProgram program = RealtimeAudioProgram(coreAudioConformanceProcess, &context);
+	DuplexAudioOpenRequest request = DuplexAudioOpenRequest.outputOnly(inventory.generation(), output.id(), AudioChannelSelection.leading(1), stream);
+	DuplexAudioSessionOpenOutcome sessionOpened = provider.openDuplex(request, program);
+	if (!sessionOpened.succeeded()) { assert(provider.close().succeeded()); print("SKIP: CoreAudio output session unavailable"); return 0; }
+	DuplexAudioSession session = sessionOpened.session();
+	assert(!session.drain().succeeded());
+	assert(provider.close().status() == AUDIO_DEVICE_BUSY);
+	assert(session.start().succeeded());
+	assert(session.streamEpoch() != 0ULL);
+	struct timespec duration = {0, 200000000L};
+	nanosleep(&duration, null);
+	assert(session.suspend().succeeded());
+	assert(session.drain().succeeded());
+	assert(callbacks.load(MemoryOrder.RELAXED) > 0u);
+	assert(failure.load(MemoryOrder.RELAXED) == 0u);
+	assert(firstDiscontinuity.load(MemoryOrder.RELAXED) == 1u);
+	assert(session.close().succeeded());
+	assert(provider.close().succeeded());
+	print("PASS: CoreAudio provider callback and drain barrier");
+	return 0;
+}

@@ -1104,18 +1104,16 @@ class DeclarationRegistry:
         if canonical is None:
             return None
         if canonical.generic_args:
-            if (
-                canonical.base != "__fn_ptr"
-                or canonical.pointer_depth != 0
-                or canonical.is_array
-                or canonical.is_const
-                or canonical.is_nullable
-            ):
+            if canonical.pointer_depth != 0 or canonical.is_array or canonical.is_const or canonical.is_nullable:
                 return None
             arguments = tuple(self.hosted_abi_type(argument) for argument in canonical.generic_args)
             if any(argument is None for argument in arguments):
                 return None
-            return AbiType("CFunction", generic_args=arguments)
+            if canonical.base == "__fn_ptr":
+                return AbiType("CFunction", generic_args=arguments)
+            if canonical.base == "Span" and len(arguments) == 1:
+                return AbiType("Span", generic_args=arguments)
+            return None
         base = _C_BASES.get(canonical.base, canonical.base)
         depth = canonical.pointer_depth + int(canonical.is_array)
         if canonical.base == "string":
@@ -1130,6 +1128,9 @@ class DeclarationRegistry:
             if type_shape.base == "CFunction":
                 signature = ", ".join(render(argument) for argument in type_shape.generic_args)
                 return f"CFunction<{signature}>"
+            if type_shape.base == "Span":
+                signature = ", ".join(render(argument) for argument in type_shape.generic_args)
+                return f"Span<{signature}>"
             qualifier = "const " if type_shape.is_const else ""
             return qualifier + type_shape.base + "*" * type_shape.pointer_depth
 

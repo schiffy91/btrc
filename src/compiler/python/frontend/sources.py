@@ -696,6 +696,7 @@ _PRIORITY_FILES = (
 _EXPLICIT_STDLIB_MODULES = frozenset(
     {
         "background_jobs.btrc",
+        "CoreAudioDevice.btrc",
         "local_application_channel.btrc",
         "native_ui.btrc",
         "native_ui_app.btrc",
@@ -1003,6 +1004,9 @@ class SourceResolver:
         local_application_channel_module = os.path.join(self.stdlib.directory(), "local_application_channel.btrc")
         if graph.has_source(local_application_channel_module):
             native_plan = native_plan.with_stdlib_local_application_channel(self.stdlib.directory())
+        core_audio_device_module = os.path.join(self.stdlib.directory(), "CoreAudioDevice.btrc")
+        if graph.has_source(core_audio_device_module):
+            native_plan = native_plan.with_stdlib_core_audio_device(self.stdlib.directory())
         return ResolvedSource(
             user_source=user_source,
             source=full_source,

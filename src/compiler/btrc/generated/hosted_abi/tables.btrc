@@ -186,7 +186,7 @@ class GeneratedHostedAbiData {
 		self.push_platform_typedef_names0();
 		self.stdlib_source_marker = "compiler:stdlib";
 		self.user_source_marker = "compiler:user";
-		self.fingerprint = "2d8019cb6371e8a21f2a4aa9d50f88c4a6487e715223bfebbf334a832501e0e9";
+		self.fingerprint = "24d502d733c8628db1f7bda17d649a3c84782ce04bba6241b670a63d36fce27b";
 	}
 
 	private void pushFunctions0() {
@@ -8304,6 +8304,243 @@ class GeneratedHostedAbiData {
 			"",
 			"unknown"));
 		self.functions.push(GeneratedHostedFunctionRow(
+			"std_core_audio_provider_close",
+			"native_core_audio",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_core_audio_provider_inventory",
+			"native_core_audio",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_core_audio_provider_inventory_device",
+			"native_core_audio",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "read", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("struct CoreAudioNativeDeviceRecord", 1, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_core_audio_provider_open",
+			"native_core_audio",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 2, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_core_audio_provider_open_duplex",
+			"native_core_audio",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, true, self.emptyTypes()), "read", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, true, self.emptyTypes()), "read", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("CFunction", 0, false, [GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()), GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), GeneratedAbiTypeRow("struct AudioBlockView", 0, false, self.emptyTypes()), GeneratedAbiTypeRow("Span", 0, false, [GeneratedAbiTypeRow("float", 0, true, self.emptyTypes())]), GeneratedAbiTypeRow("Span", 0, false, [GeneratedAbiTypeRow("float", 0, false, self.emptyTypes())])]), "value", "stored_until_unregister"),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "unknown", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 2, false, self.emptyTypes()), "mutate", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("struct CoreAudioNativeNegotiatedFormat", 1, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_core_audio_session_close",
+			"native_core_audio",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_core_audio_session_dispose",
+			"native_core_audio",
+			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_core_audio_session_drain",
+			"native_core_audio",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_core_audio_session_epoch",
+			"native_core_audio",
+			GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "read", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_core_audio_session_start",
+			"native_core_audio",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_core_audio_session_suspend",
+			"native_core_audio",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
 			"std_gpu_attach_surface",
 			"native_gpu",
 			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
@@ -8881,6 +9118,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions11() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_gpu_shader_finalize",
 			"native_gpu",
@@ -9131,9 +9371,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions11() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"strcat",
 			"string",
@@ -9746,6 +9983,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions12() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"tan",
 			"math",
@@ -9969,9 +10209,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions12() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"time",
 			"posix_process",
@@ -11273,6 +11510,17 @@ class GeneratedHostedAbiData {
 		self.function_names.push("std_background_jobs_outstanding");
 		self.function_names.push("std_background_jobs_poll");
 		self.function_names.push("std_background_jobs_submit");
+		self.function_names.push("std_core_audio_provider_close");
+		self.function_names.push("std_core_audio_provider_inventory");
+		self.function_names.push("std_core_audio_provider_inventory_device");
+		self.function_names.push("std_core_audio_provider_open");
+		self.function_names.push("std_core_audio_provider_open_duplex");
+		self.function_names.push("std_core_audio_session_close");
+		self.function_names.push("std_core_audio_session_dispose");
+		self.function_names.push("std_core_audio_session_drain");
+		self.function_names.push("std_core_audio_session_epoch");
+		self.function_names.push("std_core_audio_session_start");
+		self.function_names.push("std_core_audio_session_suspend");
 		self.function_names.push("std_gpu_attach_surface");
 		self.function_names.push("std_gpu_begin_frame");
 		self.function_names.push("std_gpu_close");
@@ -18392,6 +18640,17 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("std_background_jobs_outstanding");
 		self.owned_names.push("std_background_jobs_poll");
 		self.owned_names.push("std_background_jobs_submit");
+		self.owned_names.push("std_core_audio_provider_close");
+		self.owned_names.push("std_core_audio_provider_inventory");
+		self.owned_names.push("std_core_audio_provider_inventory_device");
+		self.owned_names.push("std_core_audio_provider_open");
+		self.owned_names.push("std_core_audio_provider_open_duplex");
+		self.owned_names.push("std_core_audio_session_close");
+		self.owned_names.push("std_core_audio_session_dispose");
+		self.owned_names.push("std_core_audio_session_drain");
+		self.owned_names.push("std_core_audio_session_epoch");
+		self.owned_names.push("std_core_audio_session_start");
+		self.owned_names.push("std_core_audio_session_suspend");
 		self.owned_names.push("std_gpu_attach_surface");
 		self.owned_names.push("std_gpu_begin_frame");
 		self.owned_names.push("std_gpu_close");
@@ -18606,6 +18865,9 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("user_size_t");
 		self.owned_names.push("user_ssize_t");
 		self.owned_names.push("user_time_t");
+	}
+
+	private void push_owned_names16() {
 		self.owned_names.push("user_ulong_t");
 		self.owned_names.push("ushort");
 		self.owned_names.push("usleep");
@@ -18617,9 +18879,6 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("uuid_generate");
 		self.owned_names.push("uuid_generate_random");
 		self.owned_names.push("uuid_generate_time");
-	}
-
-	private void push_owned_names16() {
 		self.owned_names.push("uuid_is_null");
 		self.owned_names.push("uuid_parse");
 		self.owned_names.push("uuid_string_t");
@@ -18754,6 +19013,17 @@ class GeneratedHostedAbiData {
 		self.native_names.push("std_background_jobs_outstanding");
 		self.native_names.push("std_background_jobs_poll");
 		self.native_names.push("std_background_jobs_submit");
+		self.native_names.push("std_core_audio_provider_close");
+		self.native_names.push("std_core_audio_provider_inventory");
+		self.native_names.push("std_core_audio_provider_inventory_device");
+		self.native_names.push("std_core_audio_provider_open");
+		self.native_names.push("std_core_audio_provider_open_duplex");
+		self.native_names.push("std_core_audio_session_close");
+		self.native_names.push("std_core_audio_session_dispose");
+		self.native_names.push("std_core_audio_session_drain");
+		self.native_names.push("std_core_audio_session_epoch");
+		self.native_names.push("std_core_audio_session_start");
+		self.native_names.push("std_core_audio_session_suspend");
 		self.native_names.push("std_gpu_attach_surface");
 		self.native_names.push("std_gpu_begin_frame");
 		self.native_names.push("std_gpu_close");
@@ -19526,6 +19796,17 @@ class GeneratedHostedAbiData {
 		self.platform_function_names.push("std_background_jobs_outstanding");
 		self.platform_function_names.push("std_background_jobs_poll");
 		self.platform_function_names.push("std_background_jobs_submit");
+		self.platform_function_names.push("std_core_audio_provider_close");
+		self.platform_function_names.push("std_core_audio_provider_inventory");
+		self.platform_function_names.push("std_core_audio_provider_inventory_device");
+		self.platform_function_names.push("std_core_audio_provider_open");
+		self.platform_function_names.push("std_core_audio_provider_open_duplex");
+		self.platform_function_names.push("std_core_audio_session_close");
+		self.platform_function_names.push("std_core_audio_session_dispose");
+		self.platform_function_names.push("std_core_audio_session_drain");
+		self.platform_function_names.push("std_core_audio_session_epoch");
+		self.platform_function_names.push("std_core_audio_session_start");
+		self.platform_function_names.push("std_core_audio_session_suspend");
 		self.platform_function_names.push("std_gpu_attach_surface");
 		self.platform_function_names.push("std_gpu_begin_frame");
 		self.platform_function_names.push("std_gpu_close");
@@ -19615,6 +19896,9 @@ class GeneratedHostedAbiData {
 		self.platform_function_names.push("timer_settime");
 		self.platform_function_names.push("timespec_get");
 		self.platform_function_names.push("timingsafe_bcmp");
+	}
+
+	private void push_platform_function_names3() {
 		self.platform_function_names.push("truncate");
 		self.platform_function_names.push("ttyname");
 		self.platform_function_names.push("ttyname_r");
@@ -19626,9 +19910,6 @@ class GeneratedHostedAbiData {
 		self.platform_function_names.push("umaskx_np");
 		self.platform_function_names.push("undelete");
 		self.platform_function_names.push("unlink");
-	}
-
-	private void push_platform_function_names3() {
 		self.platform_function_names.push("unlinkat");
 		self.platform_function_names.push("unlockpt");
 		self.platform_function_names.push("unsetenv");

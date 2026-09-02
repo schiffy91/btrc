@@ -1,0 +1,184 @@
+/* Direct macOS CoreAudio provider for std.AudioDevice.
+ *
+ * Device UIDs remain selectable independently for input and output. Native
+ * AUHAL and private aggregate-device details are implementation-only; the
+ * realtime program receives the interleaved std.RealtimeAudio ABI. A provider
+ * and all sessions opened from it are owned by one control thread; the provider
+ * must outlive those sessions.
+ */
+
+import std.AudioDevice;
+import std.OwnedBuffer;
+import std.strings;
+import std.vector;
+
+struct CoreAudioNativeRateRange {
+	int minimum;
+	int maximum;
+};
+
+struct CoreAudioNativeDeviceRecord {
+	char id[512];
+	char name[512];
+	int inputChannels;
+	int outputChannels;
+	int defaultInput;
+	int defaultOutput;
+	int capabilityKnown;
+	int currentSampleRate;
+	int minimumBufferFrames;
+	int maximumBufferFrames;
+	int currentBufferFrames;
+	int sampleRateRangeCount;
+	struct CoreAudioNativeRateRange sampleRateRanges[64];
+};
+
+struct CoreAudioNativeNegotiatedFormat {
+	unsigned long long inventoryGeneration;
+	int inputSampleRate;
+	int inputChannels;
+	int outputSampleRate;
+	int outputChannels;
+	int bufferFrames;
+};
+
+int std_core_audio_provider_open(void** providerOut);
+int std_core_audio_provider_inventory(void* provider, unsigned long long* generationOut, int* countOut);
+int std_core_audio_provider_inventory_device(void* provider, int index, struct CoreAudioNativeDeviceRecord* recordOut);
+int std_core_audio_provider_open_duplex(void* provider, unsigned long long inventoryGeneration, const char* inputDeviceId, const int* inputChannels, int inputChannelCount, const char* outputDeviceId, const int* outputChannels, int outputChannelCount, int sampleRate, int bufferFrames, RealtimeAudioProcess process, void* processContext, void** sessionOut, struct CoreAudioNativeNegotiatedFormat* formatOut);
+int std_core_audio_provider_close(void* provider);
+int std_core_audio_session_start(void* session);
+int std_core_audio_session_suspend(void* session);
+int std_core_audio_session_drain(void* session);
+int std_core_audio_session_close(void* session);
+unsigned long long std_core_audio_session_epoch(void* session);
+void std_core_audio_session_dispose(void* session);
+
+AudioDeviceStatus coreAudioDeviceStatus(int nativeStatus) {
+	if (nativeStatus < (int)AUDIO_DEVICE_OK || nativeStatus > (int)AUDIO_DEVICE_FAILED) { return AUDIO_DEVICE_FAILED; }
+	return (AudioDeviceStatus)nativeStatus;
+}
+
+AudioDeviceStatus coreAudioSessionStart(void* session) { return coreAudioDeviceStatus(std_core_audio_session_start(session)); }
+
+AudioDeviceStatus coreAudioSessionSuspend(void* session) { return coreAudioDeviceStatus(std_core_audio_session_suspend(session)); }
+
+AudioDeviceStatus coreAudioSessionDrain(void* session) { return coreAudioDeviceStatus(std_core_audio_session_drain(session)); }
+
+AudioDeviceStatus coreAudioSessionClose(void* session) { return coreAudioDeviceStatus(std_core_audio_session_close(session)); }
+
+unsigned long long coreAudioSessionEpoch(void* session) { return std_core_audio_session_epoch(session); }
+
+void coreAudioSessionDispose(void* session) { std_core_audio_session_dispose(session); }
+
+class CoreAudioDeviceProviderOpenOutcome {
+	private AudioDeviceStatus _status;
+	private CoreAudioDeviceProvider? _provider;
+	private string _message;
+
+	private CoreAudioDeviceProviderOpenOutcome(AudioDeviceStatus status, CoreAudioDeviceProvider? provider, string message) {
+		if ((status == AUDIO_DEVICE_OK) != (provider != null && message.isEmpty())) { throw "invalid CoreAudio provider outcome"; }
+		self._status = status;
+		self._provider = provider;
+		self._message = status == AUDIO_DEVICE_OK ? "" : (message.isEmpty() ? audioDeviceStatusMessage(status) : message);
+	}
+
+	class CoreAudioDeviceProviderOpenOutcome opened(CoreAudioDeviceProvider provider) { return CoreAudioDeviceProviderOpenOutcome(AUDIO_DEVICE_OK, provider, ""); }
+
+	class CoreAudioDeviceProviderOpenOutcome failed(AudioDeviceStatus status, string message = "") {
+		if (status == AUDIO_DEVICE_OK) { throw "failed CoreAudio provider open requires an error status"; }
+		return CoreAudioDeviceProviderOpenOutcome(status, null, message);
+	}
+
+	public AudioDeviceStatus status() { return self._status; }
+
+	public bool succeeded() { return self._status == AUDIO_DEVICE_OK; }
+
+	public CoreAudioDeviceProvider provider() {
+		if (self._provider == null) { throw "CoreAudio provider is unavailable"; }
+		return self._provider;
+	}
+
+	public string message() { return self._message; }
+}
+
+class CoreAudioDeviceProvider implements AudioDeviceProvider {
+	private void* _native;
+
+	private CoreAudioDeviceProvider(void* nativeProvider) {
+		if (nativeProvider == null) { throw "CoreAudio provider requires a native backend"; }
+		self._native = nativeProvider;
+	}
+
+	class CoreAudioDeviceProviderOpenOutcome open() {
+		void* provider = null;
+		AudioDeviceStatus status = coreAudioDeviceStatus(std_core_audio_provider_open(&provider));
+		if (status != AUDIO_DEVICE_OK || provider == null) { return CoreAudioDeviceProviderOpenOutcome.failed(status == AUDIO_DEVICE_OK ? AUDIO_DEVICE_FAILED : status); }
+		return CoreAudioDeviceProviderOpenOutcome.opened(CoreAudioDeviceProvider(provider));
+	}
+
+	public bool isOpen() { return self._native != null; }
+
+	public AudioDeviceInventoryOutcome inventory() {
+		if (self._native == null) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_WRONG_STATE); }
+		unsigned long long generation = 0ULL;
+		int count = 0;
+		AudioDeviceStatus status = coreAudioDeviceStatus(std_core_audio_provider_inventory(self._native, &generation, &count));
+		if (status != AUDIO_DEVICE_OK) { return AudioDeviceInventoryOutcome.failed(status); }
+		if (generation == 0ULL || count < 0 || count > 256) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_FAILED); }
+		Vector<AudioDeviceDescriptor> devices = new Vector<AudioDeviceDescriptor>();
+		for (int index = 0; index < count; index++) {
+			struct CoreAudioNativeDeviceRecord native;
+			status = coreAudioDeviceStatus(std_core_audio_provider_inventory_device(self._native, index, &native));
+			if (status != AUDIO_DEVICE_OK) { return AudioDeviceInventoryOutcome.failed(status); }
+			AudioStreamCapability capability = AudioStreamCapability.unknown();
+			if (native.capabilityKnown != 0) {
+				if (native.sampleRateRangeCount <= 0 || native.sampleRateRangeCount > 64) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_FAILED); }
+				Vector<AudioSampleRateRange> sampleRates = new Vector<AudioSampleRateRange>();
+				for (int rateIndex = 0; rateIndex < native.sampleRateRangeCount; rateIndex++) { sampleRates.push(AudioSampleRateRange(native.sampleRateRanges[rateIndex].minimum, native.sampleRateRanges[rateIndex].maximum)); }
+				capability = AudioStreamCapability.available(sampleRates, native.currentSampleRate, native.minimumBufferFrames, native.maximumBufferFrames, native.currentBufferFrames);
+			}
+			devices.push(AudioDeviceDescriptor(Strings.copy(native.id), Strings.copy(native.name), native.inputChannels, native.outputChannels, native.defaultInput != 0, native.defaultOutput != 0, capability));
+		}
+		return AudioDeviceInventoryOutcome.available(AudioDeviceInventory(generation, devices));
+	}
+
+	public DuplexAudioSessionOpenOutcome openDuplex(DuplexAudioOpenRequest request, RealtimeAudioProgram program) {
+		if (self._native == null || request == null || program == null) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_INVALID_ARGUMENT); }
+		AudioDeviceInventoryOutcome inventoryOutcome = self.inventory();
+		if (!inventoryOutcome.succeeded()) { return DuplexAudioSessionOpenOutcome.failed(inventoryOutcome.status(), inventoryOutcome.message()); }
+		AudioDeviceStatus validation = request.validate(inventoryOutcome.inventory());
+		if (validation != AUDIO_DEVICE_OK) { return DuplexAudioSessionOpenOutcome.failed(validation); }
+		AudioChannelSelection outputSelection = request.outputChannels();
+		OwnedBuffer<int> outputChannels = OwnedBuffer((size_t)outputSelection.count());
+		if (!outputChannels.opened()) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_FAILED); }
+		for (int index = 0; index < outputSelection.count(); index++) { if (!outputChannels.set((size_t)index, outputSelection.at(index))) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_FAILED); } }
+		int inputChannelCount = request.hasInput() ? request.inputChannels().count() : 0;
+		OwnedBuffer<int> inputChannels = OwnedBuffer((size_t)(inputChannelCount > 0 ? inputChannelCount : 1));
+		if (!inputChannels.opened()) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_FAILED); }
+		if (request.hasInput()) {
+			AudioChannelSelection inputSelection = request.inputChannels();
+			for (int index = 0; index < inputSelection.count(); index++) { if (!inputChannels.set((size_t)index, inputSelection.at(index))) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_FAILED); } }
+		}
+		void* nativeSession = null;
+		struct CoreAudioNativeNegotiatedFormat nativeFormat;
+		AudioStreamRequest stream = request.stream();
+		AudioDeviceStatus status = coreAudioDeviceStatus(std_core_audio_provider_open_duplex(self._native, request.inventoryGeneration(), request.hasInput() ? request.inputDeviceId() : null, request.hasInput() ? inputChannels.borrow() : null, inputChannelCount, request.outputDeviceId(), outputChannels.borrow(), outputSelection.count(), stream.sampleRate(), stream.bufferFrames(), program.invokePointer(), program.context(), &nativeSession, &nativeFormat));
+		if (status != AUDIO_DEVICE_OK || nativeSession == null) { return DuplexAudioSessionOpenOutcome.failed(status == AUDIO_DEVICE_OK ? AUDIO_DEVICE_FAILED : status); }
+		RealtimeAudioFormat? inputFormat = request.hasInput() ? RealtimeAudioFormat(nativeFormat.inputSampleRate, nativeFormat.inputChannels) : null;
+		DuplexAudioNegotiatedFormat format = DuplexAudioNegotiatedFormat(nativeFormat.inventoryGeneration, request.hasInput() ? request.inputDeviceId() : "", inputFormat, request.outputDeviceId(), RealtimeAudioFormat(nativeFormat.outputSampleRate, nativeFormat.outputChannels), nativeFormat.bufferFrames);
+		DuplexAudioSession session = DuplexAudioSession(format, program, nativeSession, coreAudioSessionStart, coreAudioSessionSuspend, coreAudioSessionDrain, coreAudioSessionClose, coreAudioSessionEpoch, coreAudioSessionDispose);
+		return DuplexAudioSessionOpenOutcome.opened(session);
+	}
+
+	public AudioDeviceOperationOutcome close() {
+		if (self._native == null) { return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_OK); }
+		AudioDeviceStatus status = coreAudioDeviceStatus(std_core_audio_provider_close(self._native));
+		if (status == AUDIO_DEVICE_OK) { self._native = null; }
+		return AudioDeviceOperationOutcome.fromStatus(status);
+	}
+
+	public void __del__() {
+		if (self._native != null && !self.close().succeeded()) { Console.fatal("CoreAudio provider destroyed before its sessions closed"); }
+	}
+}

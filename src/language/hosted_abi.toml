@@ -1047,6 +1047,17 @@ functions = [
   "std_background_jobs_outstanding",
   "std_background_jobs_poll",
   "std_background_jobs_submit",
+  "std_core_audio_provider_close",
+  "std_core_audio_provider_inventory",
+  "std_core_audio_provider_inventory_device",
+  "std_core_audio_provider_open",
+  "std_core_audio_provider_open_duplex",
+  "std_core_audio_session_close",
+  "std_core_audio_session_dispose",
+  "std_core_audio_session_drain",
+  "std_core_audio_session_epoch",
+  "std_core_audio_session_start",
+  "std_core_audio_session_suspend",
   "std_gpu_attach_surface",
   "std_gpu_begin_frame",
   "std_gpu_close",
@@ -8085,6 +8096,17 @@ owned = [
   "std_background_jobs_outstanding",
   "std_background_jobs_poll",
   "std_background_jobs_submit",
+  "std_core_audio_provider_close",
+  "std_core_audio_provider_inventory",
+  "std_core_audio_provider_inventory_device",
+  "std_core_audio_provider_open",
+  "std_core_audio_provider_open_duplex",
+  "std_core_audio_session_close",
+  "std_core_audio_session_dispose",
+  "std_core_audio_session_drain",
+  "std_core_audio_session_epoch",
+  "std_core_audio_session_start",
+  "std_core_audio_session_suspend",
   "std_gpu_attach_surface",
   "std_gpu_begin_frame",
   "std_gpu_close",
@@ -8443,6 +8465,17 @@ native = [
   "std_background_jobs_outstanding",
   "std_background_jobs_poll",
   "std_background_jobs_submit",
+  "std_core_audio_provider_close",
+  "std_core_audio_provider_inventory",
+  "std_core_audio_provider_inventory_device",
+  "std_core_audio_provider_open",
+  "std_core_audio_provider_open_duplex",
+  "std_core_audio_session_close",
+  "std_core_audio_session_dispose",
+  "std_core_audio_session_drain",
+  "std_core_audio_session_epoch",
+  "std_core_audio_session_start",
+  "std_core_audio_session_suspend",
   "std_gpu_attach_surface",
   "std_gpu_begin_frame",
   "std_gpu_close",
@@ -9208,6 +9241,17 @@ functions = [
   "std_background_jobs_outstanding",
   "std_background_jobs_poll",
   "std_background_jobs_submit",
+  "std_core_audio_provider_close",
+  "std_core_audio_provider_inventory",
+  "std_core_audio_provider_inventory_device",
+  "std_core_audio_provider_open",
+  "std_core_audio_provider_open_duplex",
+  "std_core_audio_session_close",
+  "std_core_audio_session_dispose",
+  "std_core_audio_session_drain",
+  "std_core_audio_session_epoch",
+  "std_core_audio_session_start",
+  "std_core_audio_session_suspend",
   "std_gpu_attach_surface",
   "std_gpu_begin_frame",
   "std_gpu_close",
@@ -17197,6 +17241,161 @@ parameters = [
   { base = "void", pointer_depth = 1, is_const = false, effect = "unknown" },
   { base = "CFunction", pointer_depth = 0, is_const = false, generic_args = [{ base = "void", pointer_depth = 0, is_const = false }, { base = "void", pointer_depth = 1, is_const = false }], effect = "value", callback_lifetime = "stored_until_unregister" },
   { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_core_audio_provider_close"
+origin = "native_core_audio"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_core_audio_provider_inventory"
+origin = "native_core_audio"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_core_audio_provider_inventory_device"
+origin = "native_core_audio"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "struct CoreAudioNativeDeviceRecord", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_core_audio_provider_open"
+origin = "native_core_audio"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 2, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_core_audio_provider_open_duplex"
+origin = "native_core_audio"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "char", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "int", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "char", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "int", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "CFunction", pointer_depth = 0, is_const = false, generic_args = [
+      { base = "void", pointer_depth = 0, is_const = false },
+      { base = "void", pointer_depth = 1, is_const = false },
+      { base = "struct AudioBlockView", pointer_depth = 0, is_const = false },
+      { base = "Span", pointer_depth = 0, is_const = false, generic_args = [{ base = "float", pointer_depth = 0, is_const = true }] },
+      { base = "Span", pointer_depth = 0, is_const = false, generic_args = [{ base = "float", pointer_depth = 0, is_const = false }] },
+    ], effect = "value", callback_lifetime = "stored_until_unregister" },
+  { base = "void", pointer_depth = 1, is_const = false, effect = "unknown" },
+  { base = "void", pointer_depth = 2, is_const = false, effect = "mutate" },
+  { base = "struct CoreAudioNativeNegotiatedFormat", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_core_audio_session_close"
+origin = "native_core_audio"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_core_audio_session_dispose"
+origin = "native_core_audio"
+result = { base = "void", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_core_audio_session_drain"
+origin = "native_core_audio"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_core_audio_session_epoch"
+origin = "native_core_audio"
+result = { base = "unsigned long long", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 1, is_const = false, effect = "read" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_core_audio_session_start"
+origin = "native_core_audio"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_core_audio_session_suspend"
+origin = "native_core_audio"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
 ]
 variadic = false
 return_effect = "value"
