@@ -191,10 +191,18 @@ def test_callable_persistent_storage_consumes_flow_owned_risk_facts() -> None:
     lowerer = _source("ir/lowering/lowerer.btrc")
     statements = _source("ir/lowering/statements.btrc")
 
-    assert "private CallableBoundaryContext refreshedBoundaryContext(" in flow
+    assert "private CallableBoundaryContext refreshedBoundaryContext(" not in flow
+    assert "CallableBoundaryContext currentContext = context;" in flow
+    assert "self.variableTypes = variableTypes;" in callables
+    assert "self.typeParameters = typeParameters;" in callables
+    assert "self.ownedCallables = ownedCallables;" in callables
+    assert "self.ambiguousCallables = ambiguousCallables;" in callables
+    assert "self.lexicalCallableDeclarations = lexicalCallableDeclarations;" in callables
+    assert "self.environmentFunctions = environmentFunctions;" in callables
+    assert "self.environmentStorage = environmentStorage;" in callables
     assert "public bool persistentStorageUnsafe(" in flow
     assert "public bool assignmentStorageUnsafe(" in flow
-    assert flow.count("self.refreshedBoundaryContext(") >= 5
+    assert "self.refreshedBoundaryContext(" not in flow
     assert flow.index("assignment.target, values, context") < flow.index(
         "targetType, assignment.value_node, values, context"
     )

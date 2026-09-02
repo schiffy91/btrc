@@ -17,11 +17,18 @@ import ./context.btrc;
 import ./ownership/lifetime.btrc;
 import ./types.btrc;
 
-/* Immutable semantics for source callable values.
+/* Read-only semantics for source callable values.
  *
  * A bare __fn_ptr stores only a C function pointer.  The return-ownership ABI
  * and any receiver/closure environment are therefore semantic facts owned by
- * the compiler, not data carried by the runtime value. */
+ * the compiler, not data carried by the runtime value.
+ *
+ * CallableBoundaryContext is a short-lived read-only view. Its source type
+ * maps belong to the active lowering operation and its callable provenance
+ * maps belong to CallableFlowState. Retaining those owners is sufficient: a
+ * deep copy here made every recursive expression visit clone the entire
+ * lowering environment while the explicit flow snapshots below already own
+ * every branch/exception transaction. */
 
 class CallableBoundaryContext {
 	private Map<string, Node> variableTypes;
@@ -34,61 +41,14 @@ class CallableBoundaryContext {
 	private Map<string, string> environmentStorage;
 
 	public CallableBoundaryContext(Map<string, Node> variableTypes, Map<string, Node> typeParameters, bool resolvesTypeParameters, Map<string, bool> ownedCallables, Map<string, bool> ambiguousCallables, Vector<string> lexicalCallableDeclarations, Map<string, string> environmentFunctions, Map<string, string> environmentStorage) {
-		self.variableTypes = {};
-		Vector<string> variableNames = variableTypes.keys();
-		int variableIndex = 0;
-		while (variableIndex < variableNames.len) {
-			string name = variableNames.get(variableIndex);
-			self.variableTypes.put(name, variableTypes.get(name));
-			variableIndex = variableIndex + 1;
-		}
-		self.typeParameters = {};
-		Vector<string> parameterNames = typeParameters.keys();
-		int parameterIndex = 0;
-		while (parameterIndex < parameterNames.len) {
-			string name = parameterNames.get(parameterIndex);
-			self.typeParameters.put(name, typeParameters.get(name));
-			parameterIndex = parameterIndex + 1;
-		}
+		self.variableTypes = variableTypes;
+		self.typeParameters = typeParameters;
 		self.resolvesTypeParameters = resolvesTypeParameters;
-		self.ownedCallables = {};
-		Vector<string> ownedNames = ownedCallables.keys();
-		int ownedIndex = 0;
-		while (ownedIndex < ownedNames.len) {
-			string name = ownedNames.get(ownedIndex);
-			self.ownedCallables.put(name, ownedCallables.get(name));
-			ownedIndex = ownedIndex + 1;
-		}
-		self.ambiguousCallables = {};
-		Vector<string> ambiguousNames = ambiguousCallables.keys();
-		int ambiguousIndex = 0;
-		while (ambiguousIndex < ambiguousNames.len) {
-			string name = ambiguousNames.get(ambiguousIndex);
-			self.ambiguousCallables.put(name, ambiguousCallables.get(name));
-			ambiguousIndex = ambiguousIndex + 1;
-		}
-		self.lexicalCallableDeclarations = [];
-		int declarationIndex = 0;
-		while (declarationIndex < lexicalCallableDeclarations.len) {
-			self.lexicalCallableDeclarations.push(lexicalCallableDeclarations.get(declarationIndex));
-			declarationIndex = declarationIndex + 1;
-		}
-		self.environmentFunctions = {};
-		Vector<string> environmentNames = environmentFunctions.keys();
-		int environmentIndex = 0;
-		while (environmentIndex < environmentNames.len) {
-			string name = environmentNames.get(environmentIndex);
-			self.environmentFunctions.put(name, environmentFunctions.get(name));
-			environmentIndex = environmentIndex + 1;
-		}
-		self.environmentStorage = {};
-		environmentNames = environmentStorage.keys();
-		environmentIndex = 0;
-		while (environmentIndex < environmentNames.len) {
-			string name = environmentNames.get(environmentIndex);
-			self.environmentStorage.put(name, environmentStorage.get(name));
-			environmentIndex = environmentIndex + 1;
-		}
+		self.ownedCallables = ownedCallables;
+		self.ambiguousCallables = ambiguousCallables;
+		self.lexicalCallableDeclarations = lexicalCallableDeclarations;
+		self.environmentFunctions = environmentFunctions;
+		self.environmentStorage = environmentStorage;
 	}
 
 	public bool resolvesParameters() { return self.resolvesTypeParameters; }

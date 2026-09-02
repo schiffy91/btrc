@@ -121,10 +121,6 @@ class CallableFlowState {
 
 	public CallableBoundaryContext boundaryContext(Map<string, Node> variableTypes, Map<string, Node> typeParameters, bool resolvesTypeParameters) { return CallableBoundaryContext(variableTypes, typeParameters, resolvesTypeParameters, self.ownedBindings, self.ambiguousBindings, self.declarations, self.environmentFunctions, self.environmentStorage); }
 
-	private CallableBoundaryContext refreshedBoundaryContext(CallableBoundaryContext context) { return self.boundaryContext(context.variables(), context.parameterTypes(), context.resolvesParameters()); }
-
-
-
 	/* 0 = borrowed C callback, 1 = source-owned +1, 2 = ambiguous join. */
 
 	public void setBindingAbi(string name, int abi) {
@@ -596,11 +592,14 @@ class CallableFlowState {
 
 	private int evaluateExpression(Node? expression, CallableValueSemantics values, CallableBoundaryContext context) {
 		if (expression == null) { return 0; }
-		CallableBoundaryContext currentContext = self.refreshedBoundaryContext(context);
+		/* Context is a read-only view of this flow state's maps. Snapshot/restore
+		 * mutates those maps in place, so every recursive query observes the exact
+		 * current flow without rebuilding the complete environment. */
+		CallableBoundaryContext currentContext = context;
 		if (expression.kind == NK_ASSIGN_EXPR) {
 			self.evaluateAssignmentTarget(expression.target, values, currentContext);
 			int valueAbi = self.evaluateExpression(expression.value_node, values, currentContext);
-			CallableBoundaryContext assignmentContext = self.refreshedBoundaryContext(currentContext);
+			CallableBoundaryContext assignmentContext = currentContext;
 			if (expression.op == "=" && expression.target != null && expression.target.kind == NK_IDENTIFIER && assignmentContext.hasVariable(expression.target.name) && values.callableType(assignmentContext.variableType(expression.target.name), assignmentContext) && values.lexicalIdentifier(expression.target.name, assignmentContext)) {
 				self.setBindingAbi(expression.target.name, valueAbi);
 				if (self.planningDepth == 0) {
@@ -654,16 +653,16 @@ class CallableFlowState {
 				self.evaluateExpression(expression.args.get(argument), values, currentContext);
 				argument = argument + 1;
 			}
-			return values.expressionAbi(expression, self.refreshedBoundaryContext(currentContext));
+			return values.expressionAbi(expression, currentContext);
 		}
 		if (expression.kind == NK_FIELD_ACCESS_EXPR) {
 			self.evaluateExpression(expression.obj, values, currentContext);
-			return values.expressionAbi(expression, self.refreshedBoundaryContext(currentContext));
+			return values.expressionAbi(expression, currentContext);
 		}
 		if (expression.kind == NK_INDEX_EXPR) {
 			self.evaluateExpression(expression.obj, values, currentContext);
 			self.evaluateExpression(expression.index, values, currentContext);
-			return values.expressionAbi(expression, self.refreshedBoundaryContext(currentContext));
+			return values.expressionAbi(expression, currentContext);
 		}
 		if (expression.kind == NK_LIST_LITERAL || expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_TUPLE_LITERAL) {
 			int element = 0;
@@ -706,7 +705,7 @@ class CallableFlowState {
 			self.evaluateExpression(expression.fn, values, currentContext);
 			return 0;
 		}
-		return values.expressionAbi(expression, self.refreshedBoundaryContext(currentContext));
+		return values.expressionAbi(expression, currentContext);
 	}
 
 	/* Apply only provenance effects. The caller owns the surrounding
@@ -727,7 +726,7 @@ class CallableFlowState {
 
 	private bool unsafePersistentValue(Node? expectedType, Node? value, CallableValueSemantics values, CallableBoundaryContext context) {
 		if (value == null) { return false; }
-		CallableBoundaryContext currentContext = self.refreshedBoundaryContext(context);
+		CallableBoundaryContext currentContext = context;
 		if (expectedType == null) {
 			self.applyEvaluation(value, values, currentContext);
 			return false;
