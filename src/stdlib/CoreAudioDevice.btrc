@@ -45,7 +45,7 @@ struct CoreAudioNativeNegotiatedFormat {
 int std_core_audio_provider_open(void** providerOut);
 int std_core_audio_provider_inventory(void* provider, unsigned long long* generationOut, int* countOut);
 int std_core_audio_provider_inventory_device(void* provider, int index, struct CoreAudioNativeDeviceRecord* recordOut);
-int std_core_audio_provider_open_duplex(void* provider, unsigned long long inventoryGeneration, const char* inputDeviceId, const int* inputChannels, int inputChannelCount, const char* outputDeviceId, const int* outputChannels, int outputChannelCount, int sampleRate, int bufferFrames, RealtimeAudioProcess process, void* processContext, void** sessionOut, struct CoreAudioNativeNegotiatedFormat* formatOut);
+int std_core_audio_provider_open_duplex(void* provider, unsigned long long inventoryGeneration, const char* inputDeviceId, const int* inputChannels, int inputChannelCount, const char* outputDeviceId, const int* outputChannels, int outputChannelCount, int sampleRate, int bufferFrames, CFunction< void, void*, struct AudioBlockView, RealtimeAudioInputSamples, RealtimeAudioOutputSamples > process, void* processContext, void** sessionOut, struct CoreAudioNativeNegotiatedFormat* formatOut);
 int std_core_audio_provider_close(void* provider);
 int std_core_audio_session_start(void* session);
 int std_core_audio_session_suspend(void* session);
@@ -163,7 +163,8 @@ class CoreAudioDeviceProvider implements AudioDeviceProvider {
 		void* nativeSession = null;
 		struct CoreAudioNativeNegotiatedFormat nativeFormat;
 		AudioStreamRequest stream = request.stream();
-		AudioDeviceStatus status = coreAudioDeviceStatus(std_core_audio_provider_open_duplex(self._native, request.inventoryGeneration(), request.hasInput() ? request.inputDeviceId() : null, request.hasInput() ? inputChannels.borrow() : null, inputChannelCount, request.outputDeviceId(), outputChannels.borrow(), outputSelection.count(), stream.sampleRate(), stream.bufferFrames(), program.invokePointer(), program.context(), &nativeSession, &nativeFormat));
+		CFunction< void, void*, struct AudioBlockView, RealtimeAudioInputSamples, RealtimeAudioOutputSamples > nativeProcess = program.invokePointer();
+		AudioDeviceStatus status = coreAudioDeviceStatus(std_core_audio_provider_open_duplex(self._native, request.inventoryGeneration(), request.hasInput() ? request.inputDeviceId() : null, request.hasInput() ? inputChannels.borrow() : null, inputChannelCount, request.outputDeviceId(), outputChannels.borrow(), outputSelection.count(), stream.sampleRate(), stream.bufferFrames(), nativeProcess, program.context(), &nativeSession, &nativeFormat));
 		if (status != AUDIO_DEVICE_OK || nativeSession == null) { return DuplexAudioSessionOpenOutcome.failed(status == AUDIO_DEVICE_OK ? AUDIO_DEVICE_FAILED : status); }
 		RealtimeAudioFormat? inputFormat = request.hasInput() ? RealtimeAudioFormat(nativeFormat.inputSampleRate, nativeFormat.inputChannels) : null;
 		DuplexAudioNegotiatedFormat format = DuplexAudioNegotiatedFormat(nativeFormat.inventoryGeneration, request.hasInput() ? request.inputDeviceId() : "", inputFormat, request.outputDeviceId(), RealtimeAudioFormat(nativeFormat.outputSampleRate, nativeFormat.outputChannels), nativeFormat.bufferFrames);
