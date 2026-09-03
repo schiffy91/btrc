@@ -19,6 +19,7 @@ from src.tests.btrc.test_semantic_validation import (
 REPO = Path(__file__).resolve().parents[3]
 SELFHOST = REPO / "src" / "compiler" / "btrc"
 CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
+STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 pytestmark = pytest.mark.skipif(
     not CC or shutil.which(CC[0]) is None,
@@ -317,3 +318,51 @@ def test_nullable_generic_substitution_has_dual_runtime_parity(
         reference_source,
         tmp_path / "reference-nullable-substitution",
     )
+
+
+@pytest.mark.skipif(not STRICT_COMPILERS, reason="requires GCC or Clang")
+def test_nullable_generic_parameter_accepts_unlifted_value_on_both_frontends(
+    selfhost_compiler: Path,
+    tmp_path: Path,
+) -> None:
+    program = REPO / "src/tests/btrc/fixtures/NullableGenericPromotion.btrc"
+    source = program.read_text()
+    selfhost = _run([str(selfhost_compiler), "--no-stdlib", str(program)], timeout=30)
+    reference, reference_source = _compile_reference_source(tmp_path, source)
+
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    generated = {
+        "reference": reference_source,
+        "selfhost": tmp_path / "NullableGenericPromotion.selfhost.c",
+    }
+    generated["selfhost"].write_text(selfhost.stdout)
+    for emitted in generated.values():
+        anchor = _struct_body(emitted.read_text(), "btrc_PromotionAnchor_PromotionCursor_p1")
+        assert "PromotionCursor* _cursor;" in anchor
+        assert "PromotionCursor** _cursor;" not in anchor
+    for frontend, emitted in generated.items():
+        for compiler in STRICT_COMPILERS:
+            executable = tmp_path / f"NullableGenericPromotion-{frontend}-{Path(compiler).name}"
+            built = _run(
+                [
+                    compiler,
+                    "-std=c11",
+                    "-pedantic-errors",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-O2",
+                    str(emitted),
+                    "-o",
+                    str(executable),
+                    "-lm",
+                    "-lpthread",
+                ],
+                timeout=60,
+            )
+            assert built.returncode == 0, built.stderr
+            ran = _run([str(executable)], timeout=30)
+            assert ran.returncode == 0, ran.stderr
+            assert ran.stdout == "PASS NullableGenericPromotion\n"
+            assert ran.stderr == ""

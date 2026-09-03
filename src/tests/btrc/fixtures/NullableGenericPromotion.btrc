@@ -1,0 +1,29 @@
+#include <assert.h>
+
+class PromotionCursor {
+	public int value;
+
+	public PromotionCursor(int value) { self.value = value; }
+}
+
+class PromotionAnchor<CursorT> {
+	private CursorT? _cursor;
+
+	public PromotionAnchor(CursorT? cursor) { self._cursor = cursor; }
+
+	public CursorT? cursor() { return self._cursor; }
+}
+
+class PromotionAnchorCache<CursorT> {
+	public PromotionAnchor<CursorT> remember(CursorT cursor) { return new PromotionAnchor<CursorT> (cursor); }
+}
+
+int main() {
+	PromotionCursor cursor = new PromotionCursor(37);
+	PromotionAnchorCache<PromotionCursor> cache = new PromotionAnchorCache<PromotionCursor>();
+	PromotionAnchor<PromotionCursor> anchor = cache.remember(cursor);
+	assert(anchor.cursor() == cursor);
+	assert(cursor.value == 37);
+	print("PASS NullableGenericPromotion");
+	return 0;
+}

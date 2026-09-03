@@ -680,6 +680,14 @@ class TypeValidator {
 		if (self.operators.isNullType(resolvedSource)) {
 			return self.operators.isReferenceType(resolvedTarget) || self.state.interfaces.has(resolvedTarget.base);
 		}
+		/* A generic template cannot know whether T's eventual value already has
+		 * reference shape. T -> T? is the one deferred promotion: nullable adds
+		 * the optional boundary when needed and otherwise annotates that resolved
+		 * reference. Keep this narrower than the former "any unresolved T fits"
+		 * shortcut so unrelated callable/storage shapes still fail closed. */
+		if (resolvedTarget.base == resolvedSource.base && resolvedTarget.generic_args.len == 0 && self.state.typeParams.has(resolvedTarget.base) && resolvedTarget.is_nullable && resolvedTarget.pointer_depth == resolvedSource.pointer_depth + 1) {
+			return self.operators.genericArgsEqual(resolvedTarget.generic_args, resolvedSource.generic_args);
+		}
 		if (self.sameTypeShape(resolvedTarget, resolvedSource, self.operators)) { return true; }
 		if (self.callableAssignmentCompatible(resolvedTarget, resolvedSource, self.operators)) { return true; }
 		/* C array-to-pointer decay is directional.  Do not collapse both shapes to
