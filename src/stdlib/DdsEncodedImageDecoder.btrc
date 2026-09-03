@@ -1,0 +1,145 @@
+/* Bounded, dependency-free DDS DXT1/DXT5 image decoding. */
+
+import std.EncodedImage;
+
+class DdsEncodedImageHeader {
+	private EncodedImageDecodeStatus _status;
+	private int _encoding;
+	private int _width;
+	private int _height;
+
+	private DdsEncodedImageHeader(EncodedImageDecodeStatus status, int encoding, int width, int height) {
+		bool ready = status == ENCODED_IMAGE_DECODE_OK && (encoding == 1 || encoding == 5) && width > 0 && height > 0;
+		bool rejected = status != ENCODED_IMAGE_DECODE_OK && encoding == 0 && width == 0 && height == 0;
+		if (!ready && !rejected) { throw "invalid DDS image header"; }
+		self._status = status;
+		self._encoding = encoding;
+		self._width = width;
+		self._height = height;
+	}
+
+	class DdsEncodedImageHeader ready(int encoding, int width, int height) { return DdsEncodedImageHeader(ENCODED_IMAGE_DECODE_OK, encoding, width, height); }
+
+	class DdsEncodedImageHeader rejected(EncodedImageDecodeStatus status) { return DdsEncodedImageHeader(status, 0, 0, 0); }
+
+	public EncodedImageDecodeStatus status() { return self._status; }
+
+	public int encoding() { return self._encoding; }
+
+	public int width() { return self._width; }
+
+	public int height() { return self._height; }
+}
+
+class DdsEncodedImageDecoder implements EncodedImageDecoder {
+	public DdsEncodedImageDecoder() {}
+
+	class bool recognizes(Bytes encoded) { return DdsEncodedImageDecoder.match4(encoded, 0, 68, 68, 83, 32); }
+
+	class bool match4(Bytes encoded, int offset, int first, int second, int third, int fourth) { return encoded != null && offset >= 0 && offset <= encoded.length() - 4 && encoded.get(offset) == first && encoded.get(offset + 1) == second && encoded.get(offset + 2) == third && encoded.get(offset + 3) == fourth; }
+
+	class int littleU16(Bytes encoded, int offset) { return encoded.get(offset) + encoded.get(offset + 1) * 256; }
+
+	class unsigned long long littleU32(Bytes encoded, int offset) { return (unsigned long long)encoded.get(offset) + (unsigned long long)encoded.get(offset + 1) * 256ULL + (unsigned long long)encoded.get(offset + 2) * 65536ULL + (unsigned long long)encoded.get(offset + 3) * 16777216ULL; }
+
+	class DdsEncodedImageHeader header(Bytes encoded) {
+		if (encoded.length() < 128 || DdsEncodedImageDecoder.littleU32(encoded, 4) != 124ULL || DdsEncodedImageDecoder.littleU32(encoded, 76) != 32ULL) { return DdsEncodedImageHeader.rejected(ENCODED_IMAGE_DECODE_CORRUPT); }
+		unsigned long long flags = DdsEncodedImageDecoder.littleU32(encoded, 8);
+		unsigned long long width = DdsEncodedImageDecoder.littleU32(encoded, 16);
+		unsigned long long height = DdsEncodedImageDecoder.littleU32(encoded, 12);
+		unsigned long long pixelFlags = DdsEncodedImageDecoder.littleU32(encoded, 80);
+		unsigned long long caps = DdsEncodedImageDecoder.littleU32(encoded, 108);
+		unsigned long long caps2 = DdsEncodedImageDecoder.littleU32(encoded, 112);
+		if ((flags & 0x1007ULL) != 0x1007ULL || width == 0ULL || height == 0ULL || width > 2147483647ULL || height > 2147483647ULL || (pixelFlags & 4ULL) == 0ULL || (caps & 0x1000ULL) == 0ULL) { return DdsEncodedImageHeader.rejected(ENCODED_IMAGE_DECODE_CORRUPT); }
+		if (caps2 != 0ULL || (flags & 0x800000ULL) != 0ULL || DdsEncodedImageDecoder.littleU32(encoded, 24) > 1ULL) { return DdsEncodedImageHeader.rejected(ENCODED_IMAGE_DECODE_UNSUPPORTED); }
+		int encoding = 0;
+		int blockBytes = 0;
+		if (DdsEncodedImageDecoder.match4(encoded, 84, 68, 88, 84, 49)) {
+			encoding = 1;
+			blockBytes = 8;
+		} else if (DdsEncodedImageDecoder.match4(encoded, 84, 68, 88, 84, 53)) {
+			encoding = 5;
+			blockBytes = 16;
+		} else {
+			return DdsEncodedImageHeader.rejected(ENCODED_IMAGE_DECODE_UNSUPPORTED);
+		}
+		unsigned long long blocksWide = (width + 3ULL) / 4ULL;
+		unsigned long long blocksHigh = (height + 3ULL) / 4ULL;
+		unsigned long long baseBytes = blocksWide * blocksHigh * (unsigned long long)blockBytes;
+		if (baseBytes > (unsigned long long)encoded.length() - 128ULL) { return DdsEncodedImageHeader.rejected(ENCODED_IMAGE_DECODE_CORRUPT); }
+		unsigned long long linearBytes = DdsEncodedImageDecoder.littleU32(encoded, 20);
+		if ((flags & 0x80000ULL) != 0ULL && linearBytes != baseBytes) { return DdsEncodedImageHeader.rejected(ENCODED_IMAGE_DECODE_CORRUPT); }
+		return DdsEncodedImageHeader.ready(encoding, (int)width, (int)height);
+	}
+
+	class int red(int color) { return ((color >> 11) & 31) * 255 / 31; }
+
+	class int green(int color) { return ((color >> 5) & 63) * 255 / 63; }
+
+	class int blue(int color) { return (color & 31) * 255 / 31; }
+
+	class RGBA color(int first, int second, int selector, bool allowTransparent) {
+		int firstRed = DdsEncodedImageDecoder.red(first);
+		int firstGreen = DdsEncodedImageDecoder.green(first);
+		int firstBlue = DdsEncodedImageDecoder.blue(first);
+		if (selector == 0) { return RGBA(firstRed, firstGreen, firstBlue); }
+		int secondRed = DdsEncodedImageDecoder.red(second);
+		int secondGreen = DdsEncodedImageDecoder.green(second);
+		int secondBlue = DdsEncodedImageDecoder.blue(second);
+		if (selector == 1) { return RGBA(secondRed, secondGreen, secondBlue); }
+		if (allowTransparent && first <= second) { return selector == 2 ? RGBA((firstRed + secondRed) / 2, (firstGreen + secondGreen) / 2, (firstBlue + secondBlue) / 2) : RGBA(0, 0, 0, 0); }
+		return selector == 2 ? RGBA((firstRed * 2 + secondRed) / 3, (firstGreen * 2 + secondGreen) / 3, (firstBlue * 2 + secondBlue) / 3) : RGBA((firstRed + secondRed * 2) / 3, (firstGreen + secondGreen * 2) / 3, (firstBlue + secondBlue * 2) / 3);
+	}
+
+	class int alpha(int first, int second, unsigned long long selectors, int pixel) {
+		int selector = (int)((selectors >> (pixel * 3)) & 7ULL);
+		if (selector == 0) { return first; }
+		if (selector == 1) { return second; }
+		if (first > second) { return ((8 - selector) * first + (selector - 1) * second) / 7; }
+		if (selector == 6) { return 0; }
+		if (selector == 7) { return 255; }
+		return ((6 - selector) * first + (selector - 1) * second) / 5;
+	}
+
+	private EncodedImageDecodeOutcome decodeBlocks(Bytes encoded, DdsEncodedImageHeader header) {
+		Image image = Image(header.width(), header.height());
+		int blockBytes = header.encoding() == 1 ? 8 : 16;
+		int blocksWide = (header.width() + 3) / 4;
+		int blocksHigh = (header.height() + 3) / 4;
+		for (int blockY = 0; blockY < blocksHigh; blockY++) {
+			for (int blockX = 0; blockX < blocksWide; blockX++) {
+				int block = 128 + (blockY * blocksWide + blockX) * blockBytes;
+				int colorOffset = header.encoding() == 1 ? block : block + 8;
+				int firstColor = DdsEncodedImageDecoder.littleU16(encoded, colorOffset);
+				int secondColor = DdsEncodedImageDecoder.littleU16(encoded, colorOffset + 2);
+				unsigned long long colorSelectors = DdsEncodedImageDecoder.littleU32(encoded, colorOffset + 4);
+				unsigned long long alphaSelectors = 0ULL;
+				if (header.encoding() == 5) { for (int byteIndex = 0; byteIndex < 6; byteIndex++) { alphaSelectors |= (unsigned long long)encoded.get(block + 2 + byteIndex) << (byteIndex * 8); } }
+				for (int localY = 0; localY < 4; localY++) {
+					for (int localX = 0; localX < 4; localX++) {
+						int x = blockX * 4 + localX;
+						int y = blockY * 4 + localY;
+						if (x >= header.width() || y >= header.height()) { continue; }
+						int pixel = localY * 4 + localX;
+						int selector = (int)((colorSelectors >> (pixel * 2)) & 3ULL);
+						RGBA color = DdsEncodedImageDecoder.color(firstColor, secondColor, selector, header.encoding() == 1);
+						int alpha = header.encoding() == 1 ? color.alpha : DdsEncodedImageDecoder.alpha(encoded.get(block), encoded.get(block + 1), alphaSelectors, pixel);
+						image.setRGBA(x, y, color.red, color.green, color.blue, alpha);
+					}
+				}
+			}
+		}
+		return EncodedImageDecodeOutcome.decoded(image, encoded.length());
+	}
+
+	public EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits) {
+		int inputBytes = encoded == null ? 0 : encoded.length();
+		if (encoded == null || encoded.isEmpty() || limits == null) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_INVALID_ARGUMENT, inputBytes); }
+		if (!limits.allowsInput(inputBytes)) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, inputBytes); }
+		if (!DdsEncodedImageDecoder.recognizes(encoded)) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_UNSUPPORTED, inputBytes); }
+		DdsEncodedImageHeader header = DdsEncodedImageDecoder.header(encoded);
+		if (header.status() != ENCODED_IMAGE_DECODE_OK) { return EncodedImageDecodeOutcome.rejected(header.status(), inputBytes); }
+		if (!limits.allowsDimensions(header.width(), header.height())) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, inputBytes); }
+		return self.decodeBlocks(encoded, header);
+	}
+}

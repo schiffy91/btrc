@@ -1,0 +1,96 @@
+import std.DdsEncodedImageDecoder;
+
+#include <assert.h>
+
+void appendLittleU16(Bytes bytes, int value) {
+	bytes.append(value % 256);
+	bytes.append((value / 256) % 256);
+}
+
+void appendLittleU32(Bytes bytes, unsigned int value) {
+	bytes.append((int)(value & 255U));
+	bytes.append((int)((value >> 8) & 255U));
+	bytes.append((int)((value >> 16) & 255U));
+	bytes.append((int)((value >> 24) & 255U));
+}
+
+void appendZeroes(Bytes bytes, int count) { for (int index = 0; index < count; index++) { bytes.append(0); } }
+
+void appendDxt1Block(Bytes bytes, unsigned int firstColor, unsigned int secondColor, unsigned int selectors) {
+	appendLittleU16(bytes, (int)firstColor);
+	appendLittleU16(bytes, (int)secondColor);
+	appendLittleU32(bytes, selectors);
+}
+
+Bytes dds(bool dxt5, int width, int height, int firstColor, int secondColor, unsigned int selectors) {
+	int blocksWide = (width + 3) / 4;
+	int blocksHigh = (height + 3) / 4;
+	int blockBytes = dxt5 ? 16 : 8;
+	Bytes bytes = Bytes.fromString("DDS ");
+	appendLittleU32(bytes, 124U);
+	appendLittleU32(bytes, 0x00081007U);
+	appendLittleU32(bytes, (unsigned int)height);
+	appendLittleU32(bytes, (unsigned int)width);
+	appendLittleU32(bytes, (unsigned int)(blocksWide * blocksHigh * blockBytes));
+	appendLittleU32(bytes, 0U);
+	appendLittleU32(bytes, 0U);
+	appendZeroes(bytes, 44);
+	appendLittleU32(bytes, 32U);
+	appendLittleU32(bytes, 4U);
+	bytes.appendBytes(Bytes.fromString(dxt5 ? "DXT5" : "DXT1"));
+	appendZeroes(bytes, 20);
+	appendLittleU32(bytes, 0x1000U);
+	appendZeroes(bytes, 16);
+	for (int block = 0; block < blocksWide * blocksHigh; block++) {
+		if (dxt5) {
+			bytes.append(128);
+			bytes.append(0);
+			appendZeroes(bytes, 6);
+		}
+		appendDxt1Block(bytes, (unsigned int)firstColor, (unsigned int)secondColor, selectors);
+	}
+	return bytes;
+}
+
+Bytes genuinePsarcArtwork() {
+	Bytes bytes = dds(false, 8, 8, 0xf800, 0x0000, 0U);
+	int secondBlock = 128 + 8;
+	int thirdBlock = secondBlock + 8;
+	int fourthBlock = thirdBlock + 8;
+	bytes.set(secondBlock, 0xe0);
+	bytes.set(secondBlock + 1, 0x07);
+	bytes.set(thirdBlock, 0x1f);
+	bytes.set(thirdBlock + 1, 0x00);
+	bytes.set(fourthBlock, 0xe0);
+	bytes.set(fourthBlock + 1, 0xff);
+	return bytes;
+}
+
+int main() {
+	DdsEncodedImageDecoder decoder = DdsEncodedImageDecoder();
+	EncodedImageDecodeLimits limits = EncodedImageDecodeLimits(1024, 8, 8, 64LL);
+	Bytes artwork = genuinePsarcArtwork();
+	assert(artwork.length() == 160 && DdsEncodedImageDecoder.recognizes(artwork));
+	EncodedImageDecodeOutcome decoded = decoder.decode(artwork, limits);
+	assert(decoded.succeeded() && decoded.inputBytes() == 160 && decoded.decodedBytes() == 256ULL);
+	Image image = decoded.image();
+	assert(image.width == 8 && image.height == 8);
+	assert(image.pixel(0, 0).equals(RGBA(255, 0, 0, 255)));
+	assert(image.pixel(7, 0).equals(RGBA(0, 255, 0, 255)));
+	assert(image.pixel(0, 7).equals(RGBA(0, 0, 255, 255)));
+	assert(image.pixel(7, 7).equals(RGBA(255, 255, 0, 255)));
+
+	Bytes dxt5 = dds(true, 4, 4, 0x07e0, 0x0000, 0U);
+	EncodedImageDecodeOutcome decodedDxt5 = decoder.decode(dxt5, EncodedImageDecodeLimits(1024, 4, 4, 16LL));
+	assert(decodedDxt5.succeeded() && decodedDxt5.inputBytes() == 144 && decodedDxt5.decodedBytes() == 64ULL);
+	assert(decodedDxt5.image().pixel(3, 3).equals(RGBA(0, 255, 0, 128)));
+
+	Bytes transparent = dds(false, 4, 4, 0x0000, 0xffff, 0xffffffffU);
+	assert(decoder.decode(transparent, EncodedImageDecodeLimits(1024, 4, 4, 16LL)).image().pixel(2, 2).alpha == 0);
+	assert(decoder.decode(artwork, EncodedImageDecodeLimits(1024, 7, 8, 64LL)).status() == ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED);
+	assert(decoder.decode(artwork, EncodedImageDecodeLimits(159, 8, 8, 64LL)).status() == ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED);
+	assert(decoder.decode(artwork.slice(0, artwork.length() - 1), limits).status() == ENCODED_IMAGE_DECODE_CORRUPT);
+	assert(decoder.decode(Bytes.fromString("not an image"), limits).status() == ENCODED_IMAGE_DECODE_UNSUPPORTED);
+	print("PASS DdsEncodedImageDecoderContract");
+	return 0;
+}
