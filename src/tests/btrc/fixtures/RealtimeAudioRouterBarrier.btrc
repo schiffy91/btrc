@@ -1,0 +1,68 @@
+import std.RealtimeAudioRouter;
+
+#include <assert.h>
+
+struct SlowRouteContext {
+	Atomic<uint>* entered;
+	Atomic<uint>* finished;
+	Atomic<uint>* releaseSignal;
+	unsigned long long checksum;
+	int calls;
+};
+
+@realtime void renderSlowRoute(void* raw, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {
+	struct SlowRouteContext* context = (struct SlowRouteContext*)raw;
+	if (context == null || !inputs.isValid() || !outputs.isValid()) { return; }
+	context->calls++;
+	context->entered->store(1u, MemoryOrder.RELEASE);
+	unsigned long long checksum = context->checksum + block.outputDeviceFrame;
+	for (uint attempt = 0u; attempt < 100000000u; attempt++) {
+		checksum += (unsigned long long)attempt;
+		if (context->releaseSignal->load(MemoryOrder.ACQUIRE) != 0u) { break; }
+	}
+	context->checksum = checksum;
+	context->finished->store(1u, MemoryOrder.RELEASE);
+}
+
+int main() {
+	Atomic<uint> entered;
+	Atomic<uint> finished;
+	Atomic<uint> releaseSignal;
+	entered.init(0u);
+	finished.init(0u);
+	releaseSignal.init(0u);
+	struct SlowRouteContext context = {&entered, &finished, &releaseSignal, 0ULL, 0};
+	RealtimeAudioProgram producer = RealtimeAudioProgram(renderSlowRoute, &context);
+	RealtimeAudioProgramRouter router = new RealtimeAudioProgramRouter(1, 0);
+	RealtimeAudioProgram provider = router.providerProgram();
+	RealtimeAudioRouteAttachment attachment = router.attach(producer).attachment();
+	assert(router.activate(attachment).succeeded());
+	Thread<int> worker = spawn(() => {
+			RealtimeAudioProcess process = provider.invokePointer();
+			float output[1] = {-1.0f};
+			struct AudioBlockView block = {0, 1, 1, 0ULL, 42ULL, 9ULL, 1000ULL, 0u};
+			process(provider.context(), block, Span((const float*)null, (size_t)0), Span(output));
+			return 0;
+		});
+	while (entered.load(MemoryOrder.ACQUIRE) == 0u) {}
+	RealtimeAudioProcess concurrentProcess = provider.invokePointer();
+	float concurrentOutput[1] = {-1.0f};
+	struct AudioBlockView concurrentBlock = {0, 1, 1, 0ULL, 41ULL, 9ULL, 900ULL, 0u};
+	concurrentProcess(provider.context(), concurrentBlock, Span((const float*)null, (size_t)0), Span(concurrentOutput));
+	assert(concurrentOutput[0] == 0.0f);
+	assert(context.calls == 1);
+	assert(router.detach(attachment).succeeded());
+	assert(finished.load(MemoryOrder.ACQUIRE) == 1u);
+	int callsAfterBarrier = context.calls;
+	releaseSignal.store(1u, MemoryOrder.RELEASE);
+	assert(worker.join() == 0);
+	RealtimeAudioProcess process = provider.invokePointer();
+	float output[1] = {-1.0f};
+	struct AudioBlockView block = {0, 1, 1, 0ULL, 43ULL, 9ULL, 2000ULL, 0u};
+	process(provider.context(), block, Span((const float*)null, (size_t)0), Span(output));
+	assert(output[0] == 0.0f);
+	assert(context.calls == callsAfterBarrier);
+	assert(router.closeAfterProviderDrain().succeeded());
+	print("PASS RealtimeAudioRouterBarrier");
+	return 0;
+}

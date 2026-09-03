@@ -1,0 +1,464 @@
+/* btrc standard library — fixed-capacity realtime audio program selector
+ *
+ * One device session keeps providerProgram() for its entire lifetime. A single
+ * control thread attaches prepared producers and publishes route commands; the
+ * audio callback selects exactly one producer, so product-specific mixing stays
+ * inside a statically proven RealtimeAudioProgram. detach() closes the selected
+ * slot's callback gate and drains every admitted call before returning, making
+ * success the hard barrier after which that producer context may be reclaimed.
+ * closeAfterProviderDrain() is valid only after the owning AudioDevice session's
+ * drain barrier has completed.
+ */
+
+import std.OwnedBuffer;
+import std.RealtimeAudio;
+import std.callback;
+import std.console;
+import std.spsc;
+
+enum RealtimeAudioRouteStatus {
+	REALTIME_AUDIO_ROUTE_OK,
+	REALTIME_AUDIO_ROUTE_INVALID_ARGUMENT,
+	REALTIME_AUDIO_ROUTE_CAPACITY_EXHAUSTED,
+	REALTIME_AUDIO_ROUTE_STALE_ATTACHMENT,
+	REALTIME_AUDIO_ROUTE_STALE_ACTIVATION,
+	REALTIME_AUDIO_ROUTE_BUSY,
+	REALTIME_AUDIO_ROUTE_CLOSED
+};
+
+class RealtimeAudioRouteOperationOutcome {
+	private RealtimeAudioRouteStatus _status;
+
+	public RealtimeAudioRouteOperationOutcome(RealtimeAudioRouteStatus status) { self._status = status; }
+
+	public RealtimeAudioRouteStatus status() { return self._status; }
+
+	public bool succeeded() { return self._status == REALTIME_AUDIO_ROUTE_OK; }
+}
+
+class RealtimeAudioRouteAttachment {
+	private int _slot;
+	private unsigned long long _generation;
+
+	public RealtimeAudioRouteAttachment(int slot, unsigned long long generation) {
+		if (slot < 0 || generation == 0ULL) { throw "invalid realtime audio route attachment"; }
+		self._slot = slot;
+		self._generation = generation;
+	}
+
+	public int slot() { return self._slot; }
+
+	public unsigned long long generation() { return self._generation; }
+}
+
+class RealtimeAudioRouteActivation {
+	private int _slot;
+	private unsigned long long _attachmentGeneration;
+	private unsigned long long _generation;
+
+	public RealtimeAudioRouteActivation(int slot, unsigned long long attachmentGeneration, unsigned long long generation) {
+		if (slot < 0 || attachmentGeneration == 0ULL || generation == 0ULL) { throw "invalid realtime audio route activation"; }
+		self._slot = slot;
+		self._attachmentGeneration = attachmentGeneration;
+		self._generation = generation;
+	}
+
+	public int slot() { return self._slot; }
+
+	public unsigned long long attachmentGeneration() { return self._attachmentGeneration; }
+
+	public unsigned long long generation() { return self._generation; }
+}
+
+class RealtimeAudioRouteAttachOutcome {
+	private RealtimeAudioRouteStatus _status;
+	private RealtimeAudioRouteAttachment? _attachment;
+
+	private RealtimeAudioRouteAttachOutcome(RealtimeAudioRouteStatus status, RealtimeAudioRouteAttachment? attachment) {
+		self._status = status;
+		self._attachment = attachment;
+	}
+
+	class RealtimeAudioRouteAttachOutcome attached(RealtimeAudioRouteAttachment attachment) { return RealtimeAudioRouteAttachOutcome(REALTIME_AUDIO_ROUTE_OK, attachment); }
+
+	class RealtimeAudioRouteAttachOutcome failed(RealtimeAudioRouteStatus status) { return RealtimeAudioRouteAttachOutcome(status, null); }
+
+	public RealtimeAudioRouteStatus status() { return self._status; }
+
+	public bool succeeded() { return self._status == REALTIME_AUDIO_ROUTE_OK; }
+
+	public RealtimeAudioRouteAttachment attachment() {
+		if (self._attachment == null) { throw "realtime audio route attachment is unavailable"; }
+		return self._attachment;
+	}
+}
+
+class RealtimeAudioRouteActivateOutcome {
+	private RealtimeAudioRouteStatus _status;
+	private RealtimeAudioRouteActivation? _activation;
+
+	private RealtimeAudioRouteActivateOutcome(RealtimeAudioRouteStatus status, RealtimeAudioRouteActivation? activation) {
+		self._status = status;
+		self._activation = activation;
+	}
+
+	class RealtimeAudioRouteActivateOutcome activated(RealtimeAudioRouteActivation activation) { return RealtimeAudioRouteActivateOutcome(REALTIME_AUDIO_ROUTE_OK, activation); }
+
+	class RealtimeAudioRouteActivateOutcome failed(RealtimeAudioRouteStatus status) { return RealtimeAudioRouteActivateOutcome(status, null); }
+
+	public RealtimeAudioRouteStatus status() { return self._status; }
+
+	public bool succeeded() { return self._status == REALTIME_AUDIO_ROUTE_OK; }
+
+	public RealtimeAudioRouteActivation activation() {
+		if (self._activation == null) { throw "realtime audio route activation is unavailable"; }
+		return self._activation;
+	}
+}
+
+struct BtrcRealtimeAudioRouteSlot {
+	RealtimeAudioProcess process;
+	void* context;
+	unsigned long long generation;
+	int occupied;
+};
+
+struct BtrcRealtimeAudioRouteCommand {
+	int slot;
+	unsigned long long attachmentGeneration;
+	unsigned long long activationGeneration;
+};
+
+enum BtrcRealtimeAudioRouterAtomicIndex {
+	BTRC_REALTIME_AUDIO_ROUTER_LIFETIME_GATE,
+	BTRC_REALTIME_AUDIO_ROUTER_CALLBACK_ACTIVE,
+	BTRC_REALTIME_AUDIO_ROUTER_SLOT_GATE_START
+};
+
+enum BtrcRealtimeAudioRouterTransitionDirection {
+	BTRC_REALTIME_AUDIO_ROUTER_STEADY,
+	BTRC_REALTIME_AUDIO_ROUTER_FADE_OUT = -1,
+	BTRC_REALTIME_AUDIO_ROUTER_FADE_IN = 1
+};
+
+struct BtrcRealtimeAudioRouterContext {
+	struct BtrcRealtimeAudioRouteSlot* slots;
+	Atomic<uint>* atomics;
+	struct SpscQueueStorage* commands;
+	int capacity;
+	int handoffFrames;
+	int currentSlot;
+	unsigned long long currentAttachmentGeneration;
+	int pendingSlot;
+	unsigned long long pendingAttachmentGeneration;
+	float gain;
+	float gainStep;
+	int transitionDirection;
+	int routeDiscontinuity;
+};
+
+@realtime static void btrcRealtimeAudioRouterClear(Span<float> outputs) {
+	size_t sampleCount = outputs.length();
+	for (size_t sample = 0u; sample < sampleCount; sample++) { outputs.trySet(sample, 0.0f); }
+}
+
+@realtime static Atomic<uint>* btrcRealtimeAudioRouterSlotGate(struct BtrcRealtimeAudioRouterContext* context, int slot) { return &context->atomics[BTRC_REALTIME_AUDIO_ROUTER_SLOT_GATE_START + slot]; }
+
+@realtime static bool btrcRealtimeAudioRouterSameRoute(int leftSlot, unsigned long long leftGeneration, int rightSlot, unsigned long long rightGeneration) { return leftSlot == rightSlot && leftGeneration == rightGeneration; }
+
+@realtime static void btrcRealtimeAudioRouterSelect(struct BtrcRealtimeAudioRouterContext* context, int slot, unsigned long long attachmentGeneration) {
+	if (btrcRealtimeAudioRouterSameRoute(context->currentSlot, context->currentAttachmentGeneration, slot, attachmentGeneration)) {
+		context->pendingSlot = -1;
+		context->pendingAttachmentGeneration = 0ULL;
+		context->transitionDirection = context->gain < 1.0f ? BTRC_REALTIME_AUDIO_ROUTER_FADE_IN : BTRC_REALTIME_AUDIO_ROUTER_STEADY;
+		return;
+	}
+	context->pendingSlot = slot;
+	context->pendingAttachmentGeneration = attachmentGeneration;
+	if (context->currentSlot < 0 || context->handoffFrames == 0) {
+		context->currentSlot = slot;
+		context->currentAttachmentGeneration = attachmentGeneration;
+		context->pendingSlot = -1;
+		context->pendingAttachmentGeneration = 0ULL;
+		context->gain = slot < 0 || context->handoffFrames == 0 ? 1.0f : 0.0f;
+		context->transitionDirection = slot >= 0 && context->handoffFrames > 0 ? BTRC_REALTIME_AUDIO_ROUTER_FADE_IN : BTRC_REALTIME_AUDIO_ROUTER_STEADY;
+		context->routeDiscontinuity = slot >= 0 ? 1 : 0;
+		return;
+	}
+	context->transitionDirection = BTRC_REALTIME_AUDIO_ROUTER_FADE_OUT;
+}
+
+@realtime static void btrcRealtimeAudioRouterDrainCommands(struct BtrcRealtimeAudioRouterContext* context) {
+	for (uint attempt = 0u; attempt < 64u; attempt++) {
+		struct BtrcRealtimeAudioRouteCommand command;
+		if (!SpscQueues.tryPopBorrowed(context->commands, &command)) { break; }
+		btrcRealtimeAudioRouterSelect(context, command.slot, command.attachmentGeneration);
+	}
+}
+
+@realtime static bool btrcRealtimeAudioRouterInvokeCurrent(struct BtrcRealtimeAudioRouterContext* context, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {
+	if (context->currentSlot < 0 || context->currentSlot >= context->capacity) { return false; }
+	int slotIndex = context->currentSlot;
+	Atomic<uint>* gate = btrcRealtimeAudioRouterSlotGate(context, slotIndex);
+	if (!callbackGateTryEnter(gate)) { return false; }
+	struct BtrcRealtimeAudioRouteSlot* slot = &context->slots[slotIndex];
+	bool valid = slot->occupied != 0 && slot->generation == context->currentAttachmentGeneration;
+	if (valid) {
+		struct AudioBlockView routedBlock = block;
+		if (context->routeDiscontinuity != 0) {
+			routedBlock.flags = routedBlock.flags | (uint)(AUDIO_BLOCK_INPUT_DISCONTINUITY | AUDIO_BLOCK_OUTPUT_DISCONTINUITY);
+			context->routeDiscontinuity = 0;
+		}
+		slot->process(slot->context, routedBlock, inputs, outputs);
+	}
+	callbackGateLeave(gate);
+	return valid;
+}
+
+@realtime static void btrcRealtimeAudioRouterApplyGain(struct BtrcRealtimeAudioRouterContext* context, struct AudioBlockView block, Span<float> outputs) {
+	float gain = context->gain;
+	float step = context->gainStep;
+	int frameCount = block.frameCount;
+	int channelCount = block.outputChannelCount;
+	for (int frame = 0; frame < frameCount; frame++) {
+		for (int channel = 0; channel < channelCount; channel++) {
+			size_t sampleIndex = (size_t)frame * (size_t)channelCount + (size_t)channel;
+			float sample = 0.0f;
+			if (outputs.tryGet(sampleIndex, &sample)) { outputs.trySet(sampleIndex, sample * gain); }
+		}
+		if (context->transitionDirection == BTRC_REALTIME_AUDIO_ROUTER_FADE_OUT) {
+			gain -= step;
+			if (gain <= 0.0f) { gain = 0.0f; }
+		} else if (context->transitionDirection == BTRC_REALTIME_AUDIO_ROUTER_FADE_IN) {
+			gain += step;
+			if (gain >= 1.0f) { gain = 1.0f; }
+		}
+	}
+	context->gain = gain;
+	if (context->transitionDirection == BTRC_REALTIME_AUDIO_ROUTER_FADE_OUT && gain <= 0.0f) {
+		context->currentSlot = context->pendingSlot;
+		context->currentAttachmentGeneration = context->pendingAttachmentGeneration;
+		context->pendingSlot = -1;
+		context->pendingAttachmentGeneration = 0ULL;
+		context->routeDiscontinuity = context->currentSlot >= 0 ? 1 : 0;
+		context->transitionDirection = context->currentSlot >= 0 ? BTRC_REALTIME_AUDIO_ROUTER_FADE_IN : BTRC_REALTIME_AUDIO_ROUTER_STEADY;
+	} else if (context->transitionDirection == BTRC_REALTIME_AUDIO_ROUTER_FADE_IN && gain >= 1.0f) {
+		context->transitionDirection = BTRC_REALTIME_AUDIO_ROUTER_STEADY;
+	}
+}
+
+@realtime static void btrcRealtimeAudioRouterProcess(void* raw, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {
+	struct BtrcRealtimeAudioRouterContext* context = (struct BtrcRealtimeAudioRouterContext*)raw;
+	if (context == null || !inputs.isValid() || !outputs.isValid() || block.frameCount < 0 || block.frameCount > 65536 || block.inputChannelCount < 0 || block.inputChannelCount > 256 || block.outputChannelCount < 0 || block.outputChannelCount > 256 || inputs.length() != (size_t)block.frameCount * (size_t)block.inputChannelCount || outputs.length() != (size_t)block.frameCount * (size_t)block.outputChannelCount) { return; }
+	btrcRealtimeAudioRouterClear(outputs);
+	Atomic<uint>* lifetimeGate = &context->atomics[BTRC_REALTIME_AUDIO_ROUTER_LIFETIME_GATE];
+	if (!callbackGateTryEnter(lifetimeGate)) { return; }
+	Atomic<uint>* callbackActive = &context->atomics[BTRC_REALTIME_AUDIO_ROUTER_CALLBACK_ACTIVE];
+	uint expected = 0u;
+	if (!callbackActive->compareExchangeStrong(&expected, 1u, MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE)) {
+		callbackGateLeave(lifetimeGate);
+		return;
+	}
+	btrcRealtimeAudioRouterDrainCommands(context);
+	bool invoked = btrcRealtimeAudioRouterInvokeCurrent(context, block, inputs, outputs);
+	if (invoked) {
+		btrcRealtimeAudioRouterApplyGain(context, block, outputs);
+	} else {
+		context->currentSlot = context->pendingSlot;
+		context->currentAttachmentGeneration = context->pendingAttachmentGeneration;
+		context->pendingSlot = -1;
+		context->pendingAttachmentGeneration = 0ULL;
+		context->gain = context->currentSlot >= 0 && context->handoffFrames == 0 ? 1.0f : 0.0f;
+		context->transitionDirection = context->currentSlot >= 0 && context->handoffFrames > 0 ? BTRC_REALTIME_AUDIO_ROUTER_FADE_IN : BTRC_REALTIME_AUDIO_ROUTER_STEADY;
+		context->routeDiscontinuity = context->currentSlot >= 0 ? 1 : 0;
+	}
+	callbackActive->store(0u, MemoryOrder.RELEASE);
+	callbackGateLeave(lifetimeGate);
+}
+
+class RealtimeAudioProgramRouter {
+	private OwnedBuffer<struct BtrcRealtimeAudioRouteSlot> _slotsOwner;
+	private AtomicBuffer<uint> _atomicsOwner;
+	private OwnedBuffer<struct BtrcRealtimeAudioRouterContext> _contextOwner;
+	private struct BtrcRealtimeAudioRouterContext* _context;
+	private struct SpscQueueStorage* _commands;
+	private RealtimeAudioProgram _providerProgram;
+	private int _capacity;
+	private int _handoffFrames;
+	private unsigned long long _nextAttachmentGeneration;
+	private unsigned long long _nextActivationGeneration;
+	private unsigned long long _latestActivationGeneration;
+	private int _latestActivationSlot;
+	private unsigned long long _latestActivationAttachmentGeneration;
+	private bool _closed;
+
+	public RealtimeAudioProgramRouter(int capacity = 4, int handoffFrames = 240) {
+		self._closed = true;
+		if (capacity < 1 || capacity > 16 || handoffFrames < 0 || handoffFrames > 48000) { throw "invalid realtime audio router capacity or handoff"; }
+		self._slotsOwner = new OwnedBuffer<struct BtrcRealtimeAudioRouteSlot>((size_t)capacity);
+		self._atomicsOwner = new AtomicBuffer<uint>((size_t)(capacity + BTRC_REALTIME_AUDIO_ROUTER_SLOT_GATE_START));
+		self._contextOwner = new OwnedBuffer<struct BtrcRealtimeAudioRouterContext>((size_t)1);
+		if (!self._slotsOwner.opened() || !self._atomicsOwner.opened() || !self._contextOwner.opened()) {
+			self._slotsOwner.close();
+			self._atomicsOwner.close();
+			self._contextOwner.close();
+			throw "realtime audio router allocation failed";
+		}
+		struct SpscQueueStorage* openedCommands = null;
+		if (SpscQueues.tryOpen(64u, sizeof(struct BtrcRealtimeAudioRouteCommand), &openedCommands) != SPSC_QUEUE_OPENED) {
+			self._slotsOwner.close();
+			self._atomicsOwner.close();
+			self._contextOwner.close();
+			throw "realtime audio router command queue allocation failed";
+		}
+		self._commands = openedCommands;
+		self._capacity = capacity;
+		self._handoffFrames = handoffFrames;
+		self._nextAttachmentGeneration = 1ULL;
+		self._nextActivationGeneration = 1ULL;
+		self._latestActivationGeneration = 0ULL;
+		self._latestActivationSlot = -1;
+		self._latestActivationAttachmentGeneration = 0ULL;
+		Atomic<uint>* atomics = self._atomicsOwner.borrow();
+		atomics[BTRC_REALTIME_AUDIO_ROUTER_LIFETIME_GATE].init(0u);
+		atomics[BTRC_REALTIME_AUDIO_ROUTER_CALLBACK_ACTIVE].init(0u);
+		for (int slot = 0; slot < capacity; slot++) { atomics[BTRC_REALTIME_AUDIO_ROUTER_SLOT_GATE_START + slot].init(1u); }
+		self._context = self._contextOwner.borrow();
+		self._context->slots = self._slotsOwner.borrow();
+		self._context->atomics = atomics;
+		self._context->commands = self._commands;
+		self._context->capacity = capacity;
+		self._context->handoffFrames = handoffFrames;
+		self._context->currentSlot = -1;
+		self._context->currentAttachmentGeneration = 0ULL;
+		self._context->pendingSlot = -1;
+		self._context->pendingAttachmentGeneration = 0ULL;
+		self._context->gain = 0.0f;
+		self._context->gainStep = handoffFrames > 0 ? 1.0f / (float)handoffFrames : 1.0f;
+		self._context->transitionDirection = BTRC_REALTIME_AUDIO_ROUTER_STEADY;
+		self._context->routeDiscontinuity = 0;
+		self._providerProgram = RealtimeAudioProgram(btrcRealtimeAudioRouterProcess, self._context);
+		self._closed = false;
+	}
+
+	private unsigned long long nextAttachmentGeneration() {
+		unsigned long long generation = self._nextAttachmentGeneration++;
+		if (generation == 0ULL) { generation = self._nextAttachmentGeneration++; }
+		return generation;
+	}
+
+	private unsigned long long nextActivationGeneration() {
+		unsigned long long generation = self._nextActivationGeneration++;
+		if (generation == 0ULL) { generation = self._nextActivationGeneration++; }
+		return generation;
+	}
+
+	private struct BtrcRealtimeAudioRouteSlot* matchingSlot(RealtimeAudioRouteAttachment? attachment) {
+		if (self._closed || attachment == null || attachment.slot() < 0 || attachment.slot() >= self._capacity) { return null; }
+		int slotIndex = attachment.slot();
+		struct BtrcRealtimeAudioRouteSlot* slot = &self._context->slots[slotIndex];
+		return slot->occupied != 0 && slot->generation == attachment.generation() ? slot : null;
+	}
+
+	public int capacity() { return self._capacity; }
+
+	public int handoffFrames() { return self._handoffFrames; }
+
+	public bool isClosed() { return self._closed; }
+
+	public RealtimeAudioProgram providerProgram() {
+		if (self._closed) { throw "realtime audio router is closed"; }
+		return self._providerProgram;
+	}
+
+	public RealtimeAudioRouteAttachOutcome attach(RealtimeAudioProgram? program) {
+		if (self._closed) { return RealtimeAudioRouteAttachOutcome.failed(REALTIME_AUDIO_ROUTE_CLOSED); }
+		if (program == null) { return RealtimeAudioRouteAttachOutcome.failed(REALTIME_AUDIO_ROUTE_INVALID_ARGUMENT); }
+		for (int slotIndex = 0; slotIndex < self._capacity; slotIndex++) {
+			struct BtrcRealtimeAudioRouteSlot* slot = &self._context->slots[slotIndex];
+			if (slot->occupied == 0) {
+				unsigned long long generation = self.nextAttachmentGeneration();
+				slot->process = program.invokePointer();
+				slot->context = program.context();
+				slot->generation = generation;
+				slot->occupied = 1;
+				btrcRealtimeAudioRouterSlotGate(self._context, slotIndex)->store(0u, MemoryOrder.RELEASE);
+				return RealtimeAudioRouteAttachOutcome.attached(RealtimeAudioRouteAttachment(slotIndex, generation));
+			}
+		}
+		return RealtimeAudioRouteAttachOutcome.failed(REALTIME_AUDIO_ROUTE_CAPACITY_EXHAUSTED);
+	}
+
+	public RealtimeAudioRouteActivateOutcome activate(RealtimeAudioRouteAttachment? attachment) {
+		if (self._closed) { return RealtimeAudioRouteActivateOutcome.failed(REALTIME_AUDIO_ROUTE_CLOSED); }
+		if (attachment == null) { return RealtimeAudioRouteActivateOutcome.failed(REALTIME_AUDIO_ROUTE_INVALID_ARGUMENT); }
+		if (self.matchingSlot(attachment) == null) { return RealtimeAudioRouteActivateOutcome.failed(REALTIME_AUDIO_ROUTE_STALE_ATTACHMENT); }
+		unsigned long long generation = self.nextActivationGeneration();
+		struct BtrcRealtimeAudioRouteCommand command = {attachment.slot(), attachment.generation(), generation};
+		if (!SpscQueues.tryPushBorrowed(self._commands, &command)) { return RealtimeAudioRouteActivateOutcome.failed(REALTIME_AUDIO_ROUTE_BUSY); }
+		self._latestActivationGeneration = generation;
+		self._latestActivationSlot = attachment.slot();
+		self._latestActivationAttachmentGeneration = attachment.generation();
+		return RealtimeAudioRouteActivateOutcome.activated(RealtimeAudioRouteActivation(attachment.slot(), attachment.generation(), generation));
+	}
+
+	public RealtimeAudioRouteOperationOutcome deactivate(RealtimeAudioRouteActivation? activation) {
+		if (self._closed) { return RealtimeAudioRouteOperationOutcome(REALTIME_AUDIO_ROUTE_CLOSED); }
+		if (activation == null) { return RealtimeAudioRouteOperationOutcome(REALTIME_AUDIO_ROUTE_INVALID_ARGUMENT); }
+		if (activation.generation() != self._latestActivationGeneration || activation.slot() != self._latestActivationSlot || activation.attachmentGeneration() != self._latestActivationAttachmentGeneration) { return RealtimeAudioRouteOperationOutcome(REALTIME_AUDIO_ROUTE_STALE_ACTIVATION); }
+		unsigned long long generation = self.nextActivationGeneration();
+		struct BtrcRealtimeAudioRouteCommand command = {-1, 0ULL, generation};
+		if (!SpscQueues.tryPushBorrowed(self._commands, &command)) { return RealtimeAudioRouteOperationOutcome(REALTIME_AUDIO_ROUTE_BUSY); }
+		self._latestActivationGeneration = generation;
+		self._latestActivationSlot = -1;
+		self._latestActivationAttachmentGeneration = 0ULL;
+		return RealtimeAudioRouteOperationOutcome(REALTIME_AUDIO_ROUTE_OK);
+	}
+
+	public RealtimeAudioRouteOperationOutcome detach(RealtimeAudioRouteAttachment? attachment) {
+		if (self._closed) { return RealtimeAudioRouteOperationOutcome(REALTIME_AUDIO_ROUTE_CLOSED); }
+		if (attachment == null) { return RealtimeAudioRouteOperationOutcome(REALTIME_AUDIO_ROUTE_INVALID_ARGUMENT); }
+		struct BtrcRealtimeAudioRouteSlot* slot = self.matchingSlot(attachment);
+		if (slot == null) { return RealtimeAudioRouteOperationOutcome(REALTIME_AUDIO_ROUTE_STALE_ATTACHMENT); }
+		Atomic<uint>* gate = btrcRealtimeAudioRouterSlotGate(self._context, attachment.slot());
+		callbackGateCloseAdmission(gate);
+		callbackGateDrain(gate);
+		slot->occupied = 0;
+		slot->context = null;
+		if (self._latestActivationSlot == attachment.slot() && self._latestActivationAttachmentGeneration == attachment.generation()) {
+			self._latestActivationGeneration = self.nextActivationGeneration();
+			self._latestActivationSlot = -1;
+			self._latestActivationAttachmentGeneration = 0ULL;
+		}
+		return RealtimeAudioRouteOperationOutcome(REALTIME_AUDIO_ROUTE_OK);
+	}
+
+	public RealtimeAudioRouteOperationOutcome closeAfterProviderDrain() {
+		if (self._closed) { return RealtimeAudioRouteOperationOutcome(REALTIME_AUDIO_ROUTE_OK); }
+		Atomic<uint>* lifetimeGate = &self._context->atomics[BTRC_REALTIME_AUDIO_ROUTER_LIFETIME_GATE];
+		callbackGateCloseAdmission(lifetimeGate);
+		callbackGateDrain(lifetimeGate);
+		for (int slotIndex = 0; slotIndex < self._capacity; slotIndex++) {
+			Atomic<uint>* slotGate = btrcRealtimeAudioRouterSlotGate(self._context, slotIndex);
+			callbackGateCloseAdmission(slotGate);
+			callbackGateDrain(slotGate);
+			self._context->slots[slotIndex].occupied = 0;
+			self._context->slots[slotIndex].context = null;
+		}
+		self._context->commands = null;
+		self._context->slots = null;
+		self._context->atomics = null;
+		SpscQueues.close(self._commands);
+		self._commands = null;
+		self._contextOwner.close();
+		self._atomicsOwner.close();
+		self._slotsOwner.close();
+		self._context = null;
+		self._closed = true;
+		return RealtimeAudioRouteOperationOutcome(REALTIME_AUDIO_ROUTE_OK);
+	}
+
+	public void __del__() {
+		if (!self._closed) { Console.fatal("RealtimeAudioProgramRouter destroyed before closeAfterProviderDrain"); }
+	}
+}

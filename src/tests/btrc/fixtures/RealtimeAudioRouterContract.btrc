@@ -1,0 +1,104 @@
+import std.RealtimeAudioRouter;
+
+#include <assert.h>
+
+struct ConstantRouteContext {
+	float value;
+	int calls;
+	uint lastFlags;
+	unsigned long long lastEpoch;
+};
+
+@realtime void renderConstantRoute(void* raw, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {
+	struct ConstantRouteContext* context = (struct ConstantRouteContext*)raw;
+	if (context == null || !inputs.isValid() || !outputs.isValid()) { return; }
+	size_t sampleCount = outputs.length();
+	for (size_t sample = 0u; sample < sampleCount; sample++) { outputs.trySet(sample, context->value); }
+	context->calls++;
+	context->lastFlags = block.flags;
+	context->lastEpoch = block.streamEpoch;
+}
+
+void assertSamples(float* output, float first, float second) {
+	assert(output[0] == first);
+	assert(output[1] == second);
+}
+
+int main() {
+	struct ConstantRouteContext firstContext = {1.0f, 0, 0u, 0ULL};
+	struct ConstantRouteContext secondContext = {2.0f, 0, 0u, 0ULL};
+	struct ConstantRouteContext thirdContext = {3.0f, 0, 0u, 0ULL};
+	RealtimeAudioProgram firstProgram = RealtimeAudioProgram(renderConstantRoute, &firstContext);
+	RealtimeAudioProgram secondProgram = RealtimeAudioProgram(renderConstantRoute, &secondContext);
+	RealtimeAudioProgram thirdProgram = RealtimeAudioProgram(renderConstantRoute, &thirdContext);
+	RealtimeAudioProgramRouter router = new RealtimeAudioProgramRouter(2, 2);
+	RealtimeAudioProgram providerProgram = router.providerProgram();
+	assert(providerProgram == router.providerProgram());
+	RealtimeAudioProcess process = providerProgram.invokePointer();
+	struct AudioBlockView block = {0, 1, 2, 0ULL, 20ULL, 7ULL, 1000ULL, 0u};
+	float output[2] = {-9.0f, -9.0f};
+	Span<const float> inputs = Span((const float*)null, (size_t)0);
+	Span<float> outputs = Span(output);
+
+	RealtimeAudioRouteAttachOutcome firstAttached = router.attach(firstProgram);
+	RealtimeAudioRouteAttachOutcome secondAttached = router.attach(secondProgram);
+	assert(firstAttached.succeeded() && secondAttached.succeeded());
+	assert(router.attach(thirdProgram).status() == REALTIME_AUDIO_ROUTE_CAPACITY_EXHAUSTED);
+	RealtimeAudioRouteAttachment first = firstAttached.attachment();
+	RealtimeAudioRouteAttachment second = secondAttached.attachment();
+	RealtimeAudioRouteActivateOutcome firstActivated = router.activate(first);
+	assert(firstActivated.succeeded());
+	process(providerProgram.context(), block, inputs, outputs);
+	assertSamples(output, 0.0f, 0.5f);
+	assert((firstContext.lastFlags & (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY) != 0u);
+	assert((firstContext.lastFlags & (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY) != 0u);
+	process(providerProgram.context(), block, inputs, outputs);
+	assertSamples(output, 1.0f, 1.0f);
+
+	RealtimeAudioRouteActivateOutcome secondActivated = router.activate(second);
+	assert(secondActivated.succeeded());
+	assert(router.deactivate(firstActivated.activation()).status() == REALTIME_AUDIO_ROUTE_STALE_ACTIVATION);
+	process(providerProgram.context(), block, inputs, outputs);
+	assertSamples(output, 1.0f, 0.5f);
+	process(providerProgram.context(), block, inputs, outputs);
+	assertSamples(output, 0.0f, 1.0f);
+	assert((secondContext.lastFlags & (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY) != 0u);
+	assert(secondContext.lastEpoch == 7ULL);
+	process(providerProgram.context(), block, inputs, outputs);
+	assertSamples(output, 2.0f, 2.0f);
+
+	assert(router.detach(second).succeeded());
+	assert(router.activate(second).status() == REALTIME_AUDIO_ROUTE_STALE_ATTACHMENT);
+	int secondCallsAfterDetach = secondContext.calls;
+	RealtimeAudioRouteAttachOutcome thirdAttached = router.attach(thirdProgram);
+	assert(thirdAttached.succeeded());
+	RealtimeAudioRouteAttachment third = thirdAttached.attachment();
+	assert(third.generation() != second.generation());
+	RealtimeAudioRouteActivateOutcome thirdActivated = router.activate(third);
+	assert(thirdActivated.succeeded());
+	process(providerProgram.context(), block, inputs, outputs);
+	assertSamples(output, 0.0f, 0.0f);
+	assert(secondContext.calls == secondCallsAfterDetach);
+	process(providerProgram.context(), block, inputs, outputs);
+	assertSamples(output, 0.0f, 1.5f);
+	assert(router.deactivate(thirdActivated.activation()).succeeded());
+	process(providerProgram.context(), block, inputs, outputs);
+	assertSamples(output, 3.0f, 1.5f);
+	process(providerProgram.context(), block, inputs, outputs);
+	assertSamples(output, 0.0f, 0.0f);
+
+	assert(router.detach(first).succeeded());
+	assert(router.detach(first).status() == REALTIME_AUDIO_ROUTE_STALE_ATTACHMENT);
+	assert(router.detach(third).succeeded());
+	assert(router.closeAfterProviderDrain().succeeded());
+	assert(router.isClosed());
+
+	RealtimeAudioProgramRouter boundedRouter = new RealtimeAudioProgramRouter(1, 0);
+	RealtimeAudioRouteAttachment boundedAttachment = boundedRouter.attach(firstProgram).attachment();
+	for (int activation = 0; activation < 64; activation++) { assert(boundedRouter.activate(boundedAttachment).succeeded()); }
+	assert(boundedRouter.activate(boundedAttachment).status() == REALTIME_AUDIO_ROUTE_BUSY);
+	assert(boundedRouter.detach(boundedAttachment).succeeded());
+	assert(boundedRouter.closeAfterProviderDrain().succeeded());
+	print("PASS RealtimeAudioRouterContract");
+	return 0;
+}
