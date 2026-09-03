@@ -330,7 +330,7 @@ class StatementAnalyzer:
             and operand_type
             and (not operand_type.is_array)
             and (operand_type.pointer_depth > 0)
-            and (operand_type.base != "__fn_ptr")
+            and (operand_type.base not in {"__fn_ptr", "__realtime_fn_ptr"})
         ):
             return
         if operand_type and operand_type.base not in self.index.class_table and (not operand_type.generic_args):
@@ -1117,6 +1117,10 @@ class StatementAnalyzer:
 
     def _validate_function_signature_types(self, function) -> None:
         self.declarations.validate_hosted_function(function)
+        self._reject_bodyless_realtime_function_signature(
+            function,
+            f"Native function declaration '{function.name}'",
+        )
         self.types.validate_declared_type(
             function.return_type,
             f"Return type of function '{function.name}'",
@@ -1160,6 +1164,10 @@ class StatementAnalyzer:
                 )
                 self._validate_property_storage(declaration, member)
             elif isinstance(member, MethodDecl):
+                self._reject_bodyless_realtime_function_signature(
+                    member,
+                    f"Bodyless method '{declaration.name}.{member.name}'",
+                )
                 active = class_parameters | set(member.generic_params)
                 declared_return_type = self._declared_callable_return_type(declaration, member)
                 self.types.validate_declared_type(
@@ -1195,6 +1203,10 @@ class StatementAnalyzer:
     def _validate_interface_declaration_types(self, declaration) -> None:
         active = set(declaration.generic_params)
         for method in declaration.methods:
+            self._reject_bodyless_realtime_function_signature(
+                method,
+                f"Interface method '{declaration.name}.{method.name}'",
+            )
             self.types.validate_declared_type(
                 method.return_type,
                 f"Return type of interface method '{declaration.name}.{method.name}'",
@@ -1216,6 +1228,18 @@ class StatementAnalyzer:
                 method.return_type, f"return type of interface method '{declaration.name}.{method.name}'", "local"
             )
             self._validate_parameter_bounds(method.params, f"{declaration.name}.{method.name}")
+
+    def _reject_bodyless_realtime_function_signature(self, callable_, label: str) -> None:
+        if getattr(callable_, "body", None) is not None:
+            return
+        if self.types.contains_realtime_function_storage(callable_.return_type) or any(
+            self.types.contains_realtime_function_storage(parameter.type) for parameter in callable_.params
+        ):
+            self.session.error(
+                f"{label} cannot expose RealtimeFunction; downgrade to CFunction at the boundary",
+                callable_.line,
+                callable_.col,
+            )
 
     def _param_symbol(self, param) -> SymbolInfo:
         """Build a parameter symbol using its represented runtime value."""

@@ -766,7 +766,7 @@ class TypeIdentity {
 		if (!qualifiedComponent && typeExpr.is_volatile) {
 			return "generic arguments cannot be volatile-qualified";
 		}
-		bool childIsStructuralComponent = typeExpr.base == "Tuple" || typeExpr.base == "__fn_ptr";
+		bool childIsStructuralComponent = typeExpr.base == "Tuple" || typeExpr.base == "__fn_ptr" || typeExpr.base == "__realtime_fn_ptr";
 		int index = 0;
 		while (index < typeExpr.generic_args.len) {
 			string problem = TypeIdentity.genericArgumentProblemInner(typeExpr.generic_args.get(index), childIsStructuralComponent);

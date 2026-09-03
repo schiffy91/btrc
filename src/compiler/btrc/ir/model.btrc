@@ -113,7 +113,7 @@ class IRNode {
 	/* Typed unwind-slot identity shared by one declaration and its calls. */
 	public IRCleanupSlot cleanup_slot;
 	public string helper_ref;    /* Explicit runtime-helper edge on IRCall. */
-	public string realtime_provenance; /* Exact typed-intrinsic certificate. */
+	public string realtime_provenance; /* Exact typed-intrinsic or proof-carrying-call certificate. */
 	public IRNode init;          /* IRVarDecl initializer / IRFor init */
 	public IRNode value;         /* IRReturn / IRAssign value */
 	public IRNode target;        /* IRAssign target */

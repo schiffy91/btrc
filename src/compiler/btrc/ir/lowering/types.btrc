@@ -84,7 +84,7 @@ class CTypeLowerer {
 		string base = concrete.base;
 		string prefix = concrete.is_const ? "const " : "";
 		string rendered = base;
-		if (base == "__fn_ptr" && concrete.generic_args.len > 0) {
+		if ((base == "__fn_ptr" || base == "__realtime_fn_ptr") && concrete.generic_args.len > 0) {
 			rendered = self.functionPointerName(concrete);
 		} else if (base == "Atomic" && concrete.generic_args.len == 1) {
 			string name = TypeIdentity.mangleGenericSymbol(base, concrete.generic_args);
@@ -118,7 +118,7 @@ class CTypeLowerer {
 		else if (base == "uint") { rendered = "unsigned int"; }
 
 		int depth = concrete.pointer_depth;
-		bool baseIsReference = rendered.endsWith("*") || base == "__fn_ptr" || self.aliasBaseIsReference(base);
+		bool baseIsReference = rendered.endsWith("*") || base == "__fn_ptr" || base == "__realtime_fn_ptr" || self.aliasBaseIsReference(base);
 		if (TypeComposition.nullableCollapsesReferenceLayer(concrete, baseIsReference)) {
 			depth = depth - 1;
 		}

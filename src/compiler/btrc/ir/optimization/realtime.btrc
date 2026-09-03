@@ -75,16 +75,18 @@ class RealtimeIRVerifier {
 		}
 		if (node.kind == IRK_CALL) {
 			if (node.callee == "") {
-				self.fail("indirect call", path);
+				if (node.realtime_provenance != "typed-realtime-function") { self.fail("indirect call", path); }
+			} else if (node.realtime_provenance == "typed-realtime-function") {
+				self.fail("typed-callable provenance on direct call '" + node.callee + "'", path);
 			}
-			if (node.realtime_provenance != "" && (!self.intrinsicTargets.has(node.callee) || self.intrinsicTargets.get(node.callee) != node.realtime_provenance)) {
+			if (node.callee != "" && node.realtime_provenance != "" && (!self.intrinsicTargets.has(node.callee) || self.intrinsicTargets.get(node.callee) != node.realtime_provenance)) {
 				self.fail("invalid intrinsic provenance '" + node.realtime_provenance + "' for '" + node.callee + "'", path);
 			}
-			if (!self.functions.has(node.callee)) {
+			if (node.callee != "" && !self.functions.has(node.callee)) {
 				if (!self.safeExternals.has(node.callee) && node.realtime_provenance == "") {
 					self.fail("external/runtime call '" + node.callee + "'", path);
 				}
-			} else {
+			} else if (node.callee != "") {
 				IRFunction target = self.functions.get(node.callee);
 				self.validateFunction(target, path + " -> " + target.name, visiting);
 			}

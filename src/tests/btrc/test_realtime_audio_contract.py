@@ -126,7 +126,8 @@ def test_realtime_audio_contract_carries_split_clock_and_epoch_state() -> None:
     assert "unsigned long long streamEpoch;" in source
     assert "AUDIO_BLOCK_INPUT_DISCONTINUITY" in source
     assert "AUDIO_BLOCK_OUTPUT_DISCONTINUITY" in source
-    assert "CFunction< void, void*, struct AudioBlockView, Span<const float>, Span<float> >" in source
+    assert "typedef RealtimeFunction< void, void*, struct AudioBlockView" in source
+    assert "RealtimeAudioInputSamples, RealtimeAudioOutputSamples > RealtimeAudioProcess;" in source
     block = source.split("struct AudioBlockView", 1)[1].split("};", 1)[0]
     assert "float*" not in block
     assert "inputs" not in block
@@ -134,43 +135,53 @@ def test_realtime_audio_contract_carries_split_clock_and_epoch_state() -> None:
 
 
 @pytest.mark.parametrize(
-    ("callback_declaration", "program_expression"),
+    ("callback_declaration", "program_expression", "expected"),
     (
         (
             "void unsafeProcess(void* context, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {}",
             "RealtimeAudioProgram(unsafeProcess, null)",
+            "RealtimeFunction value must be a direct named @realtime function or an exact RealtimeFunction copy",
         ),
         (
             "@realtime void safeProcess(void* context, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {}",
             "RealtimeAudioProgram((RealtimeAudioProcess)safeProcess, null)",
-        ),
-        (
-            "@realtime void safeProcess(void* context, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {}",
-            "RealtimeAudioProgram(process, null)",
+            "RealtimeFunction cannot be created by a cast",
         ),
     ),
-    ids=("unproven", "cast", "indirect"),
+    ids=("unproven", "cast"),
 )
 def test_realtime_audio_program_rejects_callbacks_without_direct_proof(
     semantic_btrcc: Path,
     tmp_path: Path,
     callback_declaration: str,
     program_expression: str,
+    expected: str,
 ) -> None:
     source = tmp_path / "UnprovenRealtimeAudioProgram.btrc"
-    local = "RealtimeAudioProcess process = safeProcess;" if program_expression.endswith("process, null)") else ""
     source.write_text(
         "import std.RealtimeAudio;\n"
         f"{callback_declaration}\n"
-        f"int main() {{ {local} RealtimeAudioProgram program = {program_expression}; return program.context() == null ? 0 : 1; }}\n"
+        f"int main() {{ RealtimeAudioProgram program = {program_expression}; return program.context() == null ? 0 : 1; }}\n"
     )
     reference = _reference(source, tmp_path / "reference.c", tmp_path / "reference-cache")
     selfhost = _selfhost(semantic_btrcc, source, tmp_path / "selfhost.c")
-    expected = "RealtimeAudioProgram process must be a direct named @realtime function"
     assert reference.returncode == 1
     assert selfhost.returncode == 1
     assert expected in reference.stderr
     assert expected in selfhost.stderr
+
+
+def test_realtime_audio_program_accepts_an_exact_proven_copy(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "ProvenRealtimeAudioProgramCopy.btrc"
+    source.write_text(
+        "import std.RealtimeAudio;\n"
+        "@realtime void safeProcess(void* context, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {}\n"
+        "int main() { RealtimeAudioProcess process = safeProcess; RealtimeAudioProgram program = RealtimeAudioProgram(process, null); return program.context() == null ? 0 : 1; }\n"
+    )
+    _compile_pair(semantic_btrcc, source, tmp_path)
 
 
 @pytest.mark.parametrize(

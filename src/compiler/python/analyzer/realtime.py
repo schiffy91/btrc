@@ -426,6 +426,8 @@ class RealtimeAnalyzer:
 
     def _call_event(self, callable_: RealtimeCallable, call: ast.CallExpr) -> None:
         callee = call.callee
+        if self._realtime_function_type(self.session.node_types.get(id(callee))):
+            return
         if isinstance(callee, ast.Identifier):
             name = callee.name
             if name in callable_.local_names or name in self._global_names:
@@ -462,6 +464,17 @@ class RealtimeAnalyzer:
             self._effect(callable_, "unknown", f"unresolved member call '{callee.field}'", call)
             return
         self._effect(callable_, "unknown", "indirect callable value", call)
+
+    def _realtime_function_type(self, type_expr, seen=()) -> bool:
+        if type_expr is None:
+            return False
+        base = getattr(type_expr, "base", "")
+        if base == "__realtime_fn_ptr":
+            return bool(not type_expr.pointer_depth and not type_expr.is_array and type_expr.generic_args)
+        if base in seen:
+            return False
+        alias = self.index.typedef_table.get(base)
+        return self._realtime_function_type(alias, (*seen, base)) if alias is not None else False
 
     def _source_call(self, callable_: RealtimeCallable, declaration, call) -> None:
         target = self._declaration_keys.get(id(declaration))

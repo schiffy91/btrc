@@ -90,7 +90,7 @@ class StringLowerer {
 		if (canonicalType == null) { return "%d"; }
 		Node canonical = canonicalType;
 		string base = canonical.base;
-		if (base == "__fn_ptr") { return "%s"; }
+		if (base == "__fn_ptr" || base == "__realtime_fn_ptr") { return "%s"; }
 		if (SemanticTypeSystem.isString(canonical) || self.printfCStringType(canonical)) {
 			return "%s";
 		}
@@ -128,7 +128,7 @@ class StringLowerer {
 			spec = self.printfFormatSpec(canonicalType);
 			Node canonical = canonicalType;
 			bool scalarValue = canonical.pointer_depth == 0 && !canonical.is_array;
-			if (canonical.base == "__fn_ptr" && scalarValue) {
+			if ((canonical.base == "__fn_ptr" || canonical.base == "__realtime_fn_ptr") && scalarValue) {
 				Vector<IRNode> sequence = [];
 				sequence.push(IRNode.cast("void", value));
 				sequence.push(IRNode.literal("\"<function>\""));
@@ -137,7 +137,7 @@ class StringLowerer {
 			if (canonical.base == "bool" && scalarValue) {
 				return PrintfArg("%s", IRNode.ternary(value, IRNode.literal("\"true\""), IRNode.literal("\"false\"")));
 			}
-			if (canonical.base == "__fn_ptr") {
+			if (canonical.base == "__fn_ptr" || canonical.base == "__realtime_fn_ptr") {
 				return PrintfArg("%p", IRNode.cast("void*", value));
 			}
 			if (scalarValue && (self.analyzed.enumTable.has(canonical.base) || canonical.base.startsWith("enum "))) {

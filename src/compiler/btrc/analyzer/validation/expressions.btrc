@@ -104,8 +104,11 @@ class ExpressionValidator {
 		Node? target = self.types.resolveAliases(expression.target_type);
 		Node? source = self.types.resolveAliases(self.types.inferType(expression.expr, vars));
 		if (target == null || source == null) { return; }
-		bool targetCallable = target.base == "__fn_ptr" && target.pointer_depth == 0 && !target.is_array;
-		bool sourceCallable = source.base == "__fn_ptr" && source.pointer_depth == 0 && !source.is_array;
+		if (target.base == "__realtime_fn_ptr") {
+			TypeValidator.fail("RealtimeFunction cannot be created by a cast; use a direct named " + "@realtime function", expression);
+		}
+		bool targetCallable = (target.base == "__fn_ptr" || target.base == "__realtime_fn_ptr") && target.pointer_depth == 0 && !target.is_array;
+		bool sourceCallable = (source.base == "__fn_ptr" || source.base == "__realtime_fn_ptr") && source.pointer_depth == 0 && !source.is_array;
 		if (targetCallable && !sourceCallable) {
 			if (expression.expr.kind == NK_NULL_LITERAL || self.knownNumericZero(expression.expr)) {
 				return;
@@ -197,6 +200,7 @@ class ExpressionValidator {
 
 	public void validateInitializerValue(Node expected, Node value, string subject, Map<string, Node> vars) {
 		self.storage.validateVolatileReferenceConversion(expected, value, subject, vars);
+		self.types.validateRealtimeFunctionValue(expected, value, vars);
 		Node? valueExpected = self.types.arrayValueType(expected);
 		if (valueExpected == null) { return; }
 		Node representedExpected = valueExpected;
@@ -261,6 +265,7 @@ class ExpressionValidator {
 
 	public void validateTypedInitializer(Node? expected, Node? initializer, string subject, Map<string, Node> vars) {
 		if (expected == null || initializer == null) { return; }
+		self.types.validateRealtimeFunctionValue(expected, initializer, vars);
 		self.storage.validateVolatileReferenceConversion(expected, initializer, subject, vars);
 		Node? valueExpected = self.types.arrayValueType(expected);
 		if (valueExpected == null) { return; }
@@ -952,7 +957,7 @@ class ExpressionValidator {
 				self.validateSpawnCaptures(expression.fn,  vars);
 			}
 			Node? callable = self.types.inferType(expression.fn,  vars);
-			if (expression.fn == null || (expression.fn.kind != NK_LAMBDA_EXPR && (callable == null || callable.base != "__fn_ptr"))) {
+			if (expression.fn == null || (expression.fn.kind != NK_LAMBDA_EXPR && (callable == null || (callable.base != "__fn_ptr" && callable.base != "__realtime_fn_ptr")))) {
 				TypeValidator.fail("spawn expects a lambda or function pointer", expression);
 			} else if (expression.fn.kind != NK_LAMBDA_EXPR && callable != null) {
 				Node typedCallable = callable;

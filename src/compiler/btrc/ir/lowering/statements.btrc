@@ -536,7 +536,7 @@ class StatementLowerer {
 				return;
 			}
 			Node? callableDeclType = SemanticTypeSystem.resolveTypedefType(declType, self.analyzed.typedefTable);
-			if (callableDeclType != null && callableDeclType.base == "__fn_ptr") {
+			if (callableDeclType != null && (callableDeclType.base == "__fn_ptr" || callableDeclType.base == "__realtime_fn_ptr")) {
 				callableFlow.initializeBindingAbi(node.name, callableInitializerAbi);
 			}
 			if (lambdaPlan != null) {

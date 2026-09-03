@@ -5,7 +5,7 @@ import std.vector;
 import ../generated/ast/node.btrc;
 
 class TypeShape {
-	class bool intrinsicReference(Node typeExpr) { return typeExpr.base == "Array" || typeExpr.base == "List" || typeExpr.base == "Map" || typeExpr.base == "Mutex" || typeExpr.base == "Set" || typeExpr.base == "Thread" || typeExpr.base == "Vector" || typeExpr.base == "__fn_ptr" || typeExpr.base == "string"; }
+	class bool intrinsicReference(Node typeExpr) { return typeExpr.base == "Array" || typeExpr.base == "List" || typeExpr.base == "Map" || typeExpr.base == "Mutex" || typeExpr.base == "Set" || typeExpr.base == "Thread" || typeExpr.base == "Vector" || typeExpr.base == "__fn_ptr" || typeExpr.base == "__realtime_fn_ptr" || typeExpr.base == "string"; }
 
 	class Node copyWithArguments(Node typeExpr, Vector<Node> genericArgs) {
 		Node result = Node();

@@ -145,7 +145,7 @@ class CallableValueSemantics:
         resolved = self._canonicalize(type_expr)
         return bool(
             resolved is not None
-            and resolved.base == "__fn_ptr"
+            and resolved.base in {"__fn_ptr", "__realtime_fn_ptr"}
             and (resolved.pointer_depth == 0)
             and (not resolved.is_array)
         )
@@ -296,6 +296,8 @@ class OwnershipAnalyzer:
         self, expected, value, line: int, col: int, *, allow_direct_local: bool = False
     ) -> bool:
         """Reject closure or managed-return callable ABI erasure at a value boundary."""
+        if self._reject_unproven_realtime_function(expected, value, line, col):
+            return True
         if allow_direct_local and isinstance(value, LambdaExpr):
             return False
         if self._callable_values.contains_environment(expected, value):
@@ -311,6 +313,48 @@ class OwnershipAnalyzer:
             "Managed-return callable cannot cross an erased or opaque value boundary; preserve its typed __fn_ptr ownership ABI",
             line,
             col,
+        )
+        return True
+
+    def _reject_unproven_realtime_function(self, expected, value, line: int, col: int) -> bool:
+        """Keep RealtimeFunction construction at direct proven roots or exact copies."""
+        canonical = self.types.canonical_type(expected)
+        if canonical is None:
+            return False
+        slots = self._callable_values.literal_slots(canonical, value)
+        if slots is not None:
+            rejected = False
+            for slot_type, element in slots:
+                rejected = self._reject_unproven_realtime_function(
+                    slot_type,
+                    element,
+                    getattr(element, "line", line),
+                    getattr(element, "col", col),
+                ) or rejected
+            return rejected
+        if canonical.base != "__realtime_fn_ptr" or canonical.pointer_depth != 0 or canonical.is_array:
+            return False
+        actual = self.types.canonical_type(self.type_of(value))
+        exact_copy = bool(
+            actual is not None
+            and actual.base == "__realtime_fn_ptr"
+            and self.types.types_compatible(canonical, actual)
+            and not isinstance(value, CastExpr)
+        )
+        direct_declaration = self.index.function_table.get(value.name) if isinstance(value, Identifier) else None
+        symbol = self.session.scope.lookup(value.name) if isinstance(value, Identifier) else None
+        direct_root = bool(
+            direct_declaration is not None
+            and (symbol is None or symbol.kind == "function")
+            and direct_declaration.is_realtime
+            and self.types.types_compatible(canonical, self.types.function_value_type(direct_declaration))
+        )
+        if exact_copy or direct_root:
+            return False
+        self.session.error(
+            "RealtimeFunction value must be a direct named @realtime function or an exact RealtimeFunction copy",
+            getattr(value, "line", line),
+            getattr(value, "col", col),
         )
         return True
 
@@ -715,7 +759,7 @@ class OwnershipAnalyzer:
             return False
         if canonical.base == handle:
             return True
-        if canonical.base == "__fn_ptr":
+        if canonical.base in {"__fn_ptr", "__realtime_fn_ptr"}:
             return False
         if any(
             self._mutex_payload_contains_handle(argument, handle, active_type_params, visiting)
@@ -733,7 +777,7 @@ class OwnershipAnalyzer:
             return False
         if canonical.is_array:
             return True
-        if canonical.base == "__fn_ptr":
+        if canonical.base in {"__fn_ptr", "__realtime_fn_ptr"}:
             return False
         if any(
             self._mutex_payload_contains_array(argument, active_type_params, visiting)
@@ -751,7 +795,7 @@ class OwnershipAnalyzer:
             return None
         if canonical.base in _RUNTIME_COLLECTION_BASES and canonical.base not in self.index.class_table:
             return canonical.base
-        if canonical.base == "__fn_ptr":
+        if canonical.base in {"__fn_ptr", "__realtime_fn_ptr"}:
             return None
         for argument in canonical.generic_args or []:
             collection = self._unregistered_mutex_collection(argument, active_type_params, visiting)
@@ -769,7 +813,7 @@ class OwnershipAnalyzer:
             return False
         if self._is_direct_mutex_managed_value(canonical):
             return True
-        if canonical.pointer_depth > 0 or canonical.base == "__fn_ptr":
+        if canonical.pointer_depth > 0 or canonical.base in {"__fn_ptr", "__realtime_fn_ptr"}:
             return False
         if canonical.is_array:
             canonical = self.types.strip_outer_storage(canonical, array=True)

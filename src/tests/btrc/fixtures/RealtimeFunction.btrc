@@ -1,0 +1,26 @@
+typedef RealtimeFunction<int, int> ProvenTransform;
+
+@realtime int increment(int value) { return value + 1; }
+
+struct TransformSlot {
+	ProvenTransform transform;
+};
+
+@realtime int invokeCopy(ProvenTransform transform, int value) { return transform(value); }
+
+@realtime int invokeField(struct TransformSlot* slot, int value) { return slot->transform(value); }
+
+ProvenTransform relay(ProvenTransform transform) { return transform; }
+
+int main() {
+	ProvenTransform direct = increment;
+	ProvenTransform copied = direct;
+	ProvenTransform returned = relay(copied);
+	struct TransformSlot slot = {returned};
+	CFunction<int, int> downgraded = slot.transform;
+	if (invokeCopy(direct, 2) != 3) { return 1; }
+	if (invokeField(&slot, 3) != 4) { return 2; }
+	if (downgraded(4) != 5) { return 3; }
+	printf("PASS RealtimeFunction\n");
+	return 0;
+}

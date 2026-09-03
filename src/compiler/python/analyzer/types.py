@@ -323,7 +323,7 @@ class OperatorSemantics:
             return "floating"
         if TypeSystem.is_numeric_type(operand, self.enum_names):
             return "integral"
-        if operand.base == "__fn_ptr":
+        if operand.base in _FUNCTION_POINTER_BASES:
             raise OperatorTypeError("__btrc_hash does not support function-pointer operands portably")
         if self.type_identity.is_reference(operand, self.class_table, self.interface_table):
             return "reference"
@@ -459,7 +459,7 @@ class TypeIdentity:
         for attribute, spelling in self._forbidden_generic_flags:
             if not qualified_component and getattr(type_expr, attribute, False):
                 return (f"generic arguments cannot be {spelling}-qualified", type_expr)
-        child_is_structural_component = type_expr.base in {"Tuple", "__fn_ptr"}
+        child_is_structural_component = type_expr.base == "Tuple" or type_expr.base in _FUNCTION_POINTER_BASES
         for argument in type_expr.generic_args or []:
             problem = self._generic_argument_problem(
                 argument,
@@ -563,7 +563,7 @@ class TypeIdentity:
             or type_expr.is_array
             or type_expr.base in classes
             or (type_expr.base in interfaces)
-            or (type_expr.base in {"Thread", "Mutex", "__fn_ptr"})
+            or (type_expr.base in {"Thread", "Mutex"} or type_expr.base in _FUNCTION_POINTER_BASES)
         )
 
     def references_compatible(
@@ -583,8 +583,8 @@ class TypeIdentity:
         if not (self.is_reference(left, classes, interfaces) and self.is_reference(right, classes, interfaces)):
             return False
         assert left is not None and right is not None
-        if left.base == "__fn_ptr" or right.base == "__fn_ptr":
-            return left.base == right.base == "__fn_ptr" and left.generic_args == right.generic_args
+        if left.base in _FUNCTION_POINTER_BASES or right.base in _FUNCTION_POINTER_BASES:
+            return left.base in _FUNCTION_POINTER_BASES and right.base in _FUNCTION_POINTER_BASES and left.generic_args == right.generic_args
         if self._is_void_pointer(left) or self._is_void_pointer(right):
             return True
         if (self.is_scalar_string(left) and self.is_c_string_pointer(right)) or (
@@ -687,7 +687,7 @@ class TypeIdentity:
 
     def _reference_depth(self, type_expr: TypeExpr) -> int:
         depth = type_expr.pointer_depth + int(type_expr.is_array)
-        intrinsic_base = type_expr.base in {"string", "Thread", "Mutex", "__fn_ptr"}
+        intrinsic_base = type_expr.base in {"string", "Thread", "Mutex"} or type_expr.base in _FUNCTION_POINTER_BASES
         collapse = TypeSystem.nullable_collapses_reference_layer(type_expr, base_is_reference=intrinsic_base)
         return depth - int(collapse) + int(intrinsic_base)
 
@@ -828,6 +828,7 @@ _PRIMITIVE_TYPE_NAMES = frozenset(
     ("void", "bool", "byte", "char", "short", "int", "long", "float", "double", "string", "uint", "unsigned", "signed")
 )
 _BUILTIN_CAST_BASES = frozenset(("Vector", "List", "Map", "Set", "Array", "Atomic", "Span", "Thread", "Mutex", "Tuple"))
+_FUNCTION_POINTER_BASES = frozenset({"__fn_ptr", "__realtime_fn_ptr"})
 _RUNTIME_AGGREGATE_BASES = frozenset(("Vector", "List", "Map", "Set", "Array", "Tuple"))
 _RUNTIME_TYPE_BASES = frozenset(
     {
@@ -843,6 +844,7 @@ _RUNTIME_TYPE_BASES = frozenset(
         "Tuple",
         "Vector",
         "__fn_ptr",
+        "__realtime_fn_ptr",
     }
 )
 _EXPLICIT_C_TAG_PREFIXES = ("struct ", "enum ", "union ")
@@ -1050,7 +1052,7 @@ STRING_CONVERSIONS: dict[str, tuple[str, str | None]] = {
     "toBool": ("__btrc_parseBool", None),
 }
 _INTRINSIC_REFERENCE_BASES = frozenset(
-    {"Array", "List", "Map", "Mutex", "Set", "Thread", "Vector", "__fn_ptr", "string"}
+    {"Array", "List", "Map", "Mutex", "Set", "Thread", "Vector", "__fn_ptr", "__realtime_fn_ptr", "string"}
 )
 
 
@@ -1082,13 +1084,24 @@ class TypeSystem:
         canonical = self.canonical_type(type_expr)
         if (
             canonical is None
-            or canonical.base != "__fn_ptr"
+            or canonical.base not in _FUNCTION_POINTER_BASES
             or canonical.pointer_depth != 0
             or canonical.is_array
             or (not canonical.generic_args)
         ):
             return None
         return canonical.generic_args
+
+    def is_realtime_function_type(self, type_expr) -> bool:
+        """Whether a value retains compiler-proven realtime call provenance."""
+        canonical = self.canonical_type(type_expr)
+        return bool(
+            canonical is not None
+            and canonical.base == "__realtime_fn_ptr"
+            and canonical.pointer_depth == 0
+            and not canonical.is_array
+            and canonical.generic_args
+        )
 
     @staticmethod
     def function_value_type(declaration) -> TypeExpr:
@@ -1341,7 +1354,7 @@ class TypeSystem:
         if canonical.base == "Mutex":
             return True
         arguments = canonical.generic_args or []
-        if canonical.base == "__fn_ptr":
+        if canonical.base in _FUNCTION_POINTER_BASES:
             arguments = arguments[1:]
         if any(self._contains_mutex_storage(argument, visiting) for argument in arguments):
             return True
@@ -1362,7 +1375,7 @@ class TypeSystem:
         # A function pointer stores only executable code, not the values passed
         # through its parameter slots. Each slot is still validated below in
         # its own parameter/return domain.
-        if canonical.base == "__fn_ptr":
+        if canonical.base in _FUNCTION_POINTER_BASES:
             return False
         arguments = canonical.generic_args or []
         if any(self.contains_span_storage(argument, visiting) for argument in arguments):
@@ -1382,7 +1395,7 @@ class TypeSystem:
         if canonical.base == "Atomic" and canonical.pointer_depth == 0:
             return True
         arguments = canonical.generic_args or []
-        if canonical.base == "__fn_ptr":
+        if canonical.base in _FUNCTION_POINTER_BASES:
             arguments = arguments[1:]
         if any(self.contains_atomic_storage(argument, visiting) for argument in arguments):
             return True
@@ -1488,6 +1501,18 @@ class TypeSystem:
                 type_col,
             )
         canonical = self.canonical_type(type_expr)
+        if canonical and canonical.base == "__realtime_fn_ptr" and (
+            canonical.pointer_depth != 0
+            or canonical.is_array
+            or canonical.is_nullable
+            or canonical.is_const
+            or canonical.is_volatile
+        ):
+            self.session.error(
+                "RealtimeFunction must be one direct, unqualified proof-carrying function pointer",
+                type_line,
+                type_col,
+            )
         if not self.owned_closure_invoke_is_admissible(type_expr, active_type_params):
             self.report_type_shape_error(
                 "OwnedClosure<Invoke> requires an exact CFunction<Signature> invoke type",
@@ -1609,7 +1634,7 @@ class TypeSystem:
             )
         if (
             canonical
-            and canonical.base not in {"Mutex", "Thread", "__fn_ptr"}
+            and canonical.base not in {"Mutex", "Thread", "__fn_ptr", "__realtime_fn_ptr"}
             and (canonical.base not in self.index.class_table)
             and self._contains_mutex_storage(canonical)
         ):
@@ -1662,8 +1687,8 @@ class TypeSystem:
             )
         arguments = type_expr.generic_args or []
         for index, argument in enumerate(arguments):
-            result_slot = type_expr.base in {"__fn_ptr", "Thread"} and index == 0
-            parameter_slot = type_expr.base == "__fn_ptr" and index > 0
+            result_slot = (type_expr.base in _FUNCTION_POINTER_BASES or type_expr.base == "Thread") and index == 0
+            parameter_slot = type_expr.base in _FUNCTION_POINTER_BASES and index > 0
             argument_role = "return" if result_slot else "parameter" if parameter_slot else "object"
             self.validate_declared_type(
                 argument,
@@ -1696,7 +1721,7 @@ class TypeSystem:
             expected = 1
         elif type_expr.base == "Map":
             expected = 2
-        elif type_expr.base == "__fn_ptr":
+        elif type_expr.base in _FUNCTION_POINTER_BASES:
             expected = None
         if expected is not None and (not is_active_type_parameter) and len(type_expr.generic_args or []) != expected:
             self.report_type_shape_error(
@@ -1807,6 +1832,8 @@ class TypeSystem:
             return False
         if canonical.pointer_depth > 0:
             return canonical.base != "string" and canonical.base not in self.index.class_table
+        if canonical.base == "__realtime_fn_ptr":
+            return True
         if canonical.generic_args:
             return False
         if canonical.base == "bool" or canonical.base in self.NUMERIC_TYPES or canonical.base in self.index.enum_table:
@@ -1830,9 +1857,29 @@ class TypeSystem:
         if canonical.base == "Thread":
             return True
         arguments = canonical.generic_args or []
-        if canonical.base == "__fn_ptr":
+        if canonical.base in _FUNCTION_POINTER_BASES:
             arguments = arguments[1:]
         return any(self.contains_thread_storage(argument) for argument in arguments)
+
+    def contains_realtime_function_storage(self, type_expr, visiting=frozenset()) -> bool:
+        """Whether a value shape exposes a proof-carrying callback to native code."""
+        canonical = self.canonical_type(type_expr)
+        if canonical is None:
+            return False
+        if canonical.base == "__realtime_fn_ptr":
+            return True
+        if any(self.contains_realtime_function_storage(argument, visiting) for argument in canonical.generic_args or []):
+            return True
+        if canonical.pointer_depth > 0:
+            return False
+        name = canonical.base.removeprefix("struct ")
+        if name in visiting:
+            return False
+        declaration = self.index.struct_table.get(name)
+        if declaration is None or declaration.is_forward:
+            return False
+        nested = visiting | {name}
+        return any(self.contains_realtime_function_storage(field.type, nested) for field in declaration.fields)
 
     def _validate_storage_qualifiers(self, type_expr, subject, role, line, col) -> None:
         if type_expr.is_static and type_expr.is_extern:
@@ -2048,7 +2095,12 @@ class TypeSystem:
     def format_type(self, t) -> str:
         """Format a TypeExpr for error messages."""
         result = "const " if t.is_const else ""
-        result += "CFunction" if t.base == "__fn_ptr" else t.base
+        if t.base == "__fn_ptr":
+            result += "CFunction"
+        elif t.base == "__realtime_fn_ptr":
+            result += "RealtimeFunction"
+        else:
+            result += t.base
         if t.generic_args:
             args = ", ".join(self.format_type(a) for a in t.generic_args)
             result += f"<{args}>"
@@ -2091,6 +2143,13 @@ class TypeSystem:
         source = self.canonical_type(source)
         if source.base == "null" or (source.base == "void" and source.pointer_depth > 0):
             return target.pointer_depth > 0 or target.is_array or target.base == "string"
+        if target.base in _FUNCTION_POINTER_BASES and source.base in _FUNCTION_POINTER_BASES:
+            return bool(
+                target.pointer_depth == source.pointer_depth == 0
+                and not target.is_array
+                and not source.is_array
+                and self.generic_args_equal(target, source)
+            )
         if (
             target.base == source.base
             and self.is_active_type_parameter(target)
@@ -2230,7 +2289,7 @@ class TypeSystem:
     def semantic_pointer_depth(self, type_expr) -> int:
         """Pointer depth after intrinsic-reference nullable sugar collapses."""
         depth = type_expr.pointer_depth
-        intrinsic_base = type_expr.base in {"string", "Thread", "Mutex", "__fn_ptr"}
+        intrinsic_base = type_expr.base in {"string", "Thread", "Mutex"} or type_expr.base in _FUNCTION_POINTER_BASES
         if self.nullable_collapses_reference_layer(type_expr, base_is_reference=intrinsic_base):
             depth -= 1
         if intrinsic_base:

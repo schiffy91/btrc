@@ -14,6 +14,7 @@ from src.compiler.python.ir.nodes import (
     IRFunctionDef,
     IRLiteral,
     IRModule,
+    IRVar,
     IRWhile,
 )
 from src.compiler.python.ir.verifier import IRVerifier
@@ -349,6 +350,35 @@ def test_ir_backstop_requires_exact_typed_intrinsic_provenance() -> None:
     call.realtime_provenance = "Atomic.store"
     with pytest.raises(ValueError, match=r"invalid intrinsic provenance 'Atomic.store'.*audio"):
         IRVerifier(IRModule(function_defs=[root], realtime_intrinsic_targets=targets)).validate_schema()
+
+
+def test_ir_backstop_requires_exact_proof_on_indirect_realtime_calls() -> None:
+    call = IRCall(
+        callee=IRVar(name="process"),
+        args=[],
+        realtime_provenance="typed-realtime-function",
+    )
+    root = IRFunctionDef(
+        name="audio",
+        return_type=CType("void"),
+        body=IRBlock(stmts=[IRExprStmt(expr=call)]),
+        is_realtime=True,
+    )
+
+    IRVerifier(IRModule(function_defs=[root])).validate_schema()
+
+    call.realtime_provenance = ""
+    with pytest.raises(ValueError, match=r"indirect call.*audio"):
+        IRVerifier(IRModule(function_defs=[root])).validate_schema()
+
+    call.realtime_provenance = "Atomic.load"
+    with pytest.raises(ValueError, match=r"indirect call.*audio"):
+        IRVerifier(IRModule(function_defs=[root])).validate_schema()
+
+    call.callee = "process"
+    call.realtime_provenance = "typed-realtime-function"
+    with pytest.raises(ValueError, match=r"typed-callable provenance on direct call 'process'.*audio"):
+        IRVerifier(IRModule(function_defs=[root])).validate_schema()
 
 
 def test_ir_backstop_rejects_recursion_and_uncertified_loops() -> None:

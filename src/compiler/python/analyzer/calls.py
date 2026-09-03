@@ -976,8 +976,6 @@ class CallAnalyzer:
             self.validate_constructor_args(cls, expr.args, expr.arg_names, expr.line, expr.col, substitutions)
             if cls.name == "CallbackRegistration":
                 self.validate_direct_realtime_callback(cls, expr, "invoke")
-            elif cls.name == "RealtimeAudioProgram":
-                self.validate_direct_realtime_callback(cls, expr, "process")
             return
 
     def validate_direct_realtime_callback(self, cls, expression, parameter_name: str) -> None:

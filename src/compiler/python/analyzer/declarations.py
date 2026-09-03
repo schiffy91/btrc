@@ -241,7 +241,7 @@ class SignatureTypePolicy:
     @staticmethod
     def semantic_pointer_depth(type_expr: TypeExpr) -> int:
         depth = type_expr.pointer_depth
-        intrinsic_base = type_expr.base in {"string", "Thread", "Mutex", "__fn_ptr"}
+        intrinsic_base = type_expr.base in {"string", "Thread", "Mutex", "__fn_ptr", "__realtime_fn_ptr"}
         if TypeSystem.nullable_collapses_reference_layer(type_expr, base_is_reference=intrinsic_base):
             depth -= 1
         if intrinsic_base:

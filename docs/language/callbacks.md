@@ -2,6 +2,23 @@
 
 BTRC has two deliberately different callback representations.
 
+`RealtimeFunction<Result, Parameters...>` is the proof-carrying form of the
+same one-word C function pointer. Only a direct named `@realtime` function or
+an exact `RealtimeFunction` copy can initialize it. Its signature and proof are
+preserved through typed locals, returns, fields, parameters, and generic
+storage such as `Vector<RealtimeFunction<...>>`; casts, lambdas, ordinary
+`CFunction` values, and native declarations cannot create or expose one.
+Calling it from `@realtime` code is therefore a statically admitted indirect
+edge. Assignment to the corresponding `CFunction` is an intentional one-way
+downgrade and cannot be reversed.
+
+The proof type is direct, nonnullable, unqualified, and not an array. A
+zero-initialized aggregate may use a null proof slot only as inert unpublished
+storage paired with separate occupancy state; it must never invoke that slot.
+This is the representation used while fixed-capacity realtime tables are
+prepared off-thread. Native APIs receive only the downgraded `CFunction`; an
+FFI declaration cannot mint or return compiler proof.
+
 `CFunction<Result, Parameters...>` is one exact C function-pointer word.  Its
 result, parameter count, pointer depth, and `const` qualifiers are part of the
 type.  It carries no context and therefore accepts only named functions and

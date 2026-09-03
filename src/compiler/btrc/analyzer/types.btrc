@@ -18,7 +18,7 @@ class SemanticTypeSystem {
 
 	class Node? directFunctionPointer(Node? typeExpr, Analyzed analyzed) {
 		Node? resolved = SemanticTypeSystem.resolveTypedefType(typeExpr, analyzed.typedefTable);
-		if (resolved == null || resolved.base != "__fn_ptr" || resolved.pointer_depth != 0 || resolved.is_array || resolved.generic_args.len == 0) {
+		if (resolved == null || (resolved.base != "__fn_ptr" && resolved.base != "__realtime_fn_ptr") || resolved.pointer_depth != 0 || resolved.is_array || resolved.generic_args.len == 0) {
 			return null;
 		}
 		return resolved;
@@ -26,10 +26,15 @@ class SemanticTypeSystem {
 
 	class Node? directFunctionPointerSpecialization(Node? typeExpr, Analyzed analyzed) {
 		Node? resolved = SemanticTypeSystem.resolveOuterTypedefType(typeExpr, analyzed.typedefTable);
-		if (resolved == null || resolved.base != "__fn_ptr" || resolved.pointer_depth != 0 || resolved.is_array || resolved.generic_args.len == 0) {
+		if (resolved == null || (resolved.base != "__fn_ptr" && resolved.base != "__realtime_fn_ptr") || resolved.pointer_depth != 0 || resolved.is_array || resolved.generic_args.len == 0) {
 			return null;
 		}
 		return resolved;
+	}
+
+	class bool realtimeFunctionPointer(Node? typeExpr, Analyzed analyzed) {
+		Node? resolved = SemanticTypeSystem.resolveTypedefType(typeExpr, analyzed.typedefTable);
+		return resolved != null && resolved.base == "__realtime_fn_ptr" && resolved.pointer_depth == 0 && !resolved.is_array && resolved.generic_args.len > 0;
 	}
 
 	class bool ownedClosureInvokeIsAdmissible(Node? typeExpr, Analyzed analyzed, Map<string, bool> activeTypeParameters) {

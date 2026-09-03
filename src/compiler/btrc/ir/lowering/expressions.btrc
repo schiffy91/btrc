@@ -1137,7 +1137,7 @@ class ExpressionLowerer {
 			Node? resultType = null;
 			if (fnType != null) {
 				fnType = SemanticTypeSystem.resolveTypedefType(fnType, self.analyzed.typedefTable);
-				if (fnType != null && fnType.base == "__fn_ptr" && fnType.generic_args.len > 0) {
+				if (fnType != null && (fnType.base == "__fn_ptr" || fnType.base == "__realtime_fn_ptr") && fnType.generic_args.len > 0) {
 					resultType = fnType.generic_args.get(0);
 				}
 			}
@@ -1590,8 +1590,8 @@ class ExpressionLowerer {
 	public IRNode lowerReferenceEqualityValues(string op, IRNode left, IRNode right, Node leftType, Node rightType) {
 		if (self.operators.isNullType(leftType) || self.operators.isNullType(rightType)) {
 			Node? functionType = null;
-			if (leftType.base == "__fn_ptr") { functionType = leftType; }
-			if (rightType.base == "__fn_ptr") { functionType = rightType; }
+			if (leftType.base == "__fn_ptr" || leftType.base == "__realtime_fn_ptr") { functionType = leftType; }
+			if (rightType.base == "__fn_ptr" || rightType.base == "__realtime_fn_ptr") { functionType = rightType; }
 			if (functionType != null) {
 				IRNode typedNull = IRNode.cast(self.cTypes.lower(functionType), IRNode.literal("0"));
 				if (self.operators.isNullType(leftType)) {
@@ -1601,7 +1601,7 @@ class ExpressionLowerer {
 			}
 			return IRNode.binary(left, op, right);
 		}
-		if (leftType.base == "__fn_ptr" && rightType.base == "__fn_ptr") {
+		if ((leftType.base == "__fn_ptr" || leftType.base == "__realtime_fn_ptr") && (rightType.base == "__fn_ptr" || rightType.base == "__realtime_fn_ptr")) {
 			string leftName = self.context.freshTemporary("__btrc_fn_left");
 			string rightName = self.context.freshTemporary("__btrc_fn_right");
 			IRNode leftVar = IRNode.variable(leftName);

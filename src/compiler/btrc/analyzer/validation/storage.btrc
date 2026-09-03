@@ -171,7 +171,7 @@ class StorageValidator {
 
 	public bool staticInitializer(Node? expression, Node? expected) {
 		if (expression == null) { return true; }
-		if (expected != null && expected.generic_args.len > 0 && expected.base != "Tuple" && expected.base != "__fn_ptr" && (self.state.analyzed.isGenericClass(expected.base) || self.types.runtimeTypeBase(expected.base))) {
+		if (expected != null && expected.generic_args.len > 0 && expected.base != "Tuple" && expected.base != "__fn_ptr" && expected.base != "__realtime_fn_ptr" && (self.state.analyzed.isGenericClass(expected.base) || self.types.runtimeTypeBase(expected.base))) {
 			/* Collection/class literals allocate and populate at runtime; their
              * brace spelling is not a C aggregate constant initializer. */
 			return false;

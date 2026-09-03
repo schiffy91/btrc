@@ -630,6 +630,8 @@ class CallTargetResolver {
 		self.context.activeTypeMap = saved;
 		return result;
 	}
+
+	public bool realtimeCallable(Node? typeExpr) { return SemanticTypeSystem.realtimeFunctionPointer(typeExpr, self.analyzed); }
 }
 
 class CallLowerer {
@@ -863,10 +865,10 @@ class CallLowerer {
 		Node callableType = target.callableType;
 		string calleeKey = AstIdentity.key(target.call.callee);
 		if (self.context.hasExpressionOverrideKey(calleeKey)) {
-			return IRNode.indirectCall(self.context.expressionOverrideForKey(calleeKey), arguments);
+			return self.indirectCallableCall(target, self.context.expressionOverrideForKey(calleeKey), arguments);
 		}
 		if (arguments.len == 0) {
-			return IRNode.indirectCall(callee, arguments);
+			return self.indirectCallableCall(target, callee, arguments);
 		}
 		Node concreteCallableType = self.cTypes.resolveBodyType(callableType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 		Node storageType = TypeShape.copy(concreteCallableType);
@@ -881,9 +883,15 @@ class CallLowerer {
 		Vector<IRNode> declarations = [declaration];
 		Vector<IRNode> sequence = [
 			IRNode.binary(callable, "=", callee),
-			IRNode.indirectCall(callable, arguments),
+			self.indirectCallableCall(target, callable, arguments),
 		];
 		return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
+	}
+
+	private IRNode indirectCallableCall(CallTarget target, IRNode callee, Vector<IRNode> arguments) {
+		IRNode call = IRNode.indirectCall(callee, arguments);
+		if (self.targets.realtimeCallable(target.callableType)) { call.realtime_provenance = "typed-realtime-function"; }
+		return call;
 	}
 
 	public IRNode? materializeDispatch(CallTarget target, IRNode? callee, IRNode? receiver, Vector<IRNode> arguments) {

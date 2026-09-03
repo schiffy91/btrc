@@ -421,7 +421,7 @@ class CallableFlowState {
 		while (index < names.len) {
 			string name = names.get(index);
 			Node? type = SemanticTypeSystem.resolveTypedefType(variableTypes.get(name), typedefTable);
-			if (type != null && type.base == "__fn_ptr") {
+			if (type != null && (type.base == "__fn_ptr" || type.base == "__realtime_fn_ptr")) {
 				capture.names.push(name);
 			}
 			index = index + 1;
@@ -503,7 +503,7 @@ class CallableFlowState {
 		while (index < variables.len) {
 			string name = variables.get(index);
 			Node? type = SemanticTypeSystem.resolveTypedefType(variableTypes.get(name), typedefTable);
-			if (type != null && type.base == "__fn_ptr") {
+			if (type != null && (type.base == "__fn_ptr" || type.base == "__realtime_fn_ptr")) {
 				names.push(name);
 			}
 			index = index + 1;

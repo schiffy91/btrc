@@ -145,7 +145,13 @@ class TypeValidator {
 	public string formatType(Node? typeExpr) {
 		if (typeExpr == null) { return "<unknown>"; }
 		string result = typeExpr.is_const ? "const " : "";
-		result = result + (typeExpr.base == "__fn_ptr" ? "CFunction" : typeExpr.base);
+		if (typeExpr.base == "__fn_ptr") {
+			result = result + "CFunction";
+		} else if (typeExpr.base == "__realtime_fn_ptr") {
+			result = result + "RealtimeFunction";
+		} else {
+			result = result + typeExpr.base;
+		}
 		if (typeExpr.generic_args.len > 0) {
 			result = result + "<";
 			int index = 0;
@@ -301,12 +307,42 @@ class TypeValidator {
 		Node? canonical = self.resolveAliases(typeExpr);
 		if (canonical == null) { return false; }
 		if (canonical.base == "Thread") { return true; }
-		int index = canonical.base == "__fn_ptr" ? 1 : 0;
+		int index = (canonical.base == "__fn_ptr" || canonical.base == "__realtime_fn_ptr") ? 1 : 0;
 		while (index < canonical.generic_args.len) {
 			if (self.containsThreadStorage(canonical.generic_args.get(index))) {
 				return true;
 			}
 			index = index + 1;
+		}
+		return false;
+	}
+
+	public bool containsRealtimeFunctionStorage(Node? typeExpr) {
+		Map<string, bool> visiting = {};
+		return self.containsRealtimeFunctionStorageInner(typeExpr, visiting);
+	}
+
+	private bool containsRealtimeFunctionStorageInner(Node? typeExpr, Map<string, bool> visiting) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (canonical == null) { return false; }
+		if (canonical.base == "__realtime_fn_ptr") { return true; }
+		int argument = 0;
+		while (argument < canonical.generic_args.len) {
+			if (self.containsRealtimeFunctionStorageInner(canonical.generic_args.get(argument), visiting)) { return true; }
+			argument = argument + 1;
+		}
+		if (canonical.pointer_depth > 0) { return false; }
+		string name = canonical.base;
+		if (name.startsWith("struct ")) { name = name.substring(7, name.length() - 7); }
+		if (visiting.has(name) || !self.state.analyzed.structTable.has(name)) { return false; }
+		Node declaration = self.state.analyzed.structTable.get(name);
+		if (declaration.is_forward) { return false; }
+		Map<string, bool> nested = self.cloneFlags(visiting);
+		nested.put(name, true);
+		int field = 0;
+		while (field < declaration.fields.len) {
+			if (self.containsRealtimeFunctionStorageInner(declaration.fields.get(field).type, nested)) { return true; }
+			field = field + 1;
 		}
 		return false;
 	}
@@ -325,7 +361,7 @@ class TypeValidator {
 		if (query == 6 && canonical.base == "Span") { return true; }
 		/* Function pointers retain code, not their parameter values. Generic
 		 * slots are validated independently as return/parameter domains. */
-		if (query == 6 && canonical.base == "__fn_ptr") { return false; }
+		if (query == 6 && (canonical.base == "__fn_ptr" || canonical.base == "__realtime_fn_ptr")) { return false; }
 		if (query == 7 && canonical.base == "Atomic" && canonical.pointer_depth == 0) {
 			return true;
 		}
@@ -337,7 +373,7 @@ class TypeValidator {
 		if (query == 5 && self.directManagedThreadResult(canonical)) {
 			return true;
 		}
-		int argumentIndex = canonical.base == "__fn_ptr" ? 1 : 0;
+		int argumentIndex = (canonical.base == "__fn_ptr" || canonical.base == "__realtime_fn_ptr") ? 1 : 0;
 		while (argumentIndex < canonical.generic_args.len) {
 			if (self.aggregateTypeMatches(canonical.generic_args.get(argumentIndex), query, visiting)) {
 				return true;
@@ -537,10 +573,27 @@ class TypeValidator {
 
 	public bool scalarConditionType(Node? typeExpr) { return typeExpr != null && (NumericSemantics.isType(typeExpr, self.state.analyzed) || self.operators.isReferenceType(typeExpr)); }
 
+	public void validateRealtimeFunctionValue(Node? expected, Node? value, Map<string, Node> variables) {
+		Node? canonical = self.resolveAliases(expected);
+		if (canonical == null || canonical.base != "__realtime_fn_ptr" || canonical.pointer_depth != 0 || canonical.is_array || value == null) { return; }
+		Node? actual = self.resolveAliases(self.inferType(value, variables));
+		bool exactCopy = actual != null && actual.base == "__realtime_fn_ptr" && self.assignmentCompatible(canonical, actual) && value.kind != NK_CAST_EXPR;
+		bool directRoot = false;
+		if (value.kind == NK_IDENTIFIER && !variables.has(value.name) && self.state.analyzed.funcTable.has(value.name)) {
+			Node declaration = self.state.analyzed.funcTable.get(value.name);
+			Node directType = CallableSignature.sourceFunctionPointer(declaration);
+			directRoot = declaration.is_realtime && self.assignmentCompatible(canonical, directType);
+		}
+		if (!exactCopy && !directRoot) {
+			TypeValidator.fail("RealtimeFunction value must be a direct named " + "@realtime function or an exact RealtimeFunction copy", value);
+		}
+	}
+
 	public void validateTypedInitializer(Node? expected, Node? initializer, string subject, Map<string, Node> variables) {
 		if (expected == null || initializer == null || self.contextualAggregateInitializer(initializer)) {
 			return;
 		}
+		self.validateRealtimeFunctionValue(expected, initializer, variables);
 		Node? actual = self.inferType(initializer, variables);
 		if (actual != null && !self.assignmentCompatible(expected, actual)) {
 			TypeValidator.fail(subject + " expects '" + self.formatType(expected) + "' but got '" + self.formatType(actual) + "'", initializer);
@@ -598,7 +651,9 @@ class TypeValidator {
 	public bool callableComponentSameTypeShape(Node left, Node right, OperatorSemantics operators) { return left.base == right.base && operators.valueDepth(left) == operators.valueDepth(right) && left.is_array == right.is_array && left.is_nullable == right.is_nullable && left.nullable_outer_depth == right.nullable_outer_depth && left.is_const == right.is_const && left.is_volatile == right.is_volatile && operators.genericArgsEqual(left.generic_args, right.generic_args); }
 
 	public bool callableAssignmentCompatible(Node target, Node source, OperatorSemantics operators) {
-		if (target.base != "__fn_ptr" || source.base != "__fn_ptr" || target.generic_args.len == 0 || target.generic_args.len != source.generic_args.len) {
+		bool targetCallable = target.base == "__fn_ptr" || target.base == "__realtime_fn_ptr";
+		bool sourceCallable = source.base == "__fn_ptr" || source.base == "__realtime_fn_ptr";
+		if (!targetCallable || !sourceCallable || target.generic_args.len == 0 || target.generic_args.len != source.generic_args.len) {
 			return false;
 		}
 		Node targetReturn = target.generic_args.get(0);
@@ -622,9 +677,6 @@ class TypeValidator {
 		Node? resolvedTarget = self.resolveAliases(valueTarget);
 		Node? resolvedSource = self.resolveAliases(valueSource);
 		if (resolvedTarget == null || resolvedSource == null) { return false; }
-		if (self.typeContainsParams(resolvedTarget, self.state.typeParams) || self.typeContainsParams(resolvedSource, self.state.typeParams)) {
-			return true;
-		}
 		if (self.operators.isNullType(resolvedSource)) {
 			return self.operators.isReferenceType(resolvedTarget) || self.state.interfaces.has(resolvedTarget.base);
 		}
@@ -709,6 +761,7 @@ class TypeValidator {
 		if (canonical.pointer_depth > 0) {
 			return canonical.base != "string" && !self.state.analyzed.isClass(canonical.base) && !self.state.analyzed.isGenericClass(canonical.base);
 		}
+		if (canonical.base == "__realtime_fn_ptr") { return true; }
 		if (canonical.generic_args.len > 0) { return false; }
 		if (canonical.base == "bool" || NumericSemantics.isType(canonical, self.state.analyzed) || self.state.analyzed.isEnum(canonical.base)) {
 			return true;
@@ -739,7 +792,7 @@ class TypeValidator {
 		return self.realtimePodInner(typeExpr, visiting);
 	}
 
-	public bool runtimeTypeBase(string base) { return base == "Array" || base == "List" || base == "Map" || base == "Atomic" || base == "MemoryOrder" || base == "Mutex" || base == "Set" || base == "Span" || base == "Thread" || base == "Tuple" || base == "Vector" || base == "__fn_ptr"; }
+	public bool runtimeTypeBase(string base) { return base == "Array" || base == "List" || base == "Map" || base == "Atomic" || base == "MemoryOrder" || base == "Mutex" || base == "Set" || base == "Span" || base == "Thread" || base == "Tuple" || base == "Vector" || base == "__fn_ptr" || base == "__realtime_fn_ptr"; }
 
 	public bool knownDeclarationType(Node typeExpr) {
 		if (typeExpr.pointer_depth > 0 && typeExpr.generic_args.len == 0) {
@@ -782,6 +835,9 @@ class TypeValidator {
 			TypeValidator.fail(subject + " cannot carry an outer const/volatile qualifier; " + "C discards qualifiers on returned values", site);
 		}
 		Node? canonical = self.resolveAliases(typeExpr);
+		if (canonical != null && canonical.base == "__realtime_fn_ptr" && (canonical.pointer_depth != 0 || canonical.is_array || canonical.is_nullable || canonical.is_const || canonical.is_volatile)) {
+			TypeValidator.fail("RealtimeFunction must be one direct, unqualified proof-carrying function pointer", site);
+		}
 		if (!SemanticTypeSystem.ownedClosureInvokeIsAdmissible(typeExpr, self.state.analyzed, self.state.typeParams)) {
 			TypeValidator.fail("OwnedClosure<Invoke> requires an exact " + "CFunction<Signature> invoke type", site);
 		}
@@ -839,7 +895,7 @@ class TypeValidator {
 		if (canonical != null && canonical.base == "Mutex" && (canonical.pointer_depth > 0 || canonical.is_array || canonical.is_const)) {
 			TypeValidator.fail("Mutex<T> owner type must be one direct mutable handle; " + "pointer, array, and const Mutex shapes are not supported", site);
 		}
-		if (canonical != null && canonical.base != "Mutex" && canonical.base != "Thread" && canonical.base != "__fn_ptr" && !self.state.analyzed.isClass(canonical.base) && !self.state.analyzed.isGenericClass(canonical.base) && self.containsMutexStorage(canonical)) {
+		if (canonical != null && canonical.base != "Mutex" && canonical.base != "Thread" && canonical.base != "__fn_ptr" && canonical.base != "__realtime_fn_ptr" && !self.state.analyzed.isClass(canonical.base) && !self.state.analyzed.isGenericClass(canonical.base) && self.containsMutexStorage(canonical)) {
 			TypeValidator.fail(subject + " cannot embed a Mutex handle in shallow by-value storage; " + "keep Mutex<T> as a direct managed value", site);
 		}
 		self.validateMutexPayloadsInType(typeExpr, site);
@@ -877,9 +933,9 @@ class TypeValidator {
 		int index = 0;
 		while (index < typeExpr.generic_args.len) {
 			string argumentRole = "object";
-			if ((typeExpr.base == "__fn_ptr" || typeExpr.base == "Thread") && index == 0) {
+			if ((typeExpr.base == "__fn_ptr" || typeExpr.base == "__realtime_fn_ptr" || typeExpr.base == "Thread") && index == 0) {
 				argumentRole = "return";
-			} else if (typeExpr.base == "__fn_ptr") {
+			} else if (typeExpr.base == "__fn_ptr" || typeExpr.base == "__realtime_fn_ptr") {
 				argumentRole = "parameter";
 			}
 			Node argument = typeExpr.generic_args.get(index);

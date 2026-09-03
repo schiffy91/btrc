@@ -168,7 +168,7 @@ class CTypeLowerer:
 
         base = type_expr.base
         prefix = "const " if getattr(type_expr, "is_const", False) else ""
-        if base == "__fn_ptr" and type_expr.generic_args:
+        if base in {"__fn_ptr", "__realtime_fn_ptr"} and type_expr.generic_args:
             c_type = self._function_pointer_name(type_expr)
         elif base == "Atomic" and len(type_expr.generic_args) == 1:
             self._session.require_runtime_header("stdatomic.h")
@@ -195,7 +195,7 @@ class CTypeLowerer:
         else:
             c_type = base
         depth = type_expr.pointer_depth
-        base_is_reference = c_type.endswith("*") or base == "__fn_ptr" or self._typedef_base_is_reference(base)
+        base_is_reference = c_type.endswith("*") or base in {"__fn_ptr", "__realtime_fn_ptr"} or self._typedef_base_is_reference(base)
         if TypeSystem.nullable_collapses_reference_layer(type_expr, base_is_reference=base_is_reference):
             depth -= 1
         c_type += "*" * depth
@@ -212,6 +212,17 @@ class CTypeLowerer:
             type_expr = self._default_type_state.resolve(type_expr)
         return type_expr
 
+    def is_realtime_function_type(self, type_expr: TypeExpr | None) -> bool:
+        """Whether lowering received a compiler-proven realtime callable type."""
+        canonical = self.canonical_type(self.resolve_active_type(type_expr))
+        return bool(
+            canonical is not None
+            and canonical.base == "__realtime_fn_ptr"
+            and canonical.pointer_depth == 0
+            and not canonical.is_array
+            and canonical.generic_args
+        )
+
     def element_type(self, type_expr: TypeExpr) -> str:
         """Render a collection's element C type."""
         if type_expr.generic_args:
@@ -223,7 +234,7 @@ class CTypeLowerer:
         if type_expr is None:
             return "%d"
         base = type_expr.base
-        if base == "__fn_ptr":
+        if base in {"__fn_ptr", "__realtime_fn_ptr"}:
             return "%s"
         if self._identity.is_scalar_string(type_expr) or self._identity.is_c_string_pointer(type_expr):
             return "%s"
@@ -395,7 +406,7 @@ class CTypeLowerer:
         resolved = self.canonical_type(type_expr)
         if (
             resolved is None
-            or resolved.base != "__fn_ptr"
+            or resolved.base not in {"__fn_ptr", "__realtime_fn_ptr"}
             or resolved.pointer_depth != 0
             or resolved.is_array
             or (not resolved.generic_args)
@@ -620,7 +631,7 @@ class CTypeLowerer:
         identity = self._identity
         if identity.is_null(left_type) or identity.is_null(right_type):
             function_type = next(
-                (item for item in (left_type, right_type) if item is not None and item.base == "__fn_ptr"), None
+                (item for item in (left_type, right_type) if item is not None and item.base in {"__fn_ptr", "__realtime_fn_ptr"}), None
             )
             if function_type is not None:
                 null_value = IRCast(target_type=CType(text=self.render(function_type)), expr=IRLiteral(text="0"))
@@ -629,7 +640,7 @@ class CTypeLowerer:
                 else:
                     right = null_value
             return IRBinOp(left=left, op=operator, right=right)
-        if left_type and right_type and (left_type.base == right_type.base == "__fn_ptr"):
+        if left_type and right_type and left_type.base in {"__fn_ptr", "__realtime_fn_ptr"} and right_type.base in {"__fn_ptr", "__realtime_fn_ptr"}:
             left_name = self._session.fresh_temp("__btrc_fn_left")
             right_name = self._session.fresh_temp("__btrc_fn_right")
             left_var = IRVar(name=left_name)

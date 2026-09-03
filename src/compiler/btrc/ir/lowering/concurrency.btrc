@@ -139,7 +139,7 @@ class ConcurrencyLowerer {
 		if (resolved == null || (resolved.base == "void" && resolved.pointer_depth == 0)) {
 			return false;
 		}
-		if (resolved.base == "__fn_ptr") { return true; }
+		if (resolved.base == "__fn_ptr" || resolved.base == "__realtime_fn_ptr") { return true; }
 		return !self.operators.isReferenceType(resolved);
 	}
 

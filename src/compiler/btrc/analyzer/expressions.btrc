@@ -699,7 +699,7 @@ class ExpressionTypeResolver {
 				if (fpt.generic_args.len > 0) { ret = fpt.generic_args.get(0); }
 			} else if (fn != null) {
 				Node? fnt = self.inferSpecializationType(fn, a, operators, varTypes);
-				if (fnt != null && fnt.base == "__fn_ptr" && fnt.generic_args.len > 0) {
+				if (fnt != null && (fnt.base == "__fn_ptr" || fnt.base == "__realtime_fn_ptr") && fnt.generic_args.len > 0) {
 					ret = fnt.generic_args.get(0);
 				}
 			}

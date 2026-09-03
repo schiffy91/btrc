@@ -46,6 +46,7 @@ class DeclarationValidator {
 
 	public string hostedNormalizedBase(string base) {
 		if (base == "__fn_ptr") { return "CFunction"; }
+		if (base == "__realtime_fn_ptr") { return "RealtimeFunction"; }
 		if (base == "byte") { return "unsigned char"; }
 		if (base == "long int") { return "long"; }
 		if (base == "long long int") { return "long long"; }
@@ -490,6 +491,15 @@ class DeclarationValidator {
 			int methodIndex = 0;
 			while (methodIndex < declaration.methods.len) {
 				Node method = declaration.methods.get(methodIndex);
+				bool exposesRealtimeFunction = self.types.containsRealtimeFunctionStorage(method.return_type);
+				int realtimeParameter = 0;
+				while (realtimeParameter < method.params.len) {
+					exposesRealtimeFunction = exposesRealtimeFunction || self.types.containsRealtimeFunctionStorage(method.params.get(realtimeParameter).type);
+					realtimeParameter = realtimeParameter + 1;
+				}
+				if (exposesRealtimeFunction) {
+					TypeValidator.fail("Interface method '" + declaration.name + "." + method.name + "' cannot expose RealtimeFunction; downgrade to CFunction at the boundary", method);
+				}
 				if (methodNames.has(method.name)) {
 					TypeValidator.fail("Duplicate interface method '" + declaration.name + "." + method.name + "'", method);
 				}
@@ -692,6 +702,18 @@ class DeclarationValidator {
 		}
 		self.state.typeParams = self.types.combinedTypeParams(signatureClassParams, callable.generic_params);
 		Node declaredReturnType = self.declaredCallableReturnType(classDeclaration, callable);
+		if (callable.body_node == null) {
+			bool exposesRealtimeFunction = self.types.containsRealtimeFunctionStorage(declaredReturnType);
+			int realtimeParameter = 0;
+			while (realtimeParameter < callable.params.len) {
+				exposesRealtimeFunction = exposesRealtimeFunction || self.types.containsRealtimeFunctionStorage(callable.params.get(realtimeParameter).type);
+				realtimeParameter = realtimeParameter + 1;
+			}
+			if (exposesRealtimeFunction) {
+				string callableLabel = classDeclaration == null ? "Native function declaration '" + callable.name + "'" : "Bodyless method '" + classDeclaration.name + "." + callable.name + "'";
+				TypeValidator.fail(callableLabel + " cannot expose RealtimeFunction; downgrade to CFunction at the boundary", callable);
+			}
+		}
 		string returnSubject = classDeclaration == null ? "Return type of function '" + callable.name + "'" : "Return type of method '" + classDeclaration.name + "." + callable.name + "'";
 		self.types.validateDeclaredType(declaredReturnType, returnSubject, "return", callable);
 		self.types.rejectRuntimeInterfaceType(declaredReturnType, callable);

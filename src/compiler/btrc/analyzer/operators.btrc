@@ -181,7 +181,7 @@ class OperatorSemantics {
 
 	public int referenceDepth(Node typeExpr) {
 		int depth = typeExpr.pointer_depth;
-		bool intrinsicReference = typeExpr.base == "string" || typeExpr.base == "Thread" || typeExpr.base == "Mutex" || typeExpr.base == "__fn_ptr";
+		bool intrinsicReference = typeExpr.base == "string" || typeExpr.base == "Thread" || typeExpr.base == "Mutex" || typeExpr.base == "__fn_ptr" || typeExpr.base == "__realtime_fn_ptr";
 		if (TypeComposition.nullableCollapsesReferenceLayer(typeExpr, intrinsicReference)) {
 			depth = depth - 1;
 		}
@@ -212,7 +212,7 @@ class OperatorSemantics {
 		if (self.isNullType(typeExpr) || TypeComposition.isSemanticScalarString(typeExpr)) {
 			return true;
 		}
-		return typeExpr.pointer_depth > 0 || typeExpr.is_array || self.analyzed.isClass(typeExpr.base) || self.analyzed.isGenericClass(typeExpr.base) || typeExpr.base == "Thread" || typeExpr.base == "Mutex" || typeExpr.base == "__fn_ptr";
+		return typeExpr.pointer_depth > 0 || typeExpr.is_array || self.analyzed.isClass(typeExpr.base) || self.analyzed.isGenericClass(typeExpr.base) || typeExpr.base == "Thread" || typeExpr.base == "Mutex" || typeExpr.base == "__fn_ptr" || typeExpr.base == "__realtime_fn_ptr";
 	}
 
 	public bool genericArgsEqual(Vector<Node> left, Vector<Node> right) {
@@ -281,8 +281,10 @@ class OperatorSemantics {
 		if (!self.isReferenceType(left) || !self.isReferenceType(right)) {
 			return false;
 		}
-		if (left.base == "__fn_ptr" || right.base == "__fn_ptr") {
-			return left.base == "__fn_ptr" && right.base == "__fn_ptr" && self.genericArgsEqual(left.generic_args, right.generic_args);
+		if (left.base == "__fn_ptr" || left.base == "__realtime_fn_ptr" || right.base == "__fn_ptr" || right.base == "__realtime_fn_ptr") {
+			bool leftCallable = left.base == "__fn_ptr" || left.base == "__realtime_fn_ptr";
+			bool rightCallable = right.base == "__fn_ptr" || right.base == "__realtime_fn_ptr";
+			return leftCallable && rightCallable && self.genericArgsEqual(left.generic_args, right.generic_args);
 		}
 		if (self.isVoidPointer(left) || self.isVoidPointer(right)) {
 			return true;
@@ -333,7 +335,7 @@ class OperatorSemantics {
 		if (NumericSemantics.isType(operand, self.analyzed)) {
 			return HASH_DOMAIN_INTEGRAL;
 		}
-		if (operand.base == "__fn_ptr") { return HASH_DOMAIN_INVALID; }
+		if (operand.base == "__fn_ptr" || operand.base == "__realtime_fn_ptr") { return HASH_DOMAIN_INVALID; }
 		if (self.isReferenceType(operand)) {
 			return HASH_DOMAIN_REFERENCE;
 		}

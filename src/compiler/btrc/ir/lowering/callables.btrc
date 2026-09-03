@@ -163,12 +163,12 @@ class CallableValueSemantics {
 		Node? canonical = self.canonicalType(typeExpr, context);
 		if (canonical == null) { return false; }
 		Node callable = canonical;
-		return callable.base == "__fn_ptr" && callable.pointer_depth == 0 && !callable.is_array && callable.generic_args.len > 0 && self.managedValueType(callable.generic_args.get(0), context);
+		return (callable.base == "__fn_ptr" || callable.base == "__realtime_fn_ptr") && callable.pointer_depth == 0 && !callable.is_array && callable.generic_args.len > 0 && self.managedValueType(callable.generic_args.get(0), context);
 	}
 
 	public bool callableType(Node? typeExpr, CallableBoundaryContext context) {
 		Node? canonical = self.canonicalType(typeExpr, context);
-		return canonical != null && canonical.base == "__fn_ptr" && canonical.pointer_depth == 0 && !canonical.is_array;
+		return canonical != null && (canonical.base == "__fn_ptr" || canonical.base == "__realtime_fn_ptr") && canonical.pointer_depth == 0 && !canonical.is_array;
 	}
 
 	public bool validatedReferenceOwner(Node typeExpr) { return typeExpr.pointer_depth > 0 || self.analysis.isClass(typeExpr.base) || self.analysis.isGenericClass(typeExpr.base); }
@@ -183,7 +183,7 @@ class CallableValueSemantics {
 			if (lexicalAbi != 0) { return lexicalAbi; }
 			if (context.hasVariable(expression.name)) {
 				Node? lexicalType = SemanticTypeSystem.resolveTypedefType(context.variableType(expression.name), self.analysis.typedefTable);
-				if (lexicalType != null && lexicalType.base == "__fn_ptr") {
+				if (lexicalType != null && (lexicalType.base == "__fn_ptr" || lexicalType.base == "__realtime_fn_ptr")) {
 					return 0;
 				}
 			}
@@ -397,7 +397,7 @@ class CallableValueSemantics {
 		Node? canonicalType = self.canonicalType(expectedType, context);
 		if (canonicalType == null) { return false; }
 		Node canonical = canonicalType;
-		if (canonical.base == "__fn_ptr" && canonical.pointer_depth == 0 && !canonical.is_array) {
+		if ((canonical.base == "__fn_ptr" || canonical.base == "__realtime_fn_ptr") && canonical.pointer_depth == 0 && !canonical.is_array) {
 			return self.expressionRequiresEnvironment(value, context);
 		}
 		if (value.kind == NK_LIST_LITERAL || value.kind == NK_BRACE_INITIALIZER) {

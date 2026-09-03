@@ -575,7 +575,7 @@ class ConcurrencyLowerer:
         return IRFunctionRef(name=name)
 
     def _requires_box(self, type_expr: TypeExpr) -> bool:
-        if type_expr.base == "__fn_ptr":
+        if type_expr.base in {"__fn_ptr", "__realtime_fn_ptr"}:
             return True
         return not self._type_identity.is_reference(
             type_expr, self._analyzed.class_table, self._analyzed.interface_table
@@ -797,7 +797,7 @@ class ConcurrencyLowerer:
         if node.return_type:
             return node.return_type
         function_type = self._session.type_of(node)
-        if function_type and function_type.base == "__fn_ptr" and function_type.generic_args:
+        if function_type and function_type.base in {"__fn_ptr", "__realtime_fn_ptr"} and function_type.generic_args:
             return function_type.generic_args[0]
         if isinstance(node.body, LambdaExprBody) and node.body.expression:
             return self._session.type_of(node.body.expression)

@@ -293,8 +293,6 @@ class CallValidator {
 					self.ownership.validateTransferredArguments(constructor, call, vars);
 					if (constructorName == "CallbackRegistration") {
 						self.validateDirectRealtimeCallback(constructorName, constructor, call, vars, "invoke");
-					} else if (constructorName == "RealtimeAudioProgram") {
-						self.validateDirectRealtimeCallback(constructorName, constructor, call, vars, "process");
 					}
 				}
 				return;
@@ -323,8 +321,6 @@ class CallValidator {
 				self.ownership.validateTransferredArguments(constructor, call, vars);
 				if (constructorName == "CallbackRegistration") {
 					self.validateDirectRealtimeCallback(constructorName, constructor, call, vars, "invoke");
-				} else if (constructorName == "RealtimeAudioProgram") {
-					self.validateDirectRealtimeCallback(constructorName, constructor, call, vars, "process");
 				}
 				return;
 			}
@@ -754,6 +750,7 @@ class CallValidator {
 				expected = SemanticTypeSystem.resolveGenericType(expected, substitutions, self.state.analyzed);
 			}
 			Node argument = call.args.get(argumentIndex);
+			self.types.validateRealtimeFunctionValue(expected, argument, vars);
 			Node? resolvedGpuExpected = self.types.resolveAliases(expected);
 			bool gpuArrayParameter = gpuDispatch && resolvedGpuExpected != null && resolvedGpuExpected.is_array;
 			if (!gpuArrayParameter && !self.types.contextualAggregateInitializer(argument)) {

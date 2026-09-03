@@ -456,7 +456,7 @@ class FunctionLowerer:
         if node.return_type:
             return node.return_type
         fn_type = self._session.type_of(node)
-        if fn_type and fn_type.base == "__fn_ptr" and fn_type.generic_args:
+        if fn_type and fn_type.base in {"__fn_ptr", "__realtime_fn_ptr"} and fn_type.generic_args:
             return fn_type.generic_args[0]
         if isinstance(node.body, LambdaExprBody) and node.body.expression:
             return self._session.type_of(node.body.expression)

@@ -596,6 +596,8 @@ class RealtimeAnalyzer {
 
 	private void callEvent(Node call, RealtimeCallable callable) {
 		Node callee = call.callee;
+		Node? calleeType = self.expressionTypes.infer(callee, callable.variables);
+		if (SemanticTypeSystem.realtimeFunctionPointer(calleeType, self.analyzed)) { return; }
 		if (callee.kind == NK_IDENTIFIER) {
 			string name = callee.name;
 			if (callable.local_names.has(name) || self.analyzed.globalVarTypes.has(name)) {

@@ -186,7 +186,14 @@ class IRVerifier:
             if not isinstance(node.realtime_provenance, str):
                 raise TypeError("IRCall.realtime_provenance requires str")
             if not isinstance(node.callee, str) or not node.callee:
-                raise ValueError(f"IR realtime backstop rejected indirect call via {' -> '.join(path)}")
+                if node.realtime_provenance != "typed-realtime-function":
+                    raise ValueError(f"IR realtime backstop rejected indirect call via {' -> '.join(path)}")
+                continue
+            if node.realtime_provenance == "typed-realtime-function":
+                raise ValueError(
+                    "IR realtime backstop rejected typed-callable provenance on direct call "
+                    f"{node.callee!r} via {' -> '.join(path)}"
+                )
             if node.realtime_provenance:
                 expected = self.module.realtime_intrinsic_targets.get(node.callee)
                 if expected != node.realtime_provenance:

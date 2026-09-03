@@ -1324,7 +1324,7 @@ class ExpressionLowerer:
         function_type = self._session.type_of(node)
         return_type = (
             function_type.generic_args[0]
-            if function_type is not None and function_type.base == "__fn_ptr" and function_type.generic_args
+            if function_type is not None and function_type.base in {"__fn_ptr", "__realtime_fn_ptr"} and function_type.generic_args
             else node.return_type
         )
         self._session.module.function_decls.append(

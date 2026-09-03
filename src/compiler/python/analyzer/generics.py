@@ -34,7 +34,7 @@ _RUNTIME_GENERIC_ARITIES = {
     "Thread": 1,
     "Vector": 1,
 }
-_RUNTIME_GENERIC_MIN_ARITIES = {"Tuple": 2, "__fn_ptr": 1}
+_RUNTIME_GENERIC_MIN_ARITIES = {"Tuple": 2, "__fn_ptr": 1, "__realtime_fn_ptr": 1}
 
 
 @dataclass(frozen=True)

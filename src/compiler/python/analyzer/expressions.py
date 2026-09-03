@@ -134,7 +134,7 @@ class ExpressionAnalyzer:
 
     def _validate_spawn_expr(self, expression):
         callable_type = self.types.canonical_type(self.aggregates.type_of(expression.fn))
-        if not isinstance(expression.fn, LambdaExpr) and (not (callable_type and callable_type.base == "__fn_ptr")):
+        if not isinstance(expression.fn, LambdaExpr) and (not (callable_type and callable_type.base in {"__fn_ptr", "__realtime_fn_ptr"})):
             self.session.error("spawn expects a lambda or function pointer", expression.line, expression.col)
         elif not isinstance(expression.fn, LambdaExpr) and self.ownership.callable_value_requires_environment(
             expression.fn
@@ -179,7 +179,7 @@ class ExpressionAnalyzer:
         arguments = callable_type.generic_args if callable_type else []
         return bool(
             callable_type
-            and callable_type.base == "__fn_ptr"
+            and callable_type.base in {"__fn_ptr", "__realtime_fn_ptr"}
             and (len(arguments) == 2)
             and cls._is_void_pointer(arguments[0])
             and cls._is_void_pointer(arguments[1])
@@ -866,6 +866,13 @@ class ExpressionAnalyzer:
         target = self.types.canonical_type(expression.target_type)
         source = self.types.canonical_type(self._infer_type(expression.expr))
         if target is None or source is None:
+            return
+        if target.base == "__realtime_fn_ptr":
+            self.session.error(
+                "RealtimeFunction cannot be created by a cast; use a direct named @realtime function",
+                expression.line,
+                expression.col,
+            )
             return
         if source.base == "Thread":
             self.aggregates.reject_thread_value_escape(expression.expr, "cast")
@@ -1932,7 +1939,7 @@ class ExpressionAnalyzer:
                 return fn_expr.return_type
             return self._infer_lambda_return(fn_expr)
         fn_type = self.types.canonical_type(self._infer_type(fn_expr))
-        if fn_type and fn_type.base == "__fn_ptr" and fn_type.generic_args:
+        if fn_type and fn_type.base in {"__fn_ptr", "__realtime_fn_ptr"} and fn_type.generic_args:
             return fn_type.generic_args[0]
         return TypeExpr(base="void")
 

@@ -410,7 +410,7 @@ class CallableStorageBoundary:
         resolved = self._values.canonical(type_expr)
         return bool(
             resolved is not None
-            and resolved.base == "__fn_ptr"
+            and resolved.base in {"__fn_ptr", "__realtime_fn_ptr"}
             and (resolved.pointer_depth == 0)
             and (not resolved.is_array)
         )
@@ -1111,7 +1111,7 @@ class CallableProvenance:
         resolved = self._canonical(type_expr)
         return bool(
             resolved is not None
-            and resolved.base == "__fn_ptr"
+            and resolved.base in {"__fn_ptr", "__realtime_fn_ptr"}
             and resolved.pointer_depth == 0
             and not resolved.is_array
         )
@@ -2505,7 +2505,13 @@ class CallLowerer:
             return self._materialize_span_method(plan, lowered_receiver, arguments)
         if lowered_callee is None:
             raise ValueError("direct or callable dispatch requires a lowered callee")
-        return IRCall(callee=lowered_callee, args=operands)
+        call = IRCall(callee=lowered_callee, args=operands)
+        if (
+            plan.dispatch is CallDispatch.CALLABLE
+            and self._types.is_realtime_function_type(self._session.type_of(source_callee))
+        ):
+            call.realtime_provenance = "typed-realtime-function"
+        return call
 
     def _materialize_span_constructor(self, plan: CallPlan, arguments: list[IRExpr]) -> IRExpr:
         span_type = plan.receiver_type
@@ -3139,7 +3145,7 @@ class CallLowerer:
         format_spec = self._types.format_spec(resolved_type) if resolved_type is not None else format_spec
         if (
             resolved_type is not None
-            and resolved_type.base == "__fn_ptr"
+            and resolved_type.base in {"__fn_ptr", "__realtime_fn_ptr"}
             and (resolved_type.pointer_depth == 0)
             and (not resolved_type.is_array)
         ):
@@ -3158,7 +3164,7 @@ class CallLowerer:
                     condition=value, true_expr=IRLiteral(text='"true"'), false_expr=IRLiteral(text='"false"')
                 ),
             )
-        if resolved_type is not None and resolved_type.base == "__fn_ptr":
+        if resolved_type is not None and resolved_type.base in {"__fn_ptr", "__realtime_fn_ptr"}:
             return PrintfArg(format_spec="%p", value=IRCast(target_type=CType(text="void*"), expr=value))
         if (
             resolved_type is not None

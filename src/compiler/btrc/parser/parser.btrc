@@ -1005,9 +1005,10 @@ class Parser {
 			base = baseTok.value;
 		}
 
-		/* CFunction is the public exact-C callback spelling.  Keep __fn_ptr as
-         * the compiler's one-word internal representation. */
+		/* Both callback types use one C function-pointer word. Keep distinct
+		 * semantic bases so RealtimeFunction provenance cannot be erased. */
 		if (base == "CFunction") { base = "__fn_ptr"; }
+		if (base == "RealtimeFunction") { base = "__realtime_fn_ptr"; }
 
 		Node ty = Node();
 		ty.kind = NK_TYPE_EXPR;

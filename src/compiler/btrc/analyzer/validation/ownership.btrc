@@ -142,7 +142,7 @@ class OwnershipValidator {
 		Node? canonical = self.types.resolveAliases(typeExpr);
 		if (canonical == null) { return false; }
 		if (canonical.base == "Thread") { return true; }
-		int index = canonical.base == "__fn_ptr" ? 1 : 0;
+		int index = (canonical.base == "__fn_ptr" || canonical.base == "__realtime_fn_ptr") ? 1 : 0;
 		while (index < canonical.generic_args.len) {
 			if (self.containsThreadStorage(canonical.generic_args.get(index))) {
 				return true;
@@ -156,7 +156,7 @@ class OwnershipValidator {
 		Node? canonical = self.types.resolveAliases(typeExpr);
 		if (canonical == null) { return false; }
 		if (canonical.base == "Mutex") { return true; }
-		int index = canonical.base == "__fn_ptr" ? 1 : 0;
+		int index = (canonical.base == "__fn_ptr" || canonical.base == "__realtime_fn_ptr") ? 1 : 0;
 		while (index < canonical.generic_args.len) {
 			if (self.containsMutexStorageImpl(canonical.generic_args.get(index), visiting)) {
 				return true;
@@ -365,7 +365,7 @@ class OwnershipValidator {
 		if (query == 5 && self.mutexDirectManagedValue(canonical)) {
 			return true;
 		}
-		if (canonical.base == "__fn_ptr") { return false; }
+		if (canonical.base == "__fn_ptr" || canonical.base == "__realtime_fn_ptr") { return false; }
 
 		bool inspectArguments = query != 5 || canonical.base == "Tuple";
 		if (inspectArguments) {
@@ -505,7 +505,7 @@ class OwnershipValidator {
 		if (typeExpr == null || typeExpr.is_array) { return false; }
 		if (self.state.analyzed.isClass(typeExpr.base) || self.state.analyzed.isGenericClass(typeExpr.base)) { return true; }
 		if (typeExpr.base == "Mutex" && typeExpr.pointer_depth == 0 && typeExpr.generic_args.len == 1) { return true; }
-		return typeExpr.pointer_depth > 0 && typeExpr.base != "__fn_ptr";
+		return typeExpr.pointer_depth > 0 && typeExpr.base != "__fn_ptr" && typeExpr.base != "__realtime_fn_ptr";
 	}
 
 	public bool threadJoinReceiverConsumable(Node receiver) {
