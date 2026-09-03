@@ -617,7 +617,7 @@ class RealtimeClipTransport implements RealtimeClipTransportPort {
 	public RealtimeClipClockOutcome clock(RealtimeClipToken token) {
 		if (self._lifecycle == REALTIME_CLIP_TRANSPORT_CLOSED) { return RealtimeClipClockOutcome.failed(REALTIME_CLIP_TRANSPORT_WRONG_STATE); }
 		if (token == null) { return RealtimeClipClockOutcome.failed(REALTIME_CLIP_TRANSPORT_INVALID_ARGUMENT); }
-		struct BtrcRealtimeClipTransportSnapshotValue snapshot;
+		struct BtrcRealtimeClipTransportSnapshotValue snapshot = {0};
 		int status = btrcRealtimeClipTransportOwnerReadClock(self._owner, token.value(), &snapshot);
 		if (status != (int)REALTIME_CLIP_TRANSPORT_OK) { return RealtimeClipClockOutcome.failed((RealtimeClipTransportStatus)status); }
 		unsigned long long deviceFrame = snapshot.renderedFrames > (unsigned long long)ULLONG_MAX - snapshot.silentFrames ? (unsigned long long)ULLONG_MAX : snapshot.renderedFrames + snapshot.silentFrames;
@@ -627,7 +627,7 @@ class RealtimeClipTransport implements RealtimeClipTransportPort {
 
 	public RealtimeClipTransportTelemetryOutcome telemetry() {
 		if (self._lifecycle == REALTIME_CLIP_TRANSPORT_CLOSED) { return RealtimeClipTransportTelemetryOutcome.failed(REALTIME_CLIP_TRANSPORT_WRONG_STATE); }
-		struct BtrcRealtimeClipTransportSnapshotValue snapshot;
+		struct BtrcRealtimeClipTransportSnapshotValue snapshot = {0};
 		int stagedClips = 0;
 		unsigned long long droppedEvents = 0ULL;
 		unsigned long long droppedRetirements = 0ULL;
@@ -638,7 +638,7 @@ class RealtimeClipTransport implements RealtimeClipTransportPort {
 
 	public RealtimeClipPracticeTelemetryPoll pollPracticeTelemetry() {
 		if (self._lifecycle == REALTIME_CLIP_TRANSPORT_CLOSED) { return RealtimeClipPracticeTelemetryPoll.unavailable(); }
-		struct BtrcRealtimeClipPracticeTelemetryValue telemetry;
+		struct BtrcRealtimeClipPracticeTelemetryValue telemetry = {0};
 		if (!btrcRealtimeClipTransportOwnerPollPracticeTelemetry(self._owner, &telemetry)) { return RealtimeClipPracticeTelemetryPoll.empty(); }
 		RealtimeClipPracticeTelemetry value = RealtimeClipPracticeTelemetry(self.clampFrame(telemetry.deviceFrame), self.clampFrame(telemetry.mappingGeneration), telemetry.mappedTransportFrame, (RealtimeClipPracticePhase)telemetry.phase, (RealtimeClipInputMonitorState)telemetry.monitorState, telemetry.callbacks, telemetry.capturedInputFrames, telemetry.monitoredInputFrames, telemetry.droppedInputFrames, telemetry.droppedTelemetrySnapshots, telemetry.countInClicks, telemetry.metronomeClicks, telemetry.inputPeakPermille, telemetry.inputLatencyKnown != 0, telemetry.inputLatencyFrames, telemetry.xrunsKnown != 0, telemetry.xruns, telemetry.callbackViolations);
 		return RealtimeClipPracticeTelemetryPoll.available(value);
@@ -646,7 +646,7 @@ class RealtimeClipTransport implements RealtimeClipTransportPort {
 
 	public RealtimeClipPracticeInputPoll pollPracticeInput() {
 		if (self._lifecycle == REALTIME_CLIP_TRANSPORT_CLOSED) { return RealtimeClipPracticeInputPoll.unavailable(); }
-		struct BtrcRealtimeClipPracticeInputValue sample;
+		struct BtrcRealtimeClipPracticeInputValue sample = {0};
 		if (!btrcRealtimeClipTransportOwnerPollPracticeInput(self._owner, &sample)) { return RealtimeClipPracticeInputPoll.empty(); }
 		return RealtimeClipPracticeInputPoll.available(RealtimeClipPracticeInputSample(self.clampFrame(sample.deviceFrame), self.clampFrame(sample.mappingGeneration), sample.transportFrame, sample.sample));
 	}
