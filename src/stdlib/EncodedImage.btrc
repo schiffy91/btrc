@@ -1,0 +1,110 @@
+/* Provider-neutral decoding of bounded encoded images.
+ *
+ * Decoders inspect encoded content, never a filename or extension. decode()
+ * is synchronous and may borrow encoded only until it returns. A successful
+ * outcome owns one tightly packed, top-down, straight-RGBA std.image.Image;
+ * failures own no image.
+ */
+
+import std.bytes;
+import std.image;
+
+enum EncodedImageDecodeStatus {
+	ENCODED_IMAGE_DECODE_OK,
+	ENCODED_IMAGE_DECODE_INVALID_ARGUMENT,
+	ENCODED_IMAGE_DECODE_UNSUPPORTED,
+	ENCODED_IMAGE_DECODE_CORRUPT,
+	ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED,
+	ENCODED_IMAGE_DECODE_OUT_OF_MEMORY,
+	ENCODED_IMAGE_DECODE_FAILED
+};
+
+string encodedImageDecodeStatusMessage(EncodedImageDecodeStatus status) {
+	if (status == ENCODED_IMAGE_DECODE_OK) { return ""; }
+	if (status == ENCODED_IMAGE_DECODE_INVALID_ARGUMENT) { return "invalid encoded image request"; }
+	if (status == ENCODED_IMAGE_DECODE_UNSUPPORTED) { return "encoded image format is unsupported"; }
+	if (status == ENCODED_IMAGE_DECODE_CORRUPT) { return "encoded image data is corrupt"; }
+	if (status == ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED) { return "encoded image exceeds decode limits"; }
+	if (status == ENCODED_IMAGE_DECODE_OUT_OF_MEMORY) { return "encoded image decode ran out of memory"; }
+	return "encoded image decode failed";
+}
+
+class EncodedImageDecodeLimits {
+	private int _maximumInputBytes;
+	private int _maximumWidth;
+	private int _maximumHeight;
+	private long long _maximumPixels;
+
+	public EncodedImageDecodeLimits(int maximumInputBytes, int maximumWidth, int maximumHeight, long long maximumPixels) {
+		long long storagePixelLimit = (1073741824LL - 1024LL) / 4LL;
+		if (maximumInputBytes <= 0 || maximumInputBytes > 1073741824 - 1024 || maximumWidth <= 0 || maximumHeight <= 0 || maximumPixels <= 0LL || maximumPixels > storagePixelLimit) { throw "invalid encoded image decode limits"; }
+		self._maximumInputBytes = maximumInputBytes;
+		self._maximumWidth = maximumWidth;
+		self._maximumHeight = maximumHeight;
+		self._maximumPixels = maximumPixels;
+	}
+
+	public int maximumInputBytes() { return self._maximumInputBytes; }
+
+	public int maximumWidth() { return self._maximumWidth; }
+
+	public int maximumHeight() { return self._maximumHeight; }
+
+	public long long maximumPixels() { return self._maximumPixels; }
+
+	public bool allowsInput(int inputBytes) { return inputBytes > 0 && inputBytes <= self._maximumInputBytes; }
+
+	public bool allowsDimensions(int width, int height) {
+		if (width <= 0 || height <= 0 || width > self._maximumWidth || height > self._maximumHeight) { return false; }
+		long long pixels = (long long)width * (long long)height;
+		return pixels <= self._maximumPixels && pixels <= (1073741824LL - 1024LL) / 4LL;
+	}
+}
+
+class EncodedImageDecodeOutcome {
+	private EncodedImageDecodeStatus _status;
+	private Image? _image;
+	private int _inputBytes;
+	private unsigned long long _decodedBytes;
+
+	private EncodedImageDecodeOutcome(EncodedImageDecodeStatus status, Image? image, int inputBytes, unsigned long long decodedBytes) {
+		if ((int)status < (int)ENCODED_IMAGE_DECODE_OK || (int)status > (int)ENCODED_IMAGE_DECODE_FAILED || inputBytes < 0) { throw "invalid encoded image decode outcome"; }
+		bool succeeded = status == ENCODED_IMAGE_DECODE_OK;
+		if (succeeded != (image != null && !image.isEmpty() && inputBytes > 0 && decodedBytes == (unsigned long long)image.width * (unsigned long long)image.height * 4ULL)) { throw "inconsistent encoded image decode outcome"; }
+		if (!succeeded && (image != null || decodedBytes != 0ULL)) { throw "failed encoded image decode cannot own pixels"; }
+		self._status = status;
+		self._image = image;
+		self._inputBytes = inputBytes;
+		self._decodedBytes = decodedBytes;
+	}
+
+	class EncodedImageDecodeOutcome decoded(Image image, int inputBytes) {
+		if (image == null || image.isEmpty()) { throw "decoded image is empty"; }
+		unsigned long long decodedBytes = (unsigned long long)image.width * (unsigned long long)image.height * 4ULL;
+		return EncodedImageDecodeOutcome(ENCODED_IMAGE_DECODE_OK, image, inputBytes, decodedBytes);
+	}
+
+	class EncodedImageDecodeOutcome rejected(EncodedImageDecodeStatus status, int inputBytes) {
+		if (status == ENCODED_IMAGE_DECODE_OK) { throw "rejected image decode requires an error status"; }
+		return EncodedImageDecodeOutcome(status, null, inputBytes, 0ULL);
+	}
+
+	public EncodedImageDecodeStatus status() { return self._status; }
+
+	public bool succeeded() { return self._status == ENCODED_IMAGE_DECODE_OK; }
+
+	public int inputBytes() { return self._inputBytes; }
+
+	public unsigned long long decodedBytes() { return self._decodedBytes; }
+
+	public Image image() {
+		if (self._image == null) { throw "decoded image is unavailable"; }
+		return self._image;
+	}
+
+	public string message() { return encodedImageDecodeStatusMessage(self._status); }
+}
+
+interface EncodedImageDecoder {
+	EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits);
+}

@@ -1,0 +1,52 @@
+import std.EncodedImage;
+
+#include <assert.h>
+
+class FakeEncodedImageDecoder implements EncodedImageDecoder {
+	public FakeEncodedImageDecoder() {}
+
+	public EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits) {
+		int inputBytes = encoded == null ? 0 : encoded.length();
+		if (encoded == null || encoded.isEmpty() || limits == null) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_INVALID_ARGUMENT, inputBytes); }
+		if (!limits.allowsInput(inputBytes)) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, inputBytes); }
+		if (encoded.get(0) != 42) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_UNSUPPORTED, inputBytes); }
+		if (inputBytes < 2 || encoded.get(1) != 7) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_CORRUPT, inputBytes); }
+		if (!limits.allowsDimensions(2, 1)) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, inputBytes); }
+		Image image = Image(2, 1);
+		image.setRGBA(0, 0, 10, 20, 30, 40);
+		image.setRGBA(1, 0, 200, 150, 100, 50);
+		return EncodedImageDecodeOutcome.decoded(image, inputBytes);
+	}
+}
+
+Bytes encoded(int first, int second = 0) {
+	Bytes bytes = Bytes();
+	bytes.append(first);
+	bytes.append(second);
+	return bytes;
+}
+
+int main() {
+	EncodedImageDecodeLimits limits = EncodedImageDecodeLimits(2, 2, 2, 4LL);
+	assert(limits.maximumInputBytes() == 2 && limits.maximumWidth() == 2 && limits.maximumHeight() == 2 && limits.maximumPixels() == 4LL);
+	assert(limits.allowsInput(1) && limits.allowsInput(2) && !limits.allowsInput(0) && !limits.allowsInput(3));
+	assert(limits.allowsDimensions(2, 1) && limits.allowsDimensions(2, 2) && !limits.allowsDimensions(3, 1) && !limits.allowsDimensions(1, 3));
+
+	FakeEncodedImageDecoder decoder = FakeEncodedImageDecoder();
+	EncodedImageDecodeOutcome decoded = decoder.decode(encoded(42, 7), limits);
+	assert(decoded.succeeded() && decoded.status() == ENCODED_IMAGE_DECODE_OK && decoded.message().isEmpty());
+	assert(decoded.inputBytes() == 2 && decoded.decodedBytes() == 8ULL);
+	assert(decoded.image().width == 2 && decoded.image().height == 1);
+	assert(decoded.image().pixel(0, 0).equals(RGBA(10, 20, 30, 40)));
+	assert(decoded.image().pixel(1, 0).equals(RGBA(200, 150, 100, 50)));
+
+	EncodedImageDecodeOutcome unsupported = decoder.decode(encoded(11, 7), limits);
+	assert(!unsupported.succeeded() && unsupported.status() == ENCODED_IMAGE_DECODE_UNSUPPORTED && unsupported.inputBytes() == 2 && unsupported.decodedBytes() == 0ULL);
+	assert(unsupported.message() == "encoded image format is unsupported");
+	EncodedImageDecodeOutcome corrupt = decoder.decode(encoded(42, 8), limits);
+	assert(corrupt.status() == ENCODED_IMAGE_DECODE_CORRUPT && corrupt.message() == "encoded image data is corrupt");
+	EncodedImageDecodeOutcome bounded = decoder.decode(encoded(42, 7), EncodedImageDecodeLimits(1, 2, 2, 4LL));
+	assert(bounded.status() == ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED && bounded.inputBytes() == 2);
+	print("PASS EncodedImageContract");
+	return 0;
+}
