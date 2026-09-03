@@ -784,6 +784,39 @@ class FeNativeLinkPlan {
 		}
 	}
 
+	public void requireStdlibMacOsEncodedImageDecoder(string stdlibDirectory) {
+		string packageName = "btrc_stdlib_macos_encoded_image_decoder_runtime";
+		int packageIndex = 0;
+		while (packageIndex < self.packages.len) {
+			if (self.packages.get(packageIndex).name.equals(packageName)) { FePackageFailure.fail(f"package identity '{packageName}' is reserved for compiler-owned stdlib runtimes"); }
+			packageIndex++;
+		}
+		string root = PathTools.absolute(stdlibDirectory);
+		string runtime = PathTools.join(root, "macos_encoded_image_decoder");
+		string source = PathTools.join(runtime, "btrc_macos_encoded_image_decoder.c");
+		string header = PathTools.join(runtime, "btrc_macos_encoded_image_decoder.h");
+		if (!FileSystem.isDir(root) || !FileSystem.isDir(runtime)) { FePackageFailure.fail("std.MacOsEncodedImageDecoder native runtime directory is unavailable"); }
+		if (!FileSystem.isFile(source) || !FileSystem.isFile(header)) { FePackageFailure.fail("std.MacOsEncodedImageDecoder native runtime sources are unavailable"); }
+		Vector<string> supported = ["macos"];
+		Vector<string> architectures = [];
+		Vector<string> modules = [];
+		Vector<FeNativeDeclaration> runtimeDeclarations = [
+			FeNativeDeclaration("source", packageName, source, "", "c", "c11", supported, architectures, modules),
+			FeNativeDeclaration("header", packageName, header, "", "", "", supported, architectures, modules),
+			FeNativeDeclaration("include-directory", packageName, runtime, "", "", "", supported, architectures, modules),
+			FeNativeDeclaration("framework", packageName, "CoreFoundation", "", "", "", supported, architectures, modules),
+			FeNativeDeclaration("framework", packageName, "CoreGraphics", "", "", "", supported, architectures, modules),
+			FeNativeDeclaration("framework", packageName, "ImageIO", "", "", "", supported, architectures, modules)
+		];
+		Map<string, string> dependencies = {};
+		self.packages.push(FePackageNode(packageName, root, dependencies, root, "", runtimeDeclarations));
+		int runtimeIndex = 0;
+		while (runtimeIndex < runtimeDeclarations.len) {
+			self.declarations.push(runtimeDeclarations.get(runtimeIndex));
+			runtimeIndex++;
+		}
+	}
+
 	private Vector<FeNativeDeclaration> selected(string kind) {
 		Vector<FeNativeDeclaration> values = [];
 		int index = 0;

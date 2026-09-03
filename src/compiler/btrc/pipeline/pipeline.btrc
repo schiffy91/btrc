@@ -52,6 +52,10 @@ class CompilerPipeline {
 		if (resolved.dependencies.hasSource(FeSourcePathPolicy().identity(coreAudioDeviceModule))) {
 			packages.linkPlan.requireStdlibCoreAudioDevice(self.stdlib.directory());
 		}
+		string macOsEncodedImageDecoderModule = PathTools.join(self.stdlib.directory(), "MacOsEncodedImageDecoder.btrc");
+		if (resolved.dependencies.hasSource(FeSourcePathPolicy().identity(macOsEncodedImageDecoderModule))) {
+			packages.linkPlan.requireStdlibMacOsEncodedImageDecoder(self.stdlib.directory());
+		}
 
 		Lexer lexer = Lexer(resolved.source, self.grammar);
 		Vector<Token> tokens = lexer.tokenize();

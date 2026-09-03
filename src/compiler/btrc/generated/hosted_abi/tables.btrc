@@ -186,7 +186,7 @@ class GeneratedHostedAbiData {
 		self.push_platform_typedef_names0();
 		self.stdlib_source_marker = "compiler:stdlib";
 		self.user_source_marker = "compiler:user";
-		self.fingerprint = "24d502d733c8628db1f7bda17d649a3c84782ce04bba6241b670a63d36fce27b";
+		self.fingerprint = "8f8f299ad69e529c58442b13462f8b042df868b7a1cfdc1ebdc2e22cabae0f15";
 	}
 
 	private void pushFunctions0() {
@@ -9372,6 +9372,55 @@ class GeneratedHostedAbiData {
 			"",
 			"unknown"));
 		self.functions.push(GeneratedHostedFunctionRow(
+			"std_macos_encoded_image_decode",
+			"native_macos_encoded_image",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("long long", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 2, false, self.emptyTypes()), "mutate", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_macos_encoded_image_release",
+			"native_macos_encoded_image",
+			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
 			"strcat",
 			"string",
 			GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()),
@@ -9943,6 +9992,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions12() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"sysconf",
 			"posix_process",
@@ -9983,9 +10035,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions12() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"tan",
 			"math",
@@ -11557,6 +11606,8 @@ class GeneratedHostedAbiData {
 		self.function_names.push("std_local_application_channel_server_open");
 		self.function_names.push("std_local_application_channel_server_poll");
 		self.function_names.push("std_local_application_channel_server_respond");
+		self.function_names.push("std_macos_encoded_image_decode");
+		self.function_names.push("std_macos_encoded_image_release");
 		self.function_names.push("strcasecmp");
 		self.function_names.push("strcasecmp_l");
 		self.function_names.push("strcasestr");
@@ -18687,6 +18738,8 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("std_local_application_channel_server_open");
 		self.owned_names.push("std_local_application_channel_server_poll");
 		self.owned_names.push("std_local_application_channel_server_respond");
+		self.owned_names.push("std_macos_encoded_image_decode");
+		self.owned_names.push("std_macos_encoded_image_release");
 		self.owned_names.push("stderr");
 		self.owned_names.push("stdin");
 		self.owned_names.push("stdout");
@@ -18863,11 +18916,11 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("user_long_t");
 		self.owned_names.push("user_off_t");
 		self.owned_names.push("user_size_t");
-		self.owned_names.push("user_ssize_t");
-		self.owned_names.push("user_time_t");
 	}
 
 	private void push_owned_names16() {
+		self.owned_names.push("user_ssize_t");
+		self.owned_names.push("user_time_t");
 		self.owned_names.push("user_ulong_t");
 		self.owned_names.push("ushort");
 		self.owned_names.push("usleep");
@@ -19060,6 +19113,8 @@ class GeneratedHostedAbiData {
 		self.native_names.push("std_local_application_channel_server_open");
 		self.native_names.push("std_local_application_channel_server_poll");
 		self.native_names.push("std_local_application_channel_server_respond");
+		self.native_names.push("std_macos_encoded_image_decode");
+		self.native_names.push("std_macos_encoded_image_release");
 	}
 
 	private void push_native_internal_names0() {
@@ -19843,6 +19898,8 @@ class GeneratedHostedAbiData {
 		self.platform_function_names.push("std_local_application_channel_server_open");
 		self.platform_function_names.push("std_local_application_channel_server_poll");
 		self.platform_function_names.push("std_local_application_channel_server_respond");
+		self.platform_function_names.push("std_macos_encoded_image_decode");
+		self.platform_function_names.push("std_macos_encoded_image_release");
 		self.platform_function_names.push("strcasecmp");
 		self.platform_function_names.push("strcasecmp_l");
 		self.platform_function_names.push("strcasestr");
@@ -19894,11 +19951,11 @@ class GeneratedHostedAbiData {
 		self.platform_function_names.push("timer_getoverrun");
 		self.platform_function_names.push("timer_gettime");
 		self.platform_function_names.push("timer_settime");
-		self.platform_function_names.push("timespec_get");
-		self.platform_function_names.push("timingsafe_bcmp");
 	}
 
 	private void push_platform_function_names3() {
+		self.platform_function_names.push("timespec_get");
+		self.platform_function_names.push("timingsafe_bcmp");
 		self.platform_function_names.push("truncate");
 		self.platform_function_names.push("ttyname");
 		self.platform_function_names.push("ttyname_r");

@@ -1094,6 +1094,8 @@ functions = [
   "std_local_application_channel_server_open",
   "std_local_application_channel_server_poll",
   "std_local_application_channel_server_respond",
+  "std_macos_encoded_image_decode",
+  "std_macos_encoded_image_release",
   "strcasecmp",
   "strcasecmp_l",
   "strcasestr",
@@ -8143,6 +8145,8 @@ owned = [
   "std_local_application_channel_server_open",
   "std_local_application_channel_server_poll",
   "std_local_application_channel_server_respond",
+  "std_macos_encoded_image_decode",
+  "std_macos_encoded_image_release",
   "stderr",
   "stdin",
   "stdout",
@@ -8512,6 +8516,8 @@ native = [
   "std_local_application_channel_server_open",
   "std_local_application_channel_server_poll",
   "std_local_application_channel_server_respond",
+  "std_macos_encoded_image_decode",
+  "std_macos_encoded_image_release",
 ]
 native_internal = [
   "btrc_app_drain_owner_finalizers",
@@ -9288,6 +9294,8 @@ functions = [
   "std_local_application_channel_server_open",
   "std_local_application_channel_server_poll",
   "std_local_application_channel_server_respond",
+  "std_macos_encoded_image_decode",
+  "std_macos_encoded_image_release",
   "strcasecmp",
   "strcasecmp_l",
   "strcasestr",
@@ -17936,6 +17944,39 @@ parameters = [
   { base = "unsigned char", pointer_depth = 1, is_const = true, effect = "read" },
   { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
   { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_macos_encoded_image_decode"
+origin = "native_macos_encoded_image"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "char", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "void", pointer_depth = 2, is_const = false, effect = "mutate" },
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_macos_encoded_image_release"
+origin = "native_macos_encoded_image"
+result = { base = "void", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
 ]
 variadic = false
 return_effect = "value"

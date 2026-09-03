@@ -131,7 +131,7 @@ class FeStdlibRepository {
 
 	private bool explicitModulePath(string path) {
 		string name = self.sourcePaths.baseName(path);
-		return name.equals("background_jobs.btrc") || name.equals("CoreAudioDevice.btrc") || name.equals("local_application_channel.btrc") || name.equals("native_ui.btrc") || name.equals("native_ui_app.btrc");
+		return name.equals("background_jobs.btrc") || name.equals("CoreAudioDevice.btrc") || name.equals("local_application_channel.btrc") || name.equals("MacOsEncodedImageDecoder.btrc") || name.equals("native_ui.btrc") || name.equals("native_ui_app.btrc");
 	}
 
 	/* Legacy relaxed composition and the core archive strip imports before

@@ -7703,6 +7703,40 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
+        name='std_macos_encoded_image_decode',
+        origin='native_macos_encoded_image',
+        result=GeneratedAbiTypeRow('int', 0, False, ()),
+        parameters=(GeneratedHostedParameterRow(GeneratedAbiTypeRow('char', 1, True, ()), 'read', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('int', 0, False, ()), 'value', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('int', 0, False, ()), 'value', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('int', 0, False, ()), 'value', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('int', 0, False, ()), 'value', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('long long', 0, False, ()), 'value', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('int', 1, False, ()), 'mutate', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('int', 1, False, ()), 'mutate', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('void', 2, False, ()), 'mutate', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('unsigned long long', 1, False, ()), 'mutate', None),),
+        variadic=False,
+        semantic_result=None,
+        return_effect='value',
+        return_alias_parameter=None,
+        return_alias_null_effect=None,
+        raw_lifetime=False,
+        return_deallocator=None,
+        return_alias_shape=None,
+        consume_deallocator=None,
+        return_alias_null_deallocator=None,
+        realtime_effect='unknown',
+    ),
+    GeneratedHostedFunctionRow(
+        name='std_macos_encoded_image_release',
+        origin='native_macos_encoded_image',
+        result=GeneratedAbiTypeRow('void', 0, False, ()),
+        parameters=(GeneratedHostedParameterRow(GeneratedAbiTypeRow('void', 1, False, ()), 'mutate', None),),
+        variadic=False,
+        semantic_result=None,
+        return_effect='value',
+        return_alias_parameter=None,
+        return_alias_null_effect=None,
+        raw_lifetime=False,
+        return_deallocator=None,
+        return_alias_shape=None,
+        consume_deallocator=None,
+        return_alias_null_deallocator=None,
+        realtime_effect='unknown',
+    ),
+    GeneratedHostedFunctionRow(
         name='strcat',
         origin='string',
         result=GeneratedAbiTypeRow('char', 1, False, ()),
@@ -9691,6 +9725,8 @@ HOSTED_FUNCTION_NAMES: tuple[str, ...] = (
     'std_local_application_channel_server_open',
     'std_local_application_channel_server_poll',
     'std_local_application_channel_server_respond',
+    'std_macos_encoded_image_decode',
+    'std_macos_encoded_image_release',
     'strcasecmp',
     'strcasecmp_l',
     'strcasestr',
@@ -16745,6 +16781,8 @@ HOSTED_OWNED_NAMES: tuple[str, ...] = (
     'std_local_application_channel_server_open',
     'std_local_application_channel_server_poll',
     'std_local_application_channel_server_respond',
+    'std_macos_encoded_image_decode',
+    'std_macos_encoded_image_release',
     'stderr',
     'stdin',
     'stdout',
@@ -17115,6 +17153,8 @@ HOSTED_NATIVE_NAMES: tuple[str, ...] = (
     'std_local_application_channel_server_open',
     'std_local_application_channel_server_poll',
     'std_local_application_channel_server_respond',
+    'std_macos_encoded_image_decode',
+    'std_macos_encoded_image_release',
 )
 
 HOSTED_NATIVE_INTERNAL_NAMES: tuple[str, ...] = (
@@ -17892,6 +17932,8 @@ HOSTED_PLATFORM_FUNCTION_NAMES: tuple[str, ...] = (
     'std_local_application_channel_server_open',
     'std_local_application_channel_server_poll',
     'std_local_application_channel_server_respond',
+    'std_macos_encoded_image_decode',
+    'std_macos_encoded_image_release',
     'strcasecmp',
     'strcasecmp_l',
     'strcasestr',
@@ -20649,4 +20691,4 @@ HOSTED_PLATFORM_TYPEDEF_NAMES: tuple[str, ...] = (
 
 HOSTED_STDLIB_SOURCE_MARKER = 'compiler:stdlib'
 HOSTED_USER_SOURCE_MARKER = 'compiler:user'
-HOSTED_ABI_FINGERPRINT = '24d502d733c8628db1f7bda17d649a3c84782ce04bba6241b670a63d36fce27b'
+HOSTED_ABI_FINGERPRINT = '8f8f299ad69e529c58442b13462f8b042df868b7a1cfdc1ebdc2e22cabae0f15'

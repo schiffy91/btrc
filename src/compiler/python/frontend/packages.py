@@ -501,6 +501,36 @@ class NativeLinkPlan:
         )
         return NativeLinkPlan(self.target, self.packages + (package,), self.declarations + declarations)
 
+    def with_stdlib_macos_encoded_image_decoder(self, stdlib_directory: str) -> NativeLinkPlan:
+        """Return a plan that owns the imported macOS image decoder runtime."""
+
+        package_name = "btrc_stdlib_macos_encoded_image_decoder_runtime"
+        if any(package.name == package_name for package in self.packages):
+            raise IncludeResolutionError(
+                f"package identity {package_name!r} is reserved for compiler-owned stdlib runtimes"
+            )
+        root = os.path.realpath(stdlib_directory)
+        runtime = os.path.join(root, "macos_encoded_image_decoder")
+        source = os.path.join(runtime, "btrc_macos_encoded_image_decoder.c")
+        header = os.path.join(runtime, "btrc_macos_encoded_image_decoder.h")
+        if not os.path.isdir(root) or not os.path.isdir(runtime):
+            raise IncludeResolutionError("std.MacOsEncodedImageDecoder native runtime directory is unavailable")
+        if not os.path.isfile(source) or not os.path.isfile(header):
+            raise IncludeResolutionError("std.MacOsEncodedImageDecoder native runtime sources are unavailable")
+        package = PackageNode(package_name, root, {}, {"path": root}, "")
+        supported = ("macos",)
+        declarations = (
+            NativeDeclaration(
+                "source", package_name, source, language="c", standard="c11", operating_systems=supported
+            ),
+            NativeDeclaration("header", package_name, header, operating_systems=supported),
+            NativeDeclaration("include-directory", package_name, runtime, operating_systems=supported),
+            NativeDeclaration("framework", package_name, "CoreFoundation", operating_systems=supported),
+            NativeDeclaration("framework", package_name, "CoreGraphics", operating_systems=supported),
+            NativeDeclaration("framework", package_name, "ImageIO", operating_systems=supported),
+        )
+        return NativeLinkPlan(self.target, self.packages + (package,), self.declarations + declarations)
+
 
 @dataclass(frozen=True)
 class ResolvedPackages:

@@ -1,0 +1,40 @@
+/* macOS ImageIO/CoreGraphics provider for bounded encoded images.
+ *
+ * DDS DXT1/DXT5 stays in portable BTRC. PNG, JPEG, and GIF frame zero are
+ * decoded synchronously by the native runtime from content signatures.
+ */
+
+import std.DdsEncodedImageDecoder;
+
+int std_macos_encoded_image_decode(const char* encoded, int encodedBytes, int maximumInputBytes, int maximumWidth, int maximumHeight, long long maximumPixels, int* widthOut, int* heightOut, void** pixelsOut, unsigned long long* pixelBytesOut);
+void std_macos_encoded_image_release(void* pixels);
+
+static EncodedImageDecodeStatus btrcMacOsEncodedImageStatus(int nativeStatus) {
+	if (nativeStatus < (int)ENCODED_IMAGE_DECODE_OK || nativeStatus > (int)ENCODED_IMAGE_DECODE_FAILED) { return ENCODED_IMAGE_DECODE_FAILED; }
+	return (EncodedImageDecodeStatus)nativeStatus;
+}
+
+class MacOsEncodedImageDecoder implements EncodedImageDecoder {
+	public MacOsEncodedImageDecoder() {}
+
+	public EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits) {
+		int inputBytes = encoded == null ? 0 : encoded.length();
+		if (encoded == null || encoded.isEmpty() || limits == null) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_INVALID_ARGUMENT, inputBytes); }
+		if (!limits.allowsInput(inputBytes)) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, inputBytes); }
+		if (DdsEncodedImageDecoder.recognizes(encoded)) { return DdsEncodedImageDecoder().decode(encoded, limits); }
+		int width = 0;
+		int height = 0;
+		void* pixels = null;
+		unsigned long long pixelBytes = 0ULL;
+		EncodedImageDecodeStatus status = btrcMacOsEncodedImageStatus(std_macos_encoded_image_decode(encoded.data, inputBytes, limits.maximumInputBytes(), limits.maximumWidth(), limits.maximumHeight(), limits.maximumPixels(), &width, &height, &pixels, &pixelBytes));
+		if (status != ENCODED_IMAGE_DECODE_OK || pixels == null || !limits.allowsDimensions(width, height) || pixelBytes != (unsigned long long)width * (unsigned long long)height * 4ULL) {
+			std_macos_encoded_image_release(pixels);
+			return EncodedImageDecodeOutcome.rejected(status == ENCODED_IMAGE_DECODE_OK ? ENCODED_IMAGE_DECODE_FAILED : status, inputBytes);
+		}
+		Image image = Image(width, height);
+		bool copied = image.tryCopyPackedRgba(pixels, pixelBytes);
+		std_macos_encoded_image_release(pixels);
+		if (!copied) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_FAILED, inputBytes); }
+		return EncodedImageDecodeOutcome.decoded(image, inputBytes);
+	}
+}
