@@ -432,7 +432,7 @@ class NativeUiResolvedStyle {
 
 	public NativeUiResolvedStyle(NativeUiElementKind kind) {
 		self.gap = kind == NATIVE_UI_GRID || kind == NATIVE_UI_VIRTUAL_GRID ? 12 : 8;
-		self.padding = kind == NATIVE_UI_COLUMN || kind == NATIVE_UI_GRID || kind == NATIVE_UI_VIRTUAL_GRID ? 12 : (kind == NATIVE_UI_BUTTON || kind == NATIVE_UI_TEXT_INPUT || kind == NATIVE_UI_SELECT ? 10 : 2);
+		self.padding = kind == NATIVE_UI_ROW ? 0 : kind == NATIVE_UI_COLUMN || kind == NATIVE_UI_GRID || kind == NATIVE_UI_VIRTUAL_GRID ? 12 : (kind == NATIVE_UI_BUTTON || kind == NATIVE_UI_TEXT_INPUT || kind == NATIVE_UI_SELECT ? 10 : 2);
 		self.radius = kind == NATIVE_UI_BUTTON || kind == NATIVE_UI_TEXT_INPUT || kind == NATIVE_UI_SELECT ? 8 : 0;
 		self.width = 0;
 		self.height = 0;
@@ -672,6 +672,27 @@ class NativeUiLayout {
 				measured.width = NativeUiLayout.minimum(NativeUiLayout.maximum(1, image.width) + inset, availableWidth);
 				measured.height = NativeUiLayout.maximum(1, image.height) + inset;
 			}
+		} else if (element.kind() == NATIVE_UI_ROW) {
+			int gaps = element.childCount() > 1 ? style.gap * (element.childCount() - 1) : 0;
+			int fixedWidth = 0;
+			int flexible = 0;
+			for (int index = 0; index < element.childCount(); index++) {
+				NativeUiResolvedStyle childStyle = NativeUiResolvedStyle.from(element.childAt(index), context.sheet);
+				if (childStyle.width > 0) { fixedWidth += NativeUiLayout.minimum(childStyle.width, innerWidth); } else { flexible++; }
+			}
+			int flexibleWidth = flexible == 0 ? 0 : (innerWidth - gaps - fixedWidth) / flexible;
+			if (flexibleWidth < 1) { flexibleWidth = 1; }
+			int rowHeight = 0;
+			for (int index = 0; index < element.childCount(); index++) {
+				NativeUiResolvedStyle childStyle = NativeUiResolvedStyle.from(element.childAt(index), context.sheet);
+				int childWidth = childStyle.width > 0 ? NativeUiLayout.minimum(childStyle.width, innerWidth) : flexibleWidth;
+				NativeUiMeasuredNode? optionalChild = NativeUiLayout.measure(element.childAt(index), childWidth, depth + 1, context);
+				if (optionalChild == null) { return null; }
+				rowHeight = NativeUiLayout.maximum(rowHeight, optionalChild.height);
+				measured.children.push(optionalChild);
+			}
+			measured.width = availableWidth;
+			measured.height = rowHeight + inset;
 		} else {
 			bool regularGrid = element.kind() == NATIVE_UI_GRID;
 			bool virtualGrid = element.kind() == NATIVE_UI_VIRTUAL_GRID;
@@ -816,6 +837,21 @@ class NativeUiLayout {
 				}
 				cursorY += rowHeight + node.style.gap;
 				index = rowEnd;
+			}
+		} else if (node.element.kind() == NATIVE_UI_ROW) {
+			int gaps = node.children.len > 1 ? node.style.gap * (node.children.len - 1) : 0;
+			int fixedWidth = 0;
+			int flexible = 0;
+			for child in node.children {
+				if (child.style.width > 0) { fixedWidth += NativeUiLayout.minimum(child.style.width, innerWidth); } else { flexible++; }
+			}
+			int flexibleWidth = flexible == 0 ? 0 : (innerWidth - gaps - fixedWidth) / flexible;
+			if (flexibleWidth < 1) { flexibleWidth = 1; }
+			int cursorX = innerX;
+			for child in node.children {
+				int childWidth = child.style.width > 0 ? NativeUiLayout.minimum(child.style.width, innerWidth) : flexibleWidth;
+				NativeUiLayout.place(child, cursorX, innerY, childWidth, depth + 1, boxes);
+				cursorX += childWidth + node.style.gap;
 			}
 		} else if (node.children.len > 0) {
 			int cursorY = innerY;

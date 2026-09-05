@@ -31,7 +31,28 @@ void assertRejected(NativeUiFrame frame, NativeUiFrameStatus status) {
 	assert(frame.boxCount() == 0);
 }
 
+void assertRowLayout() {
+	NativeUiElement sidebar = NativeUiElement.column("row-sidebar").style("padding: 0px; width: 100px; height: 50px");
+	NativeUiElement first = NativeUiElement.column("row-first").style("padding: 0px; height: 30px");
+	NativeUiElement second = NativeUiElement.column("row-second").style("padding: 0px; height: 70px");
+	NativeUiElement row = NativeUiElement.row("row").style("gap: 10px; padding: 0px").child(sidebar).child(first).child(second);
+	assert(row.kind() == NATIVE_UI_ROW);
+	NativeUiFrame frame = NativeUiRenderer().layout(NativeUiElement.column("row-root").style("padding: 0px; gap: 0px").child(row), 400, 200);
+	assert(frame.ok());
+	NativeUiLayoutBox rowBox = frame.boxFor("row");
+	NativeUiLayoutBox sidebarBox = frame.boxFor("row-sidebar");
+	NativeUiLayoutBox firstBox = frame.boxFor("row-first");
+	NativeUiLayoutBox secondBox = frame.boxFor("row-second");
+	assert(rowBox.bounds.width == 400 && rowBox.bounds.height == 70);
+	assert(rowBox.resolvedSemantics().role() == NATIVE_UI_SEMANTIC_ROLE_GROUP);
+	assert(sidebarBox.bounds.x == 0 && sidebarBox.bounds.width == 100 && sidebarBox.bounds.height == 50);
+	assert(firstBox.bounds.x == 110 && firstBox.bounds.width == 140 && firstBox.bounds.height == 30);
+	assert(secondBox.bounds.x == 260 && secondBox.bounds.width == 140 && secondBox.bounds.height == 70);
+	assert(sidebarBox.bounds.y == rowBox.bounds.y && firstBox.bounds.y == rowBox.bounds.y && secondBox.bounds.y == rowBox.bounds.y);
+}
+
 int main() {
+	assertRowLayout();
 	NativeUiStyleSheet sheet = NativeUiStyleSheet().rule("library-root", "gap: 10px; padding: 6px").rule("album-grid", "gap: 4px; padding: 4px; background-color: #112233").rule("album-card", "border-radius: 4px; color: #fefefe");
 	NativeUiRenderer renderer = NativeUiRenderer.styled(sheet);
 	NativeUiFrame frame = renderer.render(deepVirtualGrid(), 320, 120);

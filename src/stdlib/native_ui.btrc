@@ -22,7 +22,8 @@ enum NativeUiElementKind {
 	NATIVE_UI_BUTTON = 4,
 	NATIVE_UI_VIRTUAL_GRID = 5,
 	NATIVE_UI_TEXT_INPUT = 6,
-	NATIVE_UI_SELECT = 7
+	NATIVE_UI_SELECT = 7,
+	NATIVE_UI_ROW = 8
 };
 
 enum NativeUiEventKind {
@@ -647,6 +648,10 @@ class NativeUiElement {
 
 	class NativeUiElement column(string id) { return NativeUiElement(NATIVE_UI_COLUMN, id, "", null, ""); }
 
+	/* Children flow left to right. A child with an explicit `width` keeps it;
+	 * the others share what remains equally. Height is the tallest child. */
+	class NativeUiElement row(string id) { return NativeUiElement(NATIVE_UI_ROW, id, "", null, ""); }
+
 	class NativeUiElement grid(string id) { return NativeUiElement(NATIVE_UI_GRID, id, "", null, ""); }
 
 	class NativeUiElement virtualGrid(string id, NativeUiVirtualGrid descriptor) {
@@ -764,7 +769,7 @@ class NativeUiElement {
 		NativeUiSemanticRole declared = self.semanticsValue.role();
 		if (declared != NATIVE_UI_SEMANTIC_ROLE_AUTOMATIC) { return declared; }
 		if (self.semanticRangeValue != null) { return NATIVE_UI_SEMANTIC_ROLE_SLIDER; }
-		if (self.elementKind == NATIVE_UI_COLUMN) { return NATIVE_UI_SEMANTIC_ROLE_GROUP; }
+		if (self.elementKind == NATIVE_UI_COLUMN || self.elementKind == NATIVE_UI_ROW) { return NATIVE_UI_SEMANTIC_ROLE_GROUP; }
 		if (self.elementKind == NATIVE_UI_GRID || self.elementKind == NATIVE_UI_VIRTUAL_GRID) { return NATIVE_UI_SEMANTIC_ROLE_GRID; }
 		if (self.elementKind == NATIVE_UI_TEXT) { return NATIVE_UI_SEMANTIC_ROLE_TEXT; }
 		if (self.elementKind == NATIVE_UI_IMAGE) { return NATIVE_UI_SEMANTIC_ROLE_IMAGE; }
