@@ -1077,6 +1077,8 @@ functions = [
   "std_gpu_native_ui_finalize",
   "std_gpu_native_ui_image_count",
   "std_gpu_native_ui_measure_text",
+  "std_gpu_native_ui_rasterize_text",
+  "std_gpu_native_ui_release_text_bitmap",
   "std_gpu_native_ui_system_typography_available",
   "std_gpu_pipeline_create",
   "std_gpu_pipeline_destroy",
@@ -8128,6 +8130,8 @@ owned = [
   "std_gpu_native_ui_finalize",
   "std_gpu_native_ui_image_count",
   "std_gpu_native_ui_measure_text",
+  "std_gpu_native_ui_rasterize_text",
+  "std_gpu_native_ui_release_text_bitmap",
   "std_gpu_native_ui_system_typography_available",
   "std_gpu_pipeline_create",
   "std_gpu_pipeline_destroy",
@@ -8499,6 +8503,8 @@ native = [
   "std_gpu_native_ui_finalize",
   "std_gpu_native_ui_image_count",
   "std_gpu_native_ui_measure_text",
+  "std_gpu_native_ui_rasterize_text",
+  "std_gpu_native_ui_release_text_bitmap",
   "std_gpu_native_ui_system_typography_available",
   "std_gpu_pipeline_create",
   "std_gpu_pipeline_destroy",
@@ -9277,6 +9283,8 @@ functions = [
   "std_gpu_native_ui_finalize",
   "std_gpu_native_ui_image_count",
   "std_gpu_native_ui_measure_text",
+  "std_gpu_native_ui_rasterize_text",
+  "std_gpu_native_ui_release_text_bitmap",
   "std_gpu_native_ui_system_typography_available",
   "std_gpu_pipeline_create",
   "std_gpu_pipeline_destroy",
@@ -17699,6 +17707,39 @@ parameters = [
   { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
   { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
   { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_native_ui_rasterize_text"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "void", pointer_depth = 2, is_const = false, effect = "mutate" },
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_native_ui_release_text_bitmap"
+origin = "native_gpu"
+result = { base = "void", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
 ]
 variadic = false
 return_effect = "value"

@@ -9,6 +9,7 @@
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 enum { EVENT_CAPACITY = 64, LIFECYCLE_CAPACITY = 1024, DIRECTORY_CAPACITY = 4096, DIRECTORY_REQUEST_CAPACITY = 256 };
@@ -1269,6 +1270,34 @@ int std_gpu_native_ui_measure_text(
     (void)descent_out;
     (void)advance_out;
     return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+}
+
+int std_gpu_native_ui_rasterize_text(
+        unsigned long long compositor,
+        char* text,
+        int font_size,
+        int line_height,
+        int font_weight,
+        float backing_scale,
+        int* width_out,
+        int* height_out,
+        void** rgba_out,
+        unsigned long long* rgba_bytes_out) {
+    (void)compositor;
+    (void)text;
+    (void)font_size;
+    (void)line_height;
+    (void)font_weight;
+    (void)backing_scale;
+    if (width_out) { *width_out = 0; }
+    if (height_out) { *height_out = 0; }
+    if (rgba_out) { *rgba_out = NULL; }
+    if (rgba_bytes_out) { *rgba_bytes_out = 0; }
+    return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+}
+
+void std_gpu_native_ui_release_text_bitmap(void* rgba) {
+    free(rgba);
 }
 
 int std_gpu_native_ui_add_text(

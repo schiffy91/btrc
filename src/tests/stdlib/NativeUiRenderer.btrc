@@ -51,8 +51,110 @@ void assertRowLayout() {
 	assert(sidebarBox.bounds.y == rowBox.bounds.y && firstBox.bounds.y == rowBox.bounds.y && secondBox.bounds.y == rowBox.bounds.y);
 }
 
+void assertRowCrossAlignment() {
+	NativeUiElement tall = NativeUiElement.column("align-tall").style("padding: 0px; width: 60px; height: 80px");
+	NativeUiElement centred = NativeUiElement.column("align-centred").style("padding: 0px; height: 20px");
+	NativeUiElement ended = NativeUiElement.column("align-ended").style("padding: 0px; width: 40px; height: 30px");
+	NativeUiElement row = NativeUiElement.row("align-row").style("gap: 0px; padding: 5px; align-items: center").child(tall).child(centred).child(ended);
+	NativeUiFrame frame = NativeUiRenderer().layout(NativeUiElement.column("align-root").style("padding: 0px; gap: 0px").child(row), 300, 200);
+	assert(frame.ok());
+	NativeUiLayoutBox rowBox = frame.boxFor("align-row");
+	assert(rowBox.bounds.height == 90);
+	assert(frame.boxFor("align-tall").bounds.y == rowBox.bounds.y + 5);
+	assert(frame.boxFor("align-centred").bounds.y == rowBox.bounds.y + 5 + 30);
+	assert(frame.boxFor("align-ended").bounds.y == rowBox.bounds.y + 5 + 25);
+	NativeUiElement endRow = NativeUiElement.row("end-row").style("gap: 0px; padding: 0px; align-items: end").child(NativeUiElement.column("end-tall").style("padding: 0px; width: 60px; height: 80px")).child(NativeUiElement.column("end-short").style("padding: 0px; height: 20px"));
+	NativeUiFrame endFrame = NativeUiRenderer().layout(NativeUiElement.column("end-root").style("padding: 0px; gap: 0px").child(endRow), 300, 200);
+	assert(endFrame.ok());
+	assert(endFrame.boxFor("end-short").bounds.y == endFrame.boxFor("end-row").bounds.y + 60);
+	assert(NativeUiStyle.validate("align-items: start").ok());
+	assert(!NativeUiStyle.validate("align-items: top").ok());
+}
+
+void assertStyleSheetOverrides() {
+	NativeUiStyleSheet base = NativeUiStyleSheet().rule("card", "padding: 4px; color: #101010; gap: 2px");
+	NativeUiStyleSheet themed = base.copy().extend("card", "color: #fefefe").extend("fresh", "gap: 9px").kindRule(NATIVE_UI_BUTTON, "border-radius: 7px; padding: 3px");
+	assert(themed.ok());
+	assert(base.ok());
+	assert(base.ruleCount() == 1);
+	assert(themed.ruleCount() == 2);
+	assert(base.cssFor("card") == "padding: 4px; color: #101010; gap: 2px");
+	assert(themed.cssFor("card") == "padding: 4px; color: #101010; gap: 2px; color: #fefefe");
+	assert(themed.cssFor("fresh") == "gap: 9px");
+	assert(themed.kindCssFor(NATIVE_UI_BUTTON) == "border-radius: 7px; padding: 3px");
+	assert(themed.kindCssFor(NATIVE_UI_TEXT) == "");
+	NativeUiResolvedStyle card = NativeUiResolvedStyle.from(NativeUiElement.column("card-a").className("card"), themed);
+	assert(card.padding == 4 && card.gap == 2);
+	assert(card.hasForeground && card.foreground.red == 254 && card.foreground.green == 254 && card.foreground.blue == 254);
+	NativeUiResolvedStyle button = NativeUiResolvedStyle.from(NativeUiElement.button("card-b", "Play").className("card").style("padding: 1px"), themed);
+	assert(button.radius == 7);
+	assert(button.padding == 1);
+	NativeUiResolvedStyle plainButton = NativeUiResolvedStyle.from(NativeUiElement.button("card-c", "Play"), themed);
+	assert(plainButton.radius == 7 && plainButton.padding == 3);
+	assert(!NativeUiStyleSheet().rule("card", "gap: 1px").extend("card", "gap: nope").ok());
+	assert(!NativeUiStyleSheet().rule("card", "gap: 1px").rule("card", "gap: 2px").ok());
+}
+
+void assertTextRaster() {
+	NativeUiTypography typography = NativeUiTypography();
+	NativeUiColor ink = NativeUiColor(200, 100, 50, 255);
+	Image raster = NativeUiTextRaster.rasterize(typography, "Ab", 16, 20, 600, ink);
+	NativeUiTextMetrics metrics = typography.measure("Ab", 16, 20, 600);
+	assert(raster.width == metrics.width());
+	assert(raster.height == 20);
+	int inked = 0;
+	int clear = 0;
+	for (int y = 0; y < raster.height; y++) {
+		for (int x = 0; x < raster.width; x++) {
+			int offset = (y * raster.width + x) * 4;
+			int alpha = (int)raster.data[offset + 3];
+			if (alpha == 0) {
+				clear++;
+				assert((int)raster.data[offset] == 0);
+			} else {
+				inked++;
+				assert(alpha == 255 && (int)raster.data[offset] == 200 && (int)raster.data[offset + 1] == 100 && (int)raster.data[offset + 2] == 50);
+			}
+		}
+	}
+	assert(inked > 0 && clear > 0);
+	Image scaled = NativeUiTextRaster.rasterize(typography, "Ab", 16, 20, 600, ink, 2.0f);
+	assert(scaled.width == metrics.width() * 2 && scaled.height == 40);
+	assert(NativeUiTextRaster.rasterize(typography, "", 16, 20, 400, ink).isEmpty());
+	assert(NativeUiTextRaster.tryPlatformRasterize(typography, "Ab", 16, 20, 400, ink) == null);
+	Image translucent = NativeUiTextRaster.rasterize(typography, "A", 16, 20, 400, NativeUiColor(0, 0, 255, 128));
+	bool sawHalf = false;
+	for (int i = 0; i < translucent.width * translucent.height; i++) {
+		int alpha = (int)translucent.data[i * 4 + 3];
+		assert(alpha == 0 || alpha == 128);
+		if (alpha == 128) { sawHalf = true; }
+	}
+	assert(sawHalf);
+	Image canvas = Image(raster.width + 4, raster.height + 4);
+	NativeUiTextRaster.blit(canvas, raster, 2, 2);
+	assert((int)canvas.data[3] == 0);
+	int blitted = 0;
+	for (int i = 0; i < canvas.width * canvas.height; i++) { if ((int)canvas.data[i * 4 + 3] == 255) { blitted++; } }
+	assert(blitted == inked);
+	Image opaque = Image(4, 4);
+	opaque.setRGBA(1, 1, 0, 0, 0, 255);
+	Image dot = Image(1, 1);
+	dot.setRGBA(0, 0, 255, 255, 255, 128);
+	NativeUiTextRaster.blit(opaque, dot, 1, 1);
+	assert((int)opaque.data[(1 * 4 + 1) * 4] == 128 && (int)opaque.data[(1 * 4 + 1) * 4 + 3] == 255);
+	string longRun = "";
+	for (int i = 0; i < 1400; i++) { longRun = longRun + "\xc3\xa9" + "a"; }
+	string bounded = NativeUiTextRaster.bounded(longRun);
+	assert(bounded.len() == 4095);
+	assert(NativeUiTextInput.validUtf8(bounded));
+	assert(NativeUiTextRaster.bounded("short") == "short");
+}
+
 int main() {
 	assertRowLayout();
+	assertRowCrossAlignment();
+	assertStyleSheetOverrides();
+	assertTextRaster();
 	NativeUiStyleSheet sheet = NativeUiStyleSheet().rule("library-root", "gap: 10px; padding: 6px").rule("album-grid", "gap: 4px; padding: 4px; background-color: #112233").rule("album-card", "border-radius: 4px; color: #fefefe");
 	NativeUiRenderer renderer = NativeUiRenderer.styled(sheet);
 	NativeUiFrame frame = renderer.render(deepVirtualGrid(), 320, 120);

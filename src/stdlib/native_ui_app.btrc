@@ -18,6 +18,8 @@ int std_gpu_native_ui_add_rect(unsigned long long compositor, float x, float y, 
 int std_gpu_native_ui_add_glyph(unsigned long long compositor, float x, float y, float width, float height, float red, float green, float blue, float alpha, unsigned long long glyphBits);
 int std_gpu_native_ui_system_typography_available(unsigned long long compositor);
 int std_gpu_native_ui_measure_text(unsigned long long compositor, string text, int fontSize, int lineHeight, int fontWeight, int* widthOut, int* heightOut, int* ascentOut, int* descentOut, int* advanceOut);
+int std_gpu_native_ui_rasterize_text(unsigned long long compositor, string text, int fontSize, int lineHeight, int fontWeight, float backingScale, int* widthOut, int* heightOut, void** pixelsOut, unsigned long long* pixelBytesOut);
+void std_gpu_native_ui_release_text_bitmap(void* pixels);
 int std_gpu_native_ui_add_text(unsigned long long compositor, string text, float x, float y, int fontSize, int lineHeight, int fontWeight, float backingScale, float red, float green, float blue, float alpha);
 int std_gpu_native_ui_add_image(unsigned long long compositor, string identity, unsigned char* rgba, int sourceWidth, int sourceHeight, unsigned long long sourceRevision, float x, float y, float width, float height);
 int std_gpu_native_ui_draw(unsigned long long gpu, unsigned long long compositor);
@@ -59,6 +61,13 @@ class NativeUiAppAttachOutcome {
 		self.error = error;
 	}
 }
+
+int nativeUiPlatformRasterize(unsigned long long compositor, string text, int fontSize, int lineHeight, int fontWeight, float backingScale, int* widthOut, int* heightOut, void** pixelsOut, unsigned long long* pixelBytesOut) {
+	int status = std_gpu_native_ui_rasterize_text(compositor, text, fontSize, lineHeight, fontWeight, backingScale, widthOut, heightOut, pixelsOut, pixelBytesOut);
+	return status == GPU_RESOURCE_READY ? 1 : 0;
+}
+
+void nativeUiPlatformRelease(void* pixels) { std_gpu_native_ui_release_text_bitmap(pixels); }
 
 class NativeUiPrepareOutcome {
 	public NativeUiPrepareKind kind;
@@ -127,7 +136,7 @@ class NativeUiAppSession {
 			return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACH_REJECTED, null, std_gpu_status_message(status));
 		}
 		if (typography == null && std_gpu_native_ui_system_typography_available(compositor) != 0) {
-			resolvedTypography = NativeUiTypography.platform(compositor, nativeUiPlatformMeasure);
+			resolvedTypography = NativeUiTypography.platform(compositor, nativeUiPlatformMeasure, nativeUiPlatformRasterize, nativeUiPlatformRelease);
 		}
 		return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACHED, NativeUiAppSession(window, gpu, resolvedSheet, resolvedTheme, resolvedTypography, compositor, receipt), "");
 	}
@@ -135,6 +144,17 @@ class NativeUiAppSession {
 	public bool isOpen() { return self.compositorIdentity != 0ULL && self.ownerReceipt != 0ULL && self.window.isOpen() && self.gpu.isOpen(); }
 
 	public NativeUiRenderer input() { return self.renderer; }
+
+	/* The session's typography, for painters that rasterize their own text. */
+	public NativeUiTypography typography() { return self.typography; }
+
+	/* Backing pixels per logical pixel of the window, the scale the
+	 * compositor rasterizes text at. */
+	public float backingScale() {
+		AppSurfaceMetrics metrics = self.window.metrics();
+		float scale = metrics.scaleX > metrics.scaleY ? metrics.scaleX : metrics.scaleY;
+		return scale < 0.5f ? 1.0f : (scale > 4.0f ? 4.0f : scale);
+	}
 
 	public int commandCount() { return self.isOpen() ? std_gpu_native_ui_command_count(self.compositorIdentity) : 0; }
 

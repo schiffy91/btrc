@@ -11,7 +11,23 @@ enum NativeUiTextAlignment {
 	NATIVE_UI_TEXT_ALIGN_RIGHT = 2
 };
 
+/* How a row places children shorter than itself: `align-items`. */
+enum NativeUiCrossAlignment {
+	NATIVE_UI_ALIGN_START = 0,
+	NATIVE_UI_ALIGN_CENTER = 1,
+	NATIVE_UI_ALIGN_END = 2
+};
+
 typedef CFunction<int, unsigned long long, string, int, int, int, int*, int*, int*, int*, int*> NativeUiTypographyMeasure;
+
+/* Platform raster of one text run: provider, text, fontSize, lineHeight,
+ * fontWeight, backingScale, widthOut, heightOut, pixelsOut (tightly packed
+ * RGBA8, white glyphs with straight-alpha coverage), byteCountOut. Returns
+ * non-zero on success; the caller releases the pixels through the matching
+ * release callback. */
+typedef CFunction<int, unsigned long long, string, int, int, int, float, int*, int*, void**, unsigned long long*> NativeUiTypographyRasterize;
+
+typedef CFunction<void, void*> NativeUiTypographyRelease;
 
 class NativeUiTextMetrics {
 	private int widthValue;
@@ -43,16 +59,45 @@ class NativeUiTextMetrics {
 class NativeUiTypography {
 	private unsigned long long providerIdentityValue;
 	private NativeUiTypographyMeasure providerMeasureValue;
+	private NativeUiTypographyRasterize providerRasterizeValue;
+	private NativeUiTypographyRelease providerReleaseValue;
 
-	public NativeUiTypography(unsigned long long providerIdentity = 0ULL, NativeUiTypographyMeasure providerMeasure = (NativeUiTypographyMeasure)null) {
+	public NativeUiTypography(unsigned long long providerIdentity = 0ULL, NativeUiTypographyMeasure providerMeasure = (NativeUiTypographyMeasure)null, NativeUiTypographyRasterize providerRasterize = (NativeUiTypographyRasterize)null, NativeUiTypographyRelease providerRelease = (NativeUiTypographyRelease)null) {
 		if ((providerIdentity == 0ULL) != (providerMeasure == null)) { throw "invalid native UI typography provider"; }
+		if ((providerRasterize == null) != (providerRelease == null) || (providerRasterize != null && providerMeasure == null)) { throw "invalid native UI typography raster provider"; }
 		self.providerIdentityValue = providerIdentity;
 		self.providerMeasureValue = providerMeasure;
+		self.providerRasterizeValue = providerRasterize;
+		self.providerReleaseValue = providerRelease;
 	}
 
-	class NativeUiTypography platform(unsigned long long providerIdentity, NativeUiTypographyMeasure providerMeasure) { return NativeUiTypography(providerIdentity, providerMeasure); }
+	class NativeUiTypography platform(unsigned long long providerIdentity, NativeUiTypographyMeasure providerMeasure, NativeUiTypographyRasterize providerRasterize = (NativeUiTypographyRasterize)null, NativeUiTypographyRelease providerRelease = (NativeUiTypographyRelease)null) { return NativeUiTypography(providerIdentity, providerMeasure, providerRasterize, providerRelease); }
 
 	public bool platformBacked() { return self.providerIdentityValue != 0ULL && self.providerMeasureValue != null; }
+
+	public bool platformRasterizes() { return self.platformBacked() && self.providerRasterizeValue != null; }
+
+	/* White, straight-alpha raster of one run from the platform provider, in
+	 * backing pixels. null when the provider is absent or rejects the run;
+	 * the empty run is Image.empty(). */
+	public Image? platformRaster(string value, int fontSize, int lineHeight, int fontWeight, float backingScale) {
+		self.measure(value, fontSize, lineHeight, fontWeight);
+		if (value.isEmpty()) { return Image.empty(); }
+		if (!self.platformRasterizes() || backingScale < 0.5f || backingScale > 4.0f) { return null; }
+		int width = 0;
+		int height = 0;
+		void* pixels = null;
+		unsigned long long pixelBytes = 0ULL;
+		if (self.providerRasterizeValue(self.providerIdentityValue, value, fontSize, lineHeight, fontWeight, backingScale, &width, &height, &pixels, &pixelBytes) == 0) { return null; }
+		if (pixels == null || !Image.validDimensions((long long)width, (long long)height) || pixelBytes != (unsigned long long)width * (unsigned long long)height * 4ULL) {
+			self.providerReleaseValue(pixels);
+			return null;
+		}
+		Image image = Image(width, height);
+		bool copied = image.tryCopyPackedRgba(pixels, pixelBytes);
+		self.providerReleaseValue(pixels);
+		return copied ? image : null;
+	}
 
 	public int glyphWidth(int fontSize) {
 		int width = fontSize * 5 / 7;

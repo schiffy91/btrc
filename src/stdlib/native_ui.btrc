@@ -230,6 +230,10 @@ class NativeUiStyle {
 				if (value != "left" && value != "center" && value != "right") {
 					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "text-align requires left, center, or right");
 				}
+			} else if (property.equals("align-items")) {
+				if (value != "start" && value != "center" && value != "end") {
+					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "align-items requires start, center, or end");
+				}
 			} else if (property.equals("background-color") || property.equals("color")) {
 				if (!NativeUiStyle.color(value)) {
 					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, f"{property} requires #RRGGBB or #RRGGBBAA");
@@ -259,14 +263,76 @@ class NativeUiStyle {
 class NativeUiStyleSheet {
 	private Vector<string> selectors;
 	private Vector<string> rules;
+	private Vector<string> kindRules;
 	private NativeUiStyleError issueValue;
 	private int ruleBytes;
 
 	public NativeUiStyleSheet() {
 		self.selectors = [];
 		self.rules = [];
+		self.kindRules = [];
+		for (int kind = 0; kind < 9; kind++) { self.kindRules.push(""); }
 		self.issueValue = NativeUiStyleError.valid();
 		self.ruleBytes = 0;
+	}
+
+	/* An independent copy, so an app can take a base sheet and override it. */
+	public NativeUiStyleSheet copy() {
+		NativeUiStyleSheet copied = NativeUiStyleSheet();
+		copied.selectors = self.selectors.copy();
+		copied.rules = self.rules.copy();
+		copied.kindRules = self.kindRules.copy();
+		copied.issueValue = self.issueValue;
+		copied.ruleBytes = self.ruleBytes;
+		return copied;
+	}
+
+	/* A rule for every element of one kind, applied after the kind defaults
+	 * and before class rules. */
+	public NativeUiStyleSheet kindRule(NativeUiElementKind kind, string css) {
+		if (!self.issueValue.ok()) { return self; }
+		NativeUiStyleError ruleIssue = NativeUiStyle.validate(css);
+		if (!ruleIssue.ok()) {
+			self.issueValue = ruleIssue;
+			return self;
+		}
+		int index = (int)kind;
+		if (index < 0 || index >= self.kindRules.len) { return self; }
+		if ((long long)self.ruleBytes + (long long)css.len() > 65536LL) {
+			self.issueValue = NativeUiStyleError(NATIVE_UI_STYLE_LIMIT_EXCEEDED, "styleSheet", "native UI style sheets allow 256 rules and 64 KiB");
+			return self;
+		}
+		self.ruleBytes += css.len() - self.kindRules.get(index).len();
+		self.kindRules.set(index, css);
+		return self;
+	}
+
+	public string kindCssFor(NativeUiElementKind kind) {
+		int index = (int)kind;
+		return index < 0 || index >= self.kindRules.len ? "" : self.kindRules.get(index);
+	}
+
+	/* Merge `css` into a class rule: existing declarations stay, the new ones
+	 * follow and win per property. Creates the rule when absent. */
+	public NativeUiStyleSheet extend(string className, string css) {
+		if (!self.issueValue.ok()) { return self; }
+		for (int index = 0; index < self.selectors.len; index++) {
+			if (!self.selectors.get(index).equals(className)) { continue; }
+			NativeUiStyleError ruleIssue = NativeUiStyle.validate(css);
+			if (!ruleIssue.ok()) {
+				self.issueValue = ruleIssue;
+				return self;
+			}
+			string merged = self.rules.get(index).trim().isEmpty() ? css : self.rules.get(index) + "; " + css;
+			if ((long long)self.ruleBytes + (long long)css.len() + 2LL > 65536LL) {
+				self.issueValue = NativeUiStyleError(NATIVE_UI_STYLE_LIMIT_EXCEEDED, "styleSheet", "native UI style sheets allow 256 rules and 64 KiB");
+				return self;
+			}
+			self.ruleBytes += merged.len() - self.rules.get(index).len();
+			self.rules.set(index, merged);
+			return self;
+		}
+		return self.rule(className, css);
 	}
 
 	public NativeUiStyleSheet rule(string className, string css) {
@@ -791,3 +857,4 @@ class NativeUiElement {
 }
 
 #include "native_ui/Render.btrc"
+#include "native_ui/TextRaster.btrc"

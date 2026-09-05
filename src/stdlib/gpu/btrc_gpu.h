@@ -149,6 +149,23 @@ int std_gpu_native_ui_measure_text(
     int* ascent_out,
     int* descent_out,
     int* advance_out);
+/* Rasterize one system-font text run for the caller's own std.image. The
+ * result is a tightly packed top-down RGBA8 raster, R=G=B=255 with straight
+ * alpha coverage, so the caller tints it. Width and height are backing
+ * pixels (ceil(logical * backing_scale), each clamped to 1..4096). Release
+ * *rgba_out with std_gpu_native_ui_release_text_bitmap. */
+int std_gpu_native_ui_rasterize_text(
+    unsigned long long compositor,
+    char* text,
+    int font_size,
+    int line_height,
+    int font_weight,
+    float backing_scale,
+    int* width_out,
+    int* height_out,
+    void** rgba_out,
+    unsigned long long* rgba_bytes_out);
+void std_gpu_native_ui_release_text_bitmap(void* rgba);
 int std_gpu_native_ui_add_text(
     unsigned long long compositor,
     char* text,

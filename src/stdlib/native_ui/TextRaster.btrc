@@ -1,0 +1,99 @@
+/* Text runs as transparent std.image rasters.
+ *
+ * Painters that compose their own images (rulers, meters, note charts) draw
+ * labels through here so on-screen text is the platform's system font when
+ * the session's typography carries a raster provider, and the deterministic
+ * 5x7 glyph painter otherwise. Both paths produce tightly packed RGBA8 with
+ * straight alpha: background (0, 0, 0, 0), glyphs tinted with the colour.
+ */
+
+class NativeUiTextRaster {
+	class int maximumBytes() { return 4096; }
+
+	/* Cut a run at a scalar boundary so it fits the provider's byte bound. */
+	class string bounded(string value) {
+		if (value.len() <= NativeUiTextRaster.maximumBytes()) { return value; }
+		int cut = 0;
+		while (cut < value.len()) {
+			int next = NativeUiTextInput.nextBoundary(value, cut);
+			if (next > NativeUiTextRaster.maximumBytes()) { break; }
+			cut = next;
+		}
+		return value.substring(0, cut);
+	}
+
+	/* Tint a white straight-alpha raster in place: rgb from the colour, alpha
+	 * scaled by the colour's alpha. */
+	class void tint(Image image, NativeUiColor color) {
+		for (int y = 0; y < image.height; y++) {
+			for (int x = 0; x < image.width; x++) {
+				int offset = (y * image.width + x) * 4;
+				int coverage = (int)image.data[offset + 3];
+				image.setRGBA(x, y, color.red, color.green, color.blue, coverage * color.alpha / 255);
+			}
+		}
+	}
+
+	/* The platform raster, tinted, in backing pixels; null without a provider
+	 * or when it rejects the run. */
+	class Image? tryPlatformRasterize(NativeUiTypography typography, string value, int fontSize, int lineHeight, int fontWeight, NativeUiColor color, float backingScale = 1.0f) {
+		string run = NativeUiTextRaster.bounded(value);
+		Image? raster = typography.platformRaster(run, fontSize, lineHeight, fontWeight, backingScale);
+		if (raster == null) { return null; }
+		Image image = raster;
+		if (!image.isEmpty()) { NativeUiTextRaster.tint(image, color); }
+		return image;
+	}
+
+	/* The deterministic raster: measure() width by lineHeight logical pixels,
+	 * scaled by the backing scale so both paths agree in size. */
+	class Image deterministic(NativeUiTypography typography, string value, int fontSize, int lineHeight, int fontWeight, NativeUiColor color, float backingScale = 1.0f) {
+		string run = NativeUiTextRaster.bounded(value);
+		NativeUiTextMetrics metrics = typography.measure(run, fontSize, lineHeight, fontWeight);
+		if (run.isEmpty()) { return Image.empty(); }
+		float scale = backingScale < 0.5f ? 0.5f : (backingScale > 4.0f ? 4.0f : backingScale);
+		int scaledFont = (int)((float)fontSize * scale + 0.5f);
+		int scaledLine = (int)((float)lineHeight * scale + 0.5f);
+		if (scaledFont < 8) { scaledFont = 8; }
+		if (scaledFont > 256) { scaledFont = 256; }
+		if (scaledLine < scaledFont) { scaledLine = scaledFont; }
+		if (scaledLine > 512) { scaledLine = 512; }
+		int width = (int)((float)metrics.width() * scale + 0.5f);
+		if (width < 1) { width = 1; }
+		if (width > 4096) { width = 4096; }
+		Image image = Image(width, scaledLine);
+		NativeUiRaster.glyphRun(image, 0, 0, run, color, scaledFont, scaledLine, fontWeight, typography, false);
+		return image;
+	}
+
+	/* Platform text when available, the deterministic painter otherwise. */
+	class Image rasterize(NativeUiTypography typography, string value, int fontSize, int lineHeight, int fontWeight, NativeUiColor color, float backingScale = 1.0f) {
+		Image? platform = NativeUiTextRaster.tryPlatformRasterize(typography, value, fontSize, lineHeight, fontWeight, color, backingScale);
+		if (platform != null) { return platform; }
+		return NativeUiTextRaster.deterministic(typography, value, fontSize, lineHeight, fontWeight, color, backingScale);
+	}
+
+	/* Straight-alpha "over" of a raster onto a canvas; keeps the canvas's own
+	 * transparency, unlike the frame compositor. */
+	class void blit(Image target, Image source, int left, int top) {
+		for (int y = 0; y < source.height; y++) {
+			int targetY = top + y;
+			if (targetY < 0 || targetY >= target.height) { continue; }
+			for (int x = 0; x < source.width; x++) {
+				int targetX = left + x;
+				if (targetX < 0 || targetX >= target.width) { continue; }
+				int sourceOffset = (y * source.width + x) * 4;
+				int sourceAlpha = (int)source.data[sourceOffset + 3];
+				if (sourceAlpha == 0) { continue; }
+				int targetOffset = (targetY * target.width + targetX) * 4;
+				int targetAlpha = (int)target.data[targetOffset + 3];
+				int outAlpha = sourceAlpha + targetAlpha * (255 - sourceAlpha) / 255;
+				if (outAlpha <= 0) { continue; }
+				int red = ((int)source.data[sourceOffset] * sourceAlpha + (int)target.data[targetOffset] * targetAlpha * (255 - sourceAlpha) / 255) / outAlpha;
+				int green = ((int)source.data[sourceOffset + 1] * sourceAlpha + (int)target.data[targetOffset + 1] * targetAlpha * (255 - sourceAlpha) / 255) / outAlpha;
+				int blue = ((int)source.data[sourceOffset + 2] * sourceAlpha + (int)target.data[targetOffset + 2] * targetAlpha * (255 - sourceAlpha) / 255) / outAlpha;
+				target.setRGBA(targetX, targetY, red, green, blue, outAlpha);
+			}
+		}
+	}
+}

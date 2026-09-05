@@ -60,3 +60,41 @@ option value, never its presentation label. The application accepts that
 proposal by supplying the selected value in its next tree. Resolved semantics
 use the combo-box role, selected label as the default semantic value, and the
 actual open/closed state.
+
+## Style sheets and overrides
+
+`NativeUiResolvedStyle.from(element, sheet)` resolves, in order: the kind's
+built-in defaults, the sheet's kind rule (`NativeUiStyleSheet.kindRule(kind,
+css)`), the element's class rule, then its inline style. Later declarations
+win per property, so an application can start from a library's sheet and
+adjust it without knowing every rule:
+
+- `copy()` returns an independent sheet; the original never changes.
+- `extend(className, css)` merges declarations into an existing class rule
+  (the new declarations follow, so they win) and creates the rule when it is
+  absent. `rule(...)` on a class that already has a rule stays an error, so
+  a typo never silently doubles a selector.
+- `kindRule(kind, css)` styles every element of one kind, for example every
+  button's radius. Kind rules count toward the 64 KiB budget but not the 256
+  rule limit.
+
+Rows accept `align-items: start | center | end` for children shorter than
+the row; columns and grids ignore it. `NativeUiColor.css()` prints
+`#rrggbbaa`, the form every colour property accepts, so themes compose into
+rules; `NativeUiColor.fromRgba(...)`/`rgba()` bridge `std.image`, and
+`NativeUiTheme.dark()`/`light()` are a matched pair that applications can
+pick between at runtime.
+
+## Text rasters for painters
+
+Surfaces that draw their own images (rulers, meters, note charts) obtain
+text through `NativeUiTextRaster.rasterize(typography, text, fontSize,
+lineHeight, fontWeight, color, backingScale)`. The result is a transparent
+`Image` in backing pixels: the platform's system font when the session's
+`NativeUiTypography` carries a raster provider, the deterministic 5x7 glyph
+painter otherwise, sized from `measure()` either way. Runs longer than 4096
+bytes are cut at a scalar boundary; the empty run is `Image.empty()`.
+`NativeUiTextRaster.blit(target, source, x, y)` composes with straight
+alpha and keeps the target's own transparency. `NativeUiAppSession` exposes
+`typography()` and `backingScale()` so painters use the same provider and
+scale as the frame compositor.

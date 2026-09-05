@@ -2147,6 +2147,59 @@ int std_gpu_native_ui_measure_text(
     return status;
 }
 
+int std_gpu_native_ui_rasterize_text(
+        unsigned long long compositor_id,
+        char* text,
+        int font_size,
+        int line_height,
+        int font_weight,
+        float backing_scale,
+        int* width_out,
+        int* height_out,
+        void** rgba_out,
+        unsigned long long* rgba_bytes_out) {
+    if (!width_out || !height_out || !rgba_out || !rgba_bytes_out) {
+        return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    *width_out = 0;
+    *height_out = 0;
+    *rgba_out = NULL;
+    *rgba_bytes_out = 0;
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    GPURenderResource_* resource = NULL;
+    int status = native_ui_resource_locked(
+        compositor_id, &gpu, &resource);
+    (void)gpu;
+    (void)resource;
+    if (status == BTRC_GPU_RESOURCE_READY) {
+        if (!btrc_gpu_native_ui_text_available()) {
+            status = BTRC_GPU_RESOURCE_CREATION_FAILED;
+        } else {
+            BtrcNativeUiTextBitmap bitmap;
+            if (!btrc_gpu_native_ui_text_rasterize(
+                    text, font_size, line_height, font_weight,
+                    backing_scale, &bitmap)) {
+                status = BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+            } else {
+                /* Ownership of bitmap.rgba moves to the caller. */
+                *width_out = bitmap.width;
+                *height_out = bitmap.height;
+                *rgba_out = bitmap.rgba;
+                *rgba_bytes_out = (unsigned long long)bitmap.width *
+                    (unsigned long long)bitmap.height * 4ULL;
+            }
+        }
+    }
+    render_lock_leave();
+    return status;
+}
+
+void std_gpu_native_ui_release_text_bitmap(void* rgba) {
+    free(rgba);
+}
+
 int std_gpu_native_ui_add_text(
         unsigned long long compositor_id,
         char* text,

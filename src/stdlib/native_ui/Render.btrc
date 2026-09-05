@@ -116,6 +116,22 @@ class NativeUiColor {
 	}
 
 	class int hexPair(string value, int offset) { return NativeUiColor.hexDigit(value[offset]) * 16 + NativeUiColor.hexDigit(value[offset + 1]); }
+
+	class NativeUiColor fromRgba(RGBA value) { return NativeUiColor(value.red, value.green, value.blue, value.alpha); }
+
+	public RGBA rgba() { return RGBA(self.red, self.green, self.blue, self.alpha); }
+
+	class string hexByte(int value) {
+		string digits = "0123456789abcdef";
+		return digits.substring(value / 16, 1) + digits.substring(value % 16, 1);
+	}
+
+	/* Always "#rrggbbaa", accepted by every colour style property. */
+	public string css() { return "#" + NativeUiColor.hexByte(self.red) + NativeUiColor.hexByte(self.green) + NativeUiColor.hexByte(self.blue) + NativeUiColor.hexByte(self.alpha); }
+
+	public NativeUiColor withAlpha(int alpha) { return NativeUiColor(self.red, self.green, self.blue, alpha); }
+
+	public bool equals(NativeUiColor other) { return other != null && self.red == other.red && self.green == other.green && self.blue == other.blue && self.alpha == other.alpha; }
 }
 
 class NativeUiTheme {
@@ -138,6 +154,15 @@ class NativeUiTheme {
 	}
 
 	class NativeUiTheme nativeDefault() { return NativeUiTheme(NativeUiColor(246, 246, 248), NativeUiColor(255, 255, 255), NativeUiColor(31, 31, 34), NativeUiColor(99, 99, 105), NativeUiColor(24, 105, 222), NativeUiColor(255, 255, 255), NativeUiColor(205, 205, 211)); }
+
+	/* A dark pair of the native default: near-black window, charcoal panels,
+	 * light text, quiet accent. */
+	class NativeUiTheme dark() { return NativeUiTheme(NativeUiColor(15, 15, 16), NativeUiColor(26, 26, 28), NativeUiColor(236, 236, 238), NativeUiColor(142, 142, 147), NativeUiColor(48, 48, 52), NativeUiColor(236, 236, 238), NativeUiColor(58, 58, 61)); }
+
+	/* The matching light pair. */
+	class NativeUiTheme light() { return NativeUiTheme(NativeUiColor(242, 242, 244), NativeUiColor(255, 255, 255), NativeUiColor(27, 27, 30), NativeUiColor(110, 110, 115), NativeUiColor(221, 221, 226), NativeUiColor(27, 27, 30), NativeUiColor(214, 214, 219)); }
+
+	public bool equals(NativeUiTheme other) { return other != null && self.background.equals(other.background) && self.panel.equals(other.panel) && self.text.equals(other.text) && self.mutedText.equals(other.mutedText) && self.accent.equals(other.accent) && self.accentText.equals(other.accentText) && self.border.equals(other.border); }
 }
 
 class NativeUiRect {
@@ -425,6 +450,7 @@ class NativeUiResolvedStyle {
 	public int lineHeight;
 	public int fontWeight;
 	public NativeUiTextAlignment textAlignment;
+	public NativeUiCrossAlignment crossAlignment;
 	public bool hasBackground;
 	public NativeUiColor background;
 	public bool hasForeground;
@@ -440,6 +466,7 @@ class NativeUiResolvedStyle {
 		self.lineHeight = 14;
 		self.fontWeight = 400;
 		self.textAlignment = kind == NATIVE_UI_BUTTON ? NATIVE_UI_TEXT_ALIGN_CENTER : NATIVE_UI_TEXT_ALIGN_LEFT;
+		self.crossAlignment = NATIVE_UI_ALIGN_START;
 		self.hasBackground = false;
 		self.background = NativeUiColor(0, 0, 0, 0);
 		self.hasForeground = false;
@@ -475,6 +502,8 @@ class NativeUiResolvedStyle {
 				self.fontWeight = Strings.toInt(value);
 			} else if (property.equals("text-align")) {
 				self.textAlignment = value == "center" ? NATIVE_UI_TEXT_ALIGN_CENTER : (value == "right" ? NATIVE_UI_TEXT_ALIGN_RIGHT : NATIVE_UI_TEXT_ALIGN_LEFT);
+			} else if (property.equals("align-items")) {
+				self.crossAlignment = value == "center" ? NATIVE_UI_ALIGN_CENTER : (value == "end" ? NATIVE_UI_ALIGN_END : NATIVE_UI_ALIGN_START);
 			} else if (property.equals("background-color")) {
 				self.hasBackground = true;
 				self.background = NativeUiColor.hex(value);
@@ -485,8 +514,11 @@ class NativeUiResolvedStyle {
 		}
 	}
 
+	/* Precedence: kind defaults, then the sheet's kind rule, then the class
+	 * rule, then the element's inline style; later declarations win. */
 	class NativeUiResolvedStyle from(NativeUiElement element, NativeUiStyleSheet sheet) {
 		NativeUiResolvedStyle style = NativeUiResolvedStyle(element.kind());
+		style.apply(sheet.kindCssFor(element.kind()));
 		if (!element.cssClass().isEmpty()) {
 			style.apply(sheet.cssFor(element.cssClass()));
 		}
@@ -848,9 +880,14 @@ class NativeUiLayout {
 			int flexibleWidth = flexible == 0 ? 0 : (innerWidth - gaps - fixedWidth) / flexible;
 			if (flexibleWidth < 1) { flexibleWidth = 1; }
 			int cursorX = innerX;
+			int rowInner = node.height - node.style.padding * 2;
 			for child in node.children {
 				int childWidth = child.style.width > 0 ? NativeUiLayout.minimum(child.style.width, innerWidth) : flexibleWidth;
-				NativeUiLayout.place(child, cursorX, innerY, childWidth, depth + 1, boxes);
+				int slack = rowInner - child.height;
+				if (slack < 0) { slack = 0; }
+				int childY = innerY;
+				if (node.style.crossAlignment == NATIVE_UI_ALIGN_CENTER) { childY += slack / 2; } else if (node.style.crossAlignment == NATIVE_UI_ALIGN_END) { childY += slack; }
+				NativeUiLayout.place(child, cursorX, childY, childWidth, depth + 1, boxes);
 				cursorX += childWidth + node.style.gap;
 			}
 		} else if (node.children.len > 0) {
@@ -955,12 +992,17 @@ class NativeUiRaster {
 		}
 	}
 
-	class void text(Image image, int x, int y, string value, NativeUiColor color, NativeUiResolvedStyle style, NativeUiTypography typography) {
-		int glyphWidth = typography.glyphWidth(style.fontSize);
-		int glyphHeight = typography.glyphHeight(style.fontSize);
-		int advance = typography.advance(style.fontSize);
-		int glyphY = y + (style.lineHeight - glyphHeight) / 2;
-		int boldExtra = style.fontWeight >= 600 ? 1 : 0;
+	class void text(Image image, int x, int y, string value, NativeUiColor color, NativeUiResolvedStyle style, NativeUiTypography typography) { NativeUiRaster.glyphRun(image, x, y, value, color, style.fontSize, style.lineHeight, style.fontWeight, typography, true); }
+
+	/* The deterministic 5x7 glyph painter. Composited draws blend onto an
+	 * opaque frame; uncomposited draws write straight alpha cells so a
+	 * transparent text raster keeps its coverage. */
+	class void glyphRun(Image image, int x, int y, string value, NativeUiColor color, int fontSize, int lineHeight, int fontWeight, NativeUiTypography typography, bool composite) {
+		int glyphWidth = typography.glyphWidth(fontSize);
+		int glyphHeight = typography.glyphHeight(fontSize);
+		int advance = typography.advance(fontSize);
+		int glyphY = y + (lineHeight - glyphHeight) / 2;
+		int boldExtra = fontWeight >= 600 ? 1 : 0;
 		int cursor = x;
 		int index = 0;
 		while (index < value.len()) {
@@ -975,7 +1017,17 @@ class NativeUiRaster {
 						int cellHeight = (row + 1) * glyphHeight / 7 - cellY;
 						if (cellWidth < 1) { cellWidth = 1; }
 						if (cellHeight < 1) { cellHeight = 1; }
-						NativeUiRaster.fillRect(image, cursor + cellX, glyphY + cellY, cellWidth, cellHeight, color);
+						if (composite) {
+							NativeUiRaster.fillRect(image, cursor + cellX, glyphY + cellY, cellWidth, cellHeight, color);
+						} else {
+							for (int cellRow = 0; cellRow < cellHeight; cellRow++) {
+								for (int cellColumn = 0; cellColumn < cellWidth; cellColumn++) {
+									int pixelX = cursor + cellX + cellColumn;
+									int pixelY = glyphY + cellY + cellRow;
+									if (pixelX >= 0 && pixelY >= 0 && pixelX < image.width && pixelY < image.height) { image.setRGBA(pixelX, pixelY, color.red, color.green, color.blue, color.alpha); }
+								}
+							}
+						}
 					}
 				}
 			}
