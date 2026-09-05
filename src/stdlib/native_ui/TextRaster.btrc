@@ -10,13 +10,15 @@
 class NativeUiTextRaster {
 	class int maximumBytes() { return 4096; }
 
-	/* Cut a run at a scalar boundary so it fits the provider's byte bound. */
+	/* Cut a run at a scalar boundary so it fits the provider's byte bound; a
+	 * malformed byte ends the run there, since nextBoundary cannot advance
+	 * past it. */
 	class string bounded(string value) {
 		if (value.len() <= NativeUiTextRaster.maximumBytes()) { return value; }
 		int cut = 0;
 		while (cut < value.len()) {
 			int next = NativeUiTextInput.nextBoundary(value, cut);
-			if (next > NativeUiTextRaster.maximumBytes()) { break; }
+			if (next <= cut || next > NativeUiTextRaster.maximumBytes()) { break; }
 			cut = next;
 		}
 		return value.substring(0, cut);
@@ -45,11 +47,13 @@ class NativeUiTextRaster {
 		return image;
 	}
 
-	/* The deterministic raster: measure() width by lineHeight logical pixels,
-	 * scaled by the backing scale so both paths agree in size. */
+	/* The deterministic raster: the 5x7 glyph run's own width (one advance per
+	 * scalar at the scaled size) by the scaled line height, so the raster
+	 * fits its glyphs even when the typography measures natively. measure()
+	 * still validates the run. */
 	class Image deterministic(NativeUiTypography typography, string value, int fontSize, int lineHeight, int fontWeight, NativeUiColor color, float backingScale = 1.0f) {
 		string run = NativeUiTextRaster.bounded(value);
-		NativeUiTextMetrics metrics = typography.measure(run, fontSize, lineHeight, fontWeight);
+		typography.measure(run, fontSize, lineHeight, fontWeight);
 		if (run.isEmpty()) { return Image.empty(); }
 		float scale = backingScale < 0.5f ? 0.5f : (backingScale > 4.0f ? 4.0f : backingScale);
 		int scaledFont = (int)((float)fontSize * scale + 0.5f);
@@ -58,10 +62,10 @@ class NativeUiTextRaster {
 		if (scaledFont > 256) { scaledFont = 256; }
 		if (scaledLine < scaledFont) { scaledLine = scaledFont; }
 		if (scaledLine > 512) { scaledLine = 512; }
-		int width = (int)((float)metrics.width() * scale + 0.5f);
-		if (width < 1) { width = 1; }
-		if (width > 4096) { width = 4096; }
-		Image image = Image(width, scaledLine);
+		long long width = (long long)NativeUiTextInput.scalarCount(run, run.len()) * (long long)typography.advance(scaledFont);
+		if (width < 1LL) { width = 1LL; }
+		if (width > 4096LL) { width = 4096LL; }
+		Image image = Image((int)width, scaledLine);
 		NativeUiRaster.glyphRun(image, 0, 0, run, color, scaledFont, scaledLine, fontWeight, typography, false);
 		return image;
 	}
