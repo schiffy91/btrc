@@ -9,6 +9,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+static char clipboard_text[4097];
+
+int glfwGetError(const char** description) { if (description) { *description = NULL; } return GLFW_NO_ERROR; }
+
+const char* glfwGetClipboardString(GLFWwindow* window) { (void)window; return clipboard_text; }
+void glfwSetClipboardString(GLFWwindow* window, const char* text) { (void)window; assert(strlen(text) < sizeof(clipboard_text)); strcpy(clipboard_text, text); }
+
 enum {
     FAKE_WINDOW_CAPACITY = 8,
     FAKE_KEY_CAPACITY = 512,
@@ -48,6 +55,7 @@ struct GLFWwindow {
     GLFWframebuffersizefun framebuffer_size_callback;
     GLFWwindowcontentscalefun content_scale_callback;
     GLFWwindowclosefun close_callback;
+    GLFWwindowfocusfun focus_callback;
 };
 
 static struct GLFWwindow windows[FAKE_WINDOW_CAPACITY];
@@ -410,6 +418,21 @@ GLFWwindowclosefun glfwSetWindowCloseCallback(
     window->close_callback = callback;
     callback_mask |= CALLBACK_CLOSE;
     return previous;
+}
+
+GLFWwindowfocusfun glfwSetWindowFocusCallback(GLFWwindow* window, GLFWwindowfocusfun callback) {
+    native_call();
+    GLFWwindowfocusfun previous = window->focus_callback;
+    window->focus_callback = callback;
+    return previous;
+}
+
+void fake_glfw_emit_focus_lost(void) {
+    for (unsigned int index = 0; index < next_window; index++) {
+        if (windows[index].live && windows[index].focus_callback) {
+            windows[index].focus_callback(&windows[index], GLFW_FALSE);
+        }
+    }
 }
 
 void glfwGetCursorPos(GLFWwindow* window, double* x, double* y) {

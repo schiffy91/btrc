@@ -4,6 +4,7 @@
 #include "btrc_gpu.h"
 
 #include <stdbool.h>
+#include <math.h>
 #include <pthread.h>
 #include <sched.h>
 #include <stdatomic.h>
@@ -69,6 +70,9 @@ static unsigned long long uniform_owner_receipt;
 static unsigned long long native_ui_owner_receipt;
 static int uniform_float_count;
 static int native_ui_command_count;
+static int native_ui_order_count;
+static int native_ui_chevron_count;
+static int native_ui_chevron_expanded;
 static int native_ui_image_count;
 static int native_ui_upload_count;
 static bool native_ui_has_first_rect;
@@ -413,6 +417,8 @@ void fake_gpu_set_next_resource_result(
     resource_result_publish_receipt = publish_receipt != 0;
 }
 int fake_native_ui_upload_count(void) { return native_ui_upload_count; }
+int fake_native_ui_chevron_count(void) { return native_ui_chevron_count; }
+int fake_native_ui_chevron_expanded(void) { return native_ui_chevron_expanded; }
 int fake_native_ui_first_rect_red(void) { return native_ui_has_first_rect ? (int)(native_ui_first_rect_red * 255.0f + 0.5f) : -1; }
 int fake_native_ui_first_rect_green(void) { return native_ui_has_first_rect ? (int)(native_ui_first_rect_green * 255.0f + 0.5f) : -1; }
 int fake_native_ui_first_rect_blue(void) { return native_ui_has_first_rect ? (int)(native_ui_first_rect_blue * 255.0f + 0.5f) : -1; }
@@ -507,6 +513,21 @@ unsigned long long std_app_window_open(
     window_open = true;
     last_error = BTRC_APP_ERROR_NONE;
     return window_id;
+}
+
+static char clipboard_text[4097];
+
+char* std_app_window_clipboard_text(unsigned long long identity, unsigned long long receipt) {
+    if (!window_open || identity != window_id || receipt != window_owner_receipt) { last_error = BTRC_APP_ERROR_NOT_OPEN; return NULL; }
+    last_error = BTRC_APP_ERROR_NONE;
+    return clipboard_text;
+}
+
+int std_app_window_set_clipboard_text(unsigned long long identity, unsigned long long receipt, char* text) {
+    if (!window_open || identity != window_id || receipt != window_owner_receipt) { return last_error = BTRC_APP_ERROR_NOT_OPEN; }
+    if (!text || strlen(text) >= sizeof(clipboard_text)) { return last_error = BTRC_APP_ERROR_INVALID_ARGUMENT; }
+    strcpy(clipboard_text, text);
+    return last_error = BTRC_APP_ERROR_NONE;
 }
 
 int std_app_window_choose_directory(unsigned long long identity, char* title, char* initial_directory) {
@@ -995,6 +1016,24 @@ int std_gpu_pipeline_create(
     return BTRC_GPU_RESOURCE_READY;
 }
 
+int std_gpu_pipeline_create_with_blend(
+        unsigned long long gpu, unsigned long long shader,
+        char* vertex_entry, char* fragment_entry, int blend_mode,
+        unsigned long long* pipeline_out,
+        unsigned long long* owner_receipt_out) {
+    if (!pipeline_out || !owner_receipt_out) {
+        return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    *pipeline_out = 0;
+    *owner_receipt_out = 0;
+    if (blend_mode != BTRC_GPU_BLEND_OPAQUE &&
+        blend_mode != BTRC_GPU_BLEND_SOURCE_OVER) {
+        return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    return std_gpu_pipeline_create(
+        gpu, shader, vertex_entry, fragment_entry, pipeline_out, owner_receipt_out);
+}
+
 int std_gpu_pipeline_destroy(
         unsigned long long pipeline,
         unsigned long long owner_receipt) {
@@ -1189,6 +1228,9 @@ int std_gpu_native_ui_begin(
     }
     native_ui_begun = true;
     native_ui_command_count = 0;
+    native_ui_order_count = 0;
+    native_ui_chevron_count = 0;
+    native_ui_chevron_expanded = -1;
     native_ui_has_first_rect = false;
     return BTRC_GPU_RESOURCE_READY;
 }
@@ -1222,7 +1264,36 @@ int std_gpu_native_ui_add_rect(
         native_ui_first_rect_alpha = alpha;
     }
     native_ui_command_count++;
+    native_ui_order_count++;
     return BTRC_GPU_RESOURCE_READY;
+}
+
+int std_gpu_native_ui_add_gradient_rect(
+        unsigned long long compositor,
+        float x, float y, float width, float height,
+        unsigned int top_rgba, unsigned int bottom_rgba, float radius) {
+    (void)bottom_rgba;
+    return std_gpu_native_ui_add_rect(compositor, x, y, width, height,
+        (float)((top_rgba >> 24) & 255u) / 255.0f,
+        (float)((top_rgba >> 16) & 255u) / 255.0f,
+        (float)((top_rgba >> 8) & 255u) / 255.0f,
+        (float)(top_rgba & 255u) / 255.0f, radius);
+}
+
+int std_gpu_native_ui_add_chevron(
+        unsigned long long compositor,
+        float x, float y, float width, float height,
+        float red, float green, float blue, float alpha, int expanded) {
+    if (width < 4.0f || height < 4.0f || (expanded != 0 && expanded != 1)) {
+        return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    int status = std_gpu_native_ui_add_rect(compositor, x, y, width, height,
+                                           red, green, blue, alpha, 0.0f);
+    if (status == BTRC_GPU_RESOURCE_READY) {
+        native_ui_chevron_count++;
+        native_ui_chevron_expanded = expanded;
+    }
+    return status;
 }
 
 int std_gpu_native_ui_add_glyph(
@@ -1245,6 +1316,16 @@ int std_gpu_native_ui_add_glyph(
 int std_gpu_native_ui_system_typography_available(
         unsigned long long compositor) {
     (void)compositor;
+    return 0;
+}
+
+int std_gpu_native_ui_text_line_break(unsigned long long compositor, char* text, int font_size, int line_height, int font_weight, int width) {
+    (void)compositor;
+    (void)text;
+    (void)font_size;
+    (void)line_height;
+    (void)font_weight;
+    (void)width;
     return 0;
 }
 
@@ -1330,6 +1411,18 @@ int std_gpu_native_ui_add_text(
         0.0f);
 }
 
+int std_gpu_native_ui_add_image_region(
+        unsigned long long compositor, char* identity, unsigned char* rgba,
+        int source_width, int source_height, unsigned long long source_revision,
+        float x, float y, float width, float height,
+        float left, float top, float span_x, float span_y) {
+    if (!isfinite(left) || !isfinite(top) || !isfinite(span_x) || !isfinite(span_y) ||
+        left < 0.0f || top < 0.0f || span_x <= 0.0f || span_y <= 0.0f ||
+        left + span_x > 1.0f || top + span_y > 1.0f) { return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR; }
+    return std_gpu_native_ui_add_image(compositor, identity, rgba,
+        source_width, source_height, source_revision, x, y, width, height);
+}
+
 int std_gpu_native_ui_add_image(
         unsigned long long compositor,
         char* identity,
@@ -1368,6 +1461,7 @@ int std_gpu_native_ui_add_image(
         strcpy(native_ui_images[found].identity, identity);
     }
     FakeUiImage* image = &native_ui_images[found];
+    native_ui_order_count++;
     if (image->source != rgba || image->revision != source_revision ||
         image->width != source_width || image->height != source_height) {
         native_ui_upload_count++;
@@ -1393,6 +1487,17 @@ int std_gpu_native_ui_draw(
     int status = next_draw_status;
     next_draw_status = BTRC_GPU_DRAW_RECORDED;
     return status;
+}
+
+int std_gpu_native_ui_draw_range(unsigned long long gpu, unsigned long long compositor, int first, int count) {
+    int status = std_gpu_native_ui_draw(gpu, compositor);
+    if (status != BTRC_GPU_DRAW_RECORDED) { return status; }
+    return first < 0 || count < 0 || first > native_ui_order_count || count > native_ui_order_count - first
+        ? BTRC_GPU_DRAW_INVALID_DESCRIPTOR : BTRC_GPU_DRAW_RECORDED;
+}
+
+int std_gpu_native_ui_order_count(unsigned long long compositor) {
+    return compositor == UINT64_C(404) && native_ui_open ? native_ui_order_count : -1;
 }
 
 int std_gpu_native_ui_destroy(

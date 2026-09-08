@@ -2,6 +2,7 @@
 #include "btrc_gpu_native_ui_text_internal.h"
 
 #include <limits.h>
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -50,6 +51,7 @@ typedef struct {
     float rect[4];
     float viewport[4];
     float color[4];
+    float region[4];
 } BtrcNativeUiImagePlacement;
 
 typedef struct {
@@ -94,7 +96,8 @@ typedef struct {
 } BtrcNativeUi;
 
 #ifndef BTRC_GPU_NATIVE_UI_CACHE_TEST
-static const char* native_ui_wgsl =
+/* Separate entry-point sources keep each literal within strict C11 limits. */
+static const char native_ui_commands_wgsl[] =
     "struct UiCommand {\n"
     "  rect: vec4f,\n"
     "  color: vec4f,\n"
@@ -139,13 +142,32 @@ static const char* native_ui_wgsl =
     "  return output;\n"
     "}\n"
     "@fragment fn fs_command(input: CommandOut) -> @location(0) vec4f {\n"
+    "  let antialias = max(length(fwidth(input.uv * input.size)) * 0.5, 0.001);\n"
+    "  var color = input.color;\n"
+    "  if (input.meta0.x < 0.5 && input.meta0.z > 0.5) {\n"
+    "    let a = mix(color.a, input.meta1.a, input.uv.y);\n"
+    "    let rgb = mix(color.rgb * color.a, input.meta1.rgb * input.meta1.a, input.uv.y);\n"
+    "    color = vec4f(rgb / max(a, 0.000001), a);\n"
+    "  }\n"
+    "  if (input.meta0.x > 1.5) {\n"
+    "    var pixel = input.uv * input.size;\n"
+    "    if (input.meta0.y > 0.5) { pixel.y = input.size.y - pixel.y; }\n"
+    "    pixel.x = min(pixel.x, input.size.x - pixel.x);\n"
+    "    let start = vec2f(1.5, 1.5);\n"
+    "    let delta = vec2f(input.size.x * 0.5 - 1.5, input.size.y - 3.0);\n"
+    "    let local = pixel - start;\n"
+    "    let t = clamp(dot(local, delta) / dot(delta, delta), 0.0, 1.0);\n"
+    "    let distance = length(local - delta * t);\n"
+    "    let coverage = 1.0 - smoothstep(0.75 - antialias, 0.75 + antialias, distance);\n"
+    "    return vec4f(input.color.rgb, input.color.a * coverage);\n"
+    "  }\n"
     "  if (input.meta0.x < 0.5) {\n"
     "    let radius = min(input.meta0.y, min(input.size.x, input.size.y) * 0.5);\n"
     "    if (radius > 0.0) {\n"
-    "      let pixel = input.uv * input.size;\n"
-    "      let edge = min(pixel, input.size - pixel);\n"
-    "      if (edge.x < radius && edge.y < radius &&\n"
-    "          distance(edge, vec2f(radius, radius)) > radius) { discard; }\n"
+    "      let edge = min(input.uv, 1.0 - input.uv) * input.size;\n"
+    "      let d = length(max(vec2f(radius) - edge, vec2f(0.0))) - radius;\n"
+    "      let a = 1.0 - smoothstep(-antialias, antialias, d);\n"
+    "      return vec4f(color.rgb, color.a * a);\n"
     "    }\n"
     "  } else {\n"
     "    let column = min(u32(floor(input.uv.x * 5.0)), 4u);\n"
@@ -159,9 +181,11 @@ static const char* native_ui_wgsl =
     "    if (row == 6u) { bits = input.meta2.x; }\n"
     "    if (((u32(bits + 0.5) >> column) & 1u) == 0u) { discard; }\n"
     "  }\n"
-    "  return input.color;\n"
-    "}\n"
-    "struct ImagePlacement { rect: vec4f, viewport: vec4f, color: vec4f }\n"
+    "  return color;\n"
+    "}\n";
+
+static const char native_ui_images_wgsl[] =
+    "struct ImagePlacement { rect: vec4f, viewport: vec4f, color: vec4f, region: vec4f }\n"
     /* Keep image bindings distinct from the command pipeline's binding 0.
      * A WGSL module cannot declare two globals at the same group/binding even
      * when separate entry points use them. Auto-layout still exposes only the
@@ -185,7 +209,7 @@ static const char* native_ui_wgsl =
     "    1.0 - point.y / image_uniform.viewport.y * 2.0);\n"
     "  var output: ImageOut;\n"
     "  output.position = vec4f(clip, 0.0, 1.0);\n"
-    "  output.uv = uv;\n"
+    "  output.uv = image_uniform.region.xy + uv * image_uniform.region.zw;\n"
     "  output.color = image_uniform.color;\n"
     "  return output;\n"
     "}\n"
@@ -194,11 +218,17 @@ static const char* native_ui_wgsl =
     "}\n";
 
 static WGPUShaderModule create_shader(WGPUDevice device) {
+    char source[sizeof(native_ui_commands_wgsl) +
+                sizeof(native_ui_images_wgsl) - 1];
+    memcpy(source, native_ui_commands_wgsl,
+           sizeof(native_ui_commands_wgsl) - 1);
+    memcpy(source + sizeof(native_ui_commands_wgsl) - 1,
+           native_ui_images_wgsl, sizeof(native_ui_images_wgsl));
     WGPUShaderSourceWGSL wgsl = {
         .chain = { .sType = WGPUSType_ShaderSourceWGSL },
         .code = {
-            .data = native_ui_wgsl,
-            .length = strlen(native_ui_wgsl),
+            .data = source,
+            .length = sizeof(source) - 1,
         },
     };
     WGPUShaderModuleDescriptor descriptor = {
@@ -491,6 +521,53 @@ bool btrc_gpu_native_ui_add_rect(
     return append_command(ui, &command);
 }
 
+bool btrc_gpu_native_ui_add_gradient_rect(
+        void* compositor,
+        float x, float y, float width, float height,
+        float red, float green, float blue, float alpha,
+        float bottom_red, float bottom_green, float bottom_blue,
+        float bottom_alpha, float radius) {
+    const float values[] = {x, y, width, height, radius, red, green, blue,
+                            alpha, bottom_red, bottom_green, bottom_blue,
+                            bottom_alpha};
+    for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); ++i) {
+        if (!isfinite(values[i]) ||
+            (i >= 5 && (values[i] < 0.0f || values[i] > 1.0f))) {
+            return false;
+        }
+    }
+    if (!btrc_gpu_native_ui_add_rect(compositor, x, y, width, height,
+                                    red, green, blue, alpha, radius)) {
+        return false;
+    }
+    BtrcNativeUi* ui = (BtrcNativeUi*)compositor;
+    BtrcNativeUiCommand* command = &ui->commands[ui->command_count - 1];
+    command->meta0[2] = 1.0f;
+    command->meta1[0] = bottom_red;
+    command->meta1[1] = bottom_green;
+    command->meta1[2] = bottom_blue;
+    command->meta1[3] = bottom_alpha;
+    return true;
+}
+
+bool btrc_gpu_native_ui_add_chevron(
+        void* compositor,
+        float x, float y, float width, float height,
+        float red, float green, float blue, float alpha, bool expanded) {
+    BtrcNativeUi* ui = (BtrcNativeUi*)compositor;
+    if (!ui || !isfinite(x) || !isfinite(y) || !isfinite(width) ||
+        !isfinite(height) || width < 4.0f || height < 4.0f ||
+        !isfinite(red) || !isfinite(green) || !isfinite(blue) ||
+        !isfinite(alpha) || red < 0.0f || red > 1.0f ||
+        green < 0.0f || green > 1.0f || blue < 0.0f || blue > 1.0f ||
+        alpha < 0.0f || alpha > 1.0f) { return false; }
+    BtrcNativeUiCommand command;
+    initialize_command(ui, &command, x, y, width, height, red, green, blue, alpha);
+    command.meta0[0] = 2.0f;
+    command.meta0[1] = expanded ? 1.0f : 0.0f;
+    return append_command(ui, &command);
+}
+
 bool btrc_gpu_native_ui_add_glyph(
         void* compositor,
         float x,
@@ -679,27 +756,19 @@ static bool upload_image(
     return true;
 #else
     size_t row_bytes = (size_t)image->width * 4u;
-    size_t padded_row_bytes = (row_bytes + 255u) & ~(size_t)255u;
-    if (padded_row_bytes > UINT32_MAX ||
-        (size_t)image->height > SIZE_MAX / padded_row_bytes) {
+    if (row_bytes > UINT32_MAX ||
+        (size_t)image->height > SIZE_MAX / row_bytes) {
         return false;
     }
-    size_t upload_bytes = padded_row_bytes * (size_t)image->height;
-    unsigned char* upload = (unsigned char*)malloc(upload_bytes);
-    if (!upload) { return false; }
-    for (int row = 0; row < image->height; ++row) {
-        unsigned char* target = upload + (size_t)row * padded_row_bytes;
-        memcpy(target, rgba + (size_t)row * row_bytes, row_bytes);
-        if (padded_row_bytes > row_bytes) {
-            memset(target + row_bytes, 0, padded_row_bytes - row_bytes);
-        }
-    }
+    /* Queue writes copy the source before returning and accept packed rows;
+     * the 256-byte alignment requirement only applies to buffer copies. */
+    size_t upload_bytes = row_bytes * (size_t)image->height;
     WGPUTexelCopyTextureInfo destination = {
         .texture = image->texture,
         .aspect = WGPUTextureAspect_All,
     };
     WGPUTexelCopyBufferLayout layout = {
-        .bytesPerRow = (uint32_t)padded_row_bytes,
+        .bytesPerRow = (uint32_t)row_bytes,
         .rowsPerImage = (uint32_t)image->height,
     };
     WGPUExtent3D extent = {
@@ -708,8 +777,7 @@ static bool upload_image(
         .depthOrArrayLayers = 1,
     };
     wgpuQueueWriteTexture(
-        ui->queue, &destination, upload, upload_bytes, &layout, &extent);
-    free(upload);
+        ui->queue, &destination, rgba, upload_bytes, &layout, &extent);
     return true;
 #endif
 }
@@ -752,6 +820,10 @@ static bool place_image(
     placed->color[1] = green;
     placed->color[2] = blue;
     placed->color[3] = alpha;
+    placed->region[0] = 0.0f;
+    placed->region[1] = 0.0f;
+    placed->region[2] = 1.0f;
+    placed->region[3] = 1.0f;
     image->last_used_generation = ui->generation;
     ui->frame_image_pixels += pixels;
     ui->order[ui->order_count++] = (BtrcNativeUiOrder){
@@ -908,6 +980,25 @@ bool btrc_gpu_native_ui_add_image(
         1.0f);
 }
 
+bool btrc_gpu_native_ui_add_image_region(
+        void* compositor, const char* identity, const unsigned char* rgba,
+        int source_width, int source_height, uint64_t source_revision,
+        float x, float y, float width, float height,
+        float left, float top, float span_x, float span_y) {
+    if (!isfinite(left) || !isfinite(top) || !isfinite(span_x) || !isfinite(span_y) ||
+        left < 0.0f || top < 0.0f || span_x <= 0.0f || span_y <= 0.0f ||
+        left + span_x > 1.0f || top + span_y > 1.0f) { return false; }
+    if (!btrc_gpu_native_ui_add_image(compositor, identity, rgba,
+            source_width, source_height, source_revision, x, y, width, height)) { return false; }
+    BtrcNativeUi* ui = (BtrcNativeUi*)compositor;
+    BtrcNativeUiImagePlacement* placed = &ui->placements[ui->placement_count - 1];
+    placed->region[0] = left;
+    placed->region[1] = top;
+    placed->region[2] = span_x;
+    placed->region[3] = span_y;
+    return true;
+}
+
 bool btrc_gpu_native_ui_measure_text(
         void* compositor,
         const char* text,
@@ -1021,15 +1112,17 @@ bool btrc_gpu_native_ui_add_text(
     return added;
 }
 
-bool btrc_gpu_native_ui_draw(
-        void* compositor, WGPURenderPassEncoder active_pass) {
+bool btrc_gpu_native_ui_draw_range(void* compositor, WGPURenderPassEncoder active_pass, int first_order, int order_count) {
     BtrcNativeUi* ui = (BtrcNativeUi*)compositor;
     if (!ui || !active_pass || ui->logical_width <= 0 ||
-        ui->logical_height <= 0) {
+        ui->logical_height <= 0 || first_order < 0 || order_count < 0 ||
+        first_order > ui->order_count || order_count > ui->order_count - first_order) {
         return false;
     }
+    int end_order = first_order + order_count;
+    if (order_count == 0) { return true; }
 #ifdef BTRC_GPU_NATIVE_UI_CACHE_TEST
-    for (int index = 0; index < ui->order_count; ++index) {
+    for (int index = first_order; index < end_order; ++index) {
         BtrcNativeUiOrder entry = ui->order[index];
         if (entry.kind == 1 &&
             (entry.index >= (uint32_t)ui->image_count ||
@@ -1051,13 +1144,13 @@ bool btrc_gpu_native_ui_draw(
         wgpuQueueWriteBuffer(
             ui->queue, ui->placement_buffer, 0, ui->placements, bytes);
     }
-    int cursor = 0;
-    while (cursor < ui->order_count) {
+    int cursor = first_order;
+    while (cursor < end_order) {
         BtrcNativeUiOrder entry = ui->order[cursor];
         if (entry.kind == 0) {
             uint32_t first = entry.index;
             uint32_t count = 1;
-            while (cursor + (int)count < ui->order_count) {
+            while (cursor + (int)count < end_order) {
                 BtrcNativeUiOrder next = ui->order[cursor + (int)count];
                 if (next.kind != 0 || next.index != first + count) { break; }
                 count++;
@@ -1084,6 +1177,15 @@ bool btrc_gpu_native_ui_draw(
     }
     return true;
 #endif
+}
+
+bool btrc_gpu_native_ui_draw(void* compositor, WGPURenderPassEncoder active_pass) {
+    return btrc_gpu_native_ui_draw_range(compositor, active_pass, 0, btrc_gpu_native_ui_order_count(compositor));
+}
+
+int btrc_gpu_native_ui_order_count(void* compositor) {
+    BtrcNativeUi* ui = (BtrcNativeUi*)compositor;
+    return ui ? ui->order_count : 0;
 }
 
 int btrc_gpu_native_ui_command_count(void* compositor) {

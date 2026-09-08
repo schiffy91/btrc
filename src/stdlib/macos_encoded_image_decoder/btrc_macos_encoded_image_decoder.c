@@ -16,6 +16,7 @@ enum BtrcEncodedImageFormat {
     BTRC_ENCODED_IMAGE_FORMAT_PNG = 1,
     BTRC_ENCODED_IMAGE_FORMAT_JPEG = 2,
     BTRC_ENCODED_IMAGE_FORMAT_GIF = 3,
+    BTRC_ENCODED_IMAGE_FORMAT_TIFF = 4,
 };
 
 static const long long BTRC_ENCODED_IMAGE_STORAGE_PIXEL_LIMIT = (1073741824LL - 1024LL) / 4LL;
@@ -25,6 +26,7 @@ static enum BtrcEncodedImageFormat btrc_encoded_image_format(const unsigned char
     if (encoded_bytes >= (int)sizeof(png_signature) && memcmp(encoded, png_signature, sizeof(png_signature)) == 0) { return BTRC_ENCODED_IMAGE_FORMAT_PNG; }
     if (encoded_bytes >= 2 && encoded[0] == 0xffU && encoded[1] == 0xd8U) { return BTRC_ENCODED_IMAGE_FORMAT_JPEG; }
     if (encoded_bytes >= 6 && (memcmp(encoded, "GIF87a", 6U) == 0 || memcmp(encoded, "GIF89a", 6U) == 0)) { return BTRC_ENCODED_IMAGE_FORMAT_GIF; }
+    if (encoded_bytes >= 4 && (memcmp(encoded, "II\x2a\x00", 4U) == 0 || memcmp(encoded, "MM\x00\x2a", 4U) == 0)) { return BTRC_ENCODED_IMAGE_FORMAT_TIFF; }
     return BTRC_ENCODED_IMAGE_FORMAT_UNKNOWN;
 }
 
@@ -33,6 +35,7 @@ static bool btrc_encoded_image_type_matches(enum BtrcEncodedImageFormat format, 
     if (format == BTRC_ENCODED_IMAGE_FORMAT_PNG) { return CFEqual(type, CFSTR("public.png")); }
     if (format == BTRC_ENCODED_IMAGE_FORMAT_JPEG) { return CFEqual(type, CFSTR("public.jpeg")); }
     if (format == BTRC_ENCODED_IMAGE_FORMAT_GIF) { return CFEqual(type, CFSTR("com.compuserve.gif")); }
+    if (format == BTRC_ENCODED_IMAGE_FORMAT_TIFF) { return CFEqual(type, CFSTR("public.tiff")); }
     return false;
 }
 

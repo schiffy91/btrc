@@ -9,6 +9,9 @@ int std_app_error_code(unsigned long long application);
 string std_app_error_message(unsigned long long application);
 unsigned long long std_app_window_open(unsigned long long application, string title, int width, int height, unsigned long long* ownerReceiptOut);
 int std_app_window_close(unsigned long long window, unsigned long long ownerReceipt);
+int std_app_window_set_titlebar_style(unsigned long long window, unsigned long long ownerReceipt, int style);
+string std_app_window_clipboard_text(unsigned long long window, unsigned long long ownerReceipt);
+int std_app_window_set_clipboard_text(unsigned long long window, unsigned long long ownerReceipt, string text);
 int std_app_window_choose_directory(unsigned long long window, string title, string initialDirectory);
 string std_app_window_selected_directory(unsigned long long window);
 unsigned long long std_app_surface_create(unsigned long long window, unsigned long long* ownerReceiptOut);
@@ -70,6 +73,18 @@ class AppError {
 	}
 }
 
+class AppClipboardText {
+	public string text;
+	public AppError? error;
+
+	public AppClipboardText(string text, AppError? error = null) { self.text = text; self.error = error; }
+}
+
+enum AppTitlebarStyle {
+	APP_TITLEBAR_STANDARD = 0,
+	APP_TITLEBAR_OVERLAY = 1
+};
+
 class AppWindowDescriptor {
 	public string title;
 	public int logicalWidth;
@@ -129,7 +144,9 @@ enum AppPointerButton {
 	APP_POINTER_BUTTON_PRIMARY = 1,
 	APP_POINTER_BUTTON_SECONDARY = 2,
 	APP_POINTER_BUTTON_MIDDLE = 3,
-	APP_POINTER_BUTTON_OTHER = 4
+	APP_POINTER_BUTTON_OTHER = 4,
+	APP_POINTER_BUTTON_BACK = 5,
+	APP_POINTER_BUTTON_FORWARD = 6
 };
 
 class AppPointerEvent {
@@ -180,7 +197,15 @@ enum AppKeyCode {
 	APP_KEY_S = 12,
 	APP_KEY_W = 13,
 	APP_KEY_LEFT_SHIFT = 14,
-	APP_KEY_RIGHT_SHIFT = 15
+	APP_KEY_RIGHT_SHIFT = 15,
+	APP_KEY_LEFT_ALT = 16,
+	APP_KEY_RIGHT_ALT = 17,
+	APP_KEY_C = 18,
+	APP_KEY_V = 19,
+	APP_KEY_X = 20,
+	APP_KEY_HOME = 21,
+	APP_KEY_END = 22,
+	APP_KEY_DELETE = 23
 };
 
 class AppKeyboardEvent {
@@ -205,7 +230,8 @@ enum AppWindowEventKind {
 	APP_EVENT_CLOSE_REQUESTED = 6,
 	APP_EVENT_CLOSED = 7,
 	APP_EVENT_FAILED = 8,
-	APP_EVENT_SCROLLED = 9
+	APP_EVENT_SCROLLED = 9,
+	APP_EVENT_FOCUS_LOST = 10
 };
 
 class AppWindowEvent {
@@ -331,6 +357,7 @@ class Application {
 	private AppError lastError() { return new AppError((AppErrorCode)std_app_error_code(self.identity), std_app_error_message(self.identity)); }
 
 	public bool isOpen() { return self.identity != 0ULL && self.ownerReceipt != 0ULL; }
+
 	/* Cross-owner native bridge capability. This is a monotonic identity,
      * never a native application or GLFW pointer. */
 	public unsigned long long applicationIdentity() { return self.identity; }
@@ -430,7 +457,27 @@ class ApplicationWindow {
      * never a GLFWwindow pointer. */
 	public unsigned long long windowIdentity() { return self.identity; }
 
+	public AppClipboardText clipboardText() {
+		if (!self.isOpen()) { return AppClipboardText("", AppError(APP_ERROR_CLOSED, "window is closed")); }
+		string text = std_app_window_clipboard_text(self.identity, self.ownerReceipt);
+		return text == null ? AppClipboardText("", self.lastError()) : AppClipboardText(Strings.copy(text));
+	}
+
+	public AppError? setClipboardText(string text) {
+		if (!self.isOpen()) { return AppError(APP_ERROR_CLOSED, "window is closed"); }
+		int status = std_app_window_set_clipboard_text(self.identity, self.ownerReceipt, text);
+		return status == APP_ERROR_NONE ? null : self.lastError();
+	}
+
 	public bool isOpen() { return self.identity != 0ULL && self.ownerReceipt != 0ULL; }
+
+	/* Configure before creating a surface. Overlay preserves native window
+	 * controls; callers reserve their top-left content area for those controls. */
+	public AppError? setTitlebarStyle(AppTitlebarStyle style) {
+		if (!self.isOpen()) { return new AppError(APP_ERROR_CLOSED, "window is closed"); }
+		int status = std_app_window_set_titlebar_style(self.identity, self.ownerReceipt, (int)style);
+		return status == APP_ERROR_NONE ? null : self.lastError();
+	}
 
 	/* The native modal session is bounded by this call. Closing the panel is an
 	 * explicit cancellation; the window must remain open for the whole call. */

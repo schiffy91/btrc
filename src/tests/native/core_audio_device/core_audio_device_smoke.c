@@ -14,12 +14,13 @@ typedef struct {
     atomic_int callback_count;
     atomic_int failure;
     atomic_int saw_first_discontinuity;
+    int maximum_frames;
 } ProbeContext;
 
 static void probe_process(void* raw_context, struct AudioBlockView block, BtrcRealtimeAudioInputSamples inputs, BtrcRealtimeAudioOutputSamples outputs) {
     ProbeContext* context = (ProbeContext*)raw_context;
     int invocation = atomic_fetch_add_explicit(&context->callback_count, 1, memory_order_relaxed);
-    if (block.inputChannelCount != 0 || block.outputChannelCount != 1 || block.frameCount <= 0 || block.streamEpoch == 0 || inputs.data != NULL || inputs.length != 0 || outputs.data == NULL || outputs.length != (size_t)block.frameCount) { atomic_store_explicit(&context->failure, 1, memory_order_relaxed); }
+    if (block.inputChannelCount != 0 || block.outputChannelCount != 1 || block.frameCount <= 0 || block.frameCount > context->maximum_frames || block.streamEpoch == 0 || inputs.data != NULL || inputs.length != 0 || outputs.data == NULL || outputs.length != (size_t)block.frameCount) { atomic_store_explicit(&context->failure, 1, memory_order_relaxed); }
     if (invocation == 0 && (block.flags & BTRC_AUDIO_BLOCK_OUTPUT_DISCONTINUITY) != 0) { atomic_store_explicit(&context->saw_first_discontinuity, 1, memory_order_relaxed); }
     for (size_t index = 0; index < outputs.length; index++) { outputs.data[index] = 0.0f; }
 }
@@ -67,6 +68,7 @@ int main(void) {
     atomic_init(&context.callback_count, 0);
     atomic_init(&context.failure, 0);
     atomic_init(&context.saw_first_discontinuity, 0);
+    context.maximum_frames = selected.currentBufferFrames;
     void* session = NULL;
     struct CoreAudioNativeNegotiatedFormat format;
     memset(&format, 0, sizeof(format));

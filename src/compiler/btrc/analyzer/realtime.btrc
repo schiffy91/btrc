@@ -89,6 +89,81 @@ class RealtimeLoopGuard {
 	}
 }
 
+/* Tarjan's strongly connected components over the callable call graph. Call
+ * edges to callables outside the index are dead ends, as they are for the
+ * per-path reachability search this replaces. */
+class RealtimeCallGraphComponents {
+	private Map<string, RealtimeCallable> callables;
+	private Map<string, int> indexes;
+	private Map<string, int> lowLinks;
+	private Map<string, bool> onStack;
+	private Vector<string> stack;
+	private int nextIndex;
+	public Map<string, bool> recursive;
+
+	public RealtimeCallGraphComponents(Map<string, RealtimeCallable> callables) {
+		self.callables = callables;
+		self.indexes = {};
+		self.lowLinks = {};
+		self.onStack = {};
+		self.stack = [];
+		self.nextIndex = 0;
+		self.recursive = {};
+	}
+
+	public void connect(string key) {
+		if (self.indexes.has(key)) { return; }
+		self.strongConnect(key);
+	}
+
+	private void lowerLink(string key, int candidate) {
+		if (candidate < self.lowLinks.get(key)) { self.lowLinks.put(key, candidate); }
+	}
+
+	private void strongConnect(string key) {
+		int index = self.nextIndex;
+		self.nextIndex = self.nextIndex + 1;
+		self.indexes.put(key, index);
+		self.lowLinks.put(key, index);
+		self.stack.push(key);
+		self.onStack.put(key, true);
+		bool selfEdge = false;
+		Vector<RealtimeEvent> events = self.callables.get(key).events;
+		int eventIndex = 0;
+		while (eventIndex < events.len) {
+			RealtimeEvent event = events.get(eventIndex);
+			if (!event.is_effect && self.callables.has(event.target)) {
+				string target = event.target;
+				if (target == key) { selfEdge = true; }
+				if (!self.indexes.has(target)) {
+					self.strongConnect(target);
+					self.lowerLink(key, self.lowLinks.get(target));
+				} else if (self.onStack.has(target)) {
+					self.lowerLink(key, self.indexes.get(target));
+				}
+			}
+			eventIndex = eventIndex + 1;
+		}
+		if (self.lowLinks.get(key) != index) { return; }
+		Vector<string> members = [];
+		string member = self.stack.pop();
+		self.onStack.remove(member);
+		members.push(member);
+		while (member != key) {
+			member = self.stack.pop();
+			self.onStack.remove(member);
+			members.push(member);
+		}
+		if (members.len > 1 || selfEdge) {
+			int memberIndex = 0;
+			while (memberIndex < members.len) {
+				self.recursive.put(members.get(memberIndex), true);
+				memberIndex = memberIndex + 1;
+			}
+		}
+	}
+}
+
 class RealtimeAnalyzer {
 	private Node program;
 	private Analyzed analyzed;
@@ -1026,39 +1101,18 @@ class RealtimeAnalyzer {
 		return unsafe;
 	}
 
+	/* A callable is recursive when some call edge leads back to it. That is
+	 * membership in a strongly connected component of more than one callable,
+	 * or a direct self-edge: the same answer as a search over every simple
+	 * path from each callee, which is exponential in the call graph. */
 	private Map<string, bool> recursiveCallables() {
-		Map<string, bool> recursive = {};
+		RealtimeCallGraphComponents components = RealtimeCallGraphComponents(self.callables);
 		int index = 0;
 		while (index < self.order.len) {
-			string key = self.order.get(index);
-			Vector<RealtimeEvent> events = self.callables.get(key).events;
-			int eventIndex = 0;
-			while (eventIndex < events.len && !recursive.has(key)) {
-				RealtimeEvent event = events.get(eventIndex);
-				if (!event.is_effect && self.reachesTarget(event.target, key, self.nextSeen({}, key))) {
-					recursive.put(key, true);
-				}
-				eventIndex = eventIndex + 1;
-			}
+			components.connect(self.order.get(index));
 			index = index + 1;
 		}
-		return recursive;
-	}
-
-	private bool reachesTarget(string key, string target, Map<string, bool> visiting) {
-		if (key == target) { return true; }
-		if (visiting.has(key) || !self.callables.has(key)) { return false; }
-		Map<string, bool> next = self.nextSeen(visiting, key);
-		Vector<RealtimeEvent> events = self.callables.get(key).events;
-		int index = 0;
-		while (index < events.len) {
-			RealtimeEvent event = events.get(index);
-			if (!event.is_effect && self.reachesTarget(event.target, target, next)) {
-				return true;
-			}
-			index = index + 1;
-		}
-		return false;
+		return components.recursive;
 	}
 
 	private RealtimeWitness? firstWitness(string key, Map<string, bool> unsafe, Map<string, bool> visiting) {

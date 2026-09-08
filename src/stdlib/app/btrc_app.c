@@ -1,6 +1,7 @@
 #include "btrc_app.h"
 #include "btrc_app_directory_picker_internal.h"
 #include "btrc_app_surface_internal.h"
+#include "btrc_app_window_internal.h"
 
 #ifndef GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_NONE
@@ -291,6 +292,8 @@ static int pointer_button(int button) {
         case GLFW_MOUSE_BUTTON_LEFT: return BTRC_APP_BUTTON_PRIMARY;
         case GLFW_MOUSE_BUTTON_RIGHT: return BTRC_APP_BUTTON_SECONDARY;
         case GLFW_MOUSE_BUTTON_MIDDLE: return BTRC_APP_BUTTON_MIDDLE;
+        case GLFW_MOUSE_BUTTON_4: return BTRC_APP_BUTTON_BACK;
+        case GLFW_MOUSE_BUTTON_5: return BTRC_APP_BUTTON_FORWARD;
         default: return BTRC_APP_BUTTON_OTHER;
     }
 }
@@ -312,6 +315,14 @@ static int key_code(int key) {
         case GLFW_KEY_W: return BTRC_APP_KEY_W;
         case GLFW_KEY_LEFT_SHIFT: return BTRC_APP_KEY_LEFT_SHIFT;
         case GLFW_KEY_RIGHT_SHIFT: return BTRC_APP_KEY_RIGHT_SHIFT;
+        case GLFW_KEY_LEFT_ALT: return BTRC_APP_KEY_LEFT_ALT;
+        case GLFW_KEY_RIGHT_ALT: return BTRC_APP_KEY_RIGHT_ALT;
+        case GLFW_KEY_C: return BTRC_APP_KEY_C;
+        case GLFW_KEY_V: return BTRC_APP_KEY_V;
+        case GLFW_KEY_X: return BTRC_APP_KEY_X;
+        case GLFW_KEY_HOME: return BTRC_APP_KEY_HOME;
+        case GLFW_KEY_END: return BTRC_APP_KEY_END;
+        case GLFW_KEY_DELETE: return BTRC_APP_KEY_DELETE;
         default: return BTRC_APP_KEY_UNKNOWN;
     }
 }
@@ -496,6 +507,16 @@ static void on_content_scale(GLFWwindow* window, float x, float y) {
     BtrcAppEvent event = { 0 };
     event.kind = BTRC_APP_EVENT_DPI_CHANGED;
     capture_metrics(window, &event);
+    push_event(application, event);
+    state_lock_leave();
+}
+
+static void on_focus(GLFWwindow* window, int focused) {
+    if (focused) { return; }
+    state_lock_enter();
+    BtrcApplication* application = (BtrcApplication*)glfwGetWindowUserPointer(window);
+    BtrcAppEvent event = { 0 };
+    event.kind = BTRC_APP_EVENT_FOCUS_LOST;
     push_event(application, event);
     state_lock_leave();
 }
@@ -687,11 +708,70 @@ unsigned long long std_app_window_open(
     glfwSetFramebufferSizeCallback(window, on_framebuffer_size);
     glfwSetWindowContentScaleCallback(window, on_content_scale);
     glfwSetWindowCloseCallback(window, on_close);
+    glfwSetWindowFocusCallback(window, on_focus);
     clear_error(application);
     unsigned long long result = application->window_id;
     *owner_receipt_out = application->window_owner_receipt;
     state_lock_leave();
     return result;
+}
+
+int std_app_window_set_titlebar_style(unsigned long long window_id, unsigned long long owner_receipt, int style) {
+    btrc_app_drain_owner_finalizers();
+    state_lock_enter();
+    BtrcApplication* application = find_window(window_id);
+    int error = BTRC_APP_ERROR_NONE;
+    if (!application) { error = BTRC_APP_ERROR_NOT_OPEN; }
+    else if (!on_owner_thread(application)) { error = BTRC_APP_ERROR_NOT_MAIN_THREAD; }
+    else if (!owner_receipt || application->window_owner_receipt != owner_receipt ||
+             (style != BTRC_APP_TITLEBAR_STANDARD && style != BTRC_APP_TITLEBAR_OVERLAY)) { error = BTRC_APP_ERROR_INVALID_ARGUMENT; }
+    else if (application->surface_id) { error = BTRC_APP_ERROR_RESOURCE_BUSY; }
+    else { error = btrc_app_platform_set_titlebar_style(application->window, style); }
+    if (error == BTRC_APP_ERROR_NONE) { clear_error(application); }
+    else { fail(application, error); }
+    state_lock_leave();
+    return error;
+}
+
+char* std_app_window_clipboard_text(unsigned long long window_id, unsigned long long owner_receipt) {
+    btrc_app_drain_owner_finalizers();
+    state_lock_enter();
+    BtrcApplication* application = find_window(window_id);
+    int error = BTRC_APP_ERROR_NONE;
+    const char* text = NULL;
+    if (!application) { error = BTRC_APP_ERROR_NOT_OPEN; }
+    else if (!on_owner_thread(application)) { error = BTRC_APP_ERROR_NOT_MAIN_THREAD; }
+    else if (!owner_receipt || application->window_owner_receipt != owner_receipt) { error = BTRC_APP_ERROR_INVALID_ARGUMENT; }
+    else {
+        (void)glfwGetError(NULL);
+        text = glfwGetClipboardString(application->window);
+        int backend_error = glfwGetError(NULL);
+        if (backend_error != GLFW_NO_ERROR && backend_error != GLFW_FORMAT_UNAVAILABLE) { error = BTRC_APP_ERROR_BACKEND_UNAVAILABLE; text = NULL; }
+        else if (!text) { text = ""; }
+    }
+    if (error == BTRC_APP_ERROR_NONE) { clear_error(application); }
+    else { fail(application, error); }
+    state_lock_leave();
+    return (char*)text;
+}
+
+int std_app_window_set_clipboard_text(unsigned long long window_id, unsigned long long owner_receipt, char* text) {
+    btrc_app_drain_owner_finalizers();
+    state_lock_enter();
+    BtrcApplication* application = find_window(window_id);
+    int error = BTRC_APP_ERROR_NONE;
+    if (!application) { error = BTRC_APP_ERROR_NOT_OPEN; }
+    else if (!on_owner_thread(application)) { error = BTRC_APP_ERROR_NOT_MAIN_THREAD; }
+    else if (!text || !owner_receipt || application->window_owner_receipt != owner_receipt) { error = BTRC_APP_ERROR_INVALID_ARGUMENT; }
+    else {
+        (void)glfwGetError(NULL);
+        glfwSetClipboardString(application->window, text);
+        if (glfwGetError(NULL) != GLFW_NO_ERROR) { error = BTRC_APP_ERROR_BACKEND_UNAVAILABLE; }
+    }
+    if (error == BTRC_APP_ERROR_NONE) { clear_error(application); }
+    else { fail(application, error); }
+    state_lock_leave();
+    return error;
 }
 
 int std_app_window_choose_directory(unsigned long long window_id, char* title, char* initial_directory) {

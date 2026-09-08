@@ -63,7 +63,18 @@ def test_realtime_function_preserves_proof_through_typed_storage_and_one_way_dow
         for compiler in STRICT_COMPILERS:
             executable = tmp_path / f"RealtimeFunction-{frontend}-{Path(compiler).name}"
             built = subprocess.run(
-                [compiler, "-std=c11", "-pedantic-errors", "-Wall", "-Wextra", "-Werror", "-O2", str(source), "-o", str(executable)],
+                [
+                    compiler,
+                    "-std=c11",
+                    "-pedantic-errors",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-O2",
+                    str(source),
+                    "-o",
+                    str(executable),
+                ],
                 cwd=REPOSITORY,
                 capture_output=True,
                 text=True,
@@ -110,7 +121,7 @@ def test_realtime_function_preserves_proof_through_typed_storage_and_one_way_dow
             "Native function declaration 'nativeFactory' cannot expose RealtimeFunction",
         ),
         (
-            "@realtime int unsafeTransform(int value) { printf(\"%d\", value); return value; }",
+            '@realtime int unsafeTransform(int value) { printf("%d", value); return value; }',
             "ProvenTransform proof = unsafeTransform;",
             "forbidden strings operation 'string value'",
         ),
@@ -177,8 +188,7 @@ def test_realtime_function_rejects_every_unproven_construction_path(
 ) -> None:
     source = tmp_path / "UnprovenRealtimeFunction.btrc"
     source.write_text(
-        f"typedef RealtimeFunction<int, int> ProvenTransform;\n{declarations}\n"
-        f"int main() {{ {statement} return 0; }}\n"
+        f"typedef RealtimeFunction<int, int> ProvenTransform;\n{declarations}\nint main() {{ {statement} return 0; }}\n"
     )
     reference = _reference(source, tmp_path / "reference.c", tmp_path / "reference-cache")
     selfhost = _selfhost(semantic_btrcc, source, tmp_path / "selfhost.c")
@@ -230,7 +240,18 @@ def test_realtime_function_vector_storage_preserves_proof_and_cannot_upgrade(
     for frontend, emitted in (("reference", generated[0]), ("selfhost", generated[1])):
         executable = tmp_path / f"vector-{frontend}"
         built = subprocess.run(
-            [STRICT_COMPILERS[0], "-std=c11", "-pedantic-errors", "-Wall", "-Wextra", "-Werror", "-O2", str(emitted), "-o", str(executable)],
+            [
+                STRICT_COMPILERS[0],
+                "-std=c11",
+                "-pedantic-errors",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-O2",
+                str(emitted),
+                "-o",
+                str(executable),
+            ],
             cwd=REPOSITORY,
             capture_output=True,
             text=True,

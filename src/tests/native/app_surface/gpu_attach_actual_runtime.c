@@ -354,6 +354,7 @@ WGPUStatus btrc_gpu_attach_test_get_capabilities(
         WGPUAdapter adapter,
         WGPUSurfaceCapabilities* capabilities) {
     static const WGPUTextureFormat formats[] = {
+        WGPUTextureFormat_BGRA8UnormSrgb,
         WGPUTextureFormat_BGRA8Unorm,
     };
     static const WGPUCompositeAlphaMode alpha_modes[] = {
@@ -523,6 +524,16 @@ static void test_early_rejections(void) {
             "invalid GPU uniform creation was not typed");
     require(resource == 0 && resource_receipt == 0,
             "failed uniform creation did not zero both outputs");
+    resource = UINT64_MAX;
+    resource_receipt = UINT64_MAX;
+    unsigned char rgba[4] = { 255, 255, 255, 255 };
+    require(std_gpu_texture_create(0, rgba, 1, 1, 4, &resource, &resource_receipt) ==
+                BTRC_GPU_RESOURCE_INVALID_GPU,
+            "invalid GPU texture creation was not typed");
+    require(resource == 0 && resource_receipt == 0,
+            "failed texture creation did not zero both outputs");
+    require(std_gpu_draw_textured(0, 0, 6, 0, 0) == BTRC_GPU_DRAW_INVALID_GPU,
+            "invalid textured draw GPU was not rejected");
 
     expect_attach_failure(
         TEST_APP_INVALID, BTRC_GPU_ATTACH_INVALID_SURFACE, NULL, 0);

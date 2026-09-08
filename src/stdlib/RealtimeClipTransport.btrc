@@ -61,19 +61,31 @@ class RealtimeClipTransportLimits {
 	public int telemetryCapacity() { return self._telemetryCapacity; }
 }
 
+enum RealtimeClipCompletionPolicy {
+	REALTIME_CLIP_RETIRE_AT_END,
+	REALTIME_CLIP_RETAIN_AT_END
+};
+
 class RealtimeClipTransportConfiguration {
 	private RealtimeAudioFormat _format;
 	private RealtimeClipTransportLimits _limits;
+	private RealtimeClipCompletionPolicy _completionPolicy;
 
-	public RealtimeClipTransportConfiguration(RealtimeAudioFormat format, RealtimeClipTransportLimits limits) {
+	public RealtimeClipTransportConfiguration(RealtimeAudioFormat format, RealtimeClipTransportLimits limits, RealtimeClipCompletionPolicy completionPolicy = REALTIME_CLIP_RETIRE_AT_END) {
 		if (format == null || limits == null) { throw "invalid realtime clip transport configuration"; }
+		if (completionPolicy != REALTIME_CLIP_RETIRE_AT_END && completionPolicy != REALTIME_CLIP_RETAIN_AT_END) { throw "invalid realtime clip completion policy"; }
 		self._format = format;
 		self._limits = limits;
+		self._completionPolicy = completionPolicy;
 	}
 
 	public RealtimeAudioFormat format() { return self._format; }
 
 	public RealtimeClipTransportLimits limits() { return self._limits; }
+
+	/* Retained clips keep their token and samples until cancellation,
+	 * replacement, or close. Play restarts at zero; seek preserves pause. */
+	public RealtimeClipCompletionPolicy completionPolicy() { return self._completionPolicy; }
 }
 
 class RealtimeClip {
@@ -225,7 +237,8 @@ enum RealtimeClipTransportLifecycle {
 enum RealtimeClipPlaybackState {
 	REALTIME_CLIP_STAGED,
 	REALTIME_CLIP_PAUSED,
-	REALTIME_CLIP_PLAYING
+	REALTIME_CLIP_PLAYING,
+	REALTIME_CLIP_ENDED
 };
 
 class RealtimePlaybackVolume {
@@ -525,7 +538,7 @@ class RealtimeClipTransport implements RealtimeClipTransportPort {
 		RealtimeAudioFormat format = configuration.format();
 		RealtimeClipTransportLimits limits = configuration.limits();
 		void* owner = null;
-		int status = btrcRealtimeClipTransportOwnerOpen(format.sampleRate(), format.channels(), limits.maximumBlockFrames(), limits.maximumStagedClips(), limits.commandCapacity(), limits.eventCapacity(), limits.retirementCapacity(), limits.captureCapacity(), limits.telemetryCapacity(), &owner);
+		int status = btrcRealtimeClipTransportOwnerOpen(format.sampleRate(), format.channels(), limits.maximumBlockFrames(), limits.maximumStagedClips(), limits.commandCapacity(), limits.eventCapacity(), limits.retirementCapacity(), limits.captureCapacity(), limits.telemetryCapacity(), configuration.completionPolicy() == REALTIME_CLIP_RETAIN_AT_END, &owner);
 		if (status != (int)REALTIME_CLIP_TRANSPORT_OK || owner == null) { return RealtimeClipTransportOpenOutcome.failed((RealtimeClipTransportStatus)status); }
 		return RealtimeClipTransportOpenOutcome.opened(RealtimeClipTransport(configuration, owner));
 	}
@@ -599,6 +612,8 @@ class RealtimeClipTransport implements RealtimeClipTransportPort {
 		return self.control(token, (int)BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_VOLUME, 0LL, 1.0, volume.permille(), RealtimePlaybackLoop.disabled());
 	}
 
+	/* Paused edits retain the playhead; play enters the interval if outside it.
+	 * During playback, enabling/resizing outside the playhead enters it now. */
 	public RealtimeClipTransportStatus setLoop(RealtimeClipToken token, RealtimePlaybackLoop loop) {
 		if (loop == null) { return REALTIME_CLIP_TRANSPORT_INVALID_ARGUMENT; }
 		return self.control(token, (int)BTRC_REALTIME_CLIP_TRANSPORT_COMMAND_LOOP, 0LL, 1.0, 1000, loop);

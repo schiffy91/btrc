@@ -541,6 +541,13 @@ class ExpressionValidator {
 		}
 	}
 
+	/* One callable body owns one expression-inference memo during validation:
+     * every statement validates its expressions through raw inference, which
+     * otherwise re-infers each suffix of a deep builder chain per enclosing node. */
+	public bool beginBodyMemo() { return self.expressionTypes.beginScopedMemo(); }
+
+	public void endBodyMemo(bool owned) { self.expressionTypes.endScopedMemo(owned); }
+
 	private void validateBinaryTree(Node root, Map<string, Node> vars) {
 		bool ownsMemo = self.expressionTypes.beginScopedMemo();
 		Vector<Node> expressions = [root];

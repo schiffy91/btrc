@@ -776,7 +776,9 @@ class DeclarationValidator {
 		}
 		self.validateParameterDefaults(callable.params, vars, callable);
 		if (callable.body_node != null) {
+			bool ownsMemo = self.expressions.beginBodyMemo();
 			self.controlFlow.validateBlock(callable.body_node,  vars);
+			self.expressions.endBodyMemo(ownsMemo);
 		}
 		bool nonVoid = self.state.returnType != null && !TypeValidator.scalarVoid(self.state.returnType);
 		if (callable.body_node != null && nonVoid && !ControlFlowValidator.blockTerminates(callable.body_node)) {

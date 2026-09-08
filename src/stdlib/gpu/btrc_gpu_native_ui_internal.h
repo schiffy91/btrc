@@ -21,6 +21,15 @@ bool btrc_gpu_native_ui_add_rect(
     float x, float y, float width, float height,
     float red, float green, float blue, float alpha,
     float radius);
+bool btrc_gpu_native_ui_add_gradient_rect(
+    void* compositor, float x, float y, float width, float height,
+    float red, float green, float blue, float alpha,
+    float bottom_red, float bottom_green, float bottom_blue, float bottom_alpha,
+    float radius);
+bool btrc_gpu_native_ui_add_chevron(
+    void* compositor,
+    float x, float y, float width, float height,
+    float red, float green, float blue, float alpha, bool expanded);
 bool btrc_gpu_native_ui_add_glyph(
     void* compositor,
     float x, float y, float width, float height,
@@ -37,6 +46,11 @@ bool btrc_gpu_native_ui_add_image(
     float y,
     float width,
     float height);
+bool btrc_gpu_native_ui_add_image_region(
+    void* compositor, const char* identity, const unsigned char* rgba,
+    int source_width, int source_height, uint64_t source_revision,
+    float x, float y, float width, float height,
+    float left, float top, float span_x, float span_y);
 bool btrc_gpu_native_ui_measure_text(
     void* compositor,
     const char* text,
@@ -59,6 +73,8 @@ bool btrc_gpu_native_ui_add_text(
     float alpha);
 bool btrc_gpu_native_ui_draw(
     void* compositor, WGPURenderPassEncoder active_pass);
+bool btrc_gpu_native_ui_draw_range(void* compositor, WGPURenderPassEncoder active_pass, int first, int count);
+int btrc_gpu_native_ui_order_count(void* compositor);
 
 int btrc_gpu_native_ui_command_count(void* compositor);
 int btrc_gpu_native_ui_image_count(void* compositor);

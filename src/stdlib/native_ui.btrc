@@ -9,6 +9,9 @@
  */
 
 import std.image;
+import std.map;
+import std.math;
+import std.set;
 import std.strings;
 import std.vector;
 
@@ -39,7 +42,9 @@ enum NativeUiEventKind {
 	NATIVE_UI_RANGE_POINTER_CANCELLED = 9,
 	NATIVE_UI_RANGE_WHEEL = 10,
 	NATIVE_UI_RANGE_ADJUSTED = 11,
-	NATIVE_UI_SELECTION_CHANGED = 12
+	NATIVE_UI_SELECTION_CHANGED = 12,
+	NATIVE_UI_NAVIGATE_BACK = 13,
+	NATIVE_UI_NAVIGATE_FORWARD = 14
 };
 
 enum NativeUiRangeAxis {
@@ -192,6 +197,14 @@ class NativeUiStyle {
 		return true;
 	}
 
+	class Vector<string> gradientColors(string value) {
+		Vector<string> empty = [];
+		if (!value.startsWith("linear-gradient(") || !value.endsWith(")")) { return empty; }
+		Vector<string> colors = Strings.split(value.substring(16, value.len() - 17), ",");
+		if (colors.len != 2 || !NativeUiStyle.color(colors.get(0).trim()) || !NativeUiStyle.color(colors.get(1).trim())) { return empty; }
+		return [colors.get(0).trim(), colors.get(1).trim()];
+	}
+
 	class NativeUiStyleError validate(string css) {
 		if (css == null || css.trim().isEmpty()) {
 			return NativeUiStyleError.valid();
@@ -206,10 +219,12 @@ class NativeUiStyle {
 			}
 			string property = declaration.substring(0, separator).trim().toLower();
 			string value = declaration.substring(separator + 1, declaration.len() - separator - 1).trim();
-			if (property.equals("gap") || property.equals("padding") || property.equals("border-radius")) {
+			if (property.equals("gap") || property.equals("padding") || property.equals("padding-top") || property.equals("padding-right") || property.equals("padding-bottom") || property.equals("padding-left") || property.equals("border-radius")) {
 				if (!NativeUiStyle.pixels(value, true)) {
 					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, f"{property} requires a non-negative px value");
 				}
+			} else if (property.equals("width") && value == "fit") {
+				continue;
 			} else if (property.equals("width") || property.equals("height")) {
 				if (!NativeUiStyle.pixels(value, false)) {
 					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, f"{property} requires a positive px value");
@@ -226,6 +241,8 @@ class NativeUiStyle {
 				if (value != "400" && value != "500" && value != "600" && value != "700") {
 					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "font-weight requires 400, 500, 600, or 700");
 				}
+			} else if (property.equals("text-wrap")) {
+				if (value != "wrap" && value != "nowrap") { return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "text-wrap requires wrap or nowrap"); }
 			} else if (property.equals("text-align")) {
 				if (value != "left" && value != "center" && value != "right") {
 					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "text-align requires left, center, or right");
@@ -234,7 +251,9 @@ class NativeUiStyle {
 				if (value != "start" && value != "center" && value != "end") {
 					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "align-items requires start, center, or end");
 				}
-			} else if (property.equals("background-color") || property.equals("color")) {
+			} else if (property.equals("background-image")) {
+				if (value != "none" && NativeUiStyle.gradientColors(value).len != 2) { return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "background-image requires none or linear-gradient(#RRGGBB[AA], #RRGGBB[AA])"); }
+			} else if (property.equals("background-color") || property.equals("color") || property.equals("border-color") || property.equals("marker-color")) {
 				if (!NativeUiStyle.color(value)) {
 					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, f"{property} requires #RRGGBB or #RRGGBBAA");
 				}
@@ -266,6 +285,7 @@ class NativeUiStyleSheet {
 	private Vector<string> kindRules;
 	private NativeUiStyleError issueValue;
 	private int ruleBytes;
+	private long long revisionValue = 0LL;
 
 	public NativeUiStyleSheet() {
 		self.selectors = [];
@@ -284,7 +304,15 @@ class NativeUiStyleSheet {
 		copied.kindRules = self.kindRules.copy();
 		copied.issueValue = self.issueValue;
 		copied.ruleBytes = self.ruleBytes;
+		copied.revisionValue = self.revisionValue;
 		return copied;
+	}
+
+	public long long revision() { return self.revisionValue; }
+
+	private void changed() {
+		if (self.revisionValue == 9223372036854775807LL) { throw "native UI stylesheet revision exhausted"; }
+		self.revisionValue++;
 	}
 
 	/* A rule for every element of one kind, applied after the kind defaults
@@ -304,6 +332,7 @@ class NativeUiStyleSheet {
 		}
 		self.ruleBytes += css.len() - self.kindRules.get(index).len();
 		self.kindRules.set(index, css);
+		self.changed();
 		return self;
 	}
 
@@ -330,6 +359,7 @@ class NativeUiStyleSheet {
 			}
 			self.ruleBytes += merged.len() - self.rules.get(index).len();
 			self.rules.set(index, merged);
+			self.changed();
 			return self;
 		}
 		return self.rule(className, css);
@@ -360,6 +390,7 @@ class NativeUiStyleSheet {
 		self.selectors.push(className);
 		self.rules.push(css);
 		self.ruleBytes += className.len() + css.len();
+		self.changed();
 		return self;
 	}
 
@@ -624,6 +655,8 @@ class NativeUiEvent {
 
 	class NativeUiEvent clicked(string elementId) { return NativeUiEvent(NATIVE_UI_CLICKED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, "", null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
 
+	class NativeUiEvent navigate(bool forward) { return NativeUiEvent(forward ? NATIVE_UI_NAVIGATE_FORWARD : NATIVE_UI_NAVIGATE_BACK, "", NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, "", null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
 	class NativeUiEvent hoverEntered(string elementId) { return NativeUiEvent(NATIVE_UI_HOVER_ENTERED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, "", null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
 
 	class NativeUiEvent hoverLeft(string elementId) { return NativeUiEvent(NATIVE_UI_HOVER_LEFT, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, "", null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
@@ -667,6 +700,31 @@ class NativeUiEvent {
 	public long long rangeValue() { return self.resultingRangeValue; }
 }
 
+/* Normalized, immutable source rectangle. It changes sampling only, never
+ * layout, hit testing or the source image's revision/cache identity. */
+class NativeUiImageRegion {
+	private double leftValue;
+	private double topValue;
+	private double widthValue;
+	private double heightValue;
+
+	public NativeUiImageRegion(double left, double top, double width, double height) {
+		if (!Math.isFinite(left) || !Math.isFinite(top) || !Math.isFinite(width) || !Math.isFinite(height) || left < 0.0 || top < 0.0 || width <= 0.0 || height <= 0.0 || left + width > 1.0 || top + height > 1.0) { throw "invalid native UI image region"; }
+		self.leftValue = left;
+		self.topValue = top;
+		self.widthValue = width;
+		self.heightValue = height;
+	}
+
+	public double left() { return self.leftValue; }
+
+	public double top() { return self.topValue; }
+
+	public double width() { return self.widthValue; }
+
+	public double height() { return self.heightValue; }
+}
+
 class NativeUiElement {
 	private NativeUiElementKind elementKind;
 	private string elementIdentity;
@@ -675,6 +733,7 @@ class NativeUiElement {
 	private string textValue;
 	private Image? imageValue;
 	private unsigned long long imageRevisionValue;
+	private NativeUiImageRegion? imageRegionValue;
 	private string altValue;
 	private Vector<NativeUiElement> childValues;
 	private NativeUiStyleError styleErrorValue;
@@ -688,6 +747,9 @@ class NativeUiElement {
 	private bool selectedValue;
 	private bool hasFocusableOverrideValue;
 	private bool focusableOverrideValue;
+	private bool floatingValue;
+	private int floatingXValue;
+	private int floatingYValue;
 
 	private NativeUiElement(NativeUiElementKind kind, string id, string text, Image? image, string alt) {
 		self.elementKind = kind;
@@ -697,6 +759,7 @@ class NativeUiElement {
 		self.textValue = text;
 		self.imageValue = image;
 		self.imageRevisionValue = 0ULL;
+		self.imageRegionValue = null;
 		self.altValue = alt;
 		self.childValues = [];
 		self.styleErrorValue = NativeUiStyleError.valid();
@@ -710,6 +773,9 @@ class NativeUiElement {
 		self.selectedValue = false;
 		self.hasFocusableOverrideValue = false;
 		self.focusableOverrideValue = false;
+		self.floatingValue = false;
+		self.floatingXValue = 0;
+		self.floatingYValue = 0;
 	}
 
 	class NativeUiElement column(string id) { return NativeUiElement(NATIVE_UI_COLUMN, id, "", null, ""); }
@@ -762,6 +828,12 @@ class NativeUiElement {
 		return self;
 	}
 
+	public NativeUiElement imageRegion(NativeUiImageRegion? region) {
+		if (self.elementKind != NATIVE_UI_IMAGE) { throw "native UI image regions require an image element"; }
+		self.imageRegionValue = region;
+		return self;
+	}
+
 	public NativeUiElement semanticRange(NativeUiSemanticRange descriptor) {
 		self.semanticRangeValue = descriptor;
 		return self;
@@ -793,6 +865,54 @@ class NativeUiElement {
 		return self;
 	}
 
+	/* Same bounds contract as childAt. Copy before replacing a child of a
+	 * published immutable tree; untouched children can then stay shared. */
+	public NativeUiElement replaceChild(int index, NativeUiElement value) {
+		self.childValues.set(index, value);
+		return self;
+	}
+
+	/* Independent element/child list; child elements and descriptors remain
+	 * shared. Useful for publishing a new container around retained children. */
+	public NativeUiElement copy() {
+		NativeUiElement copied = NativeUiElement(self.elementKind, self.elementIdentity, self.textValue, self.imageValue, self.altValue);
+		copied.classValue = self.classValue;
+		copied.styleValue = self.styleValue;
+		copied.imageRevisionValue = self.imageRevisionValue;
+		copied.imageRegionValue = self.imageRegionValue;
+		copied.childValues = self.childValues.copy();
+		copied.styleErrorValue = self.styleErrorValue;
+		copied.virtualGridValue = self.virtualGridValue;
+		copied.selectValue = self.selectValue;
+		copied.placeholderValue = self.placeholderValue;
+		copied.textInputMaxBytesValue = self.textInputMaxBytesValue;
+		copied.semanticRangeValue = self.semanticRangeValue;
+		copied.semanticsValue = self.semanticsValue;
+		copied.enabledValue = self.enabledValue;
+		copied.selectedValue = self.selectedValue;
+		copied.hasFocusableOverrideValue = self.hasFocusableOverrideValue;
+		copied.focusableOverrideValue = self.focusableOverrideValue;
+		copied.floatingValue = self.floatingValue;
+		copied.floatingXValue = self.floatingXValue;
+		copied.floatingYValue = self.floatingYValue;
+		return copied;
+	}
+
+	/* Out of flow, relative to the parent's outer origin. Painted after its
+	 * flowing siblings, in declaration order; overflow clips at the viewport. */
+	public NativeUiElement floating(int x, int y) {
+		self.floatingValue = true;
+		self.floatingXValue = x;
+		self.floatingYValue = y;
+		return self;
+	}
+
+	public bool isFloating() { return self.floatingValue; }
+
+	public int floatingX() { return self.floatingXValue; }
+
+	public int floatingY() { return self.floatingYValue; }
+
 	public NativeUiElementKind kind() { return self.elementKind; }
 
 	public string id() { return self.elementIdentity; }
@@ -806,6 +926,8 @@ class NativeUiElement {
 	public Image? contentImage() { return self.imageValue; }
 
 	public unsigned long long contentImageRevision() { return self.imageRevisionValue; }
+
+	public NativeUiImageRegion? contentImageRegion() { return self.imageRegionValue; }
 
 	public string imageAlt() { return self.altValue; }
 

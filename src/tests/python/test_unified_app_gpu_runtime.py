@@ -201,6 +201,7 @@ def test_unified_app_gpu_contract_under_clang_sanitizers(
             "GPURenderPipeline value = new GPURenderPipeline(null, null, 9ULL, 10ULL);",
         ),
         ("GPUUniform", "GPUUniform value = new GPUUniform(null, 11ULL, 12ULL);"),
+        ("GPUTexture", "GPUTexture value = new GPUTexture(null, 13ULL, 14ULL);"),
     ],
 )
 def test_native_owner_wrapper_constructors_are_private_on_both_frontends(

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.native_plan import NativePlanBuilder, NativePlanError, NativePlanReader
+from tools.native_plan import NativePlanBuilder, NativePlanError, NativePlanReader, main
 
 REPO = Path(__file__).resolve().parents[3]
 EXAMPLE = REPO / "examples" / "native-package"
@@ -40,7 +40,8 @@ def _emit_plan(root: Path, generated: Path, plan: Path) -> None:
     assert completed.returncode == 0, completed.stderr
 
 
-def test_builder_compiles_only_plan_units_and_runs(tmp_path: Path) -> None:
+@pytest.mark.parametrize("optimization", [None, 0, 1, 2, 3])
+def test_builder_compiles_only_plan_units_and_runs(tmp_path: Path, optimization: int | None) -> None:
     project = tmp_path / "project"
     shutil.copytree(EXAMPLE, project, ignore=shutil.ignore_patterns(".btrc-cache", "build"))
     poison = project / "packages/middle/native/not-declared.c"
@@ -50,11 +51,55 @@ def test_builder_compiles_only_plan_units_and_runs(tmp_path: Path) -> None:
     output = tmp_path / "program"
     _emit_plan(project, generated, plan)
 
-    NativePlanBuilder().build(plan_path=plan, generated_c=generated, output=output)
+    commands: list[list[str]] = []
+
+    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        return subprocess.run(command, **kwargs)
+
+    options = {} if optimization is None else {"optimization": optimization}
+    NativePlanBuilder(runner=run).build(plan_path=plan, generated_c=generated, output=output, **options)
+
+    compiles = [command for command in commands if "-c" in command]
+    assert len(compiles) == 1 + len(json.loads(plan.read_text())["units"])
+    for command in compiles:
+        assert [flag for flag in command if flag.startswith("-O")] == [
+            f"-O{2 if optimization is None else optimization}"
+        ]
+        assert "-Werror" in command
 
     completed = subprocess.run([str(output)], capture_output=True, check=True, text=True)
     assert completed.stdout == "PASS: native package graph\n"
     assert poison.is_file()
+
+
+@pytest.mark.parametrize("optimization", [-1, 4, True, 2.0, "2 -ffast-math"])
+def test_builder_rejects_invalid_optimization_before_build(tmp_path: Path, optimization: object) -> None:
+    with pytest.raises(NativePlanError, match="optimization must be an integer from 0 through 3"):
+        NativePlanBuilder().build(
+            plan_path=tmp_path / "absent.link.json",
+            generated_c=tmp_path / "absent.c",
+            output=tmp_path / "must-not-exist",
+            optimization=optimization,
+        )
+    assert not (tmp_path / "must-not-exist").exists()
+
+
+def test_cli_rejects_free_form_optimization(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit) as failure:
+        main(
+            [
+                "--plan",
+                str(tmp_path / "absent.link.json"),
+                "--generated-c",
+                str(tmp_path / "absent.c"),
+                "--output",
+                str(tmp_path / "must-not-exist"),
+                "--optimization",
+                "2 -ffast-math",
+            ]
+        )
+    assert failure.value.code == 2
 
 
 def test_builder_rejects_non_schema_flags_before_build(tmp_path: Path) -> None:

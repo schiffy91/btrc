@@ -23,6 +23,7 @@ void fake_glfw_emit_window_size(void);
 void fake_glfw_emit_framebuffer_size(void);
 void fake_glfw_emit_content_scale(void);
 void fake_glfw_emit_close(void);
+void fake_glfw_emit_focus_lost(void);
 void fake_glfw_emit_close_on_next_wait(void);
 void fake_glfw_set_lifecycle_observer(FakeGlfwLifecycleObserver observer);
 

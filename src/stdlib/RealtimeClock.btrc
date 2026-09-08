@@ -30,7 +30,7 @@ class RealtimePlaybackSpeed {
 	private double _value;
 
 	public RealtimePlaybackSpeed(double value) {
-		if (!isfinite(value) || value < 0.25 || value > 4.0) { throw "invalid realtime playback speed"; }
+		if (!isfinite(value) || value < 0.1 || value > 4.0) { throw "invalid realtime playback speed"; }
 		self._value = value;
 	}
 

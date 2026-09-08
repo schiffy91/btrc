@@ -387,7 +387,10 @@ class NativePlanBuilder:
         cc: str = "cc",
         cxx: str = "c++",
         pkg_config: str = "pkg-config",
+        optimization: int = 2,
     ) -> None:
+        if type(optimization) is not int or optimization not in range(4):
+            raise NativePlanError("optimization must be an integer from 0 through 3")
         plan = self._reader.read(plan_path)
         generated = _regular_file(str(generated_c.absolute()), "generated C input")
         if not output.is_absolute():
@@ -415,6 +418,7 @@ class NativePlanBuilder:
                     *includes,
                     *defines,
                     *package_compile,
+                    f"-O{optimization}",
                     "-c",
                     str(generated),
                     "-o",
@@ -433,6 +437,7 @@ class NativePlanBuilder:
                         *includes,
                         *defines,
                         *package_compile,
+                        f"-O{optimization}",
                         "-c",
                         str(unit.path),
                         "-o",
@@ -509,6 +514,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--cc", default="cc")
     parser.add_argument("--cxx", default="c++")
     parser.add_argument("--pkg-config", default="pkg-config")
+    parser.add_argument(
+        "--optimization",
+        type=int,
+        choices=range(4),
+        default=2,
+        help="native optimization level (default: 2; use 0 for unoptimized debugging)",
+    )
     arguments = parser.parse_args(argv)
     try:
         NativePlanBuilder().build(
@@ -518,6 +530,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             cc=arguments.cc,
             cxx=arguments.cxx,
             pkg_config=arguments.pkg_config,
+            optimization=arguments.optimization,
         )
     except (NativePlanError, OSError) as error:
         sys.stderr.write(f"btrc-native-plan: error: {error}\n")

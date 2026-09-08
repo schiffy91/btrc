@@ -584,7 +584,11 @@ class TypeIdentity:
             return False
         assert left is not None and right is not None
         if left.base in _FUNCTION_POINTER_BASES or right.base in _FUNCTION_POINTER_BASES:
-            return left.base in _FUNCTION_POINTER_BASES and right.base in _FUNCTION_POINTER_BASES and left.generic_args == right.generic_args
+            return (
+                left.base in _FUNCTION_POINTER_BASES
+                and right.base in _FUNCTION_POINTER_BASES
+                and left.generic_args == right.generic_args
+            )
         if self._is_void_pointer(left) or self._is_void_pointer(right):
             return True
         if (self.is_scalar_string(left) and self.is_c_string_pointer(right)) or (
@@ -1501,12 +1505,16 @@ class TypeSystem:
                 type_col,
             )
         canonical = self.canonical_type(type_expr)
-        if canonical and canonical.base == "__realtime_fn_ptr" and (
-            canonical.pointer_depth != 0
-            or canonical.is_array
-            or canonical.is_nullable
-            or canonical.is_const
-            or canonical.is_volatile
+        if (
+            canonical
+            and canonical.base == "__realtime_fn_ptr"
+            and (
+                canonical.pointer_depth != 0
+                or canonical.is_array
+                or canonical.is_nullable
+                or canonical.is_const
+                or canonical.is_volatile
+            )
         ):
             self.session.error(
                 "RealtimeFunction must be one direct, unqualified proof-carrying function pointer",
@@ -1868,7 +1876,9 @@ class TypeSystem:
             return False
         if canonical.base == "__realtime_fn_ptr":
             return True
-        if any(self.contains_realtime_function_storage(argument, visiting) for argument in canonical.generic_args or []):
+        if any(
+            self.contains_realtime_function_storage(argument, visiting) for argument in canonical.generic_args or []
+        ):
             return True
         if canonical.pointer_depth > 0:
             return False

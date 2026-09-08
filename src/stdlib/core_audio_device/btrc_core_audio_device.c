@@ -62,6 +62,8 @@ typedef struct {
     int input_channels[BTRC_CORE_AUDIO_MAX_CHANNELS];
     int output_channels[BTRC_CORE_AUDIO_MAX_CHANNELS];
     uint32_t maximum_frames;
+    uint32_t block_frames;
+    uint32_t sample_rate;
     AudioBufferList* input_buffers;
     float* physical_input;
     float* selected_input;
@@ -499,7 +501,7 @@ static OSStatus btrc_core_audio_render(void* context, AudioUnitRenderActionFlags
     btrc_core_audio_silence(output_data, action_flags);
     if (session == NULL || output_data == NULL || !atomic_load_explicit(&session->accepting_callbacks, memory_order_acquire)) { return noErr; }
     atomic_fetch_add_explicit(&session->active_callbacks, 1u, memory_order_acq_rel);
-    if (!atomic_load_explicit(&session->accepting_callbacks, memory_order_acquire) || frame_count == 0 || frame_count > session->maximum_frames || output_data->mNumberBuffers != 1 || output_data->mBuffers[0].mData == NULL) {
+    if (!atomic_load_explicit(&session->accepting_callbacks, memory_order_acquire) || frame_count == 0 || frame_count > session->maximum_frames || session->block_frames == 0 || session->sample_rate == 0 || output_data->mNumberBuffers != 1 || output_data->mBuffers[0].mData == NULL) {
         atomic_fetch_sub_explicit(&session->active_callbacks, 1u, memory_order_release);
         return noErr;
     }
@@ -550,9 +552,25 @@ static OSStatus btrc_core_audio_render(void* context, AudioUnitRenderActionFlags
     block.streamEpoch = session->epoch;
     block.hostTimeNanoseconds = timestamp != NULL && (timestamp->mFlags & kAudioTimeStampHostTimeValid) != 0 ? AudioConvertHostTimeToNanos(timestamp->mHostTime) : 0;
     block.flags = block_flags;
-    BtrcRealtimeAudioInputSamples inputs = { session->has_input ? session->selected_input : NULL, selected_input_samples };
-    BtrcRealtimeAudioOutputSamples outputs = { session->selected_output, selected_output_samples };
-    session->process(session->process_context, block, inputs, outputs);
+    /* AudioUnit conversion can request more frames than the device quantum.
+     * Keep the negotiated program bound without dropping or buffering samples. */
+    uint64_t first_host_time = block.hostTimeNanoseconds;
+    bool host_time_valid = timestamp != NULL && (timestamp->mFlags & kAudioTimeStampHostTimeValid) != 0;
+    for (UInt32 offset = 0; offset < frame_count;) {
+        UInt32 count = frame_count - offset;
+        if (count > session->block_frames) { count = session->block_frames; }
+        uint64_t slice_frame = device_frame > UINT64_MAX - offset ? UINT64_MAX : device_frame + offset;
+        uint64_t elapsed = (uint64_t)offset * UINT64_C(1000000000) / session->sample_rate;
+        block.frameCount = (int)count;
+        block.inputDeviceFrame = session->has_input && frame_valid ? slice_frame : 0;
+        block.outputDeviceFrame = frame_valid ? slice_frame : 0;
+        block.hostTimeNanoseconds = !host_time_valid ? 0 : (first_host_time > UINT64_MAX - elapsed ? UINT64_MAX : first_host_time + elapsed);
+        BtrcRealtimeAudioInputSamples inputs = { session->has_input ? session->selected_input + (size_t)offset * (size_t)session->input_channel_count : NULL, (size_t)count * (size_t)session->input_channel_count };
+        BtrcRealtimeAudioOutputSamples outputs = { session->selected_output + (size_t)offset * (size_t)session->output_channel_count, (size_t)count * (size_t)session->output_channel_count };
+        session->process(session->process_context, block, inputs, outputs);
+        block.flags &= ~(BTRC_AUDIO_BLOCK_INPUT_DISCONTINUITY | BTRC_AUDIO_BLOCK_OUTPUT_DISCONTINUITY);
+        offset += count;
+    }
     float* physical_output = (float*)output_data->mBuffers[0].mData;
     for (UInt32 frame = 0; frame < frame_count; frame++) {
         for (int channel = 0; channel < session->output_channel_count; channel++) {
@@ -667,6 +685,8 @@ int std_core_audio_provider_open_duplex(void* raw_provider, uint64_t inventory_g
     session->output_device = output->native_id;
     session->process = process;
     session->process_context = process_context;
+    session->block_frames = (uint32_t)buffer_frames;
+    session->sample_rate = (uint32_t)sample_rate;
     session->state = BTRC_CORE_AUDIO_SESSION_READY;
     session->has_input = input != NULL;
     session->input_channel_count = input_channel_count;

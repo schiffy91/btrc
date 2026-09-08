@@ -1,0 +1,58 @@
+/* Thousands of cycle suspects die in one release cascade while real cycles
+ * are still collected: every link below is a cyclic-capable object whose only
+ * remaining reference is an edge, so each one enters the suspect buffer and
+ * leaves it again when the chain is dropped. */
+class Link {
+	public Link? next;
+	public int value;
+	public Link(int value) {
+		self.next = null;
+		self.value = value;
+	}
+}
+
+int chainSum(int count) {
+	Link head = Link(0);
+	Link tail = head;
+	int index = 1;
+	while (index < count) {
+		Link link = Link(index);
+		tail.next = link;
+		tail = link;
+		index = index + 1;
+	}
+	int sum = 0;
+	Link? cursor = head;
+	while (cursor != null) {
+		sum = sum + cursor.value;
+		cursor = cursor.next;
+	}
+	return sum;
+}
+
+int cyclePairs(int rounds) {
+	int made = 0;
+	int round = 0;
+	while (round < rounds) {
+		Link left = Link(round);
+		Link right = Link(round + 1);
+		left.next = right;
+		right.next = left;
+		made = made + 1;
+		round = round + 1;
+	}
+	return made;
+}
+
+int main() {
+	int total = 0;
+	int repeat = 0;
+	while (repeat < 3) {
+		total = total + chainSum(5000);
+		total = total + cyclePairs(1000);
+		repeat = repeat + 1;
+	}
+	print(f"total={total}");
+	print("PASS: cycle suspect churn");
+	return 0;
+}

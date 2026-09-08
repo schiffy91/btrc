@@ -102,6 +102,36 @@ def test_core_audio_native_callback_and_lifecycle(tmp_path: Path) -> None:
     }
 
 
+def test_core_audio_variable_callback_blocks(tmp_path: Path) -> None:
+    clang = shutil.which("clang")
+    if clang is None:
+        pytest.skip("Clang is unavailable")
+    executable = tmp_path / "core-audio-blocks"
+    command = [
+        clang,
+        "-std=c11",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-pedantic-errors",
+        f"-I{RUNTIME}",
+        str(FIXTURE / "core_audio_block_slices.c"),
+        "-framework",
+        "AudioToolbox",
+        "-framework",
+        "CoreAudio",
+        "-framework",
+        "CoreFoundation",
+        "-o",
+        str(executable),
+    ]
+    built = subprocess.run(command, capture_output=True, text=True, timeout=COMPILE_TIMEOUT)
+    assert built.returncode == 0, built.stderr
+    ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+    assert ran.returncode == 0, ran.stderr
+    assert ran.stdout == "PASS: CoreAudio bounded callback slices preserve samples and clocks\n"
+
+
 def test_core_audio_provider_on_both_frontends(compiler: str, tmp_path: Path, request: pytest.FixtureRequest) -> None:
     clang = shutil.which("clang")
     clangxx = shutil.which("clang++")

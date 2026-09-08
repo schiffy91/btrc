@@ -1,5 +1,6 @@
 #include "btrc_app.h"
 #include "btrc_app_surface_internal.h"
+#include "btrc_app_window_internal.h"
 #include "fake_glfw_runtime.h"
 
 #include <GLFW/glfw3.h>
@@ -25,6 +26,15 @@ static int fake_directory_calls;
 static char fake_directory_path[FAKE_DIRECTORY_CAPACITY];
 static char fake_directory_title[FAKE_DIRECTORY_REQUEST_CAPACITY];
 static char fake_directory_initial[FAKE_DIRECTORY_CAPACITY];
+static int titlebar_calls;
+static int titlebar_error;
+
+int btrc_app_platform_set_titlebar_style(GLFWwindow* window, int style) {
+    assert(window != NULL);
+    assert(style == BTRC_APP_TITLEBAR_STANDARD || style == BTRC_APP_TITLEBAR_OVERLAY);
+    titlebar_calls++;
+    return titlebar_error;
+}
 
 static void fake_directory_picker(int outcome, const char* path, int error) {
     fake_directory_outcome = outcome;
@@ -423,6 +433,16 @@ static void test_ordered_events_and_overflow(void) {
            BTRC_APP_EVENT_CLOSE_REQUESTED);
 
     unsigned int wait_before_idle = fake_glfw_wait_calls();
+    fake_glfw_emit_key(GLFW_KEY_LEFT_ALT, GLFW_PRESS, GLFW_MOD_ALT);
+    fake_glfw_emit_key(GLFW_KEY_RIGHT_ALT, GLFW_RELEASE, 0);
+    fake_glfw_emit_focus_lost();
+    assert(std_app_poll(application.capability) == BTRC_APP_EVENT_KEYBOARD);
+    assert(std_app_event_key(application.capability) == BTRC_APP_KEY_LEFT_ALT);
+    assert(std_app_event_key_action(application.capability) == BTRC_APP_KEY_PRESSED);
+    assert(std_app_poll(application.capability) == BTRC_APP_EVENT_KEYBOARD);
+    assert(std_app_event_key(application.capability) == BTRC_APP_KEY_RIGHT_ALT);
+    assert(std_app_event_key_action(application.capability) == BTRC_APP_KEY_RELEASED);
+    assert(std_app_poll(application.capability) == BTRC_APP_EVENT_FOCUS_LOST);
     assert(std_app_poll(application.capability) == BTRC_APP_EVENT_IDLE);
     assert(fake_glfw_wait_calls() == wait_before_idle + 1);
 
@@ -449,6 +469,33 @@ static void test_ordered_events_and_overflow(void) {
     assert_backend_clean();
 }
 
+static void test_titlebar_boundary(void) {
+    fake_glfw_reset();
+    OwnedCapability application = open_application();
+    OwnedCapability window = open_window(application, 640, 480);
+    titlebar_calls = 0;
+    assert(std_app_window_set_titlebar_style(window.capability, 0, BTRC_APP_TITLEBAR_OVERLAY) == BTRC_APP_ERROR_INVALID_ARGUMENT);
+    assert(std_app_window_set_titlebar_style(window.capability, different_receipt(window.owner_receipt), BTRC_APP_TITLEBAR_OVERLAY) == BTRC_APP_ERROR_INVALID_ARGUMENT);
+    assert(std_app_window_set_titlebar_style(window.capability, window.owner_receipt, 99) == BTRC_APP_ERROR_INVALID_ARGUMENT);
+    assert(titlebar_calls == 0);
+    titlebar_error = BTRC_APP_ERROR_BACKEND_UNAVAILABLE;
+    assert(std_app_window_set_titlebar_style(window.capability, window.owner_receipt, BTRC_APP_TITLEBAR_OVERLAY) == BTRC_APP_ERROR_BACKEND_UNAVAILABLE);
+    titlebar_error = BTRC_APP_ERROR_NONE;
+    assert(std_app_window_set_titlebar_style(window.capability, window.owner_receipt, BTRC_APP_TITLEBAR_OVERLAY) == BTRC_APP_ERROR_NONE);
+    assert(std_app_error_code(window.capability) == BTRC_APP_ERROR_NONE);
+    assert(titlebar_calls == 2);
+    OwnedCapability surface = create_surface(window);
+    assert(std_app_window_set_titlebar_style(window.capability, window.owner_receipt, BTRC_APP_TITLEBAR_STANDARD) == BTRC_APP_ERROR_RESOURCE_BUSY);
+    assert(titlebar_calls == 2);
+    assert(std_app_surface_release(surface.capability, surface.owner_receipt) == BTRC_APP_ERROR_NONE);
+    assert(std_app_window_set_titlebar_style(window.capability, window.owner_receipt, BTRC_APP_TITLEBAR_STANDARD) == BTRC_APP_ERROR_NONE);
+    assert(std_app_window_close(window.capability, window.owner_receipt) == BTRC_APP_ERROR_NONE);
+    assert(std_app_window_set_titlebar_style(window.capability, window.owner_receipt, BTRC_APP_TITLEBAR_OVERLAY) == BTRC_APP_ERROR_NOT_OPEN);
+    assert(titlebar_calls == 3);
+    assert(std_app_close(application.capability, application.owner_receipt) == BTRC_APP_ERROR_NONE);
+    assert_backend_clean();
+}
+
 typedef struct {
     OwnedCapability application;
     OwnedCapability window;
@@ -468,6 +515,7 @@ typedef struct {
     int directory_picker_error;
     int directory_picker_path_empty;
     int window_close_error;
+    int titlebar_error;
     int application_close_error;
 } WrongThreadResults;
 
@@ -494,6 +542,7 @@ static void* exercise_wrong_thread(void* userdata) {
     results->directory_picker_path_empty = std_app_window_selected_directory(results->window.capability)[0] == '\0';
     results->window_close_error = std_app_window_close(
         results->window.capability, results->window.owner_receipt);
+    results->titlebar_error = std_app_window_set_titlebar_style(results->window.capability, results->window.owner_receipt, BTRC_APP_TITLEBAR_OVERLAY);
     results->application_close_error = std_app_close(
         results->application.capability, results->application.owner_receipt);
     return NULL;
@@ -552,6 +601,7 @@ static void test_wrong_thread_rejection(void) {
     assert(results.directory_picker_path_empty != 0);
     assert(fake_directory_calls == 0);
     assert(results.window_close_error == BTRC_APP_ERROR_NOT_MAIN_THREAD);
+    assert(results.titlebar_error == BTRC_APP_ERROR_NOT_MAIN_THREAD);
     assert(results.application_close_error == BTRC_APP_ERROR_NOT_MAIN_THREAD);
     assert(fake_glfw_wrong_thread_calls() == 0);
     assert(fake_glfw_live_windows() == 1);
@@ -681,11 +731,44 @@ static void arm_owner_thread_atexit_finalization(void) {
     assert(fake_app_allocator_live() == 1);
 }
 
+static void test_clipboard_boundary(void) {
+    fake_glfw_reset();
+    OwnedCapability application = open_application();
+    OwnedCapability window = open_window(application, 240, 120);
+    fake_glfw_emit_mouse_button(GLFW_MOUSE_BUTTON_4, GLFW_PRESS, 0);
+    assert(std_app_poll(application.capability) == BTRC_APP_EVENT_POINTER);
+    assert(std_app_event_pointer_button(application.capability) == BTRC_APP_BUTTON_BACK);
+    fake_glfw_emit_mouse_button(GLFW_MOUSE_BUTTON_5, GLFW_RELEASE, 0);
+    assert(std_app_poll(application.capability) == BTRC_APP_EVENT_POINTER);
+    assert(std_app_event_pointer_button(application.capability) == BTRC_APP_BUTTON_FORWARD);
+    const int physical_keys[] = { GLFW_KEY_A, GLFW_KEY_C, GLFW_KEY_V, GLFW_KEY_X, GLFW_KEY_HOME, GLFW_KEY_END, GLFW_KEY_DELETE };
+    const int expected_keys[] = { BTRC_APP_KEY_A, BTRC_APP_KEY_C, BTRC_APP_KEY_V, BTRC_APP_KEY_X, BTRC_APP_KEY_HOME, BTRC_APP_KEY_END, BTRC_APP_KEY_DELETE };
+    while (std_app_poll(application.capability) != BTRC_APP_EVENT_IDLE) {}
+    for (size_t index = 0; index < sizeof(physical_keys) / sizeof(physical_keys[0]); index++) {
+        fake_glfw_emit_key(physical_keys[index], GLFW_PRESS, GLFW_MOD_SUPER | GLFW_MOD_SHIFT);
+        assert(std_app_poll(application.capability) == BTRC_APP_EVENT_KEYBOARD);
+        assert(std_app_event_key(application.capability) == expected_keys[index]);
+        assert(std_app_event_modifiers(application.capability) == (GLFW_MOD_SUPER | GLFW_MOD_SHIFT));
+    }
+    assert(std_app_window_set_clipboard_text(window.capability, different_receipt(window.owner_receipt), "no") == BTRC_APP_ERROR_INVALID_ARGUMENT);
+    assert(std_app_window_clipboard_text(window.capability, different_receipt(window.owner_receipt)) == NULL);
+    assert(std_app_window_set_clipboard_text(window.capability, window.owner_receipt, "Bj\xc3\xb6rk") == BTRC_APP_ERROR_NONE);
+    assert(strcmp(std_app_window_clipboard_text(window.capability, window.owner_receipt), "Bj\xc3\xb6rk") == 0);
+    assert(std_app_window_set_clipboard_text(window.capability, window.owner_receipt, NULL) == BTRC_APP_ERROR_INVALID_ARGUMENT);
+    assert(strcmp(std_app_window_clipboard_text(window.capability, window.owner_receipt), "Bj\xc3\xb6rk") == 0);
+    assert(std_app_window_close(window.capability, window.owner_receipt) == BTRC_APP_ERROR_NONE);
+    assert(std_app_window_clipboard_text(window.capability, window.owner_receipt) == NULL);
+    assert(std_app_close(application.capability, application.owner_receipt) == BTRC_APP_ERROR_NONE);
+    assert_backend_clean();
+}
+
 int main(void) {
     assert(atexit(assert_atexit_finalization) == 0);
     test_initialization_rollback();
     test_sole_owner_and_cleanup();
     test_directory_picker_boundary();
+    test_titlebar_boundary();
+    test_clipboard_boundary();
     test_generation_lease_and_partial_init();
     test_ordered_events_and_overflow();
     test_wrong_thread_rejection();

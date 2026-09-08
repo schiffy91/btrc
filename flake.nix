@@ -275,13 +275,19 @@
                 -x objective-c ${appCompileFlags} -Isrc/stdlib/app \
                 -c src/stdlib/app/btrc_app_directory_picker_macos.m \
                 -o btrc_app_directory_picker.o
+              $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
+                -x objective-c ${appCompileFlags} -Isrc/stdlib/app \
+                -c src/stdlib/app/btrc_app_window_macos.m -o btrc_app_window.o
             '' else ''
               $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
                 ${appCompileFlags} -Isrc/stdlib/app \
                 -c src/stdlib/app/btrc_app_directory_picker_stub.c \
                 -o btrc_app_directory_picker.o
+              $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
+                ${appCompileFlags} -Isrc/stdlib/app \
+                -c src/stdlib/app/btrc_app_window_stub.c -o btrc_app_window.o
             ''}
-            $AR rcs libbtrc_app.a btrc_app.o btrc_app_directory_picker.o
+            $AR rcs libbtrc_app.a btrc_app.o btrc_app_directory_picker.o btrc_app_window.o
             runHook postBuild
           '';
           installPhase = ''

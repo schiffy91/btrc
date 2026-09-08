@@ -17,11 +17,13 @@ class GenericSpecializer {
 	private Analyzed analyzed;
 	private OperatorSemantics operators;
 	private ExpressionTypeResolver expressions;
+	private Map<string, bool> validatedSpecializations;
 
 	public GenericSpecializer(Analyzed analyzed, OperatorSemantics operators, ExpressionTypeResolver expressions) {
 		self.analyzed = analyzed;
 		self.operators = operators;
 		self.expressions = expressions;
+		self.validatedSpecializations = {};
 	}
 
 	public void discover(Node program) {
@@ -50,7 +52,10 @@ class GenericSpecializer {
      * Walks each function/method body building a {var -> TypeExpr} map (the same
      * map IR-gen later uses), and at every method call whose resolved method has
      * its own type parameters, infers the concrete method type args and records a
-     * monomorphization target. */
+     * monomorphization target. Each body owns one expression-inference memo, as
+     * IR lowering does: every receiver in a deep builder chain is otherwise
+     * re-inferred once per enclosing call, which is exponential in chain depth
+     * and matches the reference analyzer's session-wide node-type cache. */
 	private void collectMethodGenericsDecl(Node d, Analyzed a, OperatorSemantics operators) {
 		if (d.kind == NK_FUNCTION_DECL) {
 			Map<string, Node> vt = {};
@@ -60,7 +65,9 @@ class GenericSpecializer {
 				i = i + 1;
 			}
 			if (d.body_node != null) {
+				bool ownsMemo = self.expressions.beginScopedMemo();
 				self.collectMethodGenericsBlock(d.body_node, a, operators, vt);
+				self.expressions.endScopedMemo(ownsMemo);
 			}
 		} else if (d.kind == NK_CLASS_DECL && d.generic_params.len == 0) {
 			int i = 0;
@@ -76,7 +83,9 @@ class GenericSpecializer {
 						vt.put(mem.params.get(p).name, mem.params.get(p).type);
 						p = p + 1;
 					}
+					bool ownsMemo = self.expressions.beginScopedMemo();
 					self.collectMethodGenericsBlock(mem.body_node, a, operators, vt);
+					self.expressions.endScopedMemo(ownsMemo);
 				}
 				i = i + 1;
 			}
@@ -682,7 +691,14 @@ class GenericSpecializer {
 		if (t.generic_args.len == 0) { return; }
 		string base = t.base;
 		if (a.genericClassTable.has(base)) {
-			self.validateGenericClassSpecialization(t, a);
+			/* A specialization's validity depends only on its owner declaration and
+			 * exact arguments, so validate each distinct specialization once instead
+			 * of once per expression that mentions it. */
+			string validationKey = TypeIdentity.genericInstanceKey(base, t.generic_args);
+			if (!self.validatedSpecializations.has(validationKey)) {
+				self.validateGenericClassSpecialization(t, a);
+				self.validatedSpecializations.put(validationKey, true);
+			}
 		}
 		if (a.genericClassTable.has(base) && !TypeIdentity.referencesNames(t, unresolved)) {
 			/* By this point class-typed args have been upgraded to pointers in the
@@ -1118,7 +1134,9 @@ class GenericSpecializer {
 		Map<string, Node> baseVariables = self.genericClosureGlobalTypes(analyzed);
 		baseVariables.put("self", self.genericClosureSelfType(instance.base, instance.args));
 		Map<string, bool> visited = {};
+		bool ownsMemo = self.expressions.beginScopedMemo();
 		self.genericClosureScanHierarchy(declaration, instance.args, substitutions, analyzed, operators, baseVariables, visited, true);
+		self.expressions.endScopedMemo(ownsMemo);
 	}
 
 	private Node? genericClosureMethodDeclaration(MethodGenInstance instance, Analyzed analyzed) {
@@ -1154,8 +1172,10 @@ class GenericSpecializer {
 		Map<string, bool> unresolved = {};
 		Map<string, Node> variables = self.genericClosureGlobalTypes(analyzed);
 		variables.put("self", self.genericClosureSelfType(instance.classBase, instance.classArgs));
+		bool ownsMemo = self.expressions.beginScopedMemo();
 		self.genericClosureSeedParameters(method, substitutions, unresolved, analyzed, operators, variables);
 		self.genericClosureWalkNode(method.body_node, substitutions, unresolved, analyzed, operators, variables);
+		self.expressions.endScopedMemo(ownsMemo);
 	}
 
 	private void closeGenericInstanceGraph(Analyzed analyzed, OperatorSemantics operators) {
@@ -1192,13 +1212,22 @@ class GenericSpecializer {
 			Vector<Node> noArguments = [];
 			variables.put("self", self.genericClosureSelfType(owner.name, noArguments));
 		}
+		bool ownsMemo = self.expressions.beginScopedMemo();
 		self.genericClosureSeedParameters(callable, substitutions, unresolved, analyzed, operators, variables);
 		self.genericClosureWalkNode(callable.body_node, substitutions, unresolved, analyzed, operators, variables);
+		self.expressions.endScopedMemo(ownsMemo);
 	}
 
 	/* Semantic validation records target-directed no-arg constructor types after
      * the analyzer's initial declaration walk. Scan ordinary bodies once more at
      * that point, then close any newly discovered specialization graph. */
+	/* Each closure-scan unit (an ordinary callable body, a plain class's field and
+     * property initializers, a global initializer, or one generic class/method
+     * instance) owns a scoped expression-inference memo: the walk infers the type
+     * of every subexpression it visits, so without a memo a builder chain of
+     * depth n costs n full inferences of its suffixes. Units never share a memo
+     * because generic instances resolve the same template nodes under different
+     * substitutions. */
 	private void closeProgramGenericExpressionGraph(Node program, Analyzed analyzed, OperatorSemantics operators) {
 		Map<string, Node> substitutions = {};
 		Map<string, bool> unresolved = {};
@@ -1211,6 +1240,7 @@ class GenericSpecializer {
 				Map<string, Node> fieldVariables = self.genericClosureGlobalTypes(analyzed);
 				Vector<Node> noArguments = [];
 				fieldVariables.put("self", self.genericClosureSelfType(declaration.name, noArguments));
+				bool ownsMemo = self.expressions.beginScopedMemo();
 				int memberIndex = 0;
 				while (memberIndex < declaration.members.len) {
 					Node member = declaration.members.get(memberIndex);
@@ -1223,8 +1253,11 @@ class GenericSpecializer {
 					}
 					memberIndex = memberIndex + 1;
 				}
+				self.expressions.endScopedMemo(ownsMemo);
 			} else {
+				bool ownsMemo = self.expressions.beginScopedMemo();
 				self.genericClosureWalkNode(declaration.initializer, substitutions, unresolved, analyzed, operators, self.genericClosureGlobalTypes(analyzed));
+				self.expressions.endScopedMemo(ownsMemo);
 			}
 			declarationIndex = declarationIndex + 1;
 		}

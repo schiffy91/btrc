@@ -168,9 +168,9 @@ test-windows: btrcc-windows-x64 ## Build Windows btrcc bundle + sample; run samp
 app: ## Build the sole application/window runtime (skips if GLFW is missing)
 	@$(NIX) bash -c '\
 		D=src/stdlib/app && O=build/stdlib/app && mkdir -p "$$O" && \
-		archive="$$O/libbtrc_app.a" && object="$$O/btrc_app.o" && provider="$$O/btrc_app_directory_picker.o" && \
-		rm -f "$$archive" "$$object" "$$provider" && \
-		trap "rm -f \"$$archive\" \"$$object\" \"$$provider\"" EXIT && \
+		archive="$$O/libbtrc_app.a" && object="$$O/btrc_app.o" && provider="$$O/btrc_app_directory_picker.o" && window="$$O/btrc_app_window.o" && \
+		rm -f "$$archive" "$$object" "$$provider" "$$window" && \
+		trap "rm -f \"$$archive\" \"$$object\" \"$$provider\" \"$$window\"" EXIT && \
 		if ! $(CC) $$APP_CFLAGS -std=c11 -I"$$D" -E "$$D/btrc_app.c" -o /dev/null 2>/dev/null; then \
 			echo "Application runtime skipped (missing GLFW headers)"; exit 0; \
 		fi && \
@@ -179,11 +179,15 @@ app: ## Build the sole application/window runtime (skips if GLFW is missing)
 		if [ "$$(uname -s)" = Darwin ]; then \
 			$(APP_OBJC) $$APP_CFLAGS $(NATIVE_CFLAGS) -x objective-c -I"$$D" -O2 \
 				-c "$$D/btrc_app_directory_picker_macos.m" -o "$$provider"; \
+			$(APP_OBJC) $$APP_CFLAGS $(NATIVE_CFLAGS) -x objective-c -I"$$D" -O2 \
+				-c "$$D/btrc_app_window_macos.m" -o "$$window"; \
 		else \
 			$(CC) $$APP_CFLAGS $(NATIVE_CFLAGS) -I"$$D" -O2 \
 				-c "$$D/btrc_app_directory_picker_stub.c" -o "$$provider"; \
+			$(CC) $$APP_CFLAGS $(NATIVE_CFLAGS) -I"$$D" -O2 \
+				-c "$$D/btrc_app_window_stub.c" -o "$$window"; \
 		fi && \
-		$(HOST_AR) rcs "$$archive" "$$object" "$$provider" && \
+		$(HOST_AR) rcs "$$archive" "$$object" "$$provider" "$$window" && \
 		trap - EXIT && \
 		echo "Built: $$archive"'
 

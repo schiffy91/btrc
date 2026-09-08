@@ -22,6 +22,8 @@ class ExpressionTypeResolver {
 	private bool memoEnabled;
 	private Map<string, bool> memoKnown;
 	private Map<string, Node> memoValues;
+	private Map<string, bool> rawKnown;
+	private Map<string, Node> rawValues;
 
 	public ExpressionTypeResolver(Analyzed analyzed, HostedAbiRepository hostedAbi, OperatorSemantics operators, SemanticTypeSystem types, DeclarationRegistry declarations) {
 		self.analyzed = analyzed;
@@ -32,6 +34,8 @@ class ExpressionTypeResolver {
 		self.memoEnabled = false;
 		self.memoKnown = {};
 		self.memoValues = {};
+		self.rawKnown = {};
+		self.rawValues = {};
 	}
 
 	private Node? richEnumVariant(string enumName, string variantName, Analyzed analyzed) {
@@ -740,12 +744,28 @@ class ExpressionTypeResolver {
 		return null;
 	}
 
-	private Node? inferType(Node? node, Analyzed a, OperatorSemantics operators, Map<string, Node> varTypes) { return SemanticTypeSystem.resolveTypedefType(self.inferTypeRaw(node, a, operators, varTypes), a.typedefTable); }
+	/* Raw inference shares one memo with the specialization wrappers so that
+     * validation (`inferType`) and specialization (`inferSpecializationType`)
+     * never re-walk a subtree already proven in the active memo context. */
+	private Node? inferTypeRawMemoized(Node? node, Analyzed a, OperatorSemantics operators, Map<string, Node> varTypes) {
+		if (node == null || !self.memoEnabled) { return self.inferTypeRaw(node, a, operators, varTypes); }
+		string key = AstIdentity.key(node);
+		if (self.rawKnown.has(key)) {
+			if (self.rawValues.has(key)) { return self.rawValues.get(key); }
+			return null;
+		}
+		Node? result = self.inferTypeRaw(node, a, operators, varTypes);
+		self.rawKnown.put(key, true);
+		if (result != null) { self.rawValues.put(key, result); }
+		return result;
+	}
+
+	private Node? inferType(Node? node, Analyzed a, OperatorSemantics operators, Map<string, Node> varTypes) { return SemanticTypeSystem.resolveTypedefType(self.inferTypeRawMemoized(node, a, operators, varTypes), a.typedefTable); }
 
 	/* Match the reference analyzer's stored expression-type domain: expand the
      * alias naming the value itself, but retain aliases nested in generic
      * arguments so IR symbol selection agrees with generic-instance collection. */
-	private Node? inferSpecializationTypeUnmemoized(Node? node, Analyzed a, OperatorSemantics operators, Map<string, Node> varTypes) { return SemanticTypeSystem.resolveOuterTypedefType(self.inferTypeRaw(node, a, operators, varTypes), a.typedefTable); }
+	private Node? inferSpecializationTypeUnmemoized(Node? node, Analyzed a, OperatorSemantics operators, Map<string, Node> varTypes) { return SemanticTypeSystem.resolveOuterTypedefType(self.inferTypeRawMemoized(node, a, operators, varTypes), a.typedefTable); }
 
 	/* Infer the __fn_ptr(ret, params...) TypeExpr for a lambda expression so that
      * `var f = lambda` declares `f` with the right typedef'd C type. The return
@@ -868,6 +888,8 @@ class ExpressionTypeResolver {
 	private void beginExpressionInferenceMemo() {
 		self.memoKnown = {};
 		self.memoValues = {};
+		self.rawKnown = {};
+		self.rawValues = {};
 		self.memoEnabled = true;
 	}
 
@@ -877,12 +899,15 @@ class ExpressionTypeResolver {
 	private void disableExpressionInferenceMemo() {
 		self.memoKnown = {};
 		self.memoValues = {};
+		self.rawKnown = {};
+		self.rawValues = {};
 		self.memoEnabled = false;
 	}
 
 	private Node? inferSpecializationType(Node? node, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> varTypes) {
-		if (node == null || !self.memoEnabled) {
-			return self.inferSpecializationTypeUnmemoized(node, analyzed, operators, varTypes);
+		if (node == null) { return null; }
+		if (!self.memoEnabled) {
+			return self.inferSpecializationTypeWithoutMemo(node, analyzed, operators, varTypes);
 		}
 		string key = AstIdentity.key(node);
 		if (self.memoKnown.has(key)) {
@@ -900,12 +925,26 @@ class ExpressionTypeResolver {
 	}
 
 	/* Defaults are declaration-scoped ASTs reused under call-site environments.
-     * Disable the persistent body memo for the complete recursive inference, then
-     * restore the enclosing context without discarding its already-proven types. */
+     * Isolate the complete recursive inference from the persistent body memo by
+     * giving it a fresh memo of its own, then restore the enclosing context
+     * without discarding its already-proven types. The private memo is what keeps
+     * one inference linear: inferTypeRaw re-enters child inference more than once
+     * per level (a call infers its callee and its receiver), so an uncached walk
+     * of a deep builder chain is exponential in chain depth. The reference
+     * analyzer caches every node type for the whole session; a per-inference
+     * memo matches that cost without sharing node types across environments. */
 	private Node? inferSpecializationTypeWithoutMemo(Node? node, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> varTypes) {
 		bool enabled = self.memoEnabled;
-		self.memoEnabled = false;
+		Map<string, bool> known = self.memoKnown;
+		Map<string, Node> values = self.memoValues;
+		Map<string, bool> rawKnown = self.rawKnown;
+		Map<string, Node> rawValues = self.rawValues;
+		self.beginExpressionInferenceMemo();
 		Node? result = self.inferSpecializationTypeUnmemoized(node, analyzed, operators, varTypes);
+		self.memoKnown = known;
+		self.memoValues = values;
+		self.rawKnown = rawKnown;
+		self.rawValues = rawValues;
 		self.memoEnabled = enabled;
 		return result;
 	}

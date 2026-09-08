@@ -2506,9 +2506,8 @@ class CallLowerer:
         if lowered_callee is None:
             raise ValueError("direct or callable dispatch requires a lowered callee")
         call = IRCall(callee=lowered_callee, args=operands)
-        if (
-            plan.dispatch is CallDispatch.CALLABLE
-            and self._types.is_realtime_function_type(self._session.type_of(source_callee))
+        if plan.dispatch is CallDispatch.CALLABLE and self._types.is_realtime_function_type(
+            self._session.type_of(source_callee)
         ):
             call.realtime_provenance = "typed-realtime-function"
         return call

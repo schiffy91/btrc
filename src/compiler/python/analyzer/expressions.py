@@ -134,7 +134,9 @@ class ExpressionAnalyzer:
 
     def _validate_spawn_expr(self, expression):
         callable_type = self.types.canonical_type(self.aggregates.type_of(expression.fn))
-        if not isinstance(expression.fn, LambdaExpr) and (not (callable_type and callable_type.base in {"__fn_ptr", "__realtime_fn_ptr"})):
+        if not isinstance(expression.fn, LambdaExpr) and (
+            not (callable_type and callable_type.base in {"__fn_ptr", "__realtime_fn_ptr"})
+        ):
             self.session.error("spawn expects a lambda or function pointer", expression.line, expression.col)
         elif not isinstance(expression.fn, LambdaExpr) and self.ownership.callable_value_requires_environment(
             expression.fn

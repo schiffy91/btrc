@@ -112,31 +112,12 @@ class SetjmpFunctionEffect {
 	}
 }
 
+/* Origins recorded for one node. The node itself is the map key, never a
+ * field: this record must stay acyclic so the thousands of them one function
+ * produces never enter the runtime's cycle-suspect buffer. */
 class SetjmpNodeOrigins {
-	public IRNode node;
 	public Vector<SetjmpOrigin> origins;
-	public SetjmpNodeOrigins(IRNode node) {
-		self.node = node;
-		self.origins = [];
-	}
-}
-
-class SetjmpDeclarationStorage {
-	public IRNode declaration;
-	public SetjmpStorage storage;
-	public SetjmpDeclarationStorage(IRNode declaration, SetjmpStorage storage) {
-		self.declaration = declaration;
-		self.storage = storage;
-	}
-}
-
-class SetjmpParameterStorage {
-	public IRParam parameter;
-	public SetjmpStorage storage;
-	public SetjmpParameterStorage(IRParam parameter, SetjmpStorage storage) {
-		self.parameter = parameter;
-		self.storage = storage;
-	}
+	public SetjmpNodeOrigins() { self.origins = []; }
 }
 
 class SetjmpAliasSlot {
@@ -148,29 +129,63 @@ class SetjmpAliasSlot {
 	}
 }
 
-class SetjmpNameBinding {
-	public string name;
-	public SetjmpStorage storage;
-	public SetjmpNameBinding(string name, SetjmpStorage storage) {
-		self.name = name;
-		self.storage = storage;
+/* Alias origins per pointer storage. Slots keep insertion order for
+ * deterministic joins; the identity index answers the one lookup every
+ * expression makes without scanning the whole state. */
+class SetjmpAliasState {
+	public Vector<SetjmpAliasSlot> slots;
+	private Map<int, SetjmpAliasSlot> slotsByIdentity;
+
+	public SetjmpAliasState() {
+		self.slots = [];
+		self.slotsByIdentity = {};
+	}
+
+	public SetjmpAliasSlot? slot(SetjmpStorage storage) {
+		if (self.slotsByIdentity.has(storage.identity)) { return self.slotsByIdentity.get(storage.identity); }
+		return null;
+	}
+
+	public void add(SetjmpAliasSlot slot) {
+		self.slots.push(slot);
+		self.slotsByIdentity.put(slot.storage.identity, slot);
 	}
 }
 
+/* One lexical binding on the flow's scope stack. `shadowed` is the binding
+ * this one hides, restored when the scope that pushed it is left. */
+class SetjmpNameBinding {
+	public string name;
+	public SetjmpStorage storage;
+	public SetjmpStorage? shadowed;
+	public SetjmpNameBinding(string name, SetjmpStorage storage, SetjmpStorage? shadowed) {
+		self.name = name;
+		self.storage = storage;
+		self.shadowed = shadowed;
+	}
+}
+
+/* Per-node facts are indexed by node identity, as the reference analysis keys
+ * its dictionaries by object id: every expression records its origins once,
+ * and every call argument, assignment target, and continuation scan reads
+ * them back, so a scan over all recorded nodes made one function quadratic in
+ * its size. Writes also keep their first-record order for the summary walk. */
 class SetjmpPointerFlowResult {
 	public Vector<SetjmpNodeOrigins> writes;
-	public Vector<SetjmpNodeOrigins> origins;
-	public Vector<SetjmpDeclarationStorage> declarations;
-	public Vector<SetjmpParameterStorage> parameters;
+	private Map<IRNode, SetjmpNodeOrigins> writesByNode;
+	private Map<IRNode, SetjmpNodeOrigins> originsByNode;
+	private Map<IRNode, SetjmpStorage> declarationStorages;
+	private Map<IRParam, SetjmpStorage> parameterStorages;
 	public Vector<SetjmpOrigin> captures;
 	public Vector<SetjmpOrigin> returns;
 	public Vector<SetjmpStorage> unknownPointerValues;
 
 	public SetjmpPointerFlowResult() {
 		self.writes = [];
-		self.origins = [];
-		self.declarations = [];
-		self.parameters = [];
+		self.writesByNode = {};
+		self.originsByNode = {};
+		self.declarationStorages = {};
+		self.parameterStorages = {};
 		self.captures = [];
 		self.returns = [];
 		self.unknownPointerValues = [];
@@ -200,49 +215,41 @@ class SetjmpPointerFlowResult {
 		return result;
 	}
 
-	private SetjmpNodeOrigins? nodeEntry(Vector<SetjmpNodeOrigins> entries, IRNode? node) {
-		int index = 0;
-		while (node != null && index < entries.len) {
-			SetjmpNodeOrigins entry = entries.get(index);
-			if (entry.node == node) { return entry; }
-			index = index + 1;
+	private Vector<SetjmpOrigin> nodeOrigins(Map<IRNode, SetjmpNodeOrigins> entries, IRNode? node) {
+		if (node == null) {
+			Vector<SetjmpOrigin> empty = [];
+			return empty;
 		}
-		return null;
+		if (entries.has(node)) { return entries.get(node).origins; }
+		Vector<SetjmpOrigin> none = [];
+		return none;
 	}
 
-	private Vector<SetjmpOrigin> nodeOrigins(Vector<SetjmpNodeOrigins> entries, IRNode? node) {
-		SetjmpNodeOrigins? entry = self.nodeEntry(entries, node);
-		if (entry != null) { return entry.origins; }
-		Vector<SetjmpOrigin> empty = [];
-		return empty;
-	}
+	public Vector<SetjmpOrigin> originsFor(IRNode? node) { return self.nodeOrigins(self.originsByNode, node); }
 
-	public Vector<SetjmpOrigin> originsFor(IRNode? node) { return self.nodeOrigins(self.origins, node); }
-
-	public Vector<SetjmpOrigin> writesFor(IRNode? node) { return self.nodeOrigins(self.writes, node); }
+	public Vector<SetjmpOrigin> writesFor(IRNode? node) { return self.nodeOrigins(self.writesByNode, node); }
 
 	public void recordOrigins(IRNode? node, Vector<SetjmpOrigin> values) {
 		if (node == null) { return; }
-		SetjmpNodeOrigins? existing = self.nodeEntry(self.origins, node);
-		if (existing == null) {
-			SetjmpNodeOrigins created = SetjmpNodeOrigins(node);
-			self.addOrigins(created.origins, values);
-			self.origins.push(created);
-		} else {
-			self.addOrigins(existing.origins, values);
+		if (self.originsByNode.has(node)) {
+			self.addOrigins(self.originsByNode.get(node).origins, values);
+			return;
 		}
+		SetjmpNodeOrigins created = SetjmpNodeOrigins();
+		self.addOrigins(created.origins, values);
+		self.originsByNode.put(node, created);
 	}
 
 	public void recordWrite(IRNode? node, Vector<SetjmpOrigin> values) {
 		if (node == null) { return; }
-		SetjmpNodeOrigins? existing = self.nodeEntry(self.writes, node);
-		if (existing == null) {
-			SetjmpNodeOrigins created = SetjmpNodeOrigins(node);
-			self.addOrigins(created.origins, values);
-			self.writes.push(created);
-		} else {
-			self.addOrigins(existing.origins, values);
+		if (self.writesByNode.has(node)) {
+			self.addOrigins(self.writesByNode.get(node).origins, values);
+			return;
 		}
+		SetjmpNodeOrigins created = SetjmpNodeOrigins();
+		self.addOrigins(created.origins, values);
+		self.writes.push(created);
+		self.writesByNode.put(node, created);
 	}
 
 	public void recordUnknownPointerValue(SetjmpStorage storage) {
@@ -254,23 +261,17 @@ class SetjmpPointerFlowResult {
 		self.unknownPointerValues.push(storage);
 	}
 
+	public void recordDeclaration(IRNode declaration, SetjmpStorage storage) { self.declarationStorages.put(declaration, storage); }
+
+	public void recordParameter(IRParam parameter, SetjmpStorage storage) { self.parameterStorages.put(parameter, storage); }
+
 	public SetjmpStorage? declarationStorage(IRNode declaration) {
-		int index = 0;
-		while (index < self.declarations.len) {
-			SetjmpDeclarationStorage entry = self.declarations.get(index);
-			if (entry.declaration == declaration) { return entry.storage; }
-			index = index + 1;
-		}
+		if (self.declarationStorages.has(declaration)) { return self.declarationStorages.get(declaration); }
 		return null;
 	}
 
 	public SetjmpStorage? parameterStorage(IRParam parameter) {
-		int index = 0;
-		while (index < self.parameters.len) {
-			SetjmpParameterStorage entry = self.parameters.get(index);
-			if (entry.parameter == parameter) { return entry.storage; }
-			index = index + 1;
-		}
+		if (self.parameterStorages.has(parameter)) { return self.parameterStorages.get(parameter); }
 		return null;
 	}
 }
@@ -485,41 +486,67 @@ class SetjmpTypeFacts {
 	}
 }
 
+/* The scope stack holds the function's own bindings in push order so a scope
+ * marker is one length; module globals stay in the shared map built once per
+ * module and are visible for the whole function, exactly as if they sat under
+ * every local. The name index and the per-storage binding counts answer
+ * resolution and visibility in constant time instead of rescanning the stack
+ * once per variable reference and once per alias slot at every scope exit. */
 class SetjmpPointerFlow {
 	private SetjmpTypeFacts typeFacts;
 	public SetjmpPointerFlowResult result;
+	private Map<string, SetjmpStorage> globals;
+	private int globalCount;
 	public Vector<SetjmpNameBinding> bindings;
-	public Vector<SetjmpAliasSlot> state;
+	private Map<string, SetjmpStorage> bindingsByName;
+	private Map<int, int> boundIdentityCounts;
+	public SetjmpAliasState state;
 	private int nextIdentity;
 
-	public SetjmpPointerFlow(IRFunction definition, Vector<SetjmpNameBinding> globals, SetjmpTypeFacts typeFacts) {
+	public SetjmpPointerFlow(IRFunction definition, Map<string, SetjmpStorage> globals, int globalCount, SetjmpTypeFacts typeFacts) {
 		self.typeFacts = typeFacts;
 		self.result = SetjmpPointerFlowResult();
+		self.globals = globals;
+		self.globalCount = globalCount;
 		self.bindings = [];
-		self.state = [];
-		self.nextIdentity = 1;
+		self.bindingsByName = {};
+		self.boundIdentityCounts = {};
+		self.state = SetjmpAliasState();
+		self.nextIdentity = globalCount + 1;
 		int index = 0;
-		while (index < globals.len) {
-			SetjmpNameBinding binding = globals.get(index);
-			self.bindings.push(binding);
-			if (binding.storage.identity >= self.nextIdentity) {
-				self.nextIdentity = binding.storage.identity + 1;
-			}
-			index = index + 1;
-		}
-		index = 0;
 		while (index < definition.params.len) {
 			IRParam parameter = definition.params.get(index);
 			SetjmpStorage storage = self.newStorage(parameter.name, "parameter", typeFacts.renderedPointerDepth(parameter.c_type), false);
-			self.bindings.push(SetjmpNameBinding(parameter.name, storage));
-			self.result.parameters.push(SetjmpParameterStorage(parameter, storage));
+			self.bind(parameter.name, storage);
+			self.result.recordParameter(parameter, storage);
 			if (storage.isPointer) {
 				Vector<SetjmpOrigin> initial = [];
 				initial.push(SetjmpOrigin(storage, 1, false));
-				self.state.push(SetjmpAliasSlot(storage, initial));
+				self.state.add(SetjmpAliasSlot(storage, initial));
 			}
 			index = index + 1;
 		}
+	}
+
+	private void bind(string name, SetjmpStorage storage) {
+		SetjmpStorage? shadowed = null;
+		if (self.bindingsByName.has(name)) { shadowed = self.bindingsByName.get(name); }
+		self.bindings.push(SetjmpNameBinding(name, storage, shadowed));
+		self.bindingsByName.put(name, storage);
+		int count = 0;
+		if (self.boundIdentityCounts.has(storage.identity)) { count = self.boundIdentityCounts.get(storage.identity); }
+		self.boundIdentityCounts.put(storage.identity, count + 1);
+	}
+
+	private void unbind() {
+		SetjmpNameBinding binding = self.bindings.pop();
+		SetjmpStorage? shadowed = binding.shadowed;
+		if (shadowed == null) {
+			self.bindingsByName.remove(binding.name);
+		} else {
+			self.bindingsByName.put(binding.name, shadowed);
+		}
+		self.boundIdentityCounts.put(binding.storage.identity, self.boundIdentityCounts.get(binding.storage.identity) - 1);
 	}
 
 	private bool compilerOwnedStorage(string name) { return name.startsWith("__btrc_") && !name.startsWith("__btrc_source_"); }
@@ -531,85 +558,74 @@ class SetjmpPointerFlow {
 	}
 
 	public SetjmpStorage? resolve(string name) {
-		int index = self.bindings.len - 1;
-		while (index >= 0) {
-			SetjmpNameBinding binding = self.bindings.get(index);
-			if (binding.name == name) { return binding.storage; }
-			index = index - 1;
-		}
+		if (self.bindingsByName.has(name)) { return self.bindingsByName.get(name); }
+		if (self.globals.has(name)) { return self.globals.get(name); }
 		return null;
 	}
+
+	/* Every binding a name could resolve to, globals included: the bound on
+	 * the argument-target saturation walk. */
+	public int bindingDepth() { return self.globalCount + self.bindings.len; }
 
 	public SetjmpStorage declare(IRNode declaration) {
 		SetjmpStorage? existing = self.result.declarationStorage(declaration);
 		if (existing != null) {
-			self.bindings.push(SetjmpNameBinding(declaration.name, existing));
+			self.bind(declaration.name, existing);
 			return existing;
 		}
 		string kind = "automatic";
 		if (declaration.is_static) { kind = "static"; }
 		if (declaration.is_extern) { kind = "extern"; }
 		SetjmpStorage storage = self.newStorage(declaration.name, kind, self.typeFacts.renderedPointerDepth(declaration.c_type), declaration.is_array_decl || declaration.array_size != null);
-		self.bindings.push(SetjmpNameBinding(declaration.name, storage));
-		self.result.declarations.push(SetjmpDeclarationStorage(declaration, storage));
+		self.bind(declaration.name, storage);
+		self.result.recordDeclaration(declaration, storage);
 		return storage;
 	}
 
-	public SetjmpAliasSlot? stateSlot(Vector<SetjmpAliasSlot> source, SetjmpStorage storage) {
-		int index = 0;
-		while (index < source.len) {
-			if (source.get(index).storage.identity == storage.identity) {
-				return source.get(index);
-			}
-			index = index + 1;
-		}
-		return null;
-	}
-
 	public Vector<SetjmpOrigin> aliases(SetjmpStorage storage) {
-		SetjmpAliasSlot? slot = self.stateSlot(self.state, storage);
+		SetjmpAliasSlot? slot = self.state.slot(storage);
 		if (slot != null) { return self.result.copyOrigins(slot.origins); }
 		Vector<SetjmpOrigin> empty = [];
 		return empty;
 	}
 
 	public void replaceAliases(SetjmpStorage storage, Vector<SetjmpOrigin> origins) {
-		SetjmpAliasSlot? slot = self.stateSlot(self.state, storage);
+		SetjmpAliasSlot? slot = self.state.slot(storage);
 		if (slot == null) {
-			self.state.push(SetjmpAliasSlot(storage, self.result.copyOrigins(origins)));
+			self.state.add(SetjmpAliasSlot(storage, self.result.copyOrigins(origins)));
 		} else {
 			slot.origins = self.result.copyOrigins(origins);
 		}
 	}
 
 	public void mergeAliases(SetjmpStorage storage, Vector<SetjmpOrigin> origins) {
-		SetjmpAliasSlot? slot = self.stateSlot(self.state, storage);
+		SetjmpAliasSlot? slot = self.state.slot(storage);
 		if (slot == null) {
-			self.state.push(SetjmpAliasSlot(storage, self.result.copyOrigins(origins)));
+			self.state.add(SetjmpAliasSlot(storage, self.result.copyOrigins(origins)));
 		} else {
 			self.result.addOrigins(slot.origins, origins);
 		}
 	}
 
-	public Vector<SetjmpAliasSlot> copyState(Vector<SetjmpAliasSlot> source) {
-		Vector<SetjmpAliasSlot> result = [];
+	public SetjmpAliasState copyState(SetjmpAliasState source) {
+		SetjmpAliasState result = SetjmpAliasState();
 		int index = 0;
-		while (index < source.len) {
-			SetjmpAliasSlot slot = source.get(index);
-			result.push(SetjmpAliasSlot(slot.storage, self.result.copyOrigins(slot.origins)));
+		while (index < source.slots.len) {
+			SetjmpAliasSlot slot = source.slots.get(index);
+			result.add(SetjmpAliasSlot(slot.storage, self.result.copyOrigins(slot.origins)));
 			index = index + 1;
 		}
 		return result;
 	}
 
-	public Vector<SetjmpAliasSlot> joinStates(Vector<SetjmpAliasSlot> left, Vector<SetjmpAliasSlot> right) {
-		Vector<SetjmpAliasSlot> result = self.copyState(left);
+	public SetjmpAliasState joinStates(SetjmpAliasState left, SetjmpAliasState right) {
+		SetjmpAliasState result = self.copyState(left);
 		int index = 0;
-		while (index < right.len) {
-			SetjmpAliasSlot slot = right.get(index);
-			SetjmpAliasSlot? existing = self.stateSlot(result, slot.storage);
+		while (index < right.slots.len) {
+			SetjmpAliasSlot slot = right.slots.get(index);
+			SetjmpAliasSlot? existing = result.slot(slot.storage);
 			if (existing == null) {
-				result.push(SetjmpAliasSlot(slot.storage, self.result.copyOrigins(slot.origins)));
+				result.add(SetjmpAliasSlot(slot.storage, self.result.copyOrigins(slot.origins)));
 			} else {
 				self.result.addOrigins(existing.origins, slot.origins);
 			}
@@ -619,21 +635,17 @@ class SetjmpPointerFlow {
 	}
 
 	private bool storageVisible(SetjmpStorage storage) {
-		int index = 0;
-		while (index < self.bindings.len) {
-			if (self.bindings.get(index).storage.identity == storage.identity) { return true; }
-			index = index + 1;
-		}
-		return false;
+		if (storage.kind == "global") { return true; }
+		return self.boundIdentityCounts.has(storage.identity) && self.boundIdentityCounts.get(storage.identity) > 0;
 	}
 
 	public void leaveScope(int bindingCount) {
-		while (self.bindings.len > bindingCount) { self.bindings.pop(); }
-		Vector<SetjmpAliasSlot> visible = [];
+		while (self.bindings.len > bindingCount) { self.unbind(); }
+		SetjmpAliasState visible = SetjmpAliasState();
 		int index = 0;
-		while (index < self.state.len) {
-			SetjmpAliasSlot slot = self.state.get(index);
-			if (self.storageVisible(slot.storage)) { visible.push(slot); }
+		while (index < self.state.slots.len) {
+			SetjmpAliasSlot slot = self.state.slots.get(index);
+			if (self.storageVisible(slot.storage)) { visible.add(slot); }
 			index = index + 1;
 		}
 		self.state = visible;
@@ -659,7 +671,8 @@ class SetjmpEffectAnalysis {
 	private Map<string, bool> definitions;
 	private Map<string, SetjmpFunctionEffect> summaries;
 	private Map<string, SetjmpFunctionEffect> externalEffects;
-	private Vector<SetjmpNameBinding> globals;
+	private Map<string, SetjmpStorage> globals;
+	private int globalCount;
 
 	public SetjmpEffectAnalysis(HostedAbiRepository hostedAbi) { self.hostedAbi = hostedAbi; }
 
@@ -687,6 +700,7 @@ class SetjmpEffectAnalysis {
 			index = index + 1;
 		}
 		self.globals = self.globalStorages();
+		self.globalCount = module.global_decls.len;
 	}
 
 	private SetjmpFunctionEffect unknownEffect(int count) {
@@ -764,14 +778,16 @@ class SetjmpEffectAnalysis {
 
 	private bool compilerOwnedStorage(string name) { return name.startsWith("__btrc_") && !name.startsWith("__btrc_source_"); }
 
-	private Vector<SetjmpNameBinding> globalStorages() {
-		Vector<SetjmpNameBinding> values = [];
+	/* Global storages by name, built once per module; a later declaration of
+	 * the same name shadows an earlier one, as the innermost binding would. */
+	private Map<string, SetjmpStorage> globalStorages() {
+		Map<string, SetjmpStorage> values = {};
 		int index = 0;
 		while (index < self.module.global_decls.len) {
 			IRGlobalDecl declaration = self.module.global_decls.get(index);
 			int pointerDepth = self.typeFacts.renderedPointerDepth(declaration.c_type);
 			SetjmpStorage storage = SetjmpStorage(index + 1, declaration.name, "global", pointerDepth != 0, pointerDepth, declaration.array_size != null || declaration.is_unsized_array, self.compilerOwnedStorage(declaration.name));
-			values.push(SetjmpNameBinding(declaration.name, storage));
+			values.put(declaration.name, storage);
 			index = index + 1;
 		}
 		return values;
@@ -974,7 +990,7 @@ class SetjmpEffectAnalysis {
 			Vector<SetjmpOrigin> saturated = [];
 			Vector<SetjmpOrigin> frontier = flow.result.copyOrigins(origins);
 			int index = 0;
-			while (index <= flow.bindings.len && frontier.len > 0) {
+			while (index <= flow.bindingDepth() && frontier.len > 0) {
 				Vector<SetjmpOrigin> next = [];
 				int originIndex = 0;
 				while (originIndex < frontier.len) {
@@ -1078,9 +1094,9 @@ class SetjmpEffectAnalysis {
 			flow.leaveScope(bindingCount);
 		} else if (value.kind == IRK_TERNARY) {
 			self.flowExpression(flow, value.condition);
-			Vector<SetjmpAliasSlot> entry = flow.copyState(flow.state);
+			SetjmpAliasState entry = flow.copyState(flow.state);
 			origins = self.flowExpression(flow, value.true_expr);
-			Vector<SetjmpAliasSlot> leftState = flow.copyState(flow.state);
+			SetjmpAliasState leftState = flow.copyState(flow.state);
 			flow.state = flow.copyState(entry);
 			Vector<SetjmpOrigin> right = self.flowExpression(flow, value.false_expr);
 			flow.result.addOrigins(origins, right);
@@ -1095,9 +1111,9 @@ class SetjmpEffectAnalysis {
 				}
 			} else if (value.op == "&&" || value.op == "||" || value.op == "??") {
 				Vector<SetjmpOrigin> left = self.flowExpression(flow, value.left);
-				Vector<SetjmpAliasSlot> leftState = flow.copyState(flow.state);
+				SetjmpAliasState leftState = flow.copyState(flow.state);
 				Vector<SetjmpOrigin> right = self.flowExpression(flow, value.right);
-				Vector<SetjmpAliasSlot> rightState = flow.copyState(flow.state);
+				SetjmpAliasState rightState = flow.copyState(flow.state);
 				flow.state = flow.joinStates(leftState, rightState);
 				if (value.op == "??") {
 					flow.result.addOrigins(origins, left);
@@ -1192,12 +1208,12 @@ class SetjmpEffectAnalysis {
 		return true;
 	}
 
-	private bool flowSameState(SetjmpPointerFlow flow, Vector<SetjmpAliasSlot> left, Vector<SetjmpAliasSlot> right) {
-		if (left.len != right.len) { return false; }
+	private bool flowSameState(SetjmpAliasState left, SetjmpAliasState right) {
+		if (left.slots.len != right.slots.len) { return false; }
 		int index = 0;
-		while (index < left.len) {
-			SetjmpAliasSlot slot = left.get(index);
-			SetjmpAliasSlot? match = flow.stateSlot(right, slot.storage);
+		while (index < left.slots.len) {
+			SetjmpAliasSlot slot = left.slots.get(index);
+			SetjmpAliasSlot? match = right.slot(slot.storage);
 			if (match == null || !self.flowSameOrigins(slot.origins, match.origins)) {
 				return false;
 			}
@@ -1207,15 +1223,15 @@ class SetjmpEffectAnalysis {
 	}
 
 	private void flowLoop(SetjmpPointerFlow flow, IRNode statement) {
-		Vector<SetjmpAliasSlot> entry = flow.copyState(flow.state);
-		Vector<SetjmpAliasSlot> header = flow.copyState(flow.state);
+		SetjmpAliasState entry = flow.copyState(flow.state);
+		SetjmpAliasState header = flow.copyState(flow.state);
 		bool converged = false;
 		while (!converged) {
 			flow.state = flow.copyState(header);
 			self.flowExpression(flow, statement.condition);
 			self.flowBlock(flow, statement.body, true);
-			Vector<SetjmpAliasSlot> updated = flow.joinStates(entry, flow.state);
-			converged = self.flowSameState(flow, header, updated);
+			SetjmpAliasState updated = flow.joinStates(entry, flow.state);
+			converged = self.flowSameState(header, updated);
 			header = updated;
 		}
 		flow.state = header;
@@ -1230,16 +1246,16 @@ class SetjmpEffectAnalysis {
 				self.flowExpression(flow, statement.init);
 			}
 		}
-		Vector<SetjmpAliasSlot> entry = flow.copyState(flow.state);
-		Vector<SetjmpAliasSlot> header = flow.copyState(flow.state);
+		SetjmpAliasState entry = flow.copyState(flow.state);
+		SetjmpAliasState header = flow.copyState(flow.state);
 		bool converged = false;
 		while (!converged) {
 			flow.state = flow.copyState(header);
 			self.flowExpression(flow, statement.condition);
 			self.flowBlock(flow, statement.body, true);
 			self.flowExpression(flow, statement.update);
-			Vector<SetjmpAliasSlot> updated = flow.joinStates(entry, flow.state);
-			converged = self.flowSameState(flow, header, updated);
+			SetjmpAliasState updated = flow.joinStates(entry, flow.state);
+			converged = self.flowSameState(header, updated);
 			header = updated;
 		}
 		flow.state = header;
@@ -1248,14 +1264,14 @@ class SetjmpEffectAnalysis {
 
 	private void flowSwitch(SetjmpPointerFlow flow, IRNode statement) {
 		self.flowExpression(flow, statement.value);
-		Vector<SetjmpAliasSlot> entry = flow.copyState(flow.state);
-		Vector<SetjmpAliasSlot> exits = flow.copyState(entry);
-		Vector<SetjmpAliasSlot> fallthrough = [];
+		SetjmpAliasState entry = flow.copyState(flow.state);
+		SetjmpAliasState exits = flow.copyState(entry);
+		SetjmpAliasState fallthrough = SetjmpAliasState();
 		bool hasFallthrough = false;
 		int index = 0;
 		while (index < statement.args.len) {
 			IRNode caseNode = statement.args.get(index);
-			Vector<SetjmpAliasSlot> start = flow.copyState(entry);
+			SetjmpAliasState start = flow.copyState(entry);
 			if (hasFallthrough) {
 				start = flow.joinStates(start, fallthrough);
 			}
@@ -1307,10 +1323,10 @@ class SetjmpEffectAnalysis {
 		}
 		if (statement.kind == IRK_IF) {
 			self.flowExpression(flow, statement.condition);
-			Vector<SetjmpAliasSlot> entry = flow.copyState(flow.state);
+			SetjmpAliasState entry = flow.copyState(flow.state);
 			flow.state = flow.copyState(entry);
 			self.flowBlock(flow, statement.then_block, true);
-			Vector<SetjmpAliasSlot> left = flow.copyState(flow.state);
+			SetjmpAliasState left = flow.copyState(flow.state);
 			flow.state = flow.copyState(entry);
 			self.flowBlock(flow, statement.else_block, true);
 			flow.state = flow.joinStates(left, flow.state);
@@ -1334,7 +1350,7 @@ class SetjmpEffectAnalysis {
 	}
 
 	private SetjmpPointerFlowResult analyzePointerFlow(IRFunction definition) {
-		SetjmpPointerFlow flow = SetjmpPointerFlow(definition, self.globals, self.typeFacts);
+		SetjmpPointerFlow flow = SetjmpPointerFlow(definition, self.globals, self.globalCount, self.typeFacts);
 		self.flowBlock(flow, definition.body, false);
 		return flow.result;
 	}

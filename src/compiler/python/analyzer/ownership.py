@@ -325,12 +325,15 @@ class OwnershipAnalyzer:
         if slots is not None:
             rejected = False
             for slot_type, element in slots:
-                rejected = self._reject_unproven_realtime_function(
-                    slot_type,
-                    element,
-                    getattr(element, "line", line),
-                    getattr(element, "col", col),
-                ) or rejected
+                rejected = (
+                    self._reject_unproven_realtime_function(
+                        slot_type,
+                        element,
+                        getattr(element, "line", line),
+                        getattr(element, "col", col),
+                    )
+                    or rejected
+                )
             return rejected
         if canonical.base != "__realtime_fn_ptr" or canonical.pointer_depth != 0 or canonical.is_array:
             return False

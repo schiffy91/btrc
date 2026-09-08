@@ -11,6 +11,8 @@ import std.vector;
 void fake_platform_reset();
 void fake_gpu_set_next_frame(int status);
 int fake_native_ui_upload_count();
+int fake_native_ui_chevron_count();
+int fake_native_ui_chevron_expanded();
 int fake_native_ui_first_rect_red();
 int fake_native_ui_first_rect_green();
 int fake_native_ui_first_rect_blue();
@@ -34,7 +36,7 @@ int main() {
 	assert(attached.kind == GPU_ATTACHED);
 	GPU gpu = attached.gpu;
 
-	NativeUiStyleSheet sheet = NativeUiStyleSheet().rule("root", "gap: 6px; padding: 6px").rule("card", "border-radius: 6px; color: #ffffff; font-size: 18px; line-height: 22px; font-weight: 600; text-align: center");
+	NativeUiStyleSheet sheet = NativeUiStyleSheet().rule("root", "gap: 6px; padding: 6px").rule("card", "border-radius: 6px; background-image: linear-gradient(#303030,#242424); color: #ffffff; font-size: 18px; line-height: 22px; font-weight: 600; text-align: center");
 	NativeUiTypography typography = NativeUiTypography();
 	NativeUiAppAttachOutcome uiAttached = NativeUiAppSession.attach(window, gpu, sheet, null, typography);
 	assert(uiAttached.kind == NATIVE_UI_APP_ATTACHED);
@@ -57,10 +59,18 @@ int main() {
 	assert(fake_native_ui_upload_count() == 1);
 	assert(fake_gpu_frame_begin_count() == 2);
 	assert(fake_gpu_frame_present_count() == 2);
+	NativeUiPrepareOutcome retained = session.prepareCurrent(true);
+	assert(retained.kind == NATIVE_UI_PREPARED && retained.frame == first.frame);
+	assert(retained.layoutMilliseconds == 0.0f);
+	assert(fake_gpu_frame_begin_count() == 2 && fake_gpu_frame_present_count() == 2);
 
 	NativeUiPresentOutcome unchanged = session.present(root);
 	assert(unchanged.kind == NATIVE_UI_PRESENTED);
 	assert(fake_native_ui_upload_count() == 1);
+	NativeUiPrepareOutcome immutableFirst = session.prepareImmutable(root, true);
+	assert(immutableFirst.kind == NATIVE_UI_PREPARED && immutableFirst.measuredNodes == immutableFirst.frame.boxCount() && immutableFirst.reusedNodes == 0);
+	NativeUiPrepareOutcome immutableAgain = session.prepareImmutable(root, true);
+	assert(immutableAgain.kind == NATIVE_UI_PREPARED && immutableAgain.measuredNodes == 0 && immutableAgain.reusedNodes == immutableAgain.frame.boxCount());
 
 	Vector<NativeUiSelectOption> monitorOptions = [];
 	monitorOptions.push(NativeUiSelectOption("song-effects", "Song effects"));
@@ -68,14 +78,25 @@ int main() {
 	NativeUiElement monitorRoot = NativeUiElement.column("settings").className("root").child(NativeUiElement.select("monitor", NativeUiSelect(monitorOptions, "song-effects")).semantics(NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_AUTOMATIC, "Monitor")));
 	assert(session.present(monitorRoot).kind == NATIVE_UI_PRESENTED);
 	int collapsedSelectCommands = session.commandCount();
+	assert(fake_native_ui_chevron_count() == 1 && fake_native_ui_chevron_expanded() == 0);
 	NativeUiLayoutBox monitor = session.input().currentFrame().boxFor("monitor");
 	fake_platform_push_pointer(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, (float)(monitor.bounds.x + 4), (float)(monitor.bounds.y + 4), 0);
 	assert(session.dispatch(application.poll()).eventCount() <= 1);
 	fake_platform_push_pointer(APP_POINTER_RELEASED, APP_POINTER_BUTTON_PRIMARY, (float)(monitor.bounds.x + 4), (float)(monitor.bounds.y + 4), 0);
 	assert(session.dispatch(application.poll()).eventCount() == 0);
 	assert(session.input().expandedSelectId() == "monitor");
+	NativeUiFrame expandedMonitor = session.input().currentFrame();
+	assert(session.prepareCurrent().frame == expandedMonitor);
+	assert(session.commandCount() > collapsedSelectCommands);
+	NativeUiEventBatch closedByScroll = session.input().scrollBy(0, 1);
+	assert(session.input().expandedSelectId().isEmpty());
+	assert(closedByScroll.frame.boxFor("monitor").resolvedSemantics().expansionState() == NATIVE_UI_SEMANTIC_EXPANSION_OFF);
+	assert(expandedMonitor.boxFor("monitor").resolvedSemantics().expansionState() == NATIVE_UI_SEMANTIC_EXPANSION_ON);
+	assert(session.prepareCurrent().kind == NATIVE_UI_PREPARED);
+	assert(session.input().activate("monitor").eventCount() == 0);
 	assert(session.present(monitorRoot).kind == NATIVE_UI_PRESENTED);
 	assert(session.commandCount() > collapsedSelectCommands);
+	assert(fake_native_ui_chevron_count() == 1 && fake_native_ui_chevron_expanded() == 1);
 	NativeUiSelectPopup monitorPopup = session.input().selectPopup();
 	assert(monitorPopup.visible() && monitorPopup.ownerId() == "monitor");
 	NativeUiRect rawSignalOption = monitorPopup.optionBounds(1);
@@ -110,9 +131,10 @@ int main() {
 
 	NativeUiLayoutBox query = session.input().currentFrame().boxFor("query");
 	AppWindowEvent focusQuery = AppWindowEvent(APP_EVENT_POINTER);
-	focusQuery.pointer = AppPointerEvent(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, (float)(query.bounds.x + 2), (float)(query.bounds.y + 2), AppKeyModifiers(false, false, false, false));
+	focusQuery.pointer = AppPointerEvent(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, (float)(query.bounds.x + query.bounds.width - 3), (float)(query.bounds.y + 2), AppKeyModifiers(false, false, false, false));
 	assert(session.dispatch(focusQuery).eventCount() <= 1);
 	assert(session.input().focusedId() == "query");
+	session.input().pointerReleased(query.bounds.x + query.bounds.width - 3, query.bounds.y + 2);
 
 	fake_platform_push_text("\xc3\xa9");
 	AppWindowEvent enteredText = application.poll();
@@ -136,6 +158,26 @@ int main() {
 	fake_platform_push_text("\xc3");
 	assert(session.dispatch(application.poll()).eventCount() == 0);
 	assert(session.input().focusedValue() == "a\xc3\xa9");
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_A, 8);
+	assert(session.dispatch(application.poll()).eventCount() == 0);
+	assert(session.input().selectedText() == "a\xc3\xa9");
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_C, 8);
+	assert(session.dispatch(application.poll()).eventCount() == 0);
+	assert(window.clipboardText().text == "a\xc3\xa9");
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_X, 8);
+	assert(session.dispatch(application.poll()).eventAt(0).value() == "");
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_V, 8);
+	assert(session.dispatch(application.poll()).eventAt(0).value() == "a\xc3\xa9");
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_LEFT, 1);
+	assert(session.dispatch(application.poll()).eventCount() == 0);
+	assert(session.input().selectedText() == "\xc3\xa9");
+	assert(session.prepareCurrent().kind == NATIVE_UI_PREPARED);
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_BACKSPACE, 4);
+	assert(session.dispatch(application.poll()).eventAt(0).value() == "a");
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_BACKSPACE, 8);
+	assert(session.dispatch(application.poll()).eventAt(0).value() == "");
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_V, 8);
+	assert(session.dispatch(application.poll()).eventAt(0).value() == "a\xc3\xa9");
 
 	artwork.setRGBA(0, 0, 10, 200, 30, 255);
 	NativeUiElement revisedRoot = NativeUiElement.column("library").className("root").child(NativeUiElement.text("transport-range", "Albums").semanticRange(transportRange)).child(NativeUiElement.textInput("query", "a\xc3\xa9", "Search albums", 16)).child(NativeUiElement.button("album:one", "Album One").className("card").child(NativeUiElement.image("art:one", artwork, "Album One").imageRevision(2ULL)));
@@ -238,6 +280,18 @@ int main() {
 	assert(keyboardActivated.eventAt(0).kind() == NATIVE_UI_CLICKED);
 	assert(keyboardActivated.eventAt(0).elementId() == "album:one");
 
+	NativeUiElement floatingButton = NativeUiElement.button("floating-control", "").style("padding: 0px; width: 40px; height: 36px; border-color: #112233; background-color: #445566").floating(10, 10).child(NativeUiElement.image("floating-icon", artwork, "Icon").style("padding: 0px; width: 8px; height: 8px").floating(4, 4));
+	NativeUiElement floatingRoot = NativeUiElement.column("floating-root").style("padding: 0px; gap: 0px").child(floatingButton);
+	NativeUiPresentOutcome floatingPresented = session.present(floatingRoot);
+	assert(floatingPresented.kind == NATIVE_UI_PRESENTED && floatingPresented.frame.contentHeight == 1);
+	assert(fake_native_ui_first_rect_red() == 17 && fake_native_ui_first_rect_green() == 34 && fake_native_ui_first_rect_blue() == 51);
+	assert(floatingPresented.frame.hitId(15, 15, true) == "floating-control");
+	fake_platform_push_pointer(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, 15.0f, 15.0f, 0);
+	session.dispatch(application.poll());
+	fake_platform_push_pointer(APP_POINTER_RELEASED, APP_POINTER_BUTTON_PRIMARY, 15.0f, 15.0f, 0);
+	NativeUiEventBatch floatingClicked = session.dispatch(application.poll());
+	assert(floatingClicked.eventCount() == 1 && floatingClicked.eventAt(0).elementId() == "floating-control");
+
 	NativeUiElement duplicate = NativeUiElement.column("duplicate").child(NativeUiElement.text("same", "one")).child(NativeUiElement.text("same", "two"));
 	int framesBeforeReject = fake_gpu_frame_begin_count();
 	NativeUiPresentOutcome rejected = session.present(duplicate);
@@ -267,6 +321,14 @@ int main() {
 	assert(closeCancelled.eventCount() == 1);
 	assert(closeCancelled.eventAt(0).kind() == NATIVE_UI_RANGE_POINTER_CANCELLED);
 	assert(session.input().pointerCancelled().eventCount() == 0);
+	fake_platform_push_pointer(APP_POINTER_PRESSED, APP_POINTER_BUTTON_BACK, 40.0f, 30.0f, 0);
+	NativeUiEventBatch back = session.dispatch(application.poll());
+	assert(back.eventCount() == 1 && back.eventAt(0).kind() == NATIVE_UI_NAVIGATE_BACK);
+	fake_platform_push_pointer(APP_POINTER_RELEASED, APP_POINTER_BUTTON_BACK, 40.0f, 30.0f, 0);
+	assert(session.dispatch(application.poll()).eventCount() == 0);
+	fake_platform_push_pointer(APP_POINTER_PRESSED, APP_POINTER_BUTTON_FORWARD, 40.0f, 30.0f, 0);
+	NativeUiEventBatch forward = session.dispatch(application.poll());
+	assert(forward.eventCount() == 1 && forward.eventAt(0).kind() == NATIVE_UI_NAVIGATE_FORWARD);
 
 	assert(session.close().kind == GPU_CLOSED);
 	assert(gpu.close().kind == GPU_CLOSED);

@@ -6,6 +6,7 @@
  */
 
 import std.app;
+import std.datetime;
 import std.gpu;
 import std.native_ui;
 import std.vector;
@@ -15,20 +16,28 @@ import std.vector;
 int std_gpu_native_ui_create(unsigned long long gpu, unsigned long long* compositorOut, unsigned long long* ownerReceiptOut);
 int std_gpu_native_ui_begin(unsigned long long compositor, int logicalWidth, int logicalHeight);
 int std_gpu_native_ui_add_rect(unsigned long long compositor, float x, float y, float width, float height, float red, float green, float blue, float alpha, float radius);
+int std_gpu_native_ui_add_gradient_rect(unsigned long long compositor, float x, float y, float width, float height, unsigned int topRgba, unsigned int bottomRgba, float radius);
+int std_gpu_native_ui_add_chevron(unsigned long long compositor, float x, float y, float width, float height, float red, float green, float blue, float alpha, int expanded);
 int std_gpu_native_ui_add_glyph(unsigned long long compositor, float x, float y, float width, float height, float red, float green, float blue, float alpha, unsigned long long glyphBits);
 int std_gpu_native_ui_system_typography_available(unsigned long long compositor);
+int std_gpu_native_ui_text_line_break(unsigned long long compositor, string text, int fontSize, int lineHeight, int fontWeight, int width);
 int std_gpu_native_ui_measure_text(unsigned long long compositor, string text, int fontSize, int lineHeight, int fontWeight, int* widthOut, int* heightOut, int* ascentOut, int* descentOut, int* advanceOut);
 int std_gpu_native_ui_rasterize_text(unsigned long long compositor, string text, int fontSize, int lineHeight, int fontWeight, float backingScale, int* widthOut, int* heightOut, void** pixelsOut, unsigned long long* pixelBytesOut);
 void std_gpu_native_ui_release_text_bitmap(void* pixels);
 int std_gpu_native_ui_add_text(unsigned long long compositor, string text, float x, float y, int fontSize, int lineHeight, int fontWeight, float backingScale, float red, float green, float blue, float alpha);
 int std_gpu_native_ui_add_image(unsigned long long compositor, string identity, unsigned char* rgba, int sourceWidth, int sourceHeight, unsigned long long sourceRevision, float x, float y, float width, float height);
+int std_gpu_native_ui_add_image_region(unsigned long long compositor, string identity, unsigned char* rgba, int sourceWidth, int sourceHeight, unsigned long long sourceRevision, float x, float y, float width, float height, float left, float top, float sourceSpanX, float sourceSpanY);
 int std_gpu_native_ui_draw(unsigned long long gpu, unsigned long long compositor);
+int std_gpu_native_ui_draw_range(unsigned long long gpu, unsigned long long compositor, int first, int count);
+int std_gpu_native_ui_order_count(unsigned long long compositor);
 int std_gpu_native_ui_destroy(unsigned long long compositor, unsigned long long ownerReceipt);
 void std_gpu_native_ui_finalize(unsigned long long compositor, unsigned long long ownerReceipt);
 int std_gpu_native_ui_command_count(unsigned long long compositor);
 int std_gpu_native_ui_image_count(unsigned long long compositor);
 
 int nativeUiPlatformMeasure(unsigned long long compositor, string text, int fontSize, int lineHeight, int fontWeight, int* widthOut, int* heightOut, int* ascentOut, int* descentOut, int* advanceOut) { return std_gpu_native_ui_measure_text(compositor, text, fontSize, lineHeight, fontWeight, widthOut, heightOut, ascentOut, descentOut, advanceOut) == GPU_RESOURCE_READY ? 1 : 0; }
+
+int nativeUiPlatformLineBreak(unsigned long long compositor, string text, int fontSize, int lineHeight, int fontWeight, int width) { return std_gpu_native_ui_text_line_break(compositor, text, fontSize, lineHeight, fontWeight, width); }
 
 enum NativeUiAppAttachKind {
 	NATIVE_UI_APP_ATTACHED = 0,
@@ -73,11 +82,19 @@ class NativeUiPrepareOutcome {
 	public NativeUiPrepareKind kind;
 	public NativeUiFrame frame;
 	public string error;
+	public float layoutMilliseconds;
+	public float displayListMilliseconds;
+	public int measuredNodes;
+	public int reusedNodes;
 
-	public NativeUiPrepareOutcome(NativeUiPrepareKind kind, NativeUiFrame frame, string error) {
+	public NativeUiPrepareOutcome(NativeUiPrepareKind kind, NativeUiFrame frame, string error, float layoutMilliseconds = 0.0f, float displayListMilliseconds = 0.0f, int measuredNodes = 0, int reusedNodes = 0) {
 		self.kind = kind;
 		self.frame = frame;
 		self.error = error;
+		self.layoutMilliseconds = layoutMilliseconds;
+		self.displayListMilliseconds = displayListMilliseconds;
+		self.measuredNodes = measuredNodes;
+		self.reusedNodes = reusedNodes;
 	}
 }
 
@@ -104,6 +121,8 @@ class NativeUiAppSession {
 	private unsigned long long compositorIdentity;
 	private unsigned long long ownerReceipt;
 	private bool prepared;
+	private int contentOrderCount = 0;
+	private int totalOrderCount = 0;
 
 	private NativeUiAppSession(ApplicationWindow window, GPU gpu, NativeUiStyleSheet styleSheet, NativeUiTheme theme, NativeUiTypography typography, unsigned long long compositorIdentity, unsigned long long ownerReceipt) {
 		self.window = window;
@@ -136,7 +155,7 @@ class NativeUiAppSession {
 			return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACH_REJECTED, null, std_gpu_status_message(status));
 		}
 		if (typography == null && std_gpu_native_ui_system_typography_available(compositor) != 0) {
-			resolvedTypography = NativeUiTypography.platform(compositor, nativeUiPlatformMeasure, nativeUiPlatformRasterize, nativeUiPlatformRelease);
+			resolvedTypography = NativeUiTypography.platform(compositor, nativeUiPlatformMeasure, nativeUiPlatformRasterize, nativeUiPlatformRelease, nativeUiPlatformLineBreak);
 		}
 		return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACHED, NativeUiAppSession(window, gpu, resolvedSheet, resolvedTheme, resolvedTypography, compositor, receipt), "");
 	}
@@ -144,6 +163,8 @@ class NativeUiAppSession {
 	public bool isOpen() { return self.compositorIdentity != 0ULL && self.ownerReceipt != 0ULL && self.window.isOpen() && self.gpu.isOpen(); }
 
 	public NativeUiRenderer input() { return self.renderer; }
+
+	public AppSurfaceMetrics metrics() { return self.window.metrics(); }
 
 	/* The session's typography, for painters that rasterize their own text. */
 	public NativeUiTypography typography() { return self.typographyValue; }
@@ -162,6 +183,8 @@ class NativeUiAppSession {
 
 	private float channel(int value) { return (float)value / 255.0f; }
 
+	private unsigned int packedColor(NativeUiColor value) { return ((unsigned int)value.red << 24) | ((unsigned int)value.green << 16) | ((unsigned int)value.blue << 8) | (unsigned int)value.alpha; }
+
 	private GPUResourceOutcome addRect(float x, float y, float width, float height, NativeUiColor color, float radius) {
 		int status = std_gpu_native_ui_add_rect(self.compositorIdentity, x, y, width, height, self.channel(color.red), self.channel(color.green), self.channel(color.blue), self.channel(color.alpha), radius);
 		GPUResourceKind kind = status >= GPU_RESOURCE_READY && status <= GPU_RESOURCE_INTERNAL_ERROR ? (GPUResourceKind)status : GPU_RESOURCE_INTERNAL_ERROR;
@@ -172,15 +195,15 @@ class NativeUiAppSession {
 		if (self.typographyValue.platformBacked()) {
 			AppSurfaceMetrics metrics = self.window.metrics();
 			float backingScale = metrics.scaleX > metrics.scaleY ? metrics.scaleX : metrics.scaleY;
-			int status = std_gpu_native_ui_add_text(self.compositorIdentity, text, x, y, style.fontSize, style.lineHeight, style.fontWeight, backingScale, self.channel(color.red), self.channel(color.green), self.channel(color.blue), self.channel(color.alpha));
+			int status = std_gpu_native_ui_add_text(self.compositorIdentity, text, x, y, style.fontSize(), style.lineHeight(), style.fontWeight(), backingScale, self.channel(color.red), self.channel(color.green), self.channel(color.blue), self.channel(color.alpha));
 			GPUResourceKind kind = status >= GPU_RESOURCE_READY && status <= GPU_RESOURCE_INTERNAL_ERROR ? (GPUResourceKind)status : GPU_RESOURCE_INTERNAL_ERROR;
 			return GPUResourceOutcome(kind, kind == GPU_RESOURCE_READY ? "" : std_gpu_status_message(status));
 		}
 		float cursor = x;
-		float glyphWidth = (float)self.typographyValue.glyphWidth(style.fontSize);
-		float glyphHeight = (float)self.typographyValue.glyphHeight(style.fontSize);
-		float glyphY = y + (float)(style.lineHeight - self.typographyValue.glyphHeight(style.fontSize)) / 2.0f;
-		float advance = (float)self.typographyValue.advance(style.fontSize);
+		float glyphWidth = (float)self.typographyValue.glyphWidth(style.fontSize());
+		float glyphHeight = (float)self.typographyValue.glyphHeight(style.fontSize());
+		float glyphY = y + (float)(style.lineHeight() - self.typographyValue.glyphHeight(style.fontSize())) / 2.0f;
+		float advance = (float)self.typographyValue.advance(style.fontSize());
 		int index = 0;
 		while (index < text.len()) {
 			if (cursor >= (float)viewportWidth) { break; }
@@ -190,7 +213,7 @@ class NativeUiAppSession {
 				if (status != GPU_RESOURCE_READY) {
 					return GPUResourceOutcome((GPUResourceKind)status, std_gpu_status_message(status));
 				}
-				if (style.fontWeight >= 600 && cursor + 1.0f < (float)viewportWidth) {
+				if (style.fontWeight() >= 600 && cursor + 1.0f < (float)viewportWidth) {
 					int boldStatus = std_gpu_native_ui_add_glyph(self.compositorIdentity, cursor + 1.0f, glyphY, glyphWidth, glyphHeight, self.channel(color.red), self.channel(color.green), self.channel(color.blue), self.channel(color.alpha), glyph);
 					if (boldStatus != GPU_RESOURCE_READY) { return GPUResourceOutcome((GPUResourceKind)boldStatus, std_gpu_status_message(boldStatus)); }
 				}
@@ -199,6 +222,22 @@ class NativeUiAppSession {
 			cursor += advance;
 		}
 		return GPUResourceOutcome(GPU_RESOURCE_READY, "");
+	}
+
+	private GPUResourceOutcome addPanel(int x, int y, int width, int height, NativeUiColor fill, NativeUiResolvedStyle style, NativeUiLinearGradient? gradient) {
+		if (!style.hasBorder()) { return self.addFill(x, y, width, height, fill, style.radius(), gradient); }
+		GPUResourceOutcome outer = self.addRect((float)x, (float)y, (float)width, (float)height, style.border(), (float)style.radius());
+		if (outer.kind != GPU_RESOURCE_READY || !style.hasBorder() || width <= 2 || height <= 2) { return outer; }
+		return self.addFill(x + 1, y + 1, width - 2, height - 2, fill, style.radius() > 0 ? style.radius() - 1 : 0, gradient);
+	}
+
+	private GPUResourceOutcome addFill(int x, int y, int width, int height, NativeUiColor fill, int radius, NativeUiLinearGradient? gradient) {
+		GPUResourceOutcome base = self.addRect((float)x, (float)y, (float)width, (float)height, fill, (float)radius);
+		if (base.kind != GPU_RESOURCE_READY || gradient == null) { return base; }
+		NativeUiColor top = gradient.top();
+		NativeUiColor bottom = gradient.bottom();
+		int status = std_gpu_native_ui_add_gradient_rect(self.compositorIdentity, (float)x, (float)y, (float)width, (float)height, self.packedColor(top), self.packedColor(bottom), (float)radius);
+		return GPUResourceOutcome((GPUResourceKind)status, status == GPU_RESOURCE_READY ? "" : std_gpu_status_message(status));
 	}
 
 	private bool visible(NativeUiLayoutBox box, NativeUiViewportMetrics viewport) {
@@ -217,10 +256,11 @@ class NativeUiAppSession {
 		NativeUiLayoutBox box = optionalBox;
 		NativeUiSelect descriptor = optionalSelect;
 		NativeUiRect popupBounds = popup.bounds();
-		GPUResourceOutcome border = self.addRect((float)popupBounds.x, (float)popupBounds.y, (float)popupBounds.width, (float)popupBounds.height, self.theme.border, (float)box.style.radius);
+		NativeUiResolvedStyle textStyle = NativeUiSelectPopup.textStyle(box.style);
+		GPUResourceOutcome border = self.addRect((float)popupBounds.x, (float)popupBounds.y, (float)popupBounds.width, (float)popupBounds.height, self.theme.border, (float)NativeUiSelectPopup.radius());
 		if (border.kind != GPU_RESOURCE_READY) { return border; }
 		if (popupBounds.width > 2 && popupBounds.height > 2) {
-			GPUResourceOutcome background = self.addRect((float)(popupBounds.x + 1), (float)(popupBounds.y + 1), (float)(popupBounds.width - 2), (float)(popupBounds.height - 2), self.theme.panel, (float)(box.style.radius > 0 ? box.style.radius - 1 : 0));
+			GPUResourceOutcome background = self.addRect((float)(popupBounds.x + 1), (float)(popupBounds.y + 1), (float)(popupBounds.width - 2), (float)(popupBounds.height - 2), self.theme.panel, (float)(NativeUiSelectPopup.radius() - 1));
 			if (background.kind != GPU_RESOURCE_READY) { return background; }
 		}
 		for (int index = popup.firstOptionIndex(); index < popup.firstOptionIndex() + popup.visibleOptionCount(); index++) {
@@ -228,14 +268,14 @@ class NativeUiAppSession {
 			NativeUiRect row = popup.optionBounds(index);
 			bool highlighted = option.enabled() && index == self.renderer.highlightedSelectIndex();
 			if (highlighted) {
-				GPUResourceOutcome highlight = self.addRect((float)row.x, (float)row.y, (float)row.width, (float)row.height, self.theme.accent, 0.0f);
+				GPUResourceOutcome highlight = self.addRect((float)row.x, (float)row.y, (float)row.width, (float)row.height, self.theme.accent, (float)NativeUiSelectPopup.rowRadius());
 				if (highlight.kind != GPU_RESOURCE_READY) { return highlight; }
 			} else if (index == descriptor.selectedIndex()) {
 				GPUResourceOutcome selected = self.addRect((float)row.x, (float)row.y, 3.0f, (float)row.height, self.theme.accent, 0.0f);
 				if (selected.kind != GPU_RESOURCE_READY) { return selected; }
 			}
-			NativeUiColor color = !option.enabled() ? self.theme.mutedText : (highlighted ? self.theme.accentText : (box.style.hasForeground ? box.style.foreground : self.theme.text));
-			GPUResourceOutcome label = self.addText(option.label(), (float)(row.x + box.style.padding), (float)(row.y + (row.height - box.style.lineHeight) / 2), color, frame.viewport.width(), box.style);
+			NativeUiColor color = !option.enabled() ? self.theme.mutedText : (highlighted ? self.theme.accentText : (box.style.hasForeground() ? box.style.foreground() : self.theme.text));
+			GPUResourceOutcome label = self.addText(option.label(), (float)(row.x + NativeUiSelectPopup.labelInset()), (float)(row.y + (row.height - textStyle.lineHeight()) / 2), color, frame.viewport.width(), textStyle);
 			if (label.kind != GPU_RESOURCE_READY) { return label; }
 		}
 		return GPUResourceOutcome(GPU_RESOURCE_READY, "");
@@ -257,24 +297,28 @@ class NativeUiAppSession {
 			bool highlighted = box.id().equals(hovered) || box.id().equals(pressed);
 			if (box.kind() == NATIVE_UI_TEXT_INPUT) {
 				bool hasFocus = box.id().equals(focused);
-				GPUResourceOutcome border = self.addRect((float)x, (float)y, (float)box.bounds.width, (float)box.bounds.height, hasFocus ? self.theme.accent : self.theme.border, (float)style.radius);
+				GPUResourceOutcome border = self.addRect((float)x, (float)y, (float)box.bounds.width, (float)box.bounds.height, hasFocus ? self.theme.accent : (style.hasBorder() ? style.border() : self.theme.border), (float)style.radius());
 				if (border.kind != GPU_RESOURCE_READY) { return border; }
 				if (box.bounds.width > 2 && box.bounds.height > 2) {
-					GPUResourceOutcome field = self.addRect((float)(x + 1), (float)(y + 1), (float)(box.bounds.width - 2), (float)(box.bounds.height - 2), style.hasBackground ? style.background : self.theme.panel, (float)(style.radius > 0 ? style.radius - 1 : 0));
+					GPUResourceOutcome field = self.addFill(x + 1, y + 1, box.bounds.width - 2, box.bounds.height - 2, style.hasBackground() ? style.background() : self.theme.panel, style.radius() > 0 ? style.radius() - 1 : 0, style.backgroundGradient());
 					if (field.kind != GPU_RESOURCE_READY) { return field; }
 				}
 				string value = self.renderer.displayValue(box.element);
 				bool placeholder = value.isEmpty();
 				string visibleValue = placeholder ? box.element.placeholderText() : value;
-				NativeUiTextMetrics metrics = self.typographyValue.measure(visibleValue, style.fontSize, style.lineHeight, style.fontWeight);
-				int textX = self.typographyValue.alignedX(x, box.bounds.width, style.padding, metrics.width(), style.textAlignment);
-				GPUResourceOutcome text = self.addText(visibleValue, (float)textX, (float)(y + (box.bounds.height - style.lineHeight) / 2), placeholder ? self.theme.mutedText : (style.hasForeground ? style.foreground : self.theme.text), frame.viewport.width(), style);
+				NativeUiTextViewport run = NativeUiTextViewport(visibleValue, box.bounds.width - style.horizontalPadding(), hasFocus && !placeholder ? self.renderer.focusedCaret() : -1, hasFocus && !placeholder ? (self.renderer.selectionStart() == self.renderer.focusedCaret() ? self.renderer.selectionEnd() : self.renderer.selectionStart()) : -1, self.typographyValue, style);
+				int textX = x + style.paddingLeft();
+				int textY = y + style.paddingTop() + (box.bounds.height - style.verticalPadding() - style.lineHeight()) / 2;
+				if (hasFocus && run.selectionWidth > 0) {
+					GPUResourceOutcome selection = self.addRect((float)(textX + run.selectionX), (float)textY, (float)run.selectionWidth, (float)style.lineHeight(), self.theme.textSelection, 0.0f);
+					if (selection.kind != GPU_RESOURCE_READY) { return selection; }
+				}
+				GPUResourceOutcome text = self.addText(run.text, (float)textX, (float)textY, placeholder ? self.theme.mutedText : (style.hasForeground() ? style.foreground() : self.theme.text), frame.viewport.width(), style);
 				if (text.kind != GPU_RESOURCE_READY) { return text; }
-				if (hasFocus) {
-					string caretPrefix = value.substring(0, self.renderer.focusedCaret());
-					int caretX = textX + self.typographyValue.measure(caretPrefix, style.fontSize, style.lineHeight, style.fontWeight).width();
-					if (caretX >= x + style.padding && caretX < x + box.bounds.width - style.padding + 1) {
-						GPUResourceOutcome caret = self.addRect((float)caretX, (float)(y + (box.bounds.height - style.lineHeight) / 2), 2.0f, (float)style.lineHeight, style.hasForeground ? style.foreground : self.theme.text, 0.0f);
+				if (hasFocus && self.renderer.caretVisible()) {
+					int caretX = textX + (placeholder ? 0 : run.caretX);
+					if (caretX >= x + style.paddingLeft() && caretX < x + box.bounds.width - style.paddingRight() + 1) {
+						GPUResourceOutcome caret = self.addRect((float)caretX, (float)(y + style.paddingTop() + (box.bounds.height - style.verticalPadding() - style.lineHeight()) / 2), 2.0f, (float)style.lineHeight(), style.hasForeground() ? style.foreground() : self.theme.text, 0.0f);
 						if (caret.kind != GPU_RESOURCE_READY) {
 							return caret;
 						}
@@ -284,57 +328,68 @@ class NativeUiAppSession {
 				NativeUiSelectPopup popup = self.renderer.selectPopup();
 				bool hasFocus = box.id().equals(focused);
 				bool expanded = popup.visible() && popup.ownerId().equals(box.id());
-				GPUResourceOutcome border = self.addRect((float)x, (float)y, (float)box.bounds.width, (float)box.bounds.height, hasFocus || expanded ? self.theme.accent : self.theme.border, (float)style.radius);
+				GPUResourceOutcome border = self.addRect((float)x, (float)y, (float)box.bounds.width, (float)box.bounds.height, hasFocus || expanded ? self.theme.accent : (style.hasBorder() ? style.border() : self.theme.border), (float)style.radius());
 				if (border.kind != GPU_RESOURCE_READY) { return border; }
 				if (box.bounds.width > 2 && box.bounds.height > 2) {
-					GPUResourceOutcome field = self.addRect((float)(x + 1), (float)(y + 1), (float)(box.bounds.width - 2), (float)(box.bounds.height - 2), style.hasBackground ? style.background : self.theme.panel, (float)(style.radius > 0 ? style.radius - 1 : 0));
+					GPUResourceOutcome field = self.addFill(x + 1, y + 1, box.bounds.width - 2, box.bounds.height - 2, style.hasBackground() ? style.background() : self.theme.panel, style.radius() > 0 ? style.radius() - 1 : 0, style.backgroundGradient());
 					if (field.kind != GPU_RESOURCE_READY) { return field; }
 				}
 				NativeUiSelect? optionalSelect = box.element.selectDescriptor();
 				if (optionalSelect != null) {
 					NativeUiSelect descriptor = optionalSelect;
-					NativeUiColor labelColor = box.enabled() ? (style.hasForeground ? style.foreground : self.theme.text) : self.theme.mutedText;
-					GPUResourceOutcome label = self.addText(descriptor.selectedLabel(), (float)(x + style.padding), (float)(y + (box.bounds.height - style.lineHeight) / 2), labelColor, frame.viewport.width(), style);
+					NativeUiColor labelColor = box.enabled() ? (style.hasForeground() ? style.foreground() : self.theme.text) : self.theme.mutedText;
+					GPUResourceOutcome label = self.addText(descriptor.selectedLabel(), (float)(x + style.paddingLeft()), (float)(y + style.paddingTop() + (box.bounds.height - style.verticalPadding() - style.lineHeight()) / 2), labelColor, frame.viewport.width(), style);
 					if (label.kind != GPU_RESOURCE_READY) { return label; }
-					int arrowX = x + box.bounds.width - style.padding - self.typographyValue.advance(style.fontSize);
-					GPUResourceOutcome arrow = self.addText(expanded ? "^" : "v", (float)arrowX, (float)(y + (box.bounds.height - style.lineHeight) / 2), style.hasForeground ? style.foreground : self.theme.mutedText, frame.viewport.width(), style);
-					if (arrow.kind != GPU_RESOURCE_READY) { return arrow; }
+					NativeUiRect marker = NativeUiSelectIndicator.bounds(box, frame.viewport.scrollX(), frame.viewport.scrollY());
+					NativeUiColor markerColor = NativeUiSelectIndicator.color(box, self.theme);
+					if (marker.width >= 4 && marker.height >= 4) {
+						int arrow = std_gpu_native_ui_add_chevron(self.compositorIdentity, (float)marker.x, (float)marker.y, (float)marker.width, (float)marker.height, self.channel(markerColor.red), self.channel(markerColor.green), self.channel(markerColor.blue), self.channel(markerColor.alpha), expanded ? 1 : 0);
+						if (arrow != GPU_RESOURCE_READY) { return GPUResourceOutcome((GPUResourceKind)arrow, std_gpu_status_message(arrow)); }
+					}
 				}
 			} else if (box.kind() == NATIVE_UI_BUTTON) {
-				NativeUiColor fill = highlighted ? self.theme.accent : (style.hasBackground ? style.background : self.theme.panel);
-				GPUResourceOutcome rectangle = self.addRect((float)x, (float)y, (float)box.bounds.width, (float)box.bounds.height, fill, (float)style.radius);
+				NativeUiColor fill = self.theme.buttonFill(style, box.enabled() && highlighted, box.enabled() && box.id().equals(pressed));
+				GPUResourceOutcome rectangle = self.addPanel(x, y, box.bounds.width, box.bounds.height, fill, style, self.theme.buttonGradient(style, box.enabled() && highlighted, box.enabled() && box.id().equals(pressed)));
 				if (rectangle.kind != GPU_RESOURCE_READY) {
 					return rectangle;
 				}
-				NativeUiColor label = highlighted ? self.theme.accentText : (style.hasForeground ? style.foreground : self.theme.text);
-				NativeUiTextMetrics metrics = self.typographyValue.measure(box.element.contentText(), style.fontSize, style.lineHeight, style.fontWeight);
-				int textX = self.typographyValue.alignedX(x, box.bounds.width, style.padding, metrics.width(), style.textAlignment);
-				GPUResourceOutcome text = self.addText(box.element.contentText(), (float)textX, (float)(y + style.padding), label, frame.viewport.width(), style);
+				NativeUiColor label = self.theme.buttonText(style, box.enabled(), highlighted);
+				NativeUiTextMetrics metrics = self.typographyValue.measure(box.element.contentText(), style.fontSize(), style.lineHeight(), style.fontWeight());
+				int textX = self.typographyValue.alignedX(x + style.paddingLeft(), box.bounds.width - style.horizontalPadding(), 0, metrics.width(), style.textAlignment());
+				GPUResourceOutcome text = self.addText(box.element.contentText(), (float)textX, (float)(y + style.paddingTop()), label, frame.viewport.width(), style);
 				if (text.kind != GPU_RESOURCE_READY) { return text; }
 			} else {
-				if (style.hasBackground) {
-					GPUResourceOutcome background = self.addRect((float)x, (float)y, (float)box.bounds.width, (float)box.bounds.height, style.background, (float)style.radius);
+				if (style.hasBackground() || style.hasBorder() || style.backgroundGradient() != null) {
+					GPUResourceOutcome background = self.addPanel(x, y, box.bounds.width, box.bounds.height, style.hasBackground() ? style.background() : (style.backgroundGradient() != null ? NativeUiColor(0, 0, 0, 0) : self.theme.panel), style, style.backgroundGradient());
 					if (background.kind != GPU_RESOURCE_READY) {
 						return background;
 					}
 				}
 				if (box.kind() == NATIVE_UI_TEXT) {
-					NativeUiTextMetrics metrics = self.typographyValue.measure(box.element.contentText(), style.fontSize, style.lineHeight, style.fontWeight);
-					int textX = self.typographyValue.alignedX(x, box.bounds.width, style.padding, metrics.width(), style.textAlignment);
-					GPUResourceOutcome text = self.addText(box.element.contentText(), (float)textX, (float)(y + style.padding), style.hasForeground ? style.foreground : self.theme.text, frame.viewport.width(), style);
-					if (text.kind != GPU_RESOURCE_READY) { return text; }
+					NativeUiTextLayout? layout = box.textLayout();
+					int count = layout == null ? 1 : layout.lineCount();
+					for (int index = 0; index < count; index++) {
+						string value = layout == null ? box.element.contentText() : layout.lineAt(index).text();
+						NativeUiTextMetrics metrics = layout == null ? self.typographyValue.measure(value, style.fontSize(), style.lineHeight(), style.fontWeight()) : layout.lineAt(index).metrics();
+						int textY = y + style.paddingTop() + (layout == null ? 0 : layout.lineAt(index).top());
+						if (textY >= frame.viewport.height() || textY + metrics.height() <= 0) { continue; }
+						int textX = self.typographyValue.alignedX(x + style.paddingLeft(), box.bounds.width - style.horizontalPadding(), 0, metrics.width(), style.textAlignment());
+						GPUResourceOutcome text = self.addText(value, (float)textX, (float)textY, style.hasForeground() ? style.foreground() : self.theme.text, frame.viewport.width(), style);
+						if (text.kind != GPU_RESOURCE_READY) { return text; }
+					}
 				} else if (box.kind() == NATIVE_UI_IMAGE) {
-					int imageWidth = box.bounds.width - style.padding * 2;
-					int imageHeight = box.bounds.height - style.padding * 2;
+					int imageWidth = box.bounds.width - style.horizontalPadding();
+					int imageHeight = box.bounds.height - style.verticalPadding();
 					Image? optionalImage = box.element.contentImage();
 					if (optionalImage != null && !optionalImage.isEmpty() && imageWidth > 0 && imageHeight > 0) {
 						Image image = optionalImage;
-						int imageStatus = std_gpu_native_ui_add_image(self.compositorIdentity, box.id(), image.data, image.width, image.height, box.element.contentImageRevision(), (float)(x + style.padding), (float)(y + style.padding), (float)imageWidth, (float)imageHeight);
+						NativeUiImageRegion? region = box.element.contentImageRegion();
+						int imageStatus = region == null ? std_gpu_native_ui_add_image(self.compositorIdentity, box.id(), image.data, image.width, image.height, box.element.contentImageRevision(), (float)(x + style.paddingLeft()), (float)(y + style.paddingTop()), (float)imageWidth, (float)imageHeight) : std_gpu_native_ui_add_image_region(self.compositorIdentity, box.id(), image.data, image.width, image.height, box.element.contentImageRevision(), (float)(x + style.paddingLeft()), (float)(y + style.paddingTop()), (float)imageWidth, (float)imageHeight, (float)region.left(), (float)region.top(), (float)region.width(), (float)region.height());
 						if (imageStatus != GPU_RESOURCE_READY) {
 							return GPUResourceOutcome((GPUResourceKind)imageStatus, std_gpu_status_message(imageStatus));
 						}
 					} else {
-						GPUResourceOutcome placeholder = self.addRect((float)x, (float)y, (float)box.bounds.width, (float)box.bounds.height, self.theme.border, (float)style.radius);
+						GPUResourceOutcome placeholder = self.addRect((float)x, (float)y, (float)box.bounds.width, (float)box.bounds.height, self.theme.border, (float)style.radius());
 						if (placeholder.kind != GPU_RESOURCE_READY) {
 							return placeholder;
 						}
@@ -342,25 +397,59 @@ class NativeUiAppSession {
 				}
 			}
 		}
-		return self.buildSelectPopup(frame);
+		NativeUiScrollbar scrollbar = self.renderer.verticalScrollbar();
+		if (scrollbar.visible()) {
+			NativeUiRect thumb = scrollbar.thumb();
+			GPUResourceOutcome scroller = self.addRect((float)thumb.x, (float)thumb.y, (float)thumb.width, (float)thumb.height, scrollbar.color(self.theme), 4.0f);
+			if (scroller.kind != GPU_RESOURCE_READY) { return scroller; }
+		}
+		self.contentOrderCount = std_gpu_native_ui_order_count(self.compositorIdentity);
+		GPUResourceOutcome popup = self.buildSelectPopup(frame);
+		self.totalOrderCount = std_gpu_native_ui_order_count(self.compositorIdentity);
+		return popup;
 	}
 
-	public NativeUiPrepareOutcome prepare(NativeUiElement root) {
+	public NativeUiPrepareOutcome prepare(NativeUiElement root, bool profile = false) { return self.prepareRoot(root, profile, false); }
+
+	/* Retain measurements only for caller-owned immutable published trees. */
+	public NativeUiPrepareOutcome prepareImmutable(NativeUiElement root, bool profile = false) { return self.prepareRoot(root, profile, true); }
+
+	private NativeUiPrepareOutcome prepareRoot(NativeUiElement root, bool profile, bool immutableRoot) {
 		self.prepared = false;
 		if (!self.isOpen()) {
 			return NativeUiPrepareOutcome(NATIVE_UI_PREPARE_CLOSED, self.renderer.currentFrame(), "native UI application session is closed");
 		}
 		AppSurfaceMetrics metrics = self.window.metrics();
-		NativeUiFrame frame = self.renderer.layout(root, metrics.logicalWidth, metrics.logicalHeight);
+		Timer? timer = profile ? Timer() : null;
+		if (timer != null) { timer.start(); }
+		NativeUiFrame frame = immutableRoot ? self.renderer.layoutImmutable(root, metrics.logicalWidth, metrics.logicalHeight) : self.renderer.layout(root, metrics.logicalWidth, metrics.logicalHeight);
 		if (!frame.ok()) {
 			return NativeUiPrepareOutcome(NATIVE_UI_PREPARE_LAYOUT_REJECTED, frame, frame.error);
 		}
+		float layoutMilliseconds = timer == null ? 0.0f : timer.elapsedMillis();
+		return self.prepareFrame(frame, profile, layoutMilliseconds, self.renderer.measuredNodeCount(), self.renderer.reusedNodeCount());
+	}
+
+	/* Rebuild paint commands from the last published layout (after scrolling
+	 * or hover). Call prepare(root) instead after any source-tree mutation. */
+	public NativeUiPrepareOutcome prepareCurrent(bool profile = false) {
+		self.prepared = false;
+		NativeUiFrame frame = self.renderer.currentFrame();
+		if (!self.isOpen()) { return NativeUiPrepareOutcome(NATIVE_UI_PREPARE_CLOSED, frame, "native UI application session is closed"); }
+		AppSurfaceMetrics metrics = self.window.metrics();
+		if (!frame.ok() || frame.viewport.width() != metrics.logicalWidth || frame.viewport.height() != metrics.logicalHeight) { return NativeUiPrepareOutcome(NATIVE_UI_PREPARE_LAYOUT_REJECTED, frame, "native UI requires a current layout before repainting"); }
+		return self.prepareFrame(frame, profile, 0.0f);
+	}
+
+	private NativeUiPrepareOutcome prepareFrame(NativeUiFrame frame, bool profile, float layoutMilliseconds, int measuredNodes = 0, int reusedNodes = 0) {
+		Timer? timer = profile ? Timer() : null;
+		if (timer != null) { timer.start(); }
 		GPUResourceOutcome displayList = self.buildDisplayList(frame);
 		if (displayList.kind != GPU_RESOURCE_READY) {
 			return NativeUiPrepareOutcome(NATIVE_UI_PREPARE_DISPLAY_LIST_REJECTED, frame, displayList.error);
 		}
 		self.prepared = true;
-		return NativeUiPrepareOutcome(NATIVE_UI_PREPARED, frame, "");
+		return NativeUiPrepareOutcome(NATIVE_UI_PREPARED, frame, "", layoutMilliseconds, timer == null ? 0.0f : timer.elapsedMillis(), measuredNodes, reusedNodes);
 	}
 
 	/* Record into a frame begun by this app's existing GPU owner. */
@@ -372,6 +461,19 @@ class NativeUiAppSession {
 		GPUDrawKind kind = status >= GPU_DRAW_RECORDED && status <= GPU_DRAW_BACKEND_FAILURE ? (GPUDrawKind)status : GPU_DRAW_BACKEND_FAILURE;
 		return GPUDrawOutcome(kind, kind == GPU_DRAW_RECORDED ? "" : std_gpu_status_message(status));
 	}
+
+	private GPUDrawOutcome recordRange(int first, int count) {
+		if (!self.isOpen() || !self.prepared) { return GPUDrawOutcome(GPU_DRAW_INVALID_DESCRIPTOR, "native UI has no prepared display list"); }
+		int status = std_gpu_native_ui_draw_range(self.gpu.gpuIdentity(), self.compositorIdentity, first, count);
+		GPUDrawKind kind = status >= GPU_DRAW_RECORDED && status <= GPU_DRAW_BACKEND_FAILURE ? (GPUDrawKind)status : GPU_DRAW_BACKEND_FAILURE;
+		return GPUDrawOutcome(kind, kind == GPU_DRAW_RECORDED ? "" : std_gpu_status_message(status));
+	}
+
+	/* Custom GPU content belongs between these passes. Popup pixels and hit
+	 * testing still use the same prepared tree, compositor, and lifecycle. */
+	public GPUDrawOutcome recordPreparedContent() { return self.recordRange(0, self.contentOrderCount); }
+
+	public GPUDrawOutcome recordPreparedOverlays() { return self.recordRange(self.contentOrderCount, self.totalOrderCount - self.contentOrderCount); }
 
 	public NativeUiPresentOutcome present(NativeUiElement root) {
 		NativeUiPrepareOutcome prepared = self.prepare(root);
@@ -423,11 +525,18 @@ class NativeUiAppSession {
 			AppPointerEvent pointer = event.pointer;
 			int x = (int)pointer.logicalX;
 			int y = (int)pointer.logicalY;
+			if (pointer.button == APP_POINTER_BUTTON_BACK || pointer.button == APP_POINTER_BUTTON_FORWARD) {
+				if (pointer.action != APP_POINTER_PRESSED) { return self.noEvents(); }
+				NativeUiEventBatch cancelled = self.renderer.pointerCancelled();
+				self.renderer.blur();
+				cancelled.events.push(NativeUiEvent.navigate(pointer.button == APP_POINTER_BUTTON_FORWARD));
+				return NativeUiEventBatch(self.renderer.currentFrame(), cancelled.events);
+			}
 			if (pointer.action == APP_POINTER_MOVED) {
 				return self.renderer.pointerMoved(x, y);
 			}
 			if (pointer.button == APP_POINTER_BUTTON_PRIMARY && pointer.action == APP_POINTER_PRESSED) {
-				return self.renderer.pointerPressed(x, y);
+				return self.renderer.pointerPressed(x, y, pointer.modifiers.shift);
 			}
 			if (pointer.button == APP_POINTER_BUTTON_PRIMARY && pointer.action == APP_POINTER_RELEASED) {
 				return self.renderer.pointerReleased(x, y);
@@ -445,6 +554,25 @@ class NativeUiAppSession {
 			AppKeyboardEvent keyboard = event.keyboard;
 			bool active = keyboard.action == APP_KEY_PRESSED || keyboard.action == APP_KEY_REPEATED;
 			if (!active) { return self.noEvents(); }
+			if (self.renderer.editingText()) {
+				bool shortcut = keyboard.modifiers.command || keyboard.modifiers.control;
+				bool word = keyboard.modifiers.alt || keyboard.modifiers.control;
+				bool line = keyboard.modifiers.command;
+				if (shortcut && keyboard.key == APP_KEY_A) { return self.renderer.selectAllText(); }
+				if (shortcut && (keyboard.key == APP_KEY_C || keyboard.key == APP_KEY_X)) {
+					string selected = self.renderer.selectedText();
+					if (selected.isEmpty() || self.window.setClipboardText(selected) != null) { return self.noEvents(); }
+					return keyboard.key == APP_KEY_X ? self.renderer.textEntered("") : self.noEvents();
+				}
+				if (shortcut && keyboard.key == APP_KEY_V) {
+					AppClipboardText clipboard = self.window.clipboardText();
+					return clipboard.error == null ? self.renderer.textEntered(clipboard.text) : self.noEvents();
+				}
+				if (keyboard.key == APP_KEY_BACKSPACE) { return self.renderer.backspace(word, line); }
+				if (keyboard.key == APP_KEY_DELETE) { return self.renderer.deleteForward(word, line); }
+				if (keyboard.key == APP_KEY_LEFT || keyboard.key == APP_KEY_HOME) { return self.renderer.moveCaretLeft(keyboard.modifiers.shift, word, line || keyboard.key == APP_KEY_HOME); }
+				if (keyboard.key == APP_KEY_RIGHT || keyboard.key == APP_KEY_END) { return self.renderer.moveCaretRight(keyboard.modifiers.shift, word, line || keyboard.key == APP_KEY_END); }
+			}
 			NativeUiRangeAdjustment adjustment = self.rangeAdjustment(keyboard);
 			if (adjustment != NATIVE_UI_RANGE_ADJUST_NONE) {
 				return self.renderer.adjustFocusedRange(adjustment);
@@ -482,6 +610,7 @@ class NativeUiAppSession {
 		if (event.kind == APP_EVENT_CLOSE_REQUESTED || event.kind == APP_EVENT_CLOSED || event.kind == APP_EVENT_FAILED) {
 			return self.renderer.pointerCancelled();
 		}
+		if (event.kind == APP_EVENT_FOCUS_LOST) { self.renderer.pointerCancelled(); return self.renderer.blur(); }
 		return self.noEvents();
 	}
 

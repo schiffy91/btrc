@@ -7,13 +7,14 @@ struct CoreAudioConformanceContext {
 	Atomic<uint>* callbacks;
 	Atomic<uint>* failure;
 	Atomic<uint>* firstDiscontinuity;
+	int maximumFrames;
 };
 
 @realtime void coreAudioConformanceProcess(void* rawContext, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {
 	struct CoreAudioConformanceContext* context = (struct CoreAudioConformanceContext*)rawContext;
 	if (context == null) { return; }
 	uint invocation = context->callbacks->fetchAdd(1u, MemoryOrder.RELAXED);
-	if (block.inputChannelCount != 0 || block.outputChannelCount != 1 || block.frameCount <= 0 || block.streamEpoch == 0ULL || !inputs.isEmpty() || outputs.length() != (size_t)block.frameCount) { context->failure->store(1u, MemoryOrder.RELAXED); }
+	if (block.inputChannelCount != 0 || block.outputChannelCount != 1 || block.frameCount <= 0 || block.frameCount > context->maximumFrames || block.streamEpoch == 0ULL || !inputs.isEmpty() || outputs.length() != (size_t)block.frameCount) { context->failure->store(1u, MemoryOrder.RELAXED); }
 	if (invocation == 0u && (block.flags & (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY) != 0u) { context->firstDiscontinuity->store(1u, MemoryOrder.RELAXED); }
 	int frameCount = block.frameCount;
 	for (int frame = 0; frame < frameCount; frame++) { outputs.trySet((size_t)frame, 0.0f); }
@@ -40,7 +41,7 @@ int main() {
 	callbacks.init(0u);
 	failure.init(0u);
 	firstDiscontinuity.init(0u);
-	struct CoreAudioConformanceContext context = {&callbacks, &failure, &firstDiscontinuity};
+	struct CoreAudioConformanceContext context = {&callbacks, &failure, &firstDiscontinuity, stream.bufferFrames()};
 	RealtimeAudioProgram program = RealtimeAudioProgram(coreAudioConformanceProcess, &context);
 	DuplexAudioOpenRequest request = DuplexAudioOpenRequest.outputOnly(inventory.generation(), output.id(), AudioChannelSelection.leading(1), stream);
 	DuplexAudioSessionOpenOutcome sessionOpened = provider.openDuplex(request, program);

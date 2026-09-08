@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <string.h>
 
 static size_t alpha_sum(
         const BtrcNativeUiTextBitmap* bitmap,
@@ -22,6 +23,34 @@ static size_t alpha_sum(
 
 int main(void) {
     assert(btrc_gpu_native_ui_text_available());
+
+    BtrcNativeUiTextMetrics word;
+    assert(btrc_gpu_native_ui_text_measure("hello", 16, 24, 400, &word));
+    assert(btrc_gpu_native_ui_text_line_break("hello world", 16, 24, 400, word.width + 1) == 6);
+    assert(btrc_gpu_native_ui_text_line_break("hello\nworld", 16, 24, 400, 1000) == 6);
+    assert(btrc_gpu_native_ui_text_line_break("\r\nworld", 16, 24, 400, 1000) == 2);
+    assert(btrc_gpu_native_ui_text_line_break("", 16, 24, 400, 80) == 0);
+    assert(btrc_gpu_native_ui_text_line_break("text", 16, 24, 400, 0) == 0);
+    assert(btrc_gpu_native_ui_text_line_break("\xc3", 16, 24, 400, 80) == 0);
+    /* Tiny widths must advance by a complete composed character. */
+    assert(btrc_gpu_native_ui_text_line_break("e\xcc\x81x", 16, 24, 400, 1) == 3);
+    assert(btrc_gpu_native_ui_text_line_break("\xf0\x9f\x91\xa9\xe2\x80\x8d\xf0\x9f\x92\xbb!", 16, 24, 400, 1) == 11);
+    const char* path = "/Music/Averylongunbrokenarrangementfilename.psarc";
+    int start = 0;
+    int line_count = 0;
+    while (path[start] != '\0') {
+        int consumed = btrc_gpu_native_ui_text_line_break(path + start, 16, 24, 400, 80);
+        assert(consumed > 0 && consumed <= (int)strlen(path + start));
+        char line[128];
+        memcpy(line, path + start, (size_t)consumed);
+        line[consumed] = '\0';
+        BtrcNativeUiTextMetrics metrics;
+        assert(btrc_gpu_native_ui_text_measure(line, 16, 24, 400, &metrics));
+        assert(metrics.width <= 80);
+        start += consumed;
+        line_count++;
+    }
+    assert(line_count > 2);
 
     BtrcNativeUiTextMetrics narrow;
     BtrcNativeUiTextMetrics wide;

@@ -91,7 +91,7 @@ static CTFontRef create_system_font(int font_size, int font_weight) {
     return weighted;
 }
 
-static CTLineRef create_line(
+static CFAttributedStringRef create_attributed(
         const char* text, CTFontRef font, CFStringRef* string_out) {
     CFStringRef string = CFStringCreateWithCString(
         kCFAllocatorDefault, text, kCFStringEncodingUTF8);
@@ -116,6 +116,15 @@ static CTLineRef create_line(
         CFRelease(string);
         return NULL;
     }
+    *string_out = string;
+    return attributed;
+}
+
+static CTLineRef create_line(
+        const char* text, CTFontRef font, CFStringRef* string_out) {
+    CFStringRef string = NULL;
+    CFAttributedStringRef attributed = create_attributed(text, font, &string);
+    if (!attributed) { return NULL; }
     CTLineRef line = CTLineCreateWithAttributedString(attributed);
     CFRelease(attributed);
     if (!line) {
@@ -162,6 +171,37 @@ static bool measure_line(
     return true;
 }
 #endif
+
+int btrc_gpu_native_ui_text_line_break(const char* text, int font_size, int line_height, int font_weight, int width) {
+    if (!text_descriptor_valid(text, font_size, line_height, font_weight) || width < 1 || width > 1000000000 || text[0] == '\0') { return 0; }
+#if BTRC_NATIVE_UI_USE_CORE_TEXT
+    CTFontRef font = create_system_font(font_size, font_weight);
+    if (!font) { return 0; }
+    CFStringRef string = NULL;
+    CFAttributedStringRef attributed = create_attributed(text, font, &string);
+    CFRelease(font);
+    if (!attributed) { return 0; }
+    CTTypesetterRef typesetter = CTTypesetterCreateWithAttributedString(attributed);
+    CFRelease(attributed);
+    if (!typesetter) { CFRelease(string); return 0; }
+    CFIndex count = CTTypesetterSuggestLineBreak(typesetter, 0, (double)width);
+    if (count == 0) { count = CTTypesetterSuggestClusterBreak(typesetter, 0, (double)width); }
+    /* A single cluster wider than the viewport still consumes one complete
+     * character. No infinite retry and no torn surrogate/combining sequence. */
+    if (count == 0) { count = CFStringGetRangeOfComposedCharactersAtIndex(string, 0).length; }
+    if (count < CFStringGetLength(string)) {
+        CFRange cluster = CFStringGetRangeOfComposedCharactersAtIndex(string, count - 1);
+        if (cluster.location + cluster.length > count) { count = cluster.location > 0 ? cluster.location : cluster.length; }
+    }
+    CFIndex bytes = 0;
+    CFIndex converted = CFStringGetBytes(string, CFRangeMake(0, count), kCFStringEncodingUTF8, 0, false, NULL, 0, &bytes);
+    CFRelease(typesetter);
+    CFRelease(string);
+    return converted == count && bytes > 0 && bytes <= TEXT_MAX_BYTES ? (int)bytes : 0;
+#else
+    return 0;
+#endif
+}
 
 bool btrc_gpu_native_ui_text_measure(
         const char* text,

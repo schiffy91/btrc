@@ -345,8 +345,16 @@ class StdlibArchiveAdapter:
         units: list[str] = []
         current: list[str] = []
         depth = 0
+        directive = False
         for line in source.split("\n"):
             stripped = line.strip()
+            if directive or (not current and stripped.startswith("#")):
+                current.append(line)
+                directive = stripped.endswith("\\")
+                if not directive:
+                    units.append("\n".join(current))
+                    current = []
+                continue
             if not current and (
                 not stripped or stripped.startswith("/*") or stripped.startswith("*") or stripped.startswith("//")
             ):
@@ -361,6 +369,8 @@ class StdlibArchiveAdapter:
         return units
 
     def function_definition_prototype(self, unit: str) -> str | None:
+        if unit.lstrip().startswith("#"):
+            return None
         brace = unit.find("{")
         if brace < 0:
             return None
@@ -397,7 +407,7 @@ class StdlibArchiveAdapter:
     def derive_shared_declarations(self, source: str) -> str:
         output = []
         for unit in self.split_toplevel_units(source):
-            if unit.lstrip().startswith("typedef"):
+            if unit.lstrip().startswith(("typedef", "#")):
                 output.append(unit)
                 continue
             prototype = self.function_definition_prototype(unit)
@@ -421,7 +431,7 @@ class StdlibArchiveAdapter:
     def derive_archive_api_declarations(self, source: str, public_name: str) -> str:
         output = []
         for unit in self.split_toplevel_units(source):
-            if unit.lstrip().startswith("typedef"):
+            if unit.lstrip().startswith(("typedef", "#")):
                 output.append(unit)
             elif self._defines_function(unit, public_name):
                 prototype = self.function_definition_prototype(unit)

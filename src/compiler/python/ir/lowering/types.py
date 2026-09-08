@@ -195,7 +195,9 @@ class CTypeLowerer:
         else:
             c_type = base
         depth = type_expr.pointer_depth
-        base_is_reference = c_type.endswith("*") or base in {"__fn_ptr", "__realtime_fn_ptr"} or self._typedef_base_is_reference(base)
+        base_is_reference = (
+            c_type.endswith("*") or base in {"__fn_ptr", "__realtime_fn_ptr"} or self._typedef_base_is_reference(base)
+        )
         if TypeSystem.nullable_collapses_reference_layer(type_expr, base_is_reference=base_is_reference):
             depth -= 1
         c_type += "*" * depth
@@ -631,7 +633,12 @@ class CTypeLowerer:
         identity = self._identity
         if identity.is_null(left_type) or identity.is_null(right_type):
             function_type = next(
-                (item for item in (left_type, right_type) if item is not None and item.base in {"__fn_ptr", "__realtime_fn_ptr"}), None
+                (
+                    item
+                    for item in (left_type, right_type)
+                    if item is not None and item.base in {"__fn_ptr", "__realtime_fn_ptr"}
+                ),
+                None,
             )
             if function_type is not None:
                 null_value = IRCast(target_type=CType(text=self.render(function_type)), expr=IRLiteral(text="0"))
@@ -640,7 +647,12 @@ class CTypeLowerer:
                 else:
                     right = null_value
             return IRBinOp(left=left, op=operator, right=right)
-        if left_type and right_type and left_type.base in {"__fn_ptr", "__realtime_fn_ptr"} and right_type.base in {"__fn_ptr", "__realtime_fn_ptr"}:
+        if (
+            left_type
+            and right_type
+            and left_type.base in {"__fn_ptr", "__realtime_fn_ptr"}
+            and right_type.base in {"__fn_ptr", "__realtime_fn_ptr"}
+        ):
             left_name = self._session.fresh_temp("__btrc_fn_left")
             right_name = self._session.fresh_temp("__btrc_fn_right")
             left_var = IRVar(name=left_name)

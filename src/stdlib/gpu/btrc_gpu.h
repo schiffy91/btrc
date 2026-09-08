@@ -82,6 +82,13 @@ void std_gpu_finalize(
 int std_gpu_begin_frame(
     unsigned long long gpu, float r, float g, float b, float a);
 int std_gpu_end_frame(unsigned long long gpu);
+/* Offscreen frames use the same device/pipelines without acquiring or
+ * presenting a desktop drawable. Ending consumes the frame, returning tightly
+ * packed top-down RGBA8; dimensions and capacity must match the begun frame. */
+int std_gpu_begin_capture_frame(unsigned long long gpu, int width, int height,
+    float r, float g, float b, float a);
+int std_gpu_end_capture_frame(unsigned long long gpu, unsigned char* rgba,
+    int width, int height, unsigned long long byte_count);
 
 /* Public BTRC render resources use validated identities, never native handles.
  * Factories publish both output capabilities only with RESOURCE_READY and
@@ -97,6 +104,16 @@ void std_gpu_shader_finalize(
 int std_gpu_pipeline_create(
     unsigned long long gpu, unsigned long long shader,
     char* vertex_entry, char* fragment_entry,
+    unsigned long long* pipeline_out,
+    unsigned long long* owner_receipt_out);
+enum {
+    BTRC_GPU_BLEND_OPAQUE = 0,
+    BTRC_GPU_BLEND_SOURCE_OVER = 1
+};
+/* SOURCE_OVER consumes straight (not premultiplied) fragment RGB. */
+int std_gpu_pipeline_create_with_blend(
+    unsigned long long gpu, unsigned long long shader,
+    char* vertex_entry, char* fragment_entry, int blend_mode,
     unsigned long long* pipeline_out,
     unsigned long long* owner_receipt_out);
 int std_gpu_pipeline_destroy(
@@ -118,6 +135,17 @@ int std_gpu_draw(
 int std_gpu_draw_uniform(
     unsigned long long gpu, unsigned long long pipeline,
     int vertex_count, unsigned long long uniform);
+/* Immutable RGBA8 texture, linear filtering and clamp-to-edge sampling.
+ * Textured draws bind uniform/texture/sampler at group 0 bindings 0/1/2. */
+int std_gpu_texture_create(
+    unsigned long long gpu, unsigned char* rgba, int width, int height,
+    unsigned long long byte_count, unsigned long long* texture_out,
+    unsigned long long* owner_receipt_out);
+int std_gpu_texture_destroy(unsigned long long texture, unsigned long long owner_receipt);
+void std_gpu_texture_finalize(unsigned long long texture, unsigned long long owner_receipt);
+int std_gpu_draw_textured(
+    unsigned long long gpu, unsigned long long pipeline, int vertex_count,
+    unsigned long long uniform, unsigned long long texture);
 
 /* Bounded native-UI display-list resource. It records into the active frame
  * of the supplied GPU capability and cannot create/acquire/present a surface. */
@@ -131,6 +159,16 @@ int std_gpu_native_ui_add_rect(
     unsigned long long compositor,
     float x, float y, float width, float height,
     float red, float green, float blue, float alpha, float radius);
+/* Stop colors are numerical 0xRRGGBBAA values, independent of byte order.
+ * Keep this mixed-toolchain seam free of stack-passed float sequences. */
+int std_gpu_native_ui_add_gradient_rect(
+    unsigned long long compositor, float x, float y, float width, float height,
+    unsigned int top_rgba, unsigned int bottom_rgba,
+    float radius);
+int std_gpu_native_ui_add_chevron(
+    unsigned long long compositor,
+    float x, float y, float width, float height,
+    float red, float green, float blue, float alpha, int expanded);
 int std_gpu_native_ui_add_glyph(
     unsigned long long compositor,
     float x, float y, float width, float height,
@@ -138,6 +176,8 @@ int std_gpu_native_ui_add_glyph(
     unsigned long long glyph_bits);
 int std_gpu_native_ui_system_typography_available(
     unsigned long long compositor);
+/* Consumed UTF-8 bytes at the next system-font line/cluster break, or zero. */
+int std_gpu_native_ui_text_line_break(unsigned long long compositor, char* text, int font_size, int line_height, int font_weight, int width);
 int std_gpu_native_ui_measure_text(
     unsigned long long compositor,
     char* text,
@@ -190,8 +230,16 @@ int std_gpu_native_ui_add_image(
     float y,
     float width,
     float height);
+int std_gpu_native_ui_add_image_region(
+    unsigned long long compositor, char* identity, unsigned char* rgba,
+    int source_width, int source_height, unsigned long long source_revision,
+    float x, float y, float width, float height,
+    float left, float top, float span_x, float span_y);
 int std_gpu_native_ui_draw(
     unsigned long long gpu, unsigned long long compositor);
+/* Ranges address painter order, including both shapes and images. */
+int std_gpu_native_ui_draw_range(unsigned long long gpu, unsigned long long compositor, int first, int count);
+int std_gpu_native_ui_order_count(unsigned long long compositor);
 int std_gpu_native_ui_destroy(
     unsigned long long compositor, unsigned long long owner_receipt);
 void std_gpu_native_ui_finalize(

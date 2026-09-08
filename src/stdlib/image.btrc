@@ -139,6 +139,101 @@ class Image {
 		self.data[offset + 3] = (unsigned char)RGBA.channel(alpha);
 	}
 
+	public void fill(RGBA color) { self.fillRect(0, 0, self.width, self.height, color); }
+
+	/* Straight-alpha source-over with byte-quantized coverage. Like setPixel,
+	 * coordinates must be valid; no temporary pixel objects are allocated. */
+	public void compositePixel(int x, int y, RGBA color, double coverage = 1.0) {
+		int offset = self.offset(x, y);
+		if (color == null) { fprintf(stderr, "Image.compositePixel: color is null\n"); exit(1); }
+		if (!(coverage > 0.0)) { return; }
+		int alpha = RGBA.channel(color.alpha);
+		if (coverage < 1.0) { alpha = (int)((double)alpha * coverage + 0.5); }
+		int sourceWeight = alpha * 255;
+		int destinationWeight = (int)self.data[offset + 3] * (255 - alpha);
+		int weight = sourceWeight + destinationWeight;
+		if (weight == 0) { self.setRGBA(x, y, 0, 0, 0, 0); return; }
+		self.setRGBA(x, y, (RGBA.channel(color.red) * sourceWeight + (int)self.data[offset] * destinationWeight) / weight, (RGBA.channel(color.green) * sourceWeight + (int)self.data[offset + 1] * destinationWeight) / weight, (RGBA.channel(color.blue) * sourceWeight + (int)self.data[offset + 2] * destinationWeight) / weight, weight / 255);
+	}
+
+	/* Crossfade in premultiplied-alpha space, then store straight RGBA.
+	 * Unlike source-over, this interpolates the destination's alpha too. */
+	public void mixPixel(int x, int y, RGBA color, double weight) {
+		int offset = self.offset(x, y);
+		if (color == null || !(weight >= 0.0 && weight <= 1.0)) { fprintf(stderr, "Image.mixPixel: invalid color or weight\n"); exit(1); }
+		self.mixAt(offset, RGBA.channel(color.red), RGBA.channel(color.green), RGBA.channel(color.blue), RGBA.channel(color.alpha), (int)self.data[offset], (int)self.data[offset + 1], (int)self.data[offset + 2], (int)self.data[offset + 3], weight);
+	}
+
+	/* Fade the current rectangle against a saved background. Opacity weights
+	 * the current pixels: zero restores the background, one retains the paint.
+	 * Both operands use premultiplied-alpha interpolation, not source-over;
+	 * a fully transparent result is canonical transparent black.
+	 * Invalid placement/opacity leaves all pixels untouched. No pixel objects
+	 * are allocated; a background made with crop remains independent. */
+	public bool fadeRegion(Image background, int x, int y, double opacity) {
+		if (background == null || !(opacity >= 0.0 && opacity <= 1.0) || !self.containsRegion(x, y, background.width, background.height)) { return false; }
+		for (int row = 0; row < background.height; row++) {
+			int target = ((y + row) * self.width + x) * 4;
+			int source = row * background.width * 4;
+			for (int column = 0; column < background.width; column++) {
+				self.mixAt(target, (int)self.data[target], (int)self.data[target + 1], (int)self.data[target + 2], (int)self.data[target + 3], (int)background.data[source], (int)background.data[source + 1], (int)background.data[source + 2], (int)background.data[source + 3], opacity);
+				target += 4;
+				source += 4;
+			}
+		}
+		return true;
+	}
+
+	/* Operands are already byte channels and offset has been validated. */
+	private void mixAt(int offset, int red, int green, int blue, int alpha, int underRed, int underGreen, int underBlue, int underAlpha, double weight) {
+		if (alpha == 255 && underAlpha == 255) {
+			self.data[offset] = (unsigned char)((double)red * weight + (double)underRed * (1.0 - weight) + 0.5);
+			self.data[offset + 1] = (unsigned char)((double)green * weight + (double)underGreen * (1.0 - weight) + 0.5);
+			self.data[offset + 2] = (unsigned char)((double)blue * weight + (double)underBlue * (1.0 - weight) + 0.5);
+			self.data[offset + 3] = 255;
+			return;
+		}
+		double sourceWeight = (double)alpha * weight;
+		double destinationWeight = (double)underAlpha * (1.0 - weight);
+		double resultAlpha = sourceWeight + destinationWeight;
+		if (resultAlpha <= 0.0) {
+			for (int channel = 0; channel < 4; channel++) { self.data[offset + channel] = 0; }
+			return;
+		}
+		self.data[offset] = (unsigned char)(((double)red * sourceWeight + (double)underRed * destinationWeight) / resultAlpha + 0.5);
+		self.data[offset + 1] = (unsigned char)(((double)green * sourceWeight + (double)underGreen * destinationWeight) / resultAlpha + 0.5);
+		self.data[offset + 2] = (unsigned char)(((double)blue * sourceWeight + (double)underBlue * destinationWeight) / resultAlpha + 0.5);
+		self.data[offset + 3] = (unsigned char)(resultAlpha + 0.5);
+	}
+
+	/* Replace pixels in the clipped rectangle, including alpha. Empty or
+	 * disjoint rectangles do nothing; coordinate sums cannot overflow int.
+	 * Paint one row, then copy it without per-pixel checks or allocations. */
+	public void fillRect(int x, int y, int width, int height, RGBA color) {
+		if (width <= 0 || height <= 0 || self.isEmpty()) { return; }
+		long long right = (long long)x + (long long)width;
+		long long bottom = (long long)y + (long long)height;
+		int left = x < 0 ? 0 : x;
+		int top = y < 0 ? 0 : y;
+		int endX = right > (long long)self.width ? self.width : (int)right;
+		int endY = bottom > (long long)self.height ? self.height : (int)bottom;
+		if (endX <= left || endY <= top) { return; }
+		if (color == null) { fprintf(stderr, "Image.fillRect: color is null\n"); exit(1); }
+		unsigned char red = (unsigned char)RGBA.channel(color.red);
+		unsigned char green = (unsigned char)RGBA.channel(color.green);
+		unsigned char blue = (unsigned char)RGBA.channel(color.blue);
+		unsigned char alpha = (unsigned char)RGBA.channel(color.alpha);
+		int first = (top * self.width + left) * 4;
+		int rowBytes = (endX - left) * 4;
+		for (int offset = first; offset < first + rowBytes; offset += 4) {
+			self.data[offset] = red;
+			self.data[offset + 1] = green;
+			self.data[offset + 2] = blue;
+			self.data[offset + 3] = alpha;
+		}
+		for (int row = top + 1; row < endY; row++) { memcpy(self.data + (row * self.width + left) * 4, self.data + first, (size_t)rowBytes); }
+	}
+
 	/* Copy one complete tightly packed RGBA raster from a native codec or GPU
      * boundary. Partial rasters never mutate the image. */
 	public bool tryCopyPackedRgba(const void* source, unsigned long long byteCount) {
@@ -159,6 +254,21 @@ class Image {
 			int targetOffset = row * width * 4;
 			memcpy(result.data + targetOffset, self.data + sourceOffset, (size_t)(width * 4));
 		}
+		return result;
+	}
+
+	/* Preserve source pixels exactly inside a new border; invalid dimensions
+	 * return empty, like crop. Zero padding still returns an independent image. */
+	public Image padded(int left, int top, int right, int bottom, RGBA color) {
+		long long width = (long long)self.width + (long long)left + (long long)right;
+		long long height = (long long)self.height + (long long)top + (long long)bottom;
+		if (self.isEmpty() || left < 0 || top < 0 || right < 0 || bottom < 0 || color == null || !Image.validDimensions(width, height)) { return Image.empty(); }
+		Image result = Image((int)width, (int)height);
+		result.fillRect(0, 0, result.width, top, color);
+		result.fillRect(0, top + self.height, result.width, bottom, color);
+		result.fillRect(0, top, left, self.height, color);
+		result.fillRect(left + self.width, top, right, self.height, color);
+		for (int row = 0; row < self.height; row++) { memcpy(result.data + ((row + top) * result.width + left) * 4, self.data + row * self.width * 4, (size_t)(self.width * 4)); }
 		return result;
 	}
 

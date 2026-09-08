@@ -17,8 +17,11 @@ typedef void (*GLFWwindowsizefun)(GLFWwindow*, int, int);
 typedef void (*GLFWframebuffersizefun)(GLFWwindow*, int, int);
 typedef void (*GLFWwindowcontentscalefun)(GLFWwindow*, float, float);
 typedef void (*GLFWwindowclosefun)(GLFWwindow*);
+typedef void (*GLFWwindowfocusfun)(GLFWwindow*, int);
 
 #define GLFW_FALSE 0
+#define GLFW_NO_ERROR 0
+#define GLFW_FORMAT_UNAVAILABLE 0x00010009
 #define GLFW_TRUE 1
 
 #define GLFW_RELEASE 0
@@ -32,6 +35,8 @@ typedef void (*GLFWwindowclosefun)(GLFWwindow*);
 #define GLFW_MOUSE_BUTTON_LEFT 0
 #define GLFW_MOUSE_BUTTON_RIGHT 1
 #define GLFW_MOUSE_BUTTON_MIDDLE 2
+#define GLFW_MOUSE_BUTTON_4 3
+#define GLFW_MOUSE_BUTTON_5 4
 
 #define GLFW_MOD_SHIFT 0x0001
 #define GLFW_MOD_CONTROL 0x0002
@@ -40,6 +45,12 @@ typedef void (*GLFWwindowclosefun)(GLFWwindow*);
 
 #define GLFW_KEY_SPACE 32
 #define GLFW_KEY_A 65
+#define GLFW_KEY_C 67
+#define GLFW_KEY_V 86
+#define GLFW_KEY_X 88
+#define GLFW_KEY_HOME 268
+#define GLFW_KEY_END 269
+#define GLFW_KEY_DELETE 261
 #define GLFW_KEY_D 68
 #define GLFW_KEY_S 83
 #define GLFW_KEY_W 87
@@ -61,6 +72,9 @@ typedef void (*GLFWwindowclosefun)(GLFWwindow*);
 #define GLFW_KEY_RIGHT_SUPER 347
 
 int glfwInit(void);
+int glfwGetError(const char** description);
+const char* glfwGetClipboardString(GLFWwindow* window);
+void glfwSetClipboardString(GLFWwindow* window, const char* text);
 void glfwTerminate(void);
 void glfwWindowHint(int hint, int value);
 GLFWwindow* glfwCreateWindow(
@@ -86,6 +100,7 @@ GLFWwindowcontentscalefun glfwSetWindowContentScaleCallback(
 GLFWwindowclosefun glfwSetWindowCloseCallback(
     GLFWwindow* window, GLFWwindowclosefun callback);
 void glfwGetCursorPos(GLFWwindow* window, double* x, double* y);
+GLFWwindowfocusfun glfwSetWindowFocusCallback(GLFWwindow* window, GLFWwindowfocusfun callback);
 int glfwGetKey(GLFWwindow* window, int key);
 void glfwGetWindowSize(GLFWwindow* window, int* width, int* height);
 void glfwGetFramebufferSize(GLFWwindow* window, int* width, int* height);

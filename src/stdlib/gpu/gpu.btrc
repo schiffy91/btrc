@@ -1,5 +1,7 @@
 /* btrc standard library -- opaque WebGPU rendering on a std.app surface. */
 
+import std.image;
+
 import ../app/app.btrc;
 #include <btrc_gpu.h>
 
@@ -11,6 +13,7 @@ int std_gpu_shader_create(unsigned long long gpu, string wgsl, unsigned long lon
 int std_gpu_shader_destroy(unsigned long long shader, unsigned long long ownerReceipt);
 void std_gpu_shader_finalize(unsigned long long shader, unsigned long long ownerReceipt);
 int std_gpu_pipeline_create(unsigned long long gpu, unsigned long long shader, string vertexEntry, string fragmentEntry, unsigned long long* pipelineOut, unsigned long long* ownerReceiptOut);
+int std_gpu_pipeline_create_with_blend(unsigned long long gpu, unsigned long long shader, string vertexEntry, string fragmentEntry, int blendMode, unsigned long long* pipelineOut, unsigned long long* ownerReceiptOut);
 int std_gpu_pipeline_destroy(unsigned long long pipeline, unsigned long long ownerReceipt);
 void std_gpu_pipeline_finalize(unsigned long long pipeline, unsigned long long ownerReceipt);
 int std_gpu_uniform_create(unsigned long long gpu, int floatCount, unsigned long long* uniformOut, unsigned long long* ownerReceiptOut);
@@ -21,6 +24,18 @@ int std_gpu_begin_frame(unsigned long long gpu, float r, float g, float b, float
 int std_gpu_draw(unsigned long long gpu, unsigned long long pipeline, int vertexCount);
 int std_gpu_draw_uniform(unsigned long long gpu, unsigned long long pipeline, int vertexCount, unsigned long long uniform);
 int std_gpu_end_frame(unsigned long long gpu);
+int std_gpu_begin_capture_frame(unsigned long long gpu, int width, int height, float r, float g, float b, float a);
+int std_gpu_end_capture_frame(unsigned long long gpu, unsigned char* rgba, int width, int height, unsigned long long byteCount);
+int std_gpu_texture_create(unsigned long long gpu, unsigned char* rgba, int width, int height, unsigned long long byteCount, unsigned long long* textureOut, unsigned long long* ownerReceiptOut);
+int std_gpu_texture_destroy(unsigned long long texture, unsigned long long ownerReceipt);
+void std_gpu_texture_finalize(unsigned long long texture, unsigned long long ownerReceipt);
+int std_gpu_draw_textured(unsigned long long gpu, unsigned long long pipeline, int vertexCount, unsigned long long uniform, unsigned long long texture);
+
+/* Source-over uses straight fragment RGB and preserves destination coverage. */
+enum GPUBlendMode {
+	GPU_BLEND_OPAQUE = 0,
+	GPU_BLEND_SOURCE_OVER = 1
+};
 
 enum GPUAttachKind {
 	GPU_ATTACHED = 0,
@@ -104,6 +119,18 @@ class GPUUniformOutcome {
 	}
 }
 
+class GPUTextureOutcome {
+	public GPUResourceKind kind;
+	public GPUTexture? texture;
+	public string error;
+
+	public GPUTextureOutcome(GPUResourceKind kind, GPUTexture? texture, string error) {
+		self.kind = kind;
+		self.texture = texture;
+		self.error = error;
+	}
+}
+
 enum GPUFrameKind {
 	GPU_FRAME_READY = 100,
 	GPU_FRAME_PRESENTED = 101,
@@ -166,11 +193,13 @@ class GPU {
 	private unsigned long long handle;
 	private unsigned long long ownerReceipt;
 	private AppSurfaceAttachment surface;
+	private Image? captureTarget;
 
 	private GPU(unsigned long long handle, unsigned long long ownerReceipt, AppSurfaceAttachment surface) {
 		self.handle = handle;
 		self.ownerReceipt = ownerReceipt;
 		self.surface = surface;
+		self.captureTarget = null;
 	}
 
 	class GPUAttachOutcome attach(AppSurfaceAttachment surface) {
@@ -211,14 +240,14 @@ class GPU {
 		return GPUShader.create(self, wgsl);
 	}
 
-	public GPUPipelineOutcome createPipeline(GPUShader shader) {
+	public GPUPipelineOutcome createPipeline(GPUShader shader, GPUBlendMode blend = GPU_BLEND_OPAQUE) {
 		if (!self.isOpen()) {
 			return new GPUPipelineOutcome(GPU_RESOURCE_INVALID_GPU, null, std_gpu_status_message(GPU_RESOURCE_INVALID_GPU));
 		}
 		if (!shader.isOpen()) {
 			return new GPUPipelineOutcome(GPU_RESOURCE_INVALID_RESOURCE, null, std_gpu_status_message(GPU_RESOURCE_INVALID_RESOURCE));
 		}
-		return GPURenderPipeline.create(self, shader);
+		return GPURenderPipeline.create(self, shader, blend);
 	}
 
 	public GPUUniformOutcome createUniform(int floatCount) {
@@ -241,6 +270,39 @@ class GPU {
 			kind = (GPUFrameKind)status;
 		}
 		return new GPUFrameOutcome(kind, kind == GPU_FRAME_READY ? "" : std_gpu_status_message(status));
+	}
+
+	/* Same render resources and draw calls, with no desktop drawable. The
+	 * target stays alive until endCaptureFrame; it must not be mutated meanwhile. */
+	public GPUFrameOutcome beginCaptureFrame(Image target, float r, float g, float b) {
+		if (!self.isOpen() || target == null || target.isEmpty() || target.data == null || !Image.validDimensions(target.width, target.height)) { return GPUFrameOutcome(GPU_FRAME_REJECTED, "capture requires an open GPU and a nonempty RGBA image"); }
+		int status = std_gpu_begin_capture_frame(self.handle, target.width, target.height, r, g, b, 1.0f);
+		if (status == GPU_FRAME_READY) { self.captureTarget = target; }
+		GPUFrameKind kind = status >= GPU_FRAME_READY && status <= GPU_FRAME_REJECTED ? (GPUFrameKind)status : GPU_FRAME_REJECTED;
+		return GPUFrameOutcome(kind, kind == GPU_FRAME_READY ? "" : std_gpu_status_message(status));
+	}
+
+	/* Consumes the offscreen frame. Only READY makes the target pixels valid. */
+	public GPUResourceOutcome endCaptureFrame() {
+		Image? target = self.captureTarget;
+		if (!self.isOpen() || target == null) { return GPUResourceOutcome(GPU_RESOURCE_INVALID_DESCRIPTOR, "no active capture frame"); }
+		int status = std_gpu_end_capture_frame(self.handle, target.data, target.width, target.height, (unsigned long long)target.width * (unsigned long long)target.height * 4ULL);
+		if (status != GPU_RESOURCE_NOT_OWNER_THREAD) { self.captureTarget = null; }
+		GPUResourceKind kind = status >= GPU_RESOURCE_READY && status <= GPU_RESOURCE_INTERNAL_ERROR ? (GPUResourceKind)status : GPU_RESOURCE_INTERNAL_ERROR;
+		return GPUResourceOutcome(kind, kind == GPU_RESOURCE_READY ? "" : std_gpu_status_message(status));
+	}
+
+	/* Upload a snapshot; later Image edits do not affect this texture. */
+	public GPUTextureOutcome createTexture(Image image) { return GPUTexture.create(self, image); }
+
+	/* Group 0: uniform at 0, RGBA8 texture at 1, linear clamp sampler at 2. */
+	public GPUDrawOutcome drawTextured(GPURenderPipeline pipeline, int vertexCount, GPUUniform uniform, GPUTexture texture) {
+		if (!self.isOpen()) { return GPUDrawOutcome(GPU_DRAW_INVALID_GPU, "GPU is closed"); }
+		if (!pipeline.isOpen() || !uniform.isOpen() || !texture.isOpen()) { return GPUDrawOutcome(GPU_DRAW_INVALID_RESOURCE, "GPU draw resource is closed"); }
+		if (vertexCount <= 0) { return GPUDrawOutcome(GPU_DRAW_INVALID_DESCRIPTOR, "vertex count must be positive"); }
+		int status = std_gpu_draw_textured(self.handle, pipeline.resourceIdentity(), vertexCount, uniform.resourceIdentity(), texture.resourceIdentity());
+		GPUDrawKind kind = status >= GPU_DRAW_RECORDED && status <= GPU_DRAW_BACKEND_FAILURE ? (GPUDrawKind)status : GPU_DRAW_BACKEND_FAILURE;
+		return GPUDrawOutcome(kind, kind == GPU_DRAW_RECORDED ? "" : std_gpu_status_message(status));
 	}
 
 	public GPUDrawOutcome draw(GPURenderPipeline pipeline, int vertexCount) {
@@ -301,6 +363,7 @@ class GPU {
 		}
 		self.handle = 0ULL;
 		self.ownerReceipt = 0ULL;
+		self.captureTarget = null;
 		return new GPUCloseOutcome(GPU_CLOSED, "");
 	}
 
@@ -379,10 +442,10 @@ class GPURenderPipeline {
 		self.ownerReceipt = ownerReceipt;
 	}
 
-	class GPUPipelineOutcome create(GPU gpu, GPUShader shader) {
+	class GPUPipelineOutcome create(GPU gpu, GPUShader shader, GPUBlendMode blend = GPU_BLEND_OPAQUE) {
 		unsigned long long identity = 0ULL;
 		unsigned long long ownerReceipt = 0ULL;
-		int status = std_gpu_pipeline_create(gpu.gpuIdentity(), shader.resourceIdentity(), "vs_main", "fs_main", &identity, &ownerReceipt);
+		int status = std_gpu_pipeline_create_with_blend(gpu.gpuIdentity(), shader.resourceIdentity(), "vs_main", "fs_main", (int)blend, &identity, &ownerReceipt);
 		if (status != GPU_RESOURCE_READY || identity == 0ULL || ownerReceipt == 0ULL) {
 			bool malformed = identity != 0ULL || ownerReceipt != 0ULL || status == GPU_RESOURCE_READY;
 			if (identity != 0ULL && ownerReceipt != 0ULL) {
@@ -487,5 +550,50 @@ class GPUUniform {
 		if (self.identity != 0ULL && self.ownerReceipt != 0ULL) {
 			std_gpu_uniform_finalize(self.identity, self.ownerReceipt);
 		}
+	}
+}
+
+class GPUTexture {
+	private GPU gpu;
+	private unsigned long long identity;
+	private unsigned long long ownerReceipt;
+
+	private GPUTexture(GPU gpu, unsigned long long identity, unsigned long long ownerReceipt) {
+		self.gpu = gpu;
+		self.identity = identity;
+		self.ownerReceipt = ownerReceipt;
+	}
+
+	class GPUTextureOutcome create(GPU gpu, Image image) {
+		if (!gpu.isOpen()) { return GPUTextureOutcome(GPU_RESOURCE_INVALID_GPU, null, "GPU is closed"); }
+		if (image == null || image.isEmpty() || !Image.validDimensions(image.width, image.height) || image.data == null) { return GPUTextureOutcome(GPU_RESOURCE_INVALID_DESCRIPTOR, null, "texture requires a nonempty RGBA image"); }
+		unsigned long long identity = 0ULL;
+		unsigned long long receipt = 0ULL;
+		unsigned long long bytes = (unsigned long long)image.width * (unsigned long long)image.height * 4ULL;
+		int status = std_gpu_texture_create(gpu.gpuIdentity(), image.data, image.width, image.height, bytes, &identity, &receipt);
+		if (status != GPU_RESOURCE_READY || identity == 0ULL || receipt == 0ULL) {
+			bool malformed = identity != 0ULL || receipt != 0ULL || status == GPU_RESOURCE_READY;
+			if (identity != 0ULL && receipt != 0ULL) { std_gpu_texture_destroy(identity, receipt); }
+			GPUResourceKind kind = !malformed && status >= GPU_RESOURCE_INVALID_GPU && status <= GPU_RESOURCE_INTERNAL_ERROR ? (GPUResourceKind)status : GPU_RESOURCE_INTERNAL_ERROR;
+			return GPUTextureOutcome(kind, null, std_gpu_status_message((int)kind));
+		}
+		return GPUTextureOutcome(GPU_RESOURCE_READY, GPUTexture(gpu, identity, receipt), "");
+	}
+
+	public bool isOpen() { return self.identity != 0ULL && self.ownerReceipt != 0ULL && self.gpu.isOpen(); }
+
+	public unsigned long long resourceIdentity() { return self.identity; }
+
+	public GPUCloseOutcome close() {
+		if (self.identity == 0ULL) { return GPUCloseOutcome(GPU_ALREADY_CLOSED, ""); }
+		int status = std_gpu_texture_destroy(self.identity, self.ownerReceipt);
+		if (status != GPU_CLOSED) { return GPUCloseOutcome(GPU_CLOSE_REJECTED, std_gpu_status_message(status)); }
+		self.identity = 0ULL;
+		self.ownerReceipt = 0ULL;
+		return GPUCloseOutcome(GPU_CLOSED, "");
+	}
+
+	public void __del__() {
+		if (self.identity != 0ULL && self.ownerReceipt != 0ULL) { std_gpu_texture_finalize(self.identity, self.ownerReceipt); }
 	}
 }

@@ -1,6 +1,7 @@
 import os
 import platform
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -245,6 +246,43 @@ def test_actual_app_runtime_state_machine_under_clang_sanitizers(
     assert result.returncode == 0, result.stderr
     assert result.stdout == "PASS: actual std.app runtime state machine\n"
     assert result.stderr == ""
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS native provider")
+def test_macos_integrated_titlebar_native_provider(tmp_path: Path) -> None:
+    pkg_config = shutil.which("pkg-config")
+    if not pkg_config:
+        pytest.skip("GLFW pkg-config is unavailable")
+    glfw_flags = subprocess.run(
+        [pkg_config, "--cflags", "--libs", "glfw3"], capture_output=True, text=True, check=True, timeout=COMPILE_TIMEOUT
+    )
+    executable = tmp_path / "titlebar-probe"
+    subprocess.run(
+        [
+            "/usr/bin/clang",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-pedantic-errors",
+            f"-I{APP}",
+            str(APP / "btrc_app.c"),
+            str(APP / "btrc_app_window_macos.m"),
+            str(APP / "btrc_app_directory_picker_macos.m"),
+            str(FIXTURE / "titlebar_macos_probe.m"),
+            *shlex.split(glfw_flags.stdout),
+            "-pthread",
+            "-framework",
+            "Cocoa",
+            "-o",
+            str(executable),
+        ],
+        check=True,
+        timeout=COMPILE_TIMEOUT,
+    )
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "PASS: native macOS integrated titlebar, controls, resize, and restoration\n"
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS native provider")

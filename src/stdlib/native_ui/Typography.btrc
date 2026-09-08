@@ -29,6 +29,55 @@ typedef CFunction<int, unsigned long long, string, int, int, int, float, int*, i
 
 typedef CFunction<void, void*> NativeUiTypographyRelease;
 
+/* Next line's consumed UTF-8 bytes, including its break. Platform providers
+ * own linguistic/cluster boundaries; zero rejects a nonempty run. */
+typedef CFunction<int, unsigned long long, string, int, int, int, int> NativeUiTypographyLineBreak;
+
+class NativeUiTextLine {
+	private string textValue;
+	private NativeUiTextMetrics metricsValue;
+	private int topValue;
+
+	public NativeUiTextLine(string text, NativeUiTextMetrics metrics, int top) {
+		self.textValue = text;
+		self.metricsValue = metrics;
+		self.topValue = top;
+	}
+
+	public string text() { return self.textValue; }
+
+	public NativeUiTextMetrics metrics() { return self.metricsValue; }
+
+	public int top() { return self.topValue; }
+}
+
+/* Immutable measurement shared by layout, CPU paint and native composition. */
+class NativeUiTextLayout {
+	private Vector<NativeUiTextLine> linesValue = [];
+	private int widthValue = 0;
+	private int heightValue = 0;
+	private long long metadataBytesValue = 0LL;
+
+	public NativeUiTextLayout(Vector<NativeUiTextLine> lines) {
+		for line in lines {
+			self.linesValue.push(line);
+			if (line.metrics().width() > self.widthValue) { self.widthValue = line.metrics().width(); }
+			self.heightValue = line.top() + line.metrics().height();
+			self.metadataBytesValue += 96LL + (long long)line.text().len();
+		}
+	}
+
+	public int lineCount() { return self.linesValue.len; }
+
+	public NativeUiTextLine lineAt(int index) { return self.linesValue.get(index); }
+
+	public int width() { return self.widthValue; }
+
+	public int height() { return self.heightValue; }
+
+	public long long metadataBytes() { return self.metadataBytesValue; }
+}
+
 class NativeUiTextMetrics {
 	private int widthValue;
 	private int heightValue;
@@ -57,21 +106,75 @@ class NativeUiTextMetrics {
 }
 
 class NativeUiTypography {
+	private Map<string, NativeUiTextMetrics> measurements;
+	private Vector<string> measurementKeys = [];
+	private int nextMeasurementEviction = 0;
 	private unsigned long long providerIdentityValue;
 	private NativeUiTypographyMeasure providerMeasureValue;
 	private NativeUiTypographyRasterize providerRasterizeValue;
 	private NativeUiTypographyRelease providerReleaseValue;
+	private NativeUiTypographyLineBreak providerLineBreakValue;
 
-	public NativeUiTypography(unsigned long long providerIdentity = 0ULL, NativeUiTypographyMeasure providerMeasure = (NativeUiTypographyMeasure)null, NativeUiTypographyRasterize providerRasterize = (NativeUiTypographyRasterize)null, NativeUiTypographyRelease providerRelease = (NativeUiTypographyRelease)null) {
+	public NativeUiTypography(unsigned long long providerIdentity = 0ULL, NativeUiTypographyMeasure providerMeasure = (NativeUiTypographyMeasure)null, NativeUiTypographyRasterize providerRasterize = (NativeUiTypographyRasterize)null, NativeUiTypographyRelease providerRelease = (NativeUiTypographyRelease)null, NativeUiTypographyLineBreak providerLineBreak = (NativeUiTypographyLineBreak)null) {
+		self.measurements = new Map<string, NativeUiTextMetrics>();
 		if ((providerIdentity == 0ULL) != (providerMeasure == null)) { throw "invalid native UI typography provider"; }
 		if ((providerRasterize == null) != (providerRelease == null) || (providerRasterize != null && providerMeasure == null)) { throw "invalid native UI typography raster provider"; }
 		self.providerIdentityValue = providerIdentity;
 		self.providerMeasureValue = providerMeasure;
 		self.providerRasterizeValue = providerRasterize;
 		self.providerReleaseValue = providerRelease;
+		if (providerLineBreak != null && providerMeasure == null) { throw "native UI line breaking requires its measurement provider"; }
+		self.providerLineBreakValue = providerLineBreak;
 	}
 
-	class NativeUiTypography platform(unsigned long long providerIdentity, NativeUiTypographyMeasure providerMeasure, NativeUiTypographyRasterize providerRasterize = (NativeUiTypographyRasterize)null, NativeUiTypographyRelease providerRelease = (NativeUiTypographyRelease)null) { return NativeUiTypography(providerIdentity, providerMeasure, providerRasterize, providerRelease); }
+	class NativeUiTypography platform(unsigned long long providerIdentity, NativeUiTypographyMeasure providerMeasure, NativeUiTypographyRasterize providerRasterize = (NativeUiTypographyRasterize)null, NativeUiTypographyRelease providerRelease = (NativeUiTypographyRelease)null, NativeUiTypographyLineBreak providerLineBreak = (NativeUiTypographyLineBreak)null) { return NativeUiTypography(providerIdentity, providerMeasure, providerRasterize, providerRelease, providerLineBreak); }
+
+	private int lineBreak(string text, int fontSize, int lineHeight, int fontWeight, int width) {
+		if (self.platformBacked()) {
+			if (self.providerLineBreakValue == null) { throw "native UI typography provider does not support text wrapping"; }
+			int end = self.providerLineBreakValue(self.providerIdentityValue, text, fontSize, lineHeight, fontWeight, width);
+			if (end < 1 || end > text.len() || !NativeUiTextInput.validUtf8(text.substring(0, end))) { throw "native UI typography provider rejected line breaking"; }
+			return end;
+		}
+		/* The deterministic test font has one cell per scalar, not linguistic
+		 * shaping. Real system typography supplies its own line breaker. */
+		int end = 0;
+		int word = 0;
+		int cells = 0;
+		while (end < text.len()) {
+			char value = text[end];
+			if (value == '\n') { return end + 1; }
+			if (value == '\r') { return end + (end + 1 < text.len() && text[end + 1] == '\n' ? 2 : 1); }
+			if (value == ' ' || value == '\t') { word = end + 1; }
+			if (cells > 0 && (cells + 1) * self.advance(fontSize) > width) { return word > 0 ? word : end; }
+			end = NativeUiTextInput.nextBoundary(text, end);
+			cells++;
+		}
+		return end;
+	}
+
+	public NativeUiTextLayout wrap(string value, int fontSize, int lineHeight, int fontWeight, int width) {
+		if (value == null || value.len() > 4096 || width < 1 || width > 1000000000) { throw "invalid native UI wrapped text bounds"; }
+		self.measure("", fontSize, lineHeight, fontWeight);
+		if (!NativeUiTextInput.validUtf8(value)) { throw "invalid native UI wrapped UTF-8"; }
+		Vector<NativeUiTextLine> lines = [];
+		int start = 0;
+		int top = 0;
+		while (start < value.len()) {
+			string remaining = value.substring(start, value.len() - start);
+			int consumed = self.lineBreak(remaining, fontSize, lineHeight, fontWeight, width);
+			int end = consumed;
+			while (end > 0 && (remaining[end - 1] == ' ' || remaining[end - 1] == '\t' || remaining[end - 1] == '\r' || remaining[end - 1] == '\n')) { end--; }
+			string run = remaining.substring(0, end);
+			NativeUiTextMetrics metrics = self.measure(run, fontSize, lineHeight, fontWeight);
+			lines.push(NativeUiTextLine(run, metrics, top));
+			top += metrics.height();
+			start += consumed;
+			while (start < value.len() && (value[start] == ' ' || value[start] == '\t')) { start++; }
+		}
+		if (lines.len == 0 || value.endsWith("\n") || value.endsWith("\r")) { lines.push(NativeUiTextLine("", self.measure("", fontSize, lineHeight, fontWeight), top)); }
+		return NativeUiTextLayout(lines);
+	}
 
 	public bool platformBacked() { return self.providerIdentityValue != 0ULL && self.providerMeasureValue != null; }
 
@@ -111,7 +214,25 @@ class NativeUiTypography {
 		return value < 1 ? 1 : value;
 	}
 
+	public int cachedMeasurementCount() { return self.measurementKeys.len; }
+
+	/* Metrics are immutable and belong to this provider's lifetime. Cap both
+	 * entries and retained text; no pixel rasters are kept here. */
 	public NativeUiTextMetrics measure(string value, int fontSize, int lineHeight, int fontWeight = 400) {
+		if (value == null || value.len() > 4096) { return self.measureUncached(value, fontSize, lineHeight, fontWeight); }
+		string key = f"{fontSize}:{lineHeight}:{fontWeight}:{value}";
+		if (self.measurements.has(key)) { return self.measurements.get(key); }
+		NativeUiTextMetrics measured = self.measureUncached(value, fontSize, lineHeight, fontWeight);
+		if (self.measurementKeys.len == 512) {
+			self.measurements.remove(self.measurementKeys.get(self.nextMeasurementEviction));
+			self.measurementKeys.set(self.nextMeasurementEviction, key);
+			self.nextMeasurementEviction = (self.nextMeasurementEviction + 1) % 512;
+		} else { self.measurementKeys.push(key); }
+		self.measurements.put(key, measured);
+		return measured;
+	}
+
+	private NativeUiTextMetrics measureUncached(string value, int fontSize, int lineHeight, int fontWeight) {
 		if (value == null || fontSize < 8 || fontSize > 256 || lineHeight < fontSize || lineHeight > 512 || (fontWeight != 400 && fontWeight != 500 && fontWeight != 600 && fontWeight != 700) || !NativeUiTextInput.validUtf8(value)) { throw "invalid native UI text measurement"; }
 		if (self.platformBacked()) {
 			int width = 0;

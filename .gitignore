@@ -73,3 +73,9 @@ examples/gui/gui_font
 /build/temp.*/
 /dist/
 /build/logs/
+
+# Local symlinks that keep heavy build output off synced storage; the tracked
+# build/*.nix files stay in the real directory.
+/build/*
+!/build/*.nix
+/dist

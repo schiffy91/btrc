@@ -1,6 +1,7 @@
 #include "btrc_gpu_native_ui_internal.h"
 
 #include <assert.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 
@@ -40,8 +41,24 @@ int main(void) {
         WGPUTextureFormat_RGBA8Unorm);
     assert(compositor != NULL);
 
+    assert(btrc_gpu_native_ui_begin(compositor, 64, 64));
+    assert(btrc_gpu_native_ui_add_gradient_rect(compositor, 2, 3, 32, 20, 1, 0, 0, 1, 0, 0, 1, 0, 7));
+    assert(!btrc_gpu_native_ui_add_gradient_rect(compositor, NAN, 3, 32, 20, 1, 0, 0, 1, 0, 0, 1, 0, 7));
+    assert(!btrc_gpu_native_ui_add_gradient_rect(compositor, 2, 3, 32, 20, 1, 0, 0, 1, 0, 0, INFINITY, 0, 7));
+    assert(!btrc_gpu_native_ui_add_gradient_rect(compositor, 2, 3, 32, 20, 1, 0, 0, 1, 0, 0, 1, -1, 7));
+    assert(!btrc_gpu_native_ui_add_gradient_rect(compositor, 2, 3, 32, 20, 2, 0, 0, 1, 0, 0, 1, 0, 7));
+    assert(!btrc_gpu_native_ui_add_gradient_rect(compositor, 2, 3, 32, 20, 1, 0, 0, 1, 0, 0, 1, 0, -1));
+    assert(btrc_gpu_native_ui_command_count(compositor) == 1);
+
     /* Fill a three-slot/six-pixel test cache. */
     assert(btrc_gpu_native_ui_begin(compositor, 64, 64));
+    assert(btrc_gpu_native_ui_add_chevron(compositor, 2, 3, 12, 8, 1, 1, 1, 1, false));
+    assert(btrc_gpu_native_ui_add_chevron(compositor, 2, 3, 12, 8, 1, 1, 1, 1, true));
+    assert(!btrc_gpu_native_ui_add_chevron(compositor, NAN, 3, 12, 8, 1, 1, 1, 1, false));
+    assert(!btrc_gpu_native_ui_add_chevron(compositor, 2, 3, 3, 8, 1, 1, 1, 1, false));
+    assert(!btrc_gpu_native_ui_add_chevron(compositor, 2, 3, 12, INFINITY, 1, 1, 1, 1, false));
+    assert(!btrc_gpu_native_ui_add_chevron(compositor, 2, 3, 12, 8, 1, 1, 1, -1, false));
+    assert(btrc_gpu_native_ui_command_count(compositor) == 2);
     add(compositor, "a", pixels_a, 1, 2, 1, 0.0f);
     add(compositor, "b", pixels_b, 1, 2, 1, 8.0f);
     add(compositor, "c", pixels_c, 1, 2, 1, 16.0f);
@@ -104,6 +121,22 @@ int main(void) {
     assert(btrc_gpu_native_ui_test_placement_count(compositor) == 2);
     assert(btrc_gpu_native_ui_test_upload_count() == 7);
 
+    /* Camera-only changes reuse pixels; invalid crops append nothing. */
+    assert(btrc_gpu_native_ui_begin(compositor, 64, 64));
+    for (int step = 0; step < 4; step++) {
+        assert(btrc_gpu_native_ui_add_image_region(compositor, "p", pixels_p,
+            1, 1, 1, 0, 0, 8, 8, (float)step * 0.1f, 0, 0.5f, 0.5f));
+    }
+    assert(btrc_gpu_native_ui_test_upload_count() == 7);
+    assert(btrc_gpu_native_ui_test_placement_count(compositor) == 4);
+    assert(!btrc_gpu_native_ui_add_image_region(compositor, "p", pixels_p,
+        1, 1, 1, 0, 0, 8, 8, NAN, 0, 0.5f, 0.5f));
+    assert(!btrc_gpu_native_ui_add_image_region(compositor, "p", pixels_p,
+        1, 1, 1, 0, 0, 8, 8, 0.6f, 0, 0.5f, 0.5f));
+    assert(!btrc_gpu_native_ui_add_image_region(compositor, "p", pixels_p,
+        1, 1, 1, 0, 0, 8, 8, 0, 0, 0, 0.5f));
+    assert(btrc_gpu_native_ui_test_placement_count(compositor) == 4);
+    assert(btrc_gpu_native_ui_test_upload_count() == 7);
     btrc_gpu_native_ui_destroy(compositor);
     puts("PASS: native UI cache policy");
     return 0;

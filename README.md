@@ -248,6 +248,11 @@ make examples-native-package TARGET=linux-x64
 nix flake check
 ```
 
+The adapter compiles generated code and every declared native unit at `-O2`
+with strict warnings. Use `--optimization 0` for unoptimized debugging, or
+select another level from 0 through 3. Optimization is a build choice, not a
+package-manifest field; arbitrary compiler/linker flags remain unsupported.
+
 ## What You Keep From C
 
 - Direct memory control with `new`/`delete` and pointers

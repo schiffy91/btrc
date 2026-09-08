@@ -3,6 +3,51 @@
 `std.native_ui` keeps rendering and input portable without exposing platform
 handles. `NativeUiStyleSheet` and per-element styles affect appearance only.
 
+The native GPU compositor antialiases rounded rectangle corners at framebuffer
+scale and multiplies coverage by the source alpha. Radius-zero fills keep their
+aligned rectangular edges; corner smoothing does not change layout or hit bounds.
+
+## Retained layout
+
+`NativeUiRenderer.layoutImmutable(root, width, height)` and
+`NativeUiAppSession.prepareImmutable(root)` opt into retained subtree
+measurements. The caller publishes immutable element trees: replace changed
+branches rather than mutating previously published elements, descriptors, or
+image geometry. Ordinary `layout`, `render`, and `prepare` support mutable
+trees and discard retained measurements.
+
+`element.copy().replaceChild(index, child)` creates a separate container with
+one changed child; other children remain shared. `replaceChild` mutates its
+receiver and uses the same bounds checks as `childAt`. Never call it directly
+on an element already published through the immutable path.
+
+Reuse requires the same element, available width, tree depth, and stylesheet
+revision. Stylesheet edits invalidate automatically. Only the current tree is
+retained, within the normal 4096-element bound; reused branches still participate
+in duplicate-ID and aggregate metadata/image limits. Retained frames share
+frozen resolved styles instead of cloning them for every box. Read properties
+through accessors such as `padding()` and `background()`. Frozen color reads
+return detached values; `apply(css)` rejects edits to a frozen style. To edit a
+box's style, assign `box.style = box.style.copy()` first. Ordinary mutable
+layouts still receive independent editable styles. Freezing also detaches any
+previously exposed colors, so old references cannot change a shared template.
+
+`measuredNodeCount()`, `reusedNodeCount()`, and `retainedMeasurementCount()`
+report renderer work; preparation outcomes expose `measuredNodes` and
+`reusedNodes`. These are node counts, not allocation counts or GPU timings.
+`prepareCurrent()` still repaints already published geometry without layout.
+
+## Background materials
+
+`background-image: linear-gradient(#RRGGBB[AA], #RRGGBB[AA])` paints a vertical
+two-stop gradient over `background-color`. Both renderers interpolate premultiplied
+colors, preserve rounded borders, and retain the original gradient coordinates
+when clipped or scrolled. `background-image: none` explicitly clears it through
+the normal cascade. Directions, extra stops, and image URLs are not supported.
+Gradient values are immutable and safe to share with frozen resolved styles.
+Buttons apply the same restrained hover/pressed tint to gradient stops as to
+solid fills; styling does not change control layout, hit targets, or input routing.
+
 ## Semantic state
 
 Attach `NativeUiSemantics` with `NativeUiElement.semantics(...)`; element
@@ -21,6 +66,15 @@ There is no declarative focused flag, and style declarations cannot alter
 semantic values.
 
 ## Semantic ranges
+
+`renderer.showVerticalScrollbar()` enables viewport-owned vertical scroll chrome
+(off by default). `verticalScrollbar()` exposes its current track/thumb geometry.
+The thumb represents full measured content, including virtual rows that have no
+elements. Dragging retains its grab offset; track clicks page the viewport. Both
+use the existing `NATIVE_UI_SCROLLED` path and virtual-grid metrics. Release,
+focus loss, viewport resize, root replacement, or disabling the scrollbar cancels
+capture. The software and native GPU painters share geometry and theme colors;
+select popups stay above it. No application-owned second scroll offset is needed.
 
 Attach `NativeUiSemanticRange.horizontal(...)` or `.vertical(...)` with
 `NativeUiElement.semanticRange(...)`. Bounds, values, and steps are signed
@@ -85,7 +139,56 @@ rules; `NativeUiColor.fromRgba(...)`/`rgba()` bridge `std.image`, and
 `NativeUiTheme.dark()`/`light()` are a matched pair that applications can
 pick between at runtime.
 
+`border-color` gives a filled panel or control a one-pixel inset rim without
+changing layout; the theme panel supplies the fill if no background is set.
+Focused text fields and open selects retain their accent rim. `marker-color`
+overrides the select disclosure color independently of its label. Both accept
+the same hex colors as `color` and apply to software and GPU presentation.
+Select disclosures use centered, round-capped chevrons, not text glyphs; they
+reverse when expanded and use the muted theme color when disabled. Software
+and GPU rendering share their logical geometry, with antialiased edges and no
+icon texture allocation.
+
+`padding` sets all four edges; `padding-top`, `padding-right`, `padding-bottom`,
+and `padding-left` override individual edges in declaration order (0..4096px).
+Use these insets instead of empty spacer elements. Layout, software/GPU drawing,
+and virtual-grid viewport calculations use the resolved edges. `padding()`
+reports the last uniform declaration; read `paddingTop()`/`paddingRight()`/
+`paddingBottom()`/`paddingLeft()` for effective values.
+
+Image elements optionally accept `imageRegion(NativeUiImageRegion(left, top, width, height))`, an immutable normalized source rectangle inside [0,1]. Passing null restores the full image. Sampling changes do not change layout, hit targets, source bytes or image revision; GPU placements retain their own crop while sharing the cached texture. Element copies preserve the region independently of later setter calls. Invalid/nonfinite/empty/out-of-bounds rectangles are rejected.
+
+`width: fit` keeps text, images, and buttons without flowing children at their
+intrinsic content width plus padding, bounded by available space. Rows reserve
+that width before sharing remaining space among flexible children. Container
+fit sizing is not supported; it is rejected rather than silently stretched.
+
+## Floating elements
+
+`element.floating(x, y)` positions an element relative to its parent's outer
+origin, outside row/column/grid flow. It contributes neither size nor gaps to
+the parent. Its own children lay out normally. Floating children paint after
+flowing siblings in declaration order; nested subtrees stay together, and hit
+testing uses the reverse paint order. Decorative children do not intercept
+their parent's control actions. Overflow clips at the viewport, not at the
+parent, allowing popovers and shadows. Offsets are bounded to +/-65536 pixels;
+the root cannot float. Virtual-grid item counts exclude floating decorations.
+
 ## Text rasters for painters
+
+Text elements can opt into `text-wrap: wrap`; the default is `nowrap`, and
+buttons/inputs/selects remain single-line. Explicit line breaks are retained;
+spaces at a soft break are not painted. Long words and paths break to fit.
+macOS uses CoreText line and composed-character boundaries; a cluster wider
+than the available space remains intact. The deterministic proof font breaks
+at scalar cells and ASCII whitespace instead of claiming linguistic shaping.
+
+`NativeUiTypography.wrap` produces immutable `NativeUiTextLayout` lines with
+their exact metrics and vertical positions. Layout boxes expose that same
+layout to both painters; width changes invalidate retained measurements.
+Only visible lines paint. The existing 4096-byte per-element and 4 MiB tree
+metadata bounds include retained line data. Platform measurement providers
+must supply their matching line-break callback when opting into wrapping.
 
 Surfaces that draw their own images (rulers, meters, note charts) obtain
 text through `NativeUiTextRaster.rasterize(typography, text, fontSize,

@@ -43,6 +43,7 @@ typedef struct GPU_ {
     WGPURenderPassEncoder  pass;
     WGPUTexture            frame_texture;
     WGPUTextureView        frame_view;
+    bool                   capture_frame;
     BtrcAppSurfaceLease*   app_surface;
     BtrcGPUPendingList     pending_async;
     BtrcGPUAsync*          device_lost_async;
@@ -81,6 +82,7 @@ enum {
     GPU_RENDER_RESOURCE_PIPELINE = 2,
     GPU_RENDER_RESOURCE_UNIFORM = 3,
     GPU_RENDER_RESOURCE_NATIVE_UI = 4,
+    GPU_RENDER_RESOURCE_TEXTURE = 5,
 };
 
 static GPURenderResource_* render_resources = NULL;
@@ -185,6 +187,7 @@ static void discard_frame(GPU_* gpu) {
         wgpuTextureRelease(gpu->frame_texture);
         gpu->frame_texture = NULL;
     }
+    gpu->capture_frame = false;
 }
 
 static WGPUInstance create_gpu_instance(void) {
@@ -486,6 +489,16 @@ static int attach_surface_locked(unsigned long long surface_id, void** gpu_out) 
         goto attach_failed;
     }
     gpu->surface_format = caps.formats[0];
+    /* UI colors, uploaded RGBA images, and existing render shaders supply
+     * display-encoded values. An sRGB attachment would encode them again,
+     * washing out the palette. Prefer an advertised unorm attachment. */
+    for (size_t index = 0; index < caps.formatCount; ++index) {
+        if (caps.formats[index] == WGPUTextureFormat_BGRA8Unorm ||
+                caps.formats[index] == WGPUTextureFormat_RGBA8Unorm) {
+            gpu->surface_format = caps.formats[index];
+            break;
+        }
+    }
     gpu->surface_alpha_mode = caps.alphaModes[0];
 
     int width = 0;
@@ -752,17 +765,31 @@ void btrc_gpu_shader_destroy(void* s_) {
  * Render Pipeline
  * ================================================================ */
 
-void* btrc_gpu_create_render_pipeline(
+static void* create_render_pipeline_with_blend(
         void* gpu_, void* shader_,
-        char* vertex_entry, char* fragment_entry) {
+        char* vertex_entry, char* fragment_entry, int blend_mode) {
 
     GPU_* gpu = (GPU_*)gpu_;
     GPUShader_* shader = (GPUShader_*)shader_;
     if (!gpu || !gpu->device || !shader || !shader->module ||
-        !vertex_entry || !fragment_entry) {
+        !vertex_entry || !fragment_entry ||
+        (blend_mode != BTRC_GPU_BLEND_OPAQUE &&
+         blend_mode != BTRC_GPU_BLEND_SOURCE_OVER)) {
         return NULL;
     }
 
+    WGPUBlendState source_over = {
+        .color = {
+            .operation = WGPUBlendOperation_Add,
+            .srcFactor = WGPUBlendFactor_SrcAlpha,
+            .dstFactor = WGPUBlendFactor_OneMinusSrcAlpha,
+        },
+        .alpha = {
+            .operation = WGPUBlendOperation_Add,
+            .srcFactor = WGPUBlendFactor_One,
+            .dstFactor = WGPUBlendFactor_OneMinusSrcAlpha,
+        },
+    };
     WGPURenderPipelineDescriptor desc = {
         .vertex = {
             .module     = shader->module,
@@ -776,6 +803,8 @@ void* btrc_gpu_create_render_pipeline(
                 {
                     .format    = gpu->surface_format,
                     .writeMask = WGPUColorWriteMask_All,
+                    .blend = blend_mode == BTRC_GPU_BLEND_SOURCE_OVER
+                        ? &source_over : NULL,
                 },
             },
         },
@@ -803,6 +832,13 @@ void* btrc_gpu_create_render_pipeline(
     return p;
 }
 
+void* btrc_gpu_create_render_pipeline(
+        void* gpu_, void* shader_,
+        char* vertex_entry, char* fragment_entry) {
+    return create_render_pipeline_with_blend(
+        gpu_, shader_, vertex_entry, fragment_entry, BTRC_GPU_BLEND_OPAQUE);
+}
+
 void btrc_gpu_pipeline_destroy(void* p_) {
     GPURenderPipeline_* p = (GPURenderPipeline_*)p_;
     if (!p) return;
@@ -814,7 +850,7 @@ void btrc_gpu_pipeline_destroy(void* p_) {
  * Frame rendering
  * ================================================================ */
 
-static int begin_frame_locked(GPU_* gpu, float r, float g, float b, float a) {
+static int begin_frame_locked(GPU_* gpu, float r, float g, float b, float a, int capture_width, int capture_height) {
     reap_pending_async(gpu);
     if (device_is_lost(gpu)) { return BTRC_GPU_FRAME_DEVICE_LOST; }
     GLFWwindow* window = std_app_surface_glfw(gpu->app_surface);
@@ -826,7 +862,21 @@ static int begin_frame_locked(GPU_* gpu, float r, float g, float b, float a) {
 
     /* Get current surface texture */
     WGPUSurfaceTexture st = { 0 };
-    wgpuSurfaceGetCurrentTexture(gpu->surface, &st);
+    if (capture_width > 0 && capture_height > 0) {
+        WGPUTextureDescriptor descriptor = {
+            .usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc,
+            .dimension = WGPUTextureDimension_2D,
+            .size = { (uint32_t)capture_width, (uint32_t)capture_height, 1 },
+            .format = gpu->surface_format,
+            .mipLevelCount = 1,
+            .sampleCount = 1,
+        };
+        st.texture = wgpuDeviceCreateTexture(gpu->device, &descriptor);
+        st.status = WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal;
+        gpu->capture_frame = true;
+    } else {
+        wgpuSurfaceGetCurrentTexture(gpu->surface, &st);
+    }
 
     if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
         st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
@@ -863,7 +913,7 @@ static int begin_frame_locked(GPU_* gpu, float r, float g, float b, float a) {
                 return BTRC_GPU_FRAME_REJECTED;
         }
     }
-    if (!st.texture) { return BTRC_GPU_FRAME_REJECTED; }
+    if (!st.texture) { discard_frame(gpu); return BTRC_GPU_FRAME_REJECTED; }
 
     gpu->frame_texture = st.texture;
     gpu->frame_view = wgpuTextureCreateView(st.texture, NULL);
@@ -907,7 +957,7 @@ int std_gpu_begin_frame(unsigned long long gpu_id, float r, float g, float b, fl
         render_lock_leave();
         return BTRC_GPU_FRAME_REJECTED;
     }
-    int result = begin_frame_locked(gpu, r, g, b, a);
+    int result = begin_frame_locked(gpu, r, g, b, a, 0, 0);
     render_lock_leave();
     return result;
 }
@@ -916,7 +966,7 @@ bool btrc_gpu_begin_frame(void* gpu_, float r, float g, float b, float a) {
     GPU_* gpu = (GPU_*)gpu_;
     render_lock_enter();
     bool ready = render_owner_pointer_locked(gpu) &&
-        begin_frame_locked(gpu, r, g, b, a) == BTRC_GPU_FRAME_READY;
+        begin_frame_locked(gpu, r, g, b, a, 0, 0) == BTRC_GPU_FRAME_READY;
     render_lock_leave();
     return ready;
 }
@@ -933,6 +983,7 @@ void btrc_gpu_draw(void* gpu_, void* pipeline_, int vertex_count) {
 }
 
 static int finish_frame(GPU_* gpu) {
+    if (gpu && gpu->capture_frame) { discard_frame(gpu); return BTRC_GPU_FRAME_REJECTED; }
     if (device_is_lost(gpu)) {
         discard_frame(gpu);
         return BTRC_GPU_FRAME_DEVICE_LOST;
@@ -986,6 +1037,95 @@ int std_gpu_end_frame(unsigned long long gpu_id) {
     int result = finish_frame(gpu);
     render_lock_leave();
     return result;
+}
+
+int std_gpu_begin_capture_frame(unsigned long long gpu_id, int width, int height,
+        float r, float g, float b, float a) {
+    if (width <= 0 || height <= 0 || width > 16384 || height > 16384 ||
+            (uint64_t)width * (uint64_t)height > UINT64_C(67108864)) {
+        return BTRC_GPU_FRAME_REJECTED;
+    }
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = render_gpu_locked(gpu_id);
+    int status = BTRC_GPU_FRAME_REJECTED;
+    WGPULimits limits = { 0 };
+    if (gpu && (gpu->surface_format == WGPUTextureFormat_BGRA8Unorm ||
+            gpu->surface_format == WGPUTextureFormat_RGBA8Unorm) &&
+            wgpuDeviceGetLimits(gpu->device, &limits) == WGPUStatus_Success &&
+            (uint32_t)width <= limits.maxTextureDimension2D &&
+            (uint32_t)height <= limits.maxTextureDimension2D) {
+        status = begin_frame_locked(gpu, r, g, b, a, width, height);
+    }
+    render_lock_leave();
+    return status;
+}
+
+int std_gpu_end_capture_frame(unsigned long long gpu_id, unsigned char* rgba,
+        int width, int height, unsigned long long byte_count) {
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    int status = render_gpu_resource_status_locked(gpu_id, &gpu);
+    if (status != BTRC_GPU_RESOURCE_READY) { render_lock_leave(); return status; }
+    if (!gpu->capture_frame || !gpu->pass || !gpu->frame_texture) {
+        render_lock_leave();
+        return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    WGPUBuffer buffer = NULL;
+    unsigned char* padded = NULL;
+    status = BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    if (!rgba || width <= 0 || height <= 0 ||
+            (uint32_t)width != wgpuTextureGetWidth(gpu->frame_texture) ||
+            (uint32_t)height != wgpuTextureGetHeight(gpu->frame_texture) ||
+            byte_count != (uint64_t)width * (uint64_t)height * 4) { goto capture_done; }
+    uint32_t row_bytes = ((uint32_t)width * 4 + 255) & ~UINT32_C(255);
+    size_t size = (size_t)row_bytes * (size_t)height;
+    status = BTRC_GPU_RESOURCE_OUT_OF_MEMORY;
+    padded = malloc(size);
+    if (!padded) { goto capture_done; }
+    WGPUBufferDescriptor descriptor = {
+        .size = size,
+        .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_CopySrc,
+    };
+    buffer = wgpuDeviceCreateBuffer(gpu->device, &descriptor);
+    if (!buffer) { goto capture_done; }
+    wgpuRenderPassEncoderEnd(gpu->pass);
+    wgpuRenderPassEncoderRelease(gpu->pass);
+    gpu->pass = NULL;
+    WGPUTexelCopyTextureInfo source = { .texture = gpu->frame_texture };
+    WGPUTexelCopyBufferInfo destination = {
+        .buffer = buffer,
+        .layout = { .bytesPerRow = row_bytes, .rowsPerImage = (uint32_t)height },
+    };
+    WGPUExtent3D extent = { (uint32_t)width, (uint32_t)height, 1 };
+    wgpuCommandEncoderCopyTextureToBuffer(gpu->encoder, &source, &destination, &extent);
+    WGPUCommandBuffer commands = wgpuCommandEncoderFinish(gpu->encoder, NULL);
+    status = BTRC_GPU_RESOURCE_INTERNAL_ERROR;
+    if (!commands) { goto capture_done; }
+    wgpuQueueSubmit(gpu->queue, 1, &commands);
+    wgpuCommandBufferRelease(commands);
+    /* Reuse the bounded/cancellation-safe readback bridge. Capture is opt-in;
+     * normal playback frames perform no CPU readback or extra allocation. */
+    if (!btrc_gpu_read_buffer_checked(gpu, buffer, padded, (int)size)) { goto capture_done; }
+    bool bgra = gpu->surface_format == WGPUTextureFormat_BGRA8Unorm;
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const unsigned char* pixel = padded + (size_t)y * row_bytes + (size_t)x * 4;
+            unsigned char* output = rgba + ((size_t)y * (size_t)width + (size_t)x) * 4;
+            output[0] = pixel[bgra ? 2 : 0];
+            output[1] = pixel[1];
+            output[2] = pixel[bgra ? 0 : 2];
+            output[3] = pixel[3];
+        }
+    }
+    status = BTRC_GPU_RESOURCE_READY;
+capture_done:
+    if (buffer) { wgpuBufferRelease(buffer); }
+    free(padded);
+    discard_frame(gpu);
+    render_lock_leave();
+    return status;
 }
 
 /* ================================================================
@@ -1387,6 +1527,20 @@ typedef struct {
     size_t     aligned_size; /* byte size rounded up to 16 */
 } GPUUniform_;
 
+typedef struct {
+    WGPUTexture texture;
+    WGPUTextureView view;
+    WGPUSampler sampler;
+} GPUTexture_;
+
+static void destroy_texture(GPUTexture_* texture) {
+    if (!texture) { return; }
+    if (texture->sampler) { wgpuSamplerRelease(texture->sampler); }
+    if (texture->view) { wgpuTextureViewRelease(texture->view); }
+    if (texture->texture) { wgpuTextureRelease(texture->texture); }
+    free(texture);
+}
+
 void* btrc_gpu_create_uniform(void* gpu_, int float_count) {
     GPU_* gpu = (GPU_*)gpu_;
     if (!gpu || !gpu->device || float_count <= 0 ||
@@ -1434,8 +1588,8 @@ void btrc_gpu_upload_uniform(void* gpu_, void* uniform_) {
                           u->data, (size_t)u->aligned_size);
 }
 
-bool btrc_gpu_draw_uniform(void* gpu_, void* pipeline_, int vertex_count,
-                           void* uniform_) {
+static bool draw_bound_resources(void* gpu_, void* pipeline_, int vertex_count,
+                                void* uniform_, GPUTexture_* texture) {
     GPU_* gpu = (GPU_*)gpu_;
     GPURenderPipeline_* pipeline = (GPURenderPipeline_*)pipeline_;
     GPUUniform_* u = (GPUUniform_*)uniform_;
@@ -1454,16 +1608,20 @@ bool btrc_gpu_draw_uniform(void* gpu_, void* pipeline_, int vertex_count,
         wgpuRenderPipelineGetBindGroupLayout(pipeline->pipeline, 0);
     if (!layout) { return false; }
 
-    WGPUBindGroupEntry entry = {
+    WGPUBindGroupEntry entries[3] = {{
         .binding = 0,
         .buffer  = u->buffer,
         .offset  = 0,
         .size    = (unsigned long long)u->aligned_size,
-    };
+    }, { .binding = 1 }, { .binding = 2 }};
+    if (texture) {
+        entries[1].textureView = texture->view;
+        entries[2].sampler = texture->sampler;
+    }
     WGPUBindGroupDescriptor bg_desc = {
         .layout     = layout,
-        .entryCount = 1,
-        .entries    = &entry,
+        .entryCount = texture ? 3 : 1,
+        .entries    = entries,
     };
     WGPUBindGroup bg = wgpuDeviceCreateBindGroup(gpu->device, &bg_desc);
     if (!bg) {
@@ -1480,6 +1638,10 @@ bool btrc_gpu_draw_uniform(void* gpu_, void* pipeline_, int vertex_count,
     wgpuBindGroupRelease(bg);
     wgpuBindGroupLayoutRelease(layout);
     return true;
+}
+
+bool btrc_gpu_draw_uniform(void* gpu, void* pipeline, int vertex_count, void* uniform) {
+    return draw_bound_resources(gpu, pipeline, vertex_count, uniform, NULL);
 }
 
 void btrc_gpu_uniform_destroy(void* uniform_) {
@@ -1543,6 +1705,9 @@ static void destroy_render_resource_value(GPURenderResource_* entry) {
             break;
         case GPU_RENDER_RESOURCE_NATIVE_UI:
             btrc_gpu_native_ui_destroy(entry->resource);
+            break;
+        case GPU_RENDER_RESOURCE_TEXTURE:
+            destroy_texture(entry->resource);
             break;
         default:
             break;
@@ -1694,9 +1859,9 @@ void std_gpu_shader_finalize(
         shader, owner_receipt, GPU_RENDER_RESOURCE_SHADER);
 }
 
-int std_gpu_pipeline_create(
+int std_gpu_pipeline_create_with_blend(
         unsigned long long gpu_id, unsigned long long shader_id,
-        char* vertex_entry, char* fragment_entry,
+        char* vertex_entry, char* fragment_entry, int blend_mode,
         unsigned long long* pipeline_out,
         unsigned long long* owner_receipt_out) {
     if (!pipeline_out || !owner_receipt_out) {
@@ -1704,6 +1869,10 @@ int std_gpu_pipeline_create(
     }
     *pipeline_out = 0;
     *owner_receipt_out = 0;
+    if (blend_mode != BTRC_GPU_BLEND_OPAQUE &&
+        blend_mode != BTRC_GPU_BLEND_SOURCE_OVER) {
+        return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
     render_lock_enter();
     drain_gpu_finalizers_locked();
     GPU_* gpu = NULL;
@@ -1723,8 +1892,8 @@ int std_gpu_pipeline_create(
         render_lock_leave();
         return BTRC_GPU_RESOURCE_INVALID_RESOURCE;
     }
-    void* pipeline = btrc_gpu_create_render_pipeline(
-        gpu, shader->resource, vertex_entry, fragment_entry);
+    void* pipeline = create_render_pipeline_with_blend(
+        gpu, shader->resource, vertex_entry, fragment_entry, blend_mode);
     if (!pipeline) {
         render_lock_leave();
         return BTRC_GPU_RESOURCE_CREATION_FAILED;
@@ -1739,6 +1908,16 @@ int std_gpu_pipeline_create(
     *pipeline_out = id;
     render_lock_leave();
     return BTRC_GPU_RESOURCE_READY;
+}
+
+int std_gpu_pipeline_create(
+        unsigned long long gpu_id, unsigned long long shader_id,
+        char* vertex_entry, char* fragment_entry,
+        unsigned long long* pipeline_out,
+        unsigned long long* owner_receipt_out) {
+    return std_gpu_pipeline_create_with_blend(
+        gpu_id, shader_id, vertex_entry, fragment_entry, BTRC_GPU_BLEND_OPAQUE,
+        pipeline_out, owner_receipt_out);
 }
 
 int std_gpu_pipeline_destroy(
@@ -1893,9 +2072,10 @@ int std_gpu_draw(unsigned long long gpu_id, unsigned long long pipeline_id, int 
     return BTRC_GPU_DRAW_RECORDED;
 }
 
-int std_gpu_draw_uniform(
+static int draw_uniform_resources(
         unsigned long long gpu_id, unsigned long long pipeline_id,
-        int vertex_count, unsigned long long uniform_id) {
+        int vertex_count, unsigned long long uniform_id,
+        unsigned long long texture_id, bool textured) {
     render_lock_enter();
     drain_gpu_finalizers_locked();
     GPU_* gpu = NULL;
@@ -1921,7 +2101,9 @@ int std_gpu_draw_uniform(
         pipeline_id, gpu, GPU_RENDER_RESOURCE_PIPELINE);
     GPURenderResource_* uniform = find_render_resource(
         uniform_id, gpu, GPU_RENDER_RESOURCE_UNIFORM);
-    if (!pipeline || !uniform) {
+    GPURenderResource_* texture = textured ? find_render_resource(
+        texture_id, gpu, GPU_RENDER_RESOURCE_TEXTURE) : NULL;
+    if (!pipeline || !uniform || (textured && !texture)) {
         render_lock_leave();
         return BTRC_GPU_DRAW_INVALID_RESOURCE;
     }
@@ -1929,11 +2111,90 @@ int std_gpu_draw_uniform(
         render_lock_leave();
         return BTRC_GPU_DRAW_NO_ACTIVE_FRAME;
     }
-    int result = btrc_gpu_draw_uniform(
-        gpu, pipeline->resource, vertex_count, uniform->resource);
+    int result = draw_bound_resources(gpu, pipeline->resource, vertex_count,
+        uniform->resource, texture ? (GPUTexture_*)texture->resource : NULL);
     render_lock_leave();
     return result
         ? BTRC_GPU_DRAW_RECORDED : BTRC_GPU_DRAW_BACKEND_FAILURE;
+}
+
+int std_gpu_draw_uniform(unsigned long long gpu, unsigned long long pipeline,
+                         int vertex_count, unsigned long long uniform) {
+    return draw_uniform_resources(gpu, pipeline, vertex_count, uniform, 0, false);
+}
+
+int std_gpu_draw_textured(unsigned long long gpu, unsigned long long pipeline,
+                          int vertex_count, unsigned long long uniform, unsigned long long texture) {
+    return draw_uniform_resources(gpu, pipeline, vertex_count, uniform, texture, true);
+}
+
+int std_gpu_texture_create(unsigned long long gpu_id, unsigned char* rgba,
+        int width, int height, unsigned long long byte_count,
+        unsigned long long* texture_out, unsigned long long* owner_receipt_out) {
+    if (!texture_out || !owner_receipt_out) { return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR; }
+    *texture_out = 0;
+    *owner_receipt_out = 0;
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    int status = render_gpu_resource_status_locked(gpu_id, &gpu);
+    if (status != BTRC_GPU_RESOURCE_READY) { render_lock_leave(); return status; }
+    WGPULimits limits = { 0 };
+    if (wgpuDeviceGetLimits(gpu->device, &limits) != WGPUStatus_Success) {
+        render_lock_leave(); return BTRC_GPU_RESOURCE_CREATION_FAILED;
+    }
+    if (!rgba || width <= 0 || height <= 0 ||
+        (uint32_t)width > limits.maxTextureDimension2D ||
+        (uint32_t)height > limits.maxTextureDimension2D ||
+        (uint64_t)width * (uint64_t)height > SIZE_MAX / 4u ||
+        byte_count != (uint64_t)width * (uint64_t)height * 4u ||
+        (uint64_t)width * 4u > UINT32_MAX) {
+        render_lock_leave(); return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    GPUTexture_* texture = (GPUTexture_*)calloc(1, sizeof(GPUTexture_));
+    if (!texture) { render_lock_leave(); return BTRC_GPU_RESOURCE_OUT_OF_MEMORY; }
+    WGPUTextureDescriptor descriptor = {
+        .usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst,
+        .dimension = WGPUTextureDimension_2D,
+        .size = { (uint32_t)width, (uint32_t)height, 1 },
+        .format = WGPUTextureFormat_RGBA8Unorm,
+        .mipLevelCount = 1, .sampleCount = 1,
+    };
+    texture->texture = wgpuDeviceCreateTexture(gpu->device, &descriptor);
+    if (texture->texture) { texture->view = wgpuTextureCreateView(texture->texture, NULL); }
+    WGPUSamplerDescriptor sampler = {
+        .addressModeU = WGPUAddressMode_ClampToEdge,
+        .addressModeV = WGPUAddressMode_ClampToEdge,
+        .addressModeW = WGPUAddressMode_ClampToEdge,
+        .magFilter = WGPUFilterMode_Linear, .minFilter = WGPUFilterMode_Linear,
+        .mipmapFilter = WGPUMipmapFilterMode_Nearest,
+        .lodMinClamp = 0.0f, .lodMaxClamp = 0.0f, .maxAnisotropy = 1,
+    };
+    if (texture->view) { texture->sampler = wgpuDeviceCreateSampler(gpu->device, &sampler); }
+    if (!texture->texture || !texture->view || !texture->sampler) {
+        destroy_texture(texture); render_lock_leave(); return BTRC_GPU_RESOURCE_CREATION_FAILED;
+    }
+    /* QueueWriteTexture accepts tightly packed rows (unlike buffer copies). */
+    WGPUTexelCopyTextureInfo destination = { .texture = texture->texture, .aspect = WGPUTextureAspect_All };
+    WGPUTexelCopyBufferLayout layout = { .bytesPerRow = (uint32_t)width * 4u, .rowsPerImage = (uint32_t)height };
+    wgpuQueueWriteTexture(gpu->queue, &destination, rgba, (size_t)byte_count, &layout, &descriptor.size);
+    unsigned long long id = register_render_resource(gpu, GPU_RENDER_RESOURCE_TEXTURE, texture, owner_receipt_out);
+    if (!id) { destroy_texture(texture); render_lock_leave(); return BTRC_GPU_RESOURCE_OUT_OF_MEMORY; }
+    *texture_out = id;
+    render_lock_leave();
+    return BTRC_GPU_RESOURCE_READY;
+}
+
+int std_gpu_texture_destroy(unsigned long long texture, unsigned long long owner_receipt) {
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    int status = close_render_resource(texture, owner_receipt, GPU_RENDER_RESOURCE_TEXTURE);
+    render_lock_leave();
+    return status;
+}
+
+void std_gpu_texture_finalize(unsigned long long texture, unsigned long long owner_receipt) {
+    finalize_render_resource(texture, owner_receipt, GPU_RENDER_RESOURCE_TEXTURE);
 }
 
 /* ================================================================
@@ -2054,6 +2315,53 @@ int std_gpu_native_ui_add_rect(
     return status;
 }
 
+int std_gpu_native_ui_add_gradient_rect(
+        unsigned long long compositor_id,
+        float x, float y, float width, float height,
+        unsigned int top_rgba, unsigned int bottom_rgba, float radius) {
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    GPURenderResource_* resource = NULL;
+    int status = native_ui_resource_locked(compositor_id, &gpu, &resource);
+    (void)gpu;
+    if (status == BTRC_GPU_RESOURCE_READY &&
+        !btrc_gpu_native_ui_add_gradient_rect(resource->resource,
+            x, y, width, height,
+            (float)((top_rgba >> 24) & 255u) / 255.0f,
+            (float)((top_rgba >> 16) & 255u) / 255.0f,
+            (float)((top_rgba >> 8) & 255u) / 255.0f,
+            (float)(top_rgba & 255u) / 255.0f,
+            (float)((bottom_rgba >> 24) & 255u) / 255.0f,
+            (float)((bottom_rgba >> 16) & 255u) / 255.0f,
+            (float)((bottom_rgba >> 8) & 255u) / 255.0f,
+            (float)(bottom_rgba & 255u) / 255.0f, radius)) {
+        status = BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    render_lock_leave();
+    return status;
+}
+
+int std_gpu_native_ui_add_chevron(
+        unsigned long long compositor_id,
+        float x, float y, float width, float height,
+        float red, float green, float blue, float alpha, int expanded) {
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    GPURenderResource_* resource = NULL;
+    int status = native_ui_resource_locked(compositor_id, &gpu, &resource);
+    (void)gpu;
+    if (status == BTRC_GPU_RESOURCE_READY &&
+        ((expanded != 0 && expanded != 1) ||
+         !btrc_gpu_native_ui_add_chevron(resource->resource, x, y, width, height,
+                                        red, green, blue, alpha, expanded != 0))) {
+        status = BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    render_lock_leave();
+    return status;
+}
+
 int std_gpu_native_ui_add_glyph(
         unsigned long long compositor_id,
         float x,
@@ -2096,6 +2404,19 @@ int std_gpu_native_ui_system_typography_available(
         btrc_gpu_native_ui_text_available() ? 1 : 0;
     render_lock_leave();
     return available;
+}
+
+int std_gpu_native_ui_text_line_break(unsigned long long compositor_id, char* text, int font_size, int line_height, int font_weight, int width) {
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    GPURenderResource_* resource = NULL;
+    int status = native_ui_resource_locked(compositor_id, &gpu, &resource);
+    (void)gpu;
+    (void)resource;
+    int bytes = status == BTRC_GPU_RESOURCE_READY ? btrc_gpu_native_ui_text_line_break(text, font_size, line_height, font_weight, width) : 0;
+    render_lock_leave();
+    return bytes;
 }
 
 int std_gpu_native_ui_measure_text(
@@ -2269,9 +2590,30 @@ int std_gpu_native_ui_add_image(
     return status;
 }
 
-int std_gpu_native_ui_draw(
+int std_gpu_native_ui_add_image_region(
+        unsigned long long compositor_id, char* identity, unsigned char* rgba,
+        int source_width, int source_height, unsigned long long source_revision,
+        float x, float y, float width, float height,
+        float left, float top, float span_x, float span_y) {
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    GPURenderResource_* resource = NULL;
+    int status = native_ui_resource_locked(compositor_id, &gpu, &resource);
+    (void)gpu;
+    if (status == BTRC_GPU_RESOURCE_READY &&
+        !btrc_gpu_native_ui_add_image_region(resource->resource, identity, rgba,
+            source_width, source_height, (uint64_t)source_revision,
+            x, y, width, height, left, top, span_x, span_y)) {
+        status = BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    render_lock_leave();
+    return status;
+}
+
+static int native_ui_draw_range(
         unsigned long long gpu_id,
-        unsigned long long compositor_id) {
+        unsigned long long compositor_id, int first, int count, bool all) {
     render_lock_enter();
     drain_gpu_finalizers_locked();
     GPU_* gpu = NULL;
@@ -2299,11 +2641,36 @@ int std_gpu_native_ui_draw(
         render_lock_leave();
         return BTRC_GPU_DRAW_NO_ACTIVE_FRAME;
     }
-    bool recorded = btrc_gpu_native_ui_draw(
-        resource->resource, gpu->pass);
+    if (all) { first = 0; count = btrc_gpu_native_ui_order_count(resource->resource); }
+    int available = btrc_gpu_native_ui_order_count(resource->resource);
+    if (first < 0 || count < 0 || first > available || count > available - first) {
+        render_lock_leave();
+        return BTRC_GPU_DRAW_INVALID_DESCRIPTOR;
+    }
+    bool recorded = btrc_gpu_native_ui_draw_range(resource->resource, gpu->pass, first, count);
     render_lock_leave();
     return recorded
         ? BTRC_GPU_DRAW_RECORDED : BTRC_GPU_DRAW_BACKEND_FAILURE;
+}
+
+int std_gpu_native_ui_draw(unsigned long long gpu, unsigned long long compositor) {
+    return native_ui_draw_range(gpu, compositor, 0, 0, true);
+}
+
+int std_gpu_native_ui_draw_range(unsigned long long gpu, unsigned long long compositor, int first, int count) {
+    return native_ui_draw_range(gpu, compositor, first, count, false);
+}
+
+int std_gpu_native_ui_order_count(unsigned long long compositor) {
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    GPURenderResource_* resource = NULL;
+    int status = native_ui_resource_locked(compositor, &gpu, &resource);
+    (void)gpu;
+    int count = status == BTRC_GPU_RESOURCE_READY ? btrc_gpu_native_ui_order_count(resource->resource) : -1;
+    render_lock_leave();
+    return count;
 }
 
 int std_gpu_native_ui_destroy(

@@ -20,6 +20,7 @@ typedef struct {
 /* The native compositor owns presentation and caching; the platform text
  * provider owns only system-font selection, measurement, and rasterization. */
 bool btrc_gpu_native_ui_text_available(void);
+int btrc_gpu_native_ui_text_line_break(const char* text, int font_size, int line_height, int font_weight, int width);
 bool btrc_gpu_native_ui_text_measure(
     const char* text,
     int font_size,

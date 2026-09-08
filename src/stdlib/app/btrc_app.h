@@ -57,6 +57,7 @@ enum {
     BTRC_APP_EVENT_CLOSED = 7,
     BTRC_APP_EVENT_FAILED = 8,
     BTRC_APP_EVENT_SCROLLED = 9,
+    BTRC_APP_EVENT_FOCUS_LOST = 10,
 };
 
 enum {
@@ -71,6 +72,8 @@ enum {
     BTRC_APP_BUTTON_SECONDARY = 2,
     BTRC_APP_BUTTON_MIDDLE = 3,
     BTRC_APP_BUTTON_OTHER = 4,
+    BTRC_APP_BUTTON_BACK = 5,
+    BTRC_APP_BUTTON_FORWARD = 6,
 };
 
 enum {
@@ -96,6 +99,14 @@ enum {
     BTRC_APP_KEY_W = 13,
     BTRC_APP_KEY_LEFT_SHIFT = 14,
     BTRC_APP_KEY_RIGHT_SHIFT = 15,
+    BTRC_APP_KEY_LEFT_ALT = 16,
+    BTRC_APP_KEY_RIGHT_ALT = 17,
+    BTRC_APP_KEY_C = 18,
+    BTRC_APP_KEY_V = 19,
+    BTRC_APP_KEY_X = 20,
+    BTRC_APP_KEY_HOME = 21,
+    BTRC_APP_KEY_END = 22,
+    BTRC_APP_KEY_DELETE = 23,
 };
 
 enum {
@@ -112,6 +123,14 @@ char* std_app_error_message(unsigned long long application);
 unsigned long long std_app_window_open(
     unsigned long long application, char* title, int width, int height,
     unsigned long long* owner_receipt_out);
+enum {
+    BTRC_APP_TITLEBAR_STANDARD = 0,
+    BTRC_APP_TITLEBAR_OVERLAY = 1,
+};
+char* std_app_window_clipboard_text(unsigned long long window, unsigned long long owner_receipt);
+int std_app_window_set_clipboard_text(unsigned long long window, unsigned long long owner_receipt, char* text);
+int std_app_window_set_titlebar_style(
+    unsigned long long window, unsigned long long owner_receipt, int style);
 int std_app_window_close(
     unsigned long long window, unsigned long long owner_receipt);
 int std_app_window_choose_directory(

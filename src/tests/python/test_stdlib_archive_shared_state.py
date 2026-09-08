@@ -350,6 +350,68 @@ def test_archive_completes_the_thread_handle_lifecycle_api():
     assert "__btrc_thread_destroy_handle" not in lifecycle
 
 
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_platform_lock_keeps_one_cross_tu_owner(tmp_path: Path, c_compiler: str):
+    source = CYCLES["__btrc_arc_lock_state"].c_source
+    declarations = SHARED.derive_shared_declarations(source)
+    implementation = SHARED.derive_shared_implementation(source)
+    assert "extern #" not in declarations
+    assert "static " not in declarations
+    assert "#if defined(__APPLE__)" in declarations
+    assert "extern os_unfair_lock* __btrc_arc_native_lock;" in declarations
+    assert "extern atomic_flag __btrc_arc_lock_flag;" in declarations
+    header = tmp_path / "lock.h"
+    header.write_text("#include <stdatomic.h>\n" + declarations)
+    owner = tmp_path / "owner.c"
+    owner.write_text('#include "lock.h"\n' + implementation)
+    consumer = tmp_path / "consumer.c"
+    consumer.write_text(
+        '#include "lock.h"\nint main(void) { __btrc_arc_lock_raw(); __btrc_arc_unlock_raw(); return 0; }\n'
+    )
+    binary = tmp_path / "lock"
+    compiled = subprocess.run(
+        [
+            c_compiler,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(owner),
+            str(consumer),
+            "-o",
+            str(binary),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert compiled.returncode == 0, compiled.stderr
+    run = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
+    assert run.returncode == 0, run.stderr
+
+
+def test_runtime_directives_are_not_declarations_or_functions():
+    source = "\n".join(
+        [
+            "#if defined(NATIVE)",
+            "#define INITIAL \\",
+            "    ((Value){0})",
+            "static int value = 0;",
+            "#else",
+            "static int value = 1;",
+            "#endif",
+        ]
+    )
+    units = SHARED.split_toplevel_units(source)
+    assert len(units) == 6
+    assert units[1].startswith("#define INITIAL")
+    assert SHARED.function_definition_prototype(units[1]) is None
+    declarations = SHARED.derive_shared_declarations(source)
+    assert "extern #" not in declarations
+    assert declarations.count("extern int value;") == 2
+
+
 def test_string_registry_declarations_are_derived_without_initializers():
     source = "\n".join(STRING_OWNERSHIP[name].c_source for name in SHARED.HELPER_GROUPS["string_registry"])
     declarations = SHARED.derive_shared_declarations(source)

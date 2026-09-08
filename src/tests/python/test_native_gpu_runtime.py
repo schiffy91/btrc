@@ -38,6 +38,8 @@ def _runtime_sources() -> list[str]:
     ]
     if sys.platform == "darwin":
         sources.append(str(GPU / "btrc_gpu_surface_macos.m"))
+    suffix = "macos.m" if sys.platform == "darwin" else "stub.c"
+    sources.extend(str(APP / f"btrc_app_{provider}_{suffix}") for provider in ["directory_picker", "window"])
     return sources
 
 

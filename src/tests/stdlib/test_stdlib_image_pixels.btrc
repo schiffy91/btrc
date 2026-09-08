@@ -1,5 +1,6 @@
 /* Typed pixels, crop/region geometry, and exact/tolerant diff statistics. */
 import std.image;
+import std.vector;
 
 #include <assert.h>
 
@@ -10,7 +11,174 @@ void fillPair(Image left, Image right) {
 	right.setRGBA(1, 0, 50, 60, 70, 80);
 }
 
+void assertRectangleFill(int x, int y, int width, int height, RGBA color) {
+	Image actual = Image(11, 7);
+	Image expected = Image(11, 7);
+	RGBA sentinel = RGBA(9, 18, 27, 36);
+	actual.fill(sentinel);
+	for (int row = 0; row < expected.height; row++) {
+		for (int column = 0; column < expected.width; column++) {
+			bool inside = width > 0 && height > 0 && column >= x && row >= y && (long long)column < (long long)x + (long long)width && (long long)row < (long long)y + (long long)height;
+			expected.setPixel(column, row, inside ? color : sentinel);
+		}
+	}
+	actual.fillRect(x, y, width, height, color);
+	assert(actual.diff(expected).exact());
+}
+
+void assertBulkPainting() {
+	RGBA color = RGBA(201, 72, 19, 63);
+	for (int x = -13; x <= 13; x += 2) {
+		for (int y = -9; y <= 9; y += 2) {
+			assertRectangleFill(x, y, 9, 5, color);
+			assertRectangleFill(x, y, 0, 3, color);
+			assertRectangleFill(x, y, 3, -1, color);
+		}
+	}
+	assertRectangleFill(0, 0, 11, 7, RGBA(0, 0, 0, 0));
+	assertRectangleFill(10, 6, 2147483647, 2147483647, color);
+	assertRectangleFill(-2147483647 - 1, -2147483647 - 1, 2147483647, 2147483647, color);
+	assertRectangleFill(-2, -2, 2147483647, 2147483647, color);
+	assertRectangleFill(2147483647, 2147483647, 10, 10, color);
+	color.red = -9;
+	color.green = 999;
+	color.alpha = -8;
+	assertRectangleFill(1, 1, 5, 4, color);
+	Image empty = Image.empty();
+	empty.fill(color);
+	empty.fillRect(-1, -1, 5, 5, color);
+	assert(empty.isEmpty());
+}
+
+void assertPixelComposition() {
+	Image image = Image(2, 1);
+	RGBA sentinel = RGBA(9, 18, 27, 36);
+	image.setPixel(1, 0, sentinel);
+	Vector<int> alphas = [0, 1, 127, 128, 254, 255];
+	Vector<double> coverages = [0.0, 0.001, 0.125, 0.499, 0.5, 0.999, 1.0, 2.0];
+	Vector<double> weights = [0.0, 0.001, 0.125, 0.499, 0.5, 0.999, 1.0];
+	for (int foregroundAlpha = 0; foregroundAlpha <= 255; foregroundAlpha++) {
+		for (int backgroundAlpha = 0; backgroundAlpha <= 255; backgroundAlpha++) {
+			RGBA foreground = RGBA(203, 51, 117, foregroundAlpha);
+			RGBA background = RGBA(19, 143, 239, backgroundAlpha);
+			image.setPixel(0, 0, background);
+			image.compositePixel(0, 0, foreground);
+			int front = foregroundAlpha * 255;
+			int back = backgroundAlpha * (255 - foregroundAlpha);
+			int alpha = front + back;
+			RGBA expected = alpha == 0 ? RGBA(0, 0, 0, 0) : RGBA((203 * front + 19 * back) / alpha, (51 * front + 143 * back) / alpha, (117 * front + 239 * back) / alpha, alpha / 255);
+			assert(image.pixel(0, 0).equals(expected));
+		}
+	}
+	for alpha in alphas {
+		for coverage in coverages {
+			RGBA foreground = RGBA(230, 17, 93, alpha);
+			RGBA background = RGBA(31, 98, 182, 83);
+			image.setPixel(0, 0, background);
+			image.compositePixel(0, 0, foreground, coverage);
+			int covered = coverage >= 1.0 ? alpha : (int)((double)alpha * coverage + 0.5);
+			int front = covered * 255;
+			int back = 83 * (255 - covered);
+			RGBA expected = RGBA((230 * front + 31 * back) / (front + back), (17 * front + 98 * back) / (front + back), (93 * front + 182 * back) / (front + back), (front + back) / 255);
+			assert(image.pixel(0, 0).equals(expected));
+		}
+	}
+	for frontAlpha in alphas {
+		for backAlpha in alphas {
+			for weight in weights {
+				image.setRGBA(0, 0, 19, 143, 239, backAlpha);
+				image.mixPixel(0, 0, RGBA(203, 51, 117, frontAlpha), weight);
+				double front = (double)frontAlpha * weight;
+				double back = (double)backAlpha * (1.0 - weight);
+				double alpha = front + back;
+				RGBA expected = alpha == 0.0 ? RGBA(0, 0, 0, 0) : RGBA((int)((203.0 * front + 19.0 * back) / alpha + 0.5), (int)((51.0 * front + 143.0 * back) / alpha + 0.5), (int)((117.0 * front + 239.0 * back) / alpha + 0.5), (int)(alpha + 0.5));
+				assert(image.pixel(0, 0).equals(expected));
+			}
+		}
+	}
+	RGBA mutated = RGBA(0, 0, 0);
+	mutated.red = 999;
+	mutated.green = -9;
+	mutated.alpha = 512;
+	image.compositePixel(0, 0, mutated);
+	assert(image.pixel(0, 0).equals(RGBA(255, 0, 0)));
+	image.mixPixel(0, 0, mutated, 1.0);
+	assert(image.pixel(0, 0).equals(RGBA(255, 0, 0)));
+	assert(image.pixel(1, 0).equals(sentinel));
+}
+
+void assertRegionFades() {
+	Image paint = Image(9, 7);
+	Image background = Image(5, 3);
+	Image expected = Image(9, 7);
+	Vector<double> weights = [0.0, 0.001, 0.125, 0.499, 0.5, 0.999, 1.0];
+	for (int y = 0; y < background.height; y++) { for (int x = 0; x < background.width; x++) { background.setRGBA(x, y, x * 37, y * 93, 251 - x * 19, (x + y) * 42); } }
+	Image original = background.crop(0, 0, background.width, background.height);
+	for weight in weights {
+		for (int left = 0; left <= 4; left++) {
+			for (int top = 0; top <= 4; top++) {
+				for (int y = 0; y < paint.height; y++) { for (int x = 0; x < paint.width; x++) {
+						RGBA color = RGBA(x * 29, y * 40, 113, (x + y) * 19);
+						paint.setPixel(x, y, color);
+						expected.setPixel(x, y, color);
+					} }
+				/* Reverse the operands of mixPixel to preserve foreground weight. */
+				for (int y = 0; y < background.height; y++) { for (int x = 0; x < background.width; x++) {
+						RGBA foreground = paint.pixel(left + x, top + y);
+						expected.setPixel(left + x, top + y, background.pixel(x, y));
+						expected.mixPixel(left + x, top + y, foreground, weight);
+					} }
+				assert(paint.fadeRegion(background, left, top, weight));
+				assert(paint.diff(expected).exact());
+				assert(background.diff(original).exact());
+			}
+		}
+	}
+	Image unchanged = paint.crop(0, 0, paint.width, paint.height);
+	assert(!paint.fadeRegion(background, -1, 0, 0.5));
+	assert(!paint.fadeRegion(background, 0, -1, 0.5));
+	assert(!paint.fadeRegion(background, 5, 0, 0.5));
+	assert(!paint.fadeRegion(background, 0, 5, 0.5));
+	assert(!paint.fadeRegion(background, 2147483647, 0, 0.5));
+	assert(!paint.fadeRegion(background, 0, 2147483647, 0.5));
+	assert(!paint.fadeRegion(background, 0, 0, -0.001));
+	assert(!paint.fadeRegion(background, 0, 0, 1.001));
+	assert(!paint.fadeRegion(null, 0, 0, 0.5));
+	assert(!paint.fadeRegion(Image.empty(), 0, 0, 0.5));
+	assert(!Image.empty().fadeRegion(background, 0, 0, 0.5));
+	assert(paint.diff(unchanged).exact());
+	paint.fill(RGBA(93, 45, 129, 127));
+	unchanged = paint.crop(0, 0, paint.width, paint.height);
+	assert(paint.fadeRegion(paint, 0, 0, 0.499));
+	assert(paint.diff(unchanged).exact());
+}
+
 int main() {
+	assertRegionFades();
+	assertPixelComposition();
+	assertBulkPainting();
+	Image source = Image(3, 2);
+	for (int row = 0; row < source.height; row++) { for (int column = 0; column < source.width; column++) { source.setRGBA(column, row, column * 50, row * 100, 70, (column + row) * 40); } }
+	RGBA border = RGBA(12, 23, 34, 0);
+	for (int left = 0; left <= 2; left++) { for (int top = 0; top <= 2; top++) {
+			Image padded = source.padded(left, top, 2, 3, border);
+			assert(padded.width == source.width + left + 2 && padded.height == source.height + top + 3);
+			for (int row = 0; row < padded.height; row++) { for (int column = 0; column < padded.width; column++) {
+					bool inside = column >= left && column < left + source.width && row >= top && row < top + source.height;
+					assert(padded.pixel(column, row).equals(inside ? source.pixel(column - left, row - top) : border));
+				} }
+		} }
+	Image independent = source.padded(0, 0, 0, 0, border);
+	assert(independent.diff(source).exact());
+	independent.setPixel(0, 0, RGBA(255, 255, 255));
+	assert(!independent.diff(source).exact());
+	assert(source.padded(-1, 0, 0, 0, border).isEmpty());
+	assert(source.padded(0, -1, 0, 0, border).isEmpty());
+	assert(source.padded(0, 0, -1, 0, border).isEmpty());
+	assert(source.padded(0, 0, 0, -1, border).isEmpty());
+	assert(source.padded(2147483647, 0, 2147483647, 0, border).isEmpty());
+	assert(source.padded(0, 2147483647, 0, 2147483647, border).isEmpty());
+	assert(Image.empty().padded(1, 1, 1, 1, border).isEmpty());
 	RGBA clamped = RGBA(-1, 12, 300, 256);
 	assert(clamped.red == 0);
 	assert(clamped.green == 12);

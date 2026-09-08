@@ -4,6 +4,15 @@
 most one native window and emits ordered, bounded pointer, scroll, key, text,
 logical resize, framebuffer resize, DPI, and close-request events.
 
+`window.setTitlebarStyle(APP_TITLEBAR_OVERLAY)` extends content behind the
+native title bar on macOS, preserving the native window buttons and logical
+viewport dimensions. Reserve the top-left header area for those controls.
+Call it before creating a surface; it returns an optional `AppError` for
+unsupported platforms, invalid styles, closed windows, wrong-thread calls, or
+an existing surface. `APP_TITLEBAR_STANDARD` restores the conventional frame.
+Unconfigured windows remain standard; unsupported platforms are not made
+borderless or given imitation window buttons.
+
 The native window never crosses the public BTRC API. `ApplicationWindow`
 creates one generation-checked `AppSurfaceAttachment`; a GPU or UI renderer
 may attach to that capability through its private native boundary. A second

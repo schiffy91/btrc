@@ -1,6 +1,6 @@
 /* macOS ImageIO/CoreGraphics provider for bounded encoded images.
  *
- * DDS DXT1/DXT5 stays in portable BTRC. PNG, JPEG, and GIF frame zero are
+ * DDS DXT1/DXT5 stays in portable BTRC. PNG, JPEG, GIF and TIFF frame zero are
  * decoded synchronously by the native runtime from content signatures.
  */
 
