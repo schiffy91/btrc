@@ -662,6 +662,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("pixels", "bool", "method", (("string", "value"), ("bool", "allowZero"),), "pixels"),
         BuiltinMemberSpec("hexDigit", "bool", "method", (("char", "value"),), "hexDigit"),
         BuiltinMemberSpec("color", "bool", "method", (("string", "value"),), "color"),
+        BuiltinMemberSpec("gradientColors", "Vector<string>", "method", (("string", "value"),), "gradientColors"),
         BuiltinMemberSpec("validate", "NativeUiStyleError", "method", (("string", "css"),), "validate"),
         BuiltinMemberSpec("validateClassName", "NativeUiStyleError", "method", (("string", "value"),), "validateClassName"),
     )),
