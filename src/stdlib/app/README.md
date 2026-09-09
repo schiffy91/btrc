@@ -4,6 +4,16 @@
 most one native window and emits ordered, bounded pointer, scroll, key, text,
 logical resize, framebuffer resize, DPI, and close-request events.
 
+`AppPointerEvent.clickCount` preserves the native click sequence on macOS;
+movement has count zero. It is captured inside the OS callback before queueing,
+so delayed dispatch does not change double-click recognition. macOS owns the
+user's timing/spatial preference. Platforms without a click-count provider
+currently report one for button events; native multi-click support there is
+unfinished. Synthetic events can supply the optional constructor argument.
+`std.native_ui_app` forwards the count to shared text fields: double-click
+selects a word, dragging extends by whole words, and triple-click selects the
+line. Shift-click retains anchor-based selection.
+
 `window.setTitlebarStyle(APP_TITLEBAR_OVERLAY)` extends content behind the
 native title bar on macOS, preserving the native window buttons and logical
 viewport dimensions. Reserve the top-left header area for those controls.

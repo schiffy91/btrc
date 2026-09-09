@@ -28,6 +28,23 @@ int main(void) {
         assert(native && (native.styleMask & NSWindowStyleMaskFullSizeContentView));
         assert(native.titleVisibility == NSWindowTitleHidden && native.titlebarAppearsTransparent);
         assert(native.contentView.frame.size.height == native.frame.size.height);
+        while (std_app_poll(app) != BTRC_APP_EVENT_IDLE) { }
+        for (NSInteger clicks = 1; clicks <= 3; ++clicks) {
+            NSEvent* down = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:NSMakePoint(100, 100) modifierFlags:0 timestamp:NSProcessInfo.processInfo.systemUptime windowNumber:native.windowNumber context:nil eventNumber:clicks clickCount:clicks pressure:1.0];
+            NSEvent* up = [NSEvent mouseEventWithType:NSEventTypeLeftMouseUp location:NSMakePoint(100, 100) modifierFlags:0 timestamp:NSProcessInfo.processInfo.systemUptime windowNumber:native.windowNumber context:nil eventNumber:clicks clickCount:clicks pressure:0.0];
+            [NSApp postEvent:down atStart:NO];
+            [NSApp postEvent:up atStart:NO];
+            int presses = 0;
+            int releases = 0;
+            int kind;
+            while ((kind = std_app_poll(app)) != BTRC_APP_EVENT_IDLE) {
+                if (kind != BTRC_APP_EVENT_POINTER || std_app_event_pointer_button(app) != BTRC_APP_BUTTON_PRIMARY) { continue; }
+                assert(std_app_event_pointer_click_count(app) == clicks);
+                if (std_app_event_pointer_action(app) == BTRC_APP_POINTER_PRESSED) { ++presses; }
+                if (std_app_event_pointer_action(app) == BTRC_APP_POINTER_RELEASED) { ++releases; }
+            }
+            assert(presses == 1 && releases == 1);
+        }
         assert([native standardWindowButton:NSWindowCloseButton] && ![native standardWindowButton:NSWindowCloseButton].hidden);
         assert([native standardWindowButton:NSWindowMiniaturizeButton] && ![native standardWindowButton:NSWindowMiniaturizeButton].hidden);
         assert([native standardWindowButton:NSWindowZoomButton] && ![native standardWindowButton:NSWindowZoomButton].hidden);

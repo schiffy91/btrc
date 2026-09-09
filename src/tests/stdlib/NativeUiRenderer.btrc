@@ -539,6 +539,27 @@ void assertDirectionalPadding() {
 	assert(narrow.ok() && narrow.boxFor("wide-child").bounds.width == 1);
 }
 
+void assertTransparentButtonFeedback() {
+	for theme in [NativeUiTheme.dark(), NativeUiTheme.light()] {
+		NativeUiElement button = NativeUiElement.button("transparent-control", "").style("padding: 0px; width: 40px; height: 40px; border-radius: 8px; background-color: #00000000; color: #ffffffff");
+		NativeUiResolvedStyle style = NativeUiResolvedStyle.from(button, NativeUiStyleSheet());
+		assert(theme.buttonFill(style, false).alpha == 0);
+		NativeUiColor hover = theme.buttonFill(style, true);
+		NativeUiColor pressed = theme.buttonFill(style, true, true);
+		assert(hover.equals(NativeUiColor(255, 255, 255, 15)));
+		assert(pressed.equals(NativeUiColor(255, 255, 255, 30)));
+		NativeUiElement root = NativeUiElement.column("material").style("padding: 0px; width: 60px; height: 60px; background-color: #202020").child(button);
+		NativeUiRenderer renderer = NativeUiRenderer(theme);
+		NativeUiFrame idle = renderer.render(root, 60, 60);
+		renderer.pointerMoved(20, 20);
+		NativeUiFrame highlighted = renderer.render(root, 60, 60);
+		assert(highlighted.image.pixel(20, 3).red > idle.image.pixel(20, 3).red);
+		assert(highlighted.image.pixel(1, 1).equals(idle.image.pixel(1, 1)));
+		renderer.pointerMoved(50, 50);
+		assert(renderer.render(root, 60, 60).image.diff(idle.image).exact());
+	}
+}
+
 void assertDisabledButtonText() {
 	Vector<NativeUiTheme> themes = [NativeUiTheme.dark(), NativeUiTheme.light()];
 	for theme in themes {
@@ -597,6 +618,56 @@ void assertGradients() {
 	assert(frame.image.pixel(10, 10).red >= 120 && frame.image.pixel(10, 10).red <= 122);
 	NativeUiFrame clipped = NativeUiRenderer().render(NativeUiElement.column("gradient-clip").style("padding: 0px").child(panel.floating(0, -10)), 20, 20);
 	assert(clipped.ok() && clipped.image.pixel(10, 0).equals(frame.image.pixel(10, 10)));
+}
+
+int proportionalTypographyMeasure(unsigned long long provider, string value, int fontSize, int lineHeight, int fontWeight, int* widthOut, int* heightOut, int* ascentOut, int* descentOut, int* advanceOut) {
+	assert(provider == 43ULL && fontSize == 14 && fontWeight == 400);
+	int width = 0;
+	for (int offset = 0; offset < value.len(); offset = NativeUiTextInput.nextBoundary(value, offset)) { width += value[offset] == 'i' ? 2 : (value[offset] == 'W' ? 14 : 8); }
+	widthOut[0] = width;
+	heightOut[0] = lineHeight;
+	ascentOut[0] = 12;
+	descentOut[0] = 3;
+	advanceOut[0] = 8;
+	return 1;
+}
+
+void assertEllipsis() {
+	NativeUiTypography typography = NativeUiTypography.platform(43ULL, proportionalTypographyMeasure);
+	assert(typography.ellipsize("iiiiWW", 14, 20, 400, 36).lineAt(0).text() == "iiiiWW");
+	assert(typography.ellipsize("iiiiWW", 14, 20, 400, 30).lineAt(0).text() == "iiiiW…");
+	assert(typography.ellipsize("WWiiii", 14, 20, 400, 30).lineAt(0).text() == "W…");
+	assert(typography.ellipsize("é🎸WW", 14, 20, 400, 24).lineAt(0).text() == "é🎸…");
+	assert(typography.ellipsize("WW", 14, 20, 400, 8).lineAt(0).text() == "…");
+	assert(typography.ellipsize("WW", 14, 20, 400, 7).lineAt(0).text() == "");
+	assert(typography.ellipsize("", 14, 20, 400, 0).lineAt(0).text() == "");
+	bool rejected = false;
+	try { typography.ellipsize("WW", 14, 20, 400, -1); } catch (string error) { rejected = !error.isEmpty(); }
+	assert(rejected);
+	string longText = "";
+	for (int index = 0; index < 4096; index++) { longText += "W"; }
+	NativeUiTextLayout bounded = typography.ellipsize(longText, 14, 20, 400, 57343);
+	assert(bounded.lineAt(0).text().len() <= 4096 && bounded.width() <= 57343 && bounded.lineAt(0).text().endsWith("…"));
+	assert(NativeUiStyle.validate("text-overflow: ellipsis").ok() && NativeUiStyle.validate("text-overflow: clip").ok());
+	assert(!NativeUiStyle.validate("text-overflow: fade").ok());
+	NativeUiResolvedStyle style = NativeUiResolvedStyle(NATIVE_UI_BUTTON);
+	style.apply("text-overflow: ellipsis");
+	NativeUiResolvedStyle copy = style.freeze().copy();
+	copy.apply("text-overflow: clip");
+	assert(style.ellipsizesText() && !copy.ellipsizesText());
+	for (int kind = 0; kind < 2; kind++) {
+		NativeUiElement label = kind == 0 ? NativeUiElement.text("fitted", "iiiiWW") : NativeUiElement.button("fitted", "iiiiWW");
+		label.style("text-overflow: ellipsis; padding: 4px; font-size: 14px; line-height: 20px; font-weight: 400");
+		NativeUiRenderer renderer = NativeUiRenderer(null, null, typography);
+		NativeUiFrame first = renderer.layoutImmutable(label, 38, 60);
+		assert(first.ok() && first.boxFor("fitted").displayText() == "iiiiW…");
+		assert(first.boxFor("fitted").element.contentText() == "iiiiWW");
+		NativeUiTextLayout retained = first.boxFor("fitted").textLayout();
+		assert(renderer.layoutImmutable(label, 38, 60).boxFor("fitted").textLayout() == retained && renderer.measuredNodeCount() == 0);
+		NativeUiFrame wide = renderer.layoutImmutable(label, 80, 60);
+		assert(wide.ok() && wide.boxFor("fitted").displayText() == "iiiiWW" && retained.lineAt(0).text() == "iiiiW…");
+		assert(renderer.render(label, 38, 60).ok());
+	}
 }
 
 void assertWrappedText() {
@@ -748,8 +819,63 @@ void assertVerticalScrollbar() {
 	assert(!renderer.verticalScrollbar().visible());
 }
 
+void assertPinnedScrollbar() {
+	NativeUiRenderer renderer = NativeUiRenderer();
+	renderer.showVerticalScrollbar();
+	renderer.configureScrollbar(true, 100.0, 200.0);
+	NativeUiElement header = NativeUiElement.column("header").style("padding: 0px; gap: 0px; height: 60px; background-color: #123456ff").pinnedTop().child(NativeUiElement.button("header-action", "Back").style("width: 80px; height: 30px; padding: 0px"));
+	NativeUiElement content = NativeUiElement.column("content").style("padding: 0px; gap: 0px; height: 2000px").child(NativeUiElement.button("content-action", "Song").style("height: 30px; padding: 0px"));
+	NativeUiElement root = NativeUiElement.column("pinned-root").style("padding: 0px; gap: 0px").child(header).child(content);
+	NativeUiFrame initial = renderer.render(root, 320, 200);
+	RGBA headerPixel = initial.image.pixel(150, 25);
+	assert(headerPixel.red == 18 && headerPixel.green == 52 && headerPixel.blue == 86);
+	NativeUiScrollbar bar = renderer.verticalScrollbar();
+	assert(bar.track().y == 64 && bar.track().height == 132 && bar.thumb().height == 28);
+	NativeUiFrame moved = renderer.scrollBy(0, 50).frame;
+	assert(moved.boxFor("header-action").bounds.y - moved.viewport.scrollY() == 0);
+	assert(moved.image.pixel(150, 25).equals(headerPixel));
+	assert(moved.hitId(20, 15, true) == "header-action");
+	assert(moved.clickableId(150, 15).isEmpty());
+	renderer.pointerMoved(150, 15);
+	assert(renderer.wheelBy(0, 200).eventCount() == 0 && renderer.currentFrame().viewport.scrollY() == 50);
+	assert(initial.boxFor("header-action").bounds.y == 0);
+	renderer.scrollBy(0, 50);
+	assert(renderer.currentFrame().boxFor("header-action").bounds.y == 100);
+	assert(renderer.verticalScrollbar().track().y == 64);
+	renderer.pointerMoved(150, 100);
+	assert(!renderer.tickScrollbar(100.0));
+	assert(renderer.tickScrollbar(200.0));
+	assert(renderer.verticalScrollbar().color(NativeUiTheme.nativeDefault()).alpha == 128);
+	assert(renderer.tickScrollbar(300.0) && !renderer.verticalScrollbar().visible());
+	assert(!renderer.tickScrollbar(400.0));
+	renderer.pointerMoved(310, 90);
+	assert(renderer.verticalScrollbar().visible());
+	renderer.tickScrollbar(1000.0);
+	assert(renderer.verticalScrollbar().color(NativeUiTheme.nativeDefault()).alpha == 255);
+	bar = renderer.verticalScrollbar();
+	renderer.pointerPressed(310, bar.thumb().y + 10);
+	renderer.pointerMoved(310, 190);
+	renderer.tickScrollbar(2000.0);
+	assert(renderer.verticalScrollbar().visible());
+	renderer.pointerReleased(310, 190);
+	renderer.pointerMoved(150, 100);
+	renderer.tickScrollbar(2300.0);
+	assert(!renderer.verticalScrollbar().visible());
+	renderer.scrollBy(0, -20000);
+	assert(renderer.verticalScrollbar().visible() && renderer.currentFrame().viewport.scrollY() == 0);
+	renderer.configureScrollbar(false);
+	renderer.tickScrollbar(5000.0);
+	assert(renderer.verticalScrollbar().visible());
+	assert(header.copy().isPinnedTop());
+	assert(!renderer.render(NativeUiElement.column("bad").child(content).child(header), 320, 200).ok());
+	assert(!renderer.render(NativeUiElement.column("nested").child(NativeUiElement.column("wrapper").child(header)), 320, 200).ok());
+}
+
 int main() {
+	assertPinnedScrollbar();
+	assertEllipsis();
 	assertDisabledButtonText();
+	assertTransparentButtonFeedback();
 	assertVerticalScrollbar();
 	assertWrappedText();
 	assertGradients();
@@ -1236,6 +1362,42 @@ int main() {
 	}
 	assertRejected(NativeUiRenderer().render(deep, 80, 80), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
 
+	NativeUiRenderer wordRenderer = NativeUiRenderer();
+	NativeUiFrame wordFrame = wordRenderer.render(NativeUiElement.textInput("words", "Hello,  Bj\xc3\xb6rk world!", "", 64), 500, 48);
+	NativeUiLayoutBox wordBox = wordFrame.boxFor("words");
+	NativeUiResolvedStyle wordStyle = wordBox.style;
+	int wordLeft = wordBox.bounds.x + wordStyle.paddingLeft();
+	int wordY = wordBox.bounds.y + wordBox.bounds.height / 2;
+	int bjorkX = wordLeft + NativeUiTextViewport.width("Hello,  B", 0, 9, wordRenderer.typography(), wordStyle) - 1;
+	wordRenderer.pointerPressed(bjorkX, wordY, false, 2);
+	assert(wordRenderer.selectedText() == "Bj\xc3\xb6rk");
+	wordRenderer.pointerReleased(bjorkX, wordY);
+	assert(wordRenderer.selectedText() == "Bj\xc3\xb6rk");
+	wordRenderer.pointerPressed(bjorkX, wordY, false, 2);
+	wordRenderer.pointerMoved(wordLeft + 1, wordY);
+	assert(wordRenderer.selectedText() == "Hello,  Bj\xc3\xb6rk");
+	wordRenderer.pointerMoved(bjorkX, wordY);
+	assert(wordRenderer.selectedText() == "Bj\xc3\xb6rk");
+	int worldX = wordLeft + NativeUiTextViewport.width("Hello,  Bj\xc3\xb6rk w", 0, 16, wordRenderer.typography(), wordStyle) - 1;
+	wordRenderer.pointerMoved(worldX, wordY);
+	assert(wordRenderer.selectedText() == "Bj\xc3\xb6rk world");
+	wordRenderer.pointerReleased(worldX, wordY);
+	assert(wordRenderer.selectedText() == "Bj\xc3\xb6rk world");
+	wordRenderer.pointerPressed(bjorkX, wordY, false, 3);
+	wordRenderer.pointerReleased(bjorkX, wordY);
+	assert(wordRenderer.selectedText() == "Hello,  Bj\xc3\xb6rk world!");
+	wordRenderer.pointerPressed(wordLeft, wordY);
+	wordRenderer.pointerReleased(wordLeft, wordY);
+	assert(wordRenderer.selectedText().isEmpty() && wordRenderer.focusedCaret() == 0);
+	wordRenderer.pointerPressed(bjorkX, wordY, false, 2);
+	assert(wordRenderer.textEntered("Bowie").eventAt(0).value() == "Hello,  Bowie world!");
+	wordRenderer.pointerCancelled();
+	wordRenderer.pointerMoved(wordLeft, wordY);
+	assert(wordRenderer.selectedText().isEmpty());
+	assert(NativeUiTextInput.selectionWordStart("a,  b", 1) == 1 && NativeUiTextInput.selectionWordEnd("a,  b", 1) == 2);
+	assert(NativeUiTextInput.selectionWordStart("a,  b", 3) == 2 && NativeUiTextInput.selectionWordEnd("a,  b", 3) == 4);
+	assert(NativeUiTextInput.selectionWordStart("", 0) == 0 && NativeUiTextInput.selectionWordEnd("", 0) == 0);
+	assert(NativeUiTextInput.selectionWordStart("last", 4) == 0 && NativeUiTextInput.selectionWordEnd("last", 4) == 4);
 	print("PASS: native UI layout, virtual scroll, and input");
 	return 0;
 }

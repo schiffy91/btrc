@@ -148,6 +148,7 @@ void std_app_surface_finalize(
 int std_app_poll(unsigned long long application);
 int std_app_event_pointer_action(unsigned long long application);
 int std_app_event_pointer_button(unsigned long long application);
+int std_app_event_pointer_click_count(unsigned long long application);
 float std_app_event_pointer_x(unsigned long long application);
 float std_app_event_pointer_y(unsigned long long application);
 float std_app_event_scroll_x(unsigned long long application);

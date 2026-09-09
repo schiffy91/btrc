@@ -186,7 +186,7 @@ class GeneratedHostedAbiData {
 		self.push_platform_typedef_names0();
 		self.stdlib_source_marker = "compiler:stdlib";
 		self.user_source_marker = "compiler:user";
-		self.fingerprint = "4b111d59f48e7701b19bfc9a0cc799037620963afca259a9a45142b5f2b0b7c3";
+		self.fingerprint = "b3617e58dccdb0e28e5dc920d124f182f2509377663032bf5d3fa0d9360ff60d";
 	}
 
 	private void pushFunctions0() {
@@ -7632,6 +7632,26 @@ class GeneratedHostedAbiData {
 			"",
 			"unknown"));
 		self.functions.push(GeneratedHostedFunctionRow(
+			"std_app_event_pointer_click_count",
+			"native_app",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
 			"std_app_event_pointer_x",
 			"native_app",
 			GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
@@ -8187,6 +8207,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions10() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_background_jobs_close",
 			"native_background_jobs",
@@ -8212,9 +8235,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions10() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_background_jobs_open",
 			"native_background_jobs",
@@ -9102,6 +9122,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions11() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_gpu_pipeline_finalize",
 			"native_gpu",
@@ -9123,9 +9146,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions11() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_gpu_shader_create",
 			"native_gpu",
@@ -9976,6 +9996,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions12() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"strtoull",
 			"stdlib",
@@ -9998,9 +10021,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions12() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"strxfrm",
 			"string",
@@ -11572,6 +11592,7 @@ class GeneratedHostedAbiData {
 	private void push_function_names4() {
 		self.function_names.push("std_app_event_pointer_action");
 		self.function_names.push("std_app_event_pointer_button");
+		self.function_names.push("std_app_event_pointer_click_count");
 		self.function_names.push("std_app_event_pointer_x");
 		self.function_names.push("std_app_event_pointer_y");
 		self.function_names.push("std_app_event_scale_x");
@@ -18703,6 +18724,7 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("std_app_event_modifiers");
 		self.owned_names.push("std_app_event_pointer_action");
 		self.owned_names.push("std_app_event_pointer_button");
+		self.owned_names.push("std_app_event_pointer_click_count");
 		self.owned_names.push("std_app_event_pointer_x");
 		self.owned_names.push("std_app_event_pointer_y");
 		self.owned_names.push("std_app_event_scale_x");
@@ -18713,10 +18735,10 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("std_app_finalize");
 		self.owned_names.push("std_app_poll");
 		self.owned_names.push("std_app_surface_attach");
-		self.owned_names.push("std_app_surface_create");
 	}
 
 	private void push_owned_names15() {
+		self.owned_names.push("std_app_surface_create");
 		self.owned_names.push("std_app_surface_detach");
 		self.owned_names.push("std_app_surface_finalize");
 		self.owned_names.push("std_app_surface_generation");
@@ -18966,10 +18988,10 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("useconds_t");
 		self.owned_names.push("user_addr_t");
 		self.owned_names.push("user_from_uid");
-		self.owned_names.push("user_long_t");
 	}
 
 	private void push_owned_names16() {
+		self.owned_names.push("user_long_t");
 		self.owned_names.push("user_off_t");
 		self.owned_names.push("user_size_t");
 		self.owned_names.push("user_ssize_t");
@@ -19087,6 +19109,7 @@ class GeneratedHostedAbiData {
 		self.native_names.push("std_app_event_modifiers");
 		self.native_names.push("std_app_event_pointer_action");
 		self.native_names.push("std_app_event_pointer_button");
+		self.native_names.push("std_app_event_pointer_click_count");
 		self.native_names.push("std_app_event_pointer_x");
 		self.native_names.push("std_app_event_pointer_y");
 		self.native_names.push("std_app_event_scale_x");
@@ -19870,6 +19893,7 @@ class GeneratedHostedAbiData {
 		self.platform_function_names.push("std_app_event_modifiers");
 		self.platform_function_names.push("std_app_event_pointer_action");
 		self.platform_function_names.push("std_app_event_pointer_button");
+		self.platform_function_names.push("std_app_event_pointer_click_count");
 		self.platform_function_names.push("std_app_event_pointer_x");
 		self.platform_function_names.push("std_app_event_pointer_y");
 		self.platform_function_names.push("std_app_event_scale_x");
@@ -20005,10 +20029,10 @@ class GeneratedHostedAbiData {
 		self.platform_function_names.push("timelocal");
 		self.platform_function_names.push("timer_create");
 		self.platform_function_names.push("timer_delete");
-		self.platform_function_names.push("timer_getoverrun");
 	}
 
 	private void push_platform_function_names3() {
+		self.platform_function_names.push("timer_getoverrun");
 		self.platform_function_names.push("timer_gettime");
 		self.platform_function_names.push("timer_settime");
 		self.platform_function_names.push("timespec_get");

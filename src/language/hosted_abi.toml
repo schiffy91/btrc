@@ -1011,6 +1011,7 @@ functions = [
   "std_app_event_modifiers",
   "std_app_event_pointer_action",
   "std_app_event_pointer_button",
+  "std_app_event_pointer_click_count",
   "std_app_event_pointer_x",
   "std_app_event_pointer_y",
   "std_app_event_scale_x",
@@ -8064,6 +8065,7 @@ owned = [
   "std_app_event_modifiers",
   "std_app_event_pointer_action",
   "std_app_event_pointer_button",
+  "std_app_event_pointer_click_count",
   "std_app_event_pointer_x",
   "std_app_event_pointer_y",
   "std_app_event_scale_x",
@@ -8441,6 +8443,7 @@ native = [
   "std_app_event_modifiers",
   "std_app_event_pointer_action",
   "std_app_event_pointer_button",
+  "std_app_event_pointer_click_count",
   "std_app_event_pointer_x",
   "std_app_event_pointer_y",
   "std_app_event_scale_x",
@@ -9217,6 +9220,7 @@ functions = [
   "std_app_event_modifiers",
   "std_app_event_pointer_action",
   "std_app_event_pointer_button",
+  "std_app_event_pointer_click_count",
   "std_app_event_pointer_x",
   "std_app_event_pointer_y",
   "std_app_event_scale_x",
@@ -16839,6 +16843,18 @@ raw_lifetime = false
 
 [[functions]]
 name = "std_app_event_pointer_button"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_event_pointer_click_count"
 origin = "native_app"
 result = { base = "int", pointer_depth = 0, is_const = false }
 parameters_known = true

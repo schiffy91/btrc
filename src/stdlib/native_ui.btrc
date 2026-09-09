@@ -243,6 +243,8 @@ class NativeUiStyle {
 				}
 			} else if (property.equals("text-wrap")) {
 				if (value != "wrap" && value != "nowrap") { return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "text-wrap requires wrap or nowrap"); }
+			} else if (property.equals("text-overflow")) {
+				if (value != "clip" && value != "ellipsis") { return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "text-overflow requires clip or ellipsis"); }
 			} else if (property.equals("text-align")) {
 				if (value != "left" && value != "center" && value != "right") {
 					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "text-align requires left, center, or right");
@@ -748,6 +750,7 @@ class NativeUiElement {
 	private bool hasFocusableOverrideValue;
 	private bool focusableOverrideValue;
 	private bool floatingValue;
+	private bool pinnedTopValue = false;
 	private int floatingXValue;
 	private int floatingYValue;
 
@@ -893,6 +896,7 @@ class NativeUiElement {
 		copied.hasFocusableOverrideValue = self.hasFocusableOverrideValue;
 		copied.focusableOverrideValue = self.focusableOverrideValue;
 		copied.floatingValue = self.floatingValue;
+		copied.pinnedTopValue = self.pinnedTopValue;
 		copied.floatingXValue = self.floatingXValue;
 		copied.floatingYValue = self.floatingYValue;
 		return copied;
@@ -908,6 +912,11 @@ class NativeUiElement {
 	}
 
 	public bool isFloating() { return self.floatingValue; }
+
+	/* A leading root child stays above scrolling content, including its children. */
+	public NativeUiElement pinnedTop() { self.pinnedTopValue = true; return self; }
+
+	public bool isPinnedTop() { return self.pinnedTopValue; }
 
 	public int floatingX() { return self.floatingXValue; }
 

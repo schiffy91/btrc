@@ -158,6 +158,11 @@ int main() {
 	fake_platform_push_text("\xc3");
 	assert(session.dispatch(application.poll()).eventCount() == 0);
 	assert(session.input().focusedValue() == "a\xc3\xa9");
+	focusQuery.pointer = AppPointerEvent(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, (float)(query.bounds.x + query.style.paddingLeft() + 1), (float)(query.bounds.y + 2), AppKeyModifiers(false, false, false, false), 2);
+	session.dispatch(focusQuery);
+	assert(session.input().selectedText() == "a\xc3\xa9");
+	session.input().pointerReleased(query.bounds.x + query.style.paddingLeft() + 1, query.bounds.y + 2);
+	assert(session.input().selectedText() == "a\xc3\xa9");
 	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_A, 8);
 	assert(session.dispatch(application.poll()).eventCount() == 0);
 	assert(session.input().selectedText() == "a\xc3\xa9");

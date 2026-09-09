@@ -7,6 +7,12 @@ The native GPU compositor antialiases rounded rectangle corners at framebuffer
 scale and multiplies coverage by the source alpha. Radius-zero fills keep their
 aligned rectangular edges; corner smoothing does not change layout or hit bounds.
 
+Explicitly transparent buttons stay transparent when idle. Hover and press add
+subtle foreground-tinted overlays (6% and 12%), honoring the declared corner
+radius. An explicit foreground controls the tint on custom dark/light materials;
+otherwise the theme text color supplies it. Disabled controls do not highlight.
+Transparent gradient stops retain their transparency.
+
 ## Retained layout
 
 `NativeUiRenderer.layoutImmutable(root, width, height)` and

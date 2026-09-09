@@ -176,6 +176,27 @@ class NativeUiTypography {
 		return NativeUiTextLayout(lines);
 	}
 
+	/* End ellipsis is measured with the same font provider as the displayed run.
+	 * Keep the original element text; this is only its width-dependent layout. */
+	public NativeUiTextLayout ellipsize(string value, int fontSize, int lineHeight, int fontWeight, int width) {
+		if (value == null || value.len() > 4096 || width < 0 || width > 1000000000) { throw "invalid native UI ellipsis bounds"; }
+		NativeUiTextMetrics full = self.measure(value, fontSize, lineHeight, fontWeight);
+		if (full.width() <= width) { return NativeUiTextLayout([NativeUiTextLine(value, full, 0)]); }
+		string suffix = "…";
+		if (self.measure(suffix, fontSize, lineHeight, fontWeight).width() > width) { return NativeUiTextLayout([NativeUiTextLine("", self.measure("", fontSize, lineHeight, fontWeight), 0)]); }
+		int low = 0;
+		int high = value.len() > 4093 ? NativeUiTextViewport.boundary(value, 4093) : value.len();
+		while (low < high) {
+			int middle = NativeUiTextViewport.boundary(value, low + (high - low + 1) / 2);
+			if (middle == low) { middle = NativeUiTextInput.nextBoundary(value, low); }
+			string candidate = value.substring(0, middle) + suffix;
+			if (self.measure(candidate, fontSize, lineHeight, fontWeight).width() <= width) { low = middle; }
+			else { high = NativeUiTextInput.previousBoundary(value, middle); }
+		}
+		string fitted = value.substring(0, low) + suffix;
+		return NativeUiTextLayout([NativeUiTextLine(fitted, self.measure(fitted, fontSize, lineHeight, fontWeight), 0)]);
+	}
+
 	public bool platformBacked() { return self.providerIdentityValue != 0ULL && self.providerMeasureValue != null; }
 
 	public bool platformRasterizes() { return self.platformBacked() && self.providerRasterizeValue != null; }

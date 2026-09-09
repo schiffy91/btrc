@@ -354,9 +354,9 @@ class NativeUiAppSession {
 					return rectangle;
 				}
 				NativeUiColor label = self.theme.buttonText(style, box.enabled(), highlighted);
-				NativeUiTextMetrics metrics = self.typographyValue.measure(box.element.contentText(), style.fontSize(), style.lineHeight(), style.fontWeight());
+				NativeUiTextMetrics metrics = self.typographyValue.measure(box.displayText(), style.fontSize(), style.lineHeight(), style.fontWeight());
 				int textX = self.typographyValue.alignedX(x + style.paddingLeft(), box.bounds.width - style.horizontalPadding(), 0, metrics.width(), style.textAlignment());
-				GPUResourceOutcome text = self.addText(box.element.contentText(), (float)textX, (float)(y + style.paddingTop()), label, frame.viewport.width(), style);
+				GPUResourceOutcome text = self.addText(box.displayText(), (float)textX, (float)(y + style.paddingTop()), label, frame.viewport.width(), style);
 				if (text.kind != GPU_RESOURCE_READY) { return text; }
 			} else {
 				if (style.hasBackground() || style.hasBorder() || style.backgroundGradient() != null) {
@@ -536,7 +536,7 @@ class NativeUiAppSession {
 				return self.renderer.pointerMoved(x, y);
 			}
 			if (pointer.button == APP_POINTER_BUTTON_PRIMARY && pointer.action == APP_POINTER_PRESSED) {
-				return self.renderer.pointerPressed(x, y, pointer.modifiers.shift);
+				return self.renderer.pointerPressed(x, y, pointer.modifiers.shift, pointer.clickCount);
 			}
 			if (pointer.button == APP_POINTER_BUTTON_PRIMARY && pointer.action == APP_POINTER_RELEASED) {
 				return self.renderer.pointerReleased(x, y);

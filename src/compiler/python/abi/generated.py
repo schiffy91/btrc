@@ -6360,6 +6360,23 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
+        name='std_app_event_pointer_click_count',
+        origin='native_app',
+        result=GeneratedAbiTypeRow('int', 0, False, ()),
+        parameters=(GeneratedHostedParameterRow(GeneratedAbiTypeRow('unsigned long long', 0, False, ()), 'value', None),),
+        variadic=False,
+        semantic_result=None,
+        return_effect='value',
+        return_alias_parameter=None,
+        return_alias_null_effect=None,
+        raw_lifetime=False,
+        return_deallocator=None,
+        return_alias_shape=None,
+        consume_deallocator=None,
+        return_alias_null_deallocator=None,
+        realtime_effect='unknown',
+    ),
+    GeneratedHostedFunctionRow(
         name='std_app_event_pointer_x',
         origin='native_app',
         result=GeneratedAbiTypeRow('float', 0, False, ()),
@@ -9676,6 +9693,7 @@ HOSTED_FUNCTION_NAMES: tuple[str, ...] = (
     'std_app_event_modifiers',
     'std_app_event_pointer_action',
     'std_app_event_pointer_button',
+    'std_app_event_pointer_click_count',
     'std_app_event_pointer_x',
     'std_app_event_pointer_y',
     'std_app_event_scale_x',
@@ -16734,6 +16752,7 @@ HOSTED_OWNED_NAMES: tuple[str, ...] = (
     'std_app_event_modifiers',
     'std_app_event_pointer_action',
     'std_app_event_pointer_button',
+    'std_app_event_pointer_click_count',
     'std_app_event_pointer_x',
     'std_app_event_pointer_y',
     'std_app_event_scale_x',
@@ -17112,6 +17131,7 @@ HOSTED_NATIVE_NAMES: tuple[str, ...] = (
     'std_app_event_modifiers',
     'std_app_event_pointer_action',
     'std_app_event_pointer_button',
+    'std_app_event_pointer_click_count',
     'std_app_event_pointer_x',
     'std_app_event_pointer_y',
     'std_app_event_scale_x',
@@ -17889,6 +17909,7 @@ HOSTED_PLATFORM_FUNCTION_NAMES: tuple[str, ...] = (
     'std_app_event_modifiers',
     'std_app_event_pointer_action',
     'std_app_event_pointer_button',
+    'std_app_event_pointer_click_count',
     'std_app_event_pointer_x',
     'std_app_event_pointer_y',
     'std_app_event_scale_x',
@@ -20733,4 +20754,4 @@ HOSTED_PLATFORM_TYPEDEF_NAMES: tuple[str, ...] = (
 
 HOSTED_STDLIB_SOURCE_MARKER = 'compiler:stdlib'
 HOSTED_USER_SOURCE_MARKER = 'compiler:user'
-HOSTED_ABI_FINGERPRINT = '4b111d59f48e7701b19bfc9a0cc799037620963afca259a9a45142b5f2b0b7c3'
+HOSTED_ABI_FINGERPRINT = 'b3617e58dccdb0e28e5dc920d124f182f2509377663032bf5d3fa0d9360ff60d'

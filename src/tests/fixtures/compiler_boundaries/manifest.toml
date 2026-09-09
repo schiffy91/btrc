@@ -1381,9 +1381,9 @@ channel = "asset.cycles_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.cycles_c.bin"
 baseline_sha256 = "6a0d034d5d19ee0ab69b789a82d6898c5060a3d095dc1145f82c90248ad074a2"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.cycles_c.bin"
-accepted_sha256 = "b96d6dc0c7392138507d71d6190595ac99cf37ee4932b6193bc9ae1f08f68de0"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
-regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+accepted_sha256 = "4205494114dc0a2f57edae064c684d7e29fc896d9300f1ff2da731d428f30c19"
+reason = "Track cycle suspect buffer indices for bounded removal/cleanup and use the macOS unfair ARC lock."
+regressions = ["src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/btrc/test_cycle_suspect_forget.py", "src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-source.asset.gpu_c"
@@ -1822,6 +1822,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_lock_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0034.bin"
 baseline_sha256 = "2953863e9ce0b19d1faa2fe48cf167145ad9a33454d12d9305fd77187a569e11"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0034.bin"
+accepted_sha256 = "bf0139851a217bd43df57d50deb6e9da8cb10167ca1096de0bba585e538ab793"
+reason = "Use the existing macOS unfair ARC lock while retaining the portable atomic lock."
+regressions = ["src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/btrc/test_cycle_suspect_forget.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0035"
@@ -2288,6 +2292,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_cycle_state_cleanup"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0079.bin"
 baseline_sha256 = "9a6752e57e701bf85bfb0d59d2904fad77898314c2ff63ad5805a4928141b5a0"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0079.bin"
+accepted_sha256 = "cd4a1ed82b36e0bf19860a7252f692f292764dc723fa62c4aaef2a0fda9f8b59"
+reason = "Track cycle suspect buffer indices for bounded removal and release that storage at cleanup."
+regressions = ["src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/btrc/test_cycle_suspect_forget.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0080"
@@ -2498,6 +2506,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_forget_suspect"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0100.bin"
 baseline_sha256 = "8e0f03262a9a3213f674a6ef68d57362314b59c47e26ef0887744258b5ec2972"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0100.bin"
+accepted_sha256 = "0d970713d6e440c87d0cb5ff398395b122ebb4903740fb6138de688640ca029d"
+reason = "Track cycle suspect buffer indices for bounded removal and release that storage at cleanup."
+regressions = ["src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/btrc/test_cycle_suspect_forget.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0101"
@@ -3526,6 +3538,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_suspect_locked"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0196.bin"
 baseline_sha256 = "1c019203a760a890df43433200d6c8fad342c42c3482c4b37707bf00c7b0386c"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0196.bin"
+accepted_sha256 = "ee092812d1f57290c62d2e0f23d57124fd2edd7629272a33941867c1cbfbbba0"
+reason = "Track cycle suspect buffer indices for bounded removal and release that storage at cleanup."
+regressions = ["src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/btrc/test_cycle_suspect_forget.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0197"
@@ -3536,6 +3552,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_suspect_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0197.bin"
 baseline_sha256 = "f67c5523c7189f6fc02ae0cf880829d116337e800cf8f0c1b664b07e7a4d2534"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0197.bin"
+accepted_sha256 = "23424bfdb1bda8d35429e749600ee6bf8d668f06c7ef43b721171d41b519d98a"
+reason = "Track cycle suspect buffer indices for bounded removal and release that storage at cleanup."
+regressions = ["src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/btrc/test_cycle_suspect_forget.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0198"

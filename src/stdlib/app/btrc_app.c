@@ -24,6 +24,7 @@ typedef struct {
     int kind;
     int pointer_action;
     int pointer_button;
+    int pointer_click_count;
     float pointer_x;
     float pointer_y;
     float scroll_x;
@@ -397,6 +398,7 @@ static void on_mouse_button(
     event.pointer_action = action == GLFW_PRESS
         ? BTRC_APP_POINTER_PRESSED : BTRC_APP_POINTER_RELEASED;
     event.pointer_button = pointer_button(button);
+    event.pointer_click_count = btrc_app_platform_click_count(window);
     event.modifiers = modifiers(mods);
     pointer_position(application, &event.pointer_x, &event.pointer_y);
     push_event(application, event);
@@ -1117,6 +1119,8 @@ BTRC_APP_INT_EVENT_ACCESSOR(
     std_app_event_pointer_action, pointer_action)
 BTRC_APP_INT_EVENT_ACCESSOR(
     std_app_event_pointer_button, pointer_button)
+BTRC_APP_INT_EVENT_ACCESSOR(
+    std_app_event_pointer_click_count, pointer_click_count)
 BTRC_APP_FLOAT_EVENT_ACCESSOR(std_app_event_pointer_x, pointer_x)
 BTRC_APP_FLOAT_EVENT_ACCESSOR(std_app_event_pointer_y, pointer_y)
 BTRC_APP_FLOAT_EVENT_ACCESSOR(std_app_event_scroll_x, scroll_x)

@@ -89,6 +89,30 @@ class NativeUiTextInput {
 		return position;
 	}
 
+	/* Selection groups keep whitespace and punctuation separate from words.
+	 * UTF-8 scalar boundaries are preserved, as in keyboard word navigation. */
+	class int selectionGroup(string value, int offset) {
+		if (NativeUiTextInput.wordCharacter(value, offset)) { return 0; }
+		int code = NativeUiTextInput.byteAt(value, offset);
+		return code == 32 || (code >= 9 && code <= 13) ? 1 : 2;
+	}
+
+	class int selectionWordStart(string value, int offset) {
+		if (value.isEmpty()) { return 0; }
+		int position = offset >= value.len() ? NativeUiTextInput.previousBoundary(value, value.len()) : (offset < 0 ? 0 : offset);
+		int group = NativeUiTextInput.selectionGroup(value, position);
+		while (position > 0 && NativeUiTextInput.selectionGroup(value, NativeUiTextInput.previousBoundary(value, position)) == group) { position = NativeUiTextInput.previousBoundary(value, position); }
+		return position;
+	}
+
+	class int selectionWordEnd(string value, int offset) {
+		if (value.isEmpty()) { return 0; }
+		int position = offset >= value.len() ? NativeUiTextInput.previousBoundary(value, value.len()) : (offset < 0 ? 0 : offset);
+		int group = NativeUiTextInput.selectionGroup(value, position);
+		while (position < value.len() && NativeUiTextInput.selectionGroup(value, position) == group) { position = NativeUiTextInput.nextBoundary(value, position); }
+		return position;
+	}
+
 	class int nextWord(string value, int offset) {
 		int position = offset;
 		while (position < value.len() && !NativeUiTextInput.wordCharacter(value, position)) { position = NativeUiTextInput.nextBoundary(value, position); }
@@ -187,6 +211,10 @@ class NativeUiTheme {
 		NativeUiColor base = style.hasBackground() ? style.background() : self.panel;
 		if (!hovered && !pressed) { return base; }
 		if (!style.hasBackground()) { return self.accent; }
+		if (base.alpha == 0) {
+			NativeUiColor tint = style.hasForeground() ? style.foreground() : self.text;
+			return tint.withAlpha(tint.alpha * self.interactionPercent(pressed) / 100);
+		}
 		return self.interactionColor(base, hovered, pressed);
 	}
 
@@ -196,9 +224,11 @@ class NativeUiTheme {
 		return highlighted && !style.hasBackground() ? self.accentText : color;
 	}
 
+	private int interactionPercent(bool pressed) { return pressed ? 12 : 6; }
+
 	private NativeUiColor interactionColor(NativeUiColor base, bool hovered, bool pressed) {
 		if (!hovered && !pressed) { return base; }
-		int percent = pressed ? 12 : 6;
+		int percent = self.interactionPercent(pressed);
 		return NativeUiColor((base.red * (100 - percent) + self.text.red * percent) / 100, (base.green * (100 - percent) + self.text.green * percent) / 100, (base.blue * (100 - percent) + self.text.blue * percent) / 100, base.alpha);
 	}
 
@@ -298,6 +328,8 @@ class NativeUiLayoutBox {
 	public NativeUiResolvedStyle style;
 	private NativeUiResolvedSemantics semanticsValue;
 	private NativeUiTextLayout? textLayoutValue;
+	public int pinnedY = -1;
+	public int scrollClipTop = 0;
 
 	public NativeUiLayoutBox(NativeUiElement element, NativeUiRect bounds, int depth, NativeUiResolvedStyle style, NativeUiTextLayout? textLayout = null) {
 		self.element = element;
@@ -310,7 +342,19 @@ class NativeUiLayoutBox {
 
 	public string id() { return self.element.id(); }
 
+	public bool containsScreen(int x, int y, int scrollX, int scrollY) { return y >= self.scrollClipTop && self.bounds.contains(x + scrollX, y + scrollY); }
+
+	public NativeUiLayoutBox scrolled(int scrollY) {
+		if (self.pinnedY < 0) { return self; }
+		NativeUiLayoutBox copy = NativeUiLayoutBox(self.element, NativeUiRect(self.bounds.x, self.pinnedY + scrollY, self.bounds.width, self.bounds.height), self.depth, self.style, self.textLayoutValue);
+		copy.pinnedY = self.pinnedY;
+		copy.resolveSemantics(self.focused(), self.resolvedSemantics().expansionState() == NATIVE_UI_SEMANTIC_EXPANSION_ON);
+		return copy;
+	}
+
 	public NativeUiTextLayout? textLayout() { return self.textLayoutValue; }
+
+	public string displayText() { return self.textLayoutValue == null ? self.element.contentText() : self.textLayoutValue.lineAt(0).text(); }
 
 	public NativeUiElementKind kind() { return self.element.kind(); }
 
@@ -415,11 +459,9 @@ class NativeUiFrame {
 	}
 
 	public string scrollOwnerId(int x, int y) {
-		int contentX = x + self.viewport.scrollX();
-		int contentY = y + self.viewport.scrollY();
 		for (int index = self.boxes.len - 1; index >= 0; index--) {
 			NativeUiLayoutBox box = self.boxes.get(index);
-			if (box.kind() == NATIVE_UI_VIRTUAL_GRID && box.bounds.contains(contentX, contentY)) {
+			if (box.kind() == NATIVE_UI_VIRTUAL_GRID && box.containsScreen(x, y, self.viewport.scrollX(), self.viewport.scrollY())) {
 				return box.id();
 			}
 		}
@@ -458,11 +500,9 @@ class NativeUiFrame {
 	}
 
 	public NativeUiLayoutBox? hitBox(int x, int y, bool interactiveOnly = false) {
-		int contentX = x + self.viewport.scrollX();
-		int contentY = y + self.viewport.scrollY();
 		for (int index = self.boxes.len - 1; index >= 0; index--) {
 			NativeUiLayoutBox box = self.boxes.get(index);
-			if ((!interactiveOnly || box.interactive()) && box.bounds.contains(contentX, contentY)) {
+			if ((!interactiveOnly || box.interactive()) && box.containsScreen(x, y, self.viewport.scrollX(), self.viewport.scrollY())) {
 				return box;
 			}
 		}
@@ -470,11 +510,9 @@ class NativeUiFrame {
 	}
 
 	public string clickableId(int x, int y) {
-		int contentX = x + self.viewport.scrollX();
-		int contentY = y + self.viewport.scrollY();
 		for (int index = self.boxes.len - 1; index >= 0; index--) {
 			NativeUiLayoutBox box = self.boxes.get(index);
-			if (box.clickable() && box.bounds.contains(contentX, contentY)) {
+			if (box.clickable() && box.containsScreen(x, y, self.viewport.scrollX(), self.viewport.scrollY())) {
 				return box.id();
 			}
 		}
@@ -482,11 +520,9 @@ class NativeUiFrame {
 	}
 
 	public NativeUiLayoutBox? adjustableBox(int x, int y) {
-		int contentX = x + self.viewport.scrollX();
-		int contentY = y + self.viewport.scrollY();
 		for (int index = self.boxes.len - 1; index >= 0; index--) {
 			NativeUiLayoutBox box = self.boxes.get(index);
-			if (box.adjustable() && box.bounds.contains(contentX, contentY)) { return box; }
+			if (box.adjustable() && box.containsScreen(x, y, self.viewport.scrollX(), self.viewport.scrollY())) { return box; }
 		}
 		return null;
 	}
@@ -554,6 +590,7 @@ class NativeUiResolvedStyle {
 	private int _fontWeight;
 	private NativeUiTextAlignment _textAlignment;
 	private bool _wrapText = false;
+	private bool _ellipsis = false;
 	private NativeUiCrossAlignment _crossAlignment;
 	private bool _hasBackground;
 	private NativeUiColor _background;
@@ -625,6 +662,8 @@ class NativeUiResolvedStyle {
 	public NativeUiTextAlignment textAlignment() { return self._textAlignment; }
 
 	public bool wrapsText() { return self._wrapText; }
+
+	public bool ellipsizesText() { return self._ellipsis; }
 
 	public NativeUiCrossAlignment crossAlignment() { return self._crossAlignment; }
 
@@ -704,6 +743,8 @@ class NativeUiResolvedStyle {
 				self._fontWeight = Strings.toInt(value);
 			} else if (property.equals("text-wrap")) {
 				self._wrapText = value == "wrap";
+			} else if (property.equals("text-overflow")) {
+				self._ellipsis = value == "ellipsis";
 			} else if (property.equals("text-align")) {
 				self._textAlignment = value == "center" ? NATIVE_UI_TEXT_ALIGN_CENTER : (value == "right" ? NATIVE_UI_TEXT_ALIGN_RIGHT : NATIVE_UI_TEXT_ALIGN_LEFT);
 			} else if (property.equals("align-items")) {
@@ -758,6 +799,7 @@ class NativeUiResolvedStyle {
 		copied._fontWeight = self._fontWeight;
 		copied._textAlignment = self._textAlignment;
 		copied._wrapText = self._wrapText;
+		copied._ellipsis = self._ellipsis;
 		copied._crossAlignment = self._crossAlignment;
 		copied._hasBackground = self._hasBackground;
 		copied._backgroundGradient = self._backgroundGradient;
@@ -985,6 +1027,10 @@ class NativeUiLayout {
 			return null;
 		}
 		if (!context.addIdentity(element.id())) { return null; }
+		if (element.isPinnedTop() && (depth != 1 || element.isFloating())) {
+			context.fail(NATIVE_UI_FRAME_INVALID_TREE, "pinned headers require a non-floating root child");
+			return null;
+		}
 		if (element.isFloating() && (depth == 0 || element.floatingX() < -65536 || element.floatingX() > 65536 || element.floatingY() < -65536 || element.floatingY() > 65536)) {
 			context.fail(NATIVE_UI_FRAME_INVALID_TREE, "floating elements require a parent and offsets within 65536 pixels");
 			return null;
@@ -1068,8 +1114,8 @@ class NativeUiLayout {
 		if (innerWidth < 1) { innerWidth = 1; }
 
 		if (element.kind() == NATIVE_UI_TEXT) {
-			if (style.wrapsText()) {
-				NativeUiTextLayout textLayout = context.typography.wrap(element.contentText(), style.fontSize(), style.lineHeight(), style.fontWeight(), innerWidth);
+			if (style.wrapsText() || style.ellipsizesText()) {
+				NativeUiTextLayout textLayout = style.wrapsText() ? context.typography.wrap(element.contentText(), style.fontSize(), style.lineHeight(), style.fontWeight(), innerWidth) : context.typography.ellipsize(element.contentText(), style.fontSize(), style.lineHeight(), style.fontWeight(), innerWidth);
 				measured.textLayout = textLayout;
 				context.metadataBytes += textLayout.metadataBytes();
 				if (context.metadataBytes > 4194304LL) {
@@ -1213,6 +1259,13 @@ class NativeUiLayout {
 					childrenHeight += (long long)style.gap();
 				}
 				int labelWidth = element.kind() == NATIVE_UI_BUTTON ? context.typography.measure(element.contentText(), style.fontSize(), style.lineHeight(), style.fontWeight()).width() : 0;
+				if (element.kind() == NATIVE_UI_BUTTON && style.ellipsizesText()) {
+					NativeUiTextLayout fitted = context.typography.ellipsize(element.contentText(), style.fontSize(), style.lineHeight(), style.fontWeight(), innerWidth);
+					measured.textLayout = fitted;
+					labelWidth = fitted.width();
+					context.metadataBytes += fitted.metadataBytes();
+					if (context.metadataBytes > 4194304LL) { context.fail(NATIVE_UI_FRAME_LIMIT_EXCEEDED, "native UI ellipsis exceeds tree metadata bounds"); return null; }
+				}
 				measured.width = element.kind() == NATIVE_UI_BUTTON ? NativeUiLayout.minimum(availableWidth, NativeUiLayout.maximum(labelWidth + horizontalInset, childrenWidth + horizontalInset)) : availableWidth;
 				long long totalHeight = (long long)labelHeight + childrenHeight + (long long)inset;
 				if (totalHeight > 1000000000LL) {
@@ -1315,12 +1368,36 @@ class NativeUiLayout {
 		}
 	}
 
+	class Vector<NativeUiLayoutBox> pinHeaders(Vector<NativeUiLayoutBox> boxes, int scrollY) {
+		Vector<NativeUiLayoutBox> content = [];
+		Vector<NativeUiLayoutBox> headers = [];
+		Vector<NativeUiLayoutBox> overlays = [];
+		bool pinned = false;
+		bool overlay = false;
+		int top = 0;
+		for box in boxes {
+			if (box.depth == 1) {
+				pinned = box.element.isPinnedTop();
+				overlay = box.element.isFloating();
+				if (pinned) { top = NativeUiLayout.maximum(top, box.bounds.y + box.bounds.height); }
+			}
+			if (pinned) { box.pinnedY = box.bounds.y; headers.push(box.scrolled(scrollY)); }
+			else if (overlay) { overlays.push(box); }
+			else { content.push(box); }
+		}
+		for box in content { if (box.depth > 0) { box.scrollClipTop = top; } }
+		for box in headers { content.push(box); }
+		for box in overlays { content.push(box); }
+		return content;
+	}
+
 	class Vector<NativeUiVirtualGridViewport> virtualGridViewports(Vector<NativeUiLayoutBox> boxes, NativeUiViewportMetrics viewport) {
 		Vector<NativeUiVirtualGridViewport> geometries = [];
 		long long viewportTop = (long long)viewport.scrollY();
 		long long viewportBottom = viewportTop + (long long)viewport.height();
 		for box in boxes {
 			if (box.kind() != NATIVE_UI_VIRTUAL_GRID) { continue; }
+			viewportTop = (long long)viewport.scrollY() + (long long)box.scrollClipTop;
 			NativeUiVirtualGrid descriptor = box.element.virtualGridDescriptor();
 			int rowPitch = descriptor.rowHeight() + box.style.gap();
 			long long contentTop = (long long)box.bounds.y + (long long)box.style.paddingTop();
@@ -1391,19 +1468,22 @@ class NativeUiScrollbar {
 	private NativeUiRect _thumb;
 	private bool _visible;
 	private bool _active;
+	private double _opacity;
 
-	public NativeUiScrollbar(int width, int height, int contentHeight, int scrollY, bool enabled, bool active = false) {
-		self._visible = enabled && width >= 16 && height >= 40 && contentHeight > height;
+	public NativeUiScrollbar(int width, int height, int contentHeight, int scrollY, bool enabled, bool active = false, int topInset = 0, double opacity = 1.0) {
+		topInset = topInset < 0 ? 0 : (topInset > height ? height : topInset);
+		self._opacity = opacity < 0.0 ? 0.0 : (opacity > 1.0 ? 1.0 : opacity);
+		self._visible = enabled && width >= 16 && height - topInset >= 40 && contentHeight > height && self._opacity > 0.0;
 		self._active = active;
-		int trackHeight = height >= 8 ? height - 8 : 0;
-		int thumbHeight = contentHeight > 0 ? (int)((long long)trackHeight * (long long)height / (long long)contentHeight) : trackHeight;
+		int trackHeight = height - topInset >= 8 ? height - topInset - 8 : 0;
+		int thumbHeight = contentHeight > topInset ? (int)((long long)trackHeight * (long long)(height - topInset) / (long long)(contentHeight - topInset)) : trackHeight;
 		thumbHeight = thumbHeight < 28 ? 28 : thumbHeight;
 		if (thumbHeight > trackHeight) { thumbHeight = trackHeight; }
 		int maximum = contentHeight > height ? contentHeight - height : 0;
 		int position = scrollY < 0 ? 0 : (scrollY > maximum ? maximum : scrollY);
 		int top = maximum > 0 ? (int)((long long)position * (long long)(trackHeight - thumbHeight) / (long long)maximum) : 0;
-		self._track = NativeUiRect(width >= 14 ? width - 14 : 0, 4, 14, trackHeight);
-		self._thumb = NativeUiRect(width >= 11 ? width - 11 : 0, 4 + top, 8, thumbHeight);
+		self._track = NativeUiRect(width >= 14 ? width - 14 : 0, topInset + 4, 14, trackHeight);
+		self._thumb = NativeUiRect(width >= 11 ? width - 11 : 0, topInset + 4 + top, 8, thumbHeight);
 	}
 
 	public bool visible() { return self._visible; }
@@ -1414,7 +1494,10 @@ class NativeUiScrollbar {
 
 	public int travel() { return self._track.height - self._thumb.height; }
 
-	public NativeUiColor color(NativeUiTheme theme) { return self._active ? theme.text : theme.mutedText; }
+	public NativeUiColor color(NativeUiTheme theme) {
+		NativeUiColor base = self._active ? theme.text : theme.mutedText;
+		return NativeUiColor(base.red, base.green, base.blue, (int)((double)base.alpha * self._opacity + 0.5));
+	}
 }
 
 /* Shared scalar-aligned visible run for GPU, proof raster, and pointer hit
@@ -1463,13 +1546,13 @@ class NativeUiTextViewport {
 		self.selectionWidth = NativeUiTextViewport.width(value, self.start, last, typography, style) - self.selectionX;
 	}
 
-	public int byteAtX(int x, NativeUiTypography typography, NativeUiResolvedStyle style) {
+	public int byteAtX(int x, NativeUiTypography typography, NativeUiResolvedStyle style, bool characterHit = false) {
 		int offset = 0;
 		int previousWidth = 0;
 		while (offset < self.text.len()) {
 			int next = NativeUiTextInput.nextBoundary(self.text, offset);
 			int nextWidth = NativeUiTextViewport.width(self.text, 0, next, typography, style);
-			if (x < previousWidth + (nextWidth - previousWidth) / 2) { return self.start + offset; }
+			if (x < (characterHit ? nextWidth : previousWidth + (nextWidth - previousWidth) / 2)) { return self.start + offset; }
 			previousWidth = nextWidth;
 			offset = next;
 		}
@@ -1691,9 +1774,9 @@ class NativeUiRaster {
 				NativeUiColor fill = theme.buttonFill(style, box.enabled() && box.id().equals(hovered));
 				NativeUiRaster.panel(image, x, y, box.bounds.width, box.bounds.height, fill, style, theme.buttonGradient(style, box.enabled() && box.id().equals(hovered)));
 				NativeUiColor label = theme.buttonText(style, box.enabled(), box.id().equals(hovered));
-				NativeUiTextMetrics metrics = typography.measure(box.element.contentText(), style.fontSize(), style.lineHeight(), style.fontWeight());
+				NativeUiTextMetrics metrics = typography.measure(box.displayText(), style.fontSize(), style.lineHeight(), style.fontWeight());
 				int textX = typography.alignedX(x + style.paddingLeft(), box.bounds.width - style.horizontalPadding(), 0, metrics.width(), style.textAlignment());
-				NativeUiRaster.text(image, textX, y + style.paddingTop(), box.element.contentText(), label, style, typography);
+				NativeUiRaster.text(image, textX, y + style.paddingTop(), box.displayText(), label, style, typography);
 			} else {
 				if (style.hasBackground() || style.hasBorder() || style.backgroundGradient() != null) {
 					NativeUiRaster.panel(image, x, y, box.bounds.width, box.bounds.height, style.hasBackground() ? style.background() : (style.backgroundGradient() != null ? NativeUiColor(0, 0, 0, 0) : theme.panel), style, style.backgroundGradient());
@@ -1746,6 +1829,13 @@ class NativeUiRenderer {
 	private int scrollXValue;
 	private int scrollYValue;
 	private bool verticalScrollbarValue = false;
+	private int scrollbarTopValue = 0;
+	private double scrollbarClock = 0.0;
+	private double scrollbarActivityTime = 0.0;
+	private double scrollbarIdleDelay = 900.0;
+	private double scrollbarFadeDuration = 250.0;
+	private bool scrollbarAutoHide = false;
+	private double scrollbarOpacity = 1.0;
 	private bool scrollbarDragging = false;
 	private int scrollbarGrabY = 0;
 	private int scrollbarGrabScrollY = 0;
@@ -1762,6 +1852,9 @@ class NativeUiRenderer {
 	private int focusedCaretByteOffset;
 	private int focusedAnchorByteOffset = 0;
 	private bool textSelecting = false;
+	private int textSelectionClicks = 1;
+	private int textSelectionWordStart = 0;
+	private int textSelectionWordEnd = 0;
 	private double textClock = 0.0;
 	private double caretResetTime = 0.0;
 	private bool caretVisibleValue = true;
@@ -1814,11 +1907,39 @@ class NativeUiRenderer {
 	public NativeUiFrame currentFrame() { return self.frameValue; }
 
 	public void showVerticalScrollbar(bool enabled = true) {
+		if (enabled && !self.verticalScrollbarValue) { self.revealScrollbar(); }
 		self.verticalScrollbarValue = enabled;
 		if (!enabled) { self.scrollbarDragging = false; }
 	}
 
-	public NativeUiScrollbar verticalScrollbar() { return NativeUiScrollbar(self.widthValue, self.heightValue, self.frameValue.ok() ? self.frameValue.contentHeight : 0, self.scrollYValue, self.verticalScrollbarValue, self.scrollbarDragging); }
+	public void configureScrollbar(bool autoHide, double idleMilliseconds = 900.0, double fadeMilliseconds = 250.0) {
+		if (!(idleMilliseconds >= 0.0 && idleMilliseconds <= 10000.0 && fadeMilliseconds >= 1.0 && fadeMilliseconds <= 2000.0)) { throw "scrollbar timing must be finite: idle 0–10000ms, fade 1–2000ms"; }
+		self.scrollbarAutoHide = autoHide;
+		self.scrollbarIdleDelay = idleMilliseconds;
+		self.scrollbarFadeDuration = fadeMilliseconds;
+		self.revealScrollbar();
+	}
+
+	private void revealScrollbar() { self.scrollbarActivityTime = self.scrollbarClock; self.scrollbarOpacity = 1.0; }
+
+	private NativeUiScrollbar scrollbarGeometry(int contentHeight, double opacity) { return NativeUiScrollbar(self.widthValue, self.heightValue, contentHeight, self.scrollYValue, self.verticalScrollbarValue, self.scrollbarDragging, self.scrollbarTopValue, opacity); }
+
+	public NativeUiScrollbar verticalScrollbar() { return self.scrollbarGeometry(self.frameValue.ok() ? self.frameValue.contentHeight : 0, self.scrollbarOpacity); }
+
+	public bool tickScrollbar(double milliseconds) {
+		if (!(milliseconds >= 0.0 && milliseconds <= 9.0e15)) { return false; }
+		if (milliseconds < self.scrollbarClock) { self.scrollbarActivityTime = milliseconds; }
+		self.scrollbarClock = milliseconds;
+		NativeUiScrollbar geometry = self.scrollbarGeometry(self.frameValue.ok() ? self.frameValue.contentHeight : 0, 1.0);
+		if (self.scrollbarDragging || (geometry.visible() && geometry.track().contains(self.pointerXValue, self.pointerYValue))) { self.scrollbarActivityTime = milliseconds; }
+		double elapsed = milliseconds - self.scrollbarActivityTime - self.scrollbarIdleDelay;
+		double opacity = !self.scrollbarAutoHide || elapsed <= 0.0 ? 1.0 : (elapsed >= self.scrollbarFadeDuration ? 0.0 : 1.0 - elapsed / self.scrollbarFadeDuration);
+		if ((int)(opacity * 255.0) == (int)(self.scrollbarOpacity * 255.0)) { return false; }
+		self.scrollbarOpacity = opacity;
+		if (!geometry.visible()) { return false; }
+		self.repaint();
+		return true;
+	}
 
 	private NativeUiEventBatch dragScrollbar(int y) {
 		NativeUiScrollbar scrollbar = self.verticalScrollbar();
@@ -2066,7 +2187,7 @@ class NativeUiRenderer {
 	}
 
 	private NativeUiFrame buildFrame(NativeUiElement root, int width, int height, bool proofRaster, bool synchronizeInput, bool immutableLayout = false) {
-		if (width != self.widthValue || height != self.heightValue || (self.rootValue != null && self.rootValue.id() != root.id())) { self.scrollbarDragging = false; }
+		if (width != self.widthValue || height != self.heightValue || (self.rootValue != null && self.rootValue.id() != root.id())) { self.scrollbarDragging = false; self.revealScrollbar(); }
 		Map<string, NativeUiMeasuredNode> previousMeasurements = self.measurements;
 		self.measurements = new Map<string, NativeUiMeasuredNode>();
 		self.measuredNodesValue = 0;
@@ -2087,6 +2208,16 @@ class NativeUiRenderer {
 			return self.frameValue;
 		}
 		NativeUiBuildContext context = NativeUiBuildContext(self.sheetValue, self.typographyValue, self.styleCache, immutableLayout ? previousMeasurements : null);
+		bool contentSeen = false;
+		for (int index = 0; index < root.childCount(); index++) {
+			NativeUiElement child = root.childAt(index);
+			if (child == null) { continue; }
+			if (child.isPinnedTop() && (contentSeen || child.isFloating() || root.kind() != NATIVE_UI_COLUMN)) {
+				self.frameValue = NativeUiFrame.failed(NATIVE_UI_FRAME_INVALID_TREE, "pinned headers must be leading children of the root column", NativeUiStyleError.valid(), width, height, self.scrollXValue, self.scrollYValue);
+				return self.frameValue;
+			}
+			if (!child.isPinnedTop() && !child.isFloating()) { contentSeen = true; }
+		}
 		NativeUiMeasuredNode? optionalMeasured = NativeUiLayout.measure(root, width, 0, context);
 		self.measuredNodesValue = context.nodes - context.reusedNodes;
 		self.reusedNodesValue = context.reusedNodes;
@@ -2104,6 +2235,9 @@ class NativeUiRenderer {
 		self.scrollXValue = 0;
 		Vector<NativeUiLayoutBox> boxes = [];
 		NativeUiLayout.place(measured, 0, 0, measured.width, 0, boxes, immutableLayout);
+		boxes = NativeUiLayout.pinHeaders(boxes, self.scrollYValue);
+		self.scrollbarTopValue = 0;
+		for box in boxes { if (box.element.isPinnedTop()) { self.scrollbarTopValue = NativeUiLayout.maximum(self.scrollbarTopValue, box.pinnedY + box.bounds.height); } }
 		if (synchronizeInput) {
 			self.synchronizeFocus(boxes);
 			self.synchronizeHover(boxes);
@@ -2117,7 +2251,7 @@ class NativeUiRenderer {
 		}
 		Image image = proofRaster ? Image(width, height) : Image.empty();
 		if (proofRaster) {
-			NativeUiRaster.frame(image, boxes, self.themeValue, self.typographyValue, self.hoveredIdentity, self.focusedIdentity, self.focusedInputValue, self.focusedCaretByteOffset, self.scrollXValue, self.scrollYValue, self.selectPopupValue, self.highlightedSelectOption, NativeUiScrollbar(width, height, measured.height, self.scrollYValue, self.verticalScrollbarValue, self.scrollbarDragging), self.focusedAnchorByteOffset, self.caretVisible());
+			NativeUiRaster.frame(image, boxes, self.themeValue, self.typographyValue, self.hoveredIdentity, self.focusedIdentity, self.focusedInputValue, self.focusedCaretByteOffset, self.scrollXValue, self.scrollYValue, self.selectPopupValue, self.highlightedSelectOption, self.scrollbarGeometry(measured.height, self.scrollbarOpacity), self.focusedAnchorByteOffset, self.caretVisible());
 		}
 		NativeUiViewportMetrics viewport = NativeUiViewportMetrics(width, height, self.scrollXValue, self.scrollYValue);
 		Vector<NativeUiVirtualGridViewport> virtualGrids = NativeUiLayout.virtualGridViewports(boxes, viewport);
@@ -2149,9 +2283,16 @@ class NativeUiRenderer {
 		Vector<NativeUiLayoutBox> boxes = previous.boxes;
 		for (int index = 0; index < boxes.len; index++) {
 			NativeUiLayoutBox box = boxes.get(index);
+			if (box.pinnedY >= 0) {
+				if (boxes == previous.boxes) { boxes = boxes.copy(); }
+				box = box.scrolled(self.scrollYValue);
+				boxes.set(index, box);
+			}
 			if (box.kind() != NATIVE_UI_SELECT || box.resolvedSemantics().expansionState() != NATIVE_UI_SEMANTIC_EXPANSION_ON) { continue; }
 			if (boxes == previous.boxes) { boxes = boxes.copy(); }
 			NativeUiLayoutBox closed = NativeUiLayoutBox(box.element, box.bounds, box.depth, box.style);
+			closed.pinnedY = box.pinnedY;
+			closed.scrollClipTop = box.scrollClipTop;
 			closed.resolveSemantics(box.id() == self.focusedIdentity, false);
 			boxes.set(index, closed);
 		}
@@ -2213,7 +2354,9 @@ class NativeUiRenderer {
 	public NativeUiEventBatch pointerMoved(int x, int y) {
 		self.pointerXValue = x;
 		self.pointerYValue = y;
-		if (self.textSelecting) { return self.placeTextCaret(x, true); }
+		NativeUiScrollbar bar = self.scrollbarGeometry(self.frameValue.ok() ? self.frameValue.contentHeight : 0, 1.0);
+		if (bar.visible() && bar.track().contains(x, y)) { self.revealScrollbar(); self.repaint(); }
+		if (self.textSelecting) { return self.extendTextSelection(x); }
 		if (self.scrollbarDragging) { return self.dragScrollbar(y); }
 		Vector<NativeUiEvent> events = [];
 		int optionIndex = self.selectPopupValue.optionAt(x, y);
@@ -2249,7 +2392,25 @@ class NativeUiRenderer {
 		return self.moveCaret(run.byteAtX(x - box.bounds.x + self.scrollXValue - style.paddingLeft(), self.typographyValue, style), extend);
 	}
 
-	public NativeUiEventBatch pointerPressed(int x, int y, bool extendSelection = false) {
+	private int textCharacterAt(int x) {
+		NativeUiLayoutBox? box = self.frameValue.boxFor(self.focusedIdentity);
+		if (box == null || !self.editingText()) { return 0; }
+		NativeUiResolvedStyle style = box.style;
+		NativeUiTextViewport run = NativeUiTextViewport(self.focusedInputValue, box.bounds.width - style.horizontalPadding(), self.focusedCaretByteOffset, self.focusedAnchorByteOffset, self.typographyValue, style);
+		return run.byteAtX(x - box.bounds.x + self.scrollXValue - style.paddingLeft(), self.typographyValue, style, true);
+	}
+
+	private NativeUiEventBatch extendTextSelection(int x) {
+		if (self.textSelectionClicks >= 3) { return self.selectAllText(); }
+		if (self.textSelectionClicks != 2) { return self.placeTextCaret(x, true); }
+		int character = self.textCharacterAt(x);
+		int start = NativeUiTextInput.selectionWordStart(self.focusedInputValue, character);
+		int end = NativeUiTextInput.selectionWordEnd(self.focusedInputValue, character);
+		self.focusedAnchorByteOffset = start < self.textSelectionWordStart ? self.textSelectionWordEnd : self.textSelectionWordStart;
+		return self.moveCaret(start < self.textSelectionWordStart ? start : (end > self.textSelectionWordEnd ? end : self.textSelectionWordEnd), true);
+	}
+
+	public NativeUiEventBatch pointerPressed(int x, int y, bool extendSelection = false, int clickCount = 1) {
 		self.textSelecting = false;
 		self.pointerXValue = x;
 		self.pointerYValue = y;
@@ -2275,8 +2436,9 @@ class NativeUiRenderer {
 		if (self.selectPopupValue.visible() && self.selectPopupValue.bounds().contains(x, y)) {
 			return NativeUiEventBatch(self.frameValue, events);
 		}
-		NativeUiScrollbar scrollbar = self.verticalScrollbar();
+		NativeUiScrollbar scrollbar = self.scrollbarGeometry(self.frameValue.ok() ? self.frameValue.contentHeight : 0, 1.0);
 		if (scrollbar.visible() && scrollbar.track().contains(x, y)) {
+			self.revealScrollbar();
 			self.closeSelect();
 			self.pressedIdentity = "";
 			NativeUiRect thumb = scrollbar.thumb();
@@ -2316,7 +2478,18 @@ class NativeUiRenderer {
 			self.closeSelect();
 			NativeUiLayoutBox target = optionalTarget;
 			self.focus(target);
-			if (self.editingText()) { self.placeTextCaret(x, extendSelection); self.textSelecting = true; }
+			if (self.editingText()) {
+				self.textSelectionClicks = extendSelection ? 1 : clickCount;
+				if (self.textSelectionClicks >= 3) { self.selectAllText(); }
+				else if (self.textSelectionClicks == 2) {
+					int character = self.textCharacterAt(x);
+					self.textSelectionWordStart = NativeUiTextInput.selectionWordStart(self.focusedInputValue, character);
+					self.textSelectionWordEnd = NativeUiTextInput.selectionWordEnd(self.focusedInputValue, character);
+					self.focusedAnchorByteOffset = self.textSelectionWordStart;
+					self.moveCaret(self.textSelectionWordEnd, true);
+				} else { self.placeTextCaret(x, extendSelection); }
+				self.textSelecting = true;
+			}
 			self.pressedIdentity = "";
 		} else {
 			self.clearFocus();
@@ -2327,7 +2500,7 @@ class NativeUiRenderer {
 	}
 
 	public NativeUiEventBatch pointerReleased(int x, int y) {
-		if (self.textSelecting) { self.textSelecting = false; return self.placeTextCaret(x, true); }
+		if (self.textSelecting) { NativeUiEventBatch selected = self.extendTextSelection(x); self.textSelecting = false; return selected; }
 		self.pointerXValue = x;
 		self.pointerYValue = y;
 		if (self.scrollbarDragging) {
@@ -2568,6 +2741,7 @@ class NativeUiRenderer {
 		if (self.selectPopupValue.visible() && self.selectPopupValue.bounds().contains(self.pointerXValue, self.pointerYValue)) {
 			return self.wheelSelect(y != 0 ? y : x);
 		}
+		if (self.pointerYValue >= 0 && self.pointerYValue < self.scrollbarTopValue) { Vector<NativeUiEvent> events = []; return NativeUiEventBatch(self.frameValue, events); }
 		NativeUiLayoutBox? optionalBox = self.frameValue.adjustableBox(self.pointerXValue, self.pointerYValue);
 		if (optionalBox == null) { return self.scrollBy(x, y); }
 		NativeUiSemanticRange? optionalDescriptor = optionalBox.element.semanticRangeDescriptor();
@@ -2622,6 +2796,7 @@ class NativeUiRenderer {
 		int maximumY = NativeUiLayout.maximum(0, self.frameValue.contentHeight - self.heightValue);
 		self.scrollXValue = 0;
 		self.scrollYValue = movedY < 0LL ? 0 : (movedY > (long long)maximumY ? maximumY : (int)movedY);
+		if (x != 0 || y != 0) { self.revealScrollbar(); }
 		self.repaint();
 		int actualX = self.scrollXValue - previousX;
 		int actualY = self.scrollYValue - previousY;

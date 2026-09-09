@@ -26,6 +26,11 @@ static unsigned char device_token;
 static unsigned char queue_token;
 static unsigned char buffer_token;
 
+int btrc_app_platform_click_count(GLFWwindow* window) {
+    (void)window;
+    return 1;
+}
+
 static void require(bool condition, const char* message) {
     if (condition) { return; }
     fprintf(stderr, "integrated app/GPU runtime test failed: %s\n", message);

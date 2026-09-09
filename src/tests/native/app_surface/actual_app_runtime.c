@@ -28,6 +28,12 @@ static char fake_directory_title[FAKE_DIRECTORY_REQUEST_CAPACITY];
 static char fake_directory_initial[FAKE_DIRECTORY_CAPACITY];
 static int titlebar_calls;
 static int titlebar_error;
+static int native_click_count = 1;
+
+int btrc_app_platform_click_count(GLFWwindow* window) {
+    assert(window != NULL);
+    return native_click_count;
+}
 
 int btrc_app_platform_set_titlebar_style(GLFWwindow* window, int style) {
     assert(window != NULL);
@@ -367,9 +373,11 @@ static void test_ordered_events_and_overflow(void) {
     fake_glfw_set_key(GLFW_KEY_LEFT_ALT, GLFW_PRESS);
     fake_glfw_emit_cursor(3.25, 4.5);
     fake_glfw_set_cursor(12.5, 18.25);
+    native_click_count = 2;
     fake_glfw_emit_mouse_button(
         GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS,
         GLFW_MOD_CONTROL | GLFW_MOD_SUPER);
+    native_click_count = 1;
     fake_glfw_emit_scroll(-1.5, 2.25);
     fake_glfw_emit_key(
         GLFW_KEY_SPACE, GLFW_REPEAT, GLFW_MOD_CONTROL | GLFW_MOD_ALT);
@@ -386,6 +394,7 @@ static void test_ordered_events_and_overflow(void) {
     assert(std_app_event_pointer_button(application.capability) ==
            BTRC_APP_BUTTON_NONE);
     assert(std_app_event_pointer_x(application.capability) == 3.25f);
+    assert(std_app_event_pointer_click_count(application.capability) == 0);
     assert(std_app_event_pointer_y(application.capability) == 4.5f);
     assert(std_app_event_modifiers(application.capability) ==
            (BTRC_APP_MOD_SHIFT | BTRC_APP_MOD_ALT));
@@ -396,6 +405,7 @@ static void test_ordered_events_and_overflow(void) {
     assert(std_app_event_pointer_button(application.capability) ==
            BTRC_APP_BUTTON_PRIMARY);
     assert(std_app_event_pointer_x(application.capability) == 12.5f);
+    assert(std_app_event_pointer_click_count(application.capability) == 2);
     assert(std_app_event_pointer_y(application.capability) == 18.25f);
     assert(std_app_event_modifiers(application.capability) ==
            (BTRC_APP_MOD_CONTROL | BTRC_APP_MOD_COMMAND));

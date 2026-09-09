@@ -21,6 +21,7 @@ void std_app_surface_finalize(unsigned long long surface, unsigned long long own
 int std_app_poll(unsigned long long application);
 int std_app_event_pointer_action(unsigned long long application);
 int std_app_event_pointer_button(unsigned long long application);
+int std_app_event_pointer_click_count(unsigned long long application);
 float std_app_event_pointer_x(unsigned long long application);
 float std_app_event_pointer_y(unsigned long long application);
 float std_app_event_scroll_x(unsigned long long application);
@@ -155,13 +156,15 @@ class AppPointerEvent {
 	public float logicalX;
 	public float logicalY;
 	public AppKeyModifiers modifiers;
+	public int clickCount;
 
-	public AppPointerEvent(AppPointerAction action, AppPointerButton button, float logicalX, float logicalY, AppKeyModifiers modifiers) {
+	public AppPointerEvent(AppPointerAction action, AppPointerButton button, float logicalX, float logicalY, AppKeyModifiers modifiers, int clickCount = 1) {
 		self.action = action;
 		self.button = button;
 		self.logicalX = logicalX;
 		self.logicalY = logicalY;
 		self.modifiers = modifiers;
+		self.clickCount = action == APP_POINTER_MOVED ? 0 : (clickCount < 1 ? 1 : clickCount);
 	}
 }
 
@@ -385,7 +388,7 @@ class Application {
 		AppWindowEvent event = new AppWindowEvent((AppWindowEventKind)kind);
 		if (kind == APP_EVENT_POINTER) {
 			int modifierBits = std_app_event_modifiers(self.identity);
-			event.pointer = new AppPointerEvent((AppPointerAction)std_app_event_pointer_action(self.identity), (AppPointerButton)std_app_event_pointer_button(self.identity), std_app_event_pointer_x(self.identity), std_app_event_pointer_y(self.identity), new AppKeyModifiers((modifierBits & 1) != 0, (modifierBits & 2) != 0, (modifierBits & 4) != 0, (modifierBits & 8) != 0));
+			event.pointer = new AppPointerEvent((AppPointerAction)std_app_event_pointer_action(self.identity), (AppPointerButton)std_app_event_pointer_button(self.identity), std_app_event_pointer_x(self.identity), std_app_event_pointer_y(self.identity), new AppKeyModifiers((modifierBits & 1) != 0, (modifierBits & 2) != 0, (modifierBits & 4) != 0, (modifierBits & 8) != 0), std_app_event_pointer_click_count(self.identity));
 		} else if (kind == APP_EVENT_SCROLLED) {
 			event.scroll = new AppScrollEvent(std_app_event_scroll_x(self.identity), std_app_event_scroll_y(self.identity));
 		} else if (kind == APP_EVENT_KEYBOARD) {

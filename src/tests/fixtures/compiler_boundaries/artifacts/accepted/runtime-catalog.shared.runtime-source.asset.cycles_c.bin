@@ -179,6 +179,9 @@ static int __btrc_suspect_count = 0;
 static __btrc_visit_fn* __btrc_visit_table = NULL;
 static __btrc_destroy_fn* __btrc_destroy_table = NULL;
 static void** __btrc_suspect_keys = NULL;
+/* Buffer index of the suspect held at each hash slot, so forgetting one never
+ * scans the buffer. */
+static int* __btrc_suspect_slots = NULL;
 static int __btrc_suspect_key_cap = 0;
 /* btrc-runtime-helper:end __btrc_suspect_state */
 /* btrc-runtime-helper:begin __btrc_suspect_capacity */
@@ -215,14 +218,20 @@ static void __btrc_grow_suspect_keys_locked(void) {
         __btrc_suspect_key_cap, "cycle suspect hash overflow");
     size_t bytes = __btrc_suspect_capacity_bytes(
         cap, sizeof(void*), "cycle suspect hash size overflow");
+    size_t slot_bytes = __btrc_suspect_capacity_bytes(
+        cap, sizeof(int), "cycle suspect hash size overflow");
     void** keys = (void**)__btrc_safe_calloc(1, bytes);
+    int* slots = (int*)__btrc_safe_calloc(1, slot_bytes);
     for (int i = 0; i < __btrc_suspect_count; i++) {
         size_t index = __btrc_ptr_hash(__btrc_suspects[i]) & ((size_t)cap - 1);
         while (keys[index]) index = (index + 1) & ((size_t)cap - 1);
         keys[index] = __btrc_suspects[i];
+        slots[index] = i;
     }
     free(__btrc_suspect_keys);
+    free(__btrc_suspect_slots);
     __btrc_suspect_keys = keys;
+    __btrc_suspect_slots = slots;
     __btrc_suspect_key_cap = cap;
 }
 static inline void __btrc_suspect_locked(void* obj, __btrc_visit_fn visit,
@@ -274,6 +283,7 @@ static inline void __btrc_suspect_locked(void* obj, __btrc_visit_fn visit,
     __btrc_visit_table[__btrc_suspect_count] = type->visit;
     __btrc_destroy_table[__btrc_suspect_count] = type->destroy;
     __btrc_suspect_keys[key] = obj;
+    __btrc_suspect_slots[key] = __btrc_suspect_count;
     __btrc_suspect_count++;
 }
 /* btrc-runtime-helper:end __btrc_suspect_locked */
@@ -287,6 +297,19 @@ static inline void __btrc_suspect(
 /* btrc-runtime-helper:end __btrc_suspect */
 /* btrc-runtime-helper:begin __btrc_arc_lock_state */
 /* One process-wide lock domain for ARC topology. */
+#if defined(__APPLE__)
+#include <os/lock.h>
+/* A file-scope compound literal has static storage. Taking its address also
+ * keeps the SDK initializer strictly C11 under GCC. */
+static os_unfair_lock* __btrc_arc_native_lock = &OS_UNFAIR_LOCK_INIT;
+
+static void __btrc_arc_lock_raw(void) {
+    os_unfair_lock_lock(__btrc_arc_native_lock);
+}
+static void __btrc_arc_unlock_raw(void) {
+    os_unfair_lock_unlock(__btrc_arc_native_lock);
+}
+#else
 static atomic_flag __btrc_arc_lock_flag = ATOMIC_FLAG_INIT;
 
 static void __btrc_arc_lock_raw(void) {
@@ -297,6 +320,7 @@ static void __btrc_arc_unlock_raw(void) {
     atomic_flag_clear_explicit(
         &__btrc_arc_lock_flag, memory_order_release);
 }
+#endif
 /* btrc-runtime-helper:end __btrc_arc_lock_state */
 /* btrc-runtime-helper:begin __btrc_arc_shutdown_state */
 static int __btrc_arc_shutdown = 0;
@@ -806,27 +830,43 @@ static void __btrc_forget_suspect(void* obj) {
             && __btrc_suspect_keys[hole] != obj)
         hole = (hole + 1) & mask;
     if (!__btrc_suspect_keys[hole]) return;
+    int index = __btrc_suspect_slots[hole];
     __btrc_suspect_keys[hole] = NULL;
     size_t scan = (hole + 1) & mask;
     while (__btrc_suspect_keys[scan]) {
         void* displaced = __btrc_suspect_keys[scan];
+        int displaced_index = __btrc_suspect_slots[scan];
         __btrc_suspect_keys[scan] = NULL;
         size_t target = __btrc_ptr_hash(displaced) & mask;
         while (__btrc_suspect_keys[target])
             target = (target + 1) & mask;
         __btrc_suspect_keys[target] = displaced;
+        __btrc_suspect_slots[target] = displaced_index;
         scan = (scan + 1) & mask;
     }
-    for (int i = 0; i < __btrc_suspect_count; i++) {
-        if (__btrc_suspects[i] != obj) continue;
-        int last = --__btrc_suspect_count;
-        if (i != last) {
-            __btrc_suspects[i] = __btrc_suspects[last];
-            __btrc_visit_table[i] = __btrc_visit_table[last];
-            __btrc_destroy_table[i] = __btrc_destroy_table[last];
-        }
-        return;
+    /* The hash slot names the buffer position, so removal is a swap with the
+     * last suspect rather than a scan of every live suspect: with hundreds of
+     * thousands of suspects dying in one drain, that scan was quadratic. */
+    if (index < 0 || index >= __btrc_suspect_count
+            || __btrc_suspects[index] != obj) {
+        fprintf(stderr, "btrc: cycle suspect buffer out of sync\n");
+        exit(1);
     }
+    int last = --__btrc_suspect_count;
+    if (index == last) return;
+    void* moved = __btrc_suspects[last];
+    __btrc_suspects[index] = moved;
+    __btrc_visit_table[index] = __btrc_visit_table[last];
+    __btrc_destroy_table[index] = __btrc_destroy_table[last];
+    size_t moved_slot = __btrc_ptr_hash(moved) & mask;
+    while (__btrc_suspect_keys[moved_slot] != moved) {
+        if (!__btrc_suspect_keys[moved_slot]) {
+            fprintf(stderr, "btrc: cycle suspect hash lost a suspect\n");
+            exit(1);
+        }
+        moved_slot = (moved_slot + 1) & mask;
+    }
+    __btrc_suspect_slots[moved_slot] = index;
 }
 /* btrc-runtime-helper:end __btrc_forget_suspect */
 /* btrc-runtime-helper:begin __btrc_arc_release_impl */
@@ -1991,6 +2031,7 @@ static inline void __btrc_cycle_state_cleanup(void) {
     free(__btrc_visit_table);
     free(__btrc_destroy_table);
     free(__btrc_suspect_keys);
+    free(__btrc_suspect_slots);
     free(__btrc_reverse_queue);
     free(__btrc_reverse_keys);
     free(__btrc_reverse_marks);
@@ -2008,6 +2049,7 @@ static inline void __btrc_cycle_state_cleanup(void) {
     __btrc_visit_table = NULL;
     __btrc_destroy_table = NULL;
     __btrc_suspect_keys = NULL;
+    __btrc_suspect_slots = NULL;
     __btrc_reverse_queue = NULL;
     __btrc_reverse_keys = NULL;
     __btrc_reverse_marks = NULL;

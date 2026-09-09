@@ -7,6 +7,11 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.runtime_ownership_harness import (
+    require_sanitizers,
+    sanitized_build_and_run,
+    sanitizer_environment,
+)
 from src.tests.btrc.test_mutex_value_contract import COMPILERS, REPO, _build_and_run, _compile_pair
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
@@ -38,12 +43,14 @@ def test_forgetting_a_suspect_uses_its_hash_slot_index(semantic_btrcc: Path, tmp
 
 def test_suspect_churn_is_sanitizer_clean(semantic_btrcc: Path, tmp_path: Path) -> None:
     """The swap-removal keeps the hash and buffer in sync under AddressSanitizer."""
+    toolchain = require_sanitizers(tmp_path)
     for frontend, generated in _compile_pair(semantic_btrcc, tmp_path, FIXTURE.read_text(), FIXTURE.stem):
         output = tmp_path / f"{frontend}-asan"
-        _build_and_run(generated, output, COMPILERS[0], extra_flags=("-fsanitize=address,undefined", "-g"))
+        sanitized_build_and_run(generated, output, toolchain)
         executed = subprocess.run(
             [str(output)],
             cwd=REPO,
+            env=sanitizer_environment(toolchain),
             capture_output=True,
             text=True,
             timeout=120,

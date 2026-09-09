@@ -662,6 +662,10 @@ int std_app_event_pointer_action(unsigned long long identity) {
 int std_app_event_pointer_button(unsigned long long identity) {
     (void)identity; return current_event.pointer_button;
 }
+
+int std_app_event_pointer_click_count(unsigned long long identity) {
+    (void)identity; return current_event.pointer_action == BTRC_APP_POINTER_MOVED ? 0 : 1;
+}
 float std_app_event_pointer_x(unsigned long long identity) {
     (void)identity; return current_event.pointer_x;
 }
