@@ -1,4 +1,6 @@
 import std.EncodedImage;
+import std.bytes;
+import std.image;
 
 #include <assert.h>
 

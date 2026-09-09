@@ -1,4 +1,6 @@
 import std.CoreAudioDevice;
+import std.AudioDevice;
+import std.RealtimeAudio;
 
 #include <assert.h>
 #include <time.h>

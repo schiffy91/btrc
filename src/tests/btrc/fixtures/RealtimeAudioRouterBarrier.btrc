@@ -1,4 +1,5 @@
 import std.RealtimeAudioRouter;
+import std.RealtimeAudio;
 
 #include <assert.h>
 
