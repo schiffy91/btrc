@@ -156,7 +156,7 @@ def _lower_fixture(btrcc_driver: Path, kind: str) -> str:
         [
             str(btrcc_driver),
             "--no-stdlib",
-            str(FIXTURES / f"gpu_called_{kind}.btrc"),
+            str(FIXTURES / f"GpuCalled{kind.capitalize()}.btrc"),
         ],
         timeout=120,
     )
