@@ -15,8 +15,12 @@ int main() {
 	int* p = &x;
 	assert((long)*p == 7);
 
-	// cast of a bitwise complement: ~0 is all-ones, narrowed to char is -1
-	assert((char)~0 == -1);
+	// cast of a bitwise complement. `signed char`, not `char`: plain char's
+	// signedness is the implementation's choice -- signed on Darwin, unsigned
+	// on Linux aarch64, where (char)~0 is 255 -- and this test is about the
+	// cast binding to the unary operand, not about that choice. `signed char`
+	// is still the type-keyword spelling the cast-follow set is written for.
+	assert((signed char)~0 == -1);
 
 	// cast of a logical not
 	bool b = false;
