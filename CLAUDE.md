@@ -234,11 +234,31 @@ convention of the language it emits: `generated.py` keeps snake_case, and the
 follows its own language, so a spec field `is_gpu` reaches the Python compiler
 as `is_gpu` and the self-hosted compiler as `isGpu`.
 
-Names that belong to the hosted C ABI are the exception: `size_t` and every
-other entry in `src/language/hosted_abi.toml` keeps the spelling the C headers
-gave it, because that spelling is the contract.
-`src/tests/btrc/test_naming_convention_contract.py` holds the line, taking its
-allowlist from the ABI repository rather than a list that could drift.
+This holds for **every** `.btrc` file, not just the compiler: the stdlib, the
+corpus and the examples all spell what they own in camelCase, and
+`src/tests/btrc/test_naming_convention_contract.py` checks each tracked source.
+
+Foreign names are the exception, because their spelling is the contract, and
+the test reads them from three places rather than a list that could drift:
+
+- `src/language/hosted_abi.toml` covers `size_t` and its neighbours.
+- The repository's own `.c`, `.h` and `.m` sources cover what btrc links
+  against — a stdlib shim, a native fixture, an example package. Respelling
+  only the btrc side of one of those strands the C definition, so a third
+  check looks for that fingerprint: an `extern` the C sources do not spell,
+  whose snake_case form they do.
+- Members of system structures are listed in the test itself. btrc emits
+  `entry->d_name` straight through to C, so unlike every other foreign name
+  there is no declaration in the tree to read it from.
+
+File names follow the same split. `src/stdlib` names a module for the type
+family it declares (`HttpClient.btrc`, `NativeUi.btrc`) and keeps lowercase
+for the thematic facades that gather them (`http.btrc`, `terminal.btrc`,
+`array.btrc`). The C runtime directories beside them stay snake_case: the
+Makefile builds them by path and their exports are a C ABI. Modules under
+`src/compiler/btrc` are lowercase throughout, a package namespace rather than
+a type per file, and `src/tests/**/test_*.btrc` is a discovery convention with
+golden output keyed to each name.
 
 ---
 
