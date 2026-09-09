@@ -2154,10 +2154,15 @@ class TypeSystem:
         if source.base == "null" or (source.base == "void" and source.pointer_depth > 0):
             return target.pointer_depth > 0 or target.is_array or target.base == "string"
         if target.base in _FUNCTION_POINTER_BASES and source.base in _FUNCTION_POINTER_BASES:
+            # A function pointer is compatible with another of the same shape,
+            # and taking its address or putting it in an array does not change
+            # that. Demanding a bare value on both sides reported a type error
+            # naming the same type twice -- one alias resolved, one not -- and
+            # pre-empted the managed-return check in lowering, which is what
+            # actually has something to say about bare __fn_ptr storage.
             return bool(
-                target.pointer_depth == source.pointer_depth == 0
-                and not target.is_array
-                and not source.is_array
+                target.pointer_depth == source.pointer_depth
+                and target.is_array == source.is_array
                 and self.generic_args_equal(target, source)
             )
         if (
