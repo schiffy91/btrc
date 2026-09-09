@@ -1030,6 +1030,7 @@ functions = [
   "std_app_surface_lease_generation",
   "std_app_surface_release",
   "std_app_window_choose_directory",
+  "std_app_window_clipboard_text",
   "std_app_window_close",
   "std_app_window_finalize",
   "std_app_window_framebuffer_height",
@@ -1040,6 +1041,8 @@ functions = [
   "std_app_window_scale_x",
   "std_app_window_scale_y",
   "std_app_window_selected_directory",
+  "std_app_window_set_clipboard_text",
+  "std_app_window_set_titlebar_style",
   "std_background_jobs_cancel",
   "std_background_jobs_cancel_generation",
   "std_background_jobs_cancel_requested",
@@ -1060,14 +1063,20 @@ functions = [
   "std_core_audio_session_start",
   "std_core_audio_session_suspend",
   "std_gpu_attach_surface",
+  "std_gpu_begin_capture_frame",
   "std_gpu_begin_frame",
   "std_gpu_close",
   "std_gpu_draw",
+  "std_gpu_draw_textured",
   "std_gpu_draw_uniform",
+  "std_gpu_end_capture_frame",
   "std_gpu_end_frame",
   "std_gpu_finalize",
+  "std_gpu_native_ui_add_chevron",
   "std_gpu_native_ui_add_glyph",
+  "std_gpu_native_ui_add_gradient_rect",
   "std_gpu_native_ui_add_image",
+  "std_gpu_native_ui_add_image_region",
   "std_gpu_native_ui_add_rect",
   "std_gpu_native_ui_add_text",
   "std_gpu_native_ui_begin",
@@ -1075,19 +1084,26 @@ functions = [
   "std_gpu_native_ui_create",
   "std_gpu_native_ui_destroy",
   "std_gpu_native_ui_draw",
+  "std_gpu_native_ui_draw_range",
   "std_gpu_native_ui_finalize",
   "std_gpu_native_ui_image_count",
   "std_gpu_native_ui_measure_text",
+  "std_gpu_native_ui_order_count",
   "std_gpu_native_ui_rasterize_text",
   "std_gpu_native_ui_release_text_bitmap",
   "std_gpu_native_ui_system_typography_available",
+  "std_gpu_native_ui_text_line_break",
   "std_gpu_pipeline_create",
+  "std_gpu_pipeline_create_with_blend",
   "std_gpu_pipeline_destroy",
   "std_gpu_pipeline_finalize",
   "std_gpu_shader_create",
   "std_gpu_shader_destroy",
   "std_gpu_shader_finalize",
   "std_gpu_status_message",
+  "std_gpu_texture_create",
+  "std_gpu_texture_destroy",
+  "std_gpu_texture_finalize",
   "std_gpu_uniform_create",
   "std_gpu_uniform_destroy",
   "std_gpu_uniform_finalize",
@@ -8084,6 +8100,7 @@ owned = [
   "std_app_surface_lease_generation",
   "std_app_surface_release",
   "std_app_window_choose_directory",
+  "std_app_window_clipboard_text",
   "std_app_window_close",
   "std_app_window_finalize",
   "std_app_window_framebuffer_height",
@@ -8094,6 +8111,8 @@ owned = [
   "std_app_window_scale_x",
   "std_app_window_scale_y",
   "std_app_window_selected_directory",
+  "std_app_window_set_clipboard_text",
+  "std_app_window_set_titlebar_style",
   "std_background_jobs_cancel",
   "std_background_jobs_cancel_generation",
   "std_background_jobs_cancel_requested",
@@ -8114,14 +8133,20 @@ owned = [
   "std_core_audio_session_start",
   "std_core_audio_session_suspend",
   "std_gpu_attach_surface",
+  "std_gpu_begin_capture_frame",
   "std_gpu_begin_frame",
   "std_gpu_close",
   "std_gpu_draw",
+  "std_gpu_draw_textured",
   "std_gpu_draw_uniform",
+  "std_gpu_end_capture_frame",
   "std_gpu_end_frame",
   "std_gpu_finalize",
+  "std_gpu_native_ui_add_chevron",
   "std_gpu_native_ui_add_glyph",
+  "std_gpu_native_ui_add_gradient_rect",
   "std_gpu_native_ui_add_image",
+  "std_gpu_native_ui_add_image_region",
   "std_gpu_native_ui_add_rect",
   "std_gpu_native_ui_add_text",
   "std_gpu_native_ui_begin",
@@ -8129,19 +8154,26 @@ owned = [
   "std_gpu_native_ui_create",
   "std_gpu_native_ui_destroy",
   "std_gpu_native_ui_draw",
+  "std_gpu_native_ui_draw_range",
   "std_gpu_native_ui_finalize",
   "std_gpu_native_ui_image_count",
   "std_gpu_native_ui_measure_text",
+  "std_gpu_native_ui_order_count",
   "std_gpu_native_ui_rasterize_text",
   "std_gpu_native_ui_release_text_bitmap",
   "std_gpu_native_ui_system_typography_available",
+  "std_gpu_native_ui_text_line_break",
   "std_gpu_pipeline_create",
+  "std_gpu_pipeline_create_with_blend",
   "std_gpu_pipeline_destroy",
   "std_gpu_pipeline_finalize",
   "std_gpu_shader_create",
   "std_gpu_shader_destroy",
   "std_gpu_shader_finalize",
   "std_gpu_status_message",
+  "std_gpu_texture_create",
+  "std_gpu_texture_destroy",
+  "std_gpu_texture_finalize",
   "std_gpu_uniform_create",
   "std_gpu_uniform_destroy",
   "std_gpu_uniform_finalize",
@@ -8458,6 +8490,7 @@ native = [
   "std_app_surface_generation",
   "std_app_surface_release",
   "std_app_window_choose_directory",
+  "std_app_window_clipboard_text",
   "std_app_window_close",
   "std_app_window_finalize",
   "std_app_window_framebuffer_height",
@@ -8468,6 +8501,8 @@ native = [
   "std_app_window_scale_x",
   "std_app_window_scale_y",
   "std_app_window_selected_directory",
+  "std_app_window_set_clipboard_text",
+  "std_app_window_set_titlebar_style",
   "std_background_jobs_cancel",
   "std_background_jobs_cancel_generation",
   "std_background_jobs_cancel_requested",
@@ -8488,14 +8523,20 @@ native = [
   "std_core_audio_session_start",
   "std_core_audio_session_suspend",
   "std_gpu_attach_surface",
+  "std_gpu_begin_capture_frame",
   "std_gpu_begin_frame",
   "std_gpu_close",
   "std_gpu_draw",
+  "std_gpu_draw_textured",
   "std_gpu_draw_uniform",
+  "std_gpu_end_capture_frame",
   "std_gpu_end_frame",
   "std_gpu_finalize",
+  "std_gpu_native_ui_add_chevron",
   "std_gpu_native_ui_add_glyph",
+  "std_gpu_native_ui_add_gradient_rect",
   "std_gpu_native_ui_add_image",
+  "std_gpu_native_ui_add_image_region",
   "std_gpu_native_ui_add_rect",
   "std_gpu_native_ui_add_text",
   "std_gpu_native_ui_begin",
@@ -8503,19 +8544,26 @@ native = [
   "std_gpu_native_ui_create",
   "std_gpu_native_ui_destroy",
   "std_gpu_native_ui_draw",
+  "std_gpu_native_ui_draw_range",
   "std_gpu_native_ui_finalize",
   "std_gpu_native_ui_image_count",
   "std_gpu_native_ui_measure_text",
+  "std_gpu_native_ui_order_count",
   "std_gpu_native_ui_rasterize_text",
   "std_gpu_native_ui_release_text_bitmap",
   "std_gpu_native_ui_system_typography_available",
+  "std_gpu_native_ui_text_line_break",
   "std_gpu_pipeline_create",
+  "std_gpu_pipeline_create_with_blend",
   "std_gpu_pipeline_destroy",
   "std_gpu_pipeline_finalize",
   "std_gpu_shader_create",
   "std_gpu_shader_destroy",
   "std_gpu_shader_finalize",
   "std_gpu_status_message",
+  "std_gpu_texture_create",
+  "std_gpu_texture_destroy",
+  "std_gpu_texture_finalize",
   "std_gpu_uniform_create",
   "std_gpu_uniform_destroy",
   "std_gpu_uniform_finalize",
@@ -8530,6 +8578,9 @@ native = [
 ]
 native_internal = [
   "btrc_app_drain_owner_finalizers",
+  "btrc_app_platform_choose_directory",
+  "btrc_app_platform_click_count",
+  "btrc_app_platform_set_titlebar_style",
   "btrc_app_register_owner_drain_hook",
   "btrc_gpu_acquire_compute",
   "btrc_gpu_async_complete",
@@ -8554,8 +8605,11 @@ native_internal = [
   "btrc_gpu_draw_uniform",
   "btrc_gpu_end_frame",
   "btrc_gpu_init_compute",
+  "btrc_gpu_native_ui_add_chevron",
   "btrc_gpu_native_ui_add_glyph",
+  "btrc_gpu_native_ui_add_gradient_rect",
   "btrc_gpu_native_ui_add_image",
+  "btrc_gpu_native_ui_add_image_region",
   "btrc_gpu_native_ui_add_rect",
   "btrc_gpu_native_ui_add_text",
   "btrc_gpu_native_ui_begin",
@@ -8563,16 +8617,20 @@ native_internal = [
   "btrc_gpu_native_ui_create",
   "btrc_gpu_native_ui_destroy",
   "btrc_gpu_native_ui_draw",
+  "btrc_gpu_native_ui_draw_range",
   "btrc_gpu_native_ui_image_count",
   "btrc_gpu_native_ui_measure_text",
+  "btrc_gpu_native_ui_order_count",
   "btrc_gpu_native_ui_test_cached_pixels",
   "btrc_gpu_native_ui_test_fail_next_create",
   "btrc_gpu_native_ui_test_fail_next_upload",
   "btrc_gpu_native_ui_test_has_image",
+  "btrc_gpu_native_ui_test_last_upload",
   "btrc_gpu_native_ui_test_placement_count",
   "btrc_gpu_native_ui_test_upload_count",
   "btrc_gpu_native_ui_text_available",
   "btrc_gpu_native_ui_text_bitmap_release",
+  "btrc_gpu_native_ui_text_line_break",
   "btrc_gpu_native_ui_text_measure",
   "btrc_gpu_native_ui_text_rasterize",
   "btrc_gpu_pending_list_destroy",
@@ -9239,6 +9297,7 @@ functions = [
   "std_app_surface_lease_generation",
   "std_app_surface_release",
   "std_app_window_choose_directory",
+  "std_app_window_clipboard_text",
   "std_app_window_close",
   "std_app_window_finalize",
   "std_app_window_framebuffer_height",
@@ -9249,6 +9308,8 @@ functions = [
   "std_app_window_scale_x",
   "std_app_window_scale_y",
   "std_app_window_selected_directory",
+  "std_app_window_set_clipboard_text",
+  "std_app_window_set_titlebar_style",
   "std_background_jobs_cancel",
   "std_background_jobs_cancel_generation",
   "std_background_jobs_cancel_requested",
@@ -9269,14 +9330,20 @@ functions = [
   "std_core_audio_session_start",
   "std_core_audio_session_suspend",
   "std_gpu_attach_surface",
+  "std_gpu_begin_capture_frame",
   "std_gpu_begin_frame",
   "std_gpu_close",
   "std_gpu_draw",
+  "std_gpu_draw_textured",
   "std_gpu_draw_uniform",
+  "std_gpu_end_capture_frame",
   "std_gpu_end_frame",
   "std_gpu_finalize",
+  "std_gpu_native_ui_add_chevron",
   "std_gpu_native_ui_add_glyph",
+  "std_gpu_native_ui_add_gradient_rect",
   "std_gpu_native_ui_add_image",
+  "std_gpu_native_ui_add_image_region",
   "std_gpu_native_ui_add_rect",
   "std_gpu_native_ui_add_text",
   "std_gpu_native_ui_begin",
@@ -9284,19 +9351,26 @@ functions = [
   "std_gpu_native_ui_create",
   "std_gpu_native_ui_destroy",
   "std_gpu_native_ui_draw",
+  "std_gpu_native_ui_draw_range",
   "std_gpu_native_ui_finalize",
   "std_gpu_native_ui_image_count",
   "std_gpu_native_ui_measure_text",
+  "std_gpu_native_ui_order_count",
   "std_gpu_native_ui_rasterize_text",
   "std_gpu_native_ui_release_text_bitmap",
   "std_gpu_native_ui_system_typography_available",
+  "std_gpu_native_ui_text_line_break",
   "std_gpu_pipeline_create",
+  "std_gpu_pipeline_create_with_blend",
   "std_gpu_pipeline_destroy",
   "std_gpu_pipeline_finalize",
   "std_gpu_shader_create",
   "std_gpu_shader_destroy",
   "std_gpu_shader_finalize",
   "std_gpu_status_message",
+  "std_gpu_texture_create",
+  "std_gpu_texture_destroy",
+  "std_gpu_texture_finalize",
   "std_gpu_uniform_create",
   "std_gpu_uniform_destroy",
   "std_gpu_uniform_finalize",
@@ -17040,6 +17114,18 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
+name = "std_app_window_clipboard_text"
+origin = "native_app"
+result = { base = "char", pointer_depth = 1, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "independent"
+raw_lifetime = false
+[[functions]]
 name = "std_app_window_close"
 origin = "native_app"
 result = { base = "int", pointer_depth = 0, is_const = false }
@@ -17165,6 +17251,32 @@ variadic = false
 return_effect = "independent"
 raw_lifetime = false
 
+[[functions]]
+name = "std_app_window_set_clipboard_text"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+[[functions]]
+name = "std_app_window_set_titlebar_style"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
 [[functions]]
 name = "std_background_jobs_cancel"
 origin = "native_background_jobs"
@@ -17448,6 +17560,23 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
+name = "std_gpu_begin_capture_frame"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+[[functions]]
 name = "std_gpu_begin_frame"
 origin = "native_gpu"
 result = { base = "int", pointer_depth = 0, is_const = false }
@@ -17491,6 +17620,21 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
+name = "std_gpu_draw_textured"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+[[functions]]
 name = "std_gpu_draw_uniform"
 origin = "native_gpu"
 result = { base = "int", pointer_depth = 0, is_const = false }
@@ -17505,6 +17649,21 @@ variadic = false
 return_effect = "value"
 raw_lifetime = false
 
+[[functions]]
+name = "std_gpu_end_capture_frame"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned char", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
 [[functions]]
 name = "std_gpu_end_frame"
 origin = "native_gpu"
@@ -17531,6 +17690,26 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
+name = "std_gpu_native_ui_add_chevron"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+[[functions]]
 name = "std_gpu_native_ui_add_glyph"
 origin = "native_gpu"
 result = { base = "int", pointer_depth = 0, is_const = false }
@@ -17552,6 +17731,24 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
+name = "std_gpu_native_ui_add_gradient_rect"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+[[functions]]
 name = "std_gpu_native_ui_add_image"
 origin = "native_gpu"
 result = { base = "int", pointer_depth = 0, is_const = false }
@@ -17572,6 +17769,30 @@ variadic = false
 return_effect = "value"
 raw_lifetime = false
 
+[[functions]]
+name = "std_gpu_native_ui_add_image_region"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "unsigned char", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
 [[functions]]
 name = "std_gpu_native_ui_add_rect"
 origin = "native_gpu"
@@ -17683,6 +17904,20 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
+name = "std_gpu_native_ui_draw_range"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+[[functions]]
 name = "std_gpu_native_ui_finalize"
 origin = "native_gpu"
 result = { base = "void", pointer_depth = 0, is_const = false }
@@ -17729,6 +17964,17 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
+name = "std_gpu_native_ui_order_count"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+[[functions]]
 name = "std_gpu_native_ui_rasterize_text"
 origin = "native_gpu"
 result = { base = "int", pointer_depth = 0, is_const = false }
@@ -17774,6 +18020,22 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
+name = "std_gpu_native_ui_text_line_break"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+[[functions]]
 name = "std_gpu_pipeline_create"
 origin = "native_gpu"
 result = { base = "int", pointer_depth = 0, is_const = false }
@@ -17790,6 +18052,23 @@ variadic = false
 return_effect = "value"
 raw_lifetime = false
 
+[[functions]]
+name = "std_gpu_pipeline_create_with_blend"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
 [[functions]]
 name = "std_gpu_pipeline_destroy"
 origin = "native_gpu"
@@ -17869,6 +18148,47 @@ variadic = false
 return_effect = "independent"
 raw_lifetime = false
 
+[[functions]]
+name = "std_gpu_texture_create"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned char", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+[[functions]]
+name = "std_gpu_texture_destroy"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+[[functions]]
+name = "std_gpu_texture_finalize"
+origin = "native_gpu"
+result = { base = "void", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
 [[functions]]
 name = "std_gpu_uniform_create"
 origin = "native_gpu"
