@@ -38,16 +38,16 @@ int main() {
 
 	// Nested do-while
 	int outer = 0;
-	int inner_sum = 0;
+	int innerSum = 0;
 	do {
 		int k = 0;
 		do {
-			inner_sum++;
+			innerSum++;
 			k++;
 		} while (k < 3);
 		outer++;
 	} while (outer < 2);
-	assert(inner_sum == 6);
+	assert(innerSum == 6);
 	assert(outer == 2);
 
 	printf("PASS: test_do_while\n");

@@ -3,42 +3,42 @@ import std.vector;
 
 #include <assert.h>
 
-int sum_acc = 0;
+int sumAcc = 0;
 
-void add_to_sum(int x) { sum_acc += x; }
+void addToSum(int x) { sumAcc += x; }
 
-bool is_even(int x) { return x % 2 == 0; }
+bool isEven(int x) { return x % 2 == 0; }
 
-bool is_positive(int x) { return x > 0; }
+bool isPositive(int x) { return x > 0; }
 
-bool is_negative(int x) { return x < 0; }
+bool isNegative(int x) { return x < 0; }
 
-bool is_gt3(int x) { return x > 3; }
+bool isGt3(int x) { return x > 3; }
 
 int main() {
 	Vector<int> nums = [1, 2, 3, 4, 5];
 
 	// forEach with named function
-	sum_acc = 0;
-	nums.forEach(add_to_sum);
-	assert(sum_acc == 15);
+	sumAcc = 0;
+	nums.forEach(addToSum);
+	assert(sumAcc == 15);
 
 	// filter with named function
-	Vector<int> evens = nums.filter(is_even);
+	Vector<int> evens = nums.filter(isEven);
 	assert(evens.len == 2);
 	assert(evens.get(0) == 2);
 	assert(evens.get(1) == 4);
 
 	// any
-	assert(nums.any(is_even) == true);
-	assert(nums.any(is_negative) == false);
+	assert(nums.any(isEven) == true);
+	assert(nums.any(isNegative) == false);
 
 	// all
-	assert(nums.all(is_positive) == true);
-	assert(nums.all(is_even) == false);
+	assert(nums.all(isPositive) == true);
+	assert(nums.all(isEven) == false);
 
 	// filter with named function
-	Vector<int> big = nums.filter(is_gt3);
+	Vector<int> big = nums.filter(isGt3);
 	assert(big.len == 2);
 	assert(big.get(0) == 4);
 	assert(big.get(1) == 5);

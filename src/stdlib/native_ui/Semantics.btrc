@@ -1,4 +1,4 @@
-/* Backend-neutral semantic values for std.native_ui. */
+/* Backend-neutral semantic values for std.NativeUi. */
 
 enum NativeUiSemanticRole {
 	NATIVE_UI_SEMANTIC_ROLE_AUTOMATIC = 0,

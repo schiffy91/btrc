@@ -118,13 +118,13 @@ class DateTime {
  * start/end are stored as monotonic nanoseconds in a fixed-width-capable
  * `long long`; C `long` is only 32 bits on LLP64 and many 32-bit targets. */
 class Timer {
-	private long long start_time;
-	private long long end_time;
+	private long long startTime;
+	private long long endTime;
 	private bool running;
 
 	public Timer() {
-		self.start_time = 0;
-		self.end_time = 0;
+		self.startTime = 0;
+		self.endTime = 0;
 		self.running = false;
 	}
 
@@ -152,36 +152,36 @@ class Timer {
 	}
 
 	public void start() {
-		self.start_time = self.monoNanos();
+		self.startTime = self.monoNanos();
 		self.running = true;
 	}
 
 	public void stop() {
-		self.end_time = self.monoNanos();
+		self.endTime = self.monoNanos();
 		self.running = false;
 	}
 
 	/* Elapsed wall time in seconds. */
 	public float elapsed() {
-		long long end = self.running ? self.monoNanos() : self.end_time;
-		if (end < self.start_time) {
+		long long end = self.running ? self.monoNanos() : self.endTime;
+		if (end < self.startTime) {
 			throw "monotonic clock moved backwards";
 		}
-		return (float)(end - self.start_time) / 1000000000.0f;
+		return (float)(end - self.startTime) / 1000000000.0f;
 	}
 
 	/* Elapsed wall time in milliseconds. */
 	public float elapsedMillis() {
-		long long end = self.running ? self.monoNanos() : self.end_time;
-		if (end < self.start_time) {
+		long long end = self.running ? self.monoNanos() : self.endTime;
+		if (end < self.startTime) {
 			throw "monotonic clock moved backwards";
 		}
-		return (float)(end - self.start_time) / 1000000.0f;
+		return (float)(end - self.startTime) / 1000000.0f;
 	}
 
 	public void reset() {
-		self.start_time = 0;
-		self.end_time = 0;
+		self.startTime = 0;
+		self.endTime = 0;
 		self.running = false;
 	}
 

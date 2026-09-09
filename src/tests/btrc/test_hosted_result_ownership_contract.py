@@ -47,7 +47,7 @@ HOSTED_SHADOW_PROBE = """
 """
 
 HOSTED_SHADOW_USER = """
-    import std.hosted_result_probe;
+    import std.HostedResultProbe;
 
     #include <string.h>
 
@@ -88,7 +88,7 @@ def _compile_hosted_shadow_pair(
         shutil.copy2(source, stdlib / source.name)
 
     program = tmp_path / "hosted-result-shadow.btrc"
-    (stdlib / "hosted_result_probe.btrc").write_text(f"import {json.dumps(str(program))};\n{HOSTED_SHADOW_PROBE}")
+    (stdlib / "HostedResultProbe.btrc").write_text(f"import {json.dumps(str(program))};\n{HOSTED_SHADOW_PROBE}")
     program.write_text(HOSTED_SHADOW_USER)
     environment = {
         **os.environ,

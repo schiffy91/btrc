@@ -14,8 +14,8 @@ int main() {
 	// int -> char truncation (321 mod 256 == 65 == 'A')
 	int big = 321;
 	char c = (char)big;
-	int as_unsigned = (int)(unsigned char)c;
-	assert(as_unsigned == 65);
+	int asUnsigned = (int)(unsigned char)c;
+	assert(asUnsigned == 65);
 
 	// double -> int loses the fractional part
 	double frac = 7.999;

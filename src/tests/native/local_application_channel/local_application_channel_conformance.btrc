@@ -2,7 +2,7 @@
 import std.bytes;
 import std.datetime;
 import std.FileSystem;
-import std.local_application_channel;
+import std.LocalApplicationChannel;
 
 #include <assert.h>
 #include <stdlib.h>

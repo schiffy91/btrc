@@ -11,7 +11,7 @@ struct Node* insert(struct Node* head, int val) {
 	return n;
 }
 
-void print_list(struct Node* head) {
+void printList(struct Node* head) {
 	struct Node* cur = head;
 	while (cur != NULL) {
 		printf("%d ", cur->val);
@@ -20,7 +20,7 @@ void print_list(struct Node* head) {
 	printf("\n");
 }
 
-void free_list(struct Node* head) {
+void freeList(struct Node* head) {
 	while (head != NULL) {
 		struct Node* tmp = head;
 		head = head->next;
@@ -33,8 +33,8 @@ int main() {
 	for (int i = 1; i <= 5; i++) {
 		list = insert(list, i);
 	}
-	print_list(list);
-	free_list(list);
+	printList(list);
+	freeList(list);
 	printf("PASS: test_linked_list\n");
 	return 0;
 }

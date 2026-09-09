@@ -542,10 +542,10 @@ def test_discover_stdlib_files():
 
 def test_native_adapters_remain_explicit_stdlib_modules():
     explicit_modules = (
-        "background_jobs.btrc",
-        "local_application_channel.btrc",
-        "native_ui.btrc",
-        "native_ui_app.btrc",
+        "BackgroundJobs.btrc",
+        "LocalApplicationChannel.btrc",
+        "NativeUi.btrc",
+        "NativeUiApp.btrc",
     )
     discovered = STDLIB.discover_files()
     relaxed = STDLIB.relaxed_composition_files()

@@ -5,21 +5,21 @@
  * chained in). */
 #include <assert.h>
 
-int base_del = 0;
-int sub_del = 0;
+int baseDel = 0;
+int subDel = 0;
 
 class Base {
 	public int id;
 	public Base(int id) { self.id = id; }
 
-	public void __del__() { base_del++; }
+	public void __del__() { baseDel++; }
 }
 
 class Sub extends Base {
 	public int extra;
 	public Sub(int id, int extra) { self.id = id; self.extra = extra; }
 
-	public void __del__() { sub_del++; }
+	public void __del__() { subDel++; }
 }
 
 int main() {
@@ -29,8 +29,8 @@ int main() {
 	delete s;
 	// Static __del__ dispatch by declared type: Sub.__del__ runs once,
 	// Base.__del__ is not invoked.
-	assert(sub_del == 1);
-	assert(base_del == 0);
+	assert(subDel == 1);
+	assert(baseDel == 0);
 
 	print("PASS: test_inherited_destructor");
 	return 0;

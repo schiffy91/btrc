@@ -4,17 +4,17 @@
  * managed-field-release tests all use a single, non-inherited class. */
 #include <assert.h>
 
-int item_alive = 0;
+int itemAlive = 0;
 
 class Item {
 	public int id;
 
 	public Item(int id) {
 		self.id = id;
-		item_alive++;
+		itemAlive++;
 	}
 
-	public void __del__() { item_alive--; }
+	public void __del__() { itemAlive--; }
 }
 
 // Managed field lives on the base class.
@@ -38,14 +38,14 @@ int main() {
 	Derived d = new Derived(5);
 	Item it = new Item(1);   // rc 1
 	d.held = it;             // field assign rc++ -> rc 2
-	assert(item_alive == 1);
+	assert(itemAlive == 1);
 	assert(d.held.id == 1);
 
 	delete d;                // inherited managed field released: rc 2 -> 1
-	assert(item_alive == 1); // still alive via local `it`
+	assert(itemAlive == 1); // still alive via local `it`
 
 	delete it;               // rc 1 -> 0 -> destroyed
-	assert(item_alive == 0);
+	assert(itemAlive == 0);
 
 	print("PASS: test_inherited_field_release");
 	return 0;

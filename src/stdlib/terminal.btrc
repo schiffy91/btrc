@@ -2,10 +2,10 @@
 
 import std.bytes;
 import std.strings;
-import std.terminal_clock;
-import std.terminal_cstring_array;
-import std.terminal_password;
-import std.terminal_password_exchange;
+import std.TerminalClock;
+import std.TerminalCstringArray;
+import std.TerminalPassword;
+import std.TerminalPasswordExchange;
 import std.vector;
 
 #include <termios.h>

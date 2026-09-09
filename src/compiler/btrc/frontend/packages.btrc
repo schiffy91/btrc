@@ -687,10 +687,10 @@ class FeNativeLinkPlan {
 		string source = PathTools.join(runtime, "btrc_background_jobs.c");
 		string header = PathTools.join(runtime, "btrc_background_jobs.h");
 		if (!FileSystem.isDir(root) || !FileSystem.isDir(runtime)) {
-			FePackageFailure.fail("std.background_jobs native runtime directory is unavailable");
+			FePackageFailure.fail("std.BackgroundJobs native runtime directory is unavailable");
 		}
 		if (!FileSystem.isFile(source) || !FileSystem.isFile(header)) {
-			FePackageFailure.fail("std.background_jobs native runtime sources are unavailable");
+			FePackageFailure.fail("std.BackgroundJobs native runtime sources are unavailable");
 		}
 		Vector<string> supported = ["linux", "macos"];
 		Vector<string> architectures = [];
@@ -729,10 +729,10 @@ class FeNativeLinkPlan {
 		string source = PathTools.join(runtime, "btrc_local_application_channel.c");
 		string header = PathTools.join(runtime, "btrc_local_application_channel.h");
 		if (!FileSystem.isDir(root) || !FileSystem.isDir(runtime)) {
-			FePackageFailure.fail("std.local_application_channel native runtime directory is unavailable");
+			FePackageFailure.fail("std.LocalApplicationChannel native runtime directory is unavailable");
 		}
 		if (!FileSystem.isFile(source) || !FileSystem.isFile(header)) {
-			FePackageFailure.fail("std.local_application_channel native runtime sources are unavailable");
+			FePackageFailure.fail("std.LocalApplicationChannel native runtime sources are unavailable");
 		}
 		Vector<string> supported = ["linux", "macos", "windows"];
 		Vector<string> architectures = [];

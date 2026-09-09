@@ -9,15 +9,15 @@ class Vec {
 	public Vec(int x, int y) { self.x = x; self.y = y; }
 }
 
-int sum_xy(Vec v) { return v.x + v.y; }
+int sumXy(Vec v) { return v.x + v.y; }
 
 Vec make(int a, int b) { return Vec(a, b); }
 
 int main() {
 	Vec v = make(10, 32);
-	assert(sum_xy(v) == 42);
+	assert(sumXy(v) == 42);
 	assert(make(1, 2).x == 1);
-	assert(sum_xy(make(7, 8)) == 15);
+	assert(sumXy(make(7, 8)) == 15);
 
 	print("PASS: test_interop_c_func_takes_class");
 	return 0;

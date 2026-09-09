@@ -1,11 +1,11 @@
 // Test spawning 3 threads that return integers, join all, sum results
-int double_it(int x) { return x * 2; }
+int doubleIt(int x) { return x * 2; }
 
 int main() {
 	// Spawn 3 threads with different computations
-	Thread<int> t1 = spawn(() => { return double_it(5); });
-	Thread<int> t2 = spawn(() => { return double_it(10); });
-	Thread<int> t3 = spawn(() => { return double_it(15); });
+	Thread<int> t1 = spawn(() => { return doubleIt(5); });
+	Thread<int> t2 = spawn(() => { return doubleIt(10); });
+	Thread<int> t3 = spawn(() => { return doubleIt(15); });
 
 	// Join all threads and collect results
 	int r1 = t1.join();

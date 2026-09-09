@@ -1,8 +1,8 @@
 import std.app;
 import std.gpu;
 import std.image;
-import std.native_ui;
-import std.native_ui_app;
+import std.NativeUi;
+import std.NativeUiApp;
 import std.vector;
 
 #include <assert.h>

@@ -10,7 +10,7 @@ class Node {
 	}
 }
 
-int build_and_walk(int n) {
+int buildAndWalk(int n) {
 	Node head = new Node(0);
 	Node cur = head;
 	for (int i = 1; i < n; i++) {
@@ -31,7 +31,7 @@ int build_and_walk(int n) {
 }
 
 int main() {
-	int s = build_and_walk(100);
+	int s = buildAndWalk(100);
 	print(s);
 	return 0;
 }

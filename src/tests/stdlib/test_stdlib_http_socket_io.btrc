@@ -2,9 +2,9 @@
 /* Deterministic local-socket coverage for split reads/writes and close framing. */
 import std.bytes;
 import std.datetime;
-import std.http_server;
-import std.http_socket;
-import std.http_types;
+import std.HttpServer;
+import std.HttpSocket;
+import std.HttpTypes;
 import std.strings;
 
 #include <assert.h>

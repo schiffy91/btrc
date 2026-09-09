@@ -22,9 +22,9 @@ int main() {
 	// continue in the inner collection loop, distinct index temps from outer range
 	Vector<int> w = [10, 20, 30, 40];
 	int picked = 0;
-	int outer_iters = 0;
+	int outerIters = 0;
 	for i in range(3) {
-		outer_iters++;
+		outerIters++;
 		for x in w {
 			if (x % 20 == 0) {
 				continue;          // skip 20 and 40
@@ -32,7 +32,7 @@ int main() {
 			picked += x;           // adds 10 and 30 each outer iteration
 		}
 	}
-	assert(outer_iters == 3);
+	assert(outerIters == 3);
 	assert(picked == 120); // (10+30) * 3
 
 	v.free();

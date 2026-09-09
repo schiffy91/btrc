@@ -3,15 +3,15 @@
  * (non-chaining) destructor behavior for the self-hosted port. */
 #include <assert.h>
 
-int base_d = 0;
-int der_d = 0;
+int baseD = 0;
+int derD = 0;
 
 class Base {
 	public int id;
 
 	public Base(int id) { self.id = id; }
 
-	public void __del__() { base_d++; }
+	public void __del__() { baseD++; }
 }
 
 class Derived extends Base {
@@ -22,7 +22,7 @@ class Derived extends Base {
 		self.extra = extra;
 	}
 
-	public void __del__() { der_d++; }
+	public void __del__() { derD++; }
 }
 
 int main() {
@@ -32,8 +32,8 @@ int main() {
 
 	delete d;
 	// Only the derived destructor runs; base does not chain.
-	assert(der_d == 1);
-	assert(base_d == 0);
+	assert(derD == 1);
+	assert(baseD == 0);
 
 	print("PASS: test_inherited_destructor");
 	return 0;

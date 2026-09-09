@@ -68,20 +68,20 @@ int main() {
 	// ---- String.reverse() ----
 	string rev = "hello".reverse();
 	assert(rev == "olleh");
-	string empty_rev = "".reverse();
-	assert(empty_rev == "");
+	string emptyRev = "".reverse();
+	assert(emptyRev == "");
 
 	// ---- String.removePrefix() ----
 	string p = "prefix_text".removePrefix("prefix_");
 	assert(p == "text");
-	string no_match = "hello".removePrefix("world");
-	assert(no_match == "hello");
+	string noMatch = "hello".removePrefix("world");
+	assert(noMatch == "hello");
 
 	// ---- String.removeSuffix() ----
 	string suf = "file.txt".removeSuffix(".txt");
 	assert(suf == "file");
-	string no_suf = "hello".removeSuffix(".txt");
-	assert(no_suf == "hello");
+	string noSuf = "hello".removeSuffix(".txt");
+	assert(noSuf == "hello");
 
 	// ---- List.reduce() ----
 	Vector<int> rn = [1, 2, 3, 4, 5];
@@ -179,9 +179,9 @@ int main() {
 
 	// ---- List.sorted() ----
 	Vector<int> unsorted = [5, 2, 8, 1, 9];
-	Vector<int> sorted_list = unsorted.sorted();
-	assert(sorted_list.get(0) == 1);
-	assert(sorted_list.get(4) == 9);
+	Vector<int> sortedList = unsorted.sorted();
+	assert(sortedList.get(0) == 1);
+	assert(sortedList.get(4) == 9);
 	// original unchanged
 	assert(unsorted.get(0) == 5);
 

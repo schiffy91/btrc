@@ -16,14 +16,14 @@ int main() {
 	assert(count == 3);
 
 	// breaking out of more than one loop requires a flag (no labeled break)
-	int found_i = -1;
-	int found_j = -1;
+	int foundI = -1;
+	int foundJ = -1;
 	bool done = false;
 	for i in range(4) {
 		for j in range(4) {
 			if (i * 4 + j == 6) {
-				found_i = i;
-				found_j = j;
+				foundI = i;
+				foundJ = j;
 				done = true;
 				break; // inner only
 			}
@@ -32,8 +32,8 @@ int main() {
 			break; // outer, driven by the flag
 		}
 	}
-	assert(found_i == 1);
-	assert(found_j == 2);
+	assert(foundI == 1);
+	assert(foundJ == 2);
 
 	print("PASS: test_nested_break_inner_only");
 	return 0;

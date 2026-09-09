@@ -8,7 +8,7 @@ import std.vector;
 
 #include <assert.h>
 
-int live_nodes = 0;
+int liveNodes = 0;
 
 class SlotNode {
 	public int id;
@@ -31,10 +31,10 @@ class SlotNode {
 		self.mapKeys = {};
 		self.setKeys = {};
 		self.listLinks = [];
-		live_nodes++;
+		liveNodes++;
 	}
 
-	public void __del__() { live_nodes--; }
+	public void __del__() { liveNodes--; }
 
 	/* User methods named visit must coexist with reserved ARC visitors. */
 	public int visit() { return self.id; }
@@ -118,7 +118,7 @@ void borrowedAliasBecomesRootless() {
 		holder.direct = null;
 		alias.direct = alias;
 	}
-	assert(live_nodes == 1);
+	assert(liveNodes == 1);
 }
 
 void extractedCollectionAliasBecomesRootless() {
@@ -129,7 +129,7 @@ void extractedCollectionAliasBecomesRootless() {
 		holder.vectorLinks.set(0, null);
 		alias.direct = alias;
 	}
-	assert(live_nodes == 1);
+	assert(liveNodes == 1);
 }
 
 void opaqueCallMakesBorrowedAliasRootless() {
@@ -140,7 +140,7 @@ void opaqueCallMakesBorrowedAliasRootless() {
 		holder.clearDirect();
 		alias.makeSelfCycle();
 	}
-	assert(live_nodes == 1);
+	assert(liveNodes == 1);
 }
 
 void preserveExternalVectorAlias() {
@@ -154,7 +154,7 @@ void preserveExternalVectorAlias() {
 	assert(alias.get(0) != null);
 	assert(alias.get(0)?.id == 47);
 	alias.clear();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 }
 
 void preserveExternalListNodeAlias() {
@@ -168,7 +168,7 @@ void preserveExternalListNodeAlias() {
 	assert(alias.value != null);
 	assert(alias.value?.id == 49);
 	alias.value = null;
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 }
 
 void preserveLiveRootFirst() {
@@ -179,9 +179,9 @@ void preserveLiveRootFirst() {
 		root.direct = live;
 		live.direct = child;
 	}
-	assert(live_nodes == 3);
+	assert(liveNodes == 3);
 	root.direct = null;
-	assert(live_nodes == 1);
+	assert(liveNodes == 1);
 }
 
 void preserveLiveRootLast() {
@@ -192,9 +192,9 @@ void preserveLiveRootLast() {
 		root.direct = live;
 		live.direct = child;
 	}
-	assert(live_nodes == 3);
+	assert(liveNodes == 3);
 	root.direct = null;
-	assert(live_nodes == 1);
+	assert(liveNodes == 1);
 }
 
 void acyclicWrapperExposesDownstreamCycle() {
@@ -206,14 +206,14 @@ void acyclicWrapperExposesDownstreamCycle() {
 		b.direct = a;
 		owner.node = a;
 	}
-	assert(live_nodes == 2);
+	assert(liveNodes == 2);
 }
 
 void duplicateOwnedAliasesReachZeroBeforeFlush() {
 	SlotNode original = new SlotNode(52);
 	SlotNode alias = original.retainedAlias();
 	assert(alias == original);
-	assert(live_nodes == 1);
+	assert(liveNodes == 1);
 }
 
 /* The inner owner cycle first becomes proven live through `root`. A managed
@@ -229,7 +229,7 @@ void adoptedMethodReturnClosesOwnerCycle() {
 		a.direct = b;
 		b.direct = a;
 	}
-	assert(live_nodes == 3);
+	assert(liveNodes == 3);
 	root.direct.adopted = root.retainedAlias();
 }
 
@@ -249,43 +249,43 @@ void inlineRingCycle() {
 
 int main() {
 	vectorCycle();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 	arrayCycle();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 	mapValueCycle();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 	mapKeyCycle();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 	setCycle();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 	listCycle();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 	directTemporaryCycle();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 	inlineCollectionTemporaryCycle();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 	borrowedAliasBecomesRootless();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 	extractedCollectionAliasBecomesRootless();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 	opaqueCallMakesBorrowedAliasRootless();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 	preserveExternalVectorAlias();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 	preserveExternalListNodeAlias();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 	preserveLiveRootFirst();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 	preserveLiveRootLast();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 	acyclicWrapperExposesDownstreamCycle();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 	duplicateOwnedAliasesReachZeroBeforeFlush();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 	adoptedMethodReturnClosesOwnerCycle();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 	inlineRingCycle();
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 
 	// Exception cleanup registers the concrete Vector visitor, then reclaims
 	// the nodes' collection-mediated cycle after releasing the root vector.
@@ -300,7 +300,7 @@ int main() {
 		throw "collection cycle";
 	} catch (string error) {
 	}
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 
 	// A live outer root owns an acyclic child across the child's local scope.
 	SlotNode root = new SlotNode(20);
@@ -309,12 +309,12 @@ int main() {
 		SlotNode child = new SlotNode(21);
 		root.vectorLinks.push(child);
 	}
-	assert(live_nodes == 2);
+	assert(liveNodes == 2);
 	assert(root.vectorLinks.get(0) != null);
 	root.vectorLinks.clear();
-	assert(live_nodes == 1);
+	assert(liveNodes == 1);
 	delete root;
-	assert(live_nodes == 0);
+	assert(liveNodes == 0);
 
 	print("PASS: test_collection_cycle_slots");
 	return 0;

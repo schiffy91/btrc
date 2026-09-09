@@ -2,44 +2,44 @@
 #include <assert.h>
 
 // Forward declare is_even so is_odd can call it
-bool is_even(int n);
+bool isEven(int n);
 
-bool is_odd(int n) {
+bool isOdd(int n) {
 	if (n == 0) {
 		return false;
 	}
-	return is_even(n - 1);
+	return isEven(n - 1);
 }
 
-bool is_even(int n) {
+bool isEven(int n) {
 	if (n == 0) {
 		return true;
 	}
-	return is_odd(n - 1);
+	return isOdd(n - 1);
 }
 
 // Forward declare helper
-int double_it(int x);
+int doubleIt(int x);
 
-int quad(int x) { return double_it(double_it(x)); }
+int quad(int x) { return doubleIt(doubleIt(x)); }
 
-int double_it(int x) { return x * 2; }
+int doubleIt(int x) { return x * 2; }
 
 int main() {
 	// ---- Mutual recursion: is_even / is_odd ----
-	assert(is_even(0) == true);
-	assert(is_odd(0) == false);
-	assert(is_even(4) == true);
-	assert(is_odd(4) == false);
-	assert(is_even(5) == false);
-	assert(is_odd(5) == true);
-	assert(is_even(10) == true);
-	assert(is_odd(7) == true);
+	assert(isEven(0) == true);
+	assert(isOdd(0) == false);
+	assert(isEven(4) == true);
+	assert(isOdd(4) == false);
+	assert(isEven(5) == false);
+	assert(isOdd(5) == true);
+	assert(isEven(10) == true);
+	assert(isOdd(7) == true);
 
 	// ---- Forward declare + use before definition ----
 	assert(quad(3) == 12);
 	assert(quad(5) == 20);
-	assert(double_it(7) == 14);
+	assert(doubleIt(7) == 14);
 
 	print("PASS: test_forward_decl");
 	return 0;

@@ -1,4 +1,4 @@
-/* Unified std.app/std.gpu presenter for std.native_ui.
+/* Unified std.app/std.gpu presenter for std.NativeUi.
  *
  * The session borrows an existing ApplicationWindow and GPU. Its native batch
  * is a child render resource of that GPU and records into the GPU's active
@@ -8,7 +8,7 @@
 import std.app;
 import std.datetime;
 import std.gpu;
-import std.native_ui;
+import std.NativeUi;
 import std.vector;
 
 #include <btrc_gpu.h>

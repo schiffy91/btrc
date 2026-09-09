@@ -40,22 +40,22 @@ class Map<K, V> implements Iterable {
 
 	public void resize() {
 		int old_cap = self.cap;
-		K* old_keys = self.keys;
-		V* old_values = self.values;
-		bool* old_occupied = self.occupied;
+		K* oldKeys = self.keys;
+		V* oldValues = self.values;
+		bool* oldOccupied = self.occupied;
 		self.cap = self.nextCapacity();
 		self.len = 0;
 		self.keys = (K*)__btrc_safe_calloc(self.cap, sizeof(K));
 		self.values = (V*)__btrc_safe_calloc(self.cap, sizeof(V));
 		self.occupied = (bool*)__btrc_safe_calloc(self.cap, sizeof(bool));
 		for (int i = 0; i < old_cap; i++) {
-			if (old_occupied[i]) {
-				self.putMoved(old_keys[i], old_values[i]);
+			if (oldOccupied[i]) {
+				self.putMoved(oldKeys[i], oldValues[i]);
 			}
 		}
-		free(old_keys);
-		free(old_values);
-		free(old_occupied);
+		free(oldKeys);
+		free(oldValues);
+		free(oldOccupied);
 	}
 
 	public void put(K key, V value) {

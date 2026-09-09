@@ -19,9 +19,9 @@ int main() {
 	assert(count == 5);  // 10,8,6,4,2
 
 	// range() with positive step (still works)
-	int sum_pos = 0;
-	for i in range(0, 10, 3) { sum_pos = sum_pos + i; }
-	assert(sum_pos == 18);  // 0+3+6+9
+	int sumPos = 0;
+	for i in range(0, 10, 3) { sumPos = sumPos + i; }
+	assert(sumPos == 18);  // 0+3+6+9
 
 	// ---- Map.getOrDefault ----
 	Map<string, int> scores = {};

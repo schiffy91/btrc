@@ -11,12 +11,12 @@ int main() {
 	assert(tripler(4) == 12);
 
 	// Arrow lambda with block body
-	var abs_fn = (int x) => {
+	var absFn = (int x) => {
 		if (x < 0) { return -x; }
 		return x;
 	};
-	assert(abs_fn(-7) == 7);
-	assert(abs_fn(3) == 3);
+	assert(absFn(-7) == 7);
+	assert(absFn(3) == 3);
 
 	// Binary arrow lambda
 	var adder = (int a, int b) => a + b;

@@ -12,21 +12,21 @@ int main() {
 
 	// ---- Count specific character ----
 	string text = "banana";
-	int a_count = 0;
+	int aCount = 0;
 	for ch in text {
 		if (ch == 'a') {
-			a_count = a_count + 1;
+			aCount = aCount + 1;
 		}
 	}
-	assert(a_count == 3);
+	assert(aCount == 3);
 
 	// ---- Empty string iteration ----
 	string empty = "";
-	int empty_count = 0;
+	int emptyCount = 0;
 	for c in empty {
-		empty_count = empty_count + 1;
+		emptyCount = emptyCount + 1;
 	}
-	assert(empty_count == 0);
+	assert(emptyCount == 0);
 
 	print("PASS: test_string_iteration");
 	return 0;

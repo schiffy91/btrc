@@ -1,8 +1,8 @@
-/* Deterministic layout, hit-test, and proof-raster bridge for std.native_ui.
+/* Deterministic layout, hit-test, and proof-raster bridge for std.NativeUi.
  *
  * This platform-handle-free layer proves geometry and input with a portable
  * RGBA Image.  That image is test evidence, not the production presentation
- * endpoint.  std.native_ui_app consumes the same validated boxes and resolved
+ * endpoint.  std.NativeUiApp consumes the same validated boxes and resolved
  * styles on std.app's sole window/device/surface/present cycle.
  */
 

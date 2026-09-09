@@ -33,15 +33,15 @@ int main() {
 	assert(nums.contains(30) == true);
 
 	// ---- Set: toVector ----
-	Vector<int> as_list = nums.toVector();
-	assert(as_list.len == 2);
+	Vector<int> asList = nums.toVector();
+	assert(asList.len == 2);
 
 	int sum = 0;
-	for v in as_list {
+	for v in asList {
 		sum += v;
 	}
 	assert(sum == 40);  // 10 + 30
-	as_list.free();
+	asList.free();
 
 	// ---- Set<string> ----
 	Set<string> words = {};

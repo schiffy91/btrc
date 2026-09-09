@@ -4,14 +4,14 @@
 #define HT_CAP 64
 struct HT_Entry { char* key; int value; int used; };
 struct HashTable { struct HT_Entry entries[HT_CAP]; };
-unsigned int ht_hash(const char* key) {
+unsigned int htHash(const char* key) {
 	unsigned int h = 0;
 	while (*key) { h = h * 31 + (unsigned char)*key++; }
 	return h % HT_CAP;
 }
 
-void ht_set(struct HashTable* ht, const char* key, int value) {
-	unsigned int idx = ht_hash(key);
+void htSet(struct HashTable* ht, const char* key, int value) {
+	unsigned int idx = htHash(key);
 	for (int i = 0; i < HT_CAP; i++) {
 		unsigned int pos = (idx + i) % HT_CAP;
 		if (!ht->entries[pos].used || strcmp(ht->entries[pos].key, key) == 0) {
@@ -25,8 +25,8 @@ void ht_set(struct HashTable* ht, const char* key, int value) {
 	}
 }
 
-int ht_get(struct HashTable* ht, const char* key) {
-	unsigned int idx = ht_hash(key);
+int htGet(struct HashTable* ht, const char* key) {
+	unsigned int idx = htHash(key);
 	for (int i = 0; i < HT_CAP; i++) {
 		unsigned int pos = (idx + i) % HT_CAP;
 		if (!ht->entries[pos].used) { return -1; }
@@ -37,7 +37,7 @@ int ht_get(struct HashTable* ht, const char* key) {
 	return -1;
 }
 
-void ht_free(struct HashTable* ht) {
+void htFree(struct HashTable* ht) {
 	for (int i = 0; i < HT_CAP; i++) {
 		if (ht->entries[i].used) { free(ht->entries[i].key); }
 	}
@@ -46,15 +46,15 @@ void ht_free(struct HashTable* ht) {
 int main() {
 	struct HashTable ht;
 	memset(&ht, 0, sizeof(struct HashTable));
-	ht_set(&ht, "alpha", 1);
-	ht_set(&ht, "beta", 2);
-	ht_set(&ht, "gamma", 3);
-	ht_set(&ht, "delta", 4);
-	printf("%d %d %d %d\n", ht_get(&ht, "alpha"), ht_get(&ht, "beta"), ht_get(&ht, "gamma"), ht_get(&ht, "delta"));
-	ht_set(&ht, "beta", 20);
-	printf("%d\n", ht_get(&ht, "beta"));
-	printf("%d\n", ht_get(&ht, "missing"));
-	ht_free(&ht);
+	htSet(&ht, "alpha", 1);
+	htSet(&ht, "beta", 2);
+	htSet(&ht, "gamma", 3);
+	htSet(&ht, "delta", 4);
+	printf("%d %d %d %d\n", htGet(&ht, "alpha"), htGet(&ht, "beta"), htGet(&ht, "gamma"), htGet(&ht, "delta"));
+	htSet(&ht, "beta", 20);
+	printf("%d\n", htGet(&ht, "beta"));
+	printf("%d\n", htGet(&ht, "missing"));
+	htFree(&ht);
 	printf("PASS: test_hash_table\n");
 	return 0;
 }

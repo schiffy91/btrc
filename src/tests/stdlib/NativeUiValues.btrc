@@ -1,5 +1,5 @@
 import std.image;
-import std.native_ui;
+import std.NativeUi;
 import std.vector;
 
 #include <assert.h>

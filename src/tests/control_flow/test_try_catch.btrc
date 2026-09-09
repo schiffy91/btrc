@@ -26,30 +26,30 @@ int main() {
 	assert(reached == 1);
 
 	// Function throw
-	int func_caught = 0;
+	int funcCaught = 0;
 	try {
 		risky(5);
 		risky(-1);
 	} catch (string e) {
-		func_caught = 1;
+		funcCaught = 1;
 	}
-	assert(func_caught == 1);
+	assert(funcCaught == 1);
 
 	// Nested
-	int inner_caught = 0;
-	int outer_caught = 0;
+	int innerCaught = 0;
+	int outerCaught = 0;
 	try {
 		try {
 			throw "inner";
 		} catch (string e) {
-			inner_caught = 1;
+			innerCaught = 1;
 		}
 		throw "outer";
 	} catch (string e) {
-		outer_caught = 1;
+		outerCaught = 1;
 	}
-	assert(inner_caught == 1);
-	assert(outer_caught == 1);
+	assert(innerCaught == 1);
+	assert(outerCaught == 1);
 
 	print("PASS: test_try_catch");
 	return 0;

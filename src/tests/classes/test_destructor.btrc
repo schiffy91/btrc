@@ -3,15 +3,15 @@ import std.vector;
 
 #include <assert.h>
 
-int resource_freed = 0;
-int child_freed = 0;
+int resourceFreed = 0;
+int childFreed = 0;
 
 class Child {
 	public int id;
 
 	public Child(int id) { self.id = id; }
 
-	public void __del__() { child_freed++; }
+	public void __del__() { childFreed++; }
 }
 
 class Parent {
@@ -23,7 +23,7 @@ class Parent {
 		self.child = new Child(value * 10);
 	}
 
-	public void __del__() { resource_freed++; }
+	public void __del__() { resourceFreed++; }
 }
 
 class WithList {
@@ -39,15 +39,15 @@ int main() {
 	Child c = new Child(1);
 	assert(c.id == 1);
 	delete c;
-	assert(child_freed == 1);
+	assert(childFreed == 1);
 
 	// Test 2: Recursive delete — Parent owns a Child
 	Parent p = new Parent(5);
 	assert(p.value == 5);
 	assert(p.child.id == 50);
 	delete p;
-	assert(resource_freed == 1);
-	assert(child_freed == 2);  // Child inside Parent also destroyed
+	assert(resourceFreed == 1);
+	assert(childFreed == 2);  // Child inside Parent also destroyed
 
 	// Test 3: Class with List field — list freed on delete
 	WithList w = new WithList();

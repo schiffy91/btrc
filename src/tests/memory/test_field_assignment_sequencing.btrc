@@ -4,7 +4,7 @@
 #include <assert.h>
 
 int alive = 0;
-int receiver_calls = 0;
+int receiverCalls = 0;
 
 class Obj {
 	public int id;
@@ -21,7 +21,7 @@ class Holder {
 Holder shared;
 
 Holder getHolder() {
-	receiver_calls++;
+	receiverCalls++;
 	return shared;
 }
 
@@ -37,7 +37,7 @@ int main() {
 
 	Obj replacement = new Obj(2);
 	getHolder().item = replacement;
-	assert(receiver_calls == 1);
+	assert(receiverCalls == 1);
 	assert(holder.item.id == 2);
 	assert(alive == 1);
 

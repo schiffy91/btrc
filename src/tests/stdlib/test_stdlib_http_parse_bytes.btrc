@@ -7,8 +7,8 @@
  *
  * Hermetic + deterministic: a request is assembled in memory; no sockets. */
 import std.bytes;
-import std.http_server;
-import std.http_types;
+import std.HttpServer;
+import std.HttpTypes;
 
 #include <assert.h>
 

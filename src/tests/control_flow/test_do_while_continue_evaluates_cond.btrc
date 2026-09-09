@@ -18,16 +18,16 @@ int main() {
 
 	// continue on the last iteration must still evaluate the (now false) cond
 	int j = 0;
-	int body_runs = 0;
+	int bodyRuns = 0;
 	do {
 		j++;
-		body_runs++;
+		bodyRuns++;
 		if (j == 3) {
 			continue;
 		}
 	} while (j < 3);
 	assert(j == 3);
-	assert(body_runs == 3);
+	assert(bodyRuns == 3);
 
 	print("PASS: test_do_while_continue_evaluates_cond");
 	return 0;

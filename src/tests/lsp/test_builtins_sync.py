@@ -13,15 +13,15 @@ def test_builtin_source_order_is_independent_of_host_path_flavor():
     windows_paths = (
         PureWindowsPath("stdlib/array.btrc"),
         PureWindowsPath("stdlib/BitPattern.btrc"),
-        PureWindowsPath("stdlib/background_jobs.btrc"),
+        PureWindowsPath("stdlib/BackgroundJobs.btrc"),
     )
 
     ordered = sorted(windows_paths, key=BuiltinStdlibScanner._source_order_key)
 
     assert [path.name for path in ordered] == [
+        "BackgroundJobs.btrc",
         "BitPattern.btrc",
         "array.btrc",
-        "background_jobs.btrc",
     ]
 
 

@@ -405,9 +405,9 @@ class NativeLinkPlan:
         source = os.path.join(runtime, "btrc_background_jobs.c")
         header = os.path.join(runtime, "btrc_background_jobs.h")
         if not os.path.isdir(root) or not os.path.isdir(runtime):
-            raise IncludeResolutionError("std.background_jobs native runtime directory is unavailable")
+            raise IncludeResolutionError("std.BackgroundJobs native runtime directory is unavailable")
         if not os.path.isfile(source) or not os.path.isfile(header):
-            raise IncludeResolutionError("std.background_jobs native runtime sources are unavailable")
+            raise IncludeResolutionError("std.BackgroundJobs native runtime sources are unavailable")
         package = PackageNode(
             package_name,
             root,
@@ -457,9 +457,9 @@ class NativeLinkPlan:
         source = os.path.join(runtime, "btrc_local_application_channel.c")
         header = os.path.join(runtime, "btrc_local_application_channel.h")
         if not os.path.isdir(root) or not os.path.isdir(runtime):
-            raise IncludeResolutionError("std.local_application_channel native runtime directory is unavailable")
+            raise IncludeResolutionError("std.LocalApplicationChannel native runtime directory is unavailable")
         if not os.path.isfile(source) or not os.path.isfile(header):
-            raise IncludeResolutionError("std.local_application_channel native runtime sources are unavailable")
+            raise IncludeResolutionError("std.LocalApplicationChannel native runtime sources are unavailable")
         package = PackageNode(package_name, root, {}, {"path": root}, "")
         supported = ("linux", "macos", "windows")
         declarations = (

@@ -1,8 +1,8 @@
 /* Capability-based daemon supervision: lifecycle, restart behavior, private
  * state, and adversarial control-file cases. */
 import std.daemon;
-import std.daemon_control;
-import std.daemon_control_protocol;
+import std.DaemonControl;
+import std.DaemonControlProtocol;
 import std.datetime;
 import std.FileSystem;
 import std.io;

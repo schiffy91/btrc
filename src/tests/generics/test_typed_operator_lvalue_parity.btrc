@@ -3,38 +3,38 @@ import std.vector;
 #include <assert.h>
 #define OP_CAP 64
 
-int left_calls = 0;
-int right_calls = 0;
-int receiver_calls = 0;
-int index_calls = 0;
-int rhs_calls = 0;
-int getter_calls = 0;
-int setter_calls = 0;
-int raw_values[3];
+int leftCalls = 0;
+int rightCalls = 0;
+int receiverCalls = 0;
+int indexCalls = 0;
+int rhsCalls = 0;
+int getterCalls = 0;
+int setterCalls = 0;
+int rawValues[3];
 
-string? left_probe(string? value) {
-	left_calls++;
+string? leftProbe(string? value) {
+	leftCalls++;
 	return value;
 }
 
-string? right_probe(string? value) {
-	right_calls++;
+string? rightProbe(string? value) {
+	rightCalls++;
 	return value;
 }
 
-int index_probe() {
-	index_calls++;
+int indexProbe() {
+	indexCalls++;
 	return 1;
 }
 
-int rhs_probe() {
-	rhs_calls++;
+int rhsProbe() {
+	rhsCalls++;
 	return 4;
 }
 
-int* raw_receiver() {
-	receiver_calls++;
-	return &raw_values[0];
+int* rawReceiver() {
+	receiverCalls++;
+	return &rawValues[0];
 }
 
 int identity(int value) { return value; }
@@ -80,8 +80,8 @@ class Gauge {
 	private int stored;
 	public Gauge(int initial) { self.stored = initial; }
 	public int value {
-		get { getter_calls++; return self.stored; }
-		set { setter_calls++; self.stored = value; }
+		get { getterCalls++; return self.stored; }
+		set { setterCalls++; self.stored = value; }
 	}
 }
 
@@ -108,13 +108,13 @@ class GenericBase<T> {
 Gauge gauge;
 Vector<int> vector;
 
-Gauge gauge_probe() {
-	receiver_calls++;
+Gauge gaugeProbe() {
+	receiverCalls++;
 	return gauge;
 }
 
-Vector<int> vector_probe() {
-	receiver_calls++;
+Vector<int> vectorProbe() {
+	receiverCalls++;
 	return vector;
 }
 
@@ -133,8 +133,8 @@ int main() {
 	assert(nil <= null);
 	assert("alpha" >= nil);
 	assert(nil != "alpha");
-	assert(left_probe(null) < right_probe("x"));
-	assert(left_calls == 1 && right_calls == 1);
+	assert(leftProbe(null) < rightProbe("x"));
+	assert(leftCalls == 1 && rightCalls == 1);
 
 	StringOps<string?> empty = new StringOps<string?>(null);
 	StringOps<string?> text = new StringOps<string?>(dynamic);
@@ -164,69 +164,69 @@ int main() {
 	assert(floats.modulo(7.9, 2.0) == 1.0);
 	long negative = -2L;
 	uint one = 1u;
-	var mixed_first = negative + one;
-	var mixed_second = one + negative;
-	assert(mixed_first == (unsigned long)-1L);
-	assert(mixed_second == (unsigned long)-1L);
+	var mixedFirst = negative + one;
+	var mixedSecond = one + negative;
+	assert(mixedFirst == (unsigned long)-1L);
+	assert(mixedSecond == (unsigned long)-1L);
 	unsigned long long ternary = true ? 1LL : 2u;
 	assert(ternary == 1ULL);
-	uint macro_modulo = 130u % OP_CAP;
-	assert(macro_modulo == 2u);
+	uint macroModulo = 130u % OP_CAP;
+	assert(macroModulo == 2u);
 
-	raw_values[1] = 10;
-	receiver_calls = 0;
-	index_calls = 0;
-	rhs_calls = 0;
-	raw_receiver()[index_probe()] += rhs_probe();
-	assert(raw_values[1] == 14);
-	assert(receiver_calls == 1 && index_calls == 1 && rhs_calls == 1);
-	receiver_calls = 0;
-	index_calls = 0;
-	int raw_old = raw_receiver()[index_probe()]++;
-	int raw_new = ++raw_receiver()[index_probe()];
-	assert(raw_old == 14 && raw_new == 16);
-	assert(receiver_calls == 2 && index_calls == 2);
+	rawValues[1] = 10;
+	receiverCalls = 0;
+	indexCalls = 0;
+	rhsCalls = 0;
+	rawReceiver()[indexProbe()] += rhsProbe();
+	assert(rawValues[1] == 14);
+	assert(receiverCalls == 1 && indexCalls == 1 && rhsCalls == 1);
+	receiverCalls = 0;
+	indexCalls = 0;
+	int rawOld = rawReceiver()[indexProbe()]++;
+	int rawNew = ++rawReceiver()[indexProbe()];
+	assert(rawOld == 14 && rawNew == 16);
+	assert(receiverCalls == 2 && indexCalls == 2);
 
 	gauge = new Gauge(10);
-	receiver_calls = 0;
-	rhs_calls = 0;
-	int property_result = gauge_probe().value += rhs_probe();
-	assert(property_result == 14 && gauge.value == 14);
-	assert(receiver_calls == 1 && rhs_calls == 1);
-	assert(getter_calls == 2 && setter_calls == 1);
-	getter_calls = 0;
-	setter_calls = 0;
-	receiver_calls = 0;
-	int property_old = gauge_probe().value++;
-	int property_new = ++gauge_probe().value;
-	assert(property_old == 14 && property_new == 16 && gauge.value == 16);
-	assert(receiver_calls == 2 && getter_calls == 3 && setter_calls == 2);
+	receiverCalls = 0;
+	rhsCalls = 0;
+	int propertyResult = gaugeProbe().value += rhsProbe();
+	assert(propertyResult == 14 && gauge.value == 14);
+	assert(receiverCalls == 1 && rhsCalls == 1);
+	assert(getterCalls == 2 && setterCalls == 1);
+	getterCalls = 0;
+	setterCalls = 0;
+	receiverCalls = 0;
+	int propertyOld = gaugeProbe().value++;
+	int propertyNew = ++gaugeProbe().value;
+	assert(propertyOld == 14 && propertyNew == 16 && gauge.value == 16);
+	assert(receiverCalls == 2 && getterCalls == 3 && setterCalls == 2);
 
 	vector = [10, 20];
-	receiver_calls = 0;
-	index_calls = 0;
-	rhs_calls = 0;
-	int vector_result = vector_probe()[index_probe()] += rhs_probe();
-	assert(vector_result == 24 && vector[1] == 24);
-	assert(receiver_calls == 1 && index_calls == 1 && rhs_calls == 1);
-	receiver_calls = 0;
-	index_calls = 0;
-	int vector_old = vector_probe()[index_probe()]++;
-	int vector_new = ++vector_probe()[index_probe()];
-	assert(vector_old == 24 && vector_new == 26 && vector[1] == 26);
-	assert(receiver_calls == 2 && index_calls == 2);
+	receiverCalls = 0;
+	indexCalls = 0;
+	rhsCalls = 0;
+	int vectorResult = vectorProbe()[indexProbe()] += rhsProbe();
+	assert(vectorResult == 24 && vector[1] == 24);
+	assert(receiverCalls == 1 && indexCalls == 1 && rhsCalls == 1);
+	receiverCalls = 0;
+	indexCalls = 0;
+	int vectorOld = vectorProbe()[indexProbe()]++;
+	int vectorNew = ++vectorProbe()[indexProbe()];
+	assert(vectorOld == 24 && vectorNew == 26 && vector[1] == 26);
+	assert(receiverCalls == 2 && indexCalls == 2);
 
 	Worker worker = new Worker();
 	assert(worker.update(vector, 1, 4) == 30 && vector[1] == 30);
-	getter_calls = 0;
-	setter_calls = 0;
+	getterCalls = 0;
+	setterCalls = 0;
 	assert(worker.updateGauge(gauge, 4) == 20);
-	assert(getter_calls == 1 && setter_calls == 1 && gauge.value == 20);
+	assert(getterCalls == 1 && setterCalls == 1 && gauge.value == 20);
 
-	long long direct_wide = 8589934592LL;
-	direct_wide /= 2LL;
-	direct_wide %= 3LL;
-	assert(direct_wide == 1LL);
+	long long directWide = 8589934592LL;
+	directWide /= 2LL;
+	directWide %= 3LL;
+	assert(directWide == 1LL);
 
 	Base base = new Base();
 	Child child = new Child();
@@ -237,9 +237,9 @@ int main() {
 	__fn_ptr<int, int> callback = identity;
 	assert(callback == callback);
 	assert(callback != null);
-	GenericBase<int> generic_base = new GenericBase<int>();
-	GenericBase<int> generic_other = new GenericBase<int>();
-	assert(generic_base != generic_other);
+	GenericBase<int> genericBase = new GenericBase<int>();
+	GenericBase<int> genericOther = new GenericBase<int>();
+	assert(genericBase != genericOther);
 
 	print("PASS: test_typed_operator_lvalue_parity");
 	return 0;

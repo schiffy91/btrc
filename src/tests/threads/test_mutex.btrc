@@ -30,9 +30,9 @@ int main() {
 
 	// Note: without atomic increment, final value may be less than 2000
 	// due to race conditions. But it should be > 0 and <= 2000.
-	int final_val = counter.get();
-	if (final_val <= 0) { return 2; }
-	if (final_val > 2000) { return 3; }
+	int finalVal = counter.get();
+	if (finalVal <= 0) { return 2; }
+	if (finalVal > 2000) { return 3; }
 
 	counter.destroy();
 

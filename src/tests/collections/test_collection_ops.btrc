@@ -5,14 +5,14 @@ import std.vector;
 
 #include <assert.h>
 
-int double_it(int x) { return x * 2; }
+int doubleIt(int x) { return x * 2; }
 
-bool is_even(int x) { return x % 2 == 0; }
+bool isEven(int x) { return x % 2 == 0; }
 
 int main() {
 	// ---- List.map() ----
 	Vector<int> nums = [1, 2, 3, 4, 5];
-	Vector<int> doubled = nums.map(double_it);
+	Vector<int> doubled = nums.map(doubleIt);
 	assert(doubled.size() == 5);
 	assert(doubled.get(0) == 2);
 	assert(doubled.get(1) == 4);

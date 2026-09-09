@@ -45,13 +45,13 @@ int main() {
 	Set<string> empty = {};
 	assert(empty.any(isLong) == false);
 	assert(empty.all(isLong) == true);
-	Set<string> empty_f = empty.filter(isLong);
-	assert(empty_f.size() == 0);
+	Set<string> emptyF = empty.filter(isLong);
+	assert(emptyF.size() == 0);
 
 	s.free();
 	longs.free();
 	empty.free();
-	empty_f.free();
+	emptyF.free();
 
 	printf("PASS: test_set_string_hof\n");
 	return 0;

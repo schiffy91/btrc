@@ -2,8 +2,8 @@ import std.datetime;
 import std.FileSystem;
 import std.io;
 import std.terminal;
-import std.terminal_clock;
-import std.terminal_password;
+import std.TerminalClock;
+import std.TerminalPassword;
 
 #include <assert.h>
 #include <errno.h>

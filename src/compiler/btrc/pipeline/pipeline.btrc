@@ -40,11 +40,11 @@ class CompilerPipeline {
 		FeFrontendResolver resolver = FeFrontendResolver(self.grammar, self.stdlib, options.includeStdlib, options.strictImports, packages);
 		FeResolvedSource resolved = resolver.resolve(source, sourcePath);
 		packages.linkPlan.restrictToSources(resolved.dependencies.sourceIdentities());
-		string backgroundJobsModule = PathTools.join(self.stdlib.directory(), "background_jobs.btrc");
+		string backgroundJobsModule = PathTools.join(self.stdlib.directory(), "BackgroundJobs.btrc");
 		if (resolved.dependencies.hasSource(FeSourcePathPolicy().identity(backgroundJobsModule))) {
 			packages.linkPlan.requireStdlibBackgroundJobs(self.stdlib.directory());
 		}
-		string localApplicationChannelModule = PathTools.join(self.stdlib.directory(), "local_application_channel.btrc");
+		string localApplicationChannelModule = PathTools.join(self.stdlib.directory(), "LocalApplicationChannel.btrc");
 		if (resolved.dependencies.hasSource(FeSourcePathPolicy().identity(localApplicationChannelModule))) {
 			packages.linkPlan.requireStdlibLocalApplicationChannel(self.stdlib.directory());
 		}

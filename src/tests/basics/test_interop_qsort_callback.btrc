@@ -3,7 +3,7 @@
 
 // A btrc free function used as a C library callback: passed by name as a
 // function pointer to qsort.
-int cmp_int(const void* a, const void* b) {
+int cmpInt(const void* a, const void* b) {
 	int x = *(const int*)a;
 	int y = *(const int*)b;
 	if (x < y) { return -1; }
@@ -13,7 +13,7 @@ int cmp_int(const void* a, const void* b) {
 
 int main() {
 	int arr[6] = {5, 3, 1, 4, 2, 0};
-	CFunction<int, const void*, const void*> comparator = cmp_int;
+	CFunction<int, const void*, const void*> comparator = cmpInt;
 	qsort(arr, 6, sizeof(int), comparator);
 
 	for (int i = 0; i < 5; i++) {

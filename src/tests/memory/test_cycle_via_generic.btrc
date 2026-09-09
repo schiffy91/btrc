@@ -5,7 +5,7 @@
  * which leaks). */
 #include <assert.h>
 
-int node_count = 0;
+int nodeCount = 0;
 
 class Holder<T> {
 	public T val;
@@ -20,17 +20,17 @@ class Node {
 	public Node(int id) {
 		self.id = id;
 		self.link = new Holder<Node>();
-		node_count++;
+		nodeCount++;
 	}
 
-	public void __del__() { node_count--; }
+	public void __del__() { nodeCount--; }
 }
 
 int main() {
 	{
 		Node a = new Node(1);
 		Node b = new Node(2);
-		assert(node_count == 2);
+		assert(nodeCount == 2);
 
 		// Cycle via the generic field: a.link.val -> b, b.link.val -> a.
 		a.link.val = b;
@@ -39,7 +39,7 @@ int main() {
 		assert(b.link.val.id == 1);
 		// scope exit: the generic-mediated cycle is detected and collected.
 	}
-	assert(node_count == 0);
+	assert(nodeCount == 0);
 
 	print("PASS: test_cycle_via_generic");
 	return 0;

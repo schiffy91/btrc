@@ -79,9 +79,9 @@ class Strings {
 		char* result = (char*)__btrc_safe_realloc(NULL, (size_t)total + (size_t)1);
 		int pos = 0;
 		string first = items.get(0) == null ? "" : items.get(0);
-		int first_len = Strings.checkedLength(first);
-		memcpy(result, first, (size_t)first_len);
-		pos = first_len;
+		int firstLen = Strings.checkedLength(first);
+		memcpy(result, first, (size_t)firstLen);
+		pos = firstLen;
 		for i in range(1, items.len) {
 			memcpy(result + pos, sep, seplen);
 			pos = pos + seplen;
@@ -365,17 +365,17 @@ class Strings {
 		if (s == null) { s = ""; }
 		int slen = Strings.checkedLength(s);
 		if (slen >= width) { return Strings.copy(s); }
-		int total_pad = width - slen;
-		int left_pad = total_pad / 2;
-		int right_pad = total_pad - left_pad;
+		int totalPad = width - slen;
+		int leftPad = totalPad / 2;
+		int rightPad = totalPad - leftPad;
 		if (width > 2147483646) {
 			fprintf(stderr, "string padding overflow\n");
 			exit(1);
 		}
 		char* result = (char*)__btrc_safe_realloc(NULL, (size_t)width + (size_t)1);
-		for i in range(left_pad) { result[i] = fill; }
-		memcpy(result + left_pad, s, slen);
-		for i in range(right_pad) { result[left_pad + slen + i] = fill; }
+		for i in range(leftPad) { result[i] = fill; }
+		memcpy(result + leftPad, s, slen);
+		for i in range(rightPad) { result[leftPad + slen + i] = fill; }
 		result[width] = '\0';
 		return __btrc_str_track(result);
 	}

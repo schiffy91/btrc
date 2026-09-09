@@ -48,12 +48,12 @@ int main() {
 	assert(strcmp(names[3], "dave") == 0);
 
 	// for-in iteration over string list
-	int total_len = 0;
+	int totalLen = 0;
 	for name in names {
-		total_len += (int)strlen(name);
+		totalLen += (int)strlen(name);
 	}
 	// "alice"=5 + "bob"=3 + "carol"=5 + "dave"=4 = 17
-	assert(total_len == 17);
+	assert(totalLen == 17);
 
 	names.free();
 

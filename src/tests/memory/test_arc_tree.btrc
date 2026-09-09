@@ -1,7 +1,7 @@
 /* ARC tree test: binary search tree with refcounted nodes */
 #include <assert.h>
 
-int node_count = 0;
+int nodeCount = 0;
 
 class TreeNode {
 	public int value;
@@ -12,10 +12,10 @@ class TreeNode {
 		self.value = value;
 		self.left = null;
 		self.right = null;
-		node_count++;
+		nodeCount++;
 	}
 
-	public void __del__() { node_count--; }
+	public void __del__() { nodeCount--; }
 }
 
 class BST {
@@ -82,7 +82,7 @@ TreeNode makeNode(int val) {
 
 int main() {
 	// ---- Phase 1: Build a BST ----
-	assert(node_count == 0);
+	assert(nodeCount == 0);
 
 	BST tree = new BST();
 	TreeNode n50 = new TreeNode(50);
@@ -90,7 +90,7 @@ int main() {
 	TreeNode n70 = new TreeNode(70);
 	TreeNode n20 = new TreeNode(20);
 	TreeNode n40 = new TreeNode(40);
-	assert(node_count == 5);
+	assert(nodeCount == 5);
 
 	tree.insert(n50);
 	tree.insert(n30);
@@ -118,7 +118,7 @@ int main() {
 	// ---- Phase 3: Add more via factory function ----
 	TreeNode n10 = makeNode(10);
 	TreeNode n60 = makeNode(60);
-	assert(node_count == 7);
+	assert(nodeCount == 7);
 
 	tree.insert(n10);
 	tree.insert(n60);
@@ -133,7 +133,7 @@ int main() {
 	// This tests the destructor chain with refcounting.
 	delete tree;
 	// Nodes still alive because local vars hold references (from keep at insert)
-	assert(node_count == 7);
+	assert(nodeCount == 7);
 
 	// Clean up local refs
 	delete n50;
@@ -143,7 +143,7 @@ int main() {
 	delete n40;
 	delete n10;
 	delete n60;
-	assert(node_count == 0);
+	assert(nodeCount == 0);
 
 	// ---- Phase 5: Scope-exit cleanup via keep ----
 	{
@@ -152,14 +152,14 @@ int main() {
 		TreeNode b = new TreeNode(200);
 		t2.insert(a);
 		t2.insert(b);
-		assert(node_count == 2);
+		assert(nodeCount == 2);
 		assert(t2.size() == 2);
 		// Explicit cleanup in scope
 		delete t2;
 		delete a;
 		delete b;
 	}
-	assert(node_count == 0);
+	assert(nodeCount == 0);
 
 	print("PASS: test_arc_tree");
 	return 0;

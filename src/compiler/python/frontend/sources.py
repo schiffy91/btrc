@@ -695,12 +695,12 @@ _PRIORITY_FILES = (
 # resolver retains those requirements.
 _EXPLICIT_STDLIB_MODULES = frozenset(
     {
-        "background_jobs.btrc",
+        "BackgroundJobs.btrc",
         "CoreAudioDevice.btrc",
-        "local_application_channel.btrc",
+        "LocalApplicationChannel.btrc",
         "MacOsEncodedImageDecoder.btrc",
-        "native_ui.btrc",
-        "native_ui_app.btrc",
+        "NativeUi.btrc",
+        "NativeUiApp.btrc",
         # Its process callback lives in realtime_clip_transport/Runtime.btrc.
         # Relaxed composition drops nested imports, so composing this module
         # would leave that callback undeclared.
@@ -1002,11 +1002,11 @@ class SourceResolver:
         native_plan = packages.native_plan.for_sources(graph.source_paths())
         background_jobs_module = os.path.join(
             self.stdlib.directory(),
-            "background_jobs.btrc",
+            "BackgroundJobs.btrc",
         )
         if graph.has_source(background_jobs_module):
             native_plan = native_plan.with_stdlib_background_jobs(self.stdlib.directory())
-        local_application_channel_module = os.path.join(self.stdlib.directory(), "local_application_channel.btrc")
+        local_application_channel_module = os.path.join(self.stdlib.directory(), "LocalApplicationChannel.btrc")
         if graph.has_source(local_application_channel_module):
             native_plan = native_plan.with_stdlib_local_application_channel(self.stdlib.directory())
         core_audio_device_module = os.path.join(self.stdlib.directory(), "CoreAudioDevice.btrc")

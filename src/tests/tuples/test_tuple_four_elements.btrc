@@ -1,9 +1,9 @@
 #include <assert.h>
 
-(int, float, string, bool) make_quad() { return (1, 2.5f, "x", true); }
+(int, float, string, bool) makeQuad() { return (1, 2.5f, "x", true); }
 
 int main() {
-	(int, float, string, bool) t = make_quad();
+	(int, float, string, bool) t = makeQuad();
 	assert(t._0 == 1);
 	assert(t._1 > 2.4f && t._1 < 2.6f);
 	assert(t._2 == "x");

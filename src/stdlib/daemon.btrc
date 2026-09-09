@@ -4,9 +4,9 @@
  */
 
 import std.FileSystem;
-import std.daemon_control;
-import std.daemon_control_files;
-import std.daemon_control_protocol;
+import std.DaemonControl;
+import std.DaemonControlFiles;
+import std.DaemonControlProtocol;
 import std.process;
 import std.vector;
 

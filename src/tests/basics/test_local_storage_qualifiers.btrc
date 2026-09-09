@@ -6,7 +6,7 @@ int nextCount() {
 	return count;
 }
 
-void declareExternal() { extern int external_only_declaration; }
+void declareExternal() { extern int externalOnlyDeclaration; }
 
 int main() {
 	declareExternal();

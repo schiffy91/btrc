@@ -3,7 +3,7 @@
  * to a longer ring. */
 #include <assert.h>
 
-int node_count = 0;
+int nodeCount = 0;
 
 class Node {
 	public int id;
@@ -12,10 +12,10 @@ class Node {
 	public Node(int id) {
 		self.id = id;
 		self.next = null;
-		node_count++;
+		nodeCount++;
 	}
 
-	public void __del__() { node_count--; }
+	public void __del__() { nodeCount--; }
 }
 
 int main() {
@@ -23,7 +23,7 @@ int main() {
 		Node a = new Node(1);
 		Node b = new Node(2);
 		Node c = new Node(3);
-		assert(node_count == 3);
+		assert(nodeCount == 3);
 
 		// Ring: a -> b -> c -> a (each field assign does rc++ on the target).
 		a.next = b;
@@ -36,7 +36,7 @@ int main() {
 		// scope exit: all three locals dropped to rc=1 by the cyclic field refs;
 		// the trial-deletion collector detects the unreachable 3-ring and frees it.
 	}
-	assert(node_count == 0);
+	assert(nodeCount == 0);
 
 	print("PASS: test_cycle_three_node");
 	return 0;

@@ -1,6 +1,6 @@
 # Native UI input contracts
 
-`std.native_ui` keeps rendering and input portable without exposing platform
+`std.NativeUi` keeps rendering and input portable without exposing platform
 handles. `NativeUiStyleSheet` and per-element styles affect appearance only.
 
 The native GPU compositor antialiases rounded rectangle corners at framebuffer

@@ -4,7 +4,7 @@
  * (phased release + cycle collection) -- no leak, no use-after-free. */
 #include <assert.h>
 
-int node_count = 0;
+int nodeCount = 0;
 
 class Node {
 	public int id;
@@ -13,10 +13,10 @@ class Node {
 	public Node(int id) {
 		self.id = id;
 		self.next = null;
-		node_count++;
+		nodeCount++;
 	}
 
-	public void __del__() { node_count--; }
+	public void __del__() { nodeCount--; }
 }
 
 int main() {
@@ -26,22 +26,22 @@ int main() {
 		Node b = new Node(2);
 		a.next = b;
 		b.next = a;
-		assert(node_count == 2);
+		assert(nodeCount == 2);
 		throw "boom";
 	} catch (string e) {
 		// exception cleanup must reclaim the cycle.
 	}
-	assert(node_count == 0);
+	assert(nodeCount == 0);
 
 	// Self-loop unwound by a throw.
 	try {
 		Node n = new Node(3);
 		n.next = n;
-		assert(node_count == 1);
+		assert(nodeCount == 1);
 		throw "again";
 	} catch (string e) {
 	}
-	assert(node_count == 0);
+	assert(nodeCount == 0);
 
 	print("PASS: test_cycle_and_throw");
 	return 0;

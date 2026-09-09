@@ -1,5 +1,5 @@
 /* Injectable strict-C11 boundaries for daemon-control monotonic time. */
-import std.daemon_control;
+import std.DaemonControl;
 
 #include <assert.h>
 

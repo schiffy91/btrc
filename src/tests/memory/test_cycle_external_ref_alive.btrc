@@ -4,7 +4,7 @@
  * reference is released the cycle becomes collectible. */
 #include <assert.h>
 
-int node_count = 0;
+int nodeCount = 0;
 
 class Node {
 	public int id;
@@ -13,10 +13,10 @@ class Node {
 	public Node(int id) {
 		self.id = id;
 		self.next = null;
-		node_count++;
+		nodeCount++;
 	}
 
-	public void __del__() { node_count--; }
+	public void __del__() { nodeCount--; }
 }
 
 int main() {
@@ -27,18 +27,18 @@ int main() {
 		Node b = new Node(2);        // rc 1
 		a.next = b;                  // b.rc -> 2
 		b.next = a;                  // a(ext).rc -> 3
-		assert(node_count == 2);
+		assert(nodeCount == 2);
 		assert(a.next.id == 2);
 		// inner scope exit drops a and b's local refs, but ext still points at a,
 		// so the cycle remains externally reachable and must survive.
 	}
-	assert(node_count == 2);
+	assert(nodeCount == 2);
 	assert(ext.id == 1);
 	assert(ext.next.id == 2);
 
 	// Drop the external reference: now the cycle is unreachable and reclaimable.
 	release ext;
-	assert(node_count == 0);
+	assert(nodeCount == 0);
 
 	print("PASS: test_cycle_external_ref_alive");
 	return 0;

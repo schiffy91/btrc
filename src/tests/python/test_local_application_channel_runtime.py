@@ -22,7 +22,7 @@ PACKAGE_NAME = "btrc_stdlib_local_application_channel_runtime"
 
 PLANNED_CONSUMER = """\
 import std.bytes;
-import std.local_application_channel;
+import std.LocalApplicationChannel;
 
 int main() {
     LocalApplicationChannelConfiguration configuration = LocalApplicationChannelConfiguration.standard();

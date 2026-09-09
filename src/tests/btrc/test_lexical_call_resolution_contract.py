@@ -228,7 +228,7 @@ def _custom_stdlib_root(tmp_path: Path, probe: str, user_path: Path) -> Path:
     shutil.copy2(REPO / "src/language/grammar.ebnf", language / "grammar.ebnf")
     for source in (REPO / "src/stdlib").glob("*.btrc"):
         shutil.copy2(source, stdlib / source.name)
-    (stdlib / "hosted_value_probe.btrc").write_text(f"import {json.dumps(str(user_path))};\n{probe}")
+    (stdlib / "HostedValueProbe.btrc").write_text(f"import {json.dumps(str(user_path))};\n{probe}")
     return root
 
 
@@ -339,7 +339,7 @@ def test_hosted_stdlib_function_values_fail_closed_under_user_shadows(
 ) -> None:
     program = tmp_path / "hosted-value-shadow.btrc"
     data_root = _custom_stdlib_root(tmp_path, probe, program)
-    source = f"import std.hosted_value_probe;\n{user_source}"
+    source = f"import std.HostedValueProbe;\n{user_source}"
     program.write_text(source)
 
     selfhost = subprocess.run(

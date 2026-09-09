@@ -2,7 +2,7 @@
  * The cycle collector must reclaim a self-referential node at scope exit. */
 #include <assert.h>
 
-int node_count = 0;
+int nodeCount = 0;
 
 class Node {
 	public int id;
@@ -11,16 +11,16 @@ class Node {
 	public Node(int id) {
 		self.id = id;
 		self.next = null;
-		node_count++;
+		nodeCount++;
 	}
 
-	public void __del__() { node_count--; }
+	public void __del__() { nodeCount--; }
 }
 
 int main() {
 	{
 		Node n = new Node(1);
-		assert(node_count == 1);
+		assert(nodeCount == 1);
 
 		// Self-loop: n.next = n  (field assign rc++ -> rc=2).
 		n.next = n;
@@ -29,7 +29,7 @@ int main() {
 		// scope exit: --rc -> 1 (still referenced by its own field), then the
 		// trial-deletion collector detects the unreachable self-cycle and frees it.
 	}
-	assert(node_count == 0);
+	assert(nodeCount == 0);
 
 	print("PASS: test_cycle_self_loop");
 	return 0;

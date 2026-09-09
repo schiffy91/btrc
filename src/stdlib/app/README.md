@@ -10,7 +10,7 @@ so delayed dispatch does not change double-click recognition. macOS owns the
 user's timing/spatial preference. Platforms without a click-count provider
 currently report one for button events; native multi-click support there is
 unfinished. Synthetic events can supply the optional constructor argument.
-`std.native_ui_app` forwards the count to shared text fields: double-click
+`std.NativeUiApp` forwards the count to shared text fields: double-click
 selects a word, dragging extends by whole words, and triple-click selects the
 line. Shift-click retains anchor-based selection.
 

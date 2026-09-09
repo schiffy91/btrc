@@ -4,12 +4,12 @@
 #include "test_extern_defs_helper.btrc"
 #include <assert.h>
 
-extern int shared_counter;
+extern int sharedCounter;
 
 int main() {
-	assert(shared_counter == 7);
-	shared_counter += 35;
-	assert(shared_counter == 42);
+	assert(sharedCounter == 7);
+	sharedCounter += 35;
+	assert(sharedCounter == 42);
 	print("PASS: test_interop_extern_across_include");
 	return 0;
 }

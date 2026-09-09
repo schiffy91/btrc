@@ -7,7 +7,7 @@ import ./cunion/num.c
 // Here the C union is used as a btrc local var, via pointer deref, as a function
 // parameter, and as a C-array element. `struct IDENT` interop has 12 corpus
 // files; this closes the parallel gap for `union IDENT`.
-int as_int(union Num n) { return n.i; }
+int asInt(union Num n) { return n.i; }
 
 int main() {
 	union Num a;
@@ -24,7 +24,7 @@ int main() {
 	p->i = 99;
 	assert(a.i == 99);
 
-	assert(as_int(a) == 99);
+	assert(asInt(a) == 99);
 
 	union Num arr[2];
 	arr[0].i = 1;

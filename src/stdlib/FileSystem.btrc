@@ -71,19 +71,19 @@ class FileStatus {
 class DirectoryStream {
 	private DIR* handle;
 	private string current;
-	private bool is_open;
-	private bool io_failed;
+	private bool isOpen;
+	private bool ioFailed;
 
 	public DirectoryStream(string path) {
 		self.current = "";
 		self.handle = path == null ? NULL : opendir(path);
-		self.is_open = self.handle != NULL;
-		self.io_failed = !self.is_open;
+		self.isOpen = self.handle != NULL;
+		self.ioFailed = !self.isOpen;
 	}
 
-	public bool ok() { return self.is_open; }
+	public bool ok() { return self.isOpen; }
 
-	public bool failed() { return self.io_failed; }
+	public bool failed() { return self.ioFailed; }
 
 	/* The entry reached by the most recent successful next(). */
 	public string name() { return self.current; }
@@ -91,12 +91,12 @@ class DirectoryStream {
 	/* Advance past "." and ".." to the next real entry. */
 	public bool next() {
 		bool advanced = false;
-		bool done = !self.is_open;
+		bool done = !self.isOpen;
 		while (!done) {
 			errno = 0;
 			struct dirent* entry = readdir(self.handle);
 			if (entry == NULL) {
-				if (errno != 0) { self.io_failed = true; }
+				if (errno != 0) { self.ioFailed = true; }
 				done = true;
 			} else {
 				string entryName = entry->d_name;
@@ -111,40 +111,40 @@ class DirectoryStream {
 	}
 
 	public bool close() {
-		if (self.is_open) {
-			self.is_open = false;
-			if (closedir(self.handle) != 0) { self.io_failed = true; }
+		if (self.isOpen) {
+			self.isOpen = false;
+			if (closedir(self.handle) != 0) { self.ioFailed = true; }
 			self.handle = NULL;
 		}
-		return !self.io_failed;
+		return !self.ioFailed;
 	}
 }
 
 class Directory {
 	public string path;
-	private bool io_failed;
+	private bool ioFailed;
 
 	public Directory(string path) {
 		self.path = path;
-		self.io_failed = false;
+		self.ioFailed = false;
 	}
 
-	public bool failed() { return self.io_failed; }
+	public bool failed() { return self.ioFailed; }
 
 	/* Materialize every name in this directory.  Vector growth carries its own
      * integer-overflow protection; the only other bound is host memory. */
 	public Vector<string> entries() {
 		Vector<string> result = [];
-		self.io_failed = false;
+		self.ioFailed = false;
 		DirectoryStream stream = DirectoryStream(self.path);
 		if (!stream.ok()) {
-			self.io_failed = true;
+			self.ioFailed = true;
 			return result;
 		}
 		while (stream.next()) {
 			result.push(stream.name());
 		}
-		if (!stream.close()) { self.io_failed = true; }
+		if (!stream.close()) { self.ioFailed = true; }
 		return result;
 	}
 

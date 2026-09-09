@@ -18,14 +18,14 @@ int fib(int n) {
 }
 
 // ---- Collatz conjecture step counter ----
-int collatz_steps(int n) {
+int collatzSteps(int n) {
 	if (n == 1) {
 		return 0;
 	}
 	if (n % 2 == 0) {
-		return 1 + collatz_steps(n / 2);
+		return 1 + collatzSteps(n / 2);
 	}
-	return 1 + collatz_steps(3 * n + 1);
+	return 1 + collatzSteps(3 * n + 1);
 }
 
 // ---- Power function (recursive) ----
@@ -37,11 +37,11 @@ int power(int base, int exp) {
 }
 
 // ---- Sum of digits (recursive) ----
-int digit_sum(int n) {
+int digitSum(int n) {
 	if (n < 10) {
 		return n;
 	}
-	return (n % 10) + digit_sum(n / 10);
+	return (n % 10) + digitSum(n / 10);
 }
 
 // ---- GCD (Euclidean algorithm) ----
@@ -67,11 +67,11 @@ int main() {
 	assert(fib(10) == 55);
 
 	// ---- Collatz ----
-	assert(collatz_steps(1) == 0);
-	assert(collatz_steps(2) == 1);
-	assert(collatz_steps(3) == 7);
-	assert(collatz_steps(6) == 8);
-	assert(collatz_steps(27) == 111);
+	assert(collatzSteps(1) == 0);
+	assert(collatzSteps(2) == 1);
+	assert(collatzSteps(3) == 7);
+	assert(collatzSteps(6) == 8);
+	assert(collatzSteps(27) == 111);
 
 	// ---- Power ----
 	assert(power(2, 0) == 1);
@@ -79,10 +79,10 @@ int main() {
 	assert(power(3, 5) == 243);
 
 	// ---- Digit sum ----
-	assert(digit_sum(0) == 0);
-	assert(digit_sum(9) == 9);
-	assert(digit_sum(123) == 6);
-	assert(digit_sum(9999) == 36);
+	assert(digitSum(0) == 0);
+	assert(digitSum(9) == 9);
+	assert(digitSum(123) == 6);
+	assert(digitSum(9999) == 36);
 
 	// ---- GCD ----
 	assert(gcd(12, 8) == 4);
