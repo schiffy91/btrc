@@ -1,0 +1,1 @@
+{"asset":"process.c","btrc_order":178,"category":"process","dependencies":[],"headers":["errno.h","sys/types.h","unistd.h"],"name":"__btrc_posix_spawn_cloexec","provided_objects":[],"provided_types":[],"python_order":193,"source_sha256":"fac5da40010bd2ccf7879855af729feedafb66d1fe753c279d8cb9c21f419b64","source_size":3758,"source_visible":true}

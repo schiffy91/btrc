@@ -186,13 +186,15 @@ static pid_t __btrc_posix_spawn_cloexec(
         error = __btrc_spawn_close_source(
             &actions, stdin_source, stdout_source, stderr_source);
     if (error == 0 && cwd != NULL && cwd[0] != '\0') {
-#if defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#endif
+        /* macOS 26 replaced the _np spelling with the plain POSIX one and
+         * deprecated the old name. Picking the spelling the deployment target
+         * actually declares leaves both branches warning-free, so no compiler
+         * diagnostic has to be silenced to keep -Werror builds green. */
+#if defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && defined(__MAC_26_0) \
+        && __MAC_OS_X_VERSION_MIN_REQUIRED >= __MAC_26_0
+        error = posix_spawn_file_actions_addchdir(&actions, cwd);
+#else
         error = posix_spawn_file_actions_addchdir_np(&actions, cwd);
-#if defined(__GNUC__)
-#pragma GCC diagnostic pop
 #endif
     }
     if (error == 0)

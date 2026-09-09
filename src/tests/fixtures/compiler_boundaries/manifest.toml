@@ -1415,9 +1415,9 @@ channel = "asset.process_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.process_c.bin"
 baseline_sha256 = "8d35b40f606ef8d82a96f24b7f15807dcd484cd40c5b3cdef6d3ae8e1934ee1f"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.process_c.bin"
-accepted_sha256 = "b61853b5cab965a22b5dcb80e38ee80113e0cfc17635fd8ba95061e4d3416f06"
-reason = "ChildProcess.run gained an opt-in foreground mode that hands the controlling terminal to the child's process group, so the process runtime asset and helper order carry three new terminal helpers."
-regressions = ["src/tests/python/test_stdlib_process_security.py"]
+accepted_sha256 = "ebf1b277ad9a80564d39e4fad1db5f1f237ed88fbd1f9b335bc939878d011e05"
+reason = "Select the spawn chdir spelling by macOS deployment target instead of silencing a deprecation with a compiler pragma; both spellings compile warning-free under -Werror."
+regressions = ["src/tests/python/test_process_descriptor_remap.py", "src/tests/python/test_stdlib_process_security.py", "src/tests/python/test_c_warning_contracts.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-source.asset.strings_c"
@@ -3088,6 +3088,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_posix_spawn_cloexec"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0153.bin"
 baseline_sha256 = "2757c47cd1cea5cb953a32e7d82628b2761756a6b8060b71d545e8a0b2ddb485"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0153.bin"
+accepted_sha256 = "869536407b6fac683d3f4b9f5bef8c2291d9c38ae8b82041124d0f625c263a4f"
+reason = "Select the spawn chdir spelling by macOS deployment target instead of silencing a deprecation with a compiler pragma; both spellings compile warning-free under -Werror."
+regressions = ["src/tests/python/test_process_descriptor_remap.py", "src/tests/python/test_stdlib_process_security.py", "src/tests/python/test_c_warning_contracts.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0154"
