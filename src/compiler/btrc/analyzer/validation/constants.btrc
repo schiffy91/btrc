@@ -154,10 +154,10 @@ class ConstantValidator {
 			return self.integerLiteralConstant(expression);
 		}
 		if (expression.kind == NK_BOOL_LITERAL) {
-			return self.knownConstant(expression.value_bool ? 1 : 0);
+			return self.knownConstant(expression.valueBool ? 1 : 0);
 		}
 		if (expression.kind == NK_CHAR_LITERAL) {
-			return self.characterConstant(expression.value_string);
+			return self.characterConstant(expression.valueString);
 		}
 		if (expression.kind == NK_IDENTIFIER) {
 			if (restrictEnum) {
@@ -221,8 +221,8 @@ class ConstantValidator {
 		}
 		if (expression.kind == NK_TERNARY_EXPR) {
 			SemanticIntegerConstant condition = self.integerConstant(expression.condition, restrictEnum, enumOwner, allowedMembers);
-			SemanticIntegerConstant whenTrue = self.integerConstant(expression.true_expr, restrictEnum, enumOwner, allowedMembers);
-			SemanticIntegerConstant whenFalse = self.integerConstant(expression.false_expr, restrictEnum, enumOwner, allowedMembers);
+			SemanticIntegerConstant whenTrue = self.integerConstant(expression.trueExpr, restrictEnum, enumOwner, allowedMembers);
+			SemanticIntegerConstant whenFalse = self.integerConstant(expression.falseExpr, restrictEnum, enumOwner, allowedMembers);
 			if (!condition.valid || !whenTrue.valid || !whenFalse.valid) {
 				return self.invalidConstant();
 			}
@@ -254,8 +254,8 @@ class ConstantValidator {
 		while (index < declaration.values.len) {
 			Node value = declaration.values.get(index);
 			SemanticIntegerConstant result = self.unknownConstant();
-			if (value.value_node != null) {
-				result = self.integerConstant(value.value_node, true, declaration.name, prior);
+			if (value.valueNode != null) {
+				result = self.integerConstant(value.valueNode, true, declaration.name, prior);
 				if (!result.valid) {
 					TypeValidator.fail("Enum value '" + value.name + "' requires an integral constant expression using only " + "earlier members", value);
 				}
@@ -461,7 +461,7 @@ class ConstantValidator {
 	}
 
 	public SemanticIntegerConstant integralCastConstant(Node expression, bool restrictEnum, string enumOwner, Map<string, bool> allowedMembers) {
-		Node? resolved = self.types.resolveAliases(expression.target_type);
+		Node? resolved = self.types.resolveAliases(expression.targetType);
 		if (resolved == null || !self.types.integralType(resolved, self.state.analyzed)) {
 			return self.invalidConstant();
 		}

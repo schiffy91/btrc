@@ -42,7 +42,7 @@ class ControlFlowValidator {
 	}
 
 	private void prepareLambdaBody(Node expression, Map<string, Node> variables) {
-		Node body = expression.body_node;
+		Node body = expression.bodyNode;
 		if (body == null) { return; }
 		LambdaValidationPlan plan = self.expressions.planLambda(expression, variables);
 		Node? previousReturn = self.state.returnType;
@@ -58,9 +58,9 @@ class ControlFlowValidator {
 		self.state.borrowedBindings = self.types.cloneFlags(plan.borrowedBindings);
 		self.state.localBindings = self.types.cloneFlags(plan.localBindings);
 		if (body.kind == NK_LAMBDA_BLOCK) {
-			self.validateBlock(body.body_node, plan.variables);
+			self.validateBlock(body.bodyNode, plan.variables);
 			bool nonVoid = !TypeValidator.scalarVoid(plan.resultType);
-			if (nonVoid && !ExpressionTypeResolver.blockTerminates(body.body_node)) {
+			if (nonVoid && !ExpressionTypeResolver.blockTerminates(body.bodyNode)) {
 				TypeValidator.fail("Non-void lambda does not return on every path", expression);
 			}
 		} else if (body.kind == NK_LAMBDA_EXPR_BODY) {
@@ -100,10 +100,10 @@ class ControlFlowValidator {
 		self.prepareExpression(expression.obj, variables);
 		self.prepareExpression(expression.index, variables);
 		self.prepareExpression(expression.condition, variables);
-		self.prepareExpression(expression.true_expr, variables);
-		self.prepareExpression(expression.false_expr, variables);
+		self.prepareExpression(expression.trueExpr, variables);
+		self.prepareExpression(expression.falseExpr, variables);
 		self.prepareExpression(expression.target, variables);
-		self.prepareExpression(expression.value_node, variables);
+		self.prepareExpression(expression.valueNode, variables);
 		self.prepareExpression(expression.fn, variables);
 		self.prepareExpression(expression.key, variables);
 		self.prepareExpressionList(expression.args, variables);
@@ -171,10 +171,10 @@ class ControlFlowValidator {
 	class bool elseTerminates(Node? elseNode) {
 		if (elseNode == null) { return false; }
 		if (elseNode.kind == NK_ELSE_BLOCK) {
-			return ControlFlowValidator.blockTerminates(elseNode.body_node);
+			return ControlFlowValidator.blockTerminates(elseNode.bodyNode);
 		}
 		if (elseNode.kind == NK_ELSE_IF) {
-			return ControlFlowValidator.statementTerminates(elseNode.if_stmt);
+			return ControlFlowValidator.statementTerminates(elseNode.ifStmt);
 		}
 		return false;
 	}
@@ -185,8 +185,8 @@ class ControlFlowValidator {
 		int index = 0;
 		while (index < statement.cases.len) {
 			Node caseClause = statement.cases.get(index);
-			if (caseClause.value_node == null) { hasDefault = true; }
-			if (!ControlFlowValidator.statementSequenceTerminates(caseClause.body_nlist)) {
+			if (caseClause.valueNode == null) { hasDefault = true; }
+			if (!ControlFlowValidator.statementSequenceTerminates(caseClause.bodyNodeList)) {
 				return false;
 			}
 			index = index + 1;
@@ -211,18 +211,18 @@ class ControlFlowValidator {
 			return false;
 		}
 		if (node.kind == NK_IF_STMT) {
-			if (ControlFlowValidator.containsLoopBreak(node.then_block)) { return true; }
-			if (node.else_block == null) { return false; }
-			if (node.else_block.kind == NK_ELSE_BLOCK) {
-				return ControlFlowValidator.containsLoopBreak(node.else_block.body_node);
+			if (ControlFlowValidator.containsLoopBreak(node.thenBlock)) { return true; }
+			if (node.elseBlock == null) { return false; }
+			if (node.elseBlock.kind == NK_ELSE_BLOCK) {
+				return ControlFlowValidator.containsLoopBreak(node.elseBlock.bodyNode);
 			}
-			if (node.else_block.kind == NK_ELSE_IF) {
-				return ControlFlowValidator.containsLoopBreak(node.else_block.if_stmt);
+			if (node.elseBlock.kind == NK_ELSE_IF) {
+				return ControlFlowValidator.containsLoopBreak(node.elseBlock.ifStmt);
 			}
 			return false;
 		}
 		if (node.kind == NK_TRY_CATCH_STMT) {
-			return ControlFlowValidator.containsLoopBreak(node.try_block) || ControlFlowValidator.containsLoopBreak(node.catch_block) || ControlFlowValidator.containsLoopBreak(node.finally_block);
+			return ControlFlowValidator.containsLoopBreak(node.tryBlock) || ControlFlowValidator.containsLoopBreak(node.catchBlock) || ControlFlowValidator.containsLoopBreak(node.finallyBlock);
 		}
 		return false;
 	}
@@ -235,25 +235,25 @@ class ControlFlowValidator {
 			return ControlFlowValidator.blockTerminates(statement);
 		}
 		if (statement.kind == NK_IF_STMT) {
-			return ControlFlowValidator.blockTerminates(statement.then_block) && ControlFlowValidator.elseTerminates(statement.else_block);
+			return ControlFlowValidator.blockTerminates(statement.thenBlock) && ControlFlowValidator.elseTerminates(statement.elseBlock);
 		}
 		if (statement.kind == NK_SWITCH_STMT) {
 			return ControlFlowValidator.switchTerminates(statement);
 		}
 		if (statement.kind == NK_TRY_CATCH_STMT) {
-			if (ControlFlowValidator.blockTerminates(statement.finally_block)) { return true; }
-			bool tryTerminates = ControlFlowValidator.blockTerminates(statement.try_block);
-			if (statement.catch_block == null) { return tryTerminates; }
-			return tryTerminates && ControlFlowValidator.blockTerminates(statement.catch_block);
+			if (ControlFlowValidator.blockTerminates(statement.finallyBlock)) { return true; }
+			bool tryTerminates = ControlFlowValidator.blockTerminates(statement.tryBlock);
+			if (statement.catchBlock == null) { return tryTerminates; }
+			return tryTerminates && ControlFlowValidator.blockTerminates(statement.catchBlock);
 		}
 		if (statement.kind == NK_DO_WHILE_STMT) {
-			return !ControlFlowValidator.containsLoopBreak(statement.body_node) && ControlFlowValidator.blockTerminates(statement.body_node);
+			return !ControlFlowValidator.containsLoopBreak(statement.bodyNode) && ControlFlowValidator.blockTerminates(statement.bodyNode);
 		}
-		if (statement.kind == NK_WHILE_STMT && statement.condition != null && statement.condition.kind == NK_BOOL_LITERAL && statement.condition.value_bool) {
-			return !ControlFlowValidator.containsLoopBreak(statement.body_node) && ControlFlowValidator.blockTerminates(statement.body_node);
+		if (statement.kind == NK_WHILE_STMT && statement.condition != null && statement.condition.kind == NK_BOOL_LITERAL && statement.condition.valueBool) {
+			return !ControlFlowValidator.containsLoopBreak(statement.bodyNode) && ControlFlowValidator.blockTerminates(statement.bodyNode);
 		}
 		if (statement.kind == NK_C_FOR_STMT && statement.condition == null) {
-			return !ControlFlowValidator.containsLoopBreak(statement.body_node) && ControlFlowValidator.blockTerminates(statement.body_node);
+			return !ControlFlowValidator.containsLoopBreak(statement.bodyNode) && ControlFlowValidator.blockTerminates(statement.bodyNode);
 		}
 		return false;
 	}
@@ -268,7 +268,7 @@ class ControlFlowValidator {
 	}
 
 	public void validateSwitchContracts(Node statement, Map<string, Node> vars) {
-		Node? subjectType = self.types.inferType(statement.value_node, vars);
+		Node? subjectType = self.types.inferType(statement.valueNode, vars);
 		if (subjectType != null && !self.types.integralType(subjectType, self.state.analyzed)) {
 			TypeValidator.fail("Switch subject must be integral, got '" + self.types.formatType(subjectType) + "'", statement);
 		}
@@ -278,20 +278,20 @@ class ControlFlowValidator {
 		int index = 0;
 		while (index < statement.cases.len) {
 			Node clause = statement.cases.get(index);
-			if (clause.value_node == null) {
+			if (clause.valueNode == null) {
 				defaults = defaults + 1;
 			} else {
-				Node? caseType = self.types.inferType(clause.value_node, vars);
+				Node? caseType = self.types.inferType(clause.valueNode, vars);
 				if (caseType != null && !self.types.integralType(caseType, self.state.analyzed)) {
-					TypeValidator.fail("Switch case must be integral, got '" + self.types.formatType(caseType) + "'", clause.value_node);
+					TypeValidator.fail("Switch case must be integral, got '" + self.types.formatType(caseType) + "'", clause.valueNode);
 				}
-				SemanticIntegerConstant constant = self.constants.integerConstant(clause.value_node, false, "", unrestricted);
+				SemanticIntegerConstant constant = self.constants.integerConstant(clause.valueNode, false, "", unrestricted);
 				if (!constant.valid) {
-					TypeValidator.fail("Switch case requires an integral constant expression", clause.value_node);
+					TypeValidator.fail("Switch case requires an integral constant expression", clause.valueNode);
 				}
 				if (constant.known) {
 					if (self.knownSwitchValue(knownValues, constant.value)) {
-						TypeValidator.fail("Duplicate switch case value", clause.value_node);
+						TypeValidator.fail("Duplicate switch case value", clause.valueNode);
 					}
 					knownValues.push(constant.value);
 				}
@@ -310,8 +310,8 @@ class ControlFlowValidator {
 			TypeValidator.fail("range expects 1 to 3 arguments, got " + Strings.fromInt(call.args.len), call);
 		}
 		int index = 0;
-		while (index < call.arg_names.len) {
-			if (call.arg_names.get(index) != "") {
+		while (index < call.argNames.len) {
+			if (call.argNames.get(index) != "") {
 				TypeValidator.fail("range does not accept named arguments", call);
 			}
 			index = index + 1;
@@ -341,17 +341,17 @@ class ControlFlowValidator {
 	}
 
 	class Node? iterableMethod(Node iterableType, string name, Analyzed analyzed) {
-		if (analyzed.isGenericClass(iterableType.base) && iterableType.pointer_depth <= 1) {
+		if (analyzed.isGenericClass(iterableType.base) && iterableType.pointerDepth <= 1) {
 			return analyzed.genericClassMethod(iterableType.base, name);
 		}
-		if (analyzed.isClass(iterableType.base) && iterableType.pointer_depth <= 1) {
+		if (analyzed.isClass(iterableType.base) && iterableType.pointerDepth <= 1) {
 			return analyzed.classMethod(iterableType.base, name);
 		}
 		return null;
 	}
 
 	class Node iterableResolvedType(Node declared, Node iterableType, Analyzed analyzed) {
-		if (analyzed.isGenericClass(iterableType.base) && iterableType.generic_args.len > 0) {
+		if (analyzed.isGenericClass(iterableType.base) && iterableType.genericArgs.len > 0) {
 			return SemanticTypeSystem.resolveGenericType(declared, SemanticTypeSystem.genericTypeMap(analyzed, iterableType), analyzed);
 		}
 		return declared;
@@ -368,7 +368,7 @@ class ControlFlowValidator {
 
 	public Node iterableElementType(Node iterableType, Node site, bool second) {
 		Node lenMethod = self.validateIterableMethod(iterableType, "iterLen", 0, site);
-		Node lenType = ControlFlowValidator.iterableResolvedType(lenMethod.return_type, iterableType, self.state.analyzed);
+		Node lenType = ControlFlowValidator.iterableResolvedType(lenMethod.returnType, iterableType, self.state.analyzed);
 		if (!self.types.integralType(lenType, self.state.analyzed) || lenType.base == "bool") {
 			TypeValidator.fail("for-in iterLen() must return an integral " + "non-bool type", lenMethod);
 		}
@@ -378,7 +378,7 @@ class ControlFlowValidator {
 		if (!self.types.integralType(indexType, self.state.analyzed) || indexType.base == "bool") {
 			TypeValidator.fail("for-in " + methodName + "() index must have an integral non-bool type", valueMethod);
 		}
-		Node valueType = ControlFlowValidator.iterableResolvedType(valueMethod.return_type, iterableType, self.state.analyzed);
+		Node valueType = ControlFlowValidator.iterableResolvedType(valueMethod.returnType, iterableType, self.state.analyzed);
 		if (TypeValidator.scalarVoid(valueType)) {
 			TypeValidator.fail("for-in " + methodName + "() cannot return void", valueMethod);
 		}
@@ -388,15 +388,15 @@ class ControlFlowValidator {
 	public void validateForIn(Node statement, Map<string, Node> vars) {
 		Map<string, Node> bodyVars = TypeValidator.cloneTypes(vars);
 		Map<string, bool> loopNames = {};
-		self.names.validateLexicalBindingName(statement.var_name, "Loop variable", statement);
-		loopNames.put(statement.var_name, true);
+		self.names.validateLexicalBindingName(statement.varName, "Loop variable", statement);
+		loopNames.put(statement.varName, true);
 
 		Node first = SemanticTypeSystem.primitive("int");
 		Node? iterableType = null;
 		bool protocolOwnsFirst = false;
 		if (ControlFlowValidator.isRangeForm(statement.iterable)) {
 			self.validateRangeForm(statement.iterable,  vars);
-			if (statement.var_name2 != null) {
+			if (statement.varName2 != null) {
 				TypeValidator.fail("range iteration has exactly one loop variable", statement);
 			}
 		} else {
@@ -407,21 +407,21 @@ class ControlFlowValidator {
 			}
 			if (SemanticTypeSystem.isString(iterableType)) {
 				first = SemanticTypeSystem.primitive("char");
-				if (statement.var_name2 != null) {
+				if (statement.varName2 != null) {
 					TypeValidator.fail("String iteration has exactly one loop variable", statement);
 				}
-			} else if (iterableType != null && iterableType.is_array) {
+			} else if (iterableType != null && iterableType.isArray) {
 				if (!self.storage.arrayTargetHasCapacity(statement.iterable, iterableType, vars)) {
 					TypeValidator.fail("Array for-in iterable has no provable element capacity", statement);
 				}
 				self.state.analyzed.arrayIterationCapacityKeys.put(AstIdentity.key(statement.iterable), true);
 				first = TypeShape.withoutOuterArray(iterableType);
-				if (statement.var_name2 != null) {
+				if (statement.varName2 != null) {
 					TypeValidator.fail("Array iteration has exactly one loop variable", statement);
 				}
-			} else if (iterableType != null && iterableType.base == "Span" && iterableType.generic_args.len == 1) {
-				first = iterableType.generic_args.get(0);
-				if (statement.var_name2 != null) {
+			} else if (iterableType != null && iterableType.base == "Span" && iterableType.genericArgs.len == 1) {
+				first = iterableType.genericArgs.get(0);
+				if (statement.varName2 != null) {
 					TypeValidator.fail("Span iteration has exactly one loop variable", statement);
 				}
 			} else {
@@ -429,42 +429,42 @@ class ControlFlowValidator {
 				protocolOwnsFirst = true;
 			}
 		}
-		self.ownership.rejectThreadOwnerShadow(statement.var_name, first, vars, statement);
+		self.ownership.rejectThreadOwnerShadow(statement.varName, first, vars, statement);
 		if (self.ownership.containsThreadStorage(first)) {
 			TypeValidator.fail("for-in loop variables cannot own a Thread handle; declare a " + "fresh local owner inside the loop", statement);
 		}
-		bodyVars.put(statement.var_name, first);
+		bodyVars.put(statement.varName, first);
 		Map<string, bool> previousBorrowedBindings = self.types.cloneFlags(self.state.borrowedBindings);
 		Map<string, bool> previousLocalBindings = self.types.cloneFlags(self.state.localBindings);
-		self.state.localBindings.put(statement.var_name, true);
+		self.state.localBindings.put(statement.varName, true);
 		if (self.ownership.managedOwnershipType(first) && !protocolOwnsFirst) {
-			self.state.borrowedBindings.put(statement.var_name, true);
+			self.state.borrowedBindings.put(statement.varName, true);
 		} else {
-			self.state.borrowedBindings.remove(statement.var_name);
+			self.state.borrowedBindings.remove(statement.varName);
 		}
 
-		if (statement.var_name2 != null) {
-			self.names.validateLexicalBindingName(statement.var_name2, "Loop variable", statement);
-			if (loopNames.has(statement.var_name2)) {
-				TypeValidator.fail("Duplicate loop variable name '" + statement.var_name2 + "'", statement);
+		if (statement.varName2 != null) {
+			self.names.validateLexicalBindingName(statement.varName2, "Loop variable", statement);
+			if (loopNames.has(statement.varName2)) {
+				TypeValidator.fail("Duplicate loop variable name '" + statement.varName2 + "'", statement);
 			}
-			loopNames.put(statement.var_name2, true);
+			loopNames.put(statement.varName2, true);
 			Node second = self.iterableElementType(iterableType, statement, true);
-			self.ownership.rejectThreadOwnerShadow(statement.var_name2, second, vars, statement);
+			self.ownership.rejectThreadOwnerShadow(statement.varName2, second, vars, statement);
 			if (self.ownership.containsThreadStorage(second)) {
 				TypeValidator.fail("for-in loop variables cannot own a Thread handle; declare " + "a fresh local owner inside the loop", statement);
 			}
-			bodyVars.put(statement.var_name2, second);
-			self.state.borrowedBindings.remove(statement.var_name2);
-			self.state.localBindings.put(statement.var_name2, true);
+			bodyVars.put(statement.varName2, second);
+			self.state.borrowedBindings.remove(statement.varName2);
+			self.state.localBindings.put(statement.varName2, true);
 		}
 
-		self.names.validateDirectLocalNames(statement.body_node, loopNames);
+		self.names.validateDirectLocalNames(statement.bodyNode, loopNames);
 		int previousLoop = self.state.loopDepth;
 		int previousBreak = self.state.breakDepth;
 		self.state.loopDepth = previousLoop + 1;
 		self.state.breakDepth = previousBreak + 1;
-		self.validateBlock(statement.body_node,  bodyVars);
+		self.validateBlock(statement.bodyNode,  bodyVars);
 		self.state.borrowedBindings = previousBorrowedBindings;
 		self.state.localBindings = previousLocalBindings;
 		self.state.loopDepth = previousLoop;
@@ -481,7 +481,7 @@ class ControlFlowValidator {
 		int previousBreak = self.state.breakDepth;
 		self.state.loopDepth = previousLoop + 1;
 		self.state.breakDepth = previousBreak + 1;
-		self.validateBlock(statement.body_node,  vars);
+		self.validateBlock(statement.bodyNode,  vars);
 		self.state.loopDepth = previousLoop;
 		self.state.breakDepth = previousBreak;
 		if (isDoWhile) {
@@ -491,14 +491,14 @@ class ControlFlowValidator {
 	}
 
 	public void validateSwitch(Node statement, Map<string, Node> vars) {
-		self.validateExpression(statement.value_node,  vars);
+		self.validateExpression(statement.valueNode,  vars);
 		self.validateSwitchContracts(statement,  vars);
 		int previousBreak = self.state.breakDepth;
 		self.state.breakDepth = previousBreak + 1;
 		int caseIndex = 0;
 		while (caseIndex < statement.cases.len) {
 			Node caseClause = statement.cases.get(caseIndex);
-			self.validateExpression(caseClause.value_node,  vars);
+			self.validateExpression(caseClause.valueNode,  vars);
 			Map<string, Node> caseVars = TypeValidator.cloneTypes(vars);
 			Map<string, bool> previousCaseLocals = self.types.cloneFlags(self.state.localBindings);
 			Map<string, bool> previousCaseBorrowed = self.types.cloneFlags(self.state.borrowedBindings);
@@ -506,8 +506,8 @@ class ControlFlowValidator {
 			self.state.previousStatement = null;
 			int statementIndex = 0;
 			bool terminal = false;
-			while (statementIndex < caseClause.body_nlist.len) {
-				Node bodyStatement = caseClause.body_nlist.get(statementIndex);
+			while (statementIndex < caseClause.bodyNodeList.len) {
+				Node bodyStatement = caseClause.bodyNodeList.get(statementIndex);
 				if (terminal) {
 					TypeValidator.fail("Unreachable code after return/throw/break/continue", bodyStatement);
 				}
@@ -577,7 +577,7 @@ class ControlFlowValidator {
 		Node? declared = self.types.arrayValueType(declaration.type);
 		Node? sourceDeclared = self.types.resolveAliases(declaration.type);
 		Node? representedDeclared = self.types.resolveAliases(declared);
-		if (self.expressions.gpuArrayResultCall(declaration.initializer, vars) && sourceDeclared != null && sourceDeclared.is_array && representedDeclared != null && !representedDeclared.is_array) {
+		if (self.expressions.gpuArrayResultCall(declaration.initializer, vars) && sourceDeclared != null && sourceDeclared.isArray && representedDeclared != null && !representedDeclared.isArray) {
 			TypeValidator.fail("Initializer for '" + declaration.name + "' cannot materialize an array-returning @gpu result through " + "a pointer-valued array alias", declaration);
 		}
 		self.expressions.validateTypedInitializer(declared, declaration.initializer, "Initializer for '" + declaration.name + "'", vars);
@@ -613,18 +613,18 @@ class ControlFlowValidator {
 	}
 
 	public void validateReturn(Node statement, Map<string, Node> vars) {
-		self.expressions.contextualizeGenericConstructor(self.state.returnType, statement.value_node, vars);
-		self.validateExpression(statement.value_node,  vars);
-		self.validateThreadTransferSource(statement.value_node,  vars);
+		self.expressions.contextualizeGenericConstructor(self.state.returnType, statement.valueNode, vars);
+		self.validateExpression(statement.valueNode,  vars);
+		self.validateThreadTransferSource(statement.valueNode,  vars);
 		if (self.state.returnType == null) { return; }
 		Node expectedReturn = self.state.returnType;
-		self.borrows.validateOpaqueBorrowStorage(expectedReturn, statement.value_node, "Return value", vars);
-		self.storage.validateVolatileReferenceConversion(expectedReturn, statement.value_node, "Return value", vars);
-		if (!self.state.gpuCallable || !expectedReturn.is_array) {
-			self.expressions.validateTypedInitializer(expectedReturn, statement.value_node, "Return value", vars);
+		self.borrows.validateOpaqueBorrowStorage(expectedReturn, statement.valueNode, "Return value", vars);
+		self.storage.validateVolatileReferenceConversion(expectedReturn, statement.valueNode, "Return value", vars);
+		if (!self.state.gpuCallable || !expectedReturn.isArray) {
+			self.expressions.validateTypedInitializer(expectedReturn, statement.valueNode, "Return value", vars);
 		}
 		bool returnsVoid = TypeValidator.scalarVoid(expectedReturn);
-		if (statement.value_node == null) {
+		if (statement.valueNode == null) {
 			if (!returnsVoid) {
 				TypeValidator.fail("Non-void function or method must return '" + self.types.formatType(expectedReturn) + "'", statement);
 			}
@@ -633,9 +633,9 @@ class ControlFlowValidator {
 		if (returnsVoid) {
 			TypeValidator.fail("Void function or method cannot return a value", statement);
 		}
-		Node? actual = self.types.inferType(statement.value_node,  vars);
-		bool compatible = self.expressions.contextualAggregateInitializer(statement.value_node) || actual == null || self.types.assignmentCompatible(expectedReturn, actual);
-		if (!compatible && self.state.gpuCallable && expectedReturn.is_array) {
+		Node? actual = self.types.inferType(statement.valueNode,  vars);
+		bool compatible = self.expressions.contextualAggregateInitializer(statement.valueNode) || actual == null || self.types.assignmentCompatible(expectedReturn, actual);
+		if (!compatible && self.state.gpuCallable && expectedReturn.isArray) {
 			Node elementType = TypeShape.withoutOuterArray(expectedReturn);
 			compatible = self.types.assignmentCompatible(elementType, actual);
 		}
@@ -649,16 +649,16 @@ class ControlFlowValidator {
 		Map<string, Node> loopVars = TypeValidator.cloneTypes(vars);
 		if (statement.init != null) {
 			if (statement.init.kind == NK_FOR_INIT_VAR) {
-				Node declaration = statement.init.var_decl;
+				Node declaration = statement.init.varDecl;
 				self.validateVariable(declaration,  loopVars);
 				Node? declarationType = declaration.type;
 				if (declarationType == null) {
 					declarationType = self.types.inferType(declaration.initializer, loopVars);
 				}
-				if (declaration.type != null && (declaration.type.is_static || declaration.type.is_extern)) {
+				if (declaration.type != null && (declaration.type.isStatic || declaration.type.isExtern)) {
 					TypeValidator.fail("C-style for initializer cannot use " + "static or extern storage", declaration);
 				}
-				if (declarationType != null && declarationType.is_array) {
+				if (declarationType != null && declarationType.isArray) {
 					TypeValidator.fail("C-style for initializer cannot " + "declare an array", declaration);
 				}
 			} else if (statement.init.kind == NK_FOR_INIT_EXPR) {
@@ -672,7 +672,7 @@ class ControlFlowValidator {
 		int previousBreak = self.state.breakDepth;
 		self.state.loopDepth = previousLoop + 1;
 		self.state.breakDepth = previousBreak + 1;
-		self.validateBlock(statement.body_node,  loopVars);
+		self.validateBlock(statement.bodyNode,  loopVars);
 		self.validateExpression(statement.update,  loopVars);
 		self.rejectThreadObservation(statement.update,  loopVars);
 		self.state.loopDepth = previousLoop;
@@ -681,26 +681,26 @@ class ControlFlowValidator {
 	}
 
 	public void validateTry(Node statement, Map<string, Node> vars) {
-		self.validateBlock(statement.try_block,  vars);
-		if (statement.catch_block != null) {
+		self.validateBlock(statement.tryBlock,  vars);
+		if (statement.catchBlock != null) {
 			Map<string, bool> previousCatchLocals = self.types.cloneFlags(self.state.localBindings);
 			Map<string, Node> catchVars = TypeValidator.cloneTypes(vars);
 			Map<string, bool> catchNames = {};
-			Node catchType = statement.catch_type;
+			Node catchType = statement.catchType;
 			if (catchType == null) { catchType = SemanticTypeSystem.primitive("string"); }
-			if (statement.catch_var != "") {
-				self.names.validateLexicalBindingName(statement.catch_var, "Catch variable", statement);
-				self.ownership.rejectThreadOwnerShadow(statement.catch_var, catchType, vars, statement);
-				catchNames.put(statement.catch_var, true);
-				catchVars.put(statement.catch_var, catchType);
-				self.state.localBindings.put(statement.catch_var, true);
+			if (statement.catchVar != "") {
+				self.names.validateLexicalBindingName(statement.catchVar, "Catch variable", statement);
+				self.ownership.rejectThreadOwnerShadow(statement.catchVar, catchType, vars, statement);
+				catchNames.put(statement.catchVar, true);
+				catchVars.put(statement.catchVar, catchType);
+				self.state.localBindings.put(statement.catchVar, true);
 			}
-			self.names.validateDirectLocalNames(statement.catch_block, catchNames);
-			self.validateBlock(statement.catch_block,  catchVars);
+			self.names.validateDirectLocalNames(statement.catchBlock, catchNames);
+			self.validateBlock(statement.catchBlock,  catchVars);
 			self.state.localBindings = previousCatchLocals;
 		}
-		if (statement.finally_block != null) {
-			self.validateBlock(statement.finally_block,  vars);
+		if (statement.finallyBlock != null) {
+			self.validateBlock(statement.finallyBlock,  vars);
 		}
 	}
 
@@ -719,14 +719,14 @@ class ControlFlowValidator {
 		} else if (statement.kind == NK_IF_STMT) {
 			self.validateExpression(statement.condition,  vars);
 			self.validateCondition(statement.condition, "If statement", vars);
-			self.validateBlock(statement.then_block,  vars);
-			if (statement.else_block != null) {
-				self.validateStmt(statement.else_block,  vars);
+			self.validateBlock(statement.thenBlock,  vars);
+			if (statement.elseBlock != null) {
+				self.validateStmt(statement.elseBlock,  vars);
 			}
 		} else if (statement.kind == NK_ELSE_BLOCK) {
-			self.validateBlock(statement.body_node,  vars);
+			self.validateBlock(statement.bodyNode,  vars);
 		} else if (statement.kind == NK_ELSE_IF) {
-			self.validateStmt(statement.if_stmt,  vars);
+			self.validateStmt(statement.ifStmt,  vars);
 		} else if (statement.kind == NK_WHILE_STMT || statement.kind == NK_DO_WHILE_STMT) {
 			self.validateLoop(statement,  vars);
 		} else if (statement.kind == NK_FOR_IN_STMT || statement.kind == NK_PARALLEL_FOR_STMT) {

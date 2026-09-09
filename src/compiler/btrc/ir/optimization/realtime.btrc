@@ -12,8 +12,8 @@ class RealtimeIRVerifier {
 
 	public RealtimeIRVerifier(IRModule module) {
 		self.functions = {};
-		self.safeExternals = module.realtime_safe_externals;
-		self.intrinsicTargets = module.realtime_intrinsic_targets;
+		self.safeExternals = module.realtimeSafeExternals;
+		self.intrinsicTargets = module.realtimeIntrinsicTargets;
 	}
 
 	public void validate(IRModule module) {
@@ -21,7 +21,7 @@ class RealtimeIRVerifier {
 		int index = 0;
 		while (index < module.functions.len) {
 			IRFunction definition = module.functions.get(index);
-			if (definition.is_realtime) {
+			if (definition.isRealtime) {
 				hasRealtimeRoot = true;
 			}
 			index = index + 1;
@@ -36,7 +36,7 @@ class RealtimeIRVerifier {
 		index = 0;
 		while (index < module.functions.len) {
 			IRFunction definition = module.functions.get(index);
-			if (definition.is_realtime) {
+			if (definition.isRealtime) {
 				Map<string, bool> visiting = {};
 				self.validateFunction(definition, definition.name, visiting);
 			}
@@ -64,7 +64,7 @@ class RealtimeIRVerifier {
 		if (node.kind == IRK_WHILE || node.kind == IRK_DO_WHILE) {
 			self.fail("unbounded loop", path);
 		}
-		if (node.kind == IRK_FOR && !node.realtime_bounded) {
+		if (node.kind == IRK_FOR && !node.realtimeBounded) {
 			self.fail("uncertified for loop", path);
 		}
 		if (node.kind == IRK_LITERAL && (node.text.startsWith("\"") || node.text.startsWith("L\"") || node.text.startsWith("u\"") || node.text.startsWith("U\"") || node.text.startsWith("u8\""))) {
@@ -75,15 +75,15 @@ class RealtimeIRVerifier {
 		}
 		if (node.kind == IRK_CALL) {
 			if (node.callee == "") {
-				if (node.realtime_provenance != "typed-realtime-function") { self.fail("indirect call", path); }
-			} else if (node.realtime_provenance == "typed-realtime-function") {
+				if (node.realtimeProvenance != "typed-realtime-function") { self.fail("indirect call", path); }
+			} else if (node.realtimeProvenance == "typed-realtime-function") {
 				self.fail("typed-callable provenance on direct call '" + node.callee + "'", path);
 			}
-			if (node.callee != "" && node.realtime_provenance != "" && (!self.intrinsicTargets.has(node.callee) || self.intrinsicTargets.get(node.callee) != node.realtime_provenance)) {
-				self.fail("invalid intrinsic provenance '" + node.realtime_provenance + "' for '" + node.callee + "'", path);
+			if (node.callee != "" && node.realtimeProvenance != "" && (!self.intrinsicTargets.has(node.callee) || self.intrinsicTargets.get(node.callee) != node.realtimeProvenance)) {
+				self.fail("invalid intrinsic provenance '" + node.realtimeProvenance + "' for '" + node.callee + "'", path);
 			}
 			if (node.callee != "" && !self.functions.has(node.callee)) {
-				if (!self.safeExternals.has(node.callee) && node.realtime_provenance == "") {
+				if (!self.safeExternals.has(node.callee) && node.realtimeProvenance == "") {
 					self.fail("external/runtime call '" + node.callee + "'", path);
 				}
 			} else if (node.callee != "") {
@@ -98,14 +98,14 @@ class RealtimeIRVerifier {
 		self.validateNode(node.obj, path, visiting);
 		self.validateNode(node.index, path, visiting);
 		self.validateNode(node.condition, path, visiting);
-		self.validateNode(node.true_expr, path, visiting);
-		self.validateNode(node.false_expr, path, visiting);
-		self.validateNode(node.array_size, path, visiting);
+		self.validateNode(node.trueExpr, path, visiting);
+		self.validateNode(node.falseExpr, path, visiting);
+		self.validateNode(node.arraySize, path, visiting);
 		self.validateNode(node.init, path, visiting);
 		self.validateNode(node.value, path, visiting);
 		self.validateNode(node.target, path, visiting);
-		self.validateNode(node.then_block, path, visiting);
-		self.validateNode(node.else_block, path, visiting);
+		self.validateNode(node.thenBlock, path, visiting);
+		self.validateNode(node.elseBlock, path, visiting);
 		self.validateNode(node.body, path, visiting);
 		self.validateNode(node.update, path, visiting);
 		self.validateNode(node.result, path, visiting);

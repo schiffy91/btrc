@@ -48,7 +48,7 @@ class GenericLowerer {
 			if (self.analyzed.genericClassTable.has(instance.base)) {
 				Node declaration = self.analyzed.genericClassTable.get(instance.base);
 				Node instanceType = SemanticTypeSystem.primitive(instance.base);
-				instanceType.generic_args = instance.args;
+				instanceType.genericArgs = instance.args;
 				plans.push(GenericClassLoweringPlan(instance, declaration, SemanticTypeSystem.genericTypeMap(self.analyzed, instanceType)));
 			}
 			index = index + 1;
@@ -76,13 +76,13 @@ class GenericLowerer {
 				if (method != null) {
 					Map<string, Node> substitutions = {};
 					int classIndex = 0;
-					while (classIndex < concreteOwner.generic_params.len && classIndex < instance.classArgs.len) {
-						substitutions.put(concreteOwner.generic_params.get(classIndex), instance.classArgs.get(classIndex));
+					while (classIndex < concreteOwner.genericParams.len && classIndex < instance.classArgs.len) {
+						substitutions.put(concreteOwner.genericParams.get(classIndex), instance.classArgs.get(classIndex));
 						classIndex = classIndex + 1;
 					}
 					int methodIndex = 0;
-					while (methodIndex < method.generic_params.len && methodIndex < instance.methodArgs.len) {
-						substitutions.put(method.generic_params.get(methodIndex), instance.methodArgs.get(methodIndex));
+					while (methodIndex < method.genericParams.len && methodIndex < instance.methodArgs.len) {
+						substitutions.put(method.genericParams.get(methodIndex), instance.methodArgs.get(methodIndex));
 						methodIndex = methodIndex + 1;
 					}
 					plans.push(GenericMethodLoweringPlan(instance, concreteOwner, method, substitutions));

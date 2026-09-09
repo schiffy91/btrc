@@ -63,11 +63,11 @@ class DeclarationValidator {
 	}
 
 	public int hostedPointerDepth(Node typeNode) {
-		int depth = typeNode.pointer_depth;
+		int depth = typeNode.pointerDepth;
 		if (TypeComposition.nullableCollapsesReferenceLayer(typeNode, typeNode.base == "string")) {
 			depth = depth - 1;
 		}
-		if (typeNode.is_array) { depth = depth + 1; }
+		if (typeNode.isArray) { depth = depth + 1; }
 		if (typeNode.base == "string") {
 			depth = depth + 1;
 		}
@@ -81,19 +81,19 @@ class DeclarationValidator {
 
 	public bool hostedTypeMatchesParameter(Node typeNode, string name, int index) {
 		GeneratedHostedParameterRow? row = self.hostedAbi.parameter(name, index);
-		return row != null && self.hostedTypeMatchesShape(typeNode, row.type_shape);
+		return row != null && self.hostedTypeMatchesShape(typeNode, row.typeShape);
 	}
 
 	public bool hostedTypeMatchesShape(Node typeNode, GeneratedAbiTypeRow shape) {
 		Node? optionalCanonical = self.types.resolveAliases(typeNode);
 		if (optionalCanonical == null) { return false; }
 		Node canonical = optionalCanonical;
-		if (self.hostedNormalizedBase(canonical.base) != shape.base || self.hostedPointerDepth(canonical) != shape.pointer_depth || canonical.is_const != shape.is_const || canonical.generic_args.len != shape.generic_args.len) {
+		if (self.hostedNormalizedBase(canonical.base) != shape.base || self.hostedPointerDepth(canonical) != shape.pointerDepth || canonical.isConst != shape.isConst || canonical.genericArgs.len != shape.genericArgs.len) {
 			return false;
 		}
 		int index = 0;
-		while (index < canonical.generic_args.len) {
-			if (!self.hostedTypeMatchesShape(canonical.generic_args.get(index), shape.generic_args.get(index))) {
+		while (index < canonical.genericArgs.len) {
+			if (!self.hostedTypeMatchesShape(canonical.genericArgs.get(index), shape.genericArgs.get(index))) {
 				return false;
 			}
 			index = index + 1;
@@ -102,13 +102,13 @@ class DeclarationValidator {
 	}
 
 	public bool hostedDeclarationModifiersValid(Node declaration) {
-		if (declaration.return_type.is_static || declaration.return_type.is_volatile || declaration.is_gpu || declaration.keep_return) {
+		if (declaration.returnType.isStatic || declaration.returnType.isVolatile || declaration.isGpu || declaration.keepReturn) {
 			return false;
 		}
 		int index = 0;
 		while (index < declaration.params.len) {
 			Node parameter = declaration.params.get(index);
-			if (parameter.keep_ || parameter.default_ != null || parameter.type.is_static || parameter.type.is_extern || parameter.type.is_volatile) {
+			if (parameter.keep_ || parameter.default_ != null || parameter.type.isStatic || parameter.type.isExtern || parameter.type.isVolatile) {
 				return false;
 			}
 			index = index + 1;
@@ -124,7 +124,7 @@ class DeclarationValidator {
 		int index = 0;
 		while (index < row.parameters.len) {
 			if (index > 0) { parameters = parameters + ", "; }
-			parameters = parameters + self.hostedExpectedType(row.parameters.get(index).type_shape);
+			parameters = parameters + self.hostedExpectedType(row.parameters.get(index).typeShape);
 			index = index + 1;
 		}
 		if (parameters == "") { parameters = "void"; }
@@ -133,26 +133,26 @@ class DeclarationValidator {
 
 	public string hostedExpectedType(GeneratedAbiTypeRow shape) {
 		string result = shape.base;
-		if (shape.generic_args.len > 0) {
+		if (shape.genericArgs.len > 0) {
 			result = result + "<";
 			int index = 0;
-			while (index < shape.generic_args.len) {
+			while (index < shape.genericArgs.len) {
 				if (index > 0) { result = result + ", "; }
-				result = result + self.hostedExpectedType(shape.generic_args.get(index));
+				result = result + self.hostedExpectedType(shape.genericArgs.get(index));
 				index = index + 1;
 			}
 			result = result + ">";
 		}
-		int resultDepth = shape.pointer_depth;
+		int resultDepth = shape.pointerDepth;
 		while (resultDepth > 0) {
 			result = result + "*";
 			resultDepth = resultDepth - 1;
 		}
-		return shape.is_const ? "const " + result : result;
+		return shape.isConst ? "const " + result : result;
 	}
 
 	public void validateHostedBodylessDeclaration(Node declaration) {
-		if (declaration.body_node != null) { return; }
+		if (declaration.bodyNode != null) { return; }
 		string name = declaration.name;
 		if (self.hostedAbi.macroName(name)) {
 			TypeValidator.fail("Hosted macro '" + name + "' cannot be redeclared as a function", declaration);
@@ -169,7 +169,7 @@ class DeclarationValidator {
 			TypeValidator.fail("Hosted function '" + name + "' has an ABI that btrc prototypes cannot represent; include " + "its standard header and call it directly", declaration);
 			return;
 		}
-		bool valid = self.hostedDeclarationModifiersValid(declaration) && declaration.params.len == self.hostedAbi.parameterCount(name) && self.hostedTypeMatchesResult(declaration.return_type, name);
+		bool valid = self.hostedDeclarationModifiersValid(declaration) && declaration.params.len == self.hostedAbi.parameterCount(name) && self.hostedTypeMatchesResult(declaration.returnType, name);
 		int index = 0;
 		while (valid && index < declaration.params.len) {
 			valid = self.hostedTypeMatchesParameter(declaration.params.get(index).type, name, index);
@@ -182,7 +182,7 @@ class DeclarationValidator {
 
 	public bool plainType(Node? typeExpr, string base) {
 		Node? resolvedType = self.types.resolveAliases(typeExpr);
-		return resolvedType != null && resolvedType.base == base && resolvedType.pointer_depth == 0 && !resolvedType.is_array && resolvedType.generic_args.len == 0;
+		return resolvedType != null && resolvedType.base == base && resolvedType.pointerDepth == 0 && !resolvedType.isArray && resolvedType.genericArgs.len == 0;
 	}
 
 	public int magicArity(string name) {
@@ -205,23 +205,23 @@ class DeclarationValidator {
 	}
 
 	public void validateArrayReturn(Node callable, string label) {
-		if (callable.return_type != null && callable.return_type.is_array && !callable.is_gpu) {
+		if (callable.returnType != null && callable.returnType.isArray && !callable.isGpu) {
 			TypeValidator.fail(label + " cannot return an array outside @gpu", callable);
 		}
 	}
 
 	public void validateMainShape(Node functionDecl) {
 		if (functionDecl.name != "main") { return; }
-		bool resultValid = self.plainType(functionDecl.return_type, "int") || self.plainType(functionDecl.return_type, "void");
+		bool resultValid = self.plainType(functionDecl.returnType, "int") || self.plainType(functionDecl.returnType, "void");
 		bool paramsValid = functionDecl.params.len == 0;
-		if (self.plainType(functionDecl.return_type, "int") && functionDecl.params.len == 2) {
+		if (self.plainType(functionDecl.returnType, "int") && functionDecl.params.len == 2) {
 			Node argc = self.types.resolveAliases(functionDecl.params.get(0).type);
 			Node argv = self.types.resolveAliases(functionDecl.params.get(1).type);
-			int argvDepth = argv.pointer_depth;
-			if (argv.is_array) { argvDepth = argvDepth + 1; }
-			paramsValid = argc.base == "int" && argc.pointer_depth == 0 && !argc.is_array && argc.generic_args.len == 0 && argv.base == "char" && argvDepth == 2 && argv.generic_args.len == 0;
+			int argvDepth = argv.pointerDepth;
+			if (argv.isArray) { argvDepth = argvDepth + 1; }
+			paramsValid = argc.base == "int" && argc.pointerDepth == 0 && !argc.isArray && argc.genericArgs.len == 0 && argv.base == "char" && argvDepth == 2 && argv.genericArgs.len == 0;
 		}
-		if (!resultValid || !paramsValid || functionDecl.is_gpu) {
+		if (!resultValid || !paramsValid || functionDecl.isGpu) {
 			TypeValidator.fail("main must be 'int main()', 'int main(int, char**)', or 'void main()'", functionDecl);
 		}
 	}
@@ -234,19 +234,19 @@ class DeclarationValidator {
 		if (method.access == "class") {
 			TypeValidator.fail(label + " cannot be class/static", method);
 		}
-		if (method.is_abstract) {
+		if (method.isAbstract) {
 			TypeValidator.fail(label + " cannot be abstract", method);
 		}
-		if (method.is_gpu) {
+		if (method.isGpu) {
 			TypeValidator.fail(label + " cannot be @gpu", method);
 		}
-		if (method.keep_return) {
+		if (method.keepReturn) {
 			TypeValidator.fail(label + " cannot use keep-return", method);
 		}
-		if (method.body_node == null) {
+		if (method.bodyNode == null) {
 			TypeValidator.fail(label + " requires a concrete body", method);
 		}
-		if (method.generic_params.len > 0) {
+		if (method.genericParams.len > 0) {
 			TypeValidator.fail(label + " cannot be generic", method);
 		}
 	}
@@ -258,17 +258,17 @@ class DeclarationValidator {
 		if (method.access == "class") {
 			TypeValidator.fail(label + " must be an instance method", method);
 		}
-		if (method.is_abstract || method.body_node == null) {
+		if (method.isAbstract || method.bodyNode == null) {
 			TypeValidator.fail(label + " requires a concrete body", method);
 		}
-		if (method.generic_params.len > 0) {
+		if (method.genericParams.len > 0) {
 			TypeValidator.fail(label + " cannot be generic", method);
 		}
 		if (method.params.len != arity) {
 			TypeValidator.fail(label + " expects " + Strings.fromInt(arity) + " explicit parameter(s) but got " + Strings.fromInt(method.params.len), method);
 		}
 		string requiredReturn = self.magicReturn(method.name);
-		if (requiredReturn != "" && !self.plainType(method.return_type, requiredReturn)) {
+		if (requiredReturn != "" && !self.plainType(method.returnType, requiredReturn)) {
 			TypeValidator.fail(label + " must return '" + requiredReturn + "'", method);
 		}
 	}
@@ -280,19 +280,19 @@ class DeclarationValidator {
 			if (member.kind == NK_METHOD_DECL) {
 				string label = "Method '" + classDeclaration.name + "." + member.name + "'";
 				self.validateArrayReturn(member, label);
-				if (member.is_constructor) {
+				if (member.isConstructor) {
 					self.validateConstructorShape(classDeclaration, member);
 				} else {
 					if (member.name == classDeclaration.name) {
-						if (member.return_type.base != classDeclaration.name) {
-							TypeValidator.fail("Constructor '" + classDeclaration.name + "' cannot have return type '" + self.types.formatType(member.return_type) + "'", member);
+						if (member.returnType.base != classDeclaration.name) {
+							TypeValidator.fail("Constructor '" + classDeclaration.name + "' cannot have return type '" + self.types.formatType(member.returnType) + "'", member);
 						}
 						TypeValidator.fail("Method '" + classDeclaration.name + "." + member.name + "' uses explicit-return constructor syntax", member);
 					}
-					if (member.is_abstract && !classDeclaration.is_abstract) {
+					if (member.isAbstract && !classDeclaration.isAbstract) {
 						TypeValidator.fail("Abstract " + label + " requires an abstract class", member);
 					}
-					if (!member.is_abstract && member.body_node == null) {
+					if (!member.isAbstract && member.bodyNode == null) {
 						TypeValidator.fail("Concrete " + label + " requires a body", member);
 					}
 					self.validateMagicShape(classDeclaration, member);
@@ -350,11 +350,11 @@ class DeclarationValidator {
 	}
 
 	public bool methodSignatureMatches(Node requirement, Node implementation, Map<string, Node> substitutions) {
-		Node? expectedReturn = requirement.return_type;
+		Node? expectedReturn = requirement.returnType;
 		if (expectedReturn != null && substitutions.len > 0) {
 			expectedReturn = SemanticTypeSystem.resolveGenericType(expectedReturn, substitutions, self.state.analyzed);
 		}
-		if (implementation.kind != NK_METHOD_DECL || implementation.is_abstract || expectedReturn == null || implementation.return_type == null || !self.types.aliasTypesSame(expectedReturn, implementation.return_type) || requirement.params.len != implementation.params.len || requirement.keep_return != implementation.keep_return) {
+		if (implementation.kind != NK_METHOD_DECL || implementation.isAbstract || expectedReturn == null || implementation.returnType == null || !self.types.aliasTypesSame(expectedReturn, implementation.returnType) || requirement.params.len != implementation.params.len || requirement.keepReturn != implementation.keepReturn) {
 			return false;
 		}
 		int index = 0;
@@ -382,8 +382,8 @@ class DeclarationValidator {
 		Node interfaceDeclaration = self.state.interfaces.get(interfaceName);
 		Map<string, Node> substitutions = {};
 		int typeIndex = 0;
-		while (typeIndex < interfaceDeclaration.generic_params.len && typeIndex < classDeclaration.generic_params.len) {
-			substitutions.put(interfaceDeclaration.generic_params.get(typeIndex), SemanticTypeSystem.primitive(classDeclaration.generic_params.get(typeIndex)));
+		while (typeIndex < interfaceDeclaration.genericParams.len && typeIndex < classDeclaration.genericParams.len) {
+			substitutions.put(interfaceDeclaration.genericParams.get(typeIndex), SemanticTypeSystem.primitive(classDeclaration.genericParams.get(typeIndex)));
 			typeIndex = typeIndex + 1;
 		}
 		if (interfaceDeclaration.parent != null) {
@@ -413,12 +413,12 @@ class DeclarationValidator {
 	}
 
 	public void validateConcreteAbstractMethods(Node declaration) {
-		if (declaration.is_abstract) { return; }
+		if (declaration.isAbstract) { return; }
 		Vector<MethodEntry> methods = self.state.analyzed.mergedMethods(declaration.name);
 		int index = 0;
 		while (index < methods.len) {
 			MethodEntry entry = methods.get(index);
-			if (entry.sig.is_abstract) {
+			if (entry.sig.isAbstract) {
 				TypeValidator.fail("Concrete class '" + declaration.name + "' does not implement abstract method '" + entry.name + "'", declaration);
 			}
 			index = index + 1;
@@ -448,7 +448,7 @@ class DeclarationValidator {
 		if (parent != "" && !self.state.analyzed.isClass(parent) && !self.state.analyzed.isGenericClass(parent)) {
 			TypeValidator.fail("Class '" + declaration.name + "' extends unknown class '" + parent + "'", declaration);
 		}
-		if (parent != "" && (declaration.generic_params.len > 0 || self.state.analyzed.isGenericClass(parent))) {
+		if (parent != "" && (declaration.genericParams.len > 0 || self.state.analyzed.isGenericClass(parent))) {
 			TypeValidator.fail("Generic class inheritance is not supported: " + "class '" + declaration.name + "' extends '" + parent + "'", declaration);
 		}
 		self.validateClassInheritanceCycle(declaration);
@@ -491,7 +491,7 @@ class DeclarationValidator {
 			int methodIndex = 0;
 			while (methodIndex < declaration.methods.len) {
 				Node method = declaration.methods.get(methodIndex);
-				bool exposesRealtimeFunction = self.types.containsRealtimeFunctionStorage(method.return_type);
+				bool exposesRealtimeFunction = self.types.containsRealtimeFunctionStorage(method.returnType);
 				int realtimeParameter = 0;
 				while (realtimeParameter < method.params.len) {
 					exposesRealtimeFunction = exposesRealtimeFunction || self.types.containsRealtimeFunctionStorage(method.params.get(realtimeParameter).type);
@@ -524,19 +524,19 @@ class DeclarationValidator {
 		synthetic.kind = NK_METHOD_DECL;
 		synthetic.access = property.access;
 		synthetic.name = "get_" + property.name;
-		synthetic.return_type = property.type;
-		synthetic.body_node = property.getter_body;
-		synthetic.has_getter = true;
+		synthetic.returnType = property.type;
+		synthetic.bodyNode = property.getterBody;
+		synthetic.hasGetter = true;
 		synthetic.line = property.line;
 		synthetic.col = property.col;
-		if (property.getter_body != null) {
+		if (property.getterBody != null) {
 			self.validateCallableBody(synthetic, classDeclaration);
 		}
 		synthetic.name = "set_" + property.name;
-		synthetic.return_type = SemanticTypeSystem.primitive("void");
-		synthetic.body_node = property.setter_body;
-		synthetic.has_getter = false;
-		if (property.setter_body != null) {
+		synthetic.returnType = SemanticTypeSystem.primitive("void");
+		synthetic.bodyNode = property.setterBody;
+		synthetic.hasGetter = false;
+		if (property.setterBody != null) {
 			Node valueParameter = Node();
 			valueParameter.kind = NK_PARAM;
 			valueParameter.name = "value";
@@ -550,7 +550,7 @@ class DeclarationValidator {
 		Map<string, Node> fieldVars = self.globalTypes(self.state.analyzed);
 		fieldVars.put("self", self.selfType(declaration));
 		Map<string, bool> previousParams = self.types.cloneFlags(self.state.typeParams);
-		self.state.typeParams = self.types.typeParamSet(declaration.generic_params);
+		self.state.typeParams = self.types.typeParamSet(declaration.genericParams);
 		int index = 0;
 		while (index < declaration.members.len) {
 			Node member = declaration.members.get(index);
@@ -559,7 +559,7 @@ class DeclarationValidator {
 				self.types.rejectRuntimeInterfaceType(member.type, member);
 				self.storage.validateArrayBound(member.type, "field '" + declaration.name + "." + member.name + "'", "field", member, fieldVars);
 				Node? canonicalField = self.types.resolveAliases(member.type);
-				if (canonicalField != null && canonicalField.is_array && canonicalField.array_size != null) {
+				if (canonicalField != null && canonicalField.isArray && canonicalField.arraySize != null) {
 					Node elementType = TypeShape.withoutOuterArray(canonicalField);
 					if (self.ownership.managedOwnershipType(elementType)) {
 						TypeValidator.fail("Field '" + declaration.name + "." + member.name + "' cannot contain managed elements " + "without elementwise ownership support", member);
@@ -568,16 +568,16 @@ class DeclarationValidator {
 				if (member.access == "class" && canonicalField != null && canonicalField.base == "Mutex") {
 					TypeValidator.fail("Static field '" + declaration.name + "." + member.name + "' cannot own a Mutex handle until managed global " + "teardown is supported", member);
 				}
-				if (member.initializer != null && canonicalField != null && canonicalField.is_const && canonicalField.pointer_depth == 0) {
+				if (member.initializer != null && canonicalField != null && canonicalField.isConst && canonicalField.pointerDepth == 0) {
 					TypeValidator.fail("Field '" + declaration.name + "." + member.name + "' cannot initialize scalar const storage after allocation", member);
 				}
 				if (member.initializer != null) {
 					Node? fieldValueType = self.storage.arrayFieldValueType(member);
 					Node? canonicalFieldValue = self.types.resolveAliases(fieldValueType);
-					if (member.access == "class" && canonicalField != null && canonicalField.is_array && canonicalFieldValue != null && !canonicalFieldValue.is_array && self.storage.aggregateArrayBacking(member.initializer)) {
+					if (member.access == "class" && canonicalField != null && canonicalField.isArray && canonicalFieldValue != null && !canonicalFieldValue.isArray && self.storage.aggregateArrayBacking(member.initializer)) {
 						TypeValidator.fail("Field '" + declaration.name + "." + member.name + "' cannot use aggregate backing for " + "a pointer-valued array field", member);
 					}
-					if (member.access != "class" && canonicalField != null && canonicalField.is_array && (member.initializer.kind == NK_BRACE_INITIALIZER || member.initializer.kind == NK_LIST_LITERAL)) {
+					if (member.access != "class" && canonicalField != null && canonicalField.isArray && (member.initializer.kind == NK_BRACE_INITIALIZER || member.initializer.kind == NK_LIST_LITERAL)) {
 						TypeValidator.fail("Array-valued class field defaults require persistent " + "backing storage ('" + declaration.name + "." + member.name + "')", member);
 					}
 					if (member.access == "class" && !self.storage.staticInitializer(member.initializer, member.type)) {
@@ -598,10 +598,10 @@ class DeclarationValidator {
 				self.types.validateDeclaredType(member.type, "Property '" + declaration.name + "." + member.name + "'", "field", member);
 				self.types.rejectRuntimeInterfaceType(member.type, member);
 				Node? canonicalProperty = self.types.resolveAliases(member.type);
-				if (canonicalProperty != null && canonicalProperty.is_array && canonicalProperty.array_size != null) {
+				if (canonicalProperty != null && canonicalProperty.isArray && canonicalProperty.arraySize != null) {
 					TypeValidator.fail("Property '" + declaration.name + "." + member.name + "' cannot use fixed-size array storage; " + "use an instance field plus accessors", member);
 				}
-				if (member.has_setter && canonicalProperty != null && canonicalProperty.is_const && canonicalProperty.pointer_depth == 0) {
+				if (member.hasSetter && canonicalProperty != null && canonicalProperty.isConst && canonicalProperty.pointerDepth == 0) {
 					TypeValidator.fail("Property '" + declaration.name + "." + member.name + "' cannot have a setter for scalar const storage", member);
 				}
 				self.validateProperty(member, declaration);
@@ -621,7 +621,7 @@ class DeclarationValidator {
 		while (index < paramIndex) {
 			Node prior = params.get(index);
 			Node? priorType = self.types.resolveAliases(prior.type);
-			if (prior.name == expression.name && priorType != null && priorType.is_array) {
+			if (prior.name == expression.name && priorType != null && priorType.isArray) {
 				return true;
 			}
 			index = index + 1;
@@ -647,7 +647,7 @@ class DeclarationValidator {
 				self.expressions.validateTypedInitializer(parameterValueType, parameter.default_, "Default for parameter '" + parameter.name + "'", vars);
 				Node? actual = self.types.inferType(parameter.default_, vars);
 				Node? gpuParameterType = self.types.resolveAliases(parameter.type);
-				if (self.state.gpuCallable && gpuParameterType != null && gpuParameterType.is_array && actual != null && !self.gpuDefaultInheritsArrayCapacity(parameter.default_, params, index) && !self.storage.arrayTargetHasCapacity(parameter.default_, actual, vars)) {
+				if (self.state.gpuCallable && gpuParameterType != null && gpuParameterType.isArray && actual != null && !self.gpuDefaultInheritsArrayCapacity(parameter.default_, params, index) && !self.storage.arrayTargetHasCapacity(parameter.default_, actual, vars)) {
 					TypeValidator.fail("Default for parameter '" + parameter.name + "' has no provable readable GPU " + "buffer capacity", parameter.default_);
 				}
 				if (actual != null && !self.expressions.contextualAggregateInitializer(parameter.default_) && !self.types.assignmentCompatible(parameterValueType, actual)) {
@@ -665,26 +665,26 @@ class DeclarationValidator {
 
 	public Node selfType(Node classDeclaration) {
 		Node selfType = SemanticTypeSystem.namedClass(classDeclaration.name);
-		selfType.pointer_depth = 1;
+		selfType.pointerDepth = 1;
 		int index = 0;
-		while (index < classDeclaration.generic_params.len) {
-			selfType.generic_args.push(SemanticTypeSystem.primitive(classDeclaration.generic_params.get(index)));
+		while (index < classDeclaration.genericParams.len) {
+			selfType.genericArgs.push(SemanticTypeSystem.primitive(classDeclaration.genericParams.get(index)));
 			index = index + 1;
 		}
 		return selfType;
 	}
 
 	private Node declaredCallableReturnType(Node? classDeclaration, Node callable) {
-		if (classDeclaration == null || !callable.is_constructor || callable.return_type.generic_args.len > 0 || classDeclaration.generic_params.len == 0) {
-			return callable.return_type;
+		if (classDeclaration == null || !callable.isConstructor || callable.returnType.genericArgs.len > 0 || classDeclaration.genericParams.len == 0) {
+			return callable.returnType;
 		}
 		Vector<Node> ownerArguments = [];
 		int index = 0;
-		while (index < classDeclaration.generic_params.len) {
-			ownerArguments.push(SemanticTypeSystem.primitive(classDeclaration.generic_params.get(index)));
+		while (index < classDeclaration.genericParams.len) {
+			ownerArguments.push(SemanticTypeSystem.primitive(classDeclaration.genericParams.get(index)));
 			index = index + 1;
 		}
-		return TypeShape.copyWithArguments(callable.return_type, ownerArguments);
+		return TypeShape.copyWithArguments(callable.returnType, ownerArguments);
 	}
 
 	public void validateCallableBody(Node callable, Node? classDeclaration) {
@@ -695,14 +695,14 @@ class DeclarationValidator {
 		Vector<string> signatureClassParams = [];
 		if (classDeclaration != null) {
 			int signatureClassIndex = 0;
-			while (signatureClassIndex < classDeclaration.generic_params.len) {
-				signatureClassParams.push(classDeclaration.generic_params.get(signatureClassIndex));
+			while (signatureClassIndex < classDeclaration.genericParams.len) {
+				signatureClassParams.push(classDeclaration.genericParams.get(signatureClassIndex));
 				signatureClassIndex = signatureClassIndex + 1;
 			}
 		}
-		self.state.typeParams = self.types.combinedTypeParams(signatureClassParams, callable.generic_params);
+		self.state.typeParams = self.types.combinedTypeParams(signatureClassParams, callable.genericParams);
 		Node declaredReturnType = self.declaredCallableReturnType(classDeclaration, callable);
-		if (callable.body_node == null) {
+		if (callable.bodyNode == null) {
 			bool exposesRealtimeFunction = self.types.containsRealtimeFunctionStorage(declaredReturnType);
 			int realtimeParameter = 0;
 			while (realtimeParameter < callable.params.len) {
@@ -741,8 +741,8 @@ class DeclarationValidator {
 		Vector<string> classParams = [];
 		if (classDeclaration != null) {
 			int classParamIndex = 0;
-			while (classParamIndex < classDeclaration.generic_params.len) {
-				classParams.push(classDeclaration.generic_params.get(classParamIndex));
+			while (classParamIndex < classDeclaration.genericParams.len) {
+				classParams.push(classDeclaration.genericParams.get(classParamIndex));
 				classParamIndex = classParamIndex + 1;
 			}
 			self.state.owner = classDeclaration.name + "." + callable.name;
@@ -752,16 +752,16 @@ class DeclarationValidator {
 		} else {
 			self.state.owner = callable.name;
 		}
-		self.state.typeParams = self.types.combinedTypeParams(classParams, callable.generic_params);
-		bool isConstructor = classDeclaration != null && callable.is_constructor;
+		self.state.typeParams = self.types.combinedTypeParams(classParams, callable.genericParams);
+		bool isConstructor = classDeclaration != null && callable.isConstructor;
 		if (isConstructor) {
 			self.state.returnType = SemanticTypeSystem.primitive("void");
 		} else {
-			self.state.returnType = self.types.arrayValueType(callable.return_type);
+			self.state.returnType = self.types.arrayValueType(callable.returnType);
 		}
 		self.state.loopDepth = 0;
 		self.state.breakDepth = 0;
-		self.state.gpuCallable = callable.is_gpu;
+		self.state.gpuCallable = callable.isGpu;
 		Map<string, bool> parameterNames = self.names.parameterNames(callable.params, "callable '" + self.state.owner + "'");
 		self.state.callable = callable;
 		self.state.parameterNames = self.types.cloneFlags(parameterNames);
@@ -771,17 +771,17 @@ class DeclarationValidator {
 			self.state.borrowedBindings.put("self", true);
 			self.state.localBindings.put("self", true);
 		}
-		if (callable.body_node != null) {
-			self.names.validateDirectLocalNames(callable.body_node, parameterNames);
+		if (callable.bodyNode != null) {
+			self.names.validateDirectLocalNames(callable.bodyNode, parameterNames);
 		}
 		self.validateParameterDefaults(callable.params, vars, callable);
-		if (callable.body_node != null) {
+		if (callable.bodyNode != null) {
 			bool ownsMemo = self.expressions.beginBodyMemo();
-			self.controlFlow.validateBlock(callable.body_node,  vars);
+			self.controlFlow.validateBlock(callable.bodyNode,  vars);
 			self.expressions.endBodyMemo(ownsMemo);
 		}
 		bool nonVoid = self.state.returnType != null && !TypeValidator.scalarVoid(self.state.returnType);
-		if (callable.body_node != null && nonVoid && !ControlFlowValidator.blockTerminates(callable.body_node)) {
+		if (callable.bodyNode != null && nonVoid && !ControlFlowValidator.blockTerminates(callable.bodyNode)) {
 			TypeValidator.fail("Callable '" + self.state.owner + "' has non-void return type but does not return on every path", callable);
 		}
 		self.state.returnType = previousReturn;
@@ -823,7 +823,7 @@ class DeclarationValidator {
 	}
 
 	class string structFieldTarget(Node typeExpr, Map<string, Node> declarations, Map<string, Node> registrations) {
-		if (typeExpr.pointer_depth > 0) { return ""; }
+		if (typeExpr.pointerDepth > 0) { return ""; }
 		if (typeExpr.base.startsWith("struct ")) {
 			return typeExpr.base.substring(7, typeExpr.base.length() - 7);
 		}
@@ -846,7 +846,7 @@ class DeclarationValidator {
 			string target = DeclarationValidator.structFieldTarget(field.type, declarations, registrations);
 			if (target != "") {
 				if (!declarations.has(target)) {
-					if (registrations.has(target) && registrations.get(target).is_forward) {
+					if (registrations.has(target) && registrations.get(target).isForward) {
 						TypeValidator.fail("Struct field '" + name + "." + field.name + "' uses incomplete struct '" + target + "' by value", field);
 					}
 				} else {
@@ -865,7 +865,7 @@ class DeclarationValidator {
 		int index = 0;
 		while (index < program.declarations.len) {
 			Node declaration = program.declarations.get(index);
-			if (declaration.kind == NK_STRUCT_DECL && !declaration.is_forward) {
+			if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward) {
 				declarations.put(declaration.name, declaration);
 				sourceOrder.push(declaration.name);
 			}

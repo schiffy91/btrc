@@ -40,12 +40,12 @@ class AssignmentLowerer {
 	public AssignmentPlan plan(Node assignment, Map<string, Node> variableTypes, CallableBoundaryContext callableContext, CallableFlowState callableFlow) {
 		AssignmentPlan plan = AssignmentPlan(assignment);
 		plan.targetType = self.expressionTypes.inferSpecialization(assignment.target, variableTypes);
-		plan.valueType = self.expressionTypes.inferSpecialization(assignment.value_node, variableTypes);
+		plan.valueType = self.expressionTypes.inferSpecialization(assignment.valueNode, variableTypes);
 		bool unsafe = callableFlow.assignmentStorageUnsafe(assignment, plan.targetType, self.callableValues, callableContext);
 		self.callableBoundaries.rejectAssignment(assignment, plan.targetType, callableContext, unsafe);
 		plan.callableTarget = assignment.target != null && assignment.target.kind == NK_IDENTIFIER && self.callableValues.lexicalIdentifier(assignment.target.name, callableContext);
 		if (plan.callableTarget && assignment.op == "=") {
-			plan.callableAbi = callableFlow.evaluatedAbi(assignment.value_node, self.callableValues, callableContext);
+			plan.callableAbi = callableFlow.evaluatedAbi(assignment.valueNode, self.callableValues, callableContext);
 		}
 		return plan;
 	}

@@ -80,9 +80,9 @@ class StringLowerer {
 	}
 
 	public bool printfCStringType(Node typeExpr) {
-		int indirections = typeExpr.pointer_depth;
-		if (typeExpr.is_array) { indirections = indirections + 1; }
-		return typeExpr.base == "char" && typeExpr.generic_args.len == 0 && indirections == 1;
+		int indirections = typeExpr.pointerDepth;
+		if (typeExpr.isArray) { indirections = indirections + 1; }
+		return typeExpr.base == "char" && typeExpr.genericArgs.len == 0 && indirections == 1;
 	}
 
 	public string printfFormatSpec(Node? typeExpr) {
@@ -94,7 +94,7 @@ class StringLowerer {
 		if (SemanticTypeSystem.isString(canonical) || self.printfCStringType(canonical)) {
 			return "%s";
 		}
-		if (canonical.is_array || self.cTypes.lower(canonical).endsWith("*")) {
+		if (canonical.isArray || self.cTypes.lower(canonical).endsWith("*")) {
 			return "%p";
 		}
 		if (base == "int" || base == "short" || base == "short int" || base == "signed int" || base == "signed short" || base == "signed short int") { return "%d"; }
@@ -114,7 +114,7 @@ class StringLowerer {
 	}
 
 	public bool printfByValueAggregate(Node typeExpr) {
-		if (typeExpr.pointer_depth > 0 || typeExpr.is_array) { return false; }
+		if (typeExpr.pointerDepth > 0 || typeExpr.isArray) { return false; }
 		if (typeExpr.base == "Tuple" || typeExpr.base.startsWith("(")) {
 			return true;
 		}
@@ -127,7 +127,7 @@ class StringLowerer {
 		if (canonicalType != null) {
 			spec = self.printfFormatSpec(canonicalType);
 			Node canonical = canonicalType;
-			bool scalarValue = canonical.pointer_depth == 0 && !canonical.is_array;
+			bool scalarValue = canonical.pointerDepth == 0 && !canonical.isArray;
 			if ((canonical.base == "__fn_ptr" || canonical.base == "__realtime_fn_ptr") && scalarValue) {
 				Vector<IRNode> sequence = [];
 				sequence.push(IRNode.cast("void", value));
@@ -235,7 +235,7 @@ class StringLowerer {
 		if (!self.requiresTargetStringConversion(target, source)) {
 			IRNode value = self.upcastClassPointer(target, source, lowered);
 			Node? effective = source;
-			if (target != null && source != null && self.analyzed.isClass(target.base) && target.generic_args.len == 0 && source.base != target.base && self.analyzed.isSubclass(source.base, target.base)) {
+			if (target != null && source != null && self.analyzed.isClass(target.base) && target.genericArgs.len == 0 && source.base != target.base && self.analyzed.isSubclass(source.base, target.base)) {
 				effective = target;
 			}
 			if (effective == null) { effective = target; }
@@ -255,7 +255,7 @@ class StringLowerer {
 	}
 
 	public bool sourceHasToString(Node? sourceType) {
-		if (sourceType == null || sourceType.is_array || self.operators.valueDepth(sourceType) != 1) {
+		if (sourceType == null || sourceType.isArray || self.operators.valueDepth(sourceType) != 1) {
 			return false;
 		}
 		Node? method = null;
@@ -266,13 +266,13 @@ class StringLowerer {
 		} else {
 			return false;
 		}
-		return method != null && method.kind == NK_METHOD_DECL && method.params.len == 0 && method.return_type != null && TypeComposition.isSemanticScalarString(method.return_type);
+		return method != null && method.kind == NK_METHOD_DECL && method.params.len == 0 && method.returnType != null && TypeComposition.isSemanticScalarString(method.returnType);
 	}
 
 	public IRNode toStringCall(Node sourceType, IRNode value) {
 		string prefix = sourceType.base;
-		if (sourceType.generic_args.len > 0 && self.analyzed.isGenericClass(sourceType.base)) {
-			prefix = TypeIdentity.mangleGenericType(sourceType.base, sourceType.generic_args);
+		if (sourceType.genericArgs.len > 0 && self.analyzed.isGenericClass(sourceType.base)) {
+			prefix = TypeIdentity.mangleGenericType(sourceType.base, sourceType.genericArgs);
 		}
 		Vector<IRNode> arguments = [];
 		arguments.push(value);
@@ -281,7 +281,7 @@ class StringLowerer {
 
 	public IRNode upcastClassPointer(Node? targetType, Node? sourceType, IRNode value) {
 		if (targetType == null || sourceType == null) { return value; }
-		if (!self.analyzed.isClass(targetType.base) || targetType.generic_args.len > 0 || sourceType.base == targetType.base || !self.analyzed.isSubclass(sourceType.base, targetType.base)) {
+		if (!self.analyzed.isClass(targetType.base) || targetType.genericArgs.len > 0 || sourceType.base == targetType.base || !self.analyzed.isSubclass(sourceType.base, targetType.base)) {
 			return value;
 		}
 		return IRNode.cast(self.cTypes.lower(targetType), value);

@@ -225,6 +225,23 @@ PIPELINE:
 
 ---
 
+### Naming
+
+The shared specs (`ast.asdl`, `hosted_abi.toml`, `manifest.toml`) name every
+field once, in snake_case. Each generator renders those names in the
+convention of the language it emits: `generated.py` keeps snake_case, and the
+`.btrc` catalogs are respelled camelCase. Handwritten source on either side
+follows its own language, so a spec field `is_gpu` reaches the Python compiler
+as `is_gpu` and the self-hosted compiler as `isGpu`.
+
+Names that belong to the hosted C ABI are the exception: `size_t` and every
+other entry in `src/language/hosted_abi.toml` keeps the spelling the C headers
+gave it, because that spelling is the contract.
+`src/tests/btrc/test_naming_convention_contract.py` holds the line, taking its
+allowlist from the ABI repository rather than a list that could drift.
+
+---
+
 ## Python Compiler (src/compiler/python/)
 
 ### Cohesion and Object Design
@@ -509,6 +526,7 @@ make examples-triangle    Build the GPU triangle example
 make examples-sgd         Build the GPU SGD example
 make examples-todo        Build the todo example
 make devcontainer         Generate .devcontainer/ and build image
+make linux-ci             Run LINUX_CI_TARGETS in that container, as Linux CI does
 make clean                Remove build artifacts
 ```
 
@@ -528,3 +546,7 @@ Run `make help` for the canonical, complete target list.
 8. **Strict imports are the default.** Relaxation is explicit and compatibility-only.
 9. **No loose compiler behavior.** Stage/domain classes own executable logic.
 10. **Don't cut corners when context runs low.** Save state and stop.
+11. **Each language keeps its own spelling.** btrc names the things it owns in
+    camelCase (PascalCase types); the Python compiler stays snake_case. Shared
+    specs are written once in snake_case and rendered per language. Only hosted
+    C ABI names keep their C spelling.

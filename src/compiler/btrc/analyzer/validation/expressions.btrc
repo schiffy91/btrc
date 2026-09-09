@@ -69,10 +69,10 @@ class ExpressionValidator {
 			return info.valid && info.magnitude == 0ULL;
 		}
 		if (expression.kind == NK_FLOAT_LITERAL) {
-			return expression.value_float == 0.0;
+			return expression.valueFloat == 0.0;
 		}
 		if (expression.kind == NK_BOOL_LITERAL) {
-			return !expression.value_bool;
+			return !expression.valueBool;
 		}
 		return false;
 	}
@@ -97,18 +97,18 @@ class ExpressionValidator {
 
 	public bool castPointerRepresentation(Node? typeExpr) {
 		Node? canonical = self.types.resolveAliases(typeExpr);
-		return canonical != null && (canonical.is_array || canonical.pointer_depth > 0 || (self.ownership.managedOwnershipType(canonical) && !self.state.typeParams.has(canonical.base)));
+		return canonical != null && (canonical.isArray || canonical.pointerDepth > 0 || (self.ownership.managedOwnershipType(canonical) && !self.state.typeParams.has(canonical.base)));
 	}
 
 	public void validatePointerIntegerCast(Node expression, Map<string, Node> vars) {
-		Node? target = self.types.resolveAliases(expression.target_type);
+		Node? target = self.types.resolveAliases(expression.targetType);
 		Node? source = self.types.resolveAliases(self.types.inferType(expression.expr, vars));
 		if (target == null || source == null) { return; }
 		if (target.base == "__realtime_fn_ptr") {
 			TypeValidator.fail("RealtimeFunction cannot be created by a cast; use a direct named " + "@realtime function", expression);
 		}
-		bool targetCallable = (target.base == "__fn_ptr" || target.base == "__realtime_fn_ptr") && target.pointer_depth == 0 && !target.is_array;
-		bool sourceCallable = (source.base == "__fn_ptr" || source.base == "__realtime_fn_ptr") && source.pointer_depth == 0 && !source.is_array;
+		bool targetCallable = (target.base == "__fn_ptr" || target.base == "__realtime_fn_ptr") && target.pointerDepth == 0 && !target.isArray;
+		bool sourceCallable = (source.base == "__fn_ptr" || source.base == "__realtime_fn_ptr") && source.pointerDepth == 0 && !source.isArray;
 		if (targetCallable && !sourceCallable) {
 			if (expression.expr.kind == NK_NULL_LITERAL || self.knownNumericZero(expression.expr)) {
 				return;
@@ -116,7 +116,7 @@ class ExpressionValidator {
 			TypeValidator.fail("Function pointers cannot be cast from object pointers or " + "integer values in strict C11", expression);
 		}
 		if (sourceCallable && !targetCallable) {
-			bool targetBool = target.base == "bool" && target.pointer_depth == 0 && !target.is_array;
+			bool targetBool = target.base == "bool" && target.pointerDepth == 0 && !target.isArray;
 			if (targetBool) { return; }
 			TypeValidator.fail("Function pointers cannot be cast to object pointers or " + "integer values in strict C11", expression);
 		}
@@ -128,15 +128,15 @@ class ExpressionValidator {
 		if (scalar.base == "intptr_t" || scalar.base == "uintptr_t") {
 			return;
 		}
-		if (scalar.pointer_depth == 0 && !scalar.is_array && NumericSemantics.isType(scalar, self.state.analyzed)) {
+		if (scalar.pointerDepth == 0 && !scalar.isArray && NumericSemantics.isType(scalar, self.state.analyzed)) {
 			TypeValidator.fail("Pointer/integer casts require intptr_t or uintptr_t", expression);
 		}
 	}
 
 	public Node arrayElementType(Node arrayType) {
 		Node element = TypeShape.withoutOuterArray(arrayType);
-		element.is_static = false;
-		element.is_extern = false;
+		element.isStatic = false;
+		element.isExtern = false;
 		return element;
 	}
 
@@ -151,7 +151,7 @@ class ExpressionValidator {
 			return false;
 		}
 		Node declaration = self.state.analyzed.funcTable.get(name);
-		return declaration.kind == NK_FUNCTION_DECL && declaration.is_gpu && declaration.return_type != null && declaration.return_type.is_array;
+		return declaration.kind == NK_FUNCTION_DECL && declaration.isGpu && declaration.returnType != null && declaration.returnType.isArray;
 	}
 
 	public void validateInitializerElements(Node expected, Vector<Node> elements, string subject, Map<string, Node> vars) {
@@ -166,7 +166,7 @@ class ExpressionValidator {
 		string name = StorageValidator.structTypeName(expected, self.state.analyzed);
 		if (name == "" || !self.state.analyzed.structTable.has(name)) { return; }
 		Node declaration = self.state.analyzed.structTable.get(name);
-		if (declaration.is_forward) {
+		if (declaration.isForward) {
 			TypeValidator.fail("Incomplete struct '" + name + "' cannot be initialized by value", initializer);
 		}
 		if (initializer.kind != NK_BRACE_INITIALIZER) {
@@ -186,14 +186,14 @@ class ExpressionValidator {
 	}
 
 	public void validateMapInitializer(Node expected, Node initializer, string subject, Map<string, Node> vars) {
-		if (expected.base != "Map" || expected.generic_args.len != 2) {
+		if (expected.base != "Map" || expected.genericArgs.len != 2) {
 			TypeValidator.fail(subject + " uses a map literal for a non-Map type", initializer);
 		}
 		int index = 0;
 		while (index < initializer.entries.len) {
 			Node entry = initializer.entries.get(index);
-			self.validateInitializerValue(expected.generic_args.get(0), entry.key, subject + " key", vars);
-			self.validateInitializerValue(expected.generic_args.get(1), entry.value_node, subject + " value", vars);
+			self.validateInitializerValue(expected.genericArgs.get(0), entry.key, subject + " key", vars);
+			self.validateInitializerValue(expected.genericArgs.get(1), entry.valueNode, subject + " value", vars);
 			index = index + 1;
 		}
 	}
@@ -211,7 +211,7 @@ class ExpressionValidator {
 			self.validateMapInitializer(canonical, value, subject, vars);
 			return;
 		}
-		if (canonical.is_array) {
+		if (canonical.isArray) {
 			if (value.kind != NK_BRACE_INITIALIZER && value.kind != NK_LIST_LITERAL) {
 				/* Array-valued GPU dispatch is the sole expression form that
                  * materializes array storage. Ordinary C arrays remain
@@ -222,24 +222,24 @@ class ExpressionValidator {
 			/* A fixed-bound empty initializer is normalized by structured IR to
              * strict-C11 `{0}`.  Only an unsized array lacks enough information
              * to form an object. */
-			if (value.elements.len == 0 && canonical.array_size == null) {
+			if (value.elements.len == 0 && canonical.arraySize == null) {
 				TypeValidator.fail(subject + " cannot infer an array bound from an empty initializer", value);
 			}
 			self.validateInitializerElements(self.arrayElementType(canonical), value.elements, subject, vars);
 			return;
 		}
 		string structName = StorageValidator.structTypeName(canonical, self.state.analyzed);
-		if (structName != "" && canonical.pointer_depth == 0 && value.kind == NK_BRACE_INITIALIZER) {
+		if (structName != "" && canonical.pointerDepth == 0 && value.kind == NK_BRACE_INITIALIZER) {
 			self.validateStructInitializer(canonical, value, subject, vars);
 			return;
 		}
-		if (canonical.base == "Tuple" && canonical.pointer_depth == 0 && value.kind == NK_BRACE_INITIALIZER) {
-			if (value.elements.len > canonical.generic_args.len) {
-				TypeValidator.fail(subject + " has " + Strings.fromInt(value.elements.len) + " initializer elements but tuple '" + self.types.formatType(canonical) + "' has " + Strings.fromInt(canonical.generic_args.len) + " fields", value);
+		if (canonical.base == "Tuple" && canonical.pointerDepth == 0 && value.kind == NK_BRACE_INITIALIZER) {
+			if (value.elements.len > canonical.genericArgs.len) {
+				TypeValidator.fail(subject + " has " + Strings.fromInt(value.elements.len) + " initializer elements but tuple '" + self.types.formatType(canonical) + "' has " + Strings.fromInt(canonical.genericArgs.len) + " fields", value);
 			}
 			int tupleIndex = 0;
 			while (tupleIndex < value.elements.len) {
-				self.validateInitializerValue(canonical.generic_args.get(tupleIndex), value.elements.get(tupleIndex), subject + " field '_" + Strings.fromInt(tupleIndex) + "'", vars);
+				self.validateInitializerValue(canonical.genericArgs.get(tupleIndex), value.elements.get(tupleIndex), subject + " field '_" + Strings.fromInt(tupleIndex) + "'", vars);
 				tupleIndex = tupleIndex + 1;
 			}
 			return;
@@ -248,11 +248,11 @@ class ExpressionValidator {
 			if (value.kind == NK_BRACE_INITIALIZER && value.elements.len > 0 && self.state.analyzed.isGenericClass(canonical.base) && canonical.base != "Array" && canonical.base != "List" && canonical.base != "Map" && canonical.base != "Set" && canonical.base != "Vector") {
 				TypeValidator.fail(subject + " cannot use a non-empty brace initializer for heap class '" + self.types.formatType(canonical) + "'; use an explicit constructor call", value);
 			}
-			if (canonical.generic_args.len == 1 && (canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector")) {
-				self.validateInitializerElements(canonical.generic_args.get(0), value.elements, subject, vars);
+			if (canonical.genericArgs.len == 1 && (canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector")) {
+				self.validateInitializerElements(canonical.genericArgs.get(0), value.elements, subject, vars);
 				return;
 			}
-			if (value.kind == NK_BRACE_INITIALIZER && value.elements.len == 0 && canonical.generic_args.len > 0 && self.state.analyzed.isGenericClass(canonical.base)) {
+			if (value.kind == NK_BRACE_INITIALIZER && value.elements.len == 0 && canonical.genericArgs.len > 0 && self.state.analyzed.isGenericClass(canonical.base)) {
 				return;
 			}
 			TypeValidator.fail(subject + " uses an aggregate initializer for '" + self.types.formatType(canonical) + "'", value);
@@ -279,7 +279,7 @@ class ExpressionValidator {
 		/* Ordinary scalar/reference compatibility already has context-specific
          * diagnostics at every call site.  This layer owns only contextual
          * aggregate shapes and nested aggregate element checks. */
-		if (!aggregate && (initializer.kind == NK_NULL_LITERAL || canonical == null || !canonical.is_array)) {
+		if (!aggregate && (initializer.kind == NK_NULL_LITERAL || canonical == null || !canonical.isArray)) {
 			return;
 		}
 		self.validateInitializerValue(representedExpected, initializer, subject, vars);
@@ -301,7 +301,7 @@ class ExpressionValidator {
 	public void validateGpuArrayInitializer(Node? expression, Node? declaredType, Map<string, Node> vars) {
 		Node? boundary = null;
 		Node? canonical = self.types.resolveAliases(declaredType);
-		bool arrayStorage = declaredType == null || (canonical != null && canonical.is_array);
+		bool arrayStorage = declaredType == null || (canonical != null && canonical.isArray);
 		if (arrayStorage && self.gpuArrayResultCall(expression, vars)) {
 			boundary = expression;
 		}
@@ -310,8 +310,8 @@ class ExpressionValidator {
 
 	public void validateGpuResultStatement(Node expression, Map<string, Node> vars) {
 		Node? boundary = null;
-		if (expression.kind == NK_ASSIGN_EXPR && expression.op == "=" && self.gpuArrayResultCall(expression.value_node, vars)) {
-			boundary = expression.value_node;
+		if (expression.kind == NK_ASSIGN_EXPR && expression.op == "=" && self.gpuArrayResultCall(expression.valueNode, vars)) {
+			boundary = expression.valueNode;
 		}
 		self.validateGpuResultBoundary(expression, boundary, vars);
 	}
@@ -339,7 +339,7 @@ class ExpressionValidator {
 		if (self.names.validateResolvedMemberAccess(receiver.base, expression.field, NK_PROPERTY_DECL, false, true, "property", expression)) {
 			string owner = self.names.resolveMemberOwner(receiver.base, expression.field, NK_PROPERTY_DECL, false, true, self.state.analyzed);
 			Node? property = self.names.declaredMember(owner, expression.field, NK_PROPERTY_DECL, false, self.state.analyzed);
-			if (requireGetter && property != null && !property.has_getter) {
+			if (requireGetter && property != null && !property.hasGetter) {
 				TypeValidator.fail("Property '" + expression.field + "' has no getter", expression);
 			}
 			return;
@@ -410,7 +410,7 @@ class ExpressionValidator {
 		}
 		if (receiver.base == "Tuple") {
 			int tupleIndex = SemanticTypeSystem.tupleIndex(expression.field);
-			if (tupleIndex < 0 || tupleIndex >= receiver.generic_args.len) {
+			if (tupleIndex < 0 || tupleIndex >= receiver.genericArgs.len) {
 				TypeValidator.fail("Tuple type '" + self.types.formatType(receiver) + "' has no field '" + expression.field + "'", expression);
 			}
 			return;
@@ -427,7 +427,7 @@ class ExpressionValidator {
 		}
 	}
 
-	public bool rawPointer(Node? typeExpr, Analyzed analyzed) { return typeExpr != null && (typeExpr.pointer_depth > 0 || typeExpr.is_array) && !analyzed.isClass(typeExpr.base) && !analyzed.isGenericClass(typeExpr.base); }
+	public bool rawPointer(Node? typeExpr, Analyzed analyzed) { return typeExpr != null && (typeExpr.pointerDepth > 0 || typeExpr.isArray) && !analyzed.isClass(typeExpr.base) && !analyzed.isGenericClass(typeExpr.base); }
 
 	public bool hasBinaryOverload(Node leftType, string op) {
 		string magic = self.operators.binaryMethodName(op);
@@ -520,9 +520,9 @@ class ExpressionValidator {
 		}
 		bool valid = true;
 		if (expression.op == "*") {
-			valid = operand.pointer_depth > 0 || operand.is_array;
+			valid = operand.pointerDepth > 0 || operand.isArray;
 		} else if (expression.op == "++" || expression.op == "--") {
-			valid = self.storage.isLvalue(expression.operand, vars) && ((NumericSemantics.isType(operand, self.state.analyzed) && operand.base != "bool") || operand.pointer_depth > 0);
+			valid = self.storage.isLvalue(expression.operand, vars) && ((NumericSemantics.isType(operand, self.state.analyzed) && operand.base != "bool") || operand.pointerDepth > 0);
 			if (valid) {
 				self.storage.validatePropertyMutation(expression.operand, true, false, vars, expression);
 				self.storage.validateIndexedMutation(expression.operand, true, vars, expression);
@@ -605,12 +605,12 @@ class ExpressionValidator {
 				self.validateExpr(expression.target,  vars);
 			}
 			if (expression.op == "=") {
-				self.contextualizeGenericConstructor(self.types.inferType(expression.target, vars), expression.value_node, vars);
+				self.contextualizeGenericConstructor(self.types.inferType(expression.target, vars), expression.valueNode, vars);
 			}
-			self.validateExpr(expression.value_node,  vars);
+			self.validateExpr(expression.valueNode,  vars);
 			self.ownership.rejectShallowStore(expression, vars);
 			Node? assignmentTarget = self.types.inferType(expression.target, vars);
-			self.borrows.validateOpaqueBorrowStorage(assignmentTarget, expression.value_node, "Assignment", vars);
+			self.borrows.validateOpaqueBorrowStorage(assignmentTarget, expression.valueNode, "Assignment", vars);
 			self.storage.validateAssignment(expression,  vars);
 		} else if (expression.kind == NK_CALL_EXPR) {
 			self.contextualizeCallGenericConstructors(expression,  vars);
@@ -640,10 +640,10 @@ class ExpressionValidator {
 		} else if (expression.kind == NK_TERNARY_EXPR) {
 			self.validateExpr(expression.condition,  vars);
 			self.validateCondition(expression.condition, "Ternary expression", vars);
-			self.validateExpr(expression.true_expr,  vars);
-			self.validateExpr(expression.false_expr,  vars);
-			Node? first = self.types.inferType(expression.true_expr,  vars);
-			Node? second = self.types.inferType(expression.false_expr,  vars);
+			self.validateExpr(expression.trueExpr,  vars);
+			self.validateExpr(expression.falseExpr,  vars);
+			Node? first = self.types.inferType(expression.trueExpr,  vars);
+			Node? second = self.types.inferType(expression.falseExpr,  vars);
 			if (first != null && second != null) {
 				self.validatePortableNumericMix(expression, first, second, "Ternary expression");
 			}
@@ -679,14 +679,14 @@ class ExpressionValidator {
 			}
 			index = index + 1;
 		}
-		if (expression.return_type != null) {
-			self.types.validateDeclaredType(expression.return_type, "Lambda return type", "return", expression);
-			self.types.rejectRuntimeInterfaceType(expression.return_type, expression);
+		if (expression.returnType != null) {
+			self.types.validateDeclaredType(expression.returnType, "Lambda return type", "return", expression);
+			self.types.rejectRuntimeInterfaceType(expression.returnType, expression);
 			self.types.validateArrayReturn(expression, "Lambda");
 		}
 
 		Map<string, bool> usedNames = {};
-		ExpressionTypeResolver.collectIdentifiers(expression.body_node, usedNames);
+		ExpressionTypeResolver.collectIdentifiers(expression.bodyNode, usedNames);
 		Vector<string> names = usedNames.keys();
 		plan.borrowedBindings = self.types.cloneFlags(parameterNames);
 		plan.localBindings = self.types.cloneFlags(parameterNames);
@@ -703,7 +703,7 @@ class ExpressionValidator {
 					TypeValidator.fail("A lambda cannot capture Thread handle '" + name + "'; join it before capture or create a fresh owner " + "inside the lambda", expression);
 				}
 				Node? captured = self.types.resolveAliases(vars.get(name));
-				if (captured != null && (captured.base == "Span" || captured.base == "Atomic") && captured.pointer_depth == 0 && !captured.is_array) {
+				if (captured != null && (captured.base == "Span" || captured.base == "Atomic") && captured.pointerDepth == 0 && !captured.isArray) {
 					TypeValidator.fail("A lambda cannot capture " + captured.base + " value '" + name + "' by value", expression);
 				}
 			}
@@ -737,7 +737,7 @@ class ExpressionValidator {
 		self.state.loopDepth = 0;
 		self.state.breakDepth = 0;
 
-		Node body = expression.body_node;
+		Node body = expression.bodyNode;
 		if (body != null && body.kind == NK_LAMBDA_EXPR_BODY) {
 			self.validateExpr(body.expression,  plan.variables);
 			self.storage.validateVolatileReferenceConversion(plan.resultType, body.expression, "Lambda return value", plan.variables);
@@ -750,7 +750,7 @@ class ExpressionValidator {
 			}
 		} else if (body != null && body.kind == NK_LAMBDA_BLOCK) {
 			bool nonVoid = !TypeValidator.scalarVoid(plan.resultType);
-			if (nonVoid && !ExpressionTypeResolver.blockTerminates(body.body_node)) {
+			if (nonVoid && !ExpressionTypeResolver.blockTerminates(body.bodyNode)) {
 				TypeValidator.fail("Non-void lambda does not return on every path", expression);
 			}
 		}
@@ -771,7 +771,7 @@ class ExpressionValidator {
 			parameterIndex = parameterIndex + 1;
 		}
 		Map<string, bool> usedNames = {};
-		ExpressionTypeResolver.collectIdentifiers(expression.body_node, usedNames);
+		ExpressionTypeResolver.collectIdentifiers(expression.bodyNode, usedNames);
 		Vector<string> names = usedNames.keys();
 		int captureIndex = 0;
 		while (captureIndex < names.len) {
@@ -779,11 +779,11 @@ class ExpressionValidator {
 			if (!parameterNames.has(name) && vars.has(name) && !self.state.analyzed.globalVarTypes.has(name)) {
 				Node captureType = vars.get(name);
 				Node? canonical = self.types.resolveAliases(captureType);
-				if (canonical != null && (canonical.base == "Span" || canonical.base == "Atomic") && canonical.pointer_depth == 0 && !canonical.is_array) {
+				if (canonical != null && (canonical.base == "Span" || canonical.base == "Atomic") && canonical.pointerDepth == 0 && !canonical.isArray) {
 					TypeValidator.fail("spawn cannot capture " + canonical.base + " value '" + name + "' by value", expression);
 				}
 				Map<string, bool> visiting = {};
-				if ((canonical != null && canonical.is_array) || self.ownership.threadResultHasUnsizedArray(captureType, visiting)) {
+				if ((canonical != null && canonical.isArray) || self.ownership.threadResultHasUnsizedArray(captureType, visiting)) {
 					TypeValidator.fail("spawn cannot capture array storage through '" + name + "'; copy it into a scalar-only struct or managed " + "collection", expression);
 				}
 				Map<string, bool> managedVisiting = {};
@@ -809,24 +809,24 @@ class ExpressionValidator {
 		string className = expression.type.base;
 		Node? constructor = null;
 		Map<string, Node> substitutions = {};
-		if (expression.type.pointer_depth != 0 || expression.type.is_array || expression.type.is_nullable) {
+		if (expression.type.pointerDepth != 0 || expression.type.isArray || expression.type.isNullable) {
 			TypeValidator.fail("new requires an unqualified class type, got '" + self.types.formatType(expression.type) + "'", expression);
 		}
 		if (className == "Mutex") {
-			if (expression.type.generic_args.len != 1) {
+			if (expression.type.genericArgs.len != 1) {
 				TypeValidator.fail("new Mutex requires exactly one value type", expression);
 			}
 			if (expression.args.len != 1) {
 				TypeValidator.fail("'new Mutex<T>()' expects exactly 1 argument", expression);
 			}
 			int mutexArgIndex = 0;
-			while (mutexArgIndex < expression.arg_names.len) {
-				if (expression.arg_names.get(mutexArgIndex) != "") {
+			while (mutexArgIndex < expression.argNames.len) {
+				if (expression.argNames.get(mutexArgIndex) != "") {
 					TypeValidator.fail("'new Mutex<T>()' does not accept named arguments", expression);
 				}
 				mutexArgIndex = mutexArgIndex + 1;
 			}
-			Node expected = expression.type.generic_args.get(0);
+			Node expected = expression.type.genericArgs.get(0);
 			Node argument = expression.args.get(0);
 			self.validateTypedInitializer(expected, argument, "Mutex initializer", vars);
 			Node? actual = self.types.inferType(argument,  vars);
@@ -836,7 +836,7 @@ class ExpressionValidator {
 			return;
 		}
 		if (self.state.analyzed.isClass(className)) {
-			if (self.state.analyzed.classTable.get(className).is_abstract) {
+			if (self.state.analyzed.classTable.get(className).isAbstract) {
 				TypeValidator.fail("Cannot instantiate abstract class '" + className + "'", expression);
 			}
 			constructor = self.state.analyzed.classConstructor(className);
@@ -866,9 +866,9 @@ class ExpressionValidator {
 		while (index < entries.len) {
 			Node entry = entries.get(index);
 			self.validateExpr(entry.key,  vars);
-			self.validateExpr(entry.value_node,  vars);
+			self.validateExpr(entry.valueNode,  vars);
 			self.rejectThreadValueEscape(entry.key, "embedded in aggregate values", vars);
-			self.rejectThreadValueEscape(entry.value_node, "embedded in aggregate values", vars);
+			self.rejectThreadValueEscape(entry.valueNode, "embedded in aggregate values", vars);
 			index = index + 1;
 		}
 	}
@@ -911,14 +911,14 @@ class ExpressionValidator {
 			bool known = vars.has(name) || self.state.analyzed.funcTable.has(name) || self.sourceMacros.declared(name) || self.state.analyzed.isClass(name) || self.state.analyzed.isGenericClass(name) || self.state.analyzed.isEnum(name) || self.state.analyzed.isRichEnum(name) || self.state.analyzed.isEnumValue(name) || self.sourceRuntimeSymbols.helper(name) || SemanticTypeSystem.isCIntegerIdentifier(name) || name == "NULL" || name == "__func__" || name == "stdin" || name == "stdout" || name == "stderr";
 			self.names.deferGeneratedSymbolReference(expression, vars, known);
 		} else if (expression.kind == NK_SELF_EXPR) {
-			if (self.state.inParameterDefault && self.state.callable != null && self.state.callable.is_constructor) {
+			if (self.state.inParameterDefault && self.state.callable != null && self.state.callable.isConstructor) {
 				TypeValidator.fail("Constructor defaults cannot reference 'self' before allocation", expression);
 			}
 			if (!vars.has("self")) {
 				TypeValidator.fail("'self' used outside an instance method", expression);
 			}
 		} else if (expression.kind == NK_SUPER_EXPR) {
-			if (self.state.inParameterDefault && self.state.callable != null && self.state.callable.is_constructor) {
+			if (self.state.inParameterDefault && self.state.callable != null && self.state.callable.isConstructor) {
 				TypeValidator.fail("Constructor defaults cannot reference 'super' before allocation", expression);
 			}
 			if (!vars.has("self")) {
@@ -929,7 +929,7 @@ class ExpressionValidator {
 				TypeValidator.fail("'super' used in a class without a parent", expression);
 			}
 		} else if (expression.kind == NK_CAST_EXPR) {
-			self.types.rejectRuntimeInterfaceType(expression.target_type, expression);
+			self.types.rejectRuntimeInterfaceType(expression.targetType, expression);
 			self.validateExpr(expression.expr,  vars);
 			self.rejectThreadValueEscape(expression.expr, "cast", vars);
 			self.validatePointerIntegerCast(expression,  vars);
@@ -968,7 +968,7 @@ class ExpressionValidator {
 				TypeValidator.fail("spawn expects a lambda or function pointer", expression);
 			} else if (expression.fn.kind != NK_LAMBDA_EXPR && callable != null) {
 				Node typedCallable = callable;
-				if (typedCallable.generic_args.len != 2 || !self.operators.isVoidPointer(typedCallable.generic_args.get(0)) || !self.operators.isVoidPointer(typedCallable.generic_args.get(1))) {
+				if (typedCallable.genericArgs.len != 2 || !self.operators.isVoidPointer(typedCallable.genericArgs.get(0)) || !self.operators.isVoidPointer(typedCallable.genericArgs.get(1))) {
 					TypeValidator.fail("Non-lambda spawn requires __fn_ptr<void*, void*>; use a " + "lambda adapter for other signatures", expression);
 				}
 			}
@@ -998,37 +998,37 @@ class ExpressionValidator {
 		if (resolved == null) { return; }
 		Node concrete = resolved;
 		if (expression.kind == NK_TERNARY_EXPR) {
-			self.contextualizeGenericConstructor(concrete, expression.true_expr, variables);
-			self.contextualizeGenericConstructor(concrete, expression.false_expr, variables);
+			self.contextualizeGenericConstructor(concrete, expression.trueExpr, variables);
+			self.contextualizeGenericConstructor(concrete, expression.falseExpr, variables);
 			return;
 		}
-		if (expression.kind == NK_MAP_LITERAL && concrete.base == "Map" && concrete.generic_args.len == 2) {
+		if (expression.kind == NK_MAP_LITERAL && concrete.base == "Map" && concrete.genericArgs.len == 2) {
 			int entryIndex = 0;
 			while (entryIndex < expression.entries.len) {
 				Node entry = expression.entries.get(entryIndex);
-				self.contextualizeGenericConstructor(concrete.generic_args.get(0), entry.key, variables);
-				self.contextualizeGenericConstructor(concrete.generic_args.get(1), entry.value_node, variables);
+				self.contextualizeGenericConstructor(concrete.genericArgs.get(0), entry.key, variables);
+				self.contextualizeGenericConstructor(concrete.genericArgs.get(1), entry.valueNode, variables);
 				entryIndex = entryIndex + 1;
 			}
 			return;
 		}
 		bool aggregate = expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_LIST_LITERAL || expression.kind == NK_TUPLE_LITERAL;
 		if (aggregate) {
-			if (concrete.is_array) {
+			if (concrete.isArray) {
 				Node elementType = TypeShape.withoutOuterArray(concrete);
 				self.contextualizeGenericElements(elementType, expression.elements, variables);
 				return;
 			}
 			if (concrete.base == "Tuple") {
 				int tupleIndex = 0;
-				while (tupleIndex < expression.elements.len && tupleIndex < concrete.generic_args.len) {
-					self.contextualizeGenericConstructor(concrete.generic_args.get(tupleIndex), expression.elements.get(tupleIndex), variables);
+				while (tupleIndex < expression.elements.len && tupleIndex < concrete.genericArgs.len) {
+					self.contextualizeGenericConstructor(concrete.genericArgs.get(tupleIndex), expression.elements.get(tupleIndex), variables);
 					tupleIndex = tupleIndex + 1;
 				}
 				return;
 			}
-			if (concrete.generic_args.len == 1 && (concrete.base == "Array" || concrete.base == "List" || concrete.base == "Set" || concrete.base == "Vector")) {
-				self.contextualizeGenericElements(concrete.generic_args.get(0), expression.elements, variables);
+			if (concrete.genericArgs.len == 1 && (concrete.base == "Array" || concrete.base == "List" || concrete.base == "Set" || concrete.base == "Vector")) {
+				self.contextualizeGenericElements(concrete.genericArgs.get(0), expression.elements, variables);
 				return;
 			}
 			if (self.state.analyzed.structTable.has(concrete.base)) {
@@ -1045,13 +1045,13 @@ class ExpressionValidator {
 			return;
 		}
 		string name = expression.callee.name;
-		if ((name == "Atomic" || name == "Span") && concrete.base == name && concrete.generic_args.len == 1) {
+		if ((name == "Atomic" || name == "Span") && concrete.base == name && concrete.genericArgs.len == 1) {
 			self.state.analyzed.genericConstructorTypes.put(AstIdentity.key(expression), concrete);
 			return;
 		}
 		if (!self.state.analyzed.isGenericClass(name) || concrete.base != name) { return; }
 		Node declaration = self.state.analyzed.genericClassTable.get(name);
-		if (concrete.generic_args.len != declaration.generic_params.len) {
+		if (concrete.genericArgs.len != declaration.genericParams.len) {
 			return;
 		}
 		self.state.analyzed.genericConstructorTypes.put(AstIdentity.key(expression), concrete);
@@ -1065,7 +1065,7 @@ class ExpressionValidator {
 		int positional = 0;
 		int argumentIndex = 0;
 		while (argumentIndex < call.args.len) {
-			string name = argumentIndex < call.arg_names.len ? call.arg_names.get(argumentIndex) : "";
+			string name = argumentIndex < call.argNames.len ? call.argNames.get(argumentIndex) : "";
 			int parameterIndex = name == "" ? positional : self.genericConstructorParameterIndex(parameters, name);
 			if (name == "") { positional = positional + 1; }
 			if (parameterIndex >= 0 && parameterIndex < parameters.len) {
@@ -1081,8 +1081,8 @@ class ExpressionValidator {
 
 	public void contextualizeCallableArguments(Node callable, Node call, Map<string, Node> variables) {
 		int index = 0;
-		while (index < call.args.len && index + 1 < callable.generic_args.len) {
-			self.contextualizeGenericConstructor(callable.generic_args.get(index + 1), call.args.get(index), variables);
+		while (index < call.args.len && index + 1 < callable.genericArgs.len) {
+			self.contextualizeGenericConstructor(callable.genericArgs.get(index + 1), call.args.get(index), variables);
 			index = index + 1;
 		}
 	}
@@ -1115,7 +1115,7 @@ class ExpressionValidator {
 				declaration = self.state.analyzed.classConstructor(callee.name);
 			} else if (self.state.analyzed.isGenericClass(callee.name)) {
 				Node? instance = self.types.inferSpecialization(call, variables);
-				if (instance != null && instance.generic_args.len > 0) {
+				if (instance != null && instance.genericArgs.len > 0) {
 					self.state.analyzed.genericConstructorTypes.put(AstIdentity.key(call), instance);
 					substitutions = SemanticTypeSystem.genericTypeMap(self.state.analyzed, instance);
 					declaration = self.state.analyzed.genericClassConstructor(callee.name);

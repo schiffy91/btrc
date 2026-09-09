@@ -195,16 +195,16 @@ class Analyzed {
 			while (classIndex < keys.len) {
 				Node declaration = table == 0 ? self.classTable.get(keys.get(classIndex)) : self.genericClassTable.get(keys.get(classIndex));
 				int parameterIndex = 0;
-				while (parameterIndex < declaration.generic_params.len) {
-					names.put(declaration.generic_params.get(parameterIndex), true);
+				while (parameterIndex < declaration.genericParams.len) {
+					names.put(declaration.genericParams.get(parameterIndex), true);
 					parameterIndex = parameterIndex + 1;
 				}
 				int memberIndex = 0;
 				while (memberIndex < declaration.members.len) {
 					Node member = declaration.members.get(memberIndex);
 					int methodParameterIndex = 0;
-					while (methodParameterIndex < member.generic_params.len) {
-						names.put(member.generic_params.get(methodParameterIndex), true);
+					while (methodParameterIndex < member.genericParams.len) {
+						names.put(member.genericParams.get(methodParameterIndex), true);
 						methodParameterIndex = methodParameterIndex + 1;
 					}
 					memberIndex = memberIndex + 1;
@@ -401,7 +401,7 @@ class Analyzed {
 		int i = 0;
 		while (i < decl.members.len) {
 			Node m = decl.members.get(i);
-			if (m.kind == NK_METHOD_DECL && !m.is_constructor && m.name != "__del__") {
+			if (m.kind == NK_METHOD_DECL && !m.isConstructor && m.name != "__del__") {
 				if (idx.has(m.name)) {
 					out.set(idx.get(m.name), MethodEntry(m.name, m));
 				} else {

@@ -148,39 +148,39 @@ class Parser {
 			return self.parseImportDecl();
 		}
 
-		bool is_gpu = false;
-		bool is_realtime = false;
-		bool keep_return = false;
+		bool isGpu = false;
+		bool isRealtime = false;
+		bool keepReturn = false;
 		if (tok.type == "AT_GPU") {
-			is_gpu = true;
+			isGpu = true;
 			self.advance();
 			tok = self.peek();
 		}
 		if (tok.type == "AT_REALTIME") {
-			is_realtime = true;
+			isRealtime = true;
 			self.advance();
 			tok = self.peek();
 		}
-		if (is_gpu && is_realtime) {
+		if (isGpu && isRealtime) {
 			self.failAt("@gpu and @realtime cannot be combined", tok);
 		}
 		if (tok.type == "KEEP") {
-			keep_return = true;
+			keepReturn = true;
 			self.advance();
 			tok = self.peek();
 		}
 
-		if (tok.type == "INTERFACE" && !is_gpu && !is_realtime && !keep_return) {
+		if (tok.type == "INTERFACE" && !isGpu && !isRealtime && !keepReturn) {
 			return self.parseInterfaceDecl();
 		}
 
-		if (tok.type == "ABSTRACT" && !is_gpu && !is_realtime && !keep_return) {
+		if (tok.type == "ABSTRACT" && !isGpu && !isRealtime && !keepReturn) {
 			if (self.peekAt(1).type == "CLASS") {
 				return self.parseClassDecl(true);
 			}
 		}
 
-		if (tok.type == "CLASS" && !is_gpu && !is_realtime && !keep_return) {
+		if (tok.type == "CLASS" && !isGpu && !isRealtime && !keepReturn) {
 			if (self.peekAt(1).type == "IDENT") {
 				string after = self.peekAt(2).type;
 				if (after == "LBRACE" || after == "LT" || after == "EXTENDS" || after == "IMPLEMENTS") {
@@ -189,7 +189,7 @@ class Parser {
 			}
 		}
 
-		if (tok.type == "STRUCT" && !is_gpu && !is_realtime && !keep_return) {
+		if (tok.type == "STRUCT" && !isGpu && !isRealtime && !keepReturn) {
 			string nt = self.peekAt(1).type;
 			if (nt == "IDENT") {
 				string after2 = self.peekAt(2).type;
@@ -201,23 +201,23 @@ class Parser {
 			}
 		}
 
-		if (tok.type == "ENUM" && !is_gpu && !is_realtime && !keep_return) {
+		if (tok.type == "ENUM" && !isGpu && !isRealtime && !keepReturn) {
 			if (self.peekAt(1).type == "CLASS") {
 				return self.parseRichEnumDecl();
 			}
 			return self.parseEnumDecl();
 		}
 
-		if (tok.type == "TYPEDEF" && !is_gpu && !is_realtime && !keep_return) {
+		if (tok.type == "TYPEDEF" && !isGpu && !isRealtime && !keepReturn) {
 			return self.parseTypedefDecl();
 		}
 
 		if (self.isTypeStartTok(tok)) {
-			return self.parseFunctionOrVarDecl(is_gpu, is_realtime, keep_return);
+			return self.parseFunctionOrVarDecl(isGpu, isRealtime, keepReturn);
 		}
 
 		// Fallback: treat as function/var.
-		return self.parseFunctionOrVarDecl(is_gpu, is_realtime, keep_return);
+		return self.parseFunctionOrVarDecl(isGpu, isRealtime, keepReturn);
 	}
 
 	/* ---- Import declaration ---- */
@@ -297,8 +297,8 @@ class Parser {
 
 	/* ---- Class declaration ---- */
 
-	public Node parseClassDecl(bool is_abstract) {
-		if (is_abstract) {
+	public Node parseClassDecl(bool isAbstract) {
+		if (isAbstract) {
 			self.expect("ABSTRACT");
 		}
 		Token tok = self.expect("CLASS");
@@ -306,16 +306,16 @@ class Parser {
 		Node n = Node();
 		n.kind = NK_CLASS_DECL;
 		n.name = nameTok.value;
-		n.is_abstract = is_abstract;
+		n.isAbstract = isAbstract;
 		n.line = tok.line;
 		n.col = tok.col;
-		n.name_line = nameTok.line;
-		n.name_col = nameTok.col;
+		n.nameLine = nameTok.line;
+		n.nameCol = nameTok.col;
 
 		if (self.matchTok("LT")) {
-			n.generic_params.push(self.expect("IDENT").value);
+			n.genericParams.push(self.expect("IDENT").value);
 			while (self.matchTok("COMMA")) {
-				n.generic_params.push(self.expect("IDENT").value);
+				n.genericParams.push(self.expect("IDENT").value);
 			}
 			self.expectGt();
 		}
@@ -333,14 +333,14 @@ class Parser {
 
 		self.expect("LBRACE");
 		while (!self.check("RBRACE") && !self.atEnd()) {
-			Node m = self.parseClassMember(is_abstract);
+			Node m = self.parseClassMember(isAbstract);
 			n.members.push(m);
 		}
 		self.expect("RBRACE");
 		return n;
 	}
 
-	public Node parseClassMember(bool allow_abstract) {
+	public Node parseClassMember(bool allowAbstract) {
 		Token tok = self.peek();
 		string access = "";
 		if (tok.type == "PUBLIC") {
@@ -354,39 +354,39 @@ class Parser {
 			self.advance();
 		}
 
-		bool is_abstract_method = false;
-		if (allow_abstract && self.check("ABSTRACT")) {
-			is_abstract_method = true;
+		bool isAbstractMethod = false;
+		if (allowAbstract && self.check("ABSTRACT")) {
+			isAbstractMethod = true;
 			self.advance();
 		}
 
-		bool is_gpu = false;
+		bool isGpu = false;
 		if (self.check("AT_GPU")) {
-			is_gpu = true;
+			isGpu = true;
 			self.advance();
 		}
 
-		bool is_realtime = false;
+		bool isRealtime = false;
 		if (self.check("AT_REALTIME")) {
-			is_realtime = true;
+			isRealtime = true;
 			self.advance();
 		}
-		if (is_gpu && is_realtime) {
+		if (isGpu && isRealtime) {
 			self.failAt("@gpu and @realtime cannot be combined", self.peek());
 		}
 
-		bool keep_return = false;
+		bool keepReturn = false;
 		if (self.check("KEEP")) {
-			keep_return = true;
+			keepReturn = true;
 			self.advance();
 		}
 
-		Node type_expr = self.parseType();
+		Node typeExpr = self.parseType();
 
 		// Constructor: next is '(' -> the "type" is the name.
 		if (self.check("LPAREN")) {
-			Node constructor = self.parseMethodRest(access, type_expr, type_expr.base, is_gpu, is_realtime, tok.line, tok.col, type_expr.line, type_expr.col, is_abstract_method, keep_return);
-			constructor.is_constructor = true;
+			Node constructor = self.parseMethodRest(access, typeExpr, typeExpr.base, isGpu, isRealtime, tok.line, tok.col, typeExpr.line, typeExpr.col, isAbstractMethod, keepReturn);
+			constructor.isConstructor = true;
 			return constructor;
 		}
 
@@ -394,24 +394,24 @@ class Parser {
 		string name = nameTok.value;
 
 		if (self.check("LT") || self.check("LPAREN")) {
-			return self.parseMethodRest(access, type_expr, name, is_gpu, is_realtime, tok.line, tok.col, nameTok.line, nameTok.col, is_abstract_method, keep_return);
+			return self.parseMethodRest(access, typeExpr, name, isGpu, isRealtime, tok.line, tok.col, nameTok.line, nameTok.col, isAbstractMethod, keepReturn);
 		}
-		if (is_realtime) {
+		if (isRealtime) {
 			self.failAt("@realtime cannot be applied to fields or properties", nameTok);
 		}
-		self.parseDeclaratorArraySuffix(type_expr);
+		self.parseDeclaratorArraySuffix(typeExpr);
 		if (self.check("LBRACE") && self.isPropertyStart()) {
-			return self.parseProperty(access, type_expr, name, tok.line, tok.col, nameTok.line, nameTok.col);
+			return self.parseProperty(access, typeExpr, name, tok.line, tok.col, nameTok.line, nameTok.col);
 		} else {
 			Node fd = Node();
 			fd.kind = NK_FIELD_DECL;
 			fd.access = access;
-			fd.type = type_expr;
+			fd.type = typeExpr;
 			fd.name = name;
 			fd.line = tok.line;
 			fd.col = tok.col;
-			fd.name_line = nameTok.line;
-			fd.name_col = nameTok.col;
+			fd.nameLine = nameTok.line;
+			fd.nameCol = nameTok.col;
 			if (self.matchTok("EQ")) {
 				Node init = self.parseExpression();
 				fd.initializer = init;
@@ -421,25 +421,25 @@ class Parser {
 		}
 	}
 
-	public Node parseMethodRest(string access, Node return_type, string name, bool is_gpu, bool is_realtime, int line, int col, int name_line, int name_col, bool is_abstract, bool keep_return) {
+	public Node parseMethodRest(string access, Node returnType, string name, bool isGpu, bool isRealtime, int line, int col, int nameLine, int nameCol, bool isAbstract, bool keepReturn) {
 		Node n = Node();
 		n.kind = NK_METHOD_DECL;
 		n.access = access;
-		n.return_type = return_type;
+		n.returnType = returnType;
 		n.name = name;
-		n.is_gpu = is_gpu;
-		n.is_realtime = is_realtime;
-		n.is_abstract = is_abstract;
-		n.keep_return = keep_return;
+		n.isGpu = isGpu;
+		n.isRealtime = isRealtime;
+		n.isAbstract = isAbstract;
+		n.keepReturn = keepReturn;
 		n.line = line;
 		n.col = col;
-		n.name_line = name_line;
-		n.name_col = name_col;
+		n.nameLine = nameLine;
+		n.nameCol = nameCol;
 
 		if (self.matchTok("LT")) {
-			n.generic_params.push(self.expect("IDENT").value);
+			n.genericParams.push(self.expect("IDENT").value);
 			while (self.matchTok("COMMA")) {
-				n.generic_params.push(self.expect("IDENT").value);
+				n.genericParams.push(self.expect("IDENT").value);
 			}
 			self.expectGt();
 		}
@@ -447,12 +447,12 @@ class Parser {
 		Vector<Node> params = self.parseParamList();
 		self.expect("RPAREN");
 		n.params = params;
-		if (is_abstract) {
+		if (isAbstract) {
 			self.expect("SEMICOLON");
-			n.body_node = null;
+			n.bodyNode = null;
 		} else {
 			Node body = self.parseBlock();
-			n.body_node = body;
+			n.bodyNode = body;
 		}
 		return n;
 	}
@@ -466,44 +466,44 @@ class Parser {
 		return result;
 	}
 
-	public Node parseProperty(string access, Node type_expr, string name, int line, int col, int name_line, int name_col) {
+	public Node parseProperty(string access, Node typeExpr, string name, int line, int col, int nameLine, int nameCol) {
 		self.expect("LBRACE");
 		Node n = Node();
 		n.kind = NK_PROPERTY_DECL;
 		n.access = access;
-		n.type = type_expr;
+		n.type = typeExpr;
 		n.name = name;
 		n.line = line;
 		n.col = col;
-		n.name_line = name_line;
-		n.name_col = name_col;
+		n.nameLine = nameLine;
+		n.nameCol = nameCol;
 		while (!self.check("RBRACE") && !self.atEnd()) {
 			Token tok = self.peek();
 			if (tok.type == "IDENT" && tok.value == "get") {
-				if (n.has_getter) {
+				if (n.hasGetter) {
 					self.failAt("Duplicate property getter", tok);
 					return n;
 				}
 				self.advance();
-				n.has_getter = true;
+				n.hasGetter = true;
 				if (self.matchTok("SEMICOLON")) {
-					n.getter_body = null;
+					n.getterBody = null;
 				} else if (self.check("LBRACE")) {
 					Node gb = self.parseBlock();
-					n.getter_body = gb;
+					n.getterBody = gb;
 				}
 			} else if (tok.type == "IDENT" && tok.value == "set") {
-				if (n.has_setter) {
+				if (n.hasSetter) {
 					self.failAt("Duplicate property setter", tok);
 					return n;
 				}
 				self.advance();
-				n.has_setter = true;
+				n.hasSetter = true;
 				if (self.matchTok("SEMICOLON")) {
-					n.setter_body = null;
+					n.setterBody = null;
 				} else if (self.check("LBRACE")) {
 					Node sb = self.parseBlock();
-					n.setter_body = sb;
+					n.setterBody = sb;
 				}
 			} else {
 				self.advance();
@@ -522,16 +522,16 @@ class Parser {
 		n.name = "";
 		n.line = tok.line;
 		n.col = tok.col;
-		n.name_line = tok.line;
-		n.name_col = tok.col;
+		n.nameLine = tok.line;
+		n.nameCol = tok.col;
 		if (self.check("IDENT")) {
 			Token nameTok = self.advance();
 			n.name = nameTok.value;
-			n.name_line = nameTok.line;
-			n.name_col = nameTok.col;
+			n.nameLine = nameTok.line;
+			n.nameCol = nameTok.col;
 		}
 		if (self.matchTok("LBRACE")) {
-			n.is_forward = false;
+			n.isForward = false;
 			while (!self.check("RBRACE") && !self.atEnd()) {
 				Node fdef = self.parseStructField();
 				n.fields.push(fdef);
@@ -539,7 +539,7 @@ class Parser {
 			self.expect("RBRACE");
 			self.expect("SEMICOLON");
 		} else {
-			n.is_forward = true;
+			n.isForward = true;
 			self.expect("SEMICOLON");
 		}
 		return n;
@@ -569,13 +569,13 @@ class Parser {
 		n.name = nameTok.value;
 		n.line = tok.line;
 		n.col = tok.col;
-		n.name_line = nameTok.line;
-		n.name_col = nameTok.col;
+		n.nameLine = nameTok.line;
+		n.nameCol = nameTok.col;
 
 		if (self.matchTok("LT")) {
-			n.generic_params.push(self.expect("IDENT").value);
+			n.genericParams.push(self.expect("IDENT").value);
 			while (self.matchTok("COMMA")) {
-				n.generic_params.push(self.expect("IDENT").value);
+				n.genericParams.push(self.expect("IDENT").value);
 			}
 			self.expectGt();
 		}
@@ -593,12 +593,12 @@ class Parser {
 	}
 
 	public Node parseMethodSig() {
-		bool sig_keep = false;
+		bool sigKeep = false;
 		if (self.check("KEEP")) {
-			sig_keep = true;
+			sigKeep = true;
 			self.advance();
 		}
-		Node ret_type = self.parseType();
+		Node retType = self.parseType();
 		Token mnameTok = self.expect("IDENT");
 		self.expect("LPAREN");
 		Vector<Node> params = self.parseParamList();
@@ -606,14 +606,14 @@ class Parser {
 		self.expect("SEMICOLON");
 		Node n = Node();
 		n.kind = NK_METHOD_SIG;
-		n.return_type = ret_type;
+		n.returnType = retType;
 		n.name = mnameTok.value;
 		n.params = params;
-		n.keep_return = sig_keep;
-		n.line = ret_type.line;
-		n.col = ret_type.col;
-		n.name_line = mnameTok.line;
-		n.name_col = mnameTok.col;
+		n.keepReturn = sigKeep;
+		n.line = retType.line;
+		n.col = retType.col;
+		n.nameLine = mnameTok.line;
+		n.nameCol = mnameTok.col;
 		return n;
 	}
 
@@ -626,13 +626,13 @@ class Parser {
 		n.name = "";
 		n.line = tok.line;
 		n.col = tok.col;
-		n.name_line = tok.line;
-		n.name_col = tok.col;
+		n.nameLine = tok.line;
+		n.nameCol = tok.col;
 		if (self.check("IDENT")) {
 			Token nameTok = self.advance();
 			n.name = nameTok.value;
-			n.name_line = nameTok.line;
-			n.name_col = nameTok.col;
+			n.nameLine = nameTok.line;
+			n.nameCol = nameTok.col;
 		}
 		self.expect("LBRACE");
 		while (!self.check("RBRACE") && !self.atEnd()) {
@@ -654,7 +654,7 @@ class Parser {
 		ev.col = vnameTok.col;
 		if (self.matchTok("EQ")) {
 			Node v = self.parseExpression();
-			ev.value_node = v;
+			ev.valueNode = v;
 		}
 		return ev;
 	}
@@ -668,8 +668,8 @@ class Parser {
 		n.name = nameTok.value;
 		n.line = tok.line;
 		n.col = tok.col;
-		n.name_line = nameTok.line;
-		n.name_col = nameTok.col;
+		n.nameLine = nameTok.line;
+		n.nameCol = nameTok.col;
 		self.expect("LBRACE");
 		while (!self.check("RBRACE") && !self.atEnd()) {
 			Node v = self.parseRichEnumVariant();
@@ -710,8 +710,8 @@ class Parser {
 		n.alias = aliasTok.value;
 		n.line = tok.line;
 		n.col = tok.col;
-		n.name_line = aliasTok.line;
-		n.name_col = aliasTok.col;
+		n.nameLine = aliasTok.line;
+		n.nameCol = aliasTok.col;
 		return n;
 	}
 
@@ -725,12 +725,12 @@ class Parser {
 		return n;
 	}
 
-	public Node parseFunctionOrVarDecl(bool is_gpu, bool is_realtime, bool keep_return) {
+	public Node parseFunctionOrVarDecl(bool isGpu, bool isRealtime, bool keepReturn) {
 		Token start = self.peek();
 
 		if (self.check("VAR")) {
-			if (is_gpu || is_realtime) {
-				self.failAt((is_gpu ? "@gpu" : "@realtime") + " cannot be applied to variables", start);
+			if (isGpu || isRealtime) {
+				self.failAt((isGpu ? "@gpu" : "@realtime") + " cannot be applied to variables", start);
 			}
 			self.advance();
 			Token nameTok = self.expect("IDENT");
@@ -744,15 +744,15 @@ class Parser {
 			vd.initializer = init;
 			vd.line = start.line;
 			vd.col = start.col;
-			vd.name_line = nameTok.line;
-			vd.name_col = nameTok.col;
+			vd.nameLine = nameTok.line;
+			vd.nameCol = nameTok.col;
 			return vd;
 		}
 
-		Node type_expr = self.parseType();
+		Node typeExpr = self.parseType();
 		Token nameTok = self.expect("IDENT");
 		string name = nameTok.value;
-		self.parseDeclaratorArraySuffix(type_expr);
+		self.parseDeclaratorArraySuffix(typeExpr);
 
 		if (self.check("LPAREN")) {
 			self.expect("LPAREN");
@@ -760,35 +760,35 @@ class Parser {
 			self.expect("RPAREN");
 			Node fn = Node();
 			fn.kind = NK_FUNCTION_DECL;
-			fn.return_type = type_expr;
+			fn.returnType = typeExpr;
 			fn.name = name;
 			fn.params = params;
-			fn.is_gpu = is_gpu;
-			fn.is_realtime = is_realtime;
-			fn.keep_return = keep_return;
+			fn.isGpu = isGpu;
+			fn.isRealtime = isRealtime;
+			fn.keepReturn = keepReturn;
 			fn.line = start.line;
 			fn.col = start.col;
-			fn.name_line = nameTok.line;
-			fn.name_col = nameTok.col;
+			fn.nameLine = nameTok.line;
+			fn.nameCol = nameTok.col;
 			if (self.matchTok("SEMICOLON")) {
-				fn.body_node = null;
+				fn.bodyNode = null;
 				return fn;
 			}
 			Node body = self.parseBlock();
-			fn.body_node = body;
+			fn.bodyNode = body;
 			return fn;
 		} else {
-			if (is_gpu || is_realtime) {
-				self.failAt((is_gpu ? "@gpu" : "@realtime") + " cannot be applied to variables", start);
+			if (isGpu || isRealtime) {
+				self.failAt((isGpu ? "@gpu" : "@realtime") + " cannot be applied to variables", start);
 			}
 			Node vd = Node();
 			vd.kind = NK_VAR_DECL_STMT;
-			vd.type = type_expr;
+			vd.type = typeExpr;
 			vd.name = name;
 			vd.line = start.line;
 			vd.col = start.col;
-			vd.name_line = nameTok.line;
-			vd.name_col = nameTok.col;
+			vd.nameLine = nameTok.line;
+			vd.nameCol = nameTok.col;
 			if (self.matchTok("EQ")) {
 				Node init = self.parseExpression();
 				vd.initializer = init;
@@ -894,18 +894,18 @@ class Parser {
 	public int scanTypeEnd(int p) {
 		while (self.isTypeQualifier(self.tokenTypeAt(p))) { p = p + 1; }
 
-		int base_end = self.scanIntegerBase(p);
-		if (base_end >= 0) {
-			p = base_end;
+		int baseEnd = self.scanIntegerBase(p);
+		if (baseEnd >= 0) {
+			p = baseEnd;
 		} else if (self.tokenTypeAt(p) == "STRUCT" || self.tokenTypeAt(p) == "ENUM" || self.tokenTypeAt(p) == "UNION") {
 			if (self.tokenTypeAt(p + 1) != "IDENT") { return -1; }
 			p = p + 2;
 		} else if (self.isSimpleTypeBase(self.tokenTypeAt(p))) {
 			p = p + 1;
 		} else if (self.tokenTypeAt(p) == "LPAREN") {
-			int tuple_end = self.scanTupleType(p);
-			if (tuple_end < 0) { return -1; }
-			p = tuple_end;
+			int tupleEnd = self.scanTupleType(p);
+			if (tupleEnd < 0) { return -1; }
+			p = tupleEnd;
 		} else {
 			return -1;
 		}
@@ -926,21 +926,21 @@ class Parser {
 		int line = tok.line;
 		int col = tok.col;
 
-		bool has_const = false;
-		bool has_static = false;
-		bool has_extern = false;
-		bool has_volatile = false;
+		bool hasConst = false;
+		bool hasStatic = false;
+		bool hasExtern = false;
+		bool hasVolatile = false;
 		while (self.check("CONST") || self.check("STATIC") || self.check("EXTERN") || self.check("VOLATILE")) {
 			string qt = self.peek().type;
-			if (qt == "CONST") { has_const = true; }
-			else if (qt == "STATIC") { has_static = true; }
-			else if (qt == "EXTERN") { has_extern = true; }
-			else if (qt == "VOLATILE") { has_volatile = true; }
+			if (qt == "CONST") { hasConst = true; }
+			else if (qt == "STATIC") { hasStatic = true; }
+			else if (qt == "EXTERN") { hasExtern = true; }
+			else if (qt == "VOLATILE") { hasVolatile = true; }
 			self.advance();
 		}
 
 		string base = "";
-		Vector<Node> generic_args = [];
+		Vector<Node> genericArgs = [];
 
 		if (self.check("UNSIGNED") || self.check("SIGNED")) {
 			base = self.advance().value;
@@ -991,13 +991,13 @@ class Parser {
 			self.expect("LPAREN");
 			base = "Tuple";
 			Node t0 = self.parseType();
-			generic_args.push(t0);
+			genericArgs.push(t0);
 			self.expect("COMMA");
 			Node t1 = self.parseType();
-			generic_args.push(t1);
+			genericArgs.push(t1);
 			while (self.matchTok("COMMA")) {
 				Node tN = self.parseType();
-				generic_args.push(tN);
+				genericArgs.push(tN);
 			}
 			self.expect("RPAREN");
 		} else {
@@ -1015,20 +1015,20 @@ class Parser {
 		ty.base = base;
 		ty.line = line;
 		ty.col = col;
-		ty.is_const = has_const;
-		ty.is_static = has_static;
-		ty.is_extern = has_extern;
-		ty.is_volatile = has_volatile;
-		ty.generic_args = generic_args;
+		ty.isConst = hasConst;
+		ty.isStatic = hasStatic;
+		ty.isExtern = hasExtern;
+		ty.isVolatile = hasVolatile;
+		ty.genericArgs = genericArgs;
 
 		// Generic arguments
 		if (self.check("LT") && self.isGenericStart()) {
 			self.advance();
 			Node g0 = self.parseType();
-			ty.generic_args.push(g0);
+			ty.genericArgs.push(g0);
 			while (self.matchTok("COMMA")) {
 				Node gN = self.parseType();
-				ty.generic_args.push(gN);
+				ty.genericArgs.push(gN);
 			}
 			self.expectGt();
 		}
@@ -1037,7 +1037,7 @@ class Parser {
 		if (self.check("LBRACKET") && self.peekAt(1).type == "RBRACKET") {
 			self.advance();
 			self.advance();
-			ty.is_array = true;
+			ty.isArray = true;
 		}
 
 		// Pointers
@@ -1049,9 +1049,9 @@ class Parser {
 		// Nullable
 		if (self.matchTok("QUESTION")) {
 			pd = pd + 1;
-			ty.is_nullable = true;
+			ty.isNullable = true;
 		}
-		ty.pointer_depth = pd;
+		ty.pointerDepth = pd;
 		return ty;
 	}
 
@@ -1059,9 +1059,9 @@ class Parser {
 
 	public bool isGenericStart() { return self.isGenericStartAt(self.pos); }
 
-	public void parseDeclaratorArraySuffix(Node type_expr) {
+	public void parseDeclaratorArraySuffix(Node typeExpr) {
 		if (!self.check("LBRACKET")) { return; }
-		if (type_expr.is_array) {
+		if (typeExpr.isArray) {
 			self.failExpected("one array dimension (AST/IR cannot represent another)", self.peek());
 			return;
 		}
@@ -1069,13 +1069,13 @@ class Parser {
 		if (self.check("RBRACKET")) {
 			self.advance();
 		} else {
-			Node size_expr = self.parseExpression();
+			Node sizeExpr = self.parseExpression();
 			self.expect("RBRACKET");
-			type_expr.array_size = size_expr;
+			typeExpr.arraySize = sizeExpr;
 		}
-		type_expr.is_array = true;
-		if (type_expr.is_nullable) {
-			type_expr.nullable_outer_depth = type_expr.nullable_outer_depth + 1;
+		typeExpr.isArray = true;
+		if (typeExpr.isNullable) {
+			typeExpr.nullableOuterDepth = typeExpr.nullableOuterDepth + 1;
 		}
 		if (self.check("LBRACKET")) {
 			self.failExpected("one array dimension (AST/IR cannot represent another)", self.peek());
@@ -1098,23 +1098,23 @@ class Parser {
 
 	public Node parseParam() {
 		Token tok = self.peek();
-		bool has_keep = false;
+		bool hasKeep = false;
 		if (self.check("KEEP")) {
-			has_keep = true;
+			hasKeep = true;
 			self.advance();
 		}
-		Node type_expr = self.parseType();
+		Node typeExpr = self.parseType();
 		Token nameTok = self.expect("IDENT");
 		Node p = Node();
 		p.kind = NK_PARAM;
-		p.type = type_expr;
+		p.type = typeExpr;
 		p.name = nameTok.value;
-		p.keep_ = has_keep;
+		p.keep_ = hasKeep;
 		p.line = tok.line;
 		p.col = tok.col;
-		p.name_line = nameTok.line;
-		p.name_col = nameTok.col;
-		self.parseDeclaratorArraySuffix(type_expr);
+		p.nameLine = nameTok.line;
+		p.nameCol = nameTok.col;
+		self.parseDeclaratorArraySuffix(typeExpr);
 		if (self.matchTok("EQ")) {
 			Node def = self.parseExpression();
 			p.default_ = def;
@@ -1218,7 +1218,7 @@ class Parser {
 		r.col = tok.col;
 		if (!self.check("SEMICOLON")) {
 			Node v = self.parseExpression();
-			r.value_node = v;
+			r.valueNode = v;
 		}
 		self.expect("SEMICOLON");
 		return r;
@@ -1256,12 +1256,12 @@ class Parser {
 	}
 
 	public bool lookaheadIsVarDecl() {
-		int type_end = self.scanTypeEnd(self.pos);
-		if (type_end < 0 || self.tokenTypeAt(type_end) != "IDENT") {
+		int typeEnd = self.scanTypeEnd(self.pos);
+		if (typeEnd < 0 || self.tokenTypeAt(typeEnd) != "IDENT") {
 			return false;
 		}
-		string after_name = self.tokenTypeAt(type_end + 1);
-		return after_name == "EQ" || after_name == "SEMICOLON" || after_name == "LBRACKET";
+		string afterName = self.tokenTypeAt(typeEnd + 1);
+		return afterName == "EQ" || afterName == "SEMICOLON" || afterName == "LBRACKET";
 	}
 
 	public Node parseVarDeclStmt() {
@@ -1280,22 +1280,22 @@ class Parser {
 			vd.initializer = init;
 			vd.line = tok.line;
 			vd.col = tok.col;
-			vd.name_line = nameTok.line;
-			vd.name_col = nameTok.col;
+			vd.nameLine = nameTok.line;
+			vd.nameCol = nameTok.col;
 			return vd;
 		}
 
-		Node type_expr = self.parseType();
+		Node typeExpr = self.parseType();
 		Token nameTok = self.expect("IDENT");
 		Node vd = Node();
 		vd.kind = NK_VAR_DECL_STMT;
-		vd.type = type_expr;
+		vd.type = typeExpr;
 		vd.name = nameTok.value;
 		vd.line = tok.line;
 		vd.col = tok.col;
-		vd.name_line = nameTok.line;
-		vd.name_col = nameTok.col;
-		self.parseDeclaratorArraySuffix(type_expr);
+		vd.nameLine = nameTok.line;
+		vd.nameCol = nameTok.col;
+		self.parseDeclaratorArraySuffix(typeExpr);
 		if (self.matchTok("EQ")) {
 			Node init = self.parseExpression();
 			vd.initializer = init;
@@ -1311,11 +1311,11 @@ class Parser {
 		self.expect("LPAREN");
 		Node cond = self.parseExpression();
 		self.expect("RPAREN");
-		Node then_block = self.parseBlock();
+		Node thenBlock = self.parseBlock();
 		Node n = Node();
 		n.kind = NK_IF_STMT;
 		n.condition = cond;
-		n.then_block = then_block;
+		n.thenBlock = thenBlock;
 		n.line = tok.line;
 		n.col = tok.col;
 		if (self.matchTok("ELSE")) {
@@ -1323,14 +1323,14 @@ class Parser {
 				Node innerIf = self.parseIfStmt();
 				Node eb = Node();
 				eb.kind = NK_ELSE_IF;
-				eb.if_stmt = innerIf;
-				n.else_block = eb;
+				eb.ifStmt = innerIf;
+				n.elseBlock = eb;
 			} else {
 				Node body = self.parseBlock();
 				Node eb2 = Node();
 				eb2.kind = NK_ELSE_BLOCK;
-				eb2.body_node = body;
-				n.else_block = eb2;
+				eb2.bodyNode = body;
+				n.elseBlock = eb2;
 			}
 		}
 		return n;
@@ -1345,7 +1345,7 @@ class Parser {
 		Node n = Node();
 		n.kind = NK_WHILE_STMT;
 		n.condition = cond;
-		n.body_node = body;
+		n.bodyNode = body;
 		n.line = tok.line;
 		n.col = tok.col;
 		return n;
@@ -1361,7 +1361,7 @@ class Parser {
 		self.expect("SEMICOLON");
 		Node n = Node();
 		n.kind = NK_DO_WHILE_STMT;
-		n.body_node = body;
+		n.bodyNode = body;
 		n.condition = cond;
 		n.line = tok.line;
 		n.col = tok.col;
@@ -1373,15 +1373,15 @@ class Parser {
 
 		// for-in: 'for' IDENT 'in' expr block
 		if (self.check("IDENT") && self.peekAt(1).type == "IN") {
-			string var_name = self.advance().value;
+			string varName = self.advance().value;
 			self.expect("IN");
 			Node iterable = self.parseExpression();
 			Node body = self.parseBlock();
 			Node n = Node();
 			n.kind = NK_FOR_IN_STMT;
-			n.var_name = var_name;
+			n.varName = varName;
 			n.iterable = iterable;
-			n.body_node = body;
+			n.bodyNode = body;
 			n.line = tok.line;
 			n.col = tok.col;
 			return n;
@@ -1389,18 +1389,18 @@ class Parser {
 
 		// for-in (map): 'for' IDENT ',' IDENT 'in' expr block
 		if (self.check("IDENT") && self.peekAt(1).type == "COMMA" && self.peekAt(2).type == "IDENT" && self.peekAt(3).type == "IN") {
-			string var_name = self.advance().value;
+			string varName = self.advance().value;
 			self.expect("COMMA");
-			string var_name2 = self.advance().value;
+			string varName2 = self.advance().value;
 			self.expect("IN");
 			Node iterable = self.parseExpression();
 			Node body = self.parseBlock();
 			Node n = Node();
 			n.kind = NK_FOR_IN_STMT;
-			n.var_name = var_name;
-			n.var_name2 = var_name2;
+			n.varName = varName;
+			n.varName2 = varName2;
 			n.iterable = iterable;
-			n.body_node = body;
+			n.bodyNode = body;
 			n.line = tok.line;
 			n.col = tok.col;
 			return n;
@@ -1421,38 +1421,38 @@ class Parser {
 					self.advance();
 					Token nameTok = self.expect("IDENT");
 					self.expect("EQ");
-					Node init_val = self.parseExpression();
+					Node initVal = self.parseExpression();
 					Node vd = Node();
 					vd.kind = NK_VAR_DECL_STMT;
 					vd.type = null;
 					vd.name = nameTok.value;
-					vd.initializer = init_val;
+					vd.initializer = initVal;
 					vd.line = start.line;
 					vd.col = start.col;
-					vd.name_line = nameTok.line;
-					vd.name_col = nameTok.col;
+					vd.nameLine = nameTok.line;
+					vd.nameCol = nameTok.col;
 					Node iv = Node();
 					iv.kind = NK_FOR_INIT_VAR;
-					iv.var_decl = vd;
+					iv.varDecl = vd;
 					n.init = iv;
 				} else {
-					Node type_expr = self.parseType();
+					Node typeExpr = self.parseType();
 					Token nameTok = self.expect("IDENT");
 					Node vd = Node();
 					vd.kind = NK_VAR_DECL_STMT;
-					vd.type = type_expr;
+					vd.type = typeExpr;
 					vd.name = nameTok.value;
 					vd.line = start.line;
 					vd.col = start.col;
-					vd.name_line = nameTok.line;
-					vd.name_col = nameTok.col;
+					vd.nameLine = nameTok.line;
+					vd.nameCol = nameTok.col;
 					if (self.matchTok("EQ")) {
 						Node iv2 = self.parseExpression();
 						vd.initializer = iv2;
 					}
 					Node ivar = Node();
 					ivar.kind = NK_FOR_INIT_VAR;
-					ivar.var_decl = vd;
+					ivar.varDecl = vd;
 					n.init = ivar;
 				}
 			} else {
@@ -1478,22 +1478,22 @@ class Parser {
 		self.expect("RPAREN");
 
 		Node body = self.parseBlock();
-		n.body_node = body;
+		n.bodyNode = body;
 		return n;
 	}
 
 	public Node parseParallelForStmt() {
 		Token tok = self.expect("PARALLEL");
 		self.expect("FOR");
-		string var_name = self.expect("IDENT").value;
+		string varName = self.expect("IDENT").value;
 		self.expect("IN");
 		Node iterable = self.parseExpression();
 		Node body = self.parseBlock();
 		Node n = Node();
 		n.kind = NK_PARALLEL_FOR_STMT;
-		n.var_name = var_name;
+		n.varName = varName;
 		n.iterable = iterable;
-		n.body_node = body;
+		n.bodyNode = body;
 		n.line = tok.line;
 		n.col = tok.col;
 		return n;
@@ -1507,7 +1507,7 @@ class Parser {
 		self.expect("LBRACE");
 		Node n = Node();
 		n.kind = NK_SWITCH_STMT;
-		n.value_node = value;
+		n.valueNode = value;
 		n.line = tok.line;
 		n.col = tok.col;
 		while (!self.check("RBRACE") && !self.atEnd()) {
@@ -1526,41 +1526,41 @@ class Parser {
 		n.col = tok.col;
 		if (self.matchTok("CASE")) {
 			Node v = self.parseExpression();
-			n.value_node = v;
+			n.valueNode = v;
 		} else if (self.matchTok("DEFAULT")) {
-			n.value_node = null;
+			n.valueNode = null;
 		}
 		self.expect("COLON");
 		while (!self.check("CASE") && !self.check("DEFAULT") && !self.check("RBRACE") && !self.atEnd()) {
 			Node s = self.parseStatement();
-			n.body_nlist.push(s);
+			n.bodyNodeList.push(s);
 		}
 		return n;
 	}
 
 	public Node parseTryCatch() {
 		Token tok = self.expect("TRY");
-		Node try_block = self.parseBlock();
+		Node tryBlock = self.parseBlock();
 		Node n = Node();
 		n.kind = NK_TRY_CATCH_STMT;
-		n.try_block = try_block;
-		n.catch_var = "";
+		n.tryBlock = tryBlock;
+		n.catchVar = "";
 		n.line = tok.line;
 		n.col = tok.col;
 		if (self.matchTok("CATCH")) {
 			self.expect("LPAREN");
 			if (self.isTypeStartTok(self.peek()) && self.peekAt(1).type == "IDENT") {
 				Node ct = self.parseType();
-				n.catch_type = ct;
+				n.catchType = ct;
 			}
-			n.catch_var = self.expect("IDENT").value;
+			n.catchVar = self.expect("IDENT").value;
 			self.expect("RPAREN");
 			Node cb = self.parseBlock();
-			n.catch_block = cb;
+			n.catchBlock = cb;
 		}
 		if (self.matchTok("FINALLY")) {
 			Node fb = self.parseBlock();
-			n.finally_block = fb;
+			n.finallyBlock = fb;
 		}
 		return n;
 	}
@@ -1574,13 +1574,13 @@ class Parser {
 	public Node parseAssignment() {
 		Node left = self.parseTernary();
 		if (self.isAssignOp(self.peek().type)) {
-			Token op_tok = self.advance();
+			Token opTok = self.advance();
 			Node right = self.parseAssignment();
 			Node n = Node();
 			n.kind = NK_ASSIGN_EXPR;
 			n.target = left;
-			n.op = op_tok.value;
-			n.value_node = right;
+			n.op = opTok.value;
+			n.valueNode = right;
 			n.line = left.line;
 			n.col = left.col;
 			return n;
@@ -1591,14 +1591,14 @@ class Parser {
 	public Node parseTernary() {
 		Node expr = self.parseNullCoalesce();
 		if (self.matchTok("QUESTION")) {
-			Node true_expr = self.parseExpression();
+			Node trueExpr = self.parseExpression();
 			self.expect("COLON");
-			Node false_expr = self.parseTernary();
+			Node falseExpr = self.parseTernary();
 			Node n = Node();
 			n.kind = NK_TERNARY_EXPR;
 			n.condition = expr;
-			n.true_expr = true_expr;
-			n.false_expr = false_expr;
+			n.trueExpr = trueExpr;
+			n.falseExpr = falseExpr;
 			n.line = expr.line;
 			n.col = expr.col;
 			return n;
@@ -1778,25 +1778,25 @@ class Parser {
 	}
 
 	public bool isCast() {
-		int type_start = self.pos + 1;
-		int type_end = self.scanTypeEnd(type_start);
-		if (type_end < 0 || self.tokenTypeAt(type_end) != "RPAREN") {
+		int typeStart = self.pos + 1;
+		int typeEnd = self.scanTypeEnd(typeStart);
+		if (typeEnd < 0 || self.tokenTypeAt(typeEnd) != "RPAREN") {
 			return false;
 		}
-		string follow = self.tokenTypeAt(type_end + 1);
-		bool bare_ident = self.tokenTypeAt(type_start) == "IDENT" && type_end == type_start + 1;
-		if (bare_ident) { return self.isBareIdentCastFollow(follow); }
+		string follow = self.tokenTypeAt(typeEnd + 1);
+		bool bareIdent = self.tokenTypeAt(typeStart) == "IDENT" && typeEnd == typeStart + 1;
+		if (bareIdent) { return self.isBareIdentCastFollow(follow); }
 		return self.isCastFollow(follow);
 	}
 
 	public Node parseCast() {
 		Token tok = self.expect("LPAREN");
-		Node target_type = self.parseType();
+		Node targetType = self.parseType();
 		self.expect("RPAREN");
 		Node expr = self.parseUnary();
 		Node n = Node();
 		n.kind = NK_CAST_EXPR;
-		n.target_type = target_type;
+		n.targetType = targetType;
 		n.expr = expr;
 		n.line = tok.line;
 		n.col = tok.col;
@@ -1804,8 +1804,8 @@ class Parser {
 	}
 
 	public bool isSizeofType() {
-		int type_end = self.scanTypeEnd(self.pos);
-		return type_end >= 0 && self.tokenTypeAt(type_end) == "RPAREN";
+		int typeEnd = self.scanTypeEnd(self.pos);
+		return typeEnd >= 0 && self.tokenTypeAt(typeEnd) == "RPAREN";
 	}
 
 	public Node parseSizeof() {
@@ -1906,17 +1906,17 @@ class Parser {
 
 	public Node postfixDot(Node expr) {
 		self.advance();
-		string field_name = "";
+		string fieldName = "";
 		if (self.check("INT_LIT")) {
-			Token idx_tok = self.advance();
-			field_name = "_" + idx_tok.value;
+			Token idxTok = self.advance();
+			fieldName = "_" + idxTok.value;
 		} else {
-			field_name = self.expect("IDENT").value;
+			fieldName = self.expect("IDENT").value;
 		}
 		Node fa = Node();
 		fa.kind = NK_FIELD_ACCESS_EXPR;
 		fa.obj = expr;
-		fa.field = field_name;
+		fa.field = fieldName;
 		fa.arrow = false;
 		fa.line = expr.line;
 		fa.col = expr.col;
@@ -1925,11 +1925,11 @@ class Parser {
 
 	public Node postfixQuestionDot(Node expr) {
 		self.advance();
-		string field_name = self.expect("IDENT").value;
+		string fieldName = self.expect("IDENT").value;
 		Node fa = Node();
 		fa.kind = NK_FIELD_ACCESS_EXPR;
 		fa.obj = expr;
-		fa.field = field_name;
+		fa.field = fieldName;
 		fa.arrow = true;
 		fa.optional = true;
 		fa.line = expr.line;
@@ -1939,11 +1939,11 @@ class Parser {
 
 	public Node postfixArrow(Node expr) {
 		self.advance();
-		string field_name = self.expect("IDENT").value;
+		string fieldName = self.expect("IDENT").value;
 		Node fa = Node();
 		fa.kind = NK_FIELD_ACCESS_EXPR;
 		fa.obj = expr;
-		fa.field = field_name;
+		fa.field = fieldName;
 		fa.arrow = true;
 		fa.line = expr.line;
 		fa.col = expr.col;
@@ -1975,7 +1975,7 @@ class Parser {
 			}
 			Node a = self.parseExpression();
 			target.args.push(a);
-			target.arg_names.push(name);
+			target.argNames.push(name);
 			if (!self.matchTok("COMMA")) {
 				more = false;
 			}
@@ -1996,7 +1996,7 @@ class Parser {
 			}
 			Node n = Node();
 			n.kind = NK_INT_LITERAL;
-			n.value_int = literal.storedValue();
+			n.valueInt = literal.storedValue();
 			n.raw = tok.value;
 			n.line = tok.line;
 			n.col = tok.col;
@@ -2009,7 +2009,7 @@ class Parser {
 			if (problem != "") { self.failAt(problem, tok); }
 			Node n = Node();
 			n.kind = NK_FLOAT_LITERAL;
-			n.value_float = (float)literal.doubleValue();
+			n.valueFloat = (float)literal.doubleValue();
 			n.raw = tok.value;
 			n.line = tok.line;
 			n.col = tok.col;
@@ -2019,7 +2019,7 @@ class Parser {
 			self.advance();
 			Node n = Node();
 			n.kind = NK_STRING_LITERAL;
-			n.value_string = tok.value;
+			n.valueString = tok.value;
 			n.line = tok.line;
 			n.col = tok.col;
 			return n;
@@ -2028,7 +2028,7 @@ class Parser {
 			self.advance();
 			Node n = Node();
 			n.kind = NK_CHAR_LITERAL;
-			n.value_string = tok.value;
+			n.valueString = tok.value;
 			n.line = tok.line;
 			n.col = tok.col;
 			return n;
@@ -2041,7 +2041,7 @@ class Parser {
 			self.advance();
 			Node n = Node();
 			n.kind = NK_BOOL_LITERAL;
-			n.value_bool = true;
+			n.valueBool = true;
 			n.line = tok.line;
 			n.col = tok.col;
 			return n;
@@ -2050,7 +2050,7 @@ class Parser {
 			self.advance();
 			Node n = Node();
 			n.kind = NK_BOOL_LITERAL;
-			n.value_bool = false;
+			n.valueBool = false;
 			n.line = tok.line;
 			n.col = tok.col;
 			return n;
@@ -2142,11 +2142,11 @@ class Parser {
 
 	public Node parseNewExpr() {
 		Token tok = self.expect("NEW");
-		Node type_expr = self.parseType();
+		Node typeExpr = self.parseType();
 		self.expect("LPAREN");
 		Node n = Node();
 		n.kind = NK_NEW_EXPR;
-		n.type = type_expr;
+		n.type = typeExpr;
 		n.line = tok.line;
 		n.col = tok.col;
 		self.parseArgListInto(n);
@@ -2202,9 +2202,9 @@ class Parser {
 			map.kind = NK_MAP_LITERAL;
 			map.line = tok.line;
 			map.col = tok.col;
-			Node first_value = self.parseExpression();
-			Node first_entry = self.makeMapEntry(first, first_value);
-			map.entries.push(first_entry);
+			Node firstValue = self.parseExpression();
+			Node firstEntry = self.makeMapEntry(first, firstValue);
+			map.entries.push(firstEntry);
 			while (self.matchTok("COMMA")) {
 				if (self.check("RBRACE")) { break; }
 				Node entN = self.parseMapEntry();
@@ -2232,7 +2232,7 @@ class Parser {
 		Node ent = Node();
 		ent.kind = NK_MAP_ENTRY;
 		ent.key = key;
-		ent.value_node = value;
+		ent.valueNode = value;
 		return ent;
 	}
 
@@ -2246,13 +2246,13 @@ class Parser {
 	/* ---- Lambdas ---- */
 
 	public bool isVerboseLambda() {
-		int type_end = self.scanTypeEnd(self.pos);
-		return type_end >= 0 && self.tokenTypeAt(type_end) == "FUNCTION";
+		int typeEnd = self.scanTypeEnd(self.pos);
+		return typeEnd >= 0 && self.tokenTypeAt(typeEnd) == "FUNCTION";
 	}
 
 	public Node parseVerboseLambda() {
 		Token tok = self.peek();
-		Node return_type = self.parseType();
+		Node returnType = self.parseType();
 		self.expect("FUNCTION");
 		self.expect("LPAREN");
 		Vector<Node> params = self.parseParamList();
@@ -2260,12 +2260,12 @@ class Parser {
 		Node body = self.parseBlock();
 		Node lb = Node();
 		lb.kind = NK_LAMBDA_BLOCK;
-		lb.body_node = body;
+		lb.bodyNode = body;
 		Node n = Node();
 		n.kind = NK_LAMBDA_EXPR;
-		n.return_type = return_type;
+		n.returnType = returnType;
 		n.params = params;
-		n.body_node = lb;
+		n.bodyNode = lb;
 		n.line = tok.line;
 		n.col = tok.col;
 		return n;
@@ -2300,7 +2300,7 @@ class Parser {
 		self.expect("FAT_ARROW");
 		Node n = Node();
 		n.kind = NK_LAMBDA_EXPR;
-		n.return_type = null;
+		n.returnType = null;
 		n.params = params;
 		n.line = tok.line;
 		n.col = tok.col;
@@ -2308,14 +2308,14 @@ class Parser {
 			Node body = self.parseBlock();
 			Node lb = Node();
 			lb.kind = NK_LAMBDA_BLOCK;
-			lb.body_node = body;
-			n.body_node = lb;
+			lb.bodyNode = body;
+			n.bodyNode = lb;
 		} else {
 			Node expr = self.parseExpression();
 			Node eb = Node();
 			eb.kind = NK_LAMBDA_EXPR_BODY;
 			eb.expression = expr;
-			n.body_node = eb;
+			n.bodyNode = eb;
 		}
 		return n;
 	}
@@ -2331,27 +2331,27 @@ class Parser {
 
 		int i = 0;
 		int rn = raw.length();
-		string text_buf = "";
-		bool has_text = false;
+		string textBuf = "";
+		bool hasText = false;
 		while (i < rn) {
 			char ch = raw[i];
 			if (ch == '{') {
 				if (i + 1 < rn && raw[i + 1] == '{') {
-					text_buf = text_buf + "{";
-					has_text = true;
+					textBuf = textBuf + "{";
+					hasText = true;
 					i = i + 2;
 				} else {
-					if (has_text) {
+					if (hasText) {
 						Node tnode = Node();
 						tnode.kind = NK_F_STRING_TEXT;
-						tnode.text = text_buf;
+						tnode.text = textBuf;
 						n.parts.push(tnode);
-						text_buf = "";
-						has_text = false;
+						textBuf = "";
+						hasText = false;
 					}
 					i = i + 1;
 					int depth = 1;
-					string expr_chars = "";
+					string exprChars = "";
 					bool done = false;
 					while (i < rn && depth > 0 && !done) {
 						char c2 = raw[i];
@@ -2361,47 +2361,47 @@ class Parser {
 							if (depth == 0) { done = true; }
 						}
 						if (!done) {
-							expr_chars = expr_chars + f"{c2}";
+							exprChars = exprChars + f"{c2}";
 							i = i + 1;
 						}
 					}
 					i = i + 1;
-					string expr_src = self.replaceEscQuote(expr_chars);
+					string exprSrc = self.replaceEscQuote(exprChars);
 					Node enode = Node();
 					enode.kind = NK_F_STRING_EXPR;
-					Node sub = self.parseSubExpr(expr_src);
+					Node sub = self.parseSubExpr(exprSrc);
 					enode.expression = sub;
 					n.parts.push(enode);
 				}
 			} else if (ch == '}') {
 				if (i + 1 < rn && raw[i + 1] == '}') {
-					text_buf = text_buf + "}";
-					has_text = true;
+					textBuf = textBuf + "}";
+					hasText = true;
 					i = i + 2;
 				} else {
-					text_buf = text_buf + "}";
-					has_text = true;
+					textBuf = textBuf + "}";
+					hasText = true;
 					i = i + 1;
 				}
 			} else if (ch == '\\') {
-				text_buf = text_buf + "\\";
-				has_text = true;
+				textBuf = textBuf + "\\";
+				hasText = true;
 				if (i + 1 < rn) {
 					i = i + 1;
 					char ec = raw[i];   // hoist: f"{string[i]}" formats the index as an int code
-					text_buf = text_buf + f"{ec}";
+					textBuf = textBuf + f"{ec}";
 				}
 				i = i + 1;
 			} else {
-				text_buf = text_buf + f"{ch}";
-				has_text = true;
+				textBuf = textBuf + f"{ch}";
+				hasText = true;
 				i = i + 1;
 			}
 		}
-		if (has_text) {
+		if (hasText) {
 			Node tnode2 = Node();
 			tnode2.kind = NK_F_STRING_TEXT;
-			tnode2.text = text_buf;
+			tnode2.text = textBuf;
 			n.parts.push(tnode2);
 		}
 		return n;

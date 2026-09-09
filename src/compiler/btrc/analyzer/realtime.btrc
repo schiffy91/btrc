@@ -12,7 +12,7 @@ import ./models.btrc;
 import ./operators.btrc;
 
 class RealtimeEvent {
-	public bool is_effect;
+	public bool isEffect;
 	public string target;
 	public string category;
 	public string operation;
@@ -20,7 +20,7 @@ class RealtimeEvent {
 	public int col;
 
 	public RealtimeEvent() {
-		self.is_effect = false;
+		self.isEffect = false;
 		self.target = "";
 		self.category = "";
 		self.operation = "";
@@ -35,7 +35,7 @@ class RealtimeCallable {
 	public Node declaration;
 	public Node? body;
 	public Map<string, Node> variables;
-	public Map<string, bool> local_names;
+	public Map<string, bool> localNames;
 	public Vector<RealtimeEvent> events;
 
 	public RealtimeCallable(string key, string label, Node declaration) {
@@ -44,7 +44,7 @@ class RealtimeCallable {
 		self.declaration = declaration;
 		self.body = null;
 		self.variables = {};
-		self.local_names = {};
+		self.localNames = {};
 		self.events = [];
 	}
 }
@@ -132,7 +132,7 @@ class RealtimeCallGraphComponents {
 		int eventIndex = 0;
 		while (eventIndex < events.len) {
 			RealtimeEvent event = events.get(eventIndex);
-			if (!event.is_effect && self.callables.has(event.target)) {
+			if (!event.isEffect && self.callables.has(event.target)) {
 				string target = event.target;
 				if (target == key) { selfEdge = true; }
 				if (!self.indexes.has(target)) {
@@ -194,13 +194,13 @@ class RealtimeAnalyzer {
 		int index = 0;
 		while (index < self.program.declarations.len) {
 			Node declaration = self.program.declarations.get(index);
-			if (declaration.kind == NK_FUNCTION_DECL && declaration.is_realtime) {
+			if (declaration.kind == NK_FUNCTION_DECL && declaration.isRealtime) {
 				hasRealtimeRoot = true;
 			} else if (declaration.kind == NK_CLASS_DECL) {
 				int member = 0;
 				while (member < declaration.members.len) {
 					Node item = declaration.members.get(member);
-					if (item.kind == NK_METHOD_DECL && item.is_realtime) {
+					if (item.kind == NK_METHOD_DECL && item.isRealtime) {
 						hasRealtimeRoot = true;
 					}
 					member = member + 1;
@@ -219,7 +219,7 @@ class RealtimeAnalyzer {
 		index = 0;
 		while (index < self.order.len) {
 			RealtimeCallable callable = self.callables.get(self.order.get(index));
-			if (callable.declaration.is_realtime && unsafe.has(callable.key)) {
+			if (callable.declaration.isRealtime && unsafe.has(callable.key)) {
 				Map<string, bool> visiting = {};
 				RealtimeWitness? witness = self.firstWitness(callable.key, unsafe, visiting);
 				if (witness == null) {
@@ -237,20 +237,20 @@ class RealtimeAnalyzer {
 		while (index < self.program.declarations.len) {
 			Node declaration = self.program.declarations.get(index);
 			if (declaration.kind == NK_FUNCTION_DECL) {
-				self.addCallable("function:" + declaration.name, declaration.name, declaration, declaration.body_node, "");
+				self.addCallable("function:" + declaration.name, declaration.name, declaration, declaration.bodyNode, "");
 			} else if (declaration.kind == NK_CLASS_DECL) {
 				int memberIndex = 0;
 				while (memberIndex < declaration.members.len) {
 					Node member = declaration.members.get(memberIndex);
 					if (member.kind == NK_METHOD_DECL) {
 						string label = declaration.name + "." + member.name;
-						self.addCallable("method:" + label, label, member, member.body_node, declaration.name);
+						self.addCallable("method:" + label, label, member, member.bodyNode, declaration.name);
 					} else if (member.kind == NK_PROPERTY_DECL) {
-						if (member.has_getter) {
-							self.addPropertyCallable(declaration.name, member, "get", member.getter_body);
+						if (member.hasGetter) {
+							self.addPropertyCallable(declaration.name, member, "get", member.getterBody);
 						}
-						if (member.has_setter) {
-							self.addPropertyCallable(declaration.name, member, "set", member.setter_body);
+						if (member.hasSetter) {
+							self.addPropertyCallable(declaration.name, member, "set", member.setterBody);
 						}
 					}
 					memberIndex = memberIndex + 1;
@@ -288,12 +288,12 @@ class RealtimeAnalyzer {
 		while (index < declaration.params.len) {
 			Node parameter = declaration.params.get(index);
 			callable.variables.put(parameter.name, parameter.type);
-			callable.local_names.put(parameter.name, true);
+			callable.localNames.put(parameter.name, true);
 			index = index + 1;
 		}
 		if (key.endsWith(":set")) {
 			callable.variables.put("value", declaration.type);
-			callable.local_names.put("value", true);
+			callable.localNames.put("value", true);
 		}
 		self.collectLocals(body, callable);
 		self.callables.put(key, callable);
@@ -311,7 +311,7 @@ class RealtimeAnalyzer {
 			if (typeExpr != null) {
 				callable.variables.put(node.name, typeExpr);
 			}
-			callable.local_names.put(node.name, true);
+			callable.localNames.put(node.name, true);
 		}
 		self.collectChildren(node, callable, true);
 	}
@@ -322,10 +322,10 @@ class RealtimeAnalyzer {
 			string kind = callable.key.endsWith(":set") ? "setter" : "getter";
 			self.effect(callable, "ARC", "managed property " + kind, declaration);
 		}
-		if (declaration.kind == NK_METHOD_DECL && declaration.is_constructor) {
+		if (declaration.kind == NK_METHOD_DECL && declaration.isConstructor) {
 			self.effect(callable, "allocation", "constructor entry", declaration);
 		}
-		if (declaration.is_gpu) {
+		if (declaration.isGpu) {
 			self.effect(callable, "runtime", "GPU dispatch", declaration);
 		}
 		if (declaration.kind != NK_PROPERTY_DECL && callable.body == null) {
@@ -340,8 +340,8 @@ class RealtimeAnalyzer {
 			}
 			index = index + 1;
 		}
-		if (declaration.kind != NK_PROPERTY_DECL && declaration.return_type != null && self.managedType(declaration.return_type, {})) {
-			self.effect(callable, "ARC", "managed return type", declaration.return_type);
+		if (declaration.kind != NK_PROPERTY_DECL && declaration.returnType != null && self.managedType(declaration.returnType, {})) {
+			self.effect(callable, "ARC", "managed return type", declaration.returnType);
 		}
 		self.visit(callable.body, callable);
 	}
@@ -351,12 +351,12 @@ class RealtimeAnalyzer {
 		if (node.kind == NK_WHILE_STMT) {
 			self.effect(callable, "blocking", "unproven while loop", node);
 			self.visit(node.condition, callable);
-			self.visit(node.body_node, callable);
+			self.visit(node.bodyNode, callable);
 			return;
 		}
 		if (node.kind == NK_DO_WHILE_STMT) {
 			self.effect(callable, "blocking", "unproven do-while loop", node);
-			self.visit(node.body_node, callable);
+			self.visit(node.bodyNode, callable);
 			self.visit(node.condition, callable);
 			return;
 		}
@@ -374,7 +374,7 @@ class RealtimeAnalyzer {
 			guard.names.put(proof.induction, true);
 			if (proof.bound != "") { guard.names.put(proof.bound, true); }
 			self.loopGuards.push(guard);
-			self.visit(node.body_node, callable);
+			self.visit(node.bodyNode, callable);
 			self.loopGuards.pop();
 			if (!guard.violated) {
 				self.analyzed.realtimeBoundedLoopKeys.put(AstIdentity.key(node), true);
@@ -417,7 +417,7 @@ class RealtimeAnalyzer {
 			} else {
 				self.visit(node.target, callable);
 			}
-			self.visit(node.value_node, callable);
+			self.visit(node.valueNode, callable);
 			if (node.op != "=") {
 				self.operatorEvent(node.target, node.op.substring(0, node.op.length() - 1), false, node, callable);
 			}
@@ -426,7 +426,7 @@ class RealtimeAnalyzer {
 			} else if (node.target.kind == NK_INDEX_EXPR) {
 				self.indexEvent(node.target, "set", callable);
 			}
-			Node? valueType = self.expressionTypes.infer(node.value_node, callable.variables);
+			Node? valueType = self.expressionTypes.infer(node.valueNode, callable.variables);
 			if (self.managedType(valueType, {})) {
 				self.effect(callable, "ARC", "managed assignment", node);
 			}
@@ -440,7 +440,7 @@ class RealtimeAnalyzer {
 		}
 		if (node.kind == NK_CAST_EXPR) {
 			self.visit(node.expr, callable);
-			self.valueEffect(node, "cast result", node.target_type, callable);
+			self.valueEffect(node, "cast result", node.targetType, callable);
 			return;
 		}
 		if (node.kind == NK_IDENTIFIER) {
@@ -460,8 +460,8 @@ class RealtimeAnalyzer {
 			return;
 		}
 		if (node.kind == NK_RETURN_STMT) {
-			self.visit(node.value_node, callable);
-			Node? valueType = self.expressionTypes.infer(node.value_node, callable.variables);
+			self.visit(node.valueNode, callable);
+			Node? valueType = self.expressionTypes.infer(node.valueNode, callable.variables);
 			if (self.managedType(valueType, {})) {
 				self.effect(callable, "ARC", "managed return value", node);
 			}
@@ -471,7 +471,7 @@ class RealtimeAnalyzer {
 			self.effect(callable, "blocking", "unproven for-in loop", node);
 			self.visit(node.iterable, callable);
 			self.iterationEvents(node, callable);
-			self.visit(node.body_node, callable);
+			self.visit(node.bodyNode, callable);
 			return;
 		}
 		if (node.kind == NK_UNARY_EXPR && (node.op == "++" || node.op == "--")) {
@@ -544,26 +544,26 @@ class RealtimeAnalyzer {
 
 	private void collectChildren(Node node, RealtimeCallable callable, bool collecting) {
 		self.dispatchChild(node.spec, callable, collecting);
-		self.dispatchChild(node.return_type, callable, collecting);
-		self.dispatchChild(node.body_node, callable, collecting);
+		self.dispatchChild(node.returnType, callable, collecting);
+		self.dispatchChild(node.bodyNode, callable, collecting);
 		self.dispatchChild(node.original, callable, collecting);
 		self.dispatchChild(node.type, callable, collecting);
 		self.dispatchChild(node.default_, callable, collecting);
 		self.dispatchChild(node.initializer, callable, collecting);
-		self.dispatchChild(node.value_node, callable, collecting);
+		self.dispatchChild(node.valueNode, callable, collecting);
 		self.dispatchChild(node.condition, callable, collecting);
-		self.dispatchChild(node.then_block, callable, collecting);
-		self.dispatchChild(node.else_block, callable, collecting);
+		self.dispatchChild(node.thenBlock, callable, collecting);
+		self.dispatchChild(node.elseBlock, callable, collecting);
 		self.dispatchChild(node.iterable, callable, collecting);
 		self.dispatchChild(node.init, callable, collecting);
 		self.dispatchChild(node.update, callable, collecting);
 		self.dispatchChild(node.expr, callable, collecting);
-		self.dispatchChild(node.try_block, callable, collecting);
-		self.dispatchChild(node.catch_type, callable, collecting);
-		self.dispatchChild(node.catch_block, callable, collecting);
-		self.dispatchChild(node.finally_block, callable, collecting);
-		self.dispatchChild(node.if_stmt, callable, collecting);
-		self.dispatchChild(node.var_decl, callable, collecting);
+		self.dispatchChild(node.tryBlock, callable, collecting);
+		self.dispatchChild(node.catchType, callable, collecting);
+		self.dispatchChild(node.catchBlock, callable, collecting);
+		self.dispatchChild(node.finallyBlock, callable, collecting);
+		self.dispatchChild(node.ifStmt, callable, collecting);
+		self.dispatchChild(node.varDecl, callable, collecting);
 		self.dispatchChild(node.expression, callable, collecting);
 		self.dispatchChild(node.left, callable, collecting);
 		self.dispatchChild(node.right, callable, collecting);
@@ -571,11 +571,11 @@ class RealtimeAnalyzer {
 		self.dispatchChild(node.callee, callable, collecting);
 		self.dispatchChild(node.obj, callable, collecting);
 		self.dispatchChild(node.index, callable, collecting);
-		self.dispatchChild(node.target_type, callable, collecting);
-		self.dispatchChild(node.true_expr, callable, collecting);
-		self.dispatchChild(node.false_expr, callable, collecting);
+		self.dispatchChild(node.targetType, callable, collecting);
+		self.dispatchChild(node.trueExpr, callable, collecting);
+		self.dispatchChild(node.falseExpr, callable, collecting);
 		self.dispatchChild(node.target, callable, collecting);
-		self.dispatchChild(node.array_size, callable, collecting);
+		self.dispatchChild(node.arraySize, callable, collecting);
 		self.dispatchChild(node.fn, callable, collecting);
 		self.dispatchChild(node.key, callable, collecting);
 
@@ -586,7 +586,7 @@ class RealtimeAnalyzer {
 		self.dispatchVector(node.fields, callable, collecting);
 		self.dispatchVector(node.values, callable, collecting);
 		self.dispatchVector(node.variants, callable, collecting);
-		self.dispatchVector(node.generic_args, callable, collecting);
+		self.dispatchVector(node.genericArgs, callable, collecting);
 		self.dispatchVector(node.statements, callable, collecting);
 		self.dispatchVector(node.cases, callable, collecting);
 		self.dispatchVector(node.args, callable, collecting);
@@ -594,7 +594,7 @@ class RealtimeAnalyzer {
 		self.dispatchVector(node.entries, callable, collecting);
 		self.dispatchVector(node.parts, callable, collecting);
 		self.dispatchVector(node.captures, callable, collecting);
-		self.dispatchVector(node.body_nlist, callable, collecting);
+		self.dispatchVector(node.bodyNodeList, callable, collecting);
 	}
 
 	private void dispatchChild(Node? node, RealtimeCallable callable, bool collecting) {
@@ -616,7 +616,7 @@ class RealtimeAnalyzer {
 	private Node? directDeclaration(Node call, RealtimeCallable callable) {
 		Node callee = call.callee;
 		if (callee.kind == NK_IDENTIFIER) {
-			if (callable.local_names.has(callee.name) || self.analyzed.globalVarTypes.has(callee.name)) {
+			if (callable.localNames.has(callee.name) || self.analyzed.globalVarTypes.has(callee.name)) {
 				return null;
 			}
 			if (self.analyzed.funcTable.has(callee.name)) {
@@ -642,7 +642,7 @@ class RealtimeAnalyzer {
 		int positional = 0;
 		index = 0;
 		while (index < call.args.len) {
-			string argumentName = index < call.arg_names.len ? call.arg_names.get(index) : "";
+			string argumentName = index < call.argNames.len ? call.argNames.get(index) : "";
 			if (argumentName == "") {
 				if (positional < supplied.len) {
 					supplied.set(positional, true);
@@ -675,7 +675,7 @@ class RealtimeAnalyzer {
 		if (SemanticTypeSystem.realtimeFunctionPointer(calleeType, self.analyzed)) { return; }
 		if (callee.kind == NK_IDENTIFIER) {
 			string name = callee.name;
-			if (callable.local_names.has(name) || self.analyzed.globalVarTypes.has(name)) {
+			if (callable.localNames.has(name) || self.analyzed.globalVarTypes.has(name)) {
 				self.effect(callable, "unknown", "indirect call through '" + name + "'", call);
 				return;
 			}
@@ -841,7 +841,7 @@ class RealtimeAnalyzer {
 		Node? item = self.methodForType(iterableType, "iterGet");
 		if (length != null) { self.sourceCall(length, loop, callable); }
 		if (item != null) { self.sourceCall(item, loop, callable); }
-		if (loop.var_name2 != null) {
+		if (loop.varName2 != null) {
 			Node? value = self.methodForType(iterableType, "iterValueAt");
 			if (value != null) { self.sourceCall(value, loop, callable); }
 		}
@@ -852,7 +852,7 @@ class RealtimeAnalyzer {
 		if (loop.init == null || loop.init.kind != NK_FOR_INIT_VAR) {
 			return proof;
 		}
-		Node declaration = loop.init.var_decl;
+		Node declaration = loop.init.varDecl;
 		if (declaration.kind != NK_VAR_DECL_STMT || declaration.initializer == null || declaration.initializer.kind != NK_INT_LITERAL) {
 			return proof;
 		}
@@ -879,7 +879,7 @@ class RealtimeAnalyzer {
 
 		string boundName = "";
 		if (bound.kind == NK_IDENTIFIER) {
-			if (bound.name == declaration.name || !callable.local_names.has(bound.name) || !self.integralScalar(self.expressionTypes.infer(bound, callable.variables), {})) {
+			if (bound.name == declaration.name || !callable.localNames.has(bound.name) || !self.integralScalar(self.expressionTypes.infer(bound, callable.variables), {})) {
 				return proof;
 			}
 			boundName = bound.name;
@@ -1023,8 +1023,8 @@ class RealtimeAnalyzer {
 			}
 		}
 		int argument = 0;
-		while (argument < typeExpr.generic_args.len) {
-			if (self.managedType(typeExpr.generic_args.get(argument), self.nextSeen(seen, base))) {
+		while (argument < typeExpr.genericArgs.len) {
+			if (self.managedType(typeExpr.genericArgs.get(argument), self.nextSeen(seen, base))) {
 				return true;
 			}
 			argument = argument + 1;
@@ -1046,7 +1046,7 @@ class RealtimeAnalyzer {
 
 	private void effect(RealtimeCallable callable, string category, string operation, Node site) {
 		RealtimeEvent event = RealtimeEvent();
-		event.is_effect = true;
+		event.isEffect = true;
 		event.category = category;
 		event.operation = operation;
 		event.line = site.line;
@@ -1070,7 +1070,7 @@ class RealtimeAnalyzer {
 			Vector<RealtimeEvent> events = self.callables.get(key).events;
 			int eventIndex = 0;
 			while (eventIndex < events.len) {
-				if (events.get(eventIndex).is_effect) {
+				if (events.get(eventIndex).isEffect) {
 					unsafe.put(key, true);
 				}
 				eventIndex = eventIndex + 1;
@@ -1088,7 +1088,7 @@ class RealtimeAnalyzer {
 					int eventIndex = 0;
 					while (eventIndex < events.len) {
 						RealtimeEvent event = events.get(eventIndex);
-						if (!event.is_effect && unsafe.has(event.target)) {
+						if (!event.isEffect && unsafe.has(event.target)) {
 							unsafe.put(key, true);
 							changed = true;
 						}
@@ -1129,7 +1129,7 @@ class RealtimeAnalyzer {
 		int index = 0;
 		while (index < events.len) {
 			RealtimeEvent event = events.get(index);
-			if (event.is_effect) {
+			if (event.isEffect) {
 				RealtimeWitness witness = RealtimeWitness();
 				witness.category = event.category;
 				witness.operation = event.operation;

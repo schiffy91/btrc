@@ -14,17 +14,17 @@ import ../model.btrc;
 
 class GpuScopeBinding {
 	public string source;
-	public string previous_name;
-	public Node previous_type;
-	public bool had_name;
-	public bool had_type;
+	public string previousName;
+	public Node previousType;
+	public bool hadName;
+	public bool hadType;
 
 	public GpuScopeBinding(string source) {
 		self.source = source;
-		self.previous_name = "";
-		self.previous_type = null;
-		self.had_name = false;
-		self.had_type = false;
+		self.previousName = "";
+		self.previousType = null;
+		self.hadName = false;
+		self.hadType = false;
 	}
 }
 
@@ -60,7 +60,7 @@ class GpuWgslEmitter {
 		self.arrayLengths = {};
 		self.bindings = [];
 		self.scopeStarts = [];
-		self.hasOutput = kernel.output_buffer != null;
+		self.hasOutput = kernel.outputBuffer != null;
 	}
 
 	private void line(string value) {
@@ -82,12 +82,12 @@ class GpuWgslEmitter {
 	private string declareName(string source) {
 		GpuScopeBinding binding = GpuScopeBinding(source);
 		if (self.names.has(source)) {
-			binding.had_name = true;
-			binding.previous_name = self.names.get(source);
+			binding.hadName = true;
+			binding.previousName = self.names.get(source);
 		}
 		if (self.varTypes.has(source)) {
-			binding.had_type = true;
-			binding.previous_type = self.varTypes.get(source);
+			binding.hadType = true;
+			binding.previousType = self.varTypes.get(source);
 		}
 		self.bindings.push(binding);
 		string value = "btrc_v_" + Strings.fromInt(self.nextLocal);
@@ -103,13 +103,13 @@ class GpuWgslEmitter {
 		int start = self.scopeStarts.pop();
 		while (self.bindings.len > start) {
 			GpuScopeBinding binding = self.bindings.pop();
-			if (binding.had_name) {
-				self.names.put(binding.source, binding.previous_name);
+			if (binding.hadName) {
+				self.names.put(binding.source, binding.previousName);
 			} else {
 				self.names.remove(binding.source);
 			}
-			if (binding.had_type) {
-				self.varTypes.put(binding.source, binding.previous_type);
+			if (binding.hadType) {
+				self.varTypes.put(binding.source, binding.previousType);
 			} else {
 				self.varTypes.remove(binding.source);
 			}
@@ -151,7 +151,7 @@ class GpuWgslEmitter {
 	private string gpuWgslScalarType(Node? type) {
 		if (type == null) { return "i32"; }
 		Node resolved = type;
-		if (resolved.is_array || resolved.pointer_depth > 0 || resolved.generic_args.len > 0 || resolved.is_nullable) {
+		if (resolved.isArray || resolved.pointerDepth > 0 || resolved.genericArgs.len > 0 || resolved.isNullable) {
 			self.gpuLoweringFail(resolved, "type has no WGSL scalar representation");
 		}
 		if (resolved.base == "int") { return "i32"; }
@@ -169,7 +169,7 @@ class GpuWgslEmitter {
 		if (resolved.base != "int" && resolved.base != "float") {
 			self.gpuLoweringFail(resolved, "GPU buffers require int or float elements");
 		}
-		if (resolved.pointer_depth > 0 || resolved.generic_args.len > 0 || resolved.is_nullable) {
+		if (resolved.pointerDepth > 0 || resolved.genericArgs.len > 0 || resolved.isNullable) {
 			self.gpuLoweringFail(resolved, "GPU buffer type is not host-shareable");
 		}
 		if (resolved.base == "float") { return "f32"; }
@@ -202,7 +202,7 @@ class GpuWgslEmitter {
 	private string gpuWgslFloatLiteral(Node expression) {
 		self.gpuValidateFloatLiteral(expression);
 		string raw = expression.raw;
-		if (raw == "") { raw = Strings.fromFloat(expression.value_float); }
+		if (raw == "") { raw = Strings.fromFloat(expression.valueFloat); }
 		if (raw.endsWith("f") || raw.endsWith("F")) {
 			raw = raw.substring(0, raw.length() - 1);
 		}
@@ -344,8 +344,8 @@ class GpuWgslEmitter {
 		}
 		string name = expression.callee.name;
 		int named = 0;
-		while (named < expression.arg_names.len) {
-			if (expression.arg_names.get(named) != "") {
+		while (named < expression.argNames.len) {
+			if (expression.argNames.get(named) != "") {
 				self.gpuLoweringFail(expression, "WGSL built-ins do not accept named arguments");
 			}
 			named = named + 1;
@@ -408,12 +408,12 @@ class GpuWgslEmitter {
 
 	private string gpuWgslExpr(Node expression) {
 		if (expression == null) { self.gpuLoweringFail(expression, "missing WGSL expression"); }
-		if (expression.kind == NK_INT_LITERAL) { return Strings.fromInt(expression.value_int); }
+		if (expression.kind == NK_INT_LITERAL) { return Strings.fromInt(expression.valueInt); }
 		if (expression.kind == NK_FLOAT_LITERAL) {
 			return self.gpuWgslFloatLiteral(expression);
 		}
 		if (expression.kind == NK_BOOL_LITERAL) {
-			if (expression.value_bool) { return "true"; }
+			if (expression.valueBool) { return "true"; }
 			return "false";
 		}
 		if (expression.kind == NK_IDENTIFIER) {
@@ -447,19 +447,19 @@ class GpuWgslEmitter {
 			string condition = self.expr(expression.condition);
 			string result = self.freshValue();
 			string target = self.gpuExprBase(expression);
-			if (target == "") { target = self.gpuExprBase(expression.true_expr); }
+			if (target == "") { target = self.gpuExprBase(expression.trueExpr); }
 			Node targetNode = SemanticTypeSystem.primitive(target);
 			self.line("var " + result + ": " + self.gpuWgslScalarType(targetNode) + ";");
 			self.line("if (" + condition + ") {");
 			self.indent = self.indent + 1;
-			string yes = self.expr(expression.true_expr);
-			yes = self.gpuCoerceText(yes, self.gpuExprBase(expression.true_expr), target);
+			string yes = self.expr(expression.trueExpr);
+			yes = self.gpuCoerceText(yes, self.gpuExprBase(expression.trueExpr), target);
 			self.line(result + " = " + yes + ";");
 			self.indent = self.indent - 1;
 			self.line("} else {");
 			self.indent = self.indent + 1;
-			string no = self.expr(expression.false_expr);
-			no = self.gpuCoerceText(no, self.gpuExprBase(expression.false_expr), target);
+			string no = self.expr(expression.falseExpr);
+			no = self.gpuCoerceText(no, self.gpuExprBase(expression.falseExpr), target);
 			self.line(result + " = " + no + ";");
 			self.indent = self.indent - 1;
 			self.line("}");
@@ -467,7 +467,7 @@ class GpuWgslEmitter {
 		}
 		if (expression.kind == NK_CAST_EXPR) {
 			string value = self.expr(expression.expr);
-			return self.gpuCoerceText(value, self.gpuExprBase(expression.expr), expression.target_type.base);
+			return self.gpuCoerceText(value, self.gpuExprBase(expression.expr), expression.targetType.base);
 		}
 		self.gpuLoweringFail(expression, "expression has no WGSL definition");
 		return "0";
@@ -534,11 +534,11 @@ class GpuWgslEmitter {
 		self.indent = self.indent - 1;
 		self.line("} else {");
 		self.indent = self.indent + 1;
-		string value = self.expr(assignment.value_node);
+		string value = self.expr(assignment.valueNode);
 		string targetBase = self.gpuExprBase(target);
-		value = self.gpuCoerceText(value, self.gpuExprBase(assignment.value_node), targetBase);
+		value = self.gpuCoerceText(value, self.gpuExprBase(assignment.valueNode), targetBase);
 		string targetText = self.lookupName(target.obj, target.obj.name) + "[" + indexName + "]";
-		self.gpuEmitAssignedLine(assignment, targetText, value, targetBase, self.gpuExprBase(assignment.value_node));
+		self.gpuEmitAssignedLine(assignment, targetText, value, targetBase, self.gpuExprBase(assignment.valueNode));
 		self.indent = self.indent - 1;
 		self.line("}");
 	}
@@ -551,9 +551,9 @@ class GpuWgslEmitter {
 		if (assignment.target.kind != NK_IDENTIFIER || self.uniforms.has(assignment.target.name)) {
 			self.gpuLoweringFail(assignment, "GPU assignment target must be a writable local or buffer element");
 		}
-		string value = self.expr(assignment.value_node);
-		value = self.gpuCoerceText(value, self.gpuExprBase(assignment.value_node), self.gpuExprBase(assignment.target));
-		self.gpuEmitAssignedLine(assignment, self.lookupName(assignment.target, assignment.target.name), value, self.gpuExprBase(assignment.target), self.gpuExprBase(assignment.value_node));
+		string value = self.expr(assignment.valueNode);
+		value = self.gpuCoerceText(value, self.gpuExprBase(assignment.valueNode), self.gpuExprBase(assignment.target));
+		self.gpuEmitAssignedLine(assignment, self.lookupName(assignment.target, assignment.target.name), value, self.gpuExprBase(assignment.target), self.gpuExprBase(assignment.valueNode));
 	}
 
 	private void gpuEmitUpdate(Node expression) {
@@ -571,13 +571,13 @@ class GpuWgslEmitter {
 				if (self.gpuExprBase(expression.operand) == "float") {
 					one.kind = NK_FLOAT_LITERAL;
 					one.raw = "1.0";
-					one.value_float = 1.0;
+					one.valueFloat = 1.0;
 				} else {
 					one.kind = NK_INT_LITERAL;
 					one.raw = "1";
-					one.value_int = 1;
+					one.valueInt = 1;
 				}
-				synthetic.value_node = one;
+				synthetic.valueNode = one;
 				self.gpuEmitIndexAssignment(synthetic);
 				return;
 			}
@@ -600,14 +600,14 @@ class GpuWgslEmitter {
 	}
 
 	private void gpuEmitReturn(Node statement) {
-		if (statement.value_node != null && self.hasOutput) {
+		if (statement.valueNode != null && self.hasOutput) {
 			string value = "";
-			Node? valueType = self.typeOf(statement.value_node);
-			if (valueType != null && valueType.is_array) {
-				if (statement.value_node.kind != NK_IDENTIFIER || !self.arrayLengths.has(statement.value_node.name)) {
+			Node? valueType = self.typeOf(statement.valueNode);
+			if (valueType != null && valueType.isArray) {
+				if (statement.valueNode.kind != NK_IDENTIFIER || !self.arrayLengths.has(statement.valueNode.name)) {
 					self.gpuLoweringFail(statement, "GPU array return must name an array parameter");
 				}
-				string source = statement.value_node.name;
+				string source = statement.valueNode.name;
 				string length = "uniforms." + self.arrayLengths.get(source);
 				self.line("if (btrc_gid < 0 || btrc_gid >= " + length + ") {");
 				self.indent = self.indent + 1;
@@ -615,17 +615,17 @@ class GpuWgslEmitter {
 				self.indent = self.indent - 1;
 				self.line("} else {");
 				self.indent = self.indent + 1;
-				value = self.lookupName(statement.value_node, source) + "[btrc_gid]";
+				value = self.lookupName(statement.valueNode, source) + "[btrc_gid]";
 				self.line("_output[btrc_gid] = " + value + ";");
 				self.indent = self.indent - 1;
 				self.line("}");
 			} else {
-				value = self.expr(statement.value_node);
-				string target = self.kernel.output_buffer.elem_type == "f32" ? "float" : "int";
-				value = self.gpuCoerceText(value, self.gpuExprBase(statement.value_node), target);
+				value = self.expr(statement.valueNode);
+				string target = self.kernel.outputBuffer.elemType == "f32" ? "float" : "int";
+				value = self.gpuCoerceText(value, self.gpuExprBase(statement.valueNode), target);
 				self.line("_output[btrc_gid] = " + value + ";");
 			}
-		} else if (statement.value_node != null && !self.hasOutput) {
+		} else if (statement.valueNode != null && !self.hasOutput) {
 			self.gpuLoweringFail(statement, "void GPU function cannot return a value");
 		}
 		self.line("return;");
@@ -638,18 +638,18 @@ class GpuWgslEmitter {
 		string condition = self.expr(statement.condition);
 		self.line("if (" + condition + ") {");
 		self.indent = self.indent + 1;
-		self.gpuEmitBlock(statement.then_block);
+		self.gpuEmitBlock(statement.thenBlock);
 		self.indent = self.indent - 1;
-		if (statement.else_block != null && statement.else_block.kind == NK_ELSE_BLOCK) {
+		if (statement.elseBlock != null && statement.elseBlock.kind == NK_ELSE_BLOCK) {
 			self.line("} else {");
 			self.indent = self.indent + 1;
-			self.gpuEmitBlock(statement.else_block.body_node);
+			self.gpuEmitBlock(statement.elseBlock.bodyNode);
 			self.indent = self.indent - 1;
 			self.line("}");
-		} else if (statement.else_block != null && statement.else_block.kind == NK_ELSE_IF) {
+		} else if (statement.elseBlock != null && statement.elseBlock.kind == NK_ELSE_IF) {
 			self.line("} else {");
 			self.indent = self.indent + 1;
-			self.gpuEmitIf(statement.else_block.if_stmt);
+			self.gpuEmitIf(statement.elseBlock.ifStmt);
 			self.indent = self.indent - 1;
 			self.line("}");
 		} else {
@@ -665,7 +665,7 @@ class GpuWgslEmitter {
 		self.indent = self.indent + 1;
 		string condition = self.expr(statement.condition);
 		self.line("if (!(" + condition + ")) { break; }");
-		self.gpuEmitBlock(statement.body_node);
+		self.gpuEmitBlock(statement.bodyNode);
 		self.indent = self.indent - 1;
 		self.line("}");
 	}
@@ -676,7 +676,7 @@ class GpuWgslEmitter {
 		self.pushScope();
 		if (statement.init != null) {
 			if (statement.init.kind == NK_FOR_INIT_VAR) {
-				self.gpuWgslStmt(statement.init.var_decl);
+				self.gpuWgslStmt(statement.init.varDecl);
 			} else if (statement.init.kind == NK_FOR_INIT_EXPR) {
 				self.gpuEmitUpdate(statement.init.expression);
 			} else {
@@ -692,7 +692,7 @@ class GpuWgslEmitter {
 			string condition = self.expr(statement.condition);
 			self.line("if (!(" + condition + ")) { break; }");
 		}
-		self.gpuEmitBlock(statement.body_node);
+		self.gpuEmitBlock(statement.bodyNode);
 		if (statement.update != null) {
 			self.line("continuing {");
 			self.indent = self.indent + 1;
@@ -713,7 +713,7 @@ class GpuWgslEmitter {
 			if (type == null && statement.initializer != null) {
 				type = self.typeOf(statement.initializer);
 			}
-			if (type == null || type.is_array) {
+			if (type == null || type.isArray) {
 				self.gpuLoweringFail(statement, "GPU local must have a scalar type");
 			}
 			Node resolvedType = type;
@@ -748,11 +748,11 @@ class GpuWgslEmitter {
 			string shaderName = "btrc_p_" + Strings.fromInt(sourceOrdinal);
 			self.names.put(parameter.name, shaderName);
 			self.varTypes.put(parameter.name, parameter.type);
-			if (parameter.type.is_array) {
+			if (parameter.type.isArray) {
 				IRGpuBuffer buffer = IRGpuBuffer(parameter.name, self.gpuWgslElementType(parameter.type), binding);
-				self.kernel.param_buffers.push(buffer);
+				self.kernel.paramBuffers.push(buffer);
 				self.arrayLengths.put(parameter.name, "btrc_len_" + Strings.fromInt(arrayOrdinal));
-				self.lines.push("@group(0) @binding(" + Strings.fromInt(binding) + ") var<storage, read_write> " + shaderName + ": array<" + buffer.elem_type + ">;");
+				self.lines.push("@group(0) @binding(" + Strings.fromInt(binding) + ") var<storage, read_write> " + shaderName + ": array<" + buffer.elemType + ">;");
 				binding = binding + 1;
 				arrayOrdinal = arrayOrdinal + 1;
 			} else {
@@ -761,33 +761,33 @@ class GpuWgslEmitter {
 					storageType = "u32";
 					self.boolUniforms.put(parameter.name, true);
 				}
-				self.kernel.uniform_params.push(IRGpuUniform(parameter.name, storageType));
+				self.kernel.uniformParams.push(IRGpuUniform(parameter.name, storageType));
 				self.uniforms.put(parameter.name, true);
 			}
 			sourceOrdinal = sourceOrdinal + 1;
 			parameterIndex = parameterIndex + 1;
 		}
-		Node returnType = declaration.return_type;
+		Node returnType = declaration.returnType;
 		if (returnType != null && returnType.base != "void") {
-			if (!returnType.is_array) {
+			if (!returnType.isArray) {
 				self.gpuLoweringFail(returnType, "GPU return type must be void, int[], or float[]");
 			}
-			self.kernel.output_buffer = IRGpuBuffer("_output", self.gpuWgslElementType(returnType), binding);
-			self.lines.push("@group(0) @binding(" + Strings.fromInt(binding) + ") var<storage, read_write> _output: array<" + self.kernel.output_buffer.elem_type + ">;");
+			self.kernel.outputBuffer = IRGpuBuffer("_output", self.gpuWgslElementType(returnType), binding);
+			self.lines.push("@group(0) @binding(" + Strings.fromInt(binding) + ") var<storage, read_write> _output: array<" + self.kernel.outputBuffer.elemType + ">;");
 			binding = binding + 1;
 			self.hasOutput = true;
 		}
 		self.lines.push("");
 		self.lines.push("struct Uniforms {");
 		int uniformIndex = 0;
-		while (uniformIndex < self.kernel.uniform_params.len) {
-			IRGpuUniform uniform = self.kernel.uniform_params.get(uniformIndex);
-			self.lines.push("    " + self.names.get(uniform.name) + ": " + uniform.storage_type + ",");
+		while (uniformIndex < self.kernel.uniformParams.len) {
+			IRGpuUniform uniform = self.kernel.uniformParams.get(uniformIndex);
+			self.lines.push("    " + self.names.get(uniform.name) + ": " + uniform.storageType + ",");
 			uniformIndex = uniformIndex + 1;
 		}
 		int arrayIndex = 0;
-		while (arrayIndex < self.kernel.param_buffers.len) {
-			IRGpuBuffer buffer = self.kernel.param_buffers.get(arrayIndex);
+		while (arrayIndex < self.kernel.paramBuffers.len) {
+			IRGpuBuffer buffer = self.kernel.paramBuffers.get(arrayIndex);
 			self.lines.push("    " + self.arrayLengths.get(buffer.name) + ": i32,");
 			arrayIndex = arrayIndex + 1;
 		}
@@ -803,8 +803,8 @@ class GpuWgslEmitter {
 		self.lines.push("fn main(@builtin(global_invocation_id) gid: vec3<u32>) {");
 		self.line("let btrc_gid: i32 = i32(gid.x) + uniforms.btrc_off;");
 		self.line("if (btrc_gid >= uniforms.btrc_n) { return; }");
-		if (declaration.body_node != null) {
-			self.gpuEmitBlock(declaration.body_node);
+		if (declaration.bodyNode != null) {
+			self.gpuEmitBlock(declaration.bodyNode);
 		}
 		self.lines.push("}");
 		return self.finish();

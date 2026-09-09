@@ -105,8 +105,8 @@ class CleanupSlotRegistry {
 		string pointerType = slotType + " volatile*";
 		IRFunction definition = IRFunction();
 		definition.name = name;
-		definition.return_type = "void*";
-		definition.is_static = true;
+		definition.returnType = "void*";
+		definition.isStatic = true;
 		definition.params.push(IRParam("void*", "raw_slot"));
 		Vector<IRNode> body = [];
 		body.push(IRNode.variableDeclaration(pointerType, "typed_slot", IRNode.cast(pointerType, IRNode.variable("raw_slot"))));
@@ -131,8 +131,8 @@ class CleanupSlotRegistry {
 		string pointerType = slotType + " volatile*";
 		IRFunction definition = IRFunction();
 		definition.name = name;
-		definition.return_type = "void*";
-		definition.is_static = true;
+		definition.returnType = "void*";
+		definition.isStatic = true;
 		definition.params.push(IRParam("volatile void*", "raw_slot"));
 		definition.params.push(IRParam("void*", "expected"));
 		definition.params.push(IRParam("void*", "replacement"));
@@ -161,8 +161,8 @@ class CleanupSlotRegistry {
 	private IRFunction mutexValueAccessAdapter(string name, string valueType) {
 		IRFunction definition = IRFunction();
 		definition.name = name;
-		definition.return_type = "void*";
-		definition.is_static = true;
+		definition.returnType = "void*";
+		definition.isStatic = true;
 		definition.params.push(IRParam("const void*", "raw_storage"));
 		Vector<IRNode> body = [];
 		body.push(IRNode.returnStatement(IRNode.cast("void*", IRNode.dereference(IRNode.cast(valueType + " const*", IRNode.variable("raw_storage"))))));
@@ -181,19 +181,19 @@ class CleanupSlotRegistry {
 	}
 
 	public IRNode registerSlot(LoweringContext context, IRNode declaration, IRNode cleanupFunction, IRNode? visitor, bool direct) {
-		if (declaration.kind != IRK_VAR_DECL || declaration.is_static || declaration.is_extern || declaration.is_array_decl) {
+		if (declaration.kind != IRK_VAR_DECL || declaration.isStatic || declaration.isExtern || declaration.isArrayDecl) {
 			self.fail("cleanup registration requires an automatic pointer object");
 		}
-		string adapter = self.ensureTakeAdapter(declaration.c_type);
-		IRCleanupSlot metadata = declaration.cleanup_slot;
+		string adapter = self.ensureTakeAdapter(declaration.cType);
+		IRCleanupSlot metadata = declaration.cleanupSlot;
 		if (metadata == null) {
 			self.nextSite = self.nextSite + 1;
-			metadata = IRCleanupSlot(self.nextSite, declaration.name, declaration.c_type, adapter);
-			declaration.cleanup_slot = metadata;
-		} else if (metadata.name != declaration.name || metadata.c_type != declaration.c_type || metadata.take_function != adapter) {
+			metadata = IRCleanupSlot(self.nextSite, declaration.name, declaration.cType, adapter);
+			declaration.cleanupSlot = metadata;
+		} else if (metadata.name != declaration.name || metadata.cType != declaration.cType || metadata.takeFunction != adapter) {
 			self.fail("conflicting cleanup metadata for " + declaration.name);
 		}
-		declaration.is_volatile = true;
+		declaration.isVolatile = true;
 
 		string helper = "__btrc_register_cleanup";
 		if (direct) { helper = "__btrc_register_direct_cleanup"; }
@@ -209,8 +209,8 @@ class CleanupSlotRegistry {
 			arguments.push(visitor);
 		}
 		IRNode call = IRNode.call(helper, arguments);
-		call.helper_ref = helper;
-		call.cleanup_slot = metadata;
+		call.helperRef = helper;
+		call.cleanupSlot = metadata;
 		return call;
 	}
 

@@ -101,7 +101,7 @@ class IRLowerer {
 		self.expressionTypes.disableMemo();
 		self.cleanupSlots.reset();
 		IRModule module = IRModule();
-		module.realtime_intrinsic_targets = self.runtimeHelpers.realtimeIntrinsicTargetProvenance();
+		module.realtimeIntrinsicTargets = self.runtimeHelpers.realtimeIntrinsicTargetProvenance();
 		self.context.bindModule(module);
 		self.context.packAlignments = self.declarations.packAlignments(program);
 		self.declarations.addStandardPreprocessorDecls(module);

@@ -63,16 +63,16 @@ class SetjmpSafetyPlanner {
 			self.validateExpression(node.result, local, params, node.kind, "result");
 			return;
 		}
-		if (node.kind == IRK_ADDRESS_OF && node.source_address && parentKind != IRK_SIZEOF) {
+		if (node.kind == IRK_ADDRESS_OF && node.sourceAddress && parentKind != IRK_SIZEOF) {
 			string root = IRNode.directStorageRoot(node.expr);
 			if (root != "" && !self.compilerOwnedStorage(root)) {
 				IRNode? declaration = self.visibleAutomatic(root, visible);
-				if (declaration != null && declaration.is_volatile && declaration.setjmp_inferred_volatile) {
+				if (declaration != null && declaration.isVolatile && declaration.setjmpInferredVolatile) {
 					self.rejectAlias(root, true);
 				}
 				if (declaration == null) {
 					IRParam? parameter = self.visibleParameter(root, params);
-					if (parameter != null && parameter.is_volatile && parameter.setjmp_inferred_volatile) {
+					if (parameter != null && parameter.isVolatile && parameter.setjmpInferredVolatile) {
 						self.rejectAlias(root, true);
 					}
 				}
@@ -81,20 +81,20 @@ class SetjmpSafetyPlanner {
 		if (node.kind == IRK_VAR && !self.compilerOwnedStorage(node.name)) {
 			IRNode? declaration = self.visibleAutomatic(node.name, visible);
 			bool safeIndex = parentKind == IRK_INDEX && parentField == "obj";
-			if (declaration != null && declaration.is_volatile && declaration.setjmp_inferred_volatile && declaration.is_array_decl && parentKind != IRK_SIZEOF && !safeIndex) {
+			if (declaration != null && declaration.isVolatile && declaration.setjmpInferredVolatile && declaration.isArrayDecl && parentKind != IRK_SIZEOF && !safeIndex) {
 				self.rejectAlias(node.name, true);
 			}
 			return;
 		}
-		if (node.kind == IRK_FIELD_ACCESS && node.array_storage_known && node.array_storage_root != "" && !self.compilerOwnedStorage(node.array_storage_root) && parentKind != IRK_SIZEOF && !(parentKind == IRK_INDEX && parentField == "obj")) {
-			IRNode? declaration = self.visibleAutomatic(node.array_storage_root, visible);
-			if (declaration != null && declaration.is_volatile && declaration.setjmp_inferred_volatile) {
-				self.rejectAlias(node.array_storage_root, true);
+		if (node.kind == IRK_FIELD_ACCESS && node.arrayStorageKnown && node.arrayStorageRoot != "" && !self.compilerOwnedStorage(node.arrayStorageRoot) && parentKind != IRK_SIZEOF && !(parentKind == IRK_INDEX && parentField == "obj")) {
+			IRNode? declaration = self.visibleAutomatic(node.arrayStorageRoot, visible);
+			if (declaration != null && declaration.isVolatile && declaration.setjmpInferredVolatile) {
+				self.rejectAlias(node.arrayStorageRoot, true);
 			}
 			if (declaration == null) {
-				IRParam? parameter = self.visibleParameter(node.array_storage_root, params);
-				if (parameter != null && parameter.is_volatile && parameter.setjmp_inferred_volatile) {
-					self.rejectAlias(node.array_storage_root, true);
+				IRParam? parameter = self.visibleParameter(node.arrayStorageRoot, params);
+				if (parameter != null && parameter.isVolatile && parameter.setjmpInferredVolatile) {
+					self.rejectAlias(node.arrayStorageRoot, true);
 				}
 			}
 		}
@@ -105,9 +105,9 @@ class SetjmpSafetyPlanner {
 		self.validateExpression(node.obj, visible, params, node.kind, "obj");
 		self.validateExpression(node.index, visible, params, node.kind, "index");
 		self.validateExpression(node.condition, visible, params, node.kind, "condition");
-		self.validateExpression(node.true_expr, visible, params, node.kind, "true_expr");
-		self.validateExpression(node.false_expr, visible, params, node.kind, "false_expr");
-		self.validateExpression(node.array_size, visible, params, node.kind, "array_size");
+		self.validateExpression(node.trueExpr, visible, params, node.kind, "true_expr");
+		self.validateExpression(node.falseExpr, visible, params, node.kind, "false_expr");
+		self.validateExpression(node.arraySize, visible, params, node.kind, "array_size");
 		self.validateExpression(node.init, visible, params, node.kind, "init");
 		self.validateExpression(node.value, visible, params, node.kind, "value");
 		self.validateExpression(node.target, visible, params, node.kind, "target");
@@ -132,15 +132,15 @@ class SetjmpSafetyPlanner {
 
 	private void validateStatement(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params) {
 		if (statement.kind == IRK_VAR_DECL) {
-			self.validateExpression(statement.array_size, visible, params, statement.kind, "array_size");
+			self.validateExpression(statement.arraySize, visible, params, statement.kind, "array_size");
 			self.addVisible(visible, statement);
 			self.validateExpression(statement.init, visible, params, statement.kind, "init");
 			return;
 		}
 		if (statement.kind == IRK_IF) {
 			self.validateExpression(statement.condition, visible, params, statement.kind, "condition");
-			self.validateBlock(statement.then_block, visible, params);
-			self.validateBlock(statement.else_block, visible, params);
+			self.validateBlock(statement.thenBlock, visible, params);
+			self.validateBlock(statement.elseBlock, visible, params);
 			return;
 		}
 		if (statement.kind == IRK_WHILE || statement.kind == IRK_DO_WHILE) {
@@ -190,9 +190,9 @@ class SetjmpSafetyPlanner {
 		Vector<IRNode> visible = [];
 		Vector<IRParam> params = [];
 		int index = 0;
-		while (index < module.global_decls.len) {
-			IRGlobalDecl declaration = module.global_decls.get(index);
-			self.validateExpression(declaration.array_size, visible, params, IRK_NONE, "array_size");
+		while (index < module.globalDecls.len) {
+			IRGlobalDecl declaration = module.globalDecls.get(index);
+			self.validateExpression(declaration.arraySize, visible, params, IRK_NONE, "array_size");
 			self.validateExpression(declaration.init, visible, params, IRK_NONE, "init");
 			index = index + 1;
 		}
@@ -243,14 +243,14 @@ class SetjmpSafetyPlanner {
 		self.collectExpressionMutations(node.obj, bound, modified, effects);
 		self.collectExpressionMutations(node.index, bound, modified, effects);
 		self.collectExpressionMutations(node.condition, bound, modified, effects);
-		self.collectExpressionMutations(node.true_expr, bound, modified, effects);
-		self.collectExpressionMutations(node.false_expr, bound, modified, effects);
+		self.collectExpressionMutations(node.trueExpr, bound, modified, effects);
+		self.collectExpressionMutations(node.falseExpr, bound, modified, effects);
 		self.collectExpressionMutations(node.init, bound, modified, effects);
 		self.collectExpressionMutations(node.value, bound, modified, effects);
 		self.collectExpressionMutations(node.target, bound, modified, effects);
 		self.collectExpressionMutations(node.update, bound, modified, effects);
 		self.collectExpressionMutations(node.result, bound, modified, effects);
-		self.collectExpressionMutations(node.array_size, bound, modified, effects);
+		self.collectExpressionMutations(node.arraySize, bound, modified, effects);
 		int index = 0;
 		while (index < node.args.len) {
 			self.collectExpressionMutations(node.args.get(index), bound, modified, effects);
@@ -275,7 +275,7 @@ class SetjmpSafetyPlanner {
 	private void collectStatementMutations(IRNode statement, Map<string, bool> bound, Map<string, bool> modified, SetjmpCallEffects effects) {
 		self.recordNodeWrites(statement, bound, modified, effects);
 		if (statement.kind == IRK_VAR_DECL) {
-			self.collectExpressionMutations(statement.array_size, bound, modified, effects);
+			self.collectExpressionMutations(statement.arraySize, bound, modified, effects);
 			SetjmpStorage? storage = effects.flow.declarationStorage(statement);
 			if (storage != null) { bound.put(self.storageKey(storage), true); }
 			self.collectExpressionMutations(statement.init, bound, modified, effects);
@@ -283,8 +283,8 @@ class SetjmpSafetyPlanner {
 		}
 		if (statement.kind == IRK_IF) {
 			self.collectExpressionMutations(statement.condition, bound, modified, effects);
-			self.collectMutationBlock(statement.then_block, bound, modified, effects);
-			self.collectMutationBlock(statement.else_block, bound, modified, effects);
+			self.collectMutationBlock(statement.thenBlock, bound, modified, effects);
+			self.collectMutationBlock(statement.elseBlock, bound, modified, effects);
 			return;
 		}
 		if (statement.kind == IRK_WHILE || statement.kind == IRK_DO_WHILE) {
@@ -355,7 +355,7 @@ class SetjmpSafetyPlanner {
 	private bool containsSetjmp(IRNode? node) {
 		if (node == null) { return false; }
 		if (node.kind == IRK_CALL && node.callee == "setjmp") { return true; }
-		if (self.containsSetjmp(node.left) || self.containsSetjmp(node.right) || self.containsSetjmp(node.operand) || self.containsSetjmp(node.expr) || self.containsSetjmp(node.obj) || self.containsSetjmp(node.index) || self.containsSetjmp(node.condition) || self.containsSetjmp(node.true_expr) || self.containsSetjmp(node.false_expr) || self.containsSetjmp(node.init) || self.containsSetjmp(node.value) || self.containsSetjmp(node.target) || self.containsSetjmp(node.update) || self.containsSetjmp(node.result) || self.containsSetjmp(node.array_size) || self.containsSetjmp(node.then_block) || self.containsSetjmp(node.else_block) || self.containsSetjmp(node.body)) { return true; }
+		if (self.containsSetjmp(node.left) || self.containsSetjmp(node.right) || self.containsSetjmp(node.operand) || self.containsSetjmp(node.expr) || self.containsSetjmp(node.obj) || self.containsSetjmp(node.index) || self.containsSetjmp(node.condition) || self.containsSetjmp(node.trueExpr) || self.containsSetjmp(node.falseExpr) || self.containsSetjmp(node.init) || self.containsSetjmp(node.value) || self.containsSetjmp(node.target) || self.containsSetjmp(node.update) || self.containsSetjmp(node.result) || self.containsSetjmp(node.arraySize) || self.containsSetjmp(node.thenBlock) || self.containsSetjmp(node.elseBlock) || self.containsSetjmp(node.body)) { return true; }
 		int index = 0;
 		while (index < node.args.len) {
 			if (self.containsSetjmp(node.args.get(index))) { return true; }
@@ -448,12 +448,12 @@ class SetjmpSafetyPlanner {
 			IRNode declaration = visible.get(index);
 			string key = self.visibleDeclarationKey(declaration, effects);
 			if (key != "" && remaining.has(key)) {
-				if (!declaration.is_static && !declaration.is_extern) {
-					if (!declaration.is_volatile) {
-						declaration.setjmp_inferred_volatile = true;
+				if (!declaration.isStatic && !declaration.isExtern) {
+					if (!declaration.isVolatile) {
+						declaration.setjmpInferredVolatile = true;
 					}
-					declaration.is_volatile = true;
-					declaration.effective_is_volatile = true;
+					declaration.isVolatile = true;
+					declaration.effectiveIsVolatile = true;
 				}
 				remaining.remove(key);
 			}
@@ -464,11 +464,11 @@ class SetjmpSafetyPlanner {
 			IRParam parameter = params.get(index);
 			string key = self.visibleParameterKey(parameter, effects);
 			if (key != "" && remaining.has(key)) {
-				if (!parameter.is_volatile) {
-					parameter.setjmp_inferred_volatile = true;
+				if (!parameter.isVolatile) {
+					parameter.setjmpInferredVolatile = true;
 				}
-				parameter.is_volatile = true;
-				parameter.effective_is_volatile = true;
+				parameter.isVolatile = true;
+				parameter.effectiveIsVolatile = true;
 			}
 			index = index + 1;
 		}
@@ -491,9 +491,9 @@ class SetjmpSafetyPlanner {
 		self.scanResidual(node.obj, visible, params, modified, filterModified, effects);
 		self.scanResidual(node.index, visible, params, modified, filterModified, effects);
 		self.scanResidual(node.condition, visible, params, modified, filterModified, effects);
-		self.scanResidual(node.true_expr, visible, params, modified, filterModified, effects);
-		self.scanResidual(node.false_expr, visible, params, modified, filterModified, effects);
-		self.scanResidual(node.array_size, visible, params, modified, filterModified, effects);
+		self.scanResidual(node.trueExpr, visible, params, modified, filterModified, effects);
+		self.scanResidual(node.falseExpr, visible, params, modified, filterModified, effects);
+		self.scanResidual(node.arraySize, visible, params, modified, filterModified, effects);
 		self.scanResidual(node.init, visible, params, modified, filterModified, effects);
 		self.scanResidual(node.value, visible, params, modified, filterModified, effects);
 		self.scanResidual(node.target, visible, params, modified, filterModified, effects);
@@ -507,9 +507,9 @@ class SetjmpSafetyPlanner {
 	}
 
 	private void prepareDeclaration(IRNode declaration, Vector<IRNode> visible, Vector<IRParam> params, Map<string, bool> modified, bool filterModified, SetjmpCallEffects effects) {
-		self.prepareHoists(declaration.array_size, visible, params, modified, filterModified, effects);
+		self.prepareHoists(declaration.arraySize, visible, params, modified, filterModified, effects);
 		self.prepareHoists(declaration.init, visible, params, modified, filterModified, effects);
-		self.scanResidual(declaration.array_size, visible, params, modified, filterModified, effects);
+		self.scanResidual(declaration.arraySize, visible, params, modified, filterModified, effects);
 		self.addVisible(visible, declaration);
 		self.scanResidual(declaration.init, visible, params, modified, filterModified, effects);
 	}
@@ -535,9 +535,9 @@ class SetjmpSafetyPlanner {
 		self.prepareHoists(node.obj, visible, params, modified, filterModified, effects);
 		self.prepareHoists(node.index, visible, params, modified, filterModified, effects);
 		self.prepareHoists(node.condition, visible, params, modified, filterModified, effects);
-		self.prepareHoists(node.true_expr, visible, params, modified, filterModified, effects);
-		self.prepareHoists(node.false_expr, visible, params, modified, filterModified, effects);
-		self.prepareHoists(node.array_size, visible, params, modified, filterModified, effects);
+		self.prepareHoists(node.trueExpr, visible, params, modified, filterModified, effects);
+		self.prepareHoists(node.falseExpr, visible, params, modified, filterModified, effects);
+		self.prepareHoists(node.arraySize, visible, params, modified, filterModified, effects);
 		self.prepareHoists(node.init, visible, params, modified, filterModified, effects);
 		self.prepareHoists(node.value, visible, params, modified, filterModified, effects);
 		self.prepareHoists(node.target, visible, params, modified, filterModified, effects);
@@ -587,8 +587,8 @@ class SetjmpSafetyPlanner {
 	private void scanIf(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params, SetjmpCallEffects effects) {
 		Map<string, bool> all = {};
 		if (self.containsSetjmp(statement.condition)) {
-			Map<string, bool> modified = self.mutatedNames(statement.then_block, effects);
-			Map<string, bool> catchModified = self.mutatedNames(statement.else_block, effects);
+			Map<string, bool> modified = self.mutatedNames(statement.thenBlock, effects);
+			Map<string, bool> catchModified = self.mutatedNames(statement.elseBlock, effects);
 			Vector<string> catchNames = catchModified.keys();
 			int index = 0;
 			while (index < catchNames.len) {
@@ -599,8 +599,8 @@ class SetjmpSafetyPlanner {
 		} else {
 			self.processExpression(statement.condition, visible, params, all, false, effects);
 		}
-		self.scanBlock(statement.then_block, visible, params, effects);
-		self.scanBlock(statement.else_block, visible, params, effects);
+		self.scanBlock(statement.thenBlock, visible, params, effects);
+		self.scanBlock(statement.elseBlock, visible, params, effects);
 	}
 
 	private void scanSwitch(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params, SetjmpCallEffects effects) {
@@ -613,10 +613,10 @@ class SetjmpSafetyPlanner {
 			IRNode caseBlock = IRNode();
 			caseBlock.kind = IRK_BLOCK;
 			caseBlock.stmts = caseNode.stmts;
-			if (self.containsSetjmp(caseBlock) && caseNode.falls_through) {
+			if (self.containsSetjmp(caseBlock) && caseNode.fallsThrough) {
 				Map<string, bool> continuation = {};
 				int next = index;
-				while (next + 1 < statement.args.len && statement.args.get(next).falls_through) {
+				while (next + 1 < statement.args.len && statement.args.get(next).fallsThrough) {
 					next = next + 1;
 					IRNode nextCase = statement.args.get(next);
 					IRNode nextBlock = IRNode();
@@ -691,7 +691,7 @@ class SetjmpSafetyPlanner {
 	private void scanFor(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params, SetjmpCallEffects effects) {
 		Map<string, bool> all = {};
 		if (statement.init != null && statement.init.kind == IRK_VAR_DECL) {
-			self.prepareHoists(statement.init.array_size, visible, params, all, false, effects);
+			self.prepareHoists(statement.init.arraySize, visible, params, all, false, effects);
 			self.prepareHoists(statement.init.init, visible, params, all, false, effects);
 		} else {
 			self.prepareForInit(statement.init, visible, params, effects);
@@ -701,7 +701,7 @@ class SetjmpSafetyPlanner {
 
 		Vector<IRNode> loopVisible = self.copyVisible(visible);
 		if (statement.init != null && statement.init.kind == IRK_VAR_DECL) {
-			self.scanResidual(statement.init.array_size, visible, params, all, false, effects);
+			self.scanResidual(statement.init.arraySize, visible, params, all, false, effects);
 			self.addVisible(loopVisible, statement.init);
 			self.scanResidual(statement.init.init, loopVisible, params, all, false, effects);
 		} else {

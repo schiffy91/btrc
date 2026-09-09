@@ -65,7 +65,7 @@ class NameValidator {
 		int index = 0;
 		while (index < declaration.members.len) {
 			Node member = declaration.members.get(index);
-			if (member.kind == memberKind && (member.access == "class") == classAccess && !member.is_constructor && member.name == memberName) {
+			if (member.kind == memberKind && (member.access == "class") == classAccess && !member.isConstructor && member.name == memberName) {
 				return member;
 			}
 			index = index + 1;
@@ -129,7 +129,7 @@ class NameValidator {
 			TypeValidator.fail(subject + " name '" + name + "' is reserved by C11", site);
 		}
 		string prefix = self.compilerReservedPrefix(name);
-		bool trustedPrototype = site.kind == NK_FUNCTION_DECL && site.body_node == null && self.trustedNativeBinding(name, site);
+		bool trustedPrototype = site.kind == NK_FUNCTION_DECL && site.bodyNode == null && self.trustedNativeBinding(name, site);
 		if (prefix != "" && !trustedPrototype) {
 			TypeValidator.fail(subject + " name '" + name + "' uses the compiler-reserved '" + prefix + "' prefix", site);
 		}
@@ -171,7 +171,7 @@ class NameValidator {
 
 	public void validateCallableNames(Node callable, string owner) {
 		self.validateDeclaredName(callable.name, "Callable", callable);
-		self.validateGenericNames(callable.generic_params, owner, callable);
+		self.validateGenericNames(callable.genericParams, owner, callable);
 		self.parameterNames(callable.params, owner);
 	}
 
@@ -212,7 +212,7 @@ class NameValidator {
 			if (declaration.kind == NK_FUNCTION_DECL) {
 				self.validateCallableNames(declaration, "function '" + declaration.name + "'");
 			} else if (declaration.kind == NK_CLASS_DECL) {
-				self.validateGenericNames(declaration.generic_params, "class '" + declaration.name + "'", declaration);
+				self.validateGenericNames(declaration.genericParams, "class '" + declaration.name + "'", declaration);
 				int memberIndex = 0;
 				while (memberIndex < declaration.members.len) {
 					Node member = declaration.members.get(memberIndex);
@@ -223,14 +223,14 @@ class NameValidator {
 					memberIndex = memberIndex + 1;
 				}
 			} else if (declaration.kind == NK_INTERFACE_DECL) {
-				self.validateGenericNames(declaration.generic_params, "interface '" + declaration.name + "'", declaration);
+				self.validateGenericNames(declaration.genericParams, "interface '" + declaration.name + "'", declaration);
 				int methodIndex = 0;
 				while (methodIndex < declaration.methods.len) {
 					Node method = declaration.methods.get(methodIndex);
 					self.validateCallableNames(method, "interface method '" + declaration.name + "." + method.name + "'");
 					methodIndex = methodIndex + 1;
 				}
-			} else if (declaration.kind == NK_STRUCT_DECL && !declaration.is_forward) {
+			} else if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward) {
 				self.validateUniqueNodeNames(declaration.fields, "Struct field", "struct '" + declaration.name + "'", false);
 			} else if (declaration.kind == NK_ENUM_DECL) {
 				self.validateUniqueNodeNames(declaration.values, "Enum value", "enum '" + declaration.name + "'", declaration.name != "");
@@ -276,9 +276,9 @@ class NameValidator {
 
 	public void validateLambdaNames(Node expression) {
 		Map<string, bool> params = self.parameterNames(expression.params, "lambda");
-		Node body = expression.body_node;
+		Node body = expression.bodyNode;
 		if (body != null && body.kind == NK_LAMBDA_BLOCK) {
-			self.validateDirectLocalNames(body.body_node, params);
+			self.validateDirectLocalNames(body.bodyNode, params);
 		}
 	}
 
@@ -286,7 +286,7 @@ class NameValidator {
 
 	public bool trustedNativeBinding(string name, Node site) { return self.publicNativeBinding(name) || self.hostedAbi.compilerStdlibNode(site); }
 
-	public bool hostedGeneratedNameSite(Node site) { return (site.kind == NK_FUNCTION_DECL && site.body_node != null) || site.kind == NK_METHOD_DECL || site.kind == NK_METHOD_SIG || site.kind == NK_PROPERTY_DECL || site.kind == NK_RICH_ENUM_VARIANT; }
+	public bool hostedGeneratedNameSite(Node site) { return (site.kind == NK_FUNCTION_DECL && site.bodyNode != null) || site.kind == NK_METHOD_DECL || site.kind == NK_METHOD_SIG || site.kind == NK_PROPERTY_DECL || site.kind == NK_RICH_ENUM_VARIANT; }
 
 	public void validateHostedDeclaredName(string name, string subject, Node site, bool cNameGenerated) {
 		if (name != "" && self.hostedAbi.ownedName(name) && self.hostedAbi.macroName(name) && !cNameGenerated && !self.hostedGeneratedNameSite(site) && !self.hostedTrustedEnviron(site)) {
@@ -299,10 +299,10 @@ class NameValidator {
 			return false;
 		}
 		Node typeNode = declaration.type;
-		return typeNode.base == "char" && typeNode.pointer_depth == 2 && typeNode.is_extern && !typeNode.is_array && typeNode.generic_args.len == 0;
+		return typeNode.base == "char" && typeNode.pointerDepth == 2 && typeNode.isExtern && !typeNode.isArray && typeNode.genericArgs.len == 0;
 	}
 
-	public bool hostedTrustedWinsize(Node declaration) { return self.hostedAbi.compilerStdlibNode(declaration) && declaration.kind == NK_STRUCT_DECL && declaration.name == "winsize" && declaration.is_forward; }
+	public bool hostedTrustedWinsize(Node declaration) { return self.hostedAbi.compilerStdlibNode(declaration) && declaration.kind == NK_STRUCT_DECL && declaration.name == "winsize" && declaration.isForward; }
 
 	public void validateHostedTopLevelName(Node declaration) {
 		if (!self.namedTopLevel(declaration)) { return; }
@@ -320,10 +320,10 @@ class NameValidator {
 		if (left.kind == NK_INT_LITERAL) { return left.raw == right.raw; }
 		if (left.kind == NK_FLOAT_LITERAL) { return left.raw == right.raw; }
 		if (left.kind == NK_BOOL_LITERAL) {
-			return left.value_bool == right.value_bool;
+			return left.valueBool == right.valueBool;
 		}
 		if (left.kind == NK_STRING_LITERAL || left.kind == NK_CHAR_LITERAL) {
-			return left.value_string == right.value_string;
+			return left.valueString == right.valueString;
 		}
 		if (left.kind == NK_IDENTIFIER) { return left.name == right.name; }
 		if (left.kind == NK_UNARY_EXPR) {
@@ -350,7 +350,7 @@ class NameValidator {
 		}
 	}
 
-	public bool externOnlyGlobal(Node declaration) { return declaration.kind == NK_VAR_DECL_STMT && declaration.type != null && declaration.type.is_extern && declaration.initializer == null; }
+	public bool externOnlyGlobal(Node declaration) { return declaration.kind == NK_VAR_DECL_STMT && declaration.type != null && declaration.type.isExtern && declaration.initializer == null; }
 
 	public bool globalTypesSame(Node left, Node right) {
 		if (left.type == null || right.type == null) {
@@ -358,13 +358,13 @@ class NameValidator {
 		}
 		Node leftType = TypeShape.copy(left.type);
 		Node rightType = TypeShape.copy(right.type);
-		leftType.is_extern = false;
-		rightType.is_extern = false;
+		leftType.isExtern = false;
+		rightType.isExtern = false;
 		return self.types.aliasTypesSame(leftType, rightType);
 	}
 
 	public bool callableSignatureSame(Node left, Node right) {
-		if (left.return_type == null || right.return_type == null || !self.types.aliasTypesSame(left.return_type, right.return_type) || left.params.len != right.params.len || left.keep_return != right.keep_return || left.is_gpu != right.is_gpu || left.is_realtime != right.is_realtime) {
+		if (left.returnType == null || right.returnType == null || !self.types.aliasTypesSame(left.returnType, right.returnType) || left.params.len != right.params.len || left.keepReturn != right.keepReturn || left.isGpu != right.isGpu || left.isRealtime != right.isRealtime) {
 			return false;
 		}
 		int index = 0;
@@ -394,7 +394,7 @@ class NameValidator {
 			Node declaration = program.declarations.get(index);
 			if (self.namedTopLevel(declaration)) {
 				string name = self.topLevelName(declaration);
-				if (declaration.kind == NK_STRUCT_DECL && !declaration.is_forward && declaration.fields.len == 0) {
+				if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward && declaration.fields.len == 0) {
 					TypeValidator.fail("Struct definition '" + name + "' must contain at least one field", declaration);
 				}
 				if (declarations.has(name)) {
@@ -419,32 +419,32 @@ class NameValidator {
 					}
 					bool structPair = declaration.kind == NK_STRUCT_DECL && previous.kind == NK_STRUCT_DECL;
 					if (structPair) {
-						if (!declaration.is_forward && !previous.is_forward) {
+						if (!declaration.isForward && !previous.isForward) {
 							TypeValidator.fail("Duplicate struct definition '" + name + "'", declaration);
 						}
 						/* Any number of compatible tag forwards may surround the
                          * single complete definition.  Retain the definition so a
                          * later forward cannot erase its field information. */
-						if (!declaration.is_forward) {
+						if (!declaration.isForward) {
 							declarations.put(name, declaration);
 						}
 						index = index + 1;
 						continue;
 					}
-					bool forwardPair = declaration.kind == NK_FUNCTION_DECL && previous.kind == NK_FUNCTION_DECL && ((declaration.body_node == null) != (previous.body_node == null));
+					bool forwardPair = declaration.kind == NK_FUNCTION_DECL && previous.kind == NK_FUNCTION_DECL && ((declaration.bodyNode == null) != (previous.bodyNode == null));
 					if (!forwardPair || !self.callableSignatureSame(declaration, previous)) {
 						TypeValidator.fail("Duplicate top-level declaration '" + name + "'", declaration);
 					}
 					Node definition = previous;
 					Node prototype = declaration;
-					if (declaration.body_node != null) {
+					if (declaration.bodyNode != null) {
 						definition = declaration;
 						prototype = previous;
 					}
 					self.mergeCallableDefaults(definition, prototype);
 					self.state.analyzed.funcTable.put(name, definition);
-					self.state.analyzed.funcRetTypes.put(name, definition.return_type);
-					if (previous.body_node == null) {
+					self.state.analyzed.funcRetTypes.put(name, definition.returnType);
+					if (previous.bodyNode == null) {
 						declarations.put(name, declaration);
 					}
 				} else {
@@ -483,7 +483,7 @@ class NameValidator {
 		int index = 0;
 		while (index < declaration.members.len) {
 			Node member = declaration.members.get(index);
-			if (member.kind == NK_METHOD_DECL && !member.is_constructor) {
+			if (member.kind == NK_METHOD_DECL && !member.isConstructor) {
 				Node? inherited = self.storage.inheritedClassMember(parent, member.name, self.state.analyzed);
 				if (inherited != null && inherited.kind == NK_METHOD_DECL) {
 					Node inheritedMethod = inherited;
@@ -523,7 +523,7 @@ class NameValidator {
 		int memberIndex = 0;
 		while (memberIndex < declaration.members.len) {
 			Node member = declaration.members.get(memberIndex);
-			if (member.kind == NK_METHOD_DECL && !member.is_constructor && member.name != "__del__" && member.generic_params.len == 0) {
+			if (member.kind == NK_METHOD_DECL && !member.isConstructor && member.name != "__del__" && member.genericParams.len == 0) {
 				MethodEntry entry = MethodEntry(member.name, member);
 				if (indices.has(member.name)) {
 					output.set(indices.get(member.name), entry);
@@ -550,7 +550,7 @@ class NameValidator {
 		self.claimGeneratedSymbol(symbols, name + "_new", "class '" + name + "' allocator", declaration);
 		self.claimGeneratedSymbol(symbols, name + "_destroy", "class '" + name + "' destructor", declaration);
 		Node? destructor = self.state.analyzed.classMethod(name, "__del__");
-		if (destructor != null && destructor.body_node != null) {
+		if (destructor != null && destructor.bodyNode != null) {
 			self.claimGeneratedSymbol(symbols, GenericSpecializer.destructorHookName(name), "destructor hook for class '" + name + "'", destructor);
 		}
 		if (self.cycles.classNeedsVisitor(name)) {
@@ -567,10 +567,10 @@ class NameValidator {
 		int propertyIndex = 0;
 		while (propertyIndex < properties.len) {
 			Node property = properties.get(propertyIndex);
-			if (property.has_getter) {
+			if (property.hasGetter) {
 				self.claimGeneratedSymbol(symbols, name + "_get_" + property.name, "getter '" + name + "." + property.name + "'", property);
 			}
-			if (property.has_setter) {
+			if (property.hasSetter) {
 				self.claimGeneratedSymbol(symbols, name + "_set_" + property.name, "setter '" + name + "." + property.name + "'", property);
 			}
 			propertyIndex = propertyIndex + 1;
@@ -629,7 +629,7 @@ class NameValidator {
 				self.claimGeneratedSymbol(symbols, instance.mangled + "_new", owner + " allocator", declaration);
 				self.claimGeneratedSymbol(symbols, instance.mangled + "_destroy", owner + " destructor", declaration);
 				Node? destructor = self.state.analyzed.genericClassMethod(instance.base, "__del__");
-				if (destructor != null && destructor.body_node != null) {
+				if (destructor != null && destructor.bodyNode != null) {
 					self.claimGeneratedSymbol(symbols, GenericSpecializer.destructorHookName(instance.mangled), "destructor hook for " + owner, destructor);
 				}
 				if (self.cycles.genericInstanceNeedsVisitor(instance)) {
@@ -638,13 +638,13 @@ class NameValidator {
 				int memberIndex = 0;
 				while (memberIndex < declaration.members.len) {
 					Node member = declaration.members.get(memberIndex);
-					if (member.kind == NK_METHOD_DECL && !member.is_constructor && member.name != "__del__" && member.generic_params.len == 0) {
+					if (member.kind == NK_METHOD_DECL && !member.isConstructor && member.name != "__del__" && member.genericParams.len == 0) {
 						self.claimGeneratedSymbol(symbols, instance.mangled + "_" + member.name, owner + " method '" + member.name + "'", member);
 					} else if (member.kind == NK_PROPERTY_DECL) {
-						if (member.has_getter) {
+						if (member.hasGetter) {
 							self.claimGeneratedSymbol(symbols, instance.mangled + "_get_" + member.name, owner + " getter '" + member.name + "'", member);
 						}
-						if (member.has_setter) {
+						if (member.hasSetter) {
 							self.claimGeneratedSymbol(symbols, instance.mangled + "_set_" + member.name, owner + " setter '" + member.name + "'", member);
 						}
 					}
@@ -712,9 +712,9 @@ class NameValidator {
 		index = 0;
 		while (index < program.declarations.len) {
 			Node declaration = program.declarations.get(index);
-			if (declaration.kind == NK_FUNCTION_DECL && declaration.is_gpu) {
+			if (declaration.kind == NK_FUNCTION_DECL && declaration.isGpu) {
 				self.claimGpuSymbols(symbols, declaration);
-			} else if (declaration.kind == NK_CLASS_DECL && declaration.generic_params.len == 0) {
+			} else if (declaration.kind == NK_CLASS_DECL && declaration.genericParams.len == 0) {
 				self.claimClassSymbols(declaration,  symbols);
 			} else if (declaration.kind == NK_ENUM_DECL) {
 				self.claimEnumSymbols(declaration,  symbols);
@@ -748,10 +748,10 @@ class NameValidator {
 	}
 
 	private bool genericMethodStemMatches(string symbol, string classBase, int classArity, Node method) {
-		if (method.kind != NK_METHOD_DECL || method.is_constructor || method.generic_params.len == 0) {
+		if (method.kind != NK_METHOD_DECL || method.isConstructor || method.genericParams.len == 0) {
 			return false;
 		}
-		return TypeIdentity.possibleMethodInstanceSymbol(symbol, classBase, classArity, method.name, method.generic_params.len);
+		return TypeIdentity.possibleMethodInstanceSymbol(symbol, classBase, classArity, method.name, method.genericParams.len);
 	}
 
 	private bool ordinaryGenericMethodStemMatches(string symbol, string classBase) {
@@ -774,15 +774,15 @@ class NameValidator {
 
 	private bool genericTemplateSymbolMatches(string symbol, Node declaration) {
 		string base = declaration.name;
-		int arity = declaration.generic_params.len;
+		int arity = declaration.genericParams.len;
 		if (TypeIdentity.possibleGenericInstanceSymbol(symbol, base, arity, "_init") || TypeIdentity.possibleGenericInstanceSymbol(symbol, base, arity, "_new") || TypeIdentity.possibleGenericInstanceSymbol(symbol, base, arity, "_destroy")) {
 			return true;
 		}
 		int memberIndex = 0;
 		while (memberIndex < declaration.members.len) {
 			Node member = declaration.members.get(memberIndex);
-			if (member.kind == NK_METHOD_DECL && !member.is_constructor && member.name != "__del__") {
-				if (member.generic_params.len > 0) {
+			if (member.kind == NK_METHOD_DECL && !member.isConstructor && member.name != "__del__") {
+				if (member.genericParams.len > 0) {
 					if (self.genericMethodStemMatches(symbol, base, arity, member)) {
 						return true;
 					}
@@ -790,10 +790,10 @@ class NameValidator {
 					return true;
 				}
 			} else if (member.kind == NK_PROPERTY_DECL) {
-				if (member.has_getter && TypeIdentity.possibleGenericInstanceSymbol(symbol, base, arity, "_get_" + member.name)) {
+				if (member.hasGetter && TypeIdentity.possibleGenericInstanceSymbol(symbol, base, arity, "_get_" + member.name)) {
 					return true;
 				}
-				if (member.has_setter && TypeIdentity.possibleGenericInstanceSymbol(symbol, base, arity, "_set_" + member.name)) {
+				if (member.hasSetter && TypeIdentity.possibleGenericInstanceSymbol(symbol, base, arity, "_set_" + member.name)) {
 					return true;
 				}
 			}
@@ -810,7 +810,7 @@ class NameValidator {
 		string hookSuffix = "_destructor_hook";
 		if (symbol.startsWith(hookPrefix)) {
 			Node? destructor = self.state.analyzed.genericClassMethod(base, "__del__");
-			if (destructor != null && destructor.body_node != null) {
+			if (destructor != null && destructor.bodyNode != null) {
 				string unprefixed = symbol.substring(hookPrefix.length(), symbol.length() - hookPrefix.length());
 				if (TypeIdentity.possibleGenericInstanceSymbol(unprefixed, base, arity, hookSuffix)) {
 					return true;

@@ -11,7 +11,7 @@ class IRStatementSequence {
 
 	private bool expressionMayComplete(IRNode? expression) {
 		if (expression == null) { return true; }
-		if (expression.kind == IRK_CALL && expression.never_returns) {
+		if (expression.kind == IRK_CALL && expression.neverReturns) {
 			return false;
 		}
 		if (expression.kind == IRK_STMT_EXPR) {
@@ -30,7 +30,7 @@ class IRStatementSequence {
 		return true;
 	}
 
-	private bool switchMayFallThrough(IRNode statement) { return statement.can_fall_through; }
+	private bool switchMayFallThrough(IRNode statement) { return statement.canFallThrough; }
 
 	private bool statementMayFallThrough(IRNode? statement) {
 		if (statement == null) { return true; }
@@ -46,8 +46,8 @@ class IRStatementSequence {
 		if (statement.kind == IRK_BLOCK || statement.kind == IRK_CASE) {
 			return IRStatementSequence(statement.stmts).mayFallThrough();
 		}
-		if (statement.kind == IRK_IF && statement.else_block != null) {
-			return self.statementMayFallThrough(statement.then_block) || self.statementMayFallThrough(statement.else_block);
+		if (statement.kind == IRK_IF && statement.elseBlock != null) {
+			return self.statementMayFallThrough(statement.thenBlock) || self.statementMayFallThrough(statement.elseBlock);
 		}
 		if (statement.kind == IRK_SWITCH) {
 			return self.switchMayFallThrough(statement);
@@ -71,7 +71,7 @@ class IRStatementSequence {
 		if (node.kind == IRK_VAR && node.name == name) {
 			return true;
 		}
-		if (self.nodeReferencesVariable(node.left, name) || self.nodeReferencesVariable(node.right, name) || self.nodeReferencesVariable(node.operand, name) || self.nodeReferencesVariable(node.expr, name) || self.nodeReferencesVariable(node.obj, name) || self.nodeReferencesVariable(node.index, name) || self.nodeReferencesVariable(node.condition, name) || self.nodeReferencesVariable(node.true_expr, name) || self.nodeReferencesVariable(node.false_expr, name) || self.nodeReferencesVariable(node.init, name) || self.nodeReferencesVariable(node.value, name) || self.nodeReferencesVariable(node.target, name) || self.nodeReferencesVariable(node.then_block, name) || self.nodeReferencesVariable(node.else_block, name) || self.nodeReferencesVariable(node.body, name) || self.nodeReferencesVariable(node.update, name) || self.nodeReferencesVariable(node.result, name) || self.nodeReferencesVariable(node.array_size, name)) {
+		if (self.nodeReferencesVariable(node.left, name) || self.nodeReferencesVariable(node.right, name) || self.nodeReferencesVariable(node.operand, name) || self.nodeReferencesVariable(node.expr, name) || self.nodeReferencesVariable(node.obj, name) || self.nodeReferencesVariable(node.index, name) || self.nodeReferencesVariable(node.condition, name) || self.nodeReferencesVariable(node.trueExpr, name) || self.nodeReferencesVariable(node.falseExpr, name) || self.nodeReferencesVariable(node.init, name) || self.nodeReferencesVariable(node.value, name) || self.nodeReferencesVariable(node.target, name) || self.nodeReferencesVariable(node.thenBlock, name) || self.nodeReferencesVariable(node.elseBlock, name) || self.nodeReferencesVariable(node.body, name) || self.nodeReferencesVariable(node.update, name) || self.nodeReferencesVariable(node.result, name) || self.nodeReferencesVariable(node.arraySize, name)) {
 			return true;
 		}
 		int argument = 0;
@@ -168,7 +168,7 @@ class ControlFlowLowerer {
 
 	public IRNode materializeSwitch(SwitchPlan plan) {
 		IRNode statement = IRNode.switchStatement(plan.value, plan.cases);
-		statement.can_fall_through = plan.canFallThrough;
+		statement.canFallThrough = plan.canFallThrough;
 		return statement;
 	}
 }

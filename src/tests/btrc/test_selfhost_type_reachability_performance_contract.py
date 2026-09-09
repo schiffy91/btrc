@@ -20,8 +20,8 @@ def test_type_reachability_scans_each_type_field_once() -> None:
     assert "while (index < length)" in scanner
     assert "names.has(identifier)" in scanner
     assert "names.keys()" not in scanner
-    assert "scanTextForKnownNames(node.c_type" in collector
-    assert "scanTextForKnownNames(node.target_type" in collector
+    assert "scanTextForKnownNames(node.cType" in collector
+    assert "scanTextForKnownNames(node.targetType" in collector
     assert "scanTextForNames" not in collector
     assert "node.text" not in collector
     assert "node.callee" not in collector

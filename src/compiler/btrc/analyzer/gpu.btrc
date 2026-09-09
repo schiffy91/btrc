@@ -38,7 +38,7 @@ class GpuSemantics {
 
 	public bool outputCollectionType(Node? typeExpr) {
 		Node? canonical = SemanticTypeSystem.resolveOuterTypedefType(typeExpr, self.analyzed.typedefTable);
-		if (canonical == null || (canonical.base != "Array" && canonical.base != "Vector") || canonical.generic_args.len != 1 || !self.analyzed.isGenericClass(canonical.base)) {
+		if (canonical == null || (canonical.base != "Array" && canonical.base != "Vector") || canonical.genericArgs.len != 1 || !self.analyzed.isGenericClass(canonical.base)) {
 			return false;
 		}
 		Node? data = SemanticTypeSystem.genericMember(self.analyzed, canonical.base, "data");
@@ -49,8 +49,8 @@ class GpuSemantics {
 		Map<string, Node> substitutions = SemanticTypeSystem.genericTypeMap(self.analyzed, canonical);
 		Node dataType = SemanticTypeSystem.resolveGenericType(data.type, substitutions, self.analyzed);
 		Node lengthType = SemanticTypeSystem.resolveGenericType(length.type, substitutions, self.analyzed);
-		Node expectedData = TypeShape.withOuterPointer(canonical.generic_args.get(0));
-		return TypeIdentity.shapeKey(dataType) == TypeIdentity.shapeKey(expectedData) && lengthType.base == "int" && lengthType.pointer_depth == 0 && !lengthType.is_array;
+		Node expectedData = TypeShape.withOuterPointer(canonical.genericArgs.get(0));
+		return TypeIdentity.shapeKey(dataType) == TypeIdentity.shapeKey(expectedData) && lengthType.base == "int" && lengthType.pointerDepth == 0 && !lengthType.isArray;
 	}
 
 	private bool callResolvesToBuiltin(Node? expression, Map<string, Node> varTypes) {
@@ -60,7 +60,7 @@ class GpuSemantics {
 		if (!self.analyzed.funcTable.has(name)) { return true; }
 		if (self.analyzed.hostedCallKeys.has(AstIdentity.key(expression))) { return true; }
 		Node declaration = self.analyzed.funcTable.get(name);
-		return declaration.body_node == null && self.hostedAbi.exactFunction(name);
+		return declaration.bodyNode == null && self.hostedAbi.exactFunction(name);
 	}
 
 	public bool callResolvesToIntrinsic(Node? expression, Map<string, Node> varTypes) {
@@ -102,15 +102,15 @@ class GpuSemantics {
 			return self.contextualExprBase(expression.operand, varTypes);
 		}
 		if (expression.kind == NK_TERNARY_EXPR) {
-			string whenTrue = self.contextualExprBase(expression.true_expr, varTypes);
-			string whenFalse = self.contextualExprBase(expression.false_expr, varTypes);
+			string whenTrue = self.contextualExprBase(expression.trueExpr, varTypes);
+			string whenFalse = self.contextualExprBase(expression.falseExpr, varTypes);
 			if (whenTrue == whenFalse) { return whenTrue; }
 			if ((whenTrue == "int" && whenFalse == "float") || (whenTrue == "float" && whenFalse == "int")) {
 				return "float";
 			}
 		}
-		if (expression.kind == NK_CAST_EXPR && expression.target_type != null) {
-			return expression.target_type.base;
+		if (expression.kind == NK_CAST_EXPR && expression.targetType != null) {
+			return expression.targetType.base;
 		}
 		if (expression.kind == NK_CALL_EXPR && expression.callee != null && expression.callee.kind == NK_IDENTIFIER) {
 			string name = expression.callee.name;

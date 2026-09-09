@@ -204,7 +204,7 @@ def test_callable_persistent_storage_consumes_flow_owned_risk_facts() -> None:
     assert "public bool assignmentStorageUnsafe(" in flow
     assert "self.refreshedBoundaryContext(" not in flow
     assert flow.index("assignment.target, values, context") < flow.index(
-        "targetType, assignment.value_node, values, context"
+        "targetType, assignment.valueNode, values, context"
     )
     assert "CallableEvaluationPlan" not in flow
 

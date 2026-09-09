@@ -64,8 +64,8 @@ class CallValidator {
 
 	private void validateBuiltinSignature(string label, Vector<Node> expectedTypes, Node call, Map<string, Node> vars) {
 		int namedIndex = 0;
-		while (namedIndex < call.arg_names.len) {
-			if (call.arg_names.get(namedIndex) != "") {
+		while (namedIndex < call.argNames.len) {
+			if (call.argNames.get(namedIndex) != "") {
 				TypeValidator.fail("'" + label + "()' does not accept named arguments", call);
 			}
 			namedIndex = namedIndex + 1;
@@ -107,7 +107,7 @@ class CallValidator {
 
 	private void validateAtomicMethod(Node call, Node receiver, Map<string, Node> vars) {
 		string method = call.callee.field;
-		Node payload = receiver.generic_args.get(0);
+		Node payload = receiver.genericArgs.get(0);
 		Node order = SemanticTypeSystem.primitive("MemoryOrder");
 		Vector<Node> expected = [];
 		if (method == "init") {
@@ -152,13 +152,13 @@ class CallValidator {
 
 	private void validateSpanMethod(Node call, Node receiver, Map<string, Node> vars) {
 		string method = call.callee.field;
-		Node element = receiver.generic_args.get(0);
+		Node element = receiver.genericArgs.get(0);
 		Vector<Node> expected = [];
 		if (method == "tryGet") {
 			expected.push(SemanticTypeSystem.primitive("size_t"));
 			Node outputElement = TypeShape.copy(element);
-			outputElement.is_const = false;
-			outputElement.is_volatile = false;
+			outputElement.isConst = false;
+			outputElement.isVolatile = false;
 			expected.push(TypeShape.withOuterPointer(outputElement));
 		} else if (method == "trySet") {
 			expected.push(SemanticTypeSystem.primitive("size_t"));
@@ -167,7 +167,7 @@ class CallValidator {
 			TypeValidator.fail("Span<T> has no method '" + method + "'", call);
 		}
 		self.validateBuiltinSignature("Span." + method, expected, call, vars);
-		if (method == "trySet" && element.is_const) {
+		if (method == "trySet" && element.isConst) {
 			TypeValidator.fail("Span<const T>.trySet is not available", call);
 		}
 	}
@@ -209,8 +209,8 @@ class CallValidator {
 			}
 			if (self.state.analyzed.funcTable.has(name)) {
 				Node functionDecl = self.state.analyzed.funcTable.get(name);
-				self.borrows.validateOpaqueCallArguments(functionDecl, functionDecl.params, call, name, noSubstitutions, functionDecl.body_node == null, vars);
-				self.validateSignature(name, functionDecl.params, call, noSubstitutions, functionDecl.is_gpu, vars);
+				self.borrows.validateOpaqueCallArguments(functionDecl, functionDecl.params, call, name, noSubstitutions, functionDecl.bodyNode == null, vars);
+				self.validateSignature(name, functionDecl.params, call, noSubstitutions, functionDecl.isGpu, vars);
 				self.ownership.validateTransferredArguments(functionDecl, call, vars);
 				return;
 			}
@@ -219,8 +219,8 @@ class CallValidator {
 					TypeValidator.fail("'Mutex()' expects 1 argument but got " + Strings.fromInt(call.args.len), call);
 				}
 				int mutexArgIndex = 0;
-				while (mutexArgIndex < call.arg_names.len) {
-					if (call.arg_names.get(mutexArgIndex) != "") {
+				while (mutexArgIndex < call.argNames.len) {
+					if (call.argNames.get(mutexArgIndex) != "") {
 						TypeValidator.fail("'Mutex()' does not accept named arguments", call);
 					}
 					mutexArgIndex = mutexArgIndex + 1;
@@ -229,8 +229,8 @@ class CallValidator {
 			}
 			if (name == "Atomic" || name == "Span") {
 				int namedIndex = 0;
-				while (namedIndex < call.arg_names.len) {
-					if (call.arg_names.get(namedIndex) != "") {
+				while (namedIndex < call.argNames.len) {
+					if (call.argNames.get(namedIndex) != "") {
 						TypeValidator.fail("'" + name + "()' does not accept named arguments", call);
 					}
 					namedIndex = namedIndex + 1;
@@ -249,14 +249,14 @@ class CallValidator {
 					TypeValidator.fail("'Span()' expects 1 or 2 arguments but got " + Strings.fromInt(call.args.len), call);
 				}
 				Node? backing = self.types.resolveAliases(self.types.inferType(call.args.get(0), vars));
-				if (backing == null || (!backing.is_array && backing.pointer_depth == 0)) {
+				if (backing == null || (!backing.isArray && backing.pointerDepth == 0)) {
 					TypeValidator.fail("Span() backing must be a fixed array or raw pointer", call);
 				}
 				Node concreteBacking = backing;
-				if (call.args.len == 1 && !concreteBacking.is_array) {
+				if (call.args.len == 1 && !concreteBacking.isArray) {
 					TypeValidator.fail("Span(pointer) requires an explicit element count", call);
 				}
-				if (call.args.len == 1 && concreteBacking.is_array && (concreteBacking.array_size == null || !self.state.analyzed.constantArrayBoundKeys.has(AstIdentity.key(concreteBacking.array_size)))) {
+				if (call.args.len == 1 && concreteBacking.isArray && (concreteBacking.arraySize == null || !self.state.analyzed.constantArrayBoundKeys.has(AstIdentity.key(concreteBacking.arraySize)))) {
 					TypeValidator.fail("Span(array) requires a fixed constant extent", call);
 				}
 				if (call.args.len == 2) {
@@ -278,7 +278,7 @@ class CallValidator {
 			}
 			if (self.state.analyzed.isClass(constructorName)) {
 				Node classDeclaration = self.state.analyzed.classTable.get(constructorName);
-				if (classDeclaration.is_abstract) {
+				if (classDeclaration.isAbstract) {
 					TypeValidator.fail("Cannot instantiate abstract class '" + constructorName + "'", call);
 				}
 				Node? constructor = self.state.analyzed.classConstructor(constructorName);
@@ -299,11 +299,11 @@ class CallValidator {
 			}
 			if (self.state.analyzed.isGenericClass(constructorName)) {
 				Node declaration = self.state.analyzed.genericClassTable.get(constructorName);
-				if (declaration.is_abstract) {
+				if (declaration.isAbstract) {
 					TypeValidator.fail("Cannot instantiate abstract class '" + constructorName + "'", call);
 				}
 				Node? instance = aliasConstructorType != null ? aliasConstructorType : self.types.inferType(call, vars);
-				if (instance == null || instance.base != constructorName || instance.generic_args.len != declaration.generic_params.len) {
+				if (instance == null || instance.base != constructorName || instance.genericArgs.len != declaration.genericParams.len) {
 					TypeValidator.fail("Cannot infer generic arguments for constructor '" + constructorName + "()'", call);
 				}
 				Node concreteInstance = instance;
@@ -346,11 +346,11 @@ class CallValidator {
 		if (calleeType != null) {
 			Vector<Node> callableParams = [];
 			int callableIndex = 1;
-			while (callableIndex < calleeType.generic_args.len) {
+			while (callableIndex < calleeType.genericArgs.len) {
 				Node callableParam = Node();
 				callableParam.kind = NK_PARAM;
 				callableParam.name = Strings.fromInt(callableIndex);
-				callableParam.type = calleeType.generic_args.get(callableIndex);
+				callableParam.type = calleeType.genericArgs.get(callableIndex);
 				callableParams.push(callableParam);
 				callableIndex = callableIndex + 1;
 			}
@@ -388,15 +388,15 @@ class CallValidator {
 			self.ownership.validateThreadJoinReceiver(call);
 			return;
 		}
-		if (canonicalReceiver != null && canonicalReceiver.base == "Mutex" && canonicalReceiver.generic_args.len == 1) {
+		if (canonicalReceiver != null && canonicalReceiver.base == "Mutex" && canonicalReceiver.genericArgs.len == 1) {
 			self.ownership.validateMutexCall(call, canonicalReceiver, vars);
 			return;
 		}
-		if (canonicalReceiver != null && canonicalReceiver.base == "Atomic" && canonicalReceiver.generic_args.len == 1) {
+		if (canonicalReceiver != null && canonicalReceiver.base == "Atomic" && canonicalReceiver.genericArgs.len == 1) {
 			self.validateAtomicMethod(call, canonicalReceiver, vars);
 			return;
 		}
-		if (canonicalReceiver != null && canonicalReceiver.base == "Span" && canonicalReceiver.generic_args.len == 1) {
+		if (canonicalReceiver != null && canonicalReceiver.base == "Span" && canonicalReceiver.genericArgs.len == 1) {
 			self.validateSpanMethod(call, canonicalReceiver, vars);
 			return;
 		}
@@ -451,14 +451,14 @@ class CallValidator {
 		int positional = 0;
 		int argumentIndex = 0;
 		while (argumentIndex < call.args.len) {
-			string argumentName = argumentIndex < call.arg_names.len ? call.arg_names.get(argumentIndex) : "";
+			string argumentName = argumentIndex < call.argNames.len ? call.argNames.get(argumentIndex) : "";
 			if (argumentName == parameterName || (argumentName == "" && positional == callbackParameter)) {
 				callback = call.args.get(argumentIndex);
 			}
 			if (argumentName == "") { positional = positional + 1; }
 			argumentIndex = argumentIndex + 1;
 		}
-		if (callback == null || callback.kind != NK_IDENTIFIER || vars.has(callback.name) || !self.state.analyzed.funcTable.has(callback.name) || !self.state.analyzed.funcTable.get(callback.name).is_realtime) {
+		if (callback == null || callback.kind != NK_IDENTIFIER || vars.has(callback.name) || !self.state.analyzed.funcTable.has(callback.name) || !self.state.analyzed.funcTable.get(callback.name).isRealtime) {
 			TypeValidator.fail(className + " " + parameterName + " must be a direct named " + "@realtime function", callback == null ? call : callback);
 		}
 	}
@@ -472,11 +472,11 @@ class CallValidator {
 		Node callable = resolvedCallable;
 		Vector<Node> params = [];
 		int index = 1;
-		while (index < callable.generic_args.len) {
+		while (index < callable.genericArgs.len) {
 			Node parameter = Node();
 			parameter.kind = NK_PARAM;
 			parameter.name = Strings.fromInt(index);
-			parameter.type = callable.generic_args.get(index);
+			parameter.type = callable.genericArgs.get(index);
 			params.push(parameter);
 			index = index + 1;
 		}
@@ -502,8 +502,8 @@ class CallValidator {
 			return false;
 		}
 		int namedIndex = 0;
-		while (namedIndex < call.arg_names.len) {
-			if (call.arg_names.get(namedIndex) != "") {
+		while (namedIndex < call.argNames.len) {
+			if (call.argNames.get(namedIndex) != "") {
 				TypeValidator.fail("WGSL built-ins do not accept named arguments", call);
 			}
 			namedIndex = namedIndex + 1;
@@ -564,7 +564,7 @@ class CallValidator {
 			return false;
 		}
 		Node declaration = self.state.analyzed.funcTable.get(name);
-		return declaration.body_node != null && !self.hostedAbi.compilerStdlibNode(declaration);
+		return declaration.bodyNode != null && !self.hostedAbi.compilerStdlibNode(declaration);
 	}
 
 	public bool hostedCallUsesOwnedSymbol(string name, Map<string, Node> vars) {
@@ -573,12 +573,12 @@ class CallValidator {
 			return !self.state.analyzed.isClass(name);
 		}
 		Node declaration = self.state.analyzed.funcTable.get(name);
-		return declaration.body_node == null || self.hostedCallBypassesSourceDefinition(name);
+		return declaration.bodyNode == null || self.hostedCallBypassesSourceDefinition(name);
 	}
 
 	public bool hostedArgumentTypeDeferred(Node expected, Node actual) {
 		if (self.state.typeParams.has(actual.base)) { return true; }
-		return expected.base == "void" && expected.pointer_depth == 1 && (actual.base == "string" || actual.pointer_depth > 0 || actual.is_array);
+		return expected.base == "void" && expected.pointerDepth == 1 && (actual.base == "string" || actual.pointerDepth > 0 || actual.isArray);
 	}
 
 	public void validateUnknownHostedOpaqueArguments(string name, Node call, Map<string, Node> vars) {
@@ -598,8 +598,8 @@ class CallValidator {
 			return;
 		}
 		int nameIndex = 0;
-		while (nameIndex < call.arg_names.len) {
-			if (call.arg_names.get(nameIndex) != "") {
+		while (nameIndex < call.argNames.len) {
+			if (call.argNames.get(nameIndex) != "") {
 				TypeValidator.fail("Hosted function '" + name + "()' does not accept named arguments", call);
 			}
 			nameIndex = nameIndex + 1;
@@ -696,18 +696,18 @@ class CallValidator {
 	}
 
 	public void addMethodSubstitutions(Node method, Node call, Map<string, Node> substitutions) {
-		if (method.generic_params.len == 0) { return; }
+		if (method.genericParams.len == 0) { return; }
 		string callKey = AstIdentity.key(call);
 		if (!self.state.analyzed.methodGenCallArgs.has(callKey)) {
 			TypeValidator.fail("Cannot infer generic arguments for method '" + method.name + "'", call);
 		}
 		Vector<Node> arguments = self.state.analyzed.methodGenCallArgs.get(callKey);
-		if (arguments.len != method.generic_params.len) {
-			TypeValidator.fail("Generic method '" + method.name + "' requires " + Strings.fromInt(method.generic_params.len) + " type argument(s)", call);
+		if (arguments.len != method.genericParams.len) {
+			TypeValidator.fail("Generic method '" + method.name + "' requires " + Strings.fromInt(method.genericParams.len) + " type argument(s)", call);
 		}
 		int index = 0;
-		while (index < method.generic_params.len) {
-			substitutions.put(method.generic_params.get(index), arguments.get(index));
+		while (index < method.genericParams.len) {
+			substitutions.put(method.genericParams.get(index), arguments.get(index));
 			index = index + 1;
 		}
 	}
@@ -719,8 +719,8 @@ class CallValidator {
 		int argumentIndex = 0;
 		while (argumentIndex < call.args.len) {
 			string argumentName = "";
-			if (argumentIndex < call.arg_names.len) {
-				argumentName = call.arg_names.get(argumentIndex);
+			if (argumentIndex < call.argNames.len) {
+				argumentName = call.argNames.get(argumentIndex);
 			}
 			int parameterIndex = -1;
 			if (argumentName != "") {
@@ -752,7 +752,7 @@ class CallValidator {
 			Node argument = call.args.get(argumentIndex);
 			self.types.validateRealtimeFunctionValue(expected, argument, vars);
 			Node? resolvedGpuExpected = self.types.resolveAliases(expected);
-			bool gpuArrayParameter = gpuDispatch && resolvedGpuExpected != null && resolvedGpuExpected.is_array;
+			bool gpuArrayParameter = gpuDispatch && resolvedGpuExpected != null && resolvedGpuExpected.isArray;
 			if (!gpuArrayParameter && !self.types.contextualAggregateInitializer(argument)) {
 				Node? parameterValueType = self.storage.arrayParameterValueType(expected);
 				if (parameterValueType != null) {
@@ -852,7 +852,7 @@ class CallValidator {
 		int index = 0;
 		while (index < entries.len) {
 			Node entry = entries.get(index);
-			if (self.macroArgumentCallable(entry.key, vars) || self.macroArgumentCallable(entry.value_node, vars)) {
+			if (self.macroArgumentCallable(entry.key, vars) || self.macroArgumentCallable(entry.valueNode, vars)) {
 				return true;
 			}
 			index = index + 1;
@@ -905,10 +905,10 @@ class CallValidator {
 			return argument.operand != null && argument.operand.kind == NK_SIZEOF_EXPR_OP && self.macroArgumentCallable(argument.operand.expr, vars);
 		}
 		if (argument.kind == NK_TERNARY_EXPR) {
-			return self.macroArgumentCallable(argument.condition, vars) || self.macroArgumentCallable(argument.true_expr, vars) || self.macroArgumentCallable(argument.false_expr, vars);
+			return self.macroArgumentCallable(argument.condition, vars) || self.macroArgumentCallable(argument.trueExpr, vars) || self.macroArgumentCallable(argument.falseExpr, vars);
 		}
 		if (argument.kind == NK_ASSIGN_EXPR) {
-			return self.macroArgumentCallable(argument.target, vars) || self.macroArgumentCallable(argument.value_node, vars);
+			return self.macroArgumentCallable(argument.target, vars) || self.macroArgumentCallable(argument.valueNode, vars);
 		}
 		if (argument.kind == NK_LIST_LITERAL || argument.kind == NK_BRACE_INITIALIZER || argument.kind == NK_TUPLE_LITERAL) {
 			return self.macroExpressionListCallable(argument.elements, vars);
@@ -952,8 +952,8 @@ class CallValidator {
 			return true;
 		}
 		int argumentIndex = 0;
-		while (argumentIndex < value.generic_args.len) {
-			if (self.macroTypeBoundaryImpl(value.generic_args.get(argumentIndex), typeParams, visiting)) {
+		while (argumentIndex < value.genericArgs.len) {
+			if (self.macroTypeBoundaryImpl(value.genericArgs.get(argumentIndex), typeParams, visiting)) {
 				return true;
 			}
 			argumentIndex = argumentIndex + 1;
@@ -969,7 +969,7 @@ class CallValidator {
 		nested.put(key, true);
 		if (self.state.analyzed.structTable.has(name)) {
 			Node structure = self.state.analyzed.structTable.get(name);
-			if (!structure.is_forward) {
+			if (!structure.isForward) {
 				int fieldIndex = 0;
 				while (fieldIndex < structure.fields.len) {
 					if (self.macroTypeBoundaryImpl(structure.fields.get(fieldIndex).type, typeParams, nested)) {
@@ -1003,9 +1003,9 @@ class CallValidator {
 	}
 
 	public bool macroCallableSignatureBoundary(Node declaration) {
-		Map<string, bool> params = self.types.typeParamSet(declaration.generic_params);
+		Map<string, bool> params = self.types.typeParamSet(declaration.genericParams);
 		Map<string, bool> visiting = {};
-		if (self.macroTypeBoundaryImpl(declaration.return_type, params, visiting)) {
+		if (self.macroTypeBoundaryImpl(declaration.returnType, params, visiting)) {
 			return true;
 		}
 		int index = 0;
@@ -1027,7 +1027,7 @@ class CallValidator {
 			Node functionDecl = self.state.analyzed.funcTable.get(symbol);
 			bool bareAlias = definition.directReplacementIdentifier() == symbol;
 			bool sensitive = self.macroCallableSignatureBoundary(functionDecl);
-			if (functionDecl.body_node != null && (definition.functionLike() || bareAlias || sensitive)) {
+			if (functionDecl.bodyNode != null && (definition.functionLike() || bareAlias || sensitive)) {
 				TypeValidator.fail("Language callable '" + symbol + "' requires semantic call analysis and cannot be " + "referenced from macro replacement '" + macroName + "'", site);
 			}
 		}
@@ -1078,8 +1078,8 @@ class CallValidator {
 		SourceMacroDefinition definition = active;
 		if (!definition.functionLike()) { return false; }
 		int nameIndex = 0;
-		while (nameIndex < call.arg_names.len) {
-			if (call.arg_names.get(nameIndex) != "") {
+		while (nameIndex < call.argNames.len) {
+			if (call.argNames.get(nameIndex) != "") {
 				TypeValidator.fail("Source macro '" + macroName + "' does not accept named arguments", call);
 			}
 			nameIndex = nameIndex + 1;
@@ -1115,7 +1115,7 @@ class CallValidator {
 	}
 
 	public Node? defaultInstanceMember(string name, bool directCall, Map<string, Node> vars) {
-		if (!self.state.inParameterDefault || self.state.callable == null || !self.state.callable.is_constructor || !vars.has("self")) {
+		if (!self.state.inParameterDefault || self.state.callable == null || !self.state.callable.isConstructor || !vars.has("self")) {
 			return null;
 		}
 		string className = vars.get("self").base;
@@ -1132,7 +1132,7 @@ class CallValidator {
 			int index = 0;
 			while (index < declaration.members.len && member == null) {
 				Node candidate = declaration.members.get(index);
-				bool matchingMethod = candidate.kind == NK_METHOD_DECL && !candidate.is_constructor && candidate.name == name;
+				bool matchingMethod = candidate.kind == NK_METHOD_DECL && !candidate.isConstructor && candidate.name == name;
 				bool matchingValue = candidate.kind != NK_METHOD_DECL && candidate.name == name;
 				if ((directCall && matchingMethod) || (!directCall && (matchingMethod || matchingValue))) {
 					member = candidate;

@@ -226,7 +226,7 @@ def test_selfhost_gpu_property_output_is_a_typed_managed_transaction() -> None:
     ]
     assert "member.kind == NK_PROPERTY_DECL" in admission
     assert 'member.access != "class"' in admission
-    assert "member.has_getter" in admission
+    assert "member.hasGetter" in admission
 
     target_record = pipeline[
         pipeline.index("class GpuCollectionOutputTarget {") : pipeline.index("class GpuStatementPlan {")

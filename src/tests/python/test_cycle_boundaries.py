@@ -177,6 +177,6 @@ def test_self_hosted_cycle_boundary_mirrors_edge_and_return_contracts() -> None:
         assert f'node.callee == "{helper}"' in detector
     assert "self.temporaryNames.fresh" in rewriter
     assert "self.isMaterializedReturn" in rewriter
-    assert "is_cycle_return_temp = true" in rewriter
+    assert "isCycleReturnTemp = true" in rewriter
     assert rewriter.index("statement.value != null") < rewriter.index("self.forcedFlush()")
     assert rewriter.index("IRNode.variableDeclaration(") < rewriter.index("self.forcedFlush()")

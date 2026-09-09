@@ -356,9 +356,9 @@ class SetjmpTypeFacts {
 		Map<string, string> targets = {};
 		Map<string, bool> definitions = {};
 		int index = 0;
-		while (index < module.typedef_defs.len) {
-			IRTypedefDef definition = module.typedef_defs.get(index);
-			targets.put(definition.name, definition.target_type);
+		while (index < module.typedefDefs.len) {
+			IRTypedefDef definition = module.typedefDefs.get(index);
+			targets.put(definition.name, definition.targetType);
 			definitions.put(definition.name, true);
 			index = index + 1;
 		}
@@ -406,9 +406,9 @@ class SetjmpTypeFacts {
 		Map<string, string> targets = {};
 		Map<string, bool> definitions = {};
 		int index = 0;
-		while (index < module.typedef_defs.len) {
-			IRTypedefDef definition = module.typedef_defs.get(index);
-			targets.put(definition.name, definition.target_type);
+		while (index < module.typedefDefs.len) {
+			IRTypedefDef definition = module.typedefDefs.get(index);
+			targets.put(definition.name, definition.targetType);
 			definitions.put(definition.name, true);
 			index = index + 1;
 		}
@@ -458,9 +458,9 @@ class SetjmpTypeFacts {
 	private void buildVoidTypeFacts(IRModule module, Map<string, bool> voidAliases) {
 		Map<string, string> targets = {};
 		int index = 0;
-		while (index < module.typedef_defs.len) {
-			IRTypedefDef definition = module.typedef_defs.get(index);
-			targets.put(definition.name, definition.target_type);
+		while (index < module.typedefDefs.len) {
+			IRTypedefDef definition = module.typedefDefs.get(index);
+			targets.put(definition.name, definition.targetType);
 			index = index + 1;
 		}
 		bool changed = true;
@@ -516,7 +516,7 @@ class SetjmpPointerFlow {
 		int index = 0;
 		while (index < definition.params.len) {
 			IRParam parameter = definition.params.get(index);
-			SetjmpStorage storage = self.newStorage(parameter.name, "parameter", typeFacts.renderedPointerDepth(parameter.c_type), false);
+			SetjmpStorage storage = self.newStorage(parameter.name, "parameter", typeFacts.renderedPointerDepth(parameter.cType), false);
 			self.bind(parameter.name, storage);
 			self.result.recordParameter(parameter, storage);
 			if (storage.isPointer) {
@@ -574,9 +574,9 @@ class SetjmpPointerFlow {
 			return existing;
 		}
 		string kind = "automatic";
-		if (declaration.is_static) { kind = "static"; }
-		if (declaration.is_extern) { kind = "extern"; }
-		SetjmpStorage storage = self.newStorage(declaration.name, kind, self.typeFacts.renderedPointerDepth(declaration.c_type), declaration.is_array_decl || declaration.array_size != null);
+		if (declaration.isStatic) { kind = "static"; }
+		if (declaration.isExtern) { kind = "extern"; }
+		SetjmpStorage storage = self.newStorage(declaration.name, kind, self.typeFacts.renderedPointerDepth(declaration.cType), declaration.isArrayDecl || declaration.arraySize != null);
 		self.bind(declaration.name, storage);
 		self.result.recordDeclaration(declaration, storage);
 		return storage;
@@ -692,15 +692,15 @@ class SetjmpEffectAnalysis {
 		}
 		self.externalEffects = {};
 		index = 0;
-		while (index < module.function_decls.len) {
-			IRFunctionDecl declaration = module.function_decls.get(index);
+		while (index < module.functionDecls.len) {
+			IRFunctionDecl declaration = module.functionDecls.get(index);
 			if (!self.definitions.has(declaration.name)) {
-				self.externalEffects.put(declaration.name, self.externalEffect(declaration.name, declaration.return_type, declaration.params));
+				self.externalEffects.put(declaration.name, self.externalEffect(declaration.name, declaration.returnType, declaration.params));
 			}
 			index = index + 1;
 		}
 		self.globals = self.globalStorages();
-		self.globalCount = module.global_decls.len;
+		self.globalCount = module.globalDecls.len;
 	}
 
 	private SetjmpFunctionEffect unknownEffect(int count) {
@@ -752,7 +752,7 @@ class SetjmpEffectAnalysis {
 		SetjmpFunctionEffect effect = SetjmpFunctionEffect();
 		int index = 0;
 		while (index < params.len) {
-			if (self.typeFacts.pointerType(params.get(index).c_type)) {
+			if (self.typeFacts.pointerType(params.get(index).cType)) {
 				effect.addParameterEffect(effect.writes, index, 1);
 				effect.addParameterEffect(effect.captures, index, 1);
 				if (self.typeFacts.pointerType(returnType)) {
@@ -783,10 +783,10 @@ class SetjmpEffectAnalysis {
 	private Map<string, SetjmpStorage> globalStorages() {
 		Map<string, SetjmpStorage> values = {};
 		int index = 0;
-		while (index < self.module.global_decls.len) {
-			IRGlobalDecl declaration = self.module.global_decls.get(index);
-			int pointerDepth = self.typeFacts.renderedPointerDepth(declaration.c_type);
-			SetjmpStorage storage = SetjmpStorage(index + 1, declaration.name, "global", pointerDepth != 0, pointerDepth, declaration.array_size != null || declaration.is_unsized_array, self.compilerOwnedStorage(declaration.name));
+		while (index < self.module.globalDecls.len) {
+			IRGlobalDecl declaration = self.module.globalDecls.get(index);
+			int pointerDepth = self.typeFacts.renderedPointerDepth(declaration.cType);
+			SetjmpStorage storage = SetjmpStorage(index + 1, declaration.name, "global", pointerDepth != 0, pointerDepth, declaration.arraySize != null || declaration.isUnsizedArray, self.compilerOwnedStorage(declaration.name));
 			values.put(declaration.name, storage);
 			index = index + 1;
 		}
@@ -963,14 +963,14 @@ class SetjmpEffectAnalysis {
 			return flow.result.copyOrigins(flow.result.originsFor(value.obj));
 		}
 		if (value.kind == IRK_INDEX || value.kind == IRK_DEREF) {
-			if (value.storage_root_known && value.storage_root != "") {
-				SetjmpStorage? storage = flow.resolve(value.storage_root);
+			if (value.storageRootKnown && value.storageRoot != "") {
+				SetjmpStorage? storage = flow.resolve(value.storageRoot);
 				if (storage != null) {
 					locations.push(SetjmpOrigin(storage, 0, false));
 				}
 				return locations;
 			}
-			if (value.storage_root_known || value.kind == IRK_DEREF) {
+			if (value.storageRootKnown || value.kind == IRK_DEREF) {
 				IRNode? child = value.obj;
 				if (value.kind == IRK_DEREF) { child = value.expr; }
 				return flow.result.copyOrigins(flow.result.originsFor(child));
@@ -1054,8 +1054,8 @@ class SetjmpEffectAnalysis {
 		if (value == null) { return origins; }
 		if (value.kind == IRK_VAR) {
 			SetjmpStorage? storage = flow.resolve(value.name);
-			if (value.array_storage_known && value.array_storage_root != "") {
-				storage = flow.resolve(value.array_storage_root);
+			if (value.arrayStorageKnown && value.arrayStorageRoot != "") {
+				storage = flow.resolve(value.arrayStorageRoot);
 				if (storage != null) {
 					origins.push(SetjmpOrigin(storage, 0, true));
 				}
@@ -1070,13 +1070,13 @@ class SetjmpEffectAnalysis {
 			int index = 0;
 			while (index < locations.len) {
 				SetjmpOrigin location = locations.get(index);
-				origins.push(SetjmpOrigin(location.storage, location.depth, location.sourceExposed || value.source_address));
+				origins.push(SetjmpOrigin(location.storage, location.depth, location.sourceExposed || value.sourceAddress));
 				index = index + 1;
 			}
 		} else if (value.kind == IRK_DEREF) {
 			origins = self.flowLoad(flow, self.flowExpression(flow, value.expr));
 		} else if (value.kind == IRK_CAST) {
-			origins = self.flowCastOrigins(flow, value.target_type, self.flowExpression(flow, value.expr));
+			origins = self.flowCastOrigins(flow, value.targetType, self.flowExpression(flow, value.expr));
 		} else if (value.kind == IRK_COMMA_EXPR) {
 			int index = 0;
 			while (index < value.args.len) {
@@ -1095,10 +1095,10 @@ class SetjmpEffectAnalysis {
 		} else if (value.kind == IRK_TERNARY) {
 			self.flowExpression(flow, value.condition);
 			SetjmpAliasState entry = flow.copyState(flow.state);
-			origins = self.flowExpression(flow, value.true_expr);
+			origins = self.flowExpression(flow, value.trueExpr);
 			SetjmpAliasState leftState = flow.copyState(flow.state);
 			flow.state = flow.copyState(entry);
-			Vector<SetjmpOrigin> right = self.flowExpression(flow, value.false_expr);
+			Vector<SetjmpOrigin> right = self.flowExpression(flow, value.falseExpr);
 			flow.result.addOrigins(origins, right);
 			flow.state = flow.joinStates(leftState, flow.state);
 		} else if (value.kind == IRK_CALL) {
@@ -1138,8 +1138,8 @@ class SetjmpEffectAnalysis {
 			return origins;
 		} else if (value.kind == IRK_FIELD_ACCESS) {
 			self.flowExpression(flow, value.obj);
-			if (value.array_storage_known && value.array_storage_root != "") {
-				SetjmpStorage? storage = flow.resolve(value.array_storage_root);
+			if (value.arrayStorageKnown && value.arrayStorageRoot != "") {
+				SetjmpStorage? storage = flow.resolve(value.arrayStorageRoot);
 				if (storage != null) {
 					origins.push(SetjmpOrigin(storage, 0, true));
 				}
@@ -1161,14 +1161,14 @@ class SetjmpEffectAnalysis {
 			self.flowExpression(flow, value.obj);
 			self.flowExpression(flow, value.index);
 			self.flowExpression(flow, value.condition);
-			self.flowExpression(flow, value.true_expr);
-			self.flowExpression(flow, value.false_expr);
+			self.flowExpression(flow, value.trueExpr);
+			self.flowExpression(flow, value.falseExpr);
 			self.flowExpression(flow, value.init);
 			self.flowExpression(flow, value.value);
 			self.flowExpression(flow, value.target);
 			self.flowExpression(flow, value.update);
 			self.flowExpression(flow, value.result);
-			self.flowExpression(flow, value.array_size);
+			self.flowExpression(flow, value.arraySize);
 			int index = 0;
 			while (index < value.args.len) {
 				self.flowExpression(flow, value.args.get(index));
@@ -1281,7 +1281,7 @@ class SetjmpEffectAnalysis {
 			caseBlock.kind = IRK_BLOCK;
 			caseBlock.stmts = caseNode.stmts;
 			self.flowBlock(flow, caseBlock, true);
-			if (caseNode.falls_through) {
+			if (caseNode.fallsThrough) {
 				fallthrough = flow.copyState(flow.state);
 				hasFallthrough = true;
 			} else {
@@ -1296,7 +1296,7 @@ class SetjmpEffectAnalysis {
 
 	private void flowStatement(SetjmpPointerFlow flow, IRNode statement) {
 		if (statement.kind == IRK_VAR_DECL) {
-			self.flowExpression(flow, statement.array_size);
+			self.flowExpression(flow, statement.arraySize);
 			SetjmpStorage storage = flow.declare(statement);
 			Vector<SetjmpOrigin> origins = self.flowExpression(flow, statement.init);
 			if (storage.isPointer && !storage.isArray) {
@@ -1325,10 +1325,10 @@ class SetjmpEffectAnalysis {
 			self.flowExpression(flow, statement.condition);
 			SetjmpAliasState entry = flow.copyState(flow.state);
 			flow.state = flow.copyState(entry);
-			self.flowBlock(flow, statement.then_block, true);
+			self.flowBlock(flow, statement.thenBlock, true);
 			SetjmpAliasState left = flow.copyState(flow.state);
 			flow.state = flow.copyState(entry);
-			self.flowBlock(flow, statement.else_block, true);
+			self.flowBlock(flow, statement.elseBlock, true);
 			flow.state = flow.joinStates(left, flow.state);
 			return;
 		}

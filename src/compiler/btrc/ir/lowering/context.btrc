@@ -113,7 +113,7 @@ class LoweringContext {
 
 	public void bindModule(IRModule module) {
 		self.module = module;
-		module.temporary_names = self.temporaryNameState;
+		module.temporaryNames = self.temporaryNameState;
 	}
 
 	public IRModule activeModule() {

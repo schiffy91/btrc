@@ -669,7 +669,7 @@ class ManagedTypeLowerer {
 			values.push(IRNode.functionReference("__btrc_throw"));
 			IRFunctionDecl hookDeclaration = IRFunctionDecl(hookName, "void", true);
 			hookDeclaration.params.push(IRParam("void*", "object"));
-			module.function_decls.push(hookDeclaration);
+			module.functionDecls.push(hookDeclaration);
 		} else {
 			values.push(IRNode.literal("NULL"));
 			values.push(IRNode.literal("NULL"));
@@ -681,6 +681,6 @@ class ManagedTypeLowerer {
 			}
 		}
 		descriptor.init = IRNode.initializerList(values);
-		module.global_decls.push(descriptor);
+		module.globalDecls.push(descriptor);
 	}
 }

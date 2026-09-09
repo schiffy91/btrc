@@ -108,7 +108,7 @@ class OwnershipOperandPlanner {
 			Node? objectType = self.expressionType(expression.obj, environment);
 			if (objectType != null) {
 				Node concreteObject = self.resolveType(objectType, environment);
-				if (concreteObject.is_array) {
+				if (concreteObject.isArray) {
 					result = TypeShape.withoutOuterArray(concreteObject);
 				} else if (StorageValidator.rawIndexedPointer(concreteObject, self.analyzed)) {
 					result = TypeShape.withoutOuterPointers(concreteObject, 1);
@@ -145,7 +145,7 @@ class OwnershipOperandPlanner {
 			return self.hasEffect(expression.left, environment) || self.hasEffect(expression.right, environment);
 		}
 		if (kind == NK_TERNARY_EXPR) {
-			return self.hasEffect(expression.condition, environment) || self.hasEffect(expression.true_expr, environment) || self.hasEffect(expression.false_expr, environment);
+			return self.hasEffect(expression.condition, environment) || self.hasEffect(expression.trueExpr, environment) || self.hasEffect(expression.falseExpr, environment);
 		}
 		if (kind == NK_CAST_EXPR) {
 			return self.hasEffect(expression.expr, environment);

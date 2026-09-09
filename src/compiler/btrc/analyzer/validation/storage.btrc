@@ -40,7 +40,7 @@ class StorageValidator {
 		if (expression.kind == NK_STRING_LITERAL) { return true; }
 		if (expression.kind == NK_IDENTIFIER && self.state.analyzed.globalVarTypes.has(expression.name)) {
 			Node typeExpr = self.state.analyzed.globalVarTypes.get(expression.name);
-			return typeExpr.is_array;
+			return typeExpr.isArray;
 		}
 		return false;
 	}
@@ -68,10 +68,10 @@ class StorageValidator {
 			return info.valid && info.magnitude == 0ULL;
 		}
 		if (expression.kind == NK_FLOAT_LITERAL) {
-			return expression.value_float == 0.0;
+			return expression.valueFloat == 0.0;
 		}
 		if (expression.kind == NK_BOOL_LITERAL) {
-			return !expression.value_bool;
+			return !expression.valueBool;
 		}
 		return false;
 	}
@@ -94,7 +94,7 @@ class StorageValidator {
 			if (self.state.analyzed.funcNames.has(expression.name)) {
 				return STATIC_INITIALIZER_ADDRESS;
 			}
-			if (self.state.analyzed.globalVarTypes.has(expression.name) && self.state.analyzed.globalVarTypes.get(expression.name).is_array) {
+			if (self.state.analyzed.globalVarTypes.has(expression.name) && self.state.analyzed.globalVarTypes.get(expression.name).isArray) {
 				return STATIC_INITIALIZER_ADDRESS;
 			}
 			return STATIC_INITIALIZER_INVALID;
@@ -138,17 +138,17 @@ class StorageValidator {
 			if (!condition.valid) { return STATIC_INITIALIZER_INVALID; }
 			if (condition.known) {
 				if (condition.value != 0) {
-					return self.staticInitializerCategory(expression.true_expr);
+					return self.staticInitializerCategory(expression.trueExpr);
 				}
-				return self.staticInitializerCategory(expression.false_expr);
+				return self.staticInitializerCategory(expression.falseExpr);
 			}
-			StaticInitializerCategory whenTrue = self.staticInitializerCategory(expression.true_expr);
-			StaticInitializerCategory whenFalse = self.staticInitializerCategory(expression.false_expr);
+			StaticInitializerCategory whenTrue = self.staticInitializerCategory(expression.trueExpr);
+			StaticInitializerCategory whenFalse = self.staticInitializerCategory(expression.falseExpr);
 			if (whenTrue == whenFalse) { return whenTrue; }
 			return STATIC_INITIALIZER_INVALID;
 		}
 		if (expression.kind == NK_CAST_EXPR) {
-			Node? target = self.types.resolveAliases(expression.target_type);
+			Node? target = self.types.resolveAliases(expression.targetType);
 			StaticInitializerCategory operand = self.staticInitializerCategory(expression.expr);
 			if (target == null || operand == STATIC_INITIALIZER_INVALID) {
 				return STATIC_INITIALIZER_INVALID;
@@ -171,13 +171,13 @@ class StorageValidator {
 
 	public bool staticInitializer(Node? expression, Node? expected) {
 		if (expression == null) { return true; }
-		if (expected != null && expected.generic_args.len > 0 && expected.base != "Tuple" && expected.base != "__fn_ptr" && expected.base != "__realtime_fn_ptr" && (self.state.analyzed.isGenericClass(expected.base) || self.types.runtimeTypeBase(expected.base))) {
+		if (expected != null && expected.genericArgs.len > 0 && expected.base != "Tuple" && expected.base != "__fn_ptr" && expected.base != "__realtime_fn_ptr" && (self.state.analyzed.isGenericClass(expected.base) || self.types.runtimeTypeBase(expected.base))) {
 			/* Collection/class literals allocate and populate at runtime; their
              * brace spelling is not a C aggregate constant initializer. */
 			return false;
 		}
 		if (expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_LIST_LITERAL) {
-			if (expression.kind == NK_LIST_LITERAL && (expected == null || !expected.is_array)) {
+			if (expression.kind == NK_LIST_LITERAL && (expected == null || !expected.isArray)) {
 				return false;
 			}
 			int index = 0;
@@ -253,7 +253,7 @@ class StorageValidator {
 			int index = 0;
 			while (index < declaration.members.len) {
 				Node member = declaration.members.get(index);
-				if (member.name == memberName && !(member.kind == NK_METHOD_DECL && member.is_constructor)) {
+				if (member.name == memberName && !(member.kind == NK_METHOD_DECL && member.isConstructor)) {
 					return member;
 				}
 				index = index + 1;
@@ -290,7 +290,7 @@ class StorageValidator {
 	public void validateGenericPropertyInheritance(Node declaration) {
 		string parent = DeclarationRegistry.parentName(declaration);
 		if (parent == "") { return; }
-		bool crossesGenericBoundary = declaration.generic_params.len > 0 || self.state.analyzed.isGenericClass(parent);
+		bool crossesGenericBoundary = declaration.genericParams.len > 0 || self.state.analyzed.isGenericClass(parent);
 		if (!crossesGenericBoundary) { return; }
 		Map<string, bool> visited = {};
 		string property = self.inheritedPropertyName(parent, self.state.analyzed, visited);
@@ -307,10 +307,10 @@ class StorageValidator {
 		int index = 0;
 		while (index < declaration.members.len) {
 			Node member = declaration.members.get(index);
-			if (declaration.generic_params.len > 0 && member.kind == NK_FIELD_DECL && member.access == "class") {
+			if (declaration.genericParams.len > 0 && member.kind == NK_FIELD_DECL && member.access == "class") {
 				TypeValidator.fail("Static field '" + declaration.name + "." + member.name + "' is not supported on a generic class", member);
 			}
-			if (declaration.generic_params.len > 0 && member.kind == NK_METHOD_DECL && member.access == "class") {
+			if (declaration.genericParams.len > 0 && member.kind == NK_METHOD_DECL && member.access == "class") {
 				TypeValidator.fail("Static method '" + declaration.name + "." + member.name + "' has no specialization target and is " + "not supported on a generic class", member);
 			}
 			if (member.kind == NK_PROPERTY_DECL && member.access == "class") {
@@ -450,7 +450,7 @@ class StorageValidator {
 			return self.hasTemporaryManagedOwner(expression.obj, vars);
 		}
 		if (expression.kind == NK_TERNARY_EXPR) {
-			return self.hasTemporaryManagedOwner(expression.true_expr, vars) || self.hasTemporaryManagedOwner(expression.false_expr, vars);
+			return self.hasTemporaryManagedOwner(expression.trueExpr, vars) || self.hasTemporaryManagedOwner(expression.falseExpr, vars);
 		}
 		if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
 			return self.hasTemporaryManagedOwner(expression.left, vars) || self.hasTemporaryManagedOwner(expression.right, vars);
@@ -467,7 +467,7 @@ class StorageValidator {
 		}
 		Node? receiverType = self.types.inferType(target.obj,  vars);
 		receiverType = self.types.resolveAliases(receiverType);
-		if (receiverType != null && receiverType.is_const) { return true; }
+		if (receiverType != null && receiverType.isConst) { return true; }
 		if (target.kind == NK_INDEX_EXPR && self.rawLvaluePointer(receiverType)) {
 			return false;
 		}
@@ -490,7 +490,7 @@ class StorageValidator {
 	public Node? arrayParameterValueType(Node? typeExpr) {
 		Node? valueType = self.types.arrayValueType(typeExpr);
 		Node? canonical = self.types.resolveAliases(valueType);
-		if (canonical == null || !canonical.is_array) { return valueType; }
+		if (canonical == null || !canonical.isArray) { return valueType; }
 		return TypeShape.withOuterPointer(TypeShape.withoutOuterArray(canonical));
 	}
 
@@ -550,7 +550,7 @@ class StorageValidator {
 
 	public bool pointerBackedArrayTarget(Node? expression, Node? inferredType, Map<string, Node> vars) {
 		Node? resolvedType = self.types.resolveAliases(inferredType);
-		if (expression == null || resolvedType == null || !resolvedType.is_array) {
+		if (expression == null || resolvedType == null || !resolvedType.isArray) {
 			return false;
 		}
 		Node target = expression;
@@ -558,11 +558,11 @@ class StorageValidator {
 		if (target.kind == NK_IDENTIFIER && vars.has(target.name)) {
 			Node? bindingType = self.types.arrayValueType(vars.get(target.name));
 			Node? canonicalBinding = self.types.resolveAliases(bindingType);
-			if (canonicalBinding != null && !canonicalBinding.is_array) {
+			if (canonicalBinding != null && !canonicalBinding.isArray) {
 				return true;
 			}
 		}
-		if (resolvedType.array_size != null || target.kind != NK_FIELD_ACCESS_EXPR) {
+		if (resolvedType.arraySize != null || target.kind != NK_FIELD_ACCESS_EXPR) {
 			return false;
 		}
 		Node? member = self.arrayTargetMember(target,  vars);
@@ -571,7 +571,7 @@ class StorageValidator {
 		}
 		Node? memberValueType = self.arrayFieldValueType(member);
 		Node? canonicalMemberValue = self.types.resolveAliases(memberValueType);
-		if (canonicalMemberValue != null && !canonicalMemberValue.is_array) {
+		if (canonicalMemberValue != null && !canonicalMemberValue.isArray) {
 			return true;
 		}
 		if (member.kind == NK_PROPERTY_DECL) { return true; }
@@ -591,8 +591,8 @@ class StorageValidator {
 	public Node? arrayFieldValueType(Node field) {
 		Node? valueType = self.types.arrayValueType(field.type);
 		Node? resolvedType = self.types.resolveAliases(valueType);
-		if (resolvedType != null && !resolvedType.is_array) { return valueType; }
-		if (resolvedType == null || !resolvedType.is_array || resolvedType.array_size != null || (field.access == "class" && self.aggregateArrayBacking(field.initializer))) {
+		if (resolvedType != null && !resolvedType.isArray) { return valueType; }
+		if (resolvedType == null || !resolvedType.isArray || resolvedType.arraySize != null || (field.access == "class" && self.aggregateArrayBacking(field.initializer))) {
 			return field.type;
 		}
 		return TypeShape.withOuterPointer(TypeShape.withoutOuterArray(resolvedType));
@@ -600,7 +600,7 @@ class StorageValidator {
 
 	public Node? inferredBindingValueType(Node? inferredType, Node? initializer, Map<string, Node> vars) {
 		Node? resolvedType = self.types.resolveAliases(inferredType);
-		if (resolvedType == null || !resolvedType.is_array || initializer == null || initializer.kind == NK_BRACE_INITIALIZER || initializer.kind == NK_LIST_LITERAL) {
+		if (resolvedType == null || !resolvedType.isArray || initializer == null || initializer.kind == NK_BRACE_INITIALIZER || initializer.kind == NK_LIST_LITERAL) {
 			return inferredType;
 		}
 		if (self.types.gpuArrayResultCall(initializer, vars)) {
@@ -612,12 +612,12 @@ class StorageValidator {
 	public bool arrayTargetHasCapacity(Node? expression, Node? inferredType, Map<string, Node> vars) {
 		Node? resolvedType = self.types.resolveAliases(inferredType);
 		if (expression == null || resolvedType == null) { return false; }
-		if ((resolvedType.base == "Array" || resolvedType.base == "Vector") && resolvedType.generic_args.len > 0) {
+		if ((resolvedType.base == "Array" || resolvedType.base == "Vector") && resolvedType.genericArgs.len > 0) {
 			return self.types.gpuOutputCollectionType(resolvedType);
 		}
-		if (!resolvedType.is_array) { return false; }
+		if (!resolvedType.isArray) { return false; }
 		if (expression.kind == NK_FIELD_ACCESS_EXPR) {
-			if (resolvedType.array_size != null) {
+			if (resolvedType.arraySize != null) {
 				if (self.structArrayFieldTarget(expression, vars)) {
 					return true;
 				}
@@ -627,12 +627,12 @@ class StorageValidator {
 				}
 			}
 			Node? member = self.arrayTargetMember(expression, vars);
-			return member != null && member.kind == NK_FIELD_DECL && member.access == "class" && member.type.is_array && self.aggregateArrayBacking(member.initializer);
+			return member != null && member.kind == NK_FIELD_DECL && member.access == "class" && member.type.isArray && self.aggregateArrayBacking(member.initializer);
 		}
 		if (expression.kind != NK_IDENTIFIER) { return false; }
 		Node target = expression;
 		if (self.currentArrayParameterTarget(target)) { return false; }
-		if (resolvedType.is_extern && resolvedType.array_size == null) {
+		if (resolvedType.isExtern && resolvedType.arraySize == null) {
 			return false;
 		}
 		return !self.pointerBackedArrayTarget(target, resolvedType, vars);
@@ -647,7 +647,7 @@ class StorageValidator {
 			return false;
 		}
 		Node? member = self.arrayTargetMember(expression, vars);
-		if (member != null && member.kind == NK_PROPERTY_DECL && member.access != "class" && member.has_getter) {
+		if (member != null && member.kind == NK_PROPERTY_DECL && member.access != "class" && member.hasGetter) {
 			return true;
 		}
 		Node? receiverType = self.types.inferType(expression.obj, vars);
@@ -658,10 +658,10 @@ class StorageValidator {
 	public Node? gpuBufferElementType(Node? typeExpr) {
 		Node? canonical = self.types.resolveAliases(typeExpr);
 		if (canonical == null) { return null; }
-		if ((canonical.base == "Array" || canonical.base == "Vector") && canonical.generic_args.len == 1) {
-			return self.types.resolveAliases(canonical.generic_args.get(0));
+		if ((canonical.base == "Array" || canonical.base == "Vector") && canonical.genericArgs.len == 1) {
+			return self.types.resolveAliases(canonical.genericArgs.get(0));
 		}
-		if (canonical.is_array) {
+		if (canonical.isArray) {
 			return self.types.resolveAliases(self.types.arrayElementType(canonical));
 		}
 		return null;
@@ -674,9 +674,9 @@ class StorageValidator {
 	}
 
 	public void validateGpuArrayParameter(Node callable, Node parameter) {
-		if (!callable.is_gpu) { return; }
+		if (!callable.isGpu) { return; }
 		Node? typeExpr = self.types.resolveAliases(parameter.type);
-		if (typeExpr != null && typeExpr.is_array && (typeExpr.is_const || typeExpr.is_volatile)) {
+		if (typeExpr != null && typeExpr.isArray && (typeExpr.isConst || typeExpr.isVolatile)) {
 			TypeValidator.fail("@gpu function '" + callable.name + "': GPU array buffers are read-write and cannot be const- or " + "volatile-qualified in parameter '" + parameter.name + "'", parameter);
 		}
 	}
@@ -684,13 +684,13 @@ class StorageValidator {
 	public bool gpuInputHasCompatibleStorage(Node? expression, Node? expectedType, Node? actualType, Map<string, Node> vars) {
 		Node? actual = self.types.resolveAliases(actualType);
 		Node? element = self.gpuBufferElementType(actual);
-		return actual != null && element != null && !actual.is_volatile && !element.is_volatile && self.arrayTargetHasCapacity(expression, actual, vars) && self.gpuBufferElementsExact(expectedType, actual);
+		return actual != null && element != null && !actual.isVolatile && !element.isVolatile && self.arrayTargetHasCapacity(expression, actual, vars) && self.gpuBufferElementsExact(expectedType, actual);
 	}
 
 	public bool gpuOutputElementCompatible(Node? targetType, Node? sourceType) {
 		Node? target = self.types.resolveAliases(targetType);
 		Node? targetElement = self.gpuBufferElementType(target);
-		if (target == null || targetElement == null || target.is_const || target.is_volatile || targetElement.is_const || targetElement.is_volatile) {
+		if (target == null || targetElement == null || target.isConst || target.isVolatile || targetElement.isConst || targetElement.isVolatile) {
 			return false;
 		}
 		return self.gpuBufferElementsExact(target, sourceType);
@@ -701,7 +701,7 @@ class StorageValidator {
 		string subject = isGlobal ? "Global '" : "Variable '";
 		subject = subject + declaration.name + "'";
 		Node? canonical = self.types.resolveAliases(typeExpr);
-		bool staticStorage = isGlobal || (canonical != null && (canonical.is_static || canonical.is_extern));
+		bool staticStorage = isGlobal || (canonical != null && (canonical.isStatic || canonical.isExtern));
 		if (staticStorage) {
 			TypeValidator.fail(subject + " cannot own a Thread handle with static storage; Thread<T> " + "must be an initialized local owner", declaration);
 		} else if (canonical == null || canonical.base != "Thread") {
@@ -712,21 +712,21 @@ class StorageValidator {
 	}
 
 	public void validateArrayBound(Node typeExpr, string subject, string context, Node site, Map<string, Node> vars) {
-		if (!typeExpr.is_array || typeExpr.array_size == null) { return; }
-		Node? boundType = self.types.inferType(typeExpr.array_size,  vars);
+		if (!typeExpr.isArray || typeExpr.arraySize == null) { return; }
+		Node? boundType = self.types.inferType(typeExpr.arraySize,  vars);
 		if (boundType != null && !self.types.integralType(boundType, self.state.analyzed)) {
-			TypeValidator.fail("Array bound for " + subject + " must be integral", typeExpr.array_size);
+			TypeValidator.fail("Array bound for " + subject + " must be integral", typeExpr.arraySize);
 		}
 		Map<string, bool> unrestricted = {};
-		SemanticIntegerConstant constant = self.constants.integerConstant(typeExpr.array_size, false, "", unrestricted);
+		SemanticIntegerConstant constant = self.constants.integerConstant(typeExpr.arraySize, false, "", unrestricted);
 		if (constant.valid) {
-			self.state.analyzed.constantArrayBoundKeys.put(AstIdentity.key(typeExpr.array_size), true);
+			self.state.analyzed.constantArrayBoundKeys.put(AstIdentity.key(typeExpr.arraySize), true);
 		}
 		if (constant.known && constant.value <= 0) {
-			TypeValidator.fail("Array bound for " + subject + " must be positive", typeExpr.array_size);
+			TypeValidator.fail("Array bound for " + subject + " must be positive", typeExpr.arraySize);
 		}
 		if ((context == "field" || context == "global" || context == "static") && !constant.valid) {
-			TypeValidator.fail("Array bound for " + subject + " must be a constant expression", typeExpr.array_size);
+			TypeValidator.fail("Array bound for " + subject + " must be a constant expression", typeExpr.arraySize);
 		}
 	}
 
@@ -735,40 +735,40 @@ class StorageValidator {
 		subject = subject + declaration.name + "'";
 		self.types.validateDeclaredType(declaration.type, subject, "object", declaration);
 		Node? canonical = self.types.resolveAliases(declaration.type);
-		if (canonical != null && canonical.base == "Span" && canonical.pointer_depth == 0) {
-			if (isGlobal || canonical.is_static || canonical.is_extern) {
+		if (canonical != null && canonical.base == "Span" && canonical.pointerDepth == 0) {
+			if (isGlobal || canonical.isStatic || canonical.isExtern) {
 				TypeValidator.fail(subject + " cannot store nonescaping Span<T>", declaration);
 			}
 			if (!isGlobal && declaration.initializer == null) {
 				TypeValidator.fail(subject + " must initialize its Span<T> borrow", declaration);
 			}
 		}
-		if (canonical != null && canonical.base == "Atomic" && canonical.pointer_depth == 0 && declaration.initializer != null) {
+		if (canonical != null && canonical.base == "Atomic" && canonical.pointerDepth == 0 && declaration.initializer != null) {
 			Node initializer = declaration.initializer;
 			bool validConstructor = initializer.kind == NK_CALL_EXPR && initializer.callee != null && initializer.callee.kind == NK_IDENTIFIER && initializer.callee.name == "Atomic";
 			if (!validConstructor) {
 				TypeValidator.fail(subject + " cannot copy an Atomic<T> owner; initialize with Atomic(value)", declaration);
 			}
 		}
-		if (canonical != null && canonical.base == "Mutex" && (isGlobal || canonical.is_static || canonical.is_extern)) {
+		if (canonical != null && canonical.base == "Mutex" && (isGlobal || canonical.isStatic || canonical.isExtern)) {
 			TypeValidator.fail(subject + " cannot own a Mutex handle with static storage until " + "managed global teardown is supported", declaration);
 		}
 		if (declaration.type != null) {
-			if (!isGlobal && declaration.type.is_static && (self.types.managedOwnershipType(declaration.type) || SemanticTypeSystem.isString(declaration.type) || self.state.typeParams.has(declaration.type.base))) {
+			if (!isGlobal && declaration.type.isStatic && (self.types.managedOwnershipType(declaration.type) || SemanticTypeSystem.isString(declaration.type) || self.state.typeParams.has(declaration.type.base))) {
 				TypeValidator.fail(subject + " cannot use managed static-local storage; declare an " + "owned lexical value or explicit global owner", declaration);
 			}
 			string context = isGlobal ? "global" : "local";
-			if (!isGlobal && declaration.type.is_static) { context = "static"; }
+			if (!isGlobal && declaration.type.isStatic) { context = "static"; }
 			self.validateArrayBound(declaration.type, subject, context, declaration, vars);
-			if (declaration.type.is_extern && declaration.initializer != null) {
+			if (declaration.type.isExtern && declaration.initializer != null) {
 				TypeValidator.fail(subject + " cannot have an initializer with extern storage", declaration);
 			}
-			if (declaration.type.is_array && declaration.type.array_size == null && declaration.initializer == null && !declaration.type.is_extern) {
+			if (declaration.type.isArray && declaration.type.arraySize == null && declaration.initializer == null && !declaration.type.isExtern) {
 				TypeValidator.fail(subject + " requires an array bound or initializer", declaration);
 			}
-			if (declaration.type.is_array && declaration.type.array_size != null && declaration.initializer != null && !self.types.gpuArrayResultCall(declaration.initializer, vars)) {
+			if (declaration.type.isArray && declaration.type.arraySize != null && declaration.initializer != null && !self.types.gpuArrayResultCall(declaration.initializer, vars)) {
 				Map<string, bool> unrestricted = {};
-				SemanticIntegerConstant bound = self.constants.integerConstant(declaration.type.array_size, false, "", unrestricted);
+				SemanticIntegerConstant bound = self.constants.integerConstant(declaration.type.arraySize, false, "", unrestricted);
 				if (!bound.valid) {
 					TypeValidator.fail(subject + " is a variable-length array and cannot have " + "an initializer", declaration);
 				}
@@ -777,15 +777,15 @@ class StorageValidator {
 					TypeValidator.fail(subject + " has " + Strings.fromInt(declaration.initializer.elements.len) + " elements exceeding its fixed array bound", declaration);
 				}
 			}
-			bool hasStaticStorage = isGlobal || declaration.type.is_static;
-			if (hasStaticStorage && declaration.initializer != null && !declaration.type.is_extern && !self.staticInitializer(declaration.initializer, declaration.type)) {
+			bool hasStaticStorage = isGlobal || declaration.type.isStatic;
+			if (hasStaticStorage && declaration.initializer != null && !declaration.type.isExtern && !self.staticInitializer(declaration.initializer, declaration.type)) {
 				TypeValidator.fail(subject + " requires a C constant/address initializer for " + "static storage", declaration);
 			}
 		}
 	}
 
 	class string structTypeName(Node? typeExpr, Analyzed analyzed) {
-		if (typeExpr == null || typeExpr.pointer_depth > 0) { return ""; }
+		if (typeExpr == null || typeExpr.pointerDepth > 0) { return ""; }
 		if (typeExpr.base.startsWith("struct ")) {
 			return typeExpr.base.substring(7, typeExpr.base.length() - 7);
 		}
@@ -799,12 +799,12 @@ class StorageValidator {
 			return false;
 		}
 		Node declaration = analyzed.structTable.get(name);
-		if (declaration.is_forward) { return false; }
+		if (declaration.isForward) { return false; }
 		visiting.put(name, true);
 		int index = 0;
 		while (index < declaration.fields.len) {
 			Node field = declaration.fields.get(index);
-			if ((field.type.is_const && field.type.pointer_depth == 0) || self.structContainsConst(field.type, analyzed, visiting)) {
+			if ((field.type.isConst && field.type.pointerDepth == 0) || self.structContainsConst(field.type, analyzed, visiting)) {
 				return true;
 			}
 			index = index + 1;
@@ -815,11 +815,11 @@ class StorageValidator {
 	public void validateMutableTarget(Node? targetType, Node site, bool allowArrayObjectWrite) {
 		Node? resolvedTarget = self.types.resolveAliases(targetType);
 		if (resolvedTarget == null) { return; }
-		if (resolvedTarget.is_const && resolvedTarget.pointer_depth == 0) {
+		if (resolvedTarget.isConst && resolvedTarget.pointerDepth == 0) {
 			TypeValidator.fail("Cannot modify const storage of type '" + self.types.formatType(resolvedTarget) + "'", site);
 		}
-		if (resolvedTarget.is_array && !allowArrayObjectWrite) {
-			string subject = resolvedTarget.array_size == null ? "Array object" : "Fixed array";
+		if (resolvedTarget.isArray && !allowArrayObjectWrite) {
+			string subject = resolvedTarget.arraySize == null ? "Array object" : "Fixed array";
 			TypeValidator.fail(subject + " '" + self.types.formatType(resolvedTarget) + "' is not assignable", site);
 		}
 		Map<string, bool> visiting = {};
@@ -840,10 +840,10 @@ class StorageValidator {
 		}
 		if (member == null || member.kind != NK_PROPERTY_DECL) { return; }
 		Node property = member;
-		if (!property.has_setter && !(allowGetterStorage && property.has_getter)) {
+		if (!property.hasSetter && !(allowGetterStorage && property.hasGetter)) {
 			TypeValidator.fail("Property '" + target.field + "' has no setter", site);
 		}
-		if (requireGetter && !property.has_getter) {
+		if (requireGetter && !property.hasGetter) {
 			TypeValidator.fail("Property '" + target.field + "' has no getter", site);
 		}
 	}
@@ -882,11 +882,11 @@ class StorageValidator {
 
 	public bool rawLvaluePointer(Node? typeExpr) {
 		Node? resolvedType = self.types.resolveAliases(typeExpr);
-		if (resolvedType == null || resolvedType.is_array || resolvedType.pointer_depth <= 0) {
+		if (resolvedType == null || resolvedType.isArray || resolvedType.pointerDepth <= 0) {
 			return false;
 		}
 		if (self.state.analyzed.isClass(resolvedType.base) || self.state.analyzed.isGenericClass(resolvedType.base)) {
-			return resolvedType.pointer_depth > 1;
+			return resolvedType.pointerDepth > 1;
 		}
 		return true;
 	}
@@ -896,7 +896,7 @@ class StorageValidator {
 		Node? receiverType = self.types.inferType(expression.obj,  vars);
 		receiverType = self.types.resolveAliases(receiverType);
 		if (receiverType == null) { return false; }
-		if (receiverType.is_array || SemanticTypeSystem.isString(receiverType)) { return false; }
+		if (receiverType.isArray || SemanticTypeSystem.isString(receiverType)) { return false; }
 		if (self.rawLvaluePointer(receiverType)) { return false; }
 		Node? getter = self.lvalueMember(receiverType, "get");
 		Node? setter = self.lvalueMember(receiverType, "set");
@@ -911,7 +911,7 @@ class StorageValidator {
 
 	public bool referenceReceiver(Node? typeExpr) {
 		Node? resolvedType = self.types.resolveAliases(typeExpr);
-		return resolvedType != null && (resolvedType.pointer_depth > 0 || resolvedType.is_array || SemanticTypeSystem.isString(resolvedType) || self.state.analyzed.isClass(resolvedType.base) || self.state.analyzed.isGenericClass(resolvedType.base));
+		return resolvedType != null && (resolvedType.pointerDepth > 0 || resolvedType.isArray || SemanticTypeSystem.isString(resolvedType) || self.state.analyzed.isClass(resolvedType.base) || self.state.analyzed.isGenericClass(resolvedType.base));
 	}
 
 	public bool identifierStorage(string name, Map<string, Node> vars) {
@@ -951,7 +951,7 @@ class StorageValidator {
 			Node? receiverType = self.types.inferType(expression.obj, vars);
 			receiverType = self.types.resolveAliases(receiverType);
 			if (receiverType == null) { return true; }
-			if (receiverType.is_array) {
+			if (receiverType.isArray) {
 				return self.isAddressableStorage(expression.obj, vars);
 			}
 			if (SemanticTypeSystem.isString(receiverType)) { return true; }
@@ -972,7 +972,7 @@ class StorageValidator {
 	}
 
 	class Node? indexedMethod(Node objectType, string name, Analyzed analyzed) {
-		if (analyzed.isGenericClass(objectType.base) && objectType.pointer_depth <= 1) {
+		if (analyzed.isGenericClass(objectType.base) && objectType.pointerDepth <= 1) {
 			return analyzed.genericClassMethod(objectType.base, name);
 		}
 		if (analyzed.isClass(objectType.base)) {
@@ -986,29 +986,29 @@ class StorageValidator {
 		return StorageValidator.indexedMethod(objectType, name, self.state.analyzed);
 	}
 
-	class bool validIndexedGetter(Node? method) { return method != null && method.access != "class" && method.generic_params.len == 0 && method.params.len == 1 && !method.params.get(0).keep_ && method.return_type != null && !TypeValidator.scalarVoid(method.return_type); }
+	class bool validIndexedGetter(Node? method) { return method != null && method.access != "class" && method.genericParams.len == 0 && method.params.len == 1 && !method.params.get(0).keep_ && method.returnType != null && !TypeValidator.scalarVoid(method.returnType); }
 
-	class bool validIndexedSetter(Node? method) { return method != null && method.access != "class" && method.generic_params.len == 0 && method.params.len == 2 && !method.params.get(0).keep_ && TypeValidator.scalarVoid(method.return_type); }
+	class bool validIndexedSetter(Node? method) { return method != null && method.access != "class" && method.genericParams.len == 0 && method.params.len == 2 && !method.params.get(0).keep_ && TypeValidator.scalarVoid(method.returnType); }
 
 	class Node resolvedIndexedType(Node declared, Node objectType, Analyzed analyzed) {
-		if (analyzed.isGenericClass(objectType.base) && objectType.generic_args.len > 0) {
+		if (analyzed.isGenericClass(objectType.base) && objectType.genericArgs.len > 0) {
 			return SemanticTypeSystem.resolveGenericType(declared, SemanticTypeSystem.genericTypeMap(analyzed, objectType), analyzed);
 		}
 		return declared;
 	}
 
 	class bool rawIndexedPointer(Node objectType, Analyzed analyzed) {
-		if (objectType.pointer_depth <= 0) { return false; }
+		if (objectType.pointerDepth <= 0) { return false; }
 		/* All inferred class instances carry one implicit pointer level; only an
          * additional level is raw pointer storage rather than the index protocol. */
 		if (analyzed.isClass(objectType.base) || analyzed.isGenericClass(objectType.base)) {
-			return objectType.pointer_depth > 1;
+			return objectType.pointerDepth > 1;
 		}
 		return true;
 	}
 
 	public bool rawIndexedPointerInState(Node objectType) {
-		if (objectType.pointer_depth <= 0) { return false; }
+		if (objectType.pointerDepth <= 0) { return false; }
 		if (self.state.typeParams.has(objectType.base)) { return true; }
 		return StorageValidator.rawIndexedPointer(objectType, self.state.analyzed);
 	}
@@ -1017,10 +1017,10 @@ class StorageValidator {
 		if (objectType == null || objectType.base == "Tuple") { return null; }
 		if (SemanticTypeSystem.isString(objectType)) {
 			Node character = SemanticTypeSystem.primitive("char");
-			character.is_const = objectType.is_const;
+			character.isConst = objectType.isConst;
 			return character;
 		}
-		if (objectType.is_array) {
+		if (objectType.isArray) {
 			return TypeShape.withoutOuterArray(objectType);
 		}
 		if (self.rawIndexedPointerInState(objectType)) {
@@ -1030,7 +1030,7 @@ class StorageValidator {
 		Node? result = null;
 		if (StorageValidator.validIndexedGetter(getter)) {
 			Node concreteGetter = getter;
-			result = concreteGetter.return_type;
+			result = concreteGetter.returnType;
 		} else {
 			Node? setter = self.indexedMethodInState(objectType, "set");
 			if (StorageValidator.validIndexedSetter(setter)) {
@@ -1069,7 +1069,7 @@ class StorageValidator {
 		if (concreteObject.base == "Tuple") {
 			TypeValidator.fail("Tuple values are not dynamically indexable; use ._N fields", expression);
 		}
-		bool rawIntegral = SemanticTypeSystem.isString(concreteObject) || concreteObject.is_array || self.rawIndexedPointerInState(concreteObject);
+		bool rawIntegral = SemanticTypeSystem.isString(concreteObject) || concreteObject.isArray || self.rawIndexedPointerInState(concreteObject);
 		if (rawIntegral) {
 			if (indexType != null && !self.types.integralType(indexType, self.state.analyzed)) {
 				TypeValidator.fail("Index expression must have an integral type", expression.index);
@@ -1098,7 +1098,7 @@ class StorageValidator {
 	public void validateIndexedMutation(Node target, bool requireGetter, Map<string, Node> vars, Node site) {
 		if (target.kind != NK_INDEX_EXPR) { return; }
 		Node? receiver = self.types.inferType(target.obj,  vars);
-		if (receiver == null || receiver.is_array || SemanticTypeSystem.isString(receiver) || self.rawIndexedPointerInState(receiver)) {
+		if (receiver == null || receiver.isArray || SemanticTypeSystem.isString(receiver) || self.rawIndexedPointerInState(receiver)) {
 			return;
 		}
 		Node? setter = self.indexedMethodInState(receiver, "set");
@@ -1132,10 +1132,10 @@ class StorageValidator {
 		Node expectedValue = StorageValidator.resolvedIndexedType(concreteSetter.params.get(1).type, receiver, self.state.analyzed);
 		Node? actualValue = self.indexResultTypeInState(receiver);
 		if (site.kind == NK_ASSIGN_EXPR && site.op == "=") {
-			actualValue = self.types.inferType(site.value_node,  vars);
-			self.types.validateTypedInitializer(expectedValue, site.value_node, "Indexed setter value", vars);
+			actualValue = self.types.inferType(site.valueNode,  vars);
+			self.types.validateTypedInitializer(expectedValue, site.valueNode, "Indexed setter value", vars);
 		}
-		if (actualValue != null && !(site.kind == NK_ASSIGN_EXPR && self.types.contextualAggregateInitializer(site.value_node)) && !self.types.assignmentCompatible(expectedValue, actualValue)) {
+		if (actualValue != null && !(site.kind == NK_ASSIGN_EXPR && self.types.contextualAggregateInitializer(site.valueNode)) && !self.types.assignmentCompatible(expectedValue, actualValue)) {
 			TypeValidator.fail("Indexed setter expects value type '" + self.types.formatType(expectedValue) + "' but got '" + self.types.formatType(actualValue) + "'", site);
 		}
 	}
@@ -1146,7 +1146,7 @@ class StorageValidator {
 			return vars.get(expression.name);
 		}
 		if (expression.kind == NK_CAST_EXPR) {
-			return expression.target_type;
+			return expression.targetType;
 		}
 		return self.types.inferRaw(expression, vars);
 	}
@@ -1154,7 +1154,7 @@ class StorageValidator {
 	public bool qualifierRawIndex(Node expression, Map<string, Node> vars) {
 		Node? declared = self.qualifierDeclaredType(expression.obj, vars);
 		Node? objectType = self.types.resolveAliases(declared);
-		return objectType != null && (objectType.is_array || self.rawIndexedPointerInState(objectType));
+		return objectType != null && (objectType.isArray || self.rawIndexedPointerInState(objectType));
 	}
 
 	public Node? qualifierIndexResult(Node expression, Map<string, Node> vars) {
@@ -1201,7 +1201,7 @@ class StorageValidator {
 			return self.expressionVolatileAtDepth(expression.operand, depth, vars);
 		}
 		if (expression.kind == NK_TERNARY_EXPR) {
-			return self.expressionVolatileAtDepth(expression.true_expr, depth, vars) || self.expressionVolatileAtDepth(expression.false_expr, depth, vars);
+			return self.expressionVolatileAtDepth(expression.trueExpr, depth, vars) || self.expressionVolatileAtDepth(expression.falseExpr, depth, vars);
 		}
 		if (expression.kind == NK_ASSIGN_EXPR) {
 			return depth > 0 && self.expressionVolatileAtDepth(expression.target, depth, vars);
@@ -1243,8 +1243,8 @@ class StorageValidator {
 			return nested;
 		}
 		if (expression.kind == NK_TERNARY_EXPR) {
-			int left = self.expressionVolatileMaxDepth(expression.true_expr, vars);
-			int right = self.expressionVolatileMaxDepth(expression.false_expr, vars);
+			int left = self.expressionVolatileMaxDepth(expression.trueExpr, vars);
+			int right = self.expressionVolatileMaxDepth(expression.falseExpr, vars);
 			return left > right ? left : right;
 		}
 		if (expression.kind == NK_ASSIGN_EXPR) {
@@ -1283,10 +1283,10 @@ class StorageValidator {
 		}
 		Node? storageTarget = self.types.inferType(expression.target, vars);
 		Node? canonicalStorageTarget = self.types.resolveAliases(storageTarget);
-		if (canonicalStorageTarget != null && canonicalStorageTarget.base == "Atomic" && canonicalStorageTarget.pointer_depth == 0 && !canonicalStorageTarget.is_array) {
+		if (canonicalStorageTarget != null && canonicalStorageTarget.base == "Atomic" && canonicalStorageTarget.pointerDepth == 0 && !canonicalStorageTarget.isArray) {
 			TypeValidator.fail("Atomic<T> owner cannot be assigned or copied; use Atomic.init/store on stable storage", expression);
 		}
-		bool gpuArrayOutput = expression.op == "=" && self.types.gpuArrayResultCall(expression.value_node, vars);
+		bool gpuArrayOutput = expression.op == "=" && self.types.gpuArrayResultCall(expression.valueNode, vars);
 		bool gpuCollectionOutput = gpuArrayOutput && self.gpuOutputCollectionTarget(expression.target, storageTarget, vars);
 		bool gpuTargetHasCapacity = gpuArrayOutput && self.arrayTargetHasCapacity(expression.target, storageTarget, vars) && (!self.types.gpuOutputCollectionType(storageTarget) || gpuCollectionOutput);
 		if (gpuArrayOutput && !gpuTargetHasCapacity) {
@@ -1294,10 +1294,10 @@ class StorageValidator {
 		}
 		Node? target = storageTarget;
 		target = self.assignmentTargetValueType(expression.target, target, vars);
-		Node? source = self.types.inferType(expression.value_node,  vars);
+		Node? source = self.types.inferType(expression.valueNode,  vars);
 		bool borrowedManagedRebind = expression.target.kind == NK_IDENTIFIER && target != null && (self.types.managedOwnershipType(target) || SemanticTypeSystem.isString(target)) && self.state.borrowedBindings.has(expression.target.name);
-		bool borrowedSelfProjection = borrowedManagedRebind && self.borrowedSelfProjection(expression.value_node, expression.target.name, vars);
-		bool rebindNeedsOwner = expression.op != "=" || (!borrowedSelfProjection && self.managedRebindSourceNeedsOwner(expression.value_node, target, vars));
+		bool borrowedSelfProjection = borrowedManagedRebind && self.borrowedSelfProjection(expression.valueNode, expression.target.name, vars);
+		bool rebindNeedsOwner = expression.op != "=" || (!borrowedSelfProjection && self.managedRebindSourceNeedsOwner(expression.valueNode, target, vars));
 		if (borrowedManagedRebind && rebindNeedsOwner) {
 			TypeValidator.fail("Borrowed managed bindings cannot be rebound; declare an " + "owned local before assigning or applying a compound update", expression);
 		}
@@ -1308,14 +1308,19 @@ class StorageValidator {
 				TypeValidator.fail("Managed compound updates require a direct local/global or " + "physical field; use an explicit local value and simple " + "store for virtual or indirect targets", expression);
 			}
 		}
+		bool genericNull = false;
 		if (expression.op == "=") {
 			Node? setterType = self.indexedSetterValueType(expression.target, vars);
 			if (setterType != null) { target = setterType; }
+			Node? canonicalTarget = self.types.resolveAliases(target);
+			/* Match reference template validation for literal null only. Storage,
+			 * mutability and ownership checks must still run for the target. */
+			genericNull = expression.valueNode.kind == NK_NULL_LITERAL && canonicalTarget != null && canonicalTarget.genericArgs.len == 0 && self.state.typeParams.has(canonicalTarget.base);
 			Node? qualifiedTarget = self.qualifierDeclaredType(expression.target, vars);
 			if (setterType != null) { qualifiedTarget = setterType; }
-			self.validateVolatileReferenceConversion(qualifiedTarget, expression.value_node, "Assignment", vars);
-			if (!gpuTargetHasCapacity) {
-				self.types.validateTypedInitializer(target, expression.value_node, "Assignment", vars);
+			self.validateVolatileReferenceConversion(qualifiedTarget, expression.valueNode, "Assignment", vars);
+			if (!gpuTargetHasCapacity && !genericNull) {
+				self.types.validateTypedInitializer(target, expression.valueNode, "Assignment", vars);
 			}
 		}
 		self.validatePropertyMutation(expression.target, expression.op != "=", gpuTargetHasCapacity, vars, expression);
@@ -1326,14 +1331,14 @@ class StorageValidator {
 		if (expression.op == "=") {
 			Node? resolvedTarget = self.types.resolveAliases(target);
 			Node? resolvedSource = self.types.resolveAliases(source);
-			bool copiedThread = resolvedSource != null && resolvedSource.base == "Thread" && self.types.threadCopySource(expression.value_node);
+			bool copiedThread = resolvedSource != null && resolvedSource.base == "Thread" && self.types.threadCopySource(expression.valueNode);
 			if (resolvedTarget != null && resolvedTarget.base == "Thread" && !copiedThread) {
 				TypeValidator.fail("Thread owner variables are single-assignment; declare a " + "new owner for a fresh Thread result", expression);
 			}
 			if (gpuTargetHasCapacity && !self.gpuOutputElementCompatible(storageTarget, source)) {
 				TypeValidator.fail("Array-returning @gpu output element type is not compatible " + "with the target storage", expression);
 			}
-			if (!gpuTargetHasCapacity && !self.types.contextualAggregateInitializer(expression.value_node) && !self.types.assignmentCompatible(target, source)) {
+			if (!gpuTargetHasCapacity && !genericNull && !self.types.contextualAggregateInitializer(expression.valueNode) && !self.types.assignmentCompatible(target, source)) {
 				TypeValidator.fail("Cannot assign '" + self.types.formatType(source) + "' to '" + self.types.formatType(target) + "'", expression);
 			}
 			return;
@@ -1352,7 +1357,7 @@ class StorageValidator {
 					TypeValidator.fail("Operator '" + op + "' expects '" + self.types.formatType(expected) + "' but got '" + self.types.formatType(source) + "'", expression);
 				}
 			}
-			Node result = self.types.resolvedBinaryOverloadType(concreteOverload.return_type, target);
+			Node result = self.types.resolvedBinaryOverloadType(concreteOverload.returnType, target);
 			if (!self.types.assignmentCompatible(target, result)) {
 				TypeValidator.fail("Operator '" + op + "' returns '" + self.types.formatType(result) + "', which cannot be stored in compound target '" + self.types.formatType(target) + "'", expression);
 			}
@@ -1381,7 +1386,7 @@ class StorageValidator {
 		if (receiverType != null) {
 			member = self.lvalueMember(receiverType, source.field);
 		}
-		if (member != null && member.kind == NK_PROPERTY_DECL && member.getter_body != null) {
+		if (member != null && member.kind == NK_PROPERTY_DECL && member.getterBody != null) {
 			return false;
 		}
 
@@ -1408,7 +1413,7 @@ class StorageValidator {
 			return self.managedRebindSourceNeedsOwner(source.expr, target, vars);
 		}
 		if (source.kind == NK_TERNARY_EXPR) {
-			return self.managedRebindSourceNeedsOwner(source.true_expr, target, vars) || self.managedRebindSourceNeedsOwner(source.false_expr, target, vars);
+			return self.managedRebindSourceNeedsOwner(source.trueExpr, target, vars) || self.managedRebindSourceNeedsOwner(source.falseExpr, target, vars);
 		}
 		if (source.kind == NK_IDENTIFIER) {
 			/* Resolve through the active lexical borrowed-binding set. Copying a
@@ -1434,6 +1439,6 @@ class StorageValidator {
 
 	public bool arrayProjectionEmbedsBacking(Node? expression, Map<string, Node> vars) {
 		Node? represented = self.types.resolveAliases(self.arrayProjectionRepresentedType(expression, vars));
-		return represented != null && represented.is_array;
+		return represented != null && represented.isArray;
 	}
 }

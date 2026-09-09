@@ -173,7 +173,7 @@ class OwnershipBoundary {
 			sequence.push(expression);
 			return IRNode.statementExpression(self.declarations, IRNode.commaExpression(sequence));
 		}
-		bool isVoid = resolvedResultType == null || (resolvedResultType.base == "void" && resolvedResultType.pointer_depth == 0);
+		bool isVoid = resolvedResultType == null || (resolvedResultType.base == "void" && resolvedResultType.pointerDepth == 0);
 		if (isVoid) {
 			sequence.push(expression);
 			self.appendSuffix(sequence);
@@ -187,7 +187,7 @@ class OwnershipBoundary {
 		/* setjmp cleanup needs volatile storage across longjmp. Ordinary call
          * results do not, and unconditional volatile triggers a GCC/Darwin
          * -O2/-O3 miscompile of inlined mixed-ABI constructors. */
-		resultDeclaration.is_volatile = self.context.exceptionsAreEnabled();
+		resultDeclaration.isVolatile = self.context.exceptionsAreEnabled();
 		self.declarations.push(resultDeclaration);
 		self.context.recordLocal(resultDeclaration);
 		IRNode result = IRNode.variable(resultName);
@@ -348,8 +348,8 @@ class CallOwnershipLowerer {
 			CallableFlowSnapshot flowEntry = callableFlow.snapshot();
 			int parameterIndex = positional;
 			string argumentName = "";
-			if (index < call.arg_names.len) {
-				argumentName = call.arg_names.get(index);
+			if (index < call.argNames.len) {
+				argumentName = call.argNames.get(index);
 			}
 			if (argumentName != "") {
 				parameterIndex = self.namedParameterIndex(parameters, argumentName);

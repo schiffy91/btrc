@@ -51,45 +51,45 @@ class CEmitter {
          * function-pointer typedefs may reference an enum type by name).
          * Mirrors emitter.py's enum_defs loop. */
 		int e = 0;
-		while (e < m.enum_defs.len) {
-			self.emitEnum(m.enum_defs.get(e));
+		while (e < m.enumDefs.len) {
+			self.emitEnum(m.enumDefs.get(e));
 			e = e + 1;
 		}
 
 		int i = 0;
-		while (i < m.struct_forwards.len) {
-			self.emitStructForward(m.struct_forwards.get(i));
+		while (i < m.structForwards.len) {
+			self.emitStructForward(m.structForwards.get(i));
 			i = i + 1;
 		}
-		if (m.struct_forwards.len > 0) { self.line(""); }
+		if (m.structForwards.len > 0) { self.line(""); }
 
 		self.emitOrderedAliases(m);
 		i = 0;
-		while (i < m.tagged_union_defs.len) {
-			self.emitTaggedUnion(m.tagged_union_defs.get(i));
+		while (i < m.taggedUnionDefs.len) {
+			self.emitTaggedUnion(m.taggedUnionDefs.get(i));
 			i = i + 1;
 		}
 
 		i = 0;
-		while (i < m.function_decls.len) {
-			self.emitFunctionDecl(m.function_decls.get(i));
+		while (i < m.functionDecls.len) {
+			self.emitFunctionDecl(m.functionDecls.get(i));
 			i = i + 1;
 		}
-		if (m.function_decls.len > 0) { self.line(""); }
+		if (m.functionDecls.len > 0) { self.line(""); }
 
 		/* Struct definitions. */
 		i = 0;
-		while (i < m.struct_defs.len) {
-			self.emitStruct(m.struct_defs.get(i));
+		while (i < m.structDefs.len) {
+			self.emitStruct(m.structDefs.get(i));
 			i = i + 1;
 		}
 
 		i = 0;
-		while (i < m.global_decls.len) {
-			self.emitGlobal(m.global_decls.get(i));
+		while (i < m.globalDecls.len) {
+			self.emitGlobal(m.globalDecls.get(i));
 			i = i + 1;
 		}
-		if (m.global_decls.len > 0) { self.line(""); }
+		if (m.globalDecls.len > 0) { self.line(""); }
 
 		self.emitGpuKernels(m);
 
@@ -125,9 +125,9 @@ class CEmitter {
 
 	private void emitGpuKernels(IRModule module) {
 		int index = 0;
-		while (index < module.gpu_kernels.len) {
-			IRGpuKernel kernel = module.gpu_kernels.get(index);
-			self.line("static char* " + kernel.name + "_wgsl = \"" + self.escapedGpuShader(kernel.wgsl_source) + "\";");
+		while (index < module.gpuKernels.len) {
+			IRGpuKernel kernel = module.gpuKernels.get(index);
+			self.line("static char* " + kernel.name + "_wgsl = \"" + self.escapedGpuShader(kernel.wgslSource) + "\";");
 			self.line("");
 			index++;
 		}
@@ -136,17 +136,17 @@ class CEmitter {
 	private Vector<string> buildPreprocessorLines(IRModule m) {
 		Vector<string> out = [];
 		int i = 0;
-		while (i < m.preprocessor_decls.len) {
-			IRPreprocessorDecl declaration = m.preprocessor_decls.get(i);
+		while (i < m.preprocessorDecls.len) {
+			IRPreprocessorDecl declaration = m.preprocessorDecls.get(i);
 			if (declaration.kind == IR_PREPROCESSOR_INCLUDE) {
-				if (declaration.is_system) {
+				if (declaration.isSystem) {
 					out.push("#include <" + declaration.header + ">");
 				} else {
 					out.push("#include \"" + declaration.header + "\"");
 				}
 			} else if (declaration.kind == IR_PREPROCESSOR_MACRO) {
 				string parameters = "";
-				if (declaration.function_like) {
+				if (declaration.functionLike) {
 					parameters = "(";
 					int parameter = 0;
 					while (parameter < declaration.params.len) {
@@ -235,12 +235,12 @@ class CEmitter {
 	}
 
 	private bool functionPointerDependenciesReady(IRFunctionPointerTypedef declaration, Map<string, bool> providers, Map<string, bool> emitted) {
-		if (!self.aliasDependenciesReady(declaration.return_type, declaration.name, providers, emitted)) {
+		if (!self.aliasDependenciesReady(declaration.returnType, declaration.name, providers, emitted)) {
 			return false;
 		}
 		int index = 0;
-		while (index < declaration.param_types.len) {
-			if (!self.aliasDependenciesReady(declaration.param_types.get(index), declaration.name, providers, emitted)) {
+		while (index < declaration.paramTypes.len) {
+			if (!self.aliasDependenciesReady(declaration.paramTypes.get(index), declaration.name, providers, emitted)) {
 				return false;
 			}
 			index = index + 1;
@@ -254,23 +254,23 @@ class CEmitter {
 	private void emitOrderedAliases(IRModule module) {
 		Map<string, bool> providers = {};
 		int index = 0;
-		while (index < module.function_pointer_typedefs.len) {
-			providers.put(module.function_pointer_typedefs.get(index).name, true);
+		while (index < module.functionPointerTypedefs.len) {
+			providers.put(module.functionPointerTypedefs.get(index).name, true);
 			index = index + 1;
 		}
 		index = 0;
-		while (index < module.typedef_defs.len) {
-			providers.put(module.typedef_defs.get(index).name, true);
+		while (index < module.typedefDefs.len) {
+			providers.put(module.typedefDefs.get(index).name, true);
 			index = index + 1;
 		}
 
 		Map<string, bool> emitted = {};
-		int remaining = module.function_pointer_typedefs.len + module.typedef_defs.len;
+		int remaining = module.functionPointerTypedefs.len + module.typedefDefs.len;
 		while (remaining > 0) {
 			bool progressed = false;
 			index = 0;
-			while (index < module.function_pointer_typedefs.len) {
-				IRFunctionPointerTypedef declaration = module.function_pointer_typedefs.get(index);
+			while (index < module.functionPointerTypedefs.len) {
+				IRFunctionPointerTypedef declaration = module.functionPointerTypedefs.get(index);
 				if (!emitted.has(declaration.name) && self.functionPointerDependenciesReady(declaration, providers, emitted)) {
 					self.emitFunctionPointerTypedef(declaration);
 					self.line("");
@@ -281,9 +281,9 @@ class CEmitter {
 				index = index + 1;
 			}
 			index = 0;
-			while (index < module.typedef_defs.len) {
-				IRTypedefDef declaration = module.typedef_defs.get(index);
-				if (!emitted.has(declaration.name) && self.aliasDependenciesReady(declaration.target_type, declaration.name, providers, emitted)) {
+			while (index < module.typedefDefs.len) {
+				IRTypedefDef declaration = module.typedefDefs.get(index);
+				if (!emitted.has(declaration.name) && self.aliasDependenciesReady(declaration.targetType, declaration.name, providers, emitted)) {
 					self.emitTypedef(declaration);
 					emitted.put(declaration.name, true);
 					remaining = remaining - 1;
@@ -300,38 +300,38 @@ class CEmitter {
 
 	private void emitFunctionPointerTypedef(IRFunctionPointerTypedef declaration) {
 		string parameters = "void";
-		if (declaration.param_types.len > 0) {
+		if (declaration.paramTypes.len > 0) {
 			parameters = "";
 			int index = 0;
-			while (index < declaration.param_types.len) {
+			while (index < declaration.paramTypes.len) {
 				if (index > 0) { parameters = parameters + ", "; }
-				parameters = parameters + declaration.param_types.get(index);
+				parameters = parameters + declaration.paramTypes.get(index);
 				index = index + 1;
 			}
 		}
-		self.line("typedef " + declaration.return_type + " (*" + declaration.name + ")(" + parameters + ");");
+		self.line("typedef " + declaration.returnType + " (*" + declaration.name + ")(" + parameters + ");");
 	}
 
 	private void emitFunctionDecl(IRFunctionDecl declaration) {
 		string storage = "";
-		if (declaration.is_static) { storage = "static "; }
-		self.line(storage + declaration.return_type + " " + declaration.name + "(" + self.paramList(declaration.params) + ");");
+		if (declaration.isStatic) { storage = "static "; }
+		self.line(storage + declaration.returnType + " " + declaration.name + "(" + self.paramList(declaration.params) + ");");
 	}
 
 	/* --- struct emission (matches emitter.py _emit_struct) --- */
 
 	private string structFieldDeclaration(IRStructField field) {
 		string suffix = "";
-		if (field.array_size != null) {
-			suffix = "[" + self.expr(field.array_size) + "]";
+		if (field.arraySize != null) {
+			suffix = "[" + self.expr(field.arraySize) + "]";
 		}
-		string ctype = self.qualifyVolatileObjectType(field.c_type, field.is_volatile);
+		string ctype = self.qualifyVolatileObjectType(field.cType, field.isVolatile);
 		return ctype + " " + field.name + suffix + ";";
 	}
 
 	private void emitStruct(IRStructDef s) {
-		if (s.pack_alignment > 0) {
-			self.line("#pragma pack(push, " + Strings.fromInt(s.pack_alignment) + ")");
+		if (s.packAlignment > 0) {
+			self.line("#pragma pack(push, " + Strings.fromInt(s.packAlignment) + ")");
 		}
 		self.line(f"struct {s.name} {{");
 		self.indent = self.indent + 1;
@@ -343,12 +343,12 @@ class CEmitter {
 		}
 		self.indent = self.indent - 1;
 		self.line("};");
-		if (s.pack_alignment > 0) { self.line("#pragma pack(pop)"); }
+		if (s.packAlignment > 0) { self.line("#pragma pack(pop)"); }
 		self.line("");
 	}
 
 	private void emitTypedef(IRTypedefDef d) {
-		string targetType = self.qualifyVolatileObjectType(d.target_type, d.is_volatile);
+		string targetType = self.qualifyVolatileObjectType(d.targetType, d.isVolatile);
 		self.line(f"typedef {targetType} {d.name};");
 		self.line("");
 	}
@@ -375,7 +375,7 @@ class CEmitter {
 		}
 		self.line(f"struct {d.name} {{");
 		self.indent = self.indent + 1;
-		self.line(f"{d.tag_type} tag;");
+		self.line(f"{d.tagType} tag;");
 		bool hasPayload = false;
 		i = 0;
 		while (i < d.variants.len) {
@@ -404,12 +404,12 @@ class CEmitter {
 
 	private void emitGlobal(IRGlobalDecl d) {
 		string storage = "";
-		if (d.is_static) { storage = "static "; }
-		else if (d.is_extern) { storage = "extern "; }
-		string ctype = self.qualifyVolatileObjectType(d.c_type, d.is_volatile);
+		if (d.isStatic) { storage = "static "; }
+		else if (d.isExtern) { storage = "extern "; }
+		string ctype = self.qualifyVolatileObjectType(d.cType, d.isVolatile);
 		string suffix = "";
-		if (d.array_size != null) { suffix = "[" + self.expr(d.array_size) + "]"; }
-		else if (d.is_unsized_array) { suffix = "[]"; }
+		if (d.arraySize != null) { suffix = "[" + self.expr(d.arraySize) + "]"; }
+		else if (d.isUnsizedArray) { suffix = "[]"; }
 		string initializer = "";
 		if (d.init != null) { initializer = " = " + self.expr(d.init); }
 		self.line(storage + ctype + " " + d.name + suffix + initializer + ";");
@@ -419,8 +419,8 @@ class CEmitter {
 
 	private void emitFunction(IRFunction fn) {
 		string prefix = "";
-		if (fn.is_static) { prefix = "static "; }
-		self.line(prefix + fn.return_type + " " + fn.name + "(" + self.paramList(fn.params) + ") {");
+		if (fn.isStatic) { prefix = "static "; }
+		self.line(prefix + fn.returnType + " " + fn.name + "(" + self.paramList(fn.params) + ") {");
 		if (fn.body != null) {
 			self.indent = self.indent + 1;
 			self.emitBlockContents(fn.body);
@@ -439,7 +439,7 @@ class CEmitter {
 			while (i < declarations.len) {
 				IRParam p = declarations.get(i);
 				if (i > 0) { params = params + ", "; }
-				string paramType = self.qualifyVolatileObjectType(p.c_type, p.is_volatile);
+				string paramType = self.qualifyVolatileObjectType(p.cType, p.isVolatile);
 				params = params + paramType + " " + p.name;
 				i = i + 1;
 			}
@@ -494,9 +494,9 @@ class CEmitter {
 		}
 		if (s.kind == IRK_IF) {
 			self.line(f"if ({self.condExpr(s.condition)}) {{");
-			if (s.then_block != null) {
+			if (s.thenBlock != null) {
 				self.indent = self.indent + 1;
-				self.emitBlockContents(s.then_block);
+				self.emitBlockContents(s.thenBlock);
 				self.indent = self.indent - 1;
 			}
 			self.emitElseTail(s);
@@ -565,7 +565,7 @@ class CEmitter {
 				while (j < c.stmts.len) { self.emitStmt(c.stmts.get(j)); j = j + 1; }
 				self.indent = self.indent - 1;
 				self.line("}");
-				if (c.falls_through && ci + 1 < s.args.len) {
+				if (c.fallsThrough && ci + 1 < s.args.len) {
 					self.line("/* fall through */");
 				}
 				ci = ci + 1;
@@ -601,30 +601,30 @@ class CEmitter {
 
 	private string qualifiedDeclType(IRNode declaration) {
 		string storage = "";
-		if (declaration.is_static) { storage = "static "; }
-		else if (declaration.is_extern) { storage = "extern "; }
-		string ctype = self.qualifyVolatileObjectType(declaration.c_type, declaration.is_volatile);
+		if (declaration.isStatic) { storage = "static "; }
+		else if (declaration.isExtern) { storage = "extern "; }
+		string ctype = self.qualifyVolatileObjectType(declaration.cType, declaration.isVolatile);
 		return storage + ctype;
 	}
 
 	private string localDeclarator(IRNode declaration) {
-		if (!declaration.is_array_decl) { return declaration.name; }
+		if (!declaration.isArrayDecl) { return declaration.name; }
 		string size = "";
-		if (declaration.array_size != null) {
-			size = self.expr(declaration.array_size);
+		if (declaration.arraySize != null) {
+			size = self.expr(declaration.arraySize);
 		}
 		return declaration.name + "[" + size + "]";
 	}
 
 	/* Emit the else / else-if tail of an IRIf, recursing for chains. */
 	private void emitElseTail(IRNode s) {
-		if (s.else_block == null || s.else_block.stmts.len == 0) {
+		if (s.elseBlock == null || s.elseBlock.stmts.len == 0) {
 			self.line("}");
 			return;
 		}
 		self.line("} else {");
 		self.indent = self.indent + 1;
-		self.emitBlockContents(s.else_block);
+		self.emitBlockContents(s.elseBlock);
 		self.indent = self.indent - 1;
 		self.line("}");
 	}
@@ -749,12 +749,12 @@ class CEmitter {
 		}
 		if (e.kind == IRK_CAST) {
 			Vector<string> values = [self.expr(e.expr)];
-			return self.compound("((" + e.target_type + ")", values, ")", "", "\n");
+			return self.compound("((" + e.targetType + ")", values, ")", "", "\n");
 		}
 		if (e.kind == IRK_TERNARY) {
 			Vector<string> values = [
-				self.expr(e.condition), "?", self.expr(e.true_expr),
-				":", self.expr(e.false_expr)
+				self.expr(e.condition), "?", self.expr(e.trueExpr),
+				":", self.expr(e.falseExpr)
 			];
 			return self.compound("(", values, ")", " ", "\n");
 		}
@@ -763,11 +763,11 @@ class CEmitter {
 				Vector<string> operand = [self.expr(e.operand)];
 				return self.compound("sizeof(", operand, ")", "", "\n");
 			}
-			if (e.target_type == "") {
+			if (e.targetType == "") {
 				print("internal compiler error: IRSizeof has no operand");
 				exit(1);
 			}
-			Vector<string> values = [e.target_type];
+			Vector<string> values = [e.targetType];
 			return self.compound("sizeof(", values, ")", "", "\n");
 		}
 		if (e.kind == IRK_INITIALIZER_LIST) {
@@ -781,7 +781,7 @@ class CEmitter {
 			return self.delimited("{", values, "}");
 		}
 		if (e.kind == IRK_COMPOUND_LITERAL) {
-			if (e.target_type == "" || e.field_names.len != e.args.len) {
+			if (e.targetType == "" || e.fieldNames.len != e.args.len) {
 				print("internal compiler error: malformed IRCompoundLiteral");
 				exit(1);
 			}
@@ -790,11 +790,11 @@ class CEmitter {
 			int i = 0;
 			while (i < e.args.len) {
 				Vector<string> value = [self.expr(e.args.get(i))];
-				fields.push(self.compound("." + e.field_names.get(i) + " = ", value, "", "", "\n"));
+				fields.push(self.compound("." + e.fieldNames.get(i) + " = ", value, "", "", "\n"));
 				i = i + 1;
 			}
 			Vector<string> literal = [self.delimited("{", fields, "}")];
-			return self.compound("(" + e.target_type + ")", literal, "", "", "\n");
+			return self.compound("(" + e.targetType + ")", literal, "", "", "\n");
 		}
 		if (e.kind == IRK_INDEX) {
 			Vector<string> indexValue = [self.expr(e.index)];

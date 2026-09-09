@@ -28,6 +28,9 @@ PYTEST_WORKERS ?= 8
 PYTEST_ARGS ?= -q -rs -n $(PYTEST_WORKERS)
 PYTEST_SERIAL_ARGS ?= -q -rs
 BTRC_FORMAT_PATHS := src examples bench
+# What `make linux-ci` runs inside the container. Override to reproduce a
+# single CI step, e.g. LINUX_CI_TARGETS="lint format-check".
+LINUX_CI_TARGETS ?= gpu-required test
 # This fixture is deliberately noncanonical input for formatter grouping tests.
 # Keep exclusions exact: btrc-format rejects missing or undiscovered paths.
 BTRC_FORMAT_EXCLUDES := --exclude src/tests/formatter/fixtures/ImportGroups.btrc
@@ -430,6 +433,9 @@ extension-install: extension ## Install VSCode extension (dev)
 		code --install-extension dist/btrc.vsix --force'
 
 # ─── Infrastructure ─────────────────────────────────────────────────────────
+
+linux-ci: ## Run LINUX_CI_TARGETS in the devcontainer, the way Linux CI does
+	@tools/linux-ci.sh $(LINUX_CI_TARGETS)
 
 devcontainer: ## Generate .devcontainer/ and build image
 	@set -e; \

@@ -507,8 +507,8 @@ def test_default_helpers_share_call_claim_and_function_body_owners() -> None:
     expressions = _path("ir/lowering/expressions.btrc").read_text()
     functions = _path("ir/lowering/functions.btrc").read_text()
     lowerer = _path("ir/lowering/lowerer.btrc").read_text()
-    assert "activeModule().function_decls.push(declaration)" in calls
-    assert "selfType.generic_args.push(" in calls
+    assert "activeModule().functionDecls.push(declaration)" in calls
+    assert "selfType.genericArgs.push(" in calls
     assert expressions.count("self.calls.ensureDefaultHelper(") == 1
     assert "self.calls.defaultHelperSymbol(" not in expressions
     assert "self.calls.takePendingDefaultHelpers()" in functions
@@ -1022,9 +1022,9 @@ def test_pipeline_exposes_the_six_stage_ir_boundary_explicitly() -> None:
         ]
     )
     assert "class IRTemporaryNames {" in model
-    assert "public IRTemporaryNames temporary_names;" in model
+    assert "public IRTemporaryNames temporaryNames;" in model
     assert "private IRTemporaryNames temporaryNameState;" in context
-    assert "module.temporary_names = self.temporaryNameState;" in context
+    assert "module.temporaryNames = self.temporaryNameState;" in context
 
     assert "GeneratedHostedAbiData" not in setjmp_analysis
     assert "HostedAbiRepository hostedAbi" in setjmp_analysis

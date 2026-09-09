@@ -5,46 +5,46 @@ import std.vector;
 class GeneratedRuntimeHelperRow {
 	public string category;
 	public string name;
-	public Vector<string> source_chunks;
+	public Vector<string> sourceChunks;
 	public Vector<string> dependencies;
 	public Vector<string> headers;
-	public Vector<string> provided_types;
-	public Vector<string> provided_objects;
-	public bool source_visible;
-	public string realtime_effect;
+	public Vector<string> providedTypes;
+	public Vector<string> providedObjects;
+	public bool sourceVisible;
+	public string realtimeEffect;
 
-	public GeneratedRuntimeHelperRow(string category, string name, Vector<string> source_chunks, Vector<string> dependencies, Vector<string> headers, Vector<string> provided_types, Vector<string> provided_objects, bool source_visible, string realtime_effect) {
+	public GeneratedRuntimeHelperRow(string category, string name, Vector<string> sourceChunks, Vector<string> dependencies, Vector<string> headers, Vector<string> providedTypes, Vector<string> providedObjects, bool sourceVisible, string realtimeEffect) {
 		self.category = category;
 		self.name = name;
-		self.source_chunks = source_chunks;
+		self.sourceChunks = sourceChunks;
 		self.dependencies = dependencies;
 		self.headers = headers;
-		self.provided_types = provided_types;
-		self.provided_objects = provided_objects;
-		self.source_visible = source_visible;
-		self.realtime_effect = realtime_effect;
+		self.providedTypes = providedTypes;
+		self.providedObjects = providedObjects;
+		self.sourceVisible = sourceVisible;
+		self.realtimeEffect = realtimeEffect;
 	}
 }
 
 class GeneratedIntrinsicEffectRow {
 	public string receiver;
 	public string method;
-	public string realtime_effect;
-	public string c_callee;
+	public string realtimeEffect;
+	public string cCallee;
 	public string provenance;
 
-	public GeneratedIntrinsicEffectRow(string receiver, string method, string realtime_effect, string c_callee, string provenance) {
+	public GeneratedIntrinsicEffectRow(string receiver, string method, string realtimeEffect, string cCallee, string provenance) {
 		self.receiver = receiver;
 		self.method = method;
-		self.realtime_effect = realtime_effect;
-		self.c_callee = c_callee;
+		self.realtimeEffect = realtimeEffect;
+		self.cCallee = cCallee;
 		self.provenance = provenance;
 	}
 }
 
 class GeneratedRuntimeCatalogData {
 	public Vector<GeneratedRuntimeHelperRow> rows;
-	public Vector<GeneratedIntrinsicEffectRow> intrinsic_effects;
+	public Vector<GeneratedIntrinsicEffectRow> intrinsicEffects;
 
 	private Vector<string> emptyStrings() {
 		Vector<string> values = [];
@@ -80,23 +80,23 @@ class GeneratedRuntimeCatalogData {
 		self.pushRows24();
 		self.pushRows25();
 		self.pushRows26();
-		self.intrinsic_effects = [];
-		self.intrinsic_effects.push(GeneratedIntrinsicEffectRow("Atomic", "compareExchangeStrong", "safe", "atomic_compare_exchange_strong_explicit", "Atomic.compareExchangeStrong"));
-		self.intrinsic_effects.push(GeneratedIntrinsicEffectRow("Atomic", "exchange", "safe", "atomic_exchange_explicit", "Atomic.exchange"));
-		self.intrinsic_effects.push(GeneratedIntrinsicEffectRow("Atomic", "fetchAdd", "safe", "atomic_fetch_add_explicit", "Atomic.fetchAdd"));
-		self.intrinsic_effects.push(GeneratedIntrinsicEffectRow("Atomic", "fetchAnd", "safe", "atomic_fetch_and_explicit", "Atomic.fetchAnd"));
-		self.intrinsic_effects.push(GeneratedIntrinsicEffectRow("Atomic", "fetchOr", "safe", "atomic_fetch_or_explicit", "Atomic.fetchOr"));
-		self.intrinsic_effects.push(GeneratedIntrinsicEffectRow("Atomic", "fetchSub", "safe", "atomic_fetch_sub_explicit", "Atomic.fetchSub"));
-		self.intrinsic_effects.push(GeneratedIntrinsicEffectRow("Atomic", "fetchXor", "safe", "atomic_fetch_xor_explicit", "Atomic.fetchXor"));
-		self.intrinsic_effects.push(GeneratedIntrinsicEffectRow("Atomic", "init", "unknown", "atomic_init", "Atomic.init"));
-		self.intrinsic_effects.push(GeneratedIntrinsicEffectRow("Atomic", "load", "safe", "atomic_load_explicit", "Atomic.load"));
-		self.intrinsic_effects.push(GeneratedIntrinsicEffectRow("Atomic", "store", "safe", "atomic_store_explicit", "Atomic.store"));
-		self.intrinsic_effects.push(GeneratedIntrinsicEffectRow("Span", "constructor", "safe", "", "Span.constructor"));
-		self.intrinsic_effects.push(GeneratedIntrinsicEffectRow("Span", "isEmpty", "safe", "", "Span.isEmpty"));
-		self.intrinsic_effects.push(GeneratedIntrinsicEffectRow("Span", "isValid", "safe", "", "Span.isValid"));
-		self.intrinsic_effects.push(GeneratedIntrinsicEffectRow("Span", "length", "safe", "", "Span.length"));
-		self.intrinsic_effects.push(GeneratedIntrinsicEffectRow("Span", "tryGet", "safe", "", "Span.tryGet"));
-		self.intrinsic_effects.push(GeneratedIntrinsicEffectRow("Span", "trySet", "safe", "", "Span.trySet"));
+		self.intrinsicEffects = [];
+		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Atomic", "compareExchangeStrong", "safe", "atomic_compare_exchange_strong_explicit", "Atomic.compareExchangeStrong"));
+		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Atomic", "exchange", "safe", "atomic_exchange_explicit", "Atomic.exchange"));
+		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Atomic", "fetchAdd", "safe", "atomic_fetch_add_explicit", "Atomic.fetchAdd"));
+		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Atomic", "fetchAnd", "safe", "atomic_fetch_and_explicit", "Atomic.fetchAnd"));
+		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Atomic", "fetchOr", "safe", "atomic_fetch_or_explicit", "Atomic.fetchOr"));
+		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Atomic", "fetchSub", "safe", "atomic_fetch_sub_explicit", "Atomic.fetchSub"));
+		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Atomic", "fetchXor", "safe", "atomic_fetch_xor_explicit", "Atomic.fetchXor"));
+		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Atomic", "init", "unknown", "atomic_init", "Atomic.init"));
+		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Atomic", "load", "safe", "atomic_load_explicit", "Atomic.load"));
+		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Atomic", "store", "safe", "atomic_store_explicit", "Atomic.store"));
+		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Span", "constructor", "safe", "", "Span.constructor"));
+		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Span", "isEmpty", "safe", "", "Span.isEmpty"));
+		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Span", "isValid", "safe", "", "Span.isValid"));
+		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Span", "length", "safe", "", "Span.length"));
+		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Span", "tryGet", "safe", "", "Span.tryGet"));
+		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Span", "trySet", "safe", "", "Span.trySet"));
 	}
 
 	private void pushRows0() {

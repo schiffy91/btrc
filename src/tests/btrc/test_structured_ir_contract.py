@@ -40,7 +40,7 @@ def test_top_level_declarations_are_typed_end_to_end() -> None:
         "public Vector<string> raw_sections;",
         "public Vector<string> forward_decls;",
         "public Vector<string> includes;",
-        "public Vector<string> enum_defs;",
+        "public Vector<string> enumDefs;",
         ".raw_sections",
         ".forward_decls",
         ".includes",
@@ -55,19 +55,19 @@ def test_top_level_declarations_are_typed_end_to_end() -> None:
     ):
         assert declaration_type in schema
     for declaration in (
-        "public Vector<IRPreprocessorDecl> preprocessor_decls;",
-        "public Vector<IREnumDef> enum_defs;",
-        "public Vector<IRStructForward> struct_forwards;",
-        "public Vector<IRFunctionPointerTypedef> function_pointer_typedefs;",
-        "public Vector<IRFunctionDecl> function_decls;",
+        "public Vector<IRPreprocessorDecl> preprocessorDecls;",
+        "public Vector<IREnumDef> enumDefs;",
+        "public Vector<IRStructForward> structForwards;",
+        "public Vector<IRFunctionPointerTypedef> functionPointerTypedefs;",
+        "public Vector<IRFunctionDecl> functionDecls;",
     ):
         assert declaration in schema
 
-    assert "m.struct_forwards.push(IRStructForward(" in declarations
-    assert "m.function_decls.push(" in declarations + functions
-    assert "module.function_pointer_typedefs.push(declaration);" in types
-    assert "m.enum_defs.push(" in declarations
-    assert "m.preprocessor_decls" in emitter
+    assert "m.structForwards.push(IRStructForward(" in declarations
+    assert "m.functionDecls.push(" in declarations + functions
+    assert "module.functionPointerTypedefs.push(declaration);" in types
+    assert "m.enumDefs.push(" in declarations
+    assert "m.preprocessorDecls" in emitter
     assert 'substring(0, 15) == "typedef struct "' not in emitter
     assert 'substring(0, 8) == "typedef "' not in emitter
     assert "private Map<string, Node> functionPointerTypes;" in types
@@ -77,7 +77,7 @@ def test_top_level_declarations_are_typed_end_to_end() -> None:
     ]
     # Preserve named typedef boundaries while still registering directly
     # nested callback spellings before the outer function-pointer declaration.
-    register_nested = registration.index("self.lower(typeExpr.generic_args.get(component))")
+    register_nested = registration.index("self.lower(typeExpr.genericArgs.get(component))")
     register_outer = registration.index("self.functionPointerOrder.push(mangled)")
     assert register_nested < register_outer
     assert "SemanticTypeSystem.resolveTypedefType(" not in registration
@@ -88,8 +88,8 @@ def test_preprocessor_ir_is_validated_and_emitted_structurally() -> None:
     declarations = _source("ir/lowering/declarations.btrc")
     emitter = _source("ir/emitter.btrc")
 
-    assert "public bool is_system;" in _source("ir/model.btrc")
-    assert "public bool function_like;" in _source("ir/model.btrc")
+    assert "public bool isSystem;" in _source("ir/model.btrc")
+    assert "public bool functionLike;" in _source("ir/model.btrc")
     assert "public Vector<string> params;" in _source("ir/model.btrc")
     assert "lowerPreprocessorDirective(d.text, m);" in declarations
     assert "unsupported preprocessor directive" in declarations
@@ -150,7 +150,7 @@ def test_gpu_translation_unit_records_belong_to_the_ir_model() -> None:
     for record in ("IRGpuBuffer", "IRGpuUniform", "IRGpuKernel"):
         assert f"class {record} {{" in schema
         assert f"class {record} {{" not in pipeline
-    assert "public Vector<IRGpuKernel> gpu_kernels;" in schema
+    assert "public Vector<IRGpuKernel> gpuKernels;" in schema
 
 
 def test_selfhost_emits_struct_array_bounds_and_indirect_calls_only_from_ir() -> None:
@@ -166,21 +166,21 @@ def test_selfhost_emits_struct_array_bounds_and_indirect_calls_only_from_ir() ->
         declarations.index("public void emitStructDecl(") : declarations.index("public void emitGlobalVar(")
     ]
 
-    assert "public IRNode array_size;" in field_schema
-    assert "self.array_size = null;" in field_schema
+    assert "public IRNode arraySize;" in field_schema
+    assert "self.arraySize = null;" in field_schema
     assert "CallableFlowState callableFlow = CallableFlowState();" in emit_struct
-    assert "f.type.array_size, empty, callableFlow);" in emit_struct
+    assert "f.type.arraySize, empty, callableFlow);" in emit_struct
     assert (
         "public IRNode lowerExpr(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow)"
     ) in expressions
     assert "self.callableLowering.materializeInvocation(" in expressions
     assert "public IRNode materializeInvocation(" in callables
     assert "return IRNode.call(lambda.functionName, arguments);" in callables
-    assert 'suffix = "[" + self.expr(field.array_size) + "]";' in emitter
+    assert 'suffix = "[" + self.expr(field.arraySize) + "]";' in emitter
     assert emitter.count("self.structFieldDeclaration(") == 2
-    assert "self.collectStructRefsNode(field.array_size, knownNames, fr);" in optimizer
-    assert "self.collectStructRefsNode(field.array_size, knownNames, refs);" in optimizer
-    assert "self.collectNode(field.array_size, used);" in helper_reachability
+    assert "self.collectStructRefsNode(field.arraySize, knownNames, fr);" in optimizer
+    assert "self.collectStructRefsNode(field.arraySize, knownNames, refs);" in optimizer
+    assert "self.collectNode(field.arraySize, used);" in helper_reachability
     assert 'f.name + "["' not in declarations
     assert "irExprText" not in declarations + expressions
 
@@ -231,7 +231,7 @@ def test_selfhost_portability_lowering_is_structured() -> None:
     assert "import ../../syntax/literals.btrc;" in expressions
     assert "class IntegerLiteral {" in literals
     assert "public string cSource(int storedValue)" in literals
-    assert "IntegerLiteral(node.raw).cSource(node.value_int)" in expressions
+    assert "IntegerLiteral(node.raw).cSource(node.valueInt)" in expressions
     assert "NumericSemantics.integerLiteralType(node.raw)" in analyzer_expressions
     assert "class NumericSemantics {" in numeric
     assert "class Node? resultType(" in numeric
@@ -370,9 +370,9 @@ def test_pragma_pack_is_struct_metadata_not_a_raw_section() -> None:
     declarations = _source("ir/lowering/declarations.btrc")
     emitter = _source("ir/emitter.btrc")
 
-    assert "public int pack_alignment;" in nodes
+    assert "public int packAlignment;" in nodes
     assert "self.declarations.packAlignments(program)" in lowerer
-    assert "sd.pack_alignment = self.context.packAlignments.get" in declarations
+    assert "sd.packAlignment = self.context.packAlignments.get" in declarations
     assert "if (self.isPackPragma(text)) { return; }" in declarations
     assert 'self.line("#pragma pack(push, "' in emitter
     assert 'self.line("#pragma pack(pop)")' in emitter

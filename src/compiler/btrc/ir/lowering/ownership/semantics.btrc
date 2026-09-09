@@ -168,7 +168,7 @@ class OwnershipSemantics {
 			return false;
 		}
 		if (expression.kind == NK_TERNARY_EXPR) {
-			return self.conditionalOwnsResult(expression, expression.true_expr, expression.false_expr, environment, callableFlow);
+			return self.conditionalOwnsResult(expression, expression.trueExpr, expression.falseExpr, environment, callableFlow);
 		}
 		if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
 			return self.conditionalOwnsResult(expression, expression.left, expression.right, environment, callableFlow);
@@ -268,7 +268,7 @@ class OwnershipSemantics {
 		}
 		Node? receiverType = self.expressionType(expression.obj, environment);
 		Node? member = DeclarationRegistry.instanceMemberForType(self.analyzed, receiverType, expression.field);
-		return member != null && member.kind == NK_PROPERTY_DECL && member.getter_body != null;
+		return member != null && member.kind == NK_PROPERTY_DECL && member.getterBody != null;
 	}
 
 	public bool virtualAssignmentRhsOwnsResult(Node assignment, Node? targetType, OwnershipOperandEnvironment environment) { return assignment.op == "=" && targetType != null && self.isManaged(targetType, environment); }
@@ -383,8 +383,8 @@ class OwnershipSemantics {
 		self.prepareRawProjection(projection, expression.operand, environment);
 		self.prepareRawProjection(projection, expression.left, environment);
 		self.prepareRawProjection(projection, expression.right, environment);
-		self.prepareRawProjection(projection, expression.true_expr, environment);
-		self.prepareRawProjection(projection, expression.false_expr, environment);
+		self.prepareRawProjection(projection, expression.trueExpr, environment);
+		self.prepareRawProjection(projection, expression.falseExpr, environment);
 		self.prepareRawProjection(projection, expression.obj, environment);
 		int argument = 0;
 		while (argument < expression.args.len) {

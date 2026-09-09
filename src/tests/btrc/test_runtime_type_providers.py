@@ -83,8 +83,8 @@ def test_runtime_catalog_owns_generated_provider_indexes() -> None:
 
     assert "private Map<string, string> typeProviders;" in catalog
     assert "private Map<string, string> objectProviders;" in catalog
-    assert "row.provided_types" in catalog
-    assert "row.provided_objects" in catalog
+    assert "row.providedTypes" in catalog
+    assert "row.providedObjects" in catalog
     assert "helperProvidingType" in catalog
     assert "helperProvidingObject" in catalog
     assert "runtime type '%s' is provided by both" in catalog
@@ -92,8 +92,8 @@ def test_runtime_catalog_owns_generated_provider_indexes() -> None:
 
     assert "self.catalog.helperProvidingType(identifier)" in references
     assert "self.catalog.helperProvidingObject(name)" in references
-    assert "node.c_type" in references
-    assert "node.target_type" in references
+    assert "node.cType" in references
+    assert "node.targetType" in references
     assert "node.kind == IRK_VAR" in references
     assert "typeUsesArcCallbackAbi" not in references
     assert 'used.put("__btrc_arc_callback_types", true)' not in references
@@ -134,9 +134,9 @@ def test_enum_value_irvar_roots_only_surviving_object_provider(
             IREnumDef dead = IREnumDef("Dead");
             dead.values.push(IREnumValue(
                 "DEAD", IRNode.variable("dead_runtime_object")));
-            module.enum_defs.push(live);
-            module.enum_defs.push(dead);
-            module.enum_defs.pop();
+            module.enumDefs.push(live);
+            module.enumDefs.push(dead);
+            module.enumDefs.pop();
 
             RuntimeHelperCatalog providers = RuntimeHelperCatalog(rows);
             Map<string, bool> roots =

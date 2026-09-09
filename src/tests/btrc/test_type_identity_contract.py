@@ -136,7 +136,7 @@ def test_identity_contract_has_one_shared_implementation() -> None:
     nullable = identity.index('component = component + "_n"')
     array = identity.index('component = component + "_a"')
     assert pointer < nullable < array
-    assert "TypeIdentity.genericInstanceKey(base, t.generic_args)" in generics
+    assert "TypeIdentity.genericInstanceKey(base, t.genericArgs)" in generics
     assert "TypeIdentity.methodInstanceKey(" in generics
     assert "TypeIdentity.referencesNames(t, unresolved)" in generics
     assert "isConcreteType" not in generics + semantic_types

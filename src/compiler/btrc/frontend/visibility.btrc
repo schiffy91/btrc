@@ -122,8 +122,8 @@ class FeImportReferenceCollector {
 		if (node == null) { return; }
 		if (node.kind == NK_TYPE_EXPR) {
 			self.add(node.base, node.line, node.col, true);
-			self.visitList(node.generic_args);
-			self.visit(node.array_size);
+			self.visitList(node.genericArgs);
+			self.visit(node.arraySize);
 			return;
 		}
 		if (node.kind == NK_IDENTIFIER) {
@@ -131,7 +131,7 @@ class FeImportReferenceCollector {
 			return;
 		}
 		if (node.kind == NK_CLASS_DECL || node.kind == NK_INTERFACE_DECL) {
-			Vector<string> added = self.addGenericParameters(node.generic_params);
+			Vector<string> added = self.addGenericParameters(node.genericParams);
 			if (node.parent != null) {
 				self.add(node.parent, node.line, node.col, true);
 			}
@@ -146,32 +146,32 @@ class FeImportReferenceCollector {
 			return;
 		}
 		if (node.kind == NK_FUNCTION_DECL || node.kind == NK_METHOD_DECL || node.kind == NK_METHOD_SIG) {
-			Vector<string> added = self.addGenericParameters(node.generic_params);
-			self.visit(node.return_type);
+			Vector<string> added = self.addGenericParameters(node.genericParams);
+			self.visit(node.returnType);
 			Vector<string> empty = [];
 			self.pushScope(empty);
 			self.visitParameters(node.params);
-			self.visit(node.body_node);
+			self.visit(node.bodyNode);
 			self.popScope();
 			self.removeGenericParameters(added);
 			return;
 		}
 		if (node.kind == NK_LAMBDA_EXPR) {
-			self.visit(node.return_type);
+			self.visit(node.returnType);
 			self.visitList(node.captures);
 			Vector<string> empty = [];
 			self.pushScope(empty);
 			self.visitParameters(node.params);
-			self.visit(node.body_node);
+			self.visit(node.bodyNode);
 			self.popScope();
 			return;
 		}
 		if (node.kind == NK_PROPERTY_DECL) {
 			self.visit(node.type);
-			self.visit(node.getter_body);
+			self.visit(node.getterBody);
 			Vector<string> setterNames = ["value"];
 			self.pushScope(setterNames);
-			self.visit(node.setter_body);
+			self.visit(node.setterBody);
 			self.popScope();
 			return;
 		}
@@ -197,10 +197,10 @@ class FeImportReferenceCollector {
 		}
 		if (node.kind == NK_FOR_IN_STMT || node.kind == NK_PARALLEL_FOR_STMT) {
 			self.visit(node.iterable);
-			Vector<string> names = [node.var_name];
-			if (node.var_name2 != null) { names.push(node.var_name2); }
+			Vector<string> names = [node.varName];
+			if (node.varName2 != null) { names.push(node.varName2); }
 			self.pushScope(names);
-			self.visit(node.body_node);
+			self.visit(node.bodyNode);
 			self.popScope();
 			return;
 		}
@@ -210,32 +210,32 @@ class FeImportReferenceCollector {
 			self.visit(node.init);
 			self.visit(node.condition);
 			self.visit(node.update);
-			self.visit(node.body_node);
+			self.visit(node.bodyNode);
 			self.popScope();
 			return;
 		}
 		if (node.kind == NK_SWITCH_STMT) {
-			self.visit(node.value_node);
+			self.visit(node.valueNode);
 			int caseIndex = 0;
 			while (caseIndex < node.cases.len) {
 				Node clause = node.cases.get(caseIndex);
-				self.visit(clause.value_node);
+				self.visit(clause.valueNode);
 				Vector<string> empty = [];
 				self.pushScope(empty);
-				self.visitList(clause.body_nlist);
+				self.visitList(clause.bodyNodeList);
 				self.popScope();
 				caseIndex++;
 			}
 			return;
 		}
 		if (node.kind == NK_TRY_CATCH_STMT) {
-			self.visit(node.try_block);
-			self.visit(node.catch_type);
-			Vector<string> names = [node.catch_var];
+			self.visit(node.tryBlock);
+			self.visit(node.catchType);
+			Vector<string> names = [node.catchVar];
 			self.pushScope(names);
-			self.visit(node.catch_block);
+			self.visit(node.catchBlock);
 			self.popScope();
-			self.visit(node.finally_block);
+			self.visit(node.finallyBlock);
 			return;
 		}
 		if (node.kind == NK_PREPROCESSOR_DIRECTIVE) {
@@ -253,29 +253,29 @@ class FeImportReferenceCollector {
 		}
 
 		self.visit(node.spec);
-		self.visit(node.return_type);
-		self.visit(node.body_node);
+		self.visit(node.returnType);
+		self.visit(node.bodyNode);
 		self.visit(node.original);
-		self.visit(node.array_size);
+		self.visit(node.arraySize);
 		self.visit(node.type);
 		self.visit(node.default_);
 		self.visit(node.initializer);
-		self.visit(node.getter_body);
-		self.visit(node.setter_body);
-		self.visit(node.value_node);
+		self.visit(node.getterBody);
+		self.visit(node.setterBody);
+		self.visit(node.valueNode);
 		self.visit(node.condition);
-		self.visit(node.then_block);
-		self.visit(node.else_block);
+		self.visit(node.thenBlock);
+		self.visit(node.elseBlock);
 		self.visit(node.iterable);
 		self.visit(node.init);
 		self.visit(node.update);
 		self.visit(node.expr);
-		self.visit(node.try_block);
-		self.visit(node.catch_type);
-		self.visit(node.catch_block);
-		self.visit(node.finally_block);
-		self.visit(node.if_stmt);
-		self.visit(node.var_decl);
+		self.visit(node.tryBlock);
+		self.visit(node.catchType);
+		self.visit(node.catchBlock);
+		self.visit(node.finallyBlock);
+		self.visit(node.ifStmt);
+		self.visit(node.varDecl);
 		self.visit(node.expression);
 		self.visit(node.left);
 		self.visit(node.right);
@@ -283,9 +283,9 @@ class FeImportReferenceCollector {
 		self.visit(node.callee);
 		self.visit(node.obj);
 		self.visit(node.index);
-		self.visit(node.target_type);
-		self.visit(node.true_expr);
-		self.visit(node.false_expr);
+		self.visit(node.targetType);
+		self.visit(node.trueExpr);
+		self.visit(node.falseExpr);
 		self.visit(node.target);
 		self.visit(node.fn);
 		self.visit(node.key);
@@ -296,7 +296,7 @@ class FeImportReferenceCollector {
 		self.visitList(node.fields);
 		self.visitList(node.values);
 		self.visitList(node.variants);
-		self.visitList(node.generic_args);
+		self.visitList(node.genericArgs);
 		self.visitList(node.statements);
 		self.visitList(node.cases);
 		self.visitList(node.args);
@@ -304,7 +304,7 @@ class FeImportReferenceCollector {
 		self.visitList(node.entries);
 		self.visitList(node.parts);
 		self.visitList(node.captures);
-		self.visitList(node.body_nlist);
+		self.visitList(node.bodyNodeList);
 	}
 }
 
@@ -496,7 +496,7 @@ class FeImportVisibilityChecker {
 			if (declarationLine == null) { continue; }
 			string sourceFile = declarationLine.sourceFile;
 			Map<string, bool> reachable = self.visibilityReachable(sourceFile);
-			FeImportReferenceCollector collector = FeImportReferenceCollector(declaration.generic_params);
+			FeImportReferenceCollector collector = FeImportReferenceCollector(declaration.genericParams);
 			collector.visit(declaration);
 			Map<string, bool> seen = {};
 			int referenceIndex = 0;

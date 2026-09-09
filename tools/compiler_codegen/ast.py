@@ -254,6 +254,17 @@ class BtrcAstRenderer:
     def _safe_name(self, name: str) -> str:
         return f"{name}_" if name in self._keywords else name
 
+    @staticmethod
+    def _to_camel(name: str) -> str:
+        """Respell one shared-spec name the way btrc source spells names."""
+
+        # A trailing underscore is the keyword escape _safe_name added, not a
+        # word separator: dropping it would spell a btrc keyword.
+        escape = "_" * (len(name) - len(name.rstrip("_")))
+        head, *rest = name.rstrip("_").split("_")
+        body = head + "".join(part[:1].upper() + part[1:] for part in rest)
+        return body + escape
+
     def _build_type_name_map(self) -> dict[str, str]:
         names = dict(self._BUILTIN_TYPES)
         for schema_type in self._schema.types:
@@ -286,8 +297,8 @@ class BtrcAstRenderer:
             return declared_type
         return {
             "node": "node",
-            "nodelist": "nlist",
-            "strlist": "slist",
+            "nodelist": "node_list",
+            "strlist": "string_list",
         }[category]
 
     def _backing_name(
@@ -391,8 +402,23 @@ class BtrcAstRenderer:
                             initializers[declared_type],
                         )
                     declaration_order.append(backing_name)
+        # Disambiguation above runs on the spec's own names; the btrc
+        # spelling is applied once at the end so the two never diverge.
+        spelled = {name: self._to_camel(name) for name in declaration_order}
+        collisions = sorted(
+            {
+                name
+                for name in spelled.values()
+                if list(spelled.values()).count(name) > 1
+            }
+        )
+        if collisions:
+            raise GeneratedSourceError(
+                "ASDL field names collide when spelled for btrc: "
+                + ", ".join(collisions)
+            )
         return tuple(
-            _BtrcFieldDeclaration(name, *declarations[name])
+            _BtrcFieldDeclaration(spelled[name], *declarations[name])
             for name in declaration_order
         )
 

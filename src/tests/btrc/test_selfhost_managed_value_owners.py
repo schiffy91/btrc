@@ -85,9 +85,9 @@ def test_cleanup_registry_is_per_generation_and_uses_parse_safe_api() -> None:
     duplicate_check = validator.index("if (used.has(metadata.site))")
     record_use = validator.index("used.put(metadata.site, true)")
     assert duplicate_check < record_use
-    assert "metadata.c_type != declared.c_type" in validator
-    assert "metadata.take_function" in validator
-    assert "!= declared.take_function" in validator
+    assert "metadata.cType != declared.cType" in validator
+    assert "metadata.takeFunction" in validator
+    assert "!= declared.takeFunction" in validator
 
 
 def test_isolated_scope_snapshots_active_cleanup_markers_exactly() -> None:

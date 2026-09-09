@@ -36,8 +36,8 @@ class RuntimeHelperCatalog {
 			self.indices.put(row.name, index);
 
 			int typeIndex = 0;
-			while (typeIndex < row.provided_types.len) {
-				string providedType = row.provided_types.get(typeIndex);
+			while (typeIndex < row.providedTypes.len) {
+				string providedType = row.providedTypes.get(typeIndex);
 				if (self.typeProviders.has(providedType)) {
 					fprintf(stderr, "internal compiler error: runtime type '%s' is provided by both '%s' and '%s'\n", providedType, self.typeProviders.get(providedType), row.name);
 					exit(1);
@@ -47,8 +47,8 @@ class RuntimeHelperCatalog {
 			}
 
 			int objectIndex = 0;
-			while (objectIndex < row.provided_objects.len) {
-				string providedObject = row.provided_objects.get(objectIndex);
+			while (objectIndex < row.providedObjects.len) {
+				string providedObject = row.providedObjects.get(objectIndex);
 				if (self.objectProviders.has(providedObject)) {
 					fprintf(stderr, "internal compiler error: runtime object '%s' is provided by both '%s' and '%s'\n", providedObject, self.objectProviders.get(providedObject), row.name);
 					exit(1);
@@ -67,12 +67,12 @@ class RuntimeHelperCatalog {
 				exit(1);
 			}
 			self.intrinsicIndices.put(effect.provenance, index);
-			if (effect.realtime_effect == "safe" && effect.c_callee != "") {
-				if (self.realtimeIntrinsicTargets.has(effect.c_callee)) {
-					fprintf(stderr, "internal compiler error: compiler intrinsic C callee '%s' is owned by both '%s' and '%s'\n", effect.c_callee, self.realtimeIntrinsicTargets.get(effect.c_callee), effect.provenance);
+			if (effect.realtimeEffect == "safe" && effect.cCallee != "") {
+				if (self.realtimeIntrinsicTargets.has(effect.cCallee)) {
+					fprintf(stderr, "internal compiler error: compiler intrinsic C callee '%s' is owned by both '%s' and '%s'\n", effect.cCallee, self.realtimeIntrinsicTargets.get(effect.cCallee), effect.provenance);
 					exit(1);
 				}
-				self.realtimeIntrinsicTargets.put(effect.c_callee, effect.provenance);
+				self.realtimeIntrinsicTargets.put(effect.cCallee, effect.provenance);
 			}
 			index = index + 1;
 		}
@@ -82,7 +82,7 @@ class RuntimeHelperCatalog {
 
 	public bool sourceVisible(string name) {
 		if (!self.indices.has(name)) { return false; }
-		return self.rows.get(self.indices.get(name)).source_visible;
+		return self.rows.get(self.indices.get(name)).sourceVisible;
 	}
 
 	public Map<string, bool> realtimeSafeFunctions() {
@@ -90,7 +90,7 @@ class RuntimeHelperCatalog {
 		int index = 0;
 		while (index < self.rows.len) {
 			GeneratedRuntimeHelperRow row = self.rows.get(index);
-			if (row.realtime_effect == "safe") {
+			if (row.realtimeEffect == "safe") {
 				safe.put(row.name, true);
 			}
 			index = index + 1;
@@ -101,13 +101,13 @@ class RuntimeHelperCatalog {
 	public string intrinsicRealtimeEffect(string receiver, string method) {
 		string provenance = receiver + "." + method;
 		if (!self.intrinsicIndices.has(provenance)) { return "unknown"; }
-		return self.intrinsicEffects.get(self.intrinsicIndices.get(provenance)).realtime_effect;
+		return self.intrinsicEffects.get(self.intrinsicIndices.get(provenance)).realtimeEffect;
 	}
 
 	public string intrinsicCallee(string receiver, string method) {
 		string provenance = receiver + "." + method;
 		if (!self.intrinsicIndices.has(provenance)) { return ""; }
-		return self.intrinsicEffects.get(self.intrinsicIndices.get(provenance)).c_callee;
+		return self.intrinsicEffects.get(self.intrinsicIndices.get(provenance)).cCallee;
 	}
 
 	public string intrinsicProvenance(string receiver, string method) {
@@ -164,7 +164,7 @@ class RuntimeHelperCatalog {
 		}
 
 		GeneratedRuntimeHelperRow row = self.rows.get(self.indices.get(name));
-		string source = self.joinSource(row.source_chunks);
+		string source = self.joinSource(row.sourceChunks);
 		self.materializedSources.put(name, source);
 		return source;
 	}
@@ -210,9 +210,9 @@ class RuntimeHelperCatalog {
 
 	private bool hasSystemInclude(IRModule module, string header) {
 		int index = 0;
-		while (index < module.preprocessor_decls.len) {
-			IRPreprocessorDecl declaration = module.preprocessor_decls.get(index);
-			if (declaration.kind == IR_PREPROCESSOR_INCLUDE && declaration.is_system && declaration.header == header) {
+		while (index < module.preprocessorDecls.len) {
+			IRPreprocessorDecl declaration = module.preprocessorDecls.get(index);
+			if (declaration.kind == IR_PREPROCESSOR_INCLUDE && declaration.isSystem && declaration.header == header) {
 				return true;
 			}
 			index = index + 1;
@@ -241,7 +241,7 @@ class RuntimeHelperCatalog {
 			while (headerIndex < requiredHeaders.len) {
 				string header = requiredHeaders.get(headerIndex);
 				if (!self.hasSystemInclude(module, header)) {
-					module.preprocessor_decls.push(IRPreprocessorDecl.include(header, true));
+					module.preprocessorDecls.push(IRPreprocessorDecl.include(header, true));
 				}
 				headerIndex = headerIndex + 1;
 			}

@@ -132,7 +132,7 @@ class StatementLowerer {
 				if (owned.get(binding) && self.managedValues.isManaged(self.cTypes.resolveBodyType(bindingType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
 					self.context.borrowedLocalBindings.remove(sourceName);
 					string runtimeType = self.managedValues.runtimeType(self.cTypes.resolveBodyType(bindingType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
-					self.managedLifetime.registerManaged(sourceName, self.context.sourceCName(sourceName), runtimeType, bindingType, declaration.c_type);
+					self.managedLifetime.registerManaged(sourceName, self.context.sourceCName(sourceName), runtimeType, bindingType, declaration.cType);
 					self.managedLifetime.maybeRegisterCleanup(declaration.name, runtimeType, stmts);
 				} else if (self.managedValues.isManaged(self.cTypes.resolveBodyType(bindingType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
 					self.context.borrowedLocalBindings.put(sourceName, true);
@@ -199,10 +199,10 @@ class StatementLowerer {
 	public bool loopConditionCanRepeat(Node? condition) {
 		if (condition == null) { return true; }
 		if (condition.kind == NK_BOOL_LITERAL) {
-			return condition.value_bool;
+			return condition.valueBool;
 		}
 		if (condition.kind == NK_INT_LITERAL) {
-			return condition.value_int != 0;
+			return condition.valueInt != 0;
 		}
 		return true;
 	}
@@ -210,10 +210,10 @@ class StatementLowerer {
 	public bool loopConditionCanExit(Node? condition) {
 		if (condition == null) { return false; }
 		if (condition.kind == NK_BOOL_LITERAL) {
-			return !condition.value_bool;
+			return !condition.valueBool;
 		}
 		if (condition.kind == NK_INT_LITERAL) {
-			return condition.value_int == 0;
+			return condition.valueInt == 0;
 		}
 		return true;
 	}
@@ -376,12 +376,12 @@ class StatementLowerer {
 			return;
 		}
 		if (node.kind == NK_VAR_DECL_STMT) {
-			bool externalDeclaration = node.type != null && node.type.is_extern && node.initializer == null;
+			bool externalDeclaration = node.type != null && node.type.isExtern && node.initializer == null;
 			/* C array local: `int arr[] = {5,3,1}` / `int buf[N]`. The element
              * type is the base (NOT a pointer), the name carries the `[size]`/`[]`
              * suffix, and a list literal becomes a structured IR initializer
              * list (mirrors variables._lower_var_decl's is_array branch). */
-			if (node.type != null && node.type.is_array) {
+			if (node.type != null && node.type.isArray) {
 				CallableBoundaryContext arrayCallableContext = callableFlow.boundaryContext(varTypes, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 				bool arrayCallableUnsafe = callableFlow.persistentStorageUnsafe(node.type, node.initializer, self.callableValues, arrayCallableContext);
 				self.callableBoundaries.rejectAggregateInitializer(node.type, node.initializer, arrayCallableContext, arrayCallableUnsafe);
@@ -395,25 +395,25 @@ class StatementLowerer {
 					baseC = self.cTypes.lowerGeneric(baseType, self.context.activeTypeMap);
 				}
 				IRNode? localArraySize = null;
-				if (node.type.array_size != null) {
-					if (node.type.is_static) {
-						localArraySize = self.expressions.lowerStaticInitializer(node.type.array_size, null, varTypes, callableFlow);
+				if (node.type.arraySize != null) {
+					if (node.type.isStatic) {
+						localArraySize = self.expressions.lowerStaticInitializer(node.type.arraySize, null, varTypes, callableFlow);
 					} else {
-						localArraySize = self.expressions.lowerExpr(node.type.array_size, varTypes, callableFlow);
+						localArraySize = self.expressions.lowerExpr(node.type.arraySize, varTypes, callableFlow);
 					}
 				}
 				IRNode? ainit = null;
 				AggregateDeclarationPlan? aggregatePlan = null;
 				if (node.initializer != null) {
 					if (node.initializer.kind == NK_LIST_LITERAL || node.initializer.kind == NK_BRACE_INITIALIZER) {
-						if (node.type.is_static) {
+						if (node.type.isStatic) {
 							ainit = self.expressions.lowerStaticInitializer(node.initializer, node.type, varTypes, callableFlow);
 						} else {
 							aggregatePlan = self.expressions.lowerFixedArrayInitializer(node.initializer, node.type, varTypes, callableFlow);
 							AggregateDeclarationPlan concretePlan = aggregatePlan;
 							ainit = concretePlan.initializer;
 						}
-					} else if (node.type.is_static) {
+					} else if (node.type.isStatic) {
 						ainit = self.expressions.lowerStaticInitializer(node.initializer, node.type, varTypes, callableFlow);
 					} else {
 						ainit = self.expressions.lowerExpr(node.initializer, varTypes, callableFlow);
@@ -421,11 +421,11 @@ class StatementLowerer {
 				}
 				if (node.type != null) { varTypes.put(node.name, node.type); }
 				IRNode arrayDecl = IRNode.arrayDeclaration(baseC, node.name, localArraySize, ainit);
-				arrayDecl.is_static = node.type.is_static;
-				arrayDecl.is_extern = node.type.is_extern;
-				arrayDecl.is_volatile = node.type.is_volatile;
+				arrayDecl.isStatic = node.type.isStatic;
+				arrayDecl.isExtern = node.type.isExtern;
+				arrayDecl.isVolatile = node.type.isVolatile;
 				Node arrayStorageType = self.cTypes.resolveBodyType(node.type, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
-				arrayDecl.effective_is_volatile = SemanticTypeSystem.typeEffectiveOuterVolatile(arrayStorageType, self.analyzed.typedefTable);
+				arrayDecl.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(arrayStorageType, self.analyzed.typedefTable);
 				if (aggregatePlan != null) {
 					AggregateDeclarationPlan concretePlan = aggregatePlan;
 					concretePlan.emitBefore(out);
@@ -436,7 +436,7 @@ class StatementLowerer {
 					concretePlan.emitAfter(out);
 				}
 				IRNode arrayLength = null;
-				if (node.type.array_size != null || (node.initializer != null && (node.initializer.kind == NK_LIST_LITERAL || node.initializer.kind == NK_BRACE_INITIALIZER))) {
+				if (node.type.arraySize != null || (node.initializer != null && (node.initializer.kind == NK_LIST_LITERAL || node.initializer.kind == NK_BRACE_INITIALIZER))) {
 					arrayLength = self.gpuPipeline.bareArrayCapacity(IRNode.variable(self.context.sourceCName(node.name)));
 				}
 				if (arrayLength != null) {
@@ -484,7 +484,7 @@ class StatementLowerer {
 					CallableLambdaPlan preparedLambda = self.callableLowering.prepareLambda(init0, varTypes, callableFlow.boundaryContext(varTypes, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
 					lambdaPlan = preparedLambda;
 					init = preparedLambda.value;
-				} else if (node.type != null && node.type.is_static) {
+				} else if (node.type != null && node.type.isStatic) {
 					init = self.expressions.lowerStaticInitializer(node.initializer, declType, varTypes, callableFlow);
 					initializerEffectiveType = self.expressions.resolvedExpressionType(node.initializer, varTypes);
 				} else {
@@ -515,10 +515,10 @@ class StatementLowerer {
 			string bindingCName = self.context.sourceCName(node.name);
 			IRNode vdecl = IRNode.variableDeclaration(ct, bindingCName, init);
 			if (node.type != null) {
-				vdecl.is_static = node.type.is_static;
-				vdecl.is_extern = node.type.is_extern;
-				vdecl.is_volatile = node.type.is_volatile;
-				vdecl.effective_is_volatile = SemanticTypeSystem.typeEffectiveOuterVolatile(declType, self.analyzed.typedefTable);
+				vdecl.isStatic = node.type.isStatic;
+				vdecl.isExtern = node.type.isExtern;
+				vdecl.isVolatile = node.type.isVolatile;
+				vdecl.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(declType, self.analyzed.typedefTable);
 			}
 			self.context.recordLocal(vdecl);
 			out.push(vdecl);
@@ -571,7 +571,7 @@ class StatementLowerer {
 				if (node.initializer != null && !initializerOwned) {
 					out.push(IRNode.expressionStatement(self.managedLifetime.retainValue(IRNode.variable(bindingCName), managedSlotType)));
 				}
-				self.managedLifetime.registerManaged(node.name, bindingCName, runtimeType, managedSlotType, vdecl.c_type);
+				self.managedLifetime.registerManaged(node.name, bindingCName, runtimeType, managedSlotType, vdecl.cType);
 				self.managedLifetime.maybeRegisterCleanup(bindingCName, runtimeType, out);
 			}
 			Node? resolvedDeclType = SemanticTypeSystem.resolveTypedefType(declType, self.analyzed.typedefTable);
@@ -583,7 +583,7 @@ class StatementLowerer {
 			return;
 		}
 		if (node.kind == NK_RETURN_STMT) {
-			if (self.callableValues.valueRequiresEnvironment(self.context.currentReturnType, node.value_node, callableFlow.boundaryContext(varTypes, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
+			if (self.callableValues.valueRequiresEnvironment(self.context.currentReturnType, node.valueNode, callableFlow.boundaryContext(varTypes, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
 				self.callableBoundaries.rejectEnvironmentEscape(node);
 			}
 			self.lowerReturn(node, varTypes, out, callableFlow);
@@ -596,7 +596,7 @@ class StatementLowerer {
              * not create an overlength string literal.  The explicit discard
              * preserves btrc's eager call semantics under NDEBUG while keeping
              * strict unused-variable builds clean. */
-			if (e.kind == NK_CALL_EXPR && e.callee != null && e.callee.kind == NK_IDENTIFIER && e.callee.name == "assert" && e.args.len == 1 && (e.arg_names.len == 0 || (e.arg_names.len == 1 && e.arg_names.get(0) == ""))) {
+			if (e.kind == NK_CALL_EXPR && e.callee != null && e.callee.kind == NK_IDENTIFIER && e.callee.name == "assert" && e.args.len == 1 && (e.argNames.len == 0 || (e.argNames.len == 1 && e.argNames.get(0) == ""))) {
 				string conditionName = self.context.freshTemporary("__btrc_assert_condition");
 				IRNode conditionDeclaration = IRNode.variableDeclaration("bool", conditionName, self.expressions.lowerExpr(e.args.get(0), varTypes, callableFlow));
 				self.context.recordLocal(conditionDeclaration);
@@ -650,9 +650,9 @@ class StatementLowerer {
 			callableFlow.requireInvariant(conditionEntry, conditionExit, "condition");
 			IRNode body = null;
 			if (self.loopConditionCanRepeat(node.condition)) {
-				body = self.lowerLoopBody(node.body_node, varTypes, callableFlow);
+				body = self.lowerLoopBody(node.bodyNode, varTypes, callableFlow);
 			} else {
-				LoweredCallableLoopBody unreachable = self.lowerLoopBodyRaw(node.body_node, varTypes, callableFlow);
+				LoweredCallableLoopBody unreachable = self.lowerLoopBodyRaw(node.bodyNode, varTypes, callableFlow);
 				callableFlow.restore(unreachable.head);
 				body = unreachable.body;
 			}
@@ -660,7 +660,7 @@ class StatementLowerer {
 			return;
 		}
 		if (node.kind == NK_DO_WHILE_STMT) {
-			LoweredCallableLoopBody lowered = self.lowerLoopBodyRaw(node.body_node, varTypes, callableFlow);
+			LoweredCallableLoopBody lowered = self.lowerLoopBodyRaw(node.bodyNode, varTypes, callableFlow);
 			Vector<CallableFlowSnapshot> repeated = self.repeatedLoopEdges(lowered);
 			if (repeated.len > 0) {
 				CallableFlowSnapshot repeatedEntry = callableFlow.merged(repeated);
@@ -756,7 +756,7 @@ class StatementLowerer {
 			Vector<IRNode> targs = [];
 			targs.push(e);
 			IRNode throwCall = IRNode.call("__btrc_throw", targs);
-			throwCall.never_returns = true;
+			throwCall.neverReturns = true;
 			out.push(IRNode.expressionStatement(throwCall));
 			return;
 		}
@@ -845,16 +845,16 @@ class StatementLowerer {
 	}
 
 	public void lowerReturn(Node node, Map<string, Node> varTypes, Vector<IRNode> out, CallableFlowState callableFlow) {
-		if (node.value_node != null) {
+		if (node.valueNode != null) {
 			CallableBoundaryContext callableContext = callableFlow.boundaryContext(varTypes, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
-			bool unsafe = callableFlow.persistentStorageUnsafe(self.context.currentReturnType, node.value_node, self.callableValues, callableContext);
-			self.callableBoundaries.rejectPersistentStorage(self.context.currentReturnType, node.value_node, callableContext, unsafe, "a function return");
+			bool unsafe = callableFlow.persistentStorageUnsafe(self.context.currentReturnType, node.valueNode, self.callableValues, callableContext);
+			self.callableBoundaries.rejectPersistentStorage(self.context.currentReturnType, node.valueNode, callableContext, unsafe, "a function return");
 		}
 		self.lowerOwnedReturn(node, varTypes, out, callableFlow);
 	}
 
 	private void lowerOwnedReturn(Node statement, Map<string, Node> varTypes, Vector<IRNode> output, CallableFlowState callableFlow) {
-		if (statement.value_node == null) {
+		if (statement.valueNode == null) {
 			self.emitReturnRelease("", output);
 			self.emitReturnTryPop(output);
 			self.emitReturnCleanupExit(output);
@@ -866,7 +866,7 @@ class StatementLowerer {
 			return;
 		}
 
-		Node expression = statement.value_node;
+		Node expression = statement.valueNode;
 		Node? returnType = self.context.currentReturnType;
 		if (returnType != null) {
 			returnType = SemanticTypeSystem.resolveTypedefType(self.cTypes.resolveBodyType(returnType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0), self.analyzed.typedefTable);
@@ -1007,8 +1007,8 @@ class StatementLowerer {
 		/* A try with a `finally` but NO `catch` must run the finally and then
          * RE-THROW any pending exception to the enclosing handler (mirrors
          * control_flow._lower_try_catch finally_only). */
-		bool finallyOnly = node.catch_block == null && node.finally_block != null;
-		bool tryTerminates = finallyOnly && ControlFlowValidator.blockTerminates(node.try_block);
+		bool finallyOnly = node.catchBlock == null && node.finallyBlock != null;
+		bool tryTerminates = finallyOnly && ControlFlowValidator.blockTerminates(node.tryBlock);
 		string pendingName = "";
 		string errorName = "";
 		if (finallyOnly) {
@@ -1026,7 +1026,7 @@ class StatementLowerer {
 		self.context.tryDepth = self.context.tryDepth + 1;
 		self.managedLifetime.pushControl("try");
 		CallableExceptionalCapture exceptionalCapture = callableFlow.beginExceptionalCapture(varTypes, self.analyzed.typedefTable);
-		IRNode tryBody = self.lowerBlock(node.try_block, varTypes, callableFlow);
+		IRNode tryBody = self.lowerBlock(node.tryBlock, varTypes, callableFlow);
 		CallableFlowSnapshot tryFlow = callableFlow.snapshot();
 		bool tryContinues = IRStatementSequence(tryBody.stmts).mayFallThrough();
 		callableFlow.finishExceptionalCapture(exceptionalCapture);
@@ -1085,7 +1085,7 @@ class StatementLowerer {
 			copyArgs.push(IRNode.variable("__btrc_error_msg"));
 			cstmts.push(IRNode.expressionStatement(IRNode.call("__btrc_copy_error_message", copyArgs)));
 			catchBody = IRNode.block(cstmts);
-		} else if (node.catch_block != null) {
+		} else if (node.catchBlock != null) {
 			/* Register the catch variable's type (declared `catch_type`, else
              * `string` — exceptions are string messages) so body inference (e.g.
              * f-string format specifiers) sees `const char*`, not a default int.
@@ -1096,15 +1096,15 @@ class StatementLowerer {
 			Vector<bool> catchOwned = [];
 			Map<string, Node> catchVarTypes = TypeValidator.cloneTypes(varTypes);
 			Vector<string> catchSourceBindings = self.context.snapshotSourceBindings();
-			string catchCName = node.catch_var;
-			if (node.catch_var != "") {
+			string catchCName = node.catchVar;
+			if (node.catchVar != "") {
 				/* Give the catch binding its own message storage. A pointer to
                  * the TLS buffer would be overwritten by any nested catch. */
 				Node ctype = SemanticTypeSystem.primitive("string");
-				if (node.catch_type != null) { ctype = node.catch_type; }
-				catchVarTypes.put(node.catch_var, ctype);
-				self.context.activateSourceName(node.catch_var, self.lexicalBindingCName(node.catch_var));
-				catchCName = self.context.sourceCName(node.catch_var);
+				if (node.catchType != null) { ctype = node.catchType; }
+				catchVarTypes.put(node.catchVar, ctype);
+				self.context.activateSourceName(node.catchVar, self.lexicalBindingCName(node.catchVar));
+				catchCName = self.context.sourceCName(node.catchVar);
 				self.context.referenceHelper("__btrc_strdup");
 				self.context.referenceHelper("__btrc_str_track");
 				Vector<IRNode> copyArgs = [];
@@ -1112,15 +1112,15 @@ class StatementLowerer {
 				Vector<IRNode> trackArgs = [];
 				trackArgs.push(IRNode.call("__btrc_strdup", copyArgs));
 				catchBindings.push(IRNode.variableDeclaration("char*", catchCName, IRNode.call("__btrc_str_track", trackArgs)));
-				catchSourceNames.push(node.catch_var);
+				catchSourceNames.push(node.catchVar);
 				catchTypes.push(ctype);
 				catchOwned.push(true);
 			}
-			catchBody = self.lowerBlockWithBindings(node.catch_block, catchVarTypes, catchBindings, catchSourceNames, catchTypes, catchOwned, callableFlow);
+			catchBody = self.lowerBlockWithBindings(node.catchBlock, catchVarTypes, catchBindings, catchSourceNames, catchTypes, catchOwned, callableFlow);
 			catchFlow = callableFlow.snapshot();
 			catchContinues = IRStatementSequence(catchBody.stmts).mayFallThrough();
 			callableFlow.restore(incoming);
-			if (node.catch_var != "") {
+			if (node.catchVar != "") {
 				/* A catch binding may be intentionally ignored. Keep the C
                  * warning contract explicit without textual statement escapes. */
 				int declarationIndex = 0;
@@ -1148,18 +1148,18 @@ class StatementLowerer {
 		setjmpArgs.push(IRNode.fieldAccess(frame, "env", true));
 		IRNode tcIf = self.controlFlow.materializeConditional(ConditionalPlan(IRNode.binary(IRNode.call("setjmp", setjmpArgs), "==", IRNode.literal("0")), tryBody, catchBody));
 		out.push(tcIf);
-		if (node.finally_block == null && tryFlows.len == 0) {
+		if (node.finallyBlock == null && tryFlows.len == 0) {
 			/* GCC 15 with ASan can conservatively treat a setjmp-backed
 			 * conditional containing a VLA as falling through even when both
 			 * structured branches terminate. Materialize the impossible edge. */
 			Vector<IRNode> abortArgs = [];
 			IRNode abortCall = IRNode.call("abort", abortArgs);
-			abortCall.never_returns = true;
+			abortCall.neverReturns = true;
 			out.push(IRNode.expressionStatement(abortCall));
 		}
 
 		/* finally block: emitted inline after the if. */
-		if (node.finally_block != null) {
+		if (node.finallyBlock != null) {
 			if (finallyOnly) {
 				Vector<CallableFlowSnapshot> finallyEntries = [];
 				if (tryContinues) {
@@ -1170,7 +1170,7 @@ class StatementLowerer {
 				callableFlow.join(finallyEntries);
 			}
 			CallableMutationCapture finallyMutations = callableFlow.beginMutationCapture(varTypes, self.analyzed.typedefTable);
-			IRNode fin = self.lowerBlock(node.finally_block, varTypes, callableFlow);
+			IRNode fin = self.lowerBlock(node.finallyBlock, varTypes, callableFlow);
 			CallableFlowSnapshot finallyExit = callableFlow.snapshot();
 			Vector<string> mutatedBindings = callableFlow.finishMutationCapture(finallyMutations);
 			int i = 0;
@@ -1180,7 +1180,7 @@ class StatementLowerer {
 				Vector<IRNode> targs = [];
 				targs.push(IRNode.cast("const char*", IRNode.variable(errorName)));
 				IRNode rethrowCall = IRNode.call("__btrc_throw", targs);
-				rethrowCall.never_returns = true;
+				rethrowCall.neverReturns = true;
 				IRNode rethrow = IRNode.expressionStatement(rethrowCall);
 				if (pendingName == "") {
 					out.push(rethrow);
@@ -1205,7 +1205,7 @@ class StatementLowerer {
 	/* Lower a switch statement -> IRSwitch with IRCase children (mirrors
      * control_flow._lower_switch). A case with no value is the `default:` clause. */
 	public IRNode lowerSwitch(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow) {
-		IRNode val = self.expressions.lowerExpr(node.value_node, varTypes, callableFlow);
+		IRNode val = self.expressions.lowerExpr(node.valueNode, varTypes, callableFlow);
 		CallableFlowSnapshot incoming = callableFlow.snapshot();
 		CallableSwitchCapture switchCapture = callableFlow.beginSwitchCapture(varTypes, self.analyzed.typedefTable);
 		bool hasDefault = false;
@@ -1229,16 +1229,16 @@ class StatementLowerer {
 			Vector<string> caseSourceBindings = self.context.snapshotSourceBindings();
 			string cleanupMarker = self.managedLifetime.pushCleanupScope();
 			IRNode? caseVal = null;
-			if (c.value_node != null) {
-				caseVal = self.expressions.lowerExpr(c.value_node, varTypes, callableFlow);
+			if (c.valueNode != null) {
+				caseVal = self.expressions.lowerExpr(c.valueNode, varTypes, callableFlow);
 			} else {
 				hasDefault = true;
 			}
 			Vector<IRNode> body = [];
 			self.managedLifetime.pushManagedScope();
 			int j = 0;
-			while (j < c.body_nlist.len) {
-				self.lowerStmtInto(c.body_nlist.get(j), caseTypes, body, callableFlow);
+			while (j < c.bodyNodeList.len) {
+				self.lowerStmtInto(c.bodyNodeList.get(j), caseTypes, body, callableFlow);
 				j = j + 1;
 			}
 			IRStatementSequence sequence = IRStatementSequence(body);
@@ -1286,37 +1286,37 @@ class StatementLowerer {
 	public IRNode lowerIf(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow) {
 		IRNode cond = self.expressions.lowerExpr(node.condition, varTypes, callableFlow);
 		CallableFlowSnapshot incoming = callableFlow.snapshot();
-		IRNode then_b = self.lowerBlock(node.then_block, varTypes, callableFlow);
+		IRNode thenB = self.lowerBlock(node.thenBlock, varTypes, callableFlow);
 		CallableFlowSnapshot thenFlow = callableFlow.snapshot();
 		callableFlow.restore(incoming);
-		IRNode? else_b = null;
+		IRNode? elseB = null;
 		CallableFlowSnapshot elseFlow = incoming;
-		if (node.else_block != null) {
-			else_b = self.lowerElse(node.else_block, varTypes, callableFlow);
+		if (node.elseBlock != null) {
+			elseB = self.lowerElse(node.elseBlock, varTypes, callableFlow);
 			elseFlow = callableFlow.snapshot();
 			callableFlow.restore(incoming);
 		}
 		Vector<CallableFlowSnapshot> flows = [];
-		if (IRStatementSequence(then_b.stmts).mayFallThrough()) {
+		if (IRStatementSequence(thenB.stmts).mayFallThrough()) {
 			flows.push(thenFlow);
 		}
-		if (else_b == null || IRStatementSequence(else_b.stmts).mayFallThrough()) {
+		if (elseB == null || IRStatementSequence(elseB.stmts).mayFallThrough()) {
 			flows.push(elseFlow);
 		}
 		if (flows.len > 0) {
 			callableFlow.join(flows);
 		}
-		return self.controlFlow.materializeConditional(ConditionalPlan(cond, then_b, else_b));
+		return self.controlFlow.materializeConditional(ConditionalPlan(cond, thenB, elseB));
 	}
 
 	/* Lower an else tail (ElseBlock or ElseIf) into an IRBlock. */
 	public IRNode lowerElse(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow) {
 		if (node.kind == NK_ELSE_BLOCK) {
-			return self.lowerBlock(node.body_node, varTypes, callableFlow);
+			return self.lowerBlock(node.bodyNode, varTypes, callableFlow);
 		}
 		if (node.kind == NK_ELSE_IF) {
 			Vector<IRNode> stmts = [];
-			stmts.push(self.lowerIf(node.if_stmt, varTypes, callableFlow));
+			stmts.push(self.lowerIf(node.ifStmt, varTypes, callableFlow));
 			return IRNode.block(stmts);
 		}
 		Vector<IRNode> empty = [];
@@ -1340,7 +1340,7 @@ class StatementLowerer {
 				/* Retain/transfer, Thread registration, and exception cleanup
                  * are statement sequences, not valid C for-clause syntax.
                  * Reuse the complete declaration lowering in a lexical block. */
-				self.lowerStmtInto(node.init.var_decl, loopTypes, prefix, callableFlow);
+				self.lowerStmtInto(node.init.varDecl, loopTypes, prefix, callableFlow);
 			} else if (node.init.kind == NK_FOR_INIT_EXPR) {
 				init = IRNode.expressionStatement(self.expressions.lowerExpr(node.init.expression, loopTypes, callableFlow));
 			}
@@ -1353,7 +1353,7 @@ class StatementLowerer {
 			CallableFlowSnapshot conditionExit = callableFlow.snapshot();
 			callableFlow.requireInvariant(conditionEntry, conditionExit, "condition");
 		}
-		LoweredCallableLoopBody loweredBody = self.lowerLoopBodyRaw(node.body_node, loopTypes, callableFlow);
+		LoweredCallableLoopBody loweredBody = self.lowerLoopBodyRaw(node.bodyNode, loopTypes, callableFlow);
 		bool conditionCanRepeat = self.loopConditionCanRepeat(node.condition);
 		IRNode? update = null;
 		if (node.update != null) {
@@ -1381,7 +1381,7 @@ class StatementLowerer {
 			callableFlow.join(loopExits);
 		}
 		IRNode lowered = self.controlFlow.materializeFor(ForPlan(init, cond, update, loweredBody.body));
-		lowered.realtime_bounded = self.analyzed.realtimeBoundedLoopKeys.has(AstIdentity.key(node));
+		lowered.realtimeBounded = self.analyzed.realtimeBoundedLoopKeys.has(AstIdentity.key(node));
 		if (declarationScope) {
 			Vector<IRNode> scopedStatements = prefix;
 			scopedStatements.push(lowered);
@@ -1428,11 +1428,11 @@ class StatementLowerer {
 		Vector<string> sourceBindings = self.context.snapshotSourceBindings();
 		Map<string, Node> loopTypes = TypeValidator.cloneTypes(varTypes);
 		Node iterable = node.iterable;
-		string varName = node.var_name;
+		string varName = node.varName;
 
 		/* range(...) form. */
 		if (iterable.kind == NK_CALL_EXPR && iterable.callee != null && iterable.callee.kind == NK_IDENTIFIER && iterable.callee.name == "range") {
-			self.lowerRangeFor(varName, iterable.args, node.body_node, loopTypes, out, callableFlow);
+			self.lowerRangeFor(varName, iterable.args, node.bodyNode, loopTypes, out, callableFlow);
 			self.context.restoreSourceBindings(sourceBindings);
 			return;
 		}
@@ -1445,7 +1445,7 @@ class StatementLowerer {
 		}
 		IRNode irIter = self.expressions.lowerExpr(iterable, loopTypes, callableFlow);
 
-		if (iterType != null && iterType.base == "Span" && iterType.generic_args.len == 1) {
+		if (iterType != null && iterType.base == "Span" && iterType.genericArgs.len == 1) {
 			self.lowerSpanForIn(node, irIter, iterType, varName, loopTypes, out, callableFlow);
 			self.context.restoreSourceBindings(sourceBindings);
 			return;
@@ -1459,7 +1459,7 @@ class StatementLowerer {
 		}
 
 		/* String iteration: for c in str. */
-		if (iterType != null && iterType.base == "string" && iterType.pointer_depth == 0 && iterType.generic_args.len == 0) {
+		if (iterType != null && iterType.base == "string" && iterType.pointerDepth == 0 && iterType.genericArgs.len == 0) {
 			self.lowerStringForIn(node, irIter, varName, loopTypes, out, callableFlow);
 			self.context.restoreSourceBindings(sourceBindings);
 			return;
@@ -1474,7 +1474,7 @@ class StatementLowerer {
 		string indexName = self.context.freshTemporary("__i");
 		string iterName = self.context.freshTemporary("__span");
 		out.push(IRNode.variableDeclaration(self.cTypes.lower(iterType), iterName, irIter));
-		Node elementType = iterType.generic_args.get(0);
+		Node elementType = iterType.genericArgs.get(0);
 		varTypes.put(varName, elementType);
 		self.context.activateSourceName(varName, self.lexicalBindingCName(varName));
 		string valueName = self.context.sourceCName(varName);
@@ -1487,7 +1487,7 @@ class StatementLowerer {
 		bindingTypes.push(elementType);
 		Vector<bool> bindingOwned = [];
 		bindingOwned.push(false);
-		IRNode body = self.loopBodyWithPrefix(node.body_node, varTypes, prefix, bindingNames, bindingTypes, bindingOwned, callableFlow);
+		IRNode body = self.loopBodyWithPrefix(node.bodyNode, varTypes, prefix, bindingNames, bindingTypes, bindingOwned, callableFlow);
 		IRNode init = IRNode.variableDeclaration("size_t", indexName, IRNode.literal("0"));
 		IRNode condition = IRNode.binary(IRNode.variable(indexName), "<", IRNode.fieldAccess(IRNode.variable(iterName), "length", false));
 		IRNode update = IRNode.unary("++", IRNode.variable(indexName), false);
@@ -1498,7 +1498,7 @@ class StatementLowerer {
 	public void lowerIterableForIn(Node node, IRNode irIter, Node iterType, string varName, Map<string, Node> varTypes, Vector<IRNode> out, CallableFlowState callableFlow) {
 		string calleePrefix = iterType.base;
 		if (self.analyzed.isGenericClass(iterType.base)) {
-			calleePrefix = TypeIdentity.mangleGenericType(iterType.base, iterType.generic_args);
+			calleePrefix = TypeIdentity.mangleGenericType(iterType.base, iterType.genericArgs);
 		}
 		string idx = self.context.freshTemporary("__i");
 		string nVar = self.context.freshTemporary("__n");
@@ -1506,7 +1506,7 @@ class StatementLowerer {
 		out.push(IRNode.variableDeclaration(self.cTypes.lower(iterType), iterVar, irIter));
 		string ownedRuntimeType = self.expressions.beginOwnedIteration(node.iterable, iterType, varTypes, iterVar, out, callableFlow);
 		Node getMethod = ControlFlowValidator.iterableMethod(iterType, "iterGet", self.analyzed);
-		Node elemT = ControlFlowValidator.iterableResolvedType(getMethod.return_type, iterType, self.analyzed);
+		Node elemT = ControlFlowValidator.iterableResolvedType(getMethod.returnType, iterType, self.analyzed);
 		string elemC = self.iterValueC(elemT);
 		varTypes.put(varName, elemT);
 		self.context.activateSourceName(varName, self.lexicalBindingCName(varName));
@@ -1524,10 +1524,10 @@ class StatementLowerer {
 		bindingOwned.push(true);
 		/* Two-variable iteration (for k, v in map). var_name2 is nullable. */
 		string vn2 = "";
-		if (node.var_name2 != null) { vn2 = node.var_name2; }
+		if (node.varName2 != null) { vn2 = node.varName2; }
 		Node? valueMethod = ControlFlowValidator.iterableMethod(iterType, "iterValueAt", self.analyzed);
 		if (vn2 != "" && valueMethod != null) {
-			Node v2T = ControlFlowValidator.iterableResolvedType(valueMethod.return_type, iterType, self.analyzed);
+			Node v2T = ControlFlowValidator.iterableResolvedType(valueMethod.returnType, iterType, self.analyzed);
 			string vC = self.iterValueC(v2T);
 			varTypes.put(vn2, v2T);
 			self.context.activateSourceName(vn2, self.lexicalBindingCName(vn2));
@@ -1540,11 +1540,11 @@ class StatementLowerer {
 			bindingTypes.push(v2T);
 			bindingOwned.push(true);
 		}
-		IRNode body = self.loopBodyWithPrefix(node.body_node, varTypes, bindings, bindingSourceNames, bindingTypes, bindingOwned, callableFlow);
+		IRNode body = self.loopBodyWithPrefix(node.bodyNode, varTypes, bindings, bindingSourceNames, bindingTypes, bindingOwned, callableFlow);
 		Vector<IRNode> nargs = [];
 		nargs.push(IRNode.variable(iterVar));
 		Node lenMethod = ControlFlowValidator.iterableMethod(iterType, "iterLen", self.analyzed);
-		Node lenType = ControlFlowValidator.iterableResolvedType(lenMethod.return_type, iterType, self.analyzed);
+		Node lenType = ControlFlowValidator.iterableResolvedType(lenMethod.returnType, iterType, self.analyzed);
 		out.push(IRNode.variableDeclaration(self.cTypes.lower(lenType), nVar, IRNode.call(calleePrefix + "_iterLen", nargs)));
 		IRNode forInit = IRNode.variableDeclaration("int", idx, IRNode.literal("0"));
 		IRNode cond = IRNode.binary(IRNode.variable(idx), "<", IRNode.variable(nVar));
@@ -1571,7 +1571,7 @@ class StatementLowerer {
 		bindingTypes.push(SemanticTypeSystem.primitive("char"));
 		Vector<bool> bindingOwned = [];
 		bindingOwned.push(false);
-		IRNode body = self.loopBodyWithPrefix(node.body_node, varTypes, prefix, bindingSourceNames, bindingTypes, bindingOwned, callableFlow);
+		IRNode body = self.loopBodyWithPrefix(node.bodyNode, varTypes, prefix, bindingSourceNames, bindingTypes, bindingOwned, callableFlow);
 		IRNode forInit = IRNode.variableDeclaration("int", idx, IRNode.literal("0"));
 		IRNode cond = IRNode.binary(IRNode.indexAccess(IRNode.variable(iterVar), IRNode.variable(idx)), "!=", IRNode.literal("'\\0'"));
 		IRNode upd = IRNode.unary("++", IRNode.variable(idx), false);
@@ -1696,7 +1696,7 @@ class StatementLowerer {
 		output.push(IRNode.variableDeclaration("size_t", length, iterationLength));
 
 		Node elementType = TypeShape.withoutOuterArray(arrayType);
-		string sourceName = statement.var_name;
+		string sourceName = statement.varName;
 		varTypes.put(sourceName, elementType);
 		self.context.activateSourceName(sourceName, self.lexicalBindingCName(sourceName));
 		string bindingName = self.context.sourceCName(sourceName);
@@ -1708,7 +1708,7 @@ class StatementLowerer {
 		bindingTypes.push(elementType);
 		Vector<bool> bindingOwned = [];
 		bindingOwned.push(false);
-		IRNode body = self.loopBodyWithPrefix(statement.body_node, varTypes, bindings, bindingSourceNames, bindingTypes, bindingOwned, callableFlow);
+		IRNode body = self.loopBodyWithPrefix(statement.bodyNode, varTypes, bindings, bindingSourceNames, bindingTypes, bindingOwned, callableFlow);
 		output.push(self.controlFlow.materializeFor(ForPlan(IRNode.variableDeclaration("size_t", index, IRNode.literal("0")), IRNode.binary(IRNode.variable(index), "<", IRNode.variable(length)), IRNode.unary("++", IRNode.variable(index), false), body)));
 
 		int cleanupIndex = rootNames.len - 1;
@@ -1753,40 +1753,40 @@ class StatementLowerer {
 		if (self.nodeVectorUsesTrycatch(n.fields)) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.values)) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.variants)) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.generic_args)) { return true; }
+		if (self.nodeVectorUsesTrycatch(n.genericArgs)) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.params)) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.statements)) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.cases)) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.body_nlist)) { return true; }
+		if (self.nodeVectorUsesTrycatch(n.bodyNodeList)) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.args)) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.elements)) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.entries)) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.parts)) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.captures)) { return true; }
 		if (self.nodeUsesTrycatch(n.spec)) { return true; }
-		if (self.nodeUsesTrycatch(n.return_type)) { return true; }
-		if (self.nodeUsesTrycatch(n.body_node)) { return true; }
+		if (self.nodeUsesTrycatch(n.returnType)) { return true; }
+		if (self.nodeUsesTrycatch(n.bodyNode)) { return true; }
 		if (self.nodeUsesTrycatch(n.original)) { return true; }
-		if (self.nodeUsesTrycatch(n.array_size)) { return true; }
+		if (self.nodeUsesTrycatch(n.arraySize)) { return true; }
 		if (self.nodeUsesTrycatch(n.type)) { return true; }
 		if (self.nodeUsesTrycatch(n.default_)) { return true; }
 		if (self.nodeUsesTrycatch(n.initializer)) { return true; }
-		if (self.nodeUsesTrycatch(n.getter_body)) { return true; }
-		if (self.nodeUsesTrycatch(n.setter_body)) { return true; }
-		if (self.nodeUsesTrycatch(n.value_node)) { return true; }
+		if (self.nodeUsesTrycatch(n.getterBody)) { return true; }
+		if (self.nodeUsesTrycatch(n.setterBody)) { return true; }
+		if (self.nodeUsesTrycatch(n.valueNode)) { return true; }
 		if (self.nodeUsesTrycatch(n.condition)) { return true; }
-		if (self.nodeUsesTrycatch(n.then_block)) { return true; }
-		if (self.nodeUsesTrycatch(n.else_block)) { return true; }
+		if (self.nodeUsesTrycatch(n.thenBlock)) { return true; }
+		if (self.nodeUsesTrycatch(n.elseBlock)) { return true; }
 		if (self.nodeUsesTrycatch(n.iterable)) { return true; }
 		if (self.nodeUsesTrycatch(n.init)) { return true; }
 		if (self.nodeUsesTrycatch(n.update)) { return true; }
 		if (self.nodeUsesTrycatch(n.expr)) { return true; }
-		if (self.nodeUsesTrycatch(n.try_block)) { return true; }
-		if (self.nodeUsesTrycatch(n.catch_type)) { return true; }
-		if (self.nodeUsesTrycatch(n.catch_block)) { return true; }
-		if (self.nodeUsesTrycatch(n.finally_block)) { return true; }
-		if (self.nodeUsesTrycatch(n.if_stmt)) { return true; }
-		if (self.nodeUsesTrycatch(n.var_decl)) { return true; }
+		if (self.nodeUsesTrycatch(n.tryBlock)) { return true; }
+		if (self.nodeUsesTrycatch(n.catchType)) { return true; }
+		if (self.nodeUsesTrycatch(n.catchBlock)) { return true; }
+		if (self.nodeUsesTrycatch(n.finallyBlock)) { return true; }
+		if (self.nodeUsesTrycatch(n.ifStmt)) { return true; }
+		if (self.nodeUsesTrycatch(n.varDecl)) { return true; }
 		if (self.nodeUsesTrycatch(n.expression)) { return true; }
 		if (self.nodeUsesTrycatch(n.left)) { return true; }
 		if (self.nodeUsesTrycatch(n.right)) { return true; }
@@ -1794,9 +1794,9 @@ class StatementLowerer {
 		if (self.nodeUsesTrycatch(n.callee)) { return true; }
 		if (self.nodeUsesTrycatch(n.obj)) { return true; }
 		if (self.nodeUsesTrycatch(n.index)) { return true; }
-		if (self.nodeUsesTrycatch(n.target_type)) { return true; }
-		if (self.nodeUsesTrycatch(n.true_expr)) { return true; }
-		if (self.nodeUsesTrycatch(n.false_expr)) { return true; }
+		if (self.nodeUsesTrycatch(n.targetType)) { return true; }
+		if (self.nodeUsesTrycatch(n.trueExpr)) { return true; }
+		if (self.nodeUsesTrycatch(n.falseExpr)) { return true; }
 		if (self.nodeUsesTrycatch(n.target)) { return true; }
 		if (self.nodeUsesTrycatch(n.fn)) { return true; }
 		if (self.nodeUsesTrycatch(n.key)) { return true; }

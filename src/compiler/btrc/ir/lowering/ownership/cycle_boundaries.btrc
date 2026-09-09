@@ -28,7 +28,7 @@ class CycleReturnBoundaryLowerer {
 		if (node.kind == IRK_CALL && (node.callee == "__btrc_arc_release" || node.callee == "__btrc_arc_release_edge" || node.callee == "__btrc_arc_replace_edge")) {
 			return true;
 		}
-		if (self.containsCyclableRelease(node.left) || self.containsCyclableRelease(node.right) || self.containsCyclableRelease(node.operand) || self.containsCyclableRelease(node.expr) || self.containsCyclableRelease(node.obj) || self.containsCyclableRelease(node.index) || self.containsCyclableRelease(node.condition) || self.containsCyclableRelease(node.true_expr) || self.containsCyclableRelease(node.false_expr) || self.containsCyclableRelease(node.array_size) || self.containsCyclableRelease(node.init) || self.containsCyclableRelease(node.value) || self.containsCyclableRelease(node.target) || self.containsCyclableRelease(node.then_block) || self.containsCyclableRelease(node.else_block) || self.containsCyclableRelease(node.body) || self.containsCyclableRelease(node.update) || self.containsCyclableRelease(node.result)) {
+		if (self.containsCyclableRelease(node.left) || self.containsCyclableRelease(node.right) || self.containsCyclableRelease(node.operand) || self.containsCyclableRelease(node.expr) || self.containsCyclableRelease(node.obj) || self.containsCyclableRelease(node.index) || self.containsCyclableRelease(node.condition) || self.containsCyclableRelease(node.trueExpr) || self.containsCyclableRelease(node.falseExpr) || self.containsCyclableRelease(node.arraySize) || self.containsCyclableRelease(node.init) || self.containsCyclableRelease(node.value) || self.containsCyclableRelease(node.target) || self.containsCyclableRelease(node.thenBlock) || self.containsCyclableRelease(node.elseBlock) || self.containsCyclableRelease(node.body) || self.containsCyclableRelease(node.update) || self.containsCyclableRelease(node.result)) {
 			return true;
 		}
 		int index = 0;
@@ -62,16 +62,16 @@ class CycleReturnBoundaryLowerer {
 			return false;
 		}
 		IRNode declaration = statements.get(statements.len - 2);
-		return declaration.kind == IRK_VAR_DECL && declaration.is_cycle_return_temp && declaration.name == statement.value.name;
+		return declaration.kind == IRK_VAR_DECL && declaration.isCycleReturnTemp && declaration.name == statement.value.name;
 	}
 
 	private void rewriteNestedReturns(IRFunction definition, IRNode node) {
 		if (node.kind == IRK_BLOCK) {
 			self.rewriteReturns(definition, node);
 		} else if (node.kind == IRK_IF) {
-			self.rewriteReturns(definition, node.then_block);
-			if (node.else_block != null) {
-				self.rewriteReturns(definition, node.else_block);
+			self.rewriteReturns(definition, node.thenBlock);
+			if (node.elseBlock != null) {
+				self.rewriteReturns(definition, node.elseBlock);
 			}
 		} else if (node.kind == IRK_WHILE || node.kind == IRK_DO_WHILE || node.kind == IRK_FOR) {
 			self.rewriteReturns(definition, node.body);
@@ -96,8 +96,8 @@ class CycleReturnBoundaryLowerer {
 				bool materialized = self.isMaterializedReturn(rewritten, statement);
 				if (statement.value != null && !materialized) {
 					string result = self.temporaryNames.fresh("__btrc_cycle_return");
-					IRNode declaration = IRNode.variableDeclaration(definition.return_type, result, statement.value);
-					declaration.is_cycle_return_temp = true;
+					IRNode declaration = IRNode.variableDeclaration(definition.returnType, result, statement.value);
+					declaration.isCycleReturnTemp = true;
 					rewritten.push(declaration);
 					statement.value = IRNode.variable(result);
 				}
@@ -180,7 +180,7 @@ class CycleBoundaryLowerer {
 		fields.push("guard");
 		fields.push("raise");
 		Vector<IRNode> values = [];
-		if ((typeExpr.generic_args.len > 0 && self.cycles.genericTypeNeedsVisitor(typeExpr)) || (typeExpr.generic_args.len == 0 && self.cycles.classNeedsVisitor(typeExpr.base))) {
+		if ((typeExpr.genericArgs.len > 0 && self.cycles.genericTypeNeedsVisitor(typeExpr)) || (typeExpr.genericArgs.len == 0 && self.cycles.classNeedsVisitor(typeExpr.base))) {
 			values.push(IRNode.functionReference(self.cycles.visitorName(emitted)));
 		} else {
 			values.push(IRNode.literal("NULL"));
@@ -232,7 +232,7 @@ class CycleBoundaryLowerer {
 	}
 
 	public bool appendClassFieldVisit(Node typeExpr, IRNode slot, Vector<IRNode> output) {
-		if (typeExpr == null || typeExpr.pointer_depth > 1 || typeExpr.is_array) {
+		if (typeExpr == null || typeExpr.pointerDepth > 1 || typeExpr.isArray) {
 			return false;
 		}
 		if (self.cycles.isGraphManaged(typeExpr)) {
@@ -243,7 +243,7 @@ class CycleBoundaryLowerer {
 	}
 
 	public bool appendGenericFieldVisit(Node typeExpr, IRNode slot, Vector<IRNode> output) {
-		if (typeExpr == null || typeExpr.pointer_depth > 1 || typeExpr.is_array || !self.cycles.isGraphManaged(typeExpr)) {
+		if (typeExpr == null || typeExpr.pointerDepth > 1 || typeExpr.isArray || !self.cycles.isGraphManaged(typeExpr)) {
 			return false;
 		}
 		self.appendCycleCallback(typeExpr, slot, output);
@@ -251,7 +251,7 @@ class CycleBoundaryLowerer {
 	}
 
 	private void appendCollectionSlotVisit(Node typeExpr, IRNode slot, Vector<IRNode> output) {
-		if (typeExpr == null || typeExpr.pointer_depth > 1 || typeExpr.is_array) {
+		if (typeExpr == null || typeExpr.pointerDepth > 1 || typeExpr.isArray) {
 			return;
 		}
 		if (self.cycles.isGraphManaged(typeExpr)) {
@@ -284,7 +284,7 @@ class CycleBoundaryLowerer {
 		Node nodeType = Node();
 		nodeType.kind = NK_TYPE_EXPR;
 		nodeType.base = "ListNode";
-		nodeType.generic_args.push(element);
+		nodeType.genericArgs.push(element);
 		self.appendCollectionSlotVisit(nodeType, IRNode.fieldAccess(IRNode.variable("self"), "head", true), body);
 		self.appendCollectionSlotVisit(nodeType, IRNode.fieldAccess(IRNode.variable("self"), "tail", true), body);
 	}
@@ -327,13 +327,13 @@ class CycleBoundaryLowerer {
 		visitorDeclaration.params.push(IRParam("void*", "object"));
 		visitorDeclaration.params.push(IRParam("__btrc_field_visit_fn", "fn"));
 		visitorDeclaration.params.push(IRParam("void*", "context"));
-		module.function_decls.push(visitorDeclaration);
+		module.functionDecls.push(visitorDeclaration);
 
 		IRFunction visitor = IRFunction();
 		visitor.name = self.cycles.visitorName(instance.mangled);
-		visitor.return_type = "void";
-		visitor.is_static = true;
-		visitor.archive_export = true;
+		visitor.returnType = "void";
+		visitor.isStatic = true;
+		visitor.archiveExport = true;
 		visitor.params.push(IRParam("void*", "object"));
 		visitor.params.push(IRParam("__btrc_field_visit_fn", "fn"));
 		visitor.params.push(IRParam("void*", "context"));
@@ -447,13 +447,13 @@ class CycleBoundaryLowerer {
 		if (self.collectTopologyAliases(node.condition, aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.true_expr, aliases)) {
+		if (self.collectTopologyAliases(node.trueExpr, aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.false_expr, aliases)) {
+		if (self.collectTopologyAliases(node.falseExpr, aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.array_size, aliases)) {
+		if (self.collectTopologyAliases(node.arraySize, aliases)) {
 			changed = true;
 		}
 		if (self.collectTopologyAliases(node.init, aliases)) {
@@ -465,10 +465,10 @@ class CycleBoundaryLowerer {
 		if (self.collectTopologyAliases(node.target, aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.then_block, aliases)) {
+		if (self.collectTopologyAliases(node.thenBlock, aliases)) {
 			changed = true;
 		}
-		if (self.collectTopologyAliases(node.else_block, aliases)) {
+		if (self.collectTopologyAliases(node.elseBlock, aliases)) {
 			changed = true;
 		}
 		if (self.collectTopologyAliases(node.body, aliases)) {
@@ -521,7 +521,7 @@ class CycleBoundaryLowerer {
 				return true;
 			}
 		}
-		if (self.containsTopologyMutation(node.left, aliases) || self.containsTopologyMutation(node.right, aliases) || self.containsTopologyMutation(node.operand, aliases) || self.containsTopologyMutation(node.expr, aliases) || self.containsTopologyMutation(node.obj, aliases) || self.containsTopologyMutation(node.index, aliases) || self.containsTopologyMutation(node.condition, aliases) || self.containsTopologyMutation(node.true_expr, aliases) || self.containsTopologyMutation(node.false_expr, aliases) || self.containsTopologyMutation(node.array_size, aliases) || self.containsTopologyMutation(node.init, aliases) || self.containsTopologyMutation(node.value, aliases) || self.containsTopologyMutation(node.target, aliases) || self.containsTopologyMutation(node.then_block, aliases) || self.containsTopologyMutation(node.else_block, aliases) || self.containsTopologyMutation(node.body, aliases) || self.containsTopologyMutation(node.update, aliases) || self.containsTopologyMutation(node.result, aliases)) {
+		if (self.containsTopologyMutation(node.left, aliases) || self.containsTopologyMutation(node.right, aliases) || self.containsTopologyMutation(node.operand, aliases) || self.containsTopologyMutation(node.expr, aliases) || self.containsTopologyMutation(node.obj, aliases) || self.containsTopologyMutation(node.index, aliases) || self.containsTopologyMutation(node.condition, aliases) || self.containsTopologyMutation(node.trueExpr, aliases) || self.containsTopologyMutation(node.falseExpr, aliases) || self.containsTopologyMutation(node.arraySize, aliases) || self.containsTopologyMutation(node.init, aliases) || self.containsTopologyMutation(node.value, aliases) || self.containsTopologyMutation(node.target, aliases) || self.containsTopologyMutation(node.thenBlock, aliases) || self.containsTopologyMutation(node.elseBlock, aliases) || self.containsTopologyMutation(node.body, aliases) || self.containsTopologyMutation(node.update, aliases) || self.containsTopologyMutation(node.result, aliases)) {
 			return true;
 		}
 		int index = 0;
@@ -576,9 +576,9 @@ class CycleBoundaryLowerer {
 		if (node.kind == IRK_BLOCK) {
 			self.rewriteTopologyReturns(definition, node, token, marker);
 		} else if (node.kind == IRK_IF) {
-			self.rewriteTopologyReturns(definition, node.then_block, token, marker);
-			if (node.else_block != null) {
-				self.rewriteTopologyReturns(definition, node.else_block, token, marker);
+			self.rewriteTopologyReturns(definition, node.thenBlock, token, marker);
+			if (node.elseBlock != null) {
+				self.rewriteTopologyReturns(definition, node.elseBlock, token, marker);
 			}
 		} else if (node.kind == IRK_WHILE || node.kind == IRK_DO_WHILE || node.kind == IRK_FOR) {
 			self.rewriteTopologyReturns(definition, node.body, token, marker);
@@ -602,7 +602,7 @@ class CycleBoundaryLowerer {
 			if (statement.kind == IRK_RETURN) {
 				if (statement.value != null) {
 					string result = self.context.freshTemporary("__btrc_topology_return");
-					rewritten.push(IRNode.variableDeclaration(definition.return_type, result, statement.value));
+					rewritten.push(IRNode.variableDeclaration(definition.returnType, result, statement.value));
 					statement.value = IRNode.variable(result);
 				}
 				self.appendTopologyEpilogue(rewritten, token, marker);

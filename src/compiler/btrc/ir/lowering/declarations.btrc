@@ -137,7 +137,7 @@ class DeclarationLowerer {
 		int globalDeclarationIndex = 0;
 		while (globalDeclarationIndex < prog.declarations.len) {
 			Node declaration = prog.declarations.get(globalDeclarationIndex);
-			if (declaration.kind == NK_VAR_DECL_STMT && declaration.type != null && declaration.type.is_extern && self.analyzed.globalHasDefinition.has(declaration.name)) {
+			if (declaration.kind == NK_VAR_DECL_STMT && declaration.type != null && declaration.type.isExtern && self.analyzed.globalHasDefinition.has(declaration.name)) {
 				externallyDefinedGlobals.put(declaration.name, true);
 			}
 			globalDeclarationIndex = globalDeclarationIndex + 1;
@@ -146,9 +146,9 @@ class DeclarationLowerer {
 		while (i < prog.declarations.len) {
 			Node d = prog.declarations.get(i);
 			if (d.kind == NK_CLASS_DECL) {
-				if (d.generic_params.len == 0) { self.emitClassDecl(d, m); }
+				if (d.genericParams.len == 0) { self.emitClassDecl(d, m); }
 			} else if (d.kind == NK_FUNCTION_DECL) {
-				if (d.is_gpu) {
+				if (d.isGpu) {
 					self.functions.emitGpuCpuFallback(d, m);
 					i = i + 1;
 					continue;
@@ -158,8 +158,8 @@ class DeclarationLowerer {
                  * declaration and skip function_defs — otherwise we'd emit an
                  * empty-bodied definition that collides with the real one
                  * (mirrors functions.emit_function_decl: body is None branch). */
-				if (d.body_node == null) {
-					string fret = self.cTypes.lower(d.return_type);
+				if (d.bodyNode == null) {
+					string fret = self.cTypes.lower(d.returnType);
 					if (fret == "") { fret = "void"; }
 					IRFunctionDecl declaration = IRFunctionDecl(self.semanticDeclarations.sourceFunctionSymbol(d.name), fret, false);
 					int fp = 0;
@@ -168,7 +168,7 @@ class DeclarationLowerer {
 						declaration.params.push(self.cTypes.lowerParameter(pp));
 						fp = fp + 1;
 					}
-					m.function_decls.push(declaration);
+					m.functionDecls.push(declaration);
 				} else {
 					m.functions.push(self.functions.lowerFunction(d));
 				}
@@ -182,7 +182,7 @@ class DeclarationLowerer {
 			} else if (d.kind == NK_TYPEDEF_DECL) {
 				/* Already lowered above in dependency order. */
 			} else if (d.kind == NK_VAR_DECL_STMT) {
-				bool redundantExtern = d.type != null && d.type.is_extern && d.initializer == null && self.analyzed.globalHasDefinition.has(d.name);
+				bool redundantExtern = d.type != null && d.type.isExtern && d.initializer == null && self.analyzed.globalHasDefinition.has(d.name);
 				if (!redundantExtern) {
 					self.emitGlobalVar(d, m, externallyDefinedGlobals.has(d.name));
 				}
@@ -217,12 +217,12 @@ class DeclarationLowerer {
 		while (i < d.values.len) {
 			Node v = d.values.get(i);
 			IRNode value = null;
-			if (v.value_node != null) {
+			if (v.valueNode != null) {
 				Map<string, Node> empty = {};
 				self.context.enumInitializer = true;
 				self.context.enumOwner = name;
 				self.context.enumMembers = priorMembers;
-				value = self.expressions.lowerExpr(v.value_node, empty, callableFlow);
+				value = self.expressions.lowerExpr(v.valueNode, empty, callableFlow);
 				self.context.enumInitializer = false;
 				self.context.enumOwner = "";
 				self.context.enumMembers = {};
@@ -233,7 +233,7 @@ class DeclarationLowerer {
 			priorMembers.put(v.name, true);
 			i = i + 1;
 		}
-		m.enum_defs.push(definition);
+		m.enumDefs.push(definition);
 		/* static const char* Name_toString(Name val) { switch (val) {...} }.
          * It is an ordinary structured function, so reachability DCE prunes it
          * when unused. An anonymous enum (empty name) has no
@@ -256,7 +256,7 @@ class DeclarationLowerer {
 			tagDefinition.values.push(IREnumValue(name + "_" + v.name + "_TAG", IRNode.literal(Strings.fromInt(i))));
 			i = i + 1;
 		}
-		m.enum_defs.push(tagDefinition);
+		m.enumDefs.push(tagDefinition);
 		IRTaggedUnionDef tagged = IRTaggedUnionDef(name, name + "_Tag");
 		int v2 = 0;
 		while (v2 < d.variants.len) {
@@ -266,15 +266,15 @@ class DeclarationLowerer {
 			while (p < v.params.len) {
 				Node par = v.params.get(p);
 				IRStructField variantField = IRStructField(self.cTypes.lower(par.type), self.hostedAbi.lexicalBindingCName(par.name, false));
-				variantField.is_volatile = par.type != null && par.type.is_volatile;
-				variantField.effective_is_volatile = SemanticTypeSystem.typeEffectiveOuterVolatile(par.type, self.analyzed.typedefTable);
+				variantField.isVolatile = par.type != null && par.type.isVolatile;
+				variantField.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(par.type, self.analyzed.typedefTable);
 				variant.fields.push(variantField);
 				p = p + 1;
 			}
 			tagged.variants.push(variant);
 			v2 = v2 + 1;
 		}
-		m.tagged_union_defs.push(tagged);
+		m.taggedUnionDefs.push(tagged);
 		/* Variant constructors are ordinary IR functions so their field stores
          * participate in reachability and helper analysis. */
 		int v4 = 0;
@@ -282,8 +282,8 @@ class DeclarationLowerer {
 			Node v = d.variants.get(v4);
 			IRFunction constructor = IRFunction();
 			constructor.name = name + "_" + v.name;
-			constructor.return_type = name;
-			constructor.is_static = true;
+			constructor.returnType = name;
+			constructor.isStatic = true;
 			Vector<IRNode> constructorBody = [];
 			constructorBody.push(IRNode.variableDeclaration(name, "__result", null));
 			constructorBody.push(IRNode.assignment(IRNode.fieldAccess(IRNode.variable("__result"), "tag", false), IRNode.variable(name + "_" + v.name + "_TAG")));
@@ -324,9 +324,9 @@ class DeclarationLowerer {
 		bodyStmts.push(IRNode.returnStatement(IRNode.literal("\"unknown\"")));
 		IRFunction fn = IRFunction();
 		fn.name = name + "_toString";
-		fn.return_type = "const char*";
-		fn.is_static = true;
-		fn.archive_export = true;
+		fn.returnType = "const char*";
+		fn.isStatic = true;
+		fn.archiveExport = true;
 		fn.params.push(IRParam(name, "val"));
 		fn.body = IRNode.block(bodyStmts);
 		return fn;
@@ -341,28 +341,28 @@ class DeclarationLowerer {
 		sd.name = d.name;
 		string declarationKey = AstIdentity.key(d);
 		if (self.context.packAlignments.has(declarationKey)) {
-			sd.pack_alignment = self.context.packAlignments.get(declarationKey);
+			sd.packAlignment = self.context.packAlignments.get(declarationKey);
 		}
 		int i = 0;
 		while (i < d.fields.len) {
 			Node f = d.fields.get(i);
-			if (f.type != null && f.type.is_array && f.type.array_size != null) {
+			if (f.type != null && f.type.isArray && f.type.arraySize != null) {
 				Node baseType = TypeShape.withoutOuterArray(f.type);
 				Map<string, Node> empty = {};
 				IRStructField field = IRStructField(self.cTypes.lower(baseType), f.name);
-				field.array_size = self.expressions.lowerExpr(f.type.array_size, empty, callableFlow);
-				field.is_volatile = f.type.is_volatile;
-				field.effective_is_volatile = SemanticTypeSystem.typeEffectiveOuterVolatile(f.type, self.analyzed.typedefTable);
+				field.arraySize = self.expressions.lowerExpr(f.type.arraySize, empty, callableFlow);
+				field.isVolatile = f.type.isVolatile;
+				field.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(f.type, self.analyzed.typedefTable);
 				sd.fields.push(field);
 			} else {
 				IRStructField field = IRStructField(self.cTypes.lower(f.type), f.name);
-				field.is_volatile = f.type != null && f.type.is_volatile;
-				field.effective_is_volatile = SemanticTypeSystem.typeEffectiveOuterVolatile(f.type, self.analyzed.typedefTable);
+				field.isVolatile = f.type != null && f.type.isVolatile;
+				field.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(f.type, self.analyzed.typedefTable);
 				sd.fields.push(field);
 			}
 			i = i + 1;
 		}
-		m.struct_defs.push(sd);
+		m.structDefs.push(sd);
 	}
 
 	/* Top-level variable -> file-scope C global (mirrors _emit_declarations'
@@ -378,41 +378,41 @@ class DeclarationLowerer {
 			self.callableBoundaries.rejectPersistentStorage(d.type, d.initializer, callableContext, unsafe, "global storage");
 		}
 		bool inferredArray = d.initializer != null && (d.initializer.kind == NK_LIST_LITERAL || d.initializer.kind == NK_BRACE_INITIALIZER);
-		if (d.type != null && d.type.is_array && (d.type.array_size != null || inferredArray || d.type.is_extern)) {
+		if (d.type != null && d.type.isArray && (d.type.arraySize != null || inferredArray || d.type.isExtern)) {
 			Node elementType = TypeShape.withoutOuterArray(d.type);
 			IRGlobalDecl global = IRGlobalDecl(self.cTypes.lower(elementType), d.name);
-			global.is_extern = d.type.is_extern && !forceExternal;
-			global.is_static = !(global.is_extern || forceExternal);
-			global.is_volatile = d.type.is_volatile;
-			global.effective_is_volatile = SemanticTypeSystem.typeEffectiveOuterVolatile(d.type, self.analyzed.typedefTable);
+			global.isExtern = d.type.isExtern && !forceExternal;
+			global.isStatic = !(global.isExtern || forceExternal);
+			global.isVolatile = d.type.isVolatile;
+			global.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(d.type, self.analyzed.typedefTable);
 			Map<string, Node> empty = {};
-			if (d.type.array_size != null) {
-				global.array_size = self.expressions.lowerExpr(d.type.array_size, empty, callableFlow);
+			if (d.type.arraySize != null) {
+				global.arraySize = self.expressions.lowerExpr(d.type.arraySize, empty, callableFlow);
 			} else if (inferredArray) {
-				global.array_size = IRNode.literal(Strings.fromInt(d.initializer.elements.len));
+				global.arraySize = IRNode.literal(Strings.fromInt(d.initializer.elements.len));
 			} else {
-				global.is_unsized_array = true;
+				global.isUnsizedArray = true;
 			}
 			if (d.initializer != null) {
 				global.init = self.expressions.lowerStaticInitializer(d.initializer, d.type, empty, callableFlow);
 			}
-			m.global_decls.push(global);
+			m.globalDecls.push(global);
 			return;
 		}
 		string ct = "int";
 		if (d.type != null) { ct = self.cTypes.lower(d.type); }
 		IRGlobalDecl global = IRGlobalDecl(ct, d.name);
-		global.is_extern = d.type != null && d.type.is_extern && !forceExternal;
-		global.is_static = !(global.is_extern || forceExternal);
+		global.isExtern = d.type != null && d.type.isExtern && !forceExternal;
+		global.isStatic = !(global.isExtern || forceExternal);
 		if (d.type != null) {
-			global.is_volatile = d.type.is_volatile;
-			global.effective_is_volatile = SemanticTypeSystem.typeEffectiveOuterVolatile(d.type, self.analyzed.typedefTable);
+			global.isVolatile = d.type.isVolatile;
+			global.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(d.type, self.analyzed.typedefTable);
 		}
-		if (d.initializer != null && !global.is_extern) {
+		if (d.initializer != null && !global.isExtern) {
 			Map<string, Node> empty = {};
 			global.init = self.expressions.lowerStaticInitializer(d.initializer, d.type, empty, callableFlow);
 		}
-		m.global_decls.push(global);
+		m.globalDecls.push(global);
 	}
 
 	/* A supported preprocessor directive becomes a validated typed declaration;
@@ -433,8 +433,8 @@ class DeclarationLowerer {
 		string mangled = inst.mangled;
 		Map<string, Node> typeMap = {};
 		int g = 0;
-		while (g < decl.generic_params.len && g < inst.args.len) {
-			typeMap.put(decl.generic_params.get(g), inst.args.get(g));
+		while (g < decl.genericParams.len && g < inst.args.len) {
+			typeMap.put(decl.genericParams.get(g), inst.args.get(g));
 			g = g + 1;
 		}
 
@@ -451,7 +451,7 @@ class DeclarationLowerer {
 			}
 			fi = fi + 1;
 		}
-		m.struct_defs.push(sd);
+		m.structDefs.push(sd);
 
 		/* Constructor params (resolved). */
 		Node? ctor = self.functions.genericConstructor(decl);
@@ -472,7 +472,7 @@ class DeclarationLowerer {
 			initDeclaration.params.push(ctorParams.get(cp));
 			cp = cp + 1;
 		}
-		m.function_decls.push(initDeclaration);
+		m.functionDecls.push(initDeclaration);
 
 		IRFunctionDecl newDeclaration = IRFunctionDecl(mangled + "_new", mangled + "*", true);
 		int q = 0;
@@ -480,16 +480,16 @@ class DeclarationLowerer {
 			newDeclaration.params.push(ctorParams.get(q));
 			q = q + 1;
 		}
-		m.function_decls.push(newDeclaration);
+		m.functionDecls.push(newDeclaration);
 
 		IRFunctionDecl destroyDeclaration = IRFunctionDecl(mangled + "_destroy", "void", true);
 		destroyDeclaration.params.push(IRParam("void*", "object"));
-		m.function_decls.push(destroyDeclaration);
+		m.functionDecls.push(destroyDeclaration);
 		int mi = 0;
 		while (mi < decl.members.len) {
 			Node mem = decl.members.get(mi);
-			if (mem.kind == NK_METHOD_DECL && !mem.is_constructor && mem.name != "__del__" && mem.generic_params.len == 0) {
-				string retC = self.cTypes.lowerGeneric(mem.return_type, typeMap);
+			if (mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams.len == 0) {
+				string retC = self.cTypes.lowerGeneric(mem.returnType, typeMap);
 				IRFunctionDecl methodDeclaration = IRFunctionDecl(mangled + "_" + mem.name, retC, true);
 				methodDeclaration.params.push(IRParam(mangled + "*", "self"));
 				int k = 0;
@@ -498,7 +498,7 @@ class DeclarationLowerer {
 					methodDeclaration.params.push(self.cTypes.lowerResolvedParameter(pp, SemanticTypeSystem.resolveGenericType(pp.type, typeMap, self.analyzed), self.cTypes.lowerGeneric(pp.type, typeMap)));
 					k = k + 1;
 				}
-				m.function_decls.push(methodDeclaration);
+				m.functionDecls.push(methodDeclaration);
 			}
 			mi = mi + 1;
 		}
@@ -521,8 +521,8 @@ class DeclarationLowerer {
 		/* --- _init --- */
 		IRFunction initFn = IRFunction();
 		initFn.name = mangled + "_init";
-		initFn.return_type = "void";
-		initFn.is_static = true;
+		initFn.returnType = "void";
+		initFn.isStatic = true;
 		initFn.params.push(IRParam(mangled + "*", "self"));
 		int ip = 0;
 		while (ip < ctorParams.len) { initFn.params.push(ctorParams.get(ip)); ip = ip + 1; }
@@ -541,8 +541,8 @@ class DeclarationLowerer {
 		}
 		self.appendInstanceFieldInitializers(decl, genericCtorVars, true, typeMap, ibody);
 		Vector<IRNode> ctorBodyStmts = [];
-		if (ctor != null && ctor.body_node != null) {
-			IRNode blk = self.functions.lowerBody(ctor.body_node, genericCtorVars);
+		if (ctor != null && ctor.bodyNode != null) {
+			IRNode blk = self.functions.lowerBody(ctor.bodyNode, genericCtorVars);
 			int b = 0;
 			while (b < blk.stmts.len) { ctorBodyStmts.push(blk.stmts.get(b)); b = b + 1; }
 		}
@@ -559,8 +559,8 @@ class DeclarationLowerer {
 		/* --- _new --- */
 		IRFunction newFn = IRFunction();
 		newFn.name = mangled + "_new";
-		newFn.return_type = mangled + "*";
-		newFn.is_static = true;
+		newFn.returnType = mangled + "*";
+		newFn.isStatic = true;
 		int np = 0;
 		while (np < ctorParams.len) { newFn.params.push(ctorParams.get(np)); np = np + 1; }
 		Vector<IRNode> nbody = [];
@@ -583,14 +583,14 @@ class DeclarationLowerer {
 		/* Lower source __del__ into its own function so a source return cannot
          * bypass compiler-owned terminal finalization. */
 		Node? genericDestructor = self.analyzed.genericClassMethod(inst.base, "__del__");
-		bool hasDestructorHook = genericDestructor != null && genericDestructor.body_node != null;
-		if (genericDestructor != null && genericDestructor.body_node != null) {
+		bool hasDestructorHook = genericDestructor != null && genericDestructor.bodyNode != null;
+		if (genericDestructor != null && genericDestructor.bodyNode != null) {
 			self.context.currentReturnCType = "void";
 			self.context.currentReturnType = null;
 			self.context.currentReturnOwned = true;
 			self.functions.resetFuncVarDecls();
 			Map<string, Node> destructorTypes = self.functions.genericMethodVarTypes(inst, genericDestructor);
-			IRNode destructorBlock = self.functions.lowerBody(genericDestructor.body_node, destructorTypes);
+			IRNode destructorBlock = self.functions.lowerBody(genericDestructor.bodyNode, destructorTypes);
 			Vector<IRNode> hookBody = [];
 			int hookStatement = 0;
 			while (hookStatement < destructorBlock.stmts.len) {
@@ -606,8 +606,8 @@ class DeclarationLowerer {
          * compiler-owned managed field before freeing the instance struct. */
 		IRFunction dFn = IRFunction();
 		dFn.name = mangled + "_destroy";
-		dFn.return_type = "void";
-		dFn.is_static = true;
+		dFn.returnType = "void";
+		dFn.isStatic = true;
 		dFn.params.push(IRParam("void*", "object"));
 		Vector<IRNode> dbody = [];
 		dbody.push(IRNode.variableDeclaration(mangled + "*", "self", IRNode.cast(mangled + "*", IRNode.variable("object"))));
@@ -630,13 +630,13 @@ class DeclarationLowerer {
 		int m2 = 0;
 		while (m2 < decl.members.len) {
 			Node mem = decl.members.get(m2);
-			if (mem.kind == NK_METHOD_DECL && !mem.is_constructor && mem.name != "__del__" && mem.generic_params.len == 0) {
+			if (mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams.len == 0) {
 				IRFunction fn = IRFunction();
 				fn.name = mangled + "_" + mem.name;
-				Node rrt = SemanticTypeSystem.resolveGenericType(mem.return_type, typeMap, self.analyzed);
-				string retC = self.cTypes.lowerGeneric(mem.return_type, typeMap);
-				fn.return_type = retC;
-				fn.is_static = true;
+				Node rrt = SemanticTypeSystem.resolveGenericType(mem.returnType, typeMap, self.analyzed);
+				string retC = self.cTypes.lowerGeneric(mem.returnType, typeMap);
+				fn.returnType = retC;
+				fn.isStatic = true;
 				fn.params.push(IRParam(mangled + "*", "self"));
 				int mp2 = 0;
 				while (mp2 < mem.params.len) {
@@ -651,11 +651,11 @@ class DeclarationLowerer {
 				bool topologyCollection = self.cycleBoundaries.publicCollectionBase(inst.base) && self.cycles.genericInstanceNeedsVisitor(inst);
 				self.context.batchExplicitReleases = publicCollectionMethod;
 				Vector<IRNode> mbody = [];
-				if (mem.body_node != null) {
+				if (mem.bodyNode != null) {
 					Vector<string> methodSourceBindings = self.functions.replaceSourceLexicalParameters(mem.params);
 					self.functions.resetFuncVarDecls();
 					Map<string, Node> vt = self.functions.genericMethodVarTypes(inst, mem);
-					IRNode blk = self.functions.lowerBody(mem.body_node, vt);
+					IRNode blk = self.functions.lowerBody(mem.bodyNode, vt);
 					int b = 0;
 					while (b < blk.stmts.len) { mbody.push(blk.stmts.get(b)); b = b + 1; }
 					self.context.restoreSourceBindings(methodSourceBindings);
@@ -706,9 +706,9 @@ class DeclarationLowerer {
 		int i = 0;
 		while (i < decl.members.len) {
 			Node mem = decl.members.get(i);
-			if (mem.kind == NK_METHOD_DECL && !mem.is_constructor && mem.name != "__del__") {
+			if (mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__") {
 				ownMethods.put(mem.name, true);
-				if (mem.generic_params.len == 0 && !mem.is_abstract && mem.body_node != null) {
+				if (mem.genericParams.len == 0 && !mem.isAbstract && mem.bodyNode != null) {
 					m.functions.push(self.lowerMethod(decl, mem));
 				}
 			} else if (mem.kind == NK_PROPERTY_DECL) {
@@ -734,7 +734,7 @@ class DeclarationLowerer {
 		sd.name = decl.name;
 		string declarationKey = AstIdentity.key(decl);
 		if (self.context.packAlignments.has(declarationKey)) {
-			sd.pack_alignment = self.context.packAlignments.get(declarationKey);
+			sd.packAlignment = self.context.packAlignments.get(declarationKey);
 		}
 		self.managedTypes.appendHeaderField(sd);
 		/* Parent fields (single-level chain handled by recursion). */
@@ -751,7 +751,7 @@ class DeclarationLowerer {
 			}
 			i = i + 1;
 		}
-		m.struct_defs.push(sd);
+		m.structDefs.push(sd);
 	}
 
 	/* Append a parent class's own fields (recursively, ancestors first) into a
@@ -793,8 +793,8 @@ class DeclarationLowerer {
 				constructorParam = constructorParam + 1;
 			}
 		}
-		m.function_decls.push(initDeclaration);
-		m.function_decls.push(newDeclaration);
+		m.functionDecls.push(initDeclaration);
+		m.functionDecls.push(newDeclaration);
 		/* Own methods. */
 		Map<string, bool> own = {};
 		Map<string, bool> ownProperties = {};
@@ -802,9 +802,9 @@ class DeclarationLowerer {
 		while (i < decl.members.len) {
 			Node mem = decl.members.get(i);
 			if (mem.kind == NK_METHOD_DECL) { own.put(mem.name, true); }
-			if (mem.kind == NK_METHOD_DECL && !mem.is_constructor && mem.name != "__del__" && mem.generic_params.len == 0) {
+			if (mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams.len == 0) {
 				bool isStatic = mem.access == "class";
-				string ret = self.cTypes.lower(mem.return_type);
+				string ret = self.cTypes.lower(mem.returnType);
 				IRFunctionDecl methodDeclaration = IRFunctionDecl(name + "_" + mem.name, ret, false);
 				if (!isStatic) {
 					methodDeclaration.params.push(IRParam(name + "*", "self"));
@@ -815,20 +815,20 @@ class DeclarationLowerer {
 					methodDeclaration.params.push(self.cTypes.lowerParameter(parameter));
 					methodParam = methodParam + 1;
 				}
-				m.function_decls.push(methodDeclaration);
+				m.functionDecls.push(methodDeclaration);
 			} else if (mem.kind == NK_PROPERTY_DECL) {
 				ownProperties.put(mem.name, true);
 				string propertyType = self.cTypes.lower(mem.type);
-				if (mem.has_getter) {
+				if (mem.hasGetter) {
 					IRFunctionDecl getter = IRFunctionDecl(name + "_get_" + mem.name, propertyType, false);
 					getter.params.push(IRParam(name + "*", "self"));
-					m.function_decls.push(getter);
+					m.functionDecls.push(getter);
 				}
-				if (mem.has_setter) {
+				if (mem.hasSetter) {
 					IRFunctionDecl setter = IRFunctionDecl(name + "_set_" + mem.name, "void", false);
 					setter.params.push(IRParam(name + "*", "self"));
 					setter.params.push(self.cTypes.lowerNamedParameter(mem.type, propertyType, self.lexicalBindingCName("value")));
-					m.function_decls.push(setter);
+					m.functionDecls.push(setter);
 				}
 			}
 			i = i + 1;
@@ -841,8 +841,8 @@ class DeclarationLowerer {
 			int k = 0;
 			while (k < pm.len) {
 				MethodEntry e = pm.get(k);
-				if (!own.has(e.name) && e.sig.generic_params.len == 0) {
-					string ret = self.cTypes.lower(e.sig.return_type);
+				if (!own.has(e.name) && e.sig.genericParams.len == 0) {
+					string ret = self.cTypes.lower(e.sig.returnType);
 					IRFunctionDecl wrapper = IRFunctionDecl(name + "_" + e.name, ret, false);
 					if (e.sig.access != "class") {
 						wrapper.params.push(IRParam(name + "*", "self"));
@@ -853,7 +853,7 @@ class DeclarationLowerer {
 						wrapper.params.push(self.cTypes.lowerParameter(parameter));
 						wrapperParam = wrapperParam + 1;
 					}
-					m.function_decls.push(wrapper);
+					m.functionDecls.push(wrapper);
 				}
 				k = k + 1;
 			}
@@ -871,7 +871,7 @@ class DeclarationLowerer {
 		/* X_init params: self + ctor params. */
 		IRFunction initFn = IRFunction();
 		initFn.name = name + "_init";
-		initFn.return_type = "void";
+		initFn.returnType = "void";
 		initFn.params.push(IRParam(name + "*", "self"));
 		if (ctor != null) {
 			int i = 0;
@@ -897,8 +897,8 @@ class DeclarationLowerer {
 		Map<string, Node> noTypeMap = {};
 		self.appendInstanceFieldInitializers(decl, ctorVars, false, noTypeMap, body);
 		/* Constructor body (user code). */
-		if (ctor != null && ctor.body_node != null) {
-			IRNode blk = self.functions.lowerBody(ctor.body_node, ctorVars);
+		if (ctor != null && ctor.bodyNode != null) {
+			IRNode blk = self.functions.lowerBody(ctor.bodyNode, ctorVars);
 			int k = 0;
 			while (k < blk.stmts.len) { body.push(blk.stmts.get(k)); k = k + 1; }
 		}
@@ -909,7 +909,7 @@ class DeclarationLowerer {
 		/* X_new: checked zeroed allocation + init + return. */
 		IRFunction newFn = IRFunction();
 		newFn.name = name + "_new";
-		newFn.return_type = name + "*";
+		newFn.returnType = name + "*";
 		Vector<IRNode> nbody = [];
 		self.context.referenceHelper("__btrc_safe_calloc");
 		Vector<IRNode> callocArgs = [];
@@ -957,19 +957,19 @@ class DeclarationLowerer {
 		string name = decl.name;
 		IRFunction fn = IRFunction();
 		fn.name = name + "_destroy";
-		fn.return_type = "void";
+		fn.returnType = "void";
 		fn.params.push(IRParam("void*", "object"));
 		Vector<IRNode> body = [];
 		body.push(IRNode.variableDeclaration(name + "*", "self", IRNode.cast(name + "*", IRNode.variable("object"))));
 		Node? dtor = self.analyzed.classMethod(name, "__del__");
-		if (dtor != null && dtor.kind == NK_METHOD_DECL && dtor.body_node != null) {
+		if (dtor != null && dtor.kind == NK_METHOD_DECL && dtor.bodyNode != null) {
 			self.context.currentReturnCType = "void";
 			self.context.currentReturnType = null;
 			self.context.currentReturnOwned = true;
 			self.functions.resetFuncVarDecls();
 			Map<string, Node> vt = self.functions.seededVarTypes();
 			vt.put("self", SemanticTypeSystem.classReference(SemanticTypeSystem.namedClass(name)));
-			IRNode blk = self.functions.lowerBody(dtor.body_node, vt);
+			IRNode blk = self.functions.lowerBody(dtor.bodyNode, vt);
 			Vector<IRNode> hookBody = [];
 			int k = 0;
 			while (k < blk.stmts.len) {
@@ -999,7 +999,7 @@ class DeclarationLowerer {
 		if (self.cycles.classNeedsVisitor(name)) {
 			self.emitVisitor(name, m);
 		}
-		return dtor != null && dtor.kind == NK_METHOD_DECL && dtor.body_node != null;
+		return dtor != null && dtor.kind == NK_METHOD_DECL && dtor.bodyNode != null;
 	}
 
 	/* Emit an exactly type-erased `X_visit(void*, callback)` which calls fn on
@@ -1013,13 +1013,13 @@ class DeclarationLowerer {
 		visitorDeclaration.params.push(IRParam("void*", "object"));
 		visitorDeclaration.params.push(IRParam("__btrc_field_visit_fn", "fn"));
 		visitorDeclaration.params.push(IRParam("void*", "context"));
-		m.function_decls.push(visitorDeclaration);
+		m.functionDecls.push(visitorDeclaration);
 
 		IRFunction fn = IRFunction();
 		fn.name = self.cycles.visitorName(name);
-		fn.return_type = "void";
-		fn.is_static = true;
-		fn.archive_export = true;
+		fn.returnType = "void";
+		fn.isStatic = true;
+		fn.archiveExport = true;
 		fn.params.push(IRParam("void*", "object"));
 		fn.params.push(IRParam("__btrc_field_visit_fn", "fn"));
 		fn.params.push(IRParam("void*", "context"));
@@ -1080,9 +1080,9 @@ class DeclarationLowerer {
 		bool isStatic = method.access == "class";
 		IRFunction fn = IRFunction();
 		fn.name = name + "_" + method.name;
-		fn.is_realtime = method.is_realtime;
-		string ret = self.cTypes.lower(method.return_type);
-		fn.return_type = ret;
+		fn.isRealtime = method.isRealtime;
+		string ret = self.cTypes.lower(method.returnType);
+		fn.returnType = ret;
 		Map<string, Node> vt = self.functions.seededVarTypes();
 		if (!isStatic) {
 			fn.params.push(IRParam(name + "*", "self"));
@@ -1096,13 +1096,13 @@ class DeclarationLowerer {
 			i = i + 1;
 		}
 		self.context.currentReturnCType = ret;
-		self.context.currentReturnType = method.return_type;
+		self.context.currentReturnType = method.returnType;
 		self.context.currentReturnOwned = true;
 		self.functions.resetFuncVarDecls();
-		if (method.body_node != null) {
+		if (method.bodyNode != null) {
 			Vector<string> sourceBindings = self.functions.replaceSourceLexicalParameters(method.params);
 			/* Hoist to a local: btrcpy double-evaluates `field = call()`. */
-			IRNode mb = self.functions.lowerBody(method.body_node, vt);
+			IRNode mb = self.functions.lowerBody(method.bodyNode, vt);
 			fn.body = mb;
 			self.context.restoreSourceBindings(sourceBindings);
 		} else {
@@ -1152,13 +1152,13 @@ class DeclarationLowerer {
 		Node? savedReturnType = self.context.currentReturnType;
 		bool savedReturnOwned = self.context.currentReturnOwned;
 		string savedPropertyBacking = self.context.currentPropertyBacking;
-		if (prop.has_getter) {
+		if (prop.hasGetter) {
 			IRFunction g = IRFunction();
 			g.name = name + "_get_" + prop.name;
-			g.return_type = propType;
+			g.returnType = propType;
 			g.params.push(IRParam(name + "*", "self"));
 			Vector<IRNode> gb = [];
-			if (prop.getter_body != null) {
+			if (prop.getterBody != null) {
 				self.context.currentReturnCType = propType;
 				self.context.currentReturnType = prop.type;
 				/* Custom getters are call-shaped +1 projections. */
@@ -1171,7 +1171,7 @@ class DeclarationLowerer {
 				self.functions.resetFuncVarDecls();
 				Map<string, Node> vt = self.functions.seededVarTypes();
 				vt.put("self", SemanticTypeSystem.classReference(SemanticTypeSystem.namedClass(name)));
-				IRNode blk = self.functions.lowerBody(prop.getter_body, vt);
+				IRNode blk = self.functions.lowerBody(prop.getterBody, vt);
 				self.context.currentPropertyBacking = savedPropertyBacking;
 				int k = 0;
 				while (k < blk.stmts.len) { gb.push(blk.stmts.get(k)); k = k + 1; }
@@ -1181,15 +1181,15 @@ class DeclarationLowerer {
 			g.body = IRNode.block(gb);
 			m.functions.push(g);
 		}
-		if (prop.has_setter) {
+		if (prop.hasSetter) {
 			string valueCName = self.lexicalBindingCName("value");
 			IRFunction s = IRFunction();
 			s.name = name + "_set_" + prop.name;
-			s.return_type = "void";
+			s.returnType = "void";
 			s.params.push(IRParam(name + "*", "self"));
 			s.params.push(self.cTypes.lowerNamedParameter(prop.type, propType, valueCName));
 			Vector<IRNode> sb = [];
-			if (prop.setter_body != null) {
+			if (prop.setterBody != null) {
 				self.context.currentReturnCType = "void";
 				self.context.currentReturnType = null;
 				self.context.currentReturnOwned = false;
@@ -1206,7 +1206,7 @@ class DeclarationLowerer {
 				Vector<string> noSourceBindings = [];
 				self.context.restoreSourceBindings(noSourceBindings);
 				self.context.activateSourceName("value", self.lexicalBindingCName("value"));
-				IRNode blk = self.functions.lowerBody(prop.setter_body, vt);
+				IRNode blk = self.functions.lowerBody(prop.setterBody, vt);
 				self.context.currentPropertyBacking = savedPropertyBacking;
 				self.context.restoreSourceBindings(sourceBindings);
 				int k = 0;
@@ -1235,13 +1235,13 @@ class DeclarationLowerer {
 		int i = 0;
 		while (i < pm.len) {
 			MethodEntry e = pm.get(i);
-			if (!ownMethods.has(e.name) && e.sig.generic_params.len == 0) {
+			if (!ownMethods.has(e.name) && e.sig.genericParams.len == 0) {
 				ownMethods.put(e.name, true);
 				Node mem = e.sig;
 				IRFunction fn = IRFunction();
 				fn.name = name + "_" + e.name;
-				string ret = self.cTypes.lower(mem.return_type);
-				fn.return_type = ret;
+				string ret = self.cTypes.lower(mem.returnType);
+				fn.returnType = ret;
 				Vector<IRNode> callArgs = [];
 				if (mem.access != "class") {
 					fn.params.push(IRParam(name + "*", "self"));
@@ -1300,13 +1300,13 @@ class DeclarationLowerer {
 		int i = 0;
 		while (i < prog.declarations.len) {
 			Node d = prog.declarations.get(i);
-			if ((d.kind == NK_CLASS_DECL && d.generic_params.len == 0) || d.kind == NK_STRUCT_DECL || d.kind == NK_RICH_ENUM_DECL) {
+			if ((d.kind == NK_CLASS_DECL && d.genericParams.len == 0) || d.kind == NK_STRUCT_DECL || d.kind == NK_RICH_ENUM_DECL) {
 				/* Both non-generic classes and raw structs get a typed forward
                  * so a function prototype can name `struct X*` before X is
                  * defined (mirrors legacy forward-declaration phase-1, which
                  * tests ClassDecl OR StructDecl). Only classes get _destroy. */
-				m.struct_forwards.push(IRStructForward(d.name));
-				if (d.kind == NK_CLASS_DECL && d.generic_params.len == 0) {
+				m.structForwards.push(IRStructForward(d.name));
+				if (d.kind == NK_CLASS_DECL && d.genericParams.len == 0) {
 					IRFunctionDecl destroyDeclaration = IRFunctionDecl(d.name + "_destroy", "void", false);
 					destroyDeclaration.params.push(IRParam("void*", "object"));
 					functionDeclarations.push(destroyDeclaration);
@@ -1315,8 +1315,8 @@ class DeclarationLowerer {
 				}
 			} else if (d.kind == NK_ENUM_DECL && d.name != "") {
 				self.appendEnumToStringForwardDecl(d, functionDeclarations);
-			} else if (d.kind == NK_FUNCTION_DECL && !d.is_gpu && d.body_node != null && d.name != "main") {
-				string ret = self.cTypes.lower(d.return_type);
+			} else if (d.kind == NK_FUNCTION_DECL && !d.isGpu && d.bodyNode != null && d.name != "main") {
+				string ret = self.cTypes.lower(d.returnType);
 				IRFunctionDecl functionDeclaration = IRFunctionDecl(self.semanticDeclarations.sourceFunctionSymbol(d.name), ret, false);
 				int parameter = 0;
 				while (parameter < d.params.len) {
@@ -1334,7 +1334,7 @@ class DeclarationLowerer {
 		int g = 0;
 		while (g < self.analyzed.genericInstances.len) {
 			GenInstance gi = self.analyzed.genericInstances.get(g);
-			m.struct_forwards.push(IRStructForward(gi.mangled));
+			m.structForwards.push(IRStructForward(gi.mangled));
 			g = g + 1;
 		}
 		/* Tuple struct definitions + typedefs (mirrors _emit_tuple_structs):
@@ -1344,7 +1344,7 @@ class DeclarationLowerer {
 		self.emitTupleStructs(prog, m);
 		int j = 0;
 		while (j < functionDeclarations.len) {
-			m.function_decls.push(functionDeclarations.get(j));
+			m.functionDecls.push(functionDeclarations.get(j));
 			j = j + 1;
 		}
 	}
@@ -1361,25 +1361,25 @@ class DeclarationLowerer {
 		while (i < prog.declarations.len) {
 			Node d = prog.declarations.get(i);
 			if (d.kind == NK_FUNCTION_DECL) {
-				self.collectTupleTypes(d.return_type, seen, order, tupleTypes);
+				self.collectTupleTypes(d.returnType, seen, order, tupleTypes);
 				int p = 0;
 				while (p < d.params.len) {
 					self.collectTupleTypes(d.params.get(p).type, seen, order, tupleTypes);
 					p = p + 1;
 				}
-				self.collectTupleTypesBody(d.body_node, seen, order, tupleTypes);
+				self.collectTupleTypesBody(d.bodyNode, seen, order, tupleTypes);
 			} else if (d.kind == NK_CLASS_DECL) {
 				int mi = 0;
 				while (mi < d.members.len) {
 					Node mem = d.members.get(mi);
 					if (mem.kind == NK_METHOD_DECL) {
-						self.collectTupleTypes(mem.return_type, seen, order, tupleTypes);
+						self.collectTupleTypes(mem.returnType, seen, order, tupleTypes);
 						int mp = 0;
 						while (mp < mem.params.len) {
 							self.collectTupleTypes(mem.params.get(mp).type, seen, order, tupleTypes);
 							mp = mp + 1;
 						}
-						self.collectTupleTypesBody(mem.body_node, seen, order, tupleTypes);
+						self.collectTupleTypesBody(mem.bodyNode, seen, order, tupleTypes);
 					} else if (mem.kind == NK_FIELD_DECL) {
 						/* A class field of tuple type (e.g. `(int,int) pos;`)
                          * references the tuple struct in the class body, so its
@@ -1400,7 +1400,7 @@ class DeclarationLowerer {
 			if (self.analyzed.genericClassTable.has(instance.base)) {
 				Node genericDeclaration = self.analyzed.genericClassTable.get(instance.base);
 				Node concreteInstanceType = SemanticTypeSystem.primitive(instance.base);
-				concreteInstanceType.generic_args = instance.args;
+				concreteInstanceType.genericArgs = instance.args;
 				Map<string, Node> substitutions = SemanticTypeSystem.genericTypeMap(self.analyzed, concreteInstanceType);
 				int memberIndex = 0;
 				while (memberIndex < genericDeclaration.members.len) {
@@ -1420,16 +1420,16 @@ class DeclarationLowerer {
 			IRStructDef sd = IRStructDef();
 			sd.name = mangled;
 			int f = 0;
-			while (f < tt.generic_args.len) {
-				Node argument = tt.generic_args.get(f);
+			while (f < tt.genericArgs.len) {
+				Node argument = tt.genericArgs.get(f);
 				IRStructField tupleField = IRStructField(self.cTypes.lower(argument), f"_{f}");
-				tupleField.is_volatile = argument.is_volatile;
-				tupleField.effective_is_volatile = SemanticTypeSystem.typeEffectiveOuterVolatile(argument, self.analyzed.typedefTable);
+				tupleField.isVolatile = argument.isVolatile;
+				tupleField.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(argument, self.analyzed.typedefTable);
 				sd.fields.push(tupleField);
 				f = f + 1;
 			}
-			m.struct_defs.push(sd);
-			m.struct_forwards.push(IRStructForward(mangled));
+			m.structDefs.push(sd);
+			m.structForwards.push(IRStructForward(mangled));
 			s = s + 1;
 		}
 	}
@@ -1446,12 +1446,12 @@ class DeclarationLowerer {
          * incidentally via its node_types scan, which sees the inner tuple's
          * standalone use first; doing dependencies-first here is robust.) */
 		int i = 0;
-		while (i < t.generic_args.len) {
-			self.collectTupleTypes(t.generic_args.get(i), seen, order, tupleTypes);
+		while (i < t.genericArgs.len) {
+			self.collectTupleTypes(t.genericArgs.get(i), seen, order, tupleTypes);
 			i = i + 1;
 		}
-		if (t.base == "Tuple" && t.generic_args.len > 0) {
-			string mangled = TypeIdentity.mangleGenericSymbol("Tuple", t.generic_args);
+		if (t.base == "Tuple" && t.genericArgs.len > 0) {
+			string mangled = TypeIdentity.mangleGenericSymbol("Tuple", t.genericArgs);
 			if (!seen.has(mangled)) {
 				seen.put(mangled, true);
 				order.push(mangled);
@@ -1481,10 +1481,10 @@ class DeclarationLowerer {
 			self.collectTupleTypesBody(n.statements.get(si), seen, order, tupleTypes);
 			si = si + 1;
 		}
-		self.collectTupleTypesBody(n.then_block, seen, order, tupleTypes);
-		self.collectTupleTypesBody(n.else_block, seen, order, tupleTypes);
-		self.collectTupleTypesBody(n.body_node, seen, order, tupleTypes);
-		if (n.if_stmt != null) { self.collectTupleTypesBody(n.if_stmt, seen, order, tupleTypes); }
+		self.collectTupleTypesBody(n.thenBlock, seen, order, tupleTypes);
+		self.collectTupleTypesBody(n.elseBlock, seen, order, tupleTypes);
+		self.collectTupleTypesBody(n.bodyNode, seen, order, tupleTypes);
+		if (n.ifStmt != null) { self.collectTupleTypesBody(n.ifStmt, seen, order, tupleTypes); }
 	}
 
 
@@ -1504,16 +1504,16 @@ class DeclarationLowerer {
 			Node property = properties.get(index);
 			if (!ownProperties.has(property.name)) {
 				string propertyType = self.cTypes.lower(property.type);
-				if (property.has_getter) {
+				if (property.hasGetter) {
 					IRFunctionDecl getter = IRFunctionDecl(declaration.name + "_get_" + property.name, propertyType, false);
 					getter.params.push(IRParam(declaration.name + "*", "self"));
-					module.function_decls.push(getter);
+					module.functionDecls.push(getter);
 				}
-				if (property.has_setter) {
+				if (property.hasSetter) {
 					IRFunctionDecl setter = IRFunctionDecl(declaration.name + "_set_" + property.name, "void", false);
 					setter.params.push(IRParam(declaration.name + "*", "self"));
 					setter.params.push(self.cTypes.lowerNamedParameter(property.type, propertyType, self.lexicalBindingCName("value")));
-					module.function_decls.push(setter);
+					module.functionDecls.push(setter);
 				}
 			}
 			index = index + 1;
@@ -1529,10 +1529,10 @@ class DeclarationLowerer {
 			Node property = properties.get(index);
 			if (!ownProperties.has(property.name)) {
 				string propertyType = self.cTypes.lower(property.type);
-				if (property.has_getter) {
+				if (property.hasGetter) {
 					IRFunction getter = IRFunction();
 					getter.name = declaration.name + "_get_" + property.name;
-					getter.return_type = propertyType;
+					getter.returnType = propertyType;
 					getter.params.push(IRParam(declaration.name + "*", "self"));
 					Vector<IRNode> arguments = [];
 					arguments.push(IRNode.cast(parent + "*", IRNode.variable("self")));
@@ -1541,11 +1541,11 @@ class DeclarationLowerer {
 					getter.body = IRNode.block(body);
 					module.functions.push(getter);
 				}
-				if (property.has_setter) {
+				if (property.hasSetter) {
 					string valueCName = self.lexicalBindingCName("value");
 					IRFunction setter = IRFunction();
 					setter.name = declaration.name + "_set_" + property.name;
-					setter.return_type = "void";
+					setter.returnType = "void";
 					setter.params.push(IRParam(declaration.name + "*", "self"));
 					setter.params.push(self.cTypes.lowerNamedParameter(property.type, propertyType, valueCName));
 					Vector<IRNode> arguments = [];
@@ -1566,8 +1566,8 @@ class DeclarationLowerer {
 		Node selfType = Node();
 		selfType.kind = NK_TYPE_EXPR;
 		selfType.base = instance.base;
-		selfType.generic_args = instance.args;
-		selfType.pointer_depth = 1;
+		selfType.genericArgs = instance.args;
+		selfType.pointerDepth = 1;
 		variables.put("self", selfType);
 		if (includeValue) {
 			variables.put("value", SemanticTypeSystem.resolveGenericType(property.type, typeMap, self.analyzed));
@@ -1582,16 +1582,16 @@ class DeclarationLowerer {
 			if (property.kind == NK_PROPERTY_DECL) {
 				Node resolvedType = SemanticTypeSystem.resolveGenericType(property.type, typeMap, self.analyzed);
 				string propertyType = self.cTypes.lowerGeneric(property.type, typeMap);
-				if (property.has_getter) {
+				if (property.hasGetter) {
 					IRFunctionDecl getter = IRFunctionDecl(instance.mangled + "_get_" + property.name, propertyType, true);
 					getter.params.push(IRParam(instance.mangled + "*", "self"));
-					module.function_decls.push(getter);
+					module.functionDecls.push(getter);
 				}
-				if (property.has_setter) {
+				if (property.hasSetter) {
 					IRFunctionDecl setter = IRFunctionDecl(instance.mangled + "_set_" + property.name, "void", true);
 					setter.params.push(IRParam(instance.mangled + "*", "self"));
 					setter.params.push(self.cTypes.lowerNamedParameter(resolvedType, propertyType, self.lexicalBindingCName("value")));
-					module.function_decls.push(setter);
+					module.functionDecls.push(setter);
 				}
 			}
 			index = index + 1;
@@ -1610,14 +1610,14 @@ class DeclarationLowerer {
 				Node resolvedType = SemanticTypeSystem.resolveGenericType(property.type, typeMap, self.analyzed);
 				string propertyType = self.cTypes.lowerGeneric(property.type, typeMap);
 				string backing = DeclarationRegistry.instanceStorageName(property);
-				if (property.has_getter) {
+				if (property.hasGetter) {
 					IRFunction getter = IRFunction();
 					getter.name = instance.mangled + "_get_" + property.name;
-					getter.return_type = propertyType;
-					getter.is_static = true;
+					getter.returnType = propertyType;
+					getter.isStatic = true;
 					getter.params.push(IRParam(instance.mangled + "*", "self"));
 					Vector<IRNode> body = [];
-					if (property.getter_body == null) {
+					if (property.getterBody == null) {
 						body.push(IRNode.returnStatement(IRNode.fieldAccess(IRNode.variable("self"), backing, true)));
 					} else {
 						self.context.currentReturnCType = propertyType;
@@ -1631,7 +1631,7 @@ class DeclarationLowerer {
 						}
 						self.functions.resetFuncVarDecls();
 						Map<string, Node> variables = self.genericPropertyVarTypes(instance, property, typeMap, false);
-						IRNode block = self.functions.lowerBody(property.getter_body, variables);
+						IRNode block = self.functions.lowerBody(property.getterBody, variables);
 						self.context.currentPropertyBacking = savedPropertyBacking;
 						int statement = 0;
 						while (statement < block.stmts.len) {
@@ -1642,16 +1642,16 @@ class DeclarationLowerer {
 					getter.body = IRNode.block(body);
 					module.functions.push(getter);
 				}
-				if (property.has_setter) {
+				if (property.hasSetter) {
 					string valueCName = self.lexicalBindingCName("value");
 					IRFunction setter = IRFunction();
 					setter.name = instance.mangled + "_set_" + property.name;
-					setter.return_type = "void";
-					setter.is_static = true;
+					setter.returnType = "void";
+					setter.isStatic = true;
 					setter.params.push(IRParam(instance.mangled + "*", "self"));
 					setter.params.push(self.cTypes.lowerNamedParameter(resolvedType, propertyType, valueCName));
 					Vector<IRNode> body = [];
-					if (property.setter_body == null) {
+					if (property.setterBody == null) {
 						self.emitAutoPropertyStore(resolvedType, IRNode.fieldAccess(IRNode.variable("self"), backing, true), IRNode.variable(valueCName), body);
 					} else {
 						self.context.currentReturnCType = "void";
@@ -1668,7 +1668,7 @@ class DeclarationLowerer {
 						Vector<string> noSourceBindings = [];
 						self.context.restoreSourceBindings(noSourceBindings);
 						self.context.activateSourceName("value", self.lexicalBindingCName("value"));
-						IRNode block = self.functions.lowerBody(property.setter_body, variables);
+						IRNode block = self.functions.lowerBody(property.setterBody, variables);
 						self.context.currentPropertyBacking = savedPropertyBacking;
 						self.context.restoreSourceBindings(sourceBindings);
 						int statement = 0;
@@ -1725,7 +1725,7 @@ class DeclarationLowerer {
 	private IRFunction buildDestructorHook(string ownerName, Vector<IRNode> body) {
 		IRFunction hook = IRFunction();
 		hook.name = GenericSpecializer.destructorHookName(ownerName);
-		hook.return_type = "void";
+		hook.returnType = "void";
 		hook.params.push(IRParam("void*", "object"));
 		Vector<IRNode> hookBody = [];
 		hookBody.push(IRNode.variableDeclaration(ownerName + "*", "self", IRNode.cast(ownerName + "*", IRNode.variable("object"))));
@@ -1736,8 +1736,8 @@ class DeclarationLowerer {
 			statement = statement + 1;
 		}
 		hook.body = IRNode.block(hookBody);
-		hook.is_static = true;
-		hook.archive_export = true;
+		hook.isStatic = true;
+		hook.archiveExport = true;
 		return hook;
 	}
 
@@ -1748,8 +1748,8 @@ class DeclarationLowerer {
 		Node selfType = Node();
 		selfType.kind = NK_TYPE_EXPR;
 		selfType.base = instance.base;
-		selfType.generic_args = instance.args;
-		selfType.pointer_depth = 1;
+		selfType.genericArgs = instance.args;
+		selfType.pointerDepth = 1;
 		variables.put("self", selfType);
 		if (constructor != null) {
 			int index = 0;
@@ -1770,7 +1770,7 @@ class DeclarationLowerer {
 	}
 
 	private void rejectInstanceArrayDefaultAtCodegen(Node field, Node fieldType) {
-		if (!fieldType.is_array || field.initializer == null) { return; }
+		if (!fieldType.isArray || field.initializer == null) { return; }
 		if (field.initializer.kind != NK_BRACE_INITIALIZER && field.initializer.kind != NK_LIST_LITERAL) { return; }
 		fprintf(stderr, "error: array-valued class field default '%s' requires persistent backing storage at %d:%d\n", field.name, field.line, field.col);
 		exit(1);
@@ -1885,21 +1885,21 @@ class DeclarationLowerer {
 		return !self.containsPreprocessorTrigraph(header);
 	}
 
-	private bool sameStructuredInclude(IRPreprocessorDecl left, IRPreprocessorDecl right) { return left.kind == IR_PREPROCESSOR_INCLUDE && right.kind == IR_PREPROCESSOR_INCLUDE && left.header == right.header && left.is_system == right.is_system; }
+	private bool sameStructuredInclude(IRPreprocessorDecl left, IRPreprocessorDecl right) { return left.kind == IR_PREPROCESSOR_INCLUDE && right.kind == IR_PREPROCESSOR_INCLUDE && left.header == right.header && left.isSystem == right.isSystem; }
 
 	/* Includes are deduplicated at production time so emission is a pure ordered
      * walk. Macros intentionally preserve every source declaration. */
 	private void appendPreprocessorDecl(IRModule module, IRPreprocessorDecl declaration) {
 		if (declaration.kind == IR_PREPROCESSOR_INCLUDE) {
 			int index = 0;
-			while (index < module.preprocessor_decls.len) {
-				if (self.sameStructuredInclude(module.preprocessor_decls.get(index), declaration)) {
+			while (index < module.preprocessorDecls.len) {
+				if (self.sameStructuredInclude(module.preprocessorDecls.get(index), declaration)) {
 					return;
 				}
 				index = index + 1;
 			}
 		}
-		module.preprocessor_decls.push(declaration);
+		module.preprocessorDecls.push(declaration);
 	}
 
 	public void requireSystemInclude(IRModule module, string header) {
@@ -2059,20 +2059,20 @@ class DeclarationLowerer {
 			if (field.kind == NK_FIELD_DECL && field.access == "class") {
 				Node storageType = field.type;
 				IRGlobalDecl global;
-				bool materializedArray = field.type.is_array && (field.type.array_size != null || (field.initializer != null && (field.initializer.kind == NK_LIST_LITERAL || field.initializer.kind == NK_BRACE_INITIALIZER)));
+				bool materializedArray = field.type.isArray && (field.type.arraySize != null || (field.initializer != null && (field.initializer.kind == NK_LIST_LITERAL || field.initializer.kind == NK_BRACE_INITIALIZER)));
 				if (materializedArray) {
 					storageType = TypeShape.withoutOuterArray(field.type);
 				}
 				global = IRGlobalDecl(self.cTypes.lower(storageType), declaration.name + "_" + field.name);
-				global.is_static = true;
-				global.is_volatile = field.type.is_volatile;
-				global.effective_is_volatile = SemanticTypeSystem.typeEffectiveOuterVolatile(field.type, self.analyzed.typedefTable);
+				global.isStatic = true;
+				global.isVolatile = field.type.isVolatile;
+				global.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(field.type, self.analyzed.typedefTable);
 				Map<string, Node> empty = {};
-				if (field.type.is_array) {
-					if (field.type.array_size != null) {
-						global.array_size = self.expressions.lowerExpr(field.type.array_size, empty, callableFlow);
+				if (field.type.isArray) {
+					if (field.type.arraySize != null) {
+						global.arraySize = self.expressions.lowerExpr(field.type.arraySize, empty, callableFlow);
 					} else if (field.initializer != null && (field.initializer.kind == NK_LIST_LITERAL || field.initializer.kind == NK_BRACE_INITIALIZER)) {
-						global.array_size = IRNode.literal(Strings.fromInt(field.initializer.elements.len));
+						global.arraySize = IRNode.literal(Strings.fromInt(field.initializer.elements.len));
 					}
 				}
 				if (field.initializer != null) {
@@ -2081,7 +2081,7 @@ class DeclarationLowerer {
 					self.callableBoundaries.rejectPersistentStorage(field.type, field.initializer, callableContext, unsafe, "class field storage");
 					global.init = self.expressions.lowerStaticInitializer(field.initializer, field.type, empty, callableFlow);
 				}
-				module.global_decls.push(global);
+				module.globalDecls.push(global);
 			}
 			index = index + 1;
 		}
@@ -2102,11 +2102,11 @@ class DeclarationLowerer {
 		/* CTypeLowerer registers nested callback typedefs. Render only the resolved
          * field shape so a generic placeholder cannot escape into C. */
 		IRStructField field = IRStructField(self.cTypes.lower(fieldType), storage);
-		field.is_volatile = fieldType.is_volatile;
-		field.effective_is_volatile = SemanticTypeSystem.typeEffectiveOuterVolatile(fieldType, self.analyzed.typedefTable);
-		if (fieldType.is_array && fieldType.array_size != null) {
+		field.isVolatile = fieldType.isVolatile;
+		field.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(fieldType, self.analyzed.typedefTable);
+		if (fieldType.isArray && fieldType.arraySize != null) {
 			Node elementType = TypeShape.withoutOuterArray(fieldType);
-			field.c_type = self.cTypes.lower(elementType);
+			field.cType = self.cTypes.lower(elementType);
 			Map<string, Node> noVariables = {};
 			bool savedGeneric = self.context.genericBody;
 			Map<string, Node> savedTypeMap = self.context.activeTypeMap;
@@ -2114,7 +2114,7 @@ class DeclarationLowerer {
 				self.context.genericBody = true;
 				self.context.activeTypeMap = typeMap;
 			}
-			field.array_size = self.expressions.lowerExpr(fieldType.array_size, noVariables, callableFlow);
+			field.arraySize = self.expressions.lowerExpr(fieldType.arraySize, noVariables, callableFlow);
 			self.context.genericBody = savedGeneric;
 			self.context.activeTypeMap = savedTypeMap;
 		}

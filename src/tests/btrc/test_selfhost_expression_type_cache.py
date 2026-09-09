@@ -82,7 +82,19 @@ def test_cache_is_epoch_scoped_and_bypasses_mutable_contexts() -> None:
     assert "resetExpressionInferenceMemo();" in generic
     assert "resetExpressionInferenceMemo();" in method_generic
     assert isolated.count("resetExpressionInferenceMemo();") == 2
-    assert "self.memoEnabled = false" in uncached
+    # A specialization walk runs on a memo of its own: inferTypeRaw re-enters
+    # child inference twice per level, so walking a deep builder chain with no
+    # memo at all is exponential in its depth. What must not happen is sharing,
+    # so every part of the memo is saved on the way in and put back on the way
+    # out, and nothing observes a type inferred for another environment.
+    assert "self.beginExpressionInferenceMemo();" in uncached
+    for saved in ("memoKnown", "memoValues", "rawKnown", "rawValues"):
+        assert uncached.index(f"self.{saved};") < uncached.index("self.beginExpressionInferenceMemo();"), (
+            f"{saved} must be captured before the isolated memo starts"
+        )
+        assert uncached.index("self.inferSpecializationTypeUnmemoized(") < uncached.rindex(f"self.{saved} = "), (
+            f"{saved} must be restored after the isolated walk"
+        )
     assert "self.memoEnabled = enabled" in uncached
     assert lower.index("self.expressionTypes.disableMemo()") < lower.index(
         "self.gpuPipeline.registerKernels(program, module)"

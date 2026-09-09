@@ -30,7 +30,7 @@ class IROptimizer {
 		if (eliminateDeadCode) {
 			self.eliminateUnreachable(module);
 		}
-		CycleReturnBoundaryLowerer(module.temporary_names).installProgramBoundary(module);
+		CycleReturnBoundaryLowerer(module.temporaryNames).installProgramBoundary(module);
 		self.normalizeUnusedParameters(module);
 		RuntimeReferenceCollector references = RuntimeReferenceCollector(self.runtimeHelpers);
 		self.runtimeHelpers.materializeInto(module, references.requiredBy(module));
@@ -55,7 +55,7 @@ class IROptimizer {
 		if (node.kind == IRK_UNARYOP && (node.op == "++" || node.op == "--")) {
 			return true;
 		}
-		if (self.globalInitializerHasEffects(node.left) || self.globalInitializerHasEffects(node.right) || self.globalInitializerHasEffects(node.operand) || self.globalInitializerHasEffects(node.expr) || self.globalInitializerHasEffects(node.obj) || self.globalInitializerHasEffects(node.index) || self.globalInitializerHasEffects(node.condition) || self.globalInitializerHasEffects(node.true_expr) || self.globalInitializerHasEffects(node.false_expr) || self.globalInitializerHasEffects(node.init) || self.globalInitializerHasEffects(node.value) || self.globalInitializerHasEffects(node.target) || self.globalInitializerHasEffects(node.then_block) || self.globalInitializerHasEffects(node.else_block) || self.globalInitializerHasEffects(node.body) || self.globalInitializerHasEffects(node.update) || self.globalInitializerHasEffects(node.result) || self.globalInitializerHasEffects(node.array_size)) {
+		if (self.globalInitializerHasEffects(node.left) || self.globalInitializerHasEffects(node.right) || self.globalInitializerHasEffects(node.operand) || self.globalInitializerHasEffects(node.expr) || self.globalInitializerHasEffects(node.obj) || self.globalInitializerHasEffects(node.index) || self.globalInitializerHasEffects(node.condition) || self.globalInitializerHasEffects(node.trueExpr) || self.globalInitializerHasEffects(node.falseExpr) || self.globalInitializerHasEffects(node.init) || self.globalInitializerHasEffects(node.value) || self.globalInitializerHasEffects(node.target) || self.globalInitializerHasEffects(node.thenBlock) || self.globalInitializerHasEffects(node.elseBlock) || self.globalInitializerHasEffects(node.body) || self.globalInitializerHasEffects(node.update) || self.globalInitializerHasEffects(node.result) || self.globalInitializerHasEffects(node.arraySize)) {
 			return true;
 		}
 		int argument = 0;
@@ -83,17 +83,17 @@ class IROptimizer {
 		self.collectGlobalRefs(node.obj, names, out);
 		self.collectGlobalRefs(node.index, names, out);
 		self.collectGlobalRefs(node.condition, names, out);
-		self.collectGlobalRefs(node.true_expr, names, out);
-		self.collectGlobalRefs(node.false_expr, names, out);
+		self.collectGlobalRefs(node.trueExpr, names, out);
+		self.collectGlobalRefs(node.falseExpr, names, out);
 		self.collectGlobalRefs(node.init, names, out);
 		self.collectGlobalRefs(node.value, names, out);
 		self.collectGlobalRefs(node.target, names, out);
-		self.collectGlobalRefs(node.then_block, names, out);
-		self.collectGlobalRefs(node.else_block, names, out);
+		self.collectGlobalRefs(node.thenBlock, names, out);
+		self.collectGlobalRefs(node.elseBlock, names, out);
 		self.collectGlobalRefs(node.body, names, out);
 		self.collectGlobalRefs(node.update, names, out);
 		self.collectGlobalRefs(node.result, names, out);
-		self.collectGlobalRefs(node.array_size, names, out);
+		self.collectGlobalRefs(node.arraySize, names, out);
 		int argument = 0;
 		while (argument < node.args.len) {
 			self.collectGlobalRefs(node.args.get(argument), names, out);
@@ -120,7 +120,7 @@ class IROptimizer {
 	}
 
 	private void eliminateDeadGlobals(IRModule module) {
-		if (module.global_decls.len == 0) { return; }
+		if (module.globalDecls.len == 0) { return; }
 
 		Vector<string> functionNames = [];
 		Map<string, bool> knownFunctions = {};
@@ -145,8 +145,8 @@ class IROptimizer {
 		Map<string, bool> liveGlobals = {};
 		Vector<string> globalWorklist = [];
 		int globalIndex = 0;
-		while (globalIndex < module.global_decls.len) {
-			IRGlobalDecl global = module.global_decls.get(globalIndex);
+		while (globalIndex < module.globalDecls.len) {
+			IRGlobalDecl global = module.globalDecls.get(globalIndex);
 			if (!knownGlobals.has(global.name)) {
 				knownGlobals.put(global.name, true);
 				globalNames.push(global.name);
@@ -154,7 +154,7 @@ class IROptimizer {
 			/* Volatile affects accesses, not the observability of unreachable
              * internal storage. External linkage and real references still root
              * every volatile object that can be observed. */
-			if (!global.is_static || global.is_extern || self.globalInitializerHasEffects(global.init) || self.globalInitializerHasEffects(global.array_size)) {
+			if (!global.isStatic || global.isExtern || self.globalInitializerHasEffects(global.init) || self.globalInitializerHasEffects(global.arraySize)) {
 				if (!liveGlobals.has(global.name)) {
 					liveGlobals.put(global.name, true);
 					globalWorklist.push(global.name);
@@ -164,8 +164,8 @@ class IROptimizer {
 		}
 
 		int preprocessorIndex = 0;
-		while (preprocessorIndex < module.preprocessor_decls.len) {
-			IRPreprocessorDecl declaration = module.preprocessor_decls.get(preprocessorIndex);
+		while (preprocessorIndex < module.preprocessorDecls.len) {
+			IRPreprocessorDecl declaration = module.preprocessorDecls.get(preprocessorIndex);
 			if (declaration.kind == IR_PREPROCESSOR_MACRO) {
 				Map<string, bool> functionRoots = {};
 				Map<string, bool> globalRoots = {};
@@ -188,13 +188,13 @@ class IROptimizer {
 			} else {
 				string globalName = globalWorklist.pop();
 				int declarationIndex = 0;
-				while (declarationIndex < module.global_decls.len) {
-					IRGlobalDecl global = module.global_decls.get(declarationIndex);
+				while (declarationIndex < module.globalDecls.len) {
+					IRGlobalDecl global = module.globalDecls.get(declarationIndex);
 					if (global.name == globalName) {
 						self.collectFuncRefs(global.init, knownFunctions, functionRefs);
-						self.collectFuncRefs(global.array_size, knownFunctions, functionRefs);
+						self.collectFuncRefs(global.arraySize, knownFunctions, functionRefs);
 						self.collectGlobalRefs(global.init, knownGlobals, globalRefs);
-						self.collectGlobalRefs(global.array_size, knownGlobals, globalRefs);
+						self.collectGlobalRefs(global.arraySize, knownGlobals, globalRefs);
 					}
 					declarationIndex = declarationIndex + 1;
 				}
@@ -205,12 +205,12 @@ class IROptimizer {
 
 		Vector<IRGlobalDecl> kept = [];
 		globalIndex = 0;
-		while (globalIndex < module.global_decls.len) {
-			IRGlobalDecl global = module.global_decls.get(globalIndex);
+		while (globalIndex < module.globalDecls.len) {
+			IRGlobalDecl global = module.globalDecls.get(globalIndex);
 			if (liveGlobals.has(global.name)) { kept.push(global); }
 			globalIndex = globalIndex + 1;
 		}
-		module.global_decls = kept;
+		module.globalDecls = kept;
 	}
 
 	/* Membership in a Vector<string>. */
@@ -308,17 +308,17 @@ class IROptimizer {
 		self.collectFuncRefs(node.obj, names, out);
 		self.collectFuncRefs(node.index, names, out);
 		self.collectFuncRefs(node.condition, names, out);
-		self.collectFuncRefs(node.true_expr, names, out);
-		self.collectFuncRefs(node.false_expr, names, out);
+		self.collectFuncRefs(node.trueExpr, names, out);
+		self.collectFuncRefs(node.falseExpr, names, out);
 		self.collectFuncRefs(node.init, names, out);
 		self.collectFuncRefs(node.value, names, out);
 		self.collectFuncRefs(node.target, names, out);
-		self.collectFuncRefs(node.then_block, names, out);
-		self.collectFuncRefs(node.else_block, names, out);
+		self.collectFuncRefs(node.thenBlock, names, out);
+		self.collectFuncRefs(node.elseBlock, names, out);
 		self.collectFuncRefs(node.body, names, out);
 		self.collectFuncRefs(node.update, names, out);
 		self.collectFuncRefs(node.result, names, out);
-		self.collectFuncRefs(node.array_size, names, out);
+		self.collectFuncRefs(node.arraySize, names, out);
 		int i = 0;
 		while (i < node.args.len) { self.collectFuncRefs(node.args.get(i), names, out); i = i + 1; }
 		int j = 0;
@@ -343,9 +343,9 @@ class IROptimizer {
 		Map<string, bool> knownDescriptorNames = {};
 		Map<string, int> descriptorByName = {};
 		int descriptorIndex = 0;
-		while (descriptorIndex < m.global_decls.len) {
-			IRGlobalDecl descriptor = m.global_decls.get(descriptorIndex);
-			if (descriptor.c_type == "const __btrc_arc_type") {
+		while (descriptorIndex < m.globalDecls.len) {
+			IRGlobalDecl descriptor = m.globalDecls.get(descriptorIndex);
+			if (descriptor.cType == "const __btrc_arc_type") {
 				descriptorNames.push(descriptor.name);
 				knownDescriptorNames.put(descriptor.name, true);
 				descriptorByName.put(descriptor.name, descriptorIndex);
@@ -366,8 +366,8 @@ class IROptimizer {
 		Map<string, bool> rootRefs = {};
 		Map<string, bool> descriptorRootRefs = {};
 		int preprocessorIndex = 0;
-		while (preprocessorIndex < m.preprocessor_decls.len) {
-			IRPreprocessorDecl declaration = m.preprocessor_decls.get(preprocessorIndex);
+		while (preprocessorIndex < m.preprocessorDecls.len) {
+			IRPreprocessorDecl declaration = m.preprocessorDecls.get(preprocessorIndex);
 			if (declaration.kind == IR_PREPROCESSOR_MACRO) {
 				self.scanTextForNames(declaration.replacement, names, rootRefs);
 				self.scanTextForNames(declaration.replacement, descriptorNames, descriptorRootRefs);
@@ -375,13 +375,13 @@ class IROptimizer {
 			preprocessorIndex = preprocessorIndex + 1;
 		}
 		int globalIndex = 0;
-		while (globalIndex < m.global_decls.len) {
-			IRGlobalDecl global = m.global_decls.get(globalIndex);
+		while (globalIndex < m.globalDecls.len) {
+			IRGlobalDecl global = m.globalDecls.get(globalIndex);
 			if (!descriptorByName.has(global.name)) {
 				self.collectFuncRefs(global.init, knownNames, rootRefs);
-				self.collectFuncRefs(global.array_size, knownNames, rootRefs);
+				self.collectFuncRefs(global.arraySize, knownNames, rootRefs);
 				self.collectGlobalRefs(global.init, knownDescriptorNames, descriptorRootRefs);
-				self.collectGlobalRefs(global.array_size, knownDescriptorNames, descriptorRootRefs);
+				self.collectGlobalRefs(global.arraySize, knownDescriptorNames, descriptorRootRefs);
 			}
 			globalIndex = globalIndex + 1;
 		}
@@ -404,9 +404,9 @@ class IROptimizer {
 				string descriptorName = descriptorWorklist.pop();
 				if (keptDescriptors.has(descriptorName)) { continue; }
 				keptDescriptors.put(descriptorName, true);
-				IRGlobalDecl descriptor = m.global_decls.get(descriptorByName.get(descriptorName));
+				IRGlobalDecl descriptor = m.globalDecls.get(descriptorByName.get(descriptorName));
 				self.collectFuncRefs(descriptor.init, knownNames, refs);
-				self.collectFuncRefs(descriptor.array_size, knownNames, refs);
+				self.collectFuncRefs(descriptor.arraySize, knownNames, refs);
 			} else {
 				string cur = worklist.pop();
 				bool hasFn = byName.has(cur);
@@ -439,14 +439,14 @@ class IROptimizer {
 		if (descriptorNames.len > keptDescriptors.len) {
 			Vector<IRGlobalDecl> keptGlobals = [];
 			int keptGlobalIndex = 0;
-			while (keptGlobalIndex < m.global_decls.len) {
-				IRGlobalDecl global = m.global_decls.get(keptGlobalIndex);
+			while (keptGlobalIndex < m.globalDecls.len) {
+				IRGlobalDecl global = m.globalDecls.get(keptGlobalIndex);
 				if (!descriptorByName.has(global.name) || keptDescriptors.has(global.name)) {
 					keptGlobals.push(global);
 				}
 				keptGlobalIndex = keptGlobalIndex + 1;
 			}
-			m.global_decls = keptGlobals;
+			m.globalDecls = keptGlobals;
 		}
 		/* Filter functions. */
 		Vector<IRFunction> kept = [];
@@ -463,14 +463,14 @@ class IROptimizer {
 		if (removed.len > 0) {
 			Vector<IRFunctionDecl> declarations = [];
 			int d = 0;
-			while (d < m.function_decls.len) {
-				IRFunctionDecl declaration = m.function_decls.get(d);
+			while (d < m.functionDecls.len) {
+				IRFunctionDecl declaration = m.functionDecls.get(d);
 				if (!self.containsName(removed, declaration.name)) {
 					declarations.push(declaration);
 				}
 				d = d + 1;
 			}
-			m.function_decls = declarations;
+			m.functionDecls = declarations;
 		}
 	}
 
@@ -478,10 +478,10 @@ class IROptimizer {
      * and body. Mirrors Python collect_c_type_references: only resolved type text
      * is a type-reachability edge. */
 	private void collectStructRefsFn(IRFunction fn, Map<string, bool> names, Map<string, bool> out) {
-		self.scanTextForKnownNames(fn.return_type, names, out);
+		self.scanTextForKnownNames(fn.returnType, names, out);
 		int i = 0;
 		while (i < fn.params.len) {
-			self.scanTextForKnownNames(fn.params.get(i).c_type, names, out);
+			self.scanTextForKnownNames(fn.params.get(i).cType, names, out);
 			i = i + 1;
 		}
 		if (fn.body != null) { self.collectStructRefsNode(fn.body, names, out); }
@@ -492,11 +492,11 @@ class IROptimizer {
      * declarations and repeatedly scans large generated-runtime string data. */
 	private void collectStructRefsNode(IRNode node, Map<string, bool> names, Map<string, bool> out) {
 		if (node == null) { return; }
-		if (node.c_type != "") {
-			self.scanTextForKnownNames(node.c_type, names, out);
+		if (node.cType != "") {
+			self.scanTextForKnownNames(node.cType, names, out);
 		}
-		if (node.target_type != "") {
-			self.scanTextForKnownNames(node.target_type, names, out);
+		if (node.targetType != "") {
+			self.scanTextForKnownNames(node.targetType, names, out);
 		}
 		self.collectStructRefsNode(node.left, names, out);
 		self.collectStructRefsNode(node.right, names, out);
@@ -505,17 +505,17 @@ class IROptimizer {
 		self.collectStructRefsNode(node.obj, names, out);
 		self.collectStructRefsNode(node.index, names, out);
 		self.collectStructRefsNode(node.condition, names, out);
-		self.collectStructRefsNode(node.true_expr, names, out);
-		self.collectStructRefsNode(node.false_expr, names, out);
+		self.collectStructRefsNode(node.trueExpr, names, out);
+		self.collectStructRefsNode(node.falseExpr, names, out);
 		self.collectStructRefsNode(node.init, names, out);
 		self.collectStructRefsNode(node.value, names, out);
 		self.collectStructRefsNode(node.target, names, out);
-		self.collectStructRefsNode(node.then_block, names, out);
-		self.collectStructRefsNode(node.else_block, names, out);
+		self.collectStructRefsNode(node.thenBlock, names, out);
+		self.collectStructRefsNode(node.elseBlock, names, out);
 		self.collectStructRefsNode(node.body, names, out);
 		self.collectStructRefsNode(node.update, names, out);
 		self.collectStructRefsNode(node.result, names, out);
-		self.collectStructRefsNode(node.array_size, names, out);
+		self.collectStructRefsNode(node.arraySize, names, out);
 		int i = 0;
 		while (i < node.args.len) { self.collectStructRefsNode(node.args.get(i), names, out); i = i + 1; }
 		int j = 0;
@@ -523,17 +523,17 @@ class IROptimizer {
 	}
 
 	private void eliminateDeadStructs(IRModule m) {
-		if (m.struct_defs.len == 0) { return; }
+		if (m.structDefs.len == 0) { return; }
 		Vector<string> names = [];
 		Map<string, bool> knownNames = {};
 		Map<string, int> byName = {};
 		Map<string, bool> refs = {};
 		Map<string, bool> keepSet = {};
 		int i = 0;
-		while (i < m.struct_defs.len) {
-			names.push(m.struct_defs.get(i).name);
-			knownNames.put(m.struct_defs.get(i).name, true);
-			byName.put(m.struct_defs.get(i).name, i);
+		while (i < m.structDefs.len) {
+			names.push(m.structDefs.get(i).name);
+			knownNames.put(m.structDefs.get(i).name, true);
+			byName.put(m.structDefs.get(i).name, i);
 			i = i + 1;
 		}
 		int f = 0;
@@ -542,52 +542,52 @@ class IROptimizer {
 			f = f + 1;
 		}
 		int globalIndex = 0;
-		while (globalIndex < m.global_decls.len) {
-			IRGlobalDecl global = m.global_decls.get(globalIndex);
-			self.scanTextForKnownNames(global.c_type, knownNames, refs);
+		while (globalIndex < m.globalDecls.len) {
+			IRGlobalDecl global = m.globalDecls.get(globalIndex);
+			self.scanTextForKnownNames(global.cType, knownNames, refs);
 			self.collectStructRefsNode(global.init, knownNames, refs);
-			self.collectStructRefsNode(global.array_size, knownNames, refs);
+			self.collectStructRefsNode(global.arraySize, knownNames, refs);
 			globalIndex = globalIndex + 1;
 		}
 		int declarationIndex = 0;
-		while (declarationIndex < m.function_decls.len) {
-			IRFunctionDecl declaration = m.function_decls.get(declarationIndex);
-			self.scanTextForKnownNames(declaration.return_type, knownNames, refs);
+		while (declarationIndex < m.functionDecls.len) {
+			IRFunctionDecl declaration = m.functionDecls.get(declarationIndex);
+			self.scanTextForKnownNames(declaration.returnType, knownNames, refs);
 			int parameterIndex = 0;
 			while (parameterIndex < declaration.params.len) {
-				self.scanTextForKnownNames(declaration.params.get(parameterIndex).c_type, knownNames, refs);
+				self.scanTextForKnownNames(declaration.params.get(parameterIndex).cType, knownNames, refs);
 				parameterIndex = parameterIndex + 1;
 			}
 			declarationIndex = declarationIndex + 1;
 		}
 		int pointerIndex = 0;
-		while (pointerIndex < m.function_pointer_typedefs.len) {
-			IRFunctionPointerTypedef declaration = m.function_pointer_typedefs.get(pointerIndex);
-			self.scanTextForKnownNames(declaration.return_type, knownNames, refs);
+		while (pointerIndex < m.functionPointerTypedefs.len) {
+			IRFunctionPointerTypedef declaration = m.functionPointerTypedefs.get(pointerIndex);
+			self.scanTextForKnownNames(declaration.returnType, knownNames, refs);
 			int parameterIndex = 0;
-			while (parameterIndex < declaration.param_types.len) {
-				self.scanTextForKnownNames(declaration.param_types.get(parameterIndex), knownNames, refs);
+			while (parameterIndex < declaration.paramTypes.len) {
+				self.scanTextForKnownNames(declaration.paramTypes.get(parameterIndex), knownNames, refs);
 				parameterIndex = parameterIndex + 1;
 			}
 			pointerIndex = pointerIndex + 1;
 		}
 		int typedefIndex = 0;
-		while (typedefIndex < m.typedef_defs.len) {
-			self.scanTextForKnownNames(m.typedef_defs.get(typedefIndex).target_type, knownNames, refs);
+		while (typedefIndex < m.typedefDefs.len) {
+			self.scanTextForKnownNames(m.typedefDefs.get(typedefIndex).targetType, knownNames, refs);
 			typedefIndex = typedefIndex + 1;
 		}
 		int taggedIndex = 0;
-		while (taggedIndex < m.tagged_union_defs.len) {
-			IRTaggedUnionDef tagged = m.tagged_union_defs.get(taggedIndex);
-			self.scanTextForKnownNames(tagged.tag_type, knownNames, refs);
+		while (taggedIndex < m.taggedUnionDefs.len) {
+			IRTaggedUnionDef tagged = m.taggedUnionDefs.get(taggedIndex);
+			self.scanTextForKnownNames(tagged.tagType, knownNames, refs);
 			int variantIndex = 0;
 			while (variantIndex < tagged.variants.len) {
 				IRTaggedUnionVariant variant = tagged.variants.get(variantIndex);
 				int fieldIndex = 0;
 				while (fieldIndex < variant.fields.len) {
 					IRStructField field = variant.fields.get(fieldIndex);
-					self.scanTextForKnownNames(field.c_type, knownNames, refs);
-					self.collectStructRefsNode(field.array_size, knownNames, refs);
+					self.scanTextForKnownNames(field.cType, knownNames, refs);
+					self.collectStructRefsNode(field.arraySize, knownNames, refs);
 					fieldIndex = fieldIndex + 1;
 				}
 				variantIndex = variantIndex + 1;
@@ -595,8 +595,8 @@ class IROptimizer {
 			taggedIndex = taggedIndex + 1;
 		}
 		int preprocessorIndex = 0;
-		while (preprocessorIndex < m.preprocessor_decls.len) {
-			IRPreprocessorDecl declaration = m.preprocessor_decls.get(preprocessorIndex);
+		while (preprocessorIndex < m.preprocessorDecls.len) {
+			IRPreprocessorDecl declaration = m.preprocessorDecls.get(preprocessorIndex);
 			if (declaration.kind == IR_PREPROCESSOR_MACRO) {
 				self.scanTextForKnownNames(declaration.replacement, knownNames, refs);
 			}
@@ -612,12 +612,12 @@ class IROptimizer {
 			string cur = worklist.pop();
 			bool present = byName.has(cur);
 			if (present) {
-				IRStructDef sd = m.struct_defs.get(byName.get(cur));
+				IRStructDef sd = m.structDefs.get(byName.get(cur));
 				int fl = 0;
 				while (fl < sd.fields.len) {
 					IRStructField field = sd.fields.get(fl);
-					self.scanTextForKnownNames(field.c_type, knownNames, fr);
-					self.collectStructRefsNode(field.array_size, knownNames, fr);
+					self.scanTextForKnownNames(field.cType, knownNames, fr);
+					self.collectStructRefsNode(field.arraySize, knownNames, fr);
 					fl = fl + 1;
 				}
 			}
@@ -633,23 +633,23 @@ class IROptimizer {
 		Vector<IRStructDef> kept = [];
 		Vector<string> removed = [];
 		int s = 0;
-		while (s < m.struct_defs.len) {
-			IRStructDef sd = m.struct_defs.get(s);
+		while (s < m.structDefs.len) {
+			IRStructDef sd = m.structDefs.get(s);
 			if (keepSet.has(sd.name)) { kept.push(sd); }
 			else { removed.push(sd.name); }
 			s = s + 1;
 		}
-		m.struct_defs = kept;
+		m.structDefs = kept;
 		Vector<IRStructForward> forwards = [];
 		int d = 0;
-		while (d < m.struct_forwards.len) {
-			IRStructForward declaration = m.struct_forwards.get(d);
+		while (d < m.structForwards.len) {
+			IRStructForward declaration = m.structForwards.get(d);
 			if (!self.containsName(removed, declaration.name)) {
 				forwards.push(declaration);
 			}
 			d = d + 1;
 		}
-		m.struct_forwards = forwards;
+		m.structForwards = forwards;
 	}
 
 	/* Normalize unused C parameters into explicit structured discards.
@@ -670,17 +670,17 @@ class IROptimizer {
 		self.collectParameterUses(node.obj, names, references, declarations);
 		self.collectParameterUses(node.index, names, references, declarations);
 		self.collectParameterUses(node.condition, names, references, declarations);
-		self.collectParameterUses(node.true_expr, names, references, declarations);
-		self.collectParameterUses(node.false_expr, names, references, declarations);
+		self.collectParameterUses(node.trueExpr, names, references, declarations);
+		self.collectParameterUses(node.falseExpr, names, references, declarations);
 		self.collectParameterUses(node.init, names, references, declarations);
 		self.collectParameterUses(node.value, names, references, declarations);
 		self.collectParameterUses(node.target, names, references, declarations);
-		self.collectParameterUses(node.then_block, names, references, declarations);
-		self.collectParameterUses(node.else_block, names, references, declarations);
+		self.collectParameterUses(node.thenBlock, names, references, declarations);
+		self.collectParameterUses(node.elseBlock, names, references, declarations);
 		self.collectParameterUses(node.body, names, references, declarations);
 		self.collectParameterUses(node.update, names, references, declarations);
 		self.collectParameterUses(node.result, names, references, declarations);
-		self.collectParameterUses(node.array_size, names, references, declarations);
+		self.collectParameterUses(node.arraySize, names, references, declarations);
 		int i = 0;
 		while (i < node.args.len) {
 			self.collectParameterUses(node.args.get(i), names, references, declarations);
