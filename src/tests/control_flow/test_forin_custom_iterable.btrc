@@ -9,13 +9,7 @@ import std.vector;
 class Squares<T> implements Iterable {
 	private Vector<T> data;
 
-	public Squares() {
-		self.data = [];
-		self.data.push(0);
-		self.data.push(1);
-		self.data.push(4);
-		self.data.push(9);
-	}
+	public Squares(Vector<T> data) { self.data = data; }
 
 	public int iterLen() { return self.data.size(); }
 
@@ -23,7 +17,8 @@ class Squares<T> implements Iterable {
 }
 
 int main() {
-	Squares<int> sq = Squares();
+	Vector<int> values = [0, 1, 4, 9];
+	Squares<int> sq = Squares(values);
 
 	// plain accumulation over the custom iterable
 	int sum = 0;

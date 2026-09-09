@@ -350,23 +350,51 @@ def test_archive_completes_the_thread_handle_lifecycle_api():
     assert "__btrc_thread_destroy_handle" not in lifecycle
 
 
+GUARDED_LOCK_HELPER = """#if defined(BTRC_TEST_PLATFORM_LOCK)
+static int __btrc_test_native_lock = 0;
+
+static void __btrc_test_lock_raw(void) { __btrc_test_native_lock = 1; }
+static void __btrc_test_unlock_raw(void) { __btrc_test_native_lock = 0; }
+#else
+static atomic_flag __btrc_test_lock_flag = ATOMIC_FLAG_INIT;
+
+static void __btrc_test_lock_raw(void) {
+    while (atomic_flag_test_and_set_explicit(
+            &__btrc_test_lock_flag, memory_order_acquire)) {}
+}
+static void __btrc_test_unlock_raw(void) {
+    atomic_flag_clear_explicit(
+        &__btrc_test_lock_flag, memory_order_release);
+}
+#endif
+"""
+
+
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
-def test_platform_lock_keeps_one_cross_tu_owner(tmp_path: Path, c_compiler: str):
-    source = CYCLES["__btrc_arc_lock_state"].c_source
+def test_guarded_state_keeps_one_cross_tu_owner(tmp_path: Path, c_compiler: str):
+    """A helper whose state sits behind #if still gets exactly one owner.
+
+    The source is written here rather than taken from a runtime helper: the
+    property belongs to the archive splitter, and pinning it to whichever
+    helper currently happens to carry a platform branch made the runtime
+    responsible for a test it does not own.
+    """
+
+    source = GUARDED_LOCK_HELPER
     declarations = SHARED.derive_shared_declarations(source)
     implementation = SHARED.derive_shared_implementation(source)
     assert "extern #" not in declarations
     assert "static " not in declarations
-    assert "#if defined(__APPLE__)" in declarations
-    assert "extern os_unfair_lock* __btrc_arc_native_lock;" in declarations
-    assert "extern atomic_flag __btrc_arc_lock_flag;" in declarations
+    assert "#if defined(BTRC_TEST_PLATFORM_LOCK)" in declarations
+    assert "extern int __btrc_test_native_lock;" in declarations
+    assert "extern atomic_flag __btrc_test_lock_flag;" in declarations
     header = tmp_path / "lock.h"
     header.write_text("#include <stdatomic.h>\n" + declarations)
     owner = tmp_path / "owner.c"
     owner.write_text('#include "lock.h"\n' + implementation)
     consumer = tmp_path / "consumer.c"
     consumer.write_text(
-        '#include "lock.h"\nint main(void) { __btrc_arc_lock_raw(); __btrc_arc_unlock_raw(); return 0; }\n'
+        '#include "lock.h"\nint main(void) { __btrc_test_lock_raw(); __btrc_test_unlock_raw(); return 0; }\n'
     )
     binary = tmp_path / "lock"
     compiled = subprocess.run(

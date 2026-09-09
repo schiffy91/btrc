@@ -22,6 +22,39 @@ int fake_gpu_frame_present_count();
 string fake_platform_lifecycle();
 int fake_platform_live_resources();
 
+NativeUiEventBatch clickEditAction(NativeUiAppSession session, NativeUiTextEditAction action) {
+	NativeUiTextMenu menu = session.input().textMenu();
+	assert(menu != null);
+	NativeUiRect row = menu.geometry.optionBounds((int)action);
+	AppWindowEvent pointer = AppWindowEvent(APP_EVENT_POINTER);
+	pointer.pointer = AppPointerEvent(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, (float)(row.x + 2), (float)(row.y + 2), AppKeyModifiers(false, false, false, false));
+	assert(session.dispatch(pointer).eventCount() == 0);
+	pointer.pointer = AppPointerEvent(APP_POINTER_RELEASED, APP_POINTER_BUTTON_PRIMARY, (float)(row.x + 2), (float)(row.y + 2), AppKeyModifiers(false, false, false, false));
+	return session.dispatch(pointer);
+}
+
+void verifyLeadingInput(NativeUiAppSession session) {
+	Image icon = Image(32, 34);
+	icon.setPixel(0, 0, RGBA(220, 30, 40));
+	NativeUiElement input = NativeUiElement.textInput("icon-search", "Hello", "Search", 64).style("height: 35px; padding: 1px; padding-left: 12px; padding-right: 12px").leadingIcon(icon, 16, 17, 11).imageRevision(1ULL);
+	int uploads = fake_native_ui_upload_count();
+	assert(session.present(input).kind == NATIVE_UI_PRESENTED);
+	assert(fake_native_ui_upload_count() == uploads + 1);
+	assert(session.input().currentFrame().boxCount() == 1);
+	NativeUiLayoutBox box = session.input().currentFrame().boxFor("icon-search");
+	assert(box.style.paddingLeft() == 39 && NativeUiTextInput.iconBounds(box).x == 12);
+	AppWindowEvent pointer = AppWindowEvent(APP_EVENT_POINTER);
+	pointer.pointer = AppPointerEvent(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, 20.0f, 17.0f, AppKeyModifiers(false, false, false, false));
+	session.dispatch(pointer);
+	pointer.pointer = AppPointerEvent(APP_POINTER_RELEASED, APP_POINTER_BUTTON_PRIMARY, 20.0f, 17.0f, AppKeyModifiers(false, false, false, false));
+	session.dispatch(pointer);
+	assert(session.input().focusedId() == "icon-search" && session.input().focusedCaret() == 0);
+	assert(session.present(input).kind == NATIVE_UI_PRESENTED);
+	assert(fake_native_ui_upload_count() == uploads + 1);
+	assert(session.present(input.copy().imageRevision(2ULL)).kind == NATIVE_UI_PRESENTED);
+	assert(fake_native_ui_upload_count() == uploads + 2);
+}
+
 int main() {
 	fake_platform_reset();
 	Application application = Application();
@@ -184,6 +217,42 @@ int main() {
 	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_V, 8);
 	assert(session.dispatch(application.poll()).eventAt(0).value() == "a\xc3\xa9");
 
+	fake_platform_push_surface(APP_EVENT_RESIZED, 320, 240, 640, 480, 2.0f, 2.0f);
+	session.dispatch(application.poll());
+	query = session.input().currentFrame().boxFor("query");
+	session.input().selectAllText();
+	AppWindowEvent contextClick = AppWindowEvent(APP_EVENT_POINTER);
+	contextClick.pointer = AppPointerEvent(APP_POINTER_PRESSED, APP_POINTER_BUTTON_SECONDARY, (float)(query.bounds.x + query.style.paddingLeft() + 1), (float)(query.bounds.y + 2), AppKeyModifiers(false, false, false, false));
+	session.dispatch(contextClick);
+	assert(session.input().textMenu() != null && session.input().selectedText() == "a\xc3\xa9");
+	assert(session.prepareCurrent().kind == NATIVE_UI_PREPARED);
+	assert(clickEditAction(session, NATIVE_UI_TEXT_EDIT_COPY).eventCount() == 0);
+	assert(window.clipboardText().text == "a\xc3\xa9" && session.input().textMenu() == null);
+	session.dispatch(contextClick);
+	assert(clickEditAction(session, NATIVE_UI_TEXT_EDIT_CUT).eventAt(0).value() == "");
+	assert(window.clipboardText().text == "a\xc3\xa9");
+	session.dispatch(contextClick);
+	assert(!session.input().textMenu().enabled(NATIVE_UI_TEXT_EDIT_CUT));
+	assert(clickEditAction(session, NATIVE_UI_TEXT_EDIT_PASTE).eventAt(0).value() == "a\xc3\xa9");
+	session.dispatch(contextClick);
+	assert(clickEditAction(session, NATIVE_UI_TEXT_EDIT_SELECT_ALL).eventCount() == 0);
+	assert(session.input().selectedText() == "a\xc3\xa9");
+	session.dispatch(contextClick);
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_ESCAPE, 0);
+	assert(session.dispatch(application.poll()).eventCount() == 0);
+	assert(session.input().textMenu() == null && session.input().focusedId() == "query");
+	session.dispatch(contextClick);
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_DOWN, 0);
+	session.dispatch(application.poll());
+	assert(session.input().textMenu().highlighted == NATIVE_UI_TEXT_EDIT_CUT);
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_DOWN, 0);
+	session.dispatch(application.poll());
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_ENTER, 0);
+	assert(session.dispatch(application.poll()).eventCount() == 0);
+	assert(session.input().textMenu() == null && window.clipboardText().text == "a\xc3\xa9");
+	fake_platform_push_surface(APP_EVENT_RESIZED, 240, 120, 240, 120, 1.0f, 1.0f);
+	session.dispatch(application.poll());
+
 	artwork.setRGBA(0, 0, 10, 200, 30, 255);
 	NativeUiElement revisedRoot = NativeUiElement.column("library").className("root").child(NativeUiElement.text("transport-range", "Albums").semanticRange(transportRange)).child(NativeUiElement.textInput("query", "a\xc3\xa9", "Search albums", 16)).child(NativeUiElement.button("album:one", "Album One").className("card").child(NativeUiElement.image("art:one", artwork, "Album One").imageRevision(2ULL)));
 	assert(session.present(revisedRoot).kind == NATIVE_UI_PRESENTED);
@@ -335,6 +404,7 @@ int main() {
 	NativeUiEventBatch forward = session.dispatch(application.poll());
 	assert(forward.eventCount() == 1 && forward.eventAt(0).kind() == NATIVE_UI_NAVIGATE_FORWARD);
 
+	verifyLeadingInput(session);
 	assert(session.close().kind == GPU_CLOSED);
 	assert(gpu.close().kind == GPU_CLOSED);
 	assert(surface.close().kind == APP_CLOSED);

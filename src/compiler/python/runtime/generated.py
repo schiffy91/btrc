@@ -2645,18 +2645,17 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='cycles',
         name='__btrc_arc_lock_state',
         c_source=(
-            '/* One process-wide lock domain for ARC topology. */\n#if defined(__APPLE'
-            '__)\n#include <os/lock.h>\n/* A file-scope compound literal has static sto'
-            'rage. Taking its address also\n * keeps the SDK initializer strictly C11 '
-            'under GCC. */\nstatic os_unfair_lock* __btrc_arc_native_lock = &OS_UNFAIR'
-            '_LOCK_INIT;\n\nstatic void __btrc_arc_lock_raw(void) {\n    os_unfair_lock_'
-            'lock(__btrc_arc_native_lock);\n}\nstatic void __btrc_arc_unlock_raw(void) '
-            '{\n    os_unfair_lock_unlock(__btrc_arc_native_lock);\n}\n#else\nstatic atom'
-            'ic_flag __btrc_arc_lock_flag = ATOMIC_FLAG_INIT;\n\nstatic void __btrc_arc'
-            '_lock_raw(void) {\n    while (atomic_flag_test_and_set_explicit(\n        '
-            '    &__btrc_arc_lock_flag, memory_order_acquire)) {}\n}\nstatic void __btr'
-            'c_arc_unlock_raw(void) {\n    atomic_flag_clear_explicit(\n        &__btrc'
-            '_arc_lock_flag, memory_order_release);\n}\n#endif'
+            '/* One process-wide lock domain for ARC topology.\n *\n * stdatomic.h is w'
+            'hat src/runtime/c/manifest.toml records this helper needs,\n * and the ma'
+            'nifest is the only place a runtime dependency may be declared. A\n * plat'
+            'form lock would need a header the manifest cannot express, because the\n '
+            '* dependency would hold on one target and not on another, and --freestan'
+            'ding\n * output is allowed to include nothing but btrc_rt.h. */\nstatic at'
+            'omic_flag __btrc_arc_lock_flag = ATOMIC_FLAG_INIT;\n\nstatic void __btrc_a'
+            'rc_lock_raw(void) {\n    while (atomic_flag_test_and_set_explicit(\n      '
+            '      &__btrc_arc_lock_flag, memory_order_acquire)) {}\n}\nstatic void __b'
+            'trc_arc_unlock_raw(void) {\n    atomic_flag_clear_explicit(\n        &__bt'
+            'rc_arc_lock_flag, memory_order_release);\n}'
         ),
         depends_on=(),
         required_headers=('stdatomic.h',),

@@ -296,20 +296,13 @@ static inline void __btrc_suspect(
 }
 /* btrc-runtime-helper:end __btrc_suspect */
 /* btrc-runtime-helper:begin __btrc_arc_lock_state */
-/* One process-wide lock domain for ARC topology. */
-#if defined(__APPLE__)
-#include <os/lock.h>
-/* A file-scope compound literal has static storage. Taking its address also
- * keeps the SDK initializer strictly C11 under GCC. */
-static os_unfair_lock* __btrc_arc_native_lock = &OS_UNFAIR_LOCK_INIT;
-
-static void __btrc_arc_lock_raw(void) {
-    os_unfair_lock_lock(__btrc_arc_native_lock);
-}
-static void __btrc_arc_unlock_raw(void) {
-    os_unfair_lock_unlock(__btrc_arc_native_lock);
-}
-#else
+/* One process-wide lock domain for ARC topology.
+ *
+ * stdatomic.h is what src/runtime/c/manifest.toml records this helper needs,
+ * and the manifest is the only place a runtime dependency may be declared. A
+ * platform lock would need a header the manifest cannot express, because the
+ * dependency would hold on one target and not on another, and --freestanding
+ * output is allowed to include nothing but btrc_rt.h. */
 static atomic_flag __btrc_arc_lock_flag = ATOMIC_FLAG_INIT;
 
 static void __btrc_arc_lock_raw(void) {
@@ -320,7 +313,6 @@ static void __btrc_arc_unlock_raw(void) {
     atomic_flag_clear_explicit(
         &__btrc_arc_lock_flag, memory_order_release);
 }
-#endif
 /* btrc-runtime-helper:end __btrc_arc_lock_state */
 /* btrc-runtime-helper:begin __btrc_arc_shutdown_state */
 static int __btrc_arc_shutdown = 0;

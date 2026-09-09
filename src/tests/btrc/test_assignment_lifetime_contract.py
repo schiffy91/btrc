@@ -3,6 +3,8 @@
 import re
 from pathlib import Path
 
+import pytest
+
 from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
@@ -365,6 +367,30 @@ def test_managed_compound_upcasts_a_derived_overload_result(
         ("reference-managed-compound-result-upcast", reference_c),
         tmp_path,
     )
+
+
+@pytest.mark.parametrize(
+    "method, diagnostic",
+    [
+        ("public void clear(const T value) { value = null; }", "const"),
+        ("public void clear(T value) { value = 42; }", "assign"),
+        ("public void clear(T value) { value = (void*)0; }", "assign"),
+        ("public void clear(T value) { int number = 1; number = null; }", "assign"),
+    ],
+    ids=("const-slot", "unrelated-integer", "cast-not-null-literal", "concrete-scalar"),
+)
+def test_generic_null_assignment_does_not_relax_other_storage_checks(
+    semantic_btrcc: Path, tmp_path: Path, method: str, diagnostic: str
+) -> None:
+    source = (
+        f"class Slot<T> {{ {method} }} "
+        'int main() { Slot<string> slot = new Slot<string>(); slot.clear("old"); return 0; }'
+    )
+    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = _compile_reference_source(tmp_path, source)
+    for compiled in (selfhost, reference):
+        assert compiled.returncode != 0
+        assert diagnostic in compiled.stderr.lower(), compiled.stderr
 
 
 def test_managed_identifier_slots_replace_exactly_one_ownership_unit(

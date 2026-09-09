@@ -871,7 +871,51 @@ void assertPinnedScrollbar() {
 	assert(!renderer.render(NativeUiElement.column("nested").child(NativeUiElement.column("wrapper").child(header)), 320, 200).ok());
 }
 
+void assertLeadingInputIcon() {
+	Image icon = Image(32, 34);
+	for (int row = 0; row < icon.height; row++) { for (int column = 0; column < icon.width; column++) { icon.setPixel(column, row, RGBA(220, 30, 40)); } }
+	string css = "width: 180px; height: 35px; padding: 1px; padding-left: 12px; padding-right: 12px; border-radius: 6px; background-color: #222325ff";
+	NativeUiElement field = NativeUiElement.textInput("search", "Hello world", "Search", 64).style(css).leadingIcon(icon, 16, 17, 11).imageRevision(7ULL);
+	NativeUiElement copy = field.copy();
+	assert(copy.leadingIconWidth() == 16 && copy.leadingIconHeight() == 17 && copy.leadingIconInset() == 27 && copy.contentImageRevision() == 7ULL && copy.contentImage() == icon);
+	NativeUiStyleCache cache = NativeUiStyleCache();
+	NativeUiStyleSheet sheet = NativeUiStyleSheet();
+	assert(cache.resolve(field, sheet).paddingLeft() == 39);
+	assert(cache.resolve(NativeUiElement.textInput("plain", "").style(css), sheet).paddingLeft() == 12);
+	assert(cache.resolve(copy.leadingIcon(icon, 12, 17, 4), sheet).paddingLeft() == 28);
+	assert(cache.resolve(field, sheet).paddingLeft() == 39);
+	NativeUiRenderer renderer = NativeUiRenderer();
+	NativeUiFrame frame = renderer.render(field, 200, 60);
+	assert(frame.ok() && frame.boxCount() == 1);
+	NativeUiLayoutBox box = frame.boxFor("search");
+	NativeUiRect bounds = NativeUiTextInput.iconBounds(box);
+	assert(bounds.x == 12 && bounds.y == 9 && bounds.width == 16 && bounds.height == 17);
+	assert(frame.image.pixel(20, 17).red == 220);
+	renderer.pointerPressed(20, 17);
+	renderer.pointerReleased(20, 17);
+	assert(renderer.focusedId() == "search" && renderer.focusedCaret() == 0);
+	NativeUiFrame focused = renderer.currentFrame();
+	assert(focused.image.pixel(90, 0).blue == NativeUiTheme.nativeDefault().accent.blue);
+	assert(focused.image.pixel(39, 2).blue == 37);
+	renderer.selectAllText();
+	assert(renderer.textEntered("Bowie").eventAt(0).value() == "Bowie");
+	renderer.blur();
+	assert(renderer.render(field.copy().enabled(false), 200, 60).ok());
+	renderer.pointerPressed(20, 17);
+	assert(renderer.focusedId().isEmpty());
+	NativeUiFrame narrow = NativeUiRenderer().render(field, 20, 60);
+	assert(narrow.ok() && NativeUiTextInput.iconBounds(narrow.boxFor("search")).width == 0);
+	NativeUiFrame shortField = NativeUiRenderer().render(field.copy().style("height: 10px; padding: 1px"), 200, 60);
+	assert(shortField.ok() && NativeUiTextInput.iconBounds(shortField.boxFor("search")).height == 0);
+	assertRejected(NativeUiRenderer().render(NativeUiElement.textInput("oversized-icon", "").leadingIcon(Image(4097, 1), 16, 17), 200, 60), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
+	Image shared = Image(1024, 1024);
+	NativeUiElement aggregate = NativeUiElement.column("icons");
+	for (int index = 0; index < 65; index++) { aggregate.child(NativeUiElement.textInput(f"icon:{index}", "").leadingIcon(shared, 16, 16)); }
+	assertRejected(NativeUiRenderer().layout(aggregate, 200, 60), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
+}
+
 int main() {
+	assertLeadingInputIcon();
 	assertPinnedScrollbar();
 	assertEllipsis();
 	assertDisabledButtonText();
@@ -1065,6 +1109,52 @@ int main() {
 	controlledRenderer.blur();
 	assert(!controlledRenderer.tickTextInput(2000.0));
 	NativeUiResolvedStyle fieldStyle = NativeUiResolvedStyle(NATIVE_UI_TEXT_INPUT);
+	NativeUiResolvedStyle caretStyle = fieldStyle.copy();
+	caretStyle.apply("font-size: 18px; line-height: 28px");
+	NativeUiRect caretBounds = NativeUiTextViewport.caretBounds(31, 20, caretStyle);
+	assert(caretBounds.x == 31 && caretBounds.y == 25 && caretBounds.width == 1 && caretBounds.height == 18);
+	caretStyle.apply("line-height: 14px");
+	NativeUiRect tightCaret = NativeUiTextViewport.caretBounds(31, 20, caretStyle);
+	assert(tightCaret.y == 20 && tightCaret.height == 14);
+	NativeUiRenderer menuRenderer = NativeUiRenderer();
+	NativeUiElement menuRoot = NativeUiElement.textInput("edit", "a\xc3\xa9 melody", "", 64);
+	NativeUiFrame menuFrame = menuRenderer.render(menuRoot, 320, 240);
+	NativeUiLayoutBox menuField = menuFrame.boxFor("edit");
+	int menuX = menuField.bounds.x + menuField.style.paddingLeft() + 1;
+	int menuY = menuField.bounds.y + menuField.style.paddingTop() + 1;
+	menuRenderer.pointerPressed(menuX, menuY);
+	menuRenderer.pointerReleased(menuX, menuY);
+	menuRenderer.selectAllText();
+	menuRenderer.openTextMenu(menuX, menuY, true);
+	assert(menuRenderer.selectedText() == "a\xc3\xa9 melody");
+	NativeUiTextMenu menu = menuRenderer.textMenu();
+	assert(menu != null && menu.enabled(0) && menu.enabled(1) && menu.enabled(2) && menu.enabled(3));
+	NativeUiRect copyRow = menu.geometry.optionBounds(NATIVE_UI_TEXT_EDIT_COPY);
+	menuRenderer.pointerMoved(copyRow.x + copyRow.width - 1, copyRow.y + 1);
+	assert(menu.highlighted == NATIVE_UI_TEXT_EDIT_COPY);
+	menuRenderer.pointerPressed(copyRow.x + 1, copyRow.y + 1);
+	assert(menuRenderer.releaseTextMenu(copyRow.x + 1, copyRow.y + 1) == NATIVE_UI_TEXT_EDIT_COPY);
+	assert(menuRenderer.textMenu() == null && menuRenderer.selectedText() == "a\xc3\xa9 melody");
+	menuRenderer.moveCaretRight();
+	menuRenderer.openTextMenu(menuX, menuY, false);
+	assert(!menuRenderer.textMenu().enabled(0) && !menuRenderer.textMenu().enabled(1) && !menuRenderer.textMenu().enabled(2));
+	menuRenderer.navigateTextMenu(1);
+	assert(menuRenderer.textMenu().highlighted == NATIVE_UI_TEXT_EDIT_SELECT_ALL);
+	menuRenderer.dismiss();
+	assert(menuRenderer.textMenu() == null && menuRenderer.focusedId() == "edit");
+	menuRenderer.openTextMenu(menuX, menuY, true);
+	menuRenderer.pointerPressed(319, 239);
+	assert(menuRenderer.releaseTextMenu(319, 239) == NATIVE_UI_TEXT_EDIT_NONE);
+	assert(menuRenderer.textMenu() == null);
+	menuRenderer.openTextMenu(menuX, menuY, true);
+	menuRenderer.viewportChanged(300, 220);
+	assert(menuRenderer.textMenu() == null);
+	menuRenderer.openTextMenu(menuX, menuY, true);
+	menuRenderer.layout(NativeUiElement.textInput("edit", "replacement", "", 64), 320, 240);
+	assert(menuRenderer.textMenu() == null && menuRenderer.focusedValue() == "replacement");
+	menuRenderer.openTextMenu(menuX, menuY, true);
+	menuRenderer.blur();
+	assert(menuRenderer.textMenu() == null);
 	NativeUiTextViewport textRun = NativeUiTextViewport("abcdef", 18, 6, 0, NativeUiTypography(), fieldStyle);
 	assert(textRun.start > 0 && textRun.text.endsWith("f") && textRun.caretX <= 16 && textRun.selectionWidth > 0);
 	NativeUiRenderer selectionRenderer = NativeUiRenderer();

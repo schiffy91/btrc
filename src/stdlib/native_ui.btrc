@@ -736,6 +736,9 @@ class NativeUiElement {
 	private Image? imageValue;
 	private unsigned long long imageRevisionValue;
 	private NativeUiImageRegion? imageRegionValue;
+	private int leadingIconWidthValue = 0;
+	private int leadingIconHeightValue = 0;
+	private int leadingIconGapValue = 0;
 	private string altValue;
 	private Vector<NativeUiElement> childValues;
 	private NativeUiStyleError styleErrorValue;
@@ -831,6 +834,23 @@ class NativeUiElement {
 		return self;
 	}
 
+	/* Decorative pixels belong to the text field's one focus/hit target.
+	 * Dimensions are logical pixels; the image may have a Retina backing. */
+	public NativeUiElement leadingIcon(Image image, int width, int height, int gap = 8) {
+		if (self.elementKind != NATIVE_UI_TEXT_INPUT || image == null || image.isEmpty() || width < 1 || width > 256 || height < 1 || height > 256 || gap < 0 || gap > 256) { throw "native UI leading icons require a text input, image, 1..256px dimensions and 0..256px gap"; }
+		self.imageValue = image;
+		self.leadingIconWidthValue = width;
+		self.leadingIconHeightValue = height;
+		self.leadingIconGapValue = gap;
+		return self;
+	}
+
+	public int leadingIconWidth() { return self.leadingIconWidthValue; }
+
+	public int leadingIconHeight() { return self.leadingIconHeightValue; }
+
+	public int leadingIconInset() { return self.leadingIconWidthValue + self.leadingIconGapValue; }
+
 	public NativeUiElement imageRegion(NativeUiImageRegion? region) {
 		if (self.elementKind != NATIVE_UI_IMAGE) { throw "native UI image regions require an image element"; }
 		self.imageRegionValue = region;
@@ -883,6 +903,9 @@ class NativeUiElement {
 		copied.styleValue = self.styleValue;
 		copied.imageRevisionValue = self.imageRevisionValue;
 		copied.imageRegionValue = self.imageRegionValue;
+		copied.leadingIconWidthValue = self.leadingIconWidthValue;
+		copied.leadingIconHeightValue = self.leadingIconHeightValue;
+		copied.leadingIconGapValue = self.leadingIconGapValue;
 		copied.childValues = self.childValues.copy();
 		copied.styleErrorValue = self.styleErrorValue;
 		copied.virtualGridValue = self.virtualGridValue;

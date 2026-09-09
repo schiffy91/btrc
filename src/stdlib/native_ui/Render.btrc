@@ -9,6 +9,17 @@
 /* Text-input limits are byte limits; editing and rendering advance only at
  * validated UTF-8 scalar boundaries. */
 class NativeUiTextInput {
+	class NativeUiRect iconBounds(NativeUiLayoutBox box) {
+		NativeUiElement element = box.element;
+		NativeUiResolvedStyle style = box.style;
+		int width = element.leadingIconWidth();
+		int height = element.leadingIconHeight();
+		int left = box.bounds.x + style.paddingLeft() - element.leadingIconInset();
+		int availableHeight = box.bounds.height - style.verticalPadding();
+		if (width <= 0 || height <= 0 || availableHeight < height || left + width > box.bounds.x + box.bounds.width - style.paddingRight()) { return NativeUiRect(0, 0, 0, 0); }
+		return NativeUiRect(left, box.bounds.y + style.paddingTop() + (availableHeight - height) / 2, width, height);
+	}
+
 	class int byteAt(string value, int index) { return (int)(unsigned char)value[index]; }
 
 	class bool continuation(int value) { return value >= 0x80 && value <= 0xBF; }
@@ -318,6 +329,51 @@ class NativeUiSelectPopup {
 		if (!self.visibleValue || self.rowHeightValue <= 0 || x < self.boundsValue.x + inset || x >= self.boundsValue.x + self.boundsValue.width - inset || y < self.boundsValue.y + inset || y >= self.boundsValue.y + self.boundsValue.height - inset) { return -1; }
 		int localRow = (y - self.boundsValue.y - inset) / self.rowHeightValue;
 		return localRow < 0 || localRow >= self.visibleOptionCountValue ? -1 : self.firstOptionValue + localRow;
+	}
+}
+
+enum NativeUiTextEditAction {
+	NATIVE_UI_TEXT_EDIT_NONE = -1,
+	NATIVE_UI_TEXT_EDIT_CUT = 0,
+	NATIVE_UI_TEXT_EDIT_COPY = 1,
+	NATIVE_UI_TEXT_EDIT_PASTE = 2,
+	NATIVE_UI_TEXT_EDIT_SELECT_ALL = 3
+};
+
+/* Text-edit commands share popup row geometry, not select-value semantics. */
+class NativeUiTextMenu {
+	public NativeUiSelectPopup geometry;
+	public NativeUiResolvedStyle style;
+	public int highlighted = -1;
+	public int pressed = -1;
+	private bool selection;
+	private bool paste;
+	private bool text;
+
+	public NativeUiTextMenu(NativeUiSelectPopup geometry, NativeUiResolvedStyle style, bool selection, bool paste, bool text) {
+		self.geometry = geometry;
+		self.style = style;
+		self.selection = selection;
+		self.paste = paste;
+		self.text = text;
+	}
+
+	class string label(int index) {
+		if (index == NATIVE_UI_TEXT_EDIT_CUT) { return "Cut"; }
+		if (index == NATIVE_UI_TEXT_EDIT_COPY) { return "Copy"; }
+		if (index == NATIVE_UI_TEXT_EDIT_PASTE) { return "Paste"; }
+		return "Select All";
+	}
+
+	public bool enabled(int index) {
+		if (index == NATIVE_UI_TEXT_EDIT_CUT || index == NATIVE_UI_TEXT_EDIT_COPY) { return self.selection; }
+		if (index == NATIVE_UI_TEXT_EDIT_PASTE) { return self.paste; }
+		return index == NATIVE_UI_TEXT_EDIT_SELECT_ALL && self.text;
+	}
+
+	public int actionAt(int x, int y) {
+		int index = self.geometry.optionAt(x, y);
+		return self.enabled(index) ? index : -1;
 	}
 }
 
@@ -776,6 +832,7 @@ class NativeUiResolvedStyle {
 			style.apply(sheet.cssFor(element.cssClass()));
 		}
 		style.apply(element.inlineStyle());
+		style._paddingLeft += element.leadingIconInset();
 		if (style._lineHeight < style._fontSize) {
 			style._lineHeight = style._fontSize;
 		}
@@ -835,7 +892,7 @@ class NativeUiStyleCache {
 			NativeUiResolvedStyle uncached = NativeUiResolvedStyle.from(element, sheet);
 			return independent ? uncached : uncached.freeze();
 		}
-		string key = f"{(int)element.kind()}:{kindCss.len()}:{kindCss}{classCss.len()}:{classCss}{inlineCss}";
+		string key = f"{(int)element.kind()}:{element.leadingIconInset()}:{kindCss.len()}:{kindCss}{classCss.len()}:{classCss}{inlineCss}";
 		if (self.styles.has(key)) {
 			NativeUiResolvedStyle cached = self.styles.get(key);
 			return independent ? cached.copy() : cached;
@@ -1101,6 +1158,15 @@ class NativeUiLayout {
 		}
 
 		NativeUiResolvedStyle style = context.resolveStyle(element);
+		Image? contentImage = element.contentImage();
+		if (contentImage != null && !contentImage.isEmpty()) {
+			long long pixels = (long long)contentImage.width * (long long)contentImage.height;
+			if (contentImage.width > 4096 || contentImage.height > 4096 || pixels > 16777216LL || context.imagePixels + pixels > 67108864LL) {
+				context.fail(NATIVE_UI_FRAME_LIMIT_EXCEEDED, f"native UI image exceeds renderer bounds: {element.id()}");
+				return null;
+			}
+			context.imagePixels += pixels;
+		}
 		if (style.fitWidth() && (flowCount > 0 || (element.kind() != NATIVE_UI_TEXT && element.kind() != NATIVE_UI_IMAGE && element.kind() != NATIVE_UI_BUTTON))) {
 			context.fail(NATIVE_UI_FRAME_INVALID_STYLE, "width: fit requires text, image, or a button without flowing children");
 			return null;
@@ -1131,7 +1197,7 @@ class NativeUiLayout {
 			}
 		} else if (element.kind() == NATIVE_UI_TEXT_INPUT || element.kind() == NATIVE_UI_SELECT) {
 			measured.width = availableWidth;
-			measured.height = NativeUiLayout.maximum(36, style.lineHeight() + inset);
+			measured.height = NativeUiLayout.maximum(36, NativeUiLayout.maximum(style.lineHeight(), element.leadingIconHeight()) + inset);
 		} else if (element.kind() == NATIVE_UI_IMAGE) {
 			Image? optionalImage = element.contentImage();
 			if (optionalImage == null || optionalImage.isEmpty()) {
@@ -1139,12 +1205,6 @@ class NativeUiLayout {
 				measured.height = 96 + inset;
 			} else {
 				Image image = optionalImage;
-				long long pixels = (long long)image.width * (long long)image.height;
-				if (image.width > 4096 || image.height > 4096 || pixels > 16777216LL || context.imagePixels + pixels > 67108864LL) {
-					context.fail(NATIVE_UI_FRAME_LIMIT_EXCEEDED, f"native UI image exceeds renderer bounds: {element.id()}");
-					return null;
-				}
-				context.imagePixels += pixels;
 				measured.width = NativeUiLayout.minimum(NativeUiLayout.maximum(1, image.width) + horizontalInset, availableWidth);
 				measured.height = NativeUiLayout.maximum(1, image.height) + inset;
 			}
@@ -1509,6 +1569,11 @@ class NativeUiTextViewport {
 	public int selectionX;
 	public int selectionWidth;
 
+	class NativeUiRect caretBounds(int x, int lineTop, NativeUiResolvedStyle style) {
+		int height = style.fontSize() < style.lineHeight() ? style.fontSize() : style.lineHeight();
+		return NativeUiRect(x, lineTop + (style.lineHeight() - height) / 2, 1, height);
+	}
+
 	class int width(string value, int start, int end, NativeUiTypography typography, NativeUiResolvedStyle style) { return typography.measure(value.substring(start, end - start), style.fontSize(), style.lineHeight(), style.fontWeight()).width(); }
 
 	class int boundary(string value, int offset) {
@@ -1561,6 +1626,20 @@ class NativeUiTextViewport {
 }
 
 class NativeUiRaster {
+	class void textMenu(Image image, NativeUiTextMenu? menu, NativeUiTheme theme, NativeUiTypography typography) {
+		if (menu == null) { return; }
+		NativeUiRect bounds = menu.geometry.bounds();
+		NativeUiRaster.fillRect(image, bounds.x, bounds.y, bounds.width, bounds.height, theme.border, NativeUiSelectPopup.radius());
+		NativeUiRaster.fillRect(image, bounds.x + 1, bounds.y + 1, bounds.width - 2, bounds.height - 2, theme.panel, NativeUiSelectPopup.radius() - 1);
+		for (int index = 0; index < 4; index++) {
+			NativeUiRect row = menu.geometry.optionBounds(index);
+			bool highlighted = menu.enabled(index) && index == menu.highlighted;
+			if (highlighted) { NativeUiRaster.fillRect(image, row.x, row.y, row.width, row.height, theme.accent, NativeUiSelectPopup.rowRadius()); }
+			NativeUiColor color = !menu.enabled(index) ? theme.mutedText : (highlighted ? theme.accentText : theme.text);
+			NativeUiRaster.text(image, row.x + NativeUiSelectPopup.labelInset(), row.y + (row.height - menu.style.lineHeight()) / 2, NativeUiTextMenu.label(index), color, menu.style, typography);
+		}
+	}
+
 	class void chevron(Image image, NativeUiRect bounds, NativeUiColor color, bool expanded) {
 		for (int row = 0; row < bounds.height; row++) {
 			for (int column = 0; column < bounds.width; column++) {
@@ -1740,6 +1819,8 @@ class NativeUiRaster {
 				if (box.bounds.width > 2 && box.bounds.height > 2) {
 					NativeUiRaster.fillRect(image, x + 1, y + 1, box.bounds.width - 2, box.bounds.height - 2, fill, style.radius() > 0 ? style.radius() - 1 : 0, style.backgroundGradient());
 				}
+				Image? icon = box.element.contentImage();
+				if (icon != null && !icon.isEmpty()) { NativeUiRaster.image(image, icon, NativeUiTextInput.iconBounds(box), scrollX, scrollY, 0); }
 				string value = hasFocus ? focusedValue : box.element.contentText();
 				bool placeholder = value.isEmpty();
 				string visibleValue = placeholder ? box.element.placeholderText() : value;
@@ -1751,7 +1832,8 @@ class NativeUiRaster {
 				if (hasFocus && caretVisible) {
 					int caretX = textX + (placeholder ? 0 : run.caretX);
 					if (caretX >= x + style.paddingLeft() && caretX < x + box.bounds.width - style.paddingRight() + 1) {
-						NativeUiRaster.fillRect(image, caretX, y + style.paddingTop() + (box.bounds.height - style.verticalPadding() - style.lineHeight()) / 2, 2, style.lineHeight(), style.hasForeground() ? style.foreground() : theme.text);
+						NativeUiRect caret = NativeUiTextViewport.caretBounds(caretX, textY, style);
+						NativeUiRaster.fillRect(image, caret.x, caret.y, caret.width, caret.height, style.hasForeground() ? style.foreground() : theme.text);
 					}
 				}
 			} else if (box.element.kind() == NATIVE_UI_SELECT) {
@@ -1866,6 +1948,7 @@ class NativeUiRenderer {
 	private bool pressedSelectWasExpanded;
 	private NativeUiSelectPopup selectPopupValue;
 	private int selectWheelRemainder = 0;
+	private NativeUiTextMenu? textMenuValue = null;
 	private bool proofRasterValue;
 
 	public NativeUiRenderer(NativeUiTheme? theme = null, NativeUiStyleSheet? styleSheet = null, NativeUiTypography? typography = null) {
@@ -1997,6 +2080,52 @@ class NativeUiRenderer {
 
 	public NativeUiSelectPopup selectPopup() { return self.selectPopupValue; }
 
+	public NativeUiTextMenu? textMenu() { return self.textMenuValue; }
+
+	public void closeTextMenu() { self.textMenuValue = null; self.repaint(); }
+
+	public NativeUiEventBatch openTextMenu(int x, int y, bool canPaste) {
+		NativeUiEventBatch cancelled = self.pointerCancelled();
+		NativeUiLayoutBox? box = self.frameValue.ok() ? self.frameValue.hitBox(x, y, true) : null;
+		if (box == null || box.kind() != NATIVE_UI_TEXT_INPUT || !box.focusable()) { return cancelled; }
+		self.focus(box);
+		int character = self.textCharacterAt(x);
+		if (character < self.selectionStart() || character >= self.selectionEnd()) { self.placeTextCaret(x, false); }
+		NativeUiResolvedStyle style = NativeUiSelectPopup.textStyle(box.style);
+		int inset = NativeUiSelectPopup.inset();
+		int rowHeight = NativeUiLayout.maximum(28, style.lineHeight() + 8);
+		int height = 4 * rowHeight + 2 * inset;
+		int width = self.typographyValue.measure("Select All", style.fontSize(), style.lineHeight(), style.fontWeight()).width() + 2 * (inset + NativeUiSelectPopup.labelInset());
+		width = NativeUiLayout.maximum(160, width);
+		if (self.widthValue < width || self.heightValue < height) { return self.inputBatch(cancelled.events); }
+		x = NativeUiLayout.maximum(0, NativeUiLayout.minimum(x, self.widthValue - width));
+		y = NativeUiLayout.maximum(0, NativeUiLayout.minimum(y, self.heightValue - height));
+		NativeUiSelectPopup geometry = NativeUiSelectPopup(true, box.id(), NativeUiRect(x, y, width, height), 0, 4, rowHeight);
+		self.textMenuValue = NativeUiTextMenu(geometry, style, !self.selectedText().isEmpty(), canPaste, !self.focusedInputValue.isEmpty());
+		return self.inputBatch(cancelled.events);
+	}
+
+	public NativeUiTextEditAction releaseTextMenu(int x, int y) {
+		NativeUiTextMenu? menu = self.textMenuValue;
+		if (menu == null) { return NATIVE_UI_TEXT_EDIT_NONE; }
+		int action = menu.actionAt(x, y);
+		bool matched = action >= 0 && action == menu.pressed;
+		self.closeTextMenu();
+		return matched ? (NativeUiTextEditAction)action : NATIVE_UI_TEXT_EDIT_NONE;
+	}
+
+	public NativeUiEventBatch navigateTextMenu(int direction) {
+		Vector<NativeUiEvent> events = [];
+		NativeUiTextMenu? menu = self.textMenuValue;
+		if (menu == null) { return NativeUiEventBatch(self.frameValue, events); }
+		int index = menu.highlighted < 0 ? (direction > 0 ? 3 : 0) : menu.highlighted;
+		for (int count = 0; count < 4; count++) {
+			index = (index + direction + 4) % 4;
+			if (menu.enabled(index)) { menu.highlighted = index; break; }
+		}
+		return self.inputBatch(events);
+	}
+
 	public string displayValue(NativeUiElement element) {
 		if (element.kind() == NATIVE_UI_TEXT_INPUT && element.id().equals(self.focusedIdentity) && self.focusedMaxBytes > 0) {
 			return self.focusedInputValue;
@@ -2015,6 +2144,7 @@ class NativeUiRenderer {
 	}
 
 	private void clearFocus() {
+		self.textMenuValue = null;
 		self.textSelecting = false;
 		self.focusedAnchorByteOffset = 0;
 		self.focusedIdentity = "";
@@ -2025,6 +2155,7 @@ class NativeUiRenderer {
 	}
 
 	private void focus(NativeUiLayoutBox box) {
+		if (!box.id().equals(self.focusedIdentity)) { self.textMenuValue = null; }
 		if (!box.focusable()) {
 			self.clearFocus();
 			return;
@@ -2063,6 +2194,7 @@ class NativeUiRenderer {
 				}
 				self.focusedMaxBytes = box.element.textInputMaxBytes();
 				if (!box.element.contentText().equals(self.focusedInputValue)) {
+					self.textMenuValue = null;
 					self.focusedInputValue = box.element.contentText();
 					self.focusedCaretByteOffset = self.focusedInputValue.len();
 					self.focusedAnchorByteOffset = self.focusedCaretByteOffset;
@@ -2252,6 +2384,7 @@ class NativeUiRenderer {
 		Image image = proofRaster ? Image(width, height) : Image.empty();
 		if (proofRaster) {
 			NativeUiRaster.frame(image, boxes, self.themeValue, self.typographyValue, self.hoveredIdentity, self.focusedIdentity, self.focusedInputValue, self.focusedCaretByteOffset, self.scrollXValue, self.scrollYValue, self.selectPopupValue, self.highlightedSelectOption, self.scrollbarGeometry(measured.height, self.scrollbarOpacity), self.focusedAnchorByteOffset, self.caretVisible());
+			NativeUiRaster.textMenu(image, self.textMenuValue, self.themeValue, self.typographyValue);
 		}
 		NativeUiViewportMetrics viewport = NativeUiViewportMetrics(width, height, self.scrollXValue, self.scrollYValue);
 		Vector<NativeUiVirtualGridViewport> virtualGrids = NativeUiLayout.virtualGridViewports(boxes, viewport);
@@ -2297,7 +2430,10 @@ class NativeUiRenderer {
 			boxes.set(index, closed);
 		}
 		Image image = self.proofRasterValue ? Image(self.widthValue, self.heightValue) : Image.empty();
-		if (self.proofRasterValue) { NativeUiRaster.frame(image, boxes, self.themeValue, self.typographyValue, self.hoveredIdentity, self.focusedIdentity, self.focusedInputValue, self.focusedCaretByteOffset, self.scrollXValue, self.scrollYValue, self.selectPopupValue, self.highlightedSelectOption, self.verticalScrollbar(), self.focusedAnchorByteOffset, self.caretVisible()); }
+		if (self.proofRasterValue) {
+			NativeUiRaster.frame(image, boxes, self.themeValue, self.typographyValue, self.hoveredIdentity, self.focusedIdentity, self.focusedInputValue, self.focusedCaretByteOffset, self.scrollXValue, self.scrollYValue, self.selectPopupValue, self.highlightedSelectOption, self.verticalScrollbar(), self.focusedAnchorByteOffset, self.caretVisible());
+			NativeUiRaster.textMenu(image, self.textMenuValue, self.themeValue, self.typographyValue);
+		}
 		NativeUiViewportMetrics viewport = NativeUiViewportMetrics(self.widthValue, self.heightValue, self.scrollXValue, self.scrollYValue);
 		self.frameValue = NativeUiFrame(NATIVE_UI_FRAME_READY, "", NativeUiStyleError.valid(), image, viewport, boxes, NativeUiLayout.virtualGridViewports(boxes, viewport), previous.contentWidth, previous.contentHeight);
 		return self.frameValue;
@@ -2354,6 +2490,11 @@ class NativeUiRenderer {
 	public NativeUiEventBatch pointerMoved(int x, int y) {
 		self.pointerXValue = x;
 		self.pointerYValue = y;
+		if (self.textMenuValue != null) {
+			self.textMenuValue.highlighted = self.textMenuValue.actionAt(x, y);
+			Vector<NativeUiEvent> events = [];
+			return self.inputBatch(events);
+		}
 		NativeUiScrollbar bar = self.scrollbarGeometry(self.frameValue.ok() ? self.frameValue.contentHeight : 0, 1.0);
 		if (bar.visible() && bar.track().contains(x, y)) { self.revealScrollbar(); self.repaint(); }
 		if (self.textSelecting) { return self.extendTextSelection(x); }
@@ -2411,6 +2552,11 @@ class NativeUiRenderer {
 	}
 
 	public NativeUiEventBatch pointerPressed(int x, int y, bool extendSelection = false, int clickCount = 1) {
+		if (self.textMenuValue != null) {
+			self.textMenuValue.pressed = self.textMenuValue.actionAt(x, y);
+			Vector<NativeUiEvent> events = [];
+			return NativeUiEventBatch(self.frameValue, events);
+		}
 		self.textSelecting = false;
 		self.pointerXValue = x;
 		self.pointerYValue = y;
@@ -2561,6 +2707,7 @@ class NativeUiRenderer {
 	}
 
 	public NativeUiEventBatch pointerCancelled() {
+		self.textMenuValue = null;
 		self.textSelecting = false;
 		self.scrollbarDragging = false;
 		Vector<NativeUiEvent> events = [];
@@ -2577,6 +2724,7 @@ class NativeUiRenderer {
 	}
 
 	public NativeUiEventBatch textEntered(string text) {
+		self.textMenuValue = null;
 		Vector<NativeUiEvent> events = [];
 		if (!self.editingText() || text == null || !NativeUiTextInput.validUtf8(text) || (long long)self.focusedInputValue.len() - (long long)(self.selectionEnd() - self.selectionStart()) + (long long)text.len() > (long long)self.focusedMaxBytes) {
 			return NativeUiEventBatch(self.frameValue, events);
@@ -2608,6 +2756,7 @@ class NativeUiRenderer {
 	}
 
 	private NativeUiEventBatch moveCaret(int destination, bool extend) {
+		self.textMenuValue = null;
 		Vector<NativeUiEvent> events = [];
 		if (self.editingText()) {
 			self.focusedCaretByteOffset = destination;
@@ -2636,6 +2785,7 @@ class NativeUiRenderer {
 	}
 
 	public NativeUiEventBatch focusNext(bool reverse = false) {
+		self.textMenuValue = null;
 		Vector<NativeUiEvent> events = [];
 		self.closeSelect();
 		Vector<NativeUiLayoutBox> fields = [];
@@ -2666,6 +2816,7 @@ class NativeUiRenderer {
 
 	public NativeUiEventBatch dismiss() {
 		Vector<NativeUiEvent> events = [];
+		if (self.textMenuValue != null) { self.closeTextMenu(); return self.inputBatch(events); }
 		if (!self.expandedSelectIdentity.isEmpty()) {
 			self.closeSelect();
 			return self.inputBatch(events);
@@ -2733,6 +2884,7 @@ class NativeUiRenderer {
 	}
 
 	public NativeUiEventBatch wheelBy(int x, int y) {
+		self.textMenuValue = null;
 		self.scrollbarDragging = false;
 		if (!self.frameValue.ok()) {
 			Vector<NativeUiEvent> noEvents = [];
@@ -2781,6 +2933,7 @@ class NativeUiRenderer {
 	}
 
 	public NativeUiEventBatch scrollBy(int x, int y) {
+		self.textMenuValue = null;
 		Vector<NativeUiEvent> events = [];
 		if (!self.frameValue.ok()) {
 			return NativeUiEventBatch(self.frameValue, events);
@@ -2807,6 +2960,7 @@ class NativeUiRenderer {
 	}
 
 	public NativeUiEventBatch viewportChanged(int width, int height) {
+		self.textMenuValue = null;
 		Vector<NativeUiEvent> events = [];
 		NativeUiElement? optionalRoot = self.rootValue;
 		if (optionalRoot == null) {

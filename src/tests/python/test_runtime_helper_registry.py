@@ -1,6 +1,7 @@
 """Contracts for the generated, shared runtime-helper specification."""
 
 import ast
+import re
 import shutil
 from pathlib import Path
 
@@ -404,3 +405,43 @@ def test_generated_catalogs_are_data_only() -> None:
     assert "class GeneratedRuntimeCatalogData" in btrc_source
     assert "public bool has(" not in btrc_source
     assert "public string source(" not in btrc_source
+
+
+# A helper may only reach a system header its manifest entry declares. These
+# three ask for one inside a platform branch, which the manifest models no
+# way to express, and each is reachable only from a program that already
+# spawns processes. Nothing here may join them: an undeclared include in a
+# helper a plain program reaches lands in --freestanding output, where the
+# only legal include is btrc_rt.h.
+HELPERS_WITH_PLATFORM_INCLUDES = {
+    "__btrc_close_descriptors_from": {"sys/syscall.h"},
+    "__btrc_descriptor_close_bound": {"sys/sysctl.h"},
+    "__btrc_posix_spawn_cloexec": {"spawn.h"},
+}
+
+_INLINE_INCLUDE = re.compile(r"^\s*#include <([^>]+)>", re.MULTILINE)
+
+
+def test_helper_sources_include_only_headers_their_manifest_declares() -> None:
+    manifest = RuntimeManifest.load(MANIFEST_PATH)
+    undeclared = {}
+    for helper in manifest.helpers_for("python"):
+        inline = set(_INLINE_INCLUDE.findall(helper.source))
+        extra = inline - set(helper.headers) - HELPERS_WITH_PLATFORM_INCLUDES.get(helper.name, set())
+        if extra:
+            undeclared[helper.name] = sorted(extra)
+    assert not undeclared, (
+        "these helpers include a header the runtime manifest does not declare, "
+        f"so no stage can account for it: {undeclared}"
+    )
+
+
+def test_the_platform_include_exemptions_are_all_still_used() -> None:
+    """An exemption outliving its helper would quietly widen the rule."""
+
+    manifest = RuntimeManifest.load(MANIFEST_PATH)
+    sources = {helper.name: helper.source for helper in manifest.helpers_for("python")}
+    for name, headers in HELPERS_WITH_PLATFORM_INCLUDES.items():
+        assert name in sources, f"{name} no longer exists; drop its exemption"
+        inline = set(_INLINE_INCLUDE.findall(sources[name]))
+        assert headers <= inline, f"{name} no longer includes {sorted(headers - inline)}"

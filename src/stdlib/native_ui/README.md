@@ -13,6 +13,14 @@ radius. An explicit foreground controls the tint on custom dark/light materials;
 otherwise the theme text color supplies it. Disabled controls do not highlight.
 Transparent gradient stops retain their transparency.
 
+Text inputs may own a decorative `leadingIcon(image, width, height, gap)`.
+Logical dimensions are independent of raster resolution; `imageRevision`
+invalidates cached pixels. The field retains one border, focus target and
+editing identity, including clicks on the icon. Resolved left padding includes
+the icon and gap so rendering, selection, caret positioning and text scrolling
+agree. Icons too large for a resized field are hidden without overflowing it;
+their source pixels participate in the ordinary renderer resource limits.
+
 ## Retained layout
 
 `NativeUiRenderer.layoutImmutable(root, width, height)` and
@@ -154,6 +162,16 @@ Select disclosures use centered, round-capped chevrons, not text glyphs; they
 reverse when expanded and use the muted theme color when disabled. Software
 and GPU rendering share their logical geometry, with antialiased edges and no
 icon texture allocation.
+
+Text fields share a one-logical-pixel blinking caret, centered at font size
+within the line box (clamped to its height), in software and GPU rendering.
+Secondary-click or Control-click opens Cut/Copy/Paste/Select All without losing
+an existing selection under the pointer. Commands use the window clipboard and
+the same validated UTF-8 editing operations as keyboard shortcuts; failed copy
+does not delete text. Arrow keys select enabled commands; Enter activates;
+Escape or an outside click dismisses without activating content underneath.
+Focus loss, scrolling, resizing and external value replacement dismiss the menu.
+These are BTRC-rendered controls, not embedded AppKit text fields.
 
 `padding` sets all four edges; `padding-top`, `padding-right`, `padding-bottom`,
 and `padding-left` override individual edges in declaration order (0..4096px).

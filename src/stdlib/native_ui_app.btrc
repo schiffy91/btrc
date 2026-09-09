@@ -303,6 +303,12 @@ class NativeUiAppSession {
 					GPUResourceOutcome field = self.addFill(x + 1, y + 1, box.bounds.width - 2, box.bounds.height - 2, style.hasBackground() ? style.background() : self.theme.panel, style.radius() > 0 ? style.radius() - 1 : 0, style.backgroundGradient());
 					if (field.kind != GPU_RESOURCE_READY) { return field; }
 				}
+				Image? icon = box.element.contentImage();
+				NativeUiRect iconBounds = NativeUiTextInput.iconBounds(box);
+				if (icon != null && !icon.isEmpty() && iconBounds.width > 0 && iconBounds.height > 0) {
+					int iconStatus = std_gpu_native_ui_add_image(self.compositorIdentity, box.id(), icon.data, icon.width, icon.height, box.element.contentImageRevision(), (float)(iconBounds.x - frame.viewport.scrollX()), (float)(iconBounds.y - frame.viewport.scrollY()), (float)iconBounds.width, (float)iconBounds.height);
+					if (iconStatus != GPU_RESOURCE_READY) { return GPUResourceOutcome((GPUResourceKind)iconStatus, std_gpu_status_message(iconStatus)); }
+				}
 				string value = self.renderer.displayValue(box.element);
 				bool placeholder = value.isEmpty();
 				string visibleValue = placeholder ? box.element.placeholderText() : value;
@@ -318,7 +324,8 @@ class NativeUiAppSession {
 				if (hasFocus && self.renderer.caretVisible()) {
 					int caretX = textX + (placeholder ? 0 : run.caretX);
 					if (caretX >= x + style.paddingLeft() && caretX < x + box.bounds.width - style.paddingRight() + 1) {
-						GPUResourceOutcome caret = self.addRect((float)caretX, (float)(y + style.paddingTop() + (box.bounds.height - style.verticalPadding() - style.lineHeight()) / 2), 2.0f, (float)style.lineHeight(), style.hasForeground() ? style.foreground() : self.theme.text, 0.0f);
+						NativeUiRect bounds = NativeUiTextViewport.caretBounds(caretX, textY, style);
+						GPUResourceOutcome caret = self.addRect((float)bounds.x, (float)bounds.y, (float)bounds.width, (float)bounds.height, style.hasForeground() ? style.foreground() : self.theme.text, 0.0f);
 						if (caret.kind != GPU_RESOURCE_READY) {
 							return caret;
 						}
@@ -405,8 +412,32 @@ class NativeUiAppSession {
 		}
 		self.contentOrderCount = std_gpu_native_ui_order_count(self.compositorIdentity);
 		GPUResourceOutcome popup = self.buildSelectPopup(frame);
+		if (popup.kind != GPU_RESOURCE_READY) { return popup; }
+		GPUResourceOutcome menu = self.buildTextMenu(frame);
 		self.totalOrderCount = std_gpu_native_ui_order_count(self.compositorIdentity);
-		return popup;
+		return menu;
+	}
+
+	private GPUResourceOutcome buildTextMenu(NativeUiFrame frame) {
+		NativeUiTextMenu? menu = self.renderer.textMenu();
+		if (menu == null) { return GPUResourceOutcome(GPU_RESOURCE_READY, ""); }
+		NativeUiRect bounds = menu.geometry.bounds();
+		GPUResourceOutcome border = self.addRect((float)bounds.x, (float)bounds.y, (float)bounds.width, (float)bounds.height, self.theme.border, (float)NativeUiSelectPopup.radius());
+		if (border.kind != GPU_RESOURCE_READY) { return border; }
+		GPUResourceOutcome fill = self.addRect((float)(bounds.x + 1), (float)(bounds.y + 1), (float)(bounds.width - 2), (float)(bounds.height - 2), self.theme.panel, (float)(NativeUiSelectPopup.radius() - 1));
+		if (fill.kind != GPU_RESOURCE_READY) { return fill; }
+		for (int index = 0; index < 4; index++) {
+			NativeUiRect row = menu.geometry.optionBounds(index);
+			bool highlighted = menu.enabled(index) && index == menu.highlighted;
+			if (highlighted) {
+				GPUResourceOutcome highlight = self.addRect((float)row.x, (float)row.y, (float)row.width, (float)row.height, self.theme.accent, (float)NativeUiSelectPopup.rowRadius());
+				if (highlight.kind != GPU_RESOURCE_READY) { return highlight; }
+			}
+			NativeUiColor color = !menu.enabled(index) ? self.theme.mutedText : (highlighted ? self.theme.accentText : self.theme.text);
+			GPUResourceOutcome label = self.addText(NativeUiTextMenu.label(index), (float)(row.x + NativeUiSelectPopup.labelInset()), (float)(row.y + (row.height - menu.style.lineHeight()) / 2), color, frame.viewport.width(), menu.style);
+			if (label.kind != GPU_RESOURCE_READY) { return label; }
+		}
+		return GPUResourceOutcome(GPU_RESOURCE_READY, "");
 	}
 
 	public NativeUiPrepareOutcome prepare(NativeUiElement root, bool profile = false) { return self.prepareRoot(root, profile, false); }
@@ -519,6 +550,22 @@ class NativeUiAppSession {
 		return decrement ? NATIVE_UI_RANGE_ADJUST_SMALL_DECREMENT : NATIVE_UI_RANGE_ADJUST_SMALL_INCREMENT;
 	}
 
+	private NativeUiEventBatch editText(NativeUiTextEditAction action) {
+		self.renderer.closeTextMenu();
+		if (!self.renderer.editingText()) { return self.noEvents(); }
+		if (action == NATIVE_UI_TEXT_EDIT_SELECT_ALL) { return self.renderer.selectAllText(); }
+		if (action == NATIVE_UI_TEXT_EDIT_CUT || action == NATIVE_UI_TEXT_EDIT_COPY) {
+			string selected = self.renderer.selectedText();
+			if (selected.isEmpty() || self.window.setClipboardText(selected) != null) { return self.noEvents(); }
+			return action == NATIVE_UI_TEXT_EDIT_CUT ? self.renderer.textEntered("") : self.noEvents();
+		}
+		if (action == NATIVE_UI_TEXT_EDIT_PASTE) {
+			AppClipboardText clipboard = self.window.clipboardText();
+			return clipboard.error == null ? self.renderer.textEntered(clipboard.text) : self.noEvents();
+		}
+		return self.noEvents();
+	}
+
 	public NativeUiEventBatch dispatch(AppWindowEvent event) {
 		if (event == null) { return self.noEvents(); }
 		if (event.kind == APP_EVENT_POINTER && event.pointer != null) {
@@ -535,10 +582,16 @@ class NativeUiAppSession {
 			if (pointer.action == APP_POINTER_MOVED) {
 				return self.renderer.pointerMoved(x, y);
 			}
+			if ((pointer.button == APP_POINTER_BUTTON_SECONDARY || (pointer.button == APP_POINTER_BUTTON_PRIMARY && pointer.modifiers.control)) && pointer.action == APP_POINTER_PRESSED) {
+				AppClipboardText clipboard = self.window.clipboardText();
+				return self.renderer.openTextMenu(x, y, clipboard.error == null && !clipboard.text.isEmpty());
+			}
 			if (pointer.button == APP_POINTER_BUTTON_PRIMARY && pointer.action == APP_POINTER_PRESSED) {
 				return self.renderer.pointerPressed(x, y, pointer.modifiers.shift, pointer.clickCount);
 			}
 			if (pointer.button == APP_POINTER_BUTTON_PRIMARY && pointer.action == APP_POINTER_RELEASED) {
+				if (pointer.modifiers.control) { return self.noEvents(); }
+				if (self.renderer.textMenu() != null) { return self.editText(self.renderer.releaseTextMenu(x, y)); }
 				return self.renderer.pointerReleased(x, y);
 			}
 			return self.noEvents();
@@ -548,26 +601,28 @@ class NativeUiAppSession {
 			return self.renderer.wheelBy((int)(-scroll.deltaX * 40.0f), (int)(-scroll.deltaY * 40.0f));
 		}
 		if (event.kind == APP_EVENT_TEXT) {
+			if (self.renderer.textMenu() != null) { return self.noEvents(); }
 			return self.renderer.textEntered(event.text);
 		}
 		if (event.kind == APP_EVENT_KEYBOARD && event.keyboard != null) {
 			AppKeyboardEvent keyboard = event.keyboard;
 			bool active = keyboard.action == APP_KEY_PRESSED || keyboard.action == APP_KEY_REPEATED;
 			if (!active) { return self.noEvents(); }
+			NativeUiTextMenu? menu = self.renderer.textMenu();
+			if (menu != null) {
+				if (keyboard.key == APP_KEY_ESCAPE) { return self.renderer.dismiss(); }
+				if (keyboard.key == APP_KEY_UP || keyboard.key == APP_KEY_DOWN) { return self.renderer.navigateTextMenu(keyboard.key == APP_KEY_UP ? -1 : 1); }
+				if (keyboard.key == APP_KEY_ENTER || keyboard.key == APP_KEY_SPACE) { return menu.enabled(menu.highlighted) ? self.editText((NativeUiTextEditAction)menu.highlighted) : self.noEvents(); }
+				self.renderer.closeTextMenu();
+			}
 			if (self.renderer.editingText()) {
 				bool shortcut = keyboard.modifiers.command || keyboard.modifiers.control;
 				bool word = keyboard.modifiers.alt || keyboard.modifiers.control;
 				bool line = keyboard.modifiers.command;
-				if (shortcut && keyboard.key == APP_KEY_A) { return self.renderer.selectAllText(); }
-				if (shortcut && (keyboard.key == APP_KEY_C || keyboard.key == APP_KEY_X)) {
-					string selected = self.renderer.selectedText();
-					if (selected.isEmpty() || self.window.setClipboardText(selected) != null) { return self.noEvents(); }
-					return keyboard.key == APP_KEY_X ? self.renderer.textEntered("") : self.noEvents();
-				}
-				if (shortcut && keyboard.key == APP_KEY_V) {
-					AppClipboardText clipboard = self.window.clipboardText();
-					return clipboard.error == null ? self.renderer.textEntered(clipboard.text) : self.noEvents();
-				}
+				if (shortcut && keyboard.key == APP_KEY_A) { return self.editText(NATIVE_UI_TEXT_EDIT_SELECT_ALL); }
+				if (shortcut && keyboard.key == APP_KEY_C) { return self.editText(NATIVE_UI_TEXT_EDIT_COPY); }
+				if (shortcut && keyboard.key == APP_KEY_X) { return self.editText(NATIVE_UI_TEXT_EDIT_CUT); }
+				if (shortcut && keyboard.key == APP_KEY_V) { return self.editText(NATIVE_UI_TEXT_EDIT_PASTE); }
 				if (keyboard.key == APP_KEY_BACKSPACE) { return self.renderer.backspace(word, line); }
 				if (keyboard.key == APP_KEY_DELETE) { return self.renderer.deleteForward(word, line); }
 				if (keyboard.key == APP_KEY_LEFT || keyboard.key == APP_KEY_HOME) { return self.renderer.moveCaretLeft(keyboard.modifiers.shift, word, line || keyboard.key == APP_KEY_HOME); }

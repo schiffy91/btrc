@@ -1381,9 +1381,9 @@ channel = "asset.cycles_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.cycles_c.bin"
 baseline_sha256 = "6a0d034d5d19ee0ab69b789a82d6898c5060a3d095dc1145f82c90248ad074a2"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.cycles_c.bin"
-accepted_sha256 = "4205494114dc0a2f57edae064c684d7e29fc896d9300f1ff2da731d428f30c19"
-reason = "Track cycle suspect buffer indices for bounded removal/cleanup and use the macOS unfair ARC lock."
-regressions = ["src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/btrc/test_cycle_suspect_forget.py", "src/tests/python/test_runtime_helper_registry.py"]
+accepted_sha256 = "f5f210cdc7b0d6cbae6e9b6f431df31e47a7a4256e64b5d0a4475d04402a767f"
+reason = "Track cycle suspect buffer indices for bounded removal; the ARC lock stays one portable atomic flag so --freestanding output includes nothing but btrc_rt.h."
+regressions = ["src/tests/python/test_cli_flags.py", "src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/python/test_stdlib_archive_shared_state.py", "src/tests/btrc/test_cycle_suspect_forget.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-source.asset.gpu_c"
@@ -1823,9 +1823,9 @@ channel = "helper.__btrc_arc_lock_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0034.bin"
 baseline_sha256 = "2953863e9ce0b19d1faa2fe48cf167145ad9a33454d12d9305fd77187a569e11"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0034.bin"
-accepted_sha256 = "bf0139851a217bd43df57d50deb6e9da8cb10167ca1096de0bba585e538ab793"
-reason = "Use the existing macOS unfair ARC lock while retaining the portable atomic lock."
-regressions = ["src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/btrc/test_cycle_suspect_forget.py"]
+accepted_sha256 = "1ab8a5bdbcf44788af32a35fccb9c90a40cd34eae28d6007a5cc4f1d24e51a61"
+reason = "One portable atomic ARC lock: a platform lock needs a header the runtime manifest cannot express, and --freestanding output may include nothing but btrc_rt.h."
+regressions = ["src/tests/python/test_cli_flags.py", "src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/python/test_stdlib_archive_shared_state.py", "src/tests/btrc/test_cycle_suspect_forget.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0035"
