@@ -343,6 +343,65 @@ def test_cli_atomically_emits_plan_sidecar(tmp_path: Path, monkeypatch: pytest.M
     assert payload["units"][1]["language"] == "c++"
 
 
+@pytest.mark.parametrize(
+    ("requested", "expected"),
+    (
+        ("linux-x86_64", {"arch": "x86_64", "os": "linux"}),
+        ("linux-x64", {"arch": "x86_64", "os": "linux"}),
+        ("macos-arm64", {"arch": "aarch64", "os": "macos"}),
+        ("macos-x86_64", {"arch": "x86_64", "os": "macos"}),
+        ("windows-x86_64", {"arch": "x86_64", "os": "windows"}),
+    ),
+)
+@pytest.mark.parametrize(
+    "manifest", (None, 'manifest-version = 1\n\n[package]\nname = "p"\n', '[package]\nname = "p"\n')
+)
+def test_requested_target_reaches_the_plan_without_a_native_section(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    requested: str,
+    expected: dict[str, str],
+    manifest: str | None,
+) -> None:
+    """--target governs the plan even when nothing declares native sources.
+
+    A source with no manifest, and a legacy manifest that predates the native
+    section, both produce an empty plan. That plan still has a target, and it
+    is the requested one -- inferring the host instead is invisible whenever
+    the host happens to be the target, so this asks for every target rather
+    than the one the test machine runs.
+    """
+
+    root = tmp_path / "package"
+    root.mkdir()
+    if manifest is not None:
+        (root / "btrc.toml").write_text(manifest, encoding="utf-8")
+    source = root / "main.btrc"
+    source.write_text("int main() { return 0; }\n", encoding="utf-8")
+    plan = tmp_path / "program.link.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "btrcpy",
+            str(source),
+            "--no-stdlib",
+            "--no-cache",
+            "--target",
+            requested,
+            "--emit-link-plan",
+            str(plan),
+            "-o",
+            str(tmp_path / "program.c"),
+        ],
+    )
+
+    assert compiler_main() == 0
+    payload = json.loads(plan.read_text(encoding="utf-8"))
+    assert payload["target"] == expected
+    assert payload["units"] == []
+
+
 def test_dependency_local_aliases_form_a_diamond_once(tmp_path: Path) -> None:
     leaf = tmp_path / "leaf"
     _manifest(leaf, "leaf")

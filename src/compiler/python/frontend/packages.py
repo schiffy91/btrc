@@ -187,6 +187,11 @@ class PackageTarget:
             )
         return cls(operating_system, architecture)
 
+    @classmethod
+    def coerce(cls, value: str | PackageTarget | None) -> PackageTarget:
+        """One target from either spelling, inferring the host when unset."""
+        return value if isinstance(value, PackageTarget) else cls.parse(value)
+
     def as_dict(self) -> dict[str, str]:
         return {"arch": self.architecture, "os": self.operating_system}
 
@@ -550,8 +555,8 @@ class ResolvedPackages:
             object.__setattr__(self, "native_plan", NativeLinkPlan.empty())
 
     @classmethod
-    def empty(cls) -> ResolvedPackages:
-        return cls(manifest_path=None, entries={})
+    def empty(cls, target: PackageTarget | None = None) -> ResolvedPackages:
+        return cls(manifest_path=None, entries={}, native_plan=NativeLinkPlan.empty(target))
 
     def _owner_for(self, source_path: str | None) -> PackageNode | None:
         if not source_path or not self.nodes:
@@ -897,9 +902,10 @@ class PackageUniverse:
     ) -> ResolvedPackages:
         """Resolve the dependencies governing one input file."""
 
+        selected_target = PackageTarget.coerce(target)
         manifest = self.find_manifest(os.path.dirname(os.path.abspath(input_path)))
         if manifest is None:
-            return ResolvedPackages.empty()
+            return ResolvedPackages.empty(selected_target)
         try:
             return self.resolve_manifest(manifest, refresh=refresh, target=target)
         except (subprocess.SubprocessError, ValueError, OSError) as error:
@@ -922,8 +928,8 @@ class PackageUniverse:
         manifest_directory = os.path.dirname(manifest_path)
         lock_path = os.path.join(manifest_directory, "btrc.lock")
         manifest = self.manifest_reader.read(manifest_path)
+        selected_target = PackageTarget.coerce(target)
         if "manifest-version" in manifest:
-            selected_target = target if isinstance(target, PackageTarget) else PackageTarget.parse(target)
             return self._resolve_version_one(
                 manifest_path,
                 manifest,
@@ -942,7 +948,7 @@ class PackageUniverse:
                 manifest_directory,
             )
             if locked is not None:
-                return ResolvedPackages(manifest_path, locked)
+                return ResolvedPackages(manifest_path, locked, native_plan=NativeLinkPlan.empty(selected_target))
 
         resolved = {
             name: self._resolve_dependency(
@@ -959,7 +965,7 @@ class PackageUniverse:
             resolved,
             manifest_directory,
         )
-        return ResolvedPackages(manifest_path, resolved)
+        return ResolvedPackages(manifest_path, resolved, native_plan=NativeLinkPlan.empty(selected_target))
 
     def _strict_lock(self, path: str) -> dict | None:
         if not os.path.exists(path):
