@@ -324,6 +324,7 @@ static int key_code(int key) {
         case GLFW_KEY_HOME: return BTRC_APP_KEY_HOME;
         case GLFW_KEY_END: return BTRC_APP_KEY_END;
         case GLFW_KEY_DELETE: return BTRC_APP_KEY_DELETE;
+        case GLFW_KEY_Z: return BTRC_APP_KEY_Z;
         default: return BTRC_APP_KEY_UNKNOWN;
     }
 }

@@ -20,11 +20,11 @@ pytestmark = pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
 
 FIXTURES = Path(__file__).with_name("fixtures")
 RUNTIME_CASES = (
-    ("string_coercion_storage_runtime.btrc", False, None),
-    ("string_coercion_virtual_assignment_runtime.btrc", False, None),
-    ("string_coercion_calls_runtime.btrc", False, "1015\n2015\n"),
-    ("string_coercion_collections_runtime.btrc", True, None),
-    ("string_coercion_exception_runtime.btrc", True, None),
+    ("StringCoercionStorageRuntime.btrc", False, None),
+    ("StringCoercionVirtualAssignmentRuntime.btrc", False, None),
+    ("StringCoercionCallsRuntime.btrc", False, "1015\n2015\n"),
+    ("StringCoercionCollectionsRuntime.btrc", True, None),
+    ("StringCoercionExceptionRuntime.btrc", True, None),
 )
 
 

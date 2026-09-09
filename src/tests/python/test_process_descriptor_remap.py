@@ -7,7 +7,7 @@ import pytest
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 
 ROOT = Path(__file__).resolve().parents[3]
-PROCESS_STDLIB = ROOT / "src" / "stdlib" / "process.btrc"
+PROCESS_STDLIB = ROOT / "src" / "stdlib" / "Process.btrc"
 PROCESS = {helper.name: helper for helper in RuntimeHelperCatalog().definitions_in_category("process")}
 
 

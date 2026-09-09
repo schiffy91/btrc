@@ -10,7 +10,7 @@
  * btrc_tray_run_iteration() and runs the command via the UnixShell stdlib.
  *
  * Threading: AppKit requires UI work on the main thread. The btrc consumer is
- * expected to drive the tray from main() (see tray.btrc).
+ * expected to drive the tray from main() (see Tray.btrc).
  */
 #import "btrc_tray.h"
 

@@ -20,20 +20,20 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 FIXTURES = Path(__file__).with_name("fixtures")
 BOUNDARY_CASES = (
-    "thread_unjoined_cycle_boundary_runtime.btrc",
-    "mutex_cycle_boundary_runtime.btrc",
+    "ThreadUnjoinedCycleBoundaryRuntime.btrc",
+    "MutexCycleBoundaryRuntime.btrc",
 )
 THROWING_BOUNDARY_CASES = (
-    "thread_throwing_cycle_boundary_runtime.btrc",
-    "mutex_throwing_cycle_boundary_runtime.btrc",
+    "ThreadThrowingCycleBoundaryRuntime.btrc",
+    "MutexThrowingCycleBoundaryRuntime.btrc",
 )
-WORKER_TEARDOWN_CASE = "thread_worker_teardown_order_runtime.btrc"
-WORKER_CLEANUP_ERROR_CASE = "thread_worker_cleanup_error_runtime.btrc"
-WORKER_ENTRY_ERROR_CASE = "thread_worker_entry_error_runtime.btrc"
-MUTEX_SET_BOUNDARY_CASE = "mutex_set_cycle_boundary_runtime.btrc"
-MUTEX_RETAIN_FAILURE_CASE = "mutex_retain_failure_runtime.btrc"
-EMPTY_CALLBACK_ERROR_CASE = "thread_mutex_empty_error_runtime.btrc"
-MUTEX_FIELD_CLEANUP_CASE = "mutex_field_cleanup_runtime.btrc"
+WORKER_TEARDOWN_CASE = "ThreadWorkerTeardownOrderRuntime.btrc"
+WORKER_CLEANUP_ERROR_CASE = "ThreadWorkerCleanupErrorRuntime.btrc"
+WORKER_ENTRY_ERROR_CASE = "ThreadWorkerEntryErrorRuntime.btrc"
+MUTEX_SET_BOUNDARY_CASE = "MutexSetCycleBoundaryRuntime.btrc"
+MUTEX_RETAIN_FAILURE_CASE = "MutexRetainFailureRuntime.btrc"
+EMPTY_CALLBACK_ERROR_CASE = "ThreadMutexEmptyErrorRuntime.btrc"
+MUTEX_FIELD_CLEANUP_CASE = "MutexFieldCleanupRuntime.btrc"
 ALLOCATION_TRACKER = FIXTURES / "arc_boundary_alloc_tracker.c"
 ALLOCATION_REDIRECTS = (
     "-Dmalloc=btrc_test_malloc",

@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[3]
-SOURCE = Path(__file__).with_name("fixtures") / "runtime_paths_probe.btrc"
+SOURCE = Path(__file__).with_name("fixtures") / "RuntimePathsProbe.btrc"
 CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
 
 pytestmark = pytest.mark.skipif(
@@ -59,8 +59,8 @@ def _data_root(root: Path) -> Path:
     (root / "language").mkdir(parents=True)
     (root / "stdlib").mkdir()
     (root / "language/grammar.ebnf").write_text("@lexical\n", encoding="utf-8")
-    (root / "stdlib/vector.btrc").write_text("class Vector {}\n", encoding="utf-8")
-    (root / "stdlib/strings.btrc").write_text("class Strings {}\n", encoding="utf-8")
+    (root / "stdlib/Vector.btrc").write_text("class Vector {}\n", encoding="utf-8")
+    (root / "stdlib/Strings.btrc").write_text("class Strings {}\n", encoding="utf-8")
     return root
 
 
@@ -158,7 +158,7 @@ def test_executable_relative_source_tree_is_an_explicit_dev_layout(runtime_path_
     shutil.copy2(runtime_path_probe, binary)
     binary.chmod(0o755)
     data = _data_root(checkout / "src")
-    marker = checkout / "src/compiler/btrc/btrcc_main.btrc"
+    marker = checkout / "src/compiler/btrc/BtrccMain.btrc"
     marker.parent.mkdir(parents=True)
     marker.write_text("int main() { return 0; }\n", encoding="utf-8")
     unrelated = tmp_path / "unrelated"
@@ -178,7 +178,7 @@ def test_temporary_build_never_uses_source_tree_cwd(
     checkout = tmp_path / "checkout"
     _data_root(checkout / "src")
     if marked:
-        marker = checkout / "src/compiler/btrc/btrcc_main.btrc"
+        marker = checkout / "src/compiler/btrc/BtrccMain.btrc"
         marker.parent.mkdir(parents=True)
         marker.write_text("int main() { return 0; }\n", encoding="utf-8")
     rejected = _run(

@@ -1,0 +1,251 @@
+/* Opt-in real GLFW/WebGPU proof. The deterministic conformance test is fake. */
+
+import std.Image;
+
+import ../../../stdlib/app/App.btrc;
+import ../../../stdlib/gpu/Gpu.btrc;
+
+int std_gpu_native_ui_create(unsigned long long gpu, unsigned long long* compositorOut, unsigned long long* ownerReceiptOut);
+int std_gpu_native_ui_begin(unsigned long long compositor, int logicalWidth, int logicalHeight);
+int std_gpu_native_ui_add_image(unsigned long long compositor, string identity, unsigned char* rgba, int sourceWidth, int sourceHeight, unsigned long long sourceRevision, float x, float y, float width, float height);
+int std_gpu_native_ui_draw(unsigned long long gpu, unsigned long long compositor);
+int std_gpu_native_ui_destroy(unsigned long long compositor, unsigned long long ownerReceipt);
+
+int verifyPackedUiUploads(GPU gpu) {
+	unsigned long long compositor = 0ULL;
+	unsigned long long receipt = 0ULL;
+	if (std_gpu_native_ui_create(gpu.gpuIdentity(), &compositor, &receipt) != GPU_RESOURCE_READY) { return 70; }
+	for (int sample = 0; sample < 3; sample++) {
+		int width = sample == 0 ? 3 : (sample == 1 ? 63 : 65);
+		Image source = Image(width, 5);
+		Image capture = Image(width, 5);
+		for (int y = 0; y < 5; y++) { for (int x = 0; x < width; x++) { source.setRGBA(x, y, x * 3, y * 40, 200, 255); } }
+		if (std_gpu_native_ui_begin(compositor, width, 5) != GPU_RESOURCE_READY) { return 71; }
+		if (std_gpu_native_ui_add_image(compositor, "packed", source.data, width, 5, 0ULL, 0.0f, 0.0f, (float)width, 5.0f) != GPU_RESOURCE_READY) { return 72; }
+		/* Reuse the caller's storage before submitting: the queue owns a snapshot. */
+		for (int y = 0; y < 5; y++) { for (int x = 0; x < width; x++) { source.setRGBA(x, y, 220, 30, 90, 255); } }
+		for (int revision = 0; revision < 2; revision++) {
+			if (std_gpu_native_ui_begin(compositor, width, 5) != GPU_RESOURCE_READY) { return 73; }
+			if (std_gpu_native_ui_add_image(compositor, "packed", source.data, width, 5, (unsigned long long)revision, 0.0f, 0.0f, (float)width, 5.0f) != GPU_RESOURCE_READY) { return 74; }
+			if (gpu.beginCaptureFrame(capture, 0.0f, 0.0f, 0.0f).kind != GPU_FRAME_READY) { return 75; }
+			if (std_gpu_native_ui_draw(gpu.gpuIdentity(), compositor) != GPU_DRAW_RECORDED) { return 76; }
+			if (gpu.endCaptureFrame().kind != GPU_RESOURCE_READY) { return 78; }
+			for (int y = 0; y < 5; y++) { for (int x = 0; x < width; x++) {
+					RGBA expected = revision == 0 ? RGBA(x * 3, y * 40, 200) : RGBA(220, 30, 90);
+					if (!capture.pixel(x, y).equals(expected)) { return 79; }
+				} }
+		}
+	}
+	return std_gpu_native_ui_destroy(compositor, receipt) == GPU_CLOSED ? 0 : 80;
+}
+
+bool blendChannelNear(int value, int expected) { return value >= expected - 1 && value <= expected + 1; }
+
+int verifyPipelineBlending(GPU gpu, GPUShader shader, GPUUniform uniform, GPURenderPipeline opaque) {
+	unsigned long long rejected = 9ULL;
+	unsigned long long receipt = 9ULL;
+	if (std_gpu_pipeline_create_with_blend(gpu.gpuIdentity(), shader.resourceIdentity(), "vs_main", "fs_main", 99, &rejected, &receipt) != GPU_RESOURCE_INVALID_DESCRIPTOR || rejected != 0ULL || receipt != 0ULL) { return 51; }
+	GPUPipelineOutcome invalid = gpu.createPipeline(shader, (GPUBlendMode)99);
+	if (invalid.kind != GPU_RESOURCE_INVALID_DESCRIPTOR || invalid.pipeline != null) { return 52; }
+	Thread<int> otherThread = spawn(() => { return (int)gpu.createPipeline(shader, GPU_BLEND_SOURCE_OVER).kind; });
+	if (otherThread.join() != GPU_RESOURCE_NOT_OWNER_THREAD) { return 53; }
+	GPUPipelineOutcome opened = gpu.createPipeline(shader, GPU_BLEND_SOURCE_OVER);
+	if (opened.kind != GPU_RESOURCE_READY || opened.pipeline == null) { return 54; }
+	GPURenderPipeline blended = opened.pipeline;
+	for (int sample = 0; sample < 3; sample++) {
+		int alpha = sample == 0 ? 0 : (sample == 1 ? 128 : 255);
+		Image texel = Image(1, 1);
+		texel.setPixel(0, 0, RGBA(204, 77, 26, alpha));
+		GPUTextureOutcome textureOpened = gpu.createTexture(texel);
+		if (textureOpened.kind != GPU_RESOURCE_READY || textureOpened.texture == null) { return 55; }
+		GPUTexture texture = textureOpened.texture;
+		for (int draws = 1; draws <= 2; draws++) {
+			Image capture = Image(65, 37);
+			if (gpu.beginCaptureFrame(capture, 20.0f / 255.0f, 40.0f / 255.0f, 200.0f / 255.0f).kind != GPU_FRAME_READY) { return 56; }
+			int red = 20;
+			int green = 40;
+			int blue = 200;
+			for (int draw = 0; draw < draws; draw++) {
+				if (gpu.drawTextured(blended, 3, uniform, texture).kind != GPU_DRAW_RECORDED) { return 57; }
+				red = (204 * alpha + red * (255 - alpha) + 127) / 255;
+				green = (77 * alpha + green * (255 - alpha) + 127) / 255;
+				blue = (26 * alpha + blue * (255 - alpha) + 127) / 255;
+			}
+			if (gpu.endCaptureFrame().kind != GPU_RESOURCE_READY) { return 58; }
+			RGBA pixel = capture.pixel(32, 18);
+			if (!blendChannelNear(pixel.red, red) || !blendChannelNear(pixel.green, green) || !blendChannelNear(pixel.blue, blue) || pixel.alpha != 255) { return 59; }
+			if (!capture.pixel(0, 0).equals(RGBA(20, 40, 200))) { return 60; }
+		}
+		Image capture = Image(65, 37);
+		if (gpu.beginCaptureFrame(capture, 0.0f, 0.0f, 0.0f).kind != GPU_FRAME_READY) { return 61; }
+		if (gpu.drawTextured(opaque, 3, uniform, texture).kind != GPU_DRAW_RECORDED) { return 62; }
+		if (gpu.endCaptureFrame().kind != GPU_RESOURCE_READY || !capture.pixel(32, 18).equals(RGBA(204, 77, 26, alpha))) { return 63; }
+		texture.close();
+	}
+	if (blended.close().kind != GPU_CLOSED || blended.close().kind != GPU_ALREADY_CLOSED) { return 64; }
+	return 0;
+}
+
+int main() {
+	Application application = new Application();
+	if (!application.isOpen()) {
+		print("SKIP: application backend unavailable");
+		return 77;
+	}
+	AppWindowOpenOutcome opened = application.openWindow(new AppWindowDescriptor("btrc real GPU smoke", 64, 64));
+	ApplicationWindow? maybeWindow = opened.window;
+	if (opened.kind != APP_WINDOW_OPENED || maybeWindow == null) {
+		print("SKIP: real window unavailable");
+		return 77;
+	}
+	ApplicationWindow window = maybeWindow;
+	if (window.setTitlebarStyle(APP_TITLEBAR_STANDARD) != null) { return 31; }
+	AppError? titlebarError = window.setTitlebarStyle(APP_TITLEBAR_OVERLAY);
+	if (titlebarError != null && titlebarError.code != APP_ERROR_BACKEND_UNAVAILABLE) { return 32; }
+
+	AppSurfaceOpenOutcome surfaceOpened = window.surface();
+	AppSurfaceAttachment? maybeSurface = surfaceOpened.surface;
+	if (surfaceOpened.kind != APP_SURFACE_OPENED || maybeSurface == null) {
+		return 1;
+	}
+	AppSurfaceAttachment surface = maybeSurface;
+	AppError? busyTitlebar = window.setTitlebarStyle(APP_TITLEBAR_STANDARD);
+	if (busyTitlebar == null || busyTitlebar.code != APP_ERROR_RESOURCE_BUSY) { return 33; }
+
+	GPUAttachOutcome attached = GPU.attach(surface);
+	GPU? maybeGPU = attached.gpu;
+	if (attached.kind != GPU_ATTACHED || maybeGPU == null) {
+		if (surface.close().kind != APP_CLOSED) { return 9; }
+		if (window.close().kind != APP_CLOSED) { return 10; }
+		if (application.close().kind != APP_CLOSED) { return 11; }
+		if (attached.kind == GPU_ATTACH_ADAPTER_UNAVAILABLE) {
+			print("SKIP: compatible GPU adapter unavailable");
+			return 77;
+		}
+		return 13;
+	}
+	GPU gpu = maybeGPU;
+	int packedResult = verifyPackedUiUploads(gpu);
+	if (packedResult != 0) { return packedResult; }
+	GPUTextureOutcome emptyTexture = gpu.createTexture(Image.empty());
+	if (emptyTexture.kind != GPU_RESOURCE_INVALID_DESCRIPTOR || emptyTexture.texture != null) { return 19; }
+	Image pixels = Image(3, 2);
+	for (int y = 0; y < pixels.height; y++) { for (int x = 0; x < pixels.width; x++) { pixels.setPixel(x, y, RGBA(204, 77, 26)); } }
+	unsigned long long rejectedTexture = 999ULL;
+	unsigned long long rejectedReceipt = 999ULL;
+	if (std_gpu_texture_create(gpu.gpuIdentity(), pixels.data, 3, 2, 23ULL, &rejectedTexture, &rejectedReceipt) != GPU_RESOURCE_INVALID_DESCRIPTOR || rejectedTexture != 0ULL || rejectedReceipt != 0ULL) { return 20; }
+	GPUTextureOutcome textureCreated = gpu.createTexture(pixels);
+	if (textureCreated.kind != GPU_RESOURCE_READY || textureCreated.texture == null) { return 21; }
+	GPUTexture texture = textureCreated.texture;
+	if (std_gpu_texture_destroy(texture.resourceIdentity(), 0ULL) == GPU_CLOSED || !texture.isOpen()) { return 22; }
+	Thread<int> wrongThreadTextureClose = spawn(() => { return (int)texture.close().kind; });
+	if (wrongThreadTextureClose.join() != GPU_CLOSE_REJECTED || !texture.isOpen()) { return 23; }
+	Thread<int> wrongThreadTextureCreate = spawn(() => { return (int)gpu.createTexture(pixels).kind; });
+	if (wrongThreadTextureCreate.join() != GPU_RESOURCE_NOT_OWNER_THREAD) { return 24; }
+	GPUUniformOutcome uniformCreated = gpu.createUniform(4);
+	if (uniformCreated.kind != GPU_RESOURCE_READY || uniformCreated.uniform == null) { return 25; }
+	GPUUniform uniform = uniformCreated.uniform;
+	if (uniform.set(0, 1.0f).kind != GPU_RESOURCE_READY) { return 26; }
+
+	GPUShaderOutcome invalidShader = gpu.createShader("""
+        @compute @workgroup_size(1) fn invalid_main() {
+            var meta: u32 = 0u;
+        }
+    """);
+	if (invalidShader.kind != GPU_RESOURCE_CREATION_FAILED || invalidShader.shader != null || invalidShader.error.isEmpty()) {
+		return 18;
+	}
+
+	GPUShaderOutcome shaderCreated = gpu.createShader("""
+		@group(0) @binding(0) var<uniform> tint: vec4f;
+		@group(0) @binding(1) var image: texture_2d<f32>;
+		@group(0) @binding(2) var imageSampler: sampler;
+        @vertex fn vs_main(@builtin(vertex_index) index: u32)
+                -> @builtin(position) vec4f {
+            var vertices = array<vec2f, 3>(
+                vec2f(0.0, 0.5), vec2f(-0.5, -0.5), vec2f(0.5, -0.5));
+            return vec4f(vertices[index], 0.0, 1.0);
+        }
+        @fragment fn fs_main() -> @location(0) vec4f {
+            return textureSampleLevel(image, imageSampler, vec2f(0.5), 0.0) * tint.x;
+        }
+    """);
+	GPUShader? maybeShader = shaderCreated.shader;
+	if (shaderCreated.kind != GPU_RESOURCE_READY || maybeShader == null) {
+		return 14;
+	}
+	GPUShader shader = maybeShader;
+	GPUPipelineOutcome pipelineCreated = gpu.createPipeline(shader);
+	GPURenderPipeline? maybePipeline = pipelineCreated.pipeline;
+	if (pipelineCreated.kind != GPU_RESOURCE_READY || maybePipeline == null) {
+		return 15;
+	}
+	GPURenderPipeline pipeline = maybePipeline;
+	if (gpu.drawTextured(pipeline, 3, uniform, texture).kind != GPU_DRAW_NO_ACTIVE_FRAME) { return 27; }
+	if (gpu.drawTextured(pipeline, 0, uniform, texture).kind != GPU_DRAW_INVALID_DESCRIPTOR) { return 28; }
+
+	bool presented = false;
+	for (int attempt = 0; attempt < 120 && !presented; attempt++) {
+		AppWindowEvent event = application.poll();
+		if (event.kind == APP_EVENT_FAILED || event.kind == APP_EVENT_CLOSE_REQUESTED) {
+			return 2;
+		}
+		GPUFrameOutcome frame = gpu.beginFrame(0.02f, 0.04f, 0.08f);
+		if (frame.kind == GPU_FRAME_READY) {
+			if (gpu.drawTextured(pipeline, 3, uniform, texture).kind != GPU_DRAW_RECORDED) { return 16; }
+			presented = gpu.endFrame().kind == GPU_FRAME_PRESENTED;
+		} else if (frame.kind != GPU_FRAME_TIMEOUT && frame.kind != GPU_FRAME_OUTDATED) {
+			return 3;
+		}
+	}
+	if (!presented) { return 4; }
+	/* Real GPU pixels, including texture sampling, unorm colors, non-aligned
+	 * row pitch, owner-thread checks, repeated capture and resize. */
+	if (gpu.endCaptureFrame().kind != GPU_RESOURCE_INVALID_DESCRIPTOR) { return 40; }
+	if (gpu.beginCaptureFrame(Image.empty(), 0.0f, 0.0f, 0.0f).kind != GPU_FRAME_REJECTED) { return 41; }
+	for (int captureIndex = 0; captureIndex < 3; captureIndex++) {
+		Image capture = Image(65 + captureIndex * 2, 37 + captureIndex * 2);
+		Thread<int> wrongThreadCapture = spawn(() => { return (int)gpu.beginCaptureFrame(capture, 0.0f, 0.0f, 0.0f).kind; });
+		if (wrongThreadCapture.join() != GPU_FRAME_REJECTED) { return 42; }
+		if (gpu.beginCaptureFrame(capture, 0.02f, 0.04f, 0.08f).kind != GPU_FRAME_READY) { return 43; }
+		if (gpu.beginCaptureFrame(capture, 0.0f, 0.0f, 0.0f).kind != GPU_FRAME_REJECTED) { return 44; }
+		if (gpu.drawTextured(pipeline, 3, uniform, texture).kind != GPU_DRAW_RECORDED) { return 45; }
+		Thread<int> wrongThreadEndCapture = spawn(() => { return (int)gpu.endCaptureFrame().kind; });
+		if (wrongThreadEndCapture.join() != GPU_RESOURCE_NOT_OWNER_THREAD) { return 46; }
+		if (gpu.endCaptureFrame().kind != GPU_RESOURCE_READY) { return 47; }
+		if (!capture.pixel(capture.width / 2, capture.height / 2).equals(RGBA(204, 77, 26))) { return 48; }
+		if (!capture.pixel(0, 0).equals(RGBA(5, 10, 20)) || !capture.pixel(capture.width - 1, capture.height - 1).equals(RGBA(5, 10, 20))) { return 49; }
+		if (!capture.pixel(capture.width / 2, 2).equals(RGBA(5, 10, 20))) { return 50; }
+	}
+	int blendResult = verifyPipelineBlending(gpu, shader, uniform, pipeline);
+	if (blendResult != 0) { return blendResult; }
+	if (texture.close().kind != GPU_CLOSED || texture.close().kind != GPU_ALREADY_CLOSED || texture.isOpen()) { return 29; }
+	if (gpu.drawTextured(pipeline, 3, uniform, texture).kind != GPU_DRAW_INVALID_RESOURCE) { return 30; }
+	if (uniform.close().kind != GPU_CLOSED) { return 31; }
+
+	pipeline.close();
+	shader.close();
+	Thread<int> wrongThreadGPUClose = spawn(() => {
+			GPUCloseOutcome outcome = gpu.close();
+			if (outcome.kind != GPU_CLOSE_REJECTED || outcome.error.isEmpty()) {
+				return -1;
+			}
+			return (int)outcome.kind;
+		});
+	if (wrongThreadGPUClose.join() != GPU_CLOSE_REJECTED) { return 17; }
+	if (gpu.close().kind != GPU_CLOSED) { return 5; }
+	Thread<int> wrongThreadClose = spawn(() => {
+			AppCloseOutcome outcome = surface.close();
+			if (outcome.kind != APP_CLOSE_REJECTED || outcome.error == null) {
+				return -1;
+			}
+			AppError error = outcome.error;
+			return (int)error.code;
+		});
+	if (wrongThreadClose.join() != APP_ERROR_NOT_MAIN_THREAD) { return 12; }
+	if (surface.close().kind != APP_CLOSED) { return 6; }
+	if (window.close().kind != APP_CLOSED) { return 7; }
+	if (application.close().kind != APP_CLOSED) { return 8; }
+	print("PASS: real application window GPU presentation");
+	return 0;
+}

@@ -1,6 +1,6 @@
 import std.AudioDevice;
 import std.RealtimeAudio;
-import std.vector;
+import std.Vector;
 
 #include <assert.h>
 

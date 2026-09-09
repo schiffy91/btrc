@@ -235,7 +235,7 @@ def test_managed_payload_is_rejected_but_atomic_buffer_is_accepted() -> None:
 
 
 def test_owned_atomic_exception_does_not_relax_inline_atomic_storage() -> None:
-    errors = _errors("import std.array;\nint main() { Array<Atomic<uint>> values; return 0; }")
+    errors = _errors("import std.Array;\nint main() { Array<Atomic<uint>> values; return 0; }")
     assert any("cannot embed an Atomic<T> owner" in error for error in errors)
 
     owned_atomic = _errors("import std.OwnedBuffer;\nint main() { OwnedBuffer<Atomic<uint>> values; return 0; }")

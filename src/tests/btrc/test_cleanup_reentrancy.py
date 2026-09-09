@@ -12,8 +12,8 @@ from src.tests.btrc.test_semantic_validation import REPO, _compile_source
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
-FIXTURE = REPO / "src/tests/btrc/fixtures/cleanup_reentrancy_runtime.btrc"
-UNHANDLED_FIXTURE = REPO / "src/tests/btrc/fixtures/cleanup_unhandled_runtime.btrc"
+FIXTURE = REPO / "src/tests/btrc/fixtures/CleanupReentrancyRuntime.btrc"
+UNHANDLED_FIXTURE = REPO / "src/tests/btrc/fixtures/CleanupUnhandledRuntime.btrc"
 
 
 def _strict_build_and_run(source: Path, output: Path, compiler: str) -> None:

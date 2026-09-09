@@ -62,7 +62,7 @@ test('glob imports do not open an unterminated block comment', async () => {
     const lines = [
         'import ./semu/core/*;',
         'import ./semu/cli/**;',
-        'import std.{vector, strings}',
+        'import std.{Vector, Strings}',
         'import std.*',
         'import "quoted/path.btrc";',
         '',
@@ -91,7 +91,7 @@ test('glob imports do not open an unterminated block comment', async () => {
 test('import keyword is scoped keyword.control.import.btrc', async () => {
     const grammar = await loadGrammar();
     const lines = [
-        'import std.{vector, strings}',
+        'import std.{Vector, Strings}',
         'import std.*',
         'import std.name',
         'import ./relative/path.btrc;',

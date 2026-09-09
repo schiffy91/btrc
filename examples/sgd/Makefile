@@ -18,9 +18,9 @@ LDFLAGS := -L$(GPU_BUILD) -lbtrc_gpu -L$(APP_BUILD) -lbtrc_app $(GPU_LDFLAGS) -l
 
 all: sgd
 
-sgd: sgd.btrc
-	@echo "--- Transpiling sgd.btrc → sgd.c ---"
-	cd $(BTRC_ROOT) && $(BTRC) examples/sgd/sgd.btrc -o examples/sgd/sgd.c
+sgd: Sgd.btrc
+	@echo "--- Transpiling Sgd.btrc → sgd.c ---"
+	cd $(BTRC_ROOT) && $(BTRC) examples/sgd/Sgd.btrc -o examples/sgd/sgd.c
 	@echo "--- Compiling sgd.c → sgd ---"
 	$(CC) sgd.c -o sgd $(CFLAGS) $(LDFLAGS)
 	@echo "--- Done: ./sgd ---"

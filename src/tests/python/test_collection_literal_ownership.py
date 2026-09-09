@@ -77,7 +77,7 @@ def test_sequence_literal_releases_fresh_managed_elements(
     collection_type: str,
 ):
     generated = _emit(f"""
-        import std.{"vector" if collection_type == "Vector" else "list"};
+        import std.{"Vector" if collection_type == "Vector" else "List"};
 
         int alive = 0;
 
@@ -109,7 +109,7 @@ def test_sequence_literal_classifies_later_element_after_callable_rebind(
     c_compiler: str,
 ) -> None:
     generated = _emit("""
-        import std.vector;
+        import std.Vector;
 
         extern string foreignString();
         string makeOwnedString() { return f"owned={1}"; }
@@ -148,7 +148,7 @@ def test_sequence_literal_classifies_later_element_after_callable_rebind(
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 def test_map_literal_releases_fresh_managed_keys_and_values(tmp_path: Path, c_compiler: str):
     generated = _emit("""
-        import std.map;
+        import std.Map;
 
         int keysAlive = 0;
         int valuesAlive = 0;
@@ -186,7 +186,7 @@ def test_map_literal_releases_fresh_managed_keys_and_values(tmp_path: Path, c_co
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 def test_throwing_later_literal_leaf_unwinds_earlier_owned_leaf(tmp_path: Path, c_compiler: str):
     generated = _emit("""
-        import std.vector;
+        import std.Vector;
 
         int alive = 0;
         int evaluations = 0;

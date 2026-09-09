@@ -29,7 +29,7 @@ def _emit_plan(root: Path, generated: Path, plan: Path) -> None:
             "linux-x64",
             "--emit-link-plan",
             str(plan),
-            str(root / "src/main.btrc"),
+            str(root / "src/Main.btrc"),
             "-o",
             str(generated),
         ],

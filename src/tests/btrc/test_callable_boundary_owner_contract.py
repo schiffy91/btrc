@@ -11,15 +11,15 @@ def _source(relative: str) -> str:
 
 
 def test_callable_boundary_behavior_has_one_domain_owner() -> None:
-    callables = _source("ir/lowering/callables.btrc")
-    lowerer = _source("ir/lowering/lowerer.btrc")
-    stage = _source("ir/stage.btrc")
+    callables = _source("ir/lowering/Callables.btrc")
+    lowerer = _source("ir/lowering/Lowerer.btrc")
+    stage = _source("ir/Stage.btrc")
 
     assert "class CallableBoundaryContext {" in callables
     assert "class CallableValueSemantics {" in callables
     assert "class CallableBoundaryPolicy {" in callables
-    assert "import ./lowering/callables.btrc;" in stage
-    assert "import ./lowering/callable_flow.btrc;" in stage
+    assert "import ./lowering/Callables.btrc;" in stage
+    assert "import ./lowering/CallableFlow.btrc;" in stage
     assert "CallableValueSemantics callableValues =" in lowerer
     assert "CallableBoundaryPolicy callableBoundaries =" in lowerer
     assert "CallableBoundaryPolicy(callableValues);" in lowerer
@@ -66,9 +66,9 @@ def test_callable_boundary_behavior_has_one_domain_owner() -> None:
 
 
 def test_callable_environment_classification_uses_registered_receiver_domains() -> None:
-    analyzed = _source("analyzer/models.btrc")
-    declarations = _source("analyzer/declarations.btrc")
-    values = _source("ir/lowering/callables.btrc")
+    analyzed = _source("analyzer/Models.btrc")
+    declarations = _source("analyzer/Declarations.btrc")
+    values = _source("ir/lowering/Callables.btrc")
 
     assert "public Map<string, Node> interfaceTable;" in analyzed
     assert "public Node? interfaceMethod(" in analyzed
@@ -88,10 +88,10 @@ def test_callable_environment_classification_uses_registered_receiver_domains() 
 
 
 def test_callable_boundary_policy_is_per_lowerer_and_context_is_per_operation() -> None:
-    callables = _source("ir/lowering/callables.btrc")
-    flow = _source("ir/lowering/callable_flow.btrc")
-    stage = _source("ir/stage.btrc")
-    lowerer = _source("ir/lowering/lowerer.btrc")
+    callables = _source("ir/lowering/Callables.btrc")
+    flow = _source("ir/lowering/CallableFlow.btrc")
+    stage = _source("ir/Stage.btrc")
+    lowerer = _source("ir/lowering/Lowerer.btrc")
     context = callables.split("class CallableBoundaryContext {", 1)[1].split("class CallableValueSemantics {", 1)[0]
     owner = callables.split("class CallableBoundaryPolicy {", 1)[1].split("class CallableLambdaPlan {", 1)[0]
     composition_state = lowerer.split("public IRLowerer(", 1)[0]
@@ -108,8 +108,8 @@ def test_callable_boundary_policy_is_per_lowerer_and_context_is_per_operation() 
     assert "self.declarations," in flow
     assert "self.environmentFunctions," in flow
     assert "self.environmentStorage);" in flow
-    assert stage.index("import ./lowering/callables.btrc;") < stage.index("import ./lowering/callable_flow.btrc;")
-    assert stage.index("import ./lowering/callable_flow.btrc;") < stage.index("import ./lowering/lowerer.btrc;")
+    assert stage.index("import ./lowering/Callables.btrc;") < stage.index("import ./lowering/CallableFlow.btrc;")
+    assert stage.index("import ./lowering/CallableFlow.btrc;") < stage.index("import ./lowering/Lowerer.btrc;")
 
     for operation_evidence in (
         "private Map<string, Node> variableTypes;",
@@ -142,8 +142,8 @@ def test_callable_boundary_policy_is_per_lowerer_and_context_is_per_operation() 
 
 
 def test_callable_flow_state_exclusively_owns_mutable_provenance() -> None:
-    flow = _source("ir/lowering/callable_flow.btrc")
-    lowerer = _source("ir/lowering/lowerer.btrc")
+    flow = _source("ir/lowering/CallableFlow.btrc")
+    lowerer = _source("ir/lowering/Lowerer.btrc")
 
     for state in (
         "private Map<string, bool> ownedBindings;",
@@ -184,12 +184,12 @@ def test_callable_flow_state_exclusively_owns_mutable_provenance() -> None:
 
 
 def test_callable_persistent_storage_consumes_flow_owned_risk_facts() -> None:
-    callables = _source("ir/lowering/callables.btrc")
-    flow = _source("ir/lowering/callable_flow.btrc")
-    assignments = _source("ir/lowering/assignments.btrc")
-    declarations = _source("ir/lowering/declarations.btrc")
-    lowerer = _source("ir/lowering/lowerer.btrc")
-    statements = _source("ir/lowering/statements.btrc")
+    callables = _source("ir/lowering/Callables.btrc")
+    flow = _source("ir/lowering/CallableFlow.btrc")
+    assignments = _source("ir/lowering/Assignments.btrc")
+    declarations = _source("ir/lowering/Declarations.btrc")
+    lowerer = _source("ir/lowering/Lowerer.btrc")
+    statements = _source("ir/lowering/Statements.btrc")
 
     assert "private CallableBoundaryContext refreshedBoundaryContext(" not in flow
     assert "CallableBoundaryContext currentContext = context;" in flow
@@ -223,8 +223,8 @@ def test_callable_persistent_storage_consumes_flow_owned_risk_facts() -> None:
 
 
 def test_callable_flow_is_per_function_and_reentrant() -> None:
-    flow = _source("ir/lowering/callable_flow.btrc")
-    functions = _source("ir/lowering/functions.btrc")
+    flow = _source("ir/lowering/CallableFlow.btrc")
+    functions = _source("ir/lowering/Functions.btrc")
 
     assert "public CallableFlowState() {" in flow
     assert "class CallableEvaluationPlan {" not in flow

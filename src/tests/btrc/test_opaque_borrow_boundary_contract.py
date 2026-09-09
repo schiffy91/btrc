@@ -281,7 +281,7 @@ def test_opaque_borrow_escapes_fail_in_both_frontends(
         assert diagnostic in result.stderr
 
 
-READ_ONLY_SOURCE = (FIXTURES / "opaque_borrow_read_only_runtime.btrc").read_text()
+READ_ONLY_SOURCE = (FIXTURES / "OpaqueBorrowReadOnlyRuntime.btrc").read_text()
 
 COMPARISON_CAST_SOURCE = r"""
 int main() {
@@ -320,10 +320,10 @@ def test_comparison_result_cast_severs_managed_borrow_provenance(
     run_strict_pair(compiled, tmp_path)
 
 
-OWNED_COPY_SOURCE = (FIXTURES / "opaque_borrow_owned_copy_runtime.btrc").read_text()
+OWNED_COPY_SOURCE = (FIXTURES / "OpaqueBorrowOwnedCopyRuntime.btrc").read_text()
 
 STDLIB_HOSTED_SHADOW_SOURCE = r"""
-import std.bytes;
+import std.Bytes;
 
 void* retained_memcpy_source;
 

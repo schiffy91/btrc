@@ -26,8 +26,8 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 def test_assignment_boundary_uses_the_expression_owner_and_typed_plan() -> None:
     repository = Path(__file__).resolve().parents[3]
     lowering = repository / "src/compiler/btrc/ir/lowering"
-    expressions = (lowering / "expressions.btrc").read_text()
-    assignments = (lowering / "assignments.btrc").read_text()
+    expressions = (lowering / "Expressions.btrc").read_text()
+    assignments = (lowering / "Assignments.btrc").read_text()
     start = expressions.index("private IRNode? lowerOwnedAssignment(")
     end = expressions.index("public IRNode? lowerOwnedUnaryUpdate(", start)
     boundary = expressions[start:end]
@@ -47,8 +47,8 @@ def test_assignment_boundary_uses_the_expression_owner_and_typed_plan() -> None:
 def test_managed_identifier_assignments_cannot_bypass_the_typed_slot_owner() -> None:
     repository = Path(__file__).resolve().parents[3]
     lowering = repository / "src/compiler/btrc/ir/lowering"
-    expressions = (lowering / "expressions.btrc").read_text()
-    managed_types = (lowering / "ownership/managed_types.btrc").read_text()
+    expressions = (lowering / "Expressions.btrc").read_text()
+    managed_types = (lowering / "ownership/ManagedTypes.btrc").read_text()
     core = expressions[expressions.index("private IRNode materializeAssignmentCore(") :]
     identifier_plan = managed_types[
         managed_types.index("private ManagedIdentifierStorePlan? identifierStorePlan(") : managed_types.index(
@@ -75,12 +75,12 @@ def test_managed_identifier_assignments_cannot_bypass_the_typed_slot_owner() -> 
 def test_managed_compound_updates_have_one_physical_storage_transaction() -> None:
     repository = Path(__file__).resolve().parents[3]
     lowering = repository / "src/compiler/btrc/ir/lowering"
-    expressions = (lowering / "expressions.btrc").read_text()
-    managed_types = (lowering / "ownership/managed_types.btrc").read_text()
-    lifetime = (lowering / "ownership/lifetime.btrc").read_text()
+    expressions = (lowering / "Expressions.btrc").read_text()
+    managed_types = (lowering / "ownership/ManagedTypes.btrc").read_text()
+    lifetime = (lowering / "ownership/Lifetime.btrc").read_text()
     validation = repository / "src/compiler/btrc/analyzer/validation"
-    storage_validation = (validation / "storage.btrc").read_text()
-    type_validation = (validation / "types.btrc").read_text()
+    storage_validation = (validation / "Storage.btrc").read_text()
+    type_validation = (validation / "Types.btrc").read_text()
     core = expressions[expressions.index("private IRNode materializeAssignmentCore(") :]
     transaction = managed_types[
         managed_types.index("private void appendArcFieldPublication(") : managed_types.index(

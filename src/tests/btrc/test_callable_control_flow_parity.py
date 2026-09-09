@@ -13,7 +13,7 @@ from src.tests.btrc.test_semantic_validation import _strict_build_and_run
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 FIXTURES = Path(__file__).with_name("fixtures")
-GENERIC_CALLABLE_RUNTIME = FIXTURES / "generic_callable_return_ownership_runtime.btrc"
+GENERIC_CALLABLE_RUNTIME = FIXTURES / "GenericCallableReturnOwnershipRuntime.btrc"
 GENERIC_FOREIGN_DEFINITION = """
 static char* generic_callable_foreign_value;
 

@@ -1,0 +1,5 @@
+import leaf.Api
+
+extern int middle_scale(int value);
+
+int middleAnswer() { return middle_scale(leaf_value()); }

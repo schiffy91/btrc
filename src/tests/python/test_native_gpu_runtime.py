@@ -108,7 +108,7 @@ def test_render_context_borrows_the_application_surface() -> None:
 
 def test_shader_creation_captures_backend_validation() -> None:
     runtime = (GPU / "btrc_gpu.c").read_text()
-    interface = (GPU / "gpu.btrc").read_text()
+    interface = (GPU / "Gpu.btrc").read_text()
 
     assert "uncapturedErrorCallbackInfo" in runtime
     assert "wgpuDevicePushErrorScope(gpu->device, WGPUErrorFilter_Validation);" in runtime
@@ -151,7 +151,7 @@ def test_gpu_dispatch_abi_is_consistent() -> None:
         assert not re.search(r"\bvoid\s+btrc_gpu_dispatch\s*\(", declaration)
 
     public_header = (GPU / "btrc_gpu.h").read_text()
-    public_module = (GPU / "gpu.btrc").read_text()
+    public_module = (GPU / "Gpu.btrc").read_text()
     assert "btrc_gpu_acquire_compute" not in public_header
     assert "void* btrc_gpu_" not in public_header
     assert "btrc_gpu_dispatch" not in public_module

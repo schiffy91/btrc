@@ -2,12 +2,12 @@
  *
  * Decoders inspect encoded content, never a filename or extension. decode()
  * is synchronous and may borrow encoded only until it returns. A successful
- * outcome owns one tightly packed, top-down, straight-RGBA std.image.Image;
+ * outcome owns one tightly packed, top-down, straight-RGBA std.Image.Image;
  * failures own no image.
  */
 
-import std.bytes;
-import std.image;
+import std.Bytes;
+import std.Image;
 
 enum EncodedImageDecodeStatus {
 	ENCODED_IMAGE_DECODE_OK,

@@ -22,7 +22,7 @@ def test_owned_closure_survives_return_alias_and_field_then_destroys_once(
     tmp_path: Path,
 ) -> None:
     source = """
-        import std.callback;
+        import std.Callback;
 
         int destroyed = 0;
 
@@ -89,7 +89,7 @@ def test_owned_closure_cannot_decay_to_cfunction(
     tmp_path: Path,
 ) -> None:
     source = """
-        import std.callback;
+        import std.Callback;
         int invoke(void* context, int value) { return value; }
         void destroy(void* context) {}
         int main() {
@@ -113,7 +113,7 @@ def test_owned_closure_requires_cfunction_invoke_type(
     tmp_path: Path,
 ) -> None:
     source = """
-        import std.callback;
+        import std.Callback;
         void destroy(void* context) {}
         int main() {
             OwnedClosure<int> invalid = new OwnedClosure<int>(1, null, destroy);
@@ -133,7 +133,7 @@ def test_generic_owned_closure_revalidates_invoke_type_after_specialization(
     tmp_path: Path,
 ) -> None:
     source = """
-        import std.callback;
+        import std.Callback;
 
         void destroy(void* context) {}
 
@@ -164,7 +164,7 @@ def test_generic_owned_closure_accepts_exact_cfunction_specialization(
     tmp_path: Path,
 ) -> None:
     source = """
-        import std.callback;
+        import std.Callback;
 
         int addContext(void* raw, int value) {
             return *(int*)raw + value;

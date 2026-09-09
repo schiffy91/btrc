@@ -13,13 +13,13 @@ from src.tests.btrc.test_semantic_validation import (
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 REPO = Path(__file__).resolve().parents[3]
-OWNERSHIP_RUNTIME = REPO / "src/tests/btrc/fixtures/managed_return_ownership_runtime.btrc"
-GENERIC_LOCAL_RUNTIME = REPO / "src/tests/btrc/fixtures/generic_local_ownership_runtime.btrc"
-SWITCH_CLEANUP_RUNTIME = REPO / "src/tests/btrc/fixtures/switch_managed_cleanup_runtime.btrc"
+OWNERSHIP_RUNTIME = REPO / "src/tests/btrc/fixtures/ManagedReturnOwnershipRuntime.btrc"
+GENERIC_LOCAL_RUNTIME = REPO / "src/tests/btrc/fixtures/GenericLocalOwnershipRuntime.btrc"
+SWITCH_CLEANUP_RUNTIME = REPO / "src/tests/btrc/fixtures/SwitchManagedCleanupRuntime.btrc"
 
 
 def _compile_reference_source(tmp_path: Path, source: str):
-    program = tmp_path / "reference-ownership.btrc"
+    program = tmp_path / "reference-Ownership.btrc"
     generated = tmp_path / "reference-ownership.c"
     program.write_text(source)
     result = subprocess.run(

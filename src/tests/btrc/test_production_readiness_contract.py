@@ -17,14 +17,14 @@ from src.tests.btrc.test_mutex_value_contract import COMPILERS
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 FIXTURES = Path(__file__).with_name("fixtures")
-PRINTF_RUNTIME = FIXTURES / "production_printf_runtime.btrc"
-PRINTF_ORDER_RUNTIME = FIXTURES / "production_printf_order_runtime.btrc"
-USER_PRINTF_ORDER_RUNTIME = FIXTURES / "production_user_printf_order_runtime.btrc"
-RECEIVER_ORDER_RUNTIME = FIXTURES / "production_string_receiver_order_runtime.btrc"
-GENERIC_FIELD_RUNTIME = FIXTURES / "production_generic_field_ownership_runtime.btrc"
-GENERIC_DEFAULTS_RUNTIME = FIXTURES / "production_generic_defaults_runtime.btrc"
-THROWING_CLEANUP_RUNTIME = FIXTURES / "production_throwing_cleanup_runtime.btrc"
-STDLIB_STRING_RUNTIME = FIXTURES / "production_stdlib_string_safety_runtime.btrc"
+PRINTF_RUNTIME = FIXTURES / "ProductionPrintfRuntime.btrc"
+PRINTF_ORDER_RUNTIME = FIXTURES / "ProductionPrintfOrderRuntime.btrc"
+USER_PRINTF_ORDER_RUNTIME = FIXTURES / "ProductionUserPrintfOrderRuntime.btrc"
+RECEIVER_ORDER_RUNTIME = FIXTURES / "ProductionStringReceiverOrderRuntime.btrc"
+GENERIC_FIELD_RUNTIME = FIXTURES / "ProductionGenericFieldOwnershipRuntime.btrc"
+GENERIC_DEFAULTS_RUNTIME = FIXTURES / "ProductionGenericDefaultsRuntime.btrc"
+THROWING_CLEANUP_RUNTIME = FIXTURES / "ProductionThrowingCleanupRuntime.btrc"
+STDLIB_STRING_RUNTIME = FIXTURES / "ProductionStdlibStringSafetyRuntime.btrc"
 
 EXPECTED_VALUES = "255 65535 true -5000000000 9000000000 17 <function> <tuple> <struct> Circle 1"
 EXPECTED_FSTRING = "<|255|65535|true|-5000000000|9000000000|17|<function>|<tuple>|<struct>|Circle|1>"

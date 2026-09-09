@@ -130,7 +130,7 @@ def test_fixture_runs_from_both_frontends_with_gcc_and_clang(
             "Type 'AtomicBuffer<uint>' has no method 'tryGet'",
         ),
         (
-            "import std.array;\nint main() { Array<Atomic<uint>> values; return 0; }",
+            "import std.Array;\nint main() { Array<Atomic<uint>> values; return 0; }",
             "cannot embed an Atomic<T> owner in shallow copyable storage",
             "cannot embed an Atomic<T> owner in shallow copyable storage",
         ),

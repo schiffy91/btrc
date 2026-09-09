@@ -44,28 +44,28 @@ def write(path, text):
 
 
 def test_std_single_module():
-    spec = _spec("import std.vector;")
+    spec = _spec("import std.Vector;")
     assert isinstance(spec, StdModules)
-    assert spec.names == ["vector"]
+    assert spec.names == ["Vector"]
 
 
 def test_std_module_no_semicolon():
     # The trailing ';' is optional.
-    spec = _spec("import std.vector")
+    spec = _spec("import std.Vector")
     assert isinstance(spec, StdModules)
-    assert spec.names == ["vector"]
+    assert spec.names == ["Vector"]
 
 
 def test_std_brace_set():
-    spec = _spec("import std.{vector, strings};")
+    spec = _spec("import std.{Vector, Strings};")
     assert isinstance(spec, StdModules)
-    assert spec.names == ["vector", "strings"]
+    assert spec.names == ["Vector", "Strings"]
 
 
 def test_std_brace_trailing_comma():
-    spec = _spec("import std.{vector, strings,};")
+    spec = _spec("import std.{Vector, Strings,};")
     assert isinstance(spec, StdModules)
-    assert spec.names == ["vector", "strings"]
+    assert spec.names == ["Vector", "Strings"]
 
 
 def test_std_glob_and_recursive_glob():
@@ -92,7 +92,7 @@ def test_package_path():
 
 
 def test_import_line_recorded():
-    decls = _parse("int a() { return 0; }\nimport std.vector;")
+    decls = _parse("int a() { return 0; }\nimport std.Vector;")
     imp = decls[1]
     assert isinstance(imp, ImportDecl)
     assert imp.line == 2
@@ -140,7 +140,7 @@ def test_import_with_trailing_code_on_line_is_rejected():
 
 def test_import_owning_its_line_is_accepted():
     # The legitimate shape (import alone on its line) still parses fine.
-    decls = _parse("int a() { return 0; }\nimport std.vector;")
+    decls = _parse("int a() { return 0; }\nimport std.Vector;")
     assert any(isinstance(d, ImportDecl) for d in decls)
 
 
@@ -148,7 +148,7 @@ def test_import_owning_its_line_is_accepted():
 
 
 def test_resolve_std_brace(tmp_path):
-    src = "import std.{strings, json}\nint main() { return 0; }"
+    src = "import std.{Strings, Json}\nint main() { return 0; }"
     resolved = RESOLVER.resolve_includes(src, write(tmp_path / "m.btrc", src))
     assert "class Strings" in resolved
     assert "class JsonObject" in resolved

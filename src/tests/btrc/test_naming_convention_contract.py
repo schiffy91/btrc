@@ -207,3 +207,34 @@ def test_no_extern_was_respelled_away_from_its_c_definition() -> None:
                 offenders.setdefault(relative, set()).add(name)
 
     assert not offenders, "externs respelled away from the C definition beside them: " + _report(offenders)
+
+
+def test_every_btrc_file_is_named_in_pascal_case() -> None:
+    """A btrc file is named for what it declares, so the name is PascalCase.
+
+    No underscore and no leading lowercase letter, anywhere in the tree. The
+    corpus runner keys golden output to the stem and the stdlib resolves
+    `import std.X` to `X.btrc`, so a name is API, not decoration.
+    """
+
+    offenders = sorted(
+        relative
+        for relative in _tracked("*.btrc")
+        if "_" in Path(relative).stem or not Path(relative).stem[:1].isupper()
+    )
+
+    assert not offenders, "btrc file names must be PascalCase: " + ", ".join(offenders)
+
+
+def test_every_golden_belongs_to_a_corpus_source() -> None:
+    """`expected/<Stem>.stdout` and `<Stem>.btrc` are renamed together."""
+
+    orphans: list[str] = []
+    for relative in _tracked("*.stdout"):
+        golden = Path(relative)
+        if golden.parent.name != "expected":
+            continue
+        if not (REPO / golden.parent.parent / (golden.stem + ".btrc")).is_file():
+            orphans.append(relative)
+
+    assert not orphans, "golden output with no source: " + ", ".join(sorted(orphans))

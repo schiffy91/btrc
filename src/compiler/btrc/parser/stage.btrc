@@ -1,5 +1,0 @@
-/* Public manifest for recursive-descent parsing. */
-
-import ../lexer/stage.btrc;
-import ./parser.btrc;
-import ./source_macros.btrc;

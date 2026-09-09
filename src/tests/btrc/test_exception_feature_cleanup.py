@@ -17,8 +17,8 @@ from src.tests.btrc.test_mutex_value_contract import COMPILERS, REPO, _compile_p
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 FIXTURES = Path(__file__).with_name("fixtures")
-LAMBDA_CONSTRUCTOR = FIXTURES / "lifecycle_lambda_constructor_abandon_runtime.btrc"
-FREESTANDING_CLEANUP = FIXTURES / "lifecycle_freestanding_exception_cleanup_runtime.btrc"
+LAMBDA_CONSTRUCTOR = FIXTURES / "LifecycleLambdaConstructorAbandonRuntime.btrc"
+FREESTANDING_CLEANUP = FIXTURES / "LifecycleFreestandingExceptionCleanupRuntime.btrc"
 
 pytestmark = pytest.mark.skipif(
     not COMPILERS,

@@ -7,7 +7,7 @@
  * detail; application policy and payload serialization remain with the caller.
  */
 import std.OwnedBuffer;
-import std.bytes;
+import std.Bytes;
 
 int std_local_application_channel_server_open(const char* path, int maximumClients, int maximumMessageBytes, int idleTimeoutMilliseconds, int workBytesPerPoll, void** serverOut, int* nativeErrorOut);
 int std_local_application_channel_server_poll(void* server, unsigned char* requestBuffer, int requestCapacity, unsigned long long* requestIdentityOut, int* requestLengthOut, int* nativeErrorOut);

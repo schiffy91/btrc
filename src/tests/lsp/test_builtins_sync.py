@@ -11,7 +11,7 @@ CHECKED_IN = REPO_ROOT / "src" / "devex" / "lsp" / "catalog" / "generated.py"
 
 def test_builtin_source_order_is_independent_of_host_path_flavor():
     windows_paths = (
-        PureWindowsPath("stdlib/array.btrc"),
+        PureWindowsPath("stdlib/Array.btrc"),
         PureWindowsPath("stdlib/BitPattern.btrc"),
         PureWindowsPath("stdlib/BackgroundJobs.btrc"),
     )
@@ -19,9 +19,9 @@ def test_builtin_source_order_is_independent_of_host_path_flavor():
     ordered = sorted(windows_paths, key=BuiltinStdlibScanner._source_order_key)
 
     assert [path.name for path in ordered] == [
+        "Array.btrc",
         "BackgroundJobs.btrc",
         "BitPattern.btrc",
-        "array.btrc",
     ]
 
 

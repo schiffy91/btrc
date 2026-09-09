@@ -19,10 +19,10 @@ from src.tests.btrc.test_semantic_validation import (
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
-FIXTURE = Path(__file__).with_name("fixtures") / "opaque_c_operand_context_runtime.btrc"
-LEADING_FIXTURE = Path(__file__).with_name("fixtures") / "opaque_c_operand_leading_invalid.btrc"
-CALL_LEADING_FIXTURE = Path(__file__).with_name("fixtures") / "opaque_c_call_leading_invalid.btrc"
-READ_LEADING_FIXTURE = Path(__file__).with_name("fixtures") / "opaque_c_operand_read_invalid.btrc"
+FIXTURE = Path(__file__).with_name("fixtures") / "OpaqueCOperandContextRuntime.btrc"
+LEADING_FIXTURE = Path(__file__).with_name("fixtures") / "OpaqueCOperandLeadingInvalid.btrc"
+CALL_LEADING_FIXTURE = Path(__file__).with_name("fixtures") / "OpaqueCCallLeadingInvalid.btrc"
+READ_LEADING_FIXTURE = Path(__file__).with_name("fixtures") / "OpaqueCOperandReadInvalid.btrc"
 
 pytestmark = pytest.mark.skipif(
     not COMPILERS,

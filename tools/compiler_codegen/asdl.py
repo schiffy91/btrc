@@ -95,9 +95,7 @@ class AsdlSchemaParser:
     def _expect(self, expected: str) -> str:
         token = self._advance()
         if token != expected:
-            raise SyntaxError(
-                f"Expected {expected!r}, got {token!r} at token {self._position}"
-            )
+            raise SyntaxError(f"Expected {expected!r}, got {token!r} at token {self._position}")
         return token
 
     def _parse_type(self) -> AsdlType:

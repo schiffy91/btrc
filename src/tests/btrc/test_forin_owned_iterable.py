@@ -15,10 +15,10 @@ from src.tests.btrc.test_semantic_validation import (
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
-FIXTURE = REPO / "src/tests/btrc/fixtures/forin_owned_iterable_runtime.btrc"
-BINDING_FIXTURE = REPO / "src/tests/btrc/fixtures/forin_managed_binding_runtime.btrc"
-BORROWED_FIXTURE = REPO / "src/tests/btrc/fixtures/forin_borrowed_iterable_runtime.btrc"
-NESTED_UNUSED_FIXTURE = REPO / "src/tests/btrc/fixtures/forin_nested_generic_unused_runtime.btrc"
+FIXTURE = REPO / "src/tests/btrc/fixtures/ForinOwnedIterableRuntime.btrc"
+BINDING_FIXTURE = REPO / "src/tests/btrc/fixtures/ForinManagedBindingRuntime.btrc"
+BORROWED_FIXTURE = REPO / "src/tests/btrc/fixtures/ForinBorrowedIterableRuntime.btrc"
+NESTED_UNUSED_FIXTURE = REPO / "src/tests/btrc/fixtures/ForinNestedGenericUnusedRuntime.btrc"
 
 
 def _compile_both(semantic_btrcc: Path, tmp_path: Path, fixture=FIXTURE):

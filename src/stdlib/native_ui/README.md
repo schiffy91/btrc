@@ -149,7 +149,7 @@ adjust it without knowing every rule:
 Rows accept `align-items: start | center | end` for children shorter than
 the row; columns and grids ignore it. `NativeUiColor.css()` prints
 `#rrggbbaa`, the form every colour property accepts, so themes compose into
-rules; `NativeUiColor.fromRgba(...)`/`rgba()` bridge `std.image`, and
+rules; `NativeUiColor.fromRgba(...)`/`rgba()` bridge `std.Image`, and
 `NativeUiTheme.dark()`/`light()` are a matched pair that applications can
 pick between at runtime.
 

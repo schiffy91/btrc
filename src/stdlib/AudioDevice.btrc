@@ -6,10 +6,10 @@
  * successful drain is the hard barrier after which no callback can touch it.
  */
 
-import std.bytes;
-import std.console;
+import std.Bytes;
+import std.Console;
 import std.RealtimeAudio;
-import std.vector;
+import std.Vector;
 
 enum AudioDeviceStatus {
 	AUDIO_DEVICE_OK,

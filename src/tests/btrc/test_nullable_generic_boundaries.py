@@ -20,7 +20,7 @@ def test_generic_call_operand_result_property_array_and_typedef_boundaries(
     compiled = compile_fixture_pair(
         semantic_btrcc,
         tmp_path,
-        FIXTURES / "nullable_generic_call_boundary_runtime.btrc",
+        FIXTURES / "NullableGenericCallBoundaryRuntime.btrc",
     )
     for _frontend, generated in compiled:
         source = generated.read_text()
@@ -48,7 +48,7 @@ def test_nested_generic_nullable_identity_is_distinct_and_runs_strictly(
     compiled = compile_fixture_pair(
         semantic_btrcc,
         tmp_path,
-        FIXTURES / "nullable_nested_generic_identity_runtime.btrc",
+        FIXTURES / "NullableNestedGenericIdentityRuntime.btrc",
     )
     for _frontend, generated in compiled:
         source = generated.read_text()

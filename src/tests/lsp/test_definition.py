@@ -69,7 +69,7 @@ def test_no_definition_on_keyword():
 def test_imported_function_resolves_to_imported_file_uri(tmp_path):
     lib = tmp_path / "lib.btrc"
     lib.write_text("int helper() { return 1; }\n")
-    main = tmp_path / "main.btrc"
+    main = tmp_path / "Main.btrc"
     source = "import ./lib.btrc;\nint main() { return helper(); }\n"
     main.write_text(source)
 
@@ -95,7 +95,7 @@ int main() {
     loc = get_definition(result, pos_of(source, "UnixShell.quote", offset=10))
 
     assert loc is not None
-    assert loc.uri.endswith("/src/stdlib/process.btrc")
+    assert loc.uri.endswith("/src/stdlib/Process.btrc")
 
 
 def test_definition_inside_fstring_interpolation_resolves_local_variable():

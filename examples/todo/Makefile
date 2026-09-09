@@ -1,6 +1,6 @@
 BTRC  := python3 -m src.compiler.python.main
 ROOT  := ../..
-SRC   := todo.btrc
+SRC   := Todo.btrc
 OUT_C := todo.c
 OUT   := todo
 

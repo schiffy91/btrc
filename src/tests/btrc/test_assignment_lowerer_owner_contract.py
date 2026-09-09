@@ -12,9 +12,9 @@ def _source(relative: str) -> str:
 
 
 def test_assignment_behavior_has_one_real_owner_and_no_free_api() -> None:
-    assignment = _source("ir/lowering/assignments.btrc")
-    expressions = _source("ir/lowering/expressions.btrc")
-    composition = _source("ir/lowering/lowerer.btrc")
+    assignment = _source("ir/lowering/Assignments.btrc")
+    expressions = _source("ir/lowering/Expressions.btrc")
+    composition = _source("ir/lowering/Lowerer.btrc")
 
     assert "class AssignmentLowerer {" in assignment
     assert not re.search(
@@ -32,7 +32,7 @@ def test_assignment_behavior_has_one_real_owner_and_no_free_api() -> None:
 
 
 def test_assignment_owner_keeps_only_durable_domain_collaborators() -> None:
-    assignment = _source("ir/lowering/assignments.btrc")
+    assignment = _source("ir/lowering/Assignments.btrc")
     owner = assignment.split("class AssignmentLowerer {", 1)[1]
     private_state = [
         line.strip()

@@ -49,12 +49,12 @@ def test_callable_value_analysis_tracks_the_active_lexical_scope():
 
 def test_analysis_context_restores_nested_source_provenance():
     program = Parser(Lexer("int main() { return 0; }", "<test>").tokenize()).parse()
-    program.declarations[0].source_file = "inner.btrc"
+    program.declarations[0].source_file = "Inner.btrc"
     context = AnalysisContext()
 
     with context.source("outer.btrc"):
         for _declaration in context.declarations(program):
-            assert context.current_source_file == "inner.btrc"
+            assert context.current_source_file == "Inner.btrc"
         assert context.current_source_file == "outer.btrc"
 
     assert context.current_source_file is None

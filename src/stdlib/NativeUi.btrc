@@ -1,19 +1,19 @@
 /* btrc standard library -- native declarative UI values.
  *
  * This is the portable tree and event boundary for the renderer owned by
- * std.app.  It deliberately contains no HTML, browser, GPU, or platform
+ * std.App.  It deliberately contains no HTML, browser, GPU, or platform
  * handles.  Element identities are supplied by the application and remain
  * unchanged for the lifetime of the value tree.  A className is selector
  * metadata: it affects rendering only through an explicit NativeUiStyleSheet;
  * there is no ambient browser-style cascade.
  */
 
-import std.image;
-import std.map;
-import std.math;
-import std.set;
-import std.strings;
-import std.vector;
+import std.Image;
+import std.Map;
+import std.Math;
+import std.Set;
+import std.Strings;
+import std.Vector;
 
 #include "native_ui/Semantics.btrc"
 

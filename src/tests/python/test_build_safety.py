@@ -178,12 +178,12 @@ def test_optional_native_backends_only_skip_missing_dependencies():
 def test_btrcc_c_rebuilds_for_every_input_category():
     representative_inputs = [
         "src/compiler/python/ir/lowering/lowerer.py",
-        "src/compiler/btrc/ir/lowering/lowerer.btrc",
-        "src/stdlib/vector.btrc",
+        "src/compiler/btrc/ir/lowering/Lowerer.btrc",
+        "src/stdlib/Vector.btrc",
         "src/language/grammar.ebnf",
         "src/language/ast.asdl",
         "src/compiler/python/syntax/ast/generated.py",
-        "src/compiler/btrc/generated/ast/node.btrc",
+        "src/compiler/btrc/generated/ast/Node.btrc",
     ]
 
     for source in representative_inputs:
@@ -194,7 +194,7 @@ def test_btrcc_c_rebuilds_for_every_input_category():
 def test_native_btrcc_rebuilds_from_changed_selfhost_source():
     output = _make_dry_run(
         "--what-if",
-        "src/compiler/btrc/frontend/packages.btrc",
+        "src/compiler/btrc/frontend/Packages.btrc",
         "bin/btrcc",
         "NIX=",
     )
@@ -261,7 +261,7 @@ def test_ast_generation_is_validated_before_atomic_replacement():
     assert "tempfile.mkstemp" in verification
     assert "os.replace(temporary, target)" in verification
     assert "> src/compiler/python/syntax/ast/generated.py" not in makefile
-    assert "> src/compiler/btrc/generated/ast/node.btrc" not in makefile
+    assert "> src/compiler/btrc/generated/ast/Node.btrc" not in makefile
 
 
 def test_extension_build_uses_locked_dependencies():
@@ -298,7 +298,7 @@ def test_python_wheel_preserves_import_namespace_and_runtime_sources():
     assert "src.devex.vscode*" in discovery["exclude"]
     assert {"*.asdl", "*.btrc", "*.ebnf"} <= set(package_data)
     assert "exclude-package-data" not in setuptools
-    hosted_tables = REPO_ROOT / "src/compiler/btrc/generated/hosted_abi/tables.btrc"
+    hosted_tables = REPO_ROOT / "src/compiler/btrc/generated/hosted_abi/Tables.btrc"
     assert hosted_tables.is_file()
     hosted_source = hosted_tables.read_text()
     assert "class GeneratedHostedAbi" in hosted_source

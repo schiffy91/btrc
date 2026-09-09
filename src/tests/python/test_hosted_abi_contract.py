@@ -371,7 +371,7 @@ def test_generated_registry_is_current_and_has_one_domain_owner() -> None:
     artifact = next(item for item in artifacts if item.path.suffix == ".btrc")
     path = REPOSITORY_ROOT.joinpath(*artifact.path.parts)
     expected = artifact.content.decode()
-    assert path.name == "tables.btrc"
+    assert path.name == "Tables.btrc"
     assert path.read_text() == expected
     assert "class GeneratedHostedAbiData" in expected
     assert '#include "' not in expected
@@ -383,14 +383,14 @@ def test_source_runtime_helper_roots_are_generated_from_the_registry() -> None:
     generated_names = {function.name for function in manifest.functions if function.origin == "runtime"}
     assert generated_names == SOURCE_RUNTIME_HELPERS
 
-    source_runtime = (SOURCE_ROOT / "compiler/btrc/analyzer/hosted_abi.btrc").read_text()
+    source_runtime = (SOURCE_ROOT / "compiler/btrc/analyzer/HostedAbi.btrc").read_text()
     assert "class SourceRuntimeSymbols" in source_runtime
     assert not any(name in source_runtime for name in SOURCE_RUNTIME_HELPERS)
 
 
 def test_root_path_cannot_spoof_compiler_stdlib_provenance() -> None:
-    stdlib_path = SOURCE_ROOT / "stdlib" / "process.btrc"
-    source = '#include "process.btrc"\nextern char** environ;\nint main() { return 0; }'
+    stdlib_path = SOURCE_ROOT / "stdlib" / "Process.btrc"
+    source = '#include "Process.btrc"\nextern char** environ;\nint main() { return 0; }'
     pipeline = CompilationPipeline()
     options = CompilerOptions(include_stdlib=False, use_ast_cache=False)
     resolved = pipeline.resolve(
@@ -398,7 +398,7 @@ def test_root_path_cannot_spoof_compiler_stdlib_provenance() -> None:
         str(stdlib_path),
         options,
     )
-    parsed = pipeline.parse(resolved, "process.btrc", options)
+    parsed = pipeline.parse(resolved, "Process.btrc", options)
     declaration = next(item for item in parsed.program.declarations if getattr(item, "name", "") == "environ")
     assert not CompilerStdlibSource.authenticated(declaration.source_file)
     errors = SemanticAnalyzer().analyze(parsed.program).errors
@@ -406,8 +406,8 @@ def test_root_path_cannot_spoof_compiler_stdlib_provenance() -> None:
 
 
 def test_resolved_stdlib_import_receives_authenticated_provenance(tmp_path: Path) -> None:
-    root = tmp_path / "main.btrc"
-    source = "import std.process;\nint main() { return 0; }"
+    root = tmp_path / "Main.btrc"
+    source = "import std.Process;\nint main() { return 0; }"
     pipeline = CompilationPipeline()
     options = CompilerOptions(include_stdlib=False, use_ast_cache=False)
     resolved = pipeline.resolve(source, str(root), options)

@@ -324,7 +324,7 @@ def test_mutex_set_contextually_types_builtin_collection_result_under_strict_c11
     c_compiler: str,
 ):
     generated = _emit_with_stdlib("""
-        import std.map;
+        import std.Map;
 
         int main() {
             Map<string, int> values = new Map<string, int>();

@@ -4,7 +4,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 SELFHOST = REPO / "src/compiler/btrc"
-CYCLE_SEMANTICS = SELFHOST / "analyzer/ownership/cycles.btrc"
+CYCLE_SEMANTICS = SELFHOST / "analyzer/ownership/Cycles.btrc"
 
 
 def test_runtime_cycle_queries_cache_positive_and_negative_results() -> None:

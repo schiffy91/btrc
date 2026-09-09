@@ -13,7 +13,7 @@ from tools.native_plan import NativePlanBuilder
 ROOT = Path(__file__).resolve().parents[3]
 RUNTIME = ROOT / "src" / "stdlib" / "background_jobs"
 FIXTURE = ROOT / "src" / "tests" / "native" / "background_jobs"
-CONFORMANCE = FIXTURE / "background_jobs_conformance.btrc"
+CONFORMANCE = FIXTURE / "BackgroundJobsConformance.btrc"
 EXPECTED = FIXTURE / "background_jobs_conformance.expected"
 COMPILE_TIMEOUT = 180
 RUN_TIMEOUT = 90
@@ -160,7 +160,7 @@ def test_import_emits_and_links_compiler_owned_runtime(
     target_text = f"{target.operating_system}-{target.architecture}"
     project = tmp_path / "project"
     project.mkdir()
-    source = project / "main.btrc"
+    source = project / "Main.btrc"
     source.write_text(PLANNED_CONSUMER)
     (project / "btrc.toml").write_text('manifest-version = 1\n\n[package]\nname = "planned_jobs"\n')
     generated = tmp_path / f"planned-{compiler}.c"

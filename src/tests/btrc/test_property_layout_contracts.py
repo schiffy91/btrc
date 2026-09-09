@@ -102,7 +102,7 @@ def test_custom_property_does_not_reserve_a_backing_name(semantic_btrcc: Path, t
 
 
 def test_inherited_wrappers_and_managed_backing_run_strictly(semantic_btrcc: Path, tmp_path: Path) -> None:
-    source = (FIXTURES / "property_layout_runtime.btrc").read_text()
+    source = (FIXTURES / "PropertyLayoutRuntime.btrc").read_text()
     result, generated = _compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
 
@@ -167,7 +167,7 @@ def test_generic_property_shapes_fail_closed(
 
 
 def test_generic_properties_compile_strictly_and_run(semantic_btrcc: Path, tmp_path: Path) -> None:
-    source = (FIXTURES / "generic_property_layout_runtime.btrc").read_text()
+    source = (FIXTURES / "GenericPropertyLayoutRuntime.btrc").read_text()
     result, generated = _compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
 

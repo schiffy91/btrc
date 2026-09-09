@@ -1,7 +1,7 @@
-import std.image;
+import std.Image;
 import std.NativeUi;
-import std.strings;
-import std.vector;
+import std.Strings;
+import std.Vector;
 
 #include <assert.h>
 

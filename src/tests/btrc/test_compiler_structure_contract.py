@@ -17,125 +17,125 @@ SELFHOST = REPO / "src/compiler/btrc"
 
 EXPECTED_BTRC_FILES = frozenset(
     """
-    analyzer/analyzer.btrc
-    analyzer/declarations.btrc
-    analyzer/expressions.btrc
-    analyzer/generics.btrc
-    analyzer/gpu.btrc
-    analyzer/hosted_abi.btrc
-    analyzer/models.btrc
-    analyzer/operators.btrc
-    analyzer/realtime.btrc
-    analyzer/ownership/cycles.btrc
-    analyzer/ownership/values.btrc
-    analyzer/source_macros.btrc
-    analyzer/stage.btrc
-    analyzer/types.btrc
-    analyzer/validation/borrows.btrc
-    analyzer/validation/calls.btrc
-    analyzer/validation/constants.btrc
-    analyzer/validation/control_flow.btrc
-    analyzer/validation/declarations.btrc
-    analyzer/validation/expressions.btrc
-    analyzer/validation/names.btrc
-    analyzer/validation/ownership.btrc
-    analyzer/validation/storage.btrc
-    analyzer/validation/types.btrc
-    analyzer/validation/validator.btrc
-    btrcc_main.btrc
-    cli/driver.btrc
-    compiler.btrc
-    frontend/models.btrc
-    frontend/packages.btrc
-    frontend/resolver.btrc
-    frontend/source_io.btrc
-    frontend/stage.btrc
-    frontend/stdlib.btrc
-    frontend/visibility.btrc
-    generated/ast/node.btrc
-    generated/hosted_abi/tables.btrc
-    generated/runtime/catalog.btrc
-    ir/emitter.btrc
-    ir/gpu/pipeline.btrc
-    ir/gpu/wgsl.btrc
-    ir/lowering/aggregates.btrc
-    ir/lowering/assignments.btrc
-    ir/lowering/callable_flow.btrc
-    ir/lowering/callables.btrc
-    ir/lowering/calls.btrc
-    ir/lowering/concurrency.btrc
-    ir/lowering/context.btrc
-    ir/lowering/control_flow.btrc
-    ir/lowering/declarations.btrc
-    ir/lowering/expressions.btrc
-    ir/lowering/functions.btrc
-    ir/lowering/generics.btrc
-    ir/lowering/lowerer.btrc
-    ir/lowering/ownership/calls.btrc
-    ir/lowering/ownership/cycle_boundaries.btrc
-    ir/lowering/ownership/lifetime.btrc
-    ir/lowering/ownership/managed_types.btrc
-    ir/lowering/ownership/operands.btrc
-    ir/lowering/ownership/semantics.btrc
-    ir/lowering/statements.btrc
-    ir/lowering/strings.btrc
-    ir/lowering/types.btrc
-    ir/model.btrc
-    ir/optimization/cleanup.btrc
-    ir/optimization/optimizer.btrc
-    ir/optimization/realtime.btrc
-    ir/optimization/setjmp/analysis.btrc
-    ir/optimization/setjmp/safety.btrc
-    ir/runtime/catalog.btrc
-    ir/runtime/references.btrc
-    ir/stage.btrc
-    lexer/lexer.btrc
-    lexer/stage.btrc
-    parser/parser.btrc
-    parser/source_macros.btrc
-    parser/stage.btrc
-    pipeline/models.btrc
-    pipeline/pipeline.btrc
-    pipeline/stage.btrc
-    syntax/grammar.btrc
-    syntax/identity.btrc
-    syntax/literals.btrc
-    syntax/tokens.btrc
-    syntax/types.btrc
-    tools/ast/dump_main.btrc
-    tools/ast/generate_main.btrc
-    tools/ast/schema.btrc
-    tools/frontend_main.btrc
-    tools/lex_main.btrc
-    tools/parse_main.btrc
+    analyzer/Analyzer.btrc
+    analyzer/Declarations.btrc
+    analyzer/Expressions.btrc
+    analyzer/Generics.btrc
+    analyzer/Gpu.btrc
+    analyzer/HostedAbi.btrc
+    analyzer/Models.btrc
+    analyzer/Operators.btrc
+    analyzer/Realtime.btrc
+    analyzer/ownership/Cycles.btrc
+    analyzer/ownership/Values.btrc
+    analyzer/SourceMacros.btrc
+    analyzer/Stage.btrc
+    analyzer/Types.btrc
+    analyzer/validation/Borrows.btrc
+    analyzer/validation/Calls.btrc
+    analyzer/validation/Constants.btrc
+    analyzer/validation/ControlFlow.btrc
+    analyzer/validation/Declarations.btrc
+    analyzer/validation/Expressions.btrc
+    analyzer/validation/Names.btrc
+    analyzer/validation/Ownership.btrc
+    analyzer/validation/Storage.btrc
+    analyzer/validation/Types.btrc
+    analyzer/validation/Validator.btrc
+    BtrccMain.btrc
+    cli/Driver.btrc
+    Compiler.btrc
+    frontend/Models.btrc
+    frontend/Packages.btrc
+    frontend/Resolver.btrc
+    frontend/SourceIo.btrc
+    frontend/Stage.btrc
+    frontend/Stdlib.btrc
+    frontend/Visibility.btrc
+    generated/ast/Node.btrc
+    generated/hosted_abi/Tables.btrc
+    generated/runtime/Catalog.btrc
+    ir/Emitter.btrc
+    ir/gpu/Pipeline.btrc
+    ir/gpu/Wgsl.btrc
+    ir/lowering/Aggregates.btrc
+    ir/lowering/Assignments.btrc
+    ir/lowering/CallableFlow.btrc
+    ir/lowering/Callables.btrc
+    ir/lowering/Calls.btrc
+    ir/lowering/Concurrency.btrc
+    ir/lowering/Context.btrc
+    ir/lowering/ControlFlow.btrc
+    ir/lowering/Declarations.btrc
+    ir/lowering/Expressions.btrc
+    ir/lowering/Functions.btrc
+    ir/lowering/Generics.btrc
+    ir/lowering/Lowerer.btrc
+    ir/lowering/ownership/Calls.btrc
+    ir/lowering/ownership/CycleBoundaries.btrc
+    ir/lowering/ownership/Lifetime.btrc
+    ir/lowering/ownership/ManagedTypes.btrc
+    ir/lowering/ownership/Operands.btrc
+    ir/lowering/ownership/Semantics.btrc
+    ir/lowering/Statements.btrc
+    ir/lowering/Strings.btrc
+    ir/lowering/Types.btrc
+    ir/Model.btrc
+    ir/optimization/Cleanup.btrc
+    ir/optimization/Optimizer.btrc
+    ir/optimization/Realtime.btrc
+    ir/optimization/setjmp/Analysis.btrc
+    ir/optimization/setjmp/Safety.btrc
+    ir/runtime/Catalog.btrc
+    ir/runtime/References.btrc
+    ir/Stage.btrc
+    lexer/Lexer.btrc
+    lexer/Stage.btrc
+    parser/Parser.btrc
+    parser/SourceMacros.btrc
+    parser/Stage.btrc
+    pipeline/Models.btrc
+    pipeline/Pipeline.btrc
+    pipeline/Stage.btrc
+    syntax/Grammar.btrc
+    syntax/Identity.btrc
+    syntax/Literals.btrc
+    syntax/Tokens.btrc
+    syntax/Types.btrc
+    tools/ast/DumpMain.btrc
+    tools/ast/GenerateMain.btrc
+    tools/ast/Schema.btrc
+    tools/FrontendMain.btrc
+    tools/LexMain.btrc
+    tools/ParseMain.btrc
     """.split()  # noqa: SIM905 - the normative tree is clearest as an indented block
 )
 
 STAGE_MANIFESTS = frozenset(
     {
-        "lexer/stage.btrc",
-        "frontend/stage.btrc",
-        "parser/stage.btrc",
-        "analyzer/stage.btrc",
-        "ir/stage.btrc",
-        "pipeline/stage.btrc",
+        "lexer/Stage.btrc",
+        "frontend/Stage.btrc",
+        "parser/Stage.btrc",
+        "analyzer/Stage.btrc",
+        "ir/Stage.btrc",
+        "pipeline/Stage.btrc",
     }
 )
 
 PUBLIC_ENTRY_POINTS = frozenset(
     {
-        "btrcc_main.btrc",
-        "tools/frontend_main.btrc",
-        "tools/lex_main.btrc",
-        "tools/parse_main.btrc",
-        "tools/ast/dump_main.btrc",
-        "tools/ast/generate_main.btrc",
+        "BtrccMain.btrc",
+        "tools/FrontendMain.btrc",
+        "tools/LexMain.btrc",
+        "tools/ParseMain.btrc",
+        "tools/ast/DumpMain.btrc",
+        "tools/ast/GenerateMain.btrc",
     }
 )
 
 # Public identity spellings that only external probes exercise. The shared
 # type-identity contract pins them in both compilers (see
-# fixtures/type_identity_driver.btrc).
+# fixtures/TypeIdentityDriver.btrc).
 INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
     {
         ("TypeComposition", "substitutionPointerDepth"),
@@ -144,72 +144,72 @@ INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
 )
 
 REQUIRED_OWNER_BY_PATH = {
-    "compiler.btrc": "Compiler",
-    "cli/driver.btrc": "BtrccDriver",
-    "pipeline/pipeline.btrc": "CompilerPipeline",
-    "lexer/lexer.btrc": "Lexer",
-    "parser/parser.btrc": "Parser",
-    "parser/source_macros.btrc": "SourceMacroDefinition",
-    "frontend/source_io.btrc": "FeSourceFileReader",
-    "frontend/packages.btrc": "FePackageGraphResolver",
-    "frontend/stdlib.btrc": "FeStdlibRepository",
-    "frontend/resolver.btrc": "FeFrontendResolver",
-    "frontend/visibility.btrc": "FeImportVisibilityChecker",
-    "analyzer/analyzer.btrc": "SemanticAnalyzer",
-    "analyzer/declarations.btrc": "DeclarationRegistry",
-    "analyzer/types.btrc": "SemanticTypeSystem",
-    "analyzer/expressions.btrc": "ExpressionTypeResolver",
-    "analyzer/generics.btrc": "GenericSpecializer",
-    "analyzer/operators.btrc": "OperatorSemantics",
-    "analyzer/realtime.btrc": "RealtimeAnalyzer",
-    "analyzer/hosted_abi.btrc": "HostedAbiRepository",
-    "analyzer/source_macros.btrc": "SourceMacroNamespace",
-    "analyzer/gpu.btrc": "GpuSemantics",
-    "analyzer/ownership/values.btrc": "ManagedValueSemantics",
-    "analyzer/ownership/cycles.btrc": "CycleSemantics",
-    "analyzer/validation/validator.btrc": "SemanticValidator",
-    "analyzer/validation/types.btrc": "TypeValidator",
-    "analyzer/validation/constants.btrc": "ConstantValidator",
-    "analyzer/validation/names.btrc": "NameValidator",
-    "analyzer/validation/storage.btrc": "StorageValidator",
-    "analyzer/validation/ownership.btrc": "OwnershipValidator",
-    "analyzer/validation/borrows.btrc": "BorrowValidator",
-    "analyzer/validation/calls.btrc": "CallValidator",
-    "analyzer/validation/expressions.btrc": "ExpressionValidator",
-    "analyzer/validation/control_flow.btrc": "ControlFlowValidator",
-    "analyzer/validation/declarations.btrc": "DeclarationValidator",
-    "ir/runtime/catalog.btrc": "RuntimeHelperCatalog",
-    "ir/runtime/references.btrc": "RuntimeReferenceCollector",
-    "ir/lowering/context.btrc": "LoweringContext",
-    "ir/lowering/lowerer.btrc": "IRLowerer",
-    "ir/lowering/types.btrc": "CTypeLowerer",
-    "ir/lowering/declarations.btrc": "DeclarationLowerer",
-    "ir/lowering/generics.btrc": "GenericLowerer",
-    "ir/lowering/functions.btrc": "FunctionLowerer",
-    "ir/lowering/statements.btrc": "StatementLowerer",
-    "ir/lowering/control_flow.btrc": "ControlFlowLowerer",
-    "ir/lowering/expressions.btrc": "ExpressionLowerer",
-    "ir/lowering/calls.btrc": "CallLowerer",
-    "ir/lowering/callables.btrc": "CallableValueSemantics",
-    "ir/lowering/callable_flow.btrc": "CallableFlowState",
-    "ir/lowering/assignments.btrc": "AssignmentLowerer",
-    "ir/lowering/aggregates.btrc": "AggregateValueLowerer",
-    "ir/lowering/strings.btrc": "StringLowerer",
-    "ir/lowering/concurrency.btrc": "ConcurrencyLowerer",
-    "ir/lowering/ownership/semantics.btrc": "OwnershipSemantics",
-    "ir/lowering/ownership/operands.btrc": "OwnershipOperandPlanner",
-    "ir/lowering/ownership/calls.btrc": "CallOwnershipLowerer",
-    "ir/lowering/ownership/lifetime.btrc": "ManagedLifetimeLowerer",
-    "ir/lowering/ownership/managed_types.btrc": "ManagedTypeLowerer",
-    "ir/lowering/ownership/cycle_boundaries.btrc": "CycleBoundaryLowerer",
-    "ir/gpu/wgsl.btrc": "GpuWgslEmitter",
-    "ir/gpu/pipeline.btrc": "GpuPipeline",
-    "ir/optimization/optimizer.btrc": "IROptimizer",
-    "ir/optimization/realtime.btrc": "RealtimeIRVerifier",
-    "ir/optimization/cleanup.btrc": "CleanupSlotValidator",
-    "ir/optimization/setjmp/analysis.btrc": "SetjmpEffectAnalysis",
-    "ir/optimization/setjmp/safety.btrc": "SetjmpSafetyPlanner",
-    "ir/emitter.btrc": "CEmitter",
+    "Compiler.btrc": "Compiler",
+    "cli/Driver.btrc": "BtrccDriver",
+    "pipeline/Pipeline.btrc": "CompilerPipeline",
+    "lexer/Lexer.btrc": "Lexer",
+    "parser/Parser.btrc": "Parser",
+    "parser/SourceMacros.btrc": "SourceMacroDefinition",
+    "frontend/SourceIo.btrc": "FeSourceFileReader",
+    "frontend/Packages.btrc": "FePackageGraphResolver",
+    "frontend/Stdlib.btrc": "FeStdlibRepository",
+    "frontend/Resolver.btrc": "FeFrontendResolver",
+    "frontend/Visibility.btrc": "FeImportVisibilityChecker",
+    "analyzer/Analyzer.btrc": "SemanticAnalyzer",
+    "analyzer/Declarations.btrc": "DeclarationRegistry",
+    "analyzer/Types.btrc": "SemanticTypeSystem",
+    "analyzer/Expressions.btrc": "ExpressionTypeResolver",
+    "analyzer/Generics.btrc": "GenericSpecializer",
+    "analyzer/Operators.btrc": "OperatorSemantics",
+    "analyzer/Realtime.btrc": "RealtimeAnalyzer",
+    "analyzer/HostedAbi.btrc": "HostedAbiRepository",
+    "analyzer/SourceMacros.btrc": "SourceMacroNamespace",
+    "analyzer/Gpu.btrc": "GpuSemantics",
+    "analyzer/ownership/Values.btrc": "ManagedValueSemantics",
+    "analyzer/ownership/Cycles.btrc": "CycleSemantics",
+    "analyzer/validation/Validator.btrc": "SemanticValidator",
+    "analyzer/validation/Types.btrc": "TypeValidator",
+    "analyzer/validation/Constants.btrc": "ConstantValidator",
+    "analyzer/validation/Names.btrc": "NameValidator",
+    "analyzer/validation/Storage.btrc": "StorageValidator",
+    "analyzer/validation/Ownership.btrc": "OwnershipValidator",
+    "analyzer/validation/Borrows.btrc": "BorrowValidator",
+    "analyzer/validation/Calls.btrc": "CallValidator",
+    "analyzer/validation/Expressions.btrc": "ExpressionValidator",
+    "analyzer/validation/ControlFlow.btrc": "ControlFlowValidator",
+    "analyzer/validation/Declarations.btrc": "DeclarationValidator",
+    "ir/runtime/Catalog.btrc": "RuntimeHelperCatalog",
+    "ir/runtime/References.btrc": "RuntimeReferenceCollector",
+    "ir/lowering/Context.btrc": "LoweringContext",
+    "ir/lowering/Lowerer.btrc": "IRLowerer",
+    "ir/lowering/Types.btrc": "CTypeLowerer",
+    "ir/lowering/Declarations.btrc": "DeclarationLowerer",
+    "ir/lowering/Generics.btrc": "GenericLowerer",
+    "ir/lowering/Functions.btrc": "FunctionLowerer",
+    "ir/lowering/Statements.btrc": "StatementLowerer",
+    "ir/lowering/ControlFlow.btrc": "ControlFlowLowerer",
+    "ir/lowering/Expressions.btrc": "ExpressionLowerer",
+    "ir/lowering/Calls.btrc": "CallLowerer",
+    "ir/lowering/Callables.btrc": "CallableValueSemantics",
+    "ir/lowering/CallableFlow.btrc": "CallableFlowState",
+    "ir/lowering/Assignments.btrc": "AssignmentLowerer",
+    "ir/lowering/Aggregates.btrc": "AggregateValueLowerer",
+    "ir/lowering/Strings.btrc": "StringLowerer",
+    "ir/lowering/Concurrency.btrc": "ConcurrencyLowerer",
+    "ir/lowering/ownership/Semantics.btrc": "OwnershipSemantics",
+    "ir/lowering/ownership/Operands.btrc": "OwnershipOperandPlanner",
+    "ir/lowering/ownership/Calls.btrc": "CallOwnershipLowerer",
+    "ir/lowering/ownership/Lifetime.btrc": "ManagedLifetimeLowerer",
+    "ir/lowering/ownership/ManagedTypes.btrc": "ManagedTypeLowerer",
+    "ir/lowering/ownership/CycleBoundaries.btrc": "CycleBoundaryLowerer",
+    "ir/gpu/Wgsl.btrc": "GpuWgslEmitter",
+    "ir/gpu/Pipeline.btrc": "GpuPipeline",
+    "ir/optimization/Optimizer.btrc": "IROptimizer",
+    "ir/optimization/Realtime.btrc": "RealtimeIRVerifier",
+    "ir/optimization/Cleanup.btrc": "CleanupSlotValidator",
+    "ir/optimization/setjmp/Analysis.btrc": "SetjmpEffectAnalysis",
+    "ir/optimization/setjmp/Safety.btrc": "SetjmpSafetyPlanner",
+    "ir/Emitter.btrc": "CEmitter",
 }
 
 _IMPORT = re.compile(r"^\s*import\s+([^;]+);", re.MULTILINE)
@@ -420,7 +420,7 @@ def test_selfhost_tree_is_the_exact_ownership_namespace() -> None:
 
     assert actual == EXPECTED_BTRC_FILES
     assert len(actual) == 91
-    assert {path.name for path in SELFHOST.glob("*.btrc")} == {"btrcc_main.btrc", "compiler.btrc"}
+    assert {path.name for path in SELFHOST.glob("*.btrc")} == {"BtrccMain.btrc", "Compiler.btrc"}
 
 
 def test_every_unit_parses_and_behavior_files_have_complete_owners() -> None:
@@ -446,13 +446,13 @@ def test_every_unit_parses_and_behavior_files_have_complete_owners() -> None:
 
 
 def test_call_lowering_has_one_typed_target_resolution_owner() -> None:
-    calls = _path("ir/lowering/calls.btrc").read_text()
-    expressions = _path("ir/lowering/expressions.btrc").read_text()
-    operators = _path("analyzer/operators.btrc").read_text()
-    ownership_calls = _path("ir/lowering/ownership/calls.btrc").read_text()
-    statements = _path("ir/lowering/statements.btrc").read_text()
+    calls = _path("ir/lowering/Calls.btrc").read_text()
+    expressions = _path("ir/lowering/Expressions.btrc").read_text()
+    operators = _path("analyzer/Operators.btrc").read_text()
+    ownership_calls = _path("ir/lowering/ownership/Calls.btrc").read_text()
+    statements = _path("ir/lowering/Statements.btrc").read_text()
 
-    declarations = _program("ir/lowering/calls.btrc").declarations
+    declarations = _program("ir/lowering/Calls.btrc").declarations
     classes = {declaration.name for declaration in declarations if type(declaration).__name__ == "ClassDecl"}
     assert {
         "CallSignature",
@@ -499,14 +499,14 @@ def test_default_helpers_share_call_claim_and_function_body_owners() -> None:
                     definitions[member.name].append(f"{relative}:{declaration.name}")
 
     assert definitions == {
-        "ensureDefaultHelper": ["ir/lowering/calls.btrc:CallLowerer"],
-        "materializeDefaultHelper": ["ir/lowering/functions.btrc:FunctionLowerer"],
-        "materializeDeferredClosure": ["ir/lowering/functions.btrc:FunctionLowerer"],
+        "ensureDefaultHelper": ["ir/lowering/Calls.btrc:CallLowerer"],
+        "materializeDefaultHelper": ["ir/lowering/Functions.btrc:FunctionLowerer"],
+        "materializeDeferredClosure": ["ir/lowering/Functions.btrc:FunctionLowerer"],
     }
-    calls = _path("ir/lowering/calls.btrc").read_text()
-    expressions = _path("ir/lowering/expressions.btrc").read_text()
-    functions = _path("ir/lowering/functions.btrc").read_text()
-    lowerer = _path("ir/lowering/lowerer.btrc").read_text()
+    calls = _path("ir/lowering/Calls.btrc").read_text()
+    expressions = _path("ir/lowering/Expressions.btrc").read_text()
+    functions = _path("ir/lowering/Functions.btrc").read_text()
+    lowerer = _path("ir/lowering/Lowerer.btrc").read_text()
     assert "activeModule().functionDecls.push(declaration)" in calls
     assert "selfType.genericArgs.push(" in calls
     assert expressions.count("self.calls.ensureDefaultHelper(") == 1
@@ -530,12 +530,12 @@ def test_gpu_call_classification_has_one_semantic_owner() -> None:
                     definitions[member.name].append(f"{relative}:{declaration.name}")
 
     assert definitions == {
-        "callResolvesToIntrinsic": ["analyzer/gpu.btrc:GpuSemantics"],
-        "callResolvesToSourceSymbol": ["analyzer/gpu.btrc:GpuSemantics"],
+        "callResolvesToIntrinsic": ["analyzer/Gpu.btrc:GpuSemantics"],
+        "callResolvesToSourceSymbol": ["analyzer/Gpu.btrc:GpuSemantics"],
     }
-    semantics = _path("analyzer/gpu.btrc").read_text()
-    calls = _path("analyzer/validation/calls.btrc").read_text()
-    wgsl = _path("ir/gpu/wgsl.btrc").read_text()
+    semantics = _path("analyzer/Gpu.btrc").read_text()
+    calls = _path("analyzer/validation/Calls.btrc").read_text()
+    wgsl = _path("ir/gpu/Wgsl.btrc").read_text()
     contextual = semantics[semantics.index("public string contextualExprBase(") :]
     assert contextual.count("callResolvesToIntrinsic(") == 2
     assert "callResolvesToBuiltin(" not in contextual
@@ -559,9 +559,9 @@ def test_member_indexes_share_analyzed_canonical_identity() -> None:
                 if type(member).__name__ == "MethodDecl" and member.name == "memberKey"
             )
 
-    assert definitions == ["analyzer/models.btrc:Analyzed"]
-    models = _path("analyzer/models.btrc").read_text()
-    declarations = _path("analyzer/declarations.btrc").read_text()
+    assert definitions == ["analyzer/Models.btrc:Analyzed"]
+    models = _path("analyzer/Models.btrc").read_text()
+    declarations = _path("analyzer/Declarations.btrc").read_text()
     assert "class string memberKey(string owner, string member)" in models
     assert models.count("Analyzed.memberKey(") == 3
     assert declarations.count("Analyzed.memberKey(") == 2
@@ -587,13 +587,13 @@ def test_managed_instance_field_stores_have_one_typed_owner() -> None:
             )
 
     assert definitions == [
-        "ir/lowering/ownership/managed_types.btrc:ManagedTypeLowerer.planStaticFieldStore",
-        "ir/lowering/ownership/managed_types.btrc:ManagedTypeLowerer.materializeStaticFieldStore",
-        "ir/lowering/ownership/managed_types.btrc:ManagedTypeLowerer.planInstanceFieldStore",
-        "ir/lowering/ownership/managed_types.btrc:ManagedTypeLowerer.materializeInstanceFieldStore",
+        "ir/lowering/ownership/ManagedTypes.btrc:ManagedTypeLowerer.planStaticFieldStore",
+        "ir/lowering/ownership/ManagedTypes.btrc:ManagedTypeLowerer.materializeStaticFieldStore",
+        "ir/lowering/ownership/ManagedTypes.btrc:ManagedTypeLowerer.planInstanceFieldStore",
+        "ir/lowering/ownership/ManagedTypes.btrc:ManagedTypeLowerer.materializeInstanceFieldStore",
     ]
-    managed_types = _path("ir/lowering/ownership/managed_types.btrc").read_text()
-    expressions = _path("ir/lowering/expressions.btrc").read_text()
+    managed_types = _path("ir/lowering/ownership/ManagedTypes.btrc").read_text()
+    expressions = _path("ir/lowering/Expressions.btrc").read_text()
     assert "member.kind != NK_FIELD_DECL" in managed_types
     assert 'member.access == "class"' in managed_types
     assert "self.managedValues.isClass(concreteReceiver)" in managed_types
@@ -608,7 +608,7 @@ def test_managed_instance_field_stores_have_one_typed_owner() -> None:
 
 
 def test_static_initializer_classification_is_typed_and_storage_owned() -> None:
-    relative = "analyzer/validation/storage.btrc"
+    relative = "analyzer/validation/Storage.btrc"
     declarations = _program(relative).declarations
     category = next(
         declaration
@@ -632,7 +632,7 @@ def test_static_initializer_classification_is_typed_and_storage_owned() -> None:
     assert re.search(r"\bSC_(?:INVALID|INTEGER|ARITHMETIC|ADDRESS)\b", _path(relative).read_text()) is None
 
     storage = _path(relative).read_text()
-    declaration_source = _path("analyzer/validation/declarations.btrc").read_text()
+    declaration_source = _path("analyzer/validation/Declarations.btrc").read_text()
     assert "bool hasStaticStorage = isGlobal" in storage
     assert "!self.staticInitializer(" in storage
     assert "self.storage.staticInitializer(" in declaration_source
@@ -641,8 +641,8 @@ def test_static_initializer_classification_is_typed_and_storage_owned() -> None:
 
 
 def test_static_initializer_lowering_uses_structured_constant_operators() -> None:
-    expressions = _path("ir/lowering/expressions.btrc").read_text()
-    statements = _path("ir/lowering/statements.btrc").read_text()
+    expressions = _path("ir/lowering/Expressions.btrc").read_text()
+    statements = _path("ir/lowering/Statements.btrc").read_text()
     static_lowering = expressions[
         expressions.index("private IRNode lowerStaticBinaryInitializer(") : expressions.index(
             "/* Bounded-depth lowering for long left-associated string concatenations. */"
@@ -685,7 +685,7 @@ def test_expression_lowering_has_no_uninitialized_managed_ir_locals() -> None:
 
 
 def test_ir_binary_nodes_use_the_canonical_typed_kind() -> None:
-    model = _program("ir/model.btrc")
+    model = _program("ir/Model.btrc")
     ir_kind = next(
         declaration
         for declaration in model.declarations
@@ -698,8 +698,8 @@ def test_ir_binary_nodes_use_the_canonical_typed_kind() -> None:
 
 
 def test_concurrency_requires_the_contexts_bound_module() -> None:
-    context = _path("ir/lowering/context.btrc").read_text()
-    concurrency = _path("ir/lowering/concurrency.btrc").read_text()
+    context = _path("ir/lowering/Context.btrc").read_text()
+    concurrency = _path("ir/lowering/Concurrency.btrc").read_text()
     assert "public IRModule activeModule()" in context
     assert "if (self.module == null)" in context
     assert "IRModule module = self.context.activeModule();" in concurrency
@@ -782,7 +782,7 @@ def test_only_explicit_external_probes_are_definition_only() -> None:
 
 
 def test_lexer_owns_its_cursor_and_literal_scanning() -> None:
-    declarations = _program("lexer/lexer.btrc").declarations
+    declarations = _program("lexer/Lexer.btrc").declarations
     classes = [declaration for declaration in declarations if type(declaration).__name__ == "ClassDecl"]
 
     assert [declaration.name for declaration in classes] == ["Lexer"]
@@ -877,28 +877,28 @@ def test_retained_collaborators_form_a_dag_without_composition_root_leaks() -> N
 
 def test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners() -> None:
     expected_owners = {
-        "analyzer/declarations.btrc",
-        "analyzer/expressions.btrc",
-        "analyzer/gpu.btrc",
-        "analyzer/realtime.btrc",
-        "analyzer/validation/borrows.btrc",
-        "analyzer/validation/calls.btrc",
-        "analyzer/validation/declarations.btrc",
-        "analyzer/validation/names.btrc",
-        "analyzer/validation/ownership.btrc",
-        "ir/gpu/pipeline.btrc",
-        "ir/lowering/callables.btrc",
-        "ir/lowering/calls.btrc",
-        "ir/lowering/concurrency.btrc",
-        "ir/lowering/declarations.btrc",
-        "ir/lowering/expressions.btrc",
-        "ir/lowering/functions.btrc",
-        "ir/lowering/ownership/semantics.btrc",
-        "ir/lowering/statements.btrc",
-        "ir/lowering/strings.btrc",
-        "ir/lowering/types.btrc",
-        "ir/optimization/setjmp/analysis.btrc",
-        "pipeline/pipeline.btrc",
+        "analyzer/Declarations.btrc",
+        "analyzer/Expressions.btrc",
+        "analyzer/Gpu.btrc",
+        "analyzer/Realtime.btrc",
+        "analyzer/validation/Borrows.btrc",
+        "analyzer/validation/Calls.btrc",
+        "analyzer/validation/Declarations.btrc",
+        "analyzer/validation/Names.btrc",
+        "analyzer/validation/Ownership.btrc",
+        "ir/gpu/Pipeline.btrc",
+        "ir/lowering/Callables.btrc",
+        "ir/lowering/Calls.btrc",
+        "ir/lowering/Concurrency.btrc",
+        "ir/lowering/Declarations.btrc",
+        "ir/lowering/Expressions.btrc",
+        "ir/lowering/Functions.btrc",
+        "ir/lowering/ownership/Semantics.btrc",
+        "ir/lowering/Statements.btrc",
+        "ir/lowering/Strings.btrc",
+        "ir/lowering/Types.btrc",
+        "ir/optimization/setjmp/Analysis.btrc",
+        "pipeline/Pipeline.btrc",
     }
     actual_owners = {
         relative
@@ -908,13 +908,13 @@ def test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners() -> N
     assert actual_owners == expected_owners
     assert all("self.hostedAbi." in _path(relative).read_text() for relative in actual_owners)
 
-    pipeline = _path("pipeline/pipeline.btrc").read_text()
-    analyzer = _path("analyzer/analyzer.btrc").read_text()
-    lowerer = _path("ir/lowering/lowerer.btrc").read_text()
-    models = _path("analyzer/models.btrc").read_text()
-    validation_state = _path("analyzer/validation/types.btrc").read_text()
-    hosted_abi = _path("analyzer/hosted_abi.btrc").read_text()
-    declarations = _path("analyzer/declarations.btrc").read_text()
+    pipeline = _path("pipeline/Pipeline.btrc").read_text()
+    analyzer = _path("analyzer/Analyzer.btrc").read_text()
+    lowerer = _path("ir/lowering/Lowerer.btrc").read_text()
+    models = _path("analyzer/Models.btrc").read_text()
+    validation_state = _path("analyzer/validation/Types.btrc").read_text()
+    hosted_abi = _path("analyzer/HostedAbi.btrc").read_text()
+    declarations = _path("analyzer/Declarations.btrc").read_text()
 
     assert pipeline.count("HostedAbiRepository(") == 1
     assert "self.hostedAbi = HostedAbiRepository(" in pipeline
@@ -922,8 +922,8 @@ def test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners() -> N
     assert "hostedAbi" not in validation_state
     assert "HostedAbiRepository" not in analyzer.split("public SemanticAnalyzer(", 1)[0]
     assert "HostedAbiRepository" not in lowerer.split("public IRLowerer(", 1)[0]
-    assert "HostedAbiRepository" not in _path("ir/optimization/optimizer.btrc").read_text()
-    assert "HostedAbiRepository" not in _path("ir/optimization/setjmp/safety.btrc").read_text()
+    assert "HostedAbiRepository" not in _path("ir/optimization/Optimizer.btrc").read_text()
+    assert "HostedAbiRepository" not in _path("ir/optimization/setjmp/Safety.btrc").read_text()
     assert "lexicalBindingCName" not in models
     assert "string name, bool typeConflict" in hosted_abi
     assert "public string sourceFunctionSymbol(string name)" in declarations
@@ -972,15 +972,15 @@ def test_retired_facades_and_parallel_compilers_cannot_return() -> None:
 
 
 def test_pipeline_exposes_the_six_stage_ir_boundary_explicitly() -> None:
-    pipeline = _path("pipeline/pipeline.btrc").read_text()
-    lowerer = _path("ir/lowering/lowerer.btrc").read_text()
-    optimizer = _path("ir/optimization/optimizer.btrc").read_text()
-    runtime_catalog = _path("ir/runtime/catalog.btrc").read_text()
-    setjmp_analysis = _path("ir/optimization/setjmp/analysis.btrc").read_text()
-    setjmp_safety = _path("ir/optimization/setjmp/safety.btrc").read_text()
-    cycle_boundaries = _path("ir/lowering/ownership/cycle_boundaries.btrc").read_text()
-    context = _path("ir/lowering/context.btrc").read_text()
-    model = _path("ir/model.btrc").read_text()
+    pipeline = _path("pipeline/Pipeline.btrc").read_text()
+    lowerer = _path("ir/lowering/Lowerer.btrc").read_text()
+    optimizer = _path("ir/optimization/Optimizer.btrc").read_text()
+    runtime_catalog = _path("ir/runtime/Catalog.btrc").read_text()
+    setjmp_analysis = _path("ir/optimization/setjmp/Analysis.btrc").read_text()
+    setjmp_safety = _path("ir/optimization/setjmp/Safety.btrc").read_text()
+    cycle_boundaries = _path("ir/lowering/ownership/CycleBoundaries.btrc").read_text()
+    context = _path("ir/lowering/Context.btrc").read_text()
+    model = _path("ir/Model.btrc").read_text()
 
     lower_call = pipeline.index("IRModule module = lowerer.lower(program);")
     optimize_call = pipeline.index("optimizer.optimize(module, options.runDce);")
@@ -989,7 +989,7 @@ def test_pipeline_exposes_the_six_stage_ir_boundary_explicitly() -> None:
 
     for forbidden in (
         "../optimization/",
-        "../runtime/references.btrc",
+        "../runtime/References.btrc",
         "setDceEnabled",
         "dceEnabled",
         "collectHelpers",

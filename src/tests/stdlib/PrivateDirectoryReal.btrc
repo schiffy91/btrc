@@ -1,7 +1,7 @@
 /* Real private-directory security, publication, contention, and path-race
  * coverage. POSIX calls below are test setup/inspection only; assertions use
  * the typed mutable filesystem capability for product behavior. */
-import std.bytes;
+import std.Bytes;
 import std.FileSystem;
 import std.FileSystemHandles;
 

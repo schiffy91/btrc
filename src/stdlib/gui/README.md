@@ -9,25 +9,25 @@ logic lives in btrc, and it's threaded by default.
 | File | Role |
 |------|------|
 | `btrc_gui.h` / `btrc_gui.c` | Portable software framebuffer (`Surface`): clear, fill/blend rect, UTF-8 bitmap-font text, in-place resize, pixel readback, PPM dump, pluggable font backend. **No display required** — runs and is testable headlessly. |
-| `geometry.btrc` | Saturating integer geometry shared by immediate and declarative layout. |
-| `gui.btrc` | btrc bindings + immediate-mode widgets (`Color`, `Surface`, `GuiInput`, `Theme`, `Gui`, `GuiApp`). |
-| `view.btrc` | Declarative UI: a `View` tree with flexbox-style layout, events-as-data (`GuiEvents`), and a one-call `Ui.frame(...)`. |
-| `btrc_gui_window.h` / `.c` | Legacy standalone native window backend (resizable GLFW/OpenGL window, GPU-texture present). It is retained for GUI compatibility tests and is not composable with `std.app`. |
-| `window.btrc` | Legacy btrc bindings for that standalone backend (`GuiWindow`, incl. `width`/`height`/`fit`). |
-| `btrc_gui_font.h` / `.c`, `font.btrc` | Optional FreeType backend (`Font`) for scalable, anti-aliased, full-Unicode text. |
+| `Geometry.btrc` | Saturating integer geometry shared by immediate and declarative layout. |
+| `Gui.btrc` | btrc bindings + immediate-mode widgets (`Color`, `Surface`, `GuiInput`, `Theme`, `Gui`, `GuiApp`). |
+| `View.btrc` | Declarative UI: a `View` tree with flexbox-style layout, events-as-data (`GuiEvents`), and a one-call `Ui.frame(...)`. |
+| `btrc_gui_window.h` / `.c` | Legacy standalone native window backend (resizable GLFW/OpenGL window, GPU-texture present). It is retained for GUI compatibility tests and is not composable with `std.App`. |
+| `Window.btrc` | Legacy btrc bindings for that standalone backend (`GuiWindow`, incl. `width`/`height`/`fit`). |
+| `btrc_gui_font.h` / `.c`, `Font.btrc` | Optional FreeType backend (`Font`) for scalable, anti-aliased, full-Unicode text. |
 
 Not auto-included (it's in a subfolder and needs a compiled shim). Opt in with
-`#include "gui/gui.btrc"` and build with `make gui`.
+`#include "gui/Gui.btrc"` and build with `make gui`.
 
 ## Quick start (immediate-mode)
 
 `GuiWindow` below is the legacy standalone presenter. New application code
-should own its window through `std.app`; `std.ui` has not yet been migrated to
-consume the unified `std.app`/`std.gpu` surface.
+should own its window through `std.App`; `std.Ui` has not yet been migrated to
+consume the unified `std.App`/`std.Gpu` surface.
 
 ```btrc
-#include "gui/gui.btrc"
-#include "gui/window.btrc"
+#include "gui/Gui.btrc"
+#include "gui/Window.btrc"
 
 int main() {
     var win = GuiWindow("Hello", 480, 320);
@@ -62,14 +62,14 @@ default; `Theme.dark()` provided).
 
 ## Declarative UI (View tree)
 
-For richer layouts, `view.btrc` adds a declarative layer: describe the UI as a
+For richer layouts, `View.btrc` adds a declarative layer: describe the UI as a
 tree of `View`s and frame it in one call. Layout is flexbox-style (rows/columns
 with `padding`, `gap`, and `grow`); interactions come back as data keyed by a
 stable `id` (Elm-style — no closures).
 
 ```btrc
-#include "gui/gui.btrc"
-#include "gui/view.btrc"
+#include "gui/Gui.btrc"
+#include "gui/View.btrc"
 
 View ui() {
     return View.column().pad(16).withGap(8).kids([
@@ -120,14 +120,14 @@ Two backends:
 - **Bitmap (default, zero-dependency).** A bundled 8×8 font (5×7 glyphs in an
   8×8 cell) covering digits, A–Z and common punctuation; lowercase maps to
   uppercase and non-ASCII codepoints render as a box.
-- **FreeType (optional, scalable).** `font.btrc` adds a `Font` that loads a
+- **FreeType (optional, scalable).** `Font.btrc` adds a `Font` that loads a
   TTF/OTF and renders anti-aliased, full-Unicode glyphs at any pixel size.
   Loading a font installs it as the active backend, so **all** text — both
   immediate-mode and declarative — switches over with no other code changes:
 
   ```btrc
-  #include "gui/gui.btrc"
-  #include "gui/font.btrc"
+  #include "gui/Gui.btrc"
+  #include "gui/Font.btrc"
 
   Font f = Font("/path/DejaVuSans.ttf", 18);
   if (f.ok()) { f.use(); }     // every subsequent draw uses it
@@ -175,9 +175,9 @@ make examples-gui   # build + run the headless examples/tests (demo, declarative
   so drive the windowed loop from `main()` there; the threaded runner is for the
   offscreen surface or Linux.
 - The legacy `GuiWindow` backend owns GLFW and an OpenGL window independently.
-  Its header and `std.app` now reject a mixed translation unit at compile time;
-  `std.app` is the sole GLFW owner for the unified application/GPU path. The
+  Its header and `std.App` now reject a mixed translation unit at compile time;
+  `std.App` is the sole GLFW owner for the unified application/GPU path. The
   headless software `Surface` remains safe and deliberately separate until
-  `std.ui` consumes that path.
+  `std.Ui` consumes that path.
 - Drawing is opaque-rect + bitmap text; it's intentionally minimal, not a
   full retained-mode toolkit.

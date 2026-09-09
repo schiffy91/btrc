@@ -24,7 +24,7 @@ def _write_import_case(tmp_path):
         "\n"
         "int importedHelper() { return 1; }\n"
     )
-    main = tmp_path / "main.btrc"
+    main = tmp_path / "Main.btrc"
     source = (
         "import ./lib.btrc;\n"
         "int main() {\n"
@@ -51,7 +51,7 @@ def test_definition_maps_imported_symbol_to_original_file(tmp_path):
 
 
 def test_definition_maps_stdlib_static_method_to_installed_source():
-    source = 'import std.strings;\nint main() { var items = Strings.split("a,b", ","); return items.len(); }\n'
+    source = 'import std.Strings;\nint main() { var items = Strings.split("a,b", ","); return items.len(); }\n'
 
     loc = get_definition(
         analyze(source),
@@ -59,8 +59,8 @@ def test_definition_maps_stdlib_static_method_to_installed_source():
     )
 
     assert loc is not None
-    assert loc.uri.endswith("/src/stdlib/strings.btrc")
-    strings_path = Path(__file__).resolve().parents[2] / "stdlib" / "strings.btrc"
+    assert loc.uri.endswith("/src/stdlib/Strings.btrc")
+    strings_path = Path(__file__).resolve().parents[2] / "stdlib" / "Strings.btrc"
     split_line = next(
         index
         for index, line in enumerate(strings_path.read_text().splitlines())
@@ -85,7 +85,7 @@ def test_self_member_resolution_after_import_stays_in_local_class(tmp_path):
     lib.write_text(
         "class Imported {\n    public int value;\n    public Imported(int value) { self.value = value; }\n}\n"
     )
-    main = tmp_path / "main.btrc"
+    main = tmp_path / "Main.btrc"
     source = (
         "import ./lib.btrc;\n"
         "class Payload {\n"
@@ -129,7 +129,7 @@ def test_references_and_rename_group_cross_file_locations(tmp_path):
 def test_parse_diagnostic_maps_after_import_expansion(tmp_path):
     lib = tmp_path / "lib.btrc"
     lib.write_text("int helper() { return 1; }\n")
-    main = tmp_path / "main.btrc"
+    main = tmp_path / "Main.btrc"
     source = "import ./lib.btrc;\nclass { int x; }\n"
     main.write_text(source)
 

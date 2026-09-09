@@ -9,7 +9,7 @@ from src.compiler.python.parser.parser import ParseError, Parser
 from tools.compiler_codegen.ast import AstCatalogGenerator
 
 _ROOT = Path(__file__).resolve().parents[3]
-_BTRC_AST = PurePosixPath("src/compiler/btrc/generated/ast/node.btrc")
+_BTRC_AST = PurePosixPath("src/compiler/btrc/generated/ast/Node.btrc")
 
 
 def _generate_btrc() -> str:

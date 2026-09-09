@@ -39,7 +39,7 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
             }
         """,
         """
-            import std.vector;
+            import std.Vector;
             typedef volatile int V;
             typedef V* P;
             int main() {

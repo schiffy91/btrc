@@ -68,7 +68,7 @@ def test_completion_after_chain():
 
 
 GENERIC_BUILTIN_SRC = """\
-import std.map;
+import std.Map;
 
 int main() {
     string text = "a,b";
@@ -110,7 +110,7 @@ def test_definition_after_generic_builtin_call_maps_to_stdlib_member():
     )
 
     assert loc is not None
-    assert loc.uri.endswith("/src/stdlib/vector.btrc")
+    assert loc.uri.endswith("/src/stdlib/Vector.btrc")
 
 
 def test_hover_after_generic_builtin_call_uses_vector_member():

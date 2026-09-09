@@ -3,7 +3,7 @@
 -- This is the single source of truth for AST node types.
 -- Generated code:
 --   tools/compiler_codegen/ast.py -> src/compiler/python/syntax/ast/generated.py
---   tools/compiler_codegen/ast.py -> src/compiler/btrc/generated/ast/node.btrc
+--   tools/compiler_codegen/ast.py -> src/compiler/btrc/generated/ast/Node.btrc
 --
 -- ASDL modifier semantics:
 --   field        = required (exactly 1)

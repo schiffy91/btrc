@@ -1,4 +1,4 @@
-/* Text runs as transparent std.image rasters.
+/* Text runs as transparent std.Image rasters.
  *
  * Painters that compose their own images (rulers, meters, note charts) draw
  * labels through here so on-screen text is the platform's system font when

@@ -24,8 +24,8 @@ from src.tests.btrc.test_mutex_value_contract import (
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 FIXTURES = Path(__file__).with_name("fixtures")
-DECLARATION_SCOPE = FIXTURES / "default_argument_declaration_scope_runtime.btrc"
-BODYLESS_SCOPE = FIXTURES / "default_argument_bodyless_runtime.btrc"
+DECLARATION_SCOPE = FIXTURES / "DefaultArgumentDeclarationScopeRuntime.btrc"
+BODYLESS_SCOPE = FIXTURES / "DefaultArgumentBodylessRuntime.btrc"
 BODYLESS_SHIM = FIXTURES / "default_argument_bodyless_shim.c"
 
 

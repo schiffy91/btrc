@@ -1,6 +1,6 @@
-# `std.app`
+# `std.App`
 
-`std.app` is the process-global application/event-loop owner. It creates at
+`std.App` is the process-global application/event-loop owner. It creates at
 most one native window and emits ordered, bounded pointer, scroll, key, text,
 logical resize, framebuffer resize, DPI, and close-request events.
 

@@ -1,15 +1,15 @@
-/* Unified std.app/std.gpu presenter for std.NativeUi.
+/* Unified std.App/std.Gpu presenter for std.NativeUi.
  *
  * The session borrows an existing ApplicationWindow and GPU. Its native batch
  * is a child render resource of that GPU and records into the GPU's active
  * pass; it cannot create a window, surface, adapter, device, or present path.
  */
 
-import std.app;
-import std.datetime;
-import std.gpu;
+import std.App;
+import std.Datetime;
+import std.Gpu;
 import std.NativeUi;
-import std.vector;
+import std.Vector;
 
 #include <btrc_gpu.h>
 
@@ -137,7 +137,7 @@ class NativeUiAppSession {
 
 	class NativeUiAppAttachOutcome attach(ApplicationWindow window, GPU gpu, NativeUiStyleSheet? styleSheet = null, NativeUiTheme? theme = null, NativeUiTypography? typography = null) {
 		if (window == null || gpu == null || !window.isOpen() || !gpu.isOpen()) {
-			return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACH_REJECTED, null, "native UI requires an open std.app window and std.gpu");
+			return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACH_REJECTED, null, "native UI requires an open std.App window and std.Gpu");
 		}
 		NativeUiStyleSheet resolvedSheet = styleSheet == null ? NativeUiStyleSheet() : styleSheet;
 		NativeUiTheme resolvedTheme = theme == null ? NativeUiTheme.nativeDefault() : theme;
@@ -623,6 +623,7 @@ class NativeUiAppSession {
 				if (shortcut && keyboard.key == APP_KEY_C) { return self.editText(NATIVE_UI_TEXT_EDIT_COPY); }
 				if (shortcut && keyboard.key == APP_KEY_X) { return self.editText(NATIVE_UI_TEXT_EDIT_CUT); }
 				if (shortcut && keyboard.key == APP_KEY_V) { return self.editText(NATIVE_UI_TEXT_EDIT_PASTE); }
+				if (shortcut && keyboard.key == APP_KEY_Z) { return self.renderer.undoText(keyboard.modifiers.shift); }
 				if (keyboard.key == APP_KEY_BACKSPACE) { return self.renderer.backspace(word, line); }
 				if (keyboard.key == APP_KEY_DELETE) { return self.renderer.deleteForward(word, line); }
 				if (keyboard.key == APP_KEY_LEFT || keyboard.key == APP_KEY_HOME) { return self.renderer.moveCaretLeft(keyboard.modifiers.shift, word, line || keyboard.key == APP_KEY_HOME); }

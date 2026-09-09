@@ -7,12 +7,12 @@ name = "leaf"
 path = "native/leaf.c"
 language = "c"
 standard = "c11"
-modules = ["api"]
+modules = ["Api"]
 
 [[native.headers]]
 path = "native/leaf.h"
-modules = ["api"]
+modules = ["Api"]
 
 [[native.include-directories]]
 path = "native"
-modules = ["api"]
+modules = ["Api"]

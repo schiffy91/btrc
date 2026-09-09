@@ -115,7 +115,7 @@ prove this fails to compile rather than silently introducing a lock.
 
 ## Canonical SPSC queue
 
-`std.spsc` owns the sole fixed-capacity SPSC queue/ring implementation. Ordinary
+`std.Spsc` owns the sole fixed-capacity SPSC queue/ring implementation. Ordinary
 managed code uses `SpscQueue<T>`; `T` must be realtime POD. A stored raw callback
 instead opens the same implementation explicitly and stores only its borrowed
 storage pointer in the callback context:

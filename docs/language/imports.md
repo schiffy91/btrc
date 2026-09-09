@@ -41,9 +41,9 @@ Directory and standard-library import forms create one directed edge to every
 resolved module. Each imported module must still declare its own dependencies.
 
 ```btrc
-import std.vector;
-import std.{fs, json};
-import ./model.btrc;
+import std.Vector;
+import std.{FileSystem, Json};
+import ./Model.btrc;
 import ./commands/*;
 ```
 

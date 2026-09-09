@@ -19,9 +19,9 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 REPO = Path(__file__).resolve().parents[3]
 FIXTURES = Path(__file__).with_name("fixtures")
-ABI_RUNTIME = FIXTURES / "thread_result_abi_runtime.btrc"
-MANAGED_RUNTIME = FIXTURES / "thread_managed_result_ownership_runtime.btrc"
-SCOPE_RUNTIME = FIXTURES / "thread_scope_cleanup_runtime.btrc"
+ABI_RUNTIME = FIXTURES / "ThreadResultAbiRuntime.btrc"
+MANAGED_RUNTIME = FIXTURES / "ThreadManagedResultOwnershipRuntime.btrc"
+SCOPE_RUNTIME = FIXTURES / "ThreadScopeCleanupRuntime.btrc"
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 pytestmark = pytest.mark.skipif(

@@ -34,8 +34,8 @@ run: build
 build: main.c
 	$(CC) -std=c11 $(TRAY_CF) -I$(TRAY) main.c $(SHIM) $(TRAY_LD) -lm -lpthread -o tray_demo
 
-main.c: main.btrc
-	cd $(ROOT) && $(BTRC) examples/tray/main.btrc -o examples/tray/main.c
+main.c: Main.btrc
+	cd $(ROOT) && $(BTRC) examples/tray/Main.btrc -o examples/tray/main.c
 
 clean:
 	rm -f main.c tray_demo

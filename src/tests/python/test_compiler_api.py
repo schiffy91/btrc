@@ -145,7 +145,7 @@ class MemoryCache:
 
 
 def test_public_compiler_defaults_to_strict_imports_and_emits_c(tmp_path):
-    source_path = tmp_path / "main.btrc"
+    source_path = tmp_path / "Main.btrc"
     source_path.write_text(SOURCE)
 
     result = Compiler().compile(
@@ -165,7 +165,7 @@ def test_public_compiler_defaults_to_strict_imports_and_emits_c(tmp_path):
 
 
 def test_pipeline_exposes_each_terminal_representation(tmp_path):
-    source_path = tmp_path / "main.btrc"
+    source_path = tmp_path / "Main.btrc"
     source_path.write_text(SOURCE)
     compiler = Compiler(CompilationPipeline())
 
@@ -213,7 +213,7 @@ def test_pipeline_exposes_each_terminal_representation(tmp_path):
 
 
 def test_compiler_uses_injected_cache_without_reentering_pipeline(tmp_path):
-    source_path = tmp_path / "main.btrc"
+    source_path = tmp_path / "Main.btrc"
     source_path.write_text(SOURCE)
     cache = MemoryCache()
     compiler = Compiler(cache=cache)

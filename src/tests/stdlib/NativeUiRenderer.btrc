@@ -1,7 +1,7 @@
-import std.image;
+import std.Image;
 import std.NativeUi;
-import std.strings;
-import std.vector;
+import std.Strings;
+import std.Vector;
 
 #include <assert.h>
 
@@ -914,7 +914,31 @@ void assertLeadingInputIcon() {
 	assertRejected(NativeUiRenderer().layout(aggregate, 200, 60), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
 }
 
+void assertTextUndoHistory() {
+	NativeUiRenderer renderer = NativeUiRenderer();
+	renderer.layout(NativeUiElement.textInput("undo", "", "", 4096), 240, 48);
+	renderer.focusNext();
+	assert(renderer.undoText().eventCount() == 0);
+	for (int index = 0; index < 140; index++) { renderer.textEntered("x"); }
+	for (int index = 0; index < 128; index++) { assert(renderer.undoText().eventCount() == 1); }
+	assert(renderer.focusedValue().len() == 12 && renderer.undoText().eventCount() == 0);
+	assert(renderer.undoText(true).eventAt(0).value().len() == 13);
+	renderer.textEntered("y");
+	assert(renderer.undoText(true).eventCount() == 0);
+	string edited = renderer.focusedValue();
+	renderer.layout(NativeUiElement.textInput("undo", edited, "", 4096), 240, 48);
+	assert(renderer.undoText().eventAt(0).value().len() == 13);
+	renderer.layout(NativeUiElement.textInput("undo", "replacement", "", 4096), 240, 48);
+	assert(renderer.undoText().eventCount() == 0 && renderer.undoText(true).eventCount() == 0);
+	renderer.textEntered("!");
+	renderer.layout(NativeUiElement.textInput("undo", renderer.focusedValue(), "", 32), 240, 48);
+	assert(renderer.undoText().eventCount() == 0);
+	renderer.blur();
+	assert(renderer.undoText().eventCount() == 0);
+}
+
 int main() {
+	assertTextUndoHistory();
 	assertLeadingInputIcon();
 	assertPinnedScrollbar();
 	assertEllipsis();
@@ -1063,10 +1087,14 @@ int main() {
 	assert(appended.eventAt(0).value() == "a\xc3\xa9!");
 	assert(inputRenderer.textEntered("\xf0\x9f\x98\x80").eventCount() == 0);
 	assert(inputRenderer.focusedValue() == "a\xc3\xa9!");
+	assert(inputRenderer.undoText().eventAt(0).value() == "a\xc3\xa9");
+	assert(inputRenderer.focusedCaret() == 3 && inputRenderer.selectedText().isEmpty());
+	assert(inputRenderer.undoText(true).eventAt(0).value() == "a\xc3\xa9!");
 	assert(inputRenderer.textEntered("\xc3").eventCount() == 0);
 	assert(inputRenderer.focusedValue() == "a\xc3\xa9!");
 	inputRenderer.focusNext();
 	assert(inputRenderer.focusedId() == "secondary-query");
+	assert(inputRenderer.undoText().eventCount() == 0);
 	inputRenderer.focusNext(true);
 	assert(inputRenderer.focusedId() == "query");
 	inputRenderer.blur();
@@ -1082,13 +1110,20 @@ int main() {
 	controlledRenderer.layout(NativeUiElement.textInput("controlled", "server", "", 16), 200, 48);
 	assert(controlledRenderer.focusedValue() == "server");
 	assert(controlledRenderer.focusedCaret() == 6);
+	assert(controlledRenderer.undoText().eventCount() == 0);
 	controlledRenderer.selectAllText();
 	assert(controlledRenderer.selectedText() == "server" && !controlledRenderer.caretVisible());
 	assert(controlledRenderer.textEntered("Imagine Dragons").eventAt(0).value() == "Imagine Dragons");
 	controlledRenderer.moveCaretLeft(true, true);
 	assert(controlledRenderer.selectedText() == "Dragons");
 	assert(controlledRenderer.textEntered("D").eventAt(0).value() == "Imagine D");
+	assert(controlledRenderer.undoText().eventAt(0).value() == "Imagine Dragons");
+	assert(controlledRenderer.selectedText() == "Dragons");
+	assert(controlledRenderer.undoText(true).eventAt(0).value() == "Imagine D");
 	assert(controlledRenderer.backspace(true).eventAt(0).value() == "Imagine ");
+	assert(controlledRenderer.undoText().eventAt(0).value() == "Imagine D");
+	assert(controlledRenderer.focusedCaret() == 9 && controlledRenderer.selectedText().isEmpty());
+	assert(controlledRenderer.undoText(true).eventAt(0).value() == "Imagine ");
 	assert(controlledRenderer.backspace(false, true).eventAt(0).value() == "");
 	controlledRenderer.textEntered("a\xc3\xa9!");
 	controlledRenderer.moveCaretLeft(true);

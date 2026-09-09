@@ -95,32 +95,6 @@ SPAN_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("trySet", "bool", "method", (("size_t", "index"), ("T", "value"),), "Replace an in-range element"),
 )
 
-# Generated from src/stdlib/ownedbuffer.btrc
-OWNEDBUFFER_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
-    BuiltinMemberSpec("status", "OwnedBufferOpenKind", "method", (), "status"),
-    BuiltinMemberSpec("opened", "bool", "method", (), "opened"),
-    BuiltinMemberSpec("count", "size_t", "method", (), "count"),
-    BuiltinMemberSpec("borrow", "T*", "method", (), "borrow"),
-    BuiltinMemberSpec("tryPointerAt", "bool", "method", (("size_t", "index"), ("T**", "output"),), "tryPointerAt"),
-    BuiltinMemberSpec("tryGet", "bool", "method", (("size_t", "index"), ("T*", "output"),), "tryGet"),
-    BuiltinMemberSpec("trySet", "bool", "method", (("size_t", "index"), ("T*", "value"),), "trySet"),
-    BuiltinMemberSpec("get", "T", "method", (("size_t", "index"),), "get"),
-    BuiltinMemberSpec("set", "bool", "method", (("size_t", "index"), ("T", "value"),), "set"),
-    BuiltinMemberSpec("tryCopyFrom", "bool", "method", (("size_t", "destinationIndex"), ("T*", "source"), ("size_t", "elementCount"),), "tryCopyFrom"),
-    BuiltinMemberSpec("tryCopyTo", "bool", "method", (("size_t", "sourceIndex"), ("T*", "output"), ("size_t", "elementCount"),), "tryCopyTo"),
-    BuiltinMemberSpec("tryCopyFromBuffer", "bool", "method", (("size_t", "destinationIndex"), ("OwnedBuffer<T>", "source"), ("size_t", "sourceIndex"), ("size_t", "elementCount"),), "tryCopyFromBuffer"),
-    BuiltinMemberSpec("close", "void", "method", (), "close"),
-)
-
-# Generated from src/stdlib/atomicbuffer.btrc
-ATOMICBUFFER_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
-    BuiltinMemberSpec("status", "OwnedBufferOpenKind", "method", (), "status"),
-    BuiltinMemberSpec("opened", "bool", "method", (), "opened"),
-    BuiltinMemberSpec("count", "size_t", "method", (), "count"),
-    BuiltinMemberSpec("borrow", "Atomic<T>*", "method", (), "borrow"),
-    BuiltinMemberSpec("close", "void", "method", (), "close"),
-)
-
 # Generated from src/stdlib/array.btrc
 ARRAY_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("len", "int", "field", doc="len"),
@@ -217,6 +191,32 @@ MAP_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("iterGet", "K", "method", (("int", "n"),), "iterGet"),
     BuiltinMemberSpec("iterValueAt", "V", "method", (("int", "n"),), "iterValueAt"),
     BuiltinMemberSpec("forEach", "void", "method", (("fn", "callback"),), "Call fn(key, value) for each entry"),
+)
+
+# Generated from src/stdlib/ownedbuffer.btrc
+OWNEDBUFFER_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("status", "OwnedBufferOpenKind", "method", (), "status"),
+    BuiltinMemberSpec("opened", "bool", "method", (), "opened"),
+    BuiltinMemberSpec("count", "size_t", "method", (), "count"),
+    BuiltinMemberSpec("borrow", "T*", "method", (), "borrow"),
+    BuiltinMemberSpec("tryPointerAt", "bool", "method", (("size_t", "index"), ("T**", "output"),), "tryPointerAt"),
+    BuiltinMemberSpec("tryGet", "bool", "method", (("size_t", "index"), ("T*", "output"),), "tryGet"),
+    BuiltinMemberSpec("trySet", "bool", "method", (("size_t", "index"), ("T*", "value"),), "trySet"),
+    BuiltinMemberSpec("get", "T", "method", (("size_t", "index"),), "get"),
+    BuiltinMemberSpec("set", "bool", "method", (("size_t", "index"), ("T", "value"),), "set"),
+    BuiltinMemberSpec("tryCopyFrom", "bool", "method", (("size_t", "destinationIndex"), ("T*", "source"), ("size_t", "elementCount"),), "tryCopyFrom"),
+    BuiltinMemberSpec("tryCopyTo", "bool", "method", (("size_t", "sourceIndex"), ("T*", "output"), ("size_t", "elementCount"),), "tryCopyTo"),
+    BuiltinMemberSpec("tryCopyFromBuffer", "bool", "method", (("size_t", "destinationIndex"), ("OwnedBuffer<T>", "source"), ("size_t", "sourceIndex"), ("size_t", "elementCount"),), "tryCopyFromBuffer"),
+    BuiltinMemberSpec("close", "void", "method", (), "close"),
+)
+
+# Generated from src/stdlib/atomicbuffer.btrc
+ATOMICBUFFER_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("status", "OwnedBufferOpenKind", "method", (), "status"),
+    BuiltinMemberSpec("opened", "bool", "method", (), "opened"),
+    BuiltinMemberSpec("count", "size_t", "method", (), "count"),
+    BuiltinMemberSpec("borrow", "Atomic<T>*", "method", (), "borrow"),
+    BuiltinMemberSpec("close", "void", "method", (), "close"),
 )
 
 # Generated from src/stdlib/result.btrc
@@ -326,8 +326,6 @@ MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("string", STRING_MEMBERS),
     ("Atomic", ATOMIC_MEMBERS),
     ("Span", SPAN_MEMBERS),
-    ("OwnedBuffer", OWNEDBUFFER_MEMBERS),
-    ("AtomicBuffer", ATOMICBUFFER_MEMBERS),
     ("Array", ARRAY_MEMBERS),
     ("BorrowedClosure", BORROWEDCLOSURE_MEMBERS),
     ("OwnedClosure", OWNEDCLOSURE_MEMBERS),
@@ -335,6 +333,8 @@ MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("ListNode", LISTNODE_MEMBERS),
     ("List", LIST_MEMBERS),
     ("Map", MAP_MEMBERS),
+    ("OwnedBuffer", OWNEDBUFFER_MEMBERS),
+    ("AtomicBuffer", ATOMICBUFFER_MEMBERS),
     ("Result", RESULT_MEMBERS),
     ("Set", SET_MEMBERS),
     ("SpscQueue", SPSCQUEUE_MEMBERS),
@@ -358,6 +358,13 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("floatingPoint", "float", "method", (("uint", "bits"),), "floatingPoint"),
         BuiltinMemberSpec("fromSignedInteger", "uint", "method", (("int", "value"),), "fromSignedInteger"),
         BuiltinMemberSpec("fromFloatingPoint", "uint", "method", (("float", "value"),), "fromFloatingPoint"),
+    )),
+    ("Console", (
+        BuiltinMemberSpec("log", "void", "method", (("string", "msg"),), "log"),
+        BuiltinMemberSpec("error", "void", "method", (("string", "msg"),), "error"),
+        BuiltinMemberSpec("fatal", "void", "method", (("string", "msg"),), "fatal"),
+        BuiltinMemberSpec("write", "void", "method", (("string", "msg"),), "write"),
+        BuiltinMemberSpec("writeLine", "void", "method", (("string", "msg"),), "writeLine"),
     )),
     ("DaemonControlRecord", (
         BuiltinMemberSpec("validToken", "bool", "method", (("string", "token"),), "validToken"),
@@ -470,6 +477,21 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("ExactFileSnapshot", (
         BuiltinMemberSpec("validate", "FileSystemError*", "method", (("FileSnapshot", "expected"), ("FileSnapshotOutcome", "held"), ("string", "path"), ("string", "operation"),), "validate"),
     )),
+    ("GraphCli", (
+        BuiltinMemberSpec("args", "Map<string, string>", "method", (("CliArgs", "args"), ("int", "startIndex"),), "args"),
+        BuiltinMemberSpec("targets", "Vector<string>", "method", (("CliArgs", "args"), ("int", "startIndex"),), "targets"),
+    )),
+    ("GraphReport", (
+        BuiltinMemberSpec("list", "void", "method", (("ExecutionGraph", "graph"),), "list"),
+    )),
+    ("GraphValidation", (
+        BuiltinMemberSpec("nodeIds", "Vector<string>", "method", (("ExecutionGraph", "graph"),), "nodeIds"),
+        BuiltinMemberSpec("error", "string", "method", (("ExecutionGraph", "graph"),), "error"),
+    )),
+    ("GraphParser", (
+        BuiltinMemberSpec("node", "GraphNode", "method", (("string", "objectText"),), "node"),
+        BuiltinMemberSpec("readFile", "ExecutionGraph", "method", (("string", "path"),), "readFile"),
+    )),
     ("Browser", (
         BuiltinMemberSpec("open", "void", "method", (("string", "url"),), "open"),
     )),
@@ -510,78 +532,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("readRequest", "Bytes", "method", (("int", "descriptor"), ("int", "maxHeaderBytes"), ("int", "maxBodyBytes"), ("int", "maxRequestBytes"), ("int", "timeoutSecs"),), "readRequest"),
         BuiltinMemberSpec("sendAllUntil", "bool", "method", (("int", "descriptor"), ("string", "data"), ("long long", "deadline"),), "sendAllUntil"),
         BuiltinMemberSpec("sendAll", "bool", "method", (("int", "descriptor"), ("string", "data"), ("int", "timeoutSecs"),), "sendAll"),
-    )),
-    ("LocalApplicationChannelClient", (
-        BuiltinMemberSpec("request", "LocalApplicationChannelClientOutcome", "method", (("string", "path"), ("Bytes", "request"), ("LocalApplicationChannelConfiguration", "configuration"), ("int", "timeoutMilliseconds"),), "request"),
-    )),
-    ("NativeUiStyle", (
-        BuiltinMemberSpec("decimal", "bool", "method", (("string", "value"), ("bool", "allowZero"),), "decimal"),
-        BuiltinMemberSpec("pixels", "bool", "method", (("string", "value"), ("bool", "allowZero"),), "pixels"),
-        BuiltinMemberSpec("hexDigit", "bool", "method", (("char", "value"),), "hexDigit"),
-        BuiltinMemberSpec("color", "bool", "method", (("string", "value"),), "color"),
-        BuiltinMemberSpec("gradientColors", "Vector<string>", "method", (("string", "value"),), "gradientColors"),
-        BuiltinMemberSpec("validate", "NativeUiStyleError", "method", (("string", "css"),), "validate"),
-        BuiltinMemberSpec("validateClassName", "NativeUiStyleError", "method", (("string", "value"),), "validateClassName"),
-    )),
-    ("OwnedBuffers", (
-        BuiltinMemberSpec("tryOpen", "OwnedBufferOpenKind", "method", (("size_t", "count"), ("size_t", "valueSize"), ("struct OwnedBufferStorage**", "output"),), "tryOpen"),
-        BuiltinMemberSpec("borrow", "void*", "method", (("struct OwnedBufferStorage*", "storage"), ("size_t", "expectedValueSize"),), "borrow"),
-        BuiltinMemberSpec("count", "size_t", "method", (("struct OwnedBufferStorage*", "storage"), ("size_t", "expectedValueSize"),), "count"),
-        BuiltinMemberSpec("tryPointerAt", "bool", "method", (("struct OwnedBufferStorage*", "storage"), ("size_t", "expectedValueSize"), ("size_t", "index"), ("void**", "output"),), "tryPointerAt"),
-        BuiltinMemberSpec("tryCopyFrom", "bool", "method", (("struct OwnedBufferStorage*", "storage"), ("size_t", "expectedValueSize"), ("size_t", "destinationIndex"), ("void*", "source"), ("size_t", "elementCount"),), "tryCopyFrom"),
-        BuiltinMemberSpec("tryCopyTo", "bool", "method", (("struct OwnedBufferStorage*", "storage"), ("size_t", "expectedValueSize"), ("size_t", "sourceIndex"), ("void*", "output"), ("size_t", "elementCount"),), "tryCopyTo"),
-        BuiltinMemberSpec("tryCopyBetween", "bool", "method", (("struct OwnedBufferStorage*", "destination"), ("size_t", "expectedValueSize"), ("size_t", "destinationIndex"), ("struct OwnedBufferStorage*", "source"), ("size_t", "sourceIndex"), ("size_t", "elementCount"),), "tryCopyBetween"),
-        BuiltinMemberSpec("close", "void", "method", (("struct OwnedBufferStorage**", "owner"),), "close"),
-    )),
-    ("TerminalClock", (
-        BuiltinMemberSpec("milliseconds", "long long", "method", (), "milliseconds"),
-        BuiltinMemberSpec("deadlineAfter", "long long", "method", (("int", "milliseconds"),), "deadlineAfter"),
-    )),
-    ("UnixPamCStringArray", (
-        BuiltinMemberSpec("copyEntry", "char*", "method", (("string", "value"),), "copyEntry"),
-        BuiltinMemberSpec("freeEntries", "void", "method", (("char**", "values"),), "freeEntries"),
-        BuiltinMemberSpec("copyAll", "char**", "method", (("Vector<string>", "values"),), "copyAll"),
-    )),
-    ("TerminalPasswordInput", (
-        BuiltinMemberSpec("configureSignalDescriptor", "bool", "method", (("int", "descriptor"),), "configureSignalDescriptor"),
-        BuiltinMemberSpec("ensureSignalPipe", "bool", "method", (), "ensureSignalPipe"),
-        BuiltinMemberSpec("drainSignalPipe", "void", "method", (), "drainSignalPipe"),
-        BuiltinMemberSpec("setTerminalAttributes", "bool", "method", (("int", "descriptor"), ("struct termios*", "attributes"),), "setTerminalAttributes"),
-        BuiltinMemberSpec("readLine", "string", "method", (), "readLine"),
-        BuiltinMemberSpec("signalReadDescriptor", "int", "method", (), "signalReadDescriptor"),
-        BuiltinMemberSpec("signalWriteDescriptor", "int", "method", (), "signalWriteDescriptor"),
-        BuiltinMemberSpec("prompt", "string", "method", (("string", "label"),), "prompt"),
-    )),
-    ("UnixPasswdPromptExchange", (
-        BuiltinMemberSpec("quietIntervalMilliseconds", "int", "method", (), "quietIntervalMilliseconds"),
-        BuiltinMemberSpec("pollUntil", "int", "method", (("int", "fd"), ("short", "events"), ("long long", "deadline"), ("int", "maxWaitMillis"),), "pollUntil"),
-        BuiltinMemberSpec("passwordInputHidden", "bool", "method", (("int", "fd"),), "passwordInputHidden"),
-        BuiltinMemberSpec("safeResponse", "bool", "method", (("string", "value"),), "safeResponse"),
-        BuiltinMemberSpec("writeBytesUntil", "bool", "method", (("int", "fd"), ("char*", "bytes"), ("size_t", "length"), ("long long", "deadline"),), "writeBytesUntil"),
-        BuiltinMemberSpec("writeResponseUntil", "bool", "method", (("int", "fd"), ("string", "value"), ("long long", "deadline"),), "writeResponseUntil"),
-        BuiltinMemberSpec("answer", "bool", "method", (("int", "fd"), ("Vector<string>", "responses"), ("int", "responseCount"), ("long long", "deadline"),), "answer"),
-    )),
-    ("Console", (
-        BuiltinMemberSpec("log", "void", "method", (("string", "msg"),), "log"),
-        BuiltinMemberSpec("error", "void", "method", (("string", "msg"),), "error"),
-        BuiltinMemberSpec("fatal", "void", "method", (("string", "msg"),), "fatal"),
-        BuiltinMemberSpec("write", "void", "method", (("string", "msg"),), "write"),
-        BuiltinMemberSpec("writeLine", "void", "method", (("string", "msg"),), "writeLine"),
-    )),
-    ("GraphCli", (
-        BuiltinMemberSpec("args", "Map<string, string>", "method", (("CliArgs", "args"), ("int", "startIndex"),), "args"),
-        BuiltinMemberSpec("targets", "Vector<string>", "method", (("CliArgs", "args"), ("int", "startIndex"),), "targets"),
-    )),
-    ("GraphReport", (
-        BuiltinMemberSpec("list", "void", "method", (("ExecutionGraph", "graph"),), "list"),
-    )),
-    ("GraphValidation", (
-        BuiltinMemberSpec("nodeIds", "Vector<string>", "method", (("ExecutionGraph", "graph"),), "nodeIds"),
-        BuiltinMemberSpec("error", "string", "method", (("ExecutionGraph", "graph"),), "error"),
-    )),
-    ("GraphParser", (
-        BuiltinMemberSpec("node", "GraphNode", "method", (("string", "objectText"),), "node"),
-        BuiltinMemberSpec("readFile", "ExecutionGraph", "method", (("string", "path"),), "readFile"),
     )),
     ("ImageBinary", (
         BuiltinMemberSpec("has", "bool", "method", (("Bytes", "bytes"), ("long long", "offset"), ("long long", "count"),), "has"),
@@ -646,6 +596,9 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("getStringAfter", "string", "method", (("string", "json"), ("string", "anchor"), ("string", "key"),), "getStringAfter"),
         BuiltinMemberSpec("getStringFrom", "string", "method", (("string", "json"), ("string", "key"), ("int", "from"),), "getStringFrom"),
     )),
+    ("LocalApplicationChannelClient", (
+        BuiltinMemberSpec("request", "LocalApplicationChannelClientOutcome", "method", (("string", "path"), ("Bytes", "request"), ("LocalApplicationChannelConfiguration", "configuration"), ("int", "timeoutMilliseconds"),), "request"),
+    )),
     ("Math", (
         BuiltinMemberSpec("PI", "float", "method", (), "PI"),
         BuiltinMemberSpec("E", "float", "method", (), "E"),
@@ -693,6 +646,25 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("fclamp", "float", "method", (("float", "val"), ("float", "lo"), ("float", "hi"),), "fclamp"),
         BuiltinMemberSpec("sign", "int", "method", (("int", "x"),), "sign"),
         BuiltinMemberSpec("fsign", "float", "method", (("float", "x"),), "fsign"),
+    )),
+    ("NativeUiStyle", (
+        BuiltinMemberSpec("decimal", "bool", "method", (("string", "value"), ("bool", "allowZero"),), "decimal"),
+        BuiltinMemberSpec("pixels", "bool", "method", (("string", "value"), ("bool", "allowZero"),), "pixels"),
+        BuiltinMemberSpec("hexDigit", "bool", "method", (("char", "value"),), "hexDigit"),
+        BuiltinMemberSpec("color", "bool", "method", (("string", "value"),), "color"),
+        BuiltinMemberSpec("gradientColors", "Vector<string>", "method", (("string", "value"),), "gradientColors"),
+        BuiltinMemberSpec("validate", "NativeUiStyleError", "method", (("string", "css"),), "validate"),
+        BuiltinMemberSpec("validateClassName", "NativeUiStyleError", "method", (("string", "value"),), "validateClassName"),
+    )),
+    ("OwnedBuffers", (
+        BuiltinMemberSpec("tryOpen", "OwnedBufferOpenKind", "method", (("size_t", "count"), ("size_t", "valueSize"), ("struct OwnedBufferStorage**", "output"),), "tryOpen"),
+        BuiltinMemberSpec("borrow", "void*", "method", (("struct OwnedBufferStorage*", "storage"), ("size_t", "expectedValueSize"),), "borrow"),
+        BuiltinMemberSpec("count", "size_t", "method", (("struct OwnedBufferStorage*", "storage"), ("size_t", "expectedValueSize"),), "count"),
+        BuiltinMemberSpec("tryPointerAt", "bool", "method", (("struct OwnedBufferStorage*", "storage"), ("size_t", "expectedValueSize"), ("size_t", "index"), ("void**", "output"),), "tryPointerAt"),
+        BuiltinMemberSpec("tryCopyFrom", "bool", "method", (("struct OwnedBufferStorage*", "storage"), ("size_t", "expectedValueSize"), ("size_t", "destinationIndex"), ("void*", "source"), ("size_t", "elementCount"),), "tryCopyFrom"),
+        BuiltinMemberSpec("tryCopyTo", "bool", "method", (("struct OwnedBufferStorage*", "storage"), ("size_t", "expectedValueSize"), ("size_t", "sourceIndex"), ("void*", "output"), ("size_t", "elementCount"),), "tryCopyTo"),
+        BuiltinMemberSpec("tryCopyBetween", "bool", "method", (("struct OwnedBufferStorage*", "destination"), ("size_t", "expectedValueSize"), ("size_t", "destinationIndex"), ("struct OwnedBufferStorage*", "source"), ("size_t", "sourceIndex"), ("size_t", "elementCount"),), "tryCopyBetween"),
+        BuiltinMemberSpec("close", "void", "method", (("struct OwnedBufferStorage**", "owner"),), "close"),
     )),
     ("UnixPattern", (
         BuiltinMemberSpec("matches", "bool", "method", (("string", "pattern"), ("string", "text"),), "matches"),
@@ -863,6 +835,34 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("waitForExitUntil", "int", "method", (("pid_t", "processId"), ("long long", "deadline"),), "waitForExitUntil"),
         BuiltinMemberSpec("waitForPtyExitUntil", "int", "method", (("pid_t", "processId"), ("int", "fd"), ("long long", "deadline"),), "waitForPtyExitUntil"),
         BuiltinMemberSpec("change", "bool", "method", (("string", "user"), ("string", "oldPassword"), ("string", "newPassword"),), "change"),
+    )),
+    ("TerminalClock", (
+        BuiltinMemberSpec("milliseconds", "long long", "method", (), "milliseconds"),
+        BuiltinMemberSpec("deadlineAfter", "long long", "method", (("int", "milliseconds"),), "deadlineAfter"),
+    )),
+    ("UnixPamCStringArray", (
+        BuiltinMemberSpec("copyEntry", "char*", "method", (("string", "value"),), "copyEntry"),
+        BuiltinMemberSpec("freeEntries", "void", "method", (("char**", "values"),), "freeEntries"),
+        BuiltinMemberSpec("copyAll", "char**", "method", (("Vector<string>", "values"),), "copyAll"),
+    )),
+    ("TerminalPasswordInput", (
+        BuiltinMemberSpec("configureSignalDescriptor", "bool", "method", (("int", "descriptor"),), "configureSignalDescriptor"),
+        BuiltinMemberSpec("ensureSignalPipe", "bool", "method", (), "ensureSignalPipe"),
+        BuiltinMemberSpec("drainSignalPipe", "void", "method", (), "drainSignalPipe"),
+        BuiltinMemberSpec("setTerminalAttributes", "bool", "method", (("int", "descriptor"), ("struct termios*", "attributes"),), "setTerminalAttributes"),
+        BuiltinMemberSpec("readLine", "string", "method", (), "readLine"),
+        BuiltinMemberSpec("signalReadDescriptor", "int", "method", (), "signalReadDescriptor"),
+        BuiltinMemberSpec("signalWriteDescriptor", "int", "method", (), "signalWriteDescriptor"),
+        BuiltinMemberSpec("prompt", "string", "method", (("string", "label"),), "prompt"),
+    )),
+    ("UnixPasswdPromptExchange", (
+        BuiltinMemberSpec("quietIntervalMilliseconds", "int", "method", (), "quietIntervalMilliseconds"),
+        BuiltinMemberSpec("pollUntil", "int", "method", (("int", "fd"), ("short", "events"), ("long long", "deadline"), ("int", "maxWaitMillis"),), "pollUntil"),
+        BuiltinMemberSpec("passwordInputHidden", "bool", "method", (("int", "fd"),), "passwordInputHidden"),
+        BuiltinMemberSpec("safeResponse", "bool", "method", (("string", "value"),), "safeResponse"),
+        BuiltinMemberSpec("writeBytesUntil", "bool", "method", (("int", "fd"), ("char*", "bytes"), ("size_t", "length"), ("long long", "deadline"),), "writeBytesUntil"),
+        BuiltinMemberSpec("writeResponseUntil", "bool", "method", (("int", "fd"), ("string", "value"), ("long long", "deadline"),), "writeResponseUntil"),
+        BuiltinMemberSpec("answer", "bool", "method", (("int", "fd"), ("Vector<string>", "responses"), ("int", "responseCount"), ("long long", "deadline"),), "answer"),
     )),
     ("Toml", (
         BuiltinMemberSpec("unquotedPosition", "int", "method", (("string", "line"), ("char", "target"),), "unquotedPosition"),

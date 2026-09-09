@@ -20,10 +20,10 @@ def _function(source: str, signature: str) -> str:
 def test_member_queries_use_complete_constant_time_indexes() -> None:
     # These are semantic source-shape contracts, not indentation-style
     # contracts. Canonicalize tabs solely for the bounded method slices below.
-    analyzer = (SELFHOST / "analyzer/models.btrc").read_text().expandtabs(4)
-    index = (SELFHOST / "analyzer/declarations.btrc").read_text().expandtabs(4)
-    types = (SELFHOST / "analyzer/types.btrc").read_text().expandtabs(4)
-    analyzer_stage = (SELFHOST / "analyzer/stage.btrc").read_text().expandtabs(4)
+    analyzer = (SELFHOST / "analyzer/Models.btrc").read_text().expandtabs(4)
+    index = (SELFHOST / "analyzer/Declarations.btrc").read_text().expandtabs(4)
+    types = (SELFHOST / "analyzer/Types.btrc").read_text().expandtabs(4)
+    analyzer_stage = (SELFHOST / "analyzer/Stage.btrc").read_text().expandtabs(4)
 
     for signature in (
         "    public Node? classMember(",
@@ -46,9 +46,9 @@ def test_member_queries_use_complete_constant_time_indexes() -> None:
     registration_end = index.index("/* Canonical physical storage")
     assert index.index("self.indexAnalyzedMembers(self.analyzed);") < registration_end
     assert "analyzed.memberIndexReady = true;" in index
-    assert "import ./models.btrc;" in analyzer_stage
-    assert "import ./types.btrc;" in analyzer_stage
-    assert "import ./declarations.btrc;" in analyzer_stage
+    assert "import ./Models.btrc;" in analyzer_stage
+    assert "import ./Types.btrc;" in analyzer_stage
+    assert "import ./Declarations.btrc;" in analyzer_stage
     assert "#include" not in analyzer_stage
 
 

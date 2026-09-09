@@ -582,7 +582,7 @@ class RuntimeCatalogGenerator:
     """Render compiler-specific immutable runtime catalog data."""
 
     _PYTHON_PATH = PurePosixPath("src/compiler/python/runtime/generated.py")
-    _BTRC_PATH = PurePosixPath("src/compiler/btrc/generated/runtime/catalog.btrc")
+    _BTRC_PATH = PurePosixPath("src/compiler/btrc/generated/runtime/Catalog.btrc")
     _PYTHON_STRING_CHUNK = 72
     _BTRC_STRING_CHUNK_BYTES = 1024
 
@@ -688,7 +688,7 @@ class RuntimeCatalogGenerator:
         lines = [
             "/* Generated shared runtime data. Do not edit by hand. */",
             "",
-            "import std.vector;",
+            "import std.Vector;",
             "",
             "class GeneratedRuntimeHelperRow {",
             "    public string category;",

@@ -1,0 +1,13 @@
+import std.Map;
+import std.Vector;
+
+#include <stdio.h>
+int main() {
+	Map<string, int> m = {"a": 1, "b": 2};
+	Vector<string> k = m.keys();
+	printf("%d\n", k.len);
+	k.free();
+	m.free();
+	printf("PASS: test_map_keys_string\n");
+	return 0;
+}

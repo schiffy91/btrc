@@ -45,52 +45,52 @@ def _compile_reference(tmp_path: Path, fixture: Path) -> tuple[subprocess.Comple
     "fixture_name, symbols",
     [
         (
-            "generic_closure_one_level.btrc",
+            "GenericClosureOneLevel.btrc",
             ("btrc_Bag_int", "btrc_Node_int"),
         ),
         (
-            "generic_closure_multilevel.btrc",
+            "GenericClosureMultilevel.btrc",
             ("btrc_Outer_int", "btrc_Middle_int", "btrc_Leaf_int"),
         ),
-        ("generic_closure_recursive.btrc", ("btrc_Link_int",)),
+        ("GenericClosureRecursive.btrc", ("btrc_Link_int",)),
         (
-            "generic_closure_cycle_runtime.btrc",
+            "GenericClosureCycleRuntime.btrc",
             ("btrc_CycleLink_int",),
         ),
         (
-            "generic_closure_constructor.btrc",
+            "GenericClosureConstructor.btrc",
             ("btrc_ConstructorSeed_int", "btrc_ConstructorLeaf_int"),
         ),
         (
-            "generic_closure_field.btrc",
+            "GenericClosureField.btrc",
             ("btrc_FieldSeed_int", "btrc_FieldLeaf_int"),
         ),
         (
-            "generic_closure_property.btrc",
+            "GenericClosureProperty.btrc",
             ("btrc_PropertySeed_int", "btrc_PropertyLeaf_int"),
         ),
         (
-            "generic_closure_method_body.btrc",
+            "GenericClosureMethodBody.btrc",
             ("btrc_Factory_int", "btrc_Crate_int", "btrc_Crate_string"),
         ),
         (
-            "cross_generic_constructor_runtime.btrc",
+            "CrossGenericConstructorRuntime.btrc",
             ("btrc_Maker_string", "btrc_Pair_string_int", "btrc_Empty_int"),
         ),
         (
-            "generic_constructor_expression_positions_runtime.btrc",
+            "GenericConstructorExpressionPositionsRuntime.btrc",
             ("btrc_Box_int", "btrc_Empty_int"),
         ),
         (
-            "generic_call_target_binding_runtime.btrc",
+            "GenericCallTargetBindingRuntime.btrc",
             ("btrc_Sized_int", "btrc_Pair_Base_p1", "btrc_Factory_int"),
         ),
         (
-            "generic_chained_method_result_runtime.btrc",
+            "GenericChainedMethodResultRuntime.btrc",
             ("btrc_Controller_Transport_p1",),
         ),
         (
-            "generic_typedef_constructor_runtime.btrc",
+            "GenericTypedefConstructorRuntime.btrc",
             ("btrc_Box_int",),
         ),
     ],
@@ -113,7 +113,7 @@ def test_transitive_generic_instances_match_and_run_strictly(
         assert selfhost.stdout.count(struct) == 1
         assert reference_source.read_text().count(struct) == 1
 
-    if fixture_name == "generic_call_target_binding_runtime.btrc":
+    if fixture_name == "GenericCallTargetBindingRuntime.btrc":
         emitted = selfhost_source.read_text()
         direct_size = next(line for line in emitted.splitlines() if "directBareSize =" in line)
         direct_pair = next(line for line in emitted.splitlines() if "directBarePair =" in line)
@@ -122,13 +122,13 @@ def test_transitive_generic_instances_match_and_run_strictly(
         assert "__btrc_arc_retain(directBareSize)" not in emitted
         assert "__btrc_arc_retain(directBarePair)" not in emitted
 
-    if fixture_name == "generic_chained_method_result_runtime.btrc":
+    if fixture_name == "GenericChainedMethodResultRuntime.btrc":
         for emitted in (selfhost_source.read_text(), reference_source.read_text()):
             assert "ConfigureOutcome_succeeded(" in emitted
             assert ".succeeded()" not in emitted
             assert "__btrc_arc_release" in emitted
 
-    if fixture_name == "generic_typedef_constructor_runtime.btrc":
+    if fixture_name == "GenericTypedefConstructorRuntime.btrc":
         for emitted in (selfhost_source.read_text(), reference_source.read_text()):
             constructor_line = next(line for line in emitted.splitlines() if "BoxAlias box =" in line)
             assert "btrc_Box_int_new(" in constructor_line
@@ -142,7 +142,7 @@ def test_typedef_constructor_validates_the_specialized_signature(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    fixture = FIXTURES / "generic_typedef_constructor_invalid.btrc"
+    fixture = FIXTURES / "GenericTypedefConstructorInvalid.btrc"
     selfhost, _selfhost_source = _compile_source(semantic_btrcc, tmp_path, fixture.read_text())
     reference, _reference_source = _compile_reference(tmp_path, fixture)
 
@@ -156,23 +156,23 @@ def test_typedef_constructor_validates_the_specialized_signature(
     "fixture_name, diagnostic",
     [
         (
-            "generic_inheritance_child_unsupported.btrc",
+            "GenericInheritanceChildUnsupported.btrc",
             "Generic class inheritance is not supported",
         ),
         (
-            "generic_inheritance_parent_unsupported.btrc",
+            "GenericInheritanceParentUnsupported.btrc",
             "Generic class inheritance is not supported",
         ),
         (
-            "generic_static_field_unsupported.btrc",
+            "GenericStaticFieldUnsupported.btrc",
             "is not supported on a generic class",
         ),
         (
-            "generic_static_method_call_unsupported.btrc",
+            "GenericStaticMethodCallUnsupported.btrc",
             "has no specialization target",
         ),
         (
-            "generic_static_method_value_unsupported.btrc",
+            "GenericStaticMethodValueUnsupported.btrc",
             "has no specialization target",
         ),
     ],
@@ -197,7 +197,7 @@ def test_static_properties_fail_closed_with_parity(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    fixture = FIXTURES / "static_property_unsupported.btrc"
+    fixture = FIXTURES / "StaticPropertyUnsupported.btrc"
     selfhost, _generated = _compile_source(
         semantic_btrcc,
         tmp_path,
@@ -214,7 +214,7 @@ def test_generic_method_tuple_and_complex_callee_run_with_parity(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    fixture = FIXTURES / "generic_method_tuple_runtime.btrc"
+    fixture = FIXTURES / "GenericMethodTupleRuntime.btrc"
     selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, fixture.read_text())
     reference, reference_source = _compile_reference(tmp_path, fixture)
 
@@ -228,7 +228,7 @@ def test_ordinary_static_calls_from_generic_methods_bind_without_receiver(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    fixture = FIXTURES / "generic_ordinary_static_call_runtime.btrc"
+    fixture = FIXTURES / "GenericOrdinaryStaticCallRuntime.btrc"
     selfhost, selfhost_source = _compile_source(
         semantic_btrcc,
         tmp_path,
@@ -251,7 +251,7 @@ def test_generic_method_return_infers_from_inline_lambda_with_parity(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    fixture = FIXTURES / "generic_method_inline_lambda_runtime.btrc"
+    fixture = FIXTURES / "GenericMethodInlineLambdaRuntime.btrc"
     selfhost, selfhost_source = _compile_source(
         semantic_btrcc,
         tmp_path,
@@ -275,11 +275,11 @@ def test_generic_method_return_infers_from_inline_lambda_with_parity(
     "fixture_name, diagnostic",
     [
         (
-            "generic_lambda_unsupported.btrc",
+            "GenericLambdaUnsupported.btrc",
             "Lambda expressions are not supported inside generic declarations",
         ),
         (
-            "generic_spawn_unsupported.btrc",
+            "GenericSpawnUnsupported.btrc",
             "spawn expressions are not supported inside generic declarations",
         ),
     ],

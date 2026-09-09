@@ -114,8 +114,8 @@ def test_invalid_executable_shapes_fail_closed(
 @pytest.mark.parametrize(
     "fixture_name",
     [
-        "executable_contracts_runtime.btrc",
-        "optional_call_contracts_runtime.btrc",
+        "ExecutableContractsRuntime.btrc",
+        "OptionalCallContractsRuntime.btrc",
     ],
 )
 def test_executable_contracts_compile_strictly_and_run(
@@ -130,7 +130,7 @@ def test_executable_contracts_compile_strictly_and_run(
 
 
 def test_dynamic_zero_range_step_exits_before_iteration(semantic_btrcc: Path, tmp_path: Path) -> None:
-    source = (FIXTURES / "range_zero_runtime.btrc").read_text()
+    source = (FIXTURES / "RangeZeroRuntime.btrc").read_text()
     result, generated = _compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
     binary = tmp_path / "range-zero"

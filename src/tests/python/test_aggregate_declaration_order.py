@@ -372,7 +372,7 @@ def test_imported_c_enum_array_initializer_keeps_typed_source_order(
                 && values[3] == FOREIGN_RED ? 0 : 1;
         }
     """
-    source_path = tmp_path / "imported-enum-array.btrc"
+    source_path = tmp_path / "imported-enum-Array.btrc"
     source_path.write_text(source)
     result = Compiler().compile(source, str(source_path), CompilerOptions())
 

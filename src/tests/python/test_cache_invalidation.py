@@ -187,7 +187,7 @@ def test_cache_dir_project_root_from_input_path(tmp_path, monkeypatch):
     sub = root / "src" / "deep"
     sub.mkdir(parents=True)
     (root / "btrc.toml").write_text("[package]\nname = 'p'\n")
-    got = CacheDirectory().resolve(str(sub / "main.btrc"))
+    got = CacheDirectory().resolve(str(sub / "Main.btrc"))
     assert got == str(root / ".btrc-cache")
     assert (root / ".btrc-cache").is_dir()
 
@@ -242,10 +242,10 @@ def test_disk_cache_input_path_anchors_project_root(tmp_path, monkeypatch):
     (root / "btrc.toml").write_text("[package]\nname = 'p'\n")
     monkeypatch.chdir(tmp_path)  # cwd is NOT the project
     cache = CompilerCache()
-    cache.store_text("src-B", "out", input_path=str(root / "main.btrc"))
+    cache.store_text("src-B", "out", input_path=str(root / "Main.btrc"))
     assert os.listdir(root / ".btrc-cache")  # cache landed in the project
     assert not (tmp_path / ".btrc-cache").exists()
-    assert cache.load_text("src-B", input_path=str(root / "main.btrc")) == "out"
+    assert cache.load_text("src-B", input_path=str(root / "Main.btrc")) == "out"
 
 
 # --------------------------------------------------------------------------

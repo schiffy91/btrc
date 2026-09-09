@@ -5,16 +5,16 @@ from pathlib import Path
 from src.tests.btrc.test_semantic_validation import _compile_source, _strict_build_and_run
 
 REPO = Path(__file__).resolve().parents[3]
-ANALYZER = REPO / "src/compiler/btrc/analyzer/expressions.btrc"
+ANALYZER = REPO / "src/compiler/btrc/analyzer/Expressions.btrc"
 MEMO = ANALYZER
-GPU_SEMANTICS = REPO / "src/compiler/btrc/analyzer/gpu.btrc"
+GPU_SEMANTICS = REPO / "src/compiler/btrc/analyzer/Gpu.btrc"
 LOWERING = REPO / "src/compiler/btrc/ir/lowering"
-LOWERER = LOWERING / "lowerer.btrc"
-FUNCTIONS = LOWERING / "functions.btrc"
-DECLARATIONS = LOWERING / "declarations.btrc"
-EXPRESSIONS = LOWERING / "expressions.btrc"
-GPU_PIPELINE = REPO / "src/compiler/btrc/ir/gpu/pipeline.btrc"
-OWNERSHIP_OPERAND_PLANNER = LOWERING / "ownership/operands.btrc"
+LOWERER = LOWERING / "Lowerer.btrc"
+FUNCTIONS = LOWERING / "Functions.btrc"
+DECLARATIONS = LOWERING / "Declarations.btrc"
+EXPRESSIONS = LOWERING / "Expressions.btrc"
+GPU_PIPELINE = REPO / "src/compiler/btrc/ir/gpu/Pipeline.btrc"
+OWNERSHIP_OPERAND_PLANNER = LOWERING / "ownership/Operands.btrc"
 
 
 def _function(source: str, signature: str, next_signature: str) -> str:
@@ -157,7 +157,7 @@ def test_binary_inference_uses_left_to_right_postorder_without_recursion() -> No
 
 def test_binary_validation_scopes_memo_to_iterative_postorder() -> None:
     analyzer = ANALYZER.read_text()
-    validation = (REPO / "src/compiler/btrc/analyzer/validation/expressions.btrc").read_text()
+    validation = (REPO / "src/compiler/btrc/analyzer/validation/Expressions.btrc").read_text()
     binary = _function(
         validation,
         "private void validateBinaryTree(",

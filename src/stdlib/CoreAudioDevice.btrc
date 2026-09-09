@@ -11,8 +11,8 @@
 
 import std.AudioDevice;
 import std.OwnedBuffer;
-import std.strings;
-import std.vector;
+import std.Strings;
+import std.Vector;
 
 struct CoreAudioNativeRateRange {
 	int minimum;

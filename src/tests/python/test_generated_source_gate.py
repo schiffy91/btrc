@@ -18,7 +18,7 @@ from tools.compiler_codegen.verification import (
 REPO = Path(__file__).resolve().parents[3]
 GENERATED_PATHS = (
     REPO / "src/compiler/python/syntax/ast/generated.py",
-    REPO / "src/compiler/btrc/generated/ast/node.btrc",
+    REPO / "src/compiler/btrc/generated/ast/Node.btrc",
     REPO / "src/devex/lsp/catalog/generated.py",
 )
 HOSTED_ABI = REPO / "src/compiler/btrc/generated/hosted_abi"

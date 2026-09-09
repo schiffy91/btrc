@@ -172,7 +172,7 @@ def _snapshot_compiler_inputs(tmp_dir: str) -> tuple[str, str, str]:
         destination = os.path.join(source_root, relative)
         os.makedirs(os.path.dirname(destination), exist_ok=True)
         shutil.copytree(source, destination, ignore=ignored)
-    compiler = os.path.join(source_root, "compiler", "btrc", "btrcc_main.btrc")
+    compiler = os.path.join(source_root, "compiler", "btrc", "BtrccMain.btrc")
     return project_root, source_root, compiler
 
 
@@ -205,7 +205,7 @@ class TestBootstrap(unittest.TestCase):
                 "(the self-built compiler does not reproduce itself)",
             )
 
-            sample = os.path.join(REPO, "src", "tests", "classes", "test_inherited_operator_overload.btrc")
+            sample = os.path.join(REPO, "src", "tests", "classes", "InheritedOperatorOverload.btrc")
             prog_c = os.path.join(d, "sample.c")
             prog_bin = os.path.join(d, f"sample{EXE_SUFFIX}")
             _btrcc(b2, sample, prog_c, data_root=data_root, workdir=project_root)
@@ -218,7 +218,7 @@ class TestBootstrap(unittest.TestCase):
                 "tests",
                 "classes",
                 "expected",
-                "test_inherited_operator_overload.stdout",
+                "InheritedOperatorOverload.stdout",
             )
             with open(golden) as expected:
                 self.assertEqual(run.stdout, expected.read(), "self-built compiler output != golden")

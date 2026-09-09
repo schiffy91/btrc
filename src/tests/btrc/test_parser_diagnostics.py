@@ -13,8 +13,8 @@ import pytest
 REPO = Path(__file__).resolve().parents[3]
 CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
 DRIVER_SOURCES = {
-    "parser": "src/compiler/btrc/tools/parse_main.btrc",
-    "compiler": "src/compiler/btrc/btrcc_main.btrc",
+    "parser": "src/compiler/btrc/tools/ParseMain.btrc",
+    "compiler": "src/compiler/btrc/BtrccMain.btrc",
 }
 
 pytestmark = pytest.mark.skipif(

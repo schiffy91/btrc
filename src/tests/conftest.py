@@ -219,7 +219,7 @@ def _build_immutable_btrcc(compiler: list[str], output: Path, binary: Path) -> N
             sys.executable,
             "-m",
             "src.compiler.python.main",
-            "src/compiler/btrc/btrcc_main.btrc",
+            "src/compiler/btrc/BtrccMain.btrc",
             "--no-cache",
             "-o",
             str(generated),

@@ -18,10 +18,10 @@ SELFHOST = REPO / "src/compiler/btrc/ir/lowering"
 
 
 def test_immediate_lambda_transaction_has_typed_domain_owners() -> None:
-    calls = (SELFHOST / "calls.btrc").read_text()
-    callables = (SELFHOST / "callables.btrc").read_text()
-    expressions = (SELFHOST / "expressions.btrc").read_text()
-    ownership = (SELFHOST / "ownership/calls.btrc").read_text()
+    calls = (SELFHOST / "Calls.btrc").read_text()
+    callables = (SELFHOST / "Callables.btrc").read_text()
+    expressions = (SELFHOST / "Expressions.btrc").read_text()
+    ownership = (SELFHOST / "ownership/Calls.btrc").read_text()
 
     assert "CALL_TARGET_IMMEDIATE_LAMBDA" in calls
     callable_target = calls.split("private CallTarget callableTarget(", 1)[1].split(

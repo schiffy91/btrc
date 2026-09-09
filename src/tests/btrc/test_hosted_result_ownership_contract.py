@@ -26,8 +26,8 @@ from src.tests.btrc.test_semantic_validation import REPO
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
-FIXTURE = Path(__file__).with_name("fixtures") / "hosted_result_ownership_runtime.btrc"
-GETCWD_FIXTURE = Path(__file__).with_name("fixtures") / "hosted_getcwd_fresh_runtime.btrc"
+FIXTURE = Path(__file__).with_name("fixtures") / "HostedResultOwnershipRuntime.btrc"
+GETCWD_FIXTURE = Path(__file__).with_name("fixtures") / "HostedGetcwdFreshRuntime.btrc"
 GETCWD_SHIM = Path(__file__).with_name("fixtures") / "hosted_getcwd_alloc_shim.c"
 
 HOSTED_SHADOW_PROBE = """

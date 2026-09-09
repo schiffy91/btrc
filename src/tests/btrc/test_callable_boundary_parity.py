@@ -192,8 +192,8 @@ def test_aggregate_storage_recursively_rejects_owned_callback_abi(
     declaration: str,
 ) -> None:
     source = f"""
-        import std.vector;
-        import std.map;
+        import std.Vector;
+        import std.Map;
         struct Slot {{ __fn_ptr<string> callback; }};
         struct Branch {{ Slot leaf; }};
         string sourceString() {{ return f"owned={{1}}"; }}

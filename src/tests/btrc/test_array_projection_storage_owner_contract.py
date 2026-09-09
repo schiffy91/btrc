@@ -8,8 +8,8 @@ PYTHON_ANALYZER = REPO / "src/compiler/python/analyzer"
 
 
 def test_array_projection_storage_has_one_stateful_domain_owner() -> None:
-    storage = (SELFHOST / "analyzer/validation/storage.btrc").read_text()
-    borrows = (SELFHOST / "analyzer/validation/borrows.btrc").read_text()
+    storage = (SELFHOST / "analyzer/validation/Storage.btrc").read_text()
+    borrows = (SELFHOST / "analyzer/validation/Borrows.btrc").read_text()
 
     owner = storage.split("class StorageValidator {", 1)[1]
     private_state = [

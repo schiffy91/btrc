@@ -60,12 +60,12 @@ def _strict_build_and_run(generated: Path, executable: Path, compiler: str) -> N
 
 VALID_PROGRAMS = (
     pytest.param(
-        "import std.vector;\nint main() { return 0; }\n",
+        "import std.Vector;\nint main() { return 0; }\n",
         id="imported-generic-constructor",
     ),
     pytest.param(
         """\
-import std.vector;
+import std.Vector;
 int main() {
     Vector<int> values = [];
     values.push(1);
@@ -110,7 +110,7 @@ def test_generic_constructor_owners_have_strict_runtime_parity(
 INVALID_PROGRAMS = (
     pytest.param(
         """\
-import std.vector;
+import std.Vector;
 int main() {
     Vector values;
     return 0;

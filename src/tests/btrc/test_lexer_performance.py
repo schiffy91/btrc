@@ -34,7 +34,7 @@ def selfhost_lexer(selfhost_driver) -> Path:
     """The lex-only driver, built once per revision and shared."""
 
     return selfhost_driver(
-        REPO / "src/compiler/btrc/tools/lex_main.btrc",
+        REPO / "src/compiler/btrc/tools/LexMain.btrc",
         compile_flags=("-pedantic-errors",),
     )
 
@@ -71,7 +71,7 @@ def test_operator_scan_scales_linearly(
 
 
 def test_lexer_cursor_does_not_rescan_source_text() -> None:
-    source = (REPO / "src/compiler/btrc/lexer/lexer.btrc").read_text()
+    source = (REPO / "src/compiler/btrc/lexer/Lexer.btrc").read_text()
     assert "self.sourceLen = source.length();" in source
     assert "self.source.length()" not in source
     assert "self.source.substring(self.pos, oplen)" not in source

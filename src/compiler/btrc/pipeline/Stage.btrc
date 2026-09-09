@@ -1,0 +1,5 @@
+/* Public application-facing manifest for the complete six-stage pipeline. */
+
+import ../ir/Stage.btrc;
+import ./Models.btrc;
+import ./Pipeline.btrc;

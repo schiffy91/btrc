@@ -23,7 +23,7 @@ int main() {
 """
 
 
-def _warm(source: str, uri: str = "file:///proj/app.btrc"):
+def _warm(source: str, uri: str = "file:///proj/App.btrc"):
     """Parse a document so the workspace caches its unit (and the stdlib)."""
     return compute_diagnostics(uri, source)
 
@@ -36,7 +36,7 @@ def test_finds_user_class_by_substring():
     assert all(s.kind == lsp.SymbolKind.Class for s in widgets)
     # The active document's Widget is among the hits (other tests may also have
     # cached a Widget in the shared process-wide workspace).
-    assert any(s.location.uri.endswith("app.btrc") for s in widgets)
+    assert any(s.location.uri.endswith("App.btrc") for s in widgets)
 
 
 def test_finds_stdlib_class():
@@ -45,7 +45,7 @@ def test_finds_stdlib_class():
     vec = [s for s in syms if s.name == "Vector"]
     assert vec, "stdlib Vector not found by workspace/symbol"
     assert vec[0].kind == lsp.SymbolKind.Class
-    assert vec[0].location.uri.endswith("vector.btrc")
+    assert vec[0].location.uri.endswith("Vector.btrc")
 
 
 def test_finds_function_by_substring():

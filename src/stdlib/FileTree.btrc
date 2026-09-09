@@ -6,10 +6,10 @@
  * exact snapshots when deciding whether stale work may publish.
  */
 
-import std.bytes;
+import std.Bytes;
 import std.FileSystemHandles;
-import std.strings;
-import std.vector;
+import std.Strings;
+import std.Vector;
 
 class FileRevision {
 	private long long _value;

@@ -300,7 +300,7 @@ def test_resolve_fails_closed_on_structurally_invalid_current_lock(tmp_path, loc
 def test_resolve_for_invalid_dependency_shape_is_controlled(tmp_path):
     (tmp_path / "btrc.toml").write_text("dependencies = 1\n")
     with pytest.raises(IncludeResolutionError, match=r"dependencies.*table"):
-        PACKAGE_RESOLVER.resolve_for(str(tmp_path / "main.btrc"))
+        PACKAGE_RESOLVER.resolve_for(str(tmp_path / "Main.btrc"))
 
 
 def test_resolve_writes_lock(tmp_path):

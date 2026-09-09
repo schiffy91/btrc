@@ -2,8 +2,8 @@
 
 import std.DaemonControl;
 import std.FileSystem;
-import std.platform;
-import std.strings;
+import std.Platform;
+import std.Strings;
 
 #include <errno.h>
 #include <fcntl.h>

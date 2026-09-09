@@ -21,7 +21,7 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 def test_custom_property_getter_abi_is_owned_by_shared_class_lowerers() -> None:
     repository = Path(__file__).resolve().parents[3]
     python_classes = (repository / "src/compiler/python/ir/lowering/classes.py").read_text()
-    selfhost_classes = (repository / "src/compiler/btrc/ir/lowering/declarations.btrc").read_text()
+    selfhost_classes = (repository / "src/compiler/btrc/ir/lowering/Declarations.btrc").read_text()
 
     assert python_classes.count("class ClassLowerer:") == 1
     assert "def _getter_body(" in python_classes
@@ -45,8 +45,8 @@ def test_custom_property_getter_abi_has_no_borrowed_return_policy() -> None:
         source = path.read_text()
         assert "borrowedReturn" not in source
 
-    selfhost_returns = (repository / "src/compiler/btrc/ir/lowering/ownership/lifetime.btrc").read_text()
-    selfhost_classification = (repository / "src/compiler/btrc/ir/lowering/ownership/semantics.btrc").read_text()
+    selfhost_returns = (repository / "src/compiler/btrc/ir/lowering/ownership/Lifetime.btrc").read_text()
+    selfhost_classification = (repository / "src/compiler/btrc/ir/lowering/ownership/Semantics.btrc").read_text()
     python_returns = (repository / "src/compiler/python/ir/lowering/ownership.py").read_text()
     assert "borrowed property getter" not in selfhost_returns
     assert "irBorrowsFromManagedLocal" not in selfhost_classification

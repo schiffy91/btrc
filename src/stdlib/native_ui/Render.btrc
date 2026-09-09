@@ -3,11 +3,23 @@
  * This platform-handle-free layer proves geometry and input with a portable
  * RGBA Image.  That image is test evidence, not the production presentation
  * endpoint.  std.NativeUiApp consumes the same validated boxes and resolved
- * styles on std.app's sole window/device/surface/present cycle.
+ * styles on std.App's sole window/device/surface/present cycle.
  */
 
 /* Text-input limits are byte limits; editing and rendering advance only at
  * validated UTF-8 scalar boundaries. */
+class NativeUiTextEditState {
+	public string text;
+	public int caret;
+	public int anchor;
+
+	public NativeUiTextEditState(string text, int caret, int anchor) {
+		self.text = text;
+		self.caret = caret;
+		self.anchor = anchor;
+	}
+}
+
 class NativeUiTextInput {
 	class NativeUiRect iconBounds(NativeUiLayoutBox box) {
 		NativeUiElement element = box.element;
@@ -1933,6 +1945,8 @@ class NativeUiRenderer {
 	private string focusedInputValue;
 	private int focusedCaretByteOffset;
 	private int focusedAnchorByteOffset = 0;
+	private Vector<NativeUiTextEditState> textUndo = [];
+	private Vector<NativeUiTextEditState> textRedo = [];
 	private bool textSelecting = false;
 	private int textSelectionClicks = 1;
 	private int textSelectionWordStart = 0;
@@ -2144,6 +2158,7 @@ class NativeUiRenderer {
 	}
 
 	private void clearFocus() {
+		self.clearTextHistory();
 		self.textMenuValue = null;
 		self.textSelecting = false;
 		self.focusedAnchorByteOffset = 0;
@@ -2155,6 +2170,7 @@ class NativeUiRenderer {
 	}
 
 	private void focus(NativeUiLayoutBox box) {
+		if (!box.id().equals(self.focusedIdentity)) { self.clearTextHistory(); }
 		if (!box.id().equals(self.focusedIdentity)) { self.textMenuValue = null; }
 		if (!box.focusable()) {
 			self.clearFocus();
@@ -2185,6 +2201,7 @@ class NativeUiRenderer {
 		for box in boxes {
 			if (box.focusable() && box.id().equals(self.focusedIdentity)) {
 				if (box.adjustable() || box.selectable()) {
+					self.clearTextHistory();
 					self.focusedAnchorByteOffset = 0;
 					self.textSelecting = false;
 					self.focusedInputValue = "";
@@ -2192,8 +2209,10 @@ class NativeUiRenderer {
 					self.focusedMaxBytes = 0;
 					return;
 				}
+				if (self.focusedMaxBytes != box.element.textInputMaxBytes()) { self.clearTextHistory(); }
 				self.focusedMaxBytes = box.element.textInputMaxBytes();
 				if (!box.element.contentText().equals(self.focusedInputValue)) {
+					self.clearTextHistory();
 					self.textMenuValue = null;
 					self.focusedInputValue = box.element.contentText();
 					self.focusedCaretByteOffset = self.focusedInputValue.len();
@@ -2723,7 +2742,33 @@ class NativeUiRenderer {
 		return NativeUiEventBatch(self.frameValue, events);
 	}
 
-	public NativeUiEventBatch textEntered(string text) {
+	private void clearTextHistory() {
+		self.textUndo.clear();
+		self.textRedo.clear();
+	}
+
+	private NativeUiTextEditState textEditState() { return NativeUiTextEditState(self.focusedInputValue, self.focusedCaretByteOffset, self.focusedAnchorByteOffset); }
+
+	public NativeUiEventBatch undoText(bool redo = false) {
+		Vector<NativeUiEvent> events = [];
+		Vector<NativeUiTextEditState> source = redo ? self.textRedo : self.textUndo;
+		if (!self.editingText() || source.len == 0) { return NativeUiEventBatch(self.frameValue, events); }
+		Vector<NativeUiTextEditState> destination = redo ? self.textUndo : self.textRedo;
+		destination.push(self.textEditState());
+		NativeUiTextEditState restored = source.pop();
+		self.focusedInputValue = restored.text;
+		self.focusedCaretByteOffset = restored.caret;
+		self.focusedAnchorByteOffset = restored.anchor;
+		self.textMenuValue = null;
+		self.textSelecting = false;
+		self.resetCaretBlink();
+		events.push(NativeUiEvent.valueChanged(self.focusedIdentity, self.focusedInputValue));
+		return self.inputBatch(events);
+	}
+
+	public NativeUiEventBatch textEntered(string text) { return self.replaceSelectedText(text, self.textEditState()); }
+
+	private NativeUiEventBatch replaceSelectedText(string text, NativeUiTextEditState before) {
 		self.textMenuValue = null;
 		Vector<NativeUiEvent> events = [];
 		if (!self.editingText() || text == null || !NativeUiTextInput.validUtf8(text) || (long long)self.focusedInputValue.len() - (long long)(self.selectionEnd() - self.selectionStart()) + (long long)text.len() > (long long)self.focusedMaxBytes) {
@@ -2733,6 +2778,11 @@ class NativeUiRenderer {
 		string prefix = self.focusedInputValue.substring(0, self.selectionStart());
 		string suffix = self.focusedInputValue.substring(self.selectionEnd(), self.focusedInputValue.len() - self.selectionEnd());
 		int caret = self.selectionStart() + text.len();
+		if (!(prefix + text + suffix).equals(self.focusedInputValue)) {
+			if (self.textUndo.len == 128) { self.textUndo.remove(0); }
+			self.textUndo.push(before);
+			self.textRedo.clear();
+		}
 		self.focusedInputValue = prefix + text + suffix;
 		self.focusedCaretByteOffset = caret;
 		self.focusedAnchorByteOffset = caret;
@@ -2742,17 +2792,19 @@ class NativeUiRenderer {
 	}
 
 	public NativeUiEventBatch backspace(bool word = false, bool line = false) {
+		NativeUiTextEditState before = self.textEditState();
 		if (self.editingText() && self.selectionStart() == self.selectionEnd()) {
 			self.focusedAnchorByteOffset = line ? 0 : (word ? NativeUiTextInput.previousWord(self.focusedInputValue, self.focusedCaretByteOffset) : NativeUiTextInput.previousBoundary(self.focusedInputValue, self.focusedCaretByteOffset));
 		}
-		return self.textEntered("");
+		return self.replaceSelectedText("", before);
 	}
 
 	public NativeUiEventBatch deleteForward(bool word = false, bool line = false) {
+		NativeUiTextEditState before = self.textEditState();
 		if (self.editingText() && self.selectionStart() == self.selectionEnd()) {
 			self.focusedAnchorByteOffset = line ? self.focusedInputValue.len() : (word ? NativeUiTextInput.nextWord(self.focusedInputValue, self.focusedCaretByteOffset) : NativeUiTextInput.nextBoundary(self.focusedInputValue, self.focusedCaretByteOffset));
 		}
-		return self.textEntered("");
+		return self.replaceSelectedText("", before);
 	}
 
 	private NativeUiEventBatch moveCaret(int destination, bool extend) {

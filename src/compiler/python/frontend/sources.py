@@ -680,14 +680,14 @@ class SourceDirectoryScanner:
 
 _DEFAULT_STDLIB_DIRECTORY = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "stdlib"))
 _PRIORITY_FILES = (
-    "vector.btrc",
-    "list.btrc",
-    "strings.btrc",
-    "platform.btrc",
-    "process.btrc",
+    "Vector.btrc",
+    "List.btrc",
+    "Strings.btrc",
+    "Platform.btrc",
+    "Process.btrc",
     "FileSystem.btrc",
-    "daemon.btrc",
-    "ui.btrc",
+    "Daemon.btrc",
+    "Ui.btrc",
 )
 # Legacy relaxed composition and the prebuilt core archive concatenate root
 # modules after stripping imports. Native adapters with nested source-graph or

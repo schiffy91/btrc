@@ -15,7 +15,7 @@ from src.compiler.python.parser.parser import Parser
 from src.compiler.python.syntax.ast.generated import Identifier
 from src.tests.python.test_codegen import emit_c
 
-FIXTURE = Path(__file__).resolve().parents[1] / "btrc" / "fixtures" / "typedef_member_alias_runtime.btrc"
+FIXTURE = Path(__file__).resolve().parents[1] / "btrc" / "fixtures" / "TypedefMemberAliasRuntime.btrc"
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 TYPEDEF_OPERATOR_RUNTIME_SOURCE = r"""

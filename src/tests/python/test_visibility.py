@@ -36,7 +36,7 @@ def visibility_errors(entry):
 def test_direct_import_grants_cross_file_access(tmp_path):
     write(tmp_path / "b.btrc", "class B {}\n")
     write(tmp_path / "a.btrc", "import ./b.btrc;\nB makeB() { B b = new B(); return b; }\n")
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./a.btrc;\nint main() { return 0; }\n")
 
     assert visibility_errors(entry) == []
@@ -54,7 +54,7 @@ def test_symlink_import_grants_access_by_canonical_file_identity(tmp_path):
         tmp_path / "a.btrc",
         "import ./alias/b.btrc;\nB makeB() { return new B(); }\n",
     )
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./a.btrc;\nint main() { return 0; }\n")
 
     assert visibility_errors(entry) == []
@@ -63,7 +63,7 @@ def test_symlink_import_grants_access_by_canonical_file_identity(tmp_path):
 def test_missing_per_file_import_reports_symbol_owner(tmp_path):
     write(tmp_path / "b.btrc", "class B {}\n")
     write(tmp_path / "a.btrc", "B makeB() { B b = new B(); return b; }\n")
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n")
 
     errors = visibility_errors(entry)
@@ -75,7 +75,7 @@ def test_missing_per_file_import_reports_symbol_owner(tmp_path):
 def test_legacy_include_fragments_share_one_compilation_unit(tmp_path):
     write(tmp_path / "b.btrc", "class B {}\n")
     write(tmp_path / "a.btrc", "B makeB() { return new B(); }\n")
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, '#include "a.btrc"\n#include "b.btrc"\nint main() { return 0; }\n')
 
     resolved, provenance, graph = _RESOLVER.resolve_includes_traced(entry.read_text(), str(entry))
@@ -89,20 +89,20 @@ def test_legacy_include_fragments_share_one_compilation_unit(tmp_path):
 def test_include_component_does_not_reverse_its_parent_import(tmp_path):
     write(tmp_path / "fragment.btrc", "Root makeRoot() { return new Root(); }\n")
     write(tmp_path / "package.btrc", '#include "fragment.btrc"\n')
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./package.btrc;\nclass Root {}\nint main() { return 0; }\n")
 
     errors = visibility_errors(entry)
 
     assert errors
-    assert errors[0][0] == ("'Root' is defined in main.btrc but fragment.btrc does not import it")
+    assert errors[0][0] == ("'Root' is defined in Main.btrc but fragment.btrc does not import it")
 
 
 def test_mega_header_import_grants_transitive_access(tmp_path):
     write(tmp_path / "b.btrc", "class B {}\n")
     write(tmp_path / "prelude.btrc", "import ./b.btrc;\n")
     write(tmp_path / "a.btrc", "import ./prelude.btrc;\nB makeB() { B b = new B(); return b; }\n")
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./a.btrc;\nint main() { return 0; }\n")
 
     assert visibility_errors(entry) == []
@@ -113,7 +113,7 @@ def test_strict_imports_cli_reports_visibility_error(tmp_path, monkeypatch, caps
     monkeypatch.chdir(tmp_path)
     write(tmp_path / "b.btrc", "class B {}\n")
     write(tmp_path / "a.btrc", "B makeB() { B b = new B(); return b; }\n")
-    entry = write(tmp_path / "main.btrc", "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n")
+    entry = write(tmp_path / "Main.btrc", "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n")
 
     with pytest.raises(SystemExit) as exc:
         CompilerCommand(Compiler()).run([entry, *flags, "--no-cache"])
@@ -127,7 +127,7 @@ def test_relaxed_imports_is_an_explicit_legacy_opt_out(tmp_path, monkeypatch):
     write(tmp_path / "b.btrc", "class B {}\n")
     write(tmp_path / "a.btrc", "B makeB() { return new B(); }\n")
     entry = write(
-        tmp_path / "main.btrc",
+        tmp_path / "Main.btrc",
         "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n",
     )
 
@@ -139,7 +139,7 @@ def test_relaxed_imports_is_an_explicit_legacy_opt_out(tmp_path, monkeypatch):
 def test_compile_frontend_api_defaults_to_strict_imports(tmp_path):
     write(tmp_path / "b.btrc", "class B {}\n")
     write(tmp_path / "a.btrc", "B makeB() { return new B(); }\n")
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n")
 
     with pytest.raises(FrontendVisibilityError):
@@ -152,7 +152,7 @@ def test_compile_frontend_api_defaults_to_strict_imports(tmp_path):
 def test_compile_api_defaults_to_strict_imports(tmp_path):
     write(tmp_path / "b.btrc", "class B {}\n")
     write(tmp_path / "a.btrc", "B makeB() { return new B(); }\n")
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n")
 
     result = Compiler().compile(entry.read_text(), str(entry))
@@ -168,7 +168,7 @@ def test_cache_identity_prevents_valid_graph_from_masking_missing_import(tmp_pat
     write(tmp_path / "b.btrc", "class B {}\n")
     write(tmp_path / "c.btrc", "class C {}\n")
     consumer = tmp_path / "a.btrc"
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(
         entry,
         "import ./b.btrc;\nimport ./c.btrc;\nimport ./a.btrc;\nint main() { return 0; }\n",
@@ -204,7 +204,7 @@ def test_local_shadowing_top_level_symbol_is_not_a_reference(tmp_path):
         "    return Logger;\n"
         "}\n",
     )
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n")
 
     assert visibility_errors(entry) == []
@@ -214,7 +214,7 @@ def test_loop_and_catch_variables_are_scoped(tmp_path):
     write(tmp_path / "b.btrc", "class Item {}\n")
     write(
         tmp_path / "a.btrc",
-        "import std.vector;\n"
+        "import std.Vector;\n"
         "int scan(Vector<int> xs) {\n"
         "    int total = 0;\n"
         "    for Item in xs { total += Item; }\n"  # loop var shadows class
@@ -222,7 +222,7 @@ def test_loop_and_catch_variables_are_scoped(tmp_path):
         "    return total;\n"
         "}\n",
     )
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n")
 
     assert visibility_errors(entry) == []
@@ -232,7 +232,7 @@ def test_genuine_reference_still_reported_alongside_local(tmp_path):
     """Scoping must not hide real cross-file references."""
     write(tmp_path / "b.btrc", "class B {}\n")
     write(tmp_path / "a.btrc", "int f() { int x = 0; B b = new B(); return x; }\n")
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n")
 
     errors = visibility_errors(entry)
@@ -246,7 +246,7 @@ def test_method_generic_does_not_bind_to_same_named_top_level_type(tmp_path):
         tmp_path / "box.btrc",
         "class Box { public U identity<U>(U value) { return value; } }\n",
     )
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./u.btrc;\nimport ./box.btrc;\nint main() { return 0; }\n")
 
     assert visibility_errors(entry) == []
@@ -263,7 +263,7 @@ def test_method_generic_does_not_bind_to_same_named_top_level_type(tmp_path):
 def test_global_variable_reference_requires_per_file_import(tmp_path, consumer):
     write(tmp_path / "globals.btrc", "int shared = 42;\n")
     write(tmp_path / "consumer.btrc", consumer)
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(
         entry,
         "import ./globals.btrc;\nimport ./consumer.btrc;\nint main() { return 0; }\n",
@@ -281,7 +281,7 @@ def test_explicit_import_grants_global_variable_access(tmp_path):
         tmp_path / "consumer.btrc",
         "import ./globals.btrc;\nint initialized = shared;\n",
     )
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./consumer.btrc;\nint main() { return 0; }\n")
 
     assert visibility_errors(entry) == []
@@ -298,7 +298,7 @@ def test_explicit_import_grants_global_variable_access(tmp_path):
 def test_non_declaration_top_level_symbols_require_import(tmp_path, owner_source, consumer_source, symbol):
     write(tmp_path / "owner.btrc", owner_source)
     write(tmp_path / "consumer.btrc", consumer_source)
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(
         entry,
         "import ./owner.btrc;\nimport ./consumer.btrc;\nint main() { return 0; }\n",
@@ -324,7 +324,7 @@ def test_explicit_import_grants_non_declaration_symbol_access(tmp_path, owner_so
         tmp_path / "consumer.btrc",
         "import ./owner.btrc;\n" + consumer_source,
     )
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./consumer.btrc;\nint main() { return 0; }\n")
 
     assert visibility_errors(entry) == []
@@ -335,7 +335,7 @@ def test_duplicate_symbol_satisfied_by_any_declaring_file(tmp_path):
     write(tmp_path / "impl1.btrc", "int helper() { return 1; }\n")
     write(tmp_path / "impl2.btrc", "int helper() { return 2; }\n")
     write(tmp_path / "uses2.btrc", "import ./impl2.btrc;\nint go() { return helper(); }\n")
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./impl1.btrc;\nimport ./uses2.btrc;\nint main() { return 0; }\n")
 
     # uses2 imports impl2 (one of the declaring files): satisfied, even though
@@ -344,10 +344,10 @@ def test_duplicate_symbol_satisfied_by_any_declaring_file(tmp_path):
 
 
 def test_authenticated_stdlib_hosted_reference_ignores_user_shadow(tmp_path):
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(
         entry,
-        "import std.bytes;\n"
+        "import std.Bytes;\n"
         "void* memcpy(void* destination, const void* source, size_t count) {\n"
         "    (void)source; (void)count; return destination;\n"
         "}\n"
@@ -370,28 +370,28 @@ def test_authenticated_stdlib_hosted_reference_ignores_user_shadow(tmp_path):
 
 def test_untrusted_source_named_like_stdlib_still_binds_to_user_shadow(tmp_path):
     shadow = tmp_path / "shadow.btrc"
-    consumer = tmp_path / "bytes.btrc"
+    consumer = tmp_path / "Bytes.btrc"
     write(shadow, "int memcpy(int value) { return value; }\n")
     write(consumer, "int copy(int value) { return memcpy(value); }\n")
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(
         entry,
-        "import ./shadow.btrc;\nimport ./bytes.btrc;\nint main() { return 0; }\n",
+        "import ./shadow.btrc;\nimport ./Bytes.btrc;\nint main() { return 0; }\n",
     )
 
     errors = visibility_errors(entry)
 
-    assert errors[0][0] == "'memcpy' is defined in shadow.btrc but bytes.btrc does not import it"
+    assert errors[0][0] == "'memcpy' is defined in shadow.btrc but Bytes.btrc does not import it"
 
 
 def test_compiler_known_stdlib_type_still_requires_its_module_import(tmp_path):
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "int main() { Vector<int> values = []; return values.len; }\n")
 
     errors = visibility_errors(entry)
 
     assert errors
-    assert errors[0][0] == "'Vector' is defined in vector.btrc but main.btrc does not import it"
+    assert errors[0][0] == "'Vector' is defined in Vector.btrc but Main.btrc does not import it"
 
 
 def test_property_setter_value_is_an_implicit_local(tmp_path):
@@ -406,7 +406,7 @@ def test_property_setter_value_is_an_implicit_local(tmp_path):
         "    }\n"
         "}\n",
     )
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./globals.btrc;\nimport ./gauge.btrc;\nint main() { return 0; }\n")
 
     assert visibility_errors(entry) == []
@@ -418,7 +418,7 @@ def test_parameter_defaults_bind_parameters_left_to_right(tmp_path):
         tmp_path / "consumer.btrc",
         "int choose(int first = later, int later = 0) { return first + later; }\n",
     )
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./globals.btrc;\nimport ./consumer.btrc;\nint main() { return 0; }\n")
 
     errors = visibility_errors(entry)
@@ -433,7 +433,7 @@ def test_parameter_default_can_reference_an_earlier_parameter(tmp_path):
         tmp_path / "consumer.btrc",
         "int choose(int first = 0, int later = first + 1) { return later; }\n",
     )
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./globals.btrc;\nimport ./consumer.btrc;\nint main() { return 0; }\n")
 
     assert visibility_errors(entry) == []
@@ -445,7 +445,7 @@ def test_rich_enum_defaults_bind_variant_parameters_left_to_right(tmp_path):
         tmp_path / "pair.btrc",
         "enum class Pair { Pair(int left, int right = left + 1) }\n",
     )
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./globals.btrc;\nimport ./pair.btrc;\nint main() { return 0; }\n")
 
     assert visibility_errors(entry) == []
@@ -462,7 +462,7 @@ def test_switch_case_locals_do_not_leak_into_sibling_cases(tmp_path):
         "    }\n"
         "}\n",
     )
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./globals.btrc;\nimport ./consumer.btrc;\nint main() { return 0; }\n")
 
     errors = visibility_errors(entry)
@@ -477,7 +477,7 @@ def test_macro_replacement_references_require_import_but_member_names_do_not(tmp
         tmp_path / "macros.btrc",
         "#define READ() shared\n#define FIELD(object) ((object).member)\n",
     )
-    entry = tmp_path / "main.btrc"
+    entry = tmp_path / "Main.btrc"
     write(entry, "import ./globals.btrc;\nimport ./macros.btrc;\nint main() { return 0; }\n")
 
     errors = visibility_errors(entry)

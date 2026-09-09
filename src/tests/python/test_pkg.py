@@ -84,7 +84,7 @@ def test_package_timeout_becomes_resolution_error(tmp_path, monkeypatch):
 
     monkeypatch.setattr(GIT, "resolve", timeout)
     with pytest.raises(IncludeResolutionError, match="package resolution failed"):
-        RESOLVER.resolve_for(str(tmp_path / "main.btrc"))
+        RESOLVER.resolve_for(str(tmp_path / "Main.btrc"))
 
 
 def test_package_manifest_read_reports_encoding_faults(tmp_path):
@@ -492,7 +492,7 @@ def test_atomic_lock_write_failure_preserves_previous_lock(tmp_path, monkeypatch
 def test_resolve_for_raises_not_exits(tmp_path):
     (tmp_path / "btrc.toml").write_text('[dependencies]\nbad = { version = "1.0" }\n')
     with pytest.raises(IncludeResolutionError) as exc:
-        RESOLVER.resolve_for(str(tmp_path / "main.btrc"), refresh=True)
+        RESOLVER.resolve_for(str(tmp_path / "Main.btrc"), refresh=True)
     assert not isinstance(exc.value, SystemExit)
     assert "package resolution failed" in str(exc.value)
 

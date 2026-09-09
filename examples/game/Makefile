@@ -18,12 +18,12 @@ LDFLAGS := -L$(GPU_BUILD) -lbtrc_gpu -L$(APP_BUILD) -lbtrc_app $(GPU_LDFLAGS) -l
 
 all: game
 
-game: game.btrc engine/engine.btrc engine/input.btrc engine/time.btrc \
-      engine/gameobject.btrc engine/camera.btrc engine/light.btrc \
-      engine/material.btrc engine/ground.btrc engine/sky.btrc \
-      engine/scene.btrc engine/renderer.btrc
-	@echo "--- Transpiling game.btrc → game.c ---"
-	cd $(BTRC_ROOT) && $(BTRC) examples/game/game.btrc -o examples/game/game.c
+game: Game.btrc engine/Engine.btrc engine/Input.btrc engine/Time.btrc \
+      engine/Gameobject.btrc engine/Camera.btrc engine/Light.btrc \
+      engine/Material.btrc engine/Ground.btrc engine/Sky.btrc \
+      engine/Scene.btrc engine/Renderer.btrc
+	@echo "--- Transpiling Game.btrc → game.c ---"
+	cd $(BTRC_ROOT) && $(BTRC) examples/game/Game.btrc -o examples/game/game.c
 	@echo "--- Compiling game.c → game ---"
 	$(CC) game.c -o game $(CFLAGS) $(LDFLAGS)
 	@echo "--- Done: ./game ---"

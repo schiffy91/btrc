@@ -751,8 +751,8 @@ static void test_clipboard_boundary(void) {
     fake_glfw_emit_mouse_button(GLFW_MOUSE_BUTTON_5, GLFW_RELEASE, 0);
     assert(std_app_poll(application.capability) == BTRC_APP_EVENT_POINTER);
     assert(std_app_event_pointer_button(application.capability) == BTRC_APP_BUTTON_FORWARD);
-    const int physical_keys[] = { GLFW_KEY_A, GLFW_KEY_C, GLFW_KEY_V, GLFW_KEY_X, GLFW_KEY_HOME, GLFW_KEY_END, GLFW_KEY_DELETE };
-    const int expected_keys[] = { BTRC_APP_KEY_A, BTRC_APP_KEY_C, BTRC_APP_KEY_V, BTRC_APP_KEY_X, BTRC_APP_KEY_HOME, BTRC_APP_KEY_END, BTRC_APP_KEY_DELETE };
+    const int physical_keys[] = { GLFW_KEY_A, GLFW_KEY_C, GLFW_KEY_V, GLFW_KEY_X, GLFW_KEY_HOME, GLFW_KEY_END, GLFW_KEY_DELETE, GLFW_KEY_Z };
+    const int expected_keys[] = { BTRC_APP_KEY_A, BTRC_APP_KEY_C, BTRC_APP_KEY_V, BTRC_APP_KEY_X, BTRC_APP_KEY_HOME, BTRC_APP_KEY_END, BTRC_APP_KEY_DELETE, BTRC_APP_KEY_Z };
     while (std_app_poll(application.capability) != BTRC_APP_EVENT_IDLE) {}
     for (size_t index = 0; index < sizeof(physical_keys) / sizeof(physical_keys[0]); index++) {
         fake_glfw_emit_key(physical_keys[index], GLFW_PRESS, GLFW_MOD_SUPER | GLFW_MOD_SHIFT);
@@ -784,6 +784,6 @@ int main(void) {
     test_wrong_thread_rejection();
     test_worker_last_reference_finalization();
     arm_owner_thread_atexit_finalization();
-    puts("PASS: actual std.app runtime state machine");
+    puts("PASS: actual std.App runtime state machine");
     return 0;
 }

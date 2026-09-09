@@ -23,7 +23,7 @@ def run_main(monkeypatch, argv):
 
 def test_emit_modes_are_mutually_exclusive(monkeypatch, capsys):
     with pytest.raises(SystemExit) as error:
-        run_main(monkeypatch, ["input.btrc", "--emit-tokens", "--emit-ast"])
+        run_main(monkeypatch, ["Input.btrc", "--emit-tokens", "--emit-ast"])
 
     assert error.value.code == 2
     assert "not allowed with argument" in capsys.readouterr().err
@@ -42,7 +42,7 @@ PURE = "int sq(int n) { return n * n; }\nint main() { return sq(7); }\n"
 PRINTS = 'int main() { print("hi"); return 0; }\n'
 HAS_UNUSED_FUNCTION = 'int unused() { return 17; }\nint main() { print("hi"); return 0; }\n'
 USES_VECTOR = (
-    "import std.vector;\n"
+    "import std.Vector;\n"
     "int main() { Vector<int> v = [1, 2, 3]; v.push(4);\n  int t = 0; for x in v { t = t + x; } print(t); return 0; }\n"
 )
 USES_THREAD = "int main() { Thread<int> t = spawn(() => 42); return t.join() == 42 ? 0 : 1; }\n"

@@ -14,7 +14,7 @@ from src.tests.btrc.test_semantic_validation import (
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
-BALANCED_PARAMETER_RUNTIME = Path(__file__).parent / "fixtures/balanced_parameter_ownership_runtime.btrc"
+BALANCED_PARAMETER_RUNTIME = Path(__file__).parent / "fixtures/BalancedParameterOwnershipRuntime.btrc"
 
 
 def _assert_rejected_by_both(

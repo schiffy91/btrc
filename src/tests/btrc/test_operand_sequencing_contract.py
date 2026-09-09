@@ -59,8 +59,8 @@ def test_eager_operands_are_structurally_sequenced() -> None:
     assert sum(isinstance(node, IRStmtExpr) for node in nodes) >= 2
     assert sum(isinstance(node, IRCommaExpr) for node in nodes) >= 2
 
-    integration = Path("src/compiler/btrc/ir/lowering/expressions.btrc").read_text()
-    boundary = Path("src/compiler/btrc/ir/lowering/ownership/calls.btrc").read_text()
+    integration = Path("src/compiler/btrc/ir/lowering/Expressions.btrc").read_text()
+    boundary = Path("src/compiler/btrc/ir/lowering/ownership/Calls.btrc").read_text()
     assert "boundary.addLoweredOperand(" in integration
     assert "return boundary.finish(" in integration
     assert "IRNode.commaExpression(sequence)" in boundary

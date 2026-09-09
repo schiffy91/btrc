@@ -15,7 +15,7 @@ from src.tests.btrc.test_mutex_value_contract import COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
-FIXTURE = Path(__file__).parents[1] / "basics" / "test_const_qualifier.btrc"
+FIXTURE = Path(__file__).parents[1] / "basics" / "ConstQualifier.btrc"
 
 
 def _validate_stdout(output: str) -> None:

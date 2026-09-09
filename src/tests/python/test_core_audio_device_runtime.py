@@ -14,7 +14,7 @@ from tools.native_plan import NativePlanBuilder
 ROOT = Path(__file__).resolve().parents[3]
 RUNTIME = ROOT / "src" / "stdlib" / "core_audio_device"
 FIXTURE = ROOT / "src" / "tests" / "native" / "core_audio_device"
-CONFORMANCE = FIXTURE / "core_audio_device_conformance.btrc"
+CONFORMANCE = FIXTURE / "CoreAudioDeviceConformance.btrc"
 SMOKE = FIXTURE / "core_audio_device_smoke.c"
 PACKAGE_NAME = "btrc_stdlib_core_audio_device_runtime"
 COMPILE_TIMEOUT = 240

@@ -52,9 +52,9 @@ def test_no_action_for_resolved_local():
 
 
 def test_import_insert_for_stdlib_name():
-    # Shadow stdlib DateTime so datetime.btrc is filtered out of the
+    # Shadow stdlib DateTime so Datetime.btrc is filtered out of the
     # composition; the sibling stdlib class Timer is then unresolved and the
-    # import action offers 'import std.datetime;'.
+    # import action offers 'import std.Datetime;'.
     src = "class DateTime {\n    public int y;\n}\nint main() {\n    var t = Timer();\n    return 0;\n}\n"
     uri = "file:///stdimp.btrc"
     r = compute_diagnostics(uri, src)
@@ -62,28 +62,28 @@ def test_import_insert_for_stdlib_name():
     acts = _actions(r, uri, 4)
     imp = [a for a in acts if a.title.startswith("Add import")]
     assert imp, [a.title for a in acts]
-    assert "std.datetime" in imp[0].title
+    assert "std.Datetime" in imp[0].title
     edits = imp[0].edit.changes[uri]
-    assert edits[0].new_text == "import std.datetime;\n"
+    assert edits[0].new_text == "import std.Datetime;\n"
     assert edits[0].range.start.line == 0  # inserted at top (no existing imports)
 
 
 def test_strict_visibility_failure_offers_exact_stdlib_import():
     source = "int main() { Vector<int> items = []; return items.len; }\n"
-    uri = "file:///strict-vector.btrc"
+    uri = "file:///strict-Vector.btrc"
 
     result = compute_diagnostics(uri, source)
     actions = _actions(result, uri, 0)
 
     assert any("does not import" in diagnostic.message for diagnostic in result.diagnostics)
     action = next(
-        action for action in actions if action.title.startswith("Add import") and "std.vector" in action.title
+        action for action in actions if action.title.startswith("Add import") and "std.Vector" in action.title
     )
-    assert action.edit.changes[uri][0].new_text == "import std.vector;\n"
+    assert action.edit.changes[uri][0].new_text == "import std.Vector;\n"
 
 
 def test_explicit_stdlib_import_has_no_visibility_error_or_import_action():
-    source = "import std.vector;\nint main() { Vector<int> items = []; return items.len; }\n"
+    source = "import std.Vector;\nint main() { Vector<int> items = []; return items.len; }\n"
     uri = "file:///strict-vector-imported.btrc"
 
     result = compute_diagnostics(uri, source)
@@ -96,18 +96,18 @@ def test_explicit_stdlib_import_has_no_visibility_error_or_import_action():
 def test_import_action_uses_the_workspace_owned_stdlib(tmp_path):
     stdlib = tmp_path / "stdlib"
     stdlib.mkdir()
-    (stdlib / "custom.btrc").write_text("class CustomStdlib {}\n")
+    (stdlib / "Custom.btrc").write_text("class CustomStdlib {}\n")
     workspace = Workspace(stdlib=StdlibRepository(directory=str(stdlib)))
     server = BtrcLanguageServer(debounce_seconds=0, compiler_workspace=workspace)
     source = "int main() { CustomStdlib value = CustomStdlib(); return 0; }\n"
-    uri = (tmp_path / "main.btrc").as_uri()
+    uri = (tmp_path / "Main.btrc").as_uri()
 
     result = server.analyzer.analyze(uri, source)
     actions = _actions(result, uri, 0, provider=server.code_actions)
 
     action = next(action for action in actions if action.title.startswith("Add import"))
-    assert "std.custom" in action.title
-    assert action.edit.changes[uri][0].new_text == "import std.custom;\n"
+    assert "std.Custom" in action.title
+    assert action.edit.changes[uri][0].new_text == "import std.Custom;\n"
 
 
 def test_import_insert_for_sibling_file(tmp_path):
@@ -115,7 +115,7 @@ def test_import_insert_for_sibling_file(tmp_path):
     lib.write_text("class Gadget {\n    public int n;\n}\n")
     WORKSPACE.get_file_unit(str(lib))  # warm the sibling into the unit cache
 
-    app_uri = (tmp_path / "app.btrc").as_uri()
+    app_uri = (tmp_path / "App.btrc").as_uri()
     src = "int main() {\n    var g = Gadget();\n    return 0;\n}\n"
     r = compute_diagnostics(app_uri, src)
     acts = _actions(r, app_uri, 1)
@@ -148,7 +148,7 @@ def test_import_suggestion_excludes_cached_units_from_other_projects(tmp_path):
     foreign.write_text("class ForeignOnlySuggestion { public int n; }\n")
     WORKSPACE.get_file_unit(str(foreign))
 
-    app_uri = (active_root / "app.btrc").as_uri()
+    app_uri = (active_root / "App.btrc").as_uri()
     source = "int main() { var item = ForeignOnlySuggestion(); return 0; }\n"
     result = compute_diagnostics(app_uri, source)
     actions = _actions(result, app_uri, 0)
@@ -165,7 +165,7 @@ def test_import_suggestion_excludes_a_nested_project(tmp_path):
     foreign.write_text("class NestedProjectOnly { public int n; }\n")
     WORKSPACE.get_file_unit(str(foreign))
 
-    app_uri = (tmp_path / "app.btrc").as_uri()
+    app_uri = (tmp_path / "App.btrc").as_uri()
     source = "int main() { var item = NestedProjectOnly(); return 0; }\n"
     result = compute_diagnostics(app_uri, source)
     actions = _actions(result, app_uri, 0)

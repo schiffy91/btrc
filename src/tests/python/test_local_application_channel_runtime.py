@@ -13,7 +13,7 @@ from tools.native_plan import NativePlanBuilder
 ROOT = Path(__file__).resolve().parents[3]
 RUNTIME = ROOT / "src" / "stdlib" / "local_application_channel"
 FIXTURE = ROOT / "src" / "tests" / "native" / "local_application_channel"
-CONFORMANCE = FIXTURE / "local_application_channel_conformance.btrc"
+CONFORMANCE = FIXTURE / "LocalApplicationChannelConformance.btrc"
 EXPECTED = FIXTURE / "local_application_channel_conformance.expected"
 FAULTS = FIXTURE / "local_application_channel_faults.c"
 COMPILE_TIMEOUT = 240
@@ -21,7 +21,7 @@ RUN_TIMEOUT = 30
 PACKAGE_NAME = "btrc_stdlib_local_application_channel_runtime"
 
 PLANNED_CONSUMER = """\
-import std.bytes;
+import std.Bytes;
 import std.LocalApplicationChannel;
 
 int main() {
@@ -140,7 +140,7 @@ def test_import_emits_and_links_compiler_owned_local_channel(
     target_text = f"{target.operating_system}-{target.architecture}"
     project = tmp_path / "project"
     project.mkdir()
-    source = project / "main.btrc"
+    source = project / "Main.btrc"
     source.write_text(PLANNED_CONSUMER)
     (project / "btrc.toml").write_text('manifest-version = 1\n\n[package]\nname = "planned_local_channel"\n')
     generated = tmp_path / f"planned-{compiler}.c"

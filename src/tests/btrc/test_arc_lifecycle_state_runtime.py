@@ -19,20 +19,20 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 FIXTURES = Path(__file__).with_name("fixtures")
 RUNTIME_CASES = (
-    "lifecycle_throwing_owner_runtime.btrc",
-    "lifecycle_throwing_cycle_runtime.btrc",
-    "lifecycle_fifo_errors_runtime.btrc",
-    "lifecycle_empty_error_runtime.btrc",
-    "lifecycle_constructor_abandon_runtime.btrc",
-    "lifecycle_shared_delete_runtime.btrc",
-    "lifecycle_resurrection_runtime.btrc",
+    "LifecycleThrowingOwnerRuntime.btrc",
+    "LifecycleThrowingCycleRuntime.btrc",
+    "LifecycleFifoErrorsRuntime.btrc",
+    "LifecycleEmptyErrorRuntime.btrc",
+    "LifecycleConstructorAbandonRuntime.btrc",
+    "LifecycleSharedDeleteRuntime.btrc",
+    "LifecycleResurrectionRuntime.btrc",
 )
 SANITIZER_CASES = (
-    "lifecycle_throwing_owner_runtime.btrc",
-    "lifecycle_throwing_cycle_runtime.btrc",
-    "lifecycle_empty_error_runtime.btrc",
-    "lifecycle_constructor_abandon_runtime.btrc",
-    "lifecycle_resurrection_runtime.btrc",
+    "LifecycleThrowingOwnerRuntime.btrc",
+    "LifecycleThrowingCycleRuntime.btrc",
+    "LifecycleEmptyErrorRuntime.btrc",
+    "LifecycleConstructorAbandonRuntime.btrc",
+    "LifecycleResurrectionRuntime.btrc",
 )
 
 

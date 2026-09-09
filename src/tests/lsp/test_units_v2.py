@@ -24,12 +24,12 @@ srv = BtrcLanguageServer(debounce_seconds=0)
 
 
 def test_file_unit_reads_typed_dependencies_in_native_coordinates():
-    src = 'import std.vector\n#include "legacy.btrc"\nimport ./lib/*;\n\nint main() { return 0; }\n'
-    unit = FileUnit.parse("/x/main.btrc", src)
+    src = 'import std.Vector\n#include "legacy.btrc"\nimport ./lib/*;\n\nint main() { return 0; }\n'
+    unit = FileUnit.parse("/x/Main.btrc", src)
     dependencies = list(unit.dependencies)
     assert [dependency.line for dependency in dependencies] == [1, 2, 3]
     specs = [dependency.spec for dependency in dependencies]
-    assert specs[0] == StdModules(names=["vector"])
+    assert specs[0] == StdModules(names=["Vector"])
     assert specs[1] == RelativePath(path="legacy.btrc")
     assert specs[2] == RelativePath(path="./lib/*")
     assert [dependency.kind for dependency in dependencies] == [
@@ -43,7 +43,7 @@ def test_file_unit_reads_typed_dependencies_in_native_coordinates():
     assert [d.line for d in unit.decls if isinstance(d, ImportDecl)] == [1, 3]
     main = next(d for d in unit.decls if isinstance(d, FunctionDecl))
     assert main.line == 5
-    assert main.source_file == "/x/main.btrc"
+    assert main.source_file == "/x/Main.btrc"
 
 
 def test_parse_unit_name_positions_land_on_names():
@@ -61,7 +61,7 @@ def test_parse_unit_name_positions_land_on_names():
 def _write_project(tmp_path, lib_source=None):
     lib = tmp_path / "lib.btrc"
     lib.write_text(lib_source or "class Helper {\n    public int v;\n    public Helper(int v) { self.v = v; }\n}\n")
-    main = tmp_path / "main.btrc"
+    main = tmp_path / "Main.btrc"
     source = "import ./lib.btrc;\nint main() {\n    Helper h = new Helper(1);\n    return h.v;\n}\n"
     main.write_text(source)
     return main, source
@@ -94,7 +94,7 @@ def test_broken_import_diagnosed_on_import_line(tmp_path):
 
 
 def test_missing_import_diagnosed_on_import_line(tmp_path):
-    main = tmp_path / "main.btrc"
+    main = tmp_path / "Main.btrc"
     source = "import ./nope.btrc;\nint main() { return 0; }\n"
     main.write_text(source)
     r = compute_diagnostics(main.as_uri(), source)
@@ -105,7 +105,7 @@ def test_visibility_diagnostics_are_scoped_to_the_active_file(tmp_path):
     library = tmp_path / "library.btrc"
     library_source = "int count(Vector<int> values) { return values.len; }\n"
     library.write_text(library_source)
-    main = tmp_path / "main.btrc"
+    main = tmp_path / "Main.btrc"
     main_source = "import ./library.btrc;\nint main() { return 0; }\n"
     main.write_text(main_source)
 
@@ -117,7 +117,7 @@ def test_visibility_diagnostics_are_scoped_to_the_active_file(tmp_path):
 
 
 def test_composition_fingerprint_includes_dependency_topology(tmp_path):
-    active = FileUnit.parse(str(tmp_path / "main.btrc"), "int main() { return 0; }\n")
+    active = FileUnit.parse(str(tmp_path / "Main.btrc"), "int main() { return 0; }\n")
     imported = FileUnit.parse(str(tmp_path / "dep.btrc"), "class Dependency {}\n")
 
     import_graph = SourceDependencyGraph()
@@ -135,9 +135,9 @@ def test_composition_fingerprint_includes_dependency_topology(tmp_path):
             graph=graph,
         )
 
-    assert composition(import_graph).snapshot_fingerprint("file:///main.btrc") != composition(
+    assert composition(import_graph).snapshot_fingerprint("file:///Main.btrc") != composition(
         include_graph
-    ).snapshot_fingerprint("file:///main.btrc")
+    ).snapshot_fingerprint("file:///Main.btrc")
 
 
 def test_imported_units_are_cached_across_keystrokes(tmp_path):
@@ -154,9 +154,9 @@ def test_imported_units_are_cached_across_keystrokes(tmp_path):
 def test_seeded_analysis_matches_full_analysis(tmp_path):
     from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 
-    main = tmp_path / "main.btrc"
+    main = tmp_path / "Main.btrc"
     source = (
-        "import std.vector;\n"
+        "import std.Vector;\n"
         "int main() {\n"
         "    var v = Vector(3);\n"
         "    v.push(1.5);\n"
@@ -191,7 +191,7 @@ def test_reanalysis_of_cached_imports_is_idempotent(tmp_path):
         "    public Node combine(Node other) { return new Node(self.v + other.v); }\n"
         "}\n"
     )
-    main = tmp_path / "main.btrc"
+    main = tmp_path / "Main.btrc"
     source = (
         "import ./lib.btrc;\n"
         "int main() {\n"

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-STDLIB_SYSTEM = ROOT / "src" / "tests" / "stdlib" / "test_stdlib_system.btrc"
+STDLIB_SYSTEM = ROOT / "src" / "tests" / "stdlib" / "StdlibSystem.btrc"
 
 
 def test_stdlib_system_fixture_uses_one_unique_temp_directory() -> None:

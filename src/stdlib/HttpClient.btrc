@@ -1,8 +1,8 @@
 /* HTTPS-capable curl client and platform browser launcher. */
 import std.HttpFraming;
-import std.process;
-import std.strings;
-import std.vector;
+import std.Process;
+import std.Strings;
+import std.Vector;
 
 class HttpClientResponse {
 	public int status;

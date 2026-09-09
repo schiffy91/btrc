@@ -715,7 +715,7 @@ class SelfhostBundleBuilder:
             if path.suffix not in RUNTIME_SUFFIXES:
                 raise ValueError(f"unknown stdlib runtime source type: {path}")
             files.append(path)
-        for required in ("vector.btrc", "strings.btrc"):
+        for required in ("Vector.btrc", "Strings.btrc"):
             if (stdlib / required) not in files:
                 raise ValueError(
                     f"required stdlib runtime source is missing: {stdlib / required}",

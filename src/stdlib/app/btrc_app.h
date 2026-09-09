@@ -15,10 +15,10 @@
  * the native declarations byte-for-byte compatible on platforms where
  * uint64_t is instead a typedef of unsigned long (notably LP64 Linux). */
 _Static_assert(sizeof(unsigned long long) == sizeof(uint64_t),
-    "std.app capabilities require a 64-bit unsigned long long");
+    "std.App capabilities require a 64-bit unsigned long long");
 
 #ifdef BTRC_GUI_LEGACY_WINDOW_API
-#error "std.app cannot be composed with the legacy std.gui GuiWindow backend"
+#error "std.App cannot be composed with the legacy std.Gui GuiWindow backend"
 #endif
 #define BTRC_APP_WINDOW_API 1
 
@@ -107,6 +107,7 @@ enum {
     BTRC_APP_KEY_HOME = 21,
     BTRC_APP_KEY_END = 22,
     BTRC_APP_KEY_DELETE = 23,
+    BTRC_APP_KEY_Z = 24,
 };
 
 enum {

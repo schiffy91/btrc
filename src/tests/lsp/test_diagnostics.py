@@ -19,13 +19,13 @@ def test_clean_source_has_no_diagnostics():
 def test_unimported_stdlib_symbol_reports_strict_visibility_error():
     r = analyze("int main() { Vector<int> xs = []; return xs.len; }\n")
 
-    assert any("'Vector' is defined in vector.btrc" in message for message in _msgs(r))
+    assert any("'Vector' is defined in Vector.btrc" in message for message in _msgs(r))
     assert r.analyzed is not None
     assert "Vector" in r.analyzed.class_table
 
 
 def test_explicit_stdlib_import_preserves_seeded_analysis_context():
-    r = analyze("import std.vector;\nint main() { Vector<int> xs = []; xs.push(1); return xs.len; }\n")
+    r = analyze("import std.Vector;\nint main() { Vector<int> xs = []; xs.push(1); return xs.len; }\n")
     assert r.diagnostics == []
     assert r.analyzed is not None
     assert "Vector" in r.analyzed.class_table
@@ -69,7 +69,7 @@ def test_analyzer_warning_reported_with_warning_severity():
 def test_diagnostic_line_maps_after_import_expansion(tmp_path):
     lib = tmp_path / "lib.btrc"
     lib.write_text("class Box { private int x; public Box() { self.x = 0; } }\n")
-    main = tmp_path / "main.btrc"
+    main = tmp_path / "Main.btrc"
     source = "import ./lib.btrc;\nint main() { Box b = Box(); return b.x; }\n"
     main.write_text(source)
 

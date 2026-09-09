@@ -107,7 +107,7 @@ def test_empty_native_plan_preserves_explicit_target_with_frontend_parity(
 ) -> None:
     root = tmp_path / ("legacy" if legacy_manifest else "plain")
     root.mkdir()
-    source = root / "main.btrc"
+    source = root / "Main.btrc"
     source.write_text("int main() { return 0; }\n", encoding="utf-8")
     if legacy_manifest:
         (root / "btrc.toml").write_text(
@@ -289,7 +289,7 @@ def test_selfhost_plan_is_reference_exact_and_builds_native_package(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    source = EXAMPLE / "src" / "main.btrc"
+    source = EXAMPLE / "src" / "Main.btrc"
     reference_c = tmp_path / "reference.c"
     reference_plan = tmp_path / "reference.link.json"
     selfhost_c = tmp_path / "selfhost.c"
@@ -321,8 +321,8 @@ def test_fresh_selfhost_lock_is_reference_exact(
     (reference_root / "btrc.lock").unlink()
     (selfhost_root / "btrc.lock").unlink()
 
-    reference = _reference(reference_root / "src/main.btrc", tmp_path / "reference.c")
-    selfhost = _selfhost(semantic_btrcc, selfhost_root / "src/main.btrc")
+    reference = _reference(reference_root / "src/Main.btrc", tmp_path / "reference.c")
+    selfhost = _selfhost(semantic_btrcc, selfhost_root / "src/Main.btrc")
 
     assert reference.returncode == 0, reference.stderr
     assert selfhost.returncode == 0, selfhost.stderr
@@ -345,7 +345,7 @@ def test_platform_native_plans_are_reference_exact(
     frameworks: list[str],
     pkg_config: list[str],
 ) -> None:
-    source = EXAMPLE / "src/main.btrc"
+    source = EXAMPLE / "src/Main.btrc"
     reference_plan = tmp_path / f"reference-{target}.json"
     selfhost_plan = tmp_path / f"selfhost-{target}.json"
 
@@ -370,7 +370,7 @@ def test_disjoint_native_predicates_with_same_name_are_reference_exact(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    source = tmp_path / "src/main.btrc"
+    source = tmp_path / "src/Main.btrc"
     source.parent.mkdir()
     source.write_text("int main() { return 0; }\n")
     (tmp_path / "btrc.toml").write_text(
@@ -404,7 +404,7 @@ def test_exact_duplicate_native_declarations_still_fail_closed(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    source = tmp_path / "src/main.btrc"
+    source = tmp_path / "src/Main.btrc"
     source.parent.mkdir()
     source.write_text("int main() { return 0; }\n")
     declaration = '\n[[native.pkg-config]]\nname = "platform-native"\nos = ["macos"]\n'
@@ -442,7 +442,7 @@ def test_dependency_local_aliases_resolve_a_diamond_once(
         "app",
         '\n[dependencies]\nl = { path = "../left" }\nr = { path = "../right" }\n',
     )
-    source = app / "src/main.btrc"
+    source = app / "src/Main.btrc"
     source.write_text(
         "import l.left\nimport r.right\nint main() { assert(left_value() + right_value() == 43); return 0; }\n"
     )
@@ -468,7 +468,7 @@ def test_selfhost_cycle_and_future_lock_fail_closed(
     b = tmp_path / "b"
     _manifest(a, "a", '\n[dependencies]\nb = { path = "../b" }\n')
     _manifest(b, "b", '\n[dependencies]\na = { path = "../a" }\n')
-    source = a / "src/main.btrc"
+    source = a / "src/Main.btrc"
     source.write_text("int main() { return 0; }\n")
 
     cycle = _selfhost(semantic_btrcc, source)
@@ -490,7 +490,7 @@ def test_selfhost_rejects_malformed_nested_lock(
     tmp_path: Path,
 ) -> None:
     _manifest(tmp_path, "app")
-    source = tmp_path / "src/main.btrc"
+    source = tmp_path / "src/Main.btrc"
     source.write_text("int main() { return 0; }\n")
     (tmp_path / "btrc.lock").write_text(
         json.dumps(
@@ -520,7 +520,7 @@ def test_selfhost_rejects_git_without_attempting_acquisition(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    source = tmp_path / "src/main.btrc"
+    source = tmp_path / "src/Main.btrc"
     source.parent.mkdir()
     source.write_text("int main() { return 0; }\n")
     (tmp_path / "btrc.toml").write_text(
@@ -537,7 +537,7 @@ def test_selfhost_rejects_git_without_attempting_acquisition(
 def test_selfhost_versioned_manifest_requires_explicit_target(
     semantic_btrcc: Path,
 ) -> None:
-    source = EXAMPLE / "src/main.btrc"
+    source = EXAMPLE / "src/Main.btrc"
 
     result = subprocess.run(
         [str(semantic_btrcc), "--no-stdlib", str(source)],
@@ -555,7 +555,7 @@ def test_selfhost_strict_manifest_rejects_arbitrary_build_fields(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    source = tmp_path / "main.btrc"
+    source = tmp_path / "Main.btrc"
     source.write_text("int main() { return 0; }\n")
     (tmp_path / "btrc.toml").write_text(
         'manifest-version = 1\ncflags = "-fno-something"\n[package]\nname = "bad"\n',

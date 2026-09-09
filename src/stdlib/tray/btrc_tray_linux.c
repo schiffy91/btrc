@@ -14,7 +14,7 @@
  * objects, answer Properties/GetLayout/Event, and pump the bus.
  *
  * When an item is activated, its command string is recorded for the btrc side
- * (SystemTray.pump in tray.btrc) to run via the UnixShell stdlib.
+ * (SystemTray.pump in Tray.btrc) to run via the UnixShell stdlib.
  *
  * Build:  <transpiled>.c btrc_tray_linux.c $(pkg-config --cflags --libs dbus-1)
  */

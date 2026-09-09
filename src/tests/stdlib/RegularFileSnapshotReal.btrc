@@ -1,6 +1,6 @@
 /* Real read-only snapshot budget, exact-read, replacement, mutation, and
  * lifecycle coverage. POSIX calls are confined to test setup and races. */
-import std.bytes;
+import std.Bytes;
 import std.FileSystem;
 import std.FileSystemHandles;
 

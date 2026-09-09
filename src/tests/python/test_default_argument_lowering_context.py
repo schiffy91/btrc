@@ -56,11 +56,11 @@ def test_nested_default_scopes_restore_types_and_declaration_provenance():
         with context.scope(
             _parameter(T=TypeExpr(base="string")),
             function_name="inner",
-            source_file="inner.btrc",
+            source_file="Inner.btrc",
         ):
             assert context.resolve_type(generic_type) == TypeExpr(base="string")
             assert context.predefined_identifier(Identifier(name="__func__")) == '"inner"'
-            assert context.predefined_identifier(Identifier(name="__FILE__")) == '"inner.btrc"'
+            assert context.predefined_identifier(Identifier(name="__FILE__")) == '"Inner.btrc"'
 
         assert context.resolve_type(generic_type) == TypeExpr(base="int")
         assert context.predefined_identifier(Identifier(name="__func__")) == '"outer"'

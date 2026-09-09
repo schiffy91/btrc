@@ -18,9 +18,9 @@ LDFLAGS := -L$(GPU_BUILD) -lbtrc_gpu -L$(APP_BUILD) -lbtrc_app $(GPU_LDFLAGS) -l
 
 all: triangle
 
-triangle: triangle.btrc
-	@echo "--- Transpiling triangle.btrc → triangle.c ---"
-	cd $(BTRC_ROOT) && $(BTRC) examples/triangle/triangle.btrc -o examples/triangle/triangle.c
+triangle: Triangle.btrc
+	@echo "--- Transpiling Triangle.btrc → triangle.c ---"
+	cd $(BTRC_ROOT) && $(BTRC) examples/triangle/Triangle.btrc -o examples/triangle/triangle.c
 	@echo "--- Compiling triangle.c → triangle ---"
 	$(CC) triangle.c -o triangle $(CFLAGS) $(LDFLAGS)
 	@echo "--- Done: ./triangle ---"

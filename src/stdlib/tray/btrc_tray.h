@@ -10,7 +10,7 @@
  * The OS owns the icon + menu and draws them natively (GPU-composited by the
  * window server). Command execution is intentionally left to the caller: when a
  * menu item is activated the runtime records the item's opaque command string,
- * and the btrc side (Tray/SystemTray in tray.btrc) pumps the event loop and
+ * and the btrc side (Tray/SystemTray in Tray.btrc) pumps the event loop and
  * runs that command through the existing Command/UnixShell stdlib.
  *
  * The public API uses only C primitives and `char*` to match btrc codegen

@@ -20,11 +20,11 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 FIXTURES = Path(__file__).with_name("fixtures")
 CASES = (
-    "collection_throwing_vector_runtime.btrc",
-    "collection_throwing_array_runtime.btrc",
-    "collection_throwing_map_runtime.btrc",
-    "collection_throwing_set_runtime.btrc",
-    "collection_throwing_list_runtime.btrc",
+    "CollectionThrowingVectorRuntime.btrc",
+    "CollectionThrowingArrayRuntime.btrc",
+    "CollectionThrowingMapRuntime.btrc",
+    "CollectionThrowingSetRuntime.btrc",
+    "CollectionThrowingListRuntime.btrc",
 )
 
 

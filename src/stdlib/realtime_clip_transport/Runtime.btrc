@@ -1,11 +1,11 @@
 /* Private preallocated callback mechanics for RealtimeClipTransport.
  *
  * The callback context is raw POD so the device thread never enters ARC. Its
- * command/event/retirement queues borrow fixed std.spsc storage. Allocation,
+ * command/event/retirement queues borrow fixed std.Spsc storage. Allocation,
  * reclamation, lifecycle transitions, and managed values stay off-thread.
  */
 
-import std.spsc;
+import std.Spsc;
 import std.OwnedBuffer;
 import std.RealtimeAudio;
 

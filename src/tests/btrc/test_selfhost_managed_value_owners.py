@@ -14,13 +14,13 @@ def _source(name: str) -> str:
 
 
 def test_managed_domains_are_real_injected_compilation_owners() -> None:
-    analyzer = _source("analyzer/analyzer.btrc")
-    pipeline = _source("pipeline/pipeline.btrc")
-    lowerer = _source("ir/lowering/lowerer.btrc")
-    stage = _source("analyzer/stage.btrc")
+    analyzer = _source("analyzer/Analyzer.btrc")
+    pipeline = _source("pipeline/Pipeline.btrc")
+    lowerer = _source("ir/lowering/Lowerer.btrc")
+    stage = _source("analyzer/Stage.btrc")
 
-    assert "import ./ownership/values.btrc;" in stage
-    assert "import ./ownership/cycles.btrc;" in stage
+    assert "import ./ownership/Values.btrc;" in stage
+    assert "import ./ownership/Cycles.btrc;" in stage
     assert "private ManagedValueSemantics managedValues;" in analyzer
     assert "private CycleSemantics cycles;" in analyzer
     assert "self.managedValues = ManagedValueSemantics(self.analysis);" in analyzer
@@ -35,10 +35,10 @@ def test_managed_domains_are_real_injected_compilation_owners() -> None:
 
 def test_managed_owner_modules_have_no_loose_behavior() -> None:
     for name in (
-        "analyzer/ownership/values.btrc",
-        "analyzer/ownership/cycles.btrc",
-        "ir/lowering/ownership/lifetime.btrc",
-        "ir/optimization/cleanup.btrc",
+        "analyzer/ownership/Values.btrc",
+        "analyzer/ownership/Cycles.btrc",
+        "ir/lowering/ownership/Lifetime.btrc",
+        "ir/optimization/Cleanup.btrc",
     ):
         source = _source(name)
         loose = re.findall(
@@ -51,10 +51,10 @@ def test_managed_owner_modules_have_no_loose_behavior() -> None:
 
 
 def test_cleanup_registry_is_per_generation_and_uses_parse_safe_api() -> None:
-    registry = _source("ir/lowering/ownership/lifetime.btrc")
-    validator = _source("ir/optimization/cleanup.btrc")
-    optimizer = _source("ir/optimization/optimizer.btrc")
-    lowerer = _source("ir/lowering/lowerer.btrc")
+    registry = _source("ir/lowering/ownership/Lifetime.btrc")
+    validator = _source("ir/optimization/Cleanup.btrc")
+    optimizer = _source("ir/optimization/Optimizer.btrc")
+    lowerer = _source("ir/lowering/Lowerer.btrc")
     lower = lowerer[lowerer.index("public IRModule lower(") :]
     optimize = optimizer[
         optimizer.index("public void optimize(") : optimizer.index("private void eliminateUnreachable(")
@@ -91,8 +91,8 @@ def test_cleanup_registry_is_per_generation_and_uses_parse_safe_api() -> None:
 
 
 def test_isolated_scope_snapshots_active_cleanup_markers_exactly() -> None:
-    functions = _source("ir/lowering/functions.btrc")
-    lifetime = _source("ir/lowering/ownership/lifetime.btrc")
+    functions = _source("ir/lowering/Functions.btrc")
+    lifetime = _source("ir/lowering/ownership/Lifetime.btrc")
     snapshot = lifetime[
         lifetime.index("class ManagedLifetimeSnapshot {") : lifetime.index("class CleanupSlotRegistry {")
     ]
@@ -127,11 +127,11 @@ def test_old_global_managed_and_cycle_query_apis_are_absent() -> None:
 
 
 def test_aggregate_ordering_uses_bounded_owners_and_typed_plans() -> None:
-    aggregate = _source("ir/lowering/aggregates.btrc")
-    ordering = _source("ir/lowering/ownership/operands.btrc")
-    boundary = _source("ir/lowering/ownership/calls.btrc")
-    releases = _source("ir/lowering/ownership/managed_types.btrc")
-    lowerer = _source("ir/lowering/lowerer.btrc")
+    aggregate = _source("ir/lowering/Aggregates.btrc")
+    ordering = _source("ir/lowering/ownership/Operands.btrc")
+    boundary = _source("ir/lowering/ownership/Calls.btrc")
+    releases = _source("ir/lowering/ownership/ManagedTypes.btrc")
+    lowerer = _source("ir/lowering/Lowerer.btrc")
     release_slot = releases[releases.index("class ManagedReleaseSlot {") : releases.index("class ManagedTypeLowerer {")]
 
     assert "class OwnershipOperandEnvironment {" in ordering

@@ -1,3 +1,0 @@
-/* Public manifest for the grammar-driven lexer stage. */
-
-import ./lexer.btrc;

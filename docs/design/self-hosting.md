@@ -11,7 +11,7 @@ tests share the same source fixtures and golden runtime output.
 
 The self-hosted destination is an exact 91-file `.btrc` inventory: 85
 compiler/generated files and six explicit developer-tool files. At the package
-root, `compiler.btrc` is the public application object and `btrcc_main.btrc` is
+root, `Compiler.btrc` is the public application object and `BtrccMain.btrc` is
 the only production process entry point. The file-by-file inventory is recorded
 in [Compiler Structure](compiler-structure.md).
 
@@ -34,19 +34,19 @@ self-built binary.
 
 | Stage | Self-host modules | Output |
 |---|---|---|
-| Package graph | `frontend/packages.btrc` | strict lock and native link plan |
-| Grammar/lexer | `syntax/grammar.btrc`, `syntax/tokens.btrc`, `lexer/lexer.btrc` | token stream |
-| Parser | `parser/parser.btrc` | fat tagged `Node` AST |
-| Analyzer | `analyzer/stage.btrc`, `analyzer/analyzer.btrc` | symbol/type/generic metadata |
-| IR generation | `ir/model.btrc`, `ir/lowering/lowerer.btrc` | structured fat tagged IR |
-| Optimization | `ir/optimization/optimizer.btrc` | reachable, normalized IR |
-| C emission | `ir/emitter.btrc` | strict C11 text |
+| Package graph | `frontend/Packages.btrc` | strict lock and native link plan |
+| Grammar/lexer | `syntax/Grammar.btrc`, `syntax/Tokens.btrc`, `lexer/Lexer.btrc` | token stream |
+| Parser | `parser/Parser.btrc` | fat tagged `Node` AST |
+| Analyzer | `analyzer/Stage.btrc`, `analyzer/Analyzer.btrc` | symbol/type/generic metadata |
+| IR generation | `ir/Model.btrc`, `ir/lowering/Lowerer.btrc` | structured fat tagged IR |
+| Optimization | `ir/optimization/Optimizer.btrc` | reachable, normalized IR |
+| C emission | `ir/Emitter.btrc` | strict C11 text |
 
 The frontend package composes imports and the standard library through
-`frontend/resolver.btrc`; `frontend/packages.btrc` owns recursive local package
+`frontend/Resolver.btrc`; `frontend/Packages.btrc` owns recursive local package
 graphs, schema-3 locks, and native plans, with source I/O, stdlib, and
 visibility retained by their sibling owners.
-`btrcc_main.btrc` is the thin production entry point; `cli/driver.btrc` owns
+`BtrccMain.btrc` is the thin production entry point; `cli/Driver.btrc` owns
 the command. The small lexer, parser, and front-end drivers under `tools/`
 exist for stage-boundary inspection.
 
@@ -85,7 +85,7 @@ tag and the union of fields needed by every ASDL variant. The IR follows the
 same representation. Dispatch is explicit and lowering remains isolated in IR
 generation; the emitter only formats structured IR.
 
-`src/compiler/btrc/generated/ast/node.btrc` is generated from
+`src/compiler/btrc/generated/ast/Node.btrc` is generated from
 `src/language/ast.asdl` by `tools/compiler_codegen/ast.py`.
 `make ast-generate-btrc` regenerates and validates it. Never edit the generated
 node file directly.
@@ -96,8 +96,8 @@ node file directly.
 features, source markers, and deterministic order for the shared pre-authored
 runtime assets: `core.c`, `collections.c`, `cycles.c`, `mutex.c`, `process.c`,
 `strings.c`, `threads.c`, `trycatch.c`, `gpu.c`, and `btrc_rt.h`.
-`src/compiler/btrc/generated/runtime/catalog.btrc` contains immutable generated
-rows; `ir/runtime/catalog.btrc` and `ir/runtime/references.btrc` retain query,
+`src/compiler/btrc/generated/runtime/Catalog.btrc` contains immutable generated
+rows; `ir/runtime/Catalog.btrc` and `ir/runtime/References.btrc` retain query,
 selection, dependency, and reference behavior. Lowering and C emission do not
 assemble runtime source.
 

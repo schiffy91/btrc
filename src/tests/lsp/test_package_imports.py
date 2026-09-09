@@ -24,7 +24,7 @@ def _path_dependency_project(root, marker: str):
     app.mkdir()
     (app / "btrc.toml").write_text(f'[dependencies]\nshared = {{ path = "../shared-{marker}" }}\n')
     source = f"import shared;\nint main() {{ return shared_{marker}(); }}\n"
-    active = app / "main.btrc"
+    active = app / "Main.btrc"
     active.write_text(source)
     return active, source, module
 
@@ -52,7 +52,7 @@ def test_broken_manifest_reports_error_without_leaking_package_state(tmp_path):
     app.mkdir()
     (app / "btrc.toml").write_text('[dependencies]\nbad = { version = "unsupported" }\n')
     source = "import bad;\nint main() { return 0; }\n"
-    active = app / "main.btrc"
+    active = app / "Main.btrc"
     workspace = Workspace()
     composition = workspace.compose(workspace.parse_active(str(active), source))
     assert any("package resolution failed" in message for _, message in composition.import_errors)
@@ -88,7 +88,7 @@ def test_unchanged_manifest_reuses_workspace_package_resolution(tmp_path, monkey
 def test_package_resolution_retries_when_manifest_changes_during_save(tmp_path, monkeypatch):
     manifest = tmp_path / "btrc.toml"
     manifest.write_text("[dependencies]\nold = '../old'\n")
-    active = tmp_path / "main.btrc"
+    active = tmp_path / "Main.btrc"
     calls = []
 
     core = pkg.PackageUniverse()
@@ -123,7 +123,7 @@ def test_package_resolution_retries_when_manifest_changes_during_save(tmp_path, 
 def test_package_resolution_never_caches_repeatedly_changing_inputs(tmp_path, monkeypatch):
     manifest = tmp_path / "btrc.toml"
     manifest.write_text("[dependencies]\n")
-    active = tmp_path / "main.btrc"
+    active = tmp_path / "Main.btrc"
     calls = []
 
     core = pkg.PackageUniverse()
@@ -219,7 +219,7 @@ def test_workspace_package_resolution_cache_is_lru_bounded(tmp_path, monkeypatch
     resolver = package_resolution.PackageResolutionCache(core)
 
     for index in range(resolver._ENTRY_CACHE_MAX + 5):
-        resolver.resolve_for(str(tmp_path / str(index) / "main.btrc"))
+        resolver.resolve_for(str(tmp_path / str(index) / "Main.btrc"))
 
     assert len(resolver._entries) == resolver._ENTRY_CACHE_MAX
     evicted = os.path.normcase(os.path.realpath(tmp_path / "0" / "btrc.toml"))
@@ -250,7 +250,7 @@ def test_workspace_composition_is_iterative_and_unbounded_in_depth(tmp_path):
             module.write_text(f'import "./level_{index + 1}.btrc";\nint value_{index}() {{ return {index}; }}\n')
         else:
             module.write_text(f"int value_{index}() {{ return {index}; }}\n")
-    active = project / "main.btrc"
+    active = project / "Main.btrc"
     source = 'import "./level_0.btrc";\nint main() { return value_0(); }\n'
     active.write_text(source)
     workspace = Workspace()
@@ -268,7 +268,7 @@ def test_diagnostic_snapshot_invalidates_when_import_error_changes(tmp_path):
     dependency.mkdir()
     manifest = app / "btrc.toml"
     manifest.write_text("[dependencies]\n")
-    active = app / "main.btrc"
+    active = app / "Main.btrc"
     source = "import dep;\nint main() { return 0; }\n"
 
     first = compute_diagnostics(active.as_uri(), source)

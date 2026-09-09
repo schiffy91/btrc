@@ -5,7 +5,7 @@ inference from constructor and `new` initializers."""
 from src.tests.lsp.lsphelp import analyze, get_hover_info, hover_text, pos_of
 
 SRC = """\
-import std.vector;
+import std.Vector;
 
 class Box { public int v; public Box(int v) { self.v = v; } }
 Box make(int v) { return Box(v); }

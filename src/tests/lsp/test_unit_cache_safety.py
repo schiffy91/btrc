@@ -23,7 +23,7 @@ AST_CODEC = AstJsonCodec()
 
 
 def _source() -> str:
-    return "import std.vector;\nstruct CacheOpaque;\nclass CacheProbe { public int value; public CacheProbe() {} }\n"
+    return "import std.Vector;\nstruct CacheOpaque;\nclass CacheProbe { public int value; public CacheProbe() {} }\n"
 
 
 def test_json_unit_cache_roundtrip_is_deterministic(tmp_path):
@@ -166,7 +166,7 @@ def test_parse_failures_are_not_persisted_as_successful_units(tmp_path):
 
 
 def test_unavailable_cache_does_not_disable_stdlib_analysis(tmp_path):
-    source_file = tmp_path / "stdlib.btrc"
+    source_file = tmp_path / "Stdlib.btrc"
     source_file.write_text(_source())
 
     class UnavailableDirectory:

@@ -15,11 +15,11 @@ pytestmark = pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
 
 FIXTURES = (
     (
-        REPO / "src/tests/strings/test_fstring_basic.btrc",
+        REPO / "src/tests/strings/FstringBasic.btrc",
         "x=42\nPASS: test_fstring_basic\n",
     ),
     (
-        Path(__file__).with_name("fixtures") / "fstring_allocation_c11.btrc",
+        Path(__file__).with_name("fixtures") / "FstringAllocationC11.btrc",
         "\nPASS: formatted string allocation is non-null\n",
     ),
 )

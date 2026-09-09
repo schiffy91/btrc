@@ -26,27 +26,27 @@ def operator_compiler(semantic_btrcc: Path) -> Path:
 
 INVALID_OPERATORS = (
     (
-        "typed_operator_invalid_hash_fnptr.btrc",
+        "TypedOperatorInvalidHashFnptr.btrc",
         "__btrc_hash does not support",
     ),
     (
-        "typed_operator_invalid_reference_order.btrc",
+        "TypedOperatorInvalidReferenceOrder.btrc",
         "operator '<' is not defined",
     ),
     (
-        "typed_operator_invalid_generic_order.btrc",
+        "TypedOperatorInvalidGenericOrder.btrc",
         "operator '<' is not defined",
     ),
     (
-        "typed_operator_invalid_generic_inheritance.btrc",
+        "TypedOperatorInvalidGenericInheritance.btrc",
         "Generic class inheritance is not supported",
     ),
     (
-        "typed_operator_invalid_char_pointer_pointer.btrc",
+        "TypedOperatorInvalidCharPointerPointer.btrc",
         "operator '==' is not defined",
     ),
     (
-        "typed_operator_matching_generic_inheritance.btrc",
+        "TypedOperatorMatchingGenericInheritance.btrc",
         "Generic class inheritance is not supported",
     ),
 )
@@ -58,7 +58,7 @@ def test_operator_owner_runtime_matches_both_frontends(
     tmp_path: Path,
     frontend: str,
 ) -> None:
-    program = FIXTURES / "operator_owner_runtime.btrc"
+    program = FIXTURES / "OperatorOwnerRuntime.btrc"
     c_path = tmp_path / f"operator_owner_runtime.{frontend}.c"
     if frontend == "python":
         compiled_source = _run(
@@ -138,9 +138,9 @@ def test_invalid_typed_operators_fail_closed(
 @pytest.mark.parametrize(
     "fixture_name",
     (
-        "typed_operator_dead_invalid_generic.btrc",
-        "typed_operator_c_string_pointer.btrc",
-        "typed_operator_fnptr_equality.btrc",
+        "TypedOperatorDeadInvalidGeneric.btrc",
+        "TypedOperatorCStringPointer.btrc",
+        "TypedOperatorFnptrEquality.btrc",
     ),
 )
 def test_valid_generic_operator_specializations_compile_strictly(

@@ -15,9 +15,9 @@ from src.compiler.python.ir.lowering.lowerer import IRLowerer
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 STRING_SOURCE = r"""
-import std.console;
-import std.strings;
-import std.vector;
+import std.Console;
+import std.Strings;
+import std.Vector;
 #include <assert.h>
 #include <string.h>
 

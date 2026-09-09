@@ -189,7 +189,7 @@ def test_selfhost_rejects_package_names_instead_of_guessing_local_paths(
 
 @pytest.mark.parametrize(
     "directive",
-    ["import 'dep.btrc'", 'import "one.btrc" "two.btrc"', "import std.{vector"],
+    ["import 'dep.btrc'", 'import "one.btrc" "two.btrc"', "import std.{Vector"],
 )
 def test_malformed_imports_are_not_removed_before_parsing(
     semantic_btrcc: Path,
@@ -239,7 +239,7 @@ def test_quoted_import_uses_the_lexer_payload(
 
 @pytest.mark.parametrize(
     "directive",
-    ["import std.{\n math,\n vector\n}", "import std .\n math"],
+    ["import std.{\n Math,\n Vector\n}", "import std .\n math"],
 )
 def test_multiline_imports_follow_the_whitespace_insensitive_grammar(
     semantic_btrcc: Path,
@@ -275,12 +275,12 @@ def test_stdout_flush_failure_returns_nonzero(semantic_btrcc: Path) -> None:
 def test_frontend_traversal_is_iterative_and_streaming() -> None:
     """Neither frontend may reintroduce quotas, recursion, or bulk listings."""
 
-    resolver = (REPO / "src/compiler/btrc/frontend/resolver.btrc").read_text()
-    source_io = (REPO / "src/compiler/btrc/frontend/source_io.btrc").read_text()
-    stdlib = (REPO / "src/compiler/btrc/frontend/stdlib.btrc").read_text()
-    models = (REPO / "src/compiler/btrc/frontend/models.btrc").read_text()
+    resolver = (REPO / "src/compiler/btrc/frontend/Resolver.btrc").read_text()
+    source_io = (REPO / "src/compiler/btrc/frontend/SourceIo.btrc").read_text()
+    stdlib = (REPO / "src/compiler/btrc/frontend/Stdlib.btrc").read_text()
+    models = (REPO / "src/compiler/btrc/frontend/Models.btrc").read_text()
     filesystem = (REPO / "src/stdlib/FileSystem.btrc").read_text()
-    stream_io = (REPO / "src/stdlib/io.btrc").read_text()
+    stream_io = (REPO / "src/stdlib/Io.btrc").read_text()
     python_sources = (REPO / "src/compiler/python/frontend/sources.py").read_text()
     python_imports = (REPO / "src/compiler/python/frontend/imports.py").read_text()
 
@@ -325,11 +325,11 @@ def test_frontend_traversal_is_iterative_and_streaming() -> None:
 def test_frontend_resolver_reuse_resets_state_and_isolates_results(
     tmp_path: Path,
 ) -> None:
-    stage = REPO / "src/compiler/btrc/frontend/stage.btrc"
+    stage = REPO / "src/compiler/btrc/frontend/Stage.btrc"
     grammar_path = REPO / "src/language/grammar.ebnf"
     stdlib_path = tmp_path / "stdlib"
     stdlib_path.mkdir()
-    mutable_module = stdlib_path / "mutable.btrc"
+    mutable_module = stdlib_path / "Mutable.btrc"
     mutable_module.write_text("class BeforeRefresh { }\n", encoding="utf-8")
     virtual_source = tmp_path / "virtual.btrc"
     isolated_source = tmp_path / "isolated.btrc"
@@ -337,8 +337,8 @@ def test_frontend_resolver_reuse_resets_state_and_isolates_results(
     program = tmp_path / "resolver_reuse.btrc"
     generated = tmp_path / "resolver_reuse.c"
     executable = tmp_path / "resolver_reuse"
-    first_source = "import std.mutable;\nint firstValue;\n"
-    second_source = 'import std.mutable;\n#include "isolated.btrc"\nint secondValue;\n'
+    first_source = "import std.Mutable;\nint firstValue;\n"
+    second_source = 'import std.Mutable;\n#include "isolated.btrc"\nint secondValue;\n'
     refreshed_module = "class AfterRefresh { }\n"
     program.write_text(
         f"import {json.dumps(str(stage))};\n"
@@ -412,7 +412,7 @@ def test_frontend_resolver_reuse_resets_state_and_isolates_results(
 def test_import_resolver_owns_deterministic_bulk_paths_and_c11_rendering(
     tmp_path: Path,
 ) -> None:
-    stage = REPO / "src/compiler/btrc/frontend/stage.btrc"
+    stage = REPO / "src/compiler/btrc/frontend/Stage.btrc"
     grammar_path = REPO / "src/language/grammar.ebnf"
     stdlib_path = tmp_path / "stdlib"
     imports = tmp_path / "imports"
@@ -466,7 +466,7 @@ def test_import_resolver_owns_deterministic_bulk_paths_and_c11_rendering(
         '                importsDirectory, "absent.btrc").isEmpty()) { return 2; }\n'
         '    if (directories.sortedNamesWithSuffix(importsDirectory, ".btrc").len != 1) { return 8; }\n'
         '    FeSourceText firstText = FeSourceText("alpha\\nbeta\\n");\n'
-        '    FeSourceText secondText = FeSourceText("std.vector");\n'
+        '    FeSourceText secondText = FeSourceText("std.Vector");\n'
         "    Vector<string> firstLines = firstText.lines();\n"
         "    if (firstLines.len != 3 || firstText.lineCount() != 3\n"
         '            || !firstText.startsWithAt(6, "beta")\n'
@@ -528,15 +528,15 @@ def test_import_resolver_owns_deterministic_bulk_paths_and_c11_rendering(
 def test_stdlib_repository_instances_reuse_their_own_isolated_state(
     tmp_path: Path,
 ) -> None:
-    stage = REPO / "src/compiler/btrc/frontend/stage.btrc"
+    stage = REPO / "src/compiler/btrc/frontend/Stage.btrc"
     grammar_path = REPO / "src/language/grammar.ebnf"
     stdlib_a = tmp_path / "stdlib_a"
     stdlib_b = tmp_path / "stdlib_b"
     stdlib_a.mkdir()
     stdlib_b.mkdir()
-    (stdlib_a / "vector.btrc").write_text("import std.strings\nclass Alpha { }\n", encoding="utf-8")
+    (stdlib_a / "Vector.btrc").write_text("import std.Strings\nclass Alpha { }\n", encoding="utf-8")
     (stdlib_a / "zeta.btrc").write_text("class Zeta { }\n", encoding="utf-8")
-    (stdlib_b / "strings.btrc").write_text("class Beta { }\n", encoding="utf-8")
+    (stdlib_b / "Strings.btrc").write_text("class Beta { }\n", encoding="utf-8")
     first_input = tmp_path / "first_input.btrc"
     second_input = tmp_path / "second_input.btrc"
     first_input.write_bytes(b"\xef\xbb\xbfalpha\r\n")
@@ -568,10 +568,10 @@ def test_stdlib_repository_instances_reuse_their_own_isolated_state(
         "    FeFrontendResolver secondResolver = FeFrontendResolver(\n"
         "        grammar, second, false, true);\n"
         "    if (firstSnapshot.count() != 2\n"
-        '            || !PathTools.basename(firstSnapshot.pathAt(0)).equals("vector.btrc")\n'
+        '            || !PathTools.basename(firstSnapshot.pathAt(0)).equals("Vector.btrc")\n'
         '            || !PathTools.basename(firstSnapshot.pathAt(1)).equals("zeta.btrc")) { return 2; }\n'
         "    if (secondSnapshot.count() != 1\n"
-        '            || !PathTools.basename(secondSnapshot.pathAt(0)).equals("strings.btrc")) { return 3; }\n'
+        '            || !PathTools.basename(secondSnapshot.pathAt(0)).equals("Strings.btrc")) { return 3; }\n'
         '    if (!first.requiredModuleForCompilation("vector", firstSnapshot).found\n'
         '            || first.requiredModuleForCompilation("strings", firstSnapshot).found) { return 4; }\n'
         '    if (!second.requiredModuleForCompilation("strings", secondSnapshot).found\n'
@@ -579,7 +579,7 @@ def test_stdlib_repository_instances_reuse_their_own_isolated_state(
         '    string firstSource = firstResolver.sourceAtSnapshot("int userValue;\\n", firstSnapshot);\n'
         '    if (!firstSource.contains("class Alpha")\n'
         '            || !firstSource.contains("class Zeta")\n'
-        '            || firstSource.contains("import std.strings")) { return 6; }\n'
+        '            || firstSource.contains("import std.Strings")) { return 6; }\n'
         '    if (!secondResolver.sourceAtSnapshot("int userValue;\\n", secondSnapshot).contains("class Beta")) { return 7; }\n'
         '    if (secondResolver.sourceAtSnapshot("class Beta { }\\n", secondSnapshot).contains("class Beta")) { return 8; }\n'
         "    return 0;\n"
@@ -627,11 +627,11 @@ def test_stdlib_symbol_index_detects_changes_and_recovers_atomically(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    frontend_stage = REPO / "src/compiler/btrc/frontend/stage.btrc"
+    frontend_stage = REPO / "src/compiler/btrc/frontend/Stage.btrc"
     grammar_path = REPO / "src/language/grammar.ebnf"
     stdlib = tmp_path / "stdlib"
     stdlib.mkdir()
-    indexed_source = stdlib / "alpha.btrc"
+    indexed_source = stdlib / "Alpha.btrc"
     indexed_source.write_text("class Alpha { }\n", encoding="utf-8")
 
     program = tmp_path / "stdlib_symbol_index_reuse.btrc"

@@ -11,7 +11,7 @@ from src.tests.btrc.test_mutex_value_contract import (
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
-FIXTURE = Path(__file__).with_name("fixtures") / "delete_take_clear_runtime.btrc"
+FIXTURE = Path(__file__).with_name("fixtures") / "DeleteTakeClearRuntime.btrc"
 
 
 def test_delete_takes_and_clears_before_throwing_destructor(

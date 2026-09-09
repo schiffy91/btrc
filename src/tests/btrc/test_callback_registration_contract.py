@@ -240,7 +240,7 @@ void fake_reset(void) {
 
 
 _POSITIVE_PROGRAM = r"""
-import std.callback;
+import std.Callback;
 
 extern void fake_register(CFunction<void, void*> callback, void* context,
     Atomic<uint>* gate, Atomic<uint>* entered);
@@ -581,7 +581,7 @@ int main() {
 
 
 _FAILURE_PROGRAM = r"""
-import std.callback;
+import std.Callback;
 
 extern void fake_wait_millis(int milliseconds);
 extern CFunction<void, void*> fake_null_callback();
@@ -934,7 +934,7 @@ def test_registration_rejects_unproven_or_null_invoke_values(
     diagnostic: str,
 ) -> None:
     source = f"""
-        import std.callback;
+        import std.Callback;
         void ordinaryTrampoline(void* raw) {{}}
         @realtime static void realtimeTrampoline(void* raw) {{}}
         void destroy(void* raw) {{}}
@@ -963,7 +963,7 @@ def test_realtime_invoke_cannot_close_its_registration(
     tmp_path: Path,
 ) -> None:
     source = """
-        import std.callback;
+        import std.Callback;
         class CurrentRegistration {
             public CallbackRegistration<CFunction<void, void*>> registration;
             public CurrentRegistration(
@@ -1030,7 +1030,7 @@ def test_registration_never_exposes_racy_raw_parts_after_activation(
     getter: str,
 ) -> None:
     source = f"""
-        import std.callback;
+        import std.Callback;
         @realtime static void trampoline(void* raw) {{}}
         void destroy(void* raw) {{}}
         bool activate(CFunction<void, void*> callback, void* raw,

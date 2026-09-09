@@ -61,8 +61,8 @@ def test_archive_build_workflow_is_instance_owned():
 # a user-type generic (Vector<Item> — NOT in the archive, emitted locally), and
 # objects with destructors (the shared destroyed-pointer guard).
 CROSS_BOUNDARY_PROG = """
-import std.map;
-import std.vector;
+import std.Map;
+import std.Vector;
 
 class Item {
     public string name;
@@ -89,7 +89,7 @@ int main() {
 """
 
 ARCHIVE_THROW_PROG = """
-import std.cli;
+import std.Cli;
 
 int main() {
     var arguments = CliArgs(0, null);
@@ -297,7 +297,7 @@ def test_archive_override_check_distinguishes_imports_from_user_code(tmp_path):
     stdlib_root = Path(StdlibRepository().directory())
     stdlib_decl = SimpleNamespace(
         name="CliArgs",
-        source_file=CompilerStdlibSource(str(stdlib_root / "cli.btrc")),
+        source_file=CompilerStdlibSource(str(stdlib_root / "Cli.btrc")),
     )
     archive = _archive_adapter()
     archive.reject_user_overrides(SimpleNamespace(declarations=[stdlib_decl]), manifest)

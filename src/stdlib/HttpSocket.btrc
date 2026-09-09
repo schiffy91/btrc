@@ -1,5 +1,5 @@
 /* Bounded socket I/O for the HTTP server. */
-import std.bytes;
+import std.Bytes;
 import std.HttpFraming;
 
 #include <sys/types.h>

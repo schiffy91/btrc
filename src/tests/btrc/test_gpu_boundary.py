@@ -17,7 +17,7 @@ from src.tests.python.test_codegen import emit_c
 
 REPO = Path(__file__).resolve().parents[3]
 CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
-BTRCC_SOURCE = REPO / "src/compiler/btrc/btrcc_main.btrc"
+BTRCC_SOURCE = REPO / "src/compiler/btrc/BtrccMain.btrc"
 FIXTURES = REPO / "src/tests/btrc/fixtures"
 GPU_INCLUDE = REPO / "src/stdlib/gpu"
 NAGA = shutil.which("naga")
@@ -73,7 +73,7 @@ def test_unused_gpu_kernel_is_proven_dead_and_erased(
     btrcc_driver: Path,
     tmp_path: Path,
 ) -> None:
-    source = REPO / "src/tests/gpu/test_gpu_square.btrc"
+    source = REPO / "src/tests/gpu/GpuSquare.btrc"
     generated = _run([str(btrcc_driver), str(source)], timeout=120)
 
     assert generated.returncode == 0 and generated.stderr == ""
@@ -176,8 +176,8 @@ def _lower_source(btrcc_driver: Path, tmp_path: Path, source: str) -> str:
 
 
 def test_selfhost_gpu_input_projection_root_is_a_typed_slot_transaction() -> None:
-    pipeline = (REPO / "src/compiler/btrc/ir/gpu/pipeline.btrc").read_text()
-    expressions = (REPO / "src/compiler/btrc/ir/lowering/expressions.btrc").read_text()
+    pipeline = (REPO / "src/compiler/btrc/ir/gpu/Pipeline.btrc").read_text()
+    expressions = (REPO / "src/compiler/btrc/ir/lowering/Expressions.btrc").read_text()
 
     projection_record = pipeline[
         pipeline.index("class GpuArgumentProjectionRoot {") : pipeline.index("class GpuArgumentLedger {")
@@ -216,10 +216,10 @@ def test_selfhost_gpu_input_projection_root_is_a_typed_slot_transaction() -> Non
 
 
 def test_selfhost_gpu_property_output_is_a_typed_managed_transaction() -> None:
-    storage = (REPO / "src/compiler/btrc/analyzer/validation/storage.btrc").read_text()
-    pipeline = (REPO / "src/compiler/btrc/ir/gpu/pipeline.btrc").read_text()
-    expressions = (REPO / "src/compiler/btrc/ir/lowering/expressions.btrc").read_text()
-    statements = (REPO / "src/compiler/btrc/ir/lowering/statements.btrc").read_text()
+    storage = (REPO / "src/compiler/btrc/analyzer/validation/Storage.btrc").read_text()
+    pipeline = (REPO / "src/compiler/btrc/ir/gpu/Pipeline.btrc").read_text()
+    expressions = (REPO / "src/compiler/btrc/ir/lowering/Expressions.btrc").read_text()
+    statements = (REPO / "src/compiler/btrc/ir/lowering/Statements.btrc").read_text()
 
     admission = storage[
         storage.index("public bool gpuOutputCollectionTarget(") : storage.index("public Node? gpuBufferElementType(")
@@ -250,8 +250,8 @@ def test_selfhost_gpu_property_output_is_a_typed_managed_transaction() -> None:
 
 
 def test_selfhost_gpu_physical_collection_output_requires_managed_storage() -> None:
-    storage = (REPO / "src/compiler/btrc/analyzer/validation/storage.btrc").read_text()
-    pipeline = (REPO / "src/compiler/btrc/ir/gpu/pipeline.btrc").read_text()
+    storage = (REPO / "src/compiler/btrc/analyzer/validation/Storage.btrc").read_text()
+    pipeline = (REPO / "src/compiler/btrc/ir/gpu/Pipeline.btrc").read_text()
 
     admission = storage[
         storage.index("public bool gpuOutputCollectionTarget(") : storage.index("public Node? gpuBufferElementType(")
@@ -1929,7 +1929,7 @@ def test_selfhost_checked_shader_validates_with_naga(
         [
             str(btrcc_driver),
             "--no-stdlib",
-            str(FIXTURES / "gpu_checked_semantics.btrc"),
+            str(FIXTURES / "GpuCheckedSemantics.btrc"),
         ],
         timeout=120,
     )

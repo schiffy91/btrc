@@ -1,0 +1,16 @@
+import std.Strings;
+
+#include "../../../compiler/btrc/cli/Driver.btrc"
+
+int main(int argc, char** argv) {
+	BtrccRuntimePaths resolver = BtrccRuntimePaths(argc > 0 ? Strings.copy(argv[0]) : "");
+	BtrccDataPaths paths = resolver.resolve();
+	if (!paths.valid) {
+		fprintf(stderr, "%s\n", paths.diagnostic);
+		return 2;
+	}
+	print(paths.root);
+	print(paths.grammar);
+	print(paths.stdlib);
+	return 0;
+}

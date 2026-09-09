@@ -17,7 +17,7 @@ from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import _tracked_strict_
 from src.tests.python.test_codegen import emit_c
 
 ROOT = Path(__file__).resolve().parents[3]
-FIXTURE = ROOT / "src/tests/classes/test_class_compound_assignment.btrc"
+FIXTURE = ROOT / "src/tests/classes/ClassCompoundAssignment.btrc"
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 CONVERTED_RHS_SOURCE = r"""

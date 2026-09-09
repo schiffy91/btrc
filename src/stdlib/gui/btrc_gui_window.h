@@ -13,7 +13,7 @@
 #define BTRC_GUI_WINDOW_H
 
 #ifdef BTRC_APP_WINDOW_API
-#error "legacy std.gui GuiWindow cannot be composed with std.app"
+#error "legacy std.Gui GuiWindow cannot be composed with std.App"
 #endif
 #define BTRC_GUI_LEGACY_WINDOW_API 1
 

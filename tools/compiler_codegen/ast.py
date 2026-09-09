@@ -57,9 +57,7 @@ class PythonAstRenderer:
             "from typing import Optional, Union",
         ]
 
-        constructors: list[
-            tuple[AsdlConstructor, tuple[AsdlField, ...], AsdlType]
-        ] = []
+        constructors: list[tuple[AsdlConstructor, tuple[AsdlField, ...], AsdlType]] = []
         sum_types: list[AsdlType] = []
         product_types: list[AsdlType] = []
         simple_enums: list[AsdlType] = []
@@ -69,9 +67,7 @@ class PythonAstRenderer:
             elif self._is_sum_type(schema_type):
                 sum_types.append(schema_type)
                 for constructor in schema_type.constructors:
-                    constructors.append(
-                        (constructor, schema_type.attributes, schema_type)
-                    )
+                    constructors.append((constructor, schema_type.attributes, schema_type))
             else:
                 product_types.append(schema_type)
                 constructors.append(
@@ -99,9 +95,7 @@ class PythonAstRenderer:
 
         lines.extend(("", "", "# --- Union type aliases for sum types ---", ""))
         for schema_type in sum_types:
-            names = ", ".join(
-                constructor.name for constructor in schema_type.constructors
-            )
+            names = ", ".join(constructor.name for constructor in schema_type.constructors)
             lines.append(f"{schema_type.name} = Union[{names}]")
 
         lines.extend(
@@ -201,10 +195,10 @@ class BtrcAstRenderer:
             " * DO NOT EDIT BY HAND. btrc lacks dynamic dispatch/downcast, so the AST",
             " * is one Node with a `kind` tag + the union of all fields.",
             " * This file contains data/schema declarations only; canonical formatting",
-            " * belongs to the handwritten owner in syntax/identity.btrc.",
+            " * belongs to the handwritten owner in syntax/Identity.btrc.",
             " */",
             "",
-            "import std.vector;",
+            "import std.Vector;",
             "",
         ]
         self._emit_node_kind_enum(lines)
@@ -214,14 +208,10 @@ class BtrcAstRenderer:
         lines.append("class Node {")
         lines.append("    public int kind;")
         for declaration in declarations:
-            lines.append(
-                f"    public {declaration.declared_type} {declaration.name};"
-            )
+            lines.append(f"    public {declaration.declared_type} {declaration.name};")
         lines.extend(("", "    public Node() {", "        self.kind = NK_NONE;"))
         for declaration in declarations:
-            lines.append(
-                f"        self.{declaration.name} = {declaration.initializer};"
-            )
+            lines.append(f"        self.{declaration.name} = {declaration.initializer};")
         lines.extend(("    }", "}"))
         return "\n".join(lines) + "\n"
 
@@ -241,12 +231,8 @@ class BtrcAstRenderer:
         for index, character in enumerate(name):
             if character.isupper() and index > 0:
                 previous = name[index - 1]
-                next_is_lower = (
-                    index + 1 < len(name) and name[index + 1].islower()
-                )
-                if previous.islower() or previous.isdigit() or (
-                    next_is_lower and previous.isupper()
-                ):
+                next_is_lower = index + 1 < len(name) and name[index + 1].islower()
+                if previous.islower() or previous.isdigit() or (next_is_lower and previous.isupper()):
                     result.append("_")
             result.append(character.upper())
         return "".join(result)
@@ -318,9 +304,7 @@ class BtrcAstRenderer:
             if self._is_simple_enum(schema_type):
                 continue
             for constructor in schema_type.constructors:
-                lines.append(
-                    f"    NK_{self._to_screaming_snake(constructor.name)},"
-                )
+                lines.append(f"    NK_{self._to_screaming_snake(constructor.name)},")
         lines.extend(("};", ""))
 
     def _emit_simple_enums(self, lines: list[str]) -> None:
@@ -331,9 +315,7 @@ class BtrcAstRenderer:
             last_index = len(schema_type.constructors) - 1
             for index, constructor in enumerate(schema_type.constructors):
                 comma = "," if index < last_index else ""
-                lines.append(
-                    f"    {self._to_screaming_snake(constructor.name)} = {index}{comma}"
-                )
+                lines.append(f"    {self._to_screaming_snake(constructor.name)} = {index}{comma}")
             lines.extend(("};", ""))
 
     def _build_declarations(self) -> tuple[_BtrcFieldDeclaration, ...]:
@@ -353,25 +335,17 @@ class BtrcAstRenderer:
         for plan in constructors:
             for field in plan.fields:
                 category, declared_type = self._fat_type(self._btrc_type(field))
-                seen.setdefault(self._safe_name(field.name), set()).add(
-                    (category, declared_type)
-                )
-        conflicted = frozenset(
-            name for name, uses in seen.items() if len(uses) > 1
-        )
+                seen.setdefault(self._safe_name(field.name), set()).add((category, declared_type))
+        conflicted = frozenset(name for name, uses in seen.items() if len(uses) > 1)
 
         optional_strings: dict[str, list[bool]] = {}
         for plan in constructors:
             for field in plan.fields:
                 category, declared_type = self._fat_type(self._btrc_type(field))
                 if category == "scalar" and declared_type == "string":
-                    optional_strings.setdefault(
-                        self._safe_name(field.name), []
-                    ).append(field.is_optional)
+                    optional_strings.setdefault(self._safe_name(field.name), []).append(field.is_optional)
         nullable_strings = frozenset(
-            name
-            for name, flags in optional_strings.items()
-            if all(flags) and name not in conflicted
+            name for name, flags in optional_strings.items() if all(flags) and name not in conflicted
         )
 
         declarations: dict[str, tuple[str, str]] = {}
@@ -389,9 +363,7 @@ class BtrcAstRenderer:
             for field in plan.fields:
                 name = self._safe_name(field.name)
                 category, declared_type = self._fat_type(self._btrc_type(field))
-                backing_name = self._backing_name(
-                    name, category, declared_type, conflicted
-                )
+                backing_name = self._backing_name(name, category, declared_type, conflicted)
                 is_optional_string = backing_name in nullable_strings
                 if backing_name not in declarations:
                     if is_optional_string:
@@ -405,22 +377,10 @@ class BtrcAstRenderer:
         # Disambiguation above runs on the spec's own names; the btrc
         # spelling is applied once at the end so the two never diverge.
         spelled = {name: self._to_camel(name) for name in declaration_order}
-        collisions = sorted(
-            {
-                name
-                for name in spelled.values()
-                if list(spelled.values()).count(name) > 1
-            }
-        )
+        collisions = sorted({name for name in spelled.values() if list(spelled.values()).count(name) > 1})
         if collisions:
-            raise GeneratedSourceError(
-                "ASDL field names collide when spelled for btrc: "
-                + ", ".join(collisions)
-            )
-        return tuple(
-            _BtrcFieldDeclaration(spelled[name], *declarations[name])
-            for name in declaration_order
-        )
+            raise GeneratedSourceError("ASDL field names collide when spelled for btrc: " + ", ".join(collisions))
+        return tuple(_BtrcFieldDeclaration(spelled[name], *declarations[name]) for name in declaration_order)
 
 
 class BtrcCanonicalRendererContract:
@@ -431,14 +391,12 @@ class BtrcCanonicalRendererContract:
         r"^    public (?P<type>[^;]+) (?P<name>[A-Za-z_][A-Za-z0-9_]*);$",
         re.MULTILINE,
     )
-    _RENDER_BRANCH = re.compile(
-        r"(?:if|else if) \(node\.kind == (?P<kind>NK_[A-Z0-9_]+)\) \{"
-    )
+    _RENDER_BRANCH = re.compile(r"(?:if|else if) \(node\.kind == (?P<kind>NK_[A-Z0-9_]+)\) \{")
     _RENDERED_NAME = re.compile(r'string out = "\((?P<name>[A-Za-z0-9_]+)";')
     _RENDERED_FIELD = re.compile(
         r'"(?P<label>[A-Za-z_][A-Za-z0-9_]*)=" \+ '
-        r'self\.(?P<formatter>canon[A-Za-z0-9_]+)\('
-        r'node\.(?P<backing>[A-Za-z_][A-Za-z0-9_]*)'
+        r"self\.(?P<formatter>canon[A-Za-z0-9_]+)\("
+        r"node\.(?P<backing>[A-Za-z_][A-Za-z0-9_]*)"
     )
     _FORMATTER_BY_TYPE: ClassVar[dict[str, str]] = {
         "int": "canonInt",
@@ -460,23 +418,16 @@ class BtrcCanonicalRendererContract:
 
         renderer = self._renderer_class(renderer_source)
         constructors = self._rendered_constructors()
-        expected_kinds = tuple(
-            kind
-            for kind in self._NODE_KIND.findall(self._generated_node)
-            if kind != "NK_NONE"
-        )
+        expected_kinds = tuple(kind for kind in self._NODE_KIND.findall(self._generated_node) if kind != "NK_NONE")
         branches = tuple(self._RENDER_BRANCH.finditer(renderer))
         actual_kinds = tuple(branch.group("kind") for branch in branches)
         if actual_kinds != expected_kinds:
             self._mismatch("constructor branches", expected_kinds, actual_kinds)
         if len(branches) != len(constructors):
-            raise GeneratedSourceError(
-                "AstCanonicalRenderer constructor count differs from ast.asdl"
-            )
+            raise GeneratedSourceError("AstCanonicalRenderer constructor count differs from ast.asdl")
 
         node_fields = {
-            match.group("name"): match.group("type")
-            for match in self._NODE_FIELD.finditer(self._generated_node)
+            match.group("name"): match.group("type") for match in self._NODE_FIELD.finditer(self._generated_node)
         }
         for index, (constructor, fields) in enumerate(constructors):
             start = branches[index].end()
@@ -520,9 +471,7 @@ class BtrcCanonicalRendererContract:
             raise GeneratedSourceError("missing handwritten AstCanonicalRenderer")
         renderer, separator, _ = remainder.partition("\nclass TypeIdentity {")
         if not separator:
-            raise GeneratedSourceError(
-                "AstCanonicalRenderer must remain a cohesive owner before TypeIdentity"
-            )
+            raise GeneratedSourceError("AstCanonicalRenderer must remain a cohesive owner before TypeIdentity")
         if "public string render(Node node)" not in renderer:
             raise GeneratedSourceError("AstCanonicalRenderer must expose render(Node)")
         return renderer
@@ -538,9 +487,7 @@ class BtrcCanonicalRendererContract:
             if is_simple_enum:
                 continue
             for constructor in schema_type.constructors:
-                constructors.append(
-                    (constructor, constructor.fields + schema_type.attributes)
-                )
+                constructors.append((constructor, constructor.fields + schema_type.attributes))
         return tuple(constructors)
 
     def _mismatch(
@@ -550,23 +497,16 @@ class BtrcCanonicalRendererContract:
         actual: tuple[str, ...],
     ) -> None:
         raise GeneratedSourceError(
-            f"AstCanonicalRenderer {subject} differ from ast.asdl: "
-            f"expected {expected!r}, got {actual!r}"
+            f"AstCanonicalRenderer {subject} differ from ast.asdl: expected {expected!r}, got {actual!r}"
         )
 
 
 class AstCatalogGenerator:
     """Own the ASDL input and both generated compiler AST artifacts."""
 
-    _PYTHON_OUTPUT = PurePosixPath(
-        "src/compiler/python/syntax/ast/generated.py"
-    )
-    _SELFHOST_OUTPUT = PurePosixPath(
-        "src/compiler/btrc/generated/ast/node.btrc"
-    )
-    _SELFHOST_RENDERER = PurePosixPath(
-        "src/compiler/btrc/syntax/identity.btrc"
-    )
+    _PYTHON_OUTPUT = PurePosixPath("src/compiler/python/syntax/ast/generated.py")
+    _SELFHOST_OUTPUT = PurePosixPath("src/compiler/btrc/generated/ast/Node.btrc")
+    _SELFHOST_RENDERER = PurePosixPath("src/compiler/btrc/syntax/Identity.btrc")
 
     def __init__(self, repository_root: Path):
         self._repository_root = repository_root
@@ -574,14 +514,10 @@ class AstCatalogGenerator:
     def artifacts(self) -> tuple[GeneratedArtifact, ...]:
         schema_path = self._repository_root / "src/language/ast.asdl"
         schema = AsdlSchemaParser(schema_path.read_text(encoding="utf-8")).parse()
-        grammar = GrammarRepository(
-            str(self._repository_root / "src/language/grammar.ebnf")
-        ).load()
+        grammar = GrammarRepository(str(self._repository_root / "src/language/grammar.ebnf")).load()
         selfhost = BtrcAstRenderer(schema, grammar.keywords).render()
         renderer_path = self._repository_root.joinpath(*self._SELFHOST_RENDERER.parts)
-        BtrcCanonicalRendererContract(schema, selfhost).verify(
-            renderer_path.read_text(encoding="utf-8")
-        )
+        BtrcCanonicalRendererContract(schema, selfhost).verify(renderer_path.read_text(encoding="utf-8"))
         return (
             GeneratedArtifact(
                 path=self._PYTHON_OUTPUT,

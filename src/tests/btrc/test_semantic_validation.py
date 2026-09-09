@@ -544,16 +544,16 @@ def test_declaration_and_context_contracts(
 
 
 def test_semantic_stage_precedes_structured_ir_lowering() -> None:
-    pipeline = (SELFHOST / "pipeline/pipeline.btrc").read_text()
-    analyzer_stage = (SELFHOST / "analyzer/stage.btrc").read_text()
-    semantic_analyzer = (SELFHOST / "analyzer/analyzer.btrc").read_text()
-    ir_stage = (SELFHOST / "ir/stage.btrc").read_text()
+    pipeline = (SELFHOST / "pipeline/Pipeline.btrc").read_text()
+    analyzer_stage = (SELFHOST / "analyzer/Stage.btrc").read_text()
+    semantic_analyzer = (SELFHOST / "analyzer/Analyzer.btrc").read_text()
+    ir_stage = (SELFHOST / "ir/Stage.btrc").read_text()
 
     assert pipeline.index("Analyzed analyzed = analyzer.analyze(program, self.hostedAbi);") < pipeline.index(
         "IRLowerer lowerer = IRLowerer("
     )
     assert semantic_analyzer.index("validator.validate();") < semantic_analyzer.index("return self.analysis;")
-    assert "import ./validation/validator.btrc;" in analyzer_stage
-    assert "import ./analyzer.btrc;" in analyzer_stage
+    assert "import ./validation/Validator.btrc;" in analyzer_stage
+    assert "import ./Analyzer.btrc;" in analyzer_stage
     assert "#include" not in analyzer_stage
-    assert "import ../analyzer/stage.btrc;" in ir_stage
+    assert "import ../analyzer/Stage.btrc;" in ir_stage

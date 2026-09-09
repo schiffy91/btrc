@@ -16,7 +16,7 @@ from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
 )
 
 REPO = Path(__file__).resolve().parents[3]
-FIXTURE = Path(__file__).with_name("fixtures") / "generic_cfor_initializer_ownership_runtime.btrc"
+FIXTURE = Path(__file__).with_name("fixtures") / "GenericCforInitializerOwnershipRuntime.btrc"
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 pytestmark = pytest.mark.skipif(

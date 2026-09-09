@@ -35,8 +35,8 @@ jobs:
           test "$(uname -m)" = x86_64
           unset BTRC_HOME
           (cd dist && sha256sum -c btrcc-linux-x64.tar.gz.sha256)
-          source="$GITHUB_WORKSPACE/src/tests/strings/test_braces_in_code_gen.btrc"
-          expected="$GITHUB_WORKSPACE/src/tests/strings/expected/test_braces_in_code_gen.stdout"
+          source="$GITHUB_WORKSPACE/src/tests/strings/BracesInCodeGen.btrc"
+          expected="$GITHUB_WORKSPACE/src/tests/strings/expected/BracesInCodeGen.stdout"
           work=$(mktemp -d)
           trap 'rm -rf "$work"' EXIT
           tar -xzf dist/btrcc-linux-x64.tar.gz -C "$work"
@@ -65,11 +65,11 @@ jobs:
         run: |
           paths=(
             src/compiler/python/runtime/generated.py
-            src/compiler/btrc/generated/runtime/catalog.btrc
+            src/compiler/btrc/generated/runtime/Catalog.btrc
             src/compiler/python/syntax/ast/generated.py
-            src/compiler/btrc/generated/ast/node.btrc
+            src/compiler/btrc/generated/ast/Node.btrc
             src/compiler/python/abi/generated.py
-            src/compiler/btrc/generated/hosted_abi/tables.btrc
+            src/compiler/btrc/generated/hosted_abi/Tables.btrc
             src/devex/lsp/catalog/generated.py
           )
           git diff --exit-code -- "${paths[@]}"
@@ -99,8 +99,8 @@ jobs:
             test "$(uname -m)" = aarch64
             unset BTRC_HOME
             (cd dist && sha256sum -c btrcc-linux-arm64.tar.gz.sha256)
-            source="$GITHUB_WORKSPACE/src/tests/strings/test_braces_in_code_gen.btrc"
-            expected="$GITHUB_WORKSPACE/src/tests/strings/expected/test_braces_in_code_gen.stdout"
+            source="$GITHUB_WORKSPACE/src/tests/strings/BracesInCodeGen.btrc"
+            expected="$GITHUB_WORKSPACE/src/tests/strings/expected/BracesInCodeGen.stdout"
             work=$(mktemp -d)
             trap '\''rm -rf "$work"'\'' EXIT
             tar -xzf dist/btrcc-linux-arm64.tar.gz -C "$work"

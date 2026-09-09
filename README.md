@@ -9,7 +9,7 @@ And no – it's not actually better than C, but I like the name, which I ripped 
 Here's an example:
 
 ```
-#include "engine/engine.btrc"
+#include "engine/Engine.btrc"
 
 int main() {
     var engine = Engine("btrc 3D Ball", 800, 600);
@@ -94,17 +94,17 @@ Useful compiler modes include:
 ```bash
 # Build the stdlib once, then emit program-only C against that archive.
 ./bin/btrcpy --build-stdlib build/stdlib
-./bin/btrcpy --stdlib build/stdlib app.btrc -o app.c
+./bin/btrcpy --stdlib build/stdlib App.btrc -o app.c
 
 # Reassert the strict default and bypass the transpilation cache.
-./bin/btrcpy --strict-imports --no-cache app.btrc -o app.c
+./bin/btrcpy --strict-imports --no-cache App.btrc -o app.c
 
 # Temporarily compile a legacy project with implicit cross-file visibility.
-./bin/btrcpy --relaxed-imports app.btrc -o app.c
+./bin/btrcpy --relaxed-imports App.btrc -o app.c
 
 # Keep all generated declarations for inspection, or profile compiler phases.
-./bin/btrcpy --no-dce app.btrc -o app.c
-./bin/btrcpy --profile app.btrc -o app.c
+./bin/btrcpy --no-dce App.btrc -o app.c
+./bin/btrcpy --profile App.btrc -o app.c
 ```
 
 See [the precompiled-stdlib design](docs/design/precompiled-stdlib.md) for the
@@ -120,7 +120,7 @@ archive layout and cross-translation-unit ownership contract. Run
 | No memory management | ARC (Automatic Reference Counting) |
 | No type inference | `var x = 42;` just works |
 | `printf` formatting | f-strings: `f"x = {x + 1}"` |
-| Ad hoc include order | `import std.{json, process}`, `import ./src/**`, plus old `#include` compatibility |
+| Ad hoc include order | `import std.{Json, Process}`, `import ./src/**`, plus old `#include` compatibility |
 | No collections | `Vector<T>`, `Map<K,V>`, `Set<T>`, `List<T>`, `Array<T>` with rich APIs |
 | No lambdas | Arrow lambdas: `(int x) => x * 2` |
 | No exceptions | `try`/`catch`/`finally` with ARC-safe cleanup on throw |
@@ -146,7 +146,7 @@ fragments share visibility in both directions. New modular code should prefer
 `import`; `--relaxed-imports` is the explicit legacy opt-out.
 
 ```
-import std.{cli, fs, json, process, toml, ui}
+import std.{Cli, FileSystem, Json, Process, Toml, Ui}
 import std.*
 import ./src/core/*
 import ./src/**
@@ -157,7 +157,7 @@ Supported forms are:
 - `std.name` for one standard-library module
 - `std.{a, b, c}` for a small ordered set
 - `std.*` or `std.**` for the discovered standard library
-- relative files such as `./helpers/message.btrc`
+- relative files such as `./helpers/Message.btrc`
 - directory globs with `./dir/*`
 - recursive directory globs with `./dir/**`
 
@@ -853,7 +853,7 @@ Captured class instances are ARC-safe -- the compiler increments the reference c
 Array params become storage buffers, scalar params become uniforms, `gpu_id()` maps to the global invocation index, and `return` writes to an output buffer. Void-returning kernels mutate arrays in-place.
 
 ```
-#include <gpu.btrc>
+#include <Gpu.btrc>
 
 // In-place mutation: each thread scales one element
 @gpu
@@ -870,7 +870,7 @@ float[] sgdUpdate(float[] weights, float[] gradients, float lr) {
 }
 ```
 
-For a full example that combines `@gpu` kernels with btrc classes, see [`examples/sgd/sgd.btrc`](examples/sgd/sgd.btrc) -- GPU-accelerated stochastic gradient descent that learns `y = 2x + 3` from training data.
+For a full example that combines `@gpu` kernels with btrc classes, see [`examples/sgd/Sgd.btrc`](examples/sgd/Sgd.btrc) -- GPU-accelerated stochastic gradient descent that learns `y = 2x + 3` from training data.
 
 ### Realtime Functions
 
@@ -890,7 +890,7 @@ manifest row explicitly says so; an absent summary is unsafe.
 }
 ```
 
-See [`examples/realtime_gain.btrc`](examples/realtime_gain.btrc) for a complete
+See [`examples/RealtimeGain.btrc`](examples/RealtimeGain.btrc) for a complete
 strict-C11 standalone program.
 
 ### 3D Game Engine
@@ -898,7 +898,7 @@ strict-C11 standalone program.
 btrc includes a Unity-inspired 3D game engine built on WebGPU rendering. A ball on a ground plane with WASD movement, space to jump, real-time shadows, and SDF raymarching -- all in ~570 lines of btrc across 11 engine modules.
 
 ```
-#include "engine/engine.btrc"
+#include "engine/Engine.btrc"
 
 int main() {
     var engine = Engine("btrc 3D Ball", 800, 600);
@@ -973,7 +973,7 @@ implicit whole-stdlib composition is available only through the legacy
 #### Math
 
 ```
-import std.math;
+import std.Math;
 
 double pi = Math.PI();
 int abs = Math.abs(-5);
@@ -988,7 +988,7 @@ double sin = Math.sin(Math.PI() / 2.0);
 #### DateTime and Timer
 
 ```
-import std.datetime;
+import std.Datetime;
 
 DateTime now = DateTime.now();
 string date = now.dateString();     // "2025-01-15"
@@ -1004,7 +1004,7 @@ float elapsed = t.elapsed();       // seconds
 #### Random
 
 ```
-import std.random;
+import std.Random;
 
 Random rng = Random();
 rng.seedTime();
@@ -1016,7 +1016,7 @@ rng.shuffle(myVector);             // in-place Fisher-Yates
 #### File I/O
 
 ```
-import std.io;
+import std.Io;
 
 File f = File("data.txt", "r");
 if (f.ok()) {
@@ -1047,7 +1047,7 @@ Path.writeAll("output.txt", "hello");
 #### Console
 
 ```
-import std.console;
+import std.Console;
 
 Console.log("message");            // stdout + newline
 Console.error("problem");          // stderr + newline
@@ -1074,7 +1074,7 @@ are explicit.
 #### Result
 
 ```
-import std.result;
+import std.Result;
 
 Result<int, string> divide(int a, int b) {
     if (b == 0) { return Result.err("division by zero"); }
@@ -1089,7 +1089,7 @@ if (r.isErr()) {
 
 #### Error Classes
 
-Import `std.error` to use `Error`, `ValueError`, `IOError`, `TypeError`,
+Import `std.Error` to use `Error`, `ValueError`, `IOError`, `TypeError`,
 `IndexError`, and `KeyError`; each provides `.toString()`.
 
 ---
@@ -1132,7 +1132,7 @@ catalog order for the pre-authored `core.c`, `collections.c`, `cycles.c`,
 `mutex.c`, `process.c`, `strings.c`, `threads.c`, `trycatch.c`, and `gpu.c`
 assets plus `btrc_rt.h`. The unified generator emits immutable metadata to
 `src/compiler/python/runtime/generated.py` and
-`src/compiler/btrc/generated/runtime/catalog.btrc`; retained catalog owners in
+`src/compiler/btrc/generated/runtime/Catalog.btrc`; retained catalog owners in
 the two compilers select and materialize those assets. Lowering and emission do
 not construct runtime C source.
 
@@ -1247,9 +1247,9 @@ src/
       artifacts/               # Archive, cache, publication, stdlib, selfhost
 
     btrc/                      # Exact 91-file self-hosted compiler
-      btrcc_main.btrc          # Thin process entry point
-      compiler.btrc            # Public Compiler application object
-      cli/driver.btrc          # BtrccDriver command/process boundary
+      BtrccMain.btrc          # Thin process entry point
+      Compiler.btrc            # Public Compiler application object
+      cli/Driver.btrc          # BtrccDriver command/process boundary
       pipeline/                # CompilerPipeline, options, and result models
       syntax/                  # Grammar, token, identity, type, literal owners
       lexer/                   # Lexer and imports-only stage manifest
@@ -1268,22 +1268,22 @@ src/
       tools/                   # Five entry points plus the ASDL schema owner
 
   stdlib/                      # Standard-library modules (explicit in strict mode)
-    vector.btrc                # Vector<T> (dynamic array)
-    list.btrc                  # List<T> (doubly-linked list)
-    array.btrc                 # Array<T> (fixed-size)
-    iterable.btrc              # Iterable<T> interface
-    map.btrc                   # Map<K,V> (hash map)
-    set.btrc                   # Set<T> (hash set)
-    strings.btrc               # Strings static utilities
-    math.btrc                  # Math static utilities
-    datetime.btrc              # DateTime + Timer
-    random.btrc                # Random number generation
-    io.btrc                    # File + Path I/O
-    console.btrc               # Console output
-    error.btrc                 # Error class hierarchy
-    result.btrc                # Result<T,E> type
+    Vector.btrc                # Vector<T> (dynamic array)
+    List.btrc                  # List<T> (doubly-linked list)
+    Array.btrc                 # Array<T> (fixed-size)
+    Iterable.btrc              # Iterable<T> interface
+    Map.btrc                   # Map<K,V> (hash map)
+    Set.btrc                   # Set<T> (hash set)
+    Strings.btrc               # Strings static utilities
+    Math.btrc                  # Math static utilities
+    Datetime.btrc              # DateTime + Timer
+    Random.btrc                # Random number generation
+    Io.btrc                    # File + Path I/O
+    Console.btrc               # Console output
+    Error.btrc                 # Error class hierarchy
+    Result.btrc                # Result<T,E> type
     gpu/                       # GPU runtime (WebGPU/wgpu-native)
-      gpu.btrc                 # GPU btrc types
+      Gpu.btrc                 # GPU btrc types
       btrc_gpu.h               # C header for GPU compute functions
       btrc_gpu.c               # Strict-C11 implementation (wgpu-native backend)
       btrc_gpu_compute_singleton.h # Atomic compute-context publication
@@ -1318,10 +1318,10 @@ src/
     vscode/                    # Extension source, config, assets, packaging owners
 
 examples/
-  realtime_gain.btrc             # standalone @realtime raw-buffer kernel
+  RealtimeGain.btrc             # standalone @realtime raw-buffer kernel
   game/                        # 3D game engine -- Unity-inspired, WGSL raymarching
     engine/                    # Engine modules: Camera, Light, Material, Ground, Sky, Scene, Input, Time, GameObject, Renderer
-    game.btrc                  # The ball game (WASD + space to jump)
+    Game.btrc                  # The ball game (WASD + space to jump)
   todo/                        # Todo board -- classes, generics, collections
   sgd/                         # GPU-accelerated SGD -- @gpu, classes, Vector
   triangle/                    # WebGPU triangle -- raw WGSL render pipeline
@@ -1339,7 +1339,7 @@ missing tools rather than product defects -- `naga`, `lldb`, `pkg-config`, and
 platform-specific paths -- but they are still coverage you did not get, and the
 run looks identical either way: install those and the GPU/WGSL validation, the
 debugger, and the tray runtime all start testing for real. And
-`stdlib/test_stdlib_daemon.btrc` asserts a wall-clock daemon-stop deadline, so
+`stdlib/StdlibDaemon.btrc` asserts a wall-clock daemon-stop deadline, so
 it can fail on a saturated machine and pass on a quiet one; that is a timing
 assumption in the test, not a defect in the stdlib.
 

@@ -15,9 +15,9 @@ from src.compiler.python.ir.lowering.lowerer import IRLowerer
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 COLLECTION_SOURCE = r"""
-import std.map;
-import std.set;
-import std.vector;
+import std.Map;
+import std.Set;
+import std.Vector;
 #include <assert.h>
 int main() {
     Vector<int> indexed = [1, 2];

@@ -11,7 +11,7 @@ from src.tests.btrc.test_semantic_validation import _compile_source, _strict_bui
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
-FIXTURE = Path(__file__).with_name("fixtures") / "typedef_member_alias_runtime.btrc"
+FIXTURE = Path(__file__).with_name("fixtures") / "TypedefMemberAliasRuntime.btrc"
 
 
 def test_alias_member_dispatch_and_scope_cleanup_have_runtime_parity(

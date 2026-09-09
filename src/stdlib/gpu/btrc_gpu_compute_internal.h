@@ -1,8 +1,8 @@
 /* Compiler/runtime-only raw WebGPU compute ABI.
  *
- * Source programs use the capability-only std.gpu API from btrc_gpu.h.  The
+ * Source programs use the capability-only std.Gpu API from btrc_gpu.h.  The
  * compiler includes this header solely for generated @gpu dispatch helpers;
- * native pointers must never cross the public std.gpu surface boundary.
+ * native pointers must never cross the public std.Gpu surface boundary.
  */
 #ifndef BTRC_GPU_COMPUTE_INTERNAL_H
 #define BTRC_GPU_COMPUTE_INTERNAL_H

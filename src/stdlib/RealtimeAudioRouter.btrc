@@ -12,9 +12,9 @@
 
 import std.OwnedBuffer;
 import std.RealtimeAudio;
-import std.callback;
-import std.console;
-import std.spsc;
+import std.Callback;
+import std.Console;
+import std.Spsc;
 
 enum RealtimeAudioRouteStatus {
 	REALTIME_AUDIO_ROUTE_OK,

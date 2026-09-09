@@ -26,7 +26,7 @@ owns.
 ./bin/btrcpy --build-stdlib build/stdlib
 
 # Emit program-only C that includes the published header.
-./bin/btrcpy --stdlib build/stdlib app.btrc -o app.c
+./bin/btrcpy --stdlib build/stdlib App.btrc -o app.c
 ```
 
 The caller compiles `btrc_stdlib.c` into an object or static library and links

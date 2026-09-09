@@ -18,7 +18,7 @@ from src.tests.btrc.test_semantic_validation import REPO, _compile_source
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
-FIXTURE = REPO / "src/tests/btrc/fixtures/polymorphic_exception_cycle_cleanup_runtime.btrc"
+FIXTURE = REPO / "src/tests/btrc/fixtures/PolymorphicExceptionCycleCleanupRuntime.btrc"
 STRICT_COMPILERS = tuple(compiler for name in ("gcc", "clang") if (compiler := shutil.which(name)) is not None)
 
 

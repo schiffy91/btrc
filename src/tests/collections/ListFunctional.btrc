@@ -1,0 +1,63 @@
+// Test List higher-order methods: forEach, filter, any, all
+import std.Vector;
+
+#include <assert.h>
+
+int sumAcc = 0;
+
+void addToSum(int x) { sumAcc += x; }
+
+bool isEven(int x) { return x % 2 == 0; }
+
+bool isPositive(int x) { return x > 0; }
+
+bool isNegative(int x) { return x < 0; }
+
+bool isGt3(int x) { return x > 3; }
+
+int main() {
+	Vector<int> nums = [1, 2, 3, 4, 5];
+
+	// forEach with named function
+	sumAcc = 0;
+	nums.forEach(addToSum);
+	assert(sumAcc == 15);
+
+	// filter with named function
+	Vector<int> evens = nums.filter(isEven);
+	assert(evens.len == 2);
+	assert(evens.get(0) == 2);
+	assert(evens.get(1) == 4);
+
+	// any
+	assert(nums.any(isEven) == true);
+	assert(nums.any(isNegative) == false);
+
+	// all
+	assert(nums.all(isPositive) == true);
+	assert(nums.all(isEven) == false);
+
+	// filter with named function
+	Vector<int> big = nums.filter(isGt3);
+	assert(big.len == 2);
+	assert(big.get(0) == 4);
+	assert(big.get(1) == 5);
+
+	// filter with lambda (no closure needed)
+	Vector<int> small = nums.filter(bool function(int x) { return x <= 2; });
+	assert(small.len == 2);
+	assert(small.get(0) == 1);
+	assert(small.get(1) == 2);
+
+	// any/all with lambda
+	assert(nums.any(bool function(int x) { return x == 3; }) == true);
+	assert(nums.all(bool function(int x) { return x < 10; }) == true);
+
+	delete evens;
+	delete big;
+	delete small;
+	delete nums;
+
+	printf("PASS: test_list_functional\n");
+	return 0;
+}

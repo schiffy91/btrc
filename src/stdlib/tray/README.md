@@ -16,15 +16,15 @@ tray libraries.
 | `btrc_tray.h` | Cross-platform C ABI for the tray runtime (opaque `void*` handle). |
 | `btrc_tray_macos.m` | macOS backend: drives `NSStatusBar` / `NSStatusItem` / `NSMenu` via Cocoa. Linked with `-framework Cocoa` (system framework). |
 | `btrc_tray_linux.c` | Linux backend: implements the `org.kde.StatusNotifierItem` + `com.canonical.dbusmenu` specs over D-Bus (the de-facto Wayland/freedesktop systray). Uses only base `libdbus-1`. |
-| `tray.btrc` | btrc binding: `SystemTray` + `TraySignal`. Reuses the portable `Tray`/`TrayItem` data model from `ui.btrc`. |
+| `Tray.btrc` | btrc binding: `SystemTray` + `TraySignal`. Reuses the portable `Tray`/`TrayItem` data model from `Ui.btrc`. |
 
 Not auto-included (it needs a compiled native shim). Opt in with
-`#include "tray/tray.btrc"`.
+`#include "tray/Tray.btrc"`.
 
 ## Quick start
 
 ```btrc
-#include "tray/tray.btrc"
+#include "tray/Tray.btrc"
 
 int main() {
     SystemTray("App")
@@ -37,7 +37,7 @@ int main() {
 }
 ```
 
-The portable `Tray` model in `ui.btrc` is unchanged and fully backward
+The portable `Tray` model in `Ui.btrc` is unchanged and fully backward
 compatible; `SystemTray` is the native renderer (the way `GuiWindow` renders a
 `Surface`). You can also adopt an existing model with
 `SystemTray.fromTray(tray)`.
@@ -77,7 +77,7 @@ The shim is compiled and linked next to your transpiled program.
 **macOS** (tested on this host):
 
 ```sh
-btrcpy app.btrc -o app.c
+btrcpy App.btrc -o app.c
 cc -std=c11 -fobjc-arc -Isrc/stdlib/tray \
    app.c src/stdlib/tray/btrc_tray_macos.m \
    -framework Cocoa -lm -lpthread -o app
@@ -89,7 +89,7 @@ dependencies.
 **Linux** (Wayland/X11, any SNI host — GNOME AppIndicator, KDE/Plasma, Waybar, …):
 
 ```sh
-btrcpy app.btrc -o app.c
+btrcpy App.btrc -o app.c
 cc -std=c11 -Isrc/stdlib/tray \
    app.c src/stdlib/tray/btrc_tray_linux.c \
    $(pkg-config --cflags --libs dbus-1) -lm -lpthread -o app

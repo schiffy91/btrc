@@ -13,9 +13,9 @@ import pytest
 REPO = Path(__file__).resolve().parents[3]
 CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
 DRIVER_SOURCES = {
-    "lexer": "src/compiler/btrc/tools/lex_main.btrc",
-    "parser": "src/compiler/btrc/tools/parse_main.btrc",
-    "compiler": "src/compiler/btrc/btrcc_main.btrc",
+    "lexer": "src/compiler/btrc/tools/LexMain.btrc",
+    "parser": "src/compiler/btrc/tools/ParseMain.btrc",
+    "compiler": "src/compiler/btrc/BtrccMain.btrc",
 }
 
 pytestmark = pytest.mark.skipif(
@@ -220,7 +220,7 @@ def test_valid_literal_tokens_remain_reference_identical(
 
 
 def test_selfhost_successful_lexer_reuse_is_idempotent(tmp_path: Path) -> None:
-    source = REPO / "src/tests/btrc/fixtures/lexer_reuse_driver.btrc"
+    source = REPO / "src/tests/btrc/fixtures/LexerReuseDriver.btrc"
     generated = tmp_path / "lexer_reuse.c"
     binary = tmp_path / "lexer_reuse"
     transpile = _run(

@@ -20,7 +20,7 @@ all: require-target
 	@mkdir -p $(BUILD_DIR)
 	@$(BTRCPY) \
 		--no-stdlib --no-cache --target $(TARGET) \
-		--emit-link-plan $(LINK_PLAN) src/main.btrc -o $(GENERATED_C)
+		--emit-link-plan $(LINK_PLAN) src/Main.btrc -o $(GENERATED_C)
 	@$(NATIVE_PLAN) \
 		--plan $(LINK_PLAN) --generated-c $(GENERATED_C) --output $(PROGRAM) \
 		--cc "$(CC)" --cxx "$(CXX)" --pkg-config "$(PKG_CONFIG)"

@@ -262,7 +262,7 @@ def test_shared_delete_rejection_preserves_root_and_edge_slots(
     tmp_path: Path,
     c_compiler: str,
 ) -> None:
-    fixture = Path(__file__).parents[1] / "btrc/fixtures/lifecycle_shared_delete_runtime.btrc"
+    fixture = Path(__file__).parents[1] / "btrc/fixtures/LifecycleSharedDeleteRuntime.btrc"
     _strict_build_and_run(
         tmp_path,
         c_compiler,

@@ -108,7 +108,7 @@ def test_unimported_stdlib_mutex_collection_is_rejected_by_visibility(
     )
     for result in (selfhost, reference):
         assert result.returncode != 0
-        assert "'Vector' is defined in vector.btrc" in result.stderr
+        assert "'Vector' is defined in Vector.btrc" in result.stderr
         assert "does not import it" in result.stderr
 
 
@@ -116,7 +116,7 @@ def test_imported_stdlib_mutex_collection_is_a_registered_managed_class(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    source = "import std.vector;\nint main() { Mutex<Vector<int>> value; return 0; }"
+    source = "import std.Vector;\nint main() { Mutex<Vector<int>> value; return 0; }"
     selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
     reference, _ = _compile_reference(
         tmp_path,
@@ -128,7 +128,7 @@ def test_imported_stdlib_mutex_collection_is_a_registered_managed_class(
 
 
 def test_selfhost_semantic_owner_keeps_unregistered_collection_contract() -> None:
-    source = (REPO / "src/compiler/btrc/analyzer/validation/ownership.btrc").read_text()
+    source = (REPO / "src/compiler/btrc/analyzer/validation/Ownership.btrc").read_text()
 
     assert "query == 4 && self.mutexRuntimeCollection" in source
     assert "!self.state.analyzed.isGenericClass(canonical.base)" in source

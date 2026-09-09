@@ -13,7 +13,7 @@ from src.tests.btrc.test_semantic_validation import (
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
-_RECURSIVE_CONST_ALIAS_SOURCE = Path(__file__).parents[1] / "basics" / "test_cfunction_recursive_const_alias.btrc"
+_RECURSIVE_CONST_ALIAS_SOURCE = Path(__file__).parents[1] / "basics" / "CfunctionRecursiveConstAlias.btrc"
 
 
 def _compile_pair(semantic_btrcc: Path, tmp_path: Path, source: str):

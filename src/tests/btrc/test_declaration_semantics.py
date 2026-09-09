@@ -133,7 +133,7 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
             "requires an array initializer",
         ),
         (
-            "import std.map;\nMap<int, int> values = {}; int main() { return 0; }",
+            "import std.Map;\nMap<int, int> values = {}; int main() { return 0; }",
             "requires a C constant/address initializer",
         ),
         (

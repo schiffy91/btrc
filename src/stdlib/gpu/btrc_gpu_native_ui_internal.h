@@ -8,7 +8,7 @@
 #include "btrc_gpu_native_ui_text_internal.h"
 
 /* Private std.NativeUi compositor. The device, queue, format, and active
- * render pass are borrowed from the one std.gpu owner; this layer cannot
+ * render pass are borrowed from the one std.Gpu owner; this layer cannot
  * create or present a window, surface, adapter, or device. */
 void* btrc_gpu_native_ui_create(
     WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surface_format);

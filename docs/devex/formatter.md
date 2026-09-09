@@ -7,11 +7,11 @@ model, then proves the result preserves compiler tokens and comment contents.
 ```bash
 # From this checkout.
 nix develop -c btrc-format check src tests
-nix develop -c btrc-format check --diff app.btrc
-nix develop -c btrc-format write app.btrc
+nix develop -c btrc-format check --diff App.btrc
+nix develop -c btrc-format write App.btrc
 
 # From a pinned flake input.
-nix run github:schiffy91/btrc#btrc-format -- check app.btrc
+nix run github:schiffy91/btrc#btrc-format -- check App.btrc
 ```
 
 Directories are searched recursively for `.btrc` files in stable path order.

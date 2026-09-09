@@ -15,7 +15,7 @@ from src.tests.btrc.test_semantic_validation import (
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
-FIXTURE = REPO / "src/tests/btrc/fixtures/constructor_throw_ownership_runtime.btrc"
+FIXTURE = REPO / "src/tests/btrc/fixtures/ConstructorThrowOwnershipRuntime.btrc"
 
 
 def _compile_both(semantic_btrcc: Path, tmp_path: Path):

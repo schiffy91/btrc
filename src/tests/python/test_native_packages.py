@@ -240,13 +240,13 @@ def _compile_plan(plan: dict, generated_c: Path, output: Path, temporary: Path) 
 
 
 def test_recursive_aliases_lock_and_native_plan_are_canonical() -> None:
-    source = EXAMPLE / "src" / "main.btrc"
+    source = EXAMPLE / "src" / "Main.btrc"
     packages = PackageUniverse().resolve_for(str(source), target="linux-x64")
 
     assert packages.root_package == "native_app"
     assert sorted(packages.nodes) == ["leaf", "middle", "native_app"]
-    middle = packages.paths_for_import("middle.api", str(source))[0]
-    assert packages.paths_for_import("leaf.api", middle)[0].endswith("packages/leaf/src/api.btrc")
+    middle = packages.paths_for_import("middle.Api", str(source))[0]
+    assert packages.paths_for_import("leaf.Api", middle)[0].endswith("packages/leaf/src/Api.btrc")
 
     plan_text = packages.native_plan.canonical_json()
     assert plan_text == packages.native_plan.canonical_json()
@@ -269,7 +269,7 @@ def test_recursive_aliases_lock_and_native_plan_are_canonical() -> None:
 
 
 def test_platform_predicates_cover_objc_objcxx_frameworks_and_pkg_config() -> None:
-    source = EXAMPLE / "src" / "main.btrc"
+    source = EXAMPLE / "src" / "Main.btrc"
     darwin = PackageUniverse().resolve_for(str(source), target="macos-arm64").native_plan.as_dict()
     windows = PackageUniverse().resolve_for(str(source), target="windows-x64").native_plan.as_dict()
 
@@ -298,7 +298,7 @@ def test_same_native_name_with_disjoint_platform_predicates_is_not_duplicate(
 
 
 def test_reference_compiler_result_plan_compiles_links_and_runs(tmp_path: Path) -> None:
-    source = EXAMPLE / "src" / "main.btrc"
+    source = EXAMPLE / "src" / "Main.btrc"
     result = Compiler().compile(
         source.read_text(encoding="utf-8"),
         str(source),
@@ -316,7 +316,7 @@ def test_reference_compiler_result_plan_compiles_links_and_runs(tmp_path: Path) 
 
 
 def test_cli_atomically_emits_plan_sidecar(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    source = EXAMPLE / "src" / "main.btrc"
+    source = EXAMPLE / "src" / "Main.btrc"
     generated = tmp_path / "program.c"
     plan = tmp_path / "program.link.json"
     monkeypatch.setattr(
@@ -376,7 +376,7 @@ def test_requested_target_reaches_the_plan_without_a_native_section(
     root.mkdir()
     if manifest is not None:
         (root / "btrc.toml").write_text(manifest, encoding="utf-8")
-    source = root / "main.btrc"
+    source = root / "Main.btrc"
     source.write_text("int main() { return 0; }\n", encoding="utf-8")
     plan = tmp_path / "program.link.json"
     monkeypatch.setattr(
@@ -484,7 +484,7 @@ def test_strict_manifest_failures_are_precise(tmp_path: Path, body: str, message
 
 
 def test_compile_wraps_strict_manifest_failures_as_package_diagnostics(tmp_path: Path) -> None:
-    source = tmp_path / "main.btrc"
+    source = tmp_path / "Main.btrc"
     source.write_text("int main() { return 0; }\n", encoding="utf-8")
     (tmp_path / "btrc.toml").write_text(
         'manifest-version = 1\n[package]\nname = "app"\ninvalid = true\n',

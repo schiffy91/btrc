@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[3]
-FIXTURE = REPO / "src/tests/threads/test_spsc_raw_callback.btrc"
+FIXTURE = REPO / "src/tests/threads/SpscRawCallback.btrc"
 EXPECTED = "PASS spsc_raw_callback\n"
 STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 

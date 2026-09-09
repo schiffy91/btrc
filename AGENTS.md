@@ -29,7 +29,7 @@ you read a green run:
 - The twenty skips are missing tools — `naga`, `lldb`, `pkg-config`, and
   platform-specific paths — not product defects. They are still coverage the
   run did not get, and a green result looks identical either way.
-- `stdlib/test_stdlib_daemon.btrc` asserts a wall-clock daemon-stop deadline,
+- `stdlib/StdlibDaemon.btrc` asserts a wall-clock daemon-stop deadline,
   so it can fail on a saturated machine and pass on a quiet one.
 
 Do not claim completion until `make test`, `make bootstrap`, `make test-c11`,
@@ -201,7 +201,7 @@ PIPELINE:
 - Product types: Program, ClassDecl, BinaryExpr, etc.
 - attributes(int line, int col) on nodes that have source locations
 - Field names ARE the API contract for analyzer, IR gen, LSP, and tests
-- NEVER hand-edit syntax/ast/generated.py or generated/ast/node.btrc — regenerate from ASDL
+- NEVER hand-edit syntax/ast/generated.py or generated/ast/Node.btrc — regenerate from ASDL
 
 ### Shared runtime and hosted ABI
 
@@ -211,12 +211,12 @@ PIPELINE:
   and `gpu.c` in `src/runtime/c/`.
 - Runtime metadata is generated into
   `src/compiler/python/runtime/generated.py` and
-  `src/compiler/btrc/generated/runtime/catalog.btrc`; handwritten catalog,
+  `src/compiler/btrc/generated/runtime/Catalog.btrc`; handwritten catalog,
   selection, reference, and materialization behavior remains with the retained
   runtime owners in each compiler.
 - `src/language/hosted_abi.toml` generates
   `src/compiler/python/abi/generated.py` and
-  `src/compiler/btrc/generated/hosted_abi/tables.btrc`.
+  `src/compiler/btrc/generated/hosted_abi/Tables.btrc`.
 - Generated modules contain data/schema declarations only. Generated Python
   rows use immutable value types; generated btrc rows expose public fields
   required by the language and consumers treat them as read-only by
@@ -399,7 +399,7 @@ and their golden output live alongside the topic-organized corpus in
 The self-hosted compiler implements the same six-stage pipeline with fat tagged
 AST and IR nodes. Its destination contains exactly 91 `.btrc` files: 85
 compiler/generated files and six explicit developer-tool files. Only
-`compiler.btrc` and the thin `btrcc_main.btrc` process entry point remain at the
+`Compiler.btrc` and the thin `BtrccMain.btrc` process entry point remain at the
 package root. The owned packages are:
 
 ```text
@@ -425,12 +425,12 @@ ir/optimization/setjmp/           effect analysis and safety planning
 tools/                            five entry points plus the ASDL schema owner
 ```
 
-`pipeline/models.btrc` contains the mutable options and result transports for
+`pipeline/Models.btrc` contains the mutable options and result transports for
 one compilation. Analyzer indexes and shared semantic records belong to
-`analyzer/models.btrc`; expression-type memo state belongs privately to
-`ExpressionTypeResolver` in `analyzer/expressions.btrc`.
-`IRStatementSequence` belongs to `ir/lowering/control_flow.btrc`.
-`AstCanonicalRenderer` in `syntax/identity.btrc` owns canonical AST formatting,
+`analyzer/Models.btrc`; expression-type memo state belongs privately to
+`ExpressionTypeResolver` in `analyzer/Expressions.btrc`.
+`IRStatementSequence` belongs to `ir/lowering/ControlFlow.btrc`.
+`AstCanonicalRenderer` in `syntax/Identity.btrc` owns canonical AST formatting,
 and the parse inspection tool calls that owner; generated `Node` data owns no
 formatting behavior. The unified generator check structurally verifies that
 the handwritten renderer covers every ASDL constructor and field.

@@ -39,7 +39,7 @@ class CompletedTool:
 def test_default_build_is_isolated_from_source_and_cleanup_is_owned(tmp_path):
     source_dir = tmp_path / "read-only-source"
     source_dir.mkdir()
-    program = source_dir / "main.btrc"
+    program = source_dir / "Main.btrc"
     program.write_text("int main() { return 0; }")
 
     def materializing_process(command, **_options):
@@ -62,7 +62,7 @@ def test_default_build_is_isolated_from_source_and_cleanup_is_owned(tmp_path):
 
 
 def test_failed_build_removes_its_temporary_directory(tmp_path):
-    program = tmp_path / "main.btrc"
+    program = tmp_path / "Main.btrc"
     program.write_text("int main() { return 0; }")
     artifact_dirs = []
 
@@ -83,7 +83,7 @@ def test_failed_build_removes_its_temporary_directory(tmp_path):
 def test_debug_build_preserves_the_compiler_strict_import_default(tmp_path):
     (tmp_path / "owner.btrc").write_text("class Hidden {}\n")
     (tmp_path / "consumer.btrc").write_text("Hidden makeHidden() { return new Hidden(); }\n")
-    program = tmp_path / "main.btrc"
+    program = tmp_path / "Main.btrc"
     program.write_text("import ./owner.btrc;\nimport ./consumer.btrc;\nint main() { return 0; }\n")
 
     with pytest.raises(builder.BuildError, match=r"consumer\.btrc does not import it"):
@@ -153,7 +153,7 @@ def test_builds_start_in_an_owned_platform_process_group():
 
 
 def test_program_builder_owns_toolchain_commands_and_working_directory(tmp_path):
-    program = tmp_path / "main.btrc"
+    program = tmp_path / "Main.btrc"
     program.write_text("int main() { return 0; }")
     output_directory = tmp_path / "debug-output"
     commands = []
@@ -201,7 +201,7 @@ def test_program_builder_owns_toolchain_commands_and_working_directory(tmp_path)
 
 def test_launch_config_is_an_immutable_normalized_value(tmp_path):
     arguments = {
-        "program": "src/main.btrc",
+        "program": "src/Main.btrc",
         "cwd": str(tmp_path),
         "btrcpy": ["btrcpy", "--trace"],
         "args": ["first"],
@@ -213,7 +213,7 @@ def test_launch_config_is_an_immutable_normalized_value(tmp_path):
     arguments["args"].append("second")
     arguments["cflags"].append("-Wextra")
 
-    assert config.program == str(tmp_path / "src" / "main.btrc")
+    assert config.program == str(tmp_path / "src" / "Main.btrc")
     assert config.btrcpy_command == ("btrcpy", "--trace")
     assert config.argv == ("first",)
     assert config.cflags == ("-Wall",)
@@ -224,12 +224,12 @@ def test_launch_config_is_an_immutable_normalized_value(tmp_path):
 @pytest.mark.parametrize("name", ["btrcpy", "cflags"])
 def test_launch_config_rejects_empty_command_elements(name):
     with pytest.raises(ValueError, match=rf"launch: '{name}' command must contain only non-empty strings"):
-        builder.LaunchConfig.from_arguments({"program": "/tmp/main.btrc", name: [""]})
+        builder.LaunchConfig.from_arguments({"program": "/tmp/Main.btrc", name: [""]})
 
 
 def test_launch_config_allows_empty_runtime_arguments():
     config = builder.LaunchConfig.from_arguments(
-        {"program": "/tmp/main.btrc", "args": [""]},
+        {"program": "/tmp/Main.btrc", "args": [""]},
     )
 
     assert config.argv == ("",)
@@ -499,8 +499,8 @@ def test_breakpoints_with_equal_basenames_are_owned_by_full_source_path(tmp_path
     session._logpoints = {}
     session._breakpoints_by_source = {}
 
-    left = tmp_path / "left" / "main.btrc"
-    right = tmp_path / "right" / "main.btrc"
+    left = tmp_path / "left" / "Main.btrc"
+    right = tmp_path / "right" / "Main.btrc"
     session.set_breakpoints(str(left), [{"line": 10, "logMessage": "left"}])
     session.set_breakpoints(str(right), [{"line": 20, "logMessage": "right"}])
     session.set_breakpoints(str(left), [{"line": 30}])

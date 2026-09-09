@@ -12,7 +12,7 @@ from src.tests.lsp.lsphelp import (
 )
 
 SRC = """\
-import std.vector;
+import std.Vector;
 
 class Animal {
     public string name;

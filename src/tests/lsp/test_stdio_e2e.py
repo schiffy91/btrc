@@ -106,7 +106,7 @@ def project(tmp_path):
         "    public int get() { return self.v; }\n"
         "}\n"
     )
-    main = tmp_path / "main.btrc"
+    main = tmp_path / "Main.btrc"
     main.write_text("import ./lib.btrc;\nint main() {\n    Helper h = new Helper(1);\n    return h.get();\n}\n")
     return main
 

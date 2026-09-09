@@ -26,7 +26,7 @@ from src.tests.btrc.test_semantic_validation import (
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
-FIXTURE = Path(__file__).parents[1] / "classes" / "test_class_dot_syntax.btrc"
+FIXTURE = Path(__file__).parents[1] / "classes" / "ClassDotSyntax.btrc"
 
 INVALID_CASES = (
     pytest.param(
@@ -309,13 +309,13 @@ def test_selfhost_stdlib_cannot_take_lifetime_value_through_user_shadow(
         shutil.copy2(source, stdlib / source.name)
     shadow = tmp_path / "lifetime-shadow.btrc"
     shadow.write_text("void free(void* value) { (void)value; }\n")
-    (stdlib / "probe.btrc").write_text(
+    (stdlib / "Probe.btrc").write_text(
         f"import {json.dumps(str(shadow))};\n"
         "void probeLifetimeValue() { __fn_ptr<void, void*> sink = free; (void)sink; }\n"
     )
     program = tmp_path / "hosted-lifetime-value-shadow.btrc"
     program.write_text(
-        "import std.probe;\nimport ./lifetime-shadow.btrc;\nint main() { probeLifetimeValue(); return 0; }\n"
+        "import std.Probe;\nimport ./lifetime-shadow.btrc;\nint main() { probeLifetimeValue(); return 0; }\n"
     )
     result = subprocess.run(
         [str(semantic_btrcc), str(program)],

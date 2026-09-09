@@ -357,7 +357,7 @@ def test_resolve_invalid_utf8_include_reports_resolution_error(tmp_path):
     included = tmp_path / "invalid.btrc"
     included.write_bytes(b"int helper() { return 1; }\xff")
     source = '#include "invalid.btrc"\nint main() { return 0; }\n'
-    root = write(tmp_path / "main.btrc", source)
+    root = write(tmp_path / "Main.btrc", source)
     with pytest.raises(IncludeResolutionError, match="not valid UTF-8"):
         RESOLVER.resolve_includes(source, root, exit_on_error=False)
 
@@ -385,14 +385,14 @@ def test_resolve_symlink_cycle_uses_canonical_identity(tmp_path):
 
 
 def test_import_stdlib_single(tmp_path):
-    src = "import std.math;\nint main() { return 0; }\n"
+    src = "import std.Math;\nint main() { return 0; }\n"
     p = write(tmp_path / "m.btrc", src)
     resolved = RESOLVER.resolve_includes(src, p)
     assert "class Math" in resolved or "Math" in resolved
 
 
 def test_import_stdlib_brace(tmp_path):
-    src = "import std.{math, json};\nint main() { return 0; }\n"
+    src = "import std.{Math, Json};\nint main() { return 0; }\n"
     p = write(tmp_path / "m.btrc", src)
     resolved = RESOLVER.resolve_includes(src, p)
     assert "Math" in resolved and "Json" in resolved
@@ -484,7 +484,7 @@ def test_repeated_c_import_is_emitted_once_by_canonical_identity(tmp_path):
     except OSError as error:
         pytest.skip(f"file symlinks unavailable: {error}")
     source = "import ./native.c;\nimport ./native_alias.c;\nint main() { return native(); }\n"
-    root = write(tmp_path / "main.btrc", source)
+    root = write(tmp_path / "Main.btrc", source)
     resolved = RESOLVER.resolve_includes(source, root)
     assert resolved.count("#include") == 1
 
@@ -517,9 +517,9 @@ def test_quoted_import_strips_quotes():
     # Quote stripping moved from the frontend regex into the parser.
     from src.compiler.python.syntax.ast.generated import QuotedPath
 
-    spec = _parse_one('import "std/math.btrc";').spec
+    spec = _parse_one('import "std/Math.btrc";').spec
     assert isinstance(spec, QuotedPath)
-    assert spec.path == "std/math.btrc"
+    assert spec.path == "std/Math.btrc"
 
 
 def test_brace_import_expands_into_names():
@@ -529,15 +529,15 @@ def test_brace_import_expands_into_names():
     spec = _parse_one("import std.{a, b};").spec
     assert isinstance(spec, StdModules)
     assert spec.names == ["a", "b"]
-    single = _parse_one("import std.math;").spec
+    single = _parse_one("import std.Math;").spec
     assert isinstance(single, StdModules)
-    assert single.names == ["math"]
+    assert single.names == ["Math"]
 
 
 def test_discover_stdlib_files():
     files = STDLIB.discover_files()
-    assert files[0] == "vector.btrc"  # foundation first
-    assert "strings.btrc" in files
+    assert files[0] == "Vector.btrc"  # foundation first
+    assert "Strings.btrc" in files
 
 
 def test_native_adapters_remain_explicit_stdlib_modules():
@@ -562,7 +562,7 @@ def test_native_adapters_remain_explicit_stdlib_modules():
 
 
 def test_get_stdlib_source_skips_redefined():
-    # User redefining Vector means vector.btrc is skipped → shorter output.
+    # User redefining Vector means Vector.btrc is skipped → shorter output.
     full = STDLIB.source("")
     skipped = STDLIB.source("class Vector<T> { public int len; }\n")
     assert len(skipped) < len(full)
@@ -574,9 +574,9 @@ def test_get_stdlib_source_skips_redefined_interface():
 
 
 def test_find_stdlib_file_subdir():
-    # gui/gui.btrc lives in a subdirectory; basename lookup should find it.
-    path = STDLIB.find_file("gui.btrc")
-    assert path is not None and path.endswith("gui.btrc")
+    # gui/Gui.btrc lives in a subdirectory; basename lookup should find it.
+    path = STDLIB.find_file("Gui.btrc")
+    assert path is not None and path.endswith("Gui.btrc")
 
 
 def test_cached_stdlib_decls_roundtrip(tmp_path, monkeypatch):
@@ -678,8 +678,8 @@ def test_get_stdlib_source_missing_listed_file(monkeypatch):
 
 
 def test_resolve_include_via_stdlib(tmp_path):
-    # No local math.btrc → #include resolves to the stdlib copy (line 186).
-    src = '#include "math.btrc"\nint main() { return 0; }\n'
+    # No local Math.btrc → #include resolves to the stdlib copy (line 186).
+    src = '#include "Math.btrc"\nint main() { return 0; }\n'
     p = write(tmp_path / "ms.btrc", src)
     resolved = RESOLVER.resolve_includes(src, p)
     assert "Math" in resolved

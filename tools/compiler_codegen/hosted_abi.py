@@ -249,9 +249,7 @@ class HostedAbiManifest:
         cls._require_keys(document, cls._ROOT_KEYS, "hosted ABI manifest")
         schema_version = cls._integer(document, "schema_version", "hosted ABI manifest")
         if schema_version != 2:
-            raise HostedAbiManifestError(
-                f"unsupported hosted ABI schema version: {schema_version}"
-            )
+            raise HostedAbiManifestError(f"unsupported hosted ABI schema version: {schema_version}")
 
         provenance_table = cls._table(document, "provenance", "hosted ABI manifest")
         cls._require_keys(provenance_table, cls._PROVENANCE_KEYS, "provenance")
@@ -362,9 +360,7 @@ class HostedAbiManifest:
             context,
             required=cls._PARAMETER_REQUIRED_KEYS,
         )
-        shape = cls._type_shape(
-            {key: value[key] for key in cls._TYPE_KEYS if key in value}, context
-        )
+        shape = cls._type_shape({key: value[key] for key in cls._TYPE_KEYS if key in value}, context)
         return HostedAbiParameterSpec(
             type_shape=shape,
             effect=cls._string(value, "effect", context),
@@ -476,13 +472,8 @@ class HostedAbiManifest:
             raise HostedAbiManifestError(f"{context} contains an unknown parameter effect")
         for parameter in function.parameters:
             cls._validate_type_shape(parameter.type_shape, context)
-            if (
-                parameter.type_shape.base == "CFunction"
-                and parameter.callback_lifetime is None
-            ):
-                raise HostedAbiManifestError(
-                    f"{context} callback parameter lacks explicit lifetime metadata"
-                )
+            if parameter.type_shape.base == "CFunction" and parameter.callback_lifetime is None:
+                raise HostedAbiManifestError(f"{context} callback parameter lacks explicit lifetime metadata")
             if parameter.callback_lifetime is not None:
                 if parameter.callback_lifetime not in cls._CALLBACK_LIFETIMES:
                     raise HostedAbiManifestError(f"{context} contains an unknown callback lifetime")
@@ -544,14 +535,10 @@ class HostedAbiManifest:
     @classmethod
     def _validate_type_shape(cls, shape: HostedAbiTypeSpec, context: str) -> None:
         if shape.generic_args and shape.base not in {"CFunction", "Span"}:
-            raise HostedAbiManifestError(
-                f"{context} contains unsupported generic hosted type {shape.base!r}"
-            )
+            raise HostedAbiManifestError(f"{context} contains unsupported generic hosted type {shape.base!r}")
         if shape.base == "CFunction":
             if shape.pointer_depth != 0 or shape.is_const or not shape.generic_args:
-                raise HostedAbiManifestError(
-                    f"{context} contains an invalid CFunction shape"
-                )
+                raise HostedAbiManifestError(f"{context} contains an invalid CFunction shape")
         if shape.base == "Span":
             if shape.pointer_depth != 0 or shape.is_const or len(shape.generic_args) != 1:
                 raise HostedAbiManifestError(f"{context} contains an invalid Span shape")
@@ -640,7 +627,7 @@ class HostedAbiCatalogGenerator:
     """Render data-only Python and btrc hosted-ABI catalogs."""
 
     _PYTHON_PATH = PurePosixPath("src/compiler/python/abi/generated.py")
-    _BTRC_PATH = PurePosixPath("src/compiler/btrc/generated/hosted_abi/tables.btrc")
+    _BTRC_PATH = PurePosixPath("src/compiler/btrc/generated/hosted_abi/Tables.btrc")
 
     def __init__(self, manifest: HostedAbiManifest):
         self._manifest = manifest
@@ -760,10 +747,7 @@ class HostedAbiCatalogGenerator:
     def _python_type(cls, shape: HostedAbiTypeSpec) -> str:
         arguments = ", ".join(cls._python_type(argument) for argument in shape.generic_args)
         generic_args = f"({arguments},)" if arguments else "()"
-        return (
-            f"GeneratedAbiTypeRow({shape.base!r}, {shape.pointer_depth}, "
-            f"{shape.is_const!r}, {generic_args})"
-        )
+        return f"GeneratedAbiTypeRow({shape.base!r}, {shape.pointer_depth}, {shape.is_const!r}, {generic_args})"
 
     @staticmethod
     def _append_python_tuple(lines: list[str], name: str, values: tuple[str, ...]) -> None:
@@ -775,7 +759,7 @@ class HostedAbiCatalogGenerator:
         lines = [
             "/* Generated hosted-ABI data. Do not edit by hand. */",
             "",
-            "import std.vector;",
+            "import std.Vector;",
             "",
             "class GeneratedAbiTypeRow {",
             "    public string base;",

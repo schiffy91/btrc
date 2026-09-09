@@ -21,7 +21,7 @@ TEST_ROOT = REPO / "src/tests"
 # This is language-syntax coverage, not an application dependency shortcut.
 # Keep the exception path-specific so no other consumer can acquire std.*.
 STDLIB_GLOB_EXCLUSIONS = {
-    "src/tests/imports/test_import_std_glob.btrc": "exercises the std.* import form",
+    "src/tests/imports/ImportStdGlob.btrc": "exercises the std.* import form",
 }
 
 # These implementation dependencies are reached by executable fixtures. They
@@ -29,31 +29,31 @@ STDLIB_GLOB_EXCLUSIONS = {
 # consumer trees.
 SUPPORTING_CONSUMERS = frozenset(
     {
-        "src/compiler/btrc/tools/ast/dump_main.btrc",
-        "src/compiler/btrc/tools/ast/generate_main.btrc",
-        "src/compiler/btrc/tools/ast/schema.btrc",
-        "src/compiler/btrc/generated/ast/node.btrc",
-        "src/compiler/btrc/syntax/grammar.btrc",
-        "src/compiler/btrc/frontend/source_io.btrc",
-        "src/compiler/btrc/lexer/lexer.btrc",
-        "src/compiler/btrc/lexer/stage.btrc",
-        "src/compiler/btrc/cli/driver.btrc",
-        "src/compiler/btrc/syntax/identity.btrc",
-        "src/compiler/btrc/syntax/types.btrc",
-        "src/stdlib/daemon.btrc",
-        "src/stdlib/graph.btrc",
-        "src/stdlib/gui/view.btrc",
+        "src/compiler/btrc/tools/ast/DumpMain.btrc",
+        "src/compiler/btrc/tools/ast/GenerateMain.btrc",
+        "src/compiler/btrc/tools/ast/Schema.btrc",
+        "src/compiler/btrc/generated/ast/Node.btrc",
+        "src/compiler/btrc/syntax/Grammar.btrc",
+        "src/compiler/btrc/frontend/SourceIo.btrc",
+        "src/compiler/btrc/lexer/Lexer.btrc",
+        "src/compiler/btrc/lexer/Stage.btrc",
+        "src/compiler/btrc/cli/Driver.btrc",
+        "src/compiler/btrc/syntax/Identity.btrc",
+        "src/compiler/btrc/syntax/Types.btrc",
+        "src/stdlib/Daemon.btrc",
+        "src/stdlib/Graph.btrc",
+        "src/stdlib/gui/View.btrc",
     }
 )
 
 # The raw per-file audit intentionally does not expand legacy includes. This
-# example includes gui/view.btrc, whose Ui shadows the unrelated std.ui Ui.
+# example includes gui/View.btrc, whose Ui shadows the unrelated std.Ui Ui.
 # The fully resolved strict-import audit covers this source without an error.
 RAW_INCLUDE_SHADOWS = frozenset(
     {
         (
-            "examples/gui/declarative.btrc",
-            "'Ui' is defined in ui.btrc but declarative.btrc does not import it",
+            "examples/gui/Declarative.btrc",
+            "'Ui' is defined in Ui.btrc but Declarative.btrc does not import it",
         )
     }
 )
@@ -182,6 +182,6 @@ def test_only_the_import_syntax_fixture_uses_stdlib_glob(
 
 @pytest.mark.parametrize("flags", ((), ("--strict-imports",)), ids=("default", "explicit"))
 def test_real_corpus_source_parses_in_both_strict_cli_modes(capsys, flags) -> None:
-    source = TEST_ROOT / "collections/test_vector_bool.btrc"
+    source = TEST_ROOT / "collections/VectorBool.btrc"
     CompilerCommand(Compiler()).run([str(source), "--emit-ast", "--no-cache", *flags])
     assert "Program" in capsys.readouterr().out

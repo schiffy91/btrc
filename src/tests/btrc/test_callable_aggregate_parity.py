@@ -24,8 +24,8 @@ def test_nested_borrowed_callback_literals_are_proved_safe(
     tmp_path: Path,
 ) -> None:
     source = """
-        import std.vector;
-        import std.map;
+        import std.Vector;
+        import std.Map;
         extern void aggregateForeignSet(string value);
         extern string aggregateForeignString();
         struct Slot { __fn_ptr<string> callback; };

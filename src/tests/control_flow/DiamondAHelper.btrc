@@ -1,0 +1,6 @@
+/* Mid-level of the include diamond: includes the leaf, adds its own class. */
+#include "DiamondBHelper.btrc"
+
+class Mid {
+	class int value() { return Leaf.value() + 5; }
+}

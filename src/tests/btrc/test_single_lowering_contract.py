@@ -72,7 +72,7 @@ def test_function_pointer_reassignment_rhs_is_lowered_once_without_dce(
     tmp_path: Path,
 ) -> None:
     repository = Path(__file__).resolve().parents[3]
-    source = (repository / "src/tests/functions/test_fnptr_variable_reassign.btrc").read_text()
+    source = (repository / "src/tests/functions/FnptrVariableReassign.btrc").read_text()
     compiled = compile_no_dce_pair(
         semantic_btrcc,
         tmp_path,

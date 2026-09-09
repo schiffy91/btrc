@@ -107,7 +107,7 @@ def test_launch_parses_quoted_commands_and_resolves_program_from_cwd(tmp_path):
     request = _request(
         "launch",
         {
-            "program": "source/main.btrc",
+            "program": "source/Main.btrc",
             "cwd": str(tmp_path),
             "btrcpy": '"/Applications/Btrc Compiler/bin/btrcpy" --trace',
             "cflags": '-DNAME="hello world" -Wall',
@@ -117,7 +117,7 @@ def test_launch_parses_quoted_commands_and_resolves_program_from_cwd(tmp_path):
 
     instance.run()
 
-    assert captured["program"] == str(tmp_path / "source" / "main.btrc")
+    assert captured["program"] == str(tmp_path / "source" / "Main.btrc")
     assert captured["btrcpy_command"] == ("/Applications/Btrc Compiler/bin/btrcpy", "--trace")
     assert captured["c_flags"] == ("-DNAME=hello world", "-Wall")
     assert captured["cwd"] == str(tmp_path)

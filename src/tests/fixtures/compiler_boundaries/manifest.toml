@@ -757,7 +757,7 @@ baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b
 accepted_path = "accepted/managed.python.raw-ir.artifact.bin"
 accepted_sha256 = "03e8fd9f71859c321a28b1f0f6b0e71e48cbd7f5b02260761f255e0032ee872f"
 reason = "Managed call-result temporaries are volatile only when a reachable setjmp can bypass their assignment. String allocation adoption is null-checked in the shared strings.c helper (afea78f); the helper source, its catalog metadata, and the managed fixture's derived IR and C carry that guard."
-regressions = ["src/tests/classes/test_constructor_call_result_snapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py", "src/tests/btrc/test_fstring_allocation_c11.py"]
+regressions = ["src/tests/classes/ConstructorCallResultSnapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py", "src/tests/btrc/test_fstring_allocation_c11.py"]
 
 [[records]]
 id = "managed.python.raw-ir.status"
@@ -785,7 +785,7 @@ baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b
 accepted_path = "accepted/managed.python.optimized-ir.artifact.bin"
 accepted_sha256 = "e195452985ecc07eeded60ad8319467981cef851397a6628db6c31f29a1d4d7e"
 reason = "Managed call-result temporaries are volatile only when a reachable setjmp can bypass their assignment. String allocation adoption is null-checked in the shared strings.c helper (afea78f); the helper source, its catalog metadata, and the managed fixture's derived IR and C carry that guard."
-regressions = ["src/tests/classes/test_constructor_call_result_snapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py", "src/tests/btrc/test_fstring_allocation_c11.py"]
+regressions = ["src/tests/classes/ConstructorCallResultSnapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py", "src/tests/btrc/test_fstring_allocation_c11.py"]
 
 [[records]]
 id = "managed.python.optimized-ir.status"
@@ -813,7 +813,7 @@ baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b
 accepted_path = "accepted/managed.python.c.artifact.bin"
 accepted_sha256 = "90545a608eb9dfc81ae7da70a63969a86cc1e9e7978dbbb87ff2d326d3ad92da"
 reason = "Managed call-result temporaries are volatile only when a reachable setjmp can bypass their assignment. String allocation adoption is null-checked in the shared strings.c helper (afea78f); the helper source, its catalog metadata, and the managed fixture's derived IR and C carry that guard."
-regressions = ["src/tests/classes/test_constructor_call_result_snapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py", "src/tests/btrc/test_fstring_allocation_c11.py"]
+regressions = ["src/tests/classes/ConstructorCallResultSnapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py", "src/tests/btrc/test_fstring_allocation_c11.py"]
 
 [[records]]
 id = "managed.python.c.status"
@@ -841,7 +841,7 @@ baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b
 accepted_path = "accepted/managed.btrc.c.artifact.bin"
 accepted_sha256 = "85338286b1807c7e106f8cd2b5d3b369fb5cd9875f719a4da8c7ed61d0bf5f7a"
 reason = "Managed call-result temporaries are volatile only when a reachable setjmp can bypass their assignment. String allocation adoption is null-checked in the shared strings.c helper (afea78f); the helper source, its catalog metadata, and the managed fixture's derived IR and C carry that guard."
-regressions = ["src/tests/classes/test_constructor_call_result_snapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py", "src/tests/btrc/test_fstring_allocation_c11.py"]
+regressions = ["src/tests/classes/ConstructorCallResultSnapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py", "src/tests/btrc/test_fstring_allocation_c11.py"]
 
 [[records]]
 id = "managed.btrc.c.status"
@@ -1459,7 +1459,7 @@ baseline_sha256 = "aa851e085554c048b119ea587348aaee4a2f60ec889bfa6541ef0d04830fa
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.trycatch_c.bin"
 accepted_sha256 = "b0356e887c066b5a73c6f79438d7bcda012236b789bd03184471efea2b27a96f"
 reason = "Cleanup registration no longer scans every live entry to find a slot to supersede; it is a runtime cost removal that leaves emitted C byte-identical."
-regressions = ["src/tests/memory/test_cleanup_slot_reuse.btrc", "src/tests/memory/test_empty_managed_local.btrc"]
+regressions = ["src/tests/memory/CleanupSlotReuse.btrc", "src/tests/memory/EmptyManagedLocal.btrc"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0000"
@@ -3155,7 +3155,7 @@ baseline_sha256 = "deba8e0417508305b8353e2e24bfb7f5c2c9a50f9a4b558de4b0e76a476ba
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0159.bin"
 accepted_sha256 = "623c66431acea0951c7c63ebbfe526f5b0cb311bfb08f5144c21279504df5a5a"
 reason = "Cleanup registration no longer scans every live entry to find a slot to supersede; it is a runtime cost removal that leaves emitted C byte-identical."
-regressions = ["src/tests/memory/test_cleanup_slot_reuse.btrc", "src/tests/memory/test_empty_managed_local.btrc"]
+regressions = ["src/tests/memory/CleanupSlotReuse.btrc", "src/tests/memory/EmptyManagedLocal.btrc"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0160"

@@ -1027,10 +1027,10 @@ class _BoundaryCaptureSession:
         "optimized-ir": "--emit-optimized-ir",
     }
     _SELFHOST_TOOLS: ClassVar[dict[str, str]] = {
-        "tokens": "src/compiler/btrc/tools/lex_main.btrc",
-        "ast": "src/compiler/btrc/tools/parse_main.btrc",
-        "c": "src/compiler/btrc/btrcc_main.btrc",
-        "diagnostics": "src/compiler/btrc/btrcc_main.btrc",
+        "tokens": "src/compiler/btrc/tools/LexMain.btrc",
+        "ast": "src/compiler/btrc/tools/ParseMain.btrc",
+        "c": "src/compiler/btrc/BtrccMain.btrc",
+        "diagnostics": "src/compiler/btrc/BtrccMain.btrc",
     }
 
     def __init__(
@@ -1526,7 +1526,7 @@ class _BoundaryCaptureSession:
             root = self.workspace_relative / "bootstrap"
             target_root = self.execution_repository.joinpath(*root.parts)
             target_root.mkdir(parents=True, exist_ok=True)
-            compiler_source = "src/compiler/btrc/btrcc_main.btrc"
+            compiler_source = "src/compiler/btrc/BtrccMain.btrc"
             c1 = root / "btrcc1.c"
             b1 = root / "btrcc1"
             c2 = root / "btrcc2.c"
@@ -1964,7 +1964,7 @@ class CompilerBoundaryVerifier:
         lexer_binary: Path,
     ) -> None:
         print("Building self-hosted lexer...")
-        source = self._repository_root / "src/compiler/btrc/tools/lex_main.btrc"
+        source = self._repository_root / "src/compiler/btrc/tools/LexMain.btrc"
         compile_result = self._run((*btrcpy, str(source), "--no-cache", "-o", str(lexer_source)))
         if compile_result.returncode != 0:
             raise CompilerVerificationError(

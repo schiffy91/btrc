@@ -2,13 +2,13 @@
  * POSIX implementation with an object-oriented API.
  */
 
-import std.io;
+import std.Io;
 import std.FileSystemHandles;
 import std.FileTree;
-import std.platform;
-import std.process;
-import std.strings;
-import std.vector;
+import std.Platform;
+import std.Process;
+import std.Strings;
+import std.Vector;
 
 #include <dirent.h>
 #include <errno.h>

@@ -20,10 +20,10 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 REPO = Path(__file__).resolve().parents[3]
 FIXTURES = Path(__file__).with_name("fixtures")
-ABI_RUNTIME = FIXTURES / "mutex_value_abi_runtime.btrc"
-MANAGED_RUNTIME = FIXTURES / "mutex_managed_ownership_runtime.btrc"
-STRING_RUNTIME = FIXTURES / "mutex_string_ownership_runtime.btrc"
-CONCURRENT_RUNTIME = FIXTURES / "mutex_concurrent_snapshot_runtime.btrc"
+ABI_RUNTIME = FIXTURES / "MutexValueAbiRuntime.btrc"
+MANAGED_RUNTIME = FIXTURES / "MutexManagedOwnershipRuntime.btrc"
+STRING_RUNTIME = FIXTURES / "MutexStringOwnershipRuntime.btrc"
+CONCURRENT_RUNTIME = FIXTURES / "MutexConcurrentSnapshotRuntime.btrc"
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 pytestmark = pytest.mark.skipif(

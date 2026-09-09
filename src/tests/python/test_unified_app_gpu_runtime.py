@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parents[3]
 APP = ROOT / "src" / "stdlib" / "app"
 GPU = ROOT / "src" / "stdlib" / "gpu"
 FIXTURE = ROOT / "src" / "tests" / "native" / "app_surface"
-CONFORMANCE = FIXTURE / "app_surface_conformance.btrc"
-REAL_SMOKE = FIXTURE / "real_app_gpu_smoke.btrc"
+CONFORMANCE = FIXTURE / "AppSurfaceConformance.btrc"
+REAL_SMOKE = FIXTURE / "RealAppGpuSmoke.btrc"
 COMPILE_TIMEOUT = 180
 RUN_TIMEOUT = 90
 
@@ -215,10 +215,10 @@ def test_native_owner_wrapper_constructors_are_private_on_both_frontends(
     gpu_directory = tmp_path / "gpu"
     app_directory.mkdir()
     gpu_directory.mkdir()
-    (app_directory / "app.btrc").write_text((APP / "app.btrc").read_text())
-    (gpu_directory / "gpu.btrc").write_text((GPU / "gpu.btrc").read_text())
+    (app_directory / "App.btrc").write_text((APP / "App.btrc").read_text())
+    (gpu_directory / "Gpu.btrc").write_text((GPU / "Gpu.btrc").read_text())
     source = tmp_path / "forged-owners.btrc"
-    source.write_text(f"import ./gpu/gpu.btrc;\nint main() {{\n    {construction}\n    return 0;\n}}\n")
+    source.write_text(f"import ./gpu/Gpu.btrc;\nint main() {{\n    {construction}\n    return 0;\n}}\n")
     environment = {
         **os.environ,
         "BTRC_CACHE_DIR": str(tmp_path / f"cache-private-{compiler}"),
@@ -262,7 +262,7 @@ def test_real_window_and_present_smoke_when_explicitly_enabled(
     app_archive = ROOT / "build" / "stdlib" / "app" / "libbtrc_app.a"
     gpu_archive = ROOT / "build" / "stdlib" / "gpu" / "libbtrc_gpu.a"
     if not app_archive.is_file() or not gpu_archive.is_file():
-        pytest.skip("build the std.app and std.gpu archives first")
+        pytest.skip("build the std.App and std.Gpu archives first")
 
     generated = tmp_path / f"real-app-gpu-{compiler}.c"
     executable = tmp_path / f"real-app-gpu-{compiler}"

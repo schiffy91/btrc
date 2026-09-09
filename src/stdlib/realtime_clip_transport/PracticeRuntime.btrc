@@ -5,7 +5,7 @@
  * allocation, I/O, locks, waiting, and managed ownership stay off-thread.
  */
 
-import std.spsc;
+import std.Spsc;
 import std.RealtimeAudio;
 import std.RealtimeClipPractice;
 

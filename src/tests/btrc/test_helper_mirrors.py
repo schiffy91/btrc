@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[3]
-BTRCC_SOURCE = REPO / "src/compiler/btrc/btrcc_main.btrc"
+BTRCC_SOURCE = REPO / "src/compiler/btrc/BtrccMain.btrc"
 CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
 CLANG = shutil.which("clang")
 
@@ -295,7 +295,7 @@ def test_thread_only_runtime_omits_optional_cycle_and_launder_callables(
     emitted = _run(
         [
             str(btrcc_driver),
-            str(REPO / "src/tests/threads/test_thread_void.btrc"),
+            str(REPO / "src/tests/threads/ThreadVoid.btrc"),
         ],
         timeout=120,
     )

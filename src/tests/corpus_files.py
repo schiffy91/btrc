@@ -12,20 +12,32 @@ NON_CORPUS_DIRECTORIES = frozenset(
         "formatter",
         "__pycache__",
         "expected",
+        # Benchmarks are programs, but src/tests/bench.py runs them and times
+        # them; the corpus runner would only duplicate that far more slowly.
+        "benchmarks",
     }
 )
 
-# These sources are textual include fixtures, not standalone programs. Keep the
-# exclusion path-specific: runnable tests may legitimately contain ``_helper``
-# in their names (for example GPU helper-function and Math helper coverage).
+# These sources are imported or textually included by a test, not run as one.
+# Keep the exclusion path-specific: runnable tests may legitimately be named
+# for a helper (for example GPU helper-function and Math helper coverage).
 INCLUDE_FIXTURES = frozenset(
     {
-        "control_flow/test_angle_include_helper.btrc",
-        "control_flow/test_cheader_helper.btrc",
-        "control_flow/test_diamond_a_helper.btrc",
-        "control_flow/test_diamond_b_helper.btrc",
-        "control_flow/test_extern_defs_helper.btrc",
-        "control_flow/test_include_helper.btrc",
+        "control_flow/AngleIncludeHelper.btrc",
+        "control_flow/CheaderHelper.btrc",
+        "control_flow/DiamondAHelper.btrc",
+        "control_flow/DiamondBHelper.btrc",
+        "control_flow/ExternDefsHelper.btrc",
+        "control_flow/IncludeHelper.btrc",
+        "imports/cheaderhelpers/MagHelper.btrc",
+        "imports/globhelpers/Alpha.btrc",
+        "imports/globhelpers/Beta.btrc",
+        "imports/helpers/Message.btrc",
+        "imports/parenthelper/Up.btrc",
+        "imports/relhelpers/Greeting.btrc",
+        "imports/relhelpers/QuotedMsg.btrc",
+        "imports/treehelpers/Top.btrc",
+        "imports/treehelpers/deep/Inner.btrc",
     }
 )
 

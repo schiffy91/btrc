@@ -1,0 +1,12 @@
+/* btrc standard library — HTTP
+ *
+ * HTTP/1.1 is separated by responsibility:
+ *   framing (wire boundaries), socket I/O, public types, server, and client.
+ * Importing std.Http retains the complete historical API.
+ */
+import std.HttpClient;
+import std.HttpFraming;
+import std.HttpProtocol;
+import std.HttpServer;
+import std.HttpSocket;
+import std.HttpTypes;

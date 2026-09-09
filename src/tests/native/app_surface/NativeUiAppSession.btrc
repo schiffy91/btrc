@@ -1,9 +1,9 @@
-import std.app;
-import std.gpu;
-import std.image;
+import std.App;
+import std.Gpu;
+import std.Image;
 import std.NativeUi;
 import std.NativeUiApp;
-import std.vector;
+import std.Vector;
 
 #include <assert.h>
 #include "fake_app_gpu_runtime.h"
@@ -204,7 +204,18 @@ int main() {
 	assert(window.clipboardText().text == "a\xc3\xa9");
 	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_X, 8);
 	assert(session.dispatch(application.poll()).eventAt(0).value() == "");
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_Z, 8);
+	assert(session.dispatch(application.poll()).eventAt(0).value() == "a\xc3\xa9");
+	assert(session.input().selectedText() == "a\xc3\xa9");
+	fake_platform_push_keyboard(APP_KEY_RELEASED, APP_KEY_Z, 8);
+	assert(session.dispatch(application.poll()).eventCount() == 0);
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_Z, 9);
+	assert(session.dispatch(application.poll()).eventAt(0).value() == "");
 	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_V, 8);
+	assert(session.dispatch(application.poll()).eventAt(0).value() == "a\xc3\xa9");
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_Z, 8);
+	assert(session.dispatch(application.poll()).eventAt(0).value() == "");
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_Z, 9);
 	assert(session.dispatch(application.poll()).eventAt(0).value() == "a\xc3\xa9");
 	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_LEFT, 1);
 	assert(session.dispatch(application.poll()).eventCount() == 0);

@@ -1,10 +1,10 @@
 /* Real POSIX lifecycle, bounded-step, and replacement-race coverage for the
  * typed filesystem handles. Test setup may use legacy helpers; assertions use
  * only the generic handle surface under test. */
-import std.bytes;
+import std.Bytes;
 import std.FileSystem;
 import std.FileSystemHandles;
-import std.io;
+import std.Io;
 
 #include <assert.h>
 #include <errno.h>

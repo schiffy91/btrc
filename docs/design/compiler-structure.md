@@ -219,146 +219,146 @@ package root:
 ```text
 src/compiler/btrc/
   README.md
-  btrcc_main.btrc                 # thin main()
-  compiler.btrc                   # public Compiler application object
+  BtrccMain.btrc                 # thin main()
+  Compiler.btrc                   # public Compiler application object
 
   cli/
-    driver.btrc                   # BtrccDriver, command line, paths, output
+    Driver.btrc                   # BtrccDriver, command line, paths, output
 
   pipeline/
-    stage.btrc                    # public package manifest
-    models.btrc                   # mutable options/results
-    pipeline.btrc                 # CompilerPipeline
+    Stage.btrc                    # public package manifest
+    Models.btrc                   # mutable options/results
+    Pipeline.btrc                 # CompilerPipeline
 
   syntax/
-    grammar.btrc                  # GrammarInfo, EBNF parser
-    tokens.btrc                   # Token and token vocabulary
-    identity.btrc                 # AstIdentity, AstCanonicalRenderer, TypeIdentity
-    types.btrc                    # TypeShape, callable signatures
-    literals.btrc                 # source/C literal model
+    Grammar.btrc                  # GrammarInfo, EBNF parser
+    Tokens.btrc                   # Token and token vocabulary
+    Identity.btrc                 # AstIdentity, AstCanonicalRenderer, TypeIdentity
+    Types.btrc                    # TypeShape, callable signatures
+    Literals.btrc                 # source/C literal model
 
   generated/
     ast/
-      node.btrc                   # ASDL-generated Node data/schema only
+      Node.btrc                   # ASDL-generated Node data/schema only
     hosted_abi/
       README.md
-      tables.btrc                 # generated hosted ABI declarations
+      Tables.btrc                 # generated hosted ABI declarations
     runtime/
-      catalog.btrc                # generated runtime-helper specifications
+      Catalog.btrc                # generated runtime-helper specifications
 
   lexer/
-    stage.btrc                    # public package manifest
-    lexer.btrc                    # Lexer and owned literal scanner
+    Stage.btrc                    # public package manifest
+    Lexer.btrc                    # Lexer and owned literal scanner
 
   frontend/
-    stage.btrc                    # public package manifest
-    models.btrc                   # source/dependency value types
-    packages.btrc                 # recursive packages, locks, native plans
-    source_io.btrc                # bounded UTF-8 filesystem owner
-    stdlib.btrc                   # FeStdlibRepository
-    resolver.btrc                 # FeFrontendResolver
-    visibility.btrc               # ImportVisibilityChecker
+    Stage.btrc                    # public package manifest
+    Models.btrc                   # source/dependency value types
+    Packages.btrc                 # recursive packages, locks, native plans
+    SourceIo.btrc                # bounded UTF-8 filesystem owner
+    Stdlib.btrc                   # FeStdlibRepository
+    Resolver.btrc                 # FeFrontendResolver
+    Visibility.btrc               # ImportVisibilityChecker
 
   parser/
-    stage.btrc                    # public package manifest
-    parser.btrc                   # complete stateful Parser
-    source_macros.btrc            # SourceMacroDefinition
+    Stage.btrc                    # public package manifest
+    Parser.btrc                   # complete stateful Parser
+    SourceMacros.btrc            # SourceMacroDefinition
 
   analyzer/
-    stage.btrc                    # public package manifest
-    analyzer.btrc                 # SemanticAnalyzer composition root
-    models.btrc                   # AnalyzedProgram and semantic indexes
-    declarations.btrc             # DeclarationRegistry
-    types.btrc                    # SemanticTypeSystem
-    expressions.btrc              # ExpressionTypeResolver/private memo state
-    generics.btrc                 # GenericSpecializer
-    operators.btrc                # NumericSemantics, OperatorSemantics
-    hosted_abi.btrc               # HostedAbiRepository/provenance
-    source_macros.btrc            # SourceMacroNamespace
-    gpu.btrc                      # GPU semantic owners
-    realtime.btrc                 # transitive realtime-effect proof
+    Stage.btrc                    # public package manifest
+    Analyzer.btrc                 # SemanticAnalyzer composition root
+    Models.btrc                   # AnalyzedProgram and semantic indexes
+    Declarations.btrc             # DeclarationRegistry
+    Types.btrc                    # SemanticTypeSystem
+    Expressions.btrc              # ExpressionTypeResolver/private memo state
+    Generics.btrc                 # GenericSpecializer
+    Operators.btrc                # NumericSemantics, OperatorSemantics
+    HostedAbi.btrc               # HostedAbiRepository/provenance
+    SourceMacros.btrc            # SourceMacroNamespace
+    Gpu.btrc                      # GPU semantic owners
+    Realtime.btrc                 # transitive realtime-effect proof
 
     ownership/
-      values.btrc                 # ManagedValueSemantics
-      cycles.btrc                 # CycleSemantics
+      Values.btrc                 # ManagedValueSemantics
+      Cycles.btrc                 # CycleSemantics
 
     validation/
-      validator.btrc              # SemanticValidator composition
-      types.btrc                  # TypeValidator
-      constants.btrc              # ConstantValidator
-      names.btrc                  # NameValidator
-      storage.btrc                # StorageValidator
-      ownership.btrc              # OwnershipValidator
-      borrows.btrc                # BorrowValidator
-      calls.btrc                  # CallValidator
-      expressions.btrc            # ExpressionValidator
-      control_flow.btrc           # ControlFlowValidator
-      declarations.btrc           # DeclarationValidator
+      Validator.btrc              # SemanticValidator composition
+      Types.btrc                  # TypeValidator
+      Constants.btrc              # ConstantValidator
+      Names.btrc                  # NameValidator
+      Storage.btrc                # StorageValidator
+      Ownership.btrc              # OwnershipValidator
+      Borrows.btrc                # BorrowValidator
+      Calls.btrc                  # CallValidator
+      Expressions.btrc            # ExpressionValidator
+      ControlFlow.btrc           # ControlFlowValidator
+      Declarations.btrc           # DeclarationValidator
 
   ir/
-    stage.btrc                    # public IR package manifest
-    model.btrc                    # complete structured IR model
-    emitter.btrc                  # CEmitter only
+    Stage.btrc                    # public IR package manifest
+    Model.btrc                    # complete structured IR model
+    Emitter.btrc                  # CEmitter only
 
     runtime/
-      catalog.btrc                # RuntimeHelperCatalog/registry
-      references.btrc             # RuntimeReferenceCollector
+      Catalog.btrc                # RuntimeHelperCatalog/registry
+      References.btrc             # RuntimeReferenceCollector
 
     lowering/
-      context.btrc                # LoweringContext
-      lowerer.btrc                # IRLowerer composition root
-      types.btrc                  # CTypeLowerer
-      declarations.btrc           # DeclarationLowerer
-      generics.btrc               # specialization planning only
-      functions.btrc              # FunctionLowerer
-      statements.btrc             # StatementLowerer
-      control_flow.btrc            # IRStatementSequence, ControlFlowLowerer
-      expressions.btrc             # ExpressionLowerer
-      calls.btrc                   # CallLowerer, CallTargetResolver
-      callables.btrc               # CallableValueLowerer
-      callable_flow.btrc           # CallableFlowState
-      assignments.btrc             # AssignmentLowerer
-      aggregates.btrc              # AggregateValueLowerer
-      strings.btrc                 # StringLowerer
-      concurrency.btrc             # ConcurrencyLowerer
+      Context.btrc                # LoweringContext
+      Lowerer.btrc                # IRLowerer composition root
+      Types.btrc                  # CTypeLowerer
+      Declarations.btrc           # DeclarationLowerer
+      Generics.btrc               # specialization planning only
+      Functions.btrc              # FunctionLowerer
+      Statements.btrc             # StatementLowerer
+      ControlFlow.btrc            # IRStatementSequence, ControlFlowLowerer
+      Expressions.btrc             # ExpressionLowerer
+      Calls.btrc                   # CallLowerer, CallTargetResolver
+      Callables.btrc               # CallableValueLowerer
+      CallableFlow.btrc           # CallableFlowState
+      Assignments.btrc             # AssignmentLowerer
+      Aggregates.btrc              # AggregateValueLowerer
+      Strings.btrc                 # StringLowerer
+      Concurrency.btrc             # ConcurrencyLowerer
 
       ownership/
-        semantics.btrc             # lowering ownership classification
-        operands.btrc              # OwnershipOperandPlanner
-        calls.btrc                 # CallOwnershipLowerer
-        lifetime.btrc              # ManagedLifetimeLowerer
-        managed_types.btrc         # ManagedTypeLowerer
-        cycle_boundaries.btrc      # CycleBoundaryLowerer
+        Semantics.btrc             # lowering ownership classification
+        Operands.btrc              # OwnershipOperandPlanner
+        Calls.btrc                 # CallOwnershipLowerer
+        Lifetime.btrc              # ManagedLifetimeLowerer
+        ManagedTypes.btrc         # ManagedTypeLowerer
+        CycleBoundaries.btrc      # CycleBoundaryLowerer
 
     gpu/
-      wgsl.btrc                    # GpuWgslEmitter
-      pipeline.btrc                # GPU lowering/dispatch/optimization
+      Wgsl.btrc                    # GpuWgslEmitter
+      Pipeline.btrc                # GPU lowering/dispatch/optimization
 
     optimization/
-      optimizer.btrc               # IROptimizer and reachability
-      cleanup.btrc                 # CleanupSlotValidator
-      realtime.btrc                # structured-IR realtime backstop
+      Optimizer.btrc               # IROptimizer and reachability
+      Cleanup.btrc                 # CleanupSlotValidator
+      Realtime.btrc                # structured-IR realtime backstop
       setjmp/
-        analysis.btrc              # SetjmpEffectAnalysis
-        safety.btrc                # SetjmpSafetyPlanner
+        Analysis.btrc              # SetjmpEffectAnalysis
+        Safety.btrc                # SetjmpSafetyPlanner
 
   tools/
-    frontend_main.btrc             # frontend inspection executable
-    lex_main.btrc                  # lexer inspection executable
-    parse_main.btrc                # parser inspection executable
+    FrontendMain.btrc             # frontend inspection executable
+    LexMain.btrc                  # lexer inspection executable
+    ParseMain.btrc                # parser inspection executable
     ast/
-      schema.btrc                  # ASDL schema model
-      dump_main.btrc               # ASDL dump executable
-      generate_main.btrc           # AST generator executable
+      Schema.btrc                  # ASDL schema model
+      DumpMain.btrc               # ASDL dump executable
+      GenerateMain.btrc           # AST generator executable
 ```
 
-`pipeline/models.btrc` contains mutable option and result transports for one
+`pipeline/Models.btrc` contains mutable option and result transports for one
 compilation. Analyzer indexes and shared semantic records belong to
-`analyzer/models.btrc`, while expression-type memo state belongs privately to
-`ExpressionTypeResolver` in `analyzer/expressions.btrc`.
+`analyzer/Models.btrc`, while expression-type memo state belongs privately to
+`ExpressionTypeResolver` in `analyzer/Expressions.btrc`.
 `IRStatementSequence` is a control-flow plan and therefore belongs to
-`ir/lowering/control_flow.btrc`. `AstCanonicalRenderer` in handwritten
-`syntax/identity.btrc` owns canonical AST formatting; the parse inspection
+`ir/lowering/ControlFlow.btrc`. `AstCanonicalRenderer` in handwritten
+`syntax/Identity.btrc` owns canonical AST formatting; the parse inspection
 tool calls that owner, and generated `Node` owns no formatting behavior.
 The unified generator check structurally verifies that the handwritten
 renderer covers every ASDL constructor and field.
@@ -417,11 +417,11 @@ The unified generator produces exactly these data files:
 
 ```text
 src/compiler/python/runtime/generated.py
-src/compiler/btrc/generated/runtime/catalog.btrc
+src/compiler/btrc/generated/runtime/Catalog.btrc
 src/compiler/python/syntax/ast/generated.py
-src/compiler/btrc/generated/ast/node.btrc
+src/compiler/btrc/generated/ast/Node.btrc
 src/compiler/python/abi/generated.py
-src/compiler/btrc/generated/hosted_abi/tables.btrc
+src/compiler/btrc/generated/hosted_abi/Tables.btrc
 src/devex/lsp/catalog/generated.py
 ```
 

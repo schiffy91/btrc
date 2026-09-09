@@ -14,7 +14,7 @@ from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
-FIXTURE = Path(__file__).parents[1] / "btrc" / "fixtures" / "optional_call_contracts_runtime.btrc"
+FIXTURE = Path(__file__).parents[1] / "btrc" / "fixtures" / "OptionalCallContractsRuntime.btrc"
 
 
 def test_optional_reference_result_is_inferred_nullable():

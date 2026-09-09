@@ -1,12 +1,12 @@
 /* HTTP/1.1 server lifecycle, request parsing, and response emission. */
-import std.bytes;
+import std.Bytes;
 import std.HttpFraming;
 import std.HttpProtocol;
 import std.HttpResponseHeaders;
 import std.HttpSocket;
 import std.HttpTypes;
-import std.strings;
-import std.vector;
+import std.Strings;
+import std.Vector;
 
 #include <sys/socket.h>
 #include <string.h>

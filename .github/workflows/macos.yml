@@ -57,8 +57,8 @@ jobs:
             test "$(uname -m)" = arm64
             unset BTRC_HOME
             (cd dist && shasum -a 256 -c "btrcc-${{ matrix.target }}.tar.gz.sha256")
-            source="$GITHUB_WORKSPACE/src/tests/strings/test_braces_in_code_gen.btrc"
-            expected="$GITHUB_WORKSPACE/src/tests/strings/expected/test_braces_in_code_gen.stdout"
+            source="$GITHUB_WORKSPACE/src/tests/strings/BracesInCodeGen.btrc"
+            expected="$GITHUB_WORKSPACE/src/tests/strings/expected/BracesInCodeGen.stdout"
             work=$(mktemp -d "$RUNNER_TEMP/btrcc-macos-smoke.XXXXXX")
             trap '\''rm -rf "$work"'\'' EXIT
             tar -xzf "dist/btrcc-${{ matrix.target }}.tar.gz" -C "$work"

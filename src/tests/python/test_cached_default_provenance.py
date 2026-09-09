@@ -28,7 +28,7 @@ def _run(command: list[str], *, environment: dict[str, str]) -> subprocess.Compl
 
 
 def test_declaration_line_map_disambiguates_split_user_and_stdlib_coordinates(tmp_path: Path) -> None:
-    stdlib = tmp_path / "stdlib.btrc"
+    stdlib = tmp_path / "Stdlib.btrc"
     user = tmp_path / "user.btrc"
     source = ResolvedSource(
         user_source="user one\nuser two",

@@ -5,9 +5,9 @@
  * callers retain ownership of traversal, byte, and cancellation budgets.
  */
 
-import std.bytes;
-import std.platform;
-import std.strings;
+import std.Bytes;
+import std.Platform;
+import std.Strings;
 
 #include <dirent.h>
 #include <errno.h>

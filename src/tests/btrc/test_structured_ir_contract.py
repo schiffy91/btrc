@@ -29,11 +29,11 @@ def test_selfhost_has_no_raw_statement_escape_hatch() -> None:
 
 
 def test_top_level_declarations_are_typed_end_to_end() -> None:
-    schema = _source("ir/model.btrc")
-    declarations = _source("ir/lowering/declarations.btrc")
-    functions = _source("ir/lowering/functions.btrc")
-    types = _source("ir/lowering/types.btrc")
-    emitter = _source("ir/emitter.btrc")
+    schema = _source("ir/Model.btrc")
+    declarations = _source("ir/lowering/Declarations.btrc")
+    functions = _source("ir/lowering/Functions.btrc")
+    types = _source("ir/lowering/Types.btrc")
+    emitter = _source("ir/Emitter.btrc")
     all_selfhost = "\n".join(path.read_text() for path in SELFHOST.rglob("*.btrc"))
 
     for legacy in (
@@ -85,12 +85,12 @@ def test_top_level_declarations_are_typed_end_to_end() -> None:
 
 
 def test_preprocessor_ir_is_validated_and_emitted_structurally() -> None:
-    declarations = _source("ir/lowering/declarations.btrc")
-    emitter = _source("ir/emitter.btrc")
+    declarations = _source("ir/lowering/Declarations.btrc")
+    emitter = _source("ir/Emitter.btrc")
 
-    assert "public bool isSystem;" in _source("ir/model.btrc")
-    assert "public bool functionLike;" in _source("ir/model.btrc")
-    assert "public Vector<string> params;" in _source("ir/model.btrc")
+    assert "public bool isSystem;" in _source("ir/Model.btrc")
+    assert "public bool functionLike;" in _source("ir/Model.btrc")
+    assert "public Vector<string> params;" in _source("ir/Model.btrc")
     assert "lowerPreprocessorDirective(d.text, m);" in declarations
     assert "unsupported preprocessor directive" in declarations
     assert "malformed #include directive" in declarations
@@ -103,7 +103,7 @@ def test_preprocessor_ir_is_validated_and_emitted_structurally() -> None:
 
 
 def test_string_literals_do_not_root_dead_functions() -> None:
-    optimizer = _source("ir/optimization/optimizer.btrc")
+    optimizer = _source("ir/optimization/Optimizer.btrc")
     start = optimizer.index("private void collectFuncRefs(")
     end = optimizer.index("private void eliminateDeadFunctions(", start)
     collector = optimizer[start:end]
@@ -116,9 +116,9 @@ def test_string_literals_do_not_root_dead_functions() -> None:
 
 
 def test_selfhost_models_structured_c_expression_forms() -> None:
-    nodes = _source("ir/model.btrc")
-    control_flow = _source("ir/lowering/control_flow.btrc")
-    emitter = _source("ir/emitter.btrc")
+    nodes = _source("ir/Model.btrc")
+    control_flow = _source("ir/lowering/ControlFlow.btrc")
+    emitter = _source("ir/Emitter.btrc")
 
     for contract in (
         "IRK_INITIALIZER_LIST",
@@ -144,8 +144,8 @@ def test_selfhost_models_structured_c_expression_forms() -> None:
 
 
 def test_gpu_translation_unit_records_belong_to_the_ir_model() -> None:
-    schema = _source("ir/model.btrc")
-    pipeline = _source("ir/gpu/pipeline.btrc")
+    schema = _source("ir/Model.btrc")
+    pipeline = _source("ir/gpu/Pipeline.btrc")
 
     for record in ("IRGpuBuffer", "IRGpuUniform", "IRGpuKernel"):
         assert f"class {record} {{" in schema
@@ -154,13 +154,13 @@ def test_gpu_translation_unit_records_belong_to_the_ir_model() -> None:
 
 
 def test_selfhost_emits_struct_array_bounds_and_indirect_calls_only_from_ir() -> None:
-    nodes = _source("ir/model.btrc")
-    declarations = _source("ir/lowering/declarations.btrc")
-    expressions = _source("ir/lowering/expressions.btrc")
-    callables = _source("ir/lowering/callables.btrc")
-    emitter = _source("ir/emitter.btrc")
-    helper_reachability = _source("ir/runtime/references.btrc")
-    optimizer = _source("ir/optimization/optimizer.btrc")
+    nodes = _source("ir/Model.btrc")
+    declarations = _source("ir/lowering/Declarations.btrc")
+    expressions = _source("ir/lowering/Expressions.btrc")
+    callables = _source("ir/lowering/Callables.btrc")
+    emitter = _source("ir/Emitter.btrc")
+    helper_reachability = _source("ir/runtime/References.btrc")
+    optimizer = _source("ir/optimization/Optimizer.btrc")
     field_schema = nodes[nodes.index("class IRStructField {") : nodes.index("class IRStructDef {")]
     emit_struct = declarations[
         declarations.index("public void emitStructDecl(") : declarations.index("public void emitGlobalVar(")
@@ -186,8 +186,8 @@ def test_selfhost_emits_struct_array_bounds_and_indirect_calls_only_from_ir() ->
 
 
 def test_selfhost_enum_symbols_are_structured_variable_references() -> None:
-    declarations = _source("ir/lowering/declarations.btrc")
-    expressions = _source("ir/lowering/expressions.btrc")
+    declarations = _source("ir/lowering/Declarations.btrc")
+    expressions = _source("ir/lowering/Expressions.btrc")
 
     rich_enum = declarations[
         declarations.index("public void emitRichEnumDecl(") : declarations.index("public IRFunction enumToStringFn(")
@@ -213,22 +213,22 @@ def test_selfhost_enum_symbols_are_structured_variable_references() -> None:
 
 
 def test_selfhost_portability_lowering_is_structured() -> None:
-    parser = _source("parser/parser.btrc")
-    analyzer_expressions = _source("analyzer/expressions.btrc")
-    expressions = _source("ir/lowering/expressions.btrc")
-    literals = _source("syntax/literals.btrc")
-    identity = _source("syntax/identity.btrc")
-    numeric = _source("analyzer/operators.btrc")
+    parser = _source("parser/Parser.btrc")
+    analyzer_expressions = _source("analyzer/Expressions.btrc")
+    expressions = _source("ir/lowering/Expressions.btrc")
+    literals = _source("syntax/Literals.btrc")
+    identity = _source("syntax/Identity.btrc")
+    numeric = _source("analyzer/Operators.btrc")
     operators = numeric
-    model = _source("ir/model.btrc")
-    runtime_catalog = _source("ir/runtime/catalog.btrc")
+    model = _source("ir/Model.btrc")
+    runtime_catalog = _source("ir/runtime/Catalog.btrc")
     runtime_rows = RuntimeHelperCatalog().definitions
     runtime = "\n".join(row.c_source for row in runtime_rows)
     runtime_names = {row.name for row in runtime_rows}
 
-    assert "import ../syntax/literals.btrc;" in parser
-    assert "import ../syntax/literals.btrc;" in numeric
-    assert "import ../../syntax/literals.btrc;" in expressions
+    assert "import ../syntax/Literals.btrc;" in parser
+    assert "import ../syntax/Literals.btrc;" in numeric
+    assert "import ../../syntax/Literals.btrc;" in expressions
     assert "class IntegerLiteral {" in literals
     assert "public string cSource(int storedValue)" in literals
     assert "IntegerLiteral(node.raw).cSource(node.valueInt)" in expressions
@@ -268,14 +268,14 @@ def test_selfhost_portability_lowering_is_structured() -> None:
 
 
 def test_numeric_and_operator_behavior_has_domain_owners() -> None:
-    numeric = _source("analyzer/operators.btrc")
+    numeric = _source("analyzer/Operators.btrc")
     operators = numeric
-    analyzer = _source("analyzer/analyzer.btrc")
-    validation_types = _source("analyzer/validation/types.btrc")
-    validator = _source("analyzer/validation/validator.btrc")
-    expressions = _source("ir/lowering/expressions.btrc")
-    lowerer = _source("ir/lowering/lowerer.btrc")
-    pipeline = _source("pipeline/pipeline.btrc")
+    analyzer = _source("analyzer/Analyzer.btrc")
+    validation_types = _source("analyzer/validation/Types.btrc")
+    validator = _source("analyzer/validation/Validator.btrc")
+    expressions = _source("ir/lowering/Expressions.btrc")
+    lowerer = _source("ir/lowering/Lowerer.btrc")
+    pipeline = _source("pipeline/Pipeline.btrc")
     all_selfhost = "\n".join(path.read_text() for path in SELFHOST.rglob("*.btrc"))
     loose_behavior = re.compile(
         r"^(?:bool|int|string|Node\??) [A-Za-z_][A-Za-z0-9_]*\(",
@@ -339,7 +339,7 @@ def test_optional_launder_callable_is_split_from_cleanup_state() -> None:
 
 def test_selfhost_runtime_helpers_mirror_portable_python_contracts() -> None:
     catalog = RuntimeHelperCatalog()
-    strings = _source("ir/lowering/strings.btrc")
+    strings = _source("ir/lowering/Strings.btrc")
 
     modulo = catalog.definition("__btrc_mod").c_source
     assert "a != a || b != b" in modulo
@@ -365,10 +365,10 @@ def test_selfhost_runtime_helpers_mirror_portable_python_contracts() -> None:
 
 
 def test_pragma_pack_is_struct_metadata_not_a_raw_section() -> None:
-    nodes = _source("ir/model.btrc")
-    lowerer = _source("ir/lowering/lowerer.btrc")
-    declarations = _source("ir/lowering/declarations.btrc")
-    emitter = _source("ir/emitter.btrc")
+    nodes = _source("ir/Model.btrc")
+    lowerer = _source("ir/lowering/Lowerer.btrc")
+    declarations = _source("ir/lowering/Declarations.btrc")
+    emitter = _source("ir/Emitter.btrc")
 
     assert "public int packAlignment;" in nodes
     assert "self.declarations.packAlignments(program)" in lowerer

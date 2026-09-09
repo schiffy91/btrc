@@ -146,7 +146,7 @@ def _two_file_project(tmp_path):
         'class Helper {\n    public int bad() {\n        int y = "oops";\n        return y;\n    }\n}\n',
     )
     app = write(
-        tmp_path / "app.btrc", "import ./helper.btrc\n\nint main() {\n    Helper h = new Helper();\n    return 0;\n}\n"
+        tmp_path / "App.btrc", "import ./helper.btrc\n\nint main() {\n    Helper h = new Helper();\n    return 0;\n}\n"
     )
     return helper, app
 
@@ -157,7 +157,7 @@ def test_error_in_imported_file(tmp_path, monkeypatch, capsys, workdir, mode):
     err = compile_err(monkeypatch, capsys, workdir, [app] + mode)
     assert f"--> {helper}:3:9" in err  # the imported file, its native line
     assert 'int y = "oops";' in err
-    assert "app.btrc:3" not in err
+    assert "App.btrc:3" not in err
 
 
 @MODES
@@ -165,7 +165,7 @@ def test_error_in_main_file_after_import(tmp_path, monkeypatch, capsys, workdir,
     """Import expansion shifts resolved-source lines; positions stay native."""
     write(tmp_path / "helper.btrc", "class Helper {\n    public int ok() {\n        return 1;\n    }\n}\n")
     app = write(
-        tmp_path / "app.btrc",
+        tmp_path / "App.btrc",
         'import ./helper.btrc\n\nint main() {\n    Helper h = new Helper();\n    int z = "bad";\n    return 0;\n}\n',
     )
     err = compile_err(monkeypatch, capsys, workdir, [app] + mode)

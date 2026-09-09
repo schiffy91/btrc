@@ -75,8 +75,8 @@ def test_package_resolution_has_no_compiler_defined_resource_quotas() -> None:
 
 
 def test_std_brace_import_resolves_stdlib():
-    source = "import std.{strings, json}\nint main() { return 0; }"
-    resolved = RESOLVER.resolve_includes(source, "main.btrc")
+    source = "import std.{Strings, Json}\nint main() { return 0; }"
+    resolved = RESOLVER.resolve_includes(source, "Main.btrc")
 
     assert "class Strings" in resolved
     assert "class JsonObject" in resolved
@@ -87,12 +87,12 @@ def test_relative_bulk_imports_are_sorted_and_recursive(tmp_path):
     root = tmp_path / "project"
     nested = root / "lib" / "nested"
     nested.mkdir(parents=True)
-    (root / "main.btrc").write_text("import ./lib/**\nint main() { return 0; }")
+    (root / "Main.btrc").write_text("import ./lib/**\nint main() { return 0; }")
     (root / "lib" / "b.btrc").write_text("class B {}\n")
     (root / "lib" / "a.btrc").write_text("class A {}\n")
     (nested / "c.btrc").write_text("class C {}\n")
 
-    resolved = RESOLVER.resolve_includes((root / "main.btrc").read_text(), str(root / "main.btrc"))
+    resolved = RESOLVER.resolve_includes((root / "Main.btrc").read_text(), str(root / "Main.btrc"))
 
     assert resolved.index("class A") < resolved.index("class B")
     assert "class C" in resolved
@@ -100,7 +100,7 @@ def test_relative_bulk_imports_are_sorted_and_recursive(tmp_path):
 
 
 def test_resolved_import_source_has_no_aggregate_byte_ceiling(tmp_path):
-    root = tmp_path / "main.btrc"
+    root = tmp_path / "Main.btrc"
     child = tmp_path / "child.btrc"
     child.write_text("".join(f"int filler_{index} = {index};\n" for index in range(20000)))
     root.write_text('#include "child.btrc"\nint main() { return 0; }\n')
@@ -131,7 +131,7 @@ def test_deeply_nested_includes_resolve_without_a_depth_ceiling(tmp_path):
 
 def test_import_graph_has_no_unique_file_ceiling(tmp_path):
     count = 512
-    root = tmp_path / "main.btrc"
+    root = tmp_path / "Main.btrc"
     root.write_text("".join(f'#include "unit_{index}.btrc"\n' for index in range(count)))
     for index in range(count):
         (tmp_path / f"unit_{index}.btrc").write_text(f"int unit_{index};\n")
@@ -153,7 +153,7 @@ def test_directory_import_has_no_entry_or_file_ceiling(tmp_path):
 
     resolved = resolver.resolve_includes(
         "import ./modules/*\n",
-        str(tmp_path / "main.btrc"),
+        str(tmp_path / "Main.btrc"),
         exit_on_error=False,
     )
 

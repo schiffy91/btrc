@@ -20,8 +20,8 @@ from src.tests.btrc.test_semantic_validation import _compile_source
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 FIXTURES = Path(__file__).with_name("fixtures")
-GENERIC_FIXTURE = FIXTURES / "generic_free_lifecycle_runtime.btrc"
-COLLECTION_FIXTURE = FIXTURES / "collection_explicit_free_then_scope_runtime.btrc"
+GENERIC_FIXTURE = FIXTURES / "GenericFreeLifecycleRuntime.btrc"
+COLLECTION_FIXTURE = FIXTURES / "CollectionExplicitFreeThenScopeRuntime.btrc"
 
 pytestmark = pytest.mark.skipif(
     not COMPILERS,

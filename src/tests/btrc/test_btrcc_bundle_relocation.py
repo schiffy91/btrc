@@ -74,7 +74,7 @@ def test_actual_bundle_compiles_and_runs_stdlib_program_from_unrelated_cwd(
     generated = tmp_path / "stdlib-program.c"
     binary = tmp_path / "stdlib-program"
     source.write_text(
-        "import std.vector;\n"
+        "import std.Vector;\n"
         "\n"
         "int main() {\n"
         '    Vector<string> values = ["relocated", "compiler"];\n'
@@ -115,7 +115,7 @@ def test_actual_bundle_compiles_and_runs_stdlib_program_from_unrelated_cwd(
     gui_generated = tmp_path / "gui-header-program.c"
     gui_object = tmp_path / "gui-header-program.o"
     gui_source.write_text(
-        '#include "gui/gui.btrc"\n'
+        '#include "gui/Gui.btrc"\n'
         "int main() {\n"
         "    Surface surface = Surface(2, 2);\n"
         "    return surface.width() == 2 ? 0 : 1;\n"

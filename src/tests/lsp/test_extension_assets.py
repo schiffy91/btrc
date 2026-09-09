@@ -118,7 +118,7 @@ def test_extension_packaging_stages_lsp_payload(tmp_path):
     assert (compiler_root / "frontend" / "sources.py").exists()
     assert not (bundle_root / "src" / "compiler" / "btrc").exists()
     assert (bundle_root / "src" / "language" / "grammar.ebnf").exists()
-    assert (bundle_root / "src" / "stdlib" / "process.btrc").exists()
+    assert (bundle_root / "src" / "stdlib" / "Process.btrc").exists()
     for dependency in ("pygls", "lsprotocol", "attrs", "cattrs"):
         assert (bundle_root / "vendor" / dependency).is_dir()
     assert (bundle_root / "vendor" / "typing_extensions.py").is_file()

@@ -10,19 +10,19 @@ Because btrc has no dynamic downcasts, the self-hosted AST and IR use fat tagged
 nodes: one node class per layer, a `kind` tag, and the union of fields needed by
 all variants. The AST node source is generated from
 [`src/language/ast.asdl`](../../language/ast.asdl); do not edit
-[`generated/ast/node.btrc`](generated/ast/node.btrc) by hand.
+[`generated/ast/Node.btrc`](generated/ast/Node.btrc) by hand.
 
 ## Application and pipeline ownership
 
-`btrcc_main.btrc` is only the process entry point. `compiler.btrc` owns the
-production application object, `cli/driver.btrc` owns command-line and process
-orchestration, and `pipeline/pipeline.btrc` owns ordered compilation.
+`BtrccMain.btrc` is only the process entry point. `Compiler.btrc` owns the
+production application object, `cli/Driver.btrc` owns command-line and process
+orchestration, and `pipeline/Pipeline.btrc` owns ordered compilation.
 `BtrccOptions` defaults to strict imports before any of those owners can observe
 it.
 
 The destination contains exactly 91 `.btrc` files: 85 compiler/generated files
-and six explicit developer-tool files. `compiler.btrc` and
-`btrcc_main.btrc` are the only `.btrc` files at this package root.
+and six explicit developer-tool files. `Compiler.btrc` and
+`BtrccMain.btrc` are the only `.btrc` files at this package root.
 
 Each stage exposes one manifest. The manifests record dependency direction and
 are the stable navigation surface; implementation leaves are not separate
@@ -30,14 +30,14 @@ public stages.
 
 | Domain | Manifest or primary owner |
 |---|---|
-| Application and command | `compiler.btrc`, `cli/driver.btrc`, `pipeline/stage.btrc` |
-| Packages, front end, and visibility | `frontend/stage.btrc`, `frontend/packages.btrc`, `frontend/resolver.btrc`, `frontend/visibility.btrc` |
-| Grammar and lexer | `lexer/stage.btrc` |
-| Parser | `parser/stage.btrc` |
-| Semantic analysis | `analyzer/stage.btrc`, `analyzer/analyzer.btrc` |
-| IR lowering | `ir/stage.btrc`, `ir/lowering/lowerer.btrc`, `ir/lowering/context.btrc` |
-| IR optimization | `ir/optimization/optimizer.btrc`, `ir/optimization/cleanup.btrc` |
-| C and WGSL emission | `ir/emitter.btrc`, `ir/gpu/wgsl.btrc` |
+| Application and command | `Compiler.btrc`, `cli/Driver.btrc`, `pipeline/Stage.btrc` |
+| Packages, front end, and visibility | `frontend/Stage.btrc`, `frontend/Packages.btrc`, `frontend/Resolver.btrc`, `frontend/Visibility.btrc` |
+| Grammar and lexer | `lexer/Stage.btrc` |
+| Parser | `parser/Stage.btrc` |
+| Semantic analysis | `analyzer/Stage.btrc`, `analyzer/Analyzer.btrc` |
+| IR lowering | `ir/Stage.btrc`, `ir/lowering/Lowerer.btrc`, `ir/lowering/Context.btrc` |
+| IR optimization | `ir/optimization/Optimizer.btrc`, `ir/optimization/Cleanup.btrc` |
+| C and WGSL emission | `ir/Emitter.btrc`, `ir/gpu/Wgsl.btrc` |
 
 The exact owner packages are `cli/`, `pipeline/`, `syntax/`, `lexer/`,
 `frontend/`, `parser/`, `analyzer/`, `analyzer/ownership/`,
@@ -54,19 +54,19 @@ callable, assignment, aggregate, string, and concurrency lowerers. Its
 paths use these same owners; specialization supplies views rather than a second
 lowering stack.
 
-The small `tools/lex_main.btrc`, `tools/parse_main.btrc`, and
-`tools/frontend_main.btrc` programs are stage-boundary inspection drivers.
-`tools/ast/schema.btrc` owns the native ASDL model and parser;
-`tools/ast/dump_main.btrc` and `tools/ast/generate_main.btrc` retain the dump
+The small `tools/LexMain.btrc`, `tools/ParseMain.btrc`, and
+`tools/FrontendMain.btrc` programs are stage-boundary inspection drivers.
+`tools/ast/Schema.btrc` owns the native ASDL model and parser;
+`tools/ast/DumpMain.btrc` and `tools/ast/GenerateMain.btrc` retain the dump
 and AST-generation commands.
 
 Runtime C is shared with the Python compiler. `src/runtime/c/manifest.toml`
 describes helper metadata and stable order for the pre-authored `core.c`,
 `collections.c`, `cycles.c`, `mutex.c`, `process.c`, `strings.c`, `threads.c`,
 `trycatch.c`, and `gpu.c` assets plus `btrc_rt.h`. Generated immutable rows live
-in `generated/runtime/catalog.btrc`; handwritten lookup, selection, dependency,
-and reference behavior lives in `ir/runtime/catalog.btrc` and
-`ir/runtime/references.btrc`. Lowerers and emitters never assemble runtime C.
+in `generated/runtime/Catalog.btrc`; handwritten lookup, selection, dependency,
+and reference behavior lives in `ir/runtime/Catalog.btrc` and
+`ir/runtime/References.btrc`. Lowerers and emitters never assemble runtime C.
 
 Reachable top-level `@gpu` functions follow the same checked WGSL and structured
 host-dispatch model as the Python compiler. Unsupported GPU syntax fails closed;
@@ -123,7 +123,7 @@ For parser-stage inspection:
 
 ```bash
 python3 -m src.compiler.python.main \
-  src/compiler/btrc/tools/parse_main.btrc --no-cache -o /tmp/parse.c
+  src/compiler/btrc/tools/ParseMain.btrc --no-cache -o /tmp/parse.c
 cc -std=c11 -pedantic-errors /tmp/parse.c -lm -lpthread -o /tmp/btrcparse
 /tmp/btrcparse program.btrc
 ```
@@ -132,6 +132,6 @@ cc -std=c11 -pedantic-errors /tmp/parse.c -lm -lpthread -o /tmp/btrcparse
 
 `Parser.expect()` and generic-close handling record a sticky fatal diagnostic
 with line/column and expected/actual token details. `parseProgram()` stops at
-that boundary; `tools/parse_main.btrc` and `btrcc_main.btrc` report the error and
+that boundary; `tools/ParseMain.btrc` and `BtrccMain.btrc` report the error and
 return nonzero before analysis or IR generation. The built-driver regression
 suite is `src/tests/btrc/test_parser_diagnostics.py`.

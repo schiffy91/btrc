@@ -5,8 +5,8 @@
  * directories. Environment strings are bounded before they are copied.
  */
 
-import std.strings;
-import std.vector;
+import std.Strings;
+import std.Vector;
 
 #include <stdlib.h>
 

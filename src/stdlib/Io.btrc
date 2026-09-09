@@ -1,0 +1,320 @@
+/* btrc standard library — IO
+ * Object-oriented file I/O inspired by Python's open() and file objects.
+ */
+
+import std.Bytes;
+import std.Strings;
+import std.Vector;
+
+#include <sys/stat.h>
+
+enum FileLineReadKind {
+	FILE_LINE_READ_LINE = 0,
+	FILE_LINE_READ_END = 1,
+	FILE_LINE_READ_LIMIT_EXCEEDED = 2,
+	FILE_LINE_READ_IO_FAILED = 3
+};
+
+/* Owned result of one bounded line read.
+ *
+ * A line owns its exact payload bytes, excluding LF or a single CR paired
+ * with LF. Binary callers can take a copied Bytes snapshot; text callers use
+ * lineText(), which rejects embedded NUL and invalid UTF-8 before conversion.
+ */
+class FileLineReadOutcome {
+	private FileLineReadKind outcomeKind;
+	private Bytes? linePayload;
+
+	private FileLineReadOutcome(FileLineReadKind kind, Bytes? payload) {
+		if ((kind == FILE_LINE_READ_LINE) != (payload != null)) { throw "invalid bounded line read outcome"; }
+		self.outcomeKind = kind;
+		self.linePayload = payload;
+	}
+
+	class FileLineReadOutcome withLine(Bytes payload) {
+		if (payload == null) { throw "bounded line payload is null"; }
+		return FileLineReadOutcome(FILE_LINE_READ_LINE, payload);
+	}
+
+	class FileLineReadOutcome end() { return FileLineReadOutcome(FILE_LINE_READ_END, null); }
+
+	class FileLineReadOutcome exceededLimit() { return FileLineReadOutcome(FILE_LINE_READ_LIMIT_EXCEEDED, null); }
+
+	class FileLineReadOutcome failed() { return FileLineReadOutcome(FILE_LINE_READ_IO_FAILED, null); }
+
+	public FileLineReadKind kind() { return self.outcomeKind; }
+
+	public bool hasLine() { return self.outcomeKind == FILE_LINE_READ_LINE; }
+
+	public bool atEnd() { return self.outcomeKind == FILE_LINE_READ_END; }
+
+	public bool limitExceeded() { return self.outcomeKind == FILE_LINE_READ_LIMIT_EXCEEDED; }
+
+	public bool ioFailed() { return self.outcomeKind == FILE_LINE_READ_IO_FAILED; }
+
+	/* Return an independent copy so callers cannot mutate the owned outcome. */
+	public Bytes lineBytes() {
+		if (self.linePayload == null) { throw "bounded line read has no line"; }
+		return self.linePayload.slice(0, self.linePayload.length());
+	}
+
+	public bool lineIsNulFreeUtf8() {
+		if (self.linePayload == null) { throw "bounded line read has no line"; }
+		return self.linePayload.isNulFreeUtf8();
+	}
+
+	public string lineText() {
+		if (self.linePayload == null) { throw "bounded line read has no line"; }
+		if (!self.linePayload.isNulFreeUtf8()) { throw "bounded line is not NUL-free UTF-8"; }
+		return self.linePayload.toStringLossy();
+	}
+}
+
+class File {
+	private FILE* handle;
+	private string path;
+	private string mode;
+	private bool isOpen;
+	private bool ownsHandle;
+	private bool ioFailed;
+
+	public File(string path, string mode = "r") {
+		self.path = path == null ? "" : path;
+		self.mode = mode == null ? "" : mode;
+		self.handle = path == null || mode == null ? NULL : fopen(path, mode);
+		self.isOpen = self.handle != NULL;
+		self.ownsHandle = self.isOpen;
+		self.ioFailed = !self.isOpen;
+	}
+
+	public bool ok() { return self.isOpen; }
+
+	public bool failed() { return self.ioFailed; }
+
+	/* Reads everything from the current position to EOF.
+     * Chunked, so it works on non-seekable streams (pipes via setHandle)
+     * as well as regular files. */
+	public string read() {
+		if (!self.isOpen) { return ""; }
+		Bytes bytes = Bytes();
+		char chunk[8192];
+		size_t count = fread(chunk, 1, 8192, self.handle);
+		while (count > (size_t)0) {
+			bytes.appendRaw(chunk, (int)count);
+			count = fread(chunk, 1, 8192, self.handle);
+		}
+		if (ferror(self.handle)) { self.ioFailed = true; }
+		return bytes.toStringLossy();
+	}
+
+	public string readLine() {
+		if (!self.isOpen) { return ""; }
+		Bytes line = Bytes();
+		int ch = fgetc(self.handle);
+		while (ch != EOF && ch != '\n') {
+			line.append(ch);
+			ch = fgetc(self.handle);
+		}
+		if (ch == EOF && ferror(self.handle)) { self.ioFailed = true; }
+		return line.toStringLossy();
+	}
+
+	/* Read one line while allocating at most maximumBytes of payload.
+	 *
+	 * LF and a single CR immediately before LF are terminators and are not
+	 * returned or charged to the payload bound. A line that exceeds the bound
+	 * is drained through its terminator (or EOF) before LIMIT_EXCEEDED returns,
+	 * so the next call starts at the next line. An I/O failure while draining
+	 * takes precedence because alignment could not be proven.
+	 */
+	public FileLineReadOutcome readLineBounded(int maximumBytes) {
+		if (maximumBytes < 0) { throw "bounded line maximumBytes is negative"; }
+		if (!self.isOpen || self.ioFailed) { return FileLineReadOutcome.failed(); }
+
+		Bytes line = Bytes();
+		bool exceeded = false;
+		bool pendingCarriageReturn = false;
+		int ch = fgetc(self.handle);
+		while (ch != EOF) {
+			if (ch == '\n') {
+				if (exceeded) { return FileLineReadOutcome.exceededLimit(); }
+				return FileLineReadOutcome.withLine(line);
+			}
+
+			/* Delay one CR so CRLF is treated as one terminator without making
+			 * an exact-bound payload appear one byte too large. */
+			if (pendingCarriageReturn) {
+				if (!exceeded) {
+					if (line.length() >= maximumBytes) {
+						exceeded = true;
+					} else {
+						line.append('\r');
+					}
+				}
+				pendingCarriageReturn = false;
+			}
+
+			if (ch == '\r') {
+				pendingCarriageReturn = true;
+			} else if (!exceeded) {
+				if (line.length() >= maximumBytes) {
+					exceeded = true;
+				} else {
+					line.append(ch);
+				}
+			}
+			ch = fgetc(self.handle);
+		}
+
+		if (ferror(self.handle)) {
+			self.ioFailed = true;
+			return FileLineReadOutcome.failed();
+		}
+		if (pendingCarriageReturn && !exceeded) {
+			if (line.length() >= maximumBytes) {
+				exceeded = true;
+			} else {
+				line.append('\r');
+			}
+		}
+		if (exceeded) { return FileLineReadOutcome.exceededLimit(); }
+		if (!line.isEmpty()) { return FileLineReadOutcome.withLine(line); }
+		return FileLineReadOutcome.end();
+	}
+
+	public Vector<string> readLines() {
+		Vector<string> lines = [];
+		if (!self.isOpen) { return lines; }
+		while (!self.eof() && !self.failed()) {
+			string line = self.readLine();
+			if (self.failed()) { break; }
+			if (!self.eof() || !line.isEmpty()) {
+				lines.push(line);
+			}
+		}
+		return lines;
+	}
+
+	/* Binary-safe read: returns the entire file (from the current position to
+     * EOF) as a Bytes buffer. Uses fread with the real byte count, so embedded
+     * NUL bytes are preserved — unlike read()/readLine() which return a
+     * NUL-terminated `string` and truncate at the first '\0'. */
+	public Bytes readBytes() {
+		Bytes out = Bytes();
+		if (!self.isOpen) { return out; }
+		char chunk[8192];
+		size_t n = fread(chunk, 1, 8192, self.handle);
+		while (n > (size_t)0) {
+			out.appendRaw(chunk, (int)n);
+			n = fread(chunk, 1, 8192, self.handle);
+		}
+		if (ferror(self.handle)) { self.ioFailed = true; }
+		return out;
+	}
+
+	/* Binary-safe write: writes exactly b.len bytes via fwrite (NOT fputs,
+     * which would stop at the first embedded NUL). Returns true when every
+     * byte was written. */
+	public bool writeBytes(Bytes b) {
+		if (!self.isOpen || b == null) { return false; }
+		if (b.len == 0) { return true; }
+		size_t wrote = fwrite(b.data, 1, (size_t)b.len, self.handle);
+		bool complete = (int)wrote == b.len;
+		if (!complete) { self.ioFailed = true; }
+		return complete;
+	}
+
+	public void setHandle(FILE* h) {
+		bool closeFailed = false;
+		if (self.isOpen) { closeFailed = !self.close(); }
+		self.handle = h;
+		self.path = "";
+		self.isOpen = h != NULL;
+		self.ownsHandle = false;
+		self.ioFailed = closeFailed || !self.isOpen;
+	}
+
+	/* Writes text to the stream. Returns true on success, false if the file is
+     * not open or the write failed (e.g. disk full / unwritable handle). Callers
+     * that ignore the result keep the old fire-and-forget behavior. */
+	public bool write(string text) {
+		if (!self.isOpen || text == null) { return false; }
+		bool wrote = (int)fputs(text, self.handle) != EOF;
+		if (!wrote) { self.ioFailed = true; }
+		return wrote;
+	}
+
+	/* Writes text followed by a newline. Returns true only when both the text
+     * and the newline were written successfully. */
+	public bool writeLine(string text) {
+		if (!self.write(text)) { return false; }
+		bool wroteNewline = (int)fputc('\n', self.handle) != EOF;
+		if (!wroteNewline) { self.ioFailed = true; }
+		return wroteNewline;
+	}
+
+	public void __del__() { self.close(); }
+
+	public bool close() {
+		if (!self.isOpen) { return true; }
+		int status = self.ownsHandle ? fclose(self.handle) : 0;
+		self.handle = NULL;
+		self.isOpen = false;
+		self.ownsHandle = false;
+		if (status != 0) { self.ioFailed = true; }
+		return status == 0;
+	}
+
+	public bool eof() {
+		if (!self.isOpen) { return true; }
+		return feof(self.handle) != 0;
+	}
+
+	public bool flush() {
+		if (!self.isOpen) { return false; }
+		bool flushed = (int)fflush(self.handle) == 0;
+		if (!flushed) { self.ioFailed = true; }
+		return flushed;
+	}
+}
+
+class Path {
+	/* Stat-based existence check. Delegates to FileSystem.exists so Path and
+     * FileSystem agree on every case: directories count as existing, and a file
+     * that exists but is unreadable still reports true. (The old fopen("r")
+     * probe returned false for unreadable-but-existing files and depended on
+     * read permission — a silent inconsistency with FileSystem.exists.) */
+	class bool exists(string path) {
+		if (path == null) { return false; }
+		struct stat st;
+		return stat(path, &st) == 0;
+	}
+
+	class string readAll(string path) {
+		var f = File(path, "r");
+		if (!f.ok()) { return ""; }
+		string content = f.read();
+		bool closed = f.close();
+		if (f.failed() || !closed) { return ""; }
+		return content;
+	}
+
+	/* Writes content to path, truncating any existing file. Returns true on
+     * success, false if the file could not be opened or the write failed —
+     * no more silent data loss. Existing callers that ignore the result keep
+     * working; new callers can branch on the bool. */
+	class bool writeAll(string path, string content) {
+		if (path == null || content == null) { return false; }
+		var f = File(path, "w");
+		if (!f.ok()) {
+			fprintf(stderr, "Path.writeAll: cannot open '%s' for writing\n", path);
+			return false;
+		}
+		bool wrote = f.write(content);
+		bool closed = f.close();
+		if (!wrote || !closed) {
+			fprintf(stderr, "Path.writeAll: write to '%s' failed\n", path);
+		}
+		return wrote && closed;
+	}
+}

@@ -55,7 +55,7 @@ def test_real_corpus_source_compiles_in_both_strict_modes(
     tmp_path: Path,
     flags: tuple[str, ...],
 ) -> None:
-    program = REPO / "src/tests/collections/test_vector_bool.btrc"
+    program = REPO / "src/tests/collections/VectorBool.btrc"
     selfhost = _selfhost(semantic_btrcc, program, *flags)
     reference = _reference(program, tmp_path / "reference.c", *flags)
 
@@ -288,7 +288,7 @@ def test_unimported_stdlib_symbol_diagnostics_are_exactly_equal(
 
     assert selfhost.returncode == 1
     assert reference.returncode == 1
-    assert "'Vector' is defined in vector.btrc" in reference.stderr
+    assert "'Vector' is defined in Vector.btrc" in reference.stderr
     assert "program.btrc does not import it" in reference.stderr
     assert selfhost.stderr == reference.stderr
 
@@ -298,9 +298,9 @@ def test_hosted_name_in_untrusted_lookalike_file_still_requires_import(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "shadow.btrc").write_text("int memcpy(int value) { return value; }\n")
-    (tmp_path / "bytes.btrc").write_text("int copy(int value) { return memcpy(value); }\n")
+    (tmp_path / "Bytes.btrc").write_text("int copy(int value) { return memcpy(value); }\n")
     program = tmp_path / "program.btrc"
-    program.write_text("import ./shadow.btrc;\nimport ./bytes.btrc;\nint main() { return 0; }\n")
+    program.write_text("import ./shadow.btrc;\nimport ./Bytes.btrc;\nint main() { return 0; }\n")
 
     selfhost = _selfhost(semantic_btrcc, program)
     reference = _reference(program, tmp_path / "reference.c")
@@ -308,7 +308,7 @@ def test_hosted_name_in_untrusted_lookalike_file_still_requires_import(
     assert selfhost.returncode == 1
     assert reference.returncode == 1
     assert "'memcpy' is defined in shadow.btrc" in reference.stderr
-    assert "bytes.btrc does not import it" in reference.stderr
+    assert "Bytes.btrc does not import it" in reference.stderr
     assert selfhost.stderr == reference.stderr
 
 

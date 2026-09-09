@@ -19,7 +19,7 @@ from src.compiler.python.ir.nodes import (
 from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 
-SELF_HOSTED_BOUNDARIES = Path("src/compiler/btrc/ir/lowering/ownership/cycle_boundaries.btrc")
+SELF_HOSTED_BOUNDARIES = Path("src/compiler/btrc/ir/lowering/ownership/CycleBoundaries.btrc")
 EDGE_RELEASE_HELPERS = (
     "__btrc_arc_release_edge",
     "__btrc_arc_replace_edge",

@@ -1,0 +1,9 @@
+/* Public manifest for source discovery, dependency resolution, and visibility. */
+
+import ../parser/Stage.btrc;
+import ./Models.btrc;
+import ./Packages.btrc;
+import ./SourceIo.btrc;
+import ./Stdlib.btrc;
+import ./Resolver.btrc;
+import ./Visibility.btrc;

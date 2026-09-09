@@ -12,31 +12,31 @@ import pytest
     ("stdlib_module", "setup", "operation", "diagnostic"),
     [
         (
-            "vector",
+            "Vector",
             "Vector<int> value = []; value.cap = 1073741824; value.len = value.cap;",
             "value.push(1);",
             "Vector capacity overflow",
         ),
         (
-            "list",
+            "List",
             "List<int> value = new List<int>(); value.len = 2147483647;",
             "value.push(1);",
             "List length overflow",
         ),
         (
-            "array",
+            "Array",
             "",
             "Array<int> value = new Array<int>(-1);",
             "Array size must be non-negative",
         ),
         (
-            "map",
+            "Map",
             "Map<int, int> value = {}; value.cap = 1073741824; value.len = 805306368;",
             "value.put(1, 1);",
             "Map capacity overflow",
         ),
         (
-            "set",
+            "Set",
             "Set<int> value = {}; value.cap = 1073741824; value.len = 805306368;",
             "value.add(1);",
             "Set capacity overflow",

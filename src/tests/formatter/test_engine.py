@@ -401,10 +401,10 @@ def test_imports_are_stably_partitioned_into_exactly_two_groups() -> None:
     source = """\
 #include "first.btrc"
 
-import std.map;
+import std.Map;
 
 import user.alpha;
-import std.vector;
+import std.Vector;
 
 #include <second.btrc>
 
@@ -414,7 +414,7 @@ class Demo {}
     result = formatted(source)
 
     assert result.startswith(
-        'import std.map;\nimport std.vector;\n\n#include "first.btrc"\nimport user.alpha;\n#include <second.btrc>\n'
+        'import std.Map;\nimport std.Vector;\n\n#include "first.btrc"\nimport user.alpha;\n#include <second.btrc>\n'
     )
     assert formatted(result) == result
 
@@ -425,7 +425,7 @@ def test_real_include_stdlib_and_user_import_fixture_uses_the_documented_normali
     result = BtrcFormatter().format(fixture.read_text(encoding="utf-8"), str(fixture))
 
     assert result.startswith(
-        'import std.vector;\nimport std.map;\n\n#include <assert.h>\nimport ./Support.btrc;\n#include "Legacy.btrc"\n'
+        'import std.Vector;\nimport std.Map;\n\n#include <assert.h>\nimport ./Support.btrc;\n#include "Legacy.btrc"\n'
     )
     assert BtrcFormatter().format(result, str(fixture)) == result
 
@@ -465,10 +465,10 @@ class Demo {
 
 def test_import_group_spacing_is_configurable() -> None:
     source = """\
-import std.map;
+import std.Map;
 
 
-import std.vector;
+import std.Vector;
 import user.alpha;
 
 #include <second.btrc>
@@ -482,21 +482,21 @@ class Demo {}
     )
 
     assert result.startswith(
-        "import std.map;\n\nimport std.vector;\n\n\nimport user.alpha;\n\n#include <second.btrc>\n"
+        "import std.Map;\n\nimport std.Vector;\n\n\nimport user.alpha;\n\n#include <second.btrc>\n"
     )
 
 
 def test_import_partitioning_can_be_disabled() -> None:
     source = """\
 import user.alpha;
-import std.vector;
+import std.Vector;
 
 class Demo {}
 """
 
     result = formatted(source, group_imports=False)
 
-    assert result.startswith("import user.alpha;\n\nimport std.vector;\n")
+    assert result.startswith("import user.alpha;\n\nimport std.Vector;\n")
 
 
 def test_spaces_and_indent_width_override_tabs() -> None:

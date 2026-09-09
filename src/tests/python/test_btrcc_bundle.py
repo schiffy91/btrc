@@ -24,9 +24,9 @@ def _fixture(root: Path, target: str = "linux-x64") -> tuple[Path, Path]:
     (root / "src/language").mkdir(parents=True)
     (root / "src/language/grammar.ebnf").write_text("@lexical\n", encoding="utf-8")
     (root / "src/stdlib/gui").mkdir(parents=True)
-    (root / "src/stdlib/vector.btrc").write_text("class Vector {}\n", encoding="utf-8")
-    (root / "src/stdlib/strings.btrc").write_text("class Strings {}\n", encoding="utf-8")
-    (root / "src/stdlib/gui/gui.btrc").write_text("class Gui {}\n", encoding="utf-8")
+    (root / "src/stdlib/Vector.btrc").write_text("class Vector {}\n", encoding="utf-8")
+    (root / "src/stdlib/Strings.btrc").write_text("class Strings {}\n", encoding="utf-8")
+    (root / "src/stdlib/gui/Gui.btrc").write_text("class Gui {}\n", encoding="utf-8")
     (root / "src/stdlib/gui/runtime.h").write_text("#pragma once\n", encoding="utf-8")
     (root / "src/stdlib/gui/README.md").write_text("gui\n", encoding="utf-8")
     (root / "src/stdlib/build").mkdir()
@@ -54,7 +54,7 @@ def test_bundle_has_relocatable_layout_modes_and_hashed_manifest(tmp_path: Path)
 
     executable = result.bundle / "bin/btrcc"
     grammar = result.bundle / "share/btrc/language/grammar.ebnf"
-    nested = result.bundle / "share/btrc/stdlib/gui/gui.btrc"
+    nested = result.bundle / "share/btrc/stdlib/gui/Gui.btrc"
     expected_binary = _binary_payload("linux-x64")
     assert executable.read_bytes() == expected_binary
     assert (result.bundle / "LICENSE").read_text(encoding="utf-8") == "fixture license\n"
@@ -92,7 +92,7 @@ def test_tar_archive_is_byte_reproducible_and_metadata_normalized(tmp_path: Path
         epoch=42,
     )
     binary.touch()
-    (source_root / "src/stdlib/vector.btrc").touch()
+    (source_root / "src/stdlib/Vector.btrc").touch()
     second = SelfhostBundleBuilder().build(
         binary=binary,
         target="linux-arm64",
@@ -316,7 +316,7 @@ def test_unknown_runtime_source_types_fail_closed(tmp_path: Path) -> None:
 
 def test_incomplete_stdlib_is_rejected_before_packaging(tmp_path: Path) -> None:
     source_root, binary = _fixture(tmp_path / "source")
-    (source_root / "src/stdlib/strings.btrc").unlink()
+    (source_root / "src/stdlib/Strings.btrc").unlink()
     with pytest.raises(ValueError, match="required stdlib runtime source is missing"):
         SelfhostBundleBuilder().build(
             binary=binary,

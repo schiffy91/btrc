@@ -38,7 +38,7 @@ def _body(generated: str, symbol: str) -> str:
 
 
 RAW_CALLBACK_SOURCE = """
-import std.spsc;
+import std.Spsc;
 struct Command { int kind; unsigned long long token; };
 struct CallbackContext { struct SpscQueueStorage* commands; };
 @realtime bool consume(void* opaque, struct Command* output) {
@@ -94,7 +94,7 @@ def test_borrowed_operations_are_one_realtime_safe_composition() -> None:
 
 def test_managed_typed_wrapper_delegates_to_the_canonical_storage() -> None:
     generated = _emit_with_stdlib(
-        "import std.spsc;\nint main() { SpscQueue<int> q = new SpscQueue<int>(4u); "
+        "import std.Spsc;\nint main() { SpscQueue<int> q = new SpscQueue<int>(4u); "
         "int value = 0; q.tryPush(1); q.tryPop(&value); delete q; return value; }"
     )
     for method in ("tryPush", "tryPop"):
@@ -112,7 +112,7 @@ def test_fifo_full_empty_wraparound_and_thread_stress(
 ) -> None:
     generated = _emit_with_stdlib(
         """
-        import std.spsc;
+        import std.Spsc;
         int main() {
             struct SpscQueueStorage* queue = null;
             if (SpscQueues.tryOpen(3u, sizeof(int), &queue)
@@ -195,7 +195,7 @@ def test_every_allocation_failure_returns_typed_oom(
 ) -> None:
     generated = _emit_with_stdlib(
         """
-        import std.spsc;
+        import std.Spsc;
         int main() {
             struct SpscQueueStorage* queue = null;
             SpscQueueOpenKind opened = SpscQueues.tryOpen(
@@ -253,7 +253,7 @@ static void* spscTestCalloc(size_t count, size_t size) {{
 def test_managed_payload_is_rejected_before_specialization() -> None:
     compiler = Compiler()
     frontend = compiler.compile_frontend(
-        "import std.spsc;\nint main() { SpscQueue<string> queue; return 0; }",
+        "import std.Spsc;\nint main() { SpscQueue<string> queue; return 0; }",
         "<spsc-managed>",
         CompilerOptions(),
         filename="spsc_managed.btrc",
@@ -267,7 +267,7 @@ def test_managed_payload_is_rejected_before_specialization() -> None:
 def test_managed_queue_handle_is_rejected_from_realtime_while_raw_borrow_is_accepted() -> None:
     compiler = Compiler()
     managed = compiler.compile_frontend(
-        "import std.spsc;\n@realtime bool pop(SpscQueue<int> queue, int* output) { return queue.tryPop(output); }",
+        "import std.Spsc;\n@realtime bool pop(SpscQueue<int> queue, int* output) { return queue.tryPop(output); }",
         "<spsc-managed-realtime>",
         CompilerOptions(),
         filename="spsc_managed_realtime.btrc",

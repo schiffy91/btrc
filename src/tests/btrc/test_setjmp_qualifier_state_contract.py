@@ -4,8 +4,8 @@ import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
-ANALYSIS = REPO / "src/compiler/btrc/ir/optimization/setjmp/analysis.btrc"
-SAFETY = REPO / "src/compiler/btrc/ir/optimization/setjmp/safety.btrc"
+ANALYSIS = REPO / "src/compiler/btrc/ir/optimization/setjmp/Analysis.btrc"
+SAFETY = REPO / "src/compiler/btrc/ir/optimization/setjmp/Safety.btrc"
 
 _TOP_LEVEL_MUTABLE_DECLARATION = re.compile(
     r"^(?!\s)(?!import\b)(?!typedef\b)"

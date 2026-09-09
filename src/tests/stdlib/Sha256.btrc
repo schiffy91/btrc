@@ -1,8 +1,8 @@
 /* SHA-256 known vectors plus binary-safe Bytes coverage. */
 
-import std.bytes;
-import std.sha256;
-import std.strings;
+import std.Bytes;
+import std.Sha256;
+import std.Strings;
 
 #include <assert.h>
 

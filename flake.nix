@@ -200,7 +200,7 @@
           buildPhase = ''
             runHook preBuild
             btrcpy --strict-imports --no-cache \
-              src/compiler/btrc/btrcc_main.btrc -o btrcc.c
+              src/compiler/btrc/BtrccMain.btrc -o btrcc.c
             $CC -std=c11 -Wall -Wextra -Werror -pedantic -O2 \
               btrcc.c -o btrcc -lm -lpthread
             runHook postBuild
@@ -524,7 +524,7 @@
             ${self.packages.${system}.btrcc}/bin/btrcc \
               --no-stdlib --strict-imports --target ${nativeTarget} \
               --emit-link-plan build/native-package.selfhost.link.json \
-              src/main.btrc > build/native-package.selfhost.c
+              src/Main.btrc > build/native-package.selfhost.c
             cmp \
               build/native-package.link.json \
               build/native-package.selfhost.link.json

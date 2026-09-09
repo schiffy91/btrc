@@ -22,7 +22,7 @@ def _project(root: Path, marker: str) -> tuple[Path, str]:
     application = root / f"application-{marker}"
     application.mkdir()
     (application / "btrc.toml").write_text(f'[dependencies]\ndep = {{ path = "../dependency-{marker}" }}\n')
-    source_path = application / "main.btrc"
+    source_path = application / "Main.btrc"
     source = "import dep;\nint main() { return 0; }\n"
     source_path.write_text(source)
     return source_path, source
@@ -83,7 +83,7 @@ def test_previous_project_cannot_leak_into_no_manifest_resolution(tmp_path):
     )
     assert "class DepOwned" in resolved
 
-    loose = tmp_path / "loose" / "main.btrc"
+    loose = tmp_path / "loose" / "Main.btrc"
     loose.parent.mkdir()
     with pytest.raises(IncludeResolutionError, match="not found"):
         resolver.resolve_includes(
@@ -98,7 +98,7 @@ def test_failed_resolution_cannot_affect_concurrent_success(tmp_path):
     broken = tmp_path / "broken"
     broken.mkdir()
     (broken / "btrc.toml").write_text('[dependencies]\nbad = { version = "unsupported" }\n')
-    broken_path = broken / "main.btrc"
+    broken_path = broken / "Main.btrc"
     broken_source = "import bad;\nint main() { return 0; }\n"
     entered = Barrier(2)
 

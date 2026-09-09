@@ -73,10 +73,10 @@ BTRCC_BUNDLER := $(NIX) python3 -m src.compiler.python.main bundle
 # compiler plus imported stdlib/spec inputs. Keep each source category explicit
 # so a change cannot silently reuse stale generated C.
 PYTHON_AST := src/compiler/python/syntax/ast/generated.py
-BTRC_AST := src/compiler/btrc/generated/ast/node.btrc
+BTRC_AST := src/compiler/btrc/generated/ast/Node.btrc
 BTRCC_GENERATED_AST := $(PYTHON_AST) $(BTRC_AST)
 BTRCC_BOOTSTRAP_SOURCES := $(filter-out src/compiler/python/syntax/ast/generated.py,$(shell find src/compiler/python -type f -name '*.py' ! -path '*/tests/*' -print | LC_ALL=C sort))
-BTRCC_SELFHOST_SOURCES := $(filter-out src/compiler/btrc/generated/ast/node.btrc,$(shell find src/compiler/btrc -type f -name '*.btrc' -print | LC_ALL=C sort))
+BTRCC_SELFHOST_SOURCES := $(filter-out src/compiler/btrc/generated/ast/Node.btrc,$(shell find src/compiler/btrc -type f -name '*.btrc' -print | LC_ALL=C sort))
 BTRCC_STDLIB_SOURCES := $(shell find src/stdlib -type f -name '*.btrc' -print | LC_ALL=C sort)
 BTRCC_LANGUAGE_SPECS := $(shell find src/language -type f \( -name '*.ebnf' -o -name '*.asdl' -o -name '*.toml' \) -print | LC_ALL=C sort)
 BTRCC_RUNTIME_SPECS := $(shell find src/runtime/c -type f \( -name '*.c' -o -name '*.h' -o -name '*.toml' \) -print | LC_ALL=C sort)
@@ -93,7 +93,7 @@ WIN_COMPAT := -I src/stdlib/win -include src/stdlib/win/btrc_win_compat.h
 
 $(BTRCC_C): $(BTRCC_INPUTS) | generated-check
 	@mkdir -p dist
-	$(NIX) python3 -m src.compiler.python.main src/compiler/btrc/btrcc_main.btrc --strict-imports --no-cache -o $(BTRCC_C)
+	$(NIX) python3 -m src.compiler.python.main src/compiler/btrc/BtrccMain.btrc --strict-imports --no-cache -o $(BTRCC_C)
 
 btrcc-release-c: generated-check
 	$(MAKE) --no-print-directory $(BTRCC_C)
@@ -143,8 +143,8 @@ btrcc-dist: btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 
 # to .exe (proves the whole Windows toolchain path end-to-end on ANY host), then run
 # the sample under wine if available (Linux/CI), skipping execution gracefully
 # elsewhere (e.g. Apple Silicon, where x86_64 wine isn't readily available).
-WIN_SAMPLE := src/tests/strings/test_braces_in_code_gen.btrc
-WIN_PATH_SAMPLE := src/tests/stdlib/test_stdlib_path_windows_lexical.btrc
+WIN_SAMPLE := src/tests/strings/BracesInCodeGen.btrc
+WIN_PATH_SAMPLE := src/tests/stdlib/StdlibPathWindowsLexical.btrc
 test-windows: btrcc-windows-x64 ## Build Windows btrcc bundle + sample; run sample under wine if present
 	@mkdir -p dist
 	@echo "==> cross-compiling sample btrc program to a Windows .exe"

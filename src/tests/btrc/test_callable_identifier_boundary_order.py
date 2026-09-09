@@ -103,6 +103,6 @@ def test_env_backed_callable_is_not_materialized_as_plain_identifier(
     assert_tracked_strict_pair(
         semantic_btrcc,
         tmp_path,
-        FIXTURES / "string_coercion_calls_runtime.btrc",
+        FIXTURES / "StringCoercionCallsRuntime.btrc",
         expected_stdout="1015\n2015\n",
     )

@@ -5,9 +5,9 @@
  */
 
 import std.FileSystem;
-import std.platform;
-import std.strings;
-import std.vector;
+import std.Platform;
+import std.Strings;
+import std.Vector;
 
 #include <errno.h>
 #include <limits.h>

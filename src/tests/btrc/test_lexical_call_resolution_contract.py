@@ -101,8 +101,8 @@ CALLABLE_SHADOW_SOURCE = """
 
 
 HOSTED_SHADOW_SOURCE = """
-    import std.bytes;
-    import std.vector;
+    import std.Bytes;
+    import std.Vector;
 
     size_t strlen(string value, int marker = 40) {
         return (size_t)(value.length() + marker);

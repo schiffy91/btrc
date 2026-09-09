@@ -48,6 +48,7 @@ typedef void (*GLFWwindowfocusfun)(GLFWwindow*, int);
 #define GLFW_KEY_C 67
 #define GLFW_KEY_V 86
 #define GLFW_KEY_X 88
+#define GLFW_KEY_Z 90
 #define GLFW_KEY_HOME 268
 #define GLFW_KEY_END 269
 #define GLFW_KEY_DELETE 261

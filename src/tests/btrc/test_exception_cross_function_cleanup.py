@@ -15,7 +15,7 @@ from src.tests.btrc.test_semantic_validation import (
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
-FIXTURE = REPO / "src/tests/btrc/fixtures/exception_cross_function_cleanup_runtime.btrc"
+FIXTURE = REPO / "src/tests/btrc/fixtures/ExceptionCrossFunctionCleanupRuntime.btrc"
 
 
 def _compile_both(semantic_btrcc: Path, tmp_path: Path):

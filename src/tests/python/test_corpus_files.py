@@ -10,8 +10,8 @@ TESTS = Path("src/tests")
 def test_helper_named_programs_are_not_mistaken_for_include_fixtures():
     selected = set(language_test_files(TESTS))
 
-    assert "gpu/test_gpu_with_helper_func.btrc" in selected
-    assert "stdlib/test_stdlib_math_float_helpers.btrc" in selected
+    assert "gpu/GpuWithHelperFunc.btrc" in selected
+    assert "stdlib/StdlibMathFloatHelpers.btrc" in selected
 
 
 def test_upper_camel_contract_programs_are_runnable_corpus_entries():

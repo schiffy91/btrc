@@ -82,7 +82,7 @@ def _build_driver(source: Path, output: Path, cache: Path) -> Path:
 def identity_driver(selfhost_driver) -> Path:
     """Built once per revision through the shared driver cache."""
 
-    return selfhost_driver(REPO / "src/tests/btrc/fixtures/type_identity_driver.btrc")
+    return selfhost_driver(REPO / "src/tests/btrc/fixtures/TypeIdentityDriver.btrc")
 
 
 @pytest.fixture(scope="module")
@@ -93,18 +93,18 @@ def selfhost_compiler(immutable_btrcc: Path) -> Path:
 
 
 def test_identity_contract_has_one_shared_implementation() -> None:
-    identity = (SELFHOST / "syntax/identity.btrc").read_text()
-    composition = (SELFHOST / "syntax/types.btrc").read_text()
-    analyzer_stage = (SELFHOST / "analyzer/stage.btrc").read_text()
-    generics = (SELFHOST / "analyzer/generics.btrc").read_text()
-    semantic_types = (SELFHOST / "analyzer/types.btrc").read_text()
-    c_types = (SELFHOST / "ir/lowering/types.btrc").read_text()
+    identity = (SELFHOST / "syntax/Identity.btrc").read_text()
+    composition = (SELFHOST / "syntax/Types.btrc").read_text()
+    analyzer_stage = (SELFHOST / "analyzer/Stage.btrc").read_text()
+    generics = (SELFHOST / "analyzer/Generics.btrc").read_text()
+    semantic_types = (SELFHOST / "analyzer/Types.btrc").read_text()
+    c_types = (SELFHOST / "ir/lowering/Types.btrc").read_text()
     lowering = "\n".join(path.read_text() for path in (SELFHOST / "ir/lowering").rglob("*.btrc"))
 
-    assert "import ../syntax/identity.btrc;" in analyzer_stage
-    assert "import ../syntax/types.btrc;" in analyzer_stage
-    assert "import ../syntax/identity.btrc;" in generics
-    assert "import ../../syntax/identity.btrc;" in c_types
+    assert "import ../syntax/Identity.btrc;" in analyzer_stage
+    assert "import ../syntax/Types.btrc;" in analyzer_stage
+    assert "import ../syntax/Identity.btrc;" in generics
+    assert "import ../../syntax/Identity.btrc;" in c_types
     assert "TypeIdentity.mangleGenericType(" in lowering
     assert "mangleGenericType(" not in lowering.replace(
         "TypeIdentity.mangleGenericType(",
@@ -271,7 +271,7 @@ def test_structural_qualified_types_remain_allowed(
 def test_declared_one_letter_class_does_not_capture_template_parameter(
     selfhost_compiler,
 ) -> None:
-    program = REPO / "src/tests/btrc/fixtures/type_identity_declared_t.btrc"
+    program = REPO / "src/tests/btrc/fixtures/TypeIdentityDeclaredT.btrc"
     result = _run(
         [str(selfhost_compiler), "--no-stdlib", str(program)],
         timeout=30,
@@ -286,7 +286,7 @@ def test_nullable_generic_substitution_has_dual_runtime_parity(
     selfhost_compiler,
     tmp_path: Path,
 ) -> None:
-    program = REPO / "src/tests/btrc/fixtures/nullable_generic_substitution_runtime.btrc"
+    program = REPO / "src/tests/btrc/fixtures/NullableGenericSubstitutionRuntime.btrc"
     source = program.read_text()
     selfhost = _run(
         [str(selfhost_compiler), "--no-stdlib", str(program)],

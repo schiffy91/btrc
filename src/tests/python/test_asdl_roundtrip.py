@@ -7,7 +7,7 @@ from tools.compiler_codegen.ast import AstCatalogGenerator
 # tests/ -> python/ -> compiler/ -> src/ -> repo root
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _PYTHON_AST = PurePosixPath("src/compiler/python/syntax/ast/generated.py")
-_BTRC_AST = PurePosixPath("src/compiler/btrc/generated/ast/node.btrc")
+_BTRC_AST = PurePosixPath("src/compiler/btrc/generated/ast/Node.btrc")
 
 
 def _artifacts() -> dict[PurePosixPath, bytes]:
@@ -25,7 +25,7 @@ def test_python_ast_matches_fresh_generation():
 
 def test_btrc_ast_matches_fresh_generation():
     assert _artifacts()[_BTRC_AST] == (_REPO_ROOT / _BTRC_AST).read_bytes(), (
-        "btrc generated/ast/node.btrc is out of sync with the unified AST catalog. "
+        "btrc generated/ast/Node.btrc is out of sync with the unified AST catalog. "
         "Regenerate it with `make ast-generate-btrc` (do not hand-edit)."
     )
 

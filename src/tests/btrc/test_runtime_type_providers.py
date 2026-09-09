@@ -78,8 +78,8 @@ def _strict_build_and_run(source: Path, output: Path, compiler: str) -> None:
 
 
 def test_runtime_catalog_owns_generated_provider_indexes() -> None:
-    catalog = (SELFHOST / "ir/runtime/catalog.btrc").read_text()
-    references = (SELFHOST / "ir/runtime/references.btrc").read_text()
+    catalog = (SELFHOST / "ir/runtime/Catalog.btrc").read_text()
+    references = (SELFHOST / "ir/runtime/References.btrc").read_text()
 
     assert "private Map<string, string> typeProviders;" in catalog
     assert "private Map<string, string> objectProviders;" in catalog
@@ -103,13 +103,13 @@ def test_enum_value_irvar_roots_only_surviving_object_provider(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    model = json.dumps(str(SELFHOST / "ir/model.btrc"))
-    generated = json.dumps(str(SELFHOST / "generated/runtime/catalog.btrc"))
-    catalog = json.dumps(str(SELFHOST / "ir/runtime/catalog.btrc"))
-    references = json.dumps(str(SELFHOST / "ir/runtime/references.btrc"))
+    model = json.dumps(str(SELFHOST / "ir/Model.btrc"))
+    generated = json.dumps(str(SELFHOST / "generated/runtime/Catalog.btrc"))
+    catalog = json.dumps(str(SELFHOST / "ir/runtime/Catalog.btrc"))
+    references = json.dumps(str(SELFHOST / "ir/runtime/References.btrc"))
     source = f"""
-        import std.map;
-        import std.vector;
+        import std.Map;
+        import std.Vector;
         import {model};
         import {generated};
         import {catalog};

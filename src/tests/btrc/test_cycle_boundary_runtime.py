@@ -9,7 +9,7 @@ from src.tests.btrc.test_mutex_value_contract import (
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
-FIXTURE = Path(__file__).with_name("fixtures") / "cycle_edge_boundary_runtime.btrc"
+FIXTURE = Path(__file__).with_name("fixtures") / "CycleEdgeBoundaryRuntime.btrc"
 
 
 def test_edge_only_collection_boundary_forces_subthreshold_cycle(

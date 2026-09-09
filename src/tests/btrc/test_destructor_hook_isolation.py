@@ -14,7 +14,7 @@ from src.tests.btrc.test_mutex_value_contract import (
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
-FIXTURE = Path(__file__).with_name("fixtures") / "destructor_hook_isolation_runtime.btrc"
+FIXTURE = Path(__file__).with_name("fixtures") / "DestructorHookIsolationRuntime.btrc"
 FUNCTION_START = re.compile(r"(?m)^(?:static\s+)?void\s+([A-Za-z_]\w*)\s*\([^;{}]*\)\s*\{")
 FUNCTION_END = re.compile(r"(?m)^}")
 

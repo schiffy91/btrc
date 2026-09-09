@@ -17,9 +17,9 @@ RUNTIME_ROOT = REPOSITORY_ROOT / "src/runtime/c"
 MANIFEST_PATH = RUNTIME_ROOT / "manifest.toml"
 INTRINSIC_EFFECTS_PATH = REPOSITORY_ROOT / "src/language/intrinsic_effects.toml"
 GENERATED_PYTHON = REPOSITORY_ROOT / "src/compiler/python/runtime/generated.py"
-GENERATED_BTRC = REPOSITORY_ROOT / "src/compiler/btrc/generated/runtime/catalog.btrc"
-BTRC_CATALOG = REPOSITORY_ROOT / "src/compiler/btrc/ir/runtime/catalog.btrc"
-BTRC_REFERENCES = REPOSITORY_ROOT / "src/compiler/btrc/ir/runtime/references.btrc"
+GENERATED_BTRC = REPOSITORY_ROOT / "src/compiler/btrc/generated/runtime/Catalog.btrc"
+BTRC_CATALOG = REPOSITORY_ROOT / "src/compiler/btrc/ir/runtime/Catalog.btrc"
+BTRC_REFERENCES = REPOSITORY_ROOT / "src/compiler/btrc/ir/runtime/References.btrc"
 
 
 def test_generated_python_catalog_exactly_matches_the_shared_manifest() -> None:
@@ -45,7 +45,7 @@ def test_generated_catalog_artifacts_are_fresh() -> None:
 
     assert {artifact.path.as_posix() for artifact in artifacts} == {
         "src/compiler/python/runtime/generated.py",
-        "src/compiler/btrc/generated/runtime/catalog.btrc",
+        "src/compiler/btrc/generated/runtime/Catalog.btrc",
     }
     for artifact in artifacts:
         assert REPOSITORY_ROOT.joinpath(*artifact.path.parts).read_bytes() == artifact.content
@@ -389,7 +389,7 @@ def test_legacy_runtime_catalogs_and_source_shards_are_deleted() -> None:
     assert not list(compiler_root.glob("string_runtime_*.btrc"))
     for deleted in (
         "ir/runtime/core_catalog.btrc",
-        "ir/runtime/trycatch/catalog.btrc",
+        "ir/runtime/trycatch/Catalog.btrc",
         "ir/helpers",
     ):
         assert not (compiler_root / deleted).exists()

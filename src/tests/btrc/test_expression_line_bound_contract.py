@@ -19,7 +19,7 @@ from src.tests.btrc.test_mutex_value_contract import COMPILERS, REPO
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
-FIXTURE = Path(__file__).parents[1] / "classes" / "test_instance_method_chain.btrc"
+FIXTURE = Path(__file__).parents[1] / "classes" / "InstanceMethodChain.btrc"
 MAX_LOGICAL_LINE = 1024
 NDEBUG_SOURCE = """
     #include <assert.h>

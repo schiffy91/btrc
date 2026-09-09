@@ -81,7 +81,7 @@ def test_linux_x64_ci_runs_and_uploads_the_archived_bundle() -> None:
     assert "make NIX= btrcc-linux-x64" in job
     assert "btrcc-dist" not in job
     assert "mktemp -d" in job
-    assert "src/tests/strings/expected/test_braces_in_code_gen.stdout" in job
+    assert "src/tests/strings/expected/BracesInCodeGen.stdout" in job
     assert "-std=c11 -pedantic-errors -Wall -Wextra -Werror" in job
     # Both budgets are raised for the container: it rebuilds the self-hosted
     # compiler against a cold cache, and the corpus's heaviest program does not
@@ -150,8 +150,8 @@ def test_windows_ci_runs_and_uploads_the_extracted_zip() -> None:
     assert "expected_stdlib = [str(Path(sys.argv[2]).resolve())]" in job
     assert "if actual_stdlib != expected_stdlib:" in job
     assert re.search(r"grep[^\n]*PASS", job) is None
-    assert job.count("src/tests/strings/expected/test_braces_in_code_gen.stdout") >= 2
-    assert "src/tests/stdlib/expected/test_stdlib_path_windows_lexical.stdout" in job
+    assert job.count("src/tests/strings/expected/BracesInCodeGen.stdout") >= 2
+    assert "src/tests/stdlib/expected/StdlibPathWindowsLexical.stdout" in job
     # Logical-line equality tolerates Git's platform EOL checkout while still
     # rejecting any extra, missing, or otherwise changed output line.
     assert job.count(".splitlines()") >= 4
