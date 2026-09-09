@@ -7,6 +7,7 @@ while emitting far less C.
 """
 
 import ast
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -494,3 +495,27 @@ def test_reference_catches_stdlib_throw(tmp_path, monkeypatch, capsys):
 
     assert ref_out.returncode == 0, ref_out.stderr
     assert ref_out.stdout.strip() == "caught"
+
+
+def test_relaxed_composition_never_drops_a_module_it_composes() -> None:
+    """A composed root module may not depend on one left out of the unit.
+
+    Relaxed composition concatenates the root modules and strips their import
+    lines, so a nested dependency never reaches the translation unit. A call
+    into the missing module still resolves as an implicit C extern, which
+    hides the omission; taking one of its functions as a value does not, so
+    the gap surfaced late, as an analysis error inside --build-stdlib.
+    """
+
+    repository = StdlibRepository()
+    directory = Path(repository.directory())
+    nested_import = re.compile(r"^import\s+\./([A-Za-z0-9_./-]+\.btrc);", re.MULTILINE)
+    dropped = {
+        name: sorted(found)
+        for name in sorted(repository.relaxed_composition_files())
+        if (found := nested_import.findall((directory / name).read_text(encoding="utf-8")))
+    }
+    assert not dropped, (
+        "relaxed stdlib composition strips these dependencies; each importer "
+        f"belongs in _EXPLICIT_STDLIB_MODULES: {dropped}"
+    )
