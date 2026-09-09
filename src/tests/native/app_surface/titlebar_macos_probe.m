@@ -10,6 +10,16 @@
 #import <Cocoa/Cocoa.h>
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+static NSButton* alert_button(NSView* view) {
+    if ([view isKindOfClass:[NSButton class]] && [((NSButton*)view).title isEqualToString:@"OK"]) { return (NSButton*)view; }
+    for (NSView* child in view.subviews) {
+        NSButton* button = alert_button(child);
+        if (button) { return button; }
+    }
+    return nil;
+}
 
 int main(void) {
     @autoreleasepool {
@@ -25,6 +35,26 @@ int main(void) {
         assert(surface && std_app_surface_attach(surface, &lease) == BTRC_APP_ERROR_NONE);
         GLFWwindow* glfw = std_app_surface_glfw(lease);
         NSWindow* native = glfwGetCocoaWindow(glfw);
+        assert(std_app_window_show_alert(window, window_receipt, "Settings could not be applied", "Audio device change is deferred while the player is active.") == BTRC_APP_ERROR_NONE);
+        NSWindow* sheet = native.attachedSheet;
+        assert(sheet && sheet.sheetParent == native);
+        assert(std_app_window_show_alert(window, window_receipt, "Another error", "Preserve the first sheet") == BTRC_APP_ERROR_RESOURCE_BUSY);
+        while (std_app_poll(app) != BTRC_APP_EVENT_IDLE) { }
+        NSButton* acknowledge = alert_button(sheet.contentView);
+        assert(acknowledge);
+        const char* capture_path = getenv("BTRC_APP_ALERT_CAPTURE");
+        if (capture_path) {
+            NSView* content = sheet.contentView;
+            [content displayIfNeeded];
+            NSBitmapImageRep* image = [content bitmapImageRepForCachingDisplayInRect:content.bounds];
+            [content cacheDisplayInRect:content.bounds toBitmapImageRep:image];
+            NSData* png = [image representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+            assert([png writeToFile:[NSString stringWithUTF8String:capture_path] atomically:YES]);
+        }
+        [acknowledge performClick:nil];
+        NSDate* deadline = [NSDate dateWithTimeIntervalSinceNow:3.0];
+        while (native.attachedSheet && deadline.timeIntervalSinceNow > 0.0) { [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]]; }
+        assert(!native.attachedSheet);
         assert(native && (native.styleMask & NSWindowStyleMaskFullSizeContentView));
         assert(native.titleVisibility == NSWindowTitleHidden && native.titlebarAppearsTransparent);
         assert(native.contentView.frame.size.height == native.frame.size.height);
@@ -60,7 +90,11 @@ int main(void) {
         assert(!(native.styleMask & NSWindowStyleMaskFullSizeContentView));
         assert(native.titleVisibility == NSWindowTitleVisible && !native.titlebarAppearsTransparent);
         assert(std_app_window_logical_width(window) == 800 && std_app_window_logical_height(window) == 600);
+        assert(std_app_window_show_alert(window, window_receipt, "Closing", "Closing the window dismisses its sheet") == BTRC_APP_ERROR_NONE);
+        [native retain];
         assert(std_app_window_close(window, window_receipt) == BTRC_APP_ERROR_NONE);
+        assert(!native.attachedSheet);
+        [native release];
         assert(std_app_close(app, app_receipt) == BTRC_APP_ERROR_NONE);
         puts("PASS: native macOS integrated titlebar, controls, resize, and restoration");
     }

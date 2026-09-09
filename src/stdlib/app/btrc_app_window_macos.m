@@ -10,6 +10,35 @@
 #import <Cocoa/Cocoa.h>
 #include <limits.h>
 
+int btrc_app_platform_show_alert(GLFWwindow* window, const char* title, const char* message) {
+    if (![NSThread isMainThread]) { return BTRC_APP_ERROR_NOT_MAIN_THREAD; }
+    if (!window || !title || !message) { return BTRC_APP_ERROR_INVALID_ARGUMENT; }
+    @autoreleasepool {
+        NSWindow* native = glfwGetCocoaWindow(window);
+        if (!native) { return BTRC_APP_ERROR_NOT_OPEN; }
+        if (native.attachedSheet) { return BTRC_APP_ERROR_RESOURCE_BUSY; }
+        NSString* heading = [NSString stringWithUTF8String:title];
+        NSString* body = [NSString stringWithUTF8String:message];
+        if (!heading || !body) { return BTRC_APP_ERROR_INVALID_ARGUMENT; }
+        NSAlert* alert = [[NSAlert alloc] init];
+        alert.alertStyle = NSAlertStyleWarning;
+        alert.messageText = heading;
+        alert.informativeText = body;
+        [alert addButtonWithTitle:NSLocalizedString(@"OK", nil)];
+        [alert beginSheetModalForWindow:native completionHandler:^(NSModalResponse response) {
+            (void)response;
+            [alert release];
+        }];
+        return BTRC_APP_ERROR_NONE;
+    }
+}
+
+void btrc_app_platform_dismiss_alert(GLFWwindow* window) {
+    if (![NSThread isMainThread] || !window) { return; }
+    NSWindow* native = glfwGetCocoaWindow(window);
+    if (native.attachedSheet) { [native endSheet:native.attachedSheet returnCode:NSModalResponseAbort]; }
+}
+
 int btrc_app_platform_click_count(GLFWwindow* window) {
     if (![NSThread isMainThread] || !window) { return 1; }
     NSEvent* event = NSApp.currentEvent;

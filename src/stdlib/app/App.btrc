@@ -10,6 +10,7 @@ string std_app_error_message(unsigned long long application);
 unsigned long long std_app_window_open(unsigned long long application, string title, int width, int height, unsigned long long* ownerReceiptOut);
 int std_app_window_close(unsigned long long window, unsigned long long ownerReceipt);
 int std_app_window_set_titlebar_style(unsigned long long window, unsigned long long ownerReceipt, int style);
+int std_app_window_show_alert(unsigned long long window, unsigned long long ownerReceipt, string title, string message);
 string std_app_window_clipboard_text(unsigned long long window, unsigned long long ownerReceipt);
 int std_app_window_set_clipboard_text(unsigned long long window, unsigned long long ownerReceipt, string text);
 int std_app_window_choose_directory(unsigned long long window, string title, string initialDirectory);
@@ -474,6 +475,14 @@ class ApplicationWindow {
 	}
 
 	public bool isOpen() { return self.identity != 0ULL && self.ownerReceipt != 0ULL; }
+
+	/* Success means presented, not dismissed. The window owns the sheet;
+	 * polling/rendering continue and closing the window dismisses it. */
+	public AppError? showAlert(string title, string message) {
+		if (!self.isOpen()) { return AppError(APP_ERROR_CLOSED, "window is closed"); }
+		int status = std_app_window_show_alert(self.identity, self.ownerReceipt, title, message);
+		return status == APP_ERROR_NONE ? null : self.lastError();
+	}
 
 	/* Configure before creating a surface. Overlay preserves native window
 	 * controls; callers reserve their top-left content area for those controls. */

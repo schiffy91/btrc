@@ -10,4 +10,8 @@ int btrc_app_platform_set_titlebar_style(GLFWwindow* window, int style);
  * native multi-click information return one; cursor motion is not a click. */
 int btrc_app_platform_click_count(GLFWwindow* window);
 
+/* Nonblocking, window-owned informational sheet. Dismiss before destruction. */
+int btrc_app_platform_show_alert(GLFWwindow* window, const char* title, const char* message);
+void btrc_app_platform_dismiss_alert(GLFWwindow* window);
+
 #endif

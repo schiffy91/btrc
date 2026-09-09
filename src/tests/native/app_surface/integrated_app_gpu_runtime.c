@@ -37,6 +37,14 @@ static void require(bool condition, const char* message) {
     abort();
 }
 
+int btrc_app_platform_show_alert(GLFWwindow* window, const char* title, const char* message) {
+    (void)window; (void)title; (void)message;
+    require(false, "GPU lifecycle test unexpectedly showed an alert");
+    return BTRC_APP_ERROR_INTERNAL;
+}
+
+void btrc_app_platform_dismiss_alert(GLFWwindow* window) { (void)window; }
+
 int btrc_app_platform_set_titlebar_style(GLFWwindow* window, int style) {
     (void)window; (void)style;
     require(false, "GPU lifecycle test unexpectedly changed the titlebar");

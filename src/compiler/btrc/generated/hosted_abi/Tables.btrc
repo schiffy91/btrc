@@ -188,7 +188,7 @@ class GeneratedHostedAbiData {
 		self.pushPlatformTypedefNames0();
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
-		self.fingerprint = "2e802bef0f1e49ef5f12f96bab9c64a7783496c8de0e97df796a8a960718227c";
+		self.fingerprint = "04e5eb04dfc148bca3fd101956ddc7f7a48624acb312a87b083d77531fc5d7d6";
 	}
 
 	private void pushFunctions0() {
@@ -8214,6 +8214,29 @@ class GeneratedHostedAbiData {
 
 	private void pushFunctions10() {
 		self.functions.push(GeneratedHostedFunctionRow(
+			"std_app_window_show_alert",
+			"native_app",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()), "read", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()), "read", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
 			"std_background_jobs_cancel",
 			"native_background_jobs",
 			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
@@ -9125,6 +9148,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions11() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_gpu_native_ui_destroy",
 			"native_gpu",
@@ -9146,9 +9172,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions11() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_gpu_native_ui_draw",
 			"native_gpu",
@@ -10027,6 +10050,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions12() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"strerror",
 			"string",
@@ -10047,9 +10073,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions12() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"strlen",
 			"string",
@@ -10840,6 +10863,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions13() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"ungetc",
 			"stdio",
@@ -10861,9 +10887,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions13() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"unlink",
 			"posix",
@@ -12019,6 +12042,7 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("std_app_window_selected_directory");
 		self.functionNames.push("std_app_window_set_clipboard_text");
 		self.functionNames.push("std_app_window_set_titlebar_style");
+		self.functionNames.push("std_app_window_show_alert");
 		self.functionNames.push("std_background_jobs_cancel");
 		self.functionNames.push("std_background_jobs_cancel_generation");
 		self.functionNames.push("std_background_jobs_cancel_requested");
@@ -12234,10 +12258,10 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("waitid");
 		self.functionNames.push("waitpid");
 		self.functionNames.push("wcstombs");
-		self.functionNames.push("wctomb");
 	}
 
 	private void pushFunctionNames5() {
+		self.functionNames.push("wctomb");
 		self.functionNames.push("write");
 		self.functionNames.push("y0");
 		self.functionNames.push("y0f");
@@ -19173,6 +19197,7 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("std_app_window_selected_directory");
 		self.ownedNames.push("std_app_window_set_clipboard_text");
 		self.ownedNames.push("std_app_window_set_titlebar_style");
+		self.ownedNames.push("std_app_window_show_alert");
 		self.ownedNames.push("std_background_jobs_cancel");
 		self.ownedNames.push("std_background_jobs_cancel_generation");
 		self.ownedNames.push("std_background_jobs_cancel_requested");
@@ -19401,10 +19426,10 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("uint_fast8_t");
 		self.ownedNames.push("uint_least16_t");
 		self.ownedNames.push("uint_least32_t");
-		self.ownedNames.push("uint_least64_t");
 	}
 
 	private void pushOwnedNames16() {
+		self.ownedNames.push("uint_least64_t");
 		self.ownedNames.push("uint_least8_t");
 		self.ownedNames.push("uintmax_t");
 		self.ownedNames.push("uintptr_t");
@@ -19567,6 +19592,7 @@ class GeneratedHostedAbiData {
 		self.nativeNames.push("std_app_window_selected_directory");
 		self.nativeNames.push("std_app_window_set_clipboard_text");
 		self.nativeNames.push("std_app_window_set_titlebar_style");
+		self.nativeNames.push("std_app_window_show_alert");
 		self.nativeNames.push("std_background_jobs_cancel");
 		self.nativeNames.push("std_background_jobs_cancel_generation");
 		self.nativeNames.push("std_background_jobs_cancel_requested");
@@ -19645,7 +19671,9 @@ class GeneratedHostedAbiData {
 		self.nativeInternalNames.push("btrc_app_drain_owner_finalizers");
 		self.nativeInternalNames.push("btrc_app_platform_choose_directory");
 		self.nativeInternalNames.push("btrc_app_platform_click_count");
+		self.nativeInternalNames.push("btrc_app_platform_dismiss_alert");
 		self.nativeInternalNames.push("btrc_app_platform_set_titlebar_style");
+		self.nativeInternalNames.push("btrc_app_platform_show_alert");
 		self.nativeInternalNames.push("btrc_app_register_owner_drain_hook");
 		self.nativeInternalNames.push("btrc_gpu_acquire_compute");
 		self.nativeInternalNames.push("btrc_gpu_async_complete");
@@ -20381,6 +20409,7 @@ class GeneratedHostedAbiData {
 		self.platformFunctionNames.push("std_app_window_selected_directory");
 		self.platformFunctionNames.push("std_app_window_set_clipboard_text");
 		self.platformFunctionNames.push("std_app_window_set_titlebar_style");
+		self.platformFunctionNames.push("std_app_window_show_alert");
 		self.platformFunctionNames.push("std_background_jobs_cancel");
 		self.platformFunctionNames.push("std_background_jobs_cancel_generation");
 		self.platformFunctionNames.push("std_background_jobs_cancel_requested");
@@ -20484,10 +20513,10 @@ class GeneratedHostedAbiData {
 		self.platformFunctionNames.push("sync");
 		self.platformFunctionNames.push("sync_volume_np");
 		self.platformFunctionNames.push("syscall");
-		self.platformFunctionNames.push("sysconf");
 	}
 
 	private void pushPlatformFunctionNames3() {
+		self.platformFunctionNames.push("sysconf");
 		self.platformFunctionNames.push("tcdrain");
 		self.platformFunctionNames.push("tcflow");
 		self.platformFunctionNames.push("tcflush");

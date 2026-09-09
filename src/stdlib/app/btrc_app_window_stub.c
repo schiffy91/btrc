@@ -1,6 +1,13 @@
 #include "btrc_app.h"
 #include "btrc_app_window_internal.h"
 
+int btrc_app_platform_show_alert(GLFWwindow* window, const char* title, const char* message) {
+    (void)window; (void)title; (void)message;
+    return BTRC_APP_ERROR_BACKEND_UNAVAILABLE;
+}
+
+void btrc_app_platform_dismiss_alert(GLFWwindow* window) { (void)window; }
+
 int btrc_app_platform_click_count(GLFWwindow* window) {
     (void)window;
     return 1;

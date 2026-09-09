@@ -186,6 +186,7 @@ static void drain_app_finalizers_locked(void) {
             application->window_id != application->pending_window_finalize) {
             application->pending_window_finalize = 0;
         } else if (application->surface_references == 0) {
+            btrc_app_platform_dismiss_alert(application->window);
             glfwDestroyWindow(application->window);
             application->window = NULL;
             application->window_id = 0;
@@ -777,6 +778,22 @@ int std_app_window_set_clipboard_text(unsigned long long window_id, unsigned lon
     return error;
 }
 
+int std_app_window_show_alert(unsigned long long window_id, unsigned long long owner_receipt, char* title, char* message) {
+    btrc_app_drain_owner_finalizers();
+    state_lock_enter();
+    BtrcApplication* application = find_window(window_id);
+    int error = BTRC_APP_ERROR_NONE;
+    if (!application) { error = BTRC_APP_ERROR_NOT_OPEN; }
+    else if (!on_owner_thread(application)) { error = BTRC_APP_ERROR_NOT_MAIN_THREAD; }
+    else if (!owner_receipt || application->window_owner_receipt != owner_receipt || !title || !title[0] || !message || strlen(title) > 512 || strlen(message) > 16384) { error = BTRC_APP_ERROR_INVALID_ARGUMENT; }
+    else { error = btrc_app_platform_show_alert(application->window, title, message); }
+    if (error < BTRC_APP_ERROR_NONE || error > BTRC_APP_ERROR_INTERNAL) { error = BTRC_APP_ERROR_INTERNAL; }
+    if (error == BTRC_APP_ERROR_NONE) { clear_error(application); }
+    else { fail(application, error); }
+    state_lock_leave();
+    return error;
+}
+
 int std_app_window_choose_directory(unsigned long long window_id, char* title, char* initial_directory) {
 	btrc_app_drain_owner_finalizers();
 	state_lock_enter();
@@ -1221,6 +1238,7 @@ int std_app_window_close(
         state_lock_leave();
         return result;
     }
+    btrc_app_platform_dismiss_alert(application->window);
     glfwDestroyWindow(application->window);
     application->window = NULL;
     application->window_id = 0;

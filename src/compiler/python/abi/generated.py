@@ -6836,6 +6836,23 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
+        name='std_app_window_show_alert',
+        origin='native_app',
+        result=GeneratedAbiTypeRow('int', 0, False, ()),
+        parameters=(GeneratedHostedParameterRow(GeneratedAbiTypeRow('unsigned long long', 0, False, ()), 'value', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('unsigned long long', 0, False, ()), 'value', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('char', 1, False, ()), 'read', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('char', 1, False, ()), 'read', None),),
+        variadic=False,
+        semantic_result=None,
+        return_effect='value',
+        return_alias_parameter=None,
+        return_alias_null_effect=None,
+        raw_lifetime=False,
+        return_deallocator=None,
+        return_alias_shape=None,
+        consume_deallocator=None,
+        return_alias_null_deallocator=None,
+        realtime_effect='unknown',
+    ),
+    GeneratedHostedFunctionRow(
         name='std_background_jobs_cancel',
         origin='native_background_jobs',
         result=GeneratedAbiTypeRow('int', 0, False, ()),
@@ -9997,6 +10014,7 @@ HOSTED_FUNCTION_NAMES: tuple[str, ...] = (
     'std_app_window_selected_directory',
     'std_app_window_set_clipboard_text',
     'std_app_window_set_titlebar_style',
+    'std_app_window_show_alert',
     'std_background_jobs_cancel',
     'std_background_jobs_cancel_generation',
     'std_background_jobs_cancel_requested',
@@ -17072,6 +17090,7 @@ HOSTED_OWNED_NAMES: tuple[str, ...] = (
     'std_app_window_selected_directory',
     'std_app_window_set_clipboard_text',
     'std_app_window_set_titlebar_style',
+    'std_app_window_show_alert',
     'std_background_jobs_cancel',
     'std_background_jobs_cancel_generation',
     'std_background_jobs_cancel_requested',
@@ -17463,6 +17482,7 @@ HOSTED_NATIVE_NAMES: tuple[str, ...] = (
     'std_app_window_selected_directory',
     'std_app_window_set_clipboard_text',
     'std_app_window_set_titlebar_style',
+    'std_app_window_show_alert',
     'std_background_jobs_cancel',
     'std_background_jobs_cancel_generation',
     'std_background_jobs_cancel_requested',
@@ -17541,7 +17561,9 @@ HOSTED_NATIVE_INTERNAL_NAMES: tuple[str, ...] = (
     'btrc_app_drain_owner_finalizers',
     'btrc_app_platform_choose_directory',
     'btrc_app_platform_click_count',
+    'btrc_app_platform_dismiss_alert',
     'btrc_app_platform_set_titlebar_style',
+    'btrc_app_platform_show_alert',
     'btrc_app_register_owner_drain_hook',
     'btrc_gpu_acquire_compute',
     'btrc_gpu_async_complete',
@@ -18271,6 +18293,7 @@ HOSTED_PLATFORM_FUNCTION_NAMES: tuple[str, ...] = (
     'std_app_window_selected_directory',
     'std_app_window_set_clipboard_text',
     'std_app_window_set_titlebar_style',
+    'std_app_window_show_alert',
     'std_background_jobs_cancel',
     'std_background_jobs_cancel_generation',
     'std_background_jobs_cancel_requested',
@@ -21100,4 +21123,4 @@ HOSTED_PLATFORM_TYPEDEF_NAMES: tuple[str, ...] = (
 
 HOSTED_STDLIB_SOURCE_MARKER = 'compiler:stdlib'
 HOSTED_USER_SOURCE_MARKER = 'compiler:user'
-HOSTED_ABI_FINGERPRINT = '2e802bef0f1e49ef5f12f96bab9c64a7783496c8de0e97df796a8a960718227c'
+HOSTED_ABI_FINGERPRINT = '04e5eb04dfc148bca3fd101956ddc7f7a48624acb312a87b083d77531fc5d7d6'

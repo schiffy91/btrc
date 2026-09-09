@@ -530,6 +530,13 @@ int std_app_window_set_clipboard_text(unsigned long long identity, unsigned long
     return last_error = BTRC_APP_ERROR_NONE;
 }
 
+int std_app_window_show_alert(unsigned long long identity, unsigned long long receipt, char* title, char* message) {
+    if (!window_open || identity != window_id || receipt != window_owner_receipt) { return last_error = BTRC_APP_ERROR_NOT_OPEN; }
+    if (!on_owner_thread()) { return last_error = BTRC_APP_ERROR_NOT_MAIN_THREAD; }
+    if (!title || !title[0] || !message) { return last_error = BTRC_APP_ERROR_INVALID_ARGUMENT; }
+    return last_error = BTRC_APP_ERROR_NONE;
+}
+
 int std_app_window_choose_directory(unsigned long long identity, char* title, char* initial_directory) {
     if (!window_open || identity != window_id) {
         last_error = BTRC_APP_ERROR_NOT_OPEN;

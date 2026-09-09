@@ -77,6 +77,10 @@ void directoryPickerOutcomes() {
 	fake_platform_reset();
 	Application application = new Application();
 	ApplicationWindow window = openedWindow(application);
+	assert(window.showAlert("Settings", "Could not save") == null);
+	AppError? invalidAlert = window.showAlert("", "Missing title");
+	assert(invalidAlert != null);
+	if (invalidAlert != null) { assert(invalidAlert.code == APP_ERROR_INVALID_ARGUMENT); }
 
 	AppDirectoryPickerOutcome invalid = window.chooseDirectory(new AppDirectoryPickerRequest(""));
 	assert(invalid.kind == APP_DIRECTORY_PICKER_FAILED);
@@ -139,6 +143,9 @@ void directoryPickerOutcomes() {
 	if (closedError == null) { assert(false); return; }
 	AppError closedValue = closedError;
 	assert(closedValue.code == APP_ERROR_CLOSED);
+	AppError? closedAlert = window.showAlert("Closed", "No window");
+	assert(closedAlert != null);
+	if (closedAlert != null) { assert(closedAlert.code == APP_ERROR_CLOSED); }
 	assert(application.close().kind == APP_CLOSED);
 	assert(fake_platform_live_resources() == 0);
 }

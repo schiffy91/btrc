@@ -1043,6 +1043,7 @@ functions = [
   "std_app_window_selected_directory",
   "std_app_window_set_clipboard_text",
   "std_app_window_set_titlebar_style",
+  "std_app_window_show_alert",
   "std_background_jobs_cancel",
   "std_background_jobs_cancel_generation",
   "std_background_jobs_cancel_requested",
@@ -8113,6 +8114,7 @@ owned = [
   "std_app_window_selected_directory",
   "std_app_window_set_clipboard_text",
   "std_app_window_set_titlebar_style",
+  "std_app_window_show_alert",
   "std_background_jobs_cancel",
   "std_background_jobs_cancel_generation",
   "std_background_jobs_cancel_requested",
@@ -8503,6 +8505,7 @@ native = [
   "std_app_window_selected_directory",
   "std_app_window_set_clipboard_text",
   "std_app_window_set_titlebar_style",
+  "std_app_window_show_alert",
   "std_background_jobs_cancel",
   "std_background_jobs_cancel_generation",
   "std_background_jobs_cancel_requested",
@@ -8580,7 +8583,9 @@ native_internal = [
   "btrc_app_drain_owner_finalizers",
   "btrc_app_platform_choose_directory",
   "btrc_app_platform_click_count",
+  "btrc_app_platform_dismiss_alert",
   "btrc_app_platform_set_titlebar_style",
+  "btrc_app_platform_show_alert",
   "btrc_app_register_owner_drain_hook",
   "btrc_gpu_acquire_compute",
   "btrc_gpu_async_complete",
@@ -9310,6 +9315,7 @@ functions = [
   "std_app_window_selected_directory",
   "std_app_window_set_clipboard_text",
   "std_app_window_set_titlebar_style",
+  "std_app_window_show_alert",
   "std_background_jobs_cancel",
   "std_background_jobs_cancel_generation",
   "std_background_jobs_cancel_requested",
@@ -17273,6 +17279,20 @@ parameters = [
   { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
   { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
   { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+[[functions]]
+name = "std_app_window_show_alert"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
 ]
 variadic = false
 return_effect = "value"

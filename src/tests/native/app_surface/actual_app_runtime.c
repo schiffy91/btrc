@@ -29,6 +29,16 @@ static char fake_directory_initial[FAKE_DIRECTORY_CAPACITY];
 static int titlebar_calls;
 static int titlebar_error;
 static int native_click_count = 1;
+static int alert_calls;
+static int alert_error;
+
+int btrc_app_platform_show_alert(GLFWwindow* window, const char* title, const char* message) {
+    assert(window && strcmp(title, "Settings") == 0 && strcmp(message, "Could not save") == 0);
+    alert_calls++;
+    return alert_error;
+}
+
+void btrc_app_platform_dismiss_alert(GLFWwindow* window) { assert(window); }
 
 int btrc_app_platform_click_count(GLFWwindow* window) {
     assert(window != NULL);
@@ -484,6 +494,17 @@ static void test_titlebar_boundary(void) {
     OwnedCapability application = open_application();
     OwnedCapability window = open_window(application, 640, 480);
     titlebar_calls = 0;
+    alert_calls = 0;
+    assert(std_app_window_show_alert(window.capability, 0, "Settings", "Could not save") == BTRC_APP_ERROR_INVALID_ARGUMENT);
+    assert(std_app_window_show_alert(window.capability, different_receipt(window.owner_receipt), "Settings", "Could not save") == BTRC_APP_ERROR_INVALID_ARGUMENT);
+    assert(std_app_window_show_alert(window.capability, window.owner_receipt, "", "Could not save") == BTRC_APP_ERROR_INVALID_ARGUMENT);
+    assert(std_app_window_show_alert(window.capability, window.owner_receipt, "Settings", NULL) == BTRC_APP_ERROR_INVALID_ARGUMENT);
+    assert(alert_calls == 0);
+    alert_error = BTRC_APP_ERROR_BACKEND_UNAVAILABLE;
+    assert(std_app_window_show_alert(window.capability, window.owner_receipt, "Settings", "Could not save") == BTRC_APP_ERROR_BACKEND_UNAVAILABLE);
+    alert_error = BTRC_APP_ERROR_NONE;
+    assert(std_app_window_show_alert(window.capability, window.owner_receipt, "Settings", "Could not save") == BTRC_APP_ERROR_NONE);
+    assert(std_app_error_code(window.capability) == BTRC_APP_ERROR_NONE && alert_calls == 2);
     assert(std_app_window_set_titlebar_style(window.capability, 0, BTRC_APP_TITLEBAR_OVERLAY) == BTRC_APP_ERROR_INVALID_ARGUMENT);
     assert(std_app_window_set_titlebar_style(window.capability, different_receipt(window.owner_receipt), BTRC_APP_TITLEBAR_OVERLAY) == BTRC_APP_ERROR_INVALID_ARGUMENT);
     assert(std_app_window_set_titlebar_style(window.capability, window.owner_receipt, 99) == BTRC_APP_ERROR_INVALID_ARGUMENT);
@@ -502,6 +523,8 @@ static void test_titlebar_boundary(void) {
     assert(std_app_window_close(window.capability, window.owner_receipt) == BTRC_APP_ERROR_NONE);
     assert(std_app_window_set_titlebar_style(window.capability, window.owner_receipt, BTRC_APP_TITLEBAR_OVERLAY) == BTRC_APP_ERROR_NOT_OPEN);
     assert(titlebar_calls == 3);
+    assert(std_app_window_show_alert(window.capability, window.owner_receipt, "Settings", "Could not save") == BTRC_APP_ERROR_NOT_OPEN);
+    assert(alert_calls == 2);
     assert(std_app_close(application.capability, application.owner_receipt) == BTRC_APP_ERROR_NONE);
     assert_backend_clean();
 }
@@ -526,6 +549,7 @@ typedef struct {
     int directory_picker_path_empty;
     int window_close_error;
     int titlebar_error;
+    int alert_error;
     int application_close_error;
 } WrongThreadResults;
 
@@ -553,6 +577,7 @@ static void* exercise_wrong_thread(void* userdata) {
     results->window_close_error = std_app_window_close(
         results->window.capability, results->window.owner_receipt);
     results->titlebar_error = std_app_window_set_titlebar_style(results->window.capability, results->window.owner_receipt, BTRC_APP_TITLEBAR_OVERLAY);
+    results->alert_error = std_app_window_show_alert(results->window.capability, results->window.owner_receipt, "Settings", "Could not save");
     results->application_close_error = std_app_close(
         results->application.capability, results->application.owner_receipt);
     return NULL;
@@ -612,6 +637,7 @@ static void test_wrong_thread_rejection(void) {
     assert(fake_directory_calls == 0);
     assert(results.window_close_error == BTRC_APP_ERROR_NOT_MAIN_THREAD);
     assert(results.titlebar_error == BTRC_APP_ERROR_NOT_MAIN_THREAD);
+    assert(results.alert_error == BTRC_APP_ERROR_NOT_MAIN_THREAD);
     assert(results.application_close_error == BTRC_APP_ERROR_NOT_MAIN_THREAD);
     assert(fake_glfw_wrong_thread_calls() == 0);
     assert(fake_glfw_live_windows() == 1);

@@ -137,6 +137,7 @@ int std_app_window_close(
 int std_app_window_choose_directory(
     unsigned long long window, char* title, char* initial_directory);
 char* std_app_window_selected_directory(unsigned long long window);
+int std_app_window_show_alert(unsigned long long window, unsigned long long owner_receipt, char* title, char* message);
 
 unsigned long long std_app_surface_create(
     unsigned long long window, unsigned long long* owner_receipt_out);
