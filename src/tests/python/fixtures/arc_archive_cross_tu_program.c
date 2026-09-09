@@ -113,7 +113,13 @@ static void* program_arc_tls_address(int index) {
 
 static void* program_arc_process_address(int index) {
     switch (index) {
+#if defined(__APPLE__)
+        /* One ARC lock per process either way; Apple locks with
+         * os_unfair_lock and every other target with an atomic flag. */
+        case 0: return (void*)&__btrc_arc_native_lock;
+#else
         case 0: return (void*)&__btrc_arc_lock_flag;
+#endif
         case 1: return (void*)&__btrc_arc_snapshotting;
         case 2: return (void*)&__btrc_arc_topology_active;
         case 3: return (void*)&__btrc_suspects;
