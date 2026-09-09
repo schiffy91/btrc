@@ -83,7 +83,10 @@ def test_linux_x64_ci_runs_and_uploads_the_archived_bundle() -> None:
     assert "mktemp -d" in job
     assert "src/tests/strings/expected/test_braces_in_code_gen.stdout" in job
     assert "-std=c11 -pedantic-errors -Wall -Wextra -Werror" in job
-    assert job.count("PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600") == 2
+    # Both budgets are raised for the container: it rebuilds the self-hosted
+    # compiler against a cold cache, and the corpus's heaviest program does not
+    # finish inside the default run budget at -O0.
+    assert job.count("PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60") == 2
     assert job.count('podman run --rm --init -v "$PWD:/workspace"') == 5
     _assert_linux_archive_smoke(job, "linux-x64")
 

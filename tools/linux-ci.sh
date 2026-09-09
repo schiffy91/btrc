@@ -7,16 +7,18 @@
 #
 # Two things differ from `podman run -v "$PWD:/workspace"`:
 #
-#   * build/ subdirectories may be symlinks into a cache outside the
-#     workspace, because this repository can live in synced storage and object
-#     files should not be synced. Those links dangle inside the container, and
-#     mkdir -p will not follow a dangling link, so each link target is created
-#     inside a container-private directory and bind-mounted at its own path.
+#   * build/ subdirectories and dist/ may be symlinks into a cache outside
+#     the workspace, because this repository can live in synced storage and
+#     build products should not be synced. Those links dangle inside the
+#     container, and mkdir -p will not follow a dangling link, so each link
+#     target is created inside a container-private directory and bind-mounted
+#     at its own path.
 #   * That directory is private on purpose. build/stdlib holds host objects,
 #     and a Linux build must not link against them.
 #
-# The transpile budget is larger than CI's because the self-hosted compiler
-# is rebuilt from scratch here, inside a VM, against a cold cache.
+# Both budgets are larger than CI's because this runs in a VM: the self-hosted
+# compiler is rebuilt from scratch against a cold cache, and the corpus's
+# heaviest program does not finish inside the default run budget at -O0.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -42,9 +44,10 @@ while IFS= read -r link; do
   done
   roots+=("$root")
   mounts+=(-v "$slot:$root")
-done < <(find build -maxdepth 1 -type l)
+done < <(find build dist -maxdepth 1 -type l 2>/dev/null)
 
 exec podman run --rm --init "${mounts[@]}" "$image" \
   make NIX= "PYTEST_WORKERS=${PYTEST_WORKERS:-4}" \
   "BTRC_TEST_TRANSPILE_TIMEOUT=${BTRC_TEST_TRANSPILE_TIMEOUT:-1800}" \
+  "BTRC_TEST_RUN_TIMEOUT=${BTRC_TEST_RUN_TIMEOUT:-60}" \
   "${@:-gpu-required test}"

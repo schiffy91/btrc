@@ -77,6 +77,17 @@ BTRC_TRANSPILE_TIMEOUT = _positive_timeout_seconds(
     default=300.0,
 )
 
+# How long a compiled corpus program may run. The default suits the corpus,
+# where all but a handful finish in well under a second, and it is what catches
+# a program that hangs. The heaviest test is an order of magnitude slower than
+# the rest at -O0, so a slower machine -- a VM, an emulated architecture -- can
+# need a larger budget without anything being wrong.
+BTRC_RUN_TIMEOUT = _positive_timeout_seconds(
+    os.environ.get("BTRC_TEST_RUN_TIMEOUT"),
+    name="BTRC_TEST_RUN_TIMEOUT",
+    default=15.0,
+)
+
 
 def get_btrc_test_files():
     """Recursively find all test_*.btrc files in the shared language corpus."""
@@ -240,7 +251,7 @@ def _compile_run_check(c_source, btrc_path, btrc_file):
             f"gcc failed:\nstdout: {compile_result.stdout}\nstderr: {compile_result.stderr}"
         )
         _require_test_capabilities(btrc_path)
-        run_result = subprocess.run([bin_path], capture_output=True, text=True, timeout=15)
+        run_result = subprocess.run([bin_path], capture_output=True, text=True, timeout=BTRC_RUN_TIMEOUT)
         assert run_result.returncode == 0, (
             f"Program exited with {run_result.returncode}:\nstdout: {run_result.stdout}\nstderr: {run_result.stderr}"
         )
