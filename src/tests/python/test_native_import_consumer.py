@@ -69,15 +69,18 @@ def native_compile(request):
     if request.param == "reference":
         return compile_source
     binary = request.getfixturevalue("immutable_btrcc")
+    target = "macos-arm64" if platform.machine() == "arm64" else "macos-x86_64"
 
     def compile_native(source):
         result = subprocess.run(
-            [str(binary), "--no-stdlib", str(source)],
+            [str(binary), "--no-stdlib", "--target", target, str(source)],
             env={**os.environ, "BTRC_HOME": str(REPO / "src")},
             capture_output=True,
             text=True,
             timeout=90,
         )
+        if result.returncode:
+            assert not result.stdout, "failed native compilation emitted partial C"
         return SimpleNamespace(
             successful=result.returncode == 0,
             c_source=result.stdout if result.returncode == 0 else None,
@@ -100,8 +103,14 @@ def test_corefoundation_create_query_release_without_signature_wrappers(
     assert "CFStringRef text = CFStringCreateWithCString(" in result.c_source
     assert "CFIndex length = CFStringGetLength(text)" in result.c_source
     assert "extern CF" not in result.c_source
+    assert "typedef const __CFString* CFStringRef" not in result.c_source
+    assert "typedef long CFIndex" not in result.c_source
+    run_native_executable(result.c_source, tmp_path, sdk, triple, sanitized)
+
+
+def run_native_executable(c_source, tmp_path, sdk, triple, sanitized):
     generated = tmp_path / "Main.c"
-    generated.write_text(result.c_source, encoding="utf-8")
+    generated.write_text(c_source, encoding="utf-8")
     binary = tmp_path / "Main"
     flags = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if sanitized else []
     built = subprocess.run(
@@ -132,6 +141,55 @@ def test_corefoundation_create_query_release_without_signature_wrappers(
     assert built.returncode == 0, built.stderr
     ran = subprocess.run([str(binary)], capture_output=True, text=True, timeout=15)
     assert ran.returncode == 0, ran.stderr
+
+
+ARRAY_BODY = """void addValue(const void* value, void* context) {
+	int* total = (int*)context;
+	*total = *total + *(const int*)value;
+}
+
+int verifyFoundation() {
+	int first = 10;
+	int second = 20;
+	int third = 30;
+	var array = CFArrayCreateMutable(null, 3, null);
+	if (array == null) { return 1; }
+	CFArrayAppendValue(array, &first);
+	CFArrayAppendValue(array, &second);
+	CFArrayAppendValue(array, &third);
+	var range = CFRangeMake(1, 2);
+	if (range.location != 1 || range.length != 2) { CFRelease(array); return 2; }
+	int total = 0;
+	CFArrayApplyFunction(array, range, addValue, &total);
+	CFRelease(array);
+	return total == 50 ? 0 : 3;
+}
+"""
+
+
+@pytest.fixture
+def array_project(native_project):
+    source, sdk, triple = native_project
+    manifest = source.parent.parent / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text().replace(
+            '"CFStringCreateWithCString", "CFStringGetLength", "CFRelease", "kCFStringEncodingUTF8"',
+            '"CFArrayCreateMutable", "CFArrayAppendValue", "CFArrayApplyFunction", "CFRangeMake", "CFRelease"',
+        ),
+        encoding="utf-8",
+    )
+    (source.parent / "Foundation.btrc").write_text(ARRAY_BODY, encoding="utf-8")
+    return source, sdk, triple
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_sdk_record_and_callback_execute_without_layout_wrappers(array_project, tmp_path, native_compile, sanitized):
+    source, sdk, triple = array_project
+    result = native_compile(source)
+    assert result.successful, result.failure
+    assert "CFRange range" in result.c_source
+    assert "struct CFRange" not in result.c_source
+    run_native_executable(result.c_source, tmp_path, sdk, triple, sanitized)
 
 
 @pytest.mark.parametrize(
@@ -215,7 +273,7 @@ def test_explicit_typedef_and_inferred_typedef_share_identity(native_project, na
         "const char * _Nullable probe(void);",
         "typedef const struct Resource *Ref; Ref probe(void) __attribute__((cf_returns_retained));",
         "typedef const struct Resource *Ref; void probe(Ref __attribute__((cf_consumed)) value);",
-        "struct Value { int item; }; struct Value probe(void);",
+        "union Value { int item; double other; }; union Value probe(void);",
     ],
 )
 def test_unimplemented_native_semantics_are_not_erased(native_project, header, native_compile):

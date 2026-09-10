@@ -228,7 +228,7 @@ class FeNativeBlock {
 		return key.equals("name");
 	}
 
-	private string requiredText(string key) {
+	private string requiredText(string key, bool allowEmpty = false) {
 		if (!self.fields.has(key)) {
 			FePackageFailure.fail(f"{self.context()} requires field '{key}'");
 		}
@@ -238,7 +238,7 @@ class FeNativeBlock {
 			FePackageFailure.fail(f"{self.context()}.{key} must be a TOML string");
 		}
 		string value = Toml.unquote(raw);
-		if (value.isEmpty()) {
+		if (value.isEmpty() && !allowEmpty) {
 			FePackageFailure.fail(f"{self.context()}.{key} must not be empty");
 		}
 		return value;
@@ -468,7 +468,7 @@ class FeNativeBlock {
 			if (!self.identifier(name)) {
 				FePackageFailure.fail(f"{self.context()}.name must be an ASCII identifier");
 			}
-			string value = self.requiredText("value");
+			string value = self.requiredText("value", true);
 			return FeNativeDeclaration("define", packageName, name, value, "", "", operatingSystems, architectures, modules);
 		}
 		string name = self.requiredText("name");

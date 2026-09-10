@@ -200,6 +200,8 @@ class TranslationUnitLowerer:
         """Collect typed type and callable declarations."""
         function_decls: list[IRFunctionDecl] = []
         for decl in self._analyzed.program.declarations:
+            if isinstance(getattr(decl, "source_file", None), NativeHeaderSource):
+                continue
             if isinstance(decl, EnumDecl) and decl.name:
                 function_decls.append(TranslationUnitLowerer._enum_to_string_decl(decl.name))
             elif (isinstance(decl, ClassDecl) and (not decl.generic_params)) or isinstance(decl, StructDecl):
@@ -256,7 +258,7 @@ class TranslationUnitLowerer:
 
     def _emit_structs(self):
         for decl in self._analyzed.program.declarations:
-            if isinstance(decl, StructDecl):
+            if isinstance(decl, StructDecl) and not isinstance(decl.source_file, NativeHeaderSource):
                 self._classes.emit_struct_decl(
                     decl,
                 )

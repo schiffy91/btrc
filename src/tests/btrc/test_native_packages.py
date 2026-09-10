@@ -86,7 +86,12 @@ def _binding_source(root: Path, declaration: str, imported: bool = False) -> Pat
     ("target", "imported", "selected"),
     [("linux-x86_64", True, False), ("macos-aarch64", False, False), ("macos-aarch64", True, True)],
 )
-def test_native_binding_selection_has_frontend_parity(semantic_btrcc: Path, tmp_path: Path, target, imported, selected):
+def test_native_binding_selection_has_frontend_parity(
+    semantic_btrcc: Path, tmp_path: Path, target, imported, selected, monkeypatch
+):
+    # This case exercises an unconfigured compiler, independently of the
+    # enabled SDK consumer tests running in the same environment.
+    monkeypatch.delenv("BTRC_NATIVE_HEADER_READER", raising=False)
     source = _binding_source(tmp_path, _BINDING + 'os = ["macos"]\n', imported)
     reference_plan = tmp_path / "reference.json"
     selfhost_plan = tmp_path / "selfhost.json"
@@ -467,6 +472,28 @@ def test_disjoint_native_predicates_with_same_name_are_reference_exact(
     assert selfhost.returncode == 0, selfhost.stderr
     assert selfhost_plan.read_bytes() == reference_plan.read_bytes()
     assert json.loads(selfhost_plan.read_text())["pkg-config"] == [{"name": "platform-native", "package": "app"}]
+
+
+@pytest.mark.parametrize("value", ['""', '"3"', "1", None])
+def test_native_define_value_parity(semantic_btrcc, tmp_path, value):
+    source = tmp_path / "src/Main.btrc"
+    source.parent.mkdir()
+    source.write_text("int main() { return 0; }\n")
+    field = "" if value is None else f"value = {value}\n"
+    (tmp_path / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "app"\n[[native.defines]]\nname = "ABI_ENABLED"\n' + field
+    )
+    reference_plan = tmp_path / "reference.json"
+    selfhost_plan = tmp_path / "selfhost.json"
+    reference = _reference(source, tmp_path / "reference.c", reference_plan)
+    selfhost = _selfhost(semantic_btrcc, source, selfhost_plan)
+    if value in {'""', '"3"'}:
+        assert reference.returncode == selfhost.returncode == 0, (reference.stderr, selfhost.stderr)
+        assert reference_plan.read_bytes() == selfhost_plan.read_bytes()
+        assert json.loads(selfhost_plan.read_text())["defines"][0]["value"] == value[1:-1]
+    else:
+        assert reference.returncode != 0 and selfhost.returncode != 0
+        assert "defines" in reference.stderr and "defines" in selfhost.stderr
 
 
 def test_exact_duplicate_native_declarations_still_fail_closed(

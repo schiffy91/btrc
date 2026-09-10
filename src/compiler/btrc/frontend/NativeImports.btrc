@@ -20,12 +20,16 @@ class FeNativeDeclarationImporter {
 	private Map<string, string> typeIdentities;
 	private string module;
 	private string header;
+	private Map<string, NativeNode> layouts;
+	private Map<string, Node> records;
 
 	public FeNativeDeclarationImporter() {
 		self.declarations = [];
 		self.typeIdentities = {};
 		self.module = "";
 		self.header = "";
+		self.layouts = {};
+		self.records = {};
 	}
 
 	private void fail(string message) { throw f"{self.module}: native header: {message}"; }
@@ -43,14 +47,19 @@ class FeNativeDeclarationImporter {
 	private string typeIdentity(NativeNode native) {
 		string identity = f"{native.kind}:{self.qualifierIdentity(native.qualifiers)}:";
 		if (native.kind == NNK_NATIVE_BUILTIN) { return identity + f"{native.name}:{native.bits}:{native.alignmentBitsInt}:{native.signedness}"; }
-		if (native.kind == NNK_NATIVE_RECORD_TYPE) { return identity + native.identity + f":{native.complete}:{native.opaque}"; }
+		if (native.kind == NNK_NATIVE_RECORD_TYPE) { return identity + native.identity + f":{native.recordKind}:{native.complete}:{native.opaque}"; }
+		if (native.kind == NNK_NATIVE_FUNCTION_TYPE) {
+			identity = identity + f"{native.variadic}:{native.callingConvention}:{self.typeIdentity(native.returnType)}";
+			for parameter in native.parameters { identity = identity + ":" + self.typeIdentity(parameter); }
+			return identity;
+		}
 		if (native.kind == NNK_NATIVE_POINTER) { return identity + self.typeIdentity(native.pointee); }
 		if (native.kind == NNK_NATIVE_ALIAS || native.kind == NNK_NATIVE_QUALIFIED_TYPE) { return identity + native.name + ":" + self.typeIdentity(native.underlying); }
 		self.fail("unsupported native type identity");
 		return "";
 	}
 
-	private void add(string name, Node declaration, string identity) {
+	private void add(string name, Node declaration, string identity, string typeSpelling = "") {
 		string key = self.module + "\x1f" + name;
 		if (self.typeIdentities.has(key)) {
 			if (identity.isEmpty() || !self.typeIdentities.get(key).equals(identity)) { self.fail(f"conflicting native declaration '{name}'"); }
@@ -58,7 +67,7 @@ class FeNativeDeclarationImporter {
 		}
 		declaration.sourceFile = self.module;
 		self.typeIdentities.put(key, identity);
-		self.declarations.push(FeNativeImportedDeclaration(declaration, self.module, self.header));
+		self.declarations.push(FeNativeImportedDeclaration(declaration, self.module, self.header, typeSpelling));
 	}
 
 	private Node qualify(Node projected, NativeNode native) {
@@ -69,28 +78,71 @@ class FeNativeDeclarationImporter {
 		return projected;
 	}
 
+	private Node record(NativeNode native, string alias = "") {
+		string key = self.module + "\x1f" + native.identity;
+		if (!self.records.has(key)) {
+			string name = native.name.isEmpty() ? alias : native.name;
+			if (name.isEmpty()) { self.fail("anonymous native record requires a named typedef"); }
+			Node declaration = self.node(NK_STRUCT_DECL);
+			declaration.name = name;
+			declaration.isForward = true;
+			string spelling = native.name.isEmpty() ? alias : native.recordKind + " " + native.name;
+			self.add(name, declaration, native.identity + ":" + native.recordKind, spelling);
+			self.records.put(key, declaration);
+		}
+		Node declaration = self.records.get(key);
+		if (!native.opaque && declaration.isForward) {
+			NativeNode layout = self.layouts.get(native.identity);
+			if (!layout.recordKind.equals("struct") || !layout.recordKind.equals(native.recordKind)) { self.fail("native union values require native-type lowering"); }
+			/* Register before walking fields: recursive pointers share this owner. */
+			declaration.isForward = false;
+			for field in layout.fields {
+				if (field.isAnonymous || field.isBitfield || field.name.isEmpty()) { self.fail("anonymous fields and bitfields require native-type lowering"); }
+				Node member = self.node(NK_FIELD_DEF);
+				member.name = field.name;
+				member.type = self.type(field.fieldType);
+				declaration.fields.push(member);
+			}
+		}
+		Node projected = self.node(NK_TYPE_EXPR);
+		projected.base = declaration.name;
+		return projected;
+	}
+
+	private Node alias(string name, NativeNode underlying) {
+		Node original = underlying.kind == NNK_NATIVE_RECORD_TYPE ? self.qualify(self.record(underlying, name), underlying) : self.type(underlying);
+		if (!original.base.equals(name)) {
+			Node declaration = self.node(NK_TYPEDEF_DECL);
+			declaration.alias = name;
+			declaration.original = original;
+			self.add(name, declaration, self.typeIdentity(underlying));
+		}
+		Node projected = self.node(NK_TYPE_EXPR);
+		projected.base = name;
+		return projected;
+	}
+
 	private Node type(NativeNode native) {
 		Node projected = self.node(NK_TYPE_EXPR);
 		if (native.kind == NNK_NATIVE_BUILTIN) {
 			if (!Strings.split("void,char,signed char,unsigned char,short,unsigned short,int,unsigned int,long,unsigned long,long long,unsigned long long,float,double", ",").contains(native.name)) { self.fail(f"unsupported native scalar '{native.name}'"); }
 			projected.base = native.name;
 		} else if (native.kind == NNK_NATIVE_ALIAS) {
-			Node alias = self.node(NK_TYPEDEF_DECL);
-			alias.alias = native.name;
-			alias.original = self.type(native.underlying);
-			self.add(native.name, alias, self.typeIdentity(native.underlying));
-			projected.base = native.name;
+			projected = self.alias(native.name, native.underlying);
 		} else if (native.kind == NNK_NATIVE_POINTER) {
-			projected = self.type(native.pointee);
-			projected.pointerDepth++;
+			if (native.pointee.kind == NNK_NATIVE_FUNCTION_TYPE) {
+				NativeNode function = native.pointee;
+				if (function.variadic) { self.fail("variadic native callbacks require adapter lowering"); }
+				projected.base = "__fn_ptr";
+				projected.genericArgs.push(self.type(function.returnType));
+				for parameter in function.parameters { projected.genericArgs.push(self.type(parameter)); }
+				projected = self.qualify(projected, function);
+			} else {
+				projected = self.type(native.pointee);
+				projected.pointerDepth++;
+			}
 		} else if (native.kind == NNK_NATIVE_RECORD_TYPE) {
-			if (!native.opaque || native.name.isEmpty()) { self.fail("native record values require native-type lowering"); }
-			Node record = self.node(NK_STRUCT_DECL);
-			record.name = native.name;
-			record.isForward = true;
-			/* The tag's identity is independent of this use's qualifiers. */
-			self.add(native.name, record, f"record:{native.identity}:{native.complete}:{native.opaque}");
-			projected.base = native.name;
+			projected = self.record(native);
 		} else if (native.kind == NNK_NATIVE_QUALIFIED_TYPE) {
 			projected = self.type(native.underlying);
 			if (!self.qualifierIdentity(native.qualifiers).equals(self.qualifierIdentity(native.underlying.qualifiers))) { self.fail("qualified native wrapper requires native-type lowering"); }
@@ -146,10 +198,10 @@ class FeNativeDeclarationImporter {
 			imported.type.isConst = true;
 			imported.initializer = self.integer(declaration.decimalValue);
 		} else if (declaration.kind == NNK_NATIVE_TYPEDEF) {
-			imported = self.node(NK_TYPEDEF_DECL);
-			imported.alias = declaration.name;
-			imported.original = self.type(declaration.underlying);
-			self.add(declaration.name, imported, self.typeIdentity(declaration.underlying));
+			self.alias(declaration.name, declaration.underlying);
+			return;
+		} else if (declaration.kind == NNK_NATIVE_RECORD_DECLARATION) {
+			self.type(declaration.recordType);
 			return;
 		} else { self.fail("selected native records require native-type lowering"); }
 		self.add(declaration.name, imported, "");
@@ -195,6 +247,8 @@ class FeNativeDeclarationImporter {
 			ExecResult result = ChildProcess.run(command.command, command.arguments, timeoutMilliseconds = 60000);
 			if (!result.ok()) { self.fail(result.err.isEmpty() ? "native header reader failed" : result.err.trim()); }
 			NativeNode decoded = FeNativeHeaderCodec().decode(result.out, target);
+			self.layouts = {};
+			for layout in decoded.records { self.layouts.put(layout.identity, layout); }
 			for declaration in decoded.exports { self.importDeclaration(declaration); }
 		}
 		return self.declarations;
@@ -305,8 +359,9 @@ class FeNativeHeaderCodec {
 			result.name = self.text(value.get("name"));
 			result.underlying = self.type(value.get("underlying"));
 		} else if (kind.equals("record")) {
-			self.fields(value, common + ",name,identity,complete,opaque");
+			self.fields(value, common + ",name,identity,record_kind,complete,opaque");
 			result.kind = NNK_NATIVE_RECORD_TYPE;
+			result.recordKind = self.choice(value.get("record_kind"), "struct,union");
 			result.name = self.text(value.get("name"), true);
 			result.identity = self.text(value.get("identity"));
 			result.complete = self.boolean(value.get("complete"));

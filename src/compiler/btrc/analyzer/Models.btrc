@@ -51,6 +51,20 @@ class Analyzed {
 		}
 		return false;
 	}
+
+	public bool isNativeTypedef(string name) {
+		for imported in self.nativeDeclarations {
+			if (imported.declaration.kind == NK_TYPEDEF_DECL && imported.declaration.alias.equals(name)) { return true; }
+		}
+		return false;
+	}
+
+	public string nativeTypeSpelling(string name) {
+		for imported in self.nativeDeclarations {
+			if (imported.declaration.kind == NK_STRUCT_DECL && imported.declaration.name.equals(name)) { return imported.typeSpelling; }
+		}
+		return "";
+	}
 	private Map<string, bool>? lexicalTypeParameterNames;
 	private int lexicalTypeParameterTableSize;
 	/* function name -> the function's return TypeExpr node (NK_TYPE_EXPR) */

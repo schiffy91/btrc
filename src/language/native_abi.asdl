@@ -16,7 +16,7 @@ module NativeAbi {
     native_type = NativeBuiltin(identifier name, int bits, int alignment_bits, string signedness)
                 | NativePointer(native_type pointee)
                 | NativeAlias(identifier name, native_type underlying)
-                | NativeRecordType(identifier name, string identity, bool complete, bool opaque)
+                | NativeRecordType(identifier name, string identity, string record_kind, bool complete, bool opaque)
                 | NativeEnumType(identifier name, string identity, native_type underlying)
                 | NativeFunctionType(native_type return_type, native_type* parameters,
                                      bool variadic, string calling_convention)

@@ -17,6 +17,7 @@ from src.compiler.python.analyzer.types import (
     TypeIdentity,
     TypeSystem,
 )
+from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.ir.nodes import (
     CType,
     IRBinOp,
@@ -194,6 +195,10 @@ class CTypeLowerer:
             c_type = self._identity.generic_symbol(base, type_expr.generic_args)
         else:
             c_type = base
+            declaration = self._analyzed.struct_table.get(base)
+            origin = getattr(declaration, "source_file", None)
+            if isinstance(origin, NativeHeaderSource) and origin.type_spelling:
+                c_type = origin.type_spelling
         depth = type_expr.pointer_depth
         base_is_reference = (
             c_type.endswith("*") or base in {"__fn_ptr", "__realtime_fn_ptr"} or self._typedef_base_is_reference(base)

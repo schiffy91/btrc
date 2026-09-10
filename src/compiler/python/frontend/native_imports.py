@@ -38,13 +38,14 @@ class NativeImportError(ValueError):
 class NativeHeaderSource(str):
     """Module provenance plus the SDK header that owns the native declaration."""
 
-    def __new__(cls, module: str, header: str):
+    def __new__(cls, module: str, header: str, type_spelling: str = ""):
         value = super().__new__(cls, module)
         value.header = header
+        value.type_spelling = type_spelling
         return value
 
     def __getnewargs__(self):
-        return str(self), self.header
+        return str(self), self.header, self.type_spelling
 
 
 class NativeDeclarationImporter:
@@ -58,6 +59,8 @@ class NativeDeclarationImporter:
         self._declarations = {}
         self._native_types = {}
         self._origin = None
+        self._layouts = {}
+        self._records = {}
 
     def resolve(self, plan: NativeLinkPlan) -> tuple:
         if not plan.bindings:
@@ -108,19 +111,20 @@ class NativeDeclarationImporter:
                 if result.returncode:
                     raise NativeImportError(result.stderr.strip() or "native header reader failed")
                 header = NativeHeaderCodec().decode(result.stdout, expected_target=target)
+                self._layouts = {record.identity: record for record in header.records}
                 for declaration in header.exports:
                     self._import(declaration)
             except (OSError, subprocess.TimeoutExpired, NativeImportError) as error:
                 raise IncludeResolutionError(f"{binding.module}: {error}") from error
         return tuple(self._declarations.values())
 
-    def _add(self, name, declaration, native_type=None):
+    def _add(self, name, declaration, native_type=None, type_spelling=""):
         key = (str(self._origin), name)
         if key in self._declarations:
             if self._native_types.get(key) != native_type:
                 raise NativeImportError(f"conflicting native declaration {name!r}")
             return
-        declaration.source_file = self._origin
+        declaration.source_file = NativeHeaderSource(str(self._origin), self._origin.header, type_spelling)
         self._declarations[key] = declaration
         self._native_types[key] = native_type
 
@@ -131,6 +135,30 @@ class NativeDeclarationImporter:
         if qualifiers.is_const and isinstance(native, (NativePointer, NativeAlias)):
             raise NativeImportError("pointer/alias const requires native-type lowering; refusing a lossy projection")
         return replace(projected, is_const=projected.is_const or qualifiers.is_const)
+
+    def _record(self, native, alias=""):
+        key = (str(self._origin), native.identity)
+        if key not in self._records:
+            name = native.name or alias
+            if not name:
+                raise NativeImportError("anonymous native record requires a named typedef")
+            declaration = ast.StructDecl(name=name, fields=[], is_forward=True)
+            spelling = f"{native.record_kind} {native.name}" if native.name else alias
+            self._add(name, declaration, (native.identity, native.record_kind), spelling)
+            self._records[key] = declaration
+        declaration = self._records[key]
+        if not native.opaque and declaration.is_forward:
+            layout = self._layouts[native.identity]
+            if layout.record_kind != "struct" or layout.record_kind != native.record_kind:
+                raise NativeImportError("native union values require native-type lowering")
+            # Register the owner before walking fields so recursive pointers
+            # share its identity without recursively copying its layout.
+            declaration.is_forward = False
+            for field in layout.fields:
+                if field.is_anonymous or field.is_bitfield or not field.name:
+                    raise NativeImportError("anonymous fields and bitfields require native-type lowering")
+                declaration.fields.append(ast.FieldDef(name=field.name, type=self._type(field.field_type)))
+        return ast.TypeExpr(base=declaration.name)
 
     def _type(self, native):
         if isinstance(native, NativeBuiltin):
@@ -153,21 +181,29 @@ class NativeDeclarationImporter:
                 raise NativeImportError(f"unsupported native scalar {native.name!r}")
             projected = ast.TypeExpr(base=native.name)
         elif isinstance(native, NativeAlias):
-            original = self._type(native.underlying)
-            self._add(native.name, ast.TypedefDecl(original=original, alias=native.name), native.underlying)
+            original = (
+                self._qualify(self._record(native.underlying, native.name), native.underlying)
+                if isinstance(native.underlying, NativeRecordType)
+                else self._type(native.underlying)
+            )
+            if original.base != native.name:
+                self._add(native.name, ast.TypedefDecl(original=original, alias=native.name), native.underlying)
             projected = ast.TypeExpr(base=native.name)
         elif isinstance(native, NativePointer):
-            pointee = self._type(native.pointee)
-            projected = replace(pointee, pointer_depth=pointee.pointer_depth + 1)
+            if isinstance(native.pointee, NativeFunctionType):
+                function = native.pointee
+                if function.variadic:
+                    raise NativeImportError("variadic native callbacks require adapter lowering")
+                projected = ast.TypeExpr(
+                    base="__fn_ptr",
+                    generic_args=[self._type(function.return_type), *(self._type(t) for t in function.parameters)],
+                )
+                projected = self._qualify(projected, function)
+            else:
+                pointee = self._type(native.pointee)
+                projected = replace(pointee, pointer_depth=pointee.pointer_depth + 1)
         elif isinstance(native, NativeRecordType):
-            if not native.opaque or not native.name:
-                raise NativeImportError("native record values require native-type lowering")
-            self._add(
-                native.name,
-                ast.StructDecl(name=native.name, fields=[], is_forward=True),
-                replace(native, qualifiers=NativeQualifiers()),
-            )
-            projected = ast.TypeExpr(base=native.name)
+            projected = self._record(native)
         elif isinstance(native, NativeQualifiedType):
             projected = self._type(native.underlying)
             if native.qualifiers != native.underlying.qualifiers:
@@ -207,8 +243,12 @@ class NativeDeclarationImporter:
                 initializer=ast.IntLiteral(value=int(declaration.decimal_value), raw=declaration.decimal_value),
             )
         elif isinstance(declaration, NativeTypedef):
-            imported = ast.TypedefDecl(alias=declaration.name, original=self._type(declaration.underlying))
-            self._add(declaration.name, imported, declaration.underlying)
+            self._type(
+                NativeAlias(name=declaration.name, underlying=declaration.underlying, qualifiers=NativeQualifiers())
+            )
+            return
+        elif isinstance(declaration, NativeRecordDeclaration):
+            self._type(declaration.record_type)
             return
         else:
             raise NativeImportError("selected native records require native-type lowering")
@@ -337,7 +377,7 @@ class NativeHeaderCodec:
             "builtin": ({"name"}, {"bits", "alignment_bits", "signed"}),
             "pointer": ({"pointee"}, set()),
             "typedef": ({"name", "underlying"}, set()),
-            "record": ({"name", "identity", "complete", "opaque"}, set()),
+            "record": ({"name", "identity", "record_kind", "complete", "opaque"}, set()),
             "enum": ({"name", "identity", "underlying"}, set()),
             "function": ({"return_type", "parameters", "variadic", "calling_convention"}, set()),
             "array": ({"element", "count"}, set()),
@@ -385,6 +425,7 @@ class NativeHeaderCodec:
             return NativeRecordType(
                 name=self._text(value["name"], empty=True),
                 identity=self._text(value["identity"]),
+                record_kind=self._choice(value["record_kind"], {"struct", "union"}),
                 complete=complete,
                 opaque=opaque,
                 qualifiers=qualifiers,

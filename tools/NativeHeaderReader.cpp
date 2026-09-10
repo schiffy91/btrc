@@ -88,6 +88,7 @@ class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader>
 			result["kind"] = "record";
 			result["name"] = record->getDecl()->getQualifiedNameAsString();
 			result["identity"] = requestRecord(record->getDecl(), indirect);
+			result["record_kind"] = record->getDecl()->isUnion() ? "union" : "struct";
 			result["complete"] = record->getDecl()->getDefinition() != nullptr;
 			result["opaque"] = indirect;
 		} else if (const auto* array = llvm::dyn_cast<clang::ConstantArrayType>(node)) {

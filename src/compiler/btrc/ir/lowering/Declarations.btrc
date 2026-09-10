@@ -209,7 +209,7 @@ class DeclarationLowerer {
 		Vector<Node> ordered = DeclarationValidator.orderedStructDefinitions(prog, self.analyzed.structTable);
 		int index = 0;
 		while (index < ordered.len) {
-			self.emitStructDecl(ordered.get(index), m);
+			if (!self.analyzed.isNativeDeclaration(ordered.get(index))) { self.emitStructDecl(ordered.get(index), m); }
 			index = index + 1;
 		}
 	}
@@ -1308,6 +1308,10 @@ class DeclarationLowerer {
 		int i = 0;
 		while (i < prog.declarations.len) {
 			Node d = prog.declarations.get(i);
+			if (self.analyzed.isNativeDeclaration(d)) {
+				i++;
+				continue;
+			}
 			if ((d.kind == NK_CLASS_DECL && d.genericParams.len == 0) || d.kind == NK_STRUCT_DECL || d.kind == NK_RICH_ENUM_DECL) {
 				/* Both non-generic classes and raw structs get a typed forward
                  * so a function prototype can name `struct X*` before X is

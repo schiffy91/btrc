@@ -117,6 +117,8 @@ class CTypeLowerer {
 		else if (base == "byte") { rendered = "unsigned char"; }
 		else if (base == "uint") { rendered = "unsigned int"; }
 
+		string nativeSpelling = self.analyzed.nativeTypeSpelling(base);
+		if (!nativeSpelling.isEmpty()) { rendered = nativeSpelling; }
 		int depth = concrete.pointerDepth;
 		bool baseIsReference = rendered.endsWith("*") || base == "__fn_ptr" || base == "__realtime_fn_ptr" || self.aliasBaseIsReference(base);
 		if (TypeComposition.nullableCollapsesReferenceLayer(concrete, baseIsReference)) {
@@ -198,7 +200,7 @@ class CTypeLowerer {
 		int index = 0;
 		while (index < program.declarations.len) {
 			Node declaration = program.declarations.get(index);
-			if (declaration.kind == NK_TYPEDEF_DECL) {
+			if (declaration.kind == NK_TYPEDEF_DECL && !self.analyzed.isNativeDeclaration(declaration)) {
 				declarations.put(declaration.alias, declaration);
 				sourceOrder.push(declaration.alias);
 			}

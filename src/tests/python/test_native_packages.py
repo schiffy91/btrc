@@ -57,7 +57,8 @@ _BINDING = (
 )
 
 
-def test_native_binding_is_owned_by_loaded_module_and_target(tmp_path: Path) -> None:
+def test_native_binding_is_owned_by_loaded_module_and_target(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("BTRC_NATIVE_HEADER_READER", raising=False)
     source = _binding_package(tmp_path, _BINDING + 'os = ["macos"]\n')
     resolved = PackageUniverse().resolve_for(str(source), target="macos-aarch64")
     assert resolved.native_plan.for_sources([str(source)]).bindings == ()

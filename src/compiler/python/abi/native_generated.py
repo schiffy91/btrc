@@ -87,6 +87,7 @@ class NativeAlias:
 class NativeRecordType:
     name: str = ""
     identity: str = ""
+    record_kind: str = ""
     complete: bool = False
     opaque: bool = False
     qualifiers: NativeQualifiers

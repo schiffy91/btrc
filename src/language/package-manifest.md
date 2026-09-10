@@ -124,7 +124,7 @@ their target predicates overlap, including inactive targets; disjoint providers
 are allowed. Bindings participate in manifest locking but are compiler inputs,
 not schema-1 linker records or native source units.
 
-The reference consumer requires explicit `BTRC_NATIVE_HEADER_READER` (built with
+Both compiler consumers require explicit `BTRC_NATIVE_HEADER_READER` (built with
 `nix build .#btrc-native-header`), `BTRC_NATIVE_SYSROOT` (an available macOS SDK),
 and `BTRC_NATIVE_TARGET` (a matching full triple, e.g. `arm64-apple-macosx14.0.0`).
 It imports C scalar/typedef/opaque-pointer signatures, constants and SDK parameter

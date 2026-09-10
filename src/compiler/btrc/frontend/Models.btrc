@@ -155,10 +155,12 @@ class FeNativeImportedDeclaration {
 	public Node declaration;
 	public string module;
 	public string header;
-	public FeNativeImportedDeclaration(Node declaration, string module, string header) {
+	public string typeSpelling;
+	public FeNativeImportedDeclaration(Node declaration, string module, string header, string typeSpelling = "") {
 		self.declaration = declaration;
 		self.module = module;
 		self.header = header;
+		self.typeSpelling = typeSpelling;
 	}
 }
 

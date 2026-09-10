@@ -51,6 +51,7 @@ class NativeNode {
 	public NativeNode qualifiers;
 	public NativeNode pointee;
 	public string identity;
+	public string recordKind;
 	public bool complete;
 	public bool opaque;
 	public NativeNode returnType;
@@ -65,7 +66,6 @@ class NativeNode {
 	public string nullability;
 	public bool cfConsumed;
 	public bool nsConsumed;
-	public string recordKind;
 	public string sizeBits;
 	public string alignmentBitsString;
 	public Vector<NativeNode> fields;
@@ -101,6 +101,7 @@ class NativeNode {
 		self.qualifiers = null;
 		self.pointee = null;
 		self.identity = "";
+		self.recordKind = "";
 		self.complete = false;
 		self.opaque = false;
 		self.returnType = null;
@@ -115,7 +116,6 @@ class NativeNode {
 		self.nullability = "";
 		self.cfConsumed = false;
 		self.nsConsumed = false;
-		self.recordKind = "";
 		self.sizeBits = "";
 		self.alignmentBitsString = "";
 		self.fields = [];
