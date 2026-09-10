@@ -206,8 +206,8 @@ def test_malformed_imports_are_not_removed_before_parsing(
     assert reference.returncode != 0
 
 
-@pytest.mark.parametrize("directive", ["import std . math", "import std . { math }"])
-def test_spaced_std_imports_follow_the_grammar(
+@pytest.mark.parametrize("directive", ["import Library . Math", "import Library . { Math }"])
+def test_spaced_library_imports_follow_the_grammar(
     semantic_btrcc: Path,
     tmp_path: Path,
     directive: str,
@@ -239,7 +239,7 @@ def test_quoted_import_uses_the_lexer_payload(
 
 @pytest.mark.parametrize(
     "directive",
-    ["import Library.{\n Math,\n Vector\n}", "import std .\n math"],
+    ["import Library.{\n Math,\n Vector\n}", "import Library .\n Math"],
 )
 def test_multiline_imports_follow_the_whitespace_insensitive_grammar(
     semantic_btrcc: Path,
