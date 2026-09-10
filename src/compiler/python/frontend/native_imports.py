@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
+from dataclasses import replace
+
+from ..syntax.ast import generated as ast
+from .packages import IncludeResolutionError, NativeLinkPlan
 
 from ..abi.native_generated import (
     NativeAlias,
@@ -28,6 +34,169 @@ from ..abi.native_generated import (
 
 class NativeImportError(ValueError):
     """The native reader returned unsupported or inconsistent semantics."""
+
+
+class NativeHeaderSource(str):
+    """Module provenance plus the SDK header that owns the native declaration."""
+
+    def __new__(cls, module: str, header: str):
+        value = super().__new__(cls, module)
+        value.header = header
+        return value
+
+
+class NativeDeclarationImporter:
+    """Import selected C declarations into the normal typed compiler pipeline.
+
+    This first consumer supports only lossless source-type projections. Managed
+    ownership and richer native types must be implemented before broad migration.
+    """
+
+    def __init__(self):
+        self._declarations = {}
+        self._native_types = {}
+        self._origin = None
+
+    def resolve(self, plan: NativeLinkPlan) -> tuple:
+        if not plan.bindings:
+            return ()
+        reader = os.environ.get("BTRC_NATIVE_HEADER_READER")
+        if not reader:
+            plan.require_resolved_bindings()
+        target = os.environ.get("BTRC_NATIVE_TARGET", "")
+        sysroot = os.environ.get("BTRC_NATIVE_SYSROOT", "")
+        architecture = "arm64" if plan.target.architecture == "aarch64" else "x86_64"
+        if plan.target.operating_system != "macos" or not re.fullmatch(
+            rf"{architecture}-apple-macosx[0-9]+\.[0-9]+\.[0-9]+", target
+        ):
+            raise IncludeResolutionError(
+                "experimental native imports require an explicit matching macOS BTRC_NATIVE_TARGET triple"
+            )
+        if not os.path.isdir(sysroot):
+            raise IncludeResolutionError("native imports require an explicit available BTRC_NATIVE_SYSROOT")
+        for binding in plan.bindings:
+            self._origin = NativeHeaderSource(binding.module, binding.header)
+            if binding.language != "c":
+                raise IncludeResolutionError(f"{binding.module}: Objective-C/C++ call adapters are not implemented")
+            arguments = [
+                reader,
+                *(f"--symbol={name}" for name in binding.symbols),
+                binding.header,
+                "--",
+                "-x",
+                "c",
+                f"-std={binding.standard}",
+                f"--target={target}",
+                "-isysroot",
+                sysroot,
+            ]
+            for declaration in plan.declarations:
+                if not declaration.selected_for(plan.target):
+                    continue
+                if declaration.kind == "include-directory":
+                    arguments.extend(("-I", declaration.value))
+                elif declaration.kind == "define":
+                    arguments.append(f"-D{declaration.value}={declaration.detail}")
+            try:
+                result = subprocess.run(arguments, capture_output=True, text=True, timeout=60, check=False)
+                if result.returncode:
+                    raise NativeImportError(result.stderr.strip() or "native header reader failed")
+                header = NativeHeaderCodec().decode(result.stdout, expected_target=target)
+                for declaration in header.exports:
+                    self._import(declaration)
+            except (OSError, subprocess.TimeoutExpired, NativeImportError) as error:
+                raise IncludeResolutionError(f"{binding.module}: {error}") from error
+        return tuple(self._declarations.values())
+
+    def _add(self, name, declaration, native_type=None):
+        key = (str(self._origin), name)
+        if key in self._declarations:
+            if self._native_types.get(key) != native_type:
+                raise NativeImportError(f"conflicting native declaration {name!r}")
+            return
+        declaration.source_file = self._origin
+        self._declarations[key] = declaration
+        self._native_types[key] = native_type
+
+    def _qualify(self, projected, native):
+        qualifiers = native.qualifiers
+        if qualifiers.is_restrict or qualifiers.is_volatile or qualifiers.nullability != "unannotated":
+            raise NativeImportError("native qualifier requires native-type lowering; refusing a lossy projection")
+        if qualifiers.is_const and isinstance(native, (NativePointer, NativeAlias)):
+            raise NativeImportError("pointer/alias const requires native-type lowering; refusing a lossy projection")
+        return replace(projected, is_const=projected.is_const or qualifiers.is_const)
+
+    def _type(self, native):
+        if isinstance(native, NativeBuiltin):
+            if native.name not in {
+                "void",
+                "char",
+                "signed char",
+                "unsigned char",
+                "short",
+                "unsigned short",
+                "int",
+                "unsigned int",
+                "long",
+                "unsigned long",
+                "long long",
+                "unsigned long long",
+                "float",
+                "double",
+            }:
+                raise NativeImportError(f"unsupported native scalar {native.name!r}")
+            projected = ast.TypeExpr(base=native.name)
+        elif isinstance(native, NativeAlias):
+            original = self._type(native.underlying)
+            self._add(native.name, ast.TypedefDecl(original=original, alias=native.name), native.underlying)
+            projected = ast.TypeExpr(base=native.name)
+        elif isinstance(native, NativePointer):
+            pointee = self._type(native.pointee)
+            projected = replace(pointee, pointer_depth=pointee.pointer_depth + 1)
+        elif isinstance(native, NativeRecordType):
+            if not native.opaque or not native.name:
+                raise NativeImportError("native record values require native-type lowering")
+            self._add(
+                native.name,
+                ast.StructDecl(name=native.name, fields=[], is_forward=True),
+                replace(native, qualifiers=NativeQualifiers()),
+            )
+            projected = ast.TypeExpr(base=native.name)
+        elif isinstance(native, NativeQualifiedType):
+            projected = self._type(native.underlying)
+            if native.qualifiers != native.underlying.qualifiers:
+                raise NativeImportError("qualified native wrapper requires native-type lowering")
+        else:
+            raise NativeImportError(f"{type(native).__name__} requires native-type lowering")
+        return self._qualify(projected, native)
+
+    def _import(self, declaration):
+        if isinstance(declaration, NativeFunction):
+            signature = declaration.signature
+            if signature.variadic or declaration.link_name != declaration.name:
+                raise NativeImportError("variadic/renamed native calls require adapter lowering")
+            if declaration.returned_ownership != "unspecified" or any(
+                parameter.cf_consumed or parameter.ns_consumed for parameter in declaration.parameter_semantics
+            ):
+                raise NativeImportError("annotated native ownership requires managed native lowering")
+            parameters = [
+                ast.Param(type=self._type(native), name=f"argument{index}")
+                for index, native in enumerate(signature.parameters)
+            ]
+            imported = ast.FunctionDecl(
+                name=declaration.name, return_type=self._type(signature.return_type), params=parameters, body=None
+            )
+        elif isinstance(declaration, NativeConstant):
+            imported = ast.VarDeclStmt(
+                type=replace(self._type(declaration.value_type), is_const=True),
+                name=declaration.name,
+                initializer=ast.IntLiteral(value=int(declaration.decimal_value), raw=declaration.decimal_value),
+            )
+        elif isinstance(declaration, NativeTypedef):
+            imported = ast.TypedefDecl(alias=declaration.name, original=self._type(declaration.underlying))
+        else:
+            raise NativeImportError("selected native records require native-type lowering")
+        self._add(declaration.name, imported, declaration)
 
 
 class NativeHeaderCodec:

@@ -182,6 +182,9 @@ class FrontendStage:
             self._stamp_declaration_files(program.declarations, source, "combined")
             self._timed(profile, "parse", start)
 
+        if source.native_declarations:
+            program.declarations = list(source.native_declarations) + program.declarations
+
         if source.strict_imports:
             errors = ImportVisibilityChecker(
                 program,

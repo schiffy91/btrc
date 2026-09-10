@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..frontend.native_imports import NativeHeaderSource
+
 import sys
 from dataclasses import replace
 
@@ -810,10 +812,15 @@ class DeclarationRegistry:
                 f"{subject} name '{name}' uses the compiler-reserved '{reserved_prefix}' prefix", line, col
             )
             return False
-        if self.c_reserved_identifier(name) and (not (allow_magic and self.is_magic_method_name(name))):
+        native_import = isinstance(self.session.current_source_file, NativeHeaderSource)
+        if (
+            self.c_reserved_identifier(name)
+            and not native_import
+            and (not (allow_magic and self.is_magic_method_name(name)))
+        ):
             self.session.error(f"{subject} name '{name}' is reserved by C11", line, col)
             return False
-        if file_scope and self.c_file_scope_reserved_identifier(name):
+        if file_scope and self.c_file_scope_reserved_identifier(name) and not native_import:
             self.session.error(f"{subject} name '{name}' is reserved by C11 at file scope", line, col)
             return False
         return True

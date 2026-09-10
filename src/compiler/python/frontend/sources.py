@@ -24,6 +24,7 @@ from ..parser.parser import Parser
 from ..syntax.ast.codec import AstJsonCodec
 from ..syntax.tokens import SourceSymbolDirective, Token, TokenKind
 from .packages import IncludeResolutionError, NativeLinkPlan, PackageUniverse
+from .native_imports import NativeDeclarationImporter
 
 
 class CompilerStdlibSource(str):
@@ -244,6 +245,7 @@ class ResolvedSource:
     strict_imports: bool = True
     root_source_path: str = ""
     native_plan: NativeLinkPlan = field(default_factory=NativeLinkPlan.empty)
+    native_declarations: tuple = ()
 
     def source_map(self, *, split_spaces: bool) -> SourceMap:
         """Return the immutable source map used by IR lowering."""
@@ -1000,7 +1002,7 @@ class SourceResolver:
 
         full_source = f"{stdlib_source}\n{user_source}" if stdlib_source else user_source
         native_plan = packages.native_plan.for_sources(graph.source_paths())
-        native_plan.require_resolved_bindings()
+        native_declarations = NativeDeclarationImporter().resolve(native_plan)
         background_jobs_module = os.path.join(
             self.stdlib.directory(),
             "BackgroundJobs.btrc",
@@ -1026,6 +1028,7 @@ class SourceResolver:
             strict_imports=strict_imports,
             root_source_path=os.path.realpath(source_path),
             native_plan=native_plan,
+            native_declarations=native_declarations,
         )
 
     def resolve_includes(

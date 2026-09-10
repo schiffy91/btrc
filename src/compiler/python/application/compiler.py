@@ -161,7 +161,8 @@ class Compiler:
                 failure=CompilerFailure(CompilerFailureKind.PACKAGE, str(error)),
                 profile=CompilerResult.profile_snapshot(profile),
             )
-        cache_inputs = self._cache_inputs(resolved) if options.cacheable else None
+        # SDK transitive headers/toolchain identity are not in the artifact key yet.
+        cache_inputs = self._cache_inputs(resolved) if options.cacheable and not resolved.native_plan.bindings else None
 
         if cache_inputs is not None:
             cached = self.cache.load_text(

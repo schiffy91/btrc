@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from src.compiler.python.analyzer.storage import StorageModel
 from src.compiler.python.analyzer.types import TypeIdentity, TypeSystem
+from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.ir.nodes import (
     CType,
     IRBinOp,
@@ -188,6 +189,12 @@ class TranslationUnitLowerer:
             self._session.module.preprocessor_decls.extend(IRMacroDef(name=name) for name in _STANDARD_FEATURE_MACROS)
             self._session.module.preprocessor_decls.extend(IRInclude(header=header) for header in _STANDARD_INCLUDES)
         self._preprocessor_prefix_end = len(self._session.module.preprocessor_decls)
+        headers = dict.fromkeys(
+            declaration.source_file.header
+            for declaration in self._analyzed.program.declarations
+            if isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
+        )
+        self._session.module.preprocessor_decls.extend(IRInclude(header=header, is_system=False) for header in headers)
 
     def _emit_forward_decls(self):
         """Collect typed type and callable declarations."""
@@ -262,6 +269,8 @@ class TranslationUnitLowerer:
         emitted_globals = set()
         declarations = self._analyzed.program.declarations
         for decl in declarations:
+            if isinstance(getattr(decl, "source_file", None), NativeHeaderSource):
+                continue
             if isinstance(decl, ImportDecl):
                 continue
             if isinstance(decl, ClassDecl):
