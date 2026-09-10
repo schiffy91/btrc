@@ -90,7 +90,9 @@ def native_compile(request):
 
 
 @pytest.mark.parametrize("sanitized", [False, True])
-def test_corefoundation_create_query_release_without_signature_wrappers(native_project, tmp_path, sanitized, native_compile):
+def test_corefoundation_create_query_release_without_signature_wrappers(
+    native_project, tmp_path, sanitized, native_compile
+):
     source, sdk, triple = native_project
     result = native_compile(source)
     assert result.successful, result.failure
