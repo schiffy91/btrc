@@ -40,6 +40,7 @@ class CompilerPipeline {
 		FeFrontendResolver resolver = FeFrontendResolver(self.grammar, self.stdlib, options.includeStdlib, options.strictImports, packages);
 		FeResolvedSource resolved = resolver.resolve(source, sourcePath);
 		packages.linkPlan.restrictToSources(resolved.dependencies.sourceIdentities());
+		packages.linkPlan.requireResolvedBindings();
 		string backgroundJobsModule = PathTools.join(self.stdlib.directory(), "BackgroundJobs.btrc");
 		if (resolved.dependencies.hasSource(FeSourcePathPolicy().identity(backgroundJobsModule))) {
 			packages.linkPlan.requireStdlibBackgroundJobs(self.stdlib.directory());

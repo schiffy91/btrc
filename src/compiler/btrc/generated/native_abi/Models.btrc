@@ -1,0 +1,128 @@
+/* ASDL semantic data. No lookup, parsing, lowering or ownership policy.
+ * Generated from src/language/native_abi.asdl by tools/compiler_codegen/ast.py.
+ * DO NOT EDIT BY HAND. */
+
+import Library.Vector;
+
+enum NativeNodeKind {
+	NNK_NONE = 0,
+	NNK_NATIVE_HEADER,
+	NNK_NATIVE_FUNCTION,
+	NNK_NATIVE_TYPEDEF,
+	NNK_NATIVE_CONSTANT,
+	NNK_NATIVE_RECORD_DECLARATION,
+	NNK_NATIVE_BUILTIN,
+	NNK_NATIVE_POINTER,
+	NNK_NATIVE_ALIAS,
+	NNK_NATIVE_RECORD_TYPE,
+	NNK_NATIVE_ENUM_TYPE,
+	NNK_NATIVE_FUNCTION_TYPE,
+	NNK_NATIVE_ARRAY_TYPE,
+	NNK_NATIVE_QUALIFIED_TYPE,
+	NNK_NATIVE_QUALIFIERS,
+	NNK_NATIVE_PARAMETER_SEMANTICS,
+	NNK_NATIVE_RECORD_LAYOUT,
+	NNK_NATIVE_FIELD,
+};
+
+class NativeNode {
+	public int kind;
+	public string targetTriple;
+	public string compilerVersion;
+	public bool bigEndian;
+	public int characterBits;
+	public Vector<NativeNode> exports;
+	public Vector<NativeNode> records;
+	public string name;
+	public string linkName;
+	public NativeNode signature;
+	public Vector<NativeNode> parameterSemantics;
+	public string returnedOwnership;
+	public string sourceFile;
+	public int line;
+	public int column;
+	public NativeNode underlying;
+	public NativeNode valueType;
+	public string decimalValue;
+	public NativeNode recordType;
+	public int bits;
+	public int alignmentBitsInt;
+	public string signedness;
+	public NativeNode qualifiers;
+	public NativeNode pointee;
+	public string identity;
+	public bool complete;
+	public bool opaque;
+	public NativeNode returnType;
+	public Vector<NativeNode> parameters;
+	public bool variadic;
+	public string callingConvention;
+	public NativeNode element;
+	public string? count;
+	public bool isConst;
+	public bool isVolatile;
+	public bool isRestrict;
+	public string nullability;
+	public bool cfConsumed;
+	public bool nsConsumed;
+	public string recordKind;
+	public string sizeBits;
+	public string alignmentBitsString;
+	public Vector<NativeNode> fields;
+	public NativeNode fieldType;
+	public string offsetBits;
+	public bool isAnonymous;
+	public bool isBitfield;
+	public string widthBits;
+
+	public NativeNode() {
+		self.kind = NNK_NONE;
+		self.targetTriple = "";
+		self.compilerVersion = "";
+		self.bigEndian = false;
+		self.characterBits = 0;
+		self.exports = [];
+		self.records = [];
+		self.name = "";
+		self.linkName = "";
+		self.signature = null;
+		self.parameterSemantics = [];
+		self.returnedOwnership = "";
+		self.sourceFile = "";
+		self.line = 0;
+		self.column = 0;
+		self.underlying = null;
+		self.valueType = null;
+		self.decimalValue = "";
+		self.recordType = null;
+		self.bits = 0;
+		self.alignmentBitsInt = 0;
+		self.signedness = "";
+		self.qualifiers = null;
+		self.pointee = null;
+		self.identity = "";
+		self.complete = false;
+		self.opaque = false;
+		self.returnType = null;
+		self.parameters = [];
+		self.variadic = false;
+		self.callingConvention = "";
+		self.element = null;
+		self.count = null;
+		self.isConst = false;
+		self.isVolatile = false;
+		self.isRestrict = false;
+		self.nullability = "";
+		self.cfConsumed = false;
+		self.nsConsumed = false;
+		self.recordKind = "";
+		self.sizeBits = "";
+		self.alignmentBitsString = "";
+		self.fields = [];
+		self.fieldType = null;
+		self.offsetBits = "";
+		self.isAnonymous = false;
+		self.isBitfield = false;
+		self.widthBits = "";
+	}
+}

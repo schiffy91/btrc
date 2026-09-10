@@ -38,15 +38,23 @@ class PythonAstRenderer:
         "bool": "False",
     }
 
-    def __init__(self, schema: AsdlModule):
+    def __init__(
+        self,
+        schema: AsdlModule,
+        *,
+        schema_path: str = "src/language/ast.asdl",
+        description: str = "AST node definitions for the btrc language.",
+    ):
         self._schema = schema
+        self._schema_path = schema_path
+        self._description = description
         self._type_names = self._build_type_name_map()
 
     def render(self) -> str:
         lines = [
-            '"""AST node definitions for the btrc language.',
+            '"""' + self._description,
             "",
-            "Auto-generated from src/language/ast.asdl by tools/compiler_codegen/ast.py.",
+            f"Auto-generated from {self._schema_path} by tools/compiler_codegen/ast.py.",
             "DO NOT EDIT BY HAND.",
             '"""',
             "",
@@ -182,16 +190,27 @@ class BtrcAstRenderer:
     }
     _SCALAR_TYPES = frozenset({"int", "bool", "string", "float"})
 
-    def __init__(self, schema: AsdlModule, keywords: frozenset[str]):
+    def __init__(
+        self,
+        schema: AsdlModule,
+        keywords: frozenset[str],
+        *,
+        node_name: str = "Node",
+        kind_prefix: str = "NK_",
+        schema_path: str = "src/language/ast.asdl",
+    ):
         self._schema = schema
         self._keywords = keywords
+        self._node_name = node_name
+        self._kind_prefix = kind_prefix
+        self._schema_path = schema_path
         self._type_names = self._build_type_name_map()
 
     def render(self) -> str:
         lines = [
             "/* Self-hosted btrc AST — fat tagged node.",
             " *",
-            " * Auto-generated from src/language/ast.asdl by tools/compiler_codegen/ast.py.",
+            f" * Auto-generated from {self._schema_path} by tools/compiler_codegen/ast.py.",
             " * DO NOT EDIT BY HAND. btrc lacks dynamic dispatch/downcast, so the AST",
             " * is one Node with a `kind` tag + the union of all fields.",
             " * This file contains data/schema declarations only; canonical formatting",
@@ -201,15 +220,24 @@ class BtrcAstRenderer:
             "import Library.Vector;",
             "",
         ]
+        if self._node_name != "Node":
+            lines = [
+                "/* ASDL semantic data. No lookup, parsing, lowering or ownership policy.",
+                f" * Generated from {self._schema_path} by tools/compiler_codegen/ast.py.",
+                " * DO NOT EDIT BY HAND. */",
+                "",
+                "import Library.Vector;",
+                "",
+            ]
         self._emit_node_kind_enum(lines)
         self._emit_simple_enums(lines)
         declarations = self._build_declarations()
 
-        lines.append("class Node {")
+        lines.append(f"class {self._node_name} {{")
         lines.append("    public int kind;")
         for declaration in declarations:
             lines.append(f"    public {declaration.declared_type} {declaration.name};")
-        lines.extend(("", "    public Node() {", "        self.kind = NK_NONE;"))
+        lines.extend(("", f"    public {self._node_name}() {{", f"        self.kind = {self._kind_prefix}NONE;"))
         for declaration in declarations:
             lines.append(f"        self.{declaration.name} = {declaration.initializer};")
         lines.extend(("    }", "}"))
@@ -275,8 +303,8 @@ class BtrcAstRenderer:
             inner = btrc_type[len("List<") : -1]
             if inner == "string":
                 return "strlist", "Vector<string>"
-            return "nodelist", "Vector<Node>"
-        return "node", "Node"
+            return "nodelist", f"Vector<{self._node_name}>"
+        return "node", self._node_name
 
     def _variant_suffix(self, category: str, declared_type: str) -> str:
         if category == "scalar":
@@ -299,12 +327,12 @@ class BtrcAstRenderer:
         return f"{name}_{self._variant_suffix(category, declared_type)}"
 
     def _emit_node_kind_enum(self, lines: list[str]) -> None:
-        lines.extend(("enum NodeKind {", "    NK_NONE = 0,"))
+        lines.extend((f"enum {self._node_name}Kind {{", f"    {self._kind_prefix}NONE = 0,"))
         for schema_type in self._schema.types:
             if self._is_simple_enum(schema_type):
                 continue
             for constructor in schema_type.constructors:
-                lines.append(f"    NK_{self._to_screaming_snake(constructor.name)},")
+                lines.append(f"    {self._kind_prefix}{self._to_screaming_snake(constructor.name)},")
         lines.extend(("};", ""))
 
     def _emit_simple_enums(self, lines: list[str]) -> None:
@@ -355,9 +383,9 @@ class BtrcAstRenderer:
             "bool": "false",
             "string": '""',
             "float": "0.0",
-            "Vector<Node>": "[]",
+            f"Vector<{self._node_name}>": "[]",
             "Vector<string>": "[]",
-            "Node": "null",
+            self._node_name: "null",
         }
         for plan in constructors:
             for field in plan.fields:
@@ -498,6 +526,30 @@ class BtrcCanonicalRendererContract:
     ) -> None:
         raise GeneratedSourceError(
             f"AstCanonicalRenderer {subject} differ from ast.asdl: expected {expected!r}, got {actual!r}"
+        )
+
+
+class NativeAbiCatalogGenerator:
+    """Generate the same native semantic model for both compiler frontends."""
+
+    def __init__(self, repository_root: Path):
+        self._repository_root = repository_root
+
+    def artifacts(self) -> tuple[GeneratedArtifact, ...]:
+        schema_path = "src/language/native_abi.asdl"
+        schema = AsdlSchemaParser((self._repository_root / schema_path).read_text(encoding="utf-8")).parse()
+        grammar = GrammarRepository(str(self._repository_root / "src/language/grammar.ebnf")).load()
+        python_path = PurePosixPath("src/compiler/python/abi/native_generated.py")
+        btrc_path = PurePosixPath("src/compiler/btrc/generated/native_abi/Models.btrc")
+        python = PythonAstRenderer(
+            schema, schema_path=schema_path, description="Native header semantic data for BTRC."
+        ).render()
+        btrc = BtrcAstRenderer(
+            schema, grammar.keywords, node_name="NativeNode", kind_prefix="NNK_", schema_path=schema_path
+        ).render()
+        return (
+            GeneratedArtifact(python_path, python.encode("utf-8")),
+            GeneratedArtifact(btrc_path, format_generated_btrc(btrc, btrc_path)),
         )
 
 

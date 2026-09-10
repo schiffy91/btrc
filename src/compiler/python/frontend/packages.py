@@ -45,6 +45,7 @@ NATIVE_LINK_PLAN_SCHEMA = 1
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _MODULE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$")
 _NATIVE_NAME = re.compile(r"^[A-Za-z0-9_.+-]+$")
+_NATIVE_SYMBOL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _TARGET_OPERATING_SYSTEMS = frozenset({"linux", "macos", "windows"})
@@ -240,6 +241,41 @@ class NativeDeclaration:
 
 
 @dataclass(frozen=True)
+class NativeBinding:
+    """A header import owned by one BTRC module, not a handwritten ABI."""
+
+    package: str
+    module: str
+    header: str
+    language: str
+    standard: str
+    symbols: tuple[str, ...]
+    operating_systems: tuple[str, ...] = ()
+    architectures: tuple[str, ...] = ()
+
+    def selected_for(self, target: PackageTarget) -> bool:
+        return (not self.operating_systems or target.operating_system in self.operating_systems) and (
+            not self.architectures or target.architecture in self.architectures
+        )
+
+    def overlaps(self, other: NativeBinding) -> bool:
+        return (
+            self.module == other.module
+            and bool(set(self.symbols) & set(other.symbols))
+            and (
+                not self.operating_systems
+                or not other.operating_systems
+                or bool(set(self.operating_systems) & set(other.operating_systems))
+            )
+            and (
+                not self.architectures
+                or not other.architectures
+                or bool(set(self.architectures) & set(other.architectures))
+            )
+        )
+
+
+@dataclass(frozen=True)
 class PackageNode:
     """One package identity with dependency-local aliases."""
 
@@ -249,6 +285,7 @@ class PackageNode:
     source: Mapping[str, str]
     manifest_hash: str
     native: tuple[NativeDeclaration, ...] = ()
+    bindings: tuple[NativeBinding, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "dependencies", MappingProxyType(dict(self.dependencies)))
@@ -262,6 +299,23 @@ class NativeLinkPlan:
     target: PackageTarget
     packages: tuple[PackageNode, ...] = ()
     declarations: tuple[NativeDeclaration, ...] = ()
+
+    @property
+    def bindings(self) -> tuple[NativeBinding, ...]:
+        """Compiler-only imports; these are not linker units or schema-1 records."""
+        return tuple(
+            binding
+            for package in sorted(self.packages, key=lambda package: package.name)
+            for binding in package.bindings
+            if binding.selected_for(self.target)
+        )
+
+    def require_resolved_bindings(self) -> None:
+        if self.bindings:
+            binding = self.bindings[0]
+            raise IncludeResolutionError(
+                f"native binding for module {binding.module!r} requires typed native import support, which is not implemented yet"
+            )
 
     @classmethod
     def empty(cls, target: PackageTarget | None = None) -> NativeLinkPlan:
@@ -377,6 +431,11 @@ class NativeLinkPlan:
                 package.source,
                 package.manifest_hash,
                 package.native,
+                tuple(
+                    binding
+                    for binding in package.bindings
+                    if self._source_identity(binding.module) in source_identities
+                ),
             )
             for package in self.packages
             if package.name in reached_packages
@@ -642,7 +701,9 @@ class PackageManifestValidator:
     """Validate the closed version-1 manifest model."""
 
     _TOP_LEVEL_FIELDS = frozenset({"manifest-version", "package", "dependencies", "native"})
-    _NATIVE_FIELDS = frozenset({"sources", "headers", "include-directories", "defines", "frameworks", "pkg-config"})
+    _NATIVE_FIELDS = frozenset(
+        {"sources", "headers", "include-directories", "defines", "frameworks", "pkg-config", "bindings"}
+    )
 
     @staticmethod
     def _reject_unknown(value: Mapping, allowed: frozenset[str], context: str) -> None:
@@ -770,7 +831,7 @@ class PackageManifestValidator:
             raise ValueError(f"package manifest {path!r} [native] must be a table")
         self._reject_unknown(native, self._NATIVE_FIELDS, f"package manifest {path!r} [native]")
         declarations: list[NativeDeclaration] = []
-        for field in sorted(self._NATIVE_FIELDS):
+        for field in sorted(self._NATIVE_FIELDS - {"bindings"}):
             entries = native.get(field, [])
             if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
                 raise ValueError(f"package manifest {path!r} native.{field} must be an array of tables")
@@ -852,6 +913,62 @@ class PackageManifestValidator:
                     raise ValueError(f"{context} duplicates an earlier native declaration")
                 declarations.append(declaration)
         return tuple(sorted(declarations))
+
+    def bindings(self, manifest: Mapping, root: str, package: str, path: str) -> tuple[NativeBinding, ...]:
+        entries = manifest.get("native", {}).get("bindings", [])
+        if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
+            raise ValueError(f"package manifest {path!r} native.bindings must be an array of tables")
+        bindings: list[NativeBinding] = []
+        for index, entry in enumerate(entries):
+            context = f"package manifest {path!r} native.bindings[{index}]"
+            self._reject_unknown(
+                entry, frozenset({"module", "header", "symbols", "language", "standard", "os", "arch"}), context
+            )
+            module = entry.get("module")
+            if not isinstance(module, str) or _MODULE_NAME.fullmatch(module) is None:
+                raise ValueError(f"{context}.module must be a dotted module name")
+            (module_path,) = self._module_paths(root, {"modules": [module]}, context)
+            header = self._inside_path(root, entry.get("header"), f"{context}.header", directory=False)
+            symbols = entry.get("symbols")
+            if (
+                not isinstance(symbols, list)
+                or not symbols
+                or not all(isinstance(symbol, str) and _NATIVE_SYMBOL.fullmatch(symbol) for symbol in symbols)
+            ):
+                raise ValueError(f"{context}.symbols must be a non-empty array of qualified native names")
+            if len(set(symbols)) != len(symbols):
+                raise ValueError(f"{context}.symbols contains a duplicate value")
+            language = entry.get("language")
+            standard = entry.get("standard")
+            if not isinstance(language, str) or language not in _SOURCE_STANDARDS:
+                raise ValueError(f"{context}.language is unsupported")
+            if not isinstance(standard, str) or standard not in _SOURCE_STANDARDS[language]:
+                raise ValueError(f"{context}.standard is unsupported for {language}")
+            binding = NativeBinding(
+                package,
+                module_path,
+                header,
+                language,
+                standard,
+                tuple(sorted(symbols)),
+                self._target_values(entry, "os", _TARGET_OPERATING_SYSTEMS, context),
+                self._target_values(entry, "arch", _TARGET_ARCHITECTURES, context),
+            )
+            if any(binding.overlaps(previous) for previous in bindings):
+                raise ValueError(f"{context} overlaps a native binding for the same module and target")
+            bindings.append(binding)
+        return tuple(
+            sorted(
+                bindings,
+                key=lambda binding: (
+                    binding.module,
+                    binding.header,
+                    binding.symbols,
+                    binding.operating_systems,
+                    binding.architectures,
+                ),
+            )
+        )
 
 
 class PackageUniverse:
@@ -1145,6 +1262,7 @@ class PackageUniverse:
             source=source,
             manifest_hash=manifest_hash,
             native=self.manifest_validator.native(manifest, root, name, manifest_path),
+            bindings=self.manifest_validator.bindings(manifest, root, name, manifest_path),
         )
         nodes_by_root[root] = node
         return name

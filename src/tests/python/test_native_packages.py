@@ -14,6 +14,7 @@ from src.compiler.python import Compiler, CompilerOptions
 from src.compiler.python.frontend.packages import (
     NATIVE_LINK_PLAN_SCHEMA,
     PACKAGE_GRAPH_LOCK_SCHEMA,
+    IncludeResolutionError,
     LockfileError,
     PackageUniverse,
 )
@@ -38,6 +39,90 @@ def _compile(source: Path):
         str(source),
         CompilerOptions(include_stdlib=False, use_cache=False, target="linux-x86_64"),
     )
+
+
+def _binding_package(root: Path, binding: str) -> Path:
+    _manifest(root, "bindings", native=binding)
+    (root / "src").mkdir(exist_ok=True)
+    (root / "src/Api.btrc").write_text("// Native wrapper module.\n", encoding="utf-8")
+    (root / "Native.h").write_text("long measure(const char *text);\n", encoding="utf-8")
+    source = root / "src/Main.btrc"
+    source.write_text("int main() { return 0; }\n", encoding="utf-8")
+    return source
+
+
+_BINDING = (
+    '\n[[native.bindings]]\nmodule = "Api"\nheader = "Native.h"\n'
+    'language = "c"\nstandard = "c11"\nsymbols = ["measure"]\n'
+)
+
+
+def test_native_binding_is_owned_by_loaded_module_and_target(tmp_path: Path) -> None:
+    source = _binding_package(tmp_path, _BINDING + 'os = ["macos"]\n')
+    resolved = PackageUniverse().resolve_for(str(source), target="macos-aarch64")
+    assert resolved.native_plan.for_sources([str(source)]).bindings == ()
+    plan = resolved.native_plan.for_sources([str(source), str(tmp_path / "src/Api.btrc")])
+    [binding] = plan.bindings
+    assert binding.package == "bindings"
+    assert binding.module == str(tmp_path / "src/Api.btrc")
+    assert binding.header == str(tmp_path / "Native.h")
+    assert binding.symbols == ("measure",)
+    assert (binding.language, binding.standard) == ("c", "c11")
+    assert "bindings" not in plan.as_dict(), "semantic imports are not linker schema-1 records"
+    linux = PackageUniverse().resolve_for(str(source), target="linux-x86_64")
+    assert linux.native_plan.for_sources([binding.module]).bindings == ()
+    source.write_text("import ./Api.btrc;\nint main() { return 0; }\n", encoding="utf-8")
+    assert _compile(source).successful, "inactive native bindings must not block unrelated targets"
+    macos = Compiler().compile(
+        source.read_text(), str(source), CompilerOptions(include_stdlib=False, use_cache=False, target="macos-aarch64")
+    )
+    assert not macos.successful
+    assert "requires typed native import support" in macos.failure.message
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "message"),
+    [
+        ('module = "Api"', 'module = "Missing"', "unknown module"),
+        ('module = "Api"', 'module = "../Api"', "dotted module"),
+        ('module = "Api"', 'module = ["Api"]', "dotted module"),
+        ('header = "Native.h"', 'header = "Missing.h"', "does not name a file"),
+        ('header = "Native.h"', 'header = "/Native.h"', "package-relative"),
+        ('symbols = ["measure"]', "symbols = []", "non-empty array"),
+        ('symbols = ["measure"]', 'symbols = "measure"', "non-empty array"),
+        ('symbols = ["measure"]', 'symbols = ["measure", "measure"]', "duplicate value"),
+        ('symbols = ["measure"]', 'symbols = ["ns::"]', "qualified native names"),
+        ('symbols = ["measure"]', 'symbols = ["ns:::measure"]', "qualified native names"),
+        ('language = "c"', 'language = "rust"', "language is unsupported"),
+        ('language = "c"', "language = []", "language is unsupported"),
+        ('standard = "c11"', 'standard = "c++17"', "standard is unsupported"),
+        ('standard = "c11"', "standard = {}", "standard is unsupported"),
+        ('header = "Native.h"', 'header = "Native.h"\ncflags = "-DGUESS_ABI"', "unexpected field"),
+    ],
+)
+def test_native_binding_manifest_rejects_invalid_input(tmp_path: Path, before, after, message) -> None:
+    source = _binding_package(tmp_path, _BINDING.replace(before, after))
+    with pytest.raises(IncludeResolutionError, match=message):
+        PackageUniverse().resolve_for(str(source), target="macos-aarch64")
+
+
+def test_native_binding_header_cannot_escape_through_symlink(tmp_path: Path) -> None:
+    root = tmp_path / "package"
+    source = _binding_package(root, _BINDING.replace("Native.h", "Escape.h"))
+    outside = tmp_path / "Outside.h"
+    outside.write_text("int external(void);\n", encoding="utf-8")
+    (root / "Escape.h").symlink_to(outside)
+    with pytest.raises(IncludeResolutionError, match="escapes package root"):
+        PackageUniverse().resolve_for(str(source), target="macos-aarch64")
+
+
+def test_native_bindings_allow_disjoint_providers_not_ambiguous_exports(tmp_path: Path) -> None:
+    source = _binding_package(tmp_path, _BINDING + 'os = ["macos"]\n' + _BINDING + 'os = ["linux"]\n')
+    resolved = PackageUniverse().resolve_for(str(source), target="macos-aarch64")
+    assert len(resolved.native_plan.for_sources([str(tmp_path / "src/Api.btrc")]).bindings) == 1
+    _manifest(tmp_path, "bindings", native=_BINDING + 'arch = ["aarch64"]\n' + _BINDING)
+    with pytest.raises(IncludeResolutionError, match="overlaps a native binding"):
+        PackageUniverse().resolve_for(str(source), target="linux-x86_64")
 
 
 def test_native_plan_is_a_loaded_module_projection(tmp_path: Path) -> None:

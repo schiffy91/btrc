@@ -1000,6 +1000,7 @@ class SourceResolver:
 
         full_source = f"{stdlib_source}\n{user_source}" if stdlib_source else user_source
         native_plan = packages.native_plan.for_sources(graph.source_paths())
+        native_plan.require_resolved_bindings()
         background_jobs_module = os.path.join(
             self.stdlib.directory(),
             "BackgroundJobs.btrc",

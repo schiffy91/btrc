@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from . import GeneratedSourceError
-from .ast import AstCatalogGenerator
+from .ast import AstCatalogGenerator, NativeAbiCatalogGenerator
 from .builtins import BuiltinCatalogGenerator
 from .hosted_abi import HostedAbiCatalogGenerator, HostedAbiManifest
 from .intrinsic_effects import IntrinsicEffectManifest
@@ -111,6 +111,7 @@ class CompilerCodegenCommand:
         return GeneratedSourceSet(
             (
                 *AstCatalogGenerator(self._repository_root).artifacts(),
+                *NativeAbiCatalogGenerator(self._repository_root).artifacts(),
                 *RuntimeCatalogGenerator(runtime, intrinsic_effects).artifacts(),
                 *HostedAbiCatalogGenerator(hosted_abi).artifacts(),
                 *BuiltinCatalogGenerator(self._repository_root).artifacts(),

@@ -1,0 +1,266 @@
+/* Checked native header metadata. This does not lower calls or infer ownership. */
+
+import Library.Json;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
+
+import ../generated/native_abi/Models.btrc;
+
+class FeNativeHeaderCodec {
+	private void fail(string message) { throw f"native header: {message}"; }
+
+	private NativeNode node(int kind) {
+		var result = NativeNode();
+		result.kind = kind;
+		return result;
+	}
+
+	private void fields(JsonValue value, string required, string optional = "") {
+		if (!value.isObject()) { self.fail("expected native object"); }
+		var requiredNames = Strings.split(required, ",");
+		var optionalNames = Strings.split(optional, ",");
+		for name in requiredNames {
+			if (!name.isEmpty() && !value.has(name)) { self.fail(f"missing field '{name}'"); }
+		}
+		for name in value.keys() {
+			if (!requiredNames.contains(name) && !optionalNames.contains(name)) { self.fail(f"unexpected field '{name}'"); }
+		}
+	}
+
+	private string text(JsonValue value, bool empty = false) {
+		if (!value.isString() || (!empty && value.asString().isEmpty())) { self.fail("expected native text"); }
+		return value.asString();
+	}
+
+	private bool boolean(JsonValue value) {
+		if (!value.isBool()) { self.fail("expected native boolean"); }
+		return value.asBool();
+	}
+
+	private int integer(JsonValue value) {
+		if (!value.isInt() || value.asFloat() < 0.0 || value.asFloat() > 2147483647.0) { self.fail("expected nonnegative native int32"); }
+		return value.asInt();
+	}
+
+	private string decimal(JsonValue value, bool signedValue = false) {
+		string result = self.text(value);
+		int start = signedValue && result.startsWith("-") ? 1 : 0;
+		if (start == result.length() || (result[start] == '0' && (start != 0 || result.length() != 1))) { self.fail("expected canonical native decimal text"); }
+		for index in range(start, result.length()) {
+			if (!Strings.isDigit(result[index])) { self.fail("expected canonical native decimal text"); }
+		}
+		return result;
+	}
+
+	private unsigned long long layoutInteger(string value) {
+		unsigned long long result = 0ULL;
+		for index in range(value.length()) {
+			unsigned long long digit = (unsigned long long)(value[index] - '0');
+			if (result > (18446744073709551615ULL - digit) / 10ULL) { self.fail("native layout exceeds uint64"); }
+			result = result * 10ULL + digit;
+		}
+		return result;
+	}
+
+	private Vector<JsonValue> array(JsonValue value) {
+		if (!value.isArray()) { self.fail("expected native array"); }
+		return value.arr;
+	}
+
+	private string choice(JsonValue value, string choices) {
+		string result = self.text(value);
+		if (!Strings.split(choices, ",").contains(result)) { self.fail(f"unsupported native semantic value '{result}'"); }
+		return result;
+	}
+
+	private NativeNode qualifiers(JsonValue value) {
+		var result = self.node(NNK_NATIVE_QUALIFIERS);
+		result.isConst = self.boolean(value.get("const"));
+		result.isVolatile = self.boolean(value.get("volatile"));
+		result.isRestrict = self.boolean(value.get("restrict"));
+		result.nullability = self.choice(value.get("nullability"), "unannotated,nonnull,nullable,nullable_result,unspecified");
+		return result;
+	}
+
+	private NativeNode type(JsonValue value) {
+		string kind = self.text(value.get("kind"));
+		string common = "kind,const,volatile,restrict,nullability";
+		var result = NativeNode();
+		result.qualifiers = self.qualifiers(value);
+		if (kind.equals("builtin")) {
+			self.fields(value, common + ",name", "bits,alignment_bits,signed");
+			result.kind = NNK_NATIVE_BUILTIN;
+			result.name = self.text(value.get("name"));
+			result.signedness = "not_integer";
+			if (result.name.equals("void")) {
+				if (value.has("bits") || value.has("alignment_bits") || value.has("signed")) { self.fail("void must not have native storage or signedness"); }
+			} else {
+				result.bits = self.integer(value.get("bits"));
+				result.alignmentBitsInt = self.integer(value.get("alignment_bits"));
+				if (result.bits == 0 || result.alignmentBitsInt == 0) { self.fail("native scalar storage must be positive"); }
+				if (value.has("signed")) { result.signedness = self.boolean(value.get("signed")) ? "signed" : "unsigned"; }
+			}
+		} else if (kind.equals("pointer")) {
+			self.fields(value, common + ",pointee");
+			result.kind = NNK_NATIVE_POINTER;
+			result.pointee = self.type(value.get("pointee"));
+		} else if (kind.equals("typedef")) {
+			self.fields(value, common + ",name,underlying");
+			result.kind = NNK_NATIVE_ALIAS;
+			result.name = self.text(value.get("name"));
+			result.underlying = self.type(value.get("underlying"));
+		} else if (kind.equals("record")) {
+			self.fields(value, common + ",name,identity,complete,opaque");
+			result.kind = NNK_NATIVE_RECORD_TYPE;
+			result.name = self.text(value.get("name"), true);
+			result.identity = self.text(value.get("identity"));
+			result.complete = self.boolean(value.get("complete"));
+			result.opaque = self.boolean(value.get("opaque"));
+			if (!result.opaque && !result.complete) { self.fail("incomplete native record used by value"); }
+		} else if (kind.equals("enum")) {
+			self.fields(value, common + ",name,identity,underlying");
+			result.kind = NNK_NATIVE_ENUM_TYPE;
+			result.name = self.text(value.get("name"), true);
+			result.identity = self.text(value.get("identity"));
+			result.underlying = self.type(value.get("underlying"));
+		} else if (kind.equals("function")) {
+			self.fields(value, common + ",return_type,parameters,variadic,calling_convention");
+			result.kind = NNK_NATIVE_FUNCTION_TYPE;
+			result.returnType = self.type(value.get("return_type"));
+			for parameter in self.array(value.get("parameters")) { result.parameters.push(self.type(parameter)); }
+			result.variadic = self.boolean(value.get("variadic"));
+			result.callingConvention = self.choice(value.get("calling_convention"), "c");
+		} else if (kind.equals("array")) {
+			self.fields(value, common + ",element,count");
+			result.kind = NNK_NATIVE_ARRAY_TYPE;
+			result.element = self.type(value.get("element"));
+			if (!value.get("count").isNull()) { result.count = self.decimal(value.get("count")); }
+		} else if (kind.equals("qualified")) {
+			self.fields(value, common + ",underlying");
+			result.kind = NNK_NATIVE_QUALIFIED_TYPE;
+			result.underlying = self.type(value.get("underlying"));
+		} else { self.fail(f"unsupported native type '{kind}'"); }
+		return result;
+	}
+
+	private NativeNode declaration(JsonValue value) {
+		string kind = self.text(value.get("kind"));
+		string required = "kind,name,type";
+		if (kind.equals("function")) { required = required + ",link_name,returned_ownership,parameter_semantics"; }
+		else if (kind.equals("enum_constant")) { required = required + ",value"; }
+		else if (!kind.equals("typedef") && !kind.equals("record")) { self.fail(f"unsupported native declaration '{kind}'"); }
+		self.fields(value, required, "source,line,column");
+		var result = NativeNode();
+		result.name = self.text(value.get("name"));
+		if (value.has("source")) { result.sourceFile = self.text(value.get("source"), true); }
+		if (value.has("line")) { result.line = self.integer(value.get("line")); }
+		if (value.has("column")) { result.column = self.integer(value.get("column")); }
+		NativeNode nativeType = self.type(value.get("type"));
+		if (kind.equals("function")) {
+			result.kind = NNK_NATIVE_FUNCTION;
+			result.signature = nativeType;
+			result.linkName = self.text(value.get("link_name"));
+			result.returnedOwnership = self.choice(value.get("returned_ownership"), "unspecified,cf_retained,cf_not_retained,ns_retained,ns_not_retained,ns_autoreleased");
+			for parameter in self.array(value.get("parameter_semantics")) {
+				self.fields(parameter, "name,cf_consumed,ns_consumed");
+				var semantics = self.node(NNK_NATIVE_PARAMETER_SEMANTICS);
+				semantics.name = self.text(parameter.get("name"), true);
+				semantics.cfConsumed = self.boolean(parameter.get("cf_consumed"));
+				semantics.nsConsumed = self.boolean(parameter.get("ns_consumed"));
+				result.parameterSemantics.push(semantics);
+			}
+			if (nativeType.kind != NNK_NATIVE_FUNCTION_TYPE || result.parameterSemantics.len != nativeType.parameters.len) { self.fail("native function semantics do not match its signature"); }
+		} else if (kind.equals("typedef")) {
+			result.kind = NNK_NATIVE_TYPEDEF;
+			result.underlying = nativeType;
+		} else if (kind.equals("enum_constant")) {
+			result.kind = NNK_NATIVE_CONSTANT;
+			result.valueType = nativeType;
+			result.decimalValue = self.decimal(value.get("value"), true);
+		} else {
+			result.kind = NNK_NATIVE_RECORD_DECLARATION;
+			result.recordType = nativeType;
+		}
+		return result;
+	}
+
+	private NativeNode record(JsonValue value) {
+		self.fields(value, "identity,name,kind,size_bits,alignment_bits,fields");
+		var result = self.node(NNK_NATIVE_RECORD_LAYOUT);
+		result.identity = self.text(value.get("identity"));
+		result.name = self.text(value.get("name"), true);
+		result.recordKind = self.choice(value.get("kind"), "struct,union");
+		result.sizeBits = self.decimal(value.get("size_bits"));
+		result.alignmentBitsString = self.decimal(value.get("alignment_bits"));
+		unsigned long long size = self.layoutInteger(result.sizeBits);
+		if (self.layoutInteger(result.alignmentBitsString) == 0ULL) { self.fail("native record alignment must be positive"); }
+		for entry in self.array(value.get("fields")) {
+			self.fields(entry, "name,type,offset_bits,anonymous", "width_bits");
+			var field = self.node(NNK_NATIVE_FIELD);
+			field.name = self.text(entry.get("name"), true);
+			field.fieldType = self.type(entry.get("type"));
+			field.offsetBits = self.decimal(entry.get("offset_bits"));
+			field.isAnonymous = self.boolean(entry.get("anonymous"));
+			field.isBitfield = entry.has("width_bits");
+			field.widthBits = field.isBitfield ? self.decimal(entry.get("width_bits")) : "0";
+			unsigned long long offset = self.layoutInteger(field.offsetBits);
+			unsigned long long width = self.layoutInteger(field.widthBits);
+			if (offset > size || width > size - offset) { self.fail("native field extends beyond its record"); }
+			result.fields.push(field);
+		}
+		return result;
+	}
+
+	private void verifyLayoutReferences(NativeNode nativeType, Map<string, bool> layouts) {
+		if (nativeType.kind == NNK_NATIVE_RECORD_TYPE) {
+			if (!nativeType.opaque && !layouts.has(nativeType.identity)) { self.fail("native record layout is missing"); }
+		} else if (nativeType.kind == NNK_NATIVE_ALIAS || nativeType.kind == NNK_NATIVE_QUALIFIED_TYPE || nativeType.kind == NNK_NATIVE_ENUM_TYPE) {
+			self.verifyLayoutReferences(nativeType.underlying, layouts);
+		} else if (nativeType.kind == NNK_NATIVE_POINTER) {
+			self.verifyLayoutReferences(nativeType.pointee, layouts);
+		} else if (nativeType.kind == NNK_NATIVE_ARRAY_TYPE) {
+			self.verifyLayoutReferences(nativeType.element, layouts);
+		} else if (nativeType.kind == NNK_NATIVE_FUNCTION_TYPE) {
+			self.verifyLayoutReferences(nativeType.returnType, layouts);
+			for parameter in nativeType.parameters { self.verifyLayoutReferences(parameter, layouts); }
+		}
+	}
+
+	public NativeNode decode(string source, string expectedTarget = "") {
+		JsonValue value = JsonValue.parse(source);
+		self.fields(value, "schema,target,clang,big_endian,character_bits,declarations,records");
+		if (!self.text(value.get("schema")).equals("btrc.native-declarations.experimental")) { self.fail("unsupported native header schema"); }
+		var result = self.node(NNK_NATIVE_HEADER);
+		result.targetTriple = self.text(value.get("target"));
+		if (!expectedTarget.isEmpty() && !result.targetTriple.equals(expectedTarget)) { self.fail("native header target does not match the requested target"); }
+		result.compilerVersion = self.text(value.get("clang"));
+		result.bigEndian = self.boolean(value.get("big_endian"));
+		result.characterBits = self.integer(value.get("character_bits"));
+		if (result.characterBits == 0) { self.fail("native character width must be positive"); }
+		Map<string, bool> names = {};
+		Map<string, bool> layouts = {};
+		for entry in self.array(value.get("declarations")) {
+			NativeNode declaration = self.declaration(entry);
+			if (names.has(declaration.name)) { self.fail("duplicate native declaration or record identity"); }
+			names.put(declaration.name, true);
+			result.exports.push(declaration);
+		}
+		for entry in self.array(value.get("records")) {
+			NativeNode record = self.record(entry);
+			if (layouts.has(record.identity)) { self.fail("duplicate native declaration or record identity"); }
+			layouts.put(record.identity, true);
+			result.records.push(record);
+		}
+		for entry in result.exports {
+			if (entry.kind == NNK_NATIVE_FUNCTION) { self.verifyLayoutReferences(entry.signature, layouts); }
+			else if (entry.kind == NNK_NATIVE_TYPEDEF) { self.verifyLayoutReferences(entry.underlying, layouts); }
+			else if (entry.kind == NNK_NATIVE_CONSTANT) { self.verifyLayoutReferences(entry.valueType, layouts); }
+			else { self.verifyLayoutReferences(entry.recordType, layouts); }
+		}
+		for record in result.records {
+			for field in record.fields { self.verifyLayoutReferences(field.fieldType, layouts); }
+		}
+		return result;
+	}
+}

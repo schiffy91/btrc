@@ -95,6 +95,37 @@ Declared include directories must be directories inside that root.  Symlinks
 that escape the root are rejected.  Define names are C identifiers.  Framework
 and pkg-config names use only letters, digits, `_`, `.`, `+`, and `-`.
 
+## Experimental native header imports
+
+`native.bindings` describes a typed header request owned by one existing BTRC
+module. Both frontends validate and select these requests; **typed imports are
+not implemented yet**. Loading a selected binding currently fails explicitly
+before emitting C or a link plan. Unloaded modules and inactive targets do not
+activate their bindings. Existing `native.headers` and `#include` retain their
+untyped behavior.
+
+```toml
+[[native.bindings]]
+module = "CoreFoundation"
+header = "native/CoreFoundation.h"
+language = "c"
+standard = "c11"
+symbols = ["CFStringCreateWithCString", "CFStringGetLength", "CFRelease"]
+os = ["macos"]
+```
+
+`module` uses existing package-relative dotted module lookup; `header` must be a
+file inside the package, including after symlink resolution. An umbrella header
+may include SDK headers; do not copy SDK signatures into the manifest. `symbols`
+is a non-empty, duplicate-free array of exact names (`name` or `namespace::name`).
+Language/standard and `os`/`arch` use the existing closed sets. There is no
+package-wide binding. Duplicate exports into the same module are rejected when
+their target predicates overlap, including inactive targets; disjoint providers
+are allowed. Bindings participate in manifest locking but are compiler inputs,
+not schema-1 linker records or native source units. The shared typed schema,
+toolchain/SDK invocation, source visibility and ownership integration remain
+separate implementation work.
+
 ## Recursive graph and lockfile
 
 Resolution walks dependency manifests recursively with an explicit visiting

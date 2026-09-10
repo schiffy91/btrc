@@ -1,0 +1,34 @@
+-- Header semantic data, separate from the source AST. No executable policy.
+-- Decimal strings preserve layout/count values without JSON float narrowing.
+module NativeAbi {
+    native_header = NativeHeader(string target_triple, string compiler_version,
+                                 bool big_endian, int character_bits,
+                                 native_declaration* exports, native_record* records)
+
+    native_declaration = NativeFunction(identifier name, string link_name,
+                                        native_type signature, native_parameter* parameter_semantics,
+                                        string returned_ownership)
+                       | NativeTypedef(identifier name, native_type underlying)
+                       | NativeConstant(identifier name, native_type value_type, string decimal_value)
+                       | NativeRecordDeclaration(identifier name, native_type record_type)
+                       attributes(string source_file, int line, int column)
+
+    native_type = NativeBuiltin(identifier name, int bits, int alignment_bits, string signedness)
+                | NativePointer(native_type pointee)
+                | NativeAlias(identifier name, native_type underlying)
+                | NativeRecordType(identifier name, string identity, bool complete, bool opaque)
+                | NativeEnumType(identifier name, string identity, native_type underlying)
+                | NativeFunctionType(native_type return_type, native_type* parameters,
+                                     bool variadic, string calling_convention)
+                | NativeArrayType(native_type element, string? count)
+                | NativeQualifiedType(native_type underlying)
+                attributes(native_qualifiers qualifiers)
+
+    native_qualifiers = NativeQualifiers(bool is_const, bool is_volatile, bool is_restrict, string nullability)
+    native_parameter = NativeParameterSemantics(identifier name, bool cf_consumed, bool ns_consumed)
+    native_record = NativeRecordLayout(string identity, identifier name, string record_kind,
+                                       string size_bits, string alignment_bits,
+                                       native_field* fields)
+    native_field = NativeField(identifier name, native_type field_type, string offset_bits,
+                               bool is_anonymous, bool is_bitfield, string width_bits)
+}

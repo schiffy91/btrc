@@ -67,6 +67,75 @@ def _manifest(path: Path, name: str, dependencies: str = "", native: str = "") -
     (path / "src").mkdir(exist_ok=True)
 
 
+_BINDING = (
+    '\n[[native.bindings]]\nmodule = "Api"\nheader = "Native.h"\n'
+    'language = "c"\nstandard = "c11"\nsymbols = ["measure"]\n'
+)
+
+
+def _binding_source(root: Path, declaration: str, imported: bool = False) -> Path:
+    _manifest(root, "bindings", native=declaration)
+    (root / "Native.h").write_text("long measure(const char *text);\n", encoding="utf-8")
+    (root / "src/Api.btrc").write_text("// Native wrapper module.\n", encoding="utf-8")
+    source = root / "src/Main.btrc"
+    source.write_text(("import ./Api.btrc;\n" if imported else "") + "int main() { return 0; }\n", encoding="utf-8")
+    return source
+
+
+@pytest.mark.parametrize(
+    ("target", "imported", "selected"),
+    [("linux-x86_64", True, False), ("macos-aarch64", False, False), ("macos-aarch64", True, True)],
+)
+def test_native_binding_selection_has_frontend_parity(semantic_btrcc: Path, tmp_path: Path, target, imported, selected):
+    source = _binding_source(tmp_path, _BINDING + 'os = ["macos"]\n', imported)
+    reference_plan = tmp_path / "reference.json"
+    selfhost_plan = tmp_path / "selfhost.json"
+    reference = _reference(source, tmp_path / "reference.c", reference_plan, target=target)
+    selfhost = _selfhost(semantic_btrcc, source, selfhost_plan, target=target)
+    for result in (reference, selfhost):
+        if selected:
+            assert result.returncode != 0
+            assert "requires typed native import support" in result.stderr
+            assert str(tmp_path / "src/Api.btrc") in result.stderr
+        else:
+            assert result.returncode == 0, result.stderr
+    if selected:
+        assert not reference_plan.exists() and not selfhost_plan.exists()
+        assert selfhost.stdout == ""
+    else:
+        assert reference_plan.read_bytes() == selfhost_plan.read_bytes()
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "message"),
+    [
+        ('module = "Api"', 'module = "Missing"', "unknown module"),
+        ('module = "Api"', 'module = "../Api"', "dotted module name"),
+        ('header = "Native.h"', 'header = "/Native.h"', "package-relative"),
+        ('symbols = ["measure"]', "symbols = []", "non-empty array"),
+        ('symbols = ["measure"]', 'symbols = ["measure", "measure"]', "duplicate value"),
+        ('symbols = ["measure"]', 'symbols = ["ns::"]', "qualified native names"),
+        ('symbols = ["measure"]', 'symbols = ["ns:::measure"]', "qualified native names"),
+        ('header = "Native.h"', 'header = "Native.h"\ncflags = "-DGUESS_ABI"', "unexpected field"),
+    ],
+)
+def test_native_binding_rejections_have_frontend_parity(semantic_btrcc: Path, tmp_path: Path, before, after, message):
+    source = _binding_source(tmp_path, _BINDING.replace(before, after))
+    for result in (_reference(source, tmp_path / "reference.c"), _selfhost(semantic_btrcc, source)):
+        assert result.returncode != 0
+        assert message in result.stderr
+
+
+def test_native_binding_provider_overlap_has_frontend_parity(semantic_btrcc: Path, tmp_path: Path):
+    source = _binding_source(tmp_path, _BINDING + 'os = ["macos"]\n' + _BINDING + 'os = ["linux"]\n')
+    for result in (_reference(source, tmp_path / "reference.c"), _selfhost(semantic_btrcc, source)):
+        assert result.returncode == 0, result.stderr
+    _manifest(tmp_path, "bindings", native=_BINDING + 'arch = ["aarch64"]\n' + _BINDING)
+    for result in (_reference(source, tmp_path / "reference.c"), _selfhost(semantic_btrcc, source)):
+        assert result.returncode != 0
+        assert "overlaps a native binding" in result.stderr
+
+
 def _assert_strict_c_program(generated: Path, output: Path, compiler: str) -> None:
     build = subprocess.run(
         [

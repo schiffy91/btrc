@@ -2,10 +2,12 @@
 #include <clang/AST/ASTContext.h>
 #include <clang/AST/Attr.h>
 #include <clang/AST/RecursiveASTVisitor.h>
+#include <clang/AST/RecordLayout.h>
 #include <clang/Basic/TargetInfo.h>
 #include <clang/Basic/Version.h>
 #include <clang/Frontend/CompilerInstance.h>
 #include <clang/Frontend/FrontendActions.h>
+#include <clang/Index/USRGeneration.h>
 #include <clang/Tooling/CommonOptionsParser.h>
 #include <clang/Tooling/Tooling.h>
 #include <llvm/ADT/SmallString.h>
@@ -19,7 +21,7 @@
 #include <string>
 #include <vector>
 
-// Build-time semantic reader. This first slice exports C scalar/opaque-handle
+// Build-time semantic reader. This slice exports C scalar, record and handle
 // declarations; unsupported selected declarations fail instead of losing type
 // information. It is not yet connected to either BTRC frontend.
 class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader> {
@@ -28,7 +30,29 @@ class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader>
 	std::map<std::string, const clang::NamedDecl*> declarations;
 	std::vector<std::string> errors;
 	llvm::json::Array exports;
+	std::map<std::string, const clang::RecordDecl*> pendingRecords;
+	std::map<std::string, llvm::json::Object> records;
 	std::string target;
+	bool bigEndian = false;
+	unsigned characterBits = 0;
+
+	std::string declarationIdentity(const clang::NamedDecl* declaration) {
+		llvm::SmallString<128> identity;
+		if (clang::index::generateUSRForDecl(declaration->getCanonicalDecl(), identity)) {
+			errors.push_back("Cannot identify native declaration: " + declaration->getQualifiedNameAsString());
+		}
+		return identity.str().str();
+	}
+
+	std::string requestRecord(const clang::RecordDecl* record, bool opaque) {
+		auto identity = declarationIdentity(record);
+		if (!opaque) {
+			if (llvm::isa<clang::CXXRecordDecl>(record)) { errors.push_back("C++ record adapters are not implemented: " + record->getQualifiedNameAsString()); }
+			else if (const auto* definition = record->getDefinition()) { pendingRecords.emplace(identity, definition); }
+			else { errors.push_back("Incomplete by-value native record: " + record->getQualifiedNameAsString()); }
+		}
+		return identity;
+	}
 
 	llvm::json::Object qualifiers(clang::QualType value) const {
 		llvm::json::Object result{{"const", value.isConstQualified()}, {"volatile", value.isVolatileQualified()}, {"restrict", value.isRestrictQualified()}};
@@ -61,14 +85,25 @@ class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader>
 				if (value->isIntegerType()) { result["signed"] = value->isSignedIntegerType(); }
 			}
 		} else if (const auto* record = llvm::dyn_cast<clang::RecordType>(node)) {
-			if (!indirect) { errors.push_back("By-value native records are not implemented: " + value.getAsString()); }
 			result["kind"] = "record";
 			result["name"] = record->getDecl()->getQualifiedNameAsString();
+			result["identity"] = requestRecord(record->getDecl(), indirect);
 			result["complete"] = record->getDecl()->getDefinition() != nullptr;
-			result["opaque"] = true;
+			result["opaque"] = indirect;
+		} else if (const auto* array = llvm::dyn_cast<clang::ConstantArrayType>(node)) {
+			result["kind"] = "array";
+			result["element"] = type(array->getElementType());
+			llvm::SmallString<32> count;
+			array->getSize().toStringUnsigned(count);
+			result["count"] = count.str().str();
+		} else if (const auto* array = llvm::dyn_cast<clang::IncompleteArrayType>(node)) {
+			result["kind"] = "array";
+			result["element"] = type(array->getElementType());
+			result["count"] = nullptr;
 		} else if (const auto* enumeration = llvm::dyn_cast<clang::EnumType>(node)) {
 			result["kind"] = "enum";
 			result["name"] = enumeration->getDecl()->getQualifiedNameAsString();
+			result["identity"] = declarationIdentity(enumeration->getDecl());
 			result["underlying"] = type(enumeration->getDecl()->getIntegerType());
 		} else if (const auto* function = llvm::dyn_cast<clang::FunctionProtoType>(node)) {
 			result["kind"] = "function";
@@ -90,6 +125,24 @@ class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader>
 			}
 		}
 		return result;
+	}
+
+	void readRecords() {
+		while (!pendingRecords.empty()) {
+			auto next = pendingRecords.extract(pendingRecords.begin());
+			if (records.count(next.key())) { continue; }
+			const auto* record = next.mapped();
+			const auto& layout = context->getASTRecordLayout(record);
+			llvm::json::Array fields;
+			unsigned index = 0;
+			for (const auto* field : record->fields()) {
+				llvm::json::Object entry{{"name", field->getNameAsString()}, {"type", type(field->getType())}, {"offset_bits", std::to_string(layout.getFieldOffset(index++))}, {"anonymous", field->isAnonymousStructOrUnion()}};
+				if (field->isBitField()) { entry["width_bits"] = std::to_string(field->getBitWidthValue()); }
+				fields.push_back(std::move(entry));
+			}
+			llvm::json::Object description{{"identity", next.key()}, {"name", record->getQualifiedNameAsString()}, {"kind", record->isUnion() ? "union" : "struct"}, {"size_bits", std::to_string(layout.getSize().getQuantity() * characterBits)}, {"alignment_bits", std::to_string(layout.getAlignment().getQuantity() * characterBits)}, {"fields", std::move(fields)}};
+			records.emplace(next.key(), std::move(description));
+		}
 	}
 
 	std::string returnedOwnership(const clang::FunctionDecl* function) const {
@@ -128,13 +181,16 @@ class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader>
 			result["parameter_semantics"] = std::move(parameters);
 		} else if (const auto* alias = llvm::dyn_cast<clang::TypedefNameDecl>(value)) {
 			result["kind"] = "typedef";
-			result["type"] = type(alias->getUnderlyingType());
+			result["type"] = type(alias->getUnderlyingType(), alias->getUnderlyingType()->isIncompleteType());
 		} else if (const auto* constant = llvm::dyn_cast<clang::EnumConstantDecl>(value)) {
 			result["kind"] = "enum_constant";
 			result["type"] = type(constant->getType());
 			llvm::SmallString<32> decimal;
 			constant->getInitVal().toString(decimal);
 			result["value"] = decimal.str().str();
+		} else if (const auto* record = llvm::dyn_cast<clang::RecordDecl>(value)) {
+			result["kind"] = "record";
+			result["type"] = type(context->getRecordType(record), record->getDefinition() == nullptr);
 		} else {
 			errors.push_back("Unsupported native declaration: " + value->getQualifiedNameAsString());
 		}
@@ -149,6 +205,12 @@ public:
 		if (!requested.count(name)) { return true; }
 		auto found = declarations.find(name);
 		if (found != declarations.end() && found->second->getCanonicalDecl() != value->getCanonicalDecl()) {
+			// C tags occupy a different namespace: `typedef struct Foo Foo` is
+			// one usable ordinary name, not an ambiguous declaration request.
+			if (!context->getLangOpts().CPlusPlus && llvm::isa<clang::TagDecl>(value) != llvm::isa<clang::TagDecl>(found->second)) {
+				if (llvm::isa<clang::TagDecl>(found->second)) { declarations[name] = value; }
+				return true;
+			}
 			errors.push_back("Ambiguous native declaration: " + name);
 		} else {
 			declarations[name] = value;
@@ -157,14 +219,19 @@ public:
 	}
 
 	void read(clang::ASTContext& value) {
+		if (value.getDiagnostics().hasErrorOccurred()) { return; }
 		context = &value;
 		target = value.getTargetInfo().getTriple().str();
+		bigEndian = value.getTargetInfo().isBigEndian();
+		characterBits = value.getTargetInfo().getCharWidth();
 		TraverseDecl(value.getTranslationUnitDecl());
 		for (const auto& name : requested) {
 			auto found = declarations.find(name);
 			if (found == declarations.end()) { errors.push_back("Native declaration not found: " + name); }
 			else { exports.push_back(declaration(found->second)); }
 		}
+		if (errors.empty() && !value.getDiagnostics().hasErrorOccurred()) { readRecords(); }
+		pendingRecords.clear();
 		declarations.clear();
 		context = nullptr;
 	}
@@ -174,7 +241,9 @@ public:
 			for (const auto& error : errors) { llvm::errs() << "error: " << error << '\n'; }
 			return false;
 		}
-		llvm::json::Object document{{"schema", "btrc.native-declarations.experimental"}, {"target", target}, {"clang", clang::getClangFullVersion()}, {"declarations", std::move(exports)}};
+		llvm::json::Array layouts;
+		for (auto& record : records) { layouts.push_back(std::move(record.second)); }
+		llvm::json::Object document{{"schema", "btrc.native-declarations.experimental"}, {"target", target}, {"clang", clang::getClangFullVersion()}, {"big_endian", bigEndian}, {"character_bits", static_cast<int64_t>(characterBits)}, {"declarations", std::move(exports)}, {"records", std::move(layouts)}};
 		llvm::outs() << llvm::formatv("{0:2}\n", llvm::json::Value(std::move(document)));
 		return true;
 	}

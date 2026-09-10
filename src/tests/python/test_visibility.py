@@ -133,7 +133,7 @@ def test_relaxed_imports_is_an_explicit_legacy_opt_out(tmp_path, monkeypatch):
 
     CompilerCommand(Compiler()).run([entry, "--relaxed-imports", "--no-cache"])
 
-    assert (tmp_path / "main.c").is_file()
+    assert (tmp_path / "Main.c").is_file()
 
 
 def test_compile_frontend_api_defaults_to_strict_imports(tmp_path):

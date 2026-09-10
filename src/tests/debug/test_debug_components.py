@@ -172,8 +172,8 @@ def test_program_builder_owns_toolchain_commands_and_working_directory(tmp_path)
         process_factory=process_factory,
     ).build(program)
 
-    c_path = str(output_directory / "main.c")
-    executable = str(output_directory / "main")
+    c_path = str(output_directory / "Main.c")
+    executable = str(output_directory / "Main")
     assert commands == [
         (
             ["custom-btrcpy", "--trace", str(program), "--debug", "--no-cache", "-o", c_path],
