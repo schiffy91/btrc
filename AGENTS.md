@@ -234,11 +234,40 @@ convention of the language it emits: `generated.py` keeps snake_case, and the
 follows its own language, so a spec field `is_gpu` reaches the Python compiler
 as `is_gpu` and the self-hosted compiler as `isGpu`.
 
-Names that belong to the hosted C ABI are the exception: `size_t` and every
-other entry in `src/language/hosted_abi.toml` keeps the spelling the C headers
-gave it, because that spelling is the contract.
-`src/tests/btrc/test_naming_convention_contract.py` holds the line, taking its
-allowlist from the ABI repository rather than a list that could drift.
+This holds for **every** `.btrc` file, not just the compiler: the stdlib, the
+corpus and the examples all spell what they own in camelCase, and
+`src/tests/btrc/test_naming_convention_contract.py` checks each tracked source.
+
+Foreign names are the exception, because their spelling is the contract, and
+the test reads them from three places rather than a list that could drift:
+
+- `src/language/hosted_abi.toml` covers `size_t` and its neighbours.
+- The repository's own `.c`, `.h` and `.m` sources cover what btrc links
+  against — a stdlib shim, a native fixture, an example package. Respelling
+  only the btrc side of one of those strands the C definition, so a third
+  check looks for that fingerprint: an `extern` the C sources do not spell,
+  whose snake_case form they do.
+- Members of system structures are listed in the test itself. btrc emits
+  `entry->d_name` straight through to C, so unlike every other foreign name
+  there is no declaration in the tree to read it from.
+
+**Every `.btrc` file name is PascalCase**, with no underscore and no leading
+lowercase letter, because the file is named for what it declares. That holds
+in the stdlib (`Array.btrc`, `HttpClient.btrc`), in the self-hosted compiler
+(`ControlFlow.btrc`, `Analyzer.btrc`), in the corpus (`CastFollowedByUnary.btrc`)
+and in the examples. A stdlib module's import name is its stem, so
+`Array.btrc` is `import Library.Array;`, and `expected/<Stem>.stdout` is the golden
+output for `<Stem>.btrc`.
+
+The corpus runner discovers a file whose name begins with a capital, so a
+source that is imported rather than run is listed in `INCLUDE_FIXTURES`, and
+the benchmark directory -- whose programs `src/tests/bench.py` times instead --
+is listed in `NON_CORPUS_DIRECTORIES`. Both lists live in
+`src/tests/corpus_files.py`.
+
+C keeps C's conventions. The runtime directories beside the stdlib modules
+(`src/stdlib/background_jobs/`) stay snake_case: the Makefile builds them by
+path and their exports are a C ABI.
 
 ---
 
@@ -273,7 +302,7 @@ prove the strict-import path.
 
 ### File Structure
 
-The destination contains exactly 82 production Python files:
+The destination contains exactly 84 production Python files:
 
 ```text
 src/compiler/python/
@@ -297,6 +326,7 @@ src/compiler/python/
     sources.py                    SourceResolver/dependency graph
     imports.py                    ImportResolver/visibility
     packages.py                   PackageUniverse/GitDependencyCache
+    native_imports.py              NativeHeaderCodec: checked Clang semantic input
 
   syntax/
     __init__.py
@@ -337,6 +367,7 @@ src/compiler/python/
   abi/
     __init__.py
     generated.py                  generated hosted-ABI data
+    native_generated.py           ASDL-generated native-header semantic data
     declarations.py               hosted ABI value declarations
     hosted.py                     HostedAbiRepository
     freestanding.py               FreestandingRuntime
@@ -397,7 +428,7 @@ and their golden output live alongside the topic-organized corpus in
 ## btrc Compiler (src/compiler/btrc/)
 
 The self-hosted compiler implements the same six-stage pipeline with fat tagged
-AST and IR nodes. Its destination contains exactly 91 `.btrc` files: 85
+AST and IR nodes. Its destination contains exactly 93 `.btrc` files: 87
 compiler/generated files and six explicit developer-tool files. Only
 `Compiler.btrc` and the thin `BtrccMain.btrc` process entry point remain at the
 package root. The owned packages are:
@@ -408,6 +439,7 @@ pipeline/                         stage manifest, mutable options/results, Compi
 syntax/                           grammar, tokens, identity/canonical rendering, types, literals
 generated/ast/                    ASDL-generated Node data/schema only
 generated/hosted_abi/             generated ABI data
+generated/native_abi/             ASDL-generated native-header semantic data
 generated/runtime/                generated runtime catalog data
 lexer/                            stage manifest and Lexer
 frontend/                         stage, models, source I/O, stdlib, resolver, visibility
@@ -435,7 +467,7 @@ and the parse inspection tool calls that owner; generated `Node` data owns no
 formatting behavior. The unified generator check structurally verifies that
 the handwritten renderer covers every ASDL constructor and field.
 
-The exact 91-file inventory is normative in
+The exact 93-file inventory is normative in
 `docs/design/compiler-structure.md`. Stage manifests contain imports only;
 implementation behavior belongs to the concrete owner. The unified language
 runner executes the corpus through both compilers, and the bootstrap suite

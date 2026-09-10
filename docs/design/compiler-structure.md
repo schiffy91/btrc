@@ -4,7 +4,7 @@ Status: **active architecture contract**.
 
 This document records the ownership-driven destination shared by the Python
 reference compiler, the self-hosted compiler, and developer tooling. The
-normative inventory is exactly 82 production Python compiler files and 91
+normative inventory is exactly 84 production Python compiler files and 93
 self-hosted `.btrc` files. File size is a review signal, not a boundary:
 independent state, invariants, and change reasons justify a separate owner.
 
@@ -94,7 +94,7 @@ namespaces.
 
 ## Exact Python destination
 
-The Python compiler contains exactly 82 production `.py` files:
+The Python compiler contains exactly 84 production `.py` files:
 
 ```text
 src/compiler/python/
@@ -135,6 +135,7 @@ src/compiler/python/
     sources.py                    # SourceResolver/dependency graph
     imports.py                    # ImportResolver/visibility
     packages.py                   # PackageUniverse/GitDependencyCache
+    native_imports.py             # NativeHeaderCodec: checked Clang semantic input
 
   analyzer/
     __init__.py
@@ -158,6 +159,7 @@ src/compiler/python/
   abi/
     __init__.py
     generated.py                  # generated hosted-ABI data
+    native_generated.py           # ASDL-generated native-header semantic data
     declarations.py              # hosted ABI value declarations
     hosted.py                    # HostedAbiRepository
     freestanding.py              # FreestandingRuntime
@@ -211,7 +213,7 @@ src/compiler/python/
 
 ## Exact self-hosted destination
 
-The self-hosted compiler contains exactly 91 `.btrc` files: 85
+The self-hosted compiler contains exactly 93 `.btrc` files: 87
 compiler/generated files and six explicit developer-tool files. Only the
 public compiler application object and thin process entry point remain at the
 package root:
@@ -243,6 +245,8 @@ src/compiler/btrc/
     hosted_abi/
       README.md
       Tables.btrc                 # generated hosted ABI declarations
+    native_abi/
+      Models.btrc                 # ASDL-generated native-header semantic data
     runtime/
       Catalog.btrc                # generated runtime-helper specifications
 
@@ -254,6 +258,7 @@ src/compiler/btrc/
     Stage.btrc                    # public package manifest
     Models.btrc                   # source/dependency value types
     Packages.btrc                 # recursive packages, locks, native plans
+    NativeImports.btrc            # FeNativeHeaderCodec: checked Clang semantic input
     SourceIo.btrc                # bounded UTF-8 filesystem owner
     Stdlib.btrc                   # FeStdlibRepository
     Resolver.btrc                 # FeFrontendResolver
@@ -422,6 +427,8 @@ src/compiler/python/syntax/ast/generated.py
 src/compiler/btrc/generated/ast/Node.btrc
 src/compiler/python/abi/generated.py
 src/compiler/btrc/generated/hosted_abi/Tables.btrc
+src/compiler/python/abi/native_generated.py
+src/compiler/btrc/generated/native_abi/Models.btrc
 src/devex/lsp/catalog/generated.py
 ```
 

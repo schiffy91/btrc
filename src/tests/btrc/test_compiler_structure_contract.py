@@ -46,6 +46,7 @@ EXPECTED_BTRC_FILES = frozenset(
     cli/Driver.btrc
     Compiler.btrc
     frontend/Models.btrc
+    frontend/NativeImports.btrc
     frontend/Packages.btrc
     frontend/Resolver.btrc
     frontend/SourceIo.btrc
@@ -54,6 +55,7 @@ EXPECTED_BTRC_FILES = frozenset(
     frontend/Visibility.btrc
     generated/ast/Node.btrc
     generated/hosted_abi/Tables.btrc
+    generated/native_abi/Models.btrc
     generated/runtime/Catalog.btrc
     ir/Emitter.btrc
     ir/gpu/Pipeline.btrc
@@ -140,6 +142,9 @@ INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
     {
         ("TypeComposition", "substitutionPointerDepth"),
         ("TypeIdentity", "symbolComponent"),
+        # Experimental native semantics are exercised by NativeHeaderCodec.btrc
+        # before selected bindings may enter ordinary compilation.
+        ("FeNativeHeaderCodec", "decode"),
     }
 )
 
@@ -152,6 +157,7 @@ REQUIRED_OWNER_BY_PATH = {
     "parser/SourceMacros.btrc": "SourceMacroDefinition",
     "frontend/SourceIo.btrc": "FeSourceFileReader",
     "frontend/Packages.btrc": "FePackageGraphResolver",
+    "frontend/NativeImports.btrc": "FeNativeHeaderCodec",
     "frontend/Stdlib.btrc": "FeStdlibRepository",
     "frontend/Resolver.btrc": "FeFrontendResolver",
     "frontend/Visibility.btrc": "FeImportVisibilityChecker",
@@ -415,12 +421,79 @@ def _callable_bindings(
             return bindings
 
 
+def _scoped_ast_nodes(root, current, bindings, classes):
+    """Keep lambda parameters and collection element types in their lexical scope."""
+    pending = [(root, bindings)]
+    while pending:
+        node, scope = pending.pop()
+        if isinstance(node, (list, tuple)):
+            pending.extend((child, scope) for child in node)
+            continue
+        if not is_dataclass(node) or isinstance(node, type):
+            continue
+        yield node, scope
+        nested = scope
+        kind = type(node).__name__
+        if kind == "LambdaExpr":
+            nested = {**scope, **{parameter.name: parameter.type for parameter in node.params}}
+        elif kind == "ForInStmt":
+            iterable = node.iterable
+            collection_type = None
+            if type(iterable).__name__ == "Identifier":
+                collection_type = scope.get(iterable.name)
+            elif type(iterable).__name__ == "FieldAccessExpr":
+                owner = _receiver_owner(iterable.obj, current, scope, classes)
+                if owner in classes:
+                    collection_type = next(
+                        (
+                            member.type
+                            for member in classes[owner][1].members
+                            if type(member).__name__ in {"FieldDecl", "PropertyDecl"} and member.name == iterable.field
+                        ),
+                        None,
+                    )
+            arguments = getattr(collection_type, "generic_args", [])
+            if arguments:
+                nested = {**scope, node.var_name: arguments[0]}
+                if node.var_name2 and len(arguments) > 1:
+                    nested[node.var_name2] = arguments[1]
+        pending.extend((getattr(node, field.name), nested if field.name == "body" else scope) for field in fields(node))
+
+
 def test_selfhost_tree_is_the_exact_ownership_namespace() -> None:
     actual = {path.relative_to(SELFHOST).as_posix() for path in SELFHOST.rglob("*.btrc")}
 
     assert actual == EXPECTED_BTRC_FILES
-    assert len(actual) == 91
+    assert len(actual) == 93
     assert {path.name for path in SELFHOST.glob("*.btrc")} == {"BtrccMain.btrc", "Compiler.btrc"}
+
+
+def test_reference_scanner_keeps_shadowed_callback_and_iteration_receivers() -> None:
+    program = Parser(
+        Lexer("""
+        class First { public int key() { return 1; } }
+        class Second { public int key() { return 2; } }
+        class Owner {
+            public Vector<First> first;
+            public Vector<Second> second;
+            public void visit(Second item) {
+                self.first.map((First item) => item.key());
+                item.key();
+                for item in self.first { item.key(); }
+                for item in self.second { item.key(); }
+            }
+        }
+    """).tokenize()
+    ).parse()
+    classes = {declaration.name: ("probe", declaration) for declaration in program.declarations}
+    method = next(member for member in classes["Owner"][1].members if member.name == "visit")
+    bindings = _callable_bindings(method.body, method.params, "Owner", classes)
+    references = Counter(
+        _receiver_owner(node.obj, "Owner", scope, classes)
+        for node, scope in _scoped_ast_nodes(method.body, "Owner", bindings, classes)
+        if type(node).__name__ == "FieldAccessExpr" and node.field == "key"
+    )
+    assert references == {"First": 2, "Second": 2}
 
 
 def test_every_unit_parses_and_behavior_files_have_complete_owners() -> None:
@@ -738,9 +811,9 @@ def test_only_explicit_external_probes_are_definition_only() -> None:
 
     def count_callable(body: object, parameters: list[object], current: str | None) -> None:
         bindings = _callable_bindings(body, parameters, current, classes)
-        for node in _ast_nodes(body):
+        for node, scope in _scoped_ast_nodes(body, current, bindings, classes):
             if type(node).__name__ == "FieldAccessExpr":
-                owner = _receiver_owner(node.obj, current, bindings, classes)
+                owner = _receiver_owner(node.obj, current, scope, classes)
                 target = _declaring_method(classes, owner, node.field)
                 if target is None:
                     unresolved_names.add(node.field)

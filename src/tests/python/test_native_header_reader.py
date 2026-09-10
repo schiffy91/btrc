@@ -9,7 +9,65 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.frontend.native_imports import NativeHeaderCodec
+from src.compiler.python.frontend.native_imports import NativeHeaderCodec, NativeImportError
+
+REPO = Path(__file__).resolve().parents[3]
+
+
+@pytest.fixture(scope="module", params=["reference", "selfhost"])
+def codec_probe(request, tmp_path_factory):
+    root = tmp_path_factory.mktemp(f"native-codec-{request.param}")
+    source = REPO / "src/tests/btrc/fixtures/NativeHeaderCodec.btrc"
+    generated = root / "Probe.c"
+    if request.param == "reference":
+        command = [sys.executable, "-m", "src.compiler.python.main", "--no-cache", str(source), "-o", str(generated)]
+    else:
+        command = [str(request.getfixturevalue("semantic_btrcc")), str(source)]
+    result = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=180)
+    assert result.returncode == 0, result.stderr
+    if request.param == "selfhost":
+        generated.write_text(result.stdout, encoding="utf-8")
+    executable = root / "Probe"
+    built = subprocess.run(
+        [
+            "cc",
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-O2",
+            str(generated),
+            "-o",
+            str(executable),
+            "-lm",
+            "-lpthread",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert built.returncode == 0, built.stderr
+    return executable
+
+
+def probe_document(codec_probe, tmp_path, source):
+    document = tmp_path / "Header.json"
+    document.write_text(source, encoding="utf-8")
+    return subprocess.run([str(codec_probe), str(document)], capture_output=True, text=True, timeout=15)
+
+
+def assert_codec_parity(codec_probe, tmp_path, source):
+    header = NativeHeaderCodec().decode(source)
+    result = probe_document(codec_probe, tmp_path, source)
+    assert result.returncode == 0, result.stderr
+    lines = [f"{header.target_triple} {len(header.exports)} {len(header.records)}"]
+    for record in header.records:
+        lines.append(f"{record.identity} {record.size_bits} {record.alignment_bits}")
+        lines.extend(f"{field.name} {field.offset_bits} {field.width_bits}" for field in record.fields)
+    assert result.stdout.splitlines() == lines
+
+
 from src.compiler.python.frontend.packages import PackageUniverse
 
 
@@ -40,6 +98,121 @@ def underlying(value):
     while value["kind"] in {"typedef", "qualified"}:
         value = value["underlying"]
     return value
+
+
+def test_native_semantic_model_has_compiled_frontend_parity(reader, codec_probe, tmp_path):
+    result = read(
+        reader,
+        tmp_path,
+        "typedef const struct Resource *ResourceRef;\n"
+        "long measure(ResourceRef value, const char * const *labels);\n"
+        "ResourceRef _Nullable make(void) __attribute__((cf_returns_retained));\n"
+        "void consume(ResourceRef __attribute__((cf_consumed)) value);\n"
+        "struct Packet { unsigned bits:3; double values[2]; struct Packet *next; };\n",
+        ["measure", "make", "consume", "Packet"],
+        "--target=x86_64-unknown-linux-gnu",
+    )
+    assert result.returncode == 0, result.stderr
+    assert_codec_parity(codec_probe, tmp_path, result.stdout)
+    document = json.loads(result.stdout)
+    # These values exceed double's exact integer range; decoding must preserve every bit.
+    document["records"][0]["size_bits"] = "18446744073709551615"
+    document["records"][0]["fields"][0]["offset_bits"] = "9007199254740993"
+    assert_codec_parity(codec_probe, tmp_path, json.dumps(document))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "schema",
+        "target",
+        "boolean",
+        "integer",
+        "unknown_field",
+        "duplicate_export",
+        "missing_layout",
+        "duplicate_layout",
+        "overflow",
+        "noncanonical",
+        "negative_offset",
+        "past_end",
+        "missing_semantics",
+        "unsupported_kind",
+        "calling_convention",
+        "nullability",
+        "ownership",
+        "nul",
+        "duplicate_key",
+    ],
+)
+def test_native_semantic_decoders_reject_invalid_metadata(reader, codec_probe, tmp_path, mutation):
+    result = read(reader, tmp_path, "struct Packet { int x; }; struct Packet transform(int value);", ["transform"])
+    assert result.returncode == 0, result.stderr
+    document = json.loads(result.stdout)
+    exported = document["declarations"][0]
+    record = document["records"][0]
+    if mutation == "schema":
+        document["schema"] = "future-schema"
+    elif mutation == "target":
+        document["target"] = ""
+    elif mutation == "boolean":
+        document["big_endian"] = 1
+    elif mutation == "integer":
+        document["character_bits"] = True
+    elif mutation == "unknown_field":
+        document["inferred_abi"] = "guessed"
+    elif mutation == "duplicate_export":
+        document["declarations"].append(exported)
+    elif mutation == "missing_layout":
+        document["records"] = []
+    elif mutation == "duplicate_layout":
+        document["records"].append(record)
+    elif mutation == "overflow":
+        record["size_bits"] = "18446744073709551616"
+    elif mutation == "noncanonical":
+        record["size_bits"] = "032"
+    elif mutation == "negative_offset":
+        record["fields"][0]["offset_bits"] = "-1"
+    elif mutation == "past_end":
+        record["fields"][0]["offset_bits"] = "33"
+    elif mutation == "missing_semantics":
+        exported["parameter_semantics"] = []
+    elif mutation == "unsupported_kind":
+        exported["type"]["kind"] = "cpp_member"
+    elif mutation == "calling_convention":
+        exported["type"]["calling_convention"] = "unknown"
+    elif mutation == "nullability":
+        exported["type"]["nullability"] = "guessed"
+    elif mutation == "ownership":
+        exported["returned_ownership"] = "guessed"
+    elif mutation == "nul":
+        document["clang"] = "compiler\0hidden"
+    source = json.dumps(document)
+    if mutation == "duplicate_key":
+        source = source.replace('"character_bits": 8', '"character_bits": 8, "character_bits": 8')
+    with pytest.raises(NativeImportError):
+        NativeHeaderCodec().decode(source)
+    rejected = probe_document(codec_probe, tmp_path, source)
+    assert rejected.returncode == 1, rejected.stderr
+    assert rejected.stdout == ""
+    assert "native header:" in rejected.stderr
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="requires the actual macOS CoreFoundation SDK")
+def test_real_corefoundation_has_compiled_semantic_model(reader, codec_probe, tmp_path):
+    sdk = subprocess.run(
+        ["xcrun", "--sdk", "macosx", "--show-sdk-path"], check=True, text=True, capture_output=True
+    ).stdout.strip()
+    result = read(
+        reader,
+        tmp_path,
+        "#include <CoreFoundation/CoreFoundation.h>\n",
+        ["CFStringCreateWithCString", "CFStringGetLength", "CFRange", "CFRelease"],
+        "-isysroot",
+        sdk,
+    )
+    assert result.returncode == 0, result.stderr
+    assert_codec_parity(codec_probe, tmp_path, result.stdout)
 
 
 @pytest.mark.parametrize(("target", "bits"), [("x86_64-unknown-linux-gnu", 64), ("i686-unknown-linux-gnu", 32)])

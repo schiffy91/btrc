@@ -302,7 +302,7 @@ prove the strict-import path.
 
 ### File Structure
 
-The destination contains exactly 82 production Python files:
+The destination contains exactly 84 production Python files:
 
 ```text
 src/compiler/python/
@@ -326,6 +326,7 @@ src/compiler/python/
     sources.py                    SourceResolver/dependency graph
     imports.py                    ImportResolver/visibility
     packages.py                   PackageUniverse/GitDependencyCache
+    native_imports.py              NativeHeaderCodec: checked Clang semantic input
 
   syntax/
     __init__.py
@@ -366,6 +367,7 @@ src/compiler/python/
   abi/
     __init__.py
     generated.py                  generated hosted-ABI data
+    native_generated.py           ASDL-generated native-header semantic data
     declarations.py               hosted ABI value declarations
     hosted.py                     HostedAbiRepository
     freestanding.py               FreestandingRuntime
@@ -426,7 +428,7 @@ and their golden output live alongside the topic-organized corpus in
 ## btrc Compiler (src/compiler/btrc/)
 
 The self-hosted compiler implements the same six-stage pipeline with fat tagged
-AST and IR nodes. Its destination contains exactly 91 `.btrc` files: 85
+AST and IR nodes. Its destination contains exactly 93 `.btrc` files: 87
 compiler/generated files and six explicit developer-tool files. Only
 `Compiler.btrc` and the thin `BtrccMain.btrc` process entry point remain at the
 package root. The owned packages are:
@@ -437,6 +439,7 @@ pipeline/                         stage manifest, mutable options/results, Compi
 syntax/                           grammar, tokens, identity/canonical rendering, types, literals
 generated/ast/                    ASDL-generated Node data/schema only
 generated/hosted_abi/             generated ABI data
+generated/native_abi/             ASDL-generated native-header semantic data
 generated/runtime/                generated runtime catalog data
 lexer/                            stage manifest and Lexer
 frontend/                         stage, models, source I/O, stdlib, resolver, visibility
@@ -464,7 +467,7 @@ and the parse inspection tool calls that owner; generated `Node` data owns no
 formatting behavior. The unified generator check structurally verifies that
 the handwritten renderer covers every ASDL constructor and field.
 
-The exact 91-file inventory is normative in
+The exact 93-file inventory is normative in
 `docs/design/compiler-structure.md`. Stage manifests contain imports only;
 implementation behavior belongs to the concrete owner. The unified language
 runner executes the corpus through both compilers, and the bootstrap suite

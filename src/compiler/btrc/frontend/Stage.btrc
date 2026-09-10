@@ -2,6 +2,7 @@
 
 import ../parser/Stage.btrc;
 import ./Models.btrc;
+import ./NativeImports.btrc;
 import ./Packages.btrc;
 import ./SourceIo.btrc;
 import ./Stdlib.btrc;
