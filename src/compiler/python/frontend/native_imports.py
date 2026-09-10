@@ -8,9 +8,6 @@ import re
 import subprocess
 from dataclasses import replace
 
-from ..syntax.ast import generated as ast
-from .packages import IncludeResolutionError, NativeLinkPlan
-
 from ..abi.native_generated import (
     NativeAlias,
     NativeArrayType,
@@ -30,6 +27,8 @@ from ..abi.native_generated import (
     NativeRecordType,
     NativeTypedef,
 )
+from ..syntax.ast import generated as ast
+from .packages import IncludeResolutionError, NativeLinkPlan
 
 
 class NativeImportError(ValueError):
@@ -43,6 +42,9 @@ class NativeHeaderSource(str):
         value = super().__new__(cls, module)
         value.header = header
         return value
+
+    def __getnewargs__(self):
+        return str(self), self.header
 
 
 class NativeDeclarationImporter:
@@ -96,7 +98,7 @@ class NativeDeclarationImporter:
                 if declaration.kind == "include-directory":
                     arguments.extend(("-I", declaration.value))
                 elif declaration.kind == "define":
-                    arguments.append(f"-D{declaration.value}={declaration.detail}")
+                    arguments.append(f"-D{declaration.value}={declaration.detail}" if declaration.detail else f"-D{declaration.value}")
             try:
                 result = subprocess.run(arguments, capture_output=True, text=True, timeout=60, check=False)
                 if result.returncode:
@@ -179,10 +181,18 @@ class NativeDeclarationImporter:
                 parameter.cf_consumed or parameter.ns_consumed for parameter in declaration.parameter_semantics
             ):
                 raise NativeImportError("annotated native ownership requires managed native lowering")
-            parameters = [
-                ast.Param(type=self._type(native), name=f"argument{index}")
-                for index, native in enumerate(signature.parameters)
-            ]
+            parameters = []
+            names = {parameter.name for parameter in declaration.parameter_semantics if parameter.name}
+            for index, (native, semantics) in enumerate(
+                zip(signature.parameters, declaration.parameter_semantics, strict=True)
+            ):
+                name = semantics.name
+                if not name:
+                    name = f"argument{index}"
+                    while name in names:
+                        name += "_"
+                    names.add(name)
+                parameters.append(ast.Param(type=self._type(native), name=name))
             imported = ast.FunctionDecl(
                 name=declaration.name, return_type=self._type(signature.return_type), params=parameters, body=None
             )
@@ -194,6 +204,8 @@ class NativeDeclarationImporter:
             )
         elif isinstance(declaration, NativeTypedef):
             imported = ast.TypedefDecl(alias=declaration.name, original=self._type(declaration.underlying))
+            self._add(declaration.name, imported, declaration.underlying)
+            return
         else:
             raise NativeImportError("selected native records require native-type lowering")
         self._add(declaration.name, imported, declaration)

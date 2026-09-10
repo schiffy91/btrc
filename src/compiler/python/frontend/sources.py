@@ -23,8 +23,8 @@ from ..lexer.lexer import Lexer
 from ..parser.parser import Parser
 from ..syntax.ast.codec import AstJsonCodec
 from ..syntax.tokens import SourceSymbolDirective, Token, TokenKind
-from .packages import IncludeResolutionError, NativeLinkPlan, PackageUniverse
 from .native_imports import NativeDeclarationImporter
+from .packages import IncludeResolutionError, NativeLinkPlan, PackageUniverse
 
 
 class CompilerStdlibSource(str):

@@ -98,9 +98,9 @@ and pkg-config names use only letters, digits, `_`, `.`, `+`, and `-`.
 ## Experimental native header imports
 
 `native.bindings` describes a typed header request owned by one existing BTRC
-module. Both frontends validate and select these requests; **typed imports are
-not implemented yet**. Loading a selected binding currently fails explicitly
-before emitting C or a link plan. Unloaded modules and inactive targets do not
+module. Both frontends validate and select these requests. The reference compiler
+has an experimental C import consumer; the self-hosted compiler still rejects
+active bindings before emitting C or a link plan. Unloaded modules and inactive targets do not
 activate their bindings. Existing `native.headers` and `#include` retain their
 untyped behavior.
 
@@ -122,9 +122,18 @@ Language/standard and `os`/`arch` use the existing closed sets. There is no
 package-wide binding. Duplicate exports into the same module are rejected when
 their target predicates overlap, including inactive targets; disjoint providers
 are allowed. Bindings participate in manifest locking but are compiler inputs,
-not schema-1 linker records or native source units. The shared typed schema,
-toolchain/SDK invocation, source visibility and ownership integration remain
-separate implementation work.
+not schema-1 linker records or native source units.
+
+The reference consumer requires explicit `BTRC_NATIVE_HEADER_READER` (built with
+`nix build .#btrc-native-header`), `BTRC_NATIVE_SYSROOT` (an available macOS SDK),
+and `BTRC_NATIVE_TARGET` (a matching full triple, e.g. `arm64-apple-macosx14.0.0`).
+It imports C scalar/typedef/opaque-pointer signatures, constants and SDK parameter
+names into ordinary visibility and type checking. Link the emitted C with the
+same target/SDK and required frameworks. There is no automatic SDK fallback.
+Types or explicit ownership annotations that cannot yet be lowered faithfully
+fail; unannotated pointers remain raw, not managed resources. Native compilations
+bypass artifact caching until its key includes transitive headers and toolchain
+identity. This is not a completed cross-platform import or lifetime feature.
 
 ## Recursive graph and lockfile
 

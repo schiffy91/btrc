@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from ..frontend.native_imports import NativeHeaderSource
-
 import sys
 from dataclasses import replace
 
@@ -38,6 +36,8 @@ from src.compiler.python.syntax.ast.generated import (
     VarDeclStmt,
 )
 from src.compiler.python.syntax.tokens import SourceSymbolDirective
+
+from ..frontend.native_imports import NativeHeaderSource
 
 
 class EnumRegistrar:
