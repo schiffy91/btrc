@@ -98,7 +98,11 @@ class NativeDeclarationImporter:
                 if declaration.kind == "include-directory":
                     arguments.extend(("-I", declaration.value))
                 elif declaration.kind == "define":
-                    arguments.append(f"-D{declaration.value}={declaration.detail}" if declaration.detail else f"-D{declaration.value}")
+                    arguments.append(
+                        f"-D{declaration.value}={declaration.detail}"
+                        if declaration.detail
+                        else f"-D{declaration.value}"
+                    )
             try:
                 result = subprocess.run(arguments, capture_output=True, text=True, timeout=60, check=False)
                 if result.returncode:
