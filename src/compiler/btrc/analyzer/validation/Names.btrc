@@ -28,6 +28,7 @@ class DeferredGeneratedSymbolReference {
 }
 
 class NameValidator {
+	private bool nativeDeclaration;
 	private SemanticValidationState state;
 	private HostedAbiRepository hostedAbi;
 	private CycleSemantics cycles;
@@ -38,6 +39,7 @@ class NameValidator {
 	private Vector<DeferredGeneratedSymbolReference> generatedReferences;
 
 	public NameValidator(SemanticValidationState state, HostedAbiRepository hostedAbi, CycleSemantics cycles, SourceRuntimeSymbols sourceRuntimeSymbols, TypeValidator types, StorageValidator storage, CallValidator calls) {
+		self.nativeDeclaration = false;
 		self.state = state;
 		self.hostedAbi = hostedAbi;
 		self.cycles = cycles;
@@ -133,7 +135,7 @@ class NameValidator {
 		if (prefix != "" && !trustedPrototype) {
 			TypeValidator.fail(subject + " name '" + name + "' uses the compiler-reserved '" + prefix + "' prefix", site);
 		}
-		if (self.cReservedIdentifier(name) && !self.magicDeclaredNameAllowed(name, site)) {
+		if (self.cReservedIdentifier(name) && !self.nativeDeclaration && !self.magicDeclaredNameAllowed(name, site)) {
 			TypeValidator.fail(subject + " name '" + name + "' is reserved by C11", site);
 		}
 	}
@@ -193,6 +195,7 @@ class NameValidator {
 		int index = 0;
 		while (index < program.declarations.len) {
 			Node declaration = program.declarations.get(index);
+			self.nativeDeclaration = self.state.analyzed.isNativeDeclaration(declaration);
 			if (declaration.kind == NK_PREPROCESSOR_DIRECTIVE) {
 				SourceMacroDefinition definition = SourceMacroDefinition(declaration.text);
 				if (definition.isDefinition()) {
@@ -205,7 +208,7 @@ class NameValidator {
 				self.validateHostedTopLevelName(declaration);
 				string topLevelName = self.topLevelName(declaration);
 				self.validateDeclaredName(topLevelName, "Top-level declaration", declaration);
-				if (self.cFileScopeReservedIdentifier(topLevelName)) {
+				if (self.cFileScopeReservedIdentifier(topLevelName) && !self.nativeDeclaration) {
 					TypeValidator.fail("Top-level declaration name '" + topLevelName + "' is reserved by C11 at file scope", declaration);
 				}
 			}
@@ -255,6 +258,7 @@ class NameValidator {
 			}
 			index = index + 1;
 		}
+		self.nativeDeclaration = false;
 	}
 
 	public void validateDirectLocalNames(Node? block, Map<string, bool> reserved) {

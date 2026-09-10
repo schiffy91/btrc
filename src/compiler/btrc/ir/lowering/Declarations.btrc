@@ -133,6 +133,10 @@ class DeclarationLowerer {
 	}
 
 	public void emitDeclarations(Node prog, IRModule m) {
+		for imported in self.analyzed.nativeDeclarations {
+			if (!self.validIncludeHeader(imported.header)) { self.preprocessorFail("invalid native include header"); }
+			self.appendPreprocessorDecl(m, IRPreprocessorDecl.include(imported.header, false));
+		}
 		Map<string, bool> externallyDefinedGlobals = {};
 		int globalDeclarationIndex = 0;
 		while (globalDeclarationIndex < prog.declarations.len) {
@@ -145,6 +149,10 @@ class DeclarationLowerer {
 		int i = 0;
 		while (i < prog.declarations.len) {
 			Node d = prog.declarations.get(i);
+			if (self.analyzed.isNativeDeclaration(d)) {
+				i++;
+				continue;
+			}
 			if (d.kind == NK_CLASS_DECL) {
 				if (d.genericParams.len == 0) { self.emitClassDecl(d, m); }
 			} else if (d.kind == NK_FUNCTION_DECL) {

@@ -1,11 +1,205 @@
-/* Checked native header metadata. This does not lower calls or infer ownership. */
+/* Checked SDK semantics and lossless projections into the typed source pipeline.
+ * Managed native ownership and Objective-C/C++ adapters remain explicit errors. */
 
 import Library.Json;
+import Library.FileSystem;
 import Library.Map;
+import Library.Platform;
+import Library.Process;
 import Library.Strings;
 import Library.Vector;
 
 import ../generated/native_abi/Models.btrc;
+import ../generated/ast/Node.btrc;
+import ../syntax/Literals.btrc;
+import ./Models.btrc;
+import ./Packages.btrc;
+
+class FeNativeDeclarationImporter {
+	private Vector<FeNativeImportedDeclaration> declarations;
+	private Map<string, string> typeIdentities;
+	private string module;
+	private string header;
+
+	public FeNativeDeclarationImporter() {
+		self.declarations = [];
+		self.typeIdentities = {};
+		self.module = "";
+		self.header = "";
+	}
+
+	private void fail(string message) { throw f"{self.module}: native header: {message}"; }
+
+	private Node node(int kind) {
+		var result = Node();
+		result.kind = kind;
+		return result;
+	}
+
+	private string qualifierIdentity(NativeNode qualifiers) { return f"{qualifiers.isConst}:{qualifiers.isVolatile}:{qualifiers.isRestrict}:{qualifiers.nullability}"; }
+
+	/* Only projected type shapes reach this identity. Include target storage and
+	 * opaque record identity so deduplication never equates different C types. */
+	private string typeIdentity(NativeNode native) {
+		string identity = f"{native.kind}:{self.qualifierIdentity(native.qualifiers)}:";
+		if (native.kind == NNK_NATIVE_BUILTIN) { return identity + f"{native.name}:{native.bits}:{native.alignmentBitsInt}:{native.signedness}"; }
+		if (native.kind == NNK_NATIVE_RECORD_TYPE) { return identity + native.identity + f":{native.complete}:{native.opaque}"; }
+		if (native.kind == NNK_NATIVE_POINTER) { return identity + self.typeIdentity(native.pointee); }
+		if (native.kind == NNK_NATIVE_ALIAS || native.kind == NNK_NATIVE_QUALIFIED_TYPE) { return identity + native.name + ":" + self.typeIdentity(native.underlying); }
+		self.fail("unsupported native type identity");
+		return "";
+	}
+
+	private void add(string name, Node declaration, string identity) {
+		string key = self.module + "\x1f" + name;
+		if (self.typeIdentities.has(key)) {
+			if (identity.isEmpty() || !self.typeIdentities.get(key).equals(identity)) { self.fail(f"conflicting native declaration '{name}'"); }
+			return;
+		}
+		declaration.sourceFile = self.module;
+		self.typeIdentities.put(key, identity);
+		self.declarations.push(FeNativeImportedDeclaration(declaration, self.module, self.header));
+	}
+
+	private Node qualify(Node projected, NativeNode native) {
+		NativeNode qualifiers = native.qualifiers;
+		if (qualifiers.isRestrict || qualifiers.isVolatile || !qualifiers.nullability.equals("unannotated")) { self.fail("native qualifier requires native-type lowering; refusing a lossy projection"); }
+		if (qualifiers.isConst && (native.kind == NNK_NATIVE_POINTER || native.kind == NNK_NATIVE_ALIAS)) { self.fail("pointer/alias const requires native-type lowering; refusing a lossy projection"); }
+		projected.isConst = projected.isConst || qualifiers.isConst;
+		return projected;
+	}
+
+	private Node type(NativeNode native) {
+		Node projected = self.node(NK_TYPE_EXPR);
+		if (native.kind == NNK_NATIVE_BUILTIN) {
+			if (!Strings.split("void,char,signed char,unsigned char,short,unsigned short,int,unsigned int,long,unsigned long,long long,unsigned long long,float,double", ",").contains(native.name)) { self.fail(f"unsupported native scalar '{native.name}'"); }
+			projected.base = native.name;
+		} else if (native.kind == NNK_NATIVE_ALIAS) {
+			Node alias = self.node(NK_TYPEDEF_DECL);
+			alias.alias = native.name;
+			alias.original = self.type(native.underlying);
+			self.add(native.name, alias, self.typeIdentity(native.underlying));
+			projected.base = native.name;
+		} else if (native.kind == NNK_NATIVE_POINTER) {
+			projected = self.type(native.pointee);
+			projected.pointerDepth++;
+		} else if (native.kind == NNK_NATIVE_RECORD_TYPE) {
+			if (!native.opaque || native.name.isEmpty()) { self.fail("native record values require native-type lowering"); }
+			Node record = self.node(NK_STRUCT_DECL);
+			record.name = native.name;
+			record.isForward = true;
+			/* The tag's identity is independent of this use's qualifiers. */
+			self.add(native.name, record, f"record:{native.identity}:{native.complete}:{native.opaque}");
+			projected.base = native.name;
+		} else if (native.kind == NNK_NATIVE_QUALIFIED_TYPE) {
+			projected = self.type(native.underlying);
+			if (!self.qualifierIdentity(native.qualifiers).equals(self.qualifierIdentity(native.underlying.qualifiers))) { self.fail("qualified native wrapper requires native-type lowering"); }
+		} else { self.fail("native type requires native-type lowering"); }
+		return self.qualify(projected, native);
+	}
+
+	private Node integer(string decimal) {
+		bool negative = decimal.startsWith("-");
+		string magnitude = negative ? decimal.substring(1, decimal.length() - 1) : decimal;
+		var literal = IntegerLiteral(magnitude);
+		if (literal.typeName().isEmpty()) { self.fail("native constant exceeds supported integer storage"); }
+		Node result = self.node(NK_INT_LITERAL);
+		result.raw = magnitude;
+		result.valueInt = literal.storedValue();
+		if (!negative) { return result; }
+		Node negated = self.node(NK_UNARY_EXPR);
+		negated.op = "-";
+		negated.operand = result;
+		return negated;
+	}
+
+	private void importDeclaration(NativeNode declaration) {
+		Node imported = Node();
+		if (declaration.kind == NNK_NATIVE_FUNCTION) {
+			NativeNode signature = declaration.signature;
+			if (signature.variadic || !declaration.linkName.equals(declaration.name)) { self.fail("variadic/renamed native calls require adapter lowering"); }
+			if (!declaration.returnedOwnership.equals("unspecified")) { self.fail("annotated native ownership requires managed native lowering"); }
+			Map<string, bool> names = {};
+			for semantics in declaration.parameterSemantics {
+				if (semantics.cfConsumed || semantics.nsConsumed) { self.fail("annotated native ownership requires managed native lowering"); }
+				if (!semantics.name.isEmpty()) { names.put(semantics.name, true); }
+			}
+			imported = self.node(NK_FUNCTION_DECL);
+			imported.name = declaration.name;
+			for index in range(signature.parameters.len) {
+				string name = declaration.parameterSemantics.get(index).name;
+				if (name.isEmpty()) {
+					name = f"argument{index}";
+					while (names.has(name)) { name = name + "_"; }
+					names.put(name, true);
+				}
+				Node parameter = self.node(NK_PARAM);
+				parameter.name = name;
+				parameter.type = self.type(signature.parameters.get(index));
+				imported.params.push(parameter);
+			}
+			imported.returnType = self.type(signature.returnType);
+		} else if (declaration.kind == NNK_NATIVE_CONSTANT) {
+			imported = self.node(NK_VAR_DECL_STMT);
+			imported.name = declaration.name;
+			imported.type = self.type(declaration.valueType);
+			imported.type.isConst = true;
+			imported.initializer = self.integer(declaration.decimalValue);
+		} else if (declaration.kind == NNK_NATIVE_TYPEDEF) {
+			imported = self.node(NK_TYPEDEF_DECL);
+			imported.alias = declaration.name;
+			imported.original = self.type(declaration.underlying);
+			self.add(declaration.name, imported, self.typeIdentity(declaration.underlying));
+			return;
+		} else { self.fail("selected native records require native-type lowering"); }
+		self.add(declaration.name, imported, "");
+	}
+
+	private bool matchesTarget(FePackageTarget target, string triple) {
+		if (!target.operatingSystem.equals("macos")) { return false; }
+		string architecture = target.architecture.equals("aarch64") ? "arm64" : "x86_64";
+		string prefix = architecture + "-apple-macosx";
+		if (!triple.startsWith(prefix)) { return false; }
+		var components = Strings.split(triple.substring(prefix.length(), triple.length() - prefix.length()), ".");
+		if (components.len != 3) { return false; }
+		for component in components {
+			if (component.isEmpty()) { return false; }
+			for index in range(component.length()) {
+				if (!Strings.isDigit(component[index])) { return false; }
+			}
+		}
+		return true;
+	}
+
+	public Vector<FeNativeImportedDeclaration> resolve(FeNativeLinkPlan plan) {
+		Vector<FeNativeBinding> bindings = plan.bindingImports();
+		if (bindings.len == 0) { return self.declarations; }
+		string reader = Environment.get("BTRC_NATIVE_HEADER_READER", "");
+		if (reader.isEmpty()) { plan.requireResolvedBindings(); }
+		string target = Environment.get("BTRC_NATIVE_TARGET", "");
+		string sysroot = Environment.get("BTRC_NATIVE_SYSROOT", "");
+		if (!self.matchesTarget(plan.target, target)) { throw "experimental native imports require an explicit matching macOS BTRC_NATIVE_TARGET triple"; }
+		if (!FileSystem.isDir(sysroot)) { throw "native imports require an explicit available BTRC_NATIVE_SYSROOT"; }
+		for binding in bindings {
+			self.module = binding.module;
+			self.header = binding.header;
+			if (!binding.language.equals("c")) { self.fail("Objective-C/C++ call adapters are not implemented"); }
+			var command = Command(reader);
+			for name in binding.symbols { command.arg("--symbol=" + name); }
+			command.arg(binding.header).arg("--").flag("-x", "c").arg("-std=" + binding.standard).arg("--target=" + target).flag("-isysroot", sysroot);
+			for declaration in plan.declarations {
+				if (!declaration.selectedFor(plan.target)) { continue; }
+				if (declaration.kind.equals("include-directory")) { command.flag("-I", declaration.value); }
+				if (declaration.kind.equals("define")) { command.arg("-D" + declaration.value + (declaration.detail.isEmpty() ? "" : "=" + declaration.detail)); }
+			}
+			ExecResult result = ChildProcess.run(command.command, command.arguments, timeoutMilliseconds = 60000);
+			if (!result.ok()) { self.fail(result.err.isEmpty() ? "native header reader failed" : result.err.trim()); }
+			NativeNode decoded = FeNativeHeaderCodec().decode(result.out, target);
+			for declaration in decoded.exports { self.importDeclaration(declaration); }
+		}
+		return self.declarations;
+	}
+}
 
 class FeNativeHeaderCodec {
 	private void fail(string message) { throw f"native header: {message}"; }

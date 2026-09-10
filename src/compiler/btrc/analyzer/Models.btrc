@@ -2,6 +2,7 @@ import Library.Map;
 import Library.Vector;
 
 import ../generated/ast/Node.btrc;
+import ../frontend/Models.btrc;
 import ../syntax/Identity.btrc;
 
 /* Semantic-analysis result and value models.
@@ -42,6 +43,14 @@ class MethodGenInstance {
 }
 
 class Analyzed {
+	public Vector<FeNativeImportedDeclaration> nativeDeclarations;
+
+	public bool isNativeDeclaration(Node site) {
+		for imported in self.nativeDeclarations {
+			if (imported.declaration == site) { return true; }
+		}
+		return false;
+	}
 	private Map<string, bool>? lexicalTypeParameterNames;
 	private int lexicalTypeParameterTableSize;
 	/* function name -> the function's return TypeExpr node (NK_TYPE_EXPR) */
@@ -128,6 +137,7 @@ class Analyzed {
 	public Map<string, bool> realtimeBoundedLoopKeys;
 
 	public Analyzed() {
+		self.nativeDeclarations = [];
 		self.lexicalTypeParameterNames = null;
 		self.lexicalTypeParameterTableSize = -1;
 		self.funcRetTypes = {};

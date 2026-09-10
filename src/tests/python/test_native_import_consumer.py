@@ -6,6 +6,7 @@ import platform
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -63,10 +64,35 @@ def compile_source(source):
     return Compiler().compile(source.read_text(), str(source), CompilerOptions(include_stdlib=False))
 
 
+@pytest.fixture(params=["reference", "selfhost"])
+def native_compile(request):
+    if request.param == "reference":
+        return compile_source
+    binary = request.getfixturevalue("immutable_btrcc")
+
+    def compile_native(source):
+        result = subprocess.run(
+            [str(binary), "--no-stdlib", str(source)],
+            env={**os.environ, "BTRC_HOME": str(REPO / "src")},
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+        return SimpleNamespace(
+            successful=result.returncode == 0,
+            c_source=result.stdout if result.returncode == 0 else None,
+            cache_hit=False,
+            failure=result.stderr,
+            diagnostics=[SimpleNamespace(message=result.stderr)] if result.returncode else [],
+        )
+
+    return compile_native
+
+
 @pytest.mark.parametrize("sanitized", [False, True])
-def test_corefoundation_create_query_release_without_signature_wrappers(native_project, tmp_path, sanitized):
+def test_corefoundation_create_query_release_without_signature_wrappers(native_project, tmp_path, sanitized, native_compile):
     source, sdk, triple = native_project
-    result = compile_source(source)
+    result = native_compile(source)
     assert result.successful, result.failure
     assert not result.cache_hit
     assert "CFStringRef text = CFStringCreateWithCString(" in result.c_source
@@ -114,23 +140,23 @@ def test_corefoundation_create_query_release_without_signature_wrappers(native_p
         ("CFRelease(text)", "CFRelease(42)"),
     ],
 )
-def test_native_calls_are_checked_before_c_emission(native_project, before, after):
+def test_native_calls_are_checked_before_c_emission(native_project, before, after, native_compile):
     source, _, _ = native_project
     wrapper = source.parent / "Foundation.btrc"
     wrapper.write_text(BODY.replace(before, after), encoding="utf-8")
-    result = compile_source(source)
+    result = native_compile(source)
     assert not result.successful
     assert result.c_source is None
     assert result.diagnostics
 
 
-def test_native_symbol_does_not_leak_to_an_unimporting_sibling(native_project):
+def test_native_symbol_does_not_leak_to_an_unimporting_sibling(native_project, native_compile):
     source, _, _ = native_project
     (source.parent / "Other.btrc").write_text("int other() { return CFStringGetLength(null); }\n", encoding="utf-8")
     source.write_text(
         "import ./Foundation.btrc;\nimport ./Other.btrc;\nint main() { return other(); }\n", encoding="utf-8"
     )
-    result = compile_source(source)
+    result = native_compile(source)
     assert not result.successful
     assert result.c_source is None
     assert "CFStringGetLength" in str(result.failure)
@@ -153,30 +179,30 @@ def test_native_imports_do_not_reuse_stale_header_cache(native_project):
     assert "Native declaration not found" in str(second.failure)
 
 
-def test_sdk_reserved_names_do_not_relax_btrc_source_names(native_project):
+def test_sdk_reserved_names_do_not_relax_btrc_source_names(native_project, native_compile):
     source, _, _ = native_project
     source.write_text(
         "import ./Foundation.btrc;\nstruct __UserReserved;\nint main() { return verifyFoundation(); }\n",
         encoding="utf-8",
     )
-    result = compile_source(source)
+    result = native_compile(source)
     assert not result.successful
     assert any("reserved by C11" in diagnostic.message for diagnostic in result.diagnostics)
 
 
-def test_native_parameter_names_come_from_the_sdk(native_project):
+def test_native_parameter_names_come_from_the_sdk(native_project, native_compile):
     source, _, _ = native_project
     wrapper = source.parent / "Foundation.btrc"
     wrapper.write_text(BODY.replace("CFStringGetLength(text)", "CFStringGetLength(theString=text)"), encoding="utf-8")
-    result = compile_source(source)
+    result = native_compile(source)
     assert result.successful, (result.failure, result.diagnostics)
 
 
-def test_explicit_typedef_and_inferred_typedef_share_identity(native_project):
+def test_explicit_typedef_and_inferred_typedef_share_identity(native_project, native_compile):
     source, _, _ = native_project
     manifest = source.parent.parent / "btrc.toml"
     manifest.write_text(manifest.read_text().replace("symbols = [", 'symbols = ["CFStringRef", '), encoding="utf-8")
-    result = compile_source(source)
+    result = native_compile(source)
     assert result.successful, (result.failure, result.diagnostics)
 
 
@@ -190,7 +216,7 @@ def test_explicit_typedef_and_inferred_typedef_share_identity(native_project):
         "struct Value { int item; }; struct Value probe(void);",
     ],
 )
-def test_unimplemented_native_semantics_are_not_erased(native_project, header):
+def test_unimplemented_native_semantics_are_not_erased(native_project, header, native_compile):
     source, _, _ = native_project
     root = source.parent.parent
     manifest = root / "btrc.toml"
@@ -203,22 +229,22 @@ def test_unimplemented_native_semantics_are_not_erased(native_project, header):
     )
     (root / "Foundation.h").write_text(header, encoding="utf-8")
     (source.parent / "Foundation.btrc").write_text("int verifyFoundation() { return 0; }\n", encoding="utf-8")
-    result = compile_source(source)
+    result = native_compile(source)
     assert not result.successful and result.c_source is None
     assert "lowering" in str(result.failure)
 
 
-def test_native_toolchain_target_must_match_requested_target(native_project, monkeypatch):
+def test_native_toolchain_target_must_match_requested_target(native_project, monkeypatch, native_compile):
     source, _, triple = native_project
     other = "x86_64" if triple.startswith("arm64") else "arm64"
     monkeypatch.setenv("BTRC_NATIVE_TARGET", f"{other}-apple-macosx14.0.0")
-    result = compile_source(source)
+    result = native_compile(source)
     assert not result.successful and result.c_source is None
     assert "matching macOS BTRC_NATIVE_TARGET" in str(result.failure)
 
 
 @pytest.mark.parametrize(("value", "expected"), [("", 1), ("3", 3)])
-def test_native_reader_uses_the_link_plans_define_semantics(native_project, value, expected):
+def test_native_reader_uses_the_link_plans_define_semantics(native_project, value, expected, native_compile):
     source, _, _ = native_project
     root = source.parent.parent
     manifest = root / "btrc.toml"
@@ -231,7 +257,7 @@ def test_native_reader_uses_the_link_plans_define_semantics(native_project, valu
         + header.read_text(),
         encoding="utf-8",
     )
-    result = compile_source(source)
+    result = native_compile(source)
     assert result.successful, (result.failure, result.diagnostics)
 
 

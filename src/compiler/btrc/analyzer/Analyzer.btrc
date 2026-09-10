@@ -1,6 +1,9 @@
 /* Per-compilation semantic-analysis composition root. */
 
+import Library.Vector;
+
 import ../generated/ast/Node.btrc;
+import ../frontend/Models.btrc;
 import ./Declarations.btrc;
 import ./Expressions.btrc;
 import ./Generics.btrc;
@@ -57,6 +60,8 @@ class SemanticAnalyzer {
 	public ExpressionTypeResolver expressionTypes() { return self.expressions; }
 
 	public DeclarationRegistry declarationRegistry() { return self.declarations; }
+
+	public void configureNativeDeclarations(Vector<FeNativeImportedDeclaration> declarations) { self.analysis.nativeDeclarations = declarations; }
 
 	public ManagedValueSemantics managedValueSemantics() { return self.managedValues; }
 

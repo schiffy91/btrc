@@ -392,6 +392,9 @@ class FeImportVisibilityChecker {
 
 	private Map<string, Vector<string>> localSymbolFiles() {
 		Map<string, Vector<string>> symbols = {};
+		for imported in self.resolved.nativeDeclarations {
+			self.addDeclarationSymbols(symbols, imported.declaration, imported.module);
+		}
 		int index = 0;
 		while (index < self.program.declarations.len) {
 			Node declaration = self.program.declarations.get(index);

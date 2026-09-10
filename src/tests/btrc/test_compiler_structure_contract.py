@@ -142,9 +142,6 @@ INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
     {
         ("TypeComposition", "substitutionPointerDepth"),
         ("TypeIdentity", "symbolComponent"),
-        # Experimental native semantics are exercised by NativeHeaderCodec.btrc
-        # before selected bindings may enter ordinary compilation.
-        ("FeNativeHeaderCodec", "decode"),
     }
 )
 

@@ -5,6 +5,8 @@ import Library.Map;
 import Library.Strings;
 import Library.Vector;
 
+import ../generated/ast/Node.btrc;
+
 class FeSourceText {
 	private string content;
 
@@ -147,7 +149,21 @@ class FeStdlibRootSnapshot {
 	}
 }
 
+/* SDK provenance is attached to the actual imported node, never inferred from
+ * its spelling, line number, or a user-controlled source marker. */
+class FeNativeImportedDeclaration {
+	public Node declaration;
+	public string module;
+	public string header;
+	public FeNativeImportedDeclaration(Node declaration, string module, string header) {
+		self.declaration = declaration;
+		self.module = module;
+		self.header = header;
+	}
+}
+
 class FeResolvedSource {
+	public Vector<FeNativeImportedDeclaration> nativeDeclarations;
 	public string userSource;
 	public string source;
 	public string stdlibSource;
@@ -159,6 +175,7 @@ class FeResolvedSource {
 	public FeStdlibRootSnapshot stdlibSnapshot;
 
 	public FeResolvedSource(string userSource, string source, string stdlibSource, Vector<FeLine> userLines, FeDependencyGraph dependencies, bool strictImports, int stdlibLineCount, string rootSourcePath, FeStdlibRootSnapshot stdlibSnapshot) {
+		self.nativeDeclarations = [];
 		self.userSource = userSource;
 		self.source = source;
 		self.stdlibSource = stdlibSource;

@@ -5,6 +5,7 @@ import Library.Strings;
 import Library.Vector;
 
 import ../frontend/Packages.btrc;
+import ../frontend/NativeImports.btrc;
 import ../ir/Stage.btrc;
 import ./Models.btrc;
 
@@ -40,7 +41,7 @@ class CompilerPipeline {
 		FeFrontendResolver resolver = FeFrontendResolver(self.grammar, self.stdlib, options.includeStdlib, options.strictImports, packages);
 		FeResolvedSource resolved = resolver.resolve(source, sourcePath);
 		packages.linkPlan.restrictToSources(resolved.dependencies.sourceIdentities());
-		packages.linkPlan.requireResolvedBindings();
+		resolved.nativeDeclarations = FeNativeDeclarationImporter().resolve(packages.linkPlan);
 		string backgroundJobsModule = PathTools.join(self.stdlib.directory(), "BackgroundJobs.btrc");
 		if (resolved.dependencies.hasSource(FeSourcePathPolicy().identity(backgroundJobsModule))) {
 			packages.linkPlan.requireStdlibBackgroundJobs(self.stdlib.directory());
@@ -70,6 +71,12 @@ class CompilerPipeline {
 			return self.failure("error: " + parser.diagnostic);
 		}
 
+		self.hostedAbi.stampProgramSources(program, resolved.stdlibLineCount, resolved.userLines, sourcePath, self.stdlib.directory());
+		Vector<Node> declarations = [];
+		for imported in resolved.nativeDeclarations { declarations.push(imported.declaration); }
+		for declaration in program.declarations { declarations.push(declaration); }
+		program.declarations = declarations;
+
 		if (options.strictImports) {
 			FeImportVisibilityChecker visibility = FeImportVisibilityChecker(program, resolved, self.stdlib, self.stdlibSymbols, self.grammar, self.hostedAbi.sourceFunctionShadows(program));
 			FeVisibilityCheckResult checked = visibility.check();
@@ -81,11 +88,11 @@ class CompilerPipeline {
 			}
 		}
 
-		self.hostedAbi.stampProgramSources(program, resolved.stdlibLineCount, resolved.userLines, sourcePath, self.stdlib.directory());
 		GeneratedRuntimeCatalogData runtimeData = GeneratedRuntimeCatalogData();
 		SourceRuntimeSymbols sourceRuntimeSymbols = SourceRuntimeSymbols(runtimeData.rows, runtimeData.intrinsicEffects);
 		RuntimeHelperCatalog runtimeHelpers = RuntimeHelperCatalog(runtimeData.rows, runtimeData.intrinsicEffects);
 		SemanticAnalyzer analyzer = SemanticAnalyzer(sourceRuntimeSymbols);
+		analyzer.configureNativeDeclarations(resolved.nativeDeclarations);
 		Analyzed analyzed = analyzer.analyze(program, self.hostedAbi);
 
 		IRLowerer lowerer = IRLowerer(analyzed, self.hostedAbi, analyzer.declarationRegistry(), analyzer.operatorSemantics(), analyzer.expressionTypes(), analyzer.gpuSemantics(), analyzer.managedValueSemantics(), analyzer.cycleSemantics(), runtimeHelpers, sourcePath, resolved.stdlibLineCount, resolved.userLines);
