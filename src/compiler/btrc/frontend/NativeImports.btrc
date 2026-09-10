@@ -228,6 +228,13 @@ class FeNativeHeaderCodec {
 	}
 
 	public NativeNode decode(string source, string expectedTarget = "") {
+		/* Library.Json strings are NUL-terminated. Reject an escaped NUL before it can disappear. */
+		for index in range(source.length()) {
+			if (source[index] == '\\') {
+				if (index + 5 < source.length() && source.substring(index + 1, 5).equals("u0000")) { self.fail("native text contains NUL"); }
+				index++;
+			}
+		}
 		JsonValue value = JsonValue.parse(source);
 		self.fields(value, "schema,target,clang,big_endian,character_bits,declarations,records");
 		if (!self.text(value.get("schema")).equals("btrc.native-declarations.experimental")) { self.fail("unsupported native header schema"); }

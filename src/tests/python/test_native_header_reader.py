@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from src.compiler.python.frontend.native_imports import NativeHeaderCodec
 from src.compiler.python.frontend.packages import PackageUniverse
 
 
@@ -24,12 +25,15 @@ def reader() -> str:
 def read(reader, tmp_path, source, symbols, *flags):
     path = tmp_path / "Native.c"
     path.write_text(source, encoding="utf-8")
-    return subprocess.run(
+    result = subprocess.run(
         [reader, *(f"--symbol={name}" for name in symbols), str(path), "--", "-x", "c", "-std=c11", *flags],
         text=True,
         capture_output=True,
         timeout=30,
     )
+    if result.returncode == 0:
+        NativeHeaderCodec().decode(result.stdout)
+    return result
 
 
 def underlying(value):
@@ -148,9 +152,9 @@ def test_record_layout_uses_target_abi(reader, tmp_path, target, size, alignment
     assert document["big_endian"] is big_endian
     assert document["character_bits"] == 8
     [record] = document["records"]
-    assert record["size_bits"] == size
-    assert record["alignment_bits"] == alignment
-    assert [field["offset_bits"] for field in record["fields"]] == offsets
+    assert record["size_bits"] == str(size)
+    assert record["alignment_bits"] == str(alignment)
+    assert [field["offset_bits"] for field in record["fields"]] == [str(offset) for offset in offsets]
     recursive = underlying(underlying(record["fields"][2]["type"])["pointee"])
     assert recursive["identity"] == record["identity"]
     assert recursive["opaque"] is True
@@ -180,7 +184,7 @@ def test_record_layout_agrees_with_compiled_c(reader, tmp_path):
     node = records[underlying(node_array["element"])["identity"]]
     union = records[underlying(packet["fields"][1]["type"])["identity"]]
     assert union["kind"] == "union"
-    assert [field["offset_bits"] for field in union["fields"]] == [0, 0]
+    assert [field["offset_bits"] for field in union["fields"]] == ["0", "0"]
     tail = packet["fields"][2]["type"]
     assert tail["kind"] == "array" and tail["count"] is None
     probe = tmp_path / "Layout.c"
@@ -204,7 +208,7 @@ def test_record_layout_agrees_with_compiled_c(reader, tmp_path):
         timeout=30,
     )
     actual = subprocess.run([str(executable)], check=True, capture_output=True, text=True, timeout=10)
-    assert [int(value) for value in actual.stdout.split()] == [
+    assert actual.stdout.split() == [
         packet["size_bits"],
         packet["alignment_bits"],
         packet["fields"][1]["offset_bits"],
@@ -231,8 +235,8 @@ def test_bitfields_and_anonymous_records_keep_distinct_identity(reader, tmp_path
     assert result.returncode == 0, result.stderr
     records = {record["identity"]: record for record in json.loads(result.stdout)["records"]}
     bits = next(record for record in records.values() if record["name"] == "Bits")
-    assert [field["width_bits"] for field in bits["fields"]] == [3, 5, 0, 1]
-    assert [field["offset_bits"] for field in bits["fields"]] == [0, 3, 32, 32]
+    assert [field["width_bits"] for field in bits["fields"]] == ["3", "5", "0", "1"]
+    assert [field["offset_bits"] for field in bits["fields"]] == ["0", "3", "32", "32"]
     container = next(record for record in records.values() if record["name"] == "Container")
     identities = [underlying(field["type"])["identity"] for field in container["fields"]]
     assert len(set(identities)) == 3
@@ -307,10 +311,10 @@ def test_real_corefoundation_header(reader, tmp_path):
     range_type = underlying(declarations["CFRange"]["type"])
     ranges = {record["identity"]: record for record in document["records"]}
     range_layout = ranges[range_type["identity"]]
-    assert range_layout["size_bits"] == 128 and range_layout["alignment_bits"] == 64
+    assert range_layout["size_bits"] == "128" and range_layout["alignment_bits"] == "64"
     assert [(field["name"], field["offset_bits"]) for field in range_layout["fields"]] == [
-        ("location", 0),
-        ("length", 64),
+        ("location", "0"),
+        ("length", "64"),
     ]
     passed_range = underlying(declarations["CFStringGetCharacters"]["type"]["parameters"][1])
     assert passed_range["identity"] == range_type["identity"]

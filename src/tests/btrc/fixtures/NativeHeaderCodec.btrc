@@ -1,0 +1,50 @@
+import Library.FileSystem;
+import Library.Vector;
+
+import ../../../compiler/btrc/frontend/NativeImports.btrc;
+import ../../../compiler/btrc/generated/native_abi/Models.btrc;
+
+class NativeHeaderProbe {
+	public NativeNode underlying(NativeNode value) {
+		while (value.kind == NNK_NATIVE_ALIAS || value.kind == NNK_NATIVE_QUALIFIED_TYPE) { value = value.underlying; }
+		return value;
+	}
+
+	public void verify(NativeNode header) {
+		for declaration in header.exports {
+			if (declaration.name.equals("measure")) {
+				NativeNode signature = declaration.signature;
+				NativeNode returned = self.underlying(signature.returnType);
+				NativeNode outer = self.underlying(signature.parameters[1]);
+				NativeNode inner = self.underlying(outer.pointee);
+				if (returned.bits != 64 || outer.qualifiers.isConst || !inner.qualifiers.isConst || !inner.pointee.qualifiers.isConst) { throw "qualifiers or ABI width were lost"; }
+			} else if (declaration.name.equals("make")) {
+				if (!declaration.returnedOwnership.equals("cf_retained") || !declaration.signature.returnType.qualifiers.nullability.equals("nullable")) { throw "return semantics were lost"; }
+			} else if (declaration.name.equals("consume")) {
+				if (!declaration.parameterSemantics[0].cfConsumed) { throw "consumed parameter was lost"; }
+			} else if (declaration.name.equals("CFStringGetLength")) {
+				if (self.underlying(declaration.signature.returnType).bits != 64) { throw "CFIndex width was lost"; }
+			} else if (declaration.name.equals("CFStringCreateWithCString")) {
+				NativeNode handle = self.underlying(declaration.signature.returnType);
+				if (handle.kind != NNK_NATIVE_POINTER || !self.underlying(handle.pointee).name.equals("__CFString")) { throw "CoreFoundation identity was lost"; }
+			}
+		}
+	}
+}
+
+int main(int argc, char** argv) {
+	if (argc != 2) { return 2; }
+	try {
+		NativeNode header = FeNativeHeaderCodec().decode(FileSystem.readText(argv[1]));
+		NativeHeaderProbe().verify(header);
+		printf("%s %d %d\n", header.targetTriple, header.exports.len, header.records.len);
+		for record in header.records {
+			printf("%s %s %s\n", record.identity, record.sizeBits, record.alignmentBitsString);
+			for field in record.fields { printf("%s %s %s\n", field.name, field.offsetBits, field.widthBits); }
+		}
+		return 0;
+	} catch (string error) {
+		fprintf(stderr, "%s\n", error);
+		return 1;
+	}
+}

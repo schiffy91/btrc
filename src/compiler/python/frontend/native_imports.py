@@ -43,6 +43,21 @@ class NativeHeaderCodec:
     )
 
     @staticmethod
+    def _unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise NativeImportError(f"duplicate native object key: {key}")
+            result[key] = value
+        return result
+
+    @staticmethod
+    def _layout_integer(value):
+        if len(value) > 20 or (len(value) == 20 and value > "18446744073709551615"):
+            raise NativeImportError("native layout exceeds uint64")
+        return int(value)
+
+    @staticmethod
     def _object(value, fields, optional=()):
         if not isinstance(value, dict) or not set(fields) <= set(value) or set(value) - set(fields) - set(optional):
             raise NativeImportError("native object fields do not match the semantic schema")
@@ -87,7 +102,7 @@ class NativeHeaderCodec:
 
     def decode(self, source: str, *, expected_target: str | None = None) -> NativeHeader:
         try:
-            value = json.loads(source)
+            value = json.loads(source, object_pairs_hook=self._unique_object)
             self._object(
                 value, {"schema", "target", "clang", "big_endian", "character_bits", "declarations", "records"}
             )
@@ -263,14 +278,15 @@ class NativeHeaderCodec:
         self._object(value, {"identity", "name", "kind", "size_bits", "alignment_bits", "fields"})
         size = self._decimal(value["size_bits"])
         alignment = self._decimal(value["alignment_bits"])
-        if int(alignment) == 0:
+        size_value = self._layout_integer(size)
+        if self._layout_integer(alignment) == 0:
             raise NativeImportError("native record alignment must be positive")
         fields = []
         for entry in self._array(value["fields"]):
             self._object(entry, {"name", "type", "offset_bits", "anonymous"}, {"width_bits"})
             offset = self._decimal(entry["offset_bits"])
             width = self._decimal(entry["width_bits"]) if "width_bits" in entry else "0"
-            if int(offset) + int(width) > int(size):
+            if self._layout_integer(offset) + self._layout_integer(width) > size_value:
                 raise NativeImportError("native field extends beyond its record")
             fields.append(
                 NativeField(
