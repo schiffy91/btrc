@@ -399,6 +399,24 @@
             exec ${pkgs.python314}/bin/python3 -m tools.native_plan "$@"
           '';
         };
+        nativeHeaderReader = pkgs.llvmPackages_21.stdenv.mkDerivation {
+          pname = "btrc-native-header";
+          version = "0";
+          src = ./tools/NativeHeaderReader.cpp;
+          dontUnpack = true;
+          buildInputs = with pkgs.llvmPackages_21; [ libclang llvm ];
+          buildPhase = ''
+            runHook preBuild
+            $CXX -std=c++17 -Wall -Wextra -Werror "$src" -lclang-cpp -lLLVM -o btrc-native-header
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            mkdir -p "$out/bin"
+            install -m755 btrc-native-header "$out/bin/"
+            runHook postInstall
+          '';
+        };
         btrc = pkgs.symlinkJoin {
           name = "btrc-tools";
           paths = [ btrcpy btrcc btrc-format nativePlan ];
@@ -442,6 +460,7 @@
         btrc-app = btrcApp;
         btrc-gpu = btrcGpu;
         btrc-native-plan = nativePlan;
+        btrc-native-header = nativeHeaderReader;
         btrc-vscode-extension = btrc-vscode;
         inherit btrc;
         default = btrc;

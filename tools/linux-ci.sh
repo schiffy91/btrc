@@ -15,6 +15,11 @@
 #     at its own path.
 #   * That directory is private on purpose. build/stdlib holds host objects,
 #     and a Linux build must not link against them.
+#   * Bytecode is written outside the tree. The host and the container can run
+#     the same Python version -- both reach 3.14 through nix -- so the
+#     container would load __pycache__ files the host wrote, whose recorded
+#     filenames are host paths it cannot read. Everything that inspects a
+#     source, including the self-host fingerprint, then fails at import.
 #
 # Both budgets are larger than CI's because this runs in a VM: the self-hosted
 # compiler is rebuilt from scratch against a cold cache, and the corpus's
@@ -46,7 +51,8 @@ while IFS= read -r link; do
   mounts+=(-v "$slot:$root")
 done < <(find build dist -maxdepth 1 -type l 2>/dev/null)
 
-exec podman run --rm --init "${mounts[@]}" "$image" \
+exec podman run --rm --init "${mounts[@]}" \
+  -e PYTHONPYCACHEPREFIX=/tmp/btrc-pycache "$image" \
   make NIX= "PYTEST_WORKERS=${PYTEST_WORKERS:-4}" \
   "BTRC_TEST_TRANSPILE_TIMEOUT=${BTRC_TEST_TRANSPILE_TIMEOUT:-1800}" \
   "BTRC_TEST_RUN_TIMEOUT=${BTRC_TEST_RUN_TIMEOUT:-60}" \
