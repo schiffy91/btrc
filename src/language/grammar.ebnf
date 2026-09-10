@@ -93,7 +93,7 @@
   -- next non-space character is '.', '/' or '~' (a relative/absolute path), the
   -- lexer reads the rest of the line up to ';' or newline as ONE raw PATH_SPEC
   -- token. This keeps whitespace-bearing paths intact and prevents bogus
-  -- rejoins like "./ dir / **". For std.x / std.{a,b} / std.* / "quoted" / bare
+  -- rejoins like "./ dir / **". For Library.x / Library.{a,b} / Library.* / "quoted" / bare
   -- packages (mathx.vec), path mode is NOT entered: those lex as ordinary
   -- IDENT/DOT/STAR/LBRACE/STRING_LIT tokens and the parser assembles them.
 
@@ -165,12 +165,12 @@
 
   import_decl = "import" import_spec [ ";" ] ;
 
-  import_spec = std_spec
+  import_spec = library_spec
               | quoted_path
               | path_spec
               | package_path ;
 
-  std_spec    = "std" "." ( "*" | "*" "*" | IDENT | "{" ident_list "}" ) ;
+  library_spec    = "Library" "." ( "*" | "*" "*" | IDENT | "{" ident_list "}" ) ;
   package_path = IDENT { "." IDENT }    (* e.g. mathx, mathx.vec *) ;
   quoted_path = STRING_LIT ;
   path_spec   = PATH_SPEC                (* ./x.btrc, ./dir/*, ./dir/**, ../y, /abs, ~/home *) ;

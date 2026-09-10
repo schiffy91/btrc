@@ -8,7 +8,7 @@
  * Assertions track Ui.btrc's actual output exactly: void elements render bare
  * (<br>, no self-closing slash), attributes are escaped, and the
  * document is a single line beginning with the lowercase <!doctype html>. */
-import std.Ui;
+import Library.Ui;
 
 #include <assert.h>
 

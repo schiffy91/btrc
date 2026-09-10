@@ -3,7 +3,7 @@
  * corpus only covers the reverse (Vector<Box<int>>, etc.); this exercises a
  * collection living INSIDE a user generic as the T argument, including a second
  * monomorphization Box<Vector<string>>. */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 #include <string.h>

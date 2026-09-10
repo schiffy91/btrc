@@ -1,6 +1,6 @@
 // Vector.reduce edge cases with arrow-lambda reducers:
 // empty vector returns the init unchanged; single element folds once.
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 

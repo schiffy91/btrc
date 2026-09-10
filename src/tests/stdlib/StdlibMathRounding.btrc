@@ -1,6 +1,6 @@
 /* Math rounding methods: float and double helpers preserve their declared
  * precision; round/truncate cast a libc result to int. */
-import std.Math;
+import Library.Math;
 
 #include <assert.h>
 #include "../../stdlib/Math.btrc"

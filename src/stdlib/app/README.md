@@ -1,6 +1,6 @@
-# `std.App`
+# `Library.App`
 
-`std.App` is the process-global application/event-loop owner. It creates at
+`Library.App` is the process-global application/event-loop owner. It creates at
 most one native window and emits ordered, bounded pointer, scroll, key, text,
 logical resize, framebuffer resize, DPI, and close-request events.
 
@@ -10,7 +10,7 @@ so delayed dispatch does not change double-click recognition. macOS owns the
 user's timing/spatial preference. Platforms without a click-count provider
 currently report one for button events; native multi-click support there is
 unfinished. Synthetic events can supply the optional constructor argument.
-`std.NativeUiApp` forwards the count to shared text fields: double-click
+`Library.NativeUiApp` forwards the count to shared text fields: double-click
 selects a word, dragging extends by whole words, and triple-click selects the
 line. Shift-click retains anchor-based selection.
 

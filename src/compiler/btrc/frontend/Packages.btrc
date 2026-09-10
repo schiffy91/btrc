@@ -1,13 +1,13 @@
 /* Versioned package graph and native link-plan ownership. */
 
-import std.FileSystem;
-import std.Json;
-import std.Map;
-import std.Platform;
-import std.Sha256;
-import std.Strings;
-import std.Toml;
-import std.Vector;
+import Library.FileSystem;
+import Library.Json;
+import Library.Map;
+import Library.Platform;
+import Library.Sha256;
+import Library.Strings;
+import Library.Toml;
+import Library.Vector;
 
 import ./SourceIo.btrc;
 
@@ -687,10 +687,10 @@ class FeNativeLinkPlan {
 		string source = PathTools.join(runtime, "btrc_background_jobs.c");
 		string header = PathTools.join(runtime, "btrc_background_jobs.h");
 		if (!FileSystem.isDir(root) || !FileSystem.isDir(runtime)) {
-			FePackageFailure.fail("std.BackgroundJobs native runtime directory is unavailable");
+			FePackageFailure.fail("Library.BackgroundJobs native runtime directory is unavailable");
 		}
 		if (!FileSystem.isFile(source) || !FileSystem.isFile(header)) {
-			FePackageFailure.fail("std.BackgroundJobs native runtime sources are unavailable");
+			FePackageFailure.fail("Library.BackgroundJobs native runtime sources are unavailable");
 		}
 		Vector<string> supported = ["linux", "macos"];
 		Vector<string> architectures = [];
@@ -729,10 +729,10 @@ class FeNativeLinkPlan {
 		string source = PathTools.join(runtime, "btrc_local_application_channel.c");
 		string header = PathTools.join(runtime, "btrc_local_application_channel.h");
 		if (!FileSystem.isDir(root) || !FileSystem.isDir(runtime)) {
-			FePackageFailure.fail("std.LocalApplicationChannel native runtime directory is unavailable");
+			FePackageFailure.fail("Library.LocalApplicationChannel native runtime directory is unavailable");
 		}
 		if (!FileSystem.isFile(source) || !FileSystem.isFile(header)) {
-			FePackageFailure.fail("std.LocalApplicationChannel native runtime sources are unavailable");
+			FePackageFailure.fail("Library.LocalApplicationChannel native runtime sources are unavailable");
 		}
 		Vector<string> supported = ["linux", "macos", "windows"];
 		Vector<string> architectures = [];
@@ -762,8 +762,8 @@ class FeNativeLinkPlan {
 		string runtime = PathTools.join(root, "core_audio_device");
 		string source = PathTools.join(runtime, "btrc_core_audio_device.c");
 		string header = PathTools.join(runtime, "btrc_core_audio_device.h");
-		if (!FileSystem.isDir(root) || !FileSystem.isDir(runtime)) { FePackageFailure.fail("std.CoreAudioDevice native runtime directory is unavailable"); }
-		if (!FileSystem.isFile(source) || !FileSystem.isFile(header)) { FePackageFailure.fail("std.CoreAudioDevice native runtime sources are unavailable"); }
+		if (!FileSystem.isDir(root) || !FileSystem.isDir(runtime)) { FePackageFailure.fail("Library.CoreAudioDevice native runtime directory is unavailable"); }
+		if (!FileSystem.isFile(source) || !FileSystem.isFile(header)) { FePackageFailure.fail("Library.CoreAudioDevice native runtime sources are unavailable"); }
 		Vector<string> supported = ["macos"];
 		Vector<string> architectures = [];
 		Vector<string> modules = [];
@@ -795,8 +795,8 @@ class FeNativeLinkPlan {
 		string runtime = PathTools.join(root, "macos_encoded_image_decoder");
 		string source = PathTools.join(runtime, "btrc_macos_encoded_image_decoder.c");
 		string header = PathTools.join(runtime, "btrc_macos_encoded_image_decoder.h");
-		if (!FileSystem.isDir(root) || !FileSystem.isDir(runtime)) { FePackageFailure.fail("std.MacOsEncodedImageDecoder native runtime directory is unavailable"); }
-		if (!FileSystem.isFile(source) || !FileSystem.isFile(header)) { FePackageFailure.fail("std.MacOsEncodedImageDecoder native runtime sources are unavailable"); }
+		if (!FileSystem.isDir(root) || !FileSystem.isDir(runtime)) { FePackageFailure.fail("Library.MacOsEncodedImageDecoder native runtime directory is unavailable"); }
+		if (!FileSystem.isFile(source) || !FileSystem.isFile(header)) { FePackageFailure.fail("Library.MacOsEncodedImageDecoder native runtime sources are unavailable"); }
 		Vector<string> supported = ["macos"];
 		Vector<string> architectures = [];
 		Vector<string> modules = [];

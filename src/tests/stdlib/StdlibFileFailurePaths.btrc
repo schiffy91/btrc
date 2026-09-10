@@ -1,8 +1,8 @@
 /* File failure paths: opening an unwritable location leaves ok()==false and the
  * write/writeLine/read/readLine methods all return their not-open sentinels
  * (false / "") rather than crashing. */
-import std.Io;
-import std.Vector;
+import Library.Io;
+import Library.Vector;
 
 #include <assert.h>
 

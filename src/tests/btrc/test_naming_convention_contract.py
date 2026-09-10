@@ -214,7 +214,7 @@ def test_every_btrc_file_is_named_in_pascal_case() -> None:
 
     No underscore and no leading lowercase letter, anywhere in the tree. The
     corpus runner keys golden output to the stem and the stdlib resolves
-    `import std.X` to `X.btrc`, so a name is API, not decoration.
+    `import Library.X` to `X.btrc`, so a name is API, not decoration.
     """
 
     offenders = sorted(

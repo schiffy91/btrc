@@ -1,6 +1,6 @@
 # Native UI input contracts
 
-`std.NativeUi` keeps rendering and input portable without exposing platform
+`Library.NativeUi` keeps rendering and input portable without exposing platform
 handles. `NativeUiStyleSheet` and per-element styles affect appearance only.
 
 The native GPU compositor antialiases rounded rectangle corners at framebuffer
@@ -149,7 +149,7 @@ adjust it without knowing every rule:
 Rows accept `align-items: start | center | end` for children shorter than
 the row; columns and grids ignore it. `NativeUiColor.css()` prints
 `#rrggbbaa`, the form every colour property accepts, so themes compose into
-rules; `NativeUiColor.fromRgba(...)`/`rgba()` bridge `std.Image`, and
+rules; `NativeUiColor.fromRgba(...)`/`rgba()` bridge `Library.Image`, and
 `NativeUiTheme.dark()`/`light()` are a matched pair that applications can
 pick between at runtime.
 

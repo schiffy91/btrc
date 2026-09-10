@@ -590,7 +590,7 @@ class BtrcFormatter:
                 category = "external"
             elif lexeme.text == "import":
                 following = view.significant[index + 1] if index + 1 < len(view.significant) else None
-                category = "stdlib" if following is not None and following.text == "std" else "external"
+                category = "stdlib" if following is not None and following.text == "Library" else "external"
             if category is None:
                 continue
             start_line = lexeme.line - 1
@@ -896,7 +896,7 @@ class BtrcFormatter:
                     (candidate for candidate in view.significant if candidate.start >= lexeme.end),
                     None,
                 )
-                category = "stdlib" if following is not None and following.text == "std" else "external"
+                category = "stdlib" if following is not None and following.text == "Library" else "external"
             if category is not None and (not imports or imports[-1][0] != lexeme.line - 1):
                 imports.append((lexeme.line - 1, category))
         for (left, left_category), (right, right_category) in pairwise(imports):

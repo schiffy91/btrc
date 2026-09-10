@@ -113,24 +113,24 @@ def test_fixture_runs_from_both_frontends_with_gcc_and_clang(
     ("source_text", "reference_diagnostic", "selfhost_diagnostic"),
     (
         (
-            "import std.OwnedBuffer;\nint main() { OwnedBuffer<string> values; return 0; }",
+            "import Library.OwnedBuffer;\nint main() { OwnedBuffer<string> values; return 0; }",
             "OwnedBuffer<T> payload must be realtime POD without managed or atomic ownership",
             "OwnedBuffer<T> payload must be realtime POD without managed or atomic ownership",
         ),
         (
-            "import std.OwnedBuffer;\nint main() { OwnedBuffer<Atomic<uint>> values; return 0; }",
+            "import Library.OwnedBuffer;\nint main() { OwnedBuffer<Atomic<uint>> values; return 0; }",
             "OwnedBuffer<T> payload must be realtime POD without managed or atomic ownership",
             "OwnedBuffer<T> payload must be realtime POD without managed or atomic ownership",
         ),
         (
-            "import std.OwnedBuffer;\n"
+            "import Library.OwnedBuffer;\n"
             "int main() { AtomicBuffer<uint> values = AtomicBuffer((size_t)1); "
             "values.tryGet((size_t)0, null); return 0; }",
             "Class 'AtomicBuffer' has no field or method 'tryGet'",
             "Type 'AtomicBuffer<uint>' has no method 'tryGet'",
         ),
         (
-            "import std.Array;\nint main() { Array<Atomic<uint>> values; return 0; }",
+            "import Library.Array;\nint main() { Array<Atomic<uint>> values; return 0; }",
             "cannot embed an Atomic<T> owner in shallow copyable storage",
             "cannot embed an Atomic<T> owner in shallow copyable storage",
         ),

@@ -1,8 +1,8 @@
 /* Linked List<T> reverse() swaps every node's next/prev plus head/tail;
  * toVector() walks head->next building a Vector. Both untested on the real
  * linked List (Vector-backed "list" tests don't cover the node chain). */
-import std.List;
-import std.Vector;
+import Library.List;
+import Library.Vector;
 
 #include <assert.h>
 #include <stdio.h>

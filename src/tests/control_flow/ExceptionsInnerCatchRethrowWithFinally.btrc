@@ -4,7 +4,7 @@
  * finally runs (control-flow escape out of the try/catch skips the finally, just
  * like return/break do). The outer frame still receives the re-thrown value.
  * Pinning the exact sequence keeps the reference and self-hosted compilers in sync. */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 

@@ -2,7 +2,7 @@
  * sleep. All asserts are deterministic — epoch round-trips are exact, and the
  * timing checks only assert non-negative / >= a small lower bound (CI clocks
  * are noisy, so no upper bounds). */
-import std.Datetime;
+import Library.Datetime;
 
 #include <assert.h>
 #include "../../stdlib/Datetime.btrc"

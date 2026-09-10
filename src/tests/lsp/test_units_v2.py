@@ -11,9 +11,9 @@ from src.compiler.python.frontend.sources import (
 from src.compiler.python.syntax.ast.generated import (
     FunctionDecl,
     ImportDecl,
+    LibraryModules,
     Program,
     RelativePath,
-    StdModules,
 )
 from src.devex.lsp.protocol.server import BtrcLanguageServer
 from src.devex.lsp.workspace.units import FileUnit
@@ -24,12 +24,12 @@ srv = BtrcLanguageServer(debounce_seconds=0)
 
 
 def test_file_unit_reads_typed_dependencies_in_native_coordinates():
-    src = 'import std.Vector\n#include "legacy.btrc"\nimport ./lib/*;\n\nint main() { return 0; }\n'
+    src = 'import Library.Vector\n#include "legacy.btrc"\nimport ./lib/*;\n\nint main() { return 0; }\n'
     unit = FileUnit.parse("/x/Main.btrc", src)
     dependencies = list(unit.dependencies)
     assert [dependency.line for dependency in dependencies] == [1, 2, 3]
     specs = [dependency.spec for dependency in dependencies]
-    assert specs[0] == StdModules(names=["Vector"])
+    assert specs[0] == LibraryModules(names=["Vector"])
     assert specs[1] == RelativePath(path="legacy.btrc")
     assert specs[2] == RelativePath(path="./lib/*")
     assert [dependency.kind for dependency in dependencies] == [
@@ -156,7 +156,7 @@ def test_seeded_analysis_matches_full_analysis(tmp_path):
 
     main = tmp_path / "Main.btrc"
     source = (
-        "import std.Vector;\n"
+        "import Library.Vector;\n"
         "int main() {\n"
         "    var v = Vector(3);\n"
         "    v.push(1.5);\n"

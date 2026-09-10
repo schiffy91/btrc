@@ -3,7 +3,7 @@
  * collection for-in inside a generic method was silently dropped. This checks
  * push/get/len, for-in over the generic field, and a concrete-Vector local +
  * for-in — across both an int and a string instantiation. */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 #include <string.h>

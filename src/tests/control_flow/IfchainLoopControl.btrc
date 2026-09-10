@@ -1,7 +1,7 @@
 // if / else-if / else chain whose branches drive loop control (continue and
 // break) from inside a for-in over a range. Tests the interaction of multi-way
 // branching with loop control as a unit.
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 

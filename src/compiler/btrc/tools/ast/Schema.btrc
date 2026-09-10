@@ -12,8 +12,8 @@
  * The dump and generation tools import this schema owner directly.
  */
 
-import std.Strings;
-import std.Vector;
+import Library.Strings;
+import Library.Vector;
 
 class AField {
 	public string typeName;

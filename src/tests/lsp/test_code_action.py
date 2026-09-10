@@ -54,7 +54,7 @@ def test_no_action_for_resolved_local():
 def test_import_insert_for_stdlib_name():
     # Shadow stdlib DateTime so Datetime.btrc is filtered out of the
     # composition; the sibling stdlib class Timer is then unresolved and the
-    # import action offers 'import std.Datetime;'.
+    # import action offers 'import Library.Datetime;'.
     src = "class DateTime {\n    public int y;\n}\nint main() {\n    var t = Timer();\n    return 0;\n}\n"
     uri = "file:///stdimp.btrc"
     r = compute_diagnostics(uri, src)
@@ -62,9 +62,9 @@ def test_import_insert_for_stdlib_name():
     acts = _actions(r, uri, 4)
     imp = [a for a in acts if a.title.startswith("Add import")]
     assert imp, [a.title for a in acts]
-    assert "std.Datetime" in imp[0].title
+    assert "Library.Datetime" in imp[0].title
     edits = imp[0].edit.changes[uri]
-    assert edits[0].new_text == "import std.Datetime;\n"
+    assert edits[0].new_text == "import Library.Datetime;\n"
     assert edits[0].range.start.line == 0  # inserted at top (no existing imports)
 
 
@@ -77,13 +77,13 @@ def test_strict_visibility_failure_offers_exact_stdlib_import():
 
     assert any("does not import" in diagnostic.message for diagnostic in result.diagnostics)
     action = next(
-        action for action in actions if action.title.startswith("Add import") and "std.Vector" in action.title
+        action for action in actions if action.title.startswith("Add import") and "Library.Vector" in action.title
     )
-    assert action.edit.changes[uri][0].new_text == "import std.Vector;\n"
+    assert action.edit.changes[uri][0].new_text == "import Library.Vector;\n"
 
 
 def test_explicit_stdlib_import_has_no_visibility_error_or_import_action():
-    source = "import std.Vector;\nint main() { Vector<int> items = []; return items.len; }\n"
+    source = "import Library.Vector;\nint main() { Vector<int> items = []; return items.len; }\n"
     uri = "file:///strict-vector-imported.btrc"
 
     result = compute_diagnostics(uri, source)
@@ -106,8 +106,8 @@ def test_import_action_uses_the_workspace_owned_stdlib(tmp_path):
     actions = _actions(result, uri, 0, provider=server.code_actions)
 
     action = next(action for action in actions if action.title.startswith("Add import"))
-    assert "std.Custom" in action.title
-    assert action.edit.changes[uri][0].new_text == "import std.Custom;\n"
+    assert "Library.Custom" in action.title
+    assert action.edit.changes[uri][0].new_text == "import Library.Custom;\n"
 
 
 def test_import_insert_for_sibling_file(tmp_path):

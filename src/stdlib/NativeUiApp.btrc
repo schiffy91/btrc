@@ -1,15 +1,15 @@
-/* Unified std.App/std.Gpu presenter for std.NativeUi.
+/* Unified Library.App/Library.Gpu presenter for Library.NativeUi.
  *
  * The session borrows an existing ApplicationWindow and GPU. Its native batch
  * is a child render resource of that GPU and records into the GPU's active
  * pass; it cannot create a window, surface, adapter, device, or present path.
  */
 
-import std.App;
-import std.Datetime;
-import std.Gpu;
-import std.NativeUi;
-import std.Vector;
+import Library.App;
+import Library.Datetime;
+import Library.Gpu;
+import Library.NativeUi;
+import Library.Vector;
 
 #include <btrc_gpu.h>
 
@@ -137,7 +137,7 @@ class NativeUiAppSession {
 
 	class NativeUiAppAttachOutcome attach(ApplicationWindow window, GPU gpu, NativeUiStyleSheet? styleSheet = null, NativeUiTheme? theme = null, NativeUiTypography? typography = null) {
 		if (window == null || gpu == null || !window.isOpen() || !gpu.isOpen()) {
-			return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACH_REJECTED, null, "native UI requires an open std.App window and std.Gpu");
+			return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACH_REJECTED, null, "native UI requires an open Library.App window and Library.Gpu");
 		}
 		NativeUiStyleSheet resolvedSheet = styleSheet == null ? NativeUiStyleSheet() : styleSheet;
 		NativeUiTheme resolvedTheme = theme == null ? NativeUiTheme.nativeDefault() : theme;

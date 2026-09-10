@@ -10,7 +10,7 @@
  *   (cd /tmp/shv && frontend F.btrc) | diff - oracle_source.txt
  */
 
-import std.Console;
+import Library.Console;
 
 import ../cli/Driver.btrc;
 import ../frontend/Models.btrc;

@@ -2,8 +2,8 @@
  * nests arrays-of-objects-of-arrays. Exercises ARC release of
  * Vector<JsonValue>-of-Vector<JsonValue> when the local vector goes out of scope
  * (recursive teardown, no leak / double-free). */
-import std.Json;
-import std.Vector;
+import Library.Json;
+import Library.Vector;
 
 #include <assert.h>
 

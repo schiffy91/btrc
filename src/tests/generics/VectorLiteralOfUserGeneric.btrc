@@ -4,7 +4,7 @@
  * vector with `[]` + push() only; this exercises the list-literal element-init
  * path for user-generic elements (each element a `new Box<int>(...)` evaluated
  * into the literal). */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 

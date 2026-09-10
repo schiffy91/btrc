@@ -1,6 +1,6 @@
 /* JsonObject: typed setters/getters, stringify→parse round-trip, escaping. */
-import std.Json;
-import std.Jsonx;
+import Library.Json;
+import Library.Jsonx;
 
 #include <assert.h>
 #include <string.h>

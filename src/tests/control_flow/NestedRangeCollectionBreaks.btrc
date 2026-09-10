@@ -1,7 +1,7 @@
 // break/continue inside a for-in over a range AND over a collection in the same
 // nest (range outer, Vector inner). The for-in lowering generates fresh index
 // temps; mixing range and collection iteration stresses temp-name uniqueness.
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 

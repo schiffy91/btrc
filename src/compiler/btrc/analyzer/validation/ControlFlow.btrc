@@ -1,8 +1,8 @@
 /* Statement, loop, switch, return, and termination contracts. */
 
-import std.Map;
-import std.Strings;
-import std.Vector;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
 
 import ../../generated/ast/Node.btrc;
 import ../../syntax/Identity.btrc;

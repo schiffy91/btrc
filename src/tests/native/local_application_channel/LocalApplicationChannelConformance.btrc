@@ -1,8 +1,8 @@
 // BTRC_TEST_REQUIRES: local-application-channel
-import std.Bytes;
-import std.Datetime;
-import std.FileSystem;
-import std.LocalApplicationChannel;
+import Library.Bytes;
+import Library.Datetime;
+import Library.FileSystem;
+import Library.LocalApplicationChannel;
 
 #include <assert.h>
 #include <stdlib.h>

@@ -800,7 +800,7 @@ class Lexer:
         """If the token after `import` begins a filesystem path, read it raw.
 
         Only '.', '/' and '~' trigger path mode (covers ./x, ../y, /abs, ~/home).
-        std.x / std.{a,b} / std.* / "quoted" / bare packages (mathx.vec) begin
+        Library.x / Library.{a,b} / Library.* / "quoted" / bare packages (mathx.vec) begin
         with an identifier or '"' and lex normally for the parser to assemble.
         """
         save_pos, save_line, save_col = self.pos, self.line, self.col

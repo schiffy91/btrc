@@ -1,7 +1,7 @@
 /* Nullable class elements in generic collections retain exactly like their
  * non-nullable counterpart. A temporary passed to push transfers one retained
  * reference into the Vector; destroying the Vector releases it. */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 

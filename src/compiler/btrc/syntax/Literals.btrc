@@ -1,6 +1,6 @@
 /* Source literal semantics and strict-C11 spelling. */
 
-import std.Strings;
+import Library.Strings;
 
 #include <float.h>
 

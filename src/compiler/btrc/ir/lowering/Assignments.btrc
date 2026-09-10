@@ -1,4 +1,4 @@
-import std.Map;
+import Library.Map;
 
 import ../../analyzer/Expressions.btrc;
 import ../../generated/ast/Node.btrc;

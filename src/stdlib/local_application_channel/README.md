@@ -1,4 +1,4 @@
-# `std.LocalApplicationChannel`
+# `Library.LocalApplicationChannel`
 
 `LocalApplicationChannelServer` is a bounded, poll-driven request boundary for
 one native application process. Its owner calls `poll()` from the application
@@ -14,6 +14,6 @@ and removes only the endpoint inode it created. The Windows API currently
 returns the explicit unsupported outcome; a named-pipe provider can implement
 the same public contract without changing applications.
 
-Importing `std.LocalApplicationChannel` adds the compiler-shipped C runtime
+Importing `Library.LocalApplicationChannel` adds the compiler-shipped C runtime
 to the emitted native link plan. Product repositories do not include socket
 headers, descriptors, framing, permissions, or platform branches.

@@ -103,7 +103,7 @@ per-file positions directly.
 
 | # | Atom | Contract | Proven by |
 |---|---|---|---|
-| A1 | Grammar `import` rule | An `import …;` line never opens a comment/string scope; path, `std.`, `{a,b}`, `*`/`**` get scopes | vscode-textmate fixture incl. the semu repro |
+| A1 | Grammar `import` rule | An `import …;` line never opens a comment/string scope; path, `Library.`, `{a,b}`, `*`/`**` get scopes | vscode-textmate fixture incl. the semu repro |
 | A2 | `FileUnit.parse(path, text)` | text → (tokens, decls, parse_errors), positions native to the file; pure function of content hash | unit tests; property: reparse(idem) |
 | A3 | `Workspace.invalidate(path)` | edits invalidate exactly that unit + composition; imports' cached units survive | unit test with 3-file graph |
 | A4 | `compose(active_file)` | ordered decl list = stdlib units (minus skip-if-redefined) + imported units + active unit; O(total decls) list concat, no re-parse | golden: same analyzer result as today's concatenated pipeline on the test corpus |

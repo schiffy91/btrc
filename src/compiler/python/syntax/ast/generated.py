@@ -122,12 +122,12 @@ class TypedefDecl:
 
 
 @dataclass(kw_only=True)
-class StdGlob:
+class LibraryGlob:
     recursive: bool = False
 
 
 @dataclass(kw_only=True)
-class StdModules:
+class LibraryModules:
     names: list[str] = _dc_field(default_factory=list)
 
 
@@ -676,7 +676,7 @@ class Capture:
 # --- Union type aliases for sum types ---
 
 decl = Union[PreprocessorDirective, ImportDecl, ClassDecl, InterfaceDecl, FunctionDecl, StructDecl, EnumDecl, RichEnumDecl, TypedefDecl]
-import_spec = Union[StdGlob, StdModules, PackagePath, RelativePath, QuotedPath]
+import_spec = Union[LibraryGlob, LibraryModules, PackagePath, RelativePath, QuotedPath]
 class_member = Union[FieldDecl, MethodDecl, PropertyDecl]
 stmt = Union[VarDeclStmt, ReturnStmt, IfStmt, WhileStmt, DoWhileStmt, ForInStmt, CForStmt, ParallelForStmt, SwitchStmt, BreakStmt, ContinueStmt, ExprStmt, DeleteStmt, TryCatchStmt, ThrowStmt, KeepStmt, ReleaseStmt]
 if_else = Union[ElseBlock, ElseIf]

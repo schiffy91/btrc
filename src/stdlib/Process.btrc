@@ -5,11 +5,11 @@
  * placeholder so callers can branch explicitly when Windows support arrives.
  */
 
-import std.Bytes;
-import std.Io;
-import std.Platform;
-import std.Strings;
-import std.Vector;
+import Library.Bytes;
+import Library.Io;
+import Library.Platform;
+import Library.Strings;
+import Library.Vector;
 
 #include <errno.h>
 #include <fcntl.h>

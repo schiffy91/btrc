@@ -1,7 +1,7 @@
 /* Function-local invariants for typed exception cleanup registrations. */
 
-import std.Map;
-import std.Vector;
+import Library.Map;
+import Library.Vector;
 
 import ../Model.btrc;
 

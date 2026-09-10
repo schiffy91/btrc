@@ -2,10 +2,10 @@
  * strips the trailing newline, readLines returns a Vector<string>, eof() flips
  * after the last read, and flush() reports success on a writable handle.
  * Hermetic: a single temp file under a fresh temp dir, removed at the end. */
-import std.FileSystem;
-import std.Io;
-import std.Strings;
-import std.Vector;
+import Library.FileSystem;
+import Library.Io;
+import Library.Strings;
+import Library.Vector;
 
 #include <assert.h>
 

@@ -1,7 +1,7 @@
 /* Runtime-helper discovery and transitive closure over surviving structured IR. */
 
-import std.Map;
-import std.Vector;
+import Library.Map;
+import Library.Vector;
 
 import ../Model.btrc;
 import ./Catalog.btrc;

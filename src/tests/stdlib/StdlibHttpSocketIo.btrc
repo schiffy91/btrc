@@ -1,11 +1,11 @@
 // BTRC_TEST_REQUIRES: loopback-listener
 /* Deterministic local-socket coverage for split reads/writes and close framing. */
-import std.Bytes;
-import std.Datetime;
-import std.HttpServer;
-import std.HttpSocket;
-import std.HttpTypes;
-import std.Strings;
+import Library.Bytes;
+import Library.Datetime;
+import Library.HttpServer;
+import Library.HttpSocket;
+import Library.HttpTypes;
+import Library.Strings;
 
 #include <assert.h>
 #include <fcntl.h>

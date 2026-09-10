@@ -1,7 +1,7 @@
 /* Array<T> ARC discipline: set() retains stored class instances and releases
  * replaced ones; free() releases every element. Tracked's constructor and
  * destructor prints prove objects stay alive while the Array holds them. */
-import std.Array;
+import Library.Array;
 
 #include <assert.h>
 

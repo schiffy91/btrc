@@ -1,8 +1,8 @@
 /* Hosted-C ABI repository, provenance, and source-runtime namespaces. */
 
-import std.Map;
-import std.Strings;
-import std.Vector;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
 
 import ../frontend/Models.btrc;
 import ../frontend/SourceIo.btrc;

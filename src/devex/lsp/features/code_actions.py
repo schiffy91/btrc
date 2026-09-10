@@ -108,7 +108,7 @@ class CodeActionProvider:
         """Build symbol-to-owner candidates from workspace and stdlib units.
 
         The active file's own decls are excluded. A stdlib unit maps to
-        ``std.<module>``; a workspace file maps to a relative ``"path"`` import.
+        ``Library.<module>``; a workspace file maps to a relative ``"path"`` import.
         """
         stdlib_dir = os.path.abspath(self.workspace.stdlib_directory())
         active = os.path.abspath(result.path) if result.path else None
@@ -140,7 +140,7 @@ class CodeActionProvider:
     def _import_spec_for(self, path: str, stdlib_dir: str, active: str | None) -> str | None:
         if path.startswith(stdlib_dir + os.sep):
             module = os.path.splitext(os.path.basename(path))[0]
-            return f"std.{module}"
+            return f"Library.{module}"
         if active is None:
             return None
         rel = os.path.relpath(path, os.path.dirname(active))
@@ -150,10 +150,10 @@ class CodeActionProvider:
         """Import-spec strings already present in the active file."""
         from src.compiler.python.syntax.ast.generated import (
             ImportDecl,
+            LibraryModules,
             PackagePath,
             QuotedPath,
             RelativePath,
-            StdModules,
         )
 
         out: set[str] = set()
@@ -161,9 +161,9 @@ class CodeActionProvider:
             if not isinstance(decl, ImportDecl):
                 continue
             spec = decl.spec
-            if isinstance(spec, StdModules):
+            if isinstance(spec, LibraryModules):
                 for n in spec.names:
-                    out.add(f"std.{n}")
+                    out.add(f"Library.{n}")
             elif isinstance(spec, (QuotedPath, RelativePath)):
                 out.add(f'"{spec.path}"')
             elif isinstance(spec, PackagePath):

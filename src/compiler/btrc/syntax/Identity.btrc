@@ -1,8 +1,8 @@
 /* Stable AST identity/rendering plus recursive type identity and C symbols. */
 
-import std.Map;
-import std.Strings;
-import std.Vector;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
 
 import ../generated/ast/Node.btrc;
 #include <stdint.h>
@@ -120,12 +120,12 @@ class AstCanonicalRenderer {
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "source_file=" + self.canonOptStr(node.sourceFile);
 			return out + ")";
-		} else if (node.kind == NK_STD_GLOB) {
-			string out = "(StdGlob";
+		} else if (node.kind == NK_LIBRARY_GLOB) {
+			string out = "(LibraryGlob";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "recursive=" + self.canonBool(node.recursive);
 			return out + ")";
-		} else if (node.kind == NK_STD_MODULES) {
-			string out = "(StdModules";
+		} else if (node.kind == NK_LIBRARY_MODULES) {
+			string out = "(LibraryModules";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "names=" + self.canonStrList(node.names, d + 1);
 			return out + ")";
 		} else if (node.kind == NK_PACKAGE_PATH) {

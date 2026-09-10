@@ -1,9 +1,9 @@
-import std.Bytes;
-import std.FileSystem;
-import std.Io;
-import std.Map;
-import std.Strings;
-import std.Vector;
+import Library.Bytes;
+import Library.FileSystem;
+import Library.Io;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
 
 import ./Schema.btrc;
 import ../../frontend/Models.btrc;
@@ -358,7 +358,7 @@ class AstNodeGenerator {
 		L.push(" * belongs to the handwritten owner in syntax/Identity.btrc.");
 		L.push(" */");
 		L.push("");
-		L.push("import std.Vector;");
+		L.push("import Library.Vector;");
 		L.push("");
 
 		// NodeKind enum

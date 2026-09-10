@@ -23,7 +23,9 @@ AST_CODEC = AstJsonCodec()
 
 
 def _source() -> str:
-    return "import std.Vector;\nstruct CacheOpaque;\nclass CacheProbe { public int value; public CacheProbe() {} }\n"
+    return (
+        "import Library.Vector;\nstruct CacheOpaque;\nclass CacheProbe { public int value; public CacheProbe() {} }\n"
+    )
 
 
 def test_json_unit_cache_roundtrip_is_deterministic(tmp_path):

@@ -8,7 +8,7 @@
  * storage cannot be retained in BTRC fields, globals, returns, or aggregates.
  */
 
-import std.Callback;
+import Library.Callback;
 
 enum AudioBlockFlags {
 	AUDIO_BLOCK_CONTINUOUS = 0,

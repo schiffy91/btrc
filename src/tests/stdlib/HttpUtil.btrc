@@ -3,9 +3,9 @@
  *
  * These are the deterministic, socket-free helpers. Local socket framing and
  * short-write coverage lives in StdlibHttpSocketIo.btrc. */
-import std.HttpServer;
-import std.HttpTypes;
-import std.Map;
+import Library.HttpServer;
+import Library.HttpTypes;
+import Library.Map;
 
 #include <assert.h>
 

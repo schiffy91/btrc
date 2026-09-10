@@ -19,9 +19,9 @@ REPO = Path(__file__).resolve().parents[3]
 TEST_ROOT = REPO / "src/tests"
 
 # This is language-syntax coverage, not an application dependency shortcut.
-# Keep the exception path-specific so no other consumer can acquire std.*.
+# Keep the exception path-specific so no other consumer can acquire Library.*.
 STDLIB_GLOB_EXCLUSIONS = {
-    "src/tests/imports/ImportStdGlob.btrc": "exercises the std.* import form",
+    "src/tests/imports/ImportStdGlob.btrc": "exercises the Library.* import form",
 }
 
 # These implementation dependencies are reached by executable fixtures. They
@@ -47,7 +47,7 @@ SUPPORTING_CONSUMERS = frozenset(
 )
 
 # The raw per-file audit intentionally does not expand legacy includes. This
-# example includes gui/View.btrc, whose Ui shadows the unrelated std.Ui Ui.
+# example includes gui/View.btrc, whose Ui shadows the unrelated Library.Ui Ui.
 # The fully resolved strict-import audit covers this source without an error.
 RAW_INCLUDE_SHADOWS = frozenset(
     {
@@ -100,20 +100,20 @@ class CorpusImportAudit:
         for declaration in program.declarations:
             if not isinstance(declaration, ast.ImportDecl):
                 continue
-            if isinstance(declaration.spec, ast.StdGlob):
+            if isinstance(declaration.spec, ast.LibraryGlob):
                 for owner in self.all_owner_files:
                     graph.add_import(str(path), owner)
                 continue
-            if not isinstance(declaration.spec, ast.StdModules):
+            if not isinstance(declaration.spec, ast.LibraryModules):
                 continue
             for module in declaration.spec.names:
                 if module in imported_modules:
-                    duplicate_modules.append(f"{path.relative_to(self.repository)}: std.{module}")
+                    duplicate_modules.append(f"{path.relative_to(self.repository)}: Library.{module}")
                     continue
                 imported_modules.add(module)
                 owner = self.stdlib.find_file(f"{module}.btrc")
                 if owner is None:
-                    unknown_modules.append(f"{path.relative_to(self.repository)}: std.{module}")
+                    unknown_modules.append(f"{path.relative_to(self.repository)}: Library.{module}")
                 else:
                     graph.add_import(str(path), owner)
         return graph, duplicate_modules, unknown_modules
@@ -123,7 +123,7 @@ class CorpusImportAudit:
         for root in (self.repository / "src", self.repository / "examples"):
             for path in root.rglob("*.btrc"):
                 if any(
-                    directive.kind == "import" and isinstance(directive.payload, ast.StdGlob)
+                    directive.kind == "import" and isinstance(directive.payload, ast.LibraryGlob)
                     for directive in self.directives.scan(path.read_text())
                 ):
                     consumers.add(path.relative_to(self.repository).as_posix())

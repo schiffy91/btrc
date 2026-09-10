@@ -25,7 +25,7 @@ def test_unimported_stdlib_symbol_reports_strict_visibility_error():
 
 
 def test_explicit_stdlib_import_preserves_seeded_analysis_context():
-    r = analyze("import std.Vector;\nint main() { Vector<int> xs = []; xs.push(1); return xs.len; }\n")
+    r = analyze("import Library.Vector;\nint main() { Vector<int> xs = []; xs.push(1); return xs.len; }\n")
     assert r.diagnostics == []
     assert r.analyzed is not None
     assert "Vector" in r.analyzed.class_table

@@ -83,7 +83,7 @@ def test_imported_function_resolves_to_imported_file_uri(tmp_path):
 
 def test_definition_inside_fstring_interpolation_resolves_stdlib_member():
     source = """\
-import std.*;
+import Library.*;
 
 int main() {
     string path = "/tmp";

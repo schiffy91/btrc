@@ -1,6 +1,6 @@
 /* TypeExpr shape transformations and callable signature construction. */
 
-import std.Vector;
+import Library.Vector;
 
 import ../generated/ast/Node.btrc;
 

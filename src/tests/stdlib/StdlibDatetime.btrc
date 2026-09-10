@@ -1,5 +1,5 @@
 /* Test stdlib datetime: DateTime, Timer */
-import std.Datetime;
+import Library.Datetime;
 
 #include <assert.h>
 #include "../../stdlib/Datetime.btrc"

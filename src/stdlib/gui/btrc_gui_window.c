@@ -32,7 +32,7 @@ typedef struct {
     bool mouse_down;
 } btrc_window;
 
-/* Legacy standalone ownership: this backend must not coexist with std.App.
+/* Legacy standalone ownership: this backend must not coexist with Library.App.
  * It retains GLFW until process exit for compatibility with existing users. */
 static int g_glfw_inited = 0;
 

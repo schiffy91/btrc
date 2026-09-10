@@ -21,7 +21,7 @@ RUN_TIMEOUT = 90
 PLANNED_CONSUMER = """\
 #include <assert.h>
 
-import std.BackgroundJobs;
+import Library.BackgroundJobs;
 
 int main() {
     BackgroundJobsOpenOutcome opened = BackgroundJobExecutor.open(1, 1);
@@ -156,7 +156,7 @@ def test_import_emits_and_links_compiler_owned_runtime(
 ) -> None:
     target = PackageTarget.parse(None)
     if target.operating_system == "windows":
-        pytest.skip("std.BackgroundJobs currently owns a POSIX runtime")
+        pytest.skip("Library.BackgroundJobs currently owns a POSIX runtime")
     target_text = f"{target.operating_system}-{target.architecture}"
     project = tmp_path / "project"
     project.mkdir()

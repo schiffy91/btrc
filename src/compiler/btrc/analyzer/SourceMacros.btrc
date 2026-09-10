@@ -1,6 +1,6 @@
 /* Immutable analyzer view of C preprocessor namespace mutations. */
 
-import std.Map;
+import Library.Map;
 
 import ../generated/ast/Node.btrc;
 import ../parser/SourceMacros.btrc;

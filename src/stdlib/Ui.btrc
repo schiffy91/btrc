@@ -3,10 +3,10 @@
  * platform backend. Native GTK/AppKit/WinUI backends can share this model.
  */
 
-import std.FileSystem;
-import std.Process;
-import std.Strings;
-import std.Vector;
+import Library.FileSystem;
+import Library.Process;
+import Library.Strings;
+import Library.Vector;
 
 class Html {
 	class string escape(string raw) {

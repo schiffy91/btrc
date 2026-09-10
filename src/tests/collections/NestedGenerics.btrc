@@ -1,6 +1,6 @@
 // Test nested generic types: 2-level and 3-level nesting
-import std.Map;
-import std.Vector;
+import Library.Map;
+import Library.Vector;
 
 #include <assert.h>
 

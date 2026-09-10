@@ -75,7 +75,7 @@ def test_semantic_tokens_present_for_struct_generic():
 # ---- variables nested inside blocks (hover returns from inner scan) ---------
 
 BLOCKS = """\
-import std.{Vector, Map};
+import Library.{Vector, Map};
 
 int run(int n) {
     Vector<int> items = [1, 2, 3];

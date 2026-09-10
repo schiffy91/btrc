@@ -14,11 +14,11 @@ from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.syntax.ast.generated import (
     ImportDecl,
+    LibraryGlob,
+    LibraryModules,
     PackagePath,
     QuotedPath,
     RelativePath,
-    StdGlob,
-    StdModules,
 )
 
 RESOLVER = FrontendStage().resolver
@@ -44,33 +44,33 @@ def write(path, text):
 
 
 def test_std_single_module():
-    spec = _spec("import std.Vector;")
-    assert isinstance(spec, StdModules)
+    spec = _spec("import Library.Vector;")
+    assert isinstance(spec, LibraryModules)
     assert spec.names == ["Vector"]
 
 
 def test_std_module_no_semicolon():
     # The trailing ';' is optional.
-    spec = _spec("import std.Vector")
-    assert isinstance(spec, StdModules)
+    spec = _spec("import Library.Vector")
+    assert isinstance(spec, LibraryModules)
     assert spec.names == ["Vector"]
 
 
 def test_std_brace_set():
-    spec = _spec("import std.{Vector, Strings};")
-    assert isinstance(spec, StdModules)
+    spec = _spec("import Library.{Vector, Strings};")
+    assert isinstance(spec, LibraryModules)
     assert spec.names == ["Vector", "Strings"]
 
 
 def test_std_brace_trailing_comma():
-    spec = _spec("import std.{Vector, Strings,};")
-    assert isinstance(spec, StdModules)
+    spec = _spec("import Library.{Vector, Strings,};")
+    assert isinstance(spec, LibraryModules)
     assert spec.names == ["Vector", "Strings"]
 
 
 def test_std_glob_and_recursive_glob():
-    assert _spec("import std.*;") == StdGlob(recursive=False)
-    assert _spec("import std.**;") == StdGlob(recursive=True)
+    assert _spec("import Library.*;") == LibraryGlob(recursive=False)
+    assert _spec("import Library.**;") == LibraryGlob(recursive=True)
 
 
 def test_relative_paths():
@@ -92,7 +92,7 @@ def test_package_path():
 
 
 def test_import_line_recorded():
-    decls = _parse("int a() { return 0; }\nimport std.Vector;")
+    decls = _parse("int a() { return 0; }\nimport Library.Vector;")
     imp = decls[1]
     assert isinstance(imp, ImportDecl)
     assert imp.line == 2
@@ -102,7 +102,7 @@ def test_import_line_recorded():
 
 
 def test_commented_import_is_not_parsed():
-    decls = _parse("/* import std.nonexistent; */\nint main() { return 0; }")
+    decls = _parse("/* import Library.nonexistent; */\nint main() { return 0; }")
     assert not any(isinstance(d, ImportDecl) for d in decls)
 
 
@@ -140,7 +140,7 @@ def test_import_with_trailing_code_on_line_is_rejected():
 
 def test_import_owning_its_line_is_accepted():
     # The legitimate shape (import alone on its line) still parses fine.
-    decls = _parse("int a() { return 0; }\nimport std.Vector;")
+    decls = _parse("int a() { return 0; }\nimport Library.Vector;")
     assert any(isinstance(d, ImportDecl) for d in decls)
 
 
@@ -148,7 +148,7 @@ def test_import_owning_its_line_is_accepted():
 
 
 def test_resolve_std_brace(tmp_path):
-    src = "import std.{Strings, Json}\nint main() { return 0; }"
+    src = "import Library.{Strings, Json}\nint main() { return 0; }"
     resolved = RESOLVER.resolve_includes(src, write(tmp_path / "m.btrc", src))
     assert "class Strings" in resolved
     assert "class JsonObject" in resolved
@@ -156,7 +156,7 @@ def test_resolve_std_brace(tmp_path):
 
 
 def test_resolve_std_glob(tmp_path):
-    src = "import std.*\nint main() { return 0; }"
+    src = "import Library.*\nint main() { return 0; }"
     resolved = RESOLVER.resolve_includes(src, write(tmp_path / "m.btrc", src))
     assert "class Vector" in resolved
 
@@ -197,12 +197,12 @@ def test_resolve_recursive_glob(tmp_path):
 def test_resolve_commented_import_ignored(tmp_path):
     # The headline fix end to end: a commented-out import never resolves, so a
     # bogus module reference inside a comment does not fail the build.
-    src = "/* import std.nonexistent_xyz; */\nint main() { return 0; }"
+    src = "/* import Library.nonexistent_xyz; */\nint main() { return 0; }"
     resolved = RESOLVER.resolve_includes(src, write(tmp_path / "m.btrc", src))
     assert "main" in resolved  # resolved fine; no IncludeResolutionError
 
 
 def test_resolve_missing_std_module_errors(tmp_path):
-    src = "import std.nonexistent_xyz\nint main() { return 0; }"
+    src = "import Library.nonexistent_xyz\nint main() { return 0; }"
     with pytest.raises(IncludeResolutionError):
         RESOLVER.resolve_includes(src, write(tmp_path / "m.btrc", src), exit_on_error=False)

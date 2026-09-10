@@ -10,11 +10,11 @@
  * drain barrier has completed.
  */
 
-import std.OwnedBuffer;
-import std.RealtimeAudio;
-import std.Callback;
-import std.Console;
-import std.Spsc;
+import Library.OwnedBuffer;
+import Library.RealtimeAudio;
+import Library.Callback;
+import Library.Console;
+import Library.Spsc;
 
 enum RealtimeAudioRouteStatus {
 	REALTIME_AUDIO_ROUTE_OK,

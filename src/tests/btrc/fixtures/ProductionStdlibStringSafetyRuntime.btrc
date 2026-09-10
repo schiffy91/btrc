@@ -1,6 +1,6 @@
-import std.Console;
-import std.Strings;
-import std.Vector;
+import Library.Console;
+import Library.Strings;
+import Library.Vector;
 
 #include <assert.h>
 #include <string.h>

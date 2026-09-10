@@ -1,6 +1,6 @@
 /* Vector.distinct() must preserve FIRST-occurrence order, not just dedup
  * the count. Asserts the exact resulting order. */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 #include <stdio.h>

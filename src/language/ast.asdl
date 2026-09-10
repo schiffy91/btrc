@@ -49,13 +49,13 @@ module Btrc {
          attributes(int line, int col, string? source_file)
 
     -- Import specifiers (resolved to files by the front-end after parsing).
-    --   StdGlob       std.*  (recursive=false) / std.**  (recursive=true)
-    --   StdModules    std.x  / std.{a, b}            (names = [x] or [a, b])
+    --   LibraryGlob       Library.*  (recursive=false) / Library.**  (recursive=true)
+    --   LibraryModules    Library.x  / Library.{a, b}            (names = [x] or [a, b])
     --   PackagePath   mathx / mathx.vec              (segments = [mathx, vec])
     --   RelativePath  ./x.btrc, ./dir/*, ./dir/**, ../y, /abs, ~/home (raw)
     --   QuotedPath    "rel/path.btrc"                (path = unquoted)
-    import_spec = StdGlob(bool recursive)
-                | StdModules(identifier* names)
+    import_spec = LibraryGlob(bool recursive)
+                | LibraryModules(identifier* names)
                 | PackagePath(identifier* segments)
                 | RelativePath(string path)
                 | QuotedPath(string path)

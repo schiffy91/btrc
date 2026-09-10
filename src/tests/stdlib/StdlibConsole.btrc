@@ -1,7 +1,7 @@
 /* Console static output helpers. write() emits no newline; writeLine() and log()
  * append one. error() goes to stderr (NOT captured in the stdout golden). The
  * exact stdout below is the contract checked against the golden. */
-import std.Console;
+import Library.Console;
 
 #include <assert.h>
 

@@ -4,8 +4,8 @@
  * reopening a file in "a" mode preserves prior bytes. File()'s ctor passes the
  * mode straight to fopen, so fopen(path, "a") is standard C.
  * Hermetic: one temp dir, removed at the end. */
-import std.FileSystem;
-import std.Io;
+import Library.FileSystem;
+import Library.Io;
 
 #include <assert.h>
 

@@ -1,7 +1,7 @@
 /* Random capability and liveness-handshake protocol for daemon control. */
 
-import std.DaemonControl;
-import std.DaemonControlFiles;
+import Library.DaemonControl;
+import Library.DaemonControlFiles;
 
 #include <errno.h>
 #include <fcntl.h>

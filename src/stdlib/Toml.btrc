@@ -3,10 +3,10 @@
  * scalar key/value fields. Full TOML type coverage can grow here over time.
  */
 
-import std.Map;
-import std.Json;
-import std.Strings;
-import std.Vector;
+import Library.Map;
+import Library.Json;
+import Library.Strings;
+import Library.Vector;
 
 class Toml {
 	class int unquotedPosition(string line, char target) {

@@ -5,7 +5,7 @@
  * receive bounded capture and telemetry polls with explicit availability.
  */
 
-import std.RealtimeClock;
+import Library.RealtimeClock;
 
 class RealtimeClipPracticeConfiguration {
 	private RealtimeFrameRate _transportRate;

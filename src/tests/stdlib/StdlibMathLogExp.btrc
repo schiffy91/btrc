@@ -1,6 +1,6 @@
 /* Math logarithmic / exponential methods: log/log10/log2/exp.
  * Same libc-shadowing pattern as the trig methods. */
-import std.Math;
+import Library.Math;
 
 #include <assert.h>
 #include "../../stdlib/Math.btrc"

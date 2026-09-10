@@ -759,7 +759,7 @@ class HostedAbiCatalogGenerator:
         lines = [
             "/* Generated hosted-ABI data. Do not edit by hand. */",
             "",
-            "import std.Vector;",
+            "import Library.Vector;",
             "",
             "class GeneratedAbiTypeRow {",
             "    public string base;",

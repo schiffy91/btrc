@@ -2,7 +2,7 @@
  * Object-oriented math utilities inspired by Python's math module.
  */
 
-import std.Vector;
+import Library.Vector;
 
 #include <float.h>
 

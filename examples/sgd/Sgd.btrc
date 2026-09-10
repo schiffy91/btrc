@@ -11,7 +11,7 @@
  * Tune the loop bound in sgdUpdate() to adjust runtime.
  */
 
-import std.Vector;
+import Library.Vector;
 
 #include <Gpu.btrc>
 

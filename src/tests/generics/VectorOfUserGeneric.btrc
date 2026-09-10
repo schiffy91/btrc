@@ -2,7 +2,7 @@
  * explicitly-constructed Box<int> elements and reads them back through the
  * collection, verifying user-generic monomorphization inside the push/get
  * path. */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 

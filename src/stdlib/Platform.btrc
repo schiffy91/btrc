@@ -6,7 +6,7 @@
  * support without renaming higher-level shell abstractions.
  */
 
-import std.Strings;
+import Library.Strings;
 
 #include <unistd.h>
 #include <errno.h>

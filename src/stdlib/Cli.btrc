@@ -1,9 +1,9 @@
 /* btrc standard library — CLI argument helpers */
 
-import std.Console;
-import std.Map;
-import std.Strings;
-import std.Vector;
+import Library.Console;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
 
 class CliArgs {
 	public string program;

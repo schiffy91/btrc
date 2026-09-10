@@ -61,8 +61,8 @@ def test_archive_build_workflow_is_instance_owned():
 # a user-type generic (Vector<Item> — NOT in the archive, emitted locally), and
 # objects with destructors (the shared destroyed-pointer guard).
 CROSS_BOUNDARY_PROG = """
-import std.Map;
-import std.Vector;
+import Library.Map;
+import Library.Vector;
 
 class Item {
     public string name;
@@ -89,7 +89,7 @@ int main() {
 """
 
 ARCHIVE_THROW_PROG = """
-import std.Cli;
+import Library.Cli;
 
 int main() {
     var arguments = CliArgs(0, null);

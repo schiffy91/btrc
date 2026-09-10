@@ -21,8 +21,8 @@ RUN_TIMEOUT = 30
 PACKAGE_NAME = "btrc_stdlib_local_application_channel_runtime"
 
 PLANNED_CONSUMER = """\
-import std.Bytes;
-import std.LocalApplicationChannel;
+import Library.Bytes;
+import Library.LocalApplicationChannel;
 
 int main() {
     LocalApplicationChannelConfiguration configuration = LocalApplicationChannelConfiguration.standard();

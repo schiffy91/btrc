@@ -1,4 +1,4 @@
-"""Native contract tests for std.ApplicationDirectories policy."""
+"""Native contract tests for Library.ApplicationDirectories policy."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 C_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 PROGRAM = """
-    import std.ApplicationDirectories;
+    import Library.ApplicationDirectories;
 
     int main() {
         ApplicationDirectoryRootsOutcome outcome = ApplicationDirectories.resolve(ApplicationDirectoryLimits(128));

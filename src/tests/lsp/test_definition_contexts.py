@@ -4,7 +4,7 @@ definition-side mirror of the hover scan), plus rich enums, structs, typedefs.""
 from src.tests.lsp.lsphelp import analyze, get_definition, pos_of
 
 SRC = """\
-import std.{Vector, Map};
+import Library.{Vector, Map};
 
 int run(int n) {
     Vector<int> items = [1, 2, 3];

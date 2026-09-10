@@ -262,7 +262,7 @@ def test_real_window_and_present_smoke_when_explicitly_enabled(
     app_archive = ROOT / "build" / "stdlib" / "app" / "libbtrc_app.a"
     gpu_archive = ROOT / "build" / "stdlib" / "gpu" / "libbtrc_gpu.a"
     if not app_archive.is_file() or not gpu_archive.is_file():
-        pytest.skip("build the std.App and std.Gpu archives first")
+        pytest.skip("build the Library.App and Library.Gpu archives first")
 
     generated = tmp_path / f"real-app-gpu-{compiler}.c"
     executable = tmp_path / f"real-app-gpu-{compiler}"

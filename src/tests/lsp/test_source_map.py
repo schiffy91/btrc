@@ -51,7 +51,7 @@ def test_definition_maps_imported_symbol_to_original_file(tmp_path):
 
 
 def test_definition_maps_stdlib_static_method_to_installed_source():
-    source = 'import std.Strings;\nint main() { var items = Strings.split("a,b", ","); return items.len(); }\n'
+    source = 'import Library.Strings;\nint main() { var items = Strings.split("a,b", ","); return items.len(); }\n'
 
     loc = get_definition(
         analyze(source),

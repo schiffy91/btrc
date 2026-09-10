@@ -1,7 +1,7 @@
 /* Method-level generic whose U differs from class T and builds a Vector<U>
  * from scratch internally, then returns it. Exercises collection-of-method-
  * param construction inside a monomorphized generic method. */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 #include <string.h>

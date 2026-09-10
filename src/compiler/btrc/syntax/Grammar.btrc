@@ -1,7 +1,7 @@
 /* Canonical grammar extraction for the self-hosted compiler. */
 
-import std.Strings;
-import std.Vector;
+import Library.Strings;
+import Library.Vector;
 
 import ./Tokens.btrc;
 

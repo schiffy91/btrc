@@ -1,9 +1,9 @@
 /* File.read(): chunked reads work on regular files (including ones larger
  * than the 4096-byte initial buffer) and on non-seekable pipes wrapped via
  * setHandle(), where the old fseek/ftell sizing was undefined behavior. */
-import std.FileSystem;
-import std.Io;
-import std.Process;
+import Library.FileSystem;
+import Library.Io;
+import Library.Process;
 
 #include <assert.h>
 

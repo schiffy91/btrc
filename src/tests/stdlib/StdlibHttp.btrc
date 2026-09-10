@@ -4,11 +4,11 @@
  * body parsing and the HttpResponse constructors. Socket framing is exercised
  * hermetically with local socket pairs in StdlibHttpSocketIo.btrc; the
  * curl client deliberately has no external-network test. */
-import std.HttpClient;
-import std.HttpResponseHeaders;
-import std.HttpServer;
-import std.HttpTypes;
-import std.Strings;
+import Library.HttpClient;
+import Library.HttpResponseHeaders;
+import Library.HttpServer;
+import Library.HttpTypes;
+import Library.Strings;
 
 #include <assert.h>
 

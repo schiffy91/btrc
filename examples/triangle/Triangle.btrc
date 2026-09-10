@@ -1,4 +1,4 @@
-/* One std.App window with one attached WebGPU surface and triangle pipeline. */
+/* One Library.App window with one attached WebGPU surface and triangle pipeline. */
 
 import ../../src/stdlib/app/App.btrc;
 import ../../src/stdlib/gpu/Gpu.btrc;

@@ -1,7 +1,7 @@
 /* Built-in Set whose element type is a USER generic class: Set<Box<int>>.
  * Exercises __btrc_eq / __btrc_hash over a monomorphized user-generic struct
  * pointer as a Set member. */
-import std.Set;
+import Library.Set;
 
 #include <assert.h>
 

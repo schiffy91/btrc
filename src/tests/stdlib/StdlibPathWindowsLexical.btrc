@@ -1,6 +1,6 @@
 /* Windows path rules are pure and therefore testable on every host. */
-import std.FileSystem;
-import std.Platform;
+import Library.FileSystem;
+import Library.Platform;
 
 import ../../compiler/btrc/frontend/SourceIo.btrc;
 int main() {

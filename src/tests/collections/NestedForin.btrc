@@ -1,7 +1,7 @@
 /* Nested for-in over a collection-of-collections (not C-style indexing).
  * Two synthesized index vars must not collide. break in the inner loop must
  * only exit the inner loop. */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 #include <stdio.h>

@@ -1,7 +1,7 @@
 /* Toml inline-comment stripping must NOT cut a '#' that lives inside a quoted
  * string, including inside a [[table]] block and for both single- and
  * double-quoted literals. */
-import std.Toml;
+import Library.Toml;
 
 #include <assert.h>
 

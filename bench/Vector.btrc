@@ -1,5 +1,5 @@
 // Collection-heavy: push 2M ints then iterate. Exercises Vector growth + ARC.
-import std.Vector;
+import Library.Vector;
 
 int main() {
 	Vector<int> v = [];

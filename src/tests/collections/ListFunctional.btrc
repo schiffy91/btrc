@@ -1,5 +1,5 @@
 // Test List higher-order methods: forEach, filter, any, all
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 

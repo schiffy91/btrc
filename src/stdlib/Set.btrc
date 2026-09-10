@@ -7,8 +7,8 @@
  * rehashing (no tombstones) to maintain probe-chain integrity.
  */
 
-import std.Iterable;
-import std.Vector;
+import Library.Iterable;
+import Library.Vector;
 
 class Set<T> implements Iterable {
 	public T* keys;

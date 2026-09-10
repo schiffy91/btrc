@@ -47,7 +47,7 @@ def _body(generated: str, symbol: str) -> str:
 
 
 RAW_CALLBACK_SOURCE = """
-import std.OwnedBuffer;
+import Library.OwnedBuffer;
 struct CallbackContext { Atomic<uint>* counters; };
 @realtime uint readCounter(void* opaque) {
     struct CallbackContext* context = (struct CallbackContext*)opaque;
@@ -131,7 +131,7 @@ def test_every_raw_owner_allocation_failure_returns_typed_oom(
     generated = (
         _emit_with_stdlib(
             """
-        import std.OwnedBuffer;
+        import Library.OwnedBuffer;
         extern int ownedBufferTestLeaks();
         int main() {
             struct OwnedBufferStorage* owner = null;
@@ -219,13 +219,13 @@ def _errors(source: str) -> list[str]:
 
 
 def test_managed_payload_is_rejected_but_atomic_buffer_is_accepted() -> None:
-    managed = _errors("import std.OwnedBuffer;\nint main() { OwnedBuffer<string> values; return 0; }")
+    managed = _errors("import Library.OwnedBuffer;\nint main() { OwnedBuffer<string> values; return 0; }")
     assert any(
         "OwnedBuffer<T> payload must be realtime POD without managed or atomic ownership" in error for error in managed
     )
     assert (
         _errors(
-            "import std.OwnedBuffer;\n"
+            "import Library.OwnedBuffer;\n"
             "int main() { "
             "AtomicBuffer<uint> values = AtomicBuffer((size_t)1); "
             "Atomic<uint>* raw = values.borrow(); raw[0].init(0u); return 0; }"
@@ -235,10 +235,10 @@ def test_managed_payload_is_rejected_but_atomic_buffer_is_accepted() -> None:
 
 
 def test_owned_atomic_exception_does_not_relax_inline_atomic_storage() -> None:
-    errors = _errors("import std.Array;\nint main() { Array<Atomic<uint>> values; return 0; }")
+    errors = _errors("import Library.Array;\nint main() { Array<Atomic<uint>> values; return 0; }")
     assert any("cannot embed an Atomic<T> owner" in error for error in errors)
 
-    owned_atomic = _errors("import std.OwnedBuffer;\nint main() { OwnedBuffer<Atomic<uint>> values; return 0; }")
+    owned_atomic = _errors("import Library.OwnedBuffer;\nint main() { OwnedBuffer<Atomic<uint>> values; return 0; }")
     assert any(
         "OwnedBuffer<T> payload must be realtime POD without managed or atomic ownership" in error
         for error in owned_atomic
@@ -247,13 +247,13 @@ def test_owned_atomic_exception_does_not_relax_inline_atomic_storage() -> None:
 
 def test_atomic_buffer_cannot_express_owner_copying() -> None:
     errors = _errors(
-        "import std.OwnedBuffer;\n"
+        "import Library.OwnedBuffer;\n"
         "int main() { AtomicBuffer<uint> values = AtomicBuffer((size_t)1); "
         "values.get((size_t)0); return 0; }"
     )
     assert any("Class 'AtomicBuffer' has no field or method 'get'" in error for error in errors)
 
-    invalid_payload = _errors("import std.OwnedBuffer;\nint main() { AtomicBuffer<string> values; return 0; }")
+    invalid_payload = _errors("import Library.OwnedBuffer;\nint main() { AtomicBuffer<string> values; return 0; }")
     assert any(
         "AtomicBuffer<T> payload must be bool, int, uint, or a raw pointer" in error for error in invalid_payload
     )

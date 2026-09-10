@@ -1,7 +1,7 @@
 /* Vector.joinToString(sep): the documented alias of join(). join() is tested
  * but joinToString is a separate forwarding method symbol never compiled/run
  * anywhere in the corpus. */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 #include <string.h>

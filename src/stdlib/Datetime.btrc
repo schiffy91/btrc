@@ -6,8 +6,8 @@
  * DST handling — round-tripping now() through toUnix()/fromUnix() shifts by your
  * local UTC offset. Convert deliberately if you mix the two.
  */
-import std.Math;
-import std.Strings;
+import Library.Math;
+import Library.Strings;
 
 #include <errno.h>
 #include <limits.h>

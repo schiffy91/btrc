@@ -1,6 +1,6 @@
 /* btrc standard library -- application loop, one native window, typed events. */
 
-import std.Strings;
+import Library.Strings;
 
 #include <btrc_app.h>
 

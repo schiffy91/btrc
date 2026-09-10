@@ -1,5 +1,5 @@
-import std.Set;
-import std.Vector;
+import Library.Set;
+import Library.Vector;
 
 #include <stdio.h>
 int main() {

@@ -1,6 +1,6 @@
 /* Collection growth must preserve ownership and terminate for self-extension. */
-import std.List;
-import std.Vector;
+import Library.List;
+import Library.Vector;
 
 #include <assert.h>
 

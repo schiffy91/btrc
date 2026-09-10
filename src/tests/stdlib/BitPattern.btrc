@@ -1,4 +1,4 @@
-import std.BitPattern;
+import Library.BitPattern;
 
 int main() {
 	if (BitPattern32.signedInteger(0xffffffffu) != -1) { return 1; }

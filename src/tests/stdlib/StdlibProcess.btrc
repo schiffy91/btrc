@@ -1,7 +1,7 @@
 /* ExecResult.trimmed() + UnixShell.run() — the run-and-trim idiom. */
-import std.Platform;
-import std.Process;
-import std.Vector;
+import Library.Platform;
+import Library.Process;
+import Library.Vector;
 
 #include <assert.h>
 

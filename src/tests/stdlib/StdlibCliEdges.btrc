@@ -6,7 +6,7 @@
  *   - CliCommandLine.isOptionValue classification directly;
  *   - CliHelp.item where the signature length EXACTLY equals the width (>= width
  *     wrap branch) and an item with an empty description. */
-import std.Cli;
+import Library.Cli;
 
 #include <assert.h>
 

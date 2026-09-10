@@ -2,7 +2,7 @@
  * Vector<Pair<int, string>>. The existing collection-of-user-generic tests all
  * use a single-param Box<int>; this verifies multi-param mangling of a generic
  * element inside the push/get path. */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 #include <string.h>

@@ -3,10 +3,10 @@
  * List of objects, scope-exit, early-return, nested collections, and aliasing
  * (which must NOT double-free).
  */
-import std.List;
-import std.Map;
-import std.Set;
-import std.Vector;
+import Library.List;
+import Library.Map;
+import Library.Set;
+import Library.Vector;
 
 #include <assert.h>
 

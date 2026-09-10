@@ -1,6 +1,6 @@
 /* Integral constant evaluation and enum constant contracts. */
 
-import std.Map;
+import Library.Map;
 
 import ../../generated/ast/Node.btrc;
 import ../../syntax/Literals.btrc;

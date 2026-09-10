@@ -4,9 +4,9 @@
  * payload bytes are involved, so embedded NULs cannot truncate framing scans.
  * Sentinel returns are consistent: -1 means incomplete/absent, -2 malformed.
  */
-import std.Bytes;
-import std.Strings;
-import std.Vector;
+import Library.Bytes;
+import Library.Strings;
+import Library.Vector;
 
 class HttpFraming {
 	class int hexVal(char ch) {

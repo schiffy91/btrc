@@ -1,6 +1,6 @@
 /* Test stdlib random: Random class */
-import std.Random;
-import std.Vector;
+import Library.Random;
+import Library.Vector;
 
 #include <assert.h>
 #include "../../stdlib/Random.btrc"

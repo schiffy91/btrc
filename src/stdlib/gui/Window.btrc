@@ -2,8 +2,8 @@
  *
  * Presents a Surface in a real OS window and feeds pointer input into a
  * GuiInput. This compatibility/test backend owns GLFW independently and must
- * not be used in the same process as std.App. Unified applications should use
- * std.App/std.Gpu; std.Ui migration will replace this presenter.
+ * not be used in the same process as Library.App. Unified applications should use
+ * Library.App/Library.Gpu; Library.Ui migration will replace this presenter.
  *
  * NOT auto-included. Use:  #include "gui/Gui.btrc"   then   #include "gui/Window.btrc"
  * Build:  make gui            (needs GLFW + a display to run)

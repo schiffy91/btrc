@@ -5,9 +5,9 @@
  * allocation, I/O, locks, waiting, and managed ownership stay off-thread.
  */
 
-import std.Spsc;
-import std.RealtimeAudio;
-import std.RealtimeClipPractice;
+import Library.Spsc;
+import Library.RealtimeAudio;
+import Library.RealtimeClipPractice;
 
 struct BtrcRealtimeClipPracticeConfigurationValue {
 	int configured;

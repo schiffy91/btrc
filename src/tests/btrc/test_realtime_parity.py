@@ -158,7 +158,7 @@ def test_unproven_spin_wait_fails_closed_in_both_compilers(
         ),
         (
             "collection_identifier",
-            "import std.Vector;\nVector<int> values; @realtime void audio() { (void*)values; }",
+            "import Library.Vector;\nVector<int> values; @realtime void audio() { (void*)values; }",
             "forbidden collections operation 'collection identifier 'values'' via audio",
         ),
         (
@@ -201,7 +201,7 @@ def test_managed_value_admission_has_reference_selfhost_parity(
     (
         ("string", "enum class Sample { Text(string value), Empty }"),
         ("class", "class Box {} enum class Sample { Object(Box value), Empty }"),
-        ("collection", "import std.Vector;\nenum class Sample { Values(Vector<int> value), Empty }"),
+        ("collection", "import Library.Vector;\nenum class Sample { Values(Vector<int> value), Empty }"),
     ),
 )
 def test_managed_rich_enum_payload_has_reference_selfhost_parity(

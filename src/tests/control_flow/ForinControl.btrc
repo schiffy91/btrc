@@ -1,5 +1,5 @@
 // Test for-in loops over collections with break and continue
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 

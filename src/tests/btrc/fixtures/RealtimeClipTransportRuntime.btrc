@@ -1,7 +1,7 @@
-import std.RealtimeAudio;
-import std.RealtimeClipPractice;
-import std.RealtimeClipTransport;
-import std.RealtimeClock;
+import Library.RealtimeAudio;
+import Library.RealtimeClipPractice;
+import Library.RealtimeClipTransport;
+import Library.RealtimeClock;
 
 #include <assert.h>
 

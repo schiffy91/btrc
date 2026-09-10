@@ -224,7 +224,7 @@ def test_actual_app_runtime_state_machine(tmp_path: Path, c_compiler: str) -> No
         timeout=RUN_TIMEOUT,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout == "PASS: actual std.App runtime state machine\n"
+    assert result.stdout == "PASS: actual Library.App runtime state machine\n"
     assert result.stderr == ""
 
 
@@ -244,7 +244,7 @@ def test_actual_app_runtime_state_machine_under_clang_sanitizers(
         timeout=RUN_TIMEOUT,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout == "PASS: actual std.App runtime state machine\n"
+    assert result.stdout == "PASS: actual Library.App runtime state machine\n"
     assert result.stderr == ""
 
 

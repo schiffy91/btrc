@@ -10,7 +10,7 @@
  *  - ENCODING: every operation here is BYTE-based, not Unicode-aware. Lengths,
  *    indices, find/rfind/count offsets, and slices are all measured in bytes.
  *    A multi-byte UTF-8 code point counts as several "characters". The string
- *    is treated as NUL-terminated, so an embedded '\0' ends it (use std.Bytes
+ *    is treated as NUL-terminated, so an embedded '\0' ends it (use Library.Bytes
  *    for binary-safe data).
  *  - CASE OPS are ASCII-ONLY: toUpper/toLower (built-in) and capitalize/title/
  *    swapCase here only re-case the bytes A-Z / a-z. Bytes >= 0x80 (accented
@@ -23,7 +23,7 @@
  *    allocation).
  */
 
-import std.Vector;
+import Library.Vector;
 
 class Strings {
 	/* Raw C memory boundaries repeat this nonnegative postcondition locally so

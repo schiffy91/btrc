@@ -6,7 +6,7 @@
  * cryptographic integrity primitive.
  */
 
-import std.Bytes;
+import Library.Bytes;
 
 class Fnv1a32 {
 	private uint _value;

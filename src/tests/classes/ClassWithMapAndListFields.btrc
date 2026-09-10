@@ -1,5 +1,5 @@
-import std.Map;
-import std.Vector;
+import Library.Map;
+import Library.Vector;
 
 #include <stdio.h>
 class Registry {

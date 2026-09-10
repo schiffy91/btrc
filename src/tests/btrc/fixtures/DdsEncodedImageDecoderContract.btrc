@@ -1,7 +1,7 @@
-import std.DdsEncodedImageDecoder;
-import std.EncodedImage;
-import std.Bytes;
-import std.Image;
+import Library.DdsEncodedImageDecoder;
+import Library.EncodedImage;
+import Library.Bytes;
+import Library.Image;
 
 #include <assert.h>
 

@@ -1,4 +1,4 @@
-import std.Spsc;
+import Library.Spsc;
 
 int main() {
 	SpscQueue<int> queue = new SpscQueue<int>(3u);

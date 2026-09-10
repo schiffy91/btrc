@@ -1,6 +1,6 @@
 /* A reference cycle formed through a Vector field is reclaimed by typed
  * collection-slot traversal in both compilers. */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 

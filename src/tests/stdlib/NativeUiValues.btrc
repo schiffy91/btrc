@@ -1,6 +1,6 @@
-import std.Image;
-import std.NativeUi;
-import std.Vector;
+import Library.Image;
+import Library.NativeUi;
+import Library.Vector;
 
 #include <assert.h>
 

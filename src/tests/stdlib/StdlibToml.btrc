@@ -1,5 +1,5 @@
 /* Toml.sectionMap + Toml.tableArrayBlocks — section and array-of-tables scans. */
-import std.Toml;
+import Library.Toml;
 
 #include <assert.h>
 

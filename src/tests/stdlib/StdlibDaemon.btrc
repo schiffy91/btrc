@@ -1,13 +1,13 @@
 /* Capability-based daemon supervision: lifecycle, restart behavior, private
  * state, and adversarial control-file cases. */
-import std.Daemon;
-import std.DaemonControl;
-import std.DaemonControlProtocol;
-import std.Datetime;
-import std.FileSystem;
-import std.Io;
-import std.Platform;
-import std.Process;
+import Library.Daemon;
+import Library.DaemonControl;
+import Library.DaemonControlProtocol;
+import Library.Datetime;
+import Library.FileSystem;
+import Library.Io;
+import Library.Platform;
+import Library.Process;
 
 #include <assert.h>
 #include <errno.h>

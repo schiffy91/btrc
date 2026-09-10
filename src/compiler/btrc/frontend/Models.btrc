@@ -1,9 +1,9 @@
 /* Frontend source, dependency, policy, and result value types. */
 
-import std.Io;
-import std.Map;
-import std.Strings;
-import std.Vector;
+import Library.Io;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
 
 class FeSourceText {
 	private string content;

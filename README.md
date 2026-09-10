@@ -120,7 +120,7 @@ archive layout and cross-translation-unit ownership contract. Run
 | No memory management | ARC (Automatic Reference Counting) |
 | No type inference | `var x = 42;` just works |
 | `printf` formatting | f-strings: `f"x = {x + 1}"` |
-| Ad hoc include order | `import std.{Json, Process}`, `import ./src/**`, plus old `#include` compatibility |
+| Ad hoc include order | `import Library.{Json, Process}`, `import ./src/**`, plus old `#include` compatibility |
 | No collections | `Vector<T>`, `Map<K,V>`, `Set<T>`, `List<T>`, `Array<T>` with rich APIs |
 | No lambdas | Arrow lambdas: `(int x) => x * 2` |
 | No exceptions | `try`/`catch`/`finally` with ARC-safe cleanup on throw |
@@ -146,17 +146,17 @@ fragments share visibility in both directions. New modular code should prefer
 `import`; `--relaxed-imports` is the explicit legacy opt-out.
 
 ```
-import std.{Cli, FileSystem, Json, Process, Toml, Ui}
-import std.*
+import Library.{Cli, FileSystem, Json, Process, Toml, Ui}
+import Library.*
 import ./src/core/*
 import ./src/**
 ```
 
 Supported forms are:
 
-- `std.name` for one standard-library module
-- `std.{a, b, c}` for a small ordered set
-- `std.*` or `std.**` for the discovered standard library
+- `Library.name` for one standard-library module
+- `Library.{a, b, c}` for a small ordered set
+- `Library.*` or `Library.**` for the discovered standard library
 - relative files such as `./helpers/Message.btrc`
 - directory globs with `./dir/*`
 - recursive directory globs with `./dir/**`
@@ -973,7 +973,7 @@ implicit whole-stdlib composition is available only through the legacy
 #### Math
 
 ```
-import std.Math;
+import Library.Math;
 
 double pi = Math.PI();
 int abs = Math.abs(-5);
@@ -988,7 +988,7 @@ double sin = Math.sin(Math.PI() / 2.0);
 #### DateTime and Timer
 
 ```
-import std.Datetime;
+import Library.Datetime;
 
 DateTime now = DateTime.now();
 string date = now.dateString();     // "2025-01-15"
@@ -1004,7 +1004,7 @@ float elapsed = t.elapsed();       // seconds
 #### Random
 
 ```
-import std.Random;
+import Library.Random;
 
 Random rng = Random();
 rng.seedTime();
@@ -1016,7 +1016,7 @@ rng.shuffle(myVector);             // in-place Fisher-Yates
 #### File I/O
 
 ```
-import std.Io;
+import Library.Io;
 
 File f = File("data.txt", "r");
 if (f.ok()) {
@@ -1047,7 +1047,7 @@ Path.writeAll("output.txt", "hello");
 #### Console
 
 ```
-import std.Console;
+import Library.Console;
 
 Console.log("message");            // stdout + newline
 Console.error("problem");          // stderr + newline
@@ -1056,7 +1056,7 @@ Console.error("problem");          // stderr + newline
 #### Application directories
 
 ```btrc
-import std.ApplicationDirectories;
+import Library.ApplicationDirectories;
 
 ApplicationDirectoryRootsOutcome resolved = ApplicationDirectories.resolve(ApplicationDirectoryLimits.standard());
 if (resolved.ok()) {
@@ -1074,7 +1074,7 @@ are explicit.
 #### Result
 
 ```
-import std.Result;
+import Library.Result;
 
 Result<int, string> divide(int a, int b) {
     if (b == 0) { return Result.err("division by zero"); }
@@ -1089,7 +1089,7 @@ if (r.isErr()) {
 
 #### Error Classes
 
-Import `std.Error` to use `Error`, `ValueError`, `IOError`, `TypeError`,
+Import `Library.Error` to use `Error`, `ValueError`, `IOError`, `TypeError`,
 `IndexError`, and `KeyError`; each provides `.toString()`.
 
 ---

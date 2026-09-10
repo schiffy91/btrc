@@ -1,6 +1,6 @@
 /* Set algebra beyond unite/intersect/subtract: symmetricDifference,
  * isSubsetOf, isSupersetOf. None of these were tested. */
-import std.Set;
+import Library.Set;
 
 #include <assert.h>
 #include <stdio.h>

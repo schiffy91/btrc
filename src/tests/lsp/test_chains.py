@@ -68,7 +68,7 @@ def test_completion_after_chain():
 
 
 GENERIC_BUILTIN_SRC = """\
-import std.Map;
+import Library.Map;
 
 int main() {
     string text = "a,b";

@@ -1,6 +1,6 @@
 /* Test Array<T> stdlib */
 
-import std.Array;
+import Library.Array;
 
 int main() {
 	// Create and fill

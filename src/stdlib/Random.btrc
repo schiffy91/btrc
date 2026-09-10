@@ -2,7 +2,7 @@
  * Random number generation inspired by Python's random module.
  */
 
-import std.Vector;
+import Library.Vector;
 
 #include <stdint.h>
 #include <time.h>

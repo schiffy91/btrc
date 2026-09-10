@@ -4,7 +4,7 @@
  * decoded synchronously by the native runtime from content signatures.
  */
 
-import std.DdsEncodedImageDecoder;
+import Library.DdsEncodedImageDecoder;
 
 int std_macos_encoded_image_decode(const char* encoded, int encodedBytes, int maximumInputBytes, int maximumWidth, int maximumHeight, long long maximumPixels, int* widthOut, int* heightOut, void** pixelsOut, unsigned long long* pixelBytesOut);
 void std_macos_encoded_image_release(void* pixels);

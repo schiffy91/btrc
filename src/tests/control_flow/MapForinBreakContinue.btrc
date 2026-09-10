@@ -1,7 +1,7 @@
 // for-in over Map<K,V> two-variable (k, v) with break and continue inside.
 // continue skips an entry; break stops iteration mid-map. kv iteration is
 // tested elsewhere but never combined with loop control.
-import std.Map;
+import Library.Map;
 
 #include <assert.h>
 

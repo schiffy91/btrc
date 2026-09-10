@@ -1,9 +1,9 @@
 /* Standard-library snapshots, lookup, and symbol-index owners. */
 
-import std.FileSystem;
-import std.Map;
-import std.Strings;
-import std.Vector;
+import Library.FileSystem;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
 
 import ./Models.btrc;
 import ./SourceIo.btrc;
@@ -126,7 +126,7 @@ class FeStdlibRepository {
 		string filename = name.endsWith(".btrc") ? name : name + ".btrc";
 		string path = self.findFileForCompilation(filename, snapshot);
 		if (!path.isEmpty()) { return FeStdlibLookup(true, path, ""); }
-		return FeStdlibLookup(false, "", f"stdlib import 'std.{name}' not found\n  searched: {self.directoryPath}");
+		return FeStdlibLookup(false, "", f"stdlib import 'Library.{name}' not found\n  searched: {self.directoryPath}");
 	}
 
 	private bool explicitModulePath(string path) {

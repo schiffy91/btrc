@@ -2,7 +2,7 @@
  * (msgs[i]) and an object field (obj.message). These involve a heap read to
  * produce the thrown value, exercising temp lifetime on the throw path. The
  * corpus only throws literals and simple variables. */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 

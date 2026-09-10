@@ -1,18 +1,18 @@
-/* Direct macOS CoreAudio provider for std.AudioDevice.
+/* Direct macOS CoreAudio provider for Library.AudioDevice.
  *
  * Device UIDs remain selectable independently for input and output. Native
  * AUHAL and private aggregate-device details are implementation-only; the
- * realtime program receives the interleaved std.RealtimeAudio ABI in blocks
+ * realtime program receives the interleaved Library.RealtimeAudio ABI in blocks
  * no larger than the negotiated bufferFrames, with contiguous sliced clocks.
  * AudioUnit conversion may produce larger native callbacks. A provider
  * and all sessions opened from it are owned by one control thread; the provider
  * must outlive those sessions.
  */
 
-import std.AudioDevice;
-import std.OwnedBuffer;
-import std.Strings;
-import std.Vector;
+import Library.AudioDevice;
+import Library.OwnedBuffer;
+import Library.Strings;
+import Library.Vector;
 
 struct CoreAudioNativeRateRange {
 	int minimum;

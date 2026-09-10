@@ -198,7 +198,7 @@ class BtrcAstRenderer:
             " * belongs to the handwritten owner in syntax/Identity.btrc.",
             " */",
             "",
-            "import std.Vector;",
+            "import Library.Vector;",
             "",
         ]
         self._emit_node_kind_enum(lines)

@@ -256,7 +256,7 @@ lowercase letter, because the file is named for what it declares. That holds
 in the stdlib (`Array.btrc`, `HttpClient.btrc`), in the self-hosted compiler
 (`ControlFlow.btrc`, `Analyzer.btrc`), in the corpus (`CastFollowedByUnary.btrc`)
 and in the examples. A stdlib module's import name is its stem, so
-`Array.btrc` is `import std.Array;`, and `expected/<Stem>.stdout` is the golden
+`Array.btrc` is `import Library.Array;`, and `expected/<Stem>.stdout` is the golden
 output for `<Stem>.btrc`.
 
 The corpus runner discovers a file whose name begins with a capital, so a

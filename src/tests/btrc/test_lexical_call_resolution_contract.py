@@ -101,8 +101,8 @@ CALLABLE_SHADOW_SOURCE = """
 
 
 HOSTED_SHADOW_SOURCE = """
-    import std.Bytes;
-    import std.Vector;
+    import Library.Bytes;
+    import Library.Vector;
 
     size_t strlen(string value, int marker = 40) {
         return (size_t)(value.length() + marker);
@@ -339,7 +339,7 @@ def test_hosted_stdlib_function_values_fail_closed_under_user_shadows(
 ) -> None:
     program = tmp_path / "hosted-value-shadow.btrc"
     data_root = _custom_stdlib_root(tmp_path, probe, program)
-    source = f"import std.HostedValueProbe;\n{user_source}"
+    source = f"import Library.HostedValueProbe;\n{user_source}"
     program.write_text(source)
 
     selfhost = subprocess.run(

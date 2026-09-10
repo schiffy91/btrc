@@ -1,6 +1,6 @@
-/* btrc standard library -- opaque WebGPU rendering on a std.App surface. */
+/* btrc standard library -- opaque WebGPU rendering on a Library.App surface. */
 
-import std.Image;
+import Library.Image;
 
 import ../app/App.btrc;
 #include <btrc_gpu.h>

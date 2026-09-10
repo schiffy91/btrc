@@ -116,7 +116,7 @@ def test_imported_stdlib_mutex_collection_is_a_registered_managed_class(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    source = "import std.Vector;\nint main() { Mutex<Vector<int>> value; return 0; }"
+    source = "import Library.Vector;\nint main() { Mutex<Vector<int>> value; return 0; }"
     selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
     reference, _ = _compile_reference(
         tmp_path,

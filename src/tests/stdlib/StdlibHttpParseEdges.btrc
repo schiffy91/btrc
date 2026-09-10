@@ -3,9 +3,9 @@
  *   parse headers: value containing ':' kept whole (split on FIRST colon only),
  *                  empty header value, duplicate header (later wins in the map),
  *                  header name lower-cased for lookup. */
-import std.HttpServer;
-import std.HttpTypes;
-import std.Map;
+import Library.HttpServer;
+import Library.HttpTypes;
+import Library.Map;
 
 #include <assert.h>
 

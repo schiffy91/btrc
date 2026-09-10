@@ -323,7 +323,7 @@ def test_comparison_result_cast_severs_managed_borrow_provenance(
 OWNED_COPY_SOURCE = (FIXTURES / "OpaqueBorrowOwnedCopyRuntime.btrc").read_text()
 
 STDLIB_HOSTED_SHADOW_SOURCE = r"""
-import std.Bytes;
+import Library.Bytes;
 
 void* retained_memcpy_source;
 

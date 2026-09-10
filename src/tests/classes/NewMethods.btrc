@@ -1,7 +1,7 @@
 // Test isEmpty(), insert(), string reverse/removePrefix/removeSuffix
-import std.Map;
-import std.Set;
-import std.Vector;
+import Library.Map;
+import Library.Set;
+import Library.Vector;
 
 #include <assert.h>
 

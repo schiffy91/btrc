@@ -1,7 +1,7 @@
 /* Stateful grammar-driven lexer. Literal scanning stays with the cursor owner. */
 
-import std.Strings;
-import std.Vector;
+import Library.Strings;
+import Library.Vector;
 
 import ../syntax/Grammar.btrc;
 import ../syntax/Tokens.btrc;

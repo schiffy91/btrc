@@ -1,6 +1,6 @@
 /* Integer boundary behavior is deterministic and free of signed-overflow UB. */
-import std.Math;
-import std.Vector;
+import Library.Math;
+import Library.Vector;
 
 #include <assert.h>
 

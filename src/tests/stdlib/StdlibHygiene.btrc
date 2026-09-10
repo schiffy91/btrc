@@ -1,12 +1,12 @@
-/* std.* error-handling hygiene: write failures surface (not silent), Path.exists
+/* Library.* error-handling hygiene: write failures surface (not silent), Path.exists
  * agrees with FileSystem.exists, graph data errors are recoverable (catchable,
  * not exit(1)), and Strings.repeat is safe for non-positive counts.
  *
  * Hermetic: uses a fresh temp dir; deterministic; no network/sleep. */
-import std.FileSystem;
-import std.Graph;
-import std.Io;
-import std.Strings;
+import Library.FileSystem;
+import Library.Graph;
+import Library.Io;
+import Library.Strings;
 
 #include <assert.h>
 

@@ -1,11 +1,11 @@
 /* Bounded source filesystem, path, and decoding owners. */
 
-import std.Bytes;
-import std.FileSystem;
-import std.Io;
-import std.Platform;
-import std.Strings;
-import std.Vector;
+import Library.Bytes;
+import Library.FileSystem;
+import Library.Io;
+import Library.Platform;
+import Library.Strings;
+import Library.Vector;
 
 import ./Models.btrc;
 

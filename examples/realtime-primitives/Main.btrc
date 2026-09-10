@@ -1,4 +1,4 @@
-import std.Spsc;
+import Library.Spsc;
 
 int main() {
 	int samples[4] = [1, 2, 3, 4];

@@ -1,5 +1,5 @@
 /* Vector<T> owns class elements it stores. */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 

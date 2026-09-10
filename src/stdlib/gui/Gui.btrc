@@ -2,9 +2,9 @@
  *
  * A simple, dependency-light UI: build a frame of widgets each tick and read
  * back interactions. The portable C renderer (btrc_gui.c) is a deliberately
- * separate software/headless surface until std.Ui consumes std.App/std.Gpu.
+ * separate software/headless surface until Library.Ui consumes Library.App/Library.Gpu.
  * The optional gui/Window.btrc presenter is a legacy standalone GLFW backend;
- * it must not be composed in one process with std.App.
+ * it must not be composed in one process with Library.App.
  *
  * NOT auto-included. Use:  #include "gui/Gui.btrc"
  * Build:  make gui

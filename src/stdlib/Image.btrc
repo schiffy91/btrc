@@ -6,8 +6,8 @@
  * Decoders return ImageLoad instead of terminating on untrusted input.
  */
 
-import std.Bytes;
-import std.Io;
+import Library.Bytes;
+import Library.Io;
 
 class RGBA {
 	public int red;

@@ -1,4 +1,4 @@
-import std.Map;
+import Library.Map;
 
 #include <stdio.h>
 int main() {

@@ -1,7 +1,7 @@
-/* Consume the REAL stdlib Result<T,E> via `import std.Result`, returned from a
+/* Consume the REAL stdlib Result<T,E> via `import Library.Result`, returned from a
  * function (the headline error-handling pattern), instead of a hand-redefined
  * local Result. Exercises both the Ok and Err paths through a function return. */
-import std.Result;
+import Library.Result;
 
 #include <assert.h>
 #include <string.h>

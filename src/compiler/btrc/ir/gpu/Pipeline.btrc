@@ -1,6 +1,6 @@
-import std.Map;
-import std.Strings;
-import std.Vector;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
 
 import ../../analyzer/Declarations.btrc;
 import ../../analyzer/Gpu.btrc;

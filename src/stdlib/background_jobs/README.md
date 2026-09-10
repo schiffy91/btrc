@@ -1,4 +1,4 @@
-# `std.BackgroundJobs`
+# `Library.BackgroundJobs`
 
 `BackgroundJobExecutor` is the bounded worker-pool boundary for serialized
 applications. It complements `spawn()`/`Thread.join()` when the owner loop must
@@ -26,7 +26,7 @@ reclaim every unclaimed work item before returning. An action exception is
 normalized to `BACKGROUND_JOB_FAILED` before it can cross the C ABI; actions
 must eventually return after cancellation.
 
-When a source graph imports `std.BackgroundJobs`, both compilers add the
+When a source graph imports `Library.BackgroundJobs`, both compilers add the
 compiler-shipped `btrc_background_jobs.c` unit and include directory to the
 emitted native link plan. The canonical plan adapter therefore links the
 runtime and pthreads without a consumer-specific flag or ambient prebuilt

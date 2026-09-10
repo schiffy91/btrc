@@ -221,7 +221,7 @@ def test_realtime_function_vector_storage_preserves_proof_and_cannot_upgrade(
 ) -> None:
     source = tmp_path / "RealtimeFunctionVector.btrc"
     source.write_text(
-        "import std.Vector;\n"
+        "import Library.Vector;\n"
         "typedef RealtimeFunction<int, int> ProvenTransform;\n"
         "@realtime int increment(int value) { return value + 1; }\n"
         "@realtime int invoke(ProvenTransform transform, int value) { return transform(value); }\n"
@@ -263,7 +263,7 @@ def test_realtime_function_vector_storage_preserves_proof_and_cannot_upgrade(
 
     rejected = tmp_path / "RealtimeFunctionVectorUpgrade.btrc"
     rejected.write_text(
-        "import std.Vector;\n"
+        "import Library.Vector;\n"
         "typedef RealtimeFunction<int, int> ProvenTransform;\n"
         "@realtime int increment(int value) { return value + 1; }\n"
         "int main() {\n"

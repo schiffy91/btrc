@@ -214,7 +214,7 @@ def test_loop_and_catch_variables_are_scoped(tmp_path):
     write(tmp_path / "b.btrc", "class Item {}\n")
     write(
         tmp_path / "a.btrc",
-        "import std.Vector;\n"
+        "import Library.Vector;\n"
         "int scan(Vector<int> xs) {\n"
         "    int total = 0;\n"
         "    for Item in xs { total += Item; }\n"  # loop var shadows class
@@ -347,7 +347,7 @@ def test_authenticated_stdlib_hosted_reference_ignores_user_shadow(tmp_path):
     entry = tmp_path / "Main.btrc"
     write(
         entry,
-        "import std.Bytes;\n"
+        "import Library.Bytes;\n"
         "void* memcpy(void* destination, const void* source, size_t count) {\n"
         "    (void)source; (void)count; return destination;\n"
         "}\n"

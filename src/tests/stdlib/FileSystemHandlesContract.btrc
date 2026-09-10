@@ -1,7 +1,7 @@
 /* Typed exact-handle values never require dummy success or error payloads. */
-import std.Bytes;
-import std.FileSystem;
-import std.FileSystemHandles;
+import Library.Bytes;
+import Library.FileSystem;
+import Library.FileSystemHandles;
 
 #include <assert.h>
 

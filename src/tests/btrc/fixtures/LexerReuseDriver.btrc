@@ -1,5 +1,5 @@
-import std.Io;
-import std.Vector;
+import Library.Io;
+import Library.Vector;
 
 #include "../../../compiler/btrc/syntax/Tokens.btrc"
 #include "../../../compiler/btrc/syntax/Grammar.btrc"

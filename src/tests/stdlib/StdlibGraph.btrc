@@ -1,10 +1,10 @@
-/* std.Graph: graph JSON parsing, CLI args, and dependency traversal. */
-import std.Cli;
-import std.FileSystem;
-import std.Graph;
-import std.Io;
-import std.Map;
-import std.Vector;
+/* Library.Graph: graph JSON parsing, CLI args, and dependency traversal. */
+import Library.Cli;
+import Library.FileSystem;
+import Library.Graph;
+import Library.Io;
+import Library.Map;
+import Library.Vector;
 
 #include <assert.h>
 #include <string.h>

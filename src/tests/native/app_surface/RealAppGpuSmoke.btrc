@@ -1,6 +1,6 @@
 /* Opt-in real GLFW/WebGPU proof. The deterministic conformance test is fake. */
 
-import std.Image;
+import Library.Image;
 
 import ../../../stdlib/app/App.btrc;
 import ../../../stdlib/gpu/Gpu.btrc;

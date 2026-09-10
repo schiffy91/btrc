@@ -1,7 +1,7 @@
 /* Runtime-helper lookup and canonical selection over generated specifications. */
 
-import std.Map;
-import std.Vector;
+import Library.Map;
+import Library.Vector;
 
 import ../../generated/runtime/Catalog.btrc;
 import ../Model.btrc;

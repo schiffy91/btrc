@@ -1,6 +1,6 @@
 /* Toml standalone helpers: key / value / unquote / sectionName / tableArrayName
  * / stripInlineComment, plus rootMap stopping at the first section header. */
-import std.Toml;
+import Library.Toml;
 
 #include <assert.h>
 

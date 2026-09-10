@@ -1,7 +1,7 @@
 /* Uncompressed BMP 24/32-bit layouts: padding, orientation, alpha, and errors. */
-import std.Bytes;
-import std.Image;
-import std.FileSystem;
+import Library.Bytes;
+import Library.Image;
+import Library.FileSystem;
 
 #include <assert.h>
 

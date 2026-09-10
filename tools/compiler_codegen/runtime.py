@@ -688,7 +688,7 @@ class RuntimeCatalogGenerator:
         lines = [
             "/* Generated shared runtime data. Do not edit by hand. */",
             "",
-            "import std.Vector;",
+            "import Library.Vector;",
             "",
             "class GeneratedRuntimeHelperRow {",
             "    public string category;",

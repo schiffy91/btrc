@@ -1,4 +1,4 @@
-import std.Strings;
+import Library.Strings;
 
 #include "../../../compiler/btrc/cli/Driver.btrc"
 

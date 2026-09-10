@@ -54,7 +54,7 @@ def test_collection_growth_fails_before_integer_overflow(
     c_source = tmp_path / "guard.c"
     executable = tmp_path / "guard"
     source.write_text(
-        f"import std.{stdlib_module};\n\nint main() {{\n    {setup}\n    {operation}\n    return 0;\n}}\n"
+        f"import Library.{stdlib_module};\n\nint main() {{\n    {setup}\n    {operation}\n    return 0;\n}}\n"
     )
 
     transpile = subprocess.run(

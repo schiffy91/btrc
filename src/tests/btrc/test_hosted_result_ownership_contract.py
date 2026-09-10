@@ -47,7 +47,7 @@ HOSTED_SHADOW_PROBE = """
 """
 
 HOSTED_SHADOW_USER = """
-    import std.HostedResultProbe;
+    import Library.HostedResultProbe;
 
     #include <string.h>
 

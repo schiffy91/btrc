@@ -3,12 +3,12 @@
  * managers can consume DaemonSpec without changing app code.
  */
 
-import std.FileSystem;
-import std.DaemonControl;
-import std.DaemonControlFiles;
-import std.DaemonControlProtocol;
-import std.Process;
-import std.Vector;
+import Library.FileSystem;
+import Library.DaemonControl;
+import Library.DaemonControlFiles;
+import Library.DaemonControlProtocol;
+import Library.Process;
+import Library.Vector;
 
 class DaemonSpec {
 	public string name;

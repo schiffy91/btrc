@@ -1,7 +1,7 @@
 // Strings.split preserves empty fields on both sides of an explicit delimiter,
 // matching conventional split-with-separator semantics.
-import std.Strings;
-import std.Vector;
+import Library.Strings;
+import Library.Vector;
 
 #include <assert.h>
 

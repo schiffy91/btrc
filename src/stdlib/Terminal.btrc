@@ -1,12 +1,12 @@
 /* btrc standard library — Unix terminal helpers */
 
-import std.Bytes;
-import std.Strings;
-import std.TerminalClock;
-import std.TerminalCstringArray;
-import std.TerminalPassword;
-import std.TerminalPasswordExchange;
-import std.Vector;
+import Library.Bytes;
+import Library.Strings;
+import Library.TerminalClock;
+import Library.TerminalCstringArray;
+import Library.TerminalPassword;
+import Library.TerminalPasswordExchange;
+import Library.Vector;
 
 #include <termios.h>
 #include <sys/types.h>

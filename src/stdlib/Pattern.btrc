@@ -1,6 +1,6 @@
 /* btrc standard library — Pattern matching */
 
-import std.Vector;
+import Library.Vector;
 
 #include <fnmatch.h>
 

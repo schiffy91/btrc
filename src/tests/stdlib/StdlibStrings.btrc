@@ -1,6 +1,6 @@
 /* Strings: built-in string methods + the Strings static helper surface. */
-import std.Strings;
-import std.Vector;
+import Library.Strings;
+import Library.Vector;
 
 #include <assert.h>
 #include <string.h>

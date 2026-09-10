@@ -407,7 +407,7 @@ def test_root_path_cannot_spoof_compiler_stdlib_provenance() -> None:
 
 def test_resolved_stdlib_import_receives_authenticated_provenance(tmp_path: Path) -> None:
     root = tmp_path / "Main.btrc"
-    source = "import std.Process;\nint main() { return 0; }"
+    source = "import Library.Process;\nint main() { return 0; }"
     pipeline = CompilationPipeline()
     options = CompilerOptions(include_stdlib=False, use_ast_cache=False)
     resolved = pipeline.resolve(source, str(root), options)

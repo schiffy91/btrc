@@ -1,7 +1,7 @@
 /* Structured-IR backstop for source @realtime proofs. */
 
-import std.Map;
-import std.Vector;
+import Library.Map;
+import Library.Vector;
 
 import ../Model.btrc;
 

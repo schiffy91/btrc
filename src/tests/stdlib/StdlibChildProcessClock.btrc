@@ -1,5 +1,5 @@
 /* Strict-C11 boundary coverage for child-process monotonic deadlines. */
-import std.Process;
+import Library.Process;
 
 #include <assert.h>
 

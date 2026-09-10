@@ -2,7 +2,7 @@
  * value comparison (existing containsValue tests use Map<string,int>, the ==
  * path). The needle is built at runtime ("hel" + "lo") so a match proves
  * strcmp rather than literal-pointer identity. */
-import std.Map;
+import Library.Map;
 
 #include <assert.h>
 #include <stdio.h>

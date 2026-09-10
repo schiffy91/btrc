@@ -1,7 +1,7 @@
 /* break / continue inside a for-in loop over a collection. for-in lowers to
  * a C for with a synthesized index var + iterGet; break/continue must target
  * that synthesized loop correctly. */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 #include <stdio.h>

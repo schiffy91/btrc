@@ -1,8 +1,8 @@
 /* Image file loads fail closed on open, read, decode, and close errors. */
-import std.Bytes;
-import std.Io;
-import std.Image;
-import std.FileSystem;
+import Library.Bytes;
+import Library.Io;
+import Library.Image;
+import Library.FileSystem;
 
 #include <assert.h>
 

@@ -1,8 +1,8 @@
 /* Stdlib collections retain class elements they store. */
-import std.List;
-import std.Map;
-import std.Set;
-import std.Vector;
+import Library.List;
+import Library.Map;
+import Library.Set;
+import Library.Vector;
 
 #include <assert.h>
 

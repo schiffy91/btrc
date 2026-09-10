@@ -1,8 +1,8 @@
 /* HttpClient end-to-end through a deterministic local curl stand-in. */
-import std.FileSystem;
-import std.HttpClient;
-import std.Platform;
-import std.Vector;
+import Library.FileSystem;
+import Library.HttpClient;
+import Library.Platform;
+import Library.Vector;
 
 #include <assert.h>
 #include <sys/stat.h>

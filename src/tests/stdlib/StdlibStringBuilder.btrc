@@ -1,5 +1,5 @@
 /* StringBuilder owns its growth buffer while returned strings remain stable. */
-import std.Strings;
+import Library.Strings;
 
 #include <assert.h>
 #include <string.h>

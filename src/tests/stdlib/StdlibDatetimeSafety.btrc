@@ -1,5 +1,5 @@
 /* Date/time values fail closed before C narrowing or floating/integer UB. */
-import std.Datetime;
+import Library.Datetime;
 
 #include <assert.h>
 #include <float.h>

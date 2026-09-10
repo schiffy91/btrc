@@ -1,8 +1,8 @@
 /* JSON output preserves valid UTF-8 and replaces each malformed input byte
  * independently with U+FFFD. */
-import std.Json;
-import std.Strings;
-import std.Vector;
+import Library.Json;
+import Library.Strings;
+import Library.Vector;
 
 #include <assert.h>
 

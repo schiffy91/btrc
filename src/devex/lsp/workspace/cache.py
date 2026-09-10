@@ -17,7 +17,7 @@ from src.compiler.python.frontend.packages import (
 )
 from src.compiler.python.frontend.sources import FrontendCacheDirectory, SourceDependencyKind
 from src.compiler.python.syntax.ast.codec import AstJsonCodec
-from src.compiler.python.syntax.ast.generated import PackagePath, QuotedPath, RelativePath, StdGlob, StdModules
+from src.compiler.python.syntax.ast.generated import LibraryGlob, LibraryModules, PackagePath, QuotedPath, RelativePath
 from src.devex.lsp.workspace.units import _UNIT_CACHE_VERSION, FileDependencies, FileDependency, FileUnit
 
 
@@ -25,7 +25,7 @@ class FileUnitCacheCodec:
     """Encode and validate the persistent subset of one parsed file unit."""
 
     SCHEMA_VERSION = 2
-    _IMPORT_SPEC_TYPES = (StdGlob, StdModules, PackagePath, RelativePath, QuotedPath)
+    _IMPORT_SPEC_TYPES = (LibraryGlob, LibraryModules, PackagePath, RelativePath, QuotedPath)
     _DEPENDENCY_KINDS = frozenset(kind.value for kind in SourceDependencyKind)
 
     def __init__(self, ast_codec: AstJsonCodec | None = None) -> None:

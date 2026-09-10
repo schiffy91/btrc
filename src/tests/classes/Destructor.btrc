@@ -1,5 +1,5 @@
 /* Test auto-destructor: __del__ method and recursive delete */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 

@@ -12,7 +12,7 @@ logic lives in btrc, and it's threaded by default.
 | `Geometry.btrc` | Saturating integer geometry shared by immediate and declarative layout. |
 | `Gui.btrc` | btrc bindings + immediate-mode widgets (`Color`, `Surface`, `GuiInput`, `Theme`, `Gui`, `GuiApp`). |
 | `View.btrc` | Declarative UI: a `View` tree with flexbox-style layout, events-as-data (`GuiEvents`), and a one-call `Ui.frame(...)`. |
-| `btrc_gui_window.h` / `.c` | Legacy standalone native window backend (resizable GLFW/OpenGL window, GPU-texture present). It is retained for GUI compatibility tests and is not composable with `std.App`. |
+| `btrc_gui_window.h` / `.c` | Legacy standalone native window backend (resizable GLFW/OpenGL window, GPU-texture present). It is retained for GUI compatibility tests and is not composable with `Library.App`. |
 | `Window.btrc` | Legacy btrc bindings for that standalone backend (`GuiWindow`, incl. `width`/`height`/`fit`). |
 | `btrc_gui_font.h` / `.c`, `Font.btrc` | Optional FreeType backend (`Font`) for scalable, anti-aliased, full-Unicode text. |
 
@@ -22,8 +22,8 @@ Not auto-included (it's in a subfolder and needs a compiled shim). Opt in with
 ## Quick start (immediate-mode)
 
 `GuiWindow` below is the legacy standalone presenter. New application code
-should own its window through `std.App`; `std.Ui` has not yet been migrated to
-consume the unified `std.App`/`std.Gpu` surface.
+should own its window through `Library.App`; `Library.Ui` has not yet been migrated to
+consume the unified `Library.App`/`Library.Gpu` surface.
 
 ```btrc
 #include "gui/Gui.btrc"
@@ -175,9 +175,9 @@ make examples-gui   # build + run the headless examples/tests (demo, declarative
   so drive the windowed loop from `main()` there; the threaded runner is for the
   offscreen surface or Linux.
 - The legacy `GuiWindow` backend owns GLFW and an OpenGL window independently.
-  Its header and `std.App` now reject a mixed translation unit at compile time;
-  `std.App` is the sole GLFW owner for the unified application/GPU path. The
+  Its header and `Library.App` now reject a mixed translation unit at compile time;
+  `Library.App` is the sole GLFW owner for the unified application/GPU path. The
   headless software `Surface` remains safe and deliberately separate until
-  `std.Ui` consumes that path.
+  `Library.Ui` consumes that path.
 - Drawing is opaque-rect + bitmap text; it's intentionally minimal, not a
   full retained-mode toolkit.

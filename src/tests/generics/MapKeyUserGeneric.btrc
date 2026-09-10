@@ -2,7 +2,7 @@
  * The corpus tests user generics as Vector elements, Set members, and Map
  * VALUES, but never as a Map KEY -- this exercises __btrc_hash / __btrc_eq over
  * a monomorphized user-generic struct pointer on the key path. */
-import std.Map;
+import Library.Map;
 
 #include <assert.h>
 #include <string.h>

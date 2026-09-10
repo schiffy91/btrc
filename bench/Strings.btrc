@@ -1,7 +1,7 @@
 // String-heavy: build and join 100k segments. Exercises the string pool +
 // allocation-heavy join path.
-import std.Strings;
-import std.Vector;
+import Library.Strings;
+import Library.Vector;
 
 int main() {
 	Vector<string> parts = [];

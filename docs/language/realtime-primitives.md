@@ -17,7 +17,7 @@ borrowed extent.
 
 ## Fixed owned buffers
 
-`std.OwnedBuffer` provides fixed, zero-initialized heap storage whose capacity
+`Library.OwnedBuffer` provides fixed, zero-initialized heap storage whose capacity
 never changes. `OwnedBuffer<T>` accepts realtime-POD values. It exposes
 `status()`, `opened()`, `count()`, checked value-level `get`/`set`, a stable
 `T* borrow()`, pointer-form `tryPointerAt`/`tryGet`/`trySet`, checked raw and
@@ -115,7 +115,7 @@ prove this fails to compile rather than silently introducing a lock.
 
 ## Canonical SPSC queue
 
-`std.Spsc` owns the sole fixed-capacity SPSC queue/ring implementation. Ordinary
+`Library.Spsc` owns the sole fixed-capacity SPSC queue/ring implementation. Ordinary
 managed code uses `SpscQueue<T>`; `T` must be realtime POD. A stored raw callback
 instead opens the same implementation explicitly and stores only its borrowed
 storage pointer in the callback context:

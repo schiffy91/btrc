@@ -1,6 +1,6 @@
 // Test Set<T> data structure
-import std.Set;
-import std.Vector;
+import Library.Set;
+import Library.Vector;
 
 #include <assert.h>
 

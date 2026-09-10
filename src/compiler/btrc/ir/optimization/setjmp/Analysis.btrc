@@ -1,8 +1,8 @@
 /* Per-module pointer provenance and call-effect analysis for setjmp safety. */
 
-import std.Map;
-import std.Strings;
-import std.Vector;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
 
 import ../../../analyzer/HostedAbi.btrc;
 import ../../Model.btrc;

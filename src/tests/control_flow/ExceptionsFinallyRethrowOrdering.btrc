@@ -3,7 +3,7 @@
  * the exception resumes propagating to the outer catch. test_try_finally uses an
  * outer catch but never asserts the finally-side-effect ordering relative to the
  * rethrow. Here a log Vector pins the exact try -> fin -> catch sequence. */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 

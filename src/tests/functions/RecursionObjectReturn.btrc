@@ -1,6 +1,6 @@
 // Recursion whose return type is a non-primitive (Vector and a class
 // instance) — exercises ARC + recursion interaction.
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 

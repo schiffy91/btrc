@@ -1,7 +1,7 @@
 /* Pattern.anyMatches(Vector<string>, text) and the single-pattern matches both
  * positive and negative, plus the UnixPattern '?' single-char wildcard. */
-import std.Pattern;
-import std.Vector;
+import Library.Pattern;
+import Library.Vector;
 
 #include <assert.h>
 

@@ -1,7 +1,7 @@
 /* Token data and the grammar-derived lexical vocabulary. */
 
-import std.Map;
-import std.Vector;
+import Library.Map;
+import Library.Vector;
 
 class TokenVocabulary {
 	private Map<string, string> keywordTokens;

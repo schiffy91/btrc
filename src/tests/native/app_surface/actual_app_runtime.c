@@ -810,6 +810,6 @@ int main(void) {
     test_wrong_thread_rejection();
     test_worker_last_reference_finalization();
     arm_owner_thread_atexit_finalization();
-    puts("PASS: actual std.App runtime state machine");
+    puts("PASS: actual Library.App runtime state machine");
     return 0;
 }

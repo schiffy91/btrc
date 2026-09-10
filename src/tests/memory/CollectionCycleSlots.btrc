@@ -1,10 +1,10 @@
 /* Typed collection visitors must traverse every managed storage shape without
  * touching primitive storage or collecting externally reachable non-cycles. */
-import std.Array;
-import std.List;
-import std.Map;
-import std.Set;
-import std.Vector;
+import Library.Array;
+import Library.List;
+import Library.Map;
+import Library.Set;
+import Library.Vector;
 
 #include <assert.h>
 

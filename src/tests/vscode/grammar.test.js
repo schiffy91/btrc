@@ -62,8 +62,8 @@ test('glob imports do not open an unterminated block comment', async () => {
     const lines = [
         'import ./semu/core/*;',
         'import ./semu/cli/**;',
-        'import std.{Vector, Strings}',
-        'import std.*',
+        'import Library.{Vector, Strings}',
+        'import Library.*',
         'import "quoted/path.btrc";',
         '',
         'class SemuApp {',
@@ -91,9 +91,9 @@ test('glob imports do not open an unterminated block comment', async () => {
 test('import keyword is scoped keyword.control.import.btrc', async () => {
     const grammar = await loadGrammar();
     const lines = [
-        'import std.{Vector, Strings}',
-        'import std.*',
-        'import std.name',
+        'import Library.{Vector, Strings}',
+        'import Library.*',
+        'import Library.name',
         'import ./relative/path.btrc;',
         'import ./dir/*;',
         'import ./dir/**;',
@@ -120,7 +120,7 @@ test('real block comments still highlight and do not trigger the import rule', a
     assert(block);
     assert(block.scopes.includes('comment.block.btrc'));
 
-    const first = grammar.tokenizeLine('/* import std.*', textmate.INITIAL);
+    const first = grammar.tokenizeLine('/* import Library.*', textmate.INITIAL);
     assert(first.tokens.every((token) => token.scopes.includes('comment.block.btrc')));
     assert(first.tokens.every((token) => !token.scopes.includes('keyword.control.import.btrc')));
 

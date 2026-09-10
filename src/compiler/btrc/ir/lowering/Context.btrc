@@ -1,5 +1,5 @@
-import std.Map;
-import std.Vector;
+import Library.Map;
+import Library.Vector;
 
 import ../../frontend/Models.btrc;
 import ../../generated/ast/Node.btrc;

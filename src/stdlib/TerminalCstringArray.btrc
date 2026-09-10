@@ -1,6 +1,6 @@
 /* Owned C string arrays for the immediate fork/exec boundary. */
 
-import std.Vector;
+import Library.Vector;
 
 #include <stdlib.h>
 #include <string.h>

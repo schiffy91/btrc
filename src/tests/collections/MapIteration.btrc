@@ -1,6 +1,6 @@
 // Test Map iteration via .keys() and .values()
-import std.Map;
-import std.Vector;
+import Library.Map;
+import Library.Vector;
 
 #include <assert.h>
 

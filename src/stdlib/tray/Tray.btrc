@@ -23,8 +23,8 @@
  *       .run();                             // show + pump until quit
  */
 
-import std.Process;
-import std.Ui;
+import Library.Process;
+import Library.Ui;
 
 #include <btrc_tray.h>
 

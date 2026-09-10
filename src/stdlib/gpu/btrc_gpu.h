@@ -4,7 +4,7 @@
  * Wraps the verbose webgpu.h API into simple functions callable from btrc.
  * Works with both wgpu-native and Dawn (both implement webgpu.h).
  *
- * The std.Gpu boundary uses monotonic integer capabilities only. Native
+ * The Library.Gpu boundary uses monotonic integer capabilities only. Native
  * pointers live in the separate compiler/runtime-only compute header. Owner
  * creation also returns a private one-time receipt required for teardown.
  */
@@ -16,7 +16,7 @@
 #include <stdint.h>
 
 _Static_assert(sizeof(unsigned long long) == sizeof(uint64_t),
-    "std.Gpu capabilities require a 64-bit unsigned long long");
+    "Library.Gpu capabilities require a 64-bit unsigned long long");
 
 enum {
     BTRC_GPU_ATTACH_READY = 0,
@@ -70,7 +70,7 @@ enum {
     BTRC_GPU_DRAW_BACKEND_FAILURE = 407,
 };
 
-/* ---- GPU context attached to the sole std.App surface owner ---- */
+/* ---- GPU context attached to the sole Library.App surface owner ---- */
 int std_gpu_attach_surface(
     unsigned long long surface, unsigned long long* gpu_out,
     unsigned long long* owner_receipt_out);
@@ -189,7 +189,7 @@ int std_gpu_native_ui_measure_text(
     int* ascent_out,
     int* descent_out,
     int* advance_out);
-/* Rasterize one system-font text run for the caller's own std.Image. The
+/* Rasterize one system-font text run for the caller's own Library.Image. The
  * result is a tightly packed top-down RGBA8 raster, R=G=B=255 with straight
  * alpha coverage, so the caller tints it. Width and height are backing
  * pixels (ceil(logical * backing_scale), each clamped to 1..4096). Release

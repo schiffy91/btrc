@@ -1,5 +1,5 @@
 /* Unix conversions remain exact outside the signed 32-bit epoch range. */
-import std.Datetime;
+import Library.Datetime;
 
 #include <assert.h>
 #include "../../stdlib/Datetime.btrc"

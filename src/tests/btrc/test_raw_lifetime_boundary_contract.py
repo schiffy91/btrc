@@ -315,7 +315,7 @@ def test_selfhost_stdlib_cannot_take_lifetime_value_through_user_shadow(
     )
     program = tmp_path / "hosted-lifetime-value-shadow.btrc"
     program.write_text(
-        "import std.Probe;\nimport ./lifetime-shadow.btrc;\nint main() { probeLifetimeValue(); return 0; }\n"
+        "import Library.Probe;\nimport ./lifetime-shadow.btrc;\nint main() { probeLifetimeValue(); return 0; }\n"
     )
     result = subprocess.run(
         [str(semantic_btrcc), str(program)],

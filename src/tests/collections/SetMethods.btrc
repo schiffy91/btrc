@@ -1,5 +1,5 @@
 // Test Set functional methods: filter, any, all, forEach
-import std.Set;
+import Library.Set;
 
 #include <assert.h>
 

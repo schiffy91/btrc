@@ -1,6 +1,6 @@
 /* Typed pixels, crop/region geometry, and exact/tolerant diff statistics. */
-import std.Image;
-import std.Vector;
+import Library.Image;
+import Library.Vector;
 
 #include <assert.h>
 

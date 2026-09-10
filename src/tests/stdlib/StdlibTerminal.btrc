@@ -1,9 +1,9 @@
-import std.Datetime;
-import std.FileSystem;
-import std.Io;
-import std.Terminal;
-import std.TerminalClock;
-import std.TerminalPassword;
+import Library.Datetime;
+import Library.FileSystem;
+import Library.Io;
+import Library.Terminal;
+import Library.TerminalClock;
+import Library.TerminalPassword;
 
 #include <assert.h>
 #include <errno.h>

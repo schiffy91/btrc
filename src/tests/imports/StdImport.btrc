@@ -1,4 +1,4 @@
-import std.{Json, Toml}
+import Library.{Json, Toml}
 
 int main() {
 	var json = JsonObject();

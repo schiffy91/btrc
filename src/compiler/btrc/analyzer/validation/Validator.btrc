@@ -1,6 +1,6 @@
 /* Per-program semantic-validation composition and ordered validation cascade. */
 
-import std.Map;
+import Library.Map;
 
 import ../../generated/ast/Node.btrc;
 import ../Declarations.btrc;

@@ -1,6 +1,6 @@
 /* Math.power with negative exponents exercises the reciprocal (1.0/result)
  * branch; only positive/zero exponents were covered before. */
-import std.Math;
+import Library.Math;
 
 #include <assert.h>
 #include "../../stdlib/Math.btrc"

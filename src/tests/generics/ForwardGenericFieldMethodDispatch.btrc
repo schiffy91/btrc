@@ -2,7 +2,7 @@
  * The analyzer must normalize every class field before analyzing any body;
  * otherwise this call lowers as Vector<Entry>_size while the field and
  * monomorphized implementation are Vector<Entry*> (`_p1`). */
-import std.Vector;
+import Library.Vector;
 
 class Reader {
 	class int count(Bucket bucket) { return bucket.entries.size(); }

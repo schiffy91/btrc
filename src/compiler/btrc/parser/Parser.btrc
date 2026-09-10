@@ -10,7 +10,7 @@
  * first: `Node v = self.parseX(); node.field = v;`.
  */
 
-import std.Vector;
+import Library.Vector;
 
 import ../generated/ast/Node.btrc;
 import ../syntax/Grammar.btrc;
@@ -256,7 +256,7 @@ class Parser {
 			return n;
 		}
 		Token ident = self.expect("IDENT");
-		if (ident.value == "std" && self.check("DOT")) {
+		if (ident.value == "Library" && self.check("DOT")) {
 			self.advance();
 			return self.parseStdSpec();
 		}
@@ -274,13 +274,13 @@ class Parser {
 			self.advance();
 			bool recursive = self.matchTok("STAR");
 			Node n = Node();
-			n.kind = NK_STD_GLOB;
+			n.kind = NK_LIBRARY_GLOB;
 			n.recursive = recursive;
 			return n;
 		}
 		if (self.matchTok("LBRACE")) {
 			Node n = Node();
-			n.kind = NK_STD_MODULES;
+			n.kind = NK_LIBRARY_MODULES;
 			n.names.push(self.expect("IDENT").value);
 			while (self.matchTok("COMMA")) {
 				if (self.check("RBRACE")) { break; }
@@ -290,7 +290,7 @@ class Parser {
 			return n;
 		}
 		Node n = Node();
-		n.kind = NK_STD_MODULES;
+		n.kind = NK_LIBRARY_MODULES;
 		n.names.push(self.expect("IDENT").value);
 		return n;
 	}

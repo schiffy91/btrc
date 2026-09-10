@@ -1,6 +1,6 @@
 /* Built-in Map with a USER generic value type: Map<int, Box<string>>.
  * Verifies a user-generic monomorphized struct round-trips as a Map value. */
-import std.Map;
+import Library.Map;
 
 #include <assert.h>
 #include <string.h>

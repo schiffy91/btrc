@@ -1,7 +1,7 @@
 /* Whole-module reachability and parameter normalization. */
 
-import std.Map;
-import std.Vector;
+import Library.Map;
+import Library.Vector;
 
 import ../gpu/Pipeline.btrc;
 import ../lowering/ownership/CycleBoundaries.btrc;

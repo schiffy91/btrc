@@ -1,5 +1,5 @@
-import std.Map;
-import std.Vector;
+import Library.Map;
+import Library.Vector;
 
 import ../generated/ast/Node.btrc;
 import ../syntax/Identity.btrc;

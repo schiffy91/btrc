@@ -5,8 +5,8 @@
 // generic_args[0] -> key var, generic_args[1] -> value var; IR gen emits the
 // {mangled}_iterValueAt call for the second loop variable) is otherwise
 // untested. Also exercises break and continue over that path.
-import std.Iterable;
-import std.Vector;
+import Library.Iterable;
+import Library.Vector;
 
 #include <assert.h>
 

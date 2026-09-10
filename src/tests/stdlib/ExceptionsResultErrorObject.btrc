@@ -3,8 +3,8 @@
  * primitive/string E. Confirms the Err branch holds the structured error and the
  * Ok branch holds the value, with no inline Result/Error definitions (both come
  * from the stdlib). */
-import std.Error;
-import std.Result;
+import Library.Error;
+import Library.Result;
 
 #include <assert.h>
 

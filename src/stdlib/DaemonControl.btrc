@@ -4,10 +4,10 @@
  * informational only: controller code never signals it.
  */
 
-import std.FileSystem;
-import std.Platform;
-import std.Strings;
-import std.Vector;
+import Library.FileSystem;
+import Library.Platform;
+import Library.Strings;
+import Library.Vector;
 
 #include <errno.h>
 #include <limits.h>

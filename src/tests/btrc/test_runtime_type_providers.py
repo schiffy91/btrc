@@ -108,8 +108,8 @@ def test_enum_value_irvar_roots_only_surviving_object_provider(
     catalog = json.dumps(str(SELFHOST / "ir/runtime/Catalog.btrc"))
     references = json.dumps(str(SELFHOST / "ir/runtime/References.btrc"))
     source = f"""
-        import std.Map;
-        import std.Vector;
+        import Library.Map;
+        import Library.Vector;
         import {model};
         import {generated};
         import {catalog};

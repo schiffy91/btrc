@@ -236,7 +236,7 @@ def test_rename_refused_on_unresolvable_identifier():
 
 
 STDLIB_USE = """\
-import std.Vector;
+import Library.Vector;
 
 int main() {
     Vector<int> v = [1, 2, 3];

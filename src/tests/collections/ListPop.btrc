@@ -1,5 +1,5 @@
 // Test List.pop() and string List operations
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 

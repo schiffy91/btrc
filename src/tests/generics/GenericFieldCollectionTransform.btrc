@@ -2,7 +2,7 @@
  * that field into a Vector<U> via a mapping function. Combines field-of-T
  * collections with a method-level type param producing a different element
  * type. */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 #include <string.h>

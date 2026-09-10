@@ -1,5 +1,5 @@
 // Test that lambdas can access global variables
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 

@@ -132,7 +132,7 @@ native inputs remain validated and locked, but do not appear in the emitted
 plan.
 
 Compiler-owned standard-library modules use the same plan vocabulary. A graph
-that imports `std.BackgroundJobs` gains one reserved `btrc_stdlib_runtime`
+that imports `Library.BackgroundJobs` gains one reserved `btrc_stdlib_runtime`
 package containing the exact runtime source, header, and include directory
 shipped with that compiler. Graphs that do not import the module gain nothing.
 This keeps installed and relocatable compilers self-contained without placing

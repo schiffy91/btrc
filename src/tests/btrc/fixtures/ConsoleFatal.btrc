@@ -1,4 +1,4 @@
-import std.Console;
+import Library.Console;
 
 int main() {
 	Console.fatal("fatal-contract");

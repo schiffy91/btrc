@@ -401,10 +401,10 @@ def test_imports_are_stably_partitioned_into_exactly_two_groups() -> None:
     source = """\
 #include "first.btrc"
 
-import std.Map;
+import Library.Map;
 
 import user.alpha;
-import std.Vector;
+import Library.Vector;
 
 #include <second.btrc>
 
@@ -414,7 +414,7 @@ class Demo {}
     result = formatted(source)
 
     assert result.startswith(
-        'import std.Map;\nimport std.Vector;\n\n#include "first.btrc"\nimport user.alpha;\n#include <second.btrc>\n'
+        'import Library.Map;\nimport Library.Vector;\n\n#include "first.btrc"\nimport user.alpha;\n#include <second.btrc>\n'
     )
     assert formatted(result) == result
 
@@ -425,7 +425,7 @@ def test_real_include_stdlib_and_user_import_fixture_uses_the_documented_normali
     result = BtrcFormatter().format(fixture.read_text(encoding="utf-8"), str(fixture))
 
     assert result.startswith(
-        'import std.Vector;\nimport std.Map;\n\n#include <assert.h>\nimport ./Support.btrc;\n#include "Legacy.btrc"\n'
+        'import Library.Vector;\nimport Library.Map;\n\n#include <assert.h>\nimport ./Support.btrc;\n#include "Legacy.btrc"\n'
     )
     assert BtrcFormatter().format(result, str(fixture)) == result
 
@@ -465,10 +465,10 @@ class Demo {
 
 def test_import_group_spacing_is_configurable() -> None:
     source = """\
-import std.Map;
+import Library.Map;
 
 
-import std.Vector;
+import Library.Vector;
 import user.alpha;
 
 #include <second.btrc>
@@ -482,21 +482,21 @@ class Demo {}
     )
 
     assert result.startswith(
-        "import std.Map;\n\nimport std.Vector;\n\n\nimport user.alpha;\n\n#include <second.btrc>\n"
+        "import Library.Map;\n\nimport Library.Vector;\n\n\nimport user.alpha;\n\n#include <second.btrc>\n"
     )
 
 
 def test_import_partitioning_can_be_disabled() -> None:
     source = """\
 import user.alpha;
-import std.Vector;
+import Library.Vector;
 
 class Demo {}
 """
 
     result = formatted(source, group_imports=False)
 
-    assert result.startswith("import user.alpha;\n\nimport std.Vector;\n")
+    assert result.startswith("import user.alpha;\n\nimport Library.Vector;\n")
 
 
 def test_spaces_and_indent_width_override_tabs() -> None:
@@ -507,12 +507,12 @@ def test_spaces_and_indent_width_override_tabs() -> None:
 
 def test_comments_strings_and_preprocessor_contents_are_never_treated_as_code() -> None:
     source = """\
-/* import std.fake;
+/* import Library.fake;
    if (notCode) { } */
-#define TEXT "import std.fake; if (value)"
+#define TEXT "import Library.fake; if (value)"
 class Demo {
     public string text() {
-        string value = "if (x) { import std.fake; }";
+        string value = "if (x) { import Library.fake; }";
         print(value);
         return value;
     }
@@ -528,9 +528,9 @@ class Demo {
 
     result = formatted(source)
 
-    assert "/* import std.fake;\n   if (notCode) { } */" in result
-    assert '#define TEXT "import std.fake; if (value)"' in result
-    assert '"if (x) { import std.fake; }"' in result
+    assert "/* import Library.fake;\n   if (notCode) { } */" in result
+    assert '#define TEXT "import Library.fake; if (value)"' in result
+    assert '"if (x) { import Library.fake; }"' in result
     assert "// keep this parameter comment" in result
     assert "sum(\n\t\tint left, // keep this parameter comment" in result
     assert formatted(result) == result

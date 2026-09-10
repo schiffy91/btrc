@@ -1,8 +1,8 @@
 /* C11 setjmp capture, visibility, volatility, and qualifier safety. */
 
-import std.Map;
-import std.Strings;
-import std.Vector;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
 
 import ../../Model.btrc;
 import ./Analysis.btrc;

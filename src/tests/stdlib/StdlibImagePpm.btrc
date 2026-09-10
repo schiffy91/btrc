@@ -1,7 +1,7 @@
 /* Binary PPM P6 round-trips, comments/CRLF, and adversarial header bounds. */
-import std.Bytes;
-import std.Image;
-import std.FileSystem;
+import Library.Bytes;
+import Library.Image;
+import Library.FileSystem;
 
 #include <assert.h>
 #include <signal.h>

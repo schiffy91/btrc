@@ -8,10 +8,10 @@
  * all bounded by RealtimeClipTransportLimits.
  */
 
-import std.OwnedBuffer;
-import std.RealtimeAudio;
-import std.RealtimeClock;
-import std.RealtimeClipPractice;
+import Library.OwnedBuffer;
+import Library.RealtimeAudio;
+import Library.RealtimeClock;
+import Library.RealtimeClipPractice;
 
 import ./realtime_clip_transport/Runtime.btrc;
 

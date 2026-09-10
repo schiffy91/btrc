@@ -1,6 +1,6 @@
 /* Method-level type parameters: Vector.mapTo<U> and a user generic method. */
-import std.Vector;
-import std.Strings;
+import Library.Vector;
+import Library.Strings;
 
 long intToLong(int x) { return (long)x + 100; }
 

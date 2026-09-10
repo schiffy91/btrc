@@ -1,9 +1,9 @@
-import std.App;
-import std.Gpu;
-import std.Image;
-import std.NativeUi;
-import std.NativeUiApp;
-import std.Vector;
+import Library.App;
+import Library.Gpu;
+import Library.Image;
+import Library.NativeUi;
+import Library.NativeUiApp;
+import Library.Vector;
 
 #include <assert.h>
 #include "fake_app_gpu_runtime.h"

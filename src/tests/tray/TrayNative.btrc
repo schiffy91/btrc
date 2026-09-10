@@ -7,7 +7,7 @@
  * headless CI show() returns false and we assert the graceful-degradation path.
  * Either way the run is deterministic and prints PASS.
  */
-import std.Ui;
+import Library.Ui;
 
 #include "tray/Tray.btrc"
 

@@ -410,9 +410,9 @@ class NativeLinkPlan:
         source = os.path.join(runtime, "btrc_background_jobs.c")
         header = os.path.join(runtime, "btrc_background_jobs.h")
         if not os.path.isdir(root) or not os.path.isdir(runtime):
-            raise IncludeResolutionError("std.BackgroundJobs native runtime directory is unavailable")
+            raise IncludeResolutionError("Library.BackgroundJobs native runtime directory is unavailable")
         if not os.path.isfile(source) or not os.path.isfile(header):
-            raise IncludeResolutionError("std.BackgroundJobs native runtime sources are unavailable")
+            raise IncludeResolutionError("Library.BackgroundJobs native runtime sources are unavailable")
         package = PackageNode(
             package_name,
             root,
@@ -462,9 +462,9 @@ class NativeLinkPlan:
         source = os.path.join(runtime, "btrc_local_application_channel.c")
         header = os.path.join(runtime, "btrc_local_application_channel.h")
         if not os.path.isdir(root) or not os.path.isdir(runtime):
-            raise IncludeResolutionError("std.LocalApplicationChannel native runtime directory is unavailable")
+            raise IncludeResolutionError("Library.LocalApplicationChannel native runtime directory is unavailable")
         if not os.path.isfile(source) or not os.path.isfile(header):
-            raise IncludeResolutionError("std.LocalApplicationChannel native runtime sources are unavailable")
+            raise IncludeResolutionError("Library.LocalApplicationChannel native runtime sources are unavailable")
         package = PackageNode(package_name, root, {}, {"path": root}, "")
         supported = ("linux", "macos", "windows")
         declarations = (
@@ -489,9 +489,9 @@ class NativeLinkPlan:
         source = os.path.join(runtime, "btrc_core_audio_device.c")
         header = os.path.join(runtime, "btrc_core_audio_device.h")
         if not os.path.isdir(root) or not os.path.isdir(runtime):
-            raise IncludeResolutionError("std.CoreAudioDevice native runtime directory is unavailable")
+            raise IncludeResolutionError("Library.CoreAudioDevice native runtime directory is unavailable")
         if not os.path.isfile(source) or not os.path.isfile(header):
-            raise IncludeResolutionError("std.CoreAudioDevice native runtime sources are unavailable")
+            raise IncludeResolutionError("Library.CoreAudioDevice native runtime sources are unavailable")
         package = PackageNode(package_name, root, {}, {"path": root}, "")
         supported = ("macos",)
         declarations = (
@@ -519,9 +519,9 @@ class NativeLinkPlan:
         source = os.path.join(runtime, "btrc_macos_encoded_image_decoder.c")
         header = os.path.join(runtime, "btrc_macos_encoded_image_decoder.h")
         if not os.path.isdir(root) or not os.path.isdir(runtime):
-            raise IncludeResolutionError("std.MacOsEncodedImageDecoder native runtime directory is unavailable")
+            raise IncludeResolutionError("Library.MacOsEncodedImageDecoder native runtime directory is unavailable")
         if not os.path.isfile(source) or not os.path.isfile(header):
-            raise IncludeResolutionError("std.MacOsEncodedImageDecoder native runtime sources are unavailable")
+            raise IncludeResolutionError("Library.MacOsEncodedImageDecoder native runtime sources are unavailable")
         package = PackageNode(package_name, root, {}, {"path": root}, "")
         supported = ("macos",)
         declarations = (

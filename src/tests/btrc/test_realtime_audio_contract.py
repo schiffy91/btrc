@@ -159,7 +159,7 @@ def test_realtime_audio_program_rejects_callbacks_without_direct_proof(
 ) -> None:
     source = tmp_path / "UnprovenRealtimeAudioProgram.btrc"
     source.write_text(
-        "import std.RealtimeAudio;\n"
+        "import Library.RealtimeAudio;\n"
         f"{callback_declaration}\n"
         f"int main() {{ RealtimeAudioProgram program = {program_expression}; return program.context() == null ? 0 : 1; }}\n"
     )
@@ -177,7 +177,7 @@ def test_realtime_audio_program_accepts_an_exact_proven_copy(
 ) -> None:
     source = tmp_path / "ProvenRealtimeAudioProgramCopy.btrc"
     source.write_text(
-        "import std.RealtimeAudio;\n"
+        "import Library.RealtimeAudio;\n"
         "@realtime void safeProcess(void* context, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {}\n"
         "int main() { RealtimeAudioProcess process = safeProcess; RealtimeAudioProgram program = RealtimeAudioProgram(process, null); return program.context() == null ? 0 : 1; }\n"
     )
@@ -209,7 +209,7 @@ def test_realtime_audio_sample_borrows_cannot_escape(
     expected: str,
 ) -> None:
     source = tmp_path / "EscapingAudioSamples.btrc"
-    source.write_text(f"import std.RealtimeAudio;\n{source_text}\n")
+    source.write_text(f"import Library.RealtimeAudio;\n{source_text}\n")
     reference = _reference(source, tmp_path / "reference.c", tmp_path / "reference-cache")
     selfhost = _selfhost(semantic_btrcc, source, tmp_path / "selfhost.c")
     assert reference.returncode == 1

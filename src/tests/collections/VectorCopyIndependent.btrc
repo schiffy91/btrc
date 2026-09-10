@@ -1,6 +1,6 @@
 /* Vector.copy() must produce an INDEPENDENT shallow copy, not an alias of
  * the backing data pointer. Mutating the copy must not touch the original. */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 #include <stdio.h>

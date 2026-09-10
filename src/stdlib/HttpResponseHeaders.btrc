@@ -1,5 +1,5 @@
 /* Response-header ownership policy for the HTTP/1.1 server. */
-import std.Strings;
+import Library.Strings;
 
 class HttpResponseHeaders {
 	/* Framing and connection-lifecycle headers are owned by HttpServer.respond.

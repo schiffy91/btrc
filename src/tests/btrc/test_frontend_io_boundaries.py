@@ -153,7 +153,7 @@ def test_dependency_read_failure_is_not_an_empty_include(
 
 @pytest.mark.parametrize(
     "directive",
-    ['#include "missing.btrc"', "import ./missing.btrc", "import std.missing"],
+    ['#include "missing.btrc"', "import ./missing.btrc", "import Library.missing"],
 )
 def test_unresolved_dependency_is_fatal_in_both_frontends(
     semantic_btrcc: Path,
@@ -189,7 +189,7 @@ def test_selfhost_rejects_package_names_instead_of_guessing_local_paths(
 
 @pytest.mark.parametrize(
     "directive",
-    ["import 'dep.btrc'", 'import "one.btrc" "two.btrc"', "import std.{Vector"],
+    ["import 'dep.btrc'", 'import "one.btrc" "two.btrc"', "import Library.{Vector"],
 )
 def test_malformed_imports_are_not_removed_before_parsing(
     semantic_btrcc: Path,
@@ -239,7 +239,7 @@ def test_quoted_import_uses_the_lexer_payload(
 
 @pytest.mark.parametrize(
     "directive",
-    ["import std.{\n Math,\n Vector\n}", "import std .\n math"],
+    ["import Library.{\n Math,\n Vector\n}", "import std .\n math"],
 )
 def test_multiline_imports_follow_the_whitespace_insensitive_grammar(
     semantic_btrcc: Path,
@@ -337,8 +337,8 @@ def test_frontend_resolver_reuse_resets_state_and_isolates_results(
     program = tmp_path / "resolver_reuse.btrc"
     generated = tmp_path / "resolver_reuse.c"
     executable = tmp_path / "resolver_reuse"
-    first_source = "import std.Mutable;\nint firstValue;\n"
-    second_source = 'import std.Mutable;\n#include "isolated.btrc"\nint secondValue;\n'
+    first_source = "import Library.Mutable;\nint firstValue;\n"
+    second_source = 'import Library.Mutable;\n#include "isolated.btrc"\nint secondValue;\n'
     refreshed_module = "class AfterRefresh { }\n"
     program.write_text(
         f"import {json.dumps(str(stage))};\n"
@@ -466,12 +466,12 @@ def test_import_resolver_owns_deterministic_bulk_paths_and_c11_rendering(
         '                importsDirectory, "absent.btrc").isEmpty()) { return 2; }\n'
         '    if (directories.sortedNamesWithSuffix(importsDirectory, ".btrc").len != 1) { return 8; }\n'
         '    FeSourceText firstText = FeSourceText("alpha\\nbeta\\n");\n'
-        '    FeSourceText secondText = FeSourceText("std.Vector");\n'
+        '    FeSourceText secondText = FeSourceText("Library.Vector");\n'
         "    Vector<string> firstLines = firstText.lines();\n"
         "    if (firstLines.len != 3 || firstText.lineCount() != 3\n"
         '            || !firstText.startsWithAt(6, "beta")\n'
         '            || firstText.startsWithAt(-1, "alpha")\n'
-        '            || !secondText.startsWithAt(0, "std.")\n'
+        '            || !secondText.startsWithAt(0, "Library.")\n'
         '            || !FeSourceText.joinLines(firstLines).equals("alpha\\nbeta\\n")) { return 3; }\n'
         '    Vector<string> direct = resolver.resolveSpec("./imports/*", sourceDirectory);\n'
         "    if (direct.len != 2\n"
@@ -534,7 +534,7 @@ def test_stdlib_repository_instances_reuse_their_own_isolated_state(
     stdlib_b = tmp_path / "stdlib_b"
     stdlib_a.mkdir()
     stdlib_b.mkdir()
-    (stdlib_a / "Vector.btrc").write_text("import std.Strings\nclass Alpha { }\n", encoding="utf-8")
+    (stdlib_a / "Vector.btrc").write_text("import Library.Strings\nclass Alpha { }\n", encoding="utf-8")
     (stdlib_a / "zeta.btrc").write_text("class Zeta { }\n", encoding="utf-8")
     (stdlib_b / "Strings.btrc").write_text("class Beta { }\n", encoding="utf-8")
     first_input = tmp_path / "first_input.btrc"
@@ -579,7 +579,7 @@ def test_stdlib_repository_instances_reuse_their_own_isolated_state(
         '    string firstSource = firstResolver.sourceAtSnapshot("int userValue;\\n", firstSnapshot);\n'
         '    if (!firstSource.contains("class Alpha")\n'
         '            || !firstSource.contains("class Zeta")\n'
-        '            || firstSource.contains("import std.Strings")) { return 6; }\n'
+        '            || firstSource.contains("import Library.Strings")) { return 6; }\n'
         '    if (!secondResolver.sourceAtSnapshot("int userValue;\\n", secondSnapshot).contains("class Beta")) { return 7; }\n'
         '    if (secondResolver.sourceAtSnapshot("class Beta { }\\n", secondSnapshot).contains("class Beta")) { return 8; }\n'
         "    return 0;\n"
@@ -640,7 +640,7 @@ def test_stdlib_symbol_index_detects_changes_and_recovers_atomically(
     invalid_stdlib_source = "class Beta { }\nclass {\n"
     fixed_stdlib_source = "class Beta { }\nclass Gamma { }\n"
     program.write_text(
-        "import std.FileSystem;\n"
+        "import Library.FileSystem;\n"
         f"import {json.dumps(str(frontend_stage))};\n"
         "\n"
         "FeVisibilityCheckResult checkStdlibSnapshot(\n"

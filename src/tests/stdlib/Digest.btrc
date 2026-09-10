@@ -1,5 +1,5 @@
-import std.Bytes;
-import std.Digest;
+import Library.Bytes;
+import Library.Digest;
 
 #include <assert.h>
 

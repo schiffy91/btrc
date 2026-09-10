@@ -1,7 +1,7 @@
 /* Closure-sized regression: completion and byte-stable round-trips matter;
  * wall-clock timing intentionally does not form part of the contract. */
-import std.Json;
-import std.Strings;
+import Library.Json;
+import Library.Strings;
 
 #include <assert.h>
 

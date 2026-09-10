@@ -1,6 +1,6 @@
 /* Bounded, dependency-free DDS DXT1/DXT5 image decoding. */
 
-import std.EncodedImage;
+import Library.EncodedImage;
 
 class DdsEncodedImageHeader {
 	private EncodedImageDecodeStatus _status;

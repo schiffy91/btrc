@@ -1,13 +1,13 @@
-import std.Cli;
-import std.Daemon;
-import std.FileSystem;
-import std.Json;
-import std.Pattern;
-import std.Platform;
-import std.Process;
-import std.Strings;
-import std.Ui;
-import std.Vector;
+import Library.Cli;
+import Library.Daemon;
+import Library.FileSystem;
+import Library.Json;
+import Library.Pattern;
+import Library.Platform;
+import Library.Process;
+import Library.Strings;
+import Library.Ui;
+import Library.Vector;
 
 int main(int argc, char** argv) {
 	assert(Platform.isUnix());

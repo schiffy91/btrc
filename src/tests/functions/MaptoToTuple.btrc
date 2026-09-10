@@ -1,6 +1,6 @@
 // Vector.mapTo<U> projecting elements to a tuple element type, accessed via
 // the ._0 / ._1 / ._2 tuple fields.
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 

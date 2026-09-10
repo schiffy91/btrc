@@ -1,4 +1,4 @@
-/* btrc 3D Engine -- typed keyboard state from std.App events. */
+/* btrc 3D Engine -- typed keyboard state from Library.App events. */
 
 class Input {
 	private bool w;

@@ -1,9 +1,9 @@
 /* HTTP request and response value types. */
-import std.Bytes;
-import std.HttpProtocol;
-import std.Map;
-import std.Strings;
-import std.Vector;
+import Library.Bytes;
+import Library.HttpProtocol;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
 
 class HttpRequest {
 	public bool valid;

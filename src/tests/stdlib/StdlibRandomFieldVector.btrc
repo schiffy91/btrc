@@ -1,8 +1,8 @@
 /* Random.shuffle / choice over a Vector<int> held as a class FIELD (not a local).
  * shuffle must preserve the multiset (same elements, possibly reordered) and
  * choice must return a member. Deterministic via a fixed seed. */
-import std.Random;
-import std.Vector;
+import Library.Random;
+import Library.Vector;
 
 #include <assert.h>
 #include "../../stdlib/Random.btrc"

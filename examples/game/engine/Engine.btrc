@@ -93,7 +93,7 @@ class Engine {
 
 	public void update() {
 		self.time.update();
-		/* std.App has a 64-entry queue plus one typed overflow outcome. */
+		/* Library.App has a 64-entry queue plus one typed overflow outcome. */
 		for (int eventIndex = 0; eventIndex < 65 && self.running; eventIndex++) {
 			AppWindowEvent event = self.application.poll();
 			if (event.kind == APP_EVENT_IDLE) { return; }

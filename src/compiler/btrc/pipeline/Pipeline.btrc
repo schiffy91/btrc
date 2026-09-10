@@ -1,8 +1,8 @@
 /* Instance-owned orchestration for the self-hosted compiler pipeline. */
 
-import std.Map;
-import std.Strings;
-import std.Vector;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
 
 import ../frontend/Packages.btrc;
 import ../ir/Stage.btrc;

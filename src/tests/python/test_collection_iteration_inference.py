@@ -51,7 +51,7 @@ def test_inferred_vector_literal_import_materializes_live_specialization(
     c_compiler: str,
 ) -> None:
     source = """
-        import std.Vector;
+        import Library.Vector;
 
         int main() {
             var nums = [10, 20, 30];

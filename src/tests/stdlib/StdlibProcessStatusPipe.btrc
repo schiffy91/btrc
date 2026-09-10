@@ -3,7 +3,7 @@
  *   - a SIGTERM-killed process decodes to 128 + signal;
  *   - UnixPipe.readAll over >4096 bytes exercises the buffer-doubling realloc;
  *   - UnixPipe.close() returns an ok() status for a clean command. */
-import std.Process;
+import Library.Process;
 
 #include <assert.h>
 

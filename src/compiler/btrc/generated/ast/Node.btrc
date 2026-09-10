@@ -7,7 +7,7 @@
  * belongs to the handwritten owner in syntax/Identity.btrc.
  */
 
-import std.Vector;
+import Library.Vector;
 
 enum NodeKind {
 	NK_NONE = 0,
@@ -21,8 +21,8 @@ enum NodeKind {
 	NK_ENUM_DECL,
 	NK_RICH_ENUM_DECL,
 	NK_TYPEDEF_DECL,
-	NK_STD_GLOB,
-	NK_STD_MODULES,
+	NK_LIBRARY_GLOB,
+	NK_LIBRARY_MODULES,
 	NK_PACKAGE_PATH,
 	NK_RELATIVE_PATH,
 	NK_QUOTED_PATH,

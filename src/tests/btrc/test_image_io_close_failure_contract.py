@@ -9,8 +9,8 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 
 SOURCE = """
-    import std.Image;
-    import std.FileSystem;
+    import Library.Image;
+    import Library.FileSystem;
 
     #include <assert.h>
 

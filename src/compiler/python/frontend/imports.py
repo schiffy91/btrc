@@ -10,11 +10,11 @@ from typing import Any
 
 import src.compiler.python.syntax.ast.generated as ast
 from src.compiler.python.syntax.ast.generated import (
+    LibraryGlob,
+    LibraryModules,
     PackagePath,
     QuotedPath,
     RelativePath,
-    StdGlob,
-    StdModules,
 )
 from src.compiler.python.syntax.tokens import SourceSymbolDirective
 
@@ -95,11 +95,11 @@ class ImportResolver:
         packages: ResolvedPackages,
     ) -> list[str]:
         """Resolve a parsed import specification to filesystem paths."""
-        if isinstance(spec, StdGlob):
+        if isinstance(spec, LibraryGlob):
             return [
                 os.path.join(self.stdlib.directory(), filename) for filename in self.stdlib.relaxed_composition_files()
             ]
-        if isinstance(spec, StdModules):
+        if isinstance(spec, LibraryModules):
             return [self._stdlib_module_path(name) for name in spec.names]
         if isinstance(spec, PackagePath):
             dotted = ".".join(spec.segments)
@@ -195,7 +195,9 @@ class ImportResolver:
         filename = name if name.endswith(".btrc") else f"{name}.btrc"
         path = self.stdlib.find_file(filename)
         if path is None:
-            raise IncludeResolutionError(f"stdlib import 'std.{name}' not found\n  searched: {self.stdlib.directory()}")
+            raise IncludeResolutionError(
+                f"stdlib import 'Library.{name}' not found\n  searched: {self.stdlib.directory()}"
+            )
         return path
 
     def _relative_paths(self, spec: str, source_dir: str) -> list[str]:

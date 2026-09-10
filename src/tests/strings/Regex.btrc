@@ -1,8 +1,8 @@
 /* Regex stdlib: POSIX regcomp/regexec wrapper.
  * Covers search vs anchored match, find index, findAll, replace/replaceAll,
  * the compiled-instance form, and graceful invalid-pattern handling. */
-import std.Regex;
-import std.Vector;
+import Library.Regex;
+import Library.Vector;
 
 #include <assert.h>
 

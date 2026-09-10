@@ -75,7 +75,7 @@ def test_package_resolution_has_no_compiler_defined_resource_quotas() -> None:
 
 
 def test_std_brace_import_resolves_stdlib():
-    source = "import std.{Strings, Json}\nint main() { return 0; }"
+    source = "import Library.{Strings, Json}\nint main() { return 0; }"
     resolved = RESOLVER.resolve_includes(source, "Main.btrc")
 
     assert "class Strings" in resolved

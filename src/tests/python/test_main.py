@@ -385,28 +385,28 @@ def test_resolve_symlink_cycle_uses_canonical_identity(tmp_path):
 
 
 def test_import_stdlib_single(tmp_path):
-    src = "import std.Math;\nint main() { return 0; }\n"
+    src = "import Library.Math;\nint main() { return 0; }\n"
     p = write(tmp_path / "m.btrc", src)
     resolved = RESOLVER.resolve_includes(src, p)
     assert "class Math" in resolved or "Math" in resolved
 
 
 def test_import_stdlib_brace(tmp_path):
-    src = "import std.{Math, Json};\nint main() { return 0; }\n"
+    src = "import Library.{Math, Json};\nint main() { return 0; }\n"
     p = write(tmp_path / "m.btrc", src)
     resolved = RESOLVER.resolve_includes(src, p)
     assert "Math" in resolved and "Json" in resolved
 
 
 def test_import_stdlib_glob(tmp_path):
-    src = "import std.*;\nint main() { return 0; }\n"
+    src = "import Library.*;\nint main() { return 0; }\n"
     p = write(tmp_path / "m.btrc", src)
     resolved = RESOLVER.resolve_includes(src, p)
     assert "class Vector" in resolved
 
 
 def test_import_stdlib_not_found(tmp_path, capsys):
-    src = "import std.nonexistent_module;\nint main() { return 0; }\n"
+    src = "import Library.nonexistent_module;\nint main() { return 0; }\n"
     p = write(tmp_path / "m.btrc", src)
     with pytest.raises(SystemExit):
         RESOLVER.resolve_includes(src, p)
@@ -524,13 +524,13 @@ def test_quoted_import_strips_quotes():
 
 def test_brace_import_expands_into_names():
     # Brace expansion moved from the frontend regex into the parser.
-    from src.compiler.python.syntax.ast.generated import StdModules
+    from src.compiler.python.syntax.ast.generated import LibraryModules
 
-    spec = _parse_one("import std.{a, b};").spec
-    assert isinstance(spec, StdModules)
+    spec = _parse_one("import Library.{a, b};").spec
+    assert isinstance(spec, LibraryModules)
     assert spec.names == ["a", "b"]
-    single = _parse_one("import std.Math;").spec
-    assert isinstance(single, StdModules)
+    single = _parse_one("import Library.Math;").spec
+    assert isinstance(single, LibraryModules)
     assert single.names == ["Math"]
 
 

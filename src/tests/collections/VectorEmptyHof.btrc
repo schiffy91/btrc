@@ -1,7 +1,7 @@
 /* Empty-collection higher-order op identities: over an empty Vector,
  * all() is vacuously true, any() is false, sum() is 0, reduce() returns the
  * init, filter/map produce empty, forEach does not crash. */
-import std.Vector;
+import Library.Vector;
 
 #include <assert.h>
 #include <stdio.h>

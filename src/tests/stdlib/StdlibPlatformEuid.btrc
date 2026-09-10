@@ -1,7 +1,7 @@
 /* Platform euid / isRoot probes: Platform.euid() delegates to UnixPlatform.euid()
  * (geteuid), and isRoot() is exactly euid()==0. Pid is also non-negative.
  * Deterministic relationships only — never asserts a specific uid. */
-import std.Platform;
+import Library.Platform;
 
 #include <assert.h>
 

@@ -44,6 +44,8 @@ from src.compiler.python.syntax.ast.generated import (
     LambdaBlock,
     LambdaExpr,
     LambdaExprBody,
+    LibraryGlob,
+    LibraryModules,
     ListLiteral,
     MapEntry,
     MapLiteral,
@@ -68,8 +70,6 @@ from src.compiler.python.syntax.ast.generated import (
     SizeofExprOp,
     SizeofType,
     SpawnExpr,
-    StdGlob,
-    StdModules,
     StringLiteral,
     StructDecl,
     SuperExpr,
@@ -649,16 +649,16 @@ class Parser:
             return QuotedPath(path=raw)
 
         ident = self._expect(TokenKind.IDENT, "import path")
-        if ident.value == "std" and self._match(TokenKind.DOT):
-            return self._parse_std_spec()
+        if ident.value == "Library" and self._match(TokenKind.DOT):
+            return self._parse_library_spec()
         segments = [ident.value]
         while self._match(TokenKind.DOT):
             segments.append(self._expect(TokenKind.IDENT, "package segment").value)
         return PackagePath(segments=segments)
 
-    def _parse_std_spec(self):
+    def _parse_library_spec(self):
         if self._match(TokenKind.STAR):
-            return StdGlob(recursive=bool(self._match(TokenKind.STAR)))
+            return LibraryGlob(recursive=bool(self._match(TokenKind.STAR)))
         if self._match(TokenKind.LBRACE):
             names = [self._expect(TokenKind.IDENT, "module name").value]
             while self._match(TokenKind.COMMA):
@@ -666,8 +666,8 @@ class Parser:
                     break
                 names.append(self._expect(TokenKind.IDENT, "module name").value)
             self._expect(TokenKind.RBRACE)
-            return StdModules(names=names)
-        return StdModules(names=[self._expect(TokenKind.IDENT, "module name").value])
+            return LibraryModules(names=names)
+        return LibraryModules(names=[self._expect(TokenKind.IDENT, "module name").value])
 
     def _parse_struct_decl(self) -> StructDecl:
         tok = self._expect(TokenKind.STRUCT)

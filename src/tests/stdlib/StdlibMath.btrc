@@ -1,6 +1,6 @@
 /* Test stdlib math: Math static methods */
-import std.Math;
-import std.Vector;
+import Library.Math;
+import Library.Vector;
 
 #include <assert.h>
 #include "../../stdlib/Math.btrc"

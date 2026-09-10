@@ -2,9 +2,9 @@
  * Object-oriented file I/O inspired by Python's open() and file objects.
  */
 
-import std.Bytes;
-import std.Strings;
-import std.Vector;
+import Library.Bytes;
+import Library.Strings;
+import Library.Vector;
 
 #include <sys/stat.h>
 
