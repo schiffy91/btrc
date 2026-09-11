@@ -203,6 +203,13 @@ def test_native_btrcc_rebuilds_from_changed_selfhost_source():
     assert "dist/btrcc.c -o bin/btrcc" in output
 
 
+def test_windows_btrcc_builds_the_host_entrypoint_without_unix_reader():
+    output = _make_dry_run("--what-if", "src/compiler/btrc/frontend/Models.btrc", "btrcc-windows-x64", "NIX=")
+    assert "src/compiler/btrc/cli/WindowsMain.btrc" in output
+    assert "src/compiler/btrc/BtrccMain.btrc" not in output
+    assert "dist/btrcc-windows.c -o build/btrcc/windows-x64/btrcc.exe" in output
+
+
 def test_btrcc_checks_ast_dependencies_before_transpiling():
     output = _make_dry_run("--what-if", "src/language/ast.asdl", "dist/btrcc.c")
 

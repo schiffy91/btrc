@@ -12,7 +12,40 @@ class NativeHeaderProbe {
 
 	public void verify(NativeNode header) {
 		for declaration in header.exports {
-			if (declaration.name.equals("measure")) {
+			if (declaration.kind == NNK_NATIVE_OBJECTIVE_C_METHOD) {
+				if (declaration.identity.isEmpty() || declaration.owner.isEmpty() || declaration.receiver.isEmpty()) { throw "Objective-C identity was lost"; }
+				if (declaration.selector.equals("newCounter") && (!declaration.classMethod || !declaration.methodFamily.equals("new") || !declaration.returnedOwnership.equals("ns_retained") || !declaration.relatedResult)) { throw "Objective-C creation semantics were lost"; }
+				if (declaration.selector.equals("initWithValue:") && (declaration.classMethod || !declaration.methodFamily.equals("init") || !declaration.consumesSelf || !declaration.relatedResult)) { throw "Objective-C initialization semantics were lost"; }
+				if (declaration.selector.equals("label")) {
+					NativeNode returned = declaration.signature.returnType;
+					NativeNode object = self.underlying(returned);
+					if (!returned.qualifiers.nullability.equals("nullable") || object.kind != NNK_NATIVE_OBJECTIVE_C_OBJECT || !object.name.equals("NSString")) { throw "Objective-C object/nullability was lost"; }
+				}
+				if (declaration.selector.equals("visit:")) {
+					NativeNode block = self.underlying(declaration.signature.parameters[0]);
+					if (!declaration.parameterSemantics[0].noEscape || block.kind != NNK_NATIVE_OBJECTIVE_C_BLOCK || !self.underlying(block.signature).parameters[0].qualifiers.nullability.equals("nonnull")) { throw "Objective-C block lifetime/signature was lost"; }
+				}
+				if (declaration.selector.equals("UTF8String") && !declaration.returnsInnerPointer) { throw "Objective-C borrowed interior result was lost"; }
+				if (declaration.selector.equals("length") && self.underlying(declaration.signature.returnType).bits != 64) { throw "Foundation NSUInteger width was lost"; }
+				if (declaration.selector.equals("labels")) {
+					NativeNode collection = self.underlying(declaration.signature.returnType);
+					if (!collection.name.equals("NSArray") || collection.classObject || !self.underlying(collection.typeArguments[0]).name.equals("NSString")) { throw "Objective-C generic arguments were lost"; }
+				}
+				if (declaration.selector.equals("copyable") || declaration.selector.equals("classObject")) {
+					NativeNode object = self.underlying(declaration.signature.returnType);
+					if (!object.name.isEmpty() || object.protocols.len != 1 || !object.protocols[0].equals("NSCopying") || object.classObject != declaration.selector.equals("classObject")) { throw "Objective-C protocol or metaclass identity was lost"; }
+				}
+			} else if (declaration.kind == NNK_NATIVE_GLOBAL) {
+				NativeNode value = self.underlying(declaration.valueType);
+				if (declaration.name.equals("fixedPointer") || declaration.name.equals("aliasedPointer") || declaration.name.equals("frozenPointer") || declaration.name.equals("fixedPoint")) {
+					if (!declaration.readOnly || value.qualifiers.isConst) { throw "native global slot qualifiers were lost"; }
+				}
+				if (declaration.name.equals("movingPointer") && declaration.readOnly) { throw "mutable native global became read-only"; }
+				if (value.kind == NNK_NATIVE_POINTER) {
+					bool expectedConst = declaration.name.equals("movingPointer") || declaration.name.equals("frozenPointer");
+					if (self.underlying(value.pointee).qualifiers.isConst != expectedConst) { throw "native global pointee qualifiers were lost"; }
+				}
+			} else if (declaration.name.equals("measure")) {
 				NativeNode signature = declaration.signature;
 				NativeNode returned = self.underlying(signature.returnType);
 				NativeNode outer = self.underlying(signature.parameters[1]);
@@ -38,9 +71,13 @@ int main(int argc, char** argv) {
 		NativeNode header = FeNativeHeaderCodec().decode(FileSystem.readText(argv[1]));
 		NativeHeaderProbe().verify(header);
 		printf("%s %d %d\n", header.targetTriple, header.exports.len, header.records.len);
+		for nativeInterface in header.interfaces { printf("interface %s %s %d %s\n", nativeInterface.name, nativeInterface.identity, (int)nativeInterface.complete, nativeInterface.superclass); }
 		for record in header.records {
 			printf("%s %s %s\n", record.identity, record.sizeBits, record.alignmentBitsString);
 			for field in record.fields { printf("%s %s %s\n", field.name, field.offsetBits, field.widthBits); }
+		}
+		for declaration in header.exports {
+			if (declaration.kind == NNK_NATIVE_OBJECTIVE_C_METHOD) { printf("method %s %s %s %s\n", declaration.name, declaration.identity, declaration.receiver, declaration.owner); }
 		}
 		return 0;
 	} catch (string error) {

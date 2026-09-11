@@ -84,7 +84,7 @@ def test_contract_is_product_neutral_and_keeps_raw_mechanics_out_of_the_public_a
     interface = source.split("interface RealtimeClipTransportPort", 1)[1].split("}\n", 1)[0]
     assert "struct Btrc" not in interface
     assert "Atomic<" not in interface
-    assert "SpscQueueStorage" not in interface
+    assert "SPSCQueueStorage" not in interface
     assert "long long* output" not in interface
     assert "RealtimePracticeConfiguration" not in source + practice
     assert "RealtimePracticePhase" not in source + practice

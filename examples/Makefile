@@ -9,7 +9,7 @@
 
 .PHONY: all cpu gpu callback realtime-primitives todo game triangle sgd gui native-package clean
 
-GPU_LIB := ../build/stdlib/gpu/libbtrc_gpu.a
+GPU_LIB := ../build/stdlib/GPU/libbtrc_gpu.a
 
 all: cpu gpu
 

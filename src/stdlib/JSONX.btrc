@@ -1,0 +1,51 @@
+/* btrc standard library — JSON (DEPRECATED string-scan extractors)
+ *
+ * DEPRECATED: prefer the JSONValue / JSONObject / JSONParser tree API in
+ * Library.JSON. These helpers do a positional, key-name string search over raw
+ * JSON text: they are UNSAFE for general input because a matching key name
+ * inside a nested object or a string literal can be picked up by accident, and
+ * the "after anchor" variant relies on byte offsets rather than real
+ * structure. They are kept only for existing callers (e.g. cheap one-off field
+ * lookups) and the Library.JSON tree parser supersedes them. Do not build new code
+ * on JSON.getString / JSON.str; parse with JSONParser/JSONValue instead.
+ */
+
+import Library.JSON;
+import Library.Strings;
+
+class JSON {
+	class string esc(string s) { return JSONObject.escape(s); }
+
+	class string str(string s) { return "\"" + JSON.esc(s) + "\""; }
+
+	class string getString(string json, string key) { return JSON.getStringFrom(json, key, 0); }
+
+	class string getStringAfter(string json, string anchor, string key) {
+		if (json == null || anchor == null || key == null) { return ""; }
+		var anchorPosition = Strings.find(json, anchor, 0);
+		if (anchorPosition < 0) { return ""; }
+		return JSON.getStringFrom(json, key, anchorPosition + anchor.len());
+	}
+
+	class string getStringFrom(string json, string key, int from) {
+		if (json == null || key == null) { return ""; }
+		var needle = "\"" + JSONObject.escape(key) + "\"";
+		var searchFrom = from;
+		while (true) {
+			var keyPosition = Strings.find(json, needle, searchFrom);
+			if (keyPosition < 0) { return ""; }
+			var i = JSONText.skipSpaces(json, keyPosition + needle.len());
+			if (i >= json.len() || json[i] != ':') {
+				searchFrom = keyPosition + needle.len();
+				continue;
+			}
+			i = JSONText.skipSpaces(json, i + 1);
+			if (i >= json.len() || json[i] != (char)34) { return ""; }
+			i++;
+			var end = JSONText.stringEnd(json, i);
+			if (end >= json.len()) { return ""; }
+			return JSONText.unescape(JSONText.slice(json, i, end));
+		}
+		return "";
+	}
+}

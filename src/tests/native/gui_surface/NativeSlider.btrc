@@ -1,0 +1,92 @@
+import Library.IO;
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSPanel;
+import Library.GUI.MacOS.MacOSSlider;
+import Library.GUI.MacOS.MacOSViewCapture;
+
+#include <assert.h>
+
+void clickSlider(MacOSApplication app, MacOSWindow window, MacOSSlider slider) {
+	var point = slider.nativeView().frame().origin;
+	point.x += 285.0;
+	point.y += 15.0;
+	var down = NSEvent.mouseEventWithType(NSEventTypeLeftMouseDown, point, 0UL, 0.0, window.nativeWindow().windowNumber(), null, 1L, 1L, 1.0f);
+	var up = NSEvent.mouseEventWithType(NSEventTypeLeftMouseUp, point, 0UL, 0.0, window.nativeWindow().windowNumber(), null, 2L, 1L, 0.0f);
+	assert(down != null && up != null);
+	NSApplication.sharedApplication().postEvent(down, false);
+	NSApplication.sharedApplication().postEvent(up, false);
+	app.pumpEvents();
+}
+
+int main() {
+	var app = MacOSApplication();
+	var window = MacOSWindow("Native slider", 360.0, 160.0);
+	var background = MacOSPanel(RGBA(30, 30, 30));
+	background.setFrame(0.0, 0.0, 360.0, 160.0);
+	window.contentView().addSubview(background.nativeView());
+	var slider = MacOSSlider(10.0, 100.0, 9);
+	// Player model projection sets the initial value before the first layout.
+	slider.setValue(100.0);
+	assert(slider.value() == 100.0);
+	slider.setFrame(20.0, 65.0, 320.0, 30.0);
+	background.addChild(slider.nativeView());
+	assert(slider.value() == 100.0);
+	slider.setValue(10.0);
+	assert(slider.value() == 10.0);
+	for (int percent = 10; percent <= 100; percent += 10) { slider.setValue((double)percent); assert(slider.value() == (double)percent); }
+	slider.setValue(53.0);
+	assert(slider.value() == 50.0);
+	bool rejected = false;
+	try { slider.setValue(101.0); } catch (string error) { rejected = true; }
+	assert(rejected && slider.value() == 50.0);
+	rejected = false;
+	try { var invalid = MacOSSlider(100.0, 10.0); } catch (string error) { rejected = true; }
+	assert(rejected);
+	var continuous = MacOSSlider(0.0, 1.0);
+	continuous.setValue(0.375);
+	assert(continuous.value() == 0.375);
+	continuous.close();
+	window.show();
+	app.pumpEvents();
+	slider.setValue(100.0);
+	var maximum = File("NativeSlider-maximum.tiff", "wb");
+	assert(maximum.ok() && maximum.writeBytes(MacOSViewCapture.captureTiff(window.contentView())) && maximum.close());
+	assert(slider.value() == 100.0);
+	slider.setValue(10.0);
+	clickSlider(app, window, slider);
+	assert(slider.value() > 10.0 && slider.value() <= 100.0 && (int)slider.value() % 10 == 0);
+	slider.setEnabled(false);
+	assert(!slider.isEnabled());
+	slider.setValue(20.0);
+	clickSlider(app, window, slider);
+	assert(slider.value() == 20.0);
+	slider.setEnabled(true);
+	assert(slider.isEnabled());
+	slider.nativeView().setHidden(true);
+	slider.setValue(100.0);
+	slider.setFrame(120.0, 65.0, 64.0, 14.0);
+	slider.nativeView().setHidden(false);
+	assert(slider.value() == 100.0);
+	var compact = File("NativeSlider-compact.tiff", "wb");
+	assert(compact.ok() && compact.writeBytes(MacOSViewCapture.captureTiff(window.contentView())) && compact.close());
+	var intrinsic = slider.nativeView().intrinsicContentSize();
+	var fitting = slider.nativeView().fittingSize();
+	fprintf(stderr, "Native slider intrinsic=%f,%f fitting=%f,%f\n", intrinsic.width, intrinsic.height, fitting.width, fitting.height);
+	assert(intrinsic.height > 14.0);
+	slider.setFrame(120.0, 65.0, 64.0, intrinsic.height);
+	assert(slider.value() == 100.0);
+	var natural = File("NativeSlider-intrinsic.tiff", "wb");
+	assert(natural.ok() && natural.writeBytes(MacOSViewCapture.captureTiff(window.contentView())) && natural.close());
+	var file = File("NativeSlider.tiff", "wb");
+	assert(file.ok() && file.writeBytes(MacOSViewCapture.captureTiff(window.contentView())) && file.close());
+	slider.close();
+	slider.close();
+	rejected = false;
+	try { slider.value(); } catch (string error) { rejected = true; }
+	assert(rejected);
+	background.close();
+	window.close();
+	print("PASS: native slider, stepped tracking, disabled input and teardown");
+	return 0;
+}

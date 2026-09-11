@@ -192,6 +192,34 @@ class IRCall(IRExpr):
 
 
 @dataclass
+class IRObjectiveCMessage(IRExpr):
+    """A receiver and selector dispatched by the Objective-C compiler."""
+
+    receiver: IRExpr
+    selector: str
+    args: list[IRExpr] = field(default_factory=list)
+
+    def validate(self) -> None:
+        if (
+            not isinstance(self.receiver, IRExpr)
+            or not isinstance(self.args, list)
+            or any(not isinstance(argument, IRExpr) for argument in self.args)
+        ):
+            raise TypeError("Objective-C message requires an expression receiver and arguments")
+        if not isinstance(self.selector, str):
+            raise TypeError("Objective-C selector requires str")
+        pieces = self.selector.split(":")
+        if self.args:
+            if pieces[-1] or len(pieces) != len(self.args) + 1:
+                raise ValueError("Objective-C selector does not match argument count")
+            pieces.pop()
+        elif len(pieces) != 1:
+            raise ValueError("Objective-C selector does not match argument count")
+        if any(not piece.isascii() or not piece.isidentifier() for piece in pieces):
+            raise ValueError("Objective-C selector requires identifier components")
+
+
+@dataclass
 class IRFieldAccess(IRExpr):
     """Struct field access (``.`` or ``->``)."""
 
@@ -208,12 +236,15 @@ class IRCast(IRExpr):
 
     target_type: CType
     expr: IRExpr
+    bridge: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.target_type, CType):
             raise TypeError("IRCast.target_type must be CType")
         if not isinstance(self.expr, IRExpr):
             raise TypeError("IRCast.expr must be IRExpr")
+        if self.bridge not in ("", "borrow", "retain", "transfer"):
+            raise ValueError("unsupported Objective-C bridge ownership")
 
 
 @dataclass
@@ -529,6 +560,21 @@ class IRBlock(IRStmt):
 
 
 @dataclass
+class IRObjectiveCAutoreleasePool(IRStmt):
+    """An adapter-local pool; exception boundaries must be nested inside it."""
+
+    body: IRBlock
+
+
+@dataclass
+class IRObjectiveCExceptionBoundary(IRStmt):
+    """Contain any foreign exception; the failure block returns an ABI status."""
+
+    body: IRBlock
+    failure: IRBlock
+
+
+@dataclass
 class IRLineMarker(IRStmt):
     """A ``#line N "file"`` directive (emitted only under --debug).
 
@@ -789,6 +835,10 @@ class IRStatementSequence:
             return False
         if isinstance(statement, IRBlock):
             return cls(statement.stmts).may_fall_through()
+        if isinstance(statement, IRObjectiveCAutoreleasePool):
+            return cls._statement_may_fall_through(statement.body)
+        if isinstance(statement, IRObjectiveCExceptionBoundary):
+            return cls._statement_may_fall_through(statement.body) or cls._statement_may_fall_through(statement.failure)
         if isinstance(statement, IRSwitch):
             return statement.can_fall_through
         if isinstance(statement, IRIf) and statement.else_block is not None:
@@ -800,11 +850,14 @@ class IRStatementSequence:
 
 @dataclass
 class IRModule(IRNode):
-    """One C translation unit before formatting."""
+    """One C-family translation unit; BTRC programs default to strict C11."""
 
+    language: str = "c"
+    native_units: dict[str, IRModule] = field(default_factory=dict, metadata={"ir_traverse": False})
     preprocessor_decls: list[IRInclude | IRMacroDef] = field(default_factory=list)
     freestanding: bool = False
     runtime_roots: set[str] = field(default_factory=set)
+    native_external_names: set[str] = field(default_factory=set, metadata={"ir_traverse": False})
     realtime_safe_externals: set[str] = field(default_factory=set)
     realtime_intrinsic_targets: dict[str, str] = field(default_factory=dict)
     needs_runtime: bool = False
@@ -1156,6 +1209,9 @@ __all__ = (
     "IRMacroDef",
     "IRModule",
     "IRNode",
+    "IRObjectiveCAutoreleasePool",
+    "IRObjectiveCExceptionBoundary",
+    "IRObjectiveCMessage",
     "IRParam",
     "IRReturn",
     "IRSizeof",

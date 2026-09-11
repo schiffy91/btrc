@@ -119,6 +119,8 @@ class CTypeLowerer {
 
 		string nativeSpelling = self.analyzed.nativeTypeSpelling(base);
 		if (!nativeSpelling.isEmpty()) { rendered = nativeSpelling; }
+		if (self.analyzed.isObjectiveCRecord(base)) { rendered = "struct __btrc_value_" + base; }
+		if (self.analyzed.nativeClassLanguage(base) == "objective-c") { rendered = "struct __btrc_native_" + base; }
 		int depth = concrete.pointerDepth;
 		bool baseIsReference = rendered.endsWith("*") || base == "__fn_ptr" || base == "__realtime_fn_ptr" || self.aliasBaseIsReference(base);
 		if (TypeComposition.nullableCollapsesReferenceLayer(concrete, baseIsReference)) {

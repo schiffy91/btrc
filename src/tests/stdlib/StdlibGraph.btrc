@@ -1,8 +1,8 @@
 /* Library.Graph: graph JSON parsing, CLI args, and dependency traversal. */
-import Library.Cli;
+import Library.CLI;
 import Library.FileSystem;
 import Library.Graph;
-import Library.Io;
+import Library.IO;
 import Library.Map;
 import Library.Vector;
 
@@ -47,15 +47,15 @@ int main() {
 	assert(graph.node("build").args.get("arch").equals("x86_64"));
 	assert(graph.resolvedSpecPath(graph.node("seed")).endsWith("seed.json"));
 
-	CliArgs cli = CliArgs(0, null);
+	CLIArgs cli = CLIArgs(0, null);
 	cli.values.push("final");
 	cli.values.push("--arg");
 	cli.values.push("force=true");
 	cli.values.push("--arg=arch=aarch64");
 	cli.values.push("ignored");
 
-	Map<string, string> parsedArgs = GraphCli.args(cli, 0);
-	Vector<string> targets = GraphCli.targets(cli, 0);
+	Map<string, string> parsedArgs = GraphCLI.args(cli, 0);
+	Vector<string> targets = GraphCLI.targets(cli, 0);
 	assert(parsedArgs.get("force").equals("true"));
 	assert(parsedArgs.get("arch").equals("aarch64"));
 	assert(targets.len == 2);

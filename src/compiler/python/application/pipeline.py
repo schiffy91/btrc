@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import time
+from dataclasses import replace
 from types import MappingProxyType
 from typing import Protocol
 
@@ -16,6 +17,8 @@ from ..abi.hosted import HOSTED_ABI
 from ..analyzer.analyzer import SemanticAnalyzer
 from ..backend.c_emitter import CEmitter
 from ..frontend.imports import FrontendVisibilityError
+from ..frontend.native_imports import NativeHeaderSource
+from ..frontend.packages import NativeGeneratedUnit
 from ..frontend.sources import CompilerStdlibSource, ResolvedSource, SourceResolver, StdlibRepository
 from ..frontend.stage import FrontendParseResult, FrontendStage
 from ..ir.nodes import IRHelperDecl, IRInclude, IRMacroDef
@@ -623,6 +626,13 @@ class CompilationPipeline:
                 else frozenset()
             ),
         ).lower()
+        for declaration in analyzed.program.declarations:
+            source = getattr(declaration, "source_file", None)
+            contract = source.call_contract if isinstance(source, NativeHeaderSource) else None
+            if contract is not None and contract.realtime_safe:
+                module.realtime_safe_externals.add(declaration.name)
+                if contract.adapter_symbol(declaration.name) != declaration.name:
+                    module.realtime_safe_externals.add("__builtin_trap")
         self._timed(profile, "ir_gen", start)
         return module
 
@@ -660,10 +670,20 @@ class CompilationPipeline:
         profile: dict[str, float] | None,
         **values,
     ) -> CompilerResult:
+        native_plan = source.native_plan
+        module = values.get("ir_module")
+        if module is not None and module.native_units:
+            native_plan = replace(
+                native_plan,
+                generated_units=tuple(
+                    NativeGeneratedUnit(name, unit.language, "c11", "arc", CEmitter().emit(unit))
+                    for name, unit in sorted(module.native_units.items())
+                ),
+            )
         return CompilerResult(
             options=options,
             source_bundle=source,
-            native_plan=source.native_plan,
+            native_plan=native_plan,
             profile=CompilerResult.profile_snapshot(profile),
             **values,
         )

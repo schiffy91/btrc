@@ -2814,5 +2814,18 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			true,
 			"safe"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"threads",
+			"__btrc_native_thread_invoke",
+			[
+			"typedef struct {\n    int (*action)(void*);\n    void* context;\n    int value;\n} __btrc_native_thread_call;\n\nstatic void __btrc_native_thread_call_thunk(void* raw) {\n    __btrc_native_thread_call* call = (__btrc_native_thread_call*)raw;\n    call->value = call->action(call->context);\n}\n\nstatic void __btrc_native_thread_cleanup_thunk(void* unused) {\n    (void)unused;\n    __btrc_arc_thread_state_cleanup();\n}\n\n/* A call-only entry on a foreign thread, never inside an active BTRC frame.\n * The callback's managed scopes unwind before its thread-local state is freed.\n * Neither a callback exception nor a cleanup exception crosses the C boundary. */\nstatic int __btrc_native_thread_invoke(\n        int (*action)(void*), void* context, int* result) {\n    if (!action || !result || __btrc_try_top != -1\n            || __btrc_cleanup_top != -1) return 1;\n    *result = 0;\n    __btrc_native_thread_call call = {action, context, 0};\n    int failed = __btrc_arc_guard_hook(\n        __btrc_native_thread_call_thunk, &call, NULL, 0);\n",
+			"    int cleanup_failed = __btrc_arc_guard_hook(\n        __btrc_native_thread_cleanup_thunk, NULL, NULL, 0);\n    if (cleanup_failed) __btrc_arc_thread_state_finalize();\n    __btrc_try_state_cleanup();\n    if (failed || cleanup_failed) return 1;\n    *result = call.value;\n    return 0;\n}",
+		],
+			["__btrc_arc_guard_hook", "__btrc_arc_thread_state_cleanup", "__btrc_try_state_cleanup"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"unknown"));
 	}
 }

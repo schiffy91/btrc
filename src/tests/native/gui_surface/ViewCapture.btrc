@@ -1,0 +1,56 @@
+import Library.Bytes;
+import Library.IO;
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSTextField;
+import Library.GUI.MacOS.MacOSScrollView;
+import Library.GUI.MacOS.MacOSViewCapture;
+
+#include <assert.h>
+
+int main() {
+	var app = MacOSApplication();
+	var window = MacOSWindow("Native capture", 640.0, 480.0);
+	var field = MacOSTextField("Actual native text — captured without the desktop", "Search");
+	field.setFont(18.0);
+	bool invalidFont = false;
+	try { field.setFont(0.0); } catch (string error) { invalidFont = true; }
+	assert(invalidFont);
+	field.setFrame(20.0, 430.0, 600.0, 30.0);
+	var scroll = MacOSScrollView();
+	scroll.setFrame(20.0, 20.0, 600.0, 390.0);
+	scroll.setContentSize(600.0, 900.0);
+	var child = MacOSTextField("Native scrolling content", "");
+	child.setFrame(20.0, 850.0, 400.0, 30.0);
+	window.contentView().addSubview(field.nativeControl());
+	window.contentView().addSubview(scroll.nativeControl());
+	scroll.documentView().addSubview(child.nativeControl());
+	app.pumpEvents(4);
+	bool pixelLimit = false;
+	try { MacOSViewCapture.captureTiff(window.contentView(), 1); } catch (string error) { pixelLimit = true; }
+	assert(pixelLimit);
+	bool byteLimit = false;
+	try { MacOSViewCapture.captureTiff(window.contentView(), 4000000, 1); } catch (string error) { byteLimit = true; }
+	assert(byteLimit);
+	var initial = MacOSViewCapture.captureTiff(window.contentView());
+	field.setText("Changed native text");
+	var changed = MacOSViewCapture.captureTiff(window.contentView());
+	assert(!initial.equals(changed));
+	scroll.scrollTo(510.0);
+	var scrolled = MacOSViewCapture.captureTiff(window.contentView());
+	assert(!changed.equals(scrolled));
+	assert(field.text() == "Changed native text");
+	child.close();
+	field.close();
+	scroll.close();
+	window.close();
+	File before = File("Initial.tiff", "wb");
+	assert(before.ok() && before.writeBytes(initial) && before.close());
+	File after = File("Scrolled.tiff", "wb");
+	assert(after.ok() && after.writeBytes(scrolled) && after.close());
+	File updated = File("Changed.tiff", "wb");
+	assert(updated.ok() && updated.writeBytes(changed) && updated.close());
+	assert(initial.length() > 1024 && scrolled.length() > 1024);
+	print("PASS: native capture owns pixels after teardown");
+	return 0;
+}

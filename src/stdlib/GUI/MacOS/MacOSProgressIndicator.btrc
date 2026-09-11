@@ -1,0 +1,47 @@
+import Library.GUI.MacOS.MacOSView;
+
+/* AppKit owns animation timing and drawing; this owner controls its lifetime. */
+class MacOSProgressIndicator {
+	private NSProgressIndicator? _indicator;
+	private MacOSView _view;
+	private bool _running = false;
+
+	public MacOSProgressIndicator() {
+		if (!NSThread.isMainThread()) { throw "Native progress indicators require the main thread"; }
+		var indicator = NSProgressIndicator.new();
+		if (indicator == null) { throw "Cannot create native progress indicator"; }
+		self._indicator = indicator;
+		self._view = MacOSView(indicator);
+		indicator.setStyle(NSProgressIndicatorStyleSpinning);
+		indicator.setIndeterminate(true);
+		indicator.setDisplayedWhenStopped(false);
+	}
+
+	public NSView nativeView() { return self._view.nativeView(); }
+
+	private NSProgressIndicator control() {
+		self.nativeView();
+		if (self._indicator == null) { throw "Native progress indicator is closed"; }
+		return self._indicator;
+	}
+
+	public bool isRunning() { self.control(); return self._running; }
+
+	public void setRunning(bool running) {
+		var indicator = self.control();
+		if (running == self._running) { return; }
+		if (running) { indicator.startAnimation(null); }
+		else { indicator.stopAnimation(null); }
+		self._running = running;
+	}
+
+	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
+
+	public void close() {
+		if (!NSThread.isMainThread()) { throw "Native progress indicators require the main thread"; }
+		if (self._indicator == null) { return; }
+		self.setRunning(false);
+		self._view.close();
+		self._indicator = null;
+	}
+}

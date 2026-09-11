@@ -16,6 +16,9 @@ from src.compiler.python.frontend.packages import (
     PACKAGE_GRAPH_LOCK_SCHEMA,
     IncludeResolutionError,
     LockfileError,
+    NativeLinkPlan,
+    PackageNode,
+    PackageTarget,
     PackageUniverse,
 )
 from src.compiler.python.frontend.sources import SourceDependencyGraph
@@ -23,6 +26,47 @@ from src.compiler.python.main import main as compiler_main
 
 REPO = Path(__file__).resolve().parents[3]
 EXAMPLE = REPO / "examples" / "native-package"
+
+
+def test_stdlib_manifest_selects_only_loaded_provider_units():
+    library = REPO / "src/stdlib"
+    plan = NativeLinkPlan.empty(PackageTarget.parse("macos-aarch64"))
+    assert plan.with_stdlib(str(library), [str(library / "Strings.btrc")]) == plan
+    selected = plan.with_stdlib(
+        str(library),
+        [str(library / "Audio/MacOS/CoreAudioDevice.btrc"), str(library / "MacOSEncodedImageDecoder.btrc")],
+    )
+    payload = selected.as_dict()
+    assert payload["units"] == []
+    assert [item["name"] for item in payload["frameworks"]] == [
+        "AudioToolbox",
+        "CoreAudio",
+        "CoreFoundation",
+        "CoreGraphics",
+        "ImageIO",
+    ]
+    assert len(selected.packages) == 1 and len(selected.packages[0].manifest_hash) == 64
+    assert [Path(binding.module).name for binding in selected.bindings] == [
+        "CoreAudioDevice.btrc",
+        "MacOSEncodedImageDecoder.btrc",
+    ]
+    assert selected.bindings[0].read_only_borrows == ("CFStringCreateWithCString.cStr",)
+    assert selected.bindings[1].read_only_borrows == ()
+    assert (
+        selected.with_stdlib(
+            str(library),
+            [str(library / "Audio/MacOS/CoreAudioDevice.btrc"), str(library / "MacOSEncodedImageDecoder.btrc")],
+        )
+        == selected
+    )
+
+
+def test_stdlib_manifest_rejects_foreign_package_identity(tmp_path):
+    library = REPO / "src/stdlib"
+    foreign = PackageNode("btrc_stdlib_runtime", str(tmp_path), {}, {"path": str(tmp_path)}, "")
+    plan = NativeLinkPlan(PackageTarget.parse("macos-aarch64"), (foreign,))
+    with pytest.raises(IncludeResolutionError, match="reserved for compiler-owned"):
+        plan.with_stdlib(str(library), [str(library / "Audio/MacOS/CoreAudioDevice.btrc")])
 
 
 def _manifest(path: Path, name: str, dependencies: str = "", native: str = "") -> None:
@@ -78,7 +122,7 @@ def test_native_binding_is_owned_by_loaded_module_and_target(tmp_path: Path, mon
         source.read_text(), str(source), CompilerOptions(include_stdlib=False, use_cache=False, target="macos-aarch64")
     )
     assert not macos.successful
-    assert "requires typed native import support" in macos.failure.message
+    assert "requires BTRC_NATIVE_HEADER_READER" in macos.failure.message
 
 
 @pytest.mark.parametrize(

@@ -5,7 +5,7 @@
  * mode straight to fopen, so fopen(path, "a") is standard C.
  * Hermetic: one temp dir, removed at the end. */
 import Library.FileSystem;
-import Library.Io;
+import Library.IO;
 
 #include <assert.h>
 

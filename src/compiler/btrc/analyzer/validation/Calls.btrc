@@ -7,7 +7,7 @@ import Library.Vector;
 import ../../generated/ast/Node.btrc;
 import ../../syntax/Identity.btrc;
 import ../../syntax/Types.btrc;
-import ../Gpu.btrc;
+import ../GPU.btrc;
 import ../HostedAbi.btrc;
 import ../Models.btrc;
 import ../Operators.btrc;
@@ -77,7 +77,7 @@ class CallValidator {
 		while (index < expectedTypes.len) {
 			Node expected = expectedTypes.get(index);
 			Node argument = call.args.get(index);
-			self.storage.validateVolatileReferenceConversion(expected, argument, "Argument " + Strings.fromInt(index + 1) + " to '" + label + "()'", vars);
+			self.storage.validateReferenceQualifiers(expected, argument, "Argument " + Strings.fromInt(index + 1) + " to '" + label + "()'", vars);
 			Node? actual = self.types.inferType(argument, vars);
 			if (actual != null && !self.types.assignmentCompatible(expected, actual)) {
 				TypeValidator.fail("Argument " + Strings.fromInt(index + 1) + " to '" + label + "()' expects '" + self.types.formatType(expected) + "' but got '" + self.types.formatType(actual) + "'", argument);
@@ -573,6 +573,7 @@ class CallValidator {
 			return !self.state.analyzed.isClass(name);
 		}
 		Node declaration = self.state.analyzed.funcTable.get(name);
+		if (self.state.analyzed.isNativeDeclaration(declaration)) { return false; }
 		return declaration.bodyNode == null || self.hostedCallBypassesSourceDefinition(name);
 	}
 
@@ -619,7 +620,7 @@ class CallValidator {
 		while (index < expectedCount) {
 			Node expected = self.hostedAbi.parameterType(name, index);
 			Node argument = call.args.get(index);
-			self.storage.validateVolatileReferenceConversion(expected, argument, "Argument " + Strings.fromInt(index + 1) + " to hosted function '" + name + "()'", vars);
+			self.storage.validateReferenceQualifiers(expected, argument, "Argument " + Strings.fromInt(index + 1) + " to hosted function '" + name + "()'", vars);
 			Node? actual = self.types.inferType(argument,  vars);
 			if (actual != null && !self.hostedArgumentTypeDeferred(expected, actual) && !self.types.assignmentCompatible(expected, actual)) {
 				TypeValidator.fail("Argument " + Strings.fromInt(index + 1) + " to hosted function '" + name + "()' expects '" + self.types.formatType(expected) + "' but got '" + self.types.formatType(actual) + "'", argument);
@@ -765,7 +766,7 @@ class CallValidator {
              * instead of terminating early with the generic pointer-conversion
              * diagnostic. */
 			if (!gpuArrayParameter) {
-				self.storage.validateVolatileReferenceConversion(expected, argument, "Argument '" + parameter.name + "' to '" + label + "()'", vars);
+				self.storage.validateReferenceQualifiers(expected, argument, "Argument '" + parameter.name + "' to '" + label + "()'", vars);
 			}
 			/* Parameters receive expression values.  Apply initializer-shape
              * validation only when the argument is an aggregate literal; an

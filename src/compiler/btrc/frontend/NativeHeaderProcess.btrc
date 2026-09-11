@@ -1,0 +1,15 @@
+/* Unix host's bounded SDK-reader execution; no native semantics live here. */
+
+import Library.Process;
+import Library.Result;
+import Library.Strings;
+import Library.Vector;
+
+import ./Models.btrc;
+
+class FeNativeHeaderProcess {
+	class void read(FeNativeHeaderRead request) {
+		var result = ChildProcess.run(request.command(), request.argv(), timeoutMilliseconds = 60000);
+		request.complete(new Result<string, string>(result.ok(), result.out, result.err.isEmpty() ? "native header reader failed" : result.err.trim()));
+	}
+}

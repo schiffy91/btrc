@@ -1,0 +1,33 @@
+import Library.Math;
+import Library.Bytes;
+import Library.OwnedBuffer;
+
+/* AppKit-drawn content, independent of desktop visibility or screen locking.
+ * The returned TIFF owns its bytes. GPU children require matching renderer
+ * readback/composition; AppKit does not capture their drawable contents here. */
+class MacOSViewCapture {
+	class Bytes captureTiff(NSView view, int maximumPixels = 16777216, int maximumBytes = 134217728) {
+		if (!NSThread.isMainThread()) { throw "Native view capture requires the main thread"; }
+		if (view == null || maximumPixels <= 0 || maximumPixels > 268435200 || maximumBytes <= 0 || maximumBytes > 1073740800) { throw "Invalid native view capture limits"; }
+		var bounds = view.bounds();
+		var backing = view.convertRectToBacking(bounds);
+		double width = Math.ceilDouble(backing.size.width);
+		double height = Math.ceilDouble(backing.size.height);
+		if (!Math.isFinite(width) || !Math.isFinite(height) || width <= 0.0 || height <= 0.0 || width * height > (double)maximumPixels) { throw "Native view exceeds capture pixel limit"; }
+		view.setNeedsDisplay(true);
+		var bitmap = view.bitmapImageRepForCachingDisplayInRect(bounds);
+		if (bitmap == null) { throw "Cannot allocate native capture"; }
+		long bitmapWidth = bitmap.pixelsWide();
+		long bitmapHeight = bitmap.pixelsHigh();
+		if (bitmapWidth <= 0L || bitmapHeight <= 0L || bitmapWidth > (long)maximumPixels || bitmapHeight > (long)maximumPixels || bitmapWidth * bitmapHeight > (long)maximumPixels) { throw "Native bitmap exceeds capture pixel limit"; }
+		view.cacheDisplayInRect(bounds, bitmap);
+		var data = bitmap.TIFFRepresentation();
+		if (data == null) { throw "Cannot encode native capture"; }
+		unsigned long length = data.length();
+		if (length == 0UL || length > (unsigned long)maximumBytes) { throw "Native capture exceeds encoded byte limit"; }
+		var buffer = new OwnedBuffer<char>((size_t)length);
+		if (!buffer.opened()) { throw "Cannot allocate native capture bytes"; }
+		data.getBytes(buffer.borrow(), length);
+		return Bytes.fromRaw(buffer.borrow(), (int)length);
+	}
+}

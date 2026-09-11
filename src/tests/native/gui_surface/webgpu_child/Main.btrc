@@ -1,0 +1,334 @@
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSTextField;
+import Library.GUI.MacOS.MacOSScrollView;
+import Library.GUI.MacOS.MacOSGPUSurface;
+import Library.GUI.MacOS.MacOSViewCapture;
+import Library.GUI.MacOS.MetalLayer;
+import Library.Image;
+import Library.IO;
+import Library.Vector;
+import Library.MacOSEncodedImageDecoder;
+import Library.GUI.MacOS.MacOSComposedCapture;
+import Library.GPU.Device;
+import Library.GPU.SurfaceRenderer;
+import Library.GPU.Program;
+import Library.GPU.Readback;
+import Library.GPU.UniformBuffer;
+import Library.GPU.ImageTexture;
+import Library.Datetime;
+
+import ./WebGpu.btrc;
+#include <assert.h>
+
+/* Rendering and nonblocking readback use production BTRC owners. Native
+ * pixels and AppKit composition are inspected independently of screen locks. */
+class NativeGpuChildTest {
+	class string shader() { return """
+		struct Parameters { tint: vec4f, placement: vec4f }
+		@group(0) @binding(0) var<uniform> parameters: Parameters;
+		@group(0) @binding(1) var image: texture_2d<f32>;
+		@group(0) @binding(2) var imageSampler: sampler;
+		struct Vertex { @builtin(position) position: vec4f, @location(0) uv: vec2f }
+		@vertex fn vs_main(@builtin(vertex_index) index: u32) -> Vertex {
+			let corners = array<vec2f, 6>(vec2f(-1,-1), vec2f(1,-1), vec2f(-1,1), vec2f(-1,1), vec2f(1,-1), vec2f(1,1));
+			let corner = corners[index];
+			var vertex: Vertex;
+			vertex.position = vec4f(corner * parameters.placement.xy + parameters.placement.zw, 0, 1);
+			vertex.uv = (corner + vec2f(1)) * 0.5;
+			return vertex;
+		}
+		@fragment fn fs_main(vertex: Vertex) -> @location(0) vec4f {
+			return textureSample(image, imageSampler, vertex.uv) * parameters.tint;
+		}
+	"""; }
+
+	class void awaitProgram(GPUProgram program) {
+		var deadline = Timer();
+		deadline.start();
+		while (deadline.elapsed() < 10.0f && (program.state() == GPU_PROGRAM_SHADER || program.state() == GPU_PROGRAM_PIPELINE)) { program.poll(); Timer.sleep(0.001); }
+	}
+
+	class void setUniform(GPUUniformBuffer uniform, float red, float green, float blue, float alpha, float offset) {
+		uniform.set(0, red); uniform.set(1, green); uniform.set(2, blue); uniform.set(3, alpha);
+		uniform.set(4, 0.5f); uniform.set(5, 1.0f); uniform.set(6, offset); uniform.set(7, 0.0f);
+	}
+
+	class void verifyFrozenUniform(GPUUniformBuffer uniform) {
+		bool rejected = false;
+		try { uniform.set(0, 0.0f); } catch (string error) { rejected = true; }
+		assert(rejected);
+	}
+
+	class void verifyResources(GPUSurfaceRenderer renderer, GPUDevice device) {
+		var invalidShader = GPUProgram(device, renderer.nativeFormat(), "not valid WGSL", 8);
+		NativeGpuChildTest.awaitProgram(invalidShader);
+		assert(invalidShader.state() == GPU_PROGRAM_FAILED && !invalidShader.error().isEmpty());
+		invalidShader.close();
+		var invalidLayout = GPUProgram(device, renderer.nativeFormat(), NativeGpuChildTest.shader(), 4);
+		NativeGpuChildTest.awaitProgram(invalidLayout);
+		assert(invalidLayout.state() == GPU_PROGRAM_FAILED && !invalidLayout.error().isEmpty());
+		invalidLayout.close();
+		var abandoned = GPUProgram(device, renderer.nativeFormat(), NativeGpuChildTest.shader(), 8);
+		abandoned.close(); abandoned.close();
+		assert(abandoned.poll() == GPU_PROGRAM_CLOSED);
+		var program = GPUProgram(device, renderer.nativeFormat(), NativeGpuChildTest.shader(), 8);
+		NativeGpuChildTest.awaitProgram(program);
+		if (program.state() != GPU_PROGRAM_READY) { print(program.error()); }
+		assert(program.state() == GPU_PROGRAM_READY);
+		var image = Image(2, 2);
+		image.fill(RGBA(255, 255, 255));
+		var texture = GPUImageTexture(device, image);
+		var originalView = texture.nativeView();
+		bool invalidSize = false;
+		try { texture.update(Image(1, 2)); } catch (string error) { invalidSize = true; }
+		assert(invalidSize);
+		image.fill(RGBA(0, 0, 0));
+		var left = GPUUniformBuffer(device, 8);
+		var right = GPUUniformBuffer(device, 8);
+		for (int iteration = 0; iteration < 2; iteration++) {
+			if (iteration == 1) {
+				image.fill(RGBA(255, 255, 128));
+				texture.update(image);
+				assert(texture.nativeView() == originalView);
+				image.fill(RGBA(0, 0, 0));
+			}
+			NativeGpuChildTest.setUniform(left, iteration == 0 ? 1.0f : 0.0f, iteration == 0 ? 0.0f : 1.0f, 0.0f, iteration == 0 ? 0.5f : 1.0f, -0.5f);
+			NativeGpuChildTest.setUniform(right, 0.0f, 0.0f, 1.0f, 1.0f, 0.5f);
+			assert(renderer.beginFrame(0.0, 0.0, 0.0) == GPU_SURFACE_FRAME_READY);
+			program.draw(renderer, left, 6, texture);
+			program.draw(renderer, right, 6, texture);
+			bool rejectedUpdate = false;
+			try { texture.update(image); } catch (string error) { rejectedUpdate = true; }
+			assert(rejectedUpdate);
+			NativeGpuChildTest.verifyFrozenUniform(left);
+			NativeGpuChildTest.verifyFrozenUniform(right);
+			if (iteration == 1) { program.close(); texture.close(); left.close(); right.close(); }
+			var pixels = NativeGpuChildTest.finishAndRead(renderer, false);
+			var leftPixel = pixels.pixel(pixels.width / 4, pixels.height / 2);
+			var rightPixel = pixels.pixel(pixels.width * 3 / 4, pixels.height / 2);
+			assert(rightPixel.equals(RGBA(0, 0, iteration == 0 ? 255 : 128)));
+			if (iteration == 0) { assert(leftPixel.red >= 127 && leftPixel.red <= 128 && leftPixel.green == 0 && leftPixel.blue == 0 && leftPixel.alpha == 255); }
+			else { assert(leftPixel.equals(RGBA(0, 255, 0))); }
+		}
+		program.close(); texture.close(); left.close(); right.close();
+		print("PASS: native program validation, textured draws, uniform isolation and pending-frame resource lifetime");
+	}
+
+	class void verifyActiveFrame(GPUSurfaceRenderer renderer) {
+		bool rejected = false;
+		try { renderer.beginFrame(0.0, 0.0, 0.0); } catch (string error) { rejected = true; }
+		assert(rejected);
+		rejected = false;
+		try { renderer.resize(20, 20); } catch (string error) { rejected = true; }
+		assert(rejected);
+		rejected = false;
+		try { renderer.nativeEncoder(); } catch (string error) { rejected = true; }
+		assert(rejected);
+		assert(renderer.nativePass() != null);
+	}
+
+	class void verifyIdleFrame(GPUSurfaceRenderer renderer) {
+		bool rejected = false;
+		try { renderer.nativeTexture(); } catch (string error) { rejected = true; }
+		assert(rejected);
+		rejected = false;
+		try { renderer.present(); } catch (string error) { rejected = true; }
+		assert(rejected);
+		rejected = false;
+		try { renderer.resize(-1, 1); } catch (string error) { rejected = true; }
+		assert(rejected);
+		rejected = false;
+		try { renderer.resize(2147483647, 1); } catch (string error) { rejected = true; }
+		assert(rejected);
+	}
+
+	class void verifyClosedRenderer(GPUSurfaceRenderer renderer) {
+		bool rejected = false;
+		try { renderer.beginFrame(0.0, 0.0, 0.0); } catch (string error) { rejected = true; }
+		assert(rejected);
+	}
+
+	class void verifyClosedDevice(GPUDevice owner) {
+		bool rejected = false;
+		try { owner.nativeDevice(); } catch (string error) { rejected = true; }
+		assert(rejected);
+		rejected = false;
+		try { owner.nativeQueue(); } catch (string error) { rejected = true; }
+		assert(rejected);
+		rejected = false;
+		try { owner.nativeAdapter(); } catch (string error) { rejected = true; }
+		assert(rejected);
+	}
+
+	class void verifyRejected(NSView root, MacOSGPUSurface target, Vector<MacOSCaptureLayer> layers) {
+		bool rejected = false;
+		try { MacOSComposedCapture.captureTiff(root, [MacOSCaptureLayer(target, Image(1, 1))]); } catch (string error) { rejected = true; }
+		assert(rejected);
+		rejected = false;
+		try { MacOSComposedCapture.captureTiff(root, [layers[0], layers[0]]); } catch (string error) { rejected = true; }
+		assert(rejected);
+		rejected = false;
+		try { MacOSComposedCapture.captureTiff(root, layers, 1); } catch (string error) { rejected = true; }
+		assert(rejected);
+		rejected = false;
+		try { MacOSComposedCapture.captureTiff(root, layers, 16777216, 1); } catch (string error) { rejected = true; }
+		assert(rejected);
+		// The layer fits, but its enclosing window does not: failure after attach.
+		rejected = false;
+		try { MacOSComposedCapture.captureTiff(root, layers, layers[0].pixels.width * layers[0].pixels.height); } catch (string error) { rejected = true; }
+		assert(rejected);
+	}
+
+	class void verifyReadbackFailures(GPUSurfaceRenderer renderer) {
+		assert(renderer.beginFrame(0.0, 0.0, 0.0) == GPU_SURFACE_FRAME_READY);
+		bool rejected = false;
+		try { var oversized = GPUReadback(renderer, 1); } catch (string error) { rejected = true; }
+		assert(rejected && renderer.nativePass() != null);
+		var discarded = GPUReadback(renderer);
+		rejected = false;
+		try { discarded.takeImage(); } catch (string error) { rejected = true; }
+		assert(rejected);
+		renderer.discardFrame();
+		assert(!discarded.submit() && discarded.state() == GPU_READBACK_FAILED);
+		discarded.close();
+		assert(renderer.beginFrame(0.0, 0.0, 0.0) == GPU_SURFACE_FRAME_READY);
+		var pending = GPUReadback(renderer);
+		assert(pending.submit());
+		pending.close();
+		pending.close();
+		assert(pending.poll() == GPU_READBACK_CLOSED);
+	}
+
+	class Image clear(GPUSurfaceRenderer renderer) {
+		assert(renderer.beginFrame(0.12, 0.36, 0.64) == GPU_SURFACE_FRAME_READY);
+		return NativeGpuChildTest.finishAndRead(renderer, true);
+	}
+
+	class Image finishAndRead(GPUSurfaceRenderer renderer, bool expectBlue) {
+		NativeGpuChildTest.verifyActiveFrame(renderer);
+		var readback = GPUReadback(renderer);
+		assert(readback.state() == GPU_READBACK_ENCODED && readback.submit());
+		NativeGpuChildTest.verifyIdleFrame(renderer);
+		var deadline = Timer();
+		deadline.start();
+		while (readback.state() == GPU_READBACK_MAPPING && deadline.elapsed() < 10.0f) { readback.poll(); Timer.sleep(0.001); }
+		if (readback.state() != GPU_READBACK_READY) { print(readback.error()); }
+		assert(readback.state() == GPU_READBACK_READY);
+		var image = readback.takeImage();
+		assert(readback.state() == GPU_READBACK_CLOSED);
+		readback.close();
+		if (expectBlue) {
+			var pixel = image.pixel(0, 0);
+			assert(pixel.red >= 30 && pixel.red <= 31 && pixel.green >= 91 && pixel.green <= 92 && pixel.blue >= 163 && pixel.blue <= 164 && pixel.alpha == 255);
+		}
+		return image;
+	}
+}
+
+int main() {
+	var app = MacOSApplication();
+	var window = MacOSWindow("Native GPU composition", 640.0, 480.0);
+	var field = MacOSTextField("Native editor", "Search");
+	var scroll = MacOSScrollView();
+	scroll.setFrame(0.0, 0.0, 640.0, 400.0);
+	scroll.setContentSize(640.0, 800.0);
+	field.setFrame(20.0, 430.0, 600.0, 30.0);
+	var target = MacOSGPUSurface();
+	var overlay = MacOSTextField("Native overlay", "Overlay");
+	overlay.setFrame(20.0, 600.0, 200.0, 30.0);
+	window.contentView().addSubview(field.nativeControl());
+	window.contentView().addSubview(scroll.nativeControl());
+	scroll.documentView().addSubview(target.nativeView());
+	scroll.documentView().addSubview(overlay.nativeControl());
+	var instance = target.nativeInstance();
+	var surface = target.nativeSurface();
+	var owner = GPUDevice(instance, surface);
+	var deadline = Timer();
+	deadline.start();
+	while (deadline.elapsed() < 10.0f && owner.state() != GPU_DEVICE_READY && owner.state() != GPU_DEVICE_FAILED) { owner.poll(); app.pumpEvents(1); Timer.sleep(0.001); }
+	if (owner.state() != GPU_DEVICE_READY) { fprintf(stderr, "GPU device setup: %s\n", owner.error()); }
+	assert(owner.state() == GPU_DEVICE_READY);
+	var renderer = GPUSurfaceRenderer(owner, surface);
+	assert(renderer.beginFrame(0.0, 0.0, 0.0) == GPU_SURFACE_FRAME_EMPTY);
+	NativeGpuChildTest.verifyIdleFrame(renderer);
+	Image initialCapture = null;
+	for (int step = 0; step < 3; step++) {
+		scroll.scrollTo(100.0 * (double)step);
+		target.setFrame(0.0, 400.0 + 50.0 * (double)step, 640.0 - 80.0 * (double)step, 400.0 - 50.0 * (double)step);
+		renderer.resize(target.pixelWidth(), target.pixelHeight());
+		if (step == 0) { NativeGpuChildTest.verifyReadbackFailures(renderer); NativeGpuChildTest.verifyResources(renderer, owner); }
+		assert(renderer.beginFrame(1.0, 0.0, 0.0) == GPU_SURFACE_FRAME_READY);
+		renderer.discardFrame();
+		renderer.discardFrame();
+		var pixels = NativeGpuChildTest.clear(renderer);
+		Vector<MacOSCaptureLayer> layers = [MacOSCaptureLayer(target, pixels)];
+		var captured = MacOSComposedCapture.captureTiff(window.contentView(), layers);
+		var output = File(f"Composed{step}.tiff", "wb");
+		assert(output.ok() && output.writeBytes(captured));
+		output.close();
+		var decoded = MacOSEncodedImageDecoder().decode(captured, EncodedImageDecodeLimits(32000000, 4096, 4096, 4000000LL));
+		assert(decoded.succeeded());
+		var composed = decoded.image();
+		int headerInk = 0;
+		for (int index = 0; index < composed.width * (composed.height / 6); index++) {
+			if (composed.data[index * 4] > 180 && composed.data[index * 4 + 3] > 200) { headerInk++; }
+		}
+		print(f"step={step} headerInk={headerInk}");
+		assert(headerInk > 100);
+		if (initialCapture == null) {
+			initialCapture = composed;
+		} else {
+			assert(composed.width == initialCapture.width && composed.height == initialCapture.height);
+			int headerBytes = composed.width * (composed.height / 6) * 4;
+			assert(memcmp(composed.data, initialCapture.data, (size_t)headerBytes) == 0);
+		}
+		int bluePixels = 0;
+		int overlayInk = 0;
+		int scale = composed.width / 640;
+		int visibleHeight = (400 - 150 * step) * scale;
+		for (int index = 0; index < composed.width * composed.height; index++) {
+			int x = index % composed.width;
+			int y = index / composed.width;
+			if (composed.data[index * 4] >= 29 && composed.data[index * 4] <= 32 && composed.data[index * 4 + 2] >= 162 && composed.data[index * 4 + 2] <= 165) {
+				assert(x < renderer.width() && y >= 80 * scale && y < 80 * scale + visibleHeight);
+				bluePixels++;
+			}
+			if (step < 2 && x >= 20 * scale && x < 220 * scale && y >= (250 - 100 * step) * scale && y < (280 - 100 * step) * scale && composed.data[index * 4] > 180 && composed.data[index * 4 + 3] > 200) { overlayInk++; }
+		}
+		assert(bluePixels > renderer.width() * visibleHeight - 210 * 40 * scale * scale);
+		if (step < 2) { assert(overlayInk > 100); }
+		NativeGpuChildTest.verifyRejected(window.contentView(), target, layers);
+		assert(MacOSComposedCapture.captureTiff(window.contentView(), layers).equals(captured));
+	}
+	assert(app.pumpEvents(1) <= 1);
+	renderer.resize(0, 0);
+	assert(renderer.beginFrame(0.0, 0.0, 0.0) == GPU_SURFACE_FRAME_EMPTY);
+	renderer.resize(target.pixelWidth(), target.pixelHeight());
+	assert(renderer.beginFrame(0.0, 0.0, 0.0) == GPU_SURFACE_FRAME_READY);
+	renderer.close();
+	renderer.close();
+	NativeGpuChildTest.verifyClosedRenderer(renderer);
+	var uncapturable = GPUSurfaceRenderer(owner, surface, false);
+	uncapturable.resize(target.pixelWidth(), target.pixelHeight());
+	assert(uncapturable.beginFrame(0.0, 0.0, 0.0) == GPU_SURFACE_FRAME_READY);
+	bool captureRejected = false;
+	try { var rejected = GPUReadback(uncapturable); } catch (string error) { captureRejected = true; }
+	assert(captureRejected && uncapturable.present());
+	uncapturable.close();
+	owner.close();
+	owner.close();
+	assert(owner.poll() == GPU_DEVICE_CLOSED);
+	NativeGpuChildTest.verifyClosedDevice(owner);
+	// Closing before consumption must release an inline or late adapter result.
+	var abandoned = GPUDevice(instance, surface);
+	abandoned.close();
+	assert(abandoned.poll() == GPU_DEVICE_CLOSED);
+	overlay.close();
+	target.close();
+	field.close();
+	scroll.close();
+	window.close();
+	print("PASS: native child WebGPU clear, present and pixel readback");
+	return 0;
+}

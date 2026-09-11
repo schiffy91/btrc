@@ -1,19 +1,19 @@
-/* HttpServer parse edges not covered by test_http_util:
+/* HTTPServer parse edges not covered by test_http_util:
  *   queryParams: duplicate key "later wins", '+' -> space in a value.
  *   parse headers: value containing ':' kept whole (split on FIRST colon only),
  *                  empty header value, duplicate header (later wins in the map),
  *                  header name lower-cased for lookup. */
-import Library.HttpServer;
-import Library.HttpTypes;
+import Library.HTTPServer;
+import Library.HTTPTypes;
 import Library.Map;
 
 #include <assert.h>
 
 int main() {
-	HttpServer srv = HttpServer(0);
+	HTTPServer srv = HTTPServer(0);
 
 	// --- queryParams duplicate key + '+' decoding ---
-	HttpRequest q = srv.parse("GET /s?a=1&a=2&b=x+y&flag HTTP/1.1\r\nHost: h\r\n\r\n");
+	HTTPRequest q = srv.parse("GET /s?a=1&a=2&b=x+y&flag HTTP/1.1\r\nHost: h\r\n\r\n");
 	Map<string, string> params = q.queryParams();
 	assert(params.get("a").equals("2"));     // later duplicate wins
 	assert(params.get("b").equals("x y"));   // '+' decodes to space
@@ -21,7 +21,7 @@ int main() {
 
 	// --- header value containing ':' (split on first colon only) ---
 	string raw = "GET / HTTP/1.1\r\n" + "Host: example.com\r\n" + "Date: Mon, 01 Jan 2024 00:00:00 GMT\r\n" + "X-Empty:\r\n" + "X-Dup: first\r\n" + "X-Dup: second\r\n" + "\r\n";
-	HttpRequest req = srv.parse(raw);
+	HTTPRequest req = srv.parse(raw);
 
 	// The value past the first colon is kept intact, including its own colons.
 	assert(req.header("date").equals("Mon, 01 Jan 2024 00:00:00 GMT"));

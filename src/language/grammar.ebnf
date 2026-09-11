@@ -170,7 +170,7 @@
               | path_spec
               | package_path ;
 
-  library_spec    = "Library" "." ( "*" | "*" "*" | IDENT | "{" ident_list "}" ) ;
+  library_spec = "Library" "." ( "*" | "*" "*" | package_path | "{" package_path { "," package_path } [ "," ] "}" ) ;
   package_path = IDENT { "." IDENT }    (* e.g. mathx, mathx.vec *) ;
   quoted_path = STRING_LIT ;
   path_spec   = PATH_SPEC                (* ./x.btrc, ./dir/*, ./dir/**, ../y, /abs, ~/home *) ;
@@ -471,17 +471,21 @@
 
   postfix_op     = "(" arg_list ")"         (* function call *)
                  | "[" expr "]"             (* indexing *)
-                 | "." IDENT               (* field access *)
+                 | "." member_name         (* field access *)
                  | "." INT_LIT             (* tuple field: .0, .1, .2 *)
                                            (* LIMITATION: chained tuple access
                                               like x.0.1 does NOT parse — the
                                               lexer greedily reads "0.1" as one
                                               FLOAT_LIT. Use (x.0).1 or bind an
                                               intermediate. *)
-                 | "?." IDENT              (* optional chaining *)
-                 | "->" IDENT              (* arrow access *)
+                 | "?." member_name        (* optional chaining *)
+                 | "->" member_name        (* arrow access *)
                  | "++"                     (* postfix increment *)
                  | "--"                     (* postfix decrement *) ;
+
+  member_name = IDENT | KEYWORD ;
+  (* KEYWORD denotes any token from @keywords, only in this qualified member
+     position. Native selectors such as NSWindow.new retain their SDK names. *)
 
   primary        = INT_LIT
                  | FLOAT_LIT

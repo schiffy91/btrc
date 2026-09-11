@@ -1,0 +1,144 @@
+import Library.Image;
+import Library.GPU.Device;
+import Library.GPU.SurfaceRenderer;
+import Library.GPU.WebGPU;
+
+enum GPUReadbackState {
+	GPU_READBACK_ENCODED,
+	GPU_READBACK_MAPPING,
+	GPU_READBACK_READY,
+	GPU_READBACK_FAILED,
+	GPU_READBACK_CLOSED
+};
+
+/* Finish an active frame, append its pixel copy, then submit through this owner
+ * instead of calling present separately. Poll never waits. takeImage returns
+ * independently owned RGBA pixels and closes the native readback resources.
+ * Use on the device-owner thread; close before the surface/device/instance. */
+class GPUReadback {
+	private GPUSurfaceRenderer _surface;
+	private GPUDevice _device;
+	private unsigned long long _frame;
+	private int _width;
+	private int _height;
+	private uint32_t _stride;
+	private unsigned long long _byteCount;
+	private bool _bgra;
+	private WGPUBuffer _buffer = null;
+	private BtrcGPUAsync* _request = null;
+	private WGPUFuture _future;
+	private bool _mapped = false;
+	private GPUReadbackState _state = GPU_READBACK_ENCODED;
+	private string _error = "";
+
+	public GPUReadback(GPUSurfaceRenderer surface, int maximumPixels = 16777216) {
+		self._surface = surface;
+		self._device = surface.device();
+		self._frame = surface.frameNumber();
+		self._width = surface.width();
+		self._height = surface.height();
+		if (!surface.captureEnabled() || !surface.frameActive(self._frame) || maximumPixels <= 0 || maximumPixels > 268435200 || (long long)self._width * (long long)self._height > (long long)maximumPixels) { throw "GPU frame exceeds readback limits or is not capturable"; }
+		self._stride = (((uint32_t)self._width * 4u + 255u) / 256u) * 256u;
+		self._byteCount = (unsigned long long)self._stride * (unsigned long long)self._height;
+		self._bgra = surface.nativeFormat() == WGPUTextureFormat_BGRA8Unorm;
+		self.encode();
+	}
+
+	private void encode() {
+		var device = self._device.nativeDevice();
+		var texture = self._surface.nativeTexture();
+		WGPULimits limits = {null};
+		if (wgpuDeviceGetLimits(device, &limits) != WGPUStatus_Success || self._byteCount > limits.maxBufferSize) { throw "GPU readback exceeds buffer limits"; }
+		WGPUBufferDescriptor descriptor = {null};
+		descriptor.size = self._byteCount;
+		descriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead;
+		self._buffer = wgpuDeviceCreateBuffer(device, &descriptor);
+		if (self._buffer == null) { throw "Cannot allocate GPU readback"; }
+		self._surface.finishDrawing();
+		WGPUTexelCopyTextureInfo source = {null};
+		source.texture = texture;
+		source.aspect = WGPUTextureAspect_All;
+		WGPUTexelCopyBufferInfo destination;
+		memset(&destination, 0, sizeof(WGPUTexelCopyBufferInfo));
+		destination.buffer = self._buffer;
+		destination.layout.bytesPerRow = self._stride;
+		destination.layout.rowsPerImage = (uint32_t)self._height;
+		WGPUExtent3D extent = {(uint32_t)self._width, (uint32_t)self._height, 1u};
+		wgpuCommandEncoderCopyTextureToBuffer(self._surface.nativeEncoder(), &source, &destination, &extent);
+	}
+
+	class void completed(WGPUMapAsyncStatus status, WGPUStringView message, void* context, void* unused) { btrc_gpu_async_complete((BtrcGPUAsync*)context, (int)status, null); }
+
+	public bool submit() {
+		if (self._state != GPU_READBACK_ENCODED) { throw "GPU readback has already been submitted or closed"; }
+		if (!self._surface.frameActive(self._frame)) { self.fail("GPU readback frame was discarded or submitted elsewhere"); return false; }
+		if (!self._surface.present()) { self.fail(self._surface.error()); return false; }
+		self._request = btrc_gpu_async_create((BtrcGPUAsyncResultRelease)null);
+		if (self._request == null) { self.fail("Cannot allocate GPU mapping request"); return false; }
+		WGPUBufferMapCallbackInfo callback = {null};
+		callback.mode = WGPUCallbackMode_AllowProcessEvents;
+		callback.callback = GPUReadback.completed;
+		callback.userdata1 = self._request;
+		self._future = wgpuBufferMapAsync(self._buffer, WGPUMapMode_Read, (size_t)0, (size_t)self._byteCount, callback);
+		self._state = GPU_READBACK_MAPPING;
+		return true;
+	}
+
+	public GPUReadbackState state() { return self._state; }
+
+	public string error() { return self._error; }
+
+	public GPUReadbackState poll() {
+		if (self._state != GPU_READBACK_MAPPING) { return self._state; }
+		if (self._device.state() != GPU_DEVICE_READY) { self.fail("GPU device closed during readback"); return self._state; }
+		int status = 0;
+		var result = btrc_gpu_async_wait(self._device.nativeInstance(), self._future, self._request, 0ULL, &status, null);
+		if (result == BTRC_GPU_ASYNC_TIMED_OUT) { return self._state; }
+		btrc_gpu_async_release(self._request);
+		self._request = null;
+		if (result != BTRC_GPU_ASYNC_COMPLETED || status != (int)WGPUMapAsyncStatus_Success) { self.fail(f"GPU readback mapping failed ({status})"); return self._state; }
+		self._mapped = true;
+		self._state = GPU_READBACK_READY;
+		return self._state;
+	}
+
+	public Image takeImage() {
+		if (self._state != GPU_READBACK_READY) { throw "GPU readback pixels are not ready"; }
+		Image? image = null;
+		try { image = self.copyPixels(); } finally { self.close(); }
+		if (image == null) { throw "GPU readback returned no image"; }
+		return image;
+	}
+
+	private Image copyPixels() {
+		const unsigned char* pixels = (const unsigned char*)wgpuBufferGetConstMappedRange(self._buffer, (size_t)0, (size_t)self._byteCount);
+		if (pixels == null) { self.fail("GPU readback returned no mapped pixels"); throw self._error; }
+		var image = Image(self._width, self._height);
+		for (int y = 0; y < self._height; y++) {
+			for (int x = 0; x < self._width; x++) {
+				size_t source = (size_t)y * (size_t)self._stride + (size_t)x * (size_t)4;
+				size_t destination = ((size_t)y * (size_t)self._width + (size_t)x) * (size_t)4;
+				image.data[destination] = pixels[source + (self._bgra ? 2 : 0)];
+				image.data[destination + 1] = pixels[source + 1];
+				image.data[destination + 2] = pixels[source + (self._bgra ? 0 : 2)];
+				image.data[destination + 3] = pixels[source + 3];
+			}
+		}
+		return image;
+	}
+
+	private void fail(string error) { self.close(); self._error = error; self._state = GPU_READBACK_FAILED; }
+
+	public void close() {
+		if (self._buffer != null) {
+			if (self._mapped || self._request != null) { wgpuBufferUnmap(self._buffer); }
+			wgpuBufferRelease(self._buffer);
+			self._buffer = null;
+		}
+		if (self._request != null) { btrc_gpu_async_release(self._request); self._request = null; }
+		self._mapped = false;
+		self._state = GPU_READBACK_CLOSED;
+	}
+
+	public void __del__() { self.close(); }
+}

@@ -7,9 +7,9 @@
  * Build + run (macOS):   make            (this folder)
  * Headless hosts (no GUI session) print a notice and exit cleanly.
  */
-import Library.Ui;
+import Library.UI;
 
-#include "tray/Tray.btrc"
+#include "Tray/Tray.btrc"
 
 int main() {
 	SystemTray tray = SystemTray("btrc")

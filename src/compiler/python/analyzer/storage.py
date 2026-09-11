@@ -37,9 +37,6 @@ class ProjectionStorageRoot:
     managed: bool
 
 
-_IMPLICIT_RAW_POINTER_BASES = frozenset({"Mutex", "Thread", "string"})
-
-
 class StorageModel:
     """Storage shape, qualification, and projection provenance."""
 
@@ -356,20 +353,7 @@ class StorageModel:
         type_expr: TypeExpr | None, typedefs: dict[str, TypeExpr], seen: frozenset[str] = frozenset()
     ) -> frozenset[int]:
         """Return every storage depth carrying ``const`` under C declarators."""
-        if type_expr is None:
-            return frozenset()
-        target = StorageModel._typedef_target(type_expr, typedefs, seen)
-        shift = StorageModel._applied_storage_layers(type_expr, target)
-        depths: set[int] = set()
-        if type_expr.is_const:
-            implicit = int(target is None and type_expr.base in _IMPLICIT_RAW_POINTER_BASES)
-            depths.add(shift + implicit)
-        if target is not None:
-            depths.update(
-                depth + shift
-                for depth in StorageModel.const_qualifier_depths(target, typedefs, seen | {type_expr.base})
-            )
-        return frozenset(depths)
+        return TypeSystem.declaration_const_depths(type_expr, typedefs, seen)
 
     @staticmethod
     def effective_outer_volatile(

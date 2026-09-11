@@ -56,6 +56,13 @@ def test_std_module_no_semicolon():
     assert spec.names == ["Vector"]
 
 
+def test_nested_library_modules():
+    assert _spec("import Library.Audio.MacOS.CoreAudioDevice;") == LibraryModules(names=["Audio.MacOS.CoreAudioDevice"])
+    assert _spec("import Library.{Audio.AudioDevice, Audio.RealtimeAudio,};") == LibraryModules(
+        names=["Audio.AudioDevice", "Audio.RealtimeAudio"]
+    )
+
+
 def test_std_brace_set():
     spec = _spec("import Library.{Vector, Strings};")
     assert isinstance(spec, LibraryModules)
@@ -148,10 +155,10 @@ def test_import_owning_its_line_is_accepted():
 
 
 def test_resolve_std_brace(tmp_path):
-    src = "import Library.{Strings, Json}\nint main() { return 0; }"
+    src = "import Library.{Strings, JSON}\nint main() { return 0; }"
     resolved = RESOLVER.resolve_includes(src, write(tmp_path / "m.btrc", src))
     assert "class Strings" in resolved
-    assert "class JsonObject" in resolved
+    assert "class JSONObject" in resolved
     assert "import std" not in resolved
 
 

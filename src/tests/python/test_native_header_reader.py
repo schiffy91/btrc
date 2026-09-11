@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from src.compiler.python.abi.native_generated import NativeObjectiveCMethod
 from src.compiler.python.frontend.native_imports import NativeHeaderCodec, NativeImportError
 
 REPO = Path(__file__).resolve().parents[3]
@@ -62,9 +63,16 @@ def assert_codec_parity(codec_probe, tmp_path, source):
     result = probe_document(codec_probe, tmp_path, source)
     assert result.returncode == 0, result.stderr
     lines = [f"{header.target_triple} {len(header.exports)} {len(header.records)}"]
+    lines.extend(
+        f"interface {entry.name} {entry.identity} {int(entry.complete)} {entry.superclass}"
+        for entry in header.interfaces
+    )
     for record in header.records:
         lines.append(f"{record.identity} {record.size_bits} {record.alignment_bits}")
         lines.extend(f"{field.name} {field.offset_bits} {field.width_bits}" for field in record.fields)
+    for declaration in header.exports:
+        if isinstance(declaration, NativeObjectiveCMethod):
+            lines.append(f"method {declaration.name} {declaration.identity} {declaration.receiver} {declaration.owner}")
     assert result.stdout.splitlines() == lines
 
 
@@ -98,6 +106,321 @@ def underlying(value):
     while value["kind"] in {"typedef", "qualified"}:
         value = value["underlying"]
     return value
+
+
+@pytest.mark.parametrize(
+    "corruption", [None, "family", "selector", "owner", "receiver", "block", "escape", "inner_pointer", "identity"]
+)
+def test_objective_c_methods_preserve_selector_and_lifetime(reader, codec_probe, tmp_path, corruption):
+    if sys.platform != "darwin":
+        pytest.skip("requires the Apple Foundation SDK")
+    result = read(
+        reader,
+        tmp_path,
+        "#import <Foundation/Foundation.h>\n"
+        "@interface NativeCounter : NSObject\n"
+        "+ (instancetype)newCounter NS_RETURNS_RETAINED;\n"
+        "- (instancetype)initWithValue:(NSUInteger)value;\n"
+        "- (NSString * _Nullable)label;\n"
+        "- (void)visit:(void (^ NS_NOESCAPE)(NSString * _Nonnull))visitor;\n"
+        "- (NSArray<NSString *> * _Nonnull)labels;\n"
+        "- (id<NSCopying>)copyable;\n"
+        "- (Class<NSCopying>)classObject;\n"
+        "@end\n",
+        [
+            "+[NativeCounter newCounter]",
+            "-[NativeCounter initWithValue:]",
+            "-[NativeCounter label]",
+            "-[NativeCounter visit:]",
+            "-[NativeCounter labels]",
+            "-[NativeCounter copyable]",
+            "-[NativeCounter classObject]",
+        ],
+        "-x",
+        "objective-c",
+        "-fblocks",
+        "-fobjc-arc",
+        "-isysroot",
+        os.environ["BTRC_NATIVE_SYSROOT"],
+        "-target",
+        os.environ["BTRC_NATIVE_TARGET"],
+    )
+    assert result.returncode == 0, result.stderr
+    document = json.loads(result.stdout)
+    declarations = {item["selector"]: item for item in document["declarations"]}
+    if corruption is not None:
+        if corruption == "family":
+            declarations["newCounter"]["method_family"] = "custom"
+        elif corruption == "selector":
+            declarations["newCounter"]["selector"] = "newCounter:"
+        elif corruption == "owner":
+            declarations["label"]["owner"] = ""
+        elif corruption == "receiver":
+            declarations["label"]["receiver"] = "Different"
+        elif corruption == "block":
+            underlying(declarations["visit:"]["type"]["parameters"][0])["signature"] = declarations["visit:"]["type"][
+                "return_type"
+            ]
+        elif corruption == "escape":
+            declarations["visit:"]["parameter_semantics"][0]["no_escape"] = "false"
+        elif corruption == "inner_pointer":
+            declarations["label"]["returns_inner_pointer"] = "true"
+        else:
+            underlying(declarations["label"]["type"]["return_type"])["identity"] = ""
+        malformed = json.dumps(document)
+        with pytest.raises(NativeImportError):
+            NativeHeaderCodec().decode(malformed)
+        rejected = probe_document(codec_probe, tmp_path, malformed)
+        assert rejected.returncode != 0 and "native header" in rejected.stderr
+        return
+    assert all(item["kind"] == "objc_method" and item["owner"] == "NativeCounter" for item in declarations.values())
+    created = declarations["newCounter"]
+    assert created["class_method"] and created["method_family"] == "new"
+    assert created["returned_ownership"] == "ns_retained" and created["related_result"]
+    initialized = declarations["initWithValue:"]
+    assert not initialized["class_method"] and initialized["method_family"] == "init"
+    assert initialized["consumes_self"] and initialized["related_result"]
+    label = underlying(declarations["label"]["type"]["return_type"])
+    assert label["kind"] == "objc_object" and label["name"] == "NSString"
+    assert declarations["label"]["type"]["return_type"]["nullability"] == "nullable"
+    visit = declarations["visit:"]
+    assert visit["parameter_semantics"][0]["no_escape"]
+    block = underlying(visit["type"]["parameters"][0])
+    assert block["kind"] == "objc_block"
+    assert underlying(block["signature"])["parameters"][0]["nullability"] == "nonnull"
+    labels = underlying(declarations["labels"]["type"]["return_type"])
+    assert labels["name"] == "NSArray" and not labels["class_object"]
+    assert underlying(labels["type_arguments"][0])["name"] == "NSString"
+    copyable = underlying(declarations["copyable"]["type"]["return_type"])
+    assert not copyable["name"] and not copyable["class_object"] and copyable["protocols"] == ["NSCopying"]
+    class_object = underlying(declarations["classObject"]["type"]["return_type"])
+    assert class_object["class_object"] and class_object["protocols"] == ["NSCopying"]
+    assert_codec_parity(codec_probe, tmp_path, result.stdout)
+
+
+def test_foundation_methods_preserve_actual_sdk_types(reader, codec_probe, tmp_path):
+    if sys.platform != "darwin":
+        pytest.skip("requires the Apple Foundation SDK")
+    result = read(
+        reader,
+        tmp_path,
+        "#import <Foundation/Foundation.h>\n",
+        ["+[NSString stringWithUTF8String:]", "-[NSString length]", "-[NSString UTF8String]"],
+        "-x",
+        "objective-c",
+        "-fblocks",
+        "-fobjc-arc",
+        "-isysroot",
+        os.environ["BTRC_NATIVE_SYSROOT"],
+        "-target",
+        os.environ["BTRC_NATIVE_TARGET"],
+    )
+    assert result.returncode == 0, result.stderr
+    declarations = {item["selector"]: item for item in json.loads(result.stdout)["declarations"]}
+    assert all(item["owner"] == "NSString" for item in declarations.values())
+    assert declarations["stringWithUTF8String:"]["class_method"]
+    assert underlying(declarations["length"]["type"]["return_type"])["bits"] == 64
+    assert declarations["UTF8String"]["returns_inner_pointer"]
+    assert_codec_parity(codec_probe, tmp_path, result.stdout)
+
+
+def test_objective_c_inherited_sdk_selectors(reader, codec_probe, tmp_path):
+    if sys.platform != "darwin":
+        pytest.skip("requires the Apple AppKit SDK")
+    selections = {
+        "-[NSOpenPanel setTitle:]": ("NSOpenPanel", "NSSavePanel"),
+        "-[NSOpenPanel runModal]": ("NSOpenPanel", "NSSavePanel"),
+        "-[NSMutableString length]": ("NSMutableString", "NSString"),
+        "-[NSString length]": ("NSString", "NSString"),
+        "+[NSMutableString stringWithUTF8String:]": ("NSMutableString", "NSString"),
+        "-[NativeBase value]": ("NativeBase", "NativeBase"),
+        "-[NativeMiddle value]": ("NativeMiddle", "NativeMiddle"),
+        "-[NativeLeaf value]": ("NativeLeaf", "NativeMiddle"),
+        "-[NSView addSubview:]": ("NSView", "NSView"),
+        "+[NSTextField textFieldWithString:]": ("NSTextField", "NSTextField"),
+    }
+    result = read(
+        reader,
+        tmp_path,
+        "#import <AppKit/AppKit.h>\n"
+        "@interface NativeBase : NSObject\n@property(readonly) NSUInteger value;\n@end\n"
+        "@interface NativeMiddle : NativeBase\n- (NSUInteger)value;\n@end\n"
+        "@interface NativeLeaf : NativeMiddle\n@end\n",
+        list(selections),
+        "-x",
+        "objective-c",
+        "-fblocks",
+        "-fobjc-arc",
+        "-isysroot",
+        os.environ["BTRC_NATIVE_SYSROOT"],
+        "-target",
+        os.environ["BTRC_NATIVE_TARGET"],
+    )
+    assert result.returncode == 0, result.stderr
+    declarations = {item["name"]: item for item in json.loads(result.stdout)["declarations"]}
+    for name, (receiver, owner) in selections.items():
+        assert declarations[name]["receiver"] == receiver
+        assert declarations[name]["owner"] == owner
+        assert declarations[name]["identity"]
+    assert declarations["+[NSMutableString stringWithUTF8String:]"]["related_result"]
+    assert declarations["-[NSMutableString length]"]["identity"] == declarations["-[NSString length]"]["identity"]
+    assert declarations["-[NativeLeaf value]"]["identity"] == declarations["-[NativeMiddle value]"]["identity"]
+    assert declarations["-[NativeLeaf value]"]["identity"] != declarations["-[NativeBase value]"]["identity"]
+    interfaces = {entry.name: entry for entry in NativeHeaderCodec().decode(result.stdout).interfaces}
+    assert interfaces["NSTextField"].superclass == interfaces["NSControl"].identity
+    assert interfaces["NSControl"].superclass == interfaces["NSView"].identity
+    assert interfaces["NativeLeaf"].superclass == interfaces["NativeMiddle"].identity
+    assert interfaces["NativeMiddle"].superclass == interfaces["NativeBase"].identity
+    assert interfaces["NSObject"].complete and not interfaces["NSObject"].superclass
+    assert "NSButton" not in interfaces  # Import the selected closure, not all of AppKit.
+    assert_codec_parity(codec_probe, tmp_path, result.stdout)
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        None,
+        "duplicate_name",
+        "duplicate_identity",
+        "missing_parent",
+        "self_cycle",
+        "cycle",
+        "incomplete",
+        "incomplete_parent",
+        "unknown_field",
+        "legacy",
+    ],
+)
+def test_objective_c_interface_graph(reader, codec_probe, tmp_path, corruption):
+    result = read(
+        reader,
+        tmp_path,
+        "__attribute__((objc_root_class)) @interface NativeRoot @end\n"
+        "@interface NativeMiddle : NativeRoot @end\n"
+        "@class NativeForward;\n"
+        "@interface NativeLeaf : NativeMiddle\n+ (instancetype)make;\n- (NativeForward*)other;\n@end\n"
+        "@interface Unselected : NativeRoot @end\n",
+        ["+[NativeLeaf make]", "-[NativeLeaf other]"],
+        "-x",
+        "objective-c",
+        "-target",
+        "arm64-apple-macosx14.0",
+        "-fobjc-arc",
+    )
+    assert result.returncode == 0, result.stderr
+    document = json.loads(result.stdout)
+    interfaces = {entry["name"]: entry for entry in document["interfaces"]}
+    assert set(interfaces) == {"NativeRoot", "NativeMiddle", "NativeLeaf", "NativeForward"}
+    assert not interfaces["NativeForward"]["complete"]
+    assert not interfaces["NativeForward"]["superclass"]
+    root, middle, leaf = (interfaces[name] for name in ("NativeRoot", "NativeMiddle", "NativeLeaf"))
+    if corruption == "duplicate_name":
+        middle["name"] = root["name"]
+    elif corruption == "duplicate_identity":
+        middle["identity"] = root["identity"]
+    elif corruption == "missing_parent":
+        leaf["superclass"] = "missing"
+    elif corruption == "self_cycle":
+        leaf["superclass"] = leaf["identity"]
+    elif corruption == "cycle":
+        root["superclass"] = leaf["identity"]
+    elif corruption == "incomplete":
+        leaf["complete"] = False
+    elif corruption == "incomplete_parent":
+        root["complete"] = False
+    elif corruption == "unknown_field":
+        root["unsafe_cast"] = True
+    elif corruption == "legacy":
+        del document["interfaces"]
+    source = json.dumps(document)
+    if corruption is None or corruption == "legacy":
+        assert_codec_parity(codec_probe, tmp_path, source)
+    else:
+        with pytest.raises(NativeImportError):
+            NativeHeaderCodec().decode(source)
+        checked = probe_document(codec_probe, tmp_path, source)
+        assert checked.returncode != 0
+        assert "native header:" in checked.stderr
+
+
+@pytest.mark.parametrize(
+    "selection", ["-[UnknownReceiver length]", "+[NSMutableString length]", "-[NSOpenPanel missingSelector:]"]
+)
+def test_objective_c_inherited_lookup_rejects_missing_methods(reader, tmp_path, selection):
+    if sys.platform != "darwin":
+        pytest.skip("requires the Apple AppKit SDK")
+    result = read(
+        reader,
+        tmp_path,
+        "#import <AppKit/AppKit.h>\n",
+        [selection],
+        "-x",
+        "objective-c",
+        "-fblocks",
+        "-fobjc-arc",
+        "-isysroot",
+        os.environ["BTRC_NATIVE_SYSROOT"],
+        "-target",
+        os.environ["BTRC_NATIVE_TARGET"],
+    )
+    assert result.returncode != 0
+    assert not result.stdout
+    assert f"Native declaration not found: {selection}" in result.stderr
+
+
+def test_native_global_slot_const_is_distinct_from_pointee_const(reader, codec_probe, tmp_path):
+    result = read(
+        reader,
+        tmp_path,
+        "extern int *const fixedPointer;\n"
+        "extern const int *movingPointer;\n"
+        "typedef int *const FixedPointer; extern FixedPointer aliasedPointer;\n"
+        "typedef const int *const FrozenPointer; extern FrozenPointer frozenPointer;\n"
+        "typedef struct { int x; } Point; extern const Point fixedPoint;\n",
+        ["fixedPointer", "movingPointer", "aliasedPointer", "frozenPointer", "fixedPoint"],
+    )
+    assert result.returncode == 0, result.stderr
+    declarations = {item["name"]: item for item in json.loads(result.stdout)["declarations"]}
+    for name in ("fixedPointer", "aliasedPointer", "frozenPointer", "fixedPoint"):
+        assert declarations[name]["read_only"]
+        assert not underlying(declarations[name]["type"])["const"]
+    assert not declarations["movingPointer"]["read_only"]
+    for name in ("fixedPointer", "aliasedPointer"):
+        assert not underlying(declarations[name]["type"])["pointee"]["const"]
+    for name in ("movingPointer", "frozenPointer"):
+        assert underlying(declarations[name]["type"])["pointee"]["const"]
+    assert_codec_parity(codec_probe, tmp_path, result.stdout)
+
+
+@pytest.mark.parametrize("read_only", [None, 1, "true"])
+def test_native_global_requires_boolean_slot_metadata(reader, codec_probe, tmp_path, read_only):
+    result = read(reader, tmp_path, "extern const int value;", ["value"])
+    assert result.returncode == 0, result.stderr
+    document = json.loads(result.stdout)
+    if read_only is None:
+        del document["declarations"][0]["read_only"]
+    else:
+        document["declarations"][0]["read_only"] = read_only
+    source = json.dumps(document)
+    with pytest.raises(NativeImportError):
+        NativeHeaderCodec().decode(source)
+    assert probe_document(codec_probe, tmp_path, source).returncode != 0
+
+
+@pytest.mark.parametrize(
+    ("source", "flags", "diagnostic"),
+    [
+        ("extern _Thread_local int value;", [], "thread-local"),
+        ("int probe(void) { static int value = 1; return value; }", [], "local"),
+        ('extern int value __asm__("renamed");', [], "adapter lowering"),
+        ("extern int value;", ["-x", "c++", "-std=c++17"], "adapter lowering"),
+    ],
+)
+def test_native_global_unsupported_storage_fails_without_output(reader, tmp_path, source, flags, diagnostic):
+    result = read(reader, tmp_path, source, ["value"], *flags)
+    assert result.returncode != 0
+    assert not result.stdout
+    assert diagnostic in result.stderr
 
 
 def test_native_semantic_model_has_compiled_frontend_parity(reader, codec_probe, tmp_path):

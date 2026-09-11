@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
-APP = ROOT / "src" / "stdlib" / "app"
-GPU = ROOT / "src" / "stdlib" / "gpu"
+APP = ROOT / "src" / "stdlib" / "App"
+GPU = ROOT / "src" / "stdlib" / "GPU"
 FIXTURE = ROOT / "src" / "tests" / "native" / "app_surface"
 HARNESS = FIXTURE / "gpu_attach_actual_runtime.c"
 GPU_REDIRECT = FIXTURE / "gpu_attach_test_redirect.h"

@@ -19,6 +19,7 @@ class NativeHeader:
     character_bits: int = 0
     exports: list[native_declaration] = _dc_field(default_factory=list)
     records: list[NativeRecordLayout] = _dc_field(default_factory=list)
+    interfaces: list[NativeObjectiveCInterface] = _dc_field(default_factory=list)
 
 
 @dataclass(kw_only=True)
@@ -28,6 +29,26 @@ class NativeFunction:
     signature: native_type
     parameter_semantics: list[NativeParameterSemantics] = _dc_field(default_factory=list)
     returned_ownership: str = ""
+    source_file: str = _dc_field(default=None, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    column: int = 0
+
+
+@dataclass(kw_only=True)
+class NativeObjectiveCMethod:
+    name: str = ""
+    identity: str = ""
+    owner: str = ""
+    receiver: str = ""
+    selector: str = ""
+    class_method: bool = False
+    signature: native_type
+    parameter_semantics: list[NativeParameterSemantics] = _dc_field(default_factory=list)
+    returned_ownership: str = ""
+    method_family: str = ""
+    consumes_self: bool = False
+    related_result: bool = False
+    returns_inner_pointer: bool = False
     source_file: str = _dc_field(default=None, compare=False)
     line: int = _dc_field(default=0, compare=False)
     column: int = 0
@@ -47,6 +68,16 @@ class NativeConstant:
     name: str = ""
     value_type: native_type
     decimal_value: str = ""
+    source_file: str = _dc_field(default=None, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    column: int = 0
+
+
+@dataclass(kw_only=True)
+class NativeGlobal:
+    name: str = ""
+    value_type: native_type
+    read_only: bool = False
     source_file: str = _dc_field(default=None, compare=False)
     line: int = _dc_field(default=0, compare=False)
     column: int = 0
@@ -86,6 +117,7 @@ class NativeAlias:
 @dataclass(kw_only=True)
 class NativeRecordType:
     name: str = ""
+    tag_name: str = ""
     identity: str = ""
     record_kind: str = ""
     complete: bool = False
@@ -124,6 +156,22 @@ class NativeQualifiedType:
 
 
 @dataclass(kw_only=True)
+class NativeObjectiveCObject:
+    name: str = ""
+    identity: str = ""
+    class_object: bool = False
+    protocols: list[str] = _dc_field(default_factory=list)
+    type_arguments: list[native_type] = _dc_field(default_factory=list)
+    qualifiers: NativeQualifiers
+
+
+@dataclass(kw_only=True)
+class NativeObjectiveCBlock:
+    signature: native_type
+    qualifiers: NativeQualifiers
+
+
+@dataclass(kw_only=True)
 class NativeQualifiers:
     is_const: bool = False
     is_volatile: bool = False
@@ -136,6 +184,15 @@ class NativeParameterSemantics:
     name: str = ""
     cf_consumed: bool = False
     ns_consumed: bool = False
+    no_escape: bool = False
+
+
+@dataclass(kw_only=True)
+class NativeObjectiveCInterface:
+    name: str = ""
+    identity: str = ""
+    complete: bool = False
+    superclass: str = ""
 
 
 @dataclass(kw_only=True)
@@ -160,8 +217,8 @@ class NativeField:
 
 # --- Union type aliases for sum types ---
 
-native_declaration = Union[NativeFunction, NativeTypedef, NativeConstant, NativeRecordDeclaration]
-native_type = Union[NativeBuiltin, NativePointer, NativeAlias, NativeRecordType, NativeEnumType, NativeFunctionType, NativeArrayType, NativeQualifiedType]
+native_declaration = Union[NativeFunction, NativeObjectiveCMethod, NativeTypedef, NativeConstant, NativeGlobal, NativeRecordDeclaration]
+native_type = Union[NativeBuiltin, NativePointer, NativeAlias, NativeRecordType, NativeEnumType, NativeFunctionType, NativeArrayType, NativeQualifiedType, NativeObjectiveCObject, NativeObjectiveCBlock]
 
 
 # --- Product type aliases ---
@@ -170,5 +227,6 @@ native_type = Union[NativeBuiltin, NativePointer, NativeAlias, NativeRecordType,
 native_header = NativeHeader
 native_qualifiers = NativeQualifiers
 native_parameter = NativeParameterSemantics
+native_interface = NativeObjectiveCInterface
 native_record = NativeRecordLayout
 native_field = NativeField

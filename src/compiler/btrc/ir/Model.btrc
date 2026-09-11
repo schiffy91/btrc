@@ -30,6 +30,7 @@ enum IRKind {
 	IRK_COMMA_EXPR,
 	IRK_UNARYOP,
 	IRK_CALL,
+	IRK_OBJECTIVE_C_MESSAGE,
 	IRK_CAST,
 	IRK_TERNARY,
 	IRK_INDEX,
@@ -55,6 +56,8 @@ enum IRKind {
 	IRK_BLOCK,
 	IRK_SWITCH,
 	IRK_CASE,
+	IRK_OBJECTIVE_C_AUTORELEASE_POOL,
+	IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY,
 };
 
 class IRNode {
@@ -84,6 +87,7 @@ class IRNode {
 
 	/* IRCast / IRSizeof */
 	public string targetType;
+	public string bridge;
 
 	/* IRFieldAccess */
 	public string field;
@@ -144,6 +148,7 @@ class IRNode {
 		self.args = [];
 		self.fieldNames = [];
 		self.targetType = "";
+		self.bridge = "";
 		self.field = "";
 		self.arrow = false;
 		self.storageRoot = "";
@@ -286,9 +291,34 @@ class IRNode {
 		return n;
 	}
 
-	class IRNode cast(string targetType, IRNode expr) {
+	class IRNode objectiveCMessage(IRNode receiver, string selector, Vector<IRNode> args) {
+		var node = IRNode();
+		node.kind = IRK_OBJECTIVE_C_MESSAGE;
+		node.obj = receiver;
+		node.name = selector;
+		node.args = args;
+		return node;
+	}
+
+	class IRNode objectiveCAutoreleasePool(IRNode body) {
+		var node = IRNode();
+		node.kind = IRK_OBJECTIVE_C_AUTORELEASE_POOL;
+		node.body = body;
+		return node;
+	}
+
+	class IRNode objectiveCExceptionBoundary(IRNode body, IRNode failure) {
+		var node = IRNode();
+		node.kind = IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY;
+		node.body = body;
+		node.elseBlock = failure;
+		return node;
+	}
+
+	class IRNode cast(string targetType, IRNode expr, string bridge = "") {
 		IRNode n = IRNode();
 		n.kind = IRK_CAST;
+		n.bridge = bridge;
 		n.targetType = targetType;
 		n.expr = expr;
 		return n;
@@ -779,6 +809,8 @@ class IRTemporaryNames {
 }
 
 class IRModule {
+	public string language;
+	public Map<string, IRModule> nativeUnits;
 	public Vector<IRPreprocessorDecl> preprocessorDecls;
 	public Vector<IREnumDef> enumDefs;
 	public Vector<IRStructForward> structForwards;
@@ -798,6 +830,8 @@ class IRModule {
 	public Vector<string> helpers;
 
 	public IRModule() {
+		self.language = "c";
+		self.nativeUnits = {};
 		self.preprocessorDecls = [];
 		self.enumDefs = [];
 		self.structForwards = [];

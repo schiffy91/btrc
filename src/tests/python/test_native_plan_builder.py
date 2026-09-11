@@ -11,10 +11,96 @@ from pathlib import Path
 
 import pytest
 
+from src.compiler.python.frontend.packages import NativeGeneratedUnit, NativeLinkPlan, PackageTarget
 from tools.native_plan import NativePlanBuilder, NativePlanError, NativePlanReader, main
 
 REPO = Path(__file__).resolve().parents[3]
 EXAMPLE = REPO / "examples" / "native-package"
+
+
+def generated_plan(source="int answer(void) { return 42; }\n", language="c", standard="c11", memory="manual"):
+    return NativeLinkPlan(
+        PackageTarget.parse(None),
+        generated_units=(NativeGeneratedUnit("Adapter", language, standard, memory, source),),
+    ).as_dict()
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["empty", "duplicate", "name", "language", "standard", "memory", "source", "flags", "linker", "schema"],
+)
+def test_generated_unit_invalid_plan_never_invokes_compiler(tmp_path, corruption):
+    payload = generated_plan()
+    unit = payload["generated-units"][0]
+    if corruption == "empty":
+        payload["generated-units"] = []
+    elif corruption == "duplicate":
+        payload["generated-units"].append(dict(unit))
+    elif corruption == "name":
+        unit["name"] = "../Escape"
+    elif corruption == "language":
+        unit["language"] = "c -include injected.h"
+    elif corruption == "standard":
+        unit["standard"] = "c89"
+    elif corruption == "memory":
+        unit["memory-management"] = "arc"
+    elif corruption == "source":
+        unit["source"] = "bad\0source"
+    elif corruption == "flags":
+        unit["flags"] = ["-include", "injected.h"]
+    elif corruption == "linker":
+        payload["linker-language"] = "c++"
+    else:
+        payload["schema"] = 1
+    plan = tmp_path / "Program.link.json"
+    plan.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n")
+
+    def never_run(*args, **kwargs):
+        pytest.fail("invalid generated plan reached a build tool")
+
+    with pytest.raises(NativePlanError):
+        NativePlanBuilder(runner=never_run).build(
+            plan_path=plan, generated_c=tmp_path / "absent.c", output=tmp_path / "absent"
+        )
+
+
+@pytest.mark.parametrize(
+    "language,standard,memory,source",
+    [
+        ("c", "c11", "manual", "int answer(void) { return 42; }\n"),
+        (
+            "c++",
+            "c++17",
+            "raii",
+            '#include <string>\nextern "C" int answer(void) { try { throw std::string("forty two"); } catch (const std::string& text) { return text.size() == 9 ? 42 : 0; } }\n',
+        ),
+    ],
+)
+def test_generated_unit_build_isolated_from_source_tree(tmp_path, language, standard, memory, source):
+    payload = generated_plan(source, language, standard, memory)
+    plan = tmp_path / "Program.link.json"
+    plan.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n")
+    caller = tmp_path / "Caller.c"
+    caller.write_text("int answer(void); int main(void) { return answer() == 42 ? 0 : 1; }\n")
+    output = tmp_path / "Program"
+    NativePlanBuilder().build(plan_path=plan, generated_c=caller, output=output)
+    run = subprocess.run([str(output)], capture_output=True, text=True, timeout=15)
+    assert run.returncode == 0, run.stderr
+    assert set(path.name for path in tmp_path.iterdir()) == {"Program.link.json", "Caller.c", "Program"}
+
+
+def test_failed_generated_unit_preserves_output_and_removes_temporary_files(tmp_path):
+    payload = generated_plan('#error "generated adapter failure"\n')
+    plan = tmp_path / "Program.link.json"
+    plan.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n")
+    caller = tmp_path / "Caller.c"
+    caller.write_text("int main(void) { return 0; }\n")
+    output = tmp_path / "Program"
+    output.write_bytes(b"previous output")
+    with pytest.raises(NativePlanError, match="generated adapter failure"):
+        NativePlanBuilder().build(plan_path=plan, generated_c=caller, output=output)
+    assert output.read_bytes() == b"previous output"
+    assert set(path.name for path in tmp_path.iterdir()) == {"Program.link.json", "Caller.c", "Program"}
 
 
 def _emit_plan(root: Path, generated: Path, plan: Path) -> None:

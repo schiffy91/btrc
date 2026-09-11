@@ -1,4 +1,4 @@
-/* HttpServer.parseBytes() + HttpRequest.bodyBytes: the binary-safe ingest path.
+/* HTTPServer.parseBytes() + HTTPRequest.bodyBytes: the binary-safe ingest path.
  *
  * The string parse() truncates the body at the first embedded NUL (string is
  * NUL-terminated). parseBytes() slices the body straight out of the Bytes
@@ -7,8 +7,8 @@
  *
  * Hermetic + deterministic: a request is assembled in memory; no sockets. */
 import Library.Bytes;
-import Library.HttpServer;
-import Library.HttpTypes;
+import Library.HTTPServer;
+import Library.HTTPTypes;
 
 #include <assert.h>
 
@@ -23,8 +23,8 @@ int main() {
 	raw.append(0);    /* embedded NUL */
 	raw.append(67);   /* 'C' */
 
-	HttpServer srv = HttpServer(0);
-	HttpRequest req = srv.parseBytes(raw);
+	HTTPServer srv = HTTPServer(0);
+	HTTPRequest req = srv.parseBytes(raw);
 
 	/* Request line + headers parse from the ASCII head as usual. */
 	assert(req.method.equals("POST"));

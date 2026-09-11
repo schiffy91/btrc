@@ -5,7 +5,7 @@ import ./pipeline/Stage.btrc;
 class Compiler {
 	private CompilerPipeline pipeline;
 
-	public Compiler(GrammarInfo grammar, string stdlibDirectory, FeSourceFileReader sourceFiles) { self.pipeline = CompilerPipeline(grammar, stdlibDirectory, sourceFiles); }
+	public Compiler(GrammarInfo grammar, string stdlibDirectory, FeSourceFileReader sourceFiles, FeNativeHeaderReader nativeHeaderReader = (FeNativeHeaderReader)null) { self.pipeline = CompilerPipeline(grammar, stdlibDirectory, sourceFiles, nativeHeaderReader); }
 
 	public BtrccCompilationResult compile(string source, string sourcePath, BtrccOptions options) { return self.pipeline.compile(source, sourcePath, options); }
 }

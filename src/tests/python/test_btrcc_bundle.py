@@ -23,12 +23,12 @@ def _binary_payload(target: str) -> bytes:
 def _fixture(root: Path, target: str = "linux-x64") -> tuple[Path, Path]:
     (root / "src/language").mkdir(parents=True)
     (root / "src/language/grammar.ebnf").write_text("@lexical\n", encoding="utf-8")
-    (root / "src/stdlib/gui").mkdir(parents=True)
+    (root / "src/stdlib/GUI").mkdir(parents=True)
     (root / "src/stdlib/Vector.btrc").write_text("class Vector {}\n", encoding="utf-8")
     (root / "src/stdlib/Strings.btrc").write_text("class Strings {}\n", encoding="utf-8")
-    (root / "src/stdlib/gui/Gui.btrc").write_text("class Gui {}\n", encoding="utf-8")
-    (root / "src/stdlib/gui/runtime.h").write_text("#pragma once\n", encoding="utf-8")
-    (root / "src/stdlib/gui/README.md").write_text("gui\n", encoding="utf-8")
+    (root / "src/stdlib/GUI/GUI.btrc").write_text("class GUI {}\n", encoding="utf-8")
+    (root / "src/stdlib/GUI/runtime.h").write_text("#pragma once\n", encoding="utf-8")
+    (root / "src/stdlib/GUI/README.md").write_text("gui\n", encoding="utf-8")
     (root / "src/stdlib/build").mkdir()
     (root / "src/stdlib/build/runtime.o").write_bytes(b"not-runtime-source")
     (root / "pyproject.toml").write_text('[project]\nversion = "9.8.7"\n', encoding="utf-8")
@@ -54,7 +54,7 @@ def test_bundle_has_relocatable_layout_modes_and_hashed_manifest(tmp_path: Path)
 
     executable = result.bundle / "bin/btrcc"
     grammar = result.bundle / "share/btrc/language/grammar.ebnf"
-    nested = result.bundle / "share/btrc/stdlib/gui/Gui.btrc"
+    nested = result.bundle / "share/btrc/stdlib/GUI/GUI.btrc"
     expected_binary = _binary_payload("linux-x64")
     assert executable.read_bytes() == expected_binary
     assert (result.bundle / "LICENSE").read_text(encoding="utf-8") == "fixture license\n"

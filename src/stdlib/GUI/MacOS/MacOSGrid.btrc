@@ -1,0 +1,114 @@
+import Library.Math;
+import Library.GUI.MacOS.MacOSView;
+
+/* AppKit owns cell layout and intrinsic sizing. Children may themselves be
+ * containers; their BTRC owners remain responsible for their lifecycle. */
+class MacOSGrid {
+	private NSGridView? _grid;
+	private MacOSView _view;
+
+	public MacOSGrid(int columns, int rows, double columnSpacing = 0.0, double rowSpacing = 0.0) {
+		if (!NSThread.isMainThread()) { throw "Native grids require the main thread"; }
+		if (columns <= 0 || rows <= 0) { throw "Native grid dimensions must be positive"; }
+		self.validateSpacing(columnSpacing, rowSpacing);
+		var grid = NSGridView.gridViewWithNumberOfColumns(columns, rows);
+		if (grid == null) { throw "Cannot create native grid"; }
+		self._grid = grid;
+		self._view = MacOSView(grid);
+		grid.setXPlacement(NSGridCellPlacementFill);
+		grid.setYPlacement(NSGridCellPlacementCenter);
+		grid.setColumnSpacing(columnSpacing);
+		grid.setRowSpacing(rowSpacing);
+	}
+
+	private NSGridView control() {
+		self._view.nativeView();
+		if (self._grid == null) { throw "Native grid is closed"; }
+		return self._grid;
+	}
+
+	private void validateSpacing(double columnSpacing, double rowSpacing) {
+		if (!Math.isFinite(columnSpacing) || !Math.isFinite(rowSpacing) || columnSpacing < 0.0 || rowSpacing < 0.0) { throw "Invalid native grid spacing"; }
+	}
+
+	public NSView nativeView() { return self._view.nativeView(); }
+
+	public int columnCount() { return (int)self.control().numberOfColumns(); }
+
+	public int rowCount() { return (int)self.control().numberOfRows(); }
+
+	public void setChild(int column, int row, NSView? child) {
+		var grid = self.control();
+		if (column < 0 || column >= grid.numberOfColumns() || row < 0 || row >= grid.numberOfRows()) { throw "Native grid cell is out of bounds"; }
+		var cell = grid.cellAtColumnIndex(column, row);
+		var previous = cell.contentView();
+		if (previous == child) { return; }
+		if (child != null) {
+			if (self.nativeView().isDescendantOf(child) || child.superview() != null) { throw "Native grid child is already attached or creates a cycle"; }
+		}
+		cell.setContentView(child);
+		if (previous != null) { previous.removeFromSuperview(); }
+	}
+
+	public void setSpacing(double columnSpacing, double rowSpacing) {
+		self.validateSpacing(columnSpacing, rowSpacing);
+		var grid = self.control();
+		grid.setColumnSpacing(columnSpacing);
+		grid.setRowSpacing(rowSpacing);
+	}
+
+	public void setColumnWidth(int column, double width) {
+		var grid = self.control();
+		if (column < 0 || column >= grid.numberOfColumns()) { throw "Native grid column is out of bounds"; }
+		if (!Math.isFinite(width) || width < 0.0) { throw "Invalid native grid column width"; }
+		grid.columnAtIndex(column).setWidth(width);
+	}
+
+	public void fitColumn(int column) {
+		var grid = self.control();
+		if (column < 0 || column >= grid.numberOfColumns()) { throw "Native grid column is out of bounds"; }
+		grid.columnAtIndex(column).setWidth(NSGridViewSizeForContent);
+	}
+
+	public void setRowHeight(int row, double height) {
+		var grid = self.control();
+		if (row < 0 || row >= grid.numberOfRows()) { throw "Native grid row is out of bounds"; }
+		if (!Math.isFinite(height) || height < 0.0) { throw "Invalid native grid row height"; }
+		grid.rowAtIndex(row).setHeight(height);
+	}
+
+	public void fitRow(int row) {
+		var grid = self.control();
+		if (row < 0 || row >= grid.numberOfRows()) { throw "Native grid row is out of bounds"; }
+		grid.rowAtIndex(row).setHeight(NSGridViewSizeForContent);
+	}
+
+	public void setRowHidden(int row, bool hidden) {
+		var grid = self.control();
+		if (row < 0 || row >= grid.numberOfRows()) { throw "Native grid row is out of bounds"; }
+		grid.rowAtIndex(row).setHidden(hidden);
+	}
+
+	public void setColumnHidden(int column, bool hidden) {
+		var grid = self.control();
+		if (column < 0 || column >= grid.numberOfColumns()) { throw "Native grid column is out of bounds"; }
+		grid.columnAtIndex(column).setHidden(hidden);
+	}
+
+	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
+
+	public void layout() { self.nativeView().layoutSubtreeIfNeeded(); }
+
+	public double fittingHeight() { return self.nativeView().fittingSize().height; }
+
+	public void close() {
+		if (!NSThread.isMainThread()) { throw "Native grids require the main thread"; }
+		var grid = self._grid;
+		if (grid == null) { return; }
+		for (int row = 0; row < grid.numberOfRows(); row++) {
+			for (int column = 0; column < grid.numberOfColumns(); column++) { self.setChild(column, row, null); }
+		}
+		self._view.close();
+		self._grid = null;
+	}
+}

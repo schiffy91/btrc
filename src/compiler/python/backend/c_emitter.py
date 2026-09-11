@@ -40,6 +40,9 @@ from ..ir.nodes import (
     IRLiteral,
     IRMacroDef,
     IRModule,
+    IRObjectiveCAutoreleasePool,
+    IRObjectiveCExceptionBoundary,
+    IRObjectiveCMessage,
     IRReturn,
     IRSizeof,
     IRStmt,
@@ -449,6 +452,16 @@ class CEmitter:
             )
             callee = expression.callee if isinstance(expression.callee, str) else self._expr(expression.callee)
             return self._compound("", [callee, arguments], "")
+        if isinstance(expression, IRObjectiveCMessage):
+            parts = [self._expr(expression.receiver)]
+            if expression.args:
+                parts.extend(
+                    f"{piece}:{self._expr(argument)}"
+                    for piece, argument in zip(expression.selector.split(":"), expression.args)
+                )
+            else:
+                parts.append(expression.selector)
+            return self._compound("[", parts, "]", inline_separator=" ")
         if isinstance(expression, IRFieldAccess):
             operator = "->" if expression.arrow else "."
             return self._compound(
@@ -457,8 +470,11 @@ class CEmitter:
                 "",
             )
         if isinstance(expression, IRCast):
+            bridge = {"": "", "borrow": "__bridge ", "retain": "__bridge_retained ", "transfer": "__bridge_transfer "}[
+                expression.bridge
+            ]
             return self._compound(
-                f"(({expression.target_type})",
+                f"(({bridge}{expression.target_type})",
                 [self._expr(expression.expr)],
                 ")",
             )
@@ -581,6 +597,17 @@ class CEmitter:
             self._indent += 1
             self._emit_block_contents(statement)
             self._indent -= 1
+            self._line("}")
+        elif isinstance(statement, (IRObjectiveCAutoreleasePool, IRObjectiveCExceptionBoundary)):
+            self._line("@autoreleasepool {" if isinstance(statement, IRObjectiveCAutoreleasePool) else "@try {")
+            self._indent += 1
+            self._emit_block_contents(statement.body)
+            self._indent -= 1
+            if isinstance(statement, IRObjectiveCExceptionBoundary):
+                self._line("} @catch (...) {")
+                self._indent += 1
+                self._emit_block_contents(statement.failure)
+                self._indent -= 1
             self._line("}")
         elif isinstance(statement, IRIf):
             self._line(f"if ({self._cond_expr(statement.condition)}) {{")

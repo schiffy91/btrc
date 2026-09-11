@@ -3,7 +3,7 @@
 import Library.Bytes;
 import Library.Strings;
 import Library.TerminalClock;
-import Library.TerminalCstringArray;
+import Library.TerminalCStringArray;
 import Library.TerminalPassword;
 import Library.TerminalPasswordExchange;
 import Library.Vector;

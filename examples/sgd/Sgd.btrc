@@ -13,7 +13,7 @@
 
 import Library.Vector;
 
-#include <Gpu.btrc>
+#include <GPU.btrc>
 
 // ── GPU kernel ─────────────────────────────────────────────
 // Each thread updates one weight: w -= lr * (momentum + regularization)

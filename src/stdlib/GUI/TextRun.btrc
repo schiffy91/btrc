@@ -1,0 +1,51 @@
+import Library.Bytes;
+import Library.Image;
+
+/* One shaped line in backing pixels. Providers return an owned, white,
+ * straight-alpha image; callers own tinting, placement and caching. */
+class TextRun {
+	private string _text;
+	private int _fontSize;
+	private int _lineHeight;
+	private int _weight;
+
+	public TextRun(string text, int fontSize, int lineHeight, int weight = 400) {
+		if (text == null || text.len() > 4096 || !Bytes.fromString(text).isNulFreeUtf8() || text.contains("\n") || text.contains("\r")) { throw "Text run requires bounded, single-line UTF-8"; }
+		if (fontSize < 8 || fontSize > 256 || lineHeight < fontSize || lineHeight > 512 || (weight != 400 && weight != 500 && weight != 600 && weight != 700)) { throw "Invalid text run typography"; }
+		self._text = text;
+		self._fontSize = fontSize;
+		self._lineHeight = lineHeight;
+		self._weight = weight;
+	}
+
+	public string text() { return self._text; }
+
+	public int fontSize() { return self._fontSize; }
+
+	public int lineHeight() { return self._lineHeight; }
+
+	public int weight() { return self._weight; }
+}
+
+/* Synchronous provider boundary: the transaction retains its result, avoiding
+ * managed-return ABI erasure when a callback is stored by a consumer. */
+class TextRasterization {
+	private TextRun _run;
+	private Image? _image = null;
+
+	public TextRasterization(TextRun run) { self._run = run; }
+
+	public TextRun run() { return self._run; }
+
+	public void complete(Image image) {
+		if (self._image != null || image == null) { throw "Invalid text rasterization completion"; }
+		self._image = image;
+	}
+
+	public Image image() {
+		if (self._image == null) { throw "Text rasterizer did not complete"; }
+		return self._image;
+	}
+}
+
+typedef CFunction<void, TextRasterization> TextRunRasterizer;

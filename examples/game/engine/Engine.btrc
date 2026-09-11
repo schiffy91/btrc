@@ -8,8 +8,8 @@
  *   var engine = Engine("My Game", 800, 600);
  */
 
-import ../../../src/stdlib/app/App.btrc;
-import ../../../src/stdlib/gpu/Gpu.btrc;
+import ../../../src/stdlib/App/App.btrc;
+import ../../../src/stdlib/GPU/GPU.btrc;
 #include "Input.btrc"
 #include "Time.btrc"
 #include "Gameobject.btrc"

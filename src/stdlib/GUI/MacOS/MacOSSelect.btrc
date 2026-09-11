@@ -1,0 +1,90 @@
+import Library.Vector;
+import Library.Math;
+import Library.GUI.MacOS.AppKitText;
+import Library.GUI.MacOS.MacOSView;
+
+/* Selection is native state. Read it after event dispatch, like a text field;
+ * programmatic replacement does not fabricate a user-action event. */
+class MacOSSelect {
+	private NSPopUpButton? _button;
+	private MacOSView _view;
+
+	public MacOSSelect() {
+		if (!NSThread.isMainThread()) { throw "Native selections require the main thread"; }
+		var button = NSPopUpButton.new();
+		if (button == null) { throw "Cannot create native selection"; }
+		self._button = button;
+		self._view = MacOSView(button);
+		button.setPullsDown(false);
+		button.setAutoenablesItems(false);
+		self.setItems(new Vector<string>(), -1);
+	}
+
+	private NSPopUpButton control() {
+		self._view.nativeView();
+		if (self._button == null) { throw "Native selection is closed"; }
+		return self._button;
+	}
+
+	private void validateSelection(int count, int index) {
+		if (count == 0 ? index != -1 : index < 0 || index >= count) { throw "Native selection index is out of range"; }
+	}
+
+	public NSView nativeView() { return self._view.nativeView(); }
+
+	public void setItems(Vector<string> titles, int selectedIndex) {
+		var button = self.control();
+		self.validateSelection(titles.len, selectedIndex);
+		var menu = NSMenu.new();
+		if (menu == null) { throw "Cannot create native selection menu"; }
+		menu.setAutoenablesItems(false);
+		for title in titles {
+			var item = NSMenuItem.new();
+			if (item == null) { throw "Cannot create native selection item"; }
+			item.setTitle(AppKitText.nativeValue(title));
+			menu.addItem(item);
+		}
+		button.setMenu(menu);
+		button.selectItemAtIndex(selectedIndex);
+	}
+
+	public int itemCount() { return (int)self.control().numberOfItems(); }
+
+	public int selectedIndex() { return (int)self.control().indexOfSelectedItem(); }
+
+	private NSMenuItem item(int index) {
+		var button = self.control();
+		if (index < 0 || index >= (int)button.numberOfItems()) { throw "Native selection item is out of range"; }
+		var item = button.itemAtIndex(index);
+		if (item == null) { throw "Native selection item is missing"; }
+		return item;
+	}
+
+	public void setItemEnabled(int index, bool enabled) { self.item(index).setEnabled(enabled); }
+
+	public bool isItemEnabled(int index) { return self.item(index).isEnabled(); }
+
+	public void setSelectedIndex(int index) {
+		var button = self.control();
+		self.validateSelection((int)button.numberOfItems(), index);
+		button.selectItemAtIndex(index);
+	}
+
+	public string selectedTitle() {
+		var title = self.control().titleOfSelectedItem();
+		return title == null ? "" : AppKitText.ownedValue(title);
+	}
+
+	public void setEnabled(bool enabled) { self.control().setEnabled(enabled); }
+
+	public void setFont(double size) {
+		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native selection font size"; }
+		self.control().setFont(NSFont.systemFontOfSize(size));
+	}
+
+	public bool isEnabled() { return self.control().isEnabled(); }
+
+	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
+
+	public void close() { self._view.close(); self._button = null; }
+}

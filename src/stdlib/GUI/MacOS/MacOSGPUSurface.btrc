@@ -1,0 +1,112 @@
+import Library.Math;
+import Library.GUI.MacOS.MetalLayer;
+import Library.GUI.MacOS.WebGPUSurface;
+
+/* A native child rendering target, not a renderer. The layout owner refreshes
+ * backing size after attachment, frame changes and display-scale changes.
+ * Renderers borrow the WebGPU handles and release device/frame resources before
+ * closing this owner. All operations and final release belong to the UI thread. */
+class MacOSGPUSurface {
+	private NSView? _view;
+	private CAMetalLayer? _layer;
+	private WGPUInstance _instance;
+	private WGPUSurface _surface;
+	private int _pixelWidth;
+	private int _pixelHeight;
+	private double _backingScale;
+
+	public MacOSGPUSurface() {
+		self._view = null;
+		self._layer = null;
+		self._instance = null;
+		self._surface = null;
+		self._pixelWidth = 0;
+		self._pixelHeight = 0;
+		self._backingScale = 1.0;
+		self.requireMainThread();
+		try {
+			var view = NSView.new();
+			var layer = CAMetalLayer.layer();
+			if (view == null || layer == null) { throw "Cannot create native GPU view"; }
+			self._view = view;
+			self._layer = layer;
+			view.setWantsLayer(true);
+			// NSView defaults to unclipped on macOS 14+, unlike a rendering surface.
+			view.setClipsToBounds(true);
+			view.setLayer(layer);
+			self._instance = wgpuCreateInstance(null);
+			if (self._instance == null) { throw "Cannot create WebGPU instance"; }
+			var source = WGPUSurfaceSourceMetalLayerInput();
+			source.chain.sType = WGPUSType_SurfaceSourceMetalLayer;
+			source.layer = layer;
+			var descriptor = WGPUSurfaceDescriptorInput();
+			descriptor.nextInChain = source;
+			self._surface = wgpuInstanceCreateSurface(self._instance, descriptor);
+			if (self._surface == null) { throw "Cannot create native WebGPU surface"; }
+		} catch (string error) {
+			self.close();
+			throw error;
+		}
+	}
+
+	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native GPU surfaces require the main thread"; } }
+
+	public NSView nativeView() {
+		self.requireMainThread();
+		if (self._view == null) { throw "GPU surface is closed"; }
+		return self._view;
+	}
+
+	public WGPUInstance nativeInstance() { self.nativeView(); return self._instance; }
+
+	public WGPUSurface nativeSurface() { self.nativeView(); return self._surface; }
+
+	public int pixelWidth() { self.nativeView(); return self._pixelWidth; }
+
+	public int pixelHeight() { self.nativeView(); return self._pixelHeight; }
+
+	public double backingScale() { self.nativeView(); return self._backingScale; }
+
+	public void setFrame(double x, double y, double width, double height) {
+		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid GPU view frame"; }
+		var view = self.nativeView();
+		var frame = view.frame();
+		frame.origin.x = x;
+		frame.origin.y = y;
+		frame.size.width = width;
+		frame.size.height = height;
+		view.setFrame(frame);
+		self.refreshBackingSize();
+	}
+
+	public void refreshBackingSize() {
+		var view = self.nativeView();
+		var bounds = view.bounds();
+		var backing = view.convertRectToBacking(bounds);
+		if (!Math.isFinite(backing.size.width) || !Math.isFinite(backing.size.height) || backing.size.width < 0.0 || backing.size.height < 0.0 || backing.size.width > 2147483647.0 || backing.size.height > 2147483647.0) { throw "Invalid GPU backing size"; }
+		self._pixelWidth = (int)Math.ceilDouble(backing.size.width);
+		self._pixelHeight = (int)Math.ceilDouble(backing.size.height);
+		self._backingScale = bounds.size.width > 0.0 ? backing.size.width / bounds.size.width : (bounds.size.height > 0.0 ? backing.size.height / bounds.size.height : 1.0);
+		var layer = self._layer;
+		if (layer == null) { throw "GPU surface is closed"; }
+		layer.setContentsScale(self._backingScale);
+		backing.size.width = (double)self._pixelWidth;
+		backing.size.height = (double)self._pixelHeight;
+		layer.setDrawableSize(backing.size);
+	}
+
+	public void close() {
+		self.requireMainThread();
+		if (self._surface != null) { wgpuSurfaceRelease(self._surface); self._surface = null; }
+		if (self._instance != null) { wgpuInstanceRelease(self._instance); self._instance = null; }
+		var view = self._view;
+		if (view != null) { view.setLayer(null); view.removeFromSuperview(); }
+		self._layer = null;
+		self._view = null;
+		self._pixelWidth = 0;
+		self._pixelHeight = 0;
+		self._backingScale = 1.0;
+	}
+
+	public void __del__() { self.close(); }
+}

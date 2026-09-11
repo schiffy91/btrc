@@ -4,7 +4,7 @@
 import Library.Bytes;
 import Library.FileSystem;
 import Library.FileSystemHandles;
-import Library.Io;
+import Library.IO;
 
 #include <assert.h>
 #include <errno.h>

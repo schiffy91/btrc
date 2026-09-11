@@ -108,10 +108,6 @@ class SourceDependencyGraph:
         canonical_target = self.canonical_file(target)
         return any(self.canonical_file(dependency.target) == canonical_target for _, dependency in self.iter_edges())
 
-    def has_source(self, source: str) -> bool:
-        canonical_source = self.canonical_file(source)
-        return any(self.canonical_file(path) == canonical_source for path in self._outgoing)
-
     def source_paths(self) -> tuple[str, ...]:
         """Return every loaded source path for package-plan projection."""
 
@@ -689,7 +685,7 @@ _PRIORITY_FILES = (
     "Process.btrc",
     "FileSystem.btrc",
     "Daemon.btrc",
-    "Ui.btrc",
+    "UI.btrc",
 )
 # Legacy relaxed composition and the prebuilt core archive concatenate root
 # modules after stripping imports. Native adapters with nested source-graph or
@@ -698,11 +694,11 @@ _PRIORITY_FILES = (
 _EXPLICIT_STDLIB_MODULES = frozenset(
     {
         "BackgroundJobs.btrc",
-        "CoreAudioDevice.btrc",
         "LocalApplicationChannel.btrc",
-        "MacOsEncodedImageDecoder.btrc",
-        "NativeUi.btrc",
-        "NativeUiApp.btrc",
+        "MacOSDirectoryPicker.btrc",
+        "MacOSEncodedImageDecoder.btrc",
+        "NativeUI.btrc",
+        "NativeUIApp.btrc",
         # Its process callback lives in realtime_clip_transport/Runtime.btrc.
         # Relaxed composition drops nested imports, so composing this module
         # would leave that callback undeclared.
@@ -1001,23 +997,9 @@ class SourceResolver:
             self._timed(profile, "stdlib_include", start)
 
         full_source = f"{stdlib_source}\n{user_source}" if stdlib_source else user_source
-        native_plan = packages.native_plan.for_sources(graph.source_paths())
+        sources = graph.source_paths()
+        native_plan = packages.native_plan.for_sources(sources).with_stdlib(self.stdlib.directory(), sources)
         native_declarations = NativeDeclarationImporter().resolve(native_plan)
-        background_jobs_module = os.path.join(
-            self.stdlib.directory(),
-            "BackgroundJobs.btrc",
-        )
-        if graph.has_source(background_jobs_module):
-            native_plan = native_plan.with_stdlib_background_jobs(self.stdlib.directory())
-        local_application_channel_module = os.path.join(self.stdlib.directory(), "LocalApplicationChannel.btrc")
-        if graph.has_source(local_application_channel_module):
-            native_plan = native_plan.with_stdlib_local_application_channel(self.stdlib.directory())
-        core_audio_device_module = os.path.join(self.stdlib.directory(), "CoreAudioDevice.btrc")
-        if graph.has_source(core_audio_device_module):
-            native_plan = native_plan.with_stdlib_core_audio_device(self.stdlib.directory())
-        macos_encoded_image_decoder_module = os.path.join(self.stdlib.directory(), "MacOsEncodedImageDecoder.btrc")
-        if graph.has_source(macos_encoded_image_decoder_module):
-            native_plan = native_plan.with_stdlib_macos_encoded_image_decoder(self.stdlib.directory())
         return ResolvedSource(
             user_source=user_source,
             source=full_source,

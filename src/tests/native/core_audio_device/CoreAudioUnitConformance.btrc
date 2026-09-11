@@ -1,0 +1,116 @@
+import Library.Audio.MacOS.CoreAudioDevice;
+import Library.Audio.AudioDevice;
+import Library.Audio.RealtimeAudio;
+import Library.OwnedBuffer;
+import Library.Vector;
+
+#include <assert.h>
+
+void unitReset(int failure);
+void unitFail(int failure);
+int pendingSessions();
+void unitDeliver(int frames, int timestamps, int inputFailure);
+float unitOutput(int sample);
+unsigned long long unitHost();
+unsigned int unitFlags();
+int unitUninitializations();
+int unitDisposals();
+
+struct UnitProbe {
+	int calls;
+	int frames;
+	int limit;
+	bool input;
+	bool inputFailure;
+	bool timestamps;
+	bool failed;
+	unsigned long long host;
+	unsigned long long epoch;
+	unsigned long long* elapsed;
+};
+
+@realtime void unitProcess(void* context, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {
+	var probe = (UnitProbe*)context;
+	if (block.frameCount <= 0 || block.frameCount > probe->limit || block.inputChannelCount != (probe->input ? 2 : 0) || block.outputChannelCount != 2 || inputs.length() != (size_t)block.frameCount * (size_t)block.inputChannelCount || outputs.length() != (size_t)block.frameCount * (size_t)2) { probe->failed = true; }
+	if (block.inputDeviceFrame != (probe->input && probe->timestamps ? 12000ULL + (unsigned long long)probe->frames : 0ULL) || block.outputDeviceFrame != (probe->timestamps ? 12000ULL + (unsigned long long)probe->frames : 0ULL)) { probe->failed = true; }
+	if (probe->calls == 0) { probe->host = block.hostTimeNanoseconds; probe->epoch = block.streamEpoch; }
+	if (block.streamEpoch == 0ULL || block.streamEpoch != probe->epoch || block.hostTimeNanoseconds != (probe->timestamps ? probe->host + probe->elapsed[probe->calls] : 0ULL)) { probe->failed = true; }
+	if (((block.flags & (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY) != 0u) != (probe->calls == 0) || ((block.flags & (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY) != 0u) != (probe->input && probe->calls == 0)) { probe->failed = true; }
+	int frames = block.frameCount;
+	for (int frame = 0; frame < frames; frame++) {
+		if (probe->input) {
+			float first = 0.0f;
+			float second = 0.0f;
+			if (!inputs.tryGet((size_t)frame * (size_t)2, &first) || !inputs.tryGet((size_t)frame * (size_t)2 + (size_t)1, &second) || first != (probe->inputFailure ? 0.0f : (float)((probe->frames + frame) * 3) + 0.25f) || second != (probe->inputFailure ? 0.0f : (float)((probe->frames + frame) * 3 + 2) + 0.25f)) { probe->failed = true; }
+		}
+		outputs.trySet((size_t)frame * (size_t)2, (float)(probe->frames + frame + 1));
+		outputs.trySet((size_t)frame * (size_t)2 + (size_t)1, -(float)(probe->frames + frame + 1));
+	}
+	probe->frames += frames;
+	probe->calls++;
+}
+
+DuplexAudioOpenRequest unitRequest(bool input, int limit) {
+	var channels = AudioChannelSelection([0, 2]);
+	var stream = AudioStreamRequest(48000, limit);
+	return input ? DuplexAudioOpenRequest.duplex(1ULL, "input", channels, "output", channels, stream) : DuplexAudioOpenRequest.outputOnly(1ULL, "output", channels, stream);
+}
+
+void checkUnit(int frames, int limit, bool timestamps, bool input, bool inputFailure) {
+	unitReset(0);
+	var elapsed = new OwnedBuffer<unsigned long long>((size_t)((frames + limit - 1) / limit));
+	for (int slice = 0; slice < (frames + limit - 1) / limit; slice++) { elapsed.set((size_t)slice, (unsigned long long)slice * (unsigned long long)limit * 1000000000ULL / 48000ULL); }
+	UnitProbe probe = {0, 0, limit, input, inputFailure, timestamps, false, 0ULL, 0ULL, elapsed.borrow()};
+	var unit = CoreAudioUnit();
+	var program = RealtimeAudioProgram(unitProcess, &probe);
+	assert(unit.prepare(22u, input ? 3 : 0, 3, 0, unitRequest(input, limit), program) == AUDIO_DEVICE_OK);
+	assert(unit.start() == AUDIO_DEVICE_OK && unit.epoch() != 0ULL);
+	unitDeliver(frames, timestamps ? 1 : 0, inputFailure ? 1 : 0);
+	assert(!probe.failed && probe.frames == frames && probe.calls == (frames + limit - 1) / limit && probe.host == unitHost());
+	assert((unitFlags() & (uint)kAudioUnitRenderAction_OutputIsSilence) == 0u);
+	for (int frame = 0; frame < frames; frame++) {
+		assert(unitOutput(frame * 3) == (float)(frame + 1));
+		assert(unitOutput(frame * 3 + 1) == 0.0f);
+		assert(unitOutput(frame * 3 + 2) == -(float)(frame + 1));
+	}
+	assert(unit.close() == AUDIO_DEVICE_WRONG_STATE);
+	unitFail(11);
+	assert(unit.suspend() == AUDIO_DEVICE_BUSY);
+	unitFail(0);
+	assert(unit.suspend() == AUDIO_DEVICE_OK && unit.drain() == AUDIO_DEVICE_OK);
+	int calls = probe.calls;
+	unitDeliver(1, 1, 0);
+	assert(probe.calls == calls && unitOutput(0) == 0.0f);
+	unitFail(9);
+	assert(unit.close() == AUDIO_DEVICE_BUSY && unitUninitializations() == 1 && unitDisposals() == 0);
+	unitDeliver(1, 1, 0);
+	assert(probe.calls == calls);
+	unitFail(10);
+	assert(unit.close() == AUDIO_DEVICE_BUSY && unitUninitializations() == 2 && unitDisposals() == 1);
+	unitFail(0);
+	assert(unit.close() == AUDIO_DEVICE_OK && unit.close() == AUDIO_DEVICE_OK && pendingSessions() == 0);
+}
+
+int main() {
+	int sizes[8] = {1, 127, 128, 129, 139, 256, 8193, 65536};
+	for (int index = 0; index < 8; index++) {
+		checkUnit(sizes[index], 128, true, false, false);
+		checkUnit(sizes[index], 128, false, false, false);
+		checkUnit(sizes[index], 128, true, true, false);
+		checkUnit(sizes[index], 128, false, true, false);
+	}
+	checkUnit(65536, 16, true, true, false);
+	checkUnit(65536, 8192, true, true, false);
+	checkUnit(139, 128, true, true, true);
+	int failures[15] = {1, 2, 3, 4, 5, 6, 7, 10, 101, 102, 103, 104, 105, 106, 107};
+	for (int index = 0; index < 15; index++) {
+		unitReset(failures[index]);
+		UnitProbe probe = {0, 0, 128, true, false, true, false, 0ULL, 0ULL, null};
+		var unit = CoreAudioUnit();
+		assert(unit.prepare(22u, 3, 3, 0, unitRequest(true, 128), RealtimeAudioProgram(unitProcess, &probe)) != AUDIO_DEVICE_OK);
+		unitFail(0);
+		assert(unit.close() == AUDIO_DEVICE_OK && pendingSessions() == 0);
+	}
+	print("PASS: BTRC CoreAudio unit preserves samples, clocks and retryable ownership");
+	return 0;
+}

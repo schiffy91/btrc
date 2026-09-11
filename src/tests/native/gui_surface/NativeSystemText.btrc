@@ -1,0 +1,58 @@
+import Library.GUI.MacOS.MacOSSystemText;
+
+long long coverage(Image image) {
+	long long alpha = 0LL;
+	int partial = 0;
+	for (int index = 0; index < image.width * image.height; index++) {
+		int value = (int)image.data[index * 4 + 3];
+		alpha += (long long)value;
+		if (value > 0 && value < 255) { partial++; }
+		assert(image.data[index * 4] == 255 && image.data[index * 4 + 1] == 255 && image.data[index * 4 + 2] == 255);
+	}
+	assert(alpha > 0LL && partial > 0);
+	return alpha;
+}
+
+Image render(TextRun run) {
+	TextRunRasterizer provider = MacOSSystemText.rasterize;
+	var request = TextRasterization(run);
+	provider(request);
+	return request.image();
+}
+
+int main() {
+	assert(render(TextRun("", 24, 40)).isEmpty());
+	for weight in [400, 500, 600, 700] {
+		var run = TextRun("Égjpq 5 7 ♯", 24, 40, weight);
+		var image = render(run);
+		assert(image.width > 50 && image.height == 40);
+		long long ordinary = coverage(image);
+		var retina = render(TextRun(run.text(), 48, 80, weight));
+		assert(retina.width >= image.width * 2 - 4 && retina.width <= image.width * 2 + 4 && retina.height == 80);
+		long long scaled = coverage(retina);
+		assert(scaled > ordinary * 3LL && scaled < ordinary * 5LL);
+		for (int attempt = 0; attempt < 20; attempt++) { assert(image.diff(render(run)).exact()); }
+		assert(ImageIO.saveBmp(image, f"NativeSystemText-{weight}.bmp"));
+		assert(ImageIO.saveBmp(retina, f"NativeSystemText-{weight}-2x.bmp"));
+		var preview = Image(retina.width, retina.height);
+		for (int y = 0; y < retina.height; y++) {
+			for (int x = 0; x < retina.width; x++) {
+				int shade = 255 - (int)retina.pixel(x, y).alpha;
+				preview.setRGBA(x, y, shade, shade, shade, 255);
+			}
+		}
+		assert(ImageIO.saveBmp(preview, f"NativeSystemText-{weight}-preview.bmp"));
+	}
+	assert(!render(TextRun("5", 32, 48)).diff(render(TextRun("7", 32, 48))).exact());
+	bool rejected = false;
+	try { render(TextRun("bad\nline", 24, 40)); } catch (string error) { rejected = true; }
+	assert(rejected);
+	rejected = false;
+	try { render(TextRun("text", 0, 40)); } catch (string error) { rejected = true; }
+	assert(rejected);
+	rejected = false;
+	try { render(TextRun("text", 24, 40, 999)); } catch (string error) { rejected = true; }
+	assert(rejected);
+	print("PASS: system text shaping, weights, Retina coverage and owned rasters");
+	return 0;
+}

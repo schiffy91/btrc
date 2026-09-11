@@ -1,0 +1,76 @@
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSScrollView;
+import Library.GUI.MacOS.MacOSTextField;
+import Library.GUI.MacOS.MacOSWindow;
+
+import ./ControlProbe.btrc;
+#include <assert.h>
+#include <math.h>
+
+int main() {
+	var app = MacOSApplication();
+	assert(app.pumpEvents(1) <= 1);
+	var window = MacOSWindow("Native scrolling", 480.0, 480.0);
+	var header = MacOSTextField("Search library", "Search");
+	header.setFrame(24.0, 430.0, 432.0, 30.0);
+	var scroll = MacOSScrollView();
+	scroll.setFrame(0.0, 0.0, 480.0, 400.0);
+	scroll.setContentSize(480.0, 1600.0);
+	var field = MacOSTextField("Document", "");
+	field.setFrame(24.0, 1500.0, 400.0, 30.0);
+	var root = window.contentView();
+	root.addSubview(header.nativeControl());
+	root.addSubview(scroll.nativeControl());
+	scroll.documentView().addSubview(field.nativeControl());
+	var nested = MacOSScrollView();
+	nested.setFrame(24.0, 900.0, 300.0, 200.0);
+	nested.setContentSize(300.0, 900.0);
+	scroll.documentView().addSubview(nested.nativeControl());
+	nested.scrollTo(80.0);
+	assert(fabs(nested.scrollOffset() - 80.0) < 0.01);
+	assert(NativeScrollViewProbe.prepare(window.nativeWindow(), scroll.nativeControl(), header.nativeControl()));
+	assert(fabs(scroll.scrollOffset()) < 0.01);
+	scroll.scrollTo(125.5);
+	assert(fabs(scroll.scrollOffset() - 125.5) < 0.01);
+	scroll.setFrame(0.0, 0.0, 480.0, 300.0);
+	assert(fabs(scroll.scrollOffset() - 125.5) < 0.01);
+	scroll.scrollTo(100000.0);
+	assert(fabs(scroll.scrollOffset() - 1300.0) < 0.01);
+	scroll.scrollTo(-100.0);
+	assert(scroll.scrollOffset() == 0.0);
+	scroll.setContentSize(480.0, 100.0);
+	assert(scroll.scrollOffset() == 0.0);
+	scroll.setContentSize(480.0, 1600.0);
+	assert(scroll.scrollOffset() == 0.0);
+	scroll.scrollTo(600.0);
+	assert(NativeScrollViewProbe.wheel());
+	assert(scroll.scrollOffset() > 0.0);
+	assert(fabs(nested.scrollOffset() - 80.0) < 0.01);
+	bool rejected = false;
+	try { scroll.setContentSize(480.0, -1.0); } catch (string error) { rejected = error.equals("Invalid scroll content size"); }
+	assert(rejected);
+	rejected = false;
+	try { scroll.scrollTo(NAN); } catch (string error) { rejected = error.equals("Invalid scroll offset"); }
+	assert(rejected);
+	rejected = false;
+	try { scroll.setFrame(0.0, 0.0, INFINITY, 300.0); } catch (string error) { rejected = error.equals("Invalid scroll view frame"); }
+	assert(rejected);
+	var native = scroll.nativeControl();
+	field.close();
+	nested.close();
+	scroll.close();
+	scroll.close();
+	assert(NativeScrollViewProbe.finish(native));
+	header.close();
+	window.close();
+	bool closed = false;
+	try { scroll.scrollTo(0.0); } catch (string error) { closed = error.equals("Scroll view is closed"); }
+	assert(closed);
+	Thread<int> worker = spawn(() => {
+			try { var invalid = MacOSScrollView(); } catch (string error) { return error.equals("AppKit scroll views require the main thread") ? 0 : 1; }
+			return 2;
+		});
+	assert(worker.join() == 0);
+	print("PASS: AppKit scroll view composition from BTRC");
+	return 0;
+}

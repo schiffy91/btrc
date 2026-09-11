@@ -1,0 +1,8 @@
+/* Portable compiler host: SDK scanning awaits a real Windows process provider. */
+
+import ./Driver.btrc;
+
+int main(int argc, char** argv) {
+	BtrccDriver driver = BtrccDriver(argc, argv);
+	return driver.run();
+}

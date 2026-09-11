@@ -7,7 +7,7 @@
  */
 
 import Library.Bytes;
-import Library.Io;
+import Library.IO;
 
 class RGBA {
 	public int red;
@@ -87,6 +87,18 @@ class Image {
 	}
 
 	class Image empty() { return Image(0, 0); }
+
+	/* Recoverable pixel allocation for untrusted decoders. No partially
+	 * initialized image escapes if dimensions or allocation fail. */
+	class Image? tryCreate(int width, int height) {
+		if (!Image.validDimensions(width, height)) { return null; }
+		var image = Image.empty();
+		image.data = (unsigned char*)calloc((size_t)((long long)width * (long long)height * 4LL), sizeof(unsigned char));
+		if (image.data == null) { return null; }
+		image.width = width;
+		image.height = height;
+		return image;
+	}
 
 	/* Leave headroom for a codec header while keeping every public size and
      * Bytes length representable by BTRC's int-indexed collections. */
@@ -242,7 +254,22 @@ class Image {
 		}
 		unsigned long long expected = (unsigned long long)self.width * (unsigned long long)self.height * 4ULL;
 		if (source == null || byteCount != expected) { return false; }
-		memcpy(self.data, source, (size_t)expected);
+		if (source != self.data) { memcpy(self.data, source, (size_t)expected); }
+		return true;
+	}
+
+	/* Import premultiplied codec/GPU pixels into Image's straight-alpha storage.
+	 * Transparent RGB is cleared; malformed channels above alpha saturate. */
+	public bool tryCopyPremultipliedRgba(const void* source, unsigned long long byteCount) {
+		if (!self.tryCopyPackedRgba(source, byteCount)) { return false; }
+		for (int offset = 0; offset < (int)byteCount; offset += 4) {
+			int alpha = (int)self.data[offset + 3];
+			if (alpha == 255) { continue; }
+			for (int channel = 0; channel < 3; channel++) {
+				int straight = alpha == 0 ? 0 : ((int)self.data[offset + channel] * 255 + alpha / 2) / alpha;
+				self.data[offset + channel] = (unsigned char)(straight > 255 ? 255 : straight);
+			}
+		}
 		return true;
 	}
 

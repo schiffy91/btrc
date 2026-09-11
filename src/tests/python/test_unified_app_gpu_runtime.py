@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
-APP = ROOT / "src" / "stdlib" / "app"
-GPU = ROOT / "src" / "stdlib" / "gpu"
+APP = ROOT / "src" / "stdlib" / "App"
+GPU = ROOT / "src" / "stdlib" / "GPU"
 FIXTURE = ROOT / "src" / "tests" / "native" / "app_surface"
 CONFORMANCE = FIXTURE / "AppSurfaceConformance.btrc"
 REAL_SMOKE = FIXTURE / "RealAppGpuSmoke.btrc"
@@ -211,14 +211,14 @@ def test_native_owner_wrapper_constructors_are_private_on_both_frontends(
     owner: str,
     construction: str,
 ) -> None:
-    app_directory = tmp_path / "app"
-    gpu_directory = tmp_path / "gpu"
+    app_directory = tmp_path / "App"
+    gpu_directory = tmp_path / "GPU"
     app_directory.mkdir()
     gpu_directory.mkdir()
     (app_directory / "App.btrc").write_text((APP / "App.btrc").read_text())
-    (gpu_directory / "Gpu.btrc").write_text((GPU / "Gpu.btrc").read_text())
+    (gpu_directory / "GPU.btrc").write_text((GPU / "GPU.btrc").read_text())
     source = tmp_path / "forged-owners.btrc"
-    source.write_text(f"import ./gpu/Gpu.btrc;\nint main() {{\n    {construction}\n    return 0;\n}}\n")
+    source.write_text(f"import ./GPU/GPU.btrc;\nint main() {{\n    {construction}\n    return 0;\n}}\n")
     environment = {
         **os.environ,
         "BTRC_CACHE_DIR": str(tmp_path / f"cache-private-{compiler}"),
@@ -259,10 +259,10 @@ def test_real_window_and_present_smoke_when_explicitly_enabled(
     ldflags = os.environ.get("GPU_LDFLAGS")
     if not cflags or not ldflags:
         pytest.skip("real WebGPU/GLFW build flags are unavailable")
-    app_archive = ROOT / "build" / "stdlib" / "app" / "libbtrc_app.a"
-    gpu_archive = ROOT / "build" / "stdlib" / "gpu" / "libbtrc_gpu.a"
+    app_archive = ROOT / "build" / "stdlib" / "App" / "libbtrc_app.a"
+    gpu_archive = ROOT / "build" / "stdlib" / "GPU" / "libbtrc_gpu.a"
     if not app_archive.is_file() or not gpu_archive.is_file():
-        pytest.skip("build the Library.App and Library.Gpu archives first")
+        pytest.skip("build the Library.App and Library.GPU archives first")
 
     generated = tmp_path / f"real-app-gpu-{compiler}.c"
     executable = tmp_path / f"real-app-gpu-{compiler}"

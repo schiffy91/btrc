@@ -280,6 +280,8 @@ class DeclarationRegistry {
 	public string sourceFunctionSymbol(string name) {
 		if (!self.analyzed.funcTable.has(name)) { return name; }
 		Node declaration = self.analyzed.funcTable.get(name);
+		var nativeContract = self.analyzed.nativeCallContract(declaration);
+		if (nativeContract != null) { return nativeContract.adapterSymbol(name); }
 		if (declaration.bodyNode == null || declaration.isGpu) {
 			return name;
 		}

@@ -1,0 +1,1014 @@
+/* btrc standard library -- native declarative UI values.
+ *
+ * This is the portable tree and event boundary for the renderer owned by
+ * Library.App.  It deliberately contains no HTML, browser, GPU, or platform
+ * handles.  Element identities are supplied by the application and remain
+ * unchanged for the lifetime of the value tree.  A className is selector
+ * metadata: it affects rendering only through an explicit NativeUIStyleSheet;
+ * there is no ambient browser-style cascade.
+ */
+
+import Library.Image;
+import Library.Map;
+import Library.Math;
+import Library.Set;
+import Library.Strings;
+import Library.Vector;
+
+#include "NativeUI/Semantics.btrc"
+
+enum NativeUIElementKind {
+	NATIVE_UI_COLUMN = 0,
+	NATIVE_UI_GRID = 1,
+	NATIVE_UI_TEXT = 2,
+	NATIVE_UI_IMAGE = 3,
+	NATIVE_UI_BUTTON = 4,
+	NATIVE_UI_VIRTUAL_GRID = 5,
+	NATIVE_UI_TEXT_INPUT = 6,
+	NATIVE_UI_SELECT = 7,
+	NATIVE_UI_ROW = 8
+};
+
+enum NativeUIEventKind {
+	NATIVE_UI_CLICKED = 0,
+	NATIVE_UI_HOVER_ENTERED = 1,
+	NATIVE_UI_HOVER_LEFT = 2,
+	NATIVE_UI_SCROLLED = 3,
+	NATIVE_UI_VIEWPORT_CHANGED = 4,
+	NATIVE_UI_VALUE_CHANGED = 5,
+	NATIVE_UI_RANGE_POINTER_PRESSED = 6,
+	NATIVE_UI_RANGE_POINTER_MOVED = 7,
+	NATIVE_UI_RANGE_POINTER_RELEASED = 8,
+	NATIVE_UI_RANGE_POINTER_CANCELLED = 9,
+	NATIVE_UI_RANGE_WHEEL = 10,
+	NATIVE_UI_RANGE_ADJUSTED = 11,
+	NATIVE_UI_SELECTION_CHANGED = 12,
+	NATIVE_UI_NAVIGATE_BACK = 13,
+	NATIVE_UI_NAVIGATE_FORWARD = 14
+};
+
+enum NativeUIRangeAxis {
+	NATIVE_UI_RANGE_HORIZONTAL = 0,
+	NATIVE_UI_RANGE_VERTICAL = 1
+};
+
+enum NativeUIRangeAdjustment {
+	NATIVE_UI_RANGE_ADJUST_NONE = 0,
+	NATIVE_UI_RANGE_ADJUST_SMALL_DECREMENT = 1,
+	NATIVE_UI_RANGE_ADJUST_SMALL_INCREMENT = 2,
+	NATIVE_UI_RANGE_ADJUST_LARGE_DECREMENT = 3,
+	NATIVE_UI_RANGE_ADJUST_LARGE_INCREMENT = 4,
+	NATIVE_UI_RANGE_ADJUST_MINIMUM = 5,
+	NATIVE_UI_RANGE_ADJUST_MAXIMUM = 6
+};
+
+class NativeUISemanticRange {
+	private NativeUIRangeAxis axisValue;
+	private string labelValue;
+	private long long minimumValue;
+	private long long maximumValue;
+	private long long currentValue;
+	private long long smallStepValue;
+	private long long largeStepValue;
+
+	private NativeUISemanticRange(NativeUIRangeAxis axis, string label, long long minimum, long long maximum, long long value, long long smallStep, long long largeStep) {
+		self.axisValue = axis;
+		self.labelValue = label;
+		self.minimumValue = minimum;
+		self.maximumValue = maximum;
+		self.currentValue = value;
+		self.smallStepValue = smallStep;
+		self.largeStepValue = largeStep;
+	}
+
+	class NativeUISemanticRange horizontal(string label, long long minimum, long long maximum, long long value, long long smallStep = 1LL, long long largeStep = 10LL) { return NativeUISemanticRange(NATIVE_UI_RANGE_HORIZONTAL, label, minimum, maximum, value, smallStep, largeStep); }
+
+	class NativeUISemanticRange vertical(string label, long long minimum, long long maximum, long long value, long long smallStep = 1LL, long long largeStep = 10LL) { return NativeUISemanticRange(NATIVE_UI_RANGE_VERTICAL, label, minimum, maximum, value, smallStep, largeStep); }
+
+	public NativeUIRangeAxis axis() { return self.axisValue; }
+
+	public string label() { return self.labelValue; }
+
+	public long long minimum() { return self.minimumValue; }
+
+	public long long maximum() { return self.maximumValue; }
+
+	public long long value() { return self.currentValue; }
+
+	public long long smallStep() { return self.smallStepValue; }
+
+	public long long largeStep() { return self.largeStepValue; }
+
+	public bool valid() { return self.labelValue != null && !self.labelValue.isEmpty() && self.labelValue.len() <= 512 && self.minimumValue <= self.maximumValue && self.currentValue >= self.minimumValue && self.currentValue <= self.maximumValue && self.smallStepValue > 0LL && self.largeStepValue > 0LL; }
+
+	private long long incremented(long long step) {
+		if (self.currentValue >= self.maximumValue) { return self.maximumValue; }
+		if (self.currentValue > 9223372036854775807LL - step) { return self.maximumValue; }
+		long long candidate = self.currentValue + step;
+		return candidate > self.maximumValue ? self.maximumValue : candidate;
+	}
+
+	private long long decremented(long long step) {
+		if (self.currentValue <= self.minimumValue) { return self.minimumValue; }
+		if (self.currentValue < (-9223372036854775807LL - 1LL) + step) { return self.minimumValue; }
+		long long candidate = self.currentValue - step;
+		return candidate < self.minimumValue ? self.minimumValue : candidate;
+	}
+
+	public long long adjustedValue(NativeUIRangeAdjustment adjustment) {
+		if (!self.valid() || adjustment == NATIVE_UI_RANGE_ADJUST_NONE) { return self.currentValue; }
+		if (adjustment == NATIVE_UI_RANGE_ADJUST_MINIMUM) { return self.minimumValue; }
+		if (adjustment == NATIVE_UI_RANGE_ADJUST_MAXIMUM) { return self.maximumValue; }
+		if (adjustment == NATIVE_UI_RANGE_ADJUST_SMALL_DECREMENT) { return self.decremented(self.smallStepValue); }
+		if (adjustment == NATIVE_UI_RANGE_ADJUST_SMALL_INCREMENT) { return self.incremented(self.smallStepValue); }
+		if (adjustment == NATIVE_UI_RANGE_ADJUST_LARGE_DECREMENT) { return self.decremented(self.largeStepValue); }
+		if (adjustment == NATIVE_UI_RANGE_ADJUST_LARGE_INCREMENT) { return self.incremented(self.largeStepValue); }
+		return self.currentValue;
+	}
+}
+
+enum NativeUIStyleErrorCode {
+	NATIVE_UI_STYLE_VALID = 0,
+	NATIVE_UI_STYLE_INVALID_DECLARATION = 1,
+	NATIVE_UI_STYLE_UNSUPPORTED_PROPERTY = 2,
+	NATIVE_UI_STYLE_INVALID_VALUE = 3,
+	NATIVE_UI_STYLE_INVALID_SELECTOR = 4,
+	NATIVE_UI_STYLE_DUPLICATE_RULE = 5,
+	NATIVE_UI_STYLE_LIMIT_EXCEEDED = 6
+};
+
+enum NativeUIVirtualGridErrorCode {
+	NATIVE_UI_VIRTUAL_GRID_VALID = 0,
+	NATIVE_UI_VIRTUAL_GRID_INVALID_TOTAL_COUNT = 1,
+	NATIVE_UI_VIRTUAL_GRID_INVALID_COLUMNS = 2,
+	NATIVE_UI_VIRTUAL_GRID_INVALID_ROW_HEIGHT = 3,
+	NATIVE_UI_VIRTUAL_GRID_INVALID_FIRST_INDEX = 4
+};
+
+class NativeUIStyleError {
+	private NativeUIStyleErrorCode errorCode;
+	private string propertyName;
+	private string errorMessage;
+
+	public NativeUIStyleError(NativeUIStyleErrorCode code, string property, string message) {
+		self.errorCode = code;
+		self.propertyName = property;
+		self.errorMessage = message;
+	}
+
+	class NativeUIStyleError valid() { return NativeUIStyleError(NATIVE_UI_STYLE_VALID, "", ""); }
+
+	public NativeUIStyleErrorCode code() { return self.errorCode; }
+
+	public string property() { return self.propertyName; }
+
+	public string message() { return self.errorMessage; }
+
+	public bool ok() { return self.errorCode == NATIVE_UI_STYLE_VALID; }
+}
+
+class NativeUIStyle {
+	class bool decimal(string value, bool allowZero) {
+		if (value == null || value.isEmpty()) { return false; }
+		for (int index = 0; index < value.len(); index++) {
+			char digit = value[index];
+			if (digit < '0' || digit > '9') { return false; }
+		}
+		return allowZero || Strings.toInt(value) > 0;
+	}
+
+	class bool pixels(string value, bool allowZero) {
+		if (value == null || value.len() <= 2 || !value.endsWith("px")) {
+			return false;
+		}
+		string digits = value.substring(0, value.len() - 2);
+		return digits.len() <= 4 && NativeUIStyle.decimal(digits, allowZero) && Strings.toInt(digits) <= 4096;
+	}
+
+	class bool hexDigit(char value) { return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') || (value >= 'A' && value <= 'F'); }
+
+	class bool color(string value) {
+		if (value == null || (value.len() != 7 && value.len() != 9) || value[0] != '#') {
+			return false;
+		}
+		for (int index = 1; index < value.len(); index++) {
+			if (!NativeUIStyle.hexDigit(value[index])) { return false; }
+		}
+		return true;
+	}
+
+	class Vector<string> gradientColors(string value) {
+		Vector<string> empty = [];
+		if (!value.startsWith("linear-gradient(") || !value.endsWith(")")) { return empty; }
+		Vector<string> colors = Strings.split(value.substring(16, value.len() - 17), ",");
+		if (colors.len != 2 || !NativeUIStyle.color(colors.get(0).trim()) || !NativeUIStyle.color(colors.get(1).trim())) { return empty; }
+		return [colors.get(0).trim(), colors.get(1).trim()];
+	}
+
+	class NativeUIStyleError validate(string css) {
+		if (css == null || css.trim().isEmpty()) {
+			return NativeUIStyleError.valid();
+		}
+		Vector<string> declarations = Strings.split(css, ";");
+		for declarationValue in declarations {
+			string declaration = declarationValue.trim();
+			if (declaration.isEmpty()) { continue; }
+			int separator = declaration.indexOf(":");
+			if (separator <= 0 || separator >= declaration.len() - 1) {
+				return NativeUIStyleError(NATIVE_UI_STYLE_INVALID_DECLARATION, "", f"invalid native UI style declaration: {declaration}");
+			}
+			string property = declaration.substring(0, separator).trim().toLower();
+			string value = declaration.substring(separator + 1, declaration.len() - separator - 1).trim();
+			if (property.equals("gap") || property.equals("padding") || property.equals("padding-top") || property.equals("padding-right") || property.equals("padding-bottom") || property.equals("padding-left") || property.equals("border-radius")) {
+				if (!NativeUIStyle.pixels(value, true)) {
+					return NativeUIStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, f"{property} requires a non-negative px value");
+				}
+			} else if (property.equals("width") && value == "fit") {
+				continue;
+			} else if (property.equals("width") || property.equals("height")) {
+				if (!NativeUIStyle.pixels(value, false)) {
+					return NativeUIStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, f"{property} requires a positive px value");
+				}
+			} else if (property.equals("font-size")) {
+				if (!NativeUIStyle.pixels(value, false) || Strings.toInt(value.substring(0, value.len() - 2)) < 8 || Strings.toInt(value.substring(0, value.len() - 2)) > 256) {
+					return NativeUIStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "font-size requires 8px..256px");
+				}
+			} else if (property.equals("line-height")) {
+				if (!NativeUIStyle.pixels(value, false) || Strings.toInt(value.substring(0, value.len() - 2)) < 8 || Strings.toInt(value.substring(0, value.len() - 2)) > 512) {
+					return NativeUIStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "line-height requires 8px..512px");
+				}
+			} else if (property.equals("font-weight")) {
+				if (value != "400" && value != "500" && value != "600" && value != "700") {
+					return NativeUIStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "font-weight requires 400, 500, 600, or 700");
+				}
+			} else if (property.equals("text-wrap")) {
+				if (value != "wrap" && value != "nowrap") { return NativeUIStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "text-wrap requires wrap or nowrap"); }
+			} else if (property.equals("text-overflow")) {
+				if (value != "clip" && value != "ellipsis") { return NativeUIStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "text-overflow requires clip or ellipsis"); }
+			} else if (property.equals("text-align")) {
+				if (value != "left" && value != "center" && value != "right") {
+					return NativeUIStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "text-align requires left, center, or right");
+				}
+			} else if (property.equals("align-items")) {
+				if (value != "start" && value != "center" && value != "end") {
+					return NativeUIStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "align-items requires start, center, or end");
+				}
+			} else if (property.equals("background-image")) {
+				if (value != "none" && NativeUIStyle.gradientColors(value).len != 2) { return NativeUIStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, "background-image requires none or linear-gradient(#RRGGBB[AA], #RRGGBB[AA])"); }
+			} else if (property.equals("background-color") || property.equals("color") || property.equals("border-color") || property.equals("marker-color")) {
+				if (!NativeUIStyle.color(value)) {
+					return NativeUIStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, f"{property} requires #RRGGBB or #RRGGBBAA");
+				}
+			} else {
+				return NativeUIStyleError(NATIVE_UI_STYLE_UNSUPPORTED_PROPERTY, property, f"unsupported native UI style property: {property}");
+			}
+		}
+		return NativeUIStyleError.valid();
+	}
+
+	class NativeUIStyleError validateClassName(string value) {
+		if (value == null || value.isEmpty() || value.len() > 128) {
+			return NativeUIStyleError(NATIVE_UI_STYLE_INVALID_SELECTOR, "className", "native UI class names must contain 1..128 bytes");
+		}
+		for (int index = 0; index < value.len(); index++) {
+			char character = value[index];
+			bool valid = (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || character == '-' || character == '_';
+			if (!valid) {
+				return NativeUIStyleError(NATIVE_UI_STYLE_INVALID_SELECTOR, "className", "native UI class names use letters, digits, '-' and '_'");
+			}
+		}
+		return NativeUIStyleError.valid();
+	}
+}
+
+class NativeUIStyleSheet {
+	private Vector<string> selectors;
+	private Vector<string> rules;
+	private Vector<string> kindRules;
+	private NativeUIStyleError issueValue;
+	private int ruleBytes;
+	private long long revisionValue = 0LL;
+
+	public NativeUIStyleSheet() {
+		self.selectors = [];
+		self.rules = [];
+		self.kindRules = [];
+		for (int kind = 0; kind < 9; kind++) { self.kindRules.push(""); }
+		self.issueValue = NativeUIStyleError.valid();
+		self.ruleBytes = 0;
+	}
+
+	/* An independent copy, so an app can take a base sheet and override it. */
+	public NativeUIStyleSheet copy() {
+		NativeUIStyleSheet copied = NativeUIStyleSheet();
+		copied.selectors = self.selectors.copy();
+		copied.rules = self.rules.copy();
+		copied.kindRules = self.kindRules.copy();
+		copied.issueValue = self.issueValue;
+		copied.ruleBytes = self.ruleBytes;
+		copied.revisionValue = self.revisionValue;
+		return copied;
+	}
+
+	public long long revision() { return self.revisionValue; }
+
+	private void changed() {
+		if (self.revisionValue == 9223372036854775807LL) { throw "native UI stylesheet revision exhausted"; }
+		self.revisionValue++;
+	}
+
+	/* A rule for every element of one kind, applied after the kind defaults
+	 * and before class rules. */
+	public NativeUIStyleSheet kindRule(NativeUIElementKind kind, string css) {
+		if (!self.issueValue.ok()) { return self; }
+		NativeUIStyleError ruleIssue = NativeUIStyle.validate(css);
+		if (!ruleIssue.ok()) {
+			self.issueValue = ruleIssue;
+			return self;
+		}
+		int index = (int)kind;
+		if (index < 0 || index >= self.kindRules.len) { return self; }
+		if ((long long)self.ruleBytes + (long long)css.len() > 65536LL) {
+			self.issueValue = NativeUIStyleError(NATIVE_UI_STYLE_LIMIT_EXCEEDED, "styleSheet", "native UI style sheets allow 256 rules and 64 KiB");
+			return self;
+		}
+		self.ruleBytes += css.len() - self.kindRules.get(index).len();
+		self.kindRules.set(index, css);
+		self.changed();
+		return self;
+	}
+
+	public string kindCssFor(NativeUIElementKind kind) {
+		int index = (int)kind;
+		return index < 0 || index >= self.kindRules.len ? "" : self.kindRules.get(index);
+	}
+
+	/* Merge `css` into a class rule: existing declarations stay, the new ones
+	 * follow and win per property. Creates the rule when absent. */
+	public NativeUIStyleSheet extend(string className, string css) {
+		if (!self.issueValue.ok()) { return self; }
+		for (int index = 0; index < self.selectors.len; index++) {
+			if (!self.selectors.get(index).equals(className)) { continue; }
+			NativeUIStyleError ruleIssue = NativeUIStyle.validate(css);
+			if (!ruleIssue.ok()) {
+				self.issueValue = ruleIssue;
+				return self;
+			}
+			string merged = self.rules.get(index).trim().isEmpty() ? css : self.rules.get(index) + "; " + css;
+			if ((long long)self.ruleBytes + (long long)css.len() + 2LL > 65536LL) {
+				self.issueValue = NativeUIStyleError(NATIVE_UI_STYLE_LIMIT_EXCEEDED, "styleSheet", "native UI style sheets allow 256 rules and 64 KiB");
+				return self;
+			}
+			self.ruleBytes += merged.len() - self.rules.get(index).len();
+			self.rules.set(index, merged);
+			self.changed();
+			return self;
+		}
+		return self.rule(className, css);
+	}
+
+	public NativeUIStyleSheet rule(string className, string css) {
+		if (!self.issueValue.ok()) { return self; }
+		NativeUIStyleError selectorIssue = NativeUIStyle.validateClassName(className);
+		if (!selectorIssue.ok()) {
+			self.issueValue = selectorIssue;
+			return self;
+		}
+		NativeUIStyleError ruleIssue = NativeUIStyle.validate(css);
+		if (!ruleIssue.ok()) {
+			self.issueValue = ruleIssue;
+			return self;
+		}
+		if (self.selectors.len >= 256 || (long long)self.ruleBytes + (long long)className.len() + (long long)css.len() > 65536LL) {
+			self.issueValue = NativeUIStyleError(NATIVE_UI_STYLE_LIMIT_EXCEEDED, "styleSheet", "native UI style sheets allow 256 rules and 64 KiB");
+			return self;
+		}
+		for selector in self.selectors {
+			if (selector.equals(className)) {
+				self.issueValue = NativeUIStyleError(NATIVE_UI_STYLE_DUPLICATE_RULE, className, f"duplicate native UI class rule: {className}");
+				return self;
+			}
+		}
+		self.selectors.push(className);
+		self.rules.push(css);
+		self.ruleBytes += className.len() + css.len();
+		self.changed();
+		return self;
+	}
+
+	public bool ok() { return self.issueValue.ok(); }
+
+	public NativeUIStyleError issue() { return self.issueValue; }
+
+	public int ruleCount() { return self.selectors.len; }
+
+	public string classNameAt(int index) { return self.selectors.get(index); }
+
+	public string cssAt(int index) { return self.rules.get(index); }
+
+	public string cssFor(string className) {
+		for (int index = 0; index < self.selectors.len; index++) {
+			if (self.selectors.get(index).equals(className)) {
+				return self.rules.get(index);
+			}
+		}
+		return "";
+	}
+}
+
+class NativeUIVirtualGridError {
+	private NativeUIVirtualGridErrorCode errorCode;
+	private string errorMessage;
+
+	public NativeUIVirtualGridError(NativeUIVirtualGridErrorCode code, string message) {
+		self.errorCode = code;
+		self.errorMessage = message;
+	}
+
+	public NativeUIVirtualGridErrorCode code() { return self.errorCode; }
+
+	public string message() { return self.errorMessage; }
+
+	public bool ok() { return self.errorCode == NATIVE_UI_VIRTUAL_GRID_VALID; }
+}
+
+class NativeUIVirtualGrid {
+	private int totalCountValue;
+	private int columnsValue;
+	private int rowHeightValue;
+	private int firstIndexValue;
+	private NativeUIVirtualGridError issueValue;
+
+	public NativeUIVirtualGrid(int totalCount, int columns, int rowHeight, int firstDataIndex) {
+		self.totalCountValue = totalCount;
+		self.columnsValue = columns;
+		self.rowHeightValue = rowHeight;
+		self.firstIndexValue = firstDataIndex;
+		self.issueValue = NativeUIVirtualGridError(NATIVE_UI_VIRTUAL_GRID_VALID, "");
+		if (totalCount < 0) {
+			self.issueValue = NativeUIVirtualGridError(NATIVE_UI_VIRTUAL_GRID_INVALID_TOTAL_COUNT, "virtual grid totalCount must be non-negative");
+		} else if (columns <= 0) {
+			self.issueValue = NativeUIVirtualGridError(NATIVE_UI_VIRTUAL_GRID_INVALID_COLUMNS, "virtual grid columns must be positive");
+		} else if (rowHeight <= 0) {
+			self.issueValue = NativeUIVirtualGridError(NATIVE_UI_VIRTUAL_GRID_INVALID_ROW_HEIGHT, "virtual grid rowHeight must be positive");
+		} else if (firstDataIndex < 0 || firstDataIndex > totalCount) {
+			self.issueValue = NativeUIVirtualGridError(NATIVE_UI_VIRTUAL_GRID_INVALID_FIRST_INDEX, "virtual grid firstDataIndex must be within totalCount");
+		}
+	}
+
+	public int totalCount() { return self.totalCountValue; }
+
+	public int columns() { return self.columnsValue; }
+
+	public int rowHeight() { return self.rowHeightValue; }
+
+	public int firstDataIndex() { return self.firstIndexValue; }
+
+	public NativeUIVirtualGridError issue() { return self.issueValue; }
+
+	public bool ok() { return self.issueValue.ok(); }
+}
+
+class NativeUISelectOption {
+	private string stableValue;
+	private string labelValue;
+	private bool enabledValue;
+
+	public NativeUISelectOption(string value, string label, bool enabled = true) {
+		self.stableValue = value;
+		self.labelValue = label;
+		self.enabledValue = enabled;
+	}
+
+	public string value() { return self.stableValue; }
+
+	public string label() { return self.labelValue; }
+
+	public bool enabled() { return self.enabledValue; }
+
+	public bool valid() { return NativeUISemanticText.valid(self.stableValue, 512) && !self.stableValue.isEmpty() && NativeUISemanticText.valid(self.labelValue, 512) && !self.labelValue.isEmpty(); }
+}
+
+class NativeUISelect {
+	private Vector<NativeUISelectOption> optionValues;
+	private string selectedStableValue;
+
+	public NativeUISelect(Vector<NativeUISelectOption> options, string selectedValue) {
+		self.optionValues = [];
+		for option in options { self.optionValues.push(option); }
+		self.selectedStableValue = selectedValue;
+	}
+
+	public int optionCount() { return self.optionValues.len; }
+
+	public NativeUISelectOption optionAt(int index) { return self.optionValues.get(index); }
+
+	public string selectedValue() { return self.selectedStableValue; }
+
+	public int indexOfValue(string value) {
+		if (value == null) { return -1; }
+		for (int index = 0; index < self.optionValues.len; index++) {
+			NativeUISelectOption option = self.optionValues.get(index);
+			if (option != null && option.value().equals(value)) { return index; }
+		}
+		return -1;
+	}
+
+	public int selectedIndex() { return self.indexOfValue(self.selectedStableValue); }
+
+	public string selectedLabel() {
+		int index = self.selectedIndex();
+		return index < 0 ? "" : self.optionValues.get(index).label();
+	}
+
+	public long long metadataBytes() {
+		long long total = (long long)self.selectedStableValue.len();
+		for option in self.optionValues { total += (long long)option.value().len() + (long long)option.label().len(); }
+		return total;
+	}
+
+	public bool valid() {
+		if (self.optionValues.len < 1 || self.optionValues.len > 128 || !NativeUISemanticText.valid(self.selectedStableValue, 512) || self.selectedStableValue.isEmpty()) { return false; }
+		for (int index = 0; index < self.optionValues.len; index++) {
+			NativeUISelectOption option = self.optionValues.get(index);
+			if (option == null || !option.valid()) { return false; }
+			for (int prior = 0; prior < index; prior++) {
+				if (self.optionValues.get(prior).value().equals(option.value())) { return false; }
+			}
+		}
+		return self.selectedIndex() >= 0 && self.metadataBytes() <= 131072LL;
+	}
+}
+
+class NativeUIViewportMetrics {
+	private int metricWidth;
+	private int metricHeight;
+	private int metricScrollX;
+	private int metricScrollY;
+
+	public NativeUIViewportMetrics(int width, int height, int scrollX, int scrollY) {
+		self.metricWidth = width;
+		self.metricHeight = height;
+		self.metricScrollX = scrollX;
+		self.metricScrollY = scrollY;
+	}
+
+	public int width() { return self.metricWidth; }
+
+	public int height() { return self.metricHeight; }
+
+	public int scrollX() { return self.metricScrollX; }
+
+	public int scrollY() { return self.metricScrollY; }
+}
+
+class NativeUIScrollDelta {
+	private int deltaX;
+	private int deltaY;
+
+	public NativeUIScrollDelta(int x, int y) {
+		self.deltaX = x;
+		self.deltaY = y;
+	}
+
+	public int x() { return self.deltaX; }
+
+	public int y() { return self.deltaY; }
+}
+
+class NativeUIPointerSample {
+	private int coordinateValue;
+	private int extentValue;
+
+	public NativeUIPointerSample(int coordinate, int extent) {
+		self.coordinateValue = coordinate;
+		self.extentValue = extent;
+	}
+
+	public int coordinate() { return self.coordinateValue; }
+
+	public int extent() { return self.extentValue; }
+}
+
+class NativeUIVirtualGridViewport {
+	private string gridIdentity;
+	private int totalCountValue;
+	private int columnsValue;
+	private int rowHeightValue;
+	private int rowPitchValue;
+	private int contentOffsetYValue;
+	private int contentLocalScrollYValue;
+	private int firstVisibleIndexValue;
+	private int visibleCountValue;
+
+	public NativeUIVirtualGridViewport(string gridId, int totalCount, int columns, int rowHeight, int rowPitch, int contentOffsetY, int contentLocalScrollY, int firstVisibleDataIndex, int visibleDataCount) {
+		self.gridIdentity = gridId;
+		self.totalCountValue = totalCount;
+		self.columnsValue = columns;
+		self.rowHeightValue = rowHeight;
+		self.rowPitchValue = rowPitch;
+		self.contentOffsetYValue = contentOffsetY;
+		self.contentLocalScrollYValue = contentLocalScrollY;
+		self.firstVisibleIndexValue = firstVisibleDataIndex;
+		self.visibleCountValue = visibleDataCount;
+	}
+
+	public string gridId() { return self.gridIdentity; }
+
+	public int totalCount() { return self.totalCountValue; }
+
+	public int columns() { return self.columnsValue; }
+
+	public int rowHeight() { return self.rowHeightValue; }
+
+	public int rowPitch() { return self.rowPitchValue; }
+
+	public int contentOffsetY() { return self.contentOffsetYValue; }
+
+	public int contentLocalScrollY() { return self.contentLocalScrollYValue; }
+
+	public int firstVisibleDataIndex() { return self.firstVisibleIndexValue; }
+
+	public int visibleDataCount() { return self.visibleCountValue; }
+}
+
+class NativeUIEvent {
+	private NativeUIEventKind eventKind;
+	private string targetIdentity;
+	private NativeUIViewportMetrics viewportValue;
+	private NativeUIScrollDelta scrollValue;
+	private NativeUIVirtualGridViewport? virtualGridViewportValue;
+	private string inputValue;
+	private NativeUIPointerSample? pointerValue;
+	private NativeUIRangeAdjustment rangeAdjustmentValue;
+	private long long resultingRangeValue;
+
+	private NativeUIEvent(NativeUIEventKind kind, string elementId, NativeUIViewportMetrics viewport, NativeUIScrollDelta scroll, NativeUIVirtualGridViewport? virtualGridViewport, string value, NativeUIPointerSample? pointer, NativeUIRangeAdjustment rangeAdjustment, long long rangeValue) {
+		self.eventKind = kind;
+		self.targetIdentity = elementId;
+		self.viewportValue = viewport;
+		self.scrollValue = scroll;
+		self.virtualGridViewportValue = virtualGridViewport;
+		self.inputValue = value;
+		self.pointerValue = pointer;
+		self.rangeAdjustmentValue = rangeAdjustment;
+		self.resultingRangeValue = rangeValue;
+	}
+
+	class NativeUIEvent clicked(string elementId) { return NativeUIEvent(NATIVE_UI_CLICKED, elementId, NativeUIViewportMetrics(0, 0, 0, 0), NativeUIScrollDelta(0, 0), null, "", null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
+	class NativeUIEvent navigate(bool forward) { return NativeUIEvent(forward ? NATIVE_UI_NAVIGATE_FORWARD : NATIVE_UI_NAVIGATE_BACK, "", NativeUIViewportMetrics(0, 0, 0, 0), NativeUIScrollDelta(0, 0), null, "", null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
+	class NativeUIEvent hoverEntered(string elementId) { return NativeUIEvent(NATIVE_UI_HOVER_ENTERED, elementId, NativeUIViewportMetrics(0, 0, 0, 0), NativeUIScrollDelta(0, 0), null, "", null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
+	class NativeUIEvent hoverLeft(string elementId) { return NativeUIEvent(NATIVE_UI_HOVER_LEFT, elementId, NativeUIViewportMetrics(0, 0, 0, 0), NativeUIScrollDelta(0, 0), null, "", null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
+	class NativeUIEvent scrolled(string elementId, NativeUIViewportMetrics resultingViewport, NativeUIScrollDelta delta, NativeUIVirtualGridViewport? virtualGridViewport = null) { return NativeUIEvent(NATIVE_UI_SCROLLED, elementId, resultingViewport, delta, virtualGridViewport, "", null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
+	class NativeUIEvent viewportChanged(string elementId, NativeUIViewportMetrics metrics, NativeUIVirtualGridViewport? virtualGridViewport = null) { return NativeUIEvent(NATIVE_UI_VIEWPORT_CHANGED, elementId, metrics, NativeUIScrollDelta(0, 0), virtualGridViewport, "", null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
+	class NativeUIEvent valueChanged(string elementId, string value) { return NativeUIEvent(NATIVE_UI_VALUE_CHANGED, elementId, NativeUIViewportMetrics(0, 0, 0, 0), NativeUIScrollDelta(0, 0), null, value, null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
+	class NativeUIEvent selectionChanged(string elementId, string value) { return NativeUIEvent(NATIVE_UI_SELECTION_CHANGED, elementId, NativeUIViewportMetrics(0, 0, 0, 0), NativeUIScrollDelta(0, 0), null, value, null, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
+	class NativeUIEvent rangePointerPressed(string elementId, NativeUIPointerSample pointer) { return NativeUIEvent(NATIVE_UI_RANGE_POINTER_PRESSED, elementId, NativeUIViewportMetrics(0, 0, 0, 0), NativeUIScrollDelta(0, 0), null, "", pointer, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
+	class NativeUIEvent rangePointerMoved(string elementId, NativeUIPointerSample pointer) { return NativeUIEvent(NATIVE_UI_RANGE_POINTER_MOVED, elementId, NativeUIViewportMetrics(0, 0, 0, 0), NativeUIScrollDelta(0, 0), null, "", pointer, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
+	class NativeUIEvent rangePointerReleased(string elementId, NativeUIPointerSample pointer) { return NativeUIEvent(NATIVE_UI_RANGE_POINTER_RELEASED, elementId, NativeUIViewportMetrics(0, 0, 0, 0), NativeUIScrollDelta(0, 0), null, "", pointer, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
+	class NativeUIEvent rangePointerCancelled(string elementId, NativeUIPointerSample pointer) { return NativeUIEvent(NATIVE_UI_RANGE_POINTER_CANCELLED, elementId, NativeUIViewportMetrics(0, 0, 0, 0), NativeUIScrollDelta(0, 0), null, "", pointer, NATIVE_UI_RANGE_ADJUST_NONE, 0LL); }
+
+	class NativeUIEvent rangeWheel(string elementId, NativeUIScrollDelta delta, NativeUIRangeAdjustment adjustment, long long resultingValue) { return NativeUIEvent(NATIVE_UI_RANGE_WHEEL, elementId, NativeUIViewportMetrics(0, 0, 0, 0), delta, null, "", null, adjustment, resultingValue); }
+
+	class NativeUIEvent rangeAdjusted(string elementId, NativeUIRangeAdjustment adjustment, long long resultingValue) { return NativeUIEvent(NATIVE_UI_RANGE_ADJUSTED, elementId, NativeUIViewportMetrics(0, 0, 0, 0), NativeUIScrollDelta(0, 0), null, "", null, adjustment, resultingValue); }
+
+	public NativeUIEventKind kind() { return self.eventKind; }
+
+	public string elementId() { return self.targetIdentity; }
+
+	public NativeUIViewportMetrics viewport() { return self.viewportValue; }
+
+	public NativeUIScrollDelta scroll() { return self.scrollValue; }
+
+	public NativeUIVirtualGridViewport? virtualGridViewport() { return self.virtualGridViewportValue; }
+
+	public string value() { return self.inputValue; }
+
+	public NativeUIPointerSample? pointer() { return self.pointerValue; }
+
+	public NativeUIRangeAdjustment rangeAdjustment() { return self.rangeAdjustmentValue; }
+
+	public long long rangeValue() { return self.resultingRangeValue; }
+}
+
+/* Normalized, immutable source rectangle. It changes sampling only, never
+ * layout, hit testing or the source image's revision/cache identity. */
+class NativeUIImageRegion {
+	private double leftValue;
+	private double topValue;
+	private double widthValue;
+	private double heightValue;
+
+	public NativeUIImageRegion(double left, double top, double width, double height) {
+		if (!Math.isFinite(left) || !Math.isFinite(top) || !Math.isFinite(width) || !Math.isFinite(height) || left < 0.0 || top < 0.0 || width <= 0.0 || height <= 0.0 || left + width > 1.0 || top + height > 1.0) { throw "invalid native UI image region"; }
+		self.leftValue = left;
+		self.topValue = top;
+		self.widthValue = width;
+		self.heightValue = height;
+	}
+
+	public double left() { return self.leftValue; }
+
+	public double top() { return self.topValue; }
+
+	public double width() { return self.widthValue; }
+
+	public double height() { return self.heightValue; }
+}
+
+class NativeUIElement {
+	private NativeUIElementKind elementKind;
+	private string elementIdentity;
+	private string classValue;
+	private string styleValue;
+	private string textValue;
+	private Image? imageValue;
+	private unsigned long long imageRevisionValue;
+	private NativeUIImageRegion? imageRegionValue;
+	private int leadingIconWidthValue = 0;
+	private int leadingIconHeightValue = 0;
+	private int leadingIconGapValue = 0;
+	private string altValue;
+	private Vector<NativeUIElement> childValues;
+	private NativeUIStyleError styleErrorValue;
+	private NativeUIVirtualGrid? virtualGridValue;
+	private NativeUISelect? selectValue;
+	private string placeholderValue;
+	private int textInputMaxBytesValue;
+	private NativeUISemanticRange? semanticRangeValue;
+	private NativeUISemantics semanticsValue;
+	private bool enabledValue;
+	private bool selectedValue;
+	private bool hasFocusableOverrideValue;
+	private bool focusableOverrideValue;
+	private bool floatingValue;
+	private bool pinnedTopValue = false;
+	private int floatingXValue;
+	private int floatingYValue;
+
+	private NativeUIElement(NativeUIElementKind kind, string id, string text, Image? image, string alt) {
+		self.elementKind = kind;
+		self.elementIdentity = id;
+		self.classValue = "";
+		self.styleValue = "";
+		self.textValue = text;
+		self.imageValue = image;
+		self.imageRevisionValue = 0ULL;
+		self.imageRegionValue = null;
+		self.altValue = alt;
+		self.childValues = [];
+		self.styleErrorValue = NativeUIStyleError.valid();
+		self.virtualGridValue = null;
+		self.selectValue = null;
+		self.placeholderValue = "";
+		self.textInputMaxBytesValue = 0;
+		self.semanticRangeValue = null;
+		self.semanticsValue = NativeUISemantics();
+		self.enabledValue = true;
+		self.selectedValue = false;
+		self.hasFocusableOverrideValue = false;
+		self.focusableOverrideValue = false;
+		self.floatingValue = false;
+		self.floatingXValue = 0;
+		self.floatingYValue = 0;
+	}
+
+	class NativeUIElement column(string id) { return NativeUIElement(NATIVE_UI_COLUMN, id, "", null, ""); }
+
+	/* Children flow left to right. A child with an explicit `width` keeps it;
+	 * the others share what remains equally. Height is the tallest child. */
+	class NativeUIElement row(string id) { return NativeUIElement(NATIVE_UI_ROW, id, "", null, ""); }
+
+	class NativeUIElement grid(string id) { return NativeUIElement(NATIVE_UI_GRID, id, "", null, ""); }
+
+	class NativeUIElement virtualGrid(string id, NativeUIVirtualGrid descriptor) {
+		NativeUIElement element = NativeUIElement(NATIVE_UI_VIRTUAL_GRID, id, "", null, "");
+		element.virtualGridValue = descriptor;
+		return element;
+	}
+
+	class NativeUIElement text(string id, string text) { return NativeUIElement(NATIVE_UI_TEXT, id, text, null, ""); }
+
+	class NativeUIElement image(string id, Image image, string alt) { return NativeUIElement(NATIVE_UI_IMAGE, id, "", image, alt); }
+
+	class NativeUIElement button(string id, string label) { return NativeUIElement(NATIVE_UI_BUTTON, id, label, null, ""); }
+
+	class NativeUIElement textInput(string id, string value, string placeholder = "", int maxBytes = 4096) {
+		NativeUIElement element = NativeUIElement(NATIVE_UI_TEXT_INPUT, id, value, null, "");
+		element.placeholderValue = placeholder;
+		element.textInputMaxBytesValue = maxBytes;
+		return element;
+	}
+
+	class NativeUIElement select(string id, NativeUISelect descriptor) {
+		NativeUIElement element = NativeUIElement(NATIVE_UI_SELECT, id, descriptor == null ? "" : descriptor.selectedLabel(), null, "");
+		element.selectValue = descriptor;
+		return element;
+	}
+
+	public NativeUIElement className(string value) {
+		self.classValue = value;
+		return self;
+	}
+
+	public NativeUIElement style(string css) {
+		self.styleValue = css;
+		self.styleErrorValue = NativeUIStyle.validate(css);
+		return self;
+	}
+
+	/* Increment when mutating/replacing pixels under the same stable ID. */
+	public NativeUIElement imageRevision(unsigned long long revision) {
+		self.imageRevisionValue = revision;
+		return self;
+	}
+
+	/* Decorative pixels belong to the text field's one focus/hit target.
+	 * Dimensions are logical pixels; the image may have a Retina backing. */
+	public NativeUIElement leadingIcon(Image image, int width, int height, int gap = 8) {
+		if (self.elementKind != NATIVE_UI_TEXT_INPUT || image == null || image.isEmpty() || width < 1 || width > 256 || height < 1 || height > 256 || gap < 0 || gap > 256) { throw "native UI leading icons require a text input, image, 1..256px dimensions and 0..256px gap"; }
+		self.imageValue = image;
+		self.leadingIconWidthValue = width;
+		self.leadingIconHeightValue = height;
+		self.leadingIconGapValue = gap;
+		return self;
+	}
+
+	public int leadingIconWidth() { return self.leadingIconWidthValue; }
+
+	public int leadingIconHeight() { return self.leadingIconHeightValue; }
+
+	public int leadingIconInset() { return self.leadingIconWidthValue + self.leadingIconGapValue; }
+
+	public NativeUIElement imageRegion(NativeUIImageRegion? region) {
+		if (self.elementKind != NATIVE_UI_IMAGE) { throw "native UI image regions require an image element"; }
+		self.imageRegionValue = region;
+		return self;
+	}
+
+	public NativeUIElement semanticRange(NativeUISemanticRange descriptor) {
+		self.semanticRangeValue = descriptor;
+		return self;
+	}
+
+	public NativeUIElement enabled(bool value) {
+		self.enabledValue = value;
+		return self;
+	}
+
+	public NativeUIElement selected(bool value) {
+		self.selectedValue = value;
+		return self;
+	}
+
+	public NativeUIElement focusable(bool value) {
+		self.hasFocusableOverrideValue = true;
+		self.focusableOverrideValue = value;
+		return self;
+	}
+
+	public NativeUIElement semantics(NativeUISemantics descriptor) {
+		self.semanticsValue = descriptor;
+		return self;
+	}
+
+	public NativeUIElement child(NativeUIElement value) {
+		self.childValues.push(value);
+		return self;
+	}
+
+	/* Same bounds contract as childAt. Copy before replacing a child of a
+	 * published immutable tree; untouched children can then stay shared. */
+	public NativeUIElement replaceChild(int index, NativeUIElement value) {
+		self.childValues.set(index, value);
+		return self;
+	}
+
+	/* Independent element/child list; child elements and descriptors remain
+	 * shared. Useful for publishing a new container around retained children. */
+	public NativeUIElement copy() {
+		NativeUIElement copied = NativeUIElement(self.elementKind, self.elementIdentity, self.textValue, self.imageValue, self.altValue);
+		copied.classValue = self.classValue;
+		copied.styleValue = self.styleValue;
+		copied.imageRevisionValue = self.imageRevisionValue;
+		copied.imageRegionValue = self.imageRegionValue;
+		copied.leadingIconWidthValue = self.leadingIconWidthValue;
+		copied.leadingIconHeightValue = self.leadingIconHeightValue;
+		copied.leadingIconGapValue = self.leadingIconGapValue;
+		copied.childValues = self.childValues.copy();
+		copied.styleErrorValue = self.styleErrorValue;
+		copied.virtualGridValue = self.virtualGridValue;
+		copied.selectValue = self.selectValue;
+		copied.placeholderValue = self.placeholderValue;
+		copied.textInputMaxBytesValue = self.textInputMaxBytesValue;
+		copied.semanticRangeValue = self.semanticRangeValue;
+		copied.semanticsValue = self.semanticsValue;
+		copied.enabledValue = self.enabledValue;
+		copied.selectedValue = self.selectedValue;
+		copied.hasFocusableOverrideValue = self.hasFocusableOverrideValue;
+		copied.focusableOverrideValue = self.focusableOverrideValue;
+		copied.floatingValue = self.floatingValue;
+		copied.pinnedTopValue = self.pinnedTopValue;
+		copied.floatingXValue = self.floatingXValue;
+		copied.floatingYValue = self.floatingYValue;
+		return copied;
+	}
+
+	/* Out of flow, relative to the parent's outer origin. Painted after its
+	 * flowing siblings, in declaration order; overflow clips at the viewport. */
+	public NativeUIElement floating(int x, int y) {
+		self.floatingValue = true;
+		self.floatingXValue = x;
+		self.floatingYValue = y;
+		return self;
+	}
+
+	public bool isFloating() { return self.floatingValue; }
+
+	/* A leading root child stays above scrolling content, including its children. */
+	public NativeUIElement pinnedTop() { self.pinnedTopValue = true; return self; }
+
+	public bool isPinnedTop() { return self.pinnedTopValue; }
+
+	public int floatingX() { return self.floatingXValue; }
+
+	public int floatingY() { return self.floatingYValue; }
+
+	public NativeUIElementKind kind() { return self.elementKind; }
+
+	public string id() { return self.elementIdentity; }
+
+	public string cssClass() { return self.classValue; }
+
+	public string inlineStyle() { return self.styleValue; }
+
+	public string contentText() { return self.textValue; }
+
+	public Image? contentImage() { return self.imageValue; }
+
+	public unsigned long long contentImageRevision() { return self.imageRevisionValue; }
+
+	public NativeUIImageRegion? contentImageRegion() { return self.imageRegionValue; }
+
+	public string imageAlt() { return self.altValue; }
+
+	public NativeUIStyleError styleError() { return self.styleErrorValue; }
+
+	public NativeUIVirtualGrid? virtualGridDescriptor() { return self.virtualGridValue; }
+
+	public NativeUISelect? selectDescriptor() { return self.selectValue; }
+
+	public string placeholderText() { return self.placeholderValue; }
+
+	public int textInputMaxBytes() { return self.textInputMaxBytesValue; }
+
+	public NativeUISemanticRange? semanticRangeDescriptor() { return self.semanticRangeValue; }
+
+	public NativeUISemantics semanticDescriptor() { return self.semanticsValue; }
+
+	public bool isEnabled() { return self.enabledValue; }
+
+	public bool isSelected() { return self.selectedValue; }
+
+	public bool hasFocusableOverride() { return self.hasFocusableOverrideValue; }
+
+	public bool focusableOverride() { return self.focusableOverrideValue; }
+
+	public NativeUISemanticRole effectiveSemanticRole() {
+		NativeUISemanticRole declared = self.semanticsValue.role();
+		if (declared != NATIVE_UI_SEMANTIC_ROLE_AUTOMATIC) { return declared; }
+		if (self.semanticRangeValue != null) { return NATIVE_UI_SEMANTIC_ROLE_SLIDER; }
+		if (self.elementKind == NATIVE_UI_COLUMN || self.elementKind == NATIVE_UI_ROW) { return NATIVE_UI_SEMANTIC_ROLE_GROUP; }
+		if (self.elementKind == NATIVE_UI_GRID || self.elementKind == NATIVE_UI_VIRTUAL_GRID) { return NATIVE_UI_SEMANTIC_ROLE_GRID; }
+		if (self.elementKind == NATIVE_UI_TEXT) { return NATIVE_UI_SEMANTIC_ROLE_TEXT; }
+		if (self.elementKind == NATIVE_UI_IMAGE) { return NATIVE_UI_SEMANTIC_ROLE_IMAGE; }
+		if (self.elementKind == NATIVE_UI_BUTTON) { return NATIVE_UI_SEMANTIC_ROLE_BUTTON; }
+		if (self.elementKind == NATIVE_UI_SELECT) { return NATIVE_UI_SEMANTIC_ROLE_COMBO_BOX; }
+		return NATIVE_UI_SEMANTIC_ROLE_TEXT_FIELD;
+	}
+
+	public bool isFocusable() {
+		if (!self.enabledValue) { return false; }
+		if (self.hasFocusableOverrideValue) { return self.focusableOverrideValue; }
+		NativeUISemanticRole role = self.effectiveSemanticRole();
+		return role == NATIVE_UI_SEMANTIC_ROLE_BUTTON || role == NATIVE_UI_SEMANTIC_ROLE_TOGGLE_BUTTON || role == NATIVE_UI_SEMANTIC_ROLE_CHECKBOX || role == NATIVE_UI_SEMANTIC_ROLE_TAB || role == NATIVE_UI_SEMANTIC_ROLE_SLIDER || role == NATIVE_UI_SEMANTIC_ROLE_TEXT_FIELD || role == NATIVE_UI_SEMANTIC_ROLE_RADIO || role == NATIVE_UI_SEMANTIC_ROLE_COMBO_BOX;
+	}
+
+	public int childCount() { return self.childValues.len; }
+
+	public NativeUIElement childAt(int index) { return self.childValues.get(index); }
+}
+
+#include "NativeUI/Render.btrc"
+#include "NativeUI/TextRaster.btrc"

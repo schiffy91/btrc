@@ -1,0 +1,55 @@
+import Library.Math;
+
+/* Main-thread view ownership shared by native leaf controls and containers.
+ * Parents retain attached native children; BTRC owners detach on close. */
+class MacOSView {
+	private NSView? _view;
+
+	public MacOSView(NSView? view = null) {
+		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
+		self._view = view == null ? NSView.new() : view;
+		if (self._view == null) { throw "Cannot create native view"; }
+	}
+
+	public NSView nativeView() {
+		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
+		if (self._view == null) { throw "Native view is closed"; }
+		return self._view;
+	}
+
+	public void setFrame(double x, double y, double width, double height) {
+		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid native view frame"; }
+		var view = self.nativeView();
+		var frame = view.frame();
+		frame.origin.x = x;
+		frame.origin.y = y;
+		frame.size.width = width;
+		frame.size.height = height;
+		view.setFrame(frame);
+	}
+
+	public void setHidden(bool hidden) { self.nativeView().setHidden(hidden); }
+
+	public void setDarkAppearance(bool dark) {
+		var view = self.nativeView();
+		var appearance = NSAppearance.appearanceNamed(dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua);
+		if (appearance == null) { throw "Native view appearance is unavailable"; }
+		view.setAppearance(appearance);
+	}
+
+	public void inheritAppearance() { self.nativeView().setAppearance(null); }
+
+	public void addChild(NSView child) {
+		var view = self.nativeView();
+		if (child == null || view.isDescendantOf(child)) { throw "Invalid native child hierarchy"; }
+		view.addSubview(child);
+	}
+
+	public void close() {
+		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
+		var view = self._view;
+		if (view == null) { return; }
+		view.removeFromSuperview();
+		self._view = null;
+	}
+}

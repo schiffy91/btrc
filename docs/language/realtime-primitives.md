@@ -4,7 +4,7 @@ This document specifies the minimum BTRC value primitives used to build
 bounded realtime code.  They are deliberately small: fixed arrays remain the
 inline fixed-size primitive; `OwnedBuffer<T>` owns fallible fixed heap storage;
 `Span<T>` is a lexical borrowed view; `Atomic<T>` exposes typed C11 atomics;
-and `SpscQueue<T>` is the one canonical preallocated
+and `SPSCQueue<T>` is the one canonical preallocated
 single-producer/single-consumer queue composition.
 
 ## Fixed arrays
@@ -115,31 +115,31 @@ prove this fails to compile rather than silently introducing a lock.
 
 ## Canonical SPSC queue
 
-`Library.Spsc` owns the sole fixed-capacity SPSC queue/ring implementation. Ordinary
-managed code uses `SpscQueue<T>`; `T` must be realtime POD. A stored raw callback
+`Library.SPSC` owns the sole fixed-capacity SPSC queue/ring implementation. Ordinary
+managed code uses `SPSCQueue<T>`; `T` must be realtime POD. A stored raw callback
 instead opens the same implementation explicitly and stores only its borrowed
 storage pointer in the callback context:
 
 ```btrc
 struct Command { int kind; unsigned long long token; };
-struct AudioContext { struct SpscQueueStorage* commands; };
+struct AudioContext { struct SPSCQueueStorage* commands; };
 
-struct SpscQueueStorage* commands = null;
-SpscQueueOpenKind opened = SpscQueues.tryOpen(
+struct SPSCQueueStorage* commands = null;
+SPSCQueueOpenKind opened = SPSCQueues.tryOpen(
     64u, sizeof(struct Command), &commands);
 
 @realtime bool nextCommand(
     struct AudioContext* context,
     struct Command* output
 ) {
-    return SpscQueues.tryPopBorrowed(context->commands, output);
+    return SPSCQueues.tryPopBorrowed(context->commands, output);
 }
 ```
 
 `tryOpen` returns `SPSC_QUEUE_OPENED`, `SPSC_QUEUE_INVALID_ARGUMENT`,
 `SPSC_QUEUE_CAPACITY_OUT_OF_RANGE`, `SPSC_QUEUE_SIZE_OVERFLOW`, or
 `SPSC_QUEUE_OUT_OF_MEMORY`. On every failure it leaves the output null. On
-success the caller owns the returned pointer and must call `SpscQueues.close`
+success the caller owns the returned pointer and must call `SPSCQueues.close`
 off the realtime path after both participating threads stop. A callback only
 borrows the pointer; it may call `tryPushBorrowed` or `tryPopBorrowed` but may
 not close it.
@@ -147,7 +147,7 @@ not close it.
 The raw boundary copies exactly the `valueSize` fixed at open. Callers must use
 one concrete realtime-POD type and pass `sizeof(T)` plus `T*` values throughout
 that storage's lifetime. The byte-erased representation is intentional at the
-stored-C-callback boundary; the managed `SpscQueue<T>` wrapper enforces the same
+stored-C-callback boundary; the managed `SPSCQueue<T>` wrapper enforces the same
 payload rule statically for ordinary code.
 
 Construction allocates the payload buffer and cursors off the realtime path.

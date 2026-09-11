@@ -7,9 +7,9 @@
  * headless CI show() returns false and we assert the graceful-degradation path.
  * Either way the run is deterministic and prints PASS.
  */
-import Library.Ui;
+import Library.UI;
 
-#include "tray/Tray.btrc"
+#include "Tray/Tray.btrc"
 
 int main() {
 	/* The quit sentinel is a stable, documented token. */

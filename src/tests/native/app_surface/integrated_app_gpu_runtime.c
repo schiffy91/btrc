@@ -1,6 +1,5 @@
 #include "btrc_app.h"
 #include "btrc_app_surface_internal.h"
-#include "btrc_app_directory_picker_internal.h"
 #include "btrc_app_window_internal.h"
 #include "btrc_gpu.h"
 #include "fake_glfw_runtime.h"
@@ -49,14 +48,6 @@ int btrc_app_platform_set_titlebar_style(GLFWwindow* window, int style) {
     (void)window; (void)style;
     require(false, "GPU lifecycle test unexpectedly changed the titlebar");
     return BTRC_APP_ERROR_INTERNAL;
-}
-
-int btrc_app_platform_choose_directory(const char* title, const char* initial_directory,
-        char* selected_directory, size_t selected_directory_capacity, int* error_out) {
-    (void)title; (void)initial_directory; (void)selected_directory;
-    (void)selected_directory_capacity; (void)error_out;
-    require(false, "GPU lifecycle test unexpectedly opened a directory picker");
-    return BTRC_APP_DIRECTORY_PICKER_FAILED;
 }
 
 static void record(const char* operation) {

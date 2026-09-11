@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
-from src.compiler.python.syntax.ast.generated import Program, RichEnumDecl
+from src.compiler.python.syntax.ast.generated import Program, RichEnumDecl, TypedefDecl
 
 from .aggregates import AggregateAnalyzer
 from .calls import CallAnalyzer
@@ -158,6 +159,22 @@ class SemanticAnalyzer:
                 if declaration.type is not None
             },
             defined_global_names=frozenset(self.index.global_definitions),
+            native_type_spellings={
+                declaration.alias: declaration.source_file.type_spelling
+                for declaration in program.declarations
+                if isinstance(declaration, TypedefDecl)
+                and isinstance(declaration.source_file, NativeHeaderSource)
+                and declaration.source_file.type_spelling
+            },
+            native_object_globals=frozenset(
+                name
+                for name, declaration in self.index.global_declarations.items()
+                if isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
+                and declaration.source_file.language == "objective-c"
+                and declaration.type is not None
+                and declaration.type.base in self.index.class_table
+                and self.index.class_table[declaration.type.base].native_language == "objective-c"
+            ),
             hosted_call_ids=set(state.hosted_call_ids),
             realtime_safe_callables=realtime_safe_callables,
             realtime_bounded_loop_ids=set(state.realtime_bounded_loop_ids),

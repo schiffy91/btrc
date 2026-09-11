@@ -1,6 +1,6 @@
 /* JSON output preserves valid UTF-8 and replaces each malformed input byte
  * independently with U+FFFD. */
-import Library.Json;
+import Library.JSON;
 import Library.Strings;
 import Library.Vector;
 
@@ -18,12 +18,12 @@ class JsonUtf8Fixture {
 	class void expectRepair(Vector<int> values, string expected) {
 		string malformed = JsonUtf8Fixture.bytes(values);
 		string encoded = "\"" + expected + "\"";
-		JsonValue value = JsonValue.makeString(malformed);
+		JSONValue value = JSONValue.makeString(malformed);
 		assert(value.stringify().equals(encoded));
 		assert(value.stringifyPretty().equals(encoded));
 		assert(value.document().equals(encoded + "\n"));
 
-		JsonValue roundtrip = JsonValue.parse(encoded);
+		JSONValue roundtrip = JSONValue.parse(encoded);
 		assert(roundtrip.isString());
 		assert(roundtrip.asString().equals(expected));
 		assert(roundtrip.stringify().equals(encoded));
@@ -41,7 +41,7 @@ int main() {
 		0xf0, 0x90, 0x80, 0x80,
 		0xf4, 0x8f, 0xbf, 0xbf
 	]);
-	assert(JsonValue.makeString(valid).stringify().equals("\"" + valid + "\""));
+	assert(JSONValue.makeString(valid).stringify().equals("\"" + valid + "\""));
 
 	JsonUtf8Fixture.expectRepair([0x80], replacement);
 	JsonUtf8Fixture.expectRepair([0xc0, 0xaf], replacement + replacement);
@@ -56,12 +56,12 @@ int main() {
 	string repairedValue = replacement + "(" + replacement;
 	string objectText = "{\"" + repairedKey + "\":\"" + repairedValue + "\"}";
 
-	JsonValue object = JsonValue.makeObject();
-	object.set(malformedKey, JsonValue.makeString(malformedValue));
+	JSONValue object = JSONValue.makeObject();
+	object.set(malformedKey, JSONValue.makeString(malformedValue));
 	assert(object.stringify().equals(objectText));
-	assert(JsonValue.parse(objectText).stringify().equals(objectText));
+	assert(JSONValue.parse(objectText).stringify().equals(objectText));
 
-	JsonObject legacy = JsonObject();
+	JSONObject legacy = JSONObject();
 	legacy.setString(malformedKey, malformedValue);
 	assert(legacy.stringify().equals(objectText));
 
@@ -69,7 +69,7 @@ int main() {
 	rawJson.appendChar((char)34);
 	rawJson.append(malformedValue);
 	rawJson.appendChar((char)34);
-	JsonValue parsedMalformed = JsonValue.parse(rawJson.toString());
+	JSONValue parsedMalformed = JSONValue.parse(rawJson.toString());
 	assert(parsedMalformed.isString());
 	assert(parsedMalformed.stringify().equals("\"" + repairedValue + "\""));
 

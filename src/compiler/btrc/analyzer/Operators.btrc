@@ -228,6 +228,9 @@ class OperatorSemantics {
 	}
 
 	public bool specializationIsSubtype(Node child, Node parent) {
+		if (self.analyzed.nativeClassLanguage(child.base) == "objective-c") {
+			return !child.isArray && !parent.isArray && child.genericArgs.len == 0 && parent.genericArgs.len == 0 && self.valueDepth(child) == 1 && self.valueDepth(parent) == 1 && self.analyzed.isSubclass(child.base, parent.base);
+		}
 		string currentBase = child.base;
 		bool carriesArgs = true;
 		Map<string, bool> seen = {};

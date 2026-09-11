@@ -152,7 +152,7 @@ class DeclarationValidator {
 	}
 
 	public void validateHostedBodylessDeclaration(Node declaration) {
-		if (declaration.bodyNode != null) { return; }
+		if (declaration.bodyNode != null || self.state.analyzed.isNativeDeclaration(declaration)) { return; }
 		string name = declaration.name;
 		if (self.hostedAbi.macroName(name)) {
 			TypeValidator.fail("Hosted macro '" + name + "' cannot be redeclared as a function", declaration);
@@ -292,7 +292,7 @@ class DeclarationValidator {
 					if (member.isAbstract && !classDeclaration.isAbstract) {
 						TypeValidator.fail("Abstract " + label + " requires an abstract class", member);
 					}
-					if (!member.isAbstract && member.bodyNode == null) {
+					if (!member.isAbstract && member.bodyNode == null && !self.state.analyzed.isNativeDeclaration(classDeclaration)) {
 						TypeValidator.fail("Concrete " + label + " requires a body", member);
 					}
 					self.validateMagicShape(classDeclaration, member);
@@ -445,6 +445,7 @@ class DeclarationValidator {
 
 	public void validateClassInheritance(Node declaration) {
 		string parent = DeclarationRegistry.parentName(declaration);
+		if (self.state.analyzed.nativeClassLanguage(parent) != "") { TypeValidator.fail("Native class inheritance requires managed native lowering", declaration); }
 		if (parent != "" && !self.state.analyzed.isClass(parent) && !self.state.analyzed.isGenericClass(parent)) {
 			TypeValidator.fail("Class '" + declaration.name + "' extends unknown class '" + parent + "'", declaration);
 		}
@@ -720,7 +721,7 @@ class DeclarationValidator {
 		int typeIndex = 0;
 		while (typeIndex < callable.params.len) {
 			Node parameter = callable.params.get(typeIndex);
-			self.names.validateGeneratedLexicalBindingName(parameter.name, "Parameter", parameter);
+			if (!self.state.analyzed.isNativeDeclaration(callable)) { self.names.validateGeneratedLexicalBindingName(parameter.name, "Parameter", parameter); }
 			self.types.validateDeclaredType(parameter.type, "Parameter '" + parameter.name + "'", "parameter", parameter);
 			self.storage.validateGpuArrayParameter(callable, parameter);
 			self.types.rejectRuntimeInterfaceType(parameter.type, parameter);
@@ -762,7 +763,7 @@ class DeclarationValidator {
 		self.state.loopDepth = 0;
 		self.state.breakDepth = 0;
 		self.state.gpuCallable = callable.isGpu;
-		Map<string, bool> parameterNames = self.names.parameterNames(callable.params, "callable '" + self.state.owner + "'");
+		Map<string, bool> parameterNames = self.names.parameterNames(callable.params, "callable '" + self.state.owner + "'", callable);
 		self.state.callable = callable;
 		self.state.parameterNames = self.types.cloneFlags(parameterNames);
 		self.state.borrowedBindings = self.types.cloneFlags(parameterNames);

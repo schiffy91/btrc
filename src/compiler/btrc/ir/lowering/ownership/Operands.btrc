@@ -3,7 +3,7 @@ import Library.Vector;
 
 import ../../../analyzer/Declarations.btrc;
 import ../../../analyzer/Expressions.btrc;
-import ../../../analyzer/Gpu.btrc;
+import ../../../analyzer/GPU.btrc;
 import ../../../analyzer/Models.btrc;
 import ../../../analyzer/Operators.btrc;
 import ../../../analyzer/Types.btrc;
@@ -130,6 +130,7 @@ class OwnershipOperandPlanner {
 		if (expression == null) { return false; }
 		int kind = expression.kind;
 		if (kind == NK_IDENTIFIER) {
+			if (self.analyzed.isObjectiveCObjectGlobal(expression.name)) { return true; }
 			if (!environment.hasVariable(expression.name) && self.analyzed.funcTable.has(expression.name)) {
 				return false;
 			}
@@ -212,6 +213,16 @@ class OwnershipOperandPlanner {
 	public string operandCType(Node expression, Node typeExpr) {
 		if (expression.kind == NK_IDENTIFIER && self.analyzed.isEnumValue(expression.name)) {
 			return "int";
+		}
+		Node? canonical = SemanticTypeSystem.resolveTypedefType(typeExpr, self.analyzed.typedefTable);
+		if (canonical != null && canonical.pointerDepth == 0 && !canonical.isArray) {
+			/* A copied scalar does not retain the source slot's constness. */
+			Node storage = TypeShape.copy(canonical);
+			storage.isConst = false;
+			storage.isStatic = false;
+			storage.isExtern = false;
+			storage.isVolatile = false;
+			return self.cTypes.lower(storage);
 		}
 		return self.cTypes.lower(typeExpr);
 	}

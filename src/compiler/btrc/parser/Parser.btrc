@@ -269,6 +269,12 @@ class Parser {
 		return n;
 	}
 
+	private string parseLibraryModuleName() {
+		string name = self.expect("IDENT").value;
+		while (self.matchTok("DOT")) { name = name + "." + self.expect("IDENT").value; }
+		return name;
+	}
+
 	public Node parseStdSpec() {
 		if (self.check("STAR")) {
 			self.advance();
@@ -281,17 +287,17 @@ class Parser {
 		if (self.matchTok("LBRACE")) {
 			Node n = Node();
 			n.kind = NK_LIBRARY_MODULES;
-			n.names.push(self.expect("IDENT").value);
+			n.names.push(self.parseLibraryModuleName());
 			while (self.matchTok("COMMA")) {
 				if (self.check("RBRACE")) { break; }
-				n.names.push(self.expect("IDENT").value);
+				n.names.push(self.parseLibraryModuleName());
 			}
 			self.expect("RBRACE");
 			return n;
 		}
 		Node n = Node();
 		n.kind = NK_LIBRARY_MODULES;
-		n.names.push(self.expect("IDENT").value);
+		n.names.push(self.parseLibraryModuleName());
 		return n;
 	}
 
@@ -1904,6 +1910,12 @@ class Parser {
 		return ix;
 	}
 
+	private Token memberName() {
+		Token token = self.peekAt(0);
+		if (token.type == "IDENT" || self.grammar.vocabulary.keywordToken(token.value) == token.type) { return self.advance(); }
+		return self.expect("IDENT");
+	}
+
 	public Node postfixDot(Node expr) {
 		self.advance();
 		string fieldName = "";
@@ -1911,7 +1923,7 @@ class Parser {
 			Token idxTok = self.advance();
 			fieldName = "_" + idxTok.value;
 		} else {
-			fieldName = self.expect("IDENT").value;
+			fieldName = self.memberName().value;
 		}
 		Node fa = Node();
 		fa.kind = NK_FIELD_ACCESS_EXPR;
@@ -1925,7 +1937,7 @@ class Parser {
 
 	public Node postfixQuestionDot(Node expr) {
 		self.advance();
-		string fieldName = self.expect("IDENT").value;
+		string fieldName = self.memberName().value;
 		Node fa = Node();
 		fa.kind = NK_FIELD_ACCESS_EXPR;
 		fa.obj = expr;
@@ -1939,7 +1951,7 @@ class Parser {
 
 	public Node postfixArrow(Node expr) {
 		self.advance();
-		string fieldName = self.expect("IDENT").value;
+		string fieldName = self.memberName().value;
 		Node fa = Node();
 		fa.kind = NK_FIELD_ACCESS_EXPR;
 		fa.obj = expr;

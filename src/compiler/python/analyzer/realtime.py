@@ -6,6 +6,7 @@ import dataclasses
 from dataclasses import dataclass, field
 
 from src.compiler.python.abi.hosted import HOSTED_ABI
+from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 from src.compiler.python.syntax.ast import generated as ast
 
@@ -210,7 +211,12 @@ class RealtimeAnalyzer:
         if getattr(declaration, "is_gpu", False):
             self._effect(callable_, "runtime", "GPU dispatch", declaration)
         if not isinstance(declaration, ast.PropertyDecl) and callable_.body is None:
-            self._effect(callable_, "unknown", "bodyless or abstract callable", declaration)
+            source = getattr(declaration, "source_file", None)
+            contract = source.call_contract if isinstance(source, NativeHeaderSource) else None
+            if contract is None or not contract.realtime_safe:
+                self._effect(callable_, "unknown", "bodyless or abstract callable", declaration)
+            else:
+                self._external_call(callable_, declaration.name, declaration, reviewed_native=True)
             return
         for parameter in getattr(declaration, "params", ()):
             if self._managed_type(parameter.type):
@@ -684,7 +690,7 @@ class RealtimeAnalyzer:
         else:
             callable_.events.append(RealtimeEdge(target, access.line, access.col))
 
-    def _external_call(self, callable_: RealtimeCallable, name: str, node) -> None:
+    def _external_call(self, callable_: RealtimeCallable, name: str, node, *, reviewed_native=False) -> None:
         if name in self._ALLOCATION_CALLS:
             category = "allocation"
         elif name in self._LOCK_CALLS:
@@ -702,7 +708,7 @@ class RealtimeAnalyzer:
         elif name == "len":
             category = "collections"
         else:
-            category = "unknown"
+            category = "safe" if reviewed_native else "unknown"
         if category != "safe":
             self._effect(callable_, category, f"external call '{name}()'", node)
 

@@ -6,7 +6,32 @@ import Library.Vector;
 #include <assert.h>
 #include <stdio.h>
 
+int liveButtons = 0;
+
+class IterationButton {
+	public int value;
+	public IterationButton(int value) { self.value = value; liveButtons++; }
+
+	public void __del__() { liveButtons--; }
+}
+
+class IterationPanel {
+	private IterationButton first = IterationButton(3);
+	private IterationButton second = IterationButton(7);
+	public int total() {
+		int result = 0;
+		for button in [self.first, self.second] { result += button.value; }
+		return result;
+	}
+}
+
 int main() {
+	{
+		var panel = IterationPanel();
+		assert(panel.total() == 10 && panel.total() == 10);
+		assert(liveButtons == 2);
+	}
+	assert(liveButtons == 0);
 	Vector<int> v = [1, 2, 3, 4, 5];
 
 	/* skip evens (continue) and stop at 4 (break): sum 1 + 3 */

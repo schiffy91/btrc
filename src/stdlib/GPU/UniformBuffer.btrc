@@ -1,0 +1,73 @@
+import Library.Array;
+import Library.GPU.Device;
+import Library.GPU.SurfaceRenderer;
+import Library.GPU.WebGPU;
+
+/* Mutable CPU parameters, immutable to each submitted frame. Separate draws
+ * with different values need separate buffers; queue writes are not snapshots. */
+class GPUUniformBuffer {
+	private GPUDevice _device;
+	private Array<float>? _values = null;
+	private int _count;
+	private unsigned long long _byteCount;
+	private WGPUBuffer _buffer = null;
+	private GPUSurfaceRenderer? _recordedSurface = null;
+	private unsigned long long _recordedFrame = 0ULL;
+
+	public GPUUniformBuffer(GPUDevice device, int floatCount) {
+		if (floatCount <= 0) { throw "GPU uniform count must be positive"; }
+		self._device = device;
+		self._count = floatCount;
+		self._byteCount = ((unsigned long long)floatCount + 3ULL) / 4ULL * 16ULL;
+		WGPULimits limits = {null};
+		if (wgpuDeviceGetLimits(device.nativeDevice(), &limits) != WGPUStatus_Success || self._byteCount > limits.maxUniformBufferBindingSize || self._byteCount / 4ULL > (unsigned long long)INT_MAX) { throw "GPU uniform exceeds device limits"; }
+		Array<float> values = Array((int)(self._byteCount / 4ULL));
+		self._values = values;
+		WGPUBufferDescriptor descriptor = {null};
+		descriptor.size = self._byteCount;
+		descriptor.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+		self._buffer = wgpuDeviceCreateBuffer(device.nativeDevice(), &descriptor);
+		if (self._buffer == null) { throw "Cannot allocate GPU uniform"; }
+	}
+
+	private void requireOpen() { if (self._buffer == null) { throw "GPU uniform is closed"; } }
+
+	private bool recorded() { var surface = self._recordedSurface; return surface != null && surface.frameActive(self._recordedFrame); }
+
+	public GPUDevice device() { self.requireOpen(); return self._device; }
+
+	public unsigned long long byteCount() { self.requireOpen(); return self._byteCount; }
+
+	public void set(int index, float value) {
+		self.requireOpen();
+		if (index < 0 || index >= self._count) { throw "GPU uniform index is out of bounds"; }
+		if (self.recorded()) { throw "GPU uniform is referenced by an active frame"; }
+		var values = self._values;
+		if (values == null) { throw "GPU uniform is closed"; }
+		values.set(index, value);
+	}
+
+	public WGPUBuffer uploadFor(GPUSurfaceRenderer surface) {
+		self.requireOpen();
+		if (surface.device() != self._device) { throw "GPU uniform belongs to another device"; }
+		surface.nativePass();
+		if (self.recorded()) {
+			if (surface != self._recordedSurface || surface.frameNumber() != self._recordedFrame) { throw "GPU uniform is referenced by another active frame"; }
+			return self._buffer;
+		}
+		var values = self._values;
+		if (values == null) { throw "GPU uniform is closed"; }
+		wgpuQueueWriteBuffer(self._device.nativeQueue(), self._buffer, 0ULL, values.data, (size_t)self._byteCount);
+		self._recordedSurface = surface;
+		self._recordedFrame = surface.frameNumber();
+		return self._buffer;
+	}
+
+	public void close() {
+		if (self._buffer != null) { wgpuBufferRelease(self._buffer); self._buffer = null; }
+		self._values = null;
+		self._recordedSurface = null;
+	}
+
+	public void __del__() { self.close(); }
+}

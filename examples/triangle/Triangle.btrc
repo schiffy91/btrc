@@ -1,7 +1,7 @@
 /* One Library.App window with one attached WebGPU surface and triangle pipeline. */
 
-import ../../src/stdlib/app/App.btrc;
-import ../../src/stdlib/gpu/Gpu.btrc;
+import ../../src/stdlib/App/App.btrc;
+import ../../src/stdlib/GPU/GPU.btrc;
 
 int main() {
 	Application application = new Application();

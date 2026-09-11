@@ -1,0 +1,84 @@
+import Library.IO;
+import Library.Math;
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSPanel;
+import Library.GUI.MacOS.MacOSGrid;
+import Library.GUI.MacOS.MacOSLabel;
+import Library.GUI.MacOS.MacOSSelect;
+import Library.GUI.MacOS.MacOSViewCapture;
+
+#include <assert.h>
+
+int main() {
+	var app = MacOSApplication();
+	var window = MacOSWindow("Native form layout", 660.0, 260.0);
+	var background = MacOSPanel(RGBA(30, 30, 30));
+	background.setFrame(0.0, 0.0, 660.0, 260.0);
+	window.contentView().addSubview(background.nativeView());
+	var form = MacOSGrid(2, 2, 20.0, 15.0);
+	form.setFrame(30.0, 45.0, 600.0, 130.0);
+	form.setColumnWidth(0, 160.0);
+	form.setColumnWidth(1, 420.0);
+	form.setRowHeight(0, 50.0);
+	form.setRowHeight(1, 50.0);
+	background.addChild(form.nativeView());
+	var inputLabel = MacOSLabel("Input Device");
+	var monitorLabel = MacOSLabel("Monitor");
+	var input = MacOSSelect();
+	input.setItems(["Quad Cortex", "System Default"], 0);
+	var monitor = MacOSSelect();
+	monitor.setItems(["Song Effects", "Raw Signal"], 0);
+	form.setChild(0, 0, inputLabel.nativeView());
+	form.setChild(1, 0, input.nativeView());
+	form.setChild(0, 1, monitorLabel.nativeView());
+	form.setChild(1, 1, monitor.nativeView());
+	window.show();
+	app.pumpEvents();
+	form.layout();
+	var inputFrame = input.nativeView().frame();
+	var monitorFrame = monitor.nativeView().frame();
+	assert(inputFrame.size.width > 400.0 && inputFrame.size.height > 20.0);
+	assert(Math.absDouble(inputFrame.origin.x - monitorFrame.origin.x) < 0.5);
+	assert(inputFrame.origin.y > monitorFrame.origin.y);
+	double fullWidth = form.nativeView().fittingSize().width;
+	form.setColumnHidden(1, true);
+	form.layout();
+	assert(form.nativeView().fittingSize().width < fullWidth);
+	form.setColumnHidden(1, false);
+	form.layout();
+	assert(Math.absDouble(form.nativeView().fittingSize().width - fullWidth) < 0.5);
+	var file = File("NativeGrid.tiff", "wb");
+	assert(file.ok() && file.writeBytes(MacOSViewCapture.captureTiff(window.contentView())) && file.close());
+	form.setColumnWidth(1, 220.0);
+	form.setFrame(30.0, 45.0, 400.0, 130.0);
+	form.layout();
+	assert(input.nativeView().frame().size.width < inputFrame.size.width - 150.0);
+	bool rejected = false;
+	try { form.setChild(2, 0, null); } catch (string error) { rejected = true; }
+	assert(rejected);
+	rejected = false;
+	try { form.setChild(0, 0, background.nativeView()); } catch (string error) { rejected = true; }
+	assert(rejected);
+	rejected = false;
+	try { form.setChild(0, 0, monitor.nativeView()); } catch (string error) { rejected = true; }
+	assert(rejected);
+	form.setChild(1, 1, null);
+	var nested = MacOSGrid(1, 1);
+	nested.setChild(0, 0, monitor.nativeView());
+	form.setChild(1, 1, nested.nativeView());
+	form.layout();
+	assert(monitor.nativeView().frame().size.width > 100.0);
+	form.close();
+	form.close();
+	nested.close();
+	assert(input.nativeView().superview() == null && monitor.nativeView().superview() == null);
+	input.close();
+	monitor.close();
+	inputLabel.close();
+	monitorLabel.close();
+	background.close();
+	window.close();
+	print("PASS: native grid layout, resizing, recursive cells and ownership");
+	return 0;
+}

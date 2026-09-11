@@ -144,6 +144,15 @@ class NativeUnit:
 
 
 @dataclass(frozen=True, slots=True)
+class NativeGeneratedUnit:
+    name: str
+    language: str
+    standard: str
+    memory_management: str
+    source: str
+
+
+@dataclass(frozen=True, slots=True)
 class NativeBuildPlan:
     """Validated fields needed by the build adapter."""
 
@@ -155,6 +164,7 @@ class NativeBuildPlan:
     frameworks: tuple[str, ...]
     pkg_config: tuple[str, ...]
     units: tuple[NativeUnit, ...]
+    generated_units: tuple[NativeGeneratedUnit, ...] = ()
 
 
 class NativePlanReader:
@@ -170,10 +180,15 @@ class NativePlanReader:
             )
         except (UnicodeError, json.JSONDecodeError, RecursionError) as error:
             raise NativePlanError(f"cannot parse native link plan {path}: {error}") from error
-        root = _exact_mapping(payload, ROOT_FIELDS, "native link plan")
+        fields = (
+            ROOT_FIELDS | {"generated-units"}
+            if isinstance(payload, dict) and payload.get("schema") == 2
+            else ROOT_FIELDS
+        )
+        root = _exact_mapping(payload, fields, "native link plan")
         canonical = json.dumps(root, allow_nan=False, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
         if encoded != canonical.encode("utf-8"):
-            raise NativePlanError("native link plan must use canonical schema-1 JSON")
+            raise NativePlanError("native link plan must use canonical JSON")
         return self._validate(root)
 
     def _read_regular(self, path: Path) -> bytes:
@@ -197,8 +212,8 @@ class NativePlanReader:
         return encoded
 
     def _validate(self, root: dict[str, object]) -> NativeBuildPlan:
-        if type(root["schema"]) is not int or root["schema"] != 1:
-            raise NativePlanError("native link plan schema must be integer 1")
+        if type(root["schema"]) is not int or root["schema"] not in (1, 2):
+            raise NativePlanError("native link plan schema must be integer 1 or 2")
         target = _exact_mapping(root["target"], frozenset({"arch", "os"}), "native link plan target")
         operating_system = _text(target["os"], "native link plan target.os")
         architecture = _text(target["arch"], "native link plan target.arch")
@@ -220,8 +235,11 @@ class NativePlanReader:
             raise NativePlanError("native link plan frameworks require a macos target")
         pkg_config = self._name_records(root["pkg-config"], "pkg-config", package_roots)
         units = self._units(root["units"], package_roots)
+        generated_units = self._generated_units(root["generated-units"]) if root["schema"] == 2 else ()
         linker_language = _text(root["linker-language"], "native link plan linker-language")
-        expected_linker = "c++" if any(unit.language in {"c++", "objective-c++"} for unit in units) else "c"
+        expected_linker = (
+            "c++" if any(unit.language in {"c++", "objective-c++"} for unit in (*units, *generated_units)) else "c"
+        )
         if linker_language != expected_linker:
             raise NativePlanError(
                 f"native link plan linker-language must be {expected_linker!r} for its selected units"
@@ -235,7 +253,33 @@ class NativePlanReader:
             frameworks,
             pkg_config,
             units,
+            generated_units,
         )
+
+    def _generated_units(self, value: object) -> tuple[NativeGeneratedUnit, ...]:
+        units = []
+        names = []
+        for raw in _array(value, "native link plan generated-units"):
+            record = _exact_mapping(
+                raw, frozenset({"name", "language", "standard", "memory-management", "source"}), "generated unit"
+            )
+            name = _text(record["name"], "generated unit name")
+            language = _text(record["language"], "generated unit language")
+            standard = _text(record["standard"], "generated unit standard")
+            memory = _text(record["memory-management"], "generated unit memory-management")
+            source = _text(record["source"], "generated unit source")
+            if not DEFINE_NAME.fullmatch(name):
+                raise NativePlanError("generated unit name must be an identifier")
+            if language not in SOURCE_STANDARDS or standard not in SOURCE_STANDARDS[language]:
+                raise NativePlanError("generated unit has unsupported language or standard")
+            expected_memory = "arc" if language.startswith("objective-c") else "raii" if language == "c++" else "manual"
+            if memory != expected_memory:
+                raise NativePlanError(f"generated {language} unit requires {expected_memory} memory-management")
+            units.append(NativeGeneratedUnit(name, language, standard, memory, source))
+            names.append(name)
+        if not names or names != sorted(set(names)):
+            raise NativePlanError("generated units must be nonempty, sorted and uniquely named")
+        return tuple(units)
 
     def _packages(self, value: object) -> dict[str, Path]:
         packages = _array(value, "native link plan packages")
@@ -426,20 +470,31 @@ class NativePlanBuilder:
                 ]
             )
             objects.append(generated_object)
-            for index, unit in enumerate(plan.units):
+            for index, unit in enumerate((*plan.units, *plan.generated_units)):
                 object_path = temporary / f"native-{index}.o"
+                policy = []
+                if isinstance(unit, NativeGeneratedUnit):
+                    source_path = temporary / f"adapter-{index}.source"
+                    source_path.write_text(unit.source, encoding="utf-8")
+                    if unit.memory_management == "arc":
+                        policy = ["-fobjc-arc", "-fobjc-exceptions", "-fobjc-arc-exceptions"]
+                    elif unit.memory_management == "raii":
+                        policy = ["-fexceptions"]
+                else:
+                    source_path = unit.path
                 self._run(
                     [
                         tools[SOURCE_DRIVERS[unit.language]],
                         *SOURCE_LANGUAGE_ARGUMENTS[unit.language],
                         f"-std={unit.standard}",
                         *strict,
+                        *policy,
                         *includes,
                         *defines,
                         *package_compile,
                         f"-O{optimization}",
                         "-c",
-                        str(unit.path),
+                        str(source_path),
                         "-o",
                         str(object_path),
                     ]

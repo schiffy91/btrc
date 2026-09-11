@@ -56,7 +56,7 @@ def test_realtime_primitive_surfaces_are_in_the_builtin_catalog():
         "tryGet",
         "trySet",
     }
-    assert {member.name for member in catalog.members("SpscQueue<int>")} == {
+    assert {member.name for member in catalog.members("SPSCQueue<int>")} == {
         "tryPush",
         "tryPop",
         "close",

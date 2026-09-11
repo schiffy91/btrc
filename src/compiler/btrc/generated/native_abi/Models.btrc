@@ -8,8 +8,10 @@ enum NativeNodeKind {
 	NNK_NONE = 0,
 	NNK_NATIVE_HEADER,
 	NNK_NATIVE_FUNCTION,
+	NNK_NATIVE_OBJECTIVE_C_METHOD,
 	NNK_NATIVE_TYPEDEF,
 	NNK_NATIVE_CONSTANT,
+	NNK_NATIVE_GLOBAL,
 	NNK_NATIVE_RECORD_DECLARATION,
 	NNK_NATIVE_BUILTIN,
 	NNK_NATIVE_POINTER,
@@ -19,8 +21,11 @@ enum NativeNodeKind {
 	NNK_NATIVE_FUNCTION_TYPE,
 	NNK_NATIVE_ARRAY_TYPE,
 	NNK_NATIVE_QUALIFIED_TYPE,
+	NNK_NATIVE_OBJECTIVE_C_OBJECT,
+	NNK_NATIVE_OBJECTIVE_C_BLOCK,
 	NNK_NATIVE_QUALIFIERS,
 	NNK_NATIVE_PARAMETER_SEMANTICS,
+	NNK_NATIVE_OBJECTIVE_C_INTERFACE,
 	NNK_NATIVE_RECORD_LAYOUT,
 	NNK_NATIVE_FIELD,
 };
@@ -33,6 +38,7 @@ class NativeNode {
 	public int characterBits;
 	public Vector<NativeNode> exports;
 	public Vector<NativeNode> records;
+	public Vector<NativeNode> interfaces;
 	public string name;
 	public string linkName;
 	public NativeNode signature;
@@ -41,16 +47,26 @@ class NativeNode {
 	public string sourceFile;
 	public int line;
 	public int column;
+	public string identity;
+	public string owner;
+	public string receiver;
+	public string selector;
+	public bool classMethod;
+	public string methodFamily;
+	public bool consumesSelf;
+	public bool relatedResult;
+	public bool returnsInnerPointer;
 	public NativeNode underlying;
 	public NativeNode valueType;
 	public string decimalValue;
+	public bool readOnly;
 	public NativeNode recordType;
 	public int bits;
 	public int alignmentBitsInt;
 	public string signedness;
 	public NativeNode qualifiers;
 	public NativeNode pointee;
-	public string identity;
+	public string tagName;
 	public string recordKind;
 	public bool complete;
 	public bool opaque;
@@ -60,12 +76,17 @@ class NativeNode {
 	public string callingConvention;
 	public NativeNode element;
 	public string? count;
+	public bool classObject;
+	public Vector<string> protocols;
+	public Vector<NativeNode> typeArguments;
 	public bool isConst;
 	public bool isVolatile;
 	public bool isRestrict;
 	public string nullability;
 	public bool cfConsumed;
 	public bool nsConsumed;
+	public bool noEscape;
+	public string superclass;
 	public string sizeBits;
 	public string alignmentBitsString;
 	public Vector<NativeNode> fields;
@@ -83,6 +104,7 @@ class NativeNode {
 		self.characterBits = 0;
 		self.exports = [];
 		self.records = [];
+		self.interfaces = [];
 		self.name = "";
 		self.linkName = "";
 		self.signature = null;
@@ -91,16 +113,26 @@ class NativeNode {
 		self.sourceFile = "";
 		self.line = 0;
 		self.column = 0;
+		self.identity = "";
+		self.owner = "";
+		self.receiver = "";
+		self.selector = "";
+		self.classMethod = false;
+		self.methodFamily = "";
+		self.consumesSelf = false;
+		self.relatedResult = false;
+		self.returnsInnerPointer = false;
 		self.underlying = null;
 		self.valueType = null;
 		self.decimalValue = "";
+		self.readOnly = false;
 		self.recordType = null;
 		self.bits = 0;
 		self.alignmentBitsInt = 0;
 		self.signedness = "";
 		self.qualifiers = null;
 		self.pointee = null;
-		self.identity = "";
+		self.tagName = "";
 		self.recordKind = "";
 		self.complete = false;
 		self.opaque = false;
@@ -110,12 +142,17 @@ class NativeNode {
 		self.callingConvention = "";
 		self.element = null;
 		self.count = null;
+		self.classObject = false;
+		self.protocols = [];
+		self.typeArguments = [];
 		self.isConst = false;
 		self.isVolatile = false;
 		self.isRestrict = false;
 		self.nullability = "";
 		self.cfConsumed = false;
 		self.nsConsumed = false;
+		self.noEscape = false;
+		self.superclass = "";
 		self.sizeBits = "";
 		self.alignmentBitsString = "";
 		self.fields = [];

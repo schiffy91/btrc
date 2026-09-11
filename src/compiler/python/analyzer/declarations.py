@@ -319,11 +319,12 @@ class TopLevelRegistrar:
             declaration.name_line or declaration.line,
             declaration.name_col or declaration.col,
             allow_same=True,
-            trusted_hosted=registry.hosted_type_declaration_allowed(declaration),
+            trusted_hosted=isinstance(declaration.source_file, NativeHeaderSource)
+            or registry.hosted_type_declaration_allowed(declaration),
         )
         self.index.declared_type_names.add(declaration.name)
         if not declaration.is_forward:
-            if not declaration.fields:
+            if not declaration.fields and not isinstance(declaration.source_file, NativeHeaderSource):
                 self.session.error(
                     f"Struct '{declaration.name}' cannot have an empty body under strict C11",
                     declaration.line,
@@ -386,9 +387,17 @@ class TopLevelRegistrar:
             declaration.name_line or declaration.line,
             declaration.name_col or declaration.col,
             allow_same=True,
-            trusted_hosted=registry.hosted_object_declaration_allowed(declaration),
+            trusted_hosted=isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
+            or registry.hosted_object_declaration_allowed(declaration),
         )
         previous = self.index.global_declarations.get(declaration.name)
+        if previous is not None and (
+            isinstance(getattr(previous, "source_file", None), NativeHeaderSource)
+            != isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
+        ):
+            self.session.error(
+                f"Native global '{declaration.name}' must not be redeclared in BTRC", declaration.line, declaration.col
+            )
         if previous is not None and (not registry.global_types_compatible(previous.type, declaration.type)):
             self.session.error(f"Conflicting types for global '{declaration.name}'", declaration.line, declaration.col)
         is_extern = bool(declaration.type and declaration.type.is_extern and (declaration.initializer is None))
@@ -472,6 +481,11 @@ class HierarchyValidator:
                 self.context.error(f"Parent class '{declaration.parent}' not found", declaration.line, declaration.col)
                 continue
             parent_info = self.index.class_table[declaration.parent]
+            if parent_info.native_language:
+                self.context.error(
+                    "Native class inheritance requires managed native lowering", declaration.line, declaration.col
+                )
+                continue
             if declaration.generic_params or parent_info.generic_params:
                 self.context.error(
                     f"Generic class inheritance is not supported: class '{declaration.name}' extends '{declaration.parent}'",
@@ -698,7 +712,7 @@ C11_RESERVED_NAMES = frozenset(
         "_Thread_local",
     }
 )
-_PUBLIC_NATIVE_BINDINGS = frozenset({"btrc_gpu_available", "btrc_gui_surface_width", "btrc_tray_show"})
+_PUBLIC_NATIVE_BINDINGS = frozenset({"btrc_gpu_available", "btrc_gui_window_fb_width", "btrc_tray_show"})
 _COMPILER_RESERVED_PREFIXES = ("__btrc_", "__BTRC_", "__gpu_", "btrc_")
 MAGIC_METHOD_SIGNATURES = {
     "__add__": (1, None),
@@ -765,7 +779,11 @@ class DeclarationRegistry:
 
     @staticmethod
     def trusted_native_binding(name: str, source_file: str | None) -> bool:
-        return name in _PUBLIC_NATIVE_BINDINGS or CompilerStdlibSource.authenticated(source_file)
+        return (
+            name in _PUBLIC_NATIVE_BINDINGS
+            or CompilerStdlibSource.authenticated(source_file)
+            or (isinstance(source_file, NativeHeaderSource) and name in HOSTED_ABI.function_names)
+        )
 
     @staticmethod
     def known_c_global(name: str) -> bool:
@@ -917,7 +935,9 @@ class DeclarationRegistry:
                 self.session.error(f"Abstract {owner} requires an abstract class", method.line, method.col)
             if method.body is not None:
                 self.session.error(f"Abstract {owner} cannot have a body", method.line, method.col)
-        elif method.body is None:
+        elif method.body is None and not (
+            isinstance(class_decl.source_file, NativeHeaderSource) and method.name in class_decl.source_file.methods
+        ):
             self.session.error(f"Concrete {owner} requires a body", method.line, method.col)
         signature = MAGIC_METHOD_SIGNATURES.get(method.name)
         if signature is None:
@@ -1053,7 +1073,7 @@ class DeclarationRegistry:
         )
 
     def validate_hosted_function(self, declaration) -> None:
-        if declaration.body is not None:
+        if declaration.body is not None or isinstance(declaration.source_file, NativeHeaderSource):
             return
         name = declaration.name
         if name in HOSTED_ABI.macros:
@@ -1191,6 +1211,7 @@ class DeclarationRegistry:
                     "typedef",
                     declaration.name_line or declaration.line,
                     declaration.name_col or declaration.col,
+                    trusted_hosted=isinstance(declaration.source_file, NativeHeaderSource),
                 )
                 self.index.declared_type_names.add(declaration.alias)
                 self.index.typedef_table[declaration.alias] = declaration.original
@@ -1304,6 +1325,12 @@ class DeclarationRegistry:
         )
         info = ClassInfo(
             name=declaration.name,
+            native_language=declaration.source_file.language
+            if isinstance(declaration.source_file, NativeHeaderSource)
+            else "",
+            native_ancestors=declaration.source_file.native_ancestors
+            if isinstance(declaration.source_file, NativeHeaderSource)
+            else (),
             generic_params=declaration.generic_params,
             parent=declaration.parent,
             interfaces=declaration.interfaces,

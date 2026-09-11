@@ -29,6 +29,7 @@ from src.compiler.python.ir.nodes import (
     IRModule,
     IRParam,
     IRReturn,
+    IRStructDef,
     IRStructField,
     IRStructForward,
     IRTaggedUnionDef,
@@ -55,6 +56,24 @@ def _emit_finalized(module: IRModule) -> str:
     pipeline = CompilationPipeline()
     optimized = pipeline.optimize(module, CompilerOptions(dce=False))
     return pipeline.emit(optimized)
+
+
+def test_native_record_declarations_are_ordered_and_revalidated():
+    point = IRStructDef(name="Point", fields=[IRStructField(c_type=CType(text="double"), name="x")])
+    frame = IRStructDef(name="Frame", fields=[IRStructField(c_type=CType(text="struct Point"), name="origin")])
+    native = IRModule(language="objective-c", struct_defs=[frame, point])
+    module = IRModule(native_units={"Geometry": native})
+    IRVerifier(module).validate_schema()
+    with pytest.raises(ValueError, match="stale"):
+        IRVerifier(module).validate()
+    IROptimizer.refresh_type_declarations(module)
+    IRVerifier(module).validate()
+    assert native.ordered_type_declarations == [point, frame]
+    native.struct_defs.append(
+        IRStructDef(name="Size", fields=[IRStructField(c_type=CType(text="double"), name="width")])
+    )
+    with pytest.raises(ValueError, match="stale"):
+        IRVerifier(module).validate()
 
 
 def test_ir_schema_has_no_raw_c_escape_nodes():

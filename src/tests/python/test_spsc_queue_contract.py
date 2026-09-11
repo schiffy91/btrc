@@ -38,23 +38,23 @@ def _body(generated: str, symbol: str) -> str:
 
 
 RAW_CALLBACK_SOURCE = """
-import Library.Spsc;
+import Library.SPSC;
 struct Command { int kind; unsigned long long token; };
-struct CallbackContext { struct SpscQueueStorage* commands; };
+struct CallbackContext { struct SPSCQueueStorage* commands; };
 @realtime bool consume(void* opaque, struct Command* output) {
     struct CallbackContext* context = (struct CallbackContext*)opaque;
-    return SpscQueues.tryPopBorrowed(context->commands, output);
+    return SPSCQueues.tryPopBorrowed(context->commands, output);
 }
 int main() {
-    struct SpscQueueStorage* commands = null;
-    if (SpscQueues.tryOpen(4u, sizeof(struct Command), &commands)
+    struct SPSCQueueStorage* commands = null;
+    if (SPSCQueues.tryOpen(4u, sizeof(struct Command), &commands)
             != SPSC_QUEUE_OPENED) { return 1; }
     struct Command sent = {7, 11ULL};
     struct Command received = {0, 0ULL};
     struct CallbackContext context = {commands};
-    if (!SpscQueues.tryPushBorrowed(commands, &sent)) { return 2; }
+    if (!SPSCQueues.tryPushBorrowed(commands, &sent)) { return 2; }
     if (!consume(&context, &received)) { return 3; }
-    SpscQueues.close(commands);
+    SPSCQueues.close(commands);
     return received.kind == 7 && received.token == 11ULL ? 0 : 4;
 }
 """
@@ -66,7 +66,7 @@ def test_borrowed_operations_are_one_realtime_safe_composition() -> None:
         r"\b(malloc|calloc|realloc|free|pthread_mutex|fprintf|printf|sleep|"
         r"__btrc_arc_retain|__btrc_arc_release)\b"
     )
-    for symbol in ("SpscQueues_tryPushBorrowed", "SpscQueues_tryPopBorrowed"):
+    for symbol in ("SPSCQueues_tryPushBorrowed", "SPSCQueues_tryPopBorrowed"):
         body = _body(generated, symbol)
         assert not forbidden.search(body)
         assert "while (" not in body
@@ -78,8 +78,8 @@ def test_borrowed_operations_are_one_realtime_safe_composition() -> None:
     assert not forbidden.search(copy_body)
     assert "while (" not in copy_body
 
-    push = _body(generated, "SpscQueues_tryPushBorrowed")
-    pop = _body(generated, "SpscQueues_tryPopBorrowed")
+    push = _body(generated, "SPSCQueues_tryPushBorrowed")
+    pop = _body(generated, "SPSCQueues_tryPopBorrowed")
     assert "memory_order_relaxed" in push
     assert "memory_order_acquire" in push
     assert "memory_order_release" in push
@@ -89,19 +89,19 @@ def test_borrowed_operations_are_one_realtime_safe_composition() -> None:
     assert "btrcSpscNextCursor" in push
     assert "btrcSpscNextCursor" in pop
     assert "const void* value" in generated
-    assert "struct SpscQueueStorage* queue" in generated
+    assert "struct SPSCQueueStorage* queue" in generated
 
 
 def test_managed_typed_wrapper_delegates_to_the_canonical_storage() -> None:
     generated = _emit_with_stdlib(
-        "import Library.Spsc;\nint main() { SpscQueue<int> q = new SpscQueue<int>(4u); "
+        "import Library.SPSC;\nint main() { SPSCQueue<int> q = new SPSCQueue<int>(4u); "
         "int value = 0; q.tryPush(1); q.tryPop(&value); delete q; return value; }"
     )
     for method in ("tryPush", "tryPop"):
         body = _body(generated, f"btrc_SpscQueue_int_{method}")
         assert not re.search(r"\b(malloc|calloc|realloc|free|pthread_mutex|fprintf|printf|sleep)\b", body)
-        assert f"SpscQueues_{'tryPushBorrowed' if method == 'tryPush' else 'tryPopBorrowed'}" in body
-    assert generated.count("class SpscQueue") == 0
+        assert f"SPSCQueues_{'tryPushBorrowed' if method == 'tryPush' else 'tryPopBorrowed'}" in body
+    assert generated.count("class SPSCQueue") == 0
 
 
 @pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
@@ -112,30 +112,30 @@ def test_fifo_full_empty_wraparound_and_thread_stress(
 ) -> None:
     generated = _emit_with_stdlib(
         """
-        import Library.Spsc;
+        import Library.SPSC;
         int main() {
-            struct SpscQueueStorage* queue = null;
-            if (SpscQueues.tryOpen(3u, sizeof(int), &queue)
+            struct SPSCQueueStorage* queue = null;
+            if (SPSCQueues.tryOpen(3u, sizeof(int), &queue)
                     != SPSC_QUEUE_OPENED) { return 12; }
             int output = -1;
             int one = 1;
             int two = 2;
             int three = 3;
             int four = 4;
-            if (SpscQueues.tryPopBorrowed(queue, &output) || output != -1) { return 1; }
-            if (!SpscQueues.tryPushBorrowed(queue, &one)
-                    || !SpscQueues.tryPushBorrowed(queue, &two)
-                    || !SpscQueues.tryPushBorrowed(queue, &three)) { return 2; }
-            if (SpscQueues.tryPushBorrowed(queue, &four)) { return 3; }
-            if (!SpscQueues.tryPopBorrowed(queue, &output) || output != 1
-                    || !SpscQueues.tryPushBorrowed(queue, &four)) { return 4; }
-            if (!SpscQueues.tryPopBorrowed(queue, &output) || output != 2) { return 5; }
-            if (!SpscQueues.tryPopBorrowed(queue, &output) || output != 3) { return 6; }
-            if (!SpscQueues.tryPopBorrowed(queue, &output) || output != 4) { return 7; }
-            if (SpscQueues.tryPopBorrowed(queue, &output) || output != 4) { return 8; }
+            if (SPSCQueues.tryPopBorrowed(queue, &output) || output != -1) { return 1; }
+            if (!SPSCQueues.tryPushBorrowed(queue, &one)
+                    || !SPSCQueues.tryPushBorrowed(queue, &two)
+                    || !SPSCQueues.tryPushBorrowed(queue, &three)) { return 2; }
+            if (SPSCQueues.tryPushBorrowed(queue, &four)) { return 3; }
+            if (!SPSCQueues.tryPopBorrowed(queue, &output) || output != 1
+                    || !SPSCQueues.tryPushBorrowed(queue, &four)) { return 4; }
+            if (!SPSCQueues.tryPopBorrowed(queue, &output) || output != 2) { return 5; }
+            if (!SPSCQueues.tryPopBorrowed(queue, &output) || output != 3) { return 6; }
+            if (!SPSCQueues.tryPopBorrowed(queue, &output) || output != 4) { return 7; }
+            if (SPSCQueues.tryPopBorrowed(queue, &output) || output != 4) { return 8; }
             Thread<int> producer = spawn(() => {
                 for (int value = 0; value < 100000; value++) {
-                    while (!SpscQueues.tryPushBorrowed(queue, &value)) {}
+                    while (!SPSCQueues.tryPushBorrowed(queue, &value)) {}
                 }
                 return 0;
             });
@@ -143,7 +143,7 @@ def test_fifo_full_empty_wraparound_and_thread_stress(
                 int expected = 0;
                 while (expected < 100000) {
                     int value = -1;
-                    if (SpscQueues.tryPopBorrowed(queue, &value)) {
+                    if (SPSCQueues.tryPopBorrowed(queue, &value)) {
                         if (value != expected) { return 9; }
                         expected++;
                     }
@@ -152,7 +152,7 @@ def test_fifo_full_empty_wraparound_and_thread_stress(
             });
             int producerResult = producer.join();
             int consumerResult = consumer.join();
-            SpscQueues.close(queue);
+            SPSCQueues.close(queue);
             return producerResult + consumerResult;
         }
         """
@@ -195,13 +195,13 @@ def test_every_allocation_failure_returns_typed_oom(
 ) -> None:
     generated = _emit_with_stdlib(
         """
-        import Library.Spsc;
+        import Library.SPSC;
         int main() {
-            struct SpscQueueStorage* queue = null;
-            SpscQueueOpenKind opened = SpscQueues.tryOpen(
+            struct SPSCQueueStorage* queue = null;
+            SPSCQueueOpenKind opened = SPSCQueues.tryOpen(
                 4u, sizeof(int), &queue);
             if (opened != SPSC_QUEUE_OUT_OF_MEMORY || queue != null) {
-                if (queue != null) { SpscQueues.close(queue); }
+                if (queue != null) { SPSCQueues.close(queue); }
                 return 1;
             }
             return 0;
@@ -253,13 +253,13 @@ static void* spscTestCalloc(size_t count, size_t size) {{
 def test_managed_payload_is_rejected_before_specialization() -> None:
     compiler = Compiler()
     frontend = compiler.compile_frontend(
-        "import Library.Spsc;\nint main() { SpscQueue<string> queue; return 0; }",
+        "import Library.SPSC;\nint main() { SPSCQueue<string> queue; return 0; }",
         "<spsc-managed>",
         CompilerOptions(),
         filename="spsc_managed.btrc",
     )
     assert any(
-        "SpscQueue<T> payload must be realtime POD without managed ownership" in error
+        "SPSCQueue<T> payload must be realtime POD without managed ownership" in error
         for error in frontend.analyzed.errors
     )
 
@@ -267,7 +267,7 @@ def test_managed_payload_is_rejected_before_specialization() -> None:
 def test_managed_queue_handle_is_rejected_from_realtime_while_raw_borrow_is_accepted() -> None:
     compiler = Compiler()
     managed = compiler.compile_frontend(
-        "import Library.Spsc;\n@realtime bool pop(SpscQueue<int> queue, int* output) { return queue.tryPop(output); }",
+        "import Library.SPSC;\n@realtime bool pop(SPSCQueue<int> queue, int* output) { return queue.tryPop(output); }",
         "<spsc-managed-realtime>",
         CompilerOptions(),
         filename="spsc_managed_realtime.btrc",

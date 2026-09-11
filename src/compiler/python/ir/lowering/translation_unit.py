@@ -193,6 +193,7 @@ class TranslationUnitLowerer:
             declaration.source_file.header
             for declaration in self._analyzed.program.declarations
             if isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
+            and declaration.source_file.language == "c"
         )
         self._session.module.preprocessor_decls.extend(IRInclude(header=header, is_system=False) for header in headers)
 
@@ -269,9 +270,26 @@ class TranslationUnitLowerer:
     def _emit_declarations(self):
         """Emit executable and non-executable top-level declarations."""
         emitted_globals = set()
+        native_adapters = set()
         declarations = self._analyzed.program.declarations
         for decl in declarations:
             if isinstance(getattr(decl, "source_file", None), NativeHeaderSource):
+                if (
+                    isinstance(decl, VarDeclStmt)
+                    and decl.source_file.language == "objective-c"
+                    and decl.name not in emitted_globals
+                ):
+                    if decl.initializer is None:
+                        self._functions.emit_objective_c_global(decl)
+                    else:
+                        self._emit_global_var(decl)
+                    emitted_globals.add(decl.name)
+                if isinstance(decl, ClassDecl):
+                    self._functions.emit_objective_c_adapters(decl)
+                if isinstance(decl, FunctionDecl) and decl.name not in native_adapters:
+                    self._session.module.native_external_names.add(decl.name)
+                    self._functions.emit_native_adapter(decl)
+                    native_adapters.add(decl.name)
                 continue
             if isinstance(decl, ImportDecl):
                 continue

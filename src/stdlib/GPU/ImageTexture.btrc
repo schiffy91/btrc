@@ -1,0 +1,97 @@
+import Library.Image;
+import Library.GPU.Device;
+import Library.GPU.SurfaceRenderer;
+import Library.GPU.WebGPU;
+
+/* One uploaded RGBA image. Native view/sampler handles are borrowed by draws. */
+class GPUImageTexture {
+	private GPUDevice _device;
+	private WGPUTexture _texture = null;
+	private WGPUTextureView _view = null;
+	private WGPUSampler _sampler = null;
+	private int _width = 0;
+	private int _height = 0;
+	private GPUSurfaceRenderer? _recordedSurface = null;
+	private unsigned long long _recordedFrame = 0ULL;
+
+	public GPUImageTexture(GPUDevice device, Image image) {
+		self._device = device;
+		self.create(image);
+	}
+
+	private void create(Image image) {
+		if (image == null || image.data == null || !Image.validDimensions(image.width, image.height)) { throw "GPU texture requires an RGBA image"; }
+		var device = self._device.nativeDevice();
+		WGPULimits limits = {null};
+		if (wgpuDeviceGetLimits(device, &limits) != WGPUStatus_Success || (uint32_t)image.width > limits.maxTextureDimension2D || (uint32_t)image.height > limits.maxTextureDimension2D) { throw "GPU texture exceeds device limits"; }
+		WGPUTextureDescriptor descriptor = {null};
+		descriptor.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+		descriptor.dimension = WGPUTextureDimension_2D;
+		descriptor.size.width = (uint32_t)image.width;
+		descriptor.size.height = (uint32_t)image.height;
+		descriptor.size.depthOrArrayLayers = 1u;
+		descriptor.format = WGPUTextureFormat_RGBA8Unorm;
+		descriptor.mipLevelCount = 1u;
+		descriptor.sampleCount = 1u;
+		self._texture = wgpuDeviceCreateTexture(device, &descriptor);
+		if (self._texture != null) { self._view = wgpuTextureCreateView(self._texture, null); }
+		WGPUSamplerDescriptor sampler = {null};
+		sampler.addressModeU = WGPUAddressMode_ClampToEdge;
+		sampler.addressModeV = WGPUAddressMode_ClampToEdge;
+		sampler.addressModeW = WGPUAddressMode_ClampToEdge;
+		sampler.magFilter = WGPUFilterMode_Linear;
+		sampler.minFilter = WGPUFilterMode_Linear;
+		sampler.mipmapFilter = WGPUMipmapFilterMode_Nearest;
+		sampler.maxAnisotropy = 1u;
+		if (self._view != null) { self._sampler = wgpuDeviceCreateSampler(device, &sampler); }
+		if (self._texture == null || self._view == null || self._sampler == null) { self.close(); throw "Cannot allocate GPU texture"; }
+		self._width = image.width;
+		self._height = image.height;
+		self.update(image);
+	}
+
+	private bool recorded() { var surface = self._recordedSurface; return surface != null && surface.frameActive(self._recordedFrame); }
+
+	/* Queue writes copy bytes, but do not snapshot an already recorded draw.
+	 * Reuse storage between submitted/discarded frames, never within one. */
+	public void update(Image image) {
+		self.requireOpen();
+		if (image == null || image.data == null || image.width != self._width || image.height != self._height) { throw "GPU image update must match the texture dimensions"; }
+		if (self.recorded()) { throw "GPU image is referenced by an active frame"; }
+		WGPUTexelCopyTextureInfo destination = {null};
+		destination.texture = self._texture;
+		destination.aspect = WGPUTextureAspect_All;
+		WGPUTexelCopyBufferLayout layout = {0ULL};
+		layout.bytesPerRow = (uint32_t)image.width * 4u;
+		layout.rowsPerImage = (uint32_t)image.height;
+		WGPUExtent3D extent = {(uint32_t)self._width, (uint32_t)self._height, 1u};
+		wgpuQueueWriteTexture(self._device.nativeQueue(), &destination, image.data, (size_t)image.width * (size_t)image.height * (size_t)4, &layout, &extent);
+	}
+
+	private void requireOpen() { if (self._texture == null) { throw "GPU texture is closed"; } }
+
+	public GPUDevice device() { self.requireOpen(); return self._device; }
+
+	public WGPUTextureView nativeView() { self.requireOpen(); return self._view; }
+
+	public WGPUTextureView viewFor(GPUSurfaceRenderer surface) {
+		self.requireOpen();
+		if (surface.device() != self._device) { throw "GPU image belongs to another device"; }
+		surface.nativePass();
+		if (self.recorded() && (surface != self._recordedSurface || surface.frameNumber() != self._recordedFrame)) { throw "GPU image is referenced by another active frame"; }
+		self._recordedSurface = surface;
+		self._recordedFrame = surface.frameNumber();
+		return self._view;
+	}
+
+	public WGPUSampler nativeSampler() { self.requireOpen(); return self._sampler; }
+
+	public void close() {
+		if (self._sampler != null) { wgpuSamplerRelease(self._sampler); self._sampler = null; }
+		if (self._view != null) { wgpuTextureViewRelease(self._view); self._view = null; }
+		if (self._texture != null) { wgpuTextureRelease(self._texture); self._texture = null; }
+		self._recordedSurface = null;
+	}
+
+	public void __del__() { self.close(); }
+}

@@ -21,7 +21,7 @@ EXPECTED_BTRC_FILES = frozenset(
     analyzer/Declarations.btrc
     analyzer/Expressions.btrc
     analyzer/Generics.btrc
-    analyzer/Gpu.btrc
+    analyzer/GPU.btrc
     analyzer/HostedAbi.btrc
     analyzer/Models.btrc
     analyzer/Operators.btrc
@@ -44,9 +44,11 @@ EXPECTED_BTRC_FILES = frozenset(
     analyzer/validation/Validator.btrc
     BtrccMain.btrc
     cli/Driver.btrc
+    cli/WindowsMain.btrc
     Compiler.btrc
     frontend/Models.btrc
     frontend/NativeImports.btrc
+    frontend/NativeHeaderProcess.btrc
     frontend/Packages.btrc
     frontend/Resolver.btrc
     frontend/SourceIo.btrc
@@ -127,6 +129,7 @@ STAGE_MANIFESTS = frozenset(
 PUBLIC_ENTRY_POINTS = frozenset(
     {
         "BtrccMain.btrc",
+        "cli/WindowsMain.btrc",
         "tools/FrontendMain.btrc",
         "tools/LexMain.btrc",
         "tools/ParseMain.btrc",
@@ -135,9 +138,10 @@ PUBLIC_ENTRY_POINTS = frozenset(
     }
 )
 
-# Public identity spellings that only external probes exercise. The shared
-# type-identity contract pins them in both compilers (see
-# fixtures/TypeIdentityDriver.btrc).
+# Public APIs exercised by external probes, not yet by compiler call sites.
+# Identity: fixtures/TypeIdentityDriver.btrc. Objective-C IR constructors:
+# native/objective_c/ObjectiveCEmitter.btrc executes generated Foundation units;
+# remove those entries when native source-adapter lowering becomes their owner.
 INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
     {
         ("TypeComposition", "substitutionPointerDepth"),
@@ -167,7 +171,7 @@ REQUIRED_OWNER_BY_PATH = {
     "analyzer/Realtime.btrc": "RealtimeAnalyzer",
     "analyzer/HostedAbi.btrc": "HostedAbiRepository",
     "analyzer/SourceMacros.btrc": "SourceMacroNamespace",
-    "analyzer/Gpu.btrc": "GpuSemantics",
+    "analyzer/GPU.btrc": "GpuSemantics",
     "analyzer/ownership/Values.btrc": "ManagedValueSemantics",
     "analyzer/ownership/Cycles.btrc": "CycleSemantics",
     "analyzer/validation/Validator.btrc": "SemanticValidator",
@@ -461,7 +465,7 @@ def test_selfhost_tree_is_the_exact_ownership_namespace() -> None:
     actual = {path.relative_to(SELFHOST).as_posix() for path in SELFHOST.rglob("*.btrc")}
 
     assert actual == EXPECTED_BTRC_FILES
-    assert len(actual) == 93
+    assert len(actual) == 95
     assert {path.name for path in SELFHOST.glob("*.btrc")} == {"BtrccMain.btrc", "Compiler.btrc"}
 
 
@@ -600,10 +604,10 @@ def test_gpu_call_classification_has_one_semantic_owner() -> None:
                     definitions[member.name].append(f"{relative}:{declaration.name}")
 
     assert definitions == {
-        "callResolvesToIntrinsic": ["analyzer/Gpu.btrc:GpuSemantics"],
-        "callResolvesToSourceSymbol": ["analyzer/Gpu.btrc:GpuSemantics"],
+        "callResolvesToIntrinsic": ["analyzer/GPU.btrc:GpuSemantics"],
+        "callResolvesToSourceSymbol": ["analyzer/GPU.btrc:GpuSemantics"],
     }
-    semantics = _path("analyzer/Gpu.btrc").read_text()
+    semantics = _path("analyzer/GPU.btrc").read_text()
     calls = _path("analyzer/validation/Calls.btrc").read_text()
     wgsl = _path("ir/gpu/Wgsl.btrc").read_text()
     contextual = semantics[semantics.index("public string contextualExprBase(") :]
@@ -949,7 +953,7 @@ def test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners() -> N
     expected_owners = {
         "analyzer/Declarations.btrc",
         "analyzer/Expressions.btrc",
-        "analyzer/Gpu.btrc",
+        "analyzer/GPU.btrc",
         "analyzer/Realtime.btrc",
         "analyzer/validation/Borrows.btrc",
         "analyzer/validation/Calls.btrc",

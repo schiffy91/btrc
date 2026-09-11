@@ -115,7 +115,7 @@ def test_actual_bundle_compiles_and_runs_stdlib_program_from_unrelated_cwd(
     gui_generated = tmp_path / "gui-header-program.c"
     gui_object = tmp_path / "gui-header-program.o"
     gui_source.write_text(
-        '#include "gui/Gui.btrc"\n'
+        '#include "GUI/GUI.btrc"\n'
         "int main() {\n"
         "    Surface surface = Surface(2, 2);\n"
         "    return surface.width() == 2 ? 0 : 1;\n"
@@ -135,7 +135,7 @@ def test_actual_bundle_compiles_and_runs_stdlib_program_from_unrelated_cwd(
             "-Wextra",
             "-Werror",
             "-I",
-            str(data_root / "stdlib/gui"),
+            str(data_root / "stdlib/GUI"),
             "-c",
             str(gui_generated),
             "-o",

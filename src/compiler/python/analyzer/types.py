@@ -1530,13 +1530,13 @@ class TypeSystem:
             )
         if (
             canonical
-            and canonical.base == "SpscQueue"
+            and canonical.base == "SPSCQueue"
             and canonical.generic_args
             and canonical.generic_args[0].base not in set(active_type_params)
             and not self.is_realtime_pod(canonical.generic_args[0])
         ):
             self.session.error(
-                "SpscQueue<T> payload must be realtime POD without managed ownership",
+                "SPSCQueue<T> payload must be realtime POD without managed ownership",
                 type_line,
                 type_col,
             )
@@ -2149,6 +2149,7 @@ class TypeSystem:
             return False
         target = self.array_value_type(target)
         source = self.array_value_type(source)
+        const_allowed = self._const_conversion_allowed(target, source)
         target = self.canonical_type(target)
         source = self.canonical_type(source)
         if source.base == "null" or (source.base == "void" and source.pointer_depth > 0):
@@ -2178,13 +2179,13 @@ class TypeSystem:
             and (target.base == source.base)
             and (target.pointer_depth == source.pointer_depth + 1)
         ):
-            return self._const_conversion_allowed(target, source) and self.generic_args_equal(target, source)
+            return const_allowed and self.generic_args_equal(target, source)
         if target.base == source.base:
             if self.semantic_pointer_depth(target) != self.semantic_pointer_depth(source):
                 return False
             if target.is_array != source.is_array:
                 return False
-            return self._const_conversion_allowed(target, source) and self.generic_args_equal(target, source)
+            return const_allowed and self.generic_args_equal(target, source)
         if (
             target.base in self.NUMERIC_TYPES
             and source.base in self.NUMERIC_TYPES
@@ -2206,9 +2207,9 @@ class TypeSystem:
         ):
             return True
         if target.base == "string" and source.base == "char" and (source.pointer_depth >= 1 or source.is_array):
-            return self._const_conversion_allowed(target, source)
+            return const_allowed
         if source.base == "string" and target.base == "char" and (target.pointer_depth >= 1 or target.is_array):
-            return self._const_conversion_allowed(target, source)
+            return const_allowed
         if self.requires_class_to_string(target, source):
             return True
         if (
@@ -2216,13 +2217,13 @@ class TypeSystem:
             and target.pointer_depth == 1
             and (self.semantic_pointer_depth(source) > 0 or source.is_array)
         ):
-            return self._const_conversion_allowed(target, source)
+            return const_allowed
         if (
             source.base == "void"
             and source.pointer_depth == 1
             and (self.semantic_pointer_depth(target) > 0 or target.is_array)
         ):
-            return self._const_conversion_allowed(target, source)
+            return const_allowed
         if target.base in self.index.class_table and source.base in self.index.class_table:
             return self._reference_shapes_compatible(target, source) and self.is_subclass(source.base, target.base)
         if target.base in self.index.interface_table and source.base in self.index.class_table:
@@ -2248,15 +2249,39 @@ class TypeSystem:
         )
 
     def _const_conversion_allowed(self, target, source) -> bool:
-        target_depth = self._qualifier_indirection_depth(target)
-        source_depth = self._qualifier_indirection_depth(source)
+        target_depth = self._qualifier_indirection_depth(self.canonical_type(target))
+        source_depth = self._qualifier_indirection_depth(self.canonical_type(source))
         if target_depth == 0 or source_depth == 0:
             return True
-        if source.is_const and (not target.is_const):
-            return False
-        if target_depth > 1 or source_depth > 1:
-            return target.is_const == source.is_const
-        return True
+        available = self.declaration_const_depths(target, self.index.typedef_table) - {0}
+        required = self.declaration_const_depths(source, self.index.typedef_table) - {0}
+        # Value const is discarded when copied. Below it, qualifiers cannot be
+        # dropped; adding const is safe only on the immediately pointed-at slot.
+        return required <= available and not ((available - required) - {1})
+
+    @staticmethod
+    def declaration_const_depths(type_expr, typedefs, seen=frozenset()) -> frozenset[int]:
+        """Const layers of the source declarator, before flattening aliases."""
+        if type_expr is None:
+            return frozenset()
+        target = typedefs.get(type_expr.base) if not type_expr.generic_args and type_expr.base not in seen else None
+        reference = target is not None and TypeSystem.resolved_reference_shape(target)
+        shift = (
+            type_expr.pointer_depth
+            + int(type_expr.is_array)
+            - int(TypeSystem.nullable_collapses_reference_layer(type_expr, base_is_reference=reference))
+        )
+        depths = (
+            {shift + int(target is None and type_expr.base in {"Mutex", "Thread", "string"})}
+            if type_expr.is_const
+            else set()
+        )
+        if target is not None:
+            depths.update(
+                depth + shift
+                for depth in TypeSystem.declaration_const_depths(target, typedefs, seen | {type_expr.base})
+            )
+        return frozenset(depths)
 
     def _qualifier_indirection_depth(self, type_expr) -> int:
         depth = self.semantic_pointer_depth(type_expr) + int(type_expr.is_array)
@@ -2284,6 +2309,10 @@ class TypeSystem:
         """Position-independent structural equality for signature types."""
         if left is None or right is None:
             return left is right
+        if self.declaration_const_depths(left, self.index.typedef_table) != self.declaration_const_depths(
+            right, self.index.typedef_table
+        ):
+            return False
         left = self.canonical_type(left)
         right = self.canonical_type(right)
         if (
@@ -2348,6 +2377,9 @@ class TypeSystem:
         info = self.index.class_table.get(child)
         if not info:
             return False
+        if info.native_language == "objective-c":
+            base = self.index.class_table.get(parent)
+            return bool(base and base.native_language == "objective-c" and parent in info.native_ancestors)
         if parent in self.index.interface_table:
             cur = info
             visited = set()

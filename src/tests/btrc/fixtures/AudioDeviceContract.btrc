@@ -1,5 +1,5 @@
-import Library.AudioDevice;
-import Library.RealtimeAudio;
+import Library.Audio.AudioDevice;
+import Library.Audio.RealtimeAudio;
 import Library.Vector;
 
 #include <assert.h>

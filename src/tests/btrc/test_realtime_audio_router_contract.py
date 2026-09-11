@@ -16,7 +16,7 @@ REPOSITORY = Path(__file__).resolve().parents[3]
 FIXTURES = Path(__file__).with_name("fixtures")
 CONTRACT_FIXTURE = FIXTURES / "RealtimeAudioRouterContract.btrc"
 BARRIER_FIXTURE = FIXTURES / "RealtimeAudioRouterBarrier.btrc"
-API = REPOSITORY / "src" / "stdlib" / "RealtimeAudioRouter.btrc"
+API = REPOSITORY / "src" / "stdlib" / "Audio" / "RealtimeAudioRouter.btrc"
 STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
@@ -71,6 +71,12 @@ def _build_and_run(
     executable: Path,
     flags: tuple[str, ...] = ("-O2",),
 ) -> subprocess.CompletedProcess[str]:
+    environment = dict(os.environ)
+    if sys.platform == "darwin" and compiler == "/usr/bin/clang":
+        # Apple's compiler shim otherwise selects Nix's sanitizer runtime,
+        # which can hang before main on current macOS.
+        for key in ("DEVELOPER_DIR", "SDKROOT"):
+            environment.pop(key, None)
     built = subprocess.run(
         [
             compiler,
@@ -88,6 +94,7 @@ def _build_and_run(
             str(executable),
         ],
         cwd=REPOSITORY,
+        env=environment,
         capture_output=True,
         text=True,
         timeout=180,
@@ -96,6 +103,7 @@ def _build_and_run(
     return subprocess.run(
         [str(executable)],
         cwd=REPOSITORY,
+        env=environment,
         capture_output=True,
         text=True,
         timeout=60,

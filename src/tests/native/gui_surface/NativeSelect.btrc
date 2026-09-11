@@ -1,0 +1,60 @@
+import Library.IO;
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSPanel;
+import Library.GUI.MacOS.MacOSSelect;
+import Library.GUI.MacOS.MacOSViewCapture;
+
+#include <assert.h>
+
+int main() {
+	var app = MacOSApplication();
+	var window = MacOSWindow("Native selection", 360.0, 160.0);
+	var background = MacOSPanel(RGBA(30, 30, 30));
+	background.setFrame(0.0, 0.0, 360.0, 160.0);
+	window.contentView().addSubview(background.nativeView());
+	var select = MacOSSelect();
+	select.setFrame(30.0, 65.0, 300.0, 30.0);
+	background.addChild(select.nativeView());
+	assert(select.itemCount() == 0 && select.selectedIndex() == -1 && select.selectedTitle().isEmpty());
+	select.setItems(["Song Effects", "Raw Signal", "Song Effects"], 2);
+	assert(select.itemCount() == 3 && select.selectedIndex() == 2 && select.selectedTitle() == "Song Effects");
+	select.setItemEnabled(2, false);
+	assert(!select.isItemEnabled(2) && select.isItemEnabled(0));
+	select.setItemEnabled(2, true);
+	select.setSelectedIndex(1);
+	assert(select.selectedIndex() == 1 && select.selectedTitle() == "Raw Signal");
+	bool rejected = false;
+	try { select.setSelectedIndex(3); } catch (string error) { rejected = true; }
+	assert(rejected && select.selectedIndex() == 1);
+	rejected = false;
+	try { select.setItems(["Replacement"], 1); } catch (string error) { rejected = true; }
+	assert(rejected && select.itemCount() == 3 && select.selectedTitle() == "Raw Signal");
+	select.setEnabled(false);
+	assert(!select.isEnabled());
+	select.setEnabled(true);
+	Vector<string> many = [];
+	for (int index = 0; index < 100; index++) { many.push(f"Device {index}"); }
+	select.setItems(many, 99);
+	assert(select.itemCount() == 100 && select.selectedTitle() == "Device 99");
+	select.setItems(new Vector<string>(), -1);
+	assert(select.itemCount() == 0 && select.selectedIndex() == -1);
+	select.setItems(["Raw Signal", "Song Effects"], 1);
+	select.setFont(20.0);
+	rejected = false;
+	try { select.setFont(-1.0); } catch (string error) { rejected = true; }
+	assert(rejected);
+	window.show();
+	app.pumpEvents();
+	var file = File("NativeSelect.tiff", "wb");
+	assert(file.ok() && file.writeBytes(MacOSViewCapture.captureTiff(window.contentView())) && file.close());
+	select.close();
+	select.close();
+	rejected = false;
+	try { select.selectedIndex(); } catch (string error) { rejected = true; }
+	assert(rejected);
+	background.close();
+	window.close();
+	print("PASS: native selection, duplicate titles, replacement, bounds and teardown");
+	return 0;
+}

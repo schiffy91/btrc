@@ -1,0 +1,79 @@
+import Library.GUI;
+
+#include <assert.h>
+#include <limits.h>
+
+void guiFailAllocation(int countdown);
+
+class SurfaceProbe {
+	class Surface retained() {
+		var surface = Surface(2, 2);
+		surface.clear(Color(1, 2, 3, 4));
+		surface.fillRect(1, 1, 1, 1, Color(170, 187, 204, 221));
+		return surface;
+	}
+}
+
+int main(int argc, char** argv) {
+	assert(argc == 2);
+	var invalid = Surface(0, 1);
+	assert(!invalid.opened() && invalid.width() == 0 && invalid.height() == 0);
+	invalid.clear(Color.rgb(255, 255, 255));
+	invalid.fillRect(0, 0, 1, 1, Color.rgb(255, 255, 255));
+	invalid.blendRect(0, 0, 1, 1, Color.rgb(255, 255, 255));
+	invalid.text(0, 0, "ignored", Color.rgb(255, 255, 255), 1);
+	assert(invalid.pixel(0, 0) == 0U && !invalid.savePpm(argv[1]));
+	assert(!Surface(-1, 1).opened());
+
+	var surface = SurfaceProbe.retained();
+	var alias = surface;
+	keep alias;
+	surface.resize(3, 3);
+	assert(alias.width() == 3 && alias.height() == 3);
+	assert(surface.pixel(0, 0) == 0x01020304U);
+	assert(surface.pixel(1, 1) == 0xAABBCCDDU);
+	assert(surface.pixel(2, 2) == 0U);
+	for (int allocation = 0; allocation < 2; allocation++) {
+		/* Managed object allocation is intentionally fail-fast. Inject only
+		 * the subsequent native owner-token and pixel allocations. */
+		guiFailAllocation(allocation + 1);
+		surface.resize(4, 4);
+		assert(surface.width() == 3 && surface.height() == 3);
+		assert(surface.pixel(1, 1) == 0xAABBCCDDU);
+		guiFailAllocation(allocation + 2);
+		assert(!Surface(2, 2).opened());
+	}
+	assert(surface.pixel(-1, 0) == 0U && surface.pixel(3, 0) == 0U);
+	surface.resize(0, INT_MAX);
+	assert(surface.width() == 3 && surface.height() == 3);
+	unsigned int* previous = surface.pixels();
+	surface.resize(3, 3);
+	assert(previous == surface.pixels());
+	surface.fillRect(INT_MIN, INT_MIN, INT_MAX, INT_MAX, Color.rgb(255, 255, 255));
+	assert(surface.pixel(0, 0) == 0x01020304U);
+	surface.fillRect(-1, -1, 2, 2, Color(17, 34, 51, 68));
+	assert(surface.pixel(0, 0) == 0x11223344U);
+	surface.resize(2, 2);
+	assert(surface.pixel(1, 1) == 0xAABBCCDDU);
+	surface.resize(3, 3);
+	assert(surface.pixel(2, 2) == 0U);
+
+	surface.clear(Color(0, 0, 0, 0));
+	surface.blendRect(0, 0, 1, 1, Color(255, 0, 0, 128));
+	assert(surface.pixel(0, 0) == 0xFF000080U);
+	surface.clear(Color(0, 0, 255, 128));
+	surface.blendRect(0, 0, 1, 1, Color(255, 0, 0, 128));
+	assert(surface.pixel(0, 0) == 0xAA0055C0U);
+	assert(!surface.savePpm("/"));
+	assert(surface.savePpm(argv[1]));
+
+	var glyph = Surface(8, 8);
+	glyph.text(0, 0, "A", Color.rgb(255, 255, 255), 1);
+	assert(glyph.pixel(1, 0) == 0xFFFFFFFFU && glyph.pixel(0, 0) == 0U);
+	var ui = GUI(Surface(80, 80));
+	ui.beginFrame();
+	ui.label("Hello");
+	assert(!ui.button("OK"));
+	print("PASS: BTRC-owned GUI pixels");
+	return 0;
+}

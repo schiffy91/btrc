@@ -63,6 +63,7 @@ from src.compiler.python.syntax.ast.generated import (
     VarDeclStmt,
     WhileStmt,
 )
+from src.compiler.python.syntax.tokens import TokenVocabulary
 
 
 def parse(source: str) -> Program:
@@ -83,6 +84,21 @@ def parse_stmt(source: str):
     prog = parse(f"void __test__() {{ {source} }}")
     func = prog.declarations[0]
     return func.body.statements[0]
+
+
+@pytest.mark.parametrize("keyword", sorted(TokenVocabulary.canonical().keywords))
+@pytest.mark.parametrize("operator", [".", "?.", "->"])
+def test_native_member_names_preserve_keyword_spelling(keyword, operator):
+    member = parse_expr(f"receiver{operator}{keyword}()").callee
+    assert isinstance(member, FieldAccessExpr)
+    assert member.field == keyword
+    assert member.arrow == (operator != ".")
+    assert member.optional == (operator == "?.")
+
+
+def test_native_member_names_do_not_unreserve_declaration_keywords():
+    with pytest.raises(ParseError):
+        parse("int new = 1;")
 
 
 # --- Preprocessor ---

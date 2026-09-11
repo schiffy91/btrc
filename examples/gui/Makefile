@@ -1,6 +1,6 @@
 BTRC  := python3 -m src.compiler.python.main
 ROOT  := ../..
-GUI   := ../../src/stdlib/gui
+GUI   := ../../src/stdlib/GUI
 
 # Headless examples — run offscreen, no display required.
 run: demo declarative font

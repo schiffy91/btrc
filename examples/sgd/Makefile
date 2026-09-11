@@ -4,10 +4,10 @@
 
 BTRC_ROOT := ../..
 BTRC      := python3 -m src.compiler.python.main
-GPU_DIR   := $(BTRC_ROOT)/src/stdlib/gpu
-GPU_BUILD := $(BTRC_ROOT)/build/stdlib/gpu
-APP_DIR   := $(BTRC_ROOT)/src/stdlib/app
-APP_BUILD := $(BTRC_ROOT)/build/stdlib/app
+GPU_DIR   := $(BTRC_ROOT)/src/stdlib/GPU
+GPU_BUILD := $(BTRC_ROOT)/build/stdlib/GPU
+APP_DIR   := $(BTRC_ROOT)/src/stdlib/App
+APP_BUILD := $(BTRC_ROOT)/build/stdlib/App
 
 CC      := cc
 GPU_THREAD_FLAGS ?= $(if $(filter Windows_NT,$(OS)),,-pthread)

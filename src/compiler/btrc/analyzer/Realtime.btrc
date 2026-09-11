@@ -329,7 +329,10 @@ class RealtimeAnalyzer {
 			self.effect(callable, "runtime", "GPU dispatch", declaration);
 		}
 		if (declaration.kind != NK_PROPERTY_DECL && callable.body == null) {
-			self.effect(callable, "unknown", "bodyless or abstract callable", declaration);
+			var contract = self.analyzed.nativeCallContract(declaration);
+			if (contract == null || !contract.realtimeSafe) {
+				self.effect(callable, "unknown", "bodyless or abstract callable", declaration);
+			} else { self.externalCall(declaration.name, declaration, callable, true); }
 			return;
 		}
 		int index = 0;
@@ -958,8 +961,8 @@ class RealtimeAnalyzer {
 
 	private bool ioCall(string name) { return name == "open" || name == "close" || name == "read" || name == "write" || name == "pread" || name == "pwrite" || name == "fopen" || name == "fclose" || name == "fread" || name == "fwrite" || name == "socket" || name == "accept" || name == "connect" || name == "recv" || name == "send"; }
 
-	private void externalCall(string name, Node call, RealtimeCallable callable) {
-		string category = "unknown";
+	private void externalCall(string name, Node call, RealtimeCallable callable, bool reviewedNative = false) {
+		string category = reviewedNative ? "safe" : "unknown";
 		if (self.allocationCall(name)) {
 			category = "allocation";
 		} else if (self.lockCall(name)) {

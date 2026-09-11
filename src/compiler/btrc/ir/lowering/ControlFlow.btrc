@@ -46,6 +46,8 @@ class IRStatementSequence {
 		if (statement.kind == IRK_BLOCK || statement.kind == IRK_CASE) {
 			return IRStatementSequence(statement.stmts).mayFallThrough();
 		}
+		if (statement.kind == IRK_OBJECTIVE_C_AUTORELEASE_POOL) { return self.statementMayFallThrough(statement.body); }
+		if (statement.kind == IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY) { return self.statementMayFallThrough(statement.body) || self.statementMayFallThrough(statement.elseBlock); }
 		if (statement.kind == IRK_IF && statement.elseBlock != null) {
 			return self.statementMayFallThrough(statement.thenBlock) || self.statementMayFallThrough(statement.elseBlock);
 		}

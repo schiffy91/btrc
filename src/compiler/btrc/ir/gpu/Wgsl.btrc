@@ -4,7 +4,7 @@ import Library.Map;
 import Library.Strings;
 import Library.Vector;
 
-import ../../analyzer/Gpu.btrc;
+import ../../analyzer/GPU.btrc;
 import ../../analyzer/Types.btrc;
 import ../../generated/ast/Node.btrc;
 import ../../syntax/Literals.btrc;

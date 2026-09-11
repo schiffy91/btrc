@@ -22,6 +22,7 @@ from src.compiler.python.analyzer.types import (
     TypeIdentity,
     TypeSystem,
 )
+from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.ir.nodes import (
     CType,
     IRBinOp,
@@ -891,6 +892,9 @@ class CallableSignatureLowerer:
     def source_function_c_name(self, name: str, call=None) -> str:
         """Return the isolated C symbol for a concrete source function."""
         declaration = self._analyzed.function_table.get(name)
+        origin = getattr(declaration, "source_file", None)
+        if isinstance(origin, NativeHeaderSource) and origin.call_contract is not None:
+            return origin.call_contract.adapter_symbol(name)
         if declaration is None or declaration.body is None or declaration.is_gpu:
             return name
         if call is not None and id(call) in self._analyzed.hosted_call_ids:
@@ -1482,7 +1486,7 @@ class CallableProvenance:
             if static_info is not None:
                 static_method = static_info.methods.get(callee.field)
                 if static_method is not None:
-                    return bool(static_method.body is not None)
+                    return bool(static_method.body is not None or static_info.native_language)
         receiver_type = self._canonical(self.type_of(receiver))
         if receiver_type is None:
             return False

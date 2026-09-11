@@ -8,12 +8,18 @@
  */
 import Library.OwnedBuffer;
 import Library.Bytes;
+import Library.FileSystem;
+import Library.Vector;
 
-int std_local_application_channel_server_open(const char* path, int maximumClients, int maximumMessageBytes, int idleTimeoutMilliseconds, int workBytesPerPoll, void** serverOut, int* nativeErrorOut);
-int std_local_application_channel_server_poll(void* server, unsigned char* requestBuffer, int requestCapacity, unsigned long long* requestIdentityOut, int* requestLengthOut, int* nativeErrorOut);
-int std_local_application_channel_server_respond(void* server, unsigned long long requestIdentity, const unsigned char* response, int responseLength, int* nativeErrorOut);
-int std_local_application_channel_server_close(void** server);
-int std_local_application_channel_request(const char* path, const unsigned char* request, int requestLength, unsigned char* responseBuffer, int responseCapacity, int timeoutMilliseconds, int* responseLengthOut, int* nativeErrorOut);
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <poll.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <time.h>
+#include <limits.h>
+
 
 enum LocalApplicationChannelOpenKind {
 	LOCAL_APPLICATION_CHANNEL_OPENED = 0,
@@ -81,12 +87,17 @@ class LocalApplicationChannelConfiguration {
 	public bool valid() { return self.clientLimit >= 1 && self.clientLimit <= 32 && self.messageByteLimit >= 1 && self.messageByteLimit <= 1048576 && self.idleTimeout >= 100 && self.idleTimeout <= 300000 && self.pollWorkByteLimit >= 1 && self.pollWorkByteLimit <= 1048576; }
 }
 
+/* Retained by requests without retaining the server or exposing its address. */
+class LocalChannelIdentity {
+	public LocalChannelIdentity() {}
+}
+
 class LocalApplicationChannelRequest {
-	private void* serverIdentity;
+	private LocalChannelIdentity serverIdentity;
 	private unsigned long long requestIdentity;
 	private Bytes requestPayload;
 
-	public LocalApplicationChannelRequest(void* owner, unsigned long long identity, Bytes payload) {
+	public LocalApplicationChannelRequest(LocalChannelIdentity owner, unsigned long long identity, Bytes payload) {
 		if (owner == null || identity == 0ULL || payload == null) { throw "invalid local application channel request"; }
 		self.serverIdentity = owner;
 		self.requestIdentity = identity;
@@ -97,7 +108,7 @@ class LocalApplicationChannelRequest {
 
 	public Bytes payload() { return self.requestPayload; }
 
-	public bool belongsTo(void* owner) { return owner != null && self.serverIdentity == owner; }
+	public bool belongsTo(LocalChannelIdentity owner) { return owner != null && self.serverIdentity == owner; }
 }
 
 class LocalApplicationChannelServerOpenOutcome {
@@ -155,53 +166,256 @@ class LocalApplicationChannelClientOutcome {
 }
 
 class LocalApplicationChannelServer {
-	private void* nativeServer;
+	private LocalChannelSocket listener;
+	private LocalChannelEndpoint endpoint;
+	private LocalChannelIdentity identity;
 	private LocalApplicationChannelConfiguration configuration;
-	private OwnedBuffer<char> requestBuffer;
+	private Vector<LocalChannelPeer> peers;
+	private unsigned long long nextRequest;
+	private bool closed;
 
-	private LocalApplicationChannelServer(void* nativeServer, LocalApplicationChannelConfiguration configuration, OwnedBuffer<char> requestBuffer) {
-		self.nativeServer = nativeServer;
+	private LocalApplicationChannelServer(LocalChannelSocket listener, LocalChannelEndpoint endpoint, LocalApplicationChannelConfiguration configuration) {
+		self.listener = listener;
+		self.endpoint = endpoint;
 		self.configuration = configuration;
-		self.requestBuffer = requestBuffer;
+		self.identity = LocalChannelIdentity();
+		Vector<LocalChannelPeer> peers = Vector();
+		self.peers = peers;
+		self.nextRequest = 1ULL;
+		self.closed = false;
 	}
 
 	class LocalApplicationChannelServerOpenOutcome open(string path, LocalApplicationChannelConfiguration configuration) {
-		if (path == null || path.isEmpty() || configuration == null || !configuration.valid()) { return LocalApplicationChannelServerOpenOutcome(LOCAL_APPLICATION_CHANNEL_OPEN_INVALID, null, 0); }
-		OwnedBuffer<char> requestBuffer = OwnedBuffer((size_t)configuration.maximumMessageBytes());
-		if (!requestBuffer.opened()) { return LocalApplicationChannelServerOpenOutcome(LOCAL_APPLICATION_CHANNEL_OPEN_RESOURCE_FAILED, null, 0); }
-		void* nativeServer = null;
-		int nativeError = 0;
-		LocalApplicationChannelOpenKind kind = (LocalApplicationChannelOpenKind)std_local_application_channel_server_open(path, configuration.maximumClients(), configuration.maximumMessageBytes(), configuration.idleTimeoutMilliseconds(), configuration.workBytesPerPoll(), &nativeServer, &nativeError);
-		if (kind != LOCAL_APPLICATION_CHANNEL_OPENED || nativeServer == null) {
-			requestBuffer.close();
-			return LocalApplicationChannelServerOpenOutcome(kind, null, nativeError);
-		}
-		return LocalApplicationChannelServerOpenOutcome(kind, LocalApplicationChannelServer(nativeServer, configuration, requestBuffer), nativeError);
+		if (!LocalChannelSocket.validPath(path) || configuration == null || !configuration.valid()) { return LocalApplicationChannelServerOpenOutcome(LOCAL_APPLICATION_CHANNEL_OPEN_INVALID, null, EINVAL); }
+		if (!LocalChannelSocket.privateParent(path)) { return LocalApplicationChannelServerOpenOutcome(LOCAL_APPLICATION_CHANNEL_OPEN_INSECURE_PARENT, null, errno); }
+		var endpoint = LocalChannelEndpoint(path);
+		var prepared = endpoint.prepare();
+		if (prepared != LOCAL_APPLICATION_CHANNEL_OPENED) { return LocalApplicationChannelServerOpenOutcome(prepared, null, errno); }
+		var listener = LocalChannelSocket();
+		if (!listener.create() || !endpoint.bindListener(listener, configuration.maximumClients())) { return LocalApplicationChannelServerOpenOutcome(LOCAL_APPLICATION_CHANNEL_OPEN_RESOURCE_FAILED, null, errno); }
+		return LocalApplicationChannelServerOpenOutcome(LOCAL_APPLICATION_CHANNEL_OPENED, LocalApplicationChannelServer(listener, endpoint, configuration), 0);
+	}
+
+	private bool acceptOne() {
+		int slot = -1;
+		for (int index = 0; index < self.peers.len; index++) { if (self.peers.get(index).closed()) { slot = index; break; } }
+		if (slot < 0 && self.peers.len >= self.configuration.maximumClients()) { return true; }
+		LocalChannelSocket? accepted = self.listener.acceptPeer();
+		if (accepted == null) { return errno == 0 || errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK; }
+		LocalChannelSocket socket = accepted;
+		var peer = LocalChannelPeer(socket, self.configuration.maximumMessageBytes());
+		if (slot < 0) { self.peers.push(peer); }
+		else { self.peers.set(slot, peer); }
+		return true;
 	}
 
 	public LocalApplicationChannelPollOutcome poll() {
-		if (self.nativeServer == null) { return LocalApplicationChannelPollOutcome(LOCAL_APPLICATION_CHANNEL_POLL_CLOSED, null, 0); }
-		unsigned long long requestIdentity = 0ULL;
-		int requestLength = 0;
-		int nativeError = 0;
-		LocalApplicationChannelPollKind kind = (LocalApplicationChannelPollKind)std_local_application_channel_server_poll(self.nativeServer, (unsigned char*)self.requestBuffer.borrow(), self.configuration.maximumMessageBytes(), &requestIdentity, &requestLength, &nativeError);
-		if (kind != LOCAL_APPLICATION_CHANNEL_POLL_REQUEST) { return LocalApplicationChannelPollOutcome(kind, null, nativeError); }
-		if (requestIdentity == 0ULL || requestLength < 0 || requestLength > self.configuration.maximumMessageBytes()) { return LocalApplicationChannelPollOutcome(LOCAL_APPLICATION_CHANNEL_POLL_FAILED, null, nativeError); }
-		Bytes payload = Bytes.fromRaw((char*)self.requestBuffer.borrow(), requestLength);
-		return LocalApplicationChannelPollOutcome(kind, LocalApplicationChannelRequest(self.nativeServer, requestIdentity, payload), nativeError);
+		if (self.closed) { return LocalApplicationChannelPollOutcome(LOCAL_APPLICATION_CHANNEL_POLL_CLOSED, null, 0); }
+		if (!self.acceptOne()) { return LocalApplicationChannelPollOutcome(LOCAL_APPLICATION_CHANNEL_POLL_FAILED, null, errno); }
+		int remaining = self.configuration.workBytesPerPoll();
+		long long now = LocalChannelSocket.nowMilliseconds();
+		for (int index = 0; index < self.peers.len; index++) {
+			var peer = self.peers.get(index);
+			if (peer.closed()) { continue; }
+			if (peer.expired(now, self.configuration.idleTimeoutMilliseconds())) { peer.close(); continue; }
+			remaining = peer.advance(remaining);
+			if (!peer.ready()) { continue; }
+			if (self.nextRequest == 18446744073709551615ULL) { peer.close(); return LocalApplicationChannelPollOutcome(LOCAL_APPLICATION_CHANNEL_POLL_FAILED, null, EOVERFLOW); }
+			var request = peer.deliver(self.identity, self.nextRequest++);
+			return LocalApplicationChannelPollOutcome(LOCAL_APPLICATION_CHANNEL_POLL_REQUEST, request, 0);
+		}
+		return LocalApplicationChannelPollOutcome(remaining == 0 ? LOCAL_APPLICATION_CHANNEL_POLL_WORK_REMAINS : LOCAL_APPLICATION_CHANNEL_POLL_IDLE, null, 0);
 	}
 
 	public LocalApplicationChannelResponseOutcome respond(LocalApplicationChannelRequest request, Bytes response) {
-		if (self.nativeServer == null) { return LocalApplicationChannelResponseOutcome(LOCAL_APPLICATION_CHANNEL_RESPONSE_CLOSED, 0); }
-		if (request == null || response == null || !request.belongsTo(self.nativeServer)) { return LocalApplicationChannelResponseOutcome(LOCAL_APPLICATION_CHANNEL_RESPONSE_INVALID, 0); }
-		int nativeError = 0;
-		LocalApplicationChannelResponseKind kind = (LocalApplicationChannelResponseKind)std_local_application_channel_server_respond(self.nativeServer, request.identity(), (const unsigned char*)response.data, response.len, &nativeError);
-		return LocalApplicationChannelResponseOutcome(kind, nativeError);
+		if (self.closed) { return LocalApplicationChannelResponseOutcome(LOCAL_APPLICATION_CHANNEL_RESPONSE_CLOSED, 0); }
+		if (request == null || response == null || !request.belongsTo(self.identity)) { return LocalApplicationChannelResponseOutcome(LOCAL_APPLICATION_CHANNEL_RESPONSE_INVALID, 0); }
+		if (response.len > self.configuration.maximumMessageBytes()) { return LocalApplicationChannelResponseOutcome(LOCAL_APPLICATION_CHANNEL_RESPONSE_TOO_LARGE, 0); }
+		for (int index = 0; index < self.peers.len; index++) {
+			var peer = self.peers.get(index);
+			if (!peer.matches(request.identity())) { continue; }
+			if (!peer.queue(response)) { return LocalApplicationChannelResponseOutcome(LOCAL_APPLICATION_CHANNEL_RESPONSE_RESOURCE_FAILED, ENOMEM); }
+			return LocalApplicationChannelResponseOutcome(LOCAL_APPLICATION_CHANNEL_RESPONSE_QUEUED, 0);
+		}
+		return LocalApplicationChannelResponseOutcome(LOCAL_APPLICATION_CHANNEL_RESPONSE_STALE, 0);
 	}
 
 	public void close() {
-		if (self.nativeServer != null) { std_local_application_channel_server_close(&self.nativeServer); }
-		self.requestBuffer.close();
+		if (self.closed) { return; }
+		self.closed = true;
+		for (int index = 0; index < self.peers.len; index++) { self.peers.get(index).close(); }
+		self.listener.close();
+		self.endpoint.close();
+	}
+
+	public void __del__() { self.close(); }
+}
+
+enum LocalChannelPeerState {
+	LOCAL_CHANNEL_HEADER,
+	LOCAL_CHANNEL_BODY,
+	LOCAL_CHANNEL_READY,
+	LOCAL_CHANNEL_DELIVERED,
+	LOCAL_CHANNEL_WRITING,
+	LOCAL_CHANNEL_CLOSED
+};
+
+/* One bounded transaction per peer. The application may retain a delivered
+ * request, but the peer's idle deadline and buffers remain independently owned. */
+class LocalChannelPeer {
+	private LocalChannelSocket socket;
+	private OwnedBuffer<unsigned char> header;
+	private OwnedBuffer<unsigned char>? body;
+	private LocalChannelPeerState state;
+	private int maximumBytes;
+	private int expected;
+	private int offset;
+	private unsigned long long requestIdentity;
+	private long long lastActivity;
+
+	public LocalChannelPeer(LocalChannelSocket socket, int maximumBytes) {
+		self.socket = socket;
+		OwnedBuffer<unsigned char> header = OwnedBuffer((size_t)4);
+		self.header = header;
+		self.body = null;
+		self.state = LOCAL_CHANNEL_HEADER;
+		self.maximumBytes = maximumBytes;
+		self.expected = 4;
+		self.offset = 0;
+		self.requestIdentity = 0ULL;
+		self.lastActivity = LocalChannelSocket.nowMilliseconds();
+		if (!self.header.opened()) { self.close(); }
+	}
+
+	public bool closed() { return self.state == LOCAL_CHANNEL_CLOSED; }
+
+	public bool ready() { return self.state == LOCAL_CHANNEL_READY; }
+
+	public bool matches(unsigned long long identity) { return self.state == LOCAL_CHANNEL_DELIVERED && self.requestIdentity == identity; }
+
+	public bool expired(long long now, int timeout) { return now == (long long)LLONG_MAX || self.lastActivity == (long long)LLONG_MAX || now < self.lastActivity || now - self.lastActivity >= (long long)timeout; }
+
+	public int advance(int budget) {
+		while (budget > 0 && (self.state == LOCAL_CHANNEL_HEADER || self.state == LOCAL_CHANNEL_BODY || self.state == LOCAL_CHANNEL_WRITING)) {
+			int needed = self.expected - self.offset;
+			int permitted = needed < budget ? needed : budget;
+			unsigned char* buffer = self.header.borrow();
+			if (self.state != LOCAL_CHANNEL_HEADER) {
+				if (self.body == null) { self.close(); return budget; }
+				OwnedBuffer<unsigned char> body = self.body;
+				buffer = body.borrow();
+			}
+			ssize_t count = self.state == LOCAL_CHANNEL_WRITING ? self.socket.writeSome(buffer + self.offset, permitted) : self.socket.readSome(buffer + self.offset, permitted);
+			/* Yield on EINTR as well as backpressure: a signal storm must not
+			 * hold the application's event loop inside this poll. */
+			if (count < (ssize_t)0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) { return budget; }
+			if (count <= (ssize_t)0 || (size_t)count > (size_t)permitted) { self.close(); return budget; }
+			self.offset += (int)count;
+			budget -= (int)count;
+			self.lastActivity = LocalChannelSocket.nowMilliseconds();
+			if (self.offset != self.expected) { continue; }
+			if (self.state == LOCAL_CHANNEL_WRITING) { self.close(); return budget; }
+			if (self.state == LOCAL_CHANNEL_BODY) { self.state = LOCAL_CHANNEL_READY; return budget; }
+			uint length = LocalChannelFrame.decode(self.header.borrow());
+			if (length > (uint)self.maximumBytes) { self.close(); return budget; }
+			OwnedBuffer<unsigned char> body = OwnedBuffer(length == 0U ? (size_t)1 : (size_t)length);
+			if (!body.opened()) { self.close(); return budget; }
+			self.body = body;
+			self.expected = (int)length;
+			self.offset = 0;
+			self.state = length == 0U ? LOCAL_CHANNEL_READY : LOCAL_CHANNEL_BODY;
+		}
+		return budget;
+	}
+
+	public LocalApplicationChannelRequest deliver(LocalChannelIdentity owner, unsigned long long identity) {
+		if (!self.ready() || self.body == null) { throw "local channel request is not ready"; }
+		OwnedBuffer<unsigned char> body = self.body;
+		var payload = Bytes.fromRaw((char*)body.borrow(), self.expected);
+		self.requestIdentity = identity;
+		self.state = LOCAL_CHANNEL_DELIVERED;
+		self.lastActivity = LocalChannelSocket.nowMilliseconds();
+		return LocalApplicationChannelRequest(owner, identity, payload);
+	}
+
+	public bool queue(Bytes response) {
+		if (self.state != LOCAL_CHANNEL_DELIVERED || response == null || response.len > self.maximumBytes) { return false; }
+		OwnedBuffer<unsigned char> frame = OwnedBuffer((size_t)response.len + (size_t)4);
+		if (!frame.opened()) { return false; }
+		LocalChannelFrame.encode(frame.borrow(), (uint)response.len);
+		if (response.len > 0) { memcpy(frame.borrow() + 4, response.data, (size_t)response.len); }
+		if (self.body != null) { OwnedBuffer<unsigned char> previous = self.body; previous.close(); }
+		self.body = frame;
+		self.expected = response.len + 4;
+		self.offset = 0;
+		self.state = LOCAL_CHANNEL_WRITING;
+		self.lastActivity = LocalChannelSocket.nowMilliseconds();
+		return true;
+	}
+
+	public void close() {
+		self.state = LOCAL_CHANNEL_CLOSED;
+		self.socket.close();
+		self.header.close();
+		if (self.body != null) { OwnedBuffer<unsigned char> body = self.body; body.close(); }
+		self.body = null;
+	}
+
+	public void __del__() { self.close(); }
+}
+
+/* Cleanup is conditional on the endpoint identity captured after bind.
+ * A bind collision never grants ownership of the pre-existing path. */
+class LocalChannelEndpoint {
+	private string path;
+	private unsigned long long device;
+	private unsigned long long inode;
+	private unsigned long long user;
+	private bool owned;
+
+	public LocalChannelEndpoint(string path) {
+		self.path = path;
+		self.device = 0ULL;
+		self.inode = 0ULL;
+		self.user = (unsigned long long)geteuid();
+		self.owned = false;
+	}
+
+	private bool sameEndpoint(struct stat* status) { return S_ISSOCK(status->st_mode) && (unsigned long long)status->st_uid == self.user && (unsigned long long)status->st_dev == self.device && (unsigned long long)status->st_ino == self.inode; }
+
+	public LocalApplicationChannelOpenKind prepare() {
+		struct stat first;
+		if (lstat(self.path, &first) != 0) { return errno == ENOENT ? LOCAL_APPLICATION_CHANNEL_OPENED : LOCAL_APPLICATION_CHANNEL_OPEN_PATH_CONFLICT; }
+		if (!S_ISSOCK(first.st_mode) || (unsigned long long)first.st_uid != self.user) { errno = EEXIST; return LOCAL_APPLICATION_CHANNEL_OPEN_PATH_CONFLICT; }
+		var probe = LocalChannelSocket();
+		int active = probe.probe(self.path);
+		if (active != 0) { return active > 0 ? LOCAL_APPLICATION_CHANNEL_OPEN_ALREADY_RUNNING : LOCAL_APPLICATION_CHANNEL_OPEN_PATH_CONFLICT; }
+		self.device = (unsigned long long)first.st_dev;
+		self.inode = (unsigned long long)first.st_ino;
+		struct stat second;
+		if (lstat(self.path, &second) != 0 || !self.sameEndpoint(&second)) { errno = EAGAIN; return LOCAL_APPLICATION_CHANNEL_OPEN_PATH_CONFLICT; }
+		return unlink(self.path) == 0 ? LOCAL_APPLICATION_CHANNEL_OPENED : LOCAL_APPLICATION_CHANNEL_OPEN_PATH_CONFLICT;
+	}
+
+	public bool bindListener(LocalChannelSocket listener, int maximumClients) {
+		if (!listener.bindAt(self.path)) { return false; }
+		struct stat status;
+		if (lstat(self.path, &status) != 0) { return false; }
+		if (!S_ISSOCK(status.st_mode) || (unsigned long long)status.st_uid != self.user) { errno = EACCES; return false; }
+		self.device = (unsigned long long)status.st_dev;
+		self.inode = (unsigned long long)status.st_ino;
+		self.owned = true;
+		if (chmod(self.path, (mode_t)0600) != 0 || !listener.listenFor(maximumClients)) { return false; }
+		if (lstat(self.path, &status) != 0) { return false; }
+		if (!self.sameEndpoint(&status) || (status.st_mode & (mode_t)0077) != (mode_t)0) { errno = EACCES; return false; }
+		return true;
+	}
+
+	public void close() {
+		if (!self.owned) { return; }
+		self.owned = false;
+		struct stat status;
+		if (lstat(self.path, &status) == 0 && self.sameEndpoint(&status)) { unlink(self.path); }
 	}
 
 	public void __del__() { self.close(); }
@@ -210,13 +424,206 @@ class LocalApplicationChannelServer {
 class LocalApplicationChannelClient {
 	class LocalApplicationChannelClientOutcome request(string path, Bytes request, LocalApplicationChannelConfiguration configuration, int timeoutMilliseconds) {
 		if (path == null || path.isEmpty() || request == null || configuration == null || !configuration.valid() || request.len > configuration.maximumMessageBytes() || timeoutMilliseconds < 1 || timeoutMilliseconds > 300000) { return LocalApplicationChannelClientOutcome(LOCAL_APPLICATION_CHANNEL_REQUEST_INVALID, Bytes(), 0); }
-		OwnedBuffer<char> responseBuffer = OwnedBuffer((size_t)configuration.maximumMessageBytes());
-		if (!responseBuffer.opened()) { return LocalApplicationChannelClientOutcome(LOCAL_APPLICATION_CHANNEL_REQUEST_IO_FAILED, Bytes(), 0); }
-		int responseLength = 0;
-		int nativeError = 0;
-		LocalApplicationChannelRequestKind kind = (LocalApplicationChannelRequestKind)std_local_application_channel_request(path, (const unsigned char*)request.data, request.len, (unsigned char*)responseBuffer.borrow(), configuration.maximumMessageBytes(), timeoutMilliseconds, &responseLength, &nativeError);
-		Bytes response = kind == LOCAL_APPLICATION_CHANNEL_REQUEST_COMPLETED && responseLength >= 0 && responseLength <= configuration.maximumMessageBytes() ? Bytes.fromRaw((char*)responseBuffer.borrow(), responseLength) : Bytes();
-		responseBuffer.close();
-		return LocalApplicationChannelClientOutcome(kind, response, nativeError);
+		if (!LocalChannelSocket.validPath(path)) { return LocalApplicationChannelClientOutcome(LOCAL_APPLICATION_CHANNEL_REQUEST_INVALID, Bytes(), EINVAL); }
+		if (!LocalChannelSocket.privateEndpoint(path)) {
+			int error = errno;
+			return LocalApplicationChannelClientOutcome(error == ENOENT ? LOCAL_APPLICATION_CHANNEL_REQUEST_UNAVAILABLE : LOCAL_APPLICATION_CHANNEL_REQUEST_SECURITY_REJECTED, Bytes(), error);
+		}
+		long long now = LocalChannelSocket.nowMilliseconds();
+		if (now > (long long)LLONG_MAX - (long long)timeoutMilliseconds) { return LocalApplicationChannelClientOutcome(LOCAL_APPLICATION_CHANNEL_REQUEST_IO_FAILED, Bytes(), EIO); }
+		long long deadline = now + (long long)timeoutMilliseconds;
+		LocalChannelSocket connection = LocalChannelSocket();
+		if (!connection.connectTo(path, deadline)) {
+			int error = errno;
+			LocalApplicationChannelRequestKind kind = LOCAL_APPLICATION_CHANNEL_REQUEST_IO_FAILED;
+			if (error == EACCES) { kind = LOCAL_APPLICATION_CHANNEL_REQUEST_SECURITY_REJECTED; }
+			else if (error == ETIMEDOUT) { kind = LOCAL_APPLICATION_CHANNEL_REQUEST_TIMED_OUT; }
+			else if (error == ENOENT || error == ECONNREFUSED) { kind = LOCAL_APPLICATION_CHANNEL_REQUEST_UNAVAILABLE; }
+			return LocalApplicationChannelClientOutcome(kind, Bytes(), error);
+		}
+		unsigned char header[4];
+		LocalChannelFrame.encode(header, (uint)request.len);
+		if (!connection.transfer(header, 4, true, deadline) || !connection.transfer((unsigned char*)request.data, request.len, true, deadline)) { return LocalApplicationChannelClient.failure(LOCAL_APPLICATION_CHANNEL_REQUEST_IO_FAILED); }
+		if (!connection.transfer(header, 4, false, deadline)) { return LocalApplicationChannelClient.failure(LOCAL_APPLICATION_CHANNEL_REQUEST_PROTOCOL_FAILED); }
+		uint length = LocalChannelFrame.decode(header);
+		if (length > (uint)configuration.maximumMessageBytes()) { return LocalApplicationChannelClientOutcome(LOCAL_APPLICATION_CHANNEL_REQUEST_RESPONSE_TOO_LARGE, Bytes(), 0); }
+		OwnedBuffer<unsigned char> responseBuffer = OwnedBuffer(length == 0U ? (size_t)1 : (size_t)length);
+		if (!responseBuffer.opened()) { return LocalApplicationChannelClientOutcome(LOCAL_APPLICATION_CHANNEL_REQUEST_IO_FAILED, Bytes(), ENOMEM); }
+		if (!connection.transfer(responseBuffer.borrow(), (int)length, false, deadline)) { return LocalApplicationChannelClient.failure(LOCAL_APPLICATION_CHANNEL_REQUEST_PROTOCOL_FAILED); }
+		return LocalApplicationChannelClientOutcome(LOCAL_APPLICATION_CHANNEL_REQUEST_COMPLETED, Bytes.fromRaw((char*)responseBuffer.borrow(), (int)length), 0);
 	}
+
+	class LocalApplicationChannelClientOutcome failure(LocalApplicationChannelRequestKind fallback) {
+		int error = errno;
+		return LocalApplicationChannelClientOutcome(error == ETIMEDOUT ? LOCAL_APPLICATION_CHANNEL_REQUEST_TIMED_OUT : fallback, Bytes(), error);
+	}
+}
+
+/* Wire framing is independent of the socket ABI. Limits are checked before
+ * allocating a body; an empty frame is a valid message, not EOF. */
+class LocalChannelFrame {
+	class void encode(unsigned char* header, uint length) {
+		header[0] = (unsigned char)(length >> 24);
+		header[1] = (unsigned char)(length >> 16);
+		header[2] = (unsigned char)(length >> 8);
+		header[3] = (unsigned char)length;
+	}
+
+	class uint decode(const unsigned char* header) { return ((uint)header[0] << 24) | ((uint)header[1] << 16) | ((uint)header[2] << 8) | (uint)header[3]; }
+}
+
+/* One descriptor owner. All operations are nonblocking; a single monotonic
+ * deadline covers connection, request and response, including EINTR retries. */
+class LocalChannelSocket {
+	private int descriptor;
+
+	public LocalChannelSocket() { self.descriptor = -1; }
+
+	class bool validPath(string path) {
+		LocalSocketAddress address;
+		return path != null && path.len() > 1 && (size_t)path.len() < sizeof(address.sun_path) && path[0] == '/' && path[path.len() - 1] != '/';
+	}
+
+	class bool privateParent(string path) {
+		if (!LocalChannelSocket.validPath(path)) { errno = EINVAL; return false; }
+		string parent = PathTools.dirname(path);
+		struct stat status;
+		if (lstat(parent, &status) != 0) { return false; }
+		if (!S_ISDIR(status.st_mode) || (unsigned long long)status.st_uid != (unsigned long long)geteuid() || (status.st_mode & (mode_t)0077) != (mode_t)0) { errno = EACCES; return false; }
+		return true;
+	}
+
+	class bool privateEndpoint(string path) {
+		if (!LocalChannelSocket.privateParent(path)) { return false; }
+		struct stat status;
+		if (lstat(path, &status) != 0) { return false; }
+		if (!S_ISSOCK(status.st_mode) || (unsigned long long)status.st_uid != (unsigned long long)geteuid() || (status.st_mode & (mode_t)0077) != (mode_t)0) { errno = EACCES; return false; }
+		return true;
+	}
+
+	class long long nowMilliseconds() {
+		struct timespec now;
+		if (clock_gettime(CLOCK_MONOTONIC, &now) != 0 || now.tv_sec < (time_t)0 || now.tv_nsec < 0L || now.tv_nsec >= 1000000000L || (unsigned long long)now.tv_sec > (unsigned long long)(LLONG_MAX / 1000LL)) { return LLONG_MAX; }
+		long long whole = (long long)now.tv_sec * 1000LL;
+		long long fraction = (long long)now.tv_nsec / 1000000LL;
+		return whole > (long long)LLONG_MAX - fraction ? (long long)LLONG_MAX : whole + fraction;
+	}
+
+	private bool configure() {
+		int descriptorFlags = fcntl(self.descriptor, F_GETFD, 0);
+		if (descriptorFlags < 0 || fcntl(self.descriptor, F_SETFD, descriptorFlags | FD_CLOEXEC) < 0) { return false; }
+		int statusFlags = fcntl(self.descriptor, F_GETFL, 0);
+		return statusFlags >= 0 && fcntl(self.descriptor, F_SETFL, statusFlags | O_NONBLOCK) == 0;
+	}
+
+	public bool create() {
+		self.close();
+		self.descriptor = socket(AF_UNIX, SOCK_STREAM, 0);
+		return self.descriptor >= 0 && self.configure();
+	}
+
+	public bool connectTo(string path, long long deadline) {
+		if (!LocalChannelSocket.validPath(path)) { errno = EINVAL; return false; }
+		if (!self.create()) { return false; }
+		LocalSocketAddress address;
+		memset(&address, 0, sizeof(address));
+		address.sun_family = AF_UNIX;
+		memcpy(address.sun_path, path, (size_t)path.len() + (size_t)1);
+		if (connect(self.descriptor, (struct sockaddr*)&address, sizeof(address)) != 0) {
+			if (errno != EINPROGRESS || !self.waitReady(POLLOUT, deadline)) { return false; }
+			int error = 0;
+			socklen_t length = sizeof(error);
+			if (getsockopt(self.descriptor, SOL_SOCKET, SO_ERROR, &error, &length) != 0) { return false; }
+			if ((size_t)length != sizeof(error)) { errno = EIO; return false; }
+			if (error != 0) { errno = error; return false; }
+		}
+		uid_t user = 0;
+		if (localSocketPeerUser(self.descriptor, &user) != 0 || user != geteuid()) { errno = EACCES; return false; }
+		return true;
+	}
+
+	public int probe(string path) {
+		if (!LocalChannelSocket.validPath(path)) { errno = EINVAL; return -1; }
+		if (!self.create()) { return -1; }
+		LocalSocketAddress address;
+		memset(&address, 0, sizeof(address));
+		address.sun_family = AF_UNIX;
+		memcpy(address.sun_path, path, (size_t)path.len() + (size_t)1);
+		int result = connect(self.descriptor, (struct sockaddr*)&address, sizeof(address));
+		int error = errno;
+		self.close();
+		errno = error;
+		if (result == 0 || error == EINPROGRESS || error == EAGAIN || error == EWOULDBLOCK) { return 1; }
+		return error == ECONNREFUSED || error == ENOENT ? 0 : -1;
+	}
+
+	public bool bindAt(string path) {
+		if (!LocalChannelSocket.validPath(path)) { errno = EINVAL; return false; }
+		LocalSocketAddress address;
+		memset(&address, 0, sizeof(address));
+		address.sun_family = AF_UNIX;
+		memcpy(address.sun_path, path, (size_t)path.len() + (size_t)1);
+		return bind(self.descriptor, (struct sockaddr*)&address, sizeof(address)) == 0;
+	}
+
+	public bool listenFor(int maximumClients) { return listen(self.descriptor, maximumClients) == 0; }
+
+	public LocalChannelSocket? acceptPeer() {
+		int descriptor = accept(self.descriptor, null, null);
+		if (descriptor < 0) { return null; }
+		var peer = LocalChannelSocket();
+		peer.descriptor = descriptor;
+		uid_t user = 0;
+		if (!peer.configure() || localSocketPeerUser(descriptor, &user) != 0 || user != geteuid()) {
+			peer.close();
+			errno = 0;
+			return null;
+		}
+		return peer;
+	}
+
+	public ssize_t readSome(unsigned char* buffer, int length) { return recv(self.descriptor, buffer, (size_t)length, 0); }
+
+	public ssize_t writeSome(const unsigned char* buffer, int length) { return send(self.descriptor, buffer, (size_t)length, MSG_NOSIGNAL); }
+
+	private bool waitReady(short events, long long deadline) {
+		while (true) {
+			long long now = LocalChannelSocket.nowMilliseconds();
+			if (now >= deadline) { errno = ETIMEDOUT; return false; }
+			long long remaining = deadline - now;
+			struct pollfd pending;
+			pending.fd = self.descriptor;
+			pending.events = events;
+			pending.revents = 0;
+			int ready = poll(&pending, (nfds_t)1, remaining > (long long)INT_MAX ? INT_MAX : (int)remaining);
+			if (ready < 0 && errno == EINTR) { continue; }
+			if (ready <= 0) { if (ready == 0) { errno = ETIMEDOUT; } return false; }
+			if ((pending.revents & events) != 0) { return true; }
+			errno = EIO;
+			return false;
+		}
+		return false;
+	}
+
+	public bool transfer(unsigned char* buffer, int length, bool writing, long long deadline) {
+		int offset = 0;
+		while (offset < length) {
+			if (!self.waitReady(writing ? POLLOUT : POLLIN, deadline)) { return false; }
+			ssize_t count = writing ? send(self.descriptor, buffer + offset, (size_t)(length - offset), MSG_NOSIGNAL) : recv(self.descriptor, buffer + offset, (size_t)(length - offset), 0);
+			if (count > (ssize_t)0) { offset += (int)count; }
+			else if (count < (ssize_t)0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) { continue; }
+			else { if (count == (ssize_t)0) { errno = writing ? EIO : EPROTO; } return false; }
+		}
+		return true;
+	}
+
+	public void close() {
+		if (self.descriptor < 0) { return; }
+		int descriptor = self.descriptor;
+		self.descriptor = -1;
+		shutdown(descriptor, SHUT_RDWR);
+		close(descriptor);
+	}
+
+	public void __del__() { self.close(); }
 }

@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[3]
 CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
 BTRCC_SOURCE = REPO / "src/compiler/btrc/BtrccMain.btrc"
 FIXTURES = REPO / "src/tests/btrc/fixtures"
-GPU_INCLUDE = REPO / "src/stdlib/gpu"
+GPU_INCLUDE = REPO / "src/stdlib/GPU"
 NAGA = shutil.which("naga")
 if NAGA is None:
     shared_naga = Path("/tmp/btrc-naga-validator/bin/naga")

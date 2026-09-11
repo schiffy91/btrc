@@ -1,0 +1,120 @@
+import Library.BackgroundJobs;
+
+#include <assert.h>
+
+void job_fault_reset();
+void job_fault_at(int operation, int call);
+int job_fault_calls(int operation);
+int job_fault_live_threads();
+int job_fault_disposals();
+void job_fault_dispose();
+
+enum ThreadFault {
+	FAULT_MUTEX_INIT,
+	FAULT_COND_INIT,
+	FAULT_CREATE,
+	FAULT_JOIN,
+	FAULT_MUTEX_DESTROY,
+	FAULT_COND_DESTROY
+};
+
+class FaultProbeWork extends BackgroundJobWork {
+	private bool throwing;
+
+	public FaultProbeWork(bool throwing = false) { self.throwing = throwing; }
+
+	public void __del__() { job_fault_dispose(); if (self.throwing) { throw "work disposal failed"; } }
+}
+
+class ReentrantCloseWork extends BackgroundJobWork {
+	private BackgroundJobExecutor executor;
+
+	public ReentrantCloseWork(BackgroundJobExecutor executor) { self.executor = executor; }
+
+	public void __del__() {
+		assert(self.executor.close(BACKGROUND_JOBS_DRAIN).kind == BACKGROUND_JOBS_CLOSE_SYNC_FAILED);
+		job_fault_dispose();
+	}
+}
+
+BackgroundJobCompletionKind completeFaultProbe(BackgroundJobWork work, BackgroundJobCancellation cancellation) { return BACKGROUND_JOB_COMPLETED; }
+
+void startupFailure(int operation, int occurrence) {
+	job_fault_reset();
+	job_fault_at(operation, occurrence);
+	BackgroundJobsOpenOutcome opened = BackgroundJobExecutor.open(3, 4);
+	assert(opened.kind == BACKGROUND_JOBS_OPEN_THREAD_FAILED);
+	assert(opened.executor == null);
+	assert(job_fault_live_threads() == 0);
+	job_fault_reset();
+}
+
+void shutdownRetry(int operation) {
+	job_fault_reset();
+	BackgroundJobsOpenOutcome opened = BackgroundJobExecutor.open(3, 4);
+	assert(opened.kind == BACKGROUND_JOBS_OPENED && opened.executor != null);
+	BackgroundJobExecutor executor = opened.executor;
+	for (int index = 0; index < 4; index++) {
+		assert(executor.submit(BackgroundJobGeneration(1ULL), FaultProbeWork(), completeFaultProbe).kind == BACKGROUND_JOB_SUBMITTED);
+	}
+	job_fault_at(operation, 1);
+	BackgroundJobsCloseOutcome first = executor.close(BACKGROUND_JOBS_DRAIN);
+	assert(first.kind == (operation == FAULT_JOIN ? BACKGROUND_JOBS_CLOSE_JOIN_FAILED : BACKGROUND_JOBS_CLOSE_SYNC_FAILED));
+	assert(!executor.isOpen());
+	assert(executor.close(BACKGROUND_JOBS_CANCEL_PENDING).kind == BACKGROUND_JOBS_CLOSE_INVALID_MODE);
+	if (operation == FAULT_JOIN) {
+		assert(job_fault_live_threads() == 1);
+		assert(job_fault_disposals() == 0);
+	} else {
+		assert(job_fault_live_threads() == 0);
+		assert(job_fault_disposals() == 4);
+	}
+	BackgroundJobsCloseOutcome retried = executor.close(BACKGROUND_JOBS_DRAIN);
+	assert(retried.kind == BACKGROUND_JOBS_CLOSED);
+	assert(retried.completed == 4 && retried.disposed == 4);
+	assert(job_fault_disposals() == 4);
+	assert(job_fault_live_threads() == 0);
+	assert(job_fault_calls(FAULT_JOIN) == (operation == FAULT_JOIN ? 4 : 3));
+	assert(executor.close().kind == BACKGROUND_JOBS_ALREADY_CLOSED);
+	job_fault_reset();
+}
+
+int main() {
+	startupFailure(FAULT_MUTEX_INIT, 1);
+	startupFailure(FAULT_COND_INIT, 1);
+	for (int occurrence = 1; occurrence <= 3; occurrence++) { startupFailure(FAULT_CREATE, occurrence); }
+	shutdownRetry(FAULT_JOIN);
+	shutdownRetry(FAULT_MUTEX_DESTROY);
+	shutdownRetry(FAULT_COND_DESTROY);
+
+	/* Failed startup still returns the owner when cleanup requires a retry. */
+	job_fault_reset();
+	job_fault_at(FAULT_CREATE, 3);
+	job_fault_at(FAULT_JOIN, 1);
+	BackgroundJobsOpenOutcome partial = BackgroundJobExecutor.open(3, 4);
+	assert(partial.kind == BACKGROUND_JOBS_OPEN_THREAD_FAILED && partial.executor != null);
+	BackgroundJobExecutor partialExecutor = partial.executor;
+	assert(!partialExecutor.isOpen());
+	assert(job_fault_live_threads() == 1);
+	assert(partialExecutor.close(BACKGROUND_JOBS_CANCEL_PENDING).kind == BACKGROUND_JOBS_CLOSED);
+	assert(job_fault_live_threads() == 0);
+	assert(job_fault_calls(FAULT_JOIN) == 3);
+	job_fault_reset();
+
+	/* Work destructors cannot strand later work or recursively free the queue. */
+	BackgroundJobsOpenOutcome cleanup = BackgroundJobExecutor.open(1, 4);
+	assert(cleanup.executor != null);
+	BackgroundJobExecutor cleanupExecutor = cleanup.executor;
+	assert(cleanupExecutor.submit(BackgroundJobGeneration(1ULL), ReentrantCloseWork(cleanupExecutor), completeFaultProbe).kind == BACKGROUND_JOB_SUBMITTED);
+	for (int index = 0; index < 3; index++) {
+		assert(cleanupExecutor.submit(BackgroundJobGeneration(1ULL), FaultProbeWork(true), completeFaultProbe).kind == BACKGROUND_JOB_SUBMITTED);
+	}
+	BackgroundJobsCloseOutcome disposed = cleanupExecutor.close(BACKGROUND_JOBS_DRAIN);
+	assert(disposed.kind == BACKGROUND_JOBS_CLOSE_WORKER_FAILED);
+	assert(disposed.completed == 4 && disposed.disposed == 4);
+	assert(job_fault_disposals() == 4);
+	assert(cleanupExecutor.close().kind == BACKGROUND_JOBS_ALREADY_CLOSED);
+	job_fault_reset();
+	print("PASS: background jobs failure recovery");
+	return 0;
+}

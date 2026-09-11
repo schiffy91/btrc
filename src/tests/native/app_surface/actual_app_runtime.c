@@ -18,14 +18,6 @@ typedef struct {
     unsigned long long owner_receipt;
 } OwnedCapability;
 
-enum { FAKE_DIRECTORY_CAPACITY = 4096, FAKE_DIRECTORY_REQUEST_CAPACITY = 256 };
-
-static int fake_directory_outcome;
-static int fake_directory_error;
-static int fake_directory_calls;
-static char fake_directory_path[FAKE_DIRECTORY_CAPACITY];
-static char fake_directory_title[FAKE_DIRECTORY_REQUEST_CAPACITY];
-static char fake_directory_initial[FAKE_DIRECTORY_CAPACITY];
 static int titlebar_calls;
 static int titlebar_error;
 static int native_click_count = 1;
@@ -50,29 +42,6 @@ int btrc_app_platform_set_titlebar_style(GLFWwindow* window, int style) {
     assert(style == BTRC_APP_TITLEBAR_STANDARD || style == BTRC_APP_TITLEBAR_OVERLAY);
     titlebar_calls++;
     return titlebar_error;
-}
-
-static void fake_directory_picker(int outcome, const char* path, int error) {
-    fake_directory_outcome = outcome;
-    fake_directory_error = error;
-    snprintf(fake_directory_path, sizeof(fake_directory_path), "%s", path ? path : "");
-}
-
-int btrc_app_platform_choose_directory(const char* title, const char* initial_directory, char* selected_directory, size_t selected_directory_capacity, int* error_out) {
-    fake_directory_calls++;
-    snprintf(fake_directory_title, sizeof(fake_directory_title), "%s", title ? title : "");
-    snprintf(fake_directory_initial, sizeof(fake_directory_initial), "%s", initial_directory ? initial_directory : "");
-    if (selected_directory && selected_directory_capacity > 0) { selected_directory[0] = '\0'; }
-    if (error_out) { *error_out = fake_directory_error; }
-    if (fake_directory_outcome == BTRC_APP_DIRECTORY_PICKER_SELECTED && selected_directory && selected_directory_capacity > 0) {
-        size_t length = strlen(fake_directory_path);
-        if (length >= selected_directory_capacity) {
-            if (error_out) { *error_out = BTRC_APP_ERROR_INTERNAL; }
-            return BTRC_APP_DIRECTORY_PICKER_FAILED;
-        }
-        memcpy(selected_directory, fake_directory_path, length + 1);
-    }
-    return fake_directory_outcome;
 }
 
 static OwnedCapability open_application(void) {
@@ -242,53 +211,6 @@ static void test_sole_owner_and_cleanup(void) {
     assert(fake_glfw_destroy_calls() == 1);
     assert(fake_glfw_terminate_calls() == 1);
     assert(strcmp(fake_glfw_lifecycle(), "init,create,destroy,terminate") == 0);
-    assert_backend_clean();
-}
-
-static void test_directory_picker_boundary(void) {
-    fake_glfw_reset();
-    fake_directory_picker(BTRC_APP_DIRECTORY_PICKER_CANCELLED, "", BTRC_APP_ERROR_NONE);
-    fake_directory_calls = 0;
-    fake_directory_title[0] = '\0';
-    fake_directory_initial[0] = '\0';
-    OwnedCapability application = open_application();
-    OwnedCapability window = open_window(application, 64, 40);
-
-    assert(std_app_window_choose_directory(window.capability, NULL, "") == BTRC_APP_DIRECTORY_PICKER_FAILED);
-    assert(std_app_error_code(window.capability) == BTRC_APP_ERROR_INVALID_ARGUMENT);
-    assert(fake_directory_calls == 0);
-
-    fake_directory_picker(BTRC_APP_DIRECTORY_PICKER_SELECTED, "/Music/Library", BTRC_APP_ERROR_NONE);
-    assert(std_app_window_choose_directory(window.capability, "Choose a library", "/Music") == BTRC_APP_DIRECTORY_PICKER_SELECTED);
-    assert(fake_directory_calls == 1);
-    assert(strcmp(fake_directory_title, "Choose a library") == 0);
-    assert(strcmp(fake_directory_initial, "/Music") == 0);
-    assert(strcmp(std_app_window_selected_directory(window.capability), "/Music/Library") == 0);
-
-    fake_directory_picker(BTRC_APP_DIRECTORY_PICKER_SELECTED, "/Changed", BTRC_APP_ERROR_NONE);
-    assert(strcmp(std_app_window_selected_directory(window.capability), "/Music/Library") == 0);
-
-    fake_directory_picker(BTRC_APP_DIRECTORY_PICKER_CANCELLED, "", BTRC_APP_ERROR_NONE);
-    assert(std_app_window_choose_directory(window.capability, "Cancel", "") == BTRC_APP_DIRECTORY_PICKER_CANCELLED);
-    assert(strcmp(std_app_window_selected_directory(window.capability), "") == 0);
-    assert(std_app_error_code(window.capability) == BTRC_APP_ERROR_NONE);
-
-    fake_directory_picker(BTRC_APP_DIRECTORY_PICKER_FAILED, "", BTRC_APP_ERROR_BACKEND_UNAVAILABLE);
-    assert(std_app_window_choose_directory(window.capability, "Unavailable", "") == BTRC_APP_DIRECTORY_PICKER_FAILED);
-    assert(std_app_error_code(window.capability) == BTRC_APP_ERROR_BACKEND_UNAVAILABLE);
-
-    fake_directory_picker(BTRC_APP_DIRECTORY_PICKER_SELECTED, "", BTRC_APP_ERROR_NONE);
-    assert(std_app_window_choose_directory(window.capability, "Malformed", "") == BTRC_APP_DIRECTORY_PICKER_FAILED);
-    assert(std_app_error_code(window.capability) == BTRC_APP_ERROR_INTERNAL);
-
-    fake_directory_picker(99, "", BTRC_APP_ERROR_NONE);
-    assert(std_app_window_choose_directory(window.capability, "Unknown", "") == BTRC_APP_DIRECTORY_PICKER_FAILED);
-    assert(std_app_error_code(window.capability) == BTRC_APP_ERROR_INTERNAL);
-
-    assert(std_app_window_close(window.capability, window.owner_receipt) == BTRC_APP_ERROR_NONE);
-    assert(strcmp(std_app_window_selected_directory(window.capability), "") == 0);
-    assert(std_app_error_code(window.capability) == BTRC_APP_ERROR_NOT_OPEN);
-    assert(std_app_close(application.capability, application.owner_receipt) == BTRC_APP_ERROR_NONE);
     assert_backend_clean();
 }
 
@@ -544,9 +466,6 @@ typedef struct {
     int detach_error;
     GLFWwindow* native_window;
     int logical_width;
-    int directory_picker_outcome;
-    int directory_picker_error;
-    int directory_picker_path_empty;
     int window_close_error;
     int titlebar_error;
     int alert_error;
@@ -571,9 +490,6 @@ static void* exercise_wrong_thread(void* userdata) {
     results->detach_error = std_app_surface_detach(results->main_lease);
     results->logical_width =
         std_app_window_logical_width(results->window.capability);
-    results->directory_picker_outcome = std_app_window_choose_directory(results->window.capability, "Wrong thread", "");
-    results->directory_picker_error = std_app_error_code(results->window.capability);
-    results->directory_picker_path_empty = std_app_window_selected_directory(results->window.capability)[0] == '\0';
     results->window_close_error = std_app_window_close(
         results->window.capability, results->window.owner_receipt);
     results->titlebar_error = std_app_window_set_titlebar_style(results->window.capability, results->window.owner_receipt, BTRC_APP_TITLEBAR_OVERLAY);
@@ -607,8 +523,6 @@ static void test_wrong_thread_rejection(void) {
     assert(std_app_surface_attach(surface.capability, &lease) ==
            BTRC_APP_ERROR_NONE);
     assert(lease != NULL);
-    fake_directory_picker(BTRC_APP_DIRECTORY_PICKER_SELECTED, "/Never/Called", BTRC_APP_ERROR_NONE);
-    fake_directory_calls = 0;
 
     WrongThreadResults results = {
         .application = application,
@@ -631,10 +545,6 @@ static void test_wrong_thread_rejection(void) {
     assert(results.native_window == NULL);
     assert(results.detach_error == BTRC_APP_ERROR_NOT_MAIN_THREAD);
     assert(results.logical_width == 0);
-    assert(results.directory_picker_outcome == BTRC_APP_DIRECTORY_PICKER_FAILED);
-    assert(results.directory_picker_error == BTRC_APP_ERROR_NOT_MAIN_THREAD);
-    assert(results.directory_picker_path_empty != 0);
-    assert(fake_directory_calls == 0);
     assert(results.window_close_error == BTRC_APP_ERROR_NOT_MAIN_THREAD);
     assert(results.titlebar_error == BTRC_APP_ERROR_NOT_MAIN_THREAD);
     assert(results.alert_error == BTRC_APP_ERROR_NOT_MAIN_THREAD);
@@ -802,7 +712,6 @@ int main(void) {
     assert(atexit(assert_atexit_finalization) == 0);
     test_initialization_rollback();
     test_sole_owner_and_cleanup();
-    test_directory_picker_boundary();
     test_titlebar_boundary();
     test_clipboard_boundary();
     test_generation_lease_and_partial_init();

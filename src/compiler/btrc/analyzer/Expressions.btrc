@@ -325,7 +325,15 @@ class ExpressionTypeResolver {
 		if (node.kind == NK_NULL_LITERAL) { return operators.nullType(); }
 		if (node.kind == NK_IDENTIFIER) {
 			if (node.name == "NULL") { return operators.nullType(); }
-			if (varTypes.has(node.name)) { return varTypes.get(node.name); }
+			if (varTypes.has(node.name)) {
+				Node valueType = varTypes.get(node.name);
+				if (valueType.isExtern || valueType.isStatic) {
+					valueType = TypeShape.copy(valueType);
+					valueType.isExtern = false;
+					valueType.isStatic = false;
+				}
+				return valueType;
+			}
 			if (a.funcTable.has(node.name)) {
 				return self.genericArgumentType(node, varTypes);
 			}
@@ -372,7 +380,7 @@ class ExpressionTypeResolver {
 				if (node.operand != null && node.operand.kind == NK_IDENTIFIER && a.funcTable.has(node.operand.name) && !varTypes.has(node.operand.name)) {
 					return operandType;
 				}
-				Node addressed = TypeShape.withoutOuterArray(operandType);
+				Node addressed = TypeShape.withoutOuterArray(declaredOperandType != null ? declaredOperandType : operandType);
 				return TypeShape.withOuterPointer(addressed);
 			}
 			if (node.op == "*") {

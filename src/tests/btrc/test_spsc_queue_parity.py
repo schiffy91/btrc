@@ -64,8 +64,8 @@ def test_raw_callback_queue_runs_from_both_frontends_with_gcc_and_clang(
 
     for frontend, source in generated.items():
         emitted = source.read_text()
-        assert "SpscQueues_tryPushBorrowed" in emitted
-        assert "SpscQueues_tryPopBorrowed" in emitted
+        assert "SPSCQueues_tryPushBorrowed" in emitted
+        assert "SPSCQueues_tryPopBorrowed" in emitted
         assert "atomic_load_explicit" in emitted
         assert "atomic_store_explicit" in emitted
         for compiler in STRICT_COMPILERS:

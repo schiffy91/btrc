@@ -1,0 +1,133 @@
+import Library.Audio.MacOS.CoreAudioDevice;
+import Library.Audio.AudioDevice;
+
+#include <assert.h>
+
+void resourceScenario(int scenario);
+void resourceExternalChange();
+void resourceReleasePending();
+int resourceWrites();
+int resourceAggregates();
+int resourceOriginal();
+
+void unchanged() {
+	var configuration = CoreAudioDeviceConfiguration(CoreAudioHardwareDevice(11u), "device-a");
+	int before = resourceWrites();
+	assert(configuration.configure(48000, 128) == AUDIO_DEVICE_OK);
+	assert(configuration.close() == AUDIO_DEVICE_OK);
+	assert(resourceWrites() == before && resourceOriginal() != 0);
+}
+
+void configured(int scenario) {
+	resourceScenario(scenario);
+	var configuration = CoreAudioDeviceConfiguration(CoreAudioHardwareDevice(11u), "device-a");
+	var status = configuration.configure(44100, 256);
+	assert(scenario == 0 ? status == AUDIO_DEVICE_OK : status != AUDIO_DEVICE_OK);
+	resourceScenario(0);
+	assert(configuration.close() == AUDIO_DEVICE_OK && resourceOriginal() != 0);
+	int before = resourceWrites();
+	assert(configuration.close() == AUDIO_DEVICE_OK && resourceWrites() == before);
+}
+
+void retryRollback() {
+	var configuration = CoreAudioDeviceConfiguration(CoreAudioHardwareDevice(11u), "device-a");
+	assert(configuration.configure(44100, 256) == AUDIO_DEVICE_OK);
+	resourceScenario(3);
+	assert(configuration.close() == AUDIO_DEVICE_BUSY);
+	assert(configuration.close() == AUDIO_DEVICE_OK && resourceOriginal() != 0);
+}
+
+void replaced(int scenario) {
+	var configuration = CoreAudioDeviceConfiguration(CoreAudioHardwareDevice(11u), "device-a");
+	assert(configuration.configure(44100, 256) == AUDIO_DEVICE_OK);
+	resourceScenario(scenario);
+	int before = resourceWrites();
+	assert(configuration.close() == AUDIO_DEVICE_OK && resourceWrites() == before);
+	resourceScenario(0);
+	var reset = CoreAudioDeviceConfiguration(CoreAudioHardwareDevice(11u), "device-a");
+	assert(reset.configure(48000, 128) == AUDIO_DEVICE_OK);
+	// A changed UID must not restore values belonging to the previous identity.
+	resourceScenario(6);
+	assert(reset.close() == AUDIO_DEVICE_OK);
+	resourceScenario(0);
+}
+
+void externallyChanged() {
+	var configuration = CoreAudioDeviceConfiguration(CoreAudioHardwareDevice(11u), "device-a");
+	assert(configuration.configure(44100, 256) == AUDIO_DEVICE_OK);
+	resourceExternalChange();
+	int before = resourceWrites();
+	assert(configuration.close() == AUDIO_DEVICE_OK && resourceWrites() == before);
+	assert(configuration.matches(96000, 512));
+	var reset = CoreAudioDeviceConfiguration(CoreAudioHardwareDevice(11u), "device-a");
+	assert(reset.configure(48000, 128) == AUDIO_DEVICE_OK);
+	resourceScenario(6);
+	assert(reset.close() == AUDIO_DEVICE_OK);
+	resourceScenario(0);
+}
+
+void aggregate(int scenario) {
+	resourceScenario(scenario);
+	var device = CoreAudioAggregateDevice();
+	var status = device.create("device-a", "device-b");
+	assert(scenario == 9 ? status == AUDIO_DEVICE_BUSY : status == AUDIO_DEVICE_OK);
+	assert(resourceAggregates() == 1 && device.device().nativeId() == 42u);
+	if (scenario == 8) { assert(device.close() == AUDIO_DEVICE_BUSY && resourceAggregates() == 1); }
+	assert(device.close() == AUDIO_DEVICE_OK && resourceAggregates() == 0);
+	assert(device.close() == AUDIO_DEVICE_OK);
+	resourceScenario(0);
+}
+
+void asynchronousConfiguration(int scenario) {
+	resourceScenario(scenario);
+	var configuration = CoreAudioDeviceConfiguration(CoreAudioHardwareDevice(11u), "device-a");
+	var status = configuration.configure(44100, 256);
+	if (scenario == 10) { assert(status == AUDIO_DEVICE_OK); }
+	else {
+		assert(status == AUDIO_DEVICE_UNSUPPORTED_FORMAT);
+		int writes = resourceWrites();
+		assert(configuration.close() == AUDIO_DEVICE_BUSY && resourceWrites() == writes);
+		resourceReleasePending();
+	}
+	resourceScenario(0);
+	assert(configuration.close() == AUDIO_DEVICE_OK && resourceOriginal() != 0);
+}
+
+void asynchronousRestoration(int scenario) {
+	var configuration = CoreAudioDeviceConfiguration(CoreAudioHardwareDevice(11u), "device-a");
+	assert(configuration.configure(44100, 256) == AUDIO_DEVICE_OK);
+	resourceScenario(scenario);
+	int writes = resourceWrites();
+	if (scenario == 12) {
+		assert(configuration.close() == AUDIO_DEVICE_BUSY && resourceOriginal() == 0);
+		assert(resourceWrites() == writes + 2);
+		resourceReleasePending();
+	}
+	assert(configuration.close() == AUDIO_DEVICE_OK && resourceOriginal() != 0);
+	assert(resourceWrites() == writes + 2);
+	resourceScenario(0);
+}
+
+int main() {
+	var description = CoreAudioAggregateDescription();
+	assert(!description.prepare("", "device-b"));
+	assert(description.prepare("device-a", "device-b"));
+	assert(!description.prepare("device-a", "device-b"));
+	unchanged();
+	configured(0);
+	configured(1);
+	configured(2);
+	retryRollback();
+	replaced(5);
+	replaced(6);
+	externallyChanged();
+	for (int index = 0; index < 20; index++) { aggregate(0); }
+	aggregate(8);
+	aggregate(9);
+	asynchronousConfiguration(10);
+	asynchronousConfiguration(11);
+	asynchronousRestoration(12);
+	asynchronousRestoration(13);
+	print("PASS: CoreAudio resource ownership and rollback");
+	return 0;
+}

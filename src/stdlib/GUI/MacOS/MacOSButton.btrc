@@ -1,0 +1,90 @@
+import Library.Math;
+import Library.GUI.MacOS.AppKitText;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSActionQueue;
+
+class MacOSButton {
+	private NSButton? _button;
+	private MacOSView _view;
+	private MacOSActionQueue _actions;
+	private bool _selectable = false;
+
+	public MacOSButton(string title, MacOSActionQueue actions) {
+		if (!NSThread.isMainThread()) { throw "Native buttons require the main thread"; }
+		var button = NSButton.new();
+		if (button == null) { throw "Cannot create native button"; }
+		self._button = button;
+		self._view = MacOSView(button);
+		self._actions = actions;
+		button.setTitle(AppKitText.nativeValue(title));
+		button.setButtonType(NSButtonTypeMomentaryPushIn);
+		button.setBezelStyle(NSBezelStyleRounded);
+		button.setContinuous(false);
+		actions.bind(button);
+	}
+
+	private NSButton control() {
+		self._view.nativeView();
+		if (self._button == null) { throw "Native button is closed"; }
+		return self._button;
+	}
+
+	public NSView nativeView() { return self._view.nativeView(); }
+
+	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
+
+	public void setTitle(string title) { self.control().setTitle(AppKitText.nativeValue(title)); }
+
+	public void setEnabled(bool enabled) { self.control().setEnabled(enabled); }
+
+	/* AppKit still tracks and dispatches a transparent button. Its parent owns
+	 * custom content, such as an artwork card, rather than a second painted bezel. */
+	public void setTransparent(bool transparent) { self.control().setTransparent(transparent); }
+
+	public void cancelPendingActions() { self._actions.discard(self.control()); }
+
+	public void setFont(double size) {
+		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native button font size"; }
+		self.control().setFont(NSFont.systemFontOfSize(size));
+	}
+
+	/* Selectable navigation buttons retain AppKit's toggle/highlight behavior;
+	 * the application republishes selection from its authoritative model. */
+	public void setSelected(bool selected) {
+		var button = self.control();
+		if (!self._selectable) { button.setButtonType(NSButtonTypePushOnPushOff); self._selectable = true; }
+		var state = selected ? NSControlStateValueOn : NSControlStateValueOff;
+		if (button.state() != state) { button.setState(state); }
+	}
+
+	public bool isSelected() { return self.control().state() == NSControlStateValueOn; }
+
+	public void setSystemSymbol(string name) {
+		var button = self.control();
+		var image = NSImage.imageWithSystemSymbolName(AppKitText.nativeValue(name), null);
+		if (image == null) { throw "Native button system symbol is unavailable"; }
+		button.setImage(image);
+		button.setImagePosition(NSImageLeading);
+		button.setImageHugsTitle(true);
+		button.setAlignment(NSTextAlignmentLeft);
+	}
+
+	public bool isEnabled() { return self.control().isEnabled(); }
+
+	public bool matches(id sender) { id control = self.control(); return control == sender; }
+
+	public bool activate() {
+		var control = self.control();
+		if (!control.isEnabled()) { return false; }
+		control.performClick(null);
+		return true;
+	}
+
+	public void close() {
+		if (!NSThread.isMainThread()) { throw "Native buttons require the main thread"; }
+		if (self._button == null) { return; }
+		self._actions.unbind(self._button);
+		self._view.close();
+		self._button = null;
+	}
+}

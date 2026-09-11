@@ -1,9 +1,9 @@
-/* JSON file I/O round-trip: JsonObject.writeFile / JsonObject.readFile and
- * JsonValue.readFile. All other json tests parse from in-memory strings; the
+/* JSON file I/O round-trip: JSONObject.writeFile / JSONObject.readFile and
+ * JSONValue.readFile. All other json tests parse from in-memory strings; the
  * file entry points are never invoked. Hermetic: a fresh temp dir, removed at
- * the end. (JsonValue has no writeFile — only JsonObject writes.) */
+ * the end. (JSONValue has no writeFile — only JSONObject writes.) */
 import Library.FileSystem;
-import Library.Json;
+import Library.JSON;
 
 #include <assert.h>
 
@@ -13,19 +13,19 @@ int main() {
 	string path = PathTools.join(dir, "o.json");
 
 	/* Build an object and write it to disk. */
-	JsonObject o = JsonObject();
+	JSONObject o = JSONObject();
 	o.setInt("n", 42);
 	o.setString("s", "hi");
 	o.writeFile(path);
 	assert(FileSystem.isFile(path));
 
-	/* Read it back as a single-level JsonObject. */
-	JsonObject back = JsonObject.readFile(path);
+	/* Read it back as a single-level JSONObject. */
+	JSONObject back = JSONObject.readFile(path);
 	assert(back.getInt("n", -1) == 42);
 	assert(back.getString("s", "").equals("hi"));
 
-	/* Read the same file via the recursive JsonValue parser. */
-	JsonValue r = JsonValue.readFile(path);
+	/* Read the same file via the recursive JSONValue parser. */
+	JSONValue r = JSONValue.readFile(path);
 	assert(r.isObject());
 	assert(r.get("n").asInt() == 42);
 	assert(r.get("s").asString().equals("hi"));

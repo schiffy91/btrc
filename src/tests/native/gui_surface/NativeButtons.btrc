@@ -1,0 +1,157 @@
+import Library.Datetime;
+import Library.IO;
+import Library.Image;
+import Library.MacOSEncodedImageDecoder;
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSButton;
+import Library.GUI.MacOS.MacOSPanel;
+import Library.GUI.MacOS.MacOSViewCapture;
+
+#include <assert.h>
+
+bool takesButton(MacOSActionQueue actions, MacOSButton button) {
+	var sender = actions.take();
+	return sender != null && button.matches(sender);
+}
+
+void verifyEventWait(MacOSApplication app) {
+	bool timedOut = false;
+	for (int attempt = 0; attempt < 8 && !timedOut; attempt++) {
+		app.pumpEvents();
+		var timer = Timer();
+		timer.start();
+		if (!app.waitForEvents(0.02)) {
+			assert(timer.elapsedMillis() >= 15.0f && timer.elapsedMillis() < 1000.0f);
+			timedOut = true;
+		}
+	}
+	assert(timedOut);
+	app.waitForEvents(0.0);
+}
+
+void clickNativeButton(MacOSApplication app, MacOSWindow window, MacOSButton button) {
+	var point = button.nativeView().frame().origin;
+	point.x += 30.0;
+	point.y += 16.0;
+	var down = NSEvent.mouseEventWithType(NSEventTypeLeftMouseDown, point, 0UL, 0.0, window.nativeWindow().windowNumber(), null, 1L, 1L, 1.0f);
+	var up = NSEvent.mouseEventWithType(NSEventTypeLeftMouseUp, point, 0UL, 0.0, window.nativeWindow().windowNumber(), null, 2L, 1L, 0.0f);
+	assert(down != null && up != null);
+	NSApplication.sharedApplication().postEvent(down, false);
+	NSApplication.sharedApplication().postEvent(up, false);
+	var wake = Timer();
+	wake.start();
+	assert(app.waitForEvents(0.5));
+	assert(wake.elapsedMillis() < 250.0f);
+	// Waiting must not consume the down/up pair or bypass native tracking.
+	app.pumpEvents();
+}
+
+bool hasButtonText(Image image, int left) {
+	int scale = image.width / 400;
+	int minimum = 255;
+	int maximum = 0;
+	for (int y = 68 * scale; y < 78 * scale; y++) {
+		for (int x = (left + 20) * scale; x < (left + 130) * scale; x++) {
+			int value = image.pixel(x, y).red;
+			if (value < minimum) { minimum = value; }
+			if (value > maximum) { maximum = value; }
+		}
+	}
+	return maximum - minimum > 60;
+}
+
+int main() {
+	var app = MacOSApplication();
+	bool invalidWait = false;
+	try { app.waitForEvents(-1.0); } catch (string error) { invalidWait = true; }
+	assert(invalidWait);
+	verifyEventWait(app);
+	var window = MacOSWindow("Native actions", 400.0, 140.0);
+	/* Native dark-mode button drawing composites with its destination. An
+	 * empty transparent capture is not the window's actual background. */
+	var background = MacOSPanel(RGBA(30, 30, 30), 0.0);
+	background.setFrame(0.0, 0.0, 400.0, 140.0);
+	window.contentView().addSubview(background.nativeView());
+	var actions = MacOSActionQueue();
+	var first = MacOSButton("Library", actions);
+	var second = MacOSButton("Settings", actions);
+	first.setFont(18.0);
+	second.setFont(18.0);
+	first.setSystemSymbol("folder");
+	first.setSelected(true);
+	assert(first.isSelected());
+	assert(first.activate() && !first.isSelected() && takesButton(actions, first));
+	first.setSelected(false);
+	bool invalidFont = false;
+	try { first.setFont(0.0); } catch (string error) { invalidFont = true; }
+	assert(invalidFont);
+	first.setFrame(20.0, 50.0, 150.0, 32.0);
+	second.setFrame(220.0, 50.0, 150.0, 32.0);
+	for view in [first.nativeView(), second.nativeView()] { window.contentView().addSubview(view); }
+	for button in [first, second] { assert(button.isEnabled()); }
+	window.show();
+	app.pumpEvents();
+	assert(actions.take() == null);
+	var otherActions = MacOSActionQueue();
+	var unowned = NSButton.new();
+	assert(unowned != null);
+	actions.bind(unowned);
+	bool duplicateRejected = false;
+	try { otherActions.bind(unowned); } catch (string error) { duplicateRejected = true; }
+	assert(duplicateRejected);
+	unowned.performClick(null);
+	id expectedSender = unowned;
+	assert(actions.take() == expectedSender && otherActions.take() == null);
+	actions.unbind(unowned);
+	otherActions.bind(unowned);
+	unowned.performClick(null);
+	assert(otherActions.take() == expectedSender && actions.take() == null);
+	otherActions.unbind(unowned);
+	otherActions.close();
+	assert(first.activate() && second.activate() && first.activate());
+	assert(takesButton(actions, first) && takesButton(actions, second) && takesButton(actions, first));
+	assert(actions.take() == null);
+	second.setEnabled(false);
+	assert(!second.isEnabled() && !second.activate() && actions.take() == null);
+	second.setEnabled(true);
+	for (int index = 0; index < 8; index++) { assert(first.activate() && second.activate()); }
+	for (int index = 0; index < 8; index++) { assert(takesButton(actions, first) && takesButton(actions, second)); }
+	assert(actions.take() == null);
+	bool rejected = false;
+	try { actions.close(); } catch (string error) { rejected = true; }
+	assert(rejected && second.activate() && takesButton(actions, second));
+	var bytes = MacOSViewCapture.captureTiff(window.contentView());
+	var capture = File("NativeButtons.tiff", "wb");
+	assert(capture.ok() && capture.writeBytes(bytes) && capture.close());
+	var decoded = MacOSEncodedImageDecoder().decode(bytes, EncodedImageDecodeLimits(32000000, 4096, 4096, 4000000LL));
+	assert(decoded.succeeded());
+	assert(hasButtonText(decoded.image(), 20) && hasButtonText(decoded.image(), 220));
+	first.setTransparent(true);
+	var transparent = MacOSEncodedImageDecoder().decode(MacOSViewCapture.captureTiff(window.contentView()), EncodedImageDecodeLimits(32000000, 4096, 4096, 4000000LL));
+	assert(transparent.succeeded() && !hasButtonText(transparent.image(), 20) && hasButtonText(transparent.image(), 220));
+	clickNativeButton(app, window, first);
+	assert(takesButton(actions, first) && actions.take() == null);
+	assert(first.activate() && second.activate() && first.activate());
+	first.cancelPendingActions();
+	assert(takesButton(actions, second) && actions.take() == null);
+	assert(first.activate() && takesButton(actions, first));
+	first.setTransparent(false);
+	assert(first.activate() && second.activate() && first.activate());
+	first.close();
+	first.close();
+	assert(takesButton(actions, second) && actions.take() == null);
+	rejected = false;
+	try { first.activate(); } catch (string error) { rejected = true; }
+	assert(rejected);
+	second.close();
+	actions.close();
+	actions.close();
+	rejected = false;
+	try { actions.take(); } catch (string error) { rejected = true; }
+	assert(rejected);
+	background.close();
+	window.close();
+	print("PASS: ordered native button actions, disabled state, cancellation and teardown");
+	return 0;
+}

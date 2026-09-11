@@ -253,7 +253,7 @@ the test reads them from three places rather than a list that could drift:
 
 **Every `.btrc` file name is PascalCase**, with no underscore and no leading
 lowercase letter, because the file is named for what it declares. That holds
-in the stdlib (`Array.btrc`, `HttpClient.btrc`), in the self-hosted compiler
+in the stdlib (`Array.btrc`, `HTTPClient.btrc`), in the self-hosted compiler
 (`ControlFlow.btrc`, `Analyzer.btrc`), in the corpus (`CastFollowedByUnary.btrc`)
 and in the examples. A stdlib module's import name is its stem, so
 `Array.btrc` is `import Library.Array;`, and `expected/<Stem>.stdout` is the golden
@@ -265,9 +265,13 @@ the benchmark directory -- whose programs `src/tests/bench.py` times instead --
 is listed in `NON_CORPUS_DIRECTORIES`. Both lists live in
 `src/tests/corpus_files.py`.
 
-C keeps C's conventions. The runtime directories beside the stdlib modules
-(`src/stdlib/background_jobs/`) stay snake_case: the Makefile builds them by
-path and their exports are a C ABI.
+Stdlib package directories are PascalCase too: `Audio/MacOS`, `GUI/MacOS`,
+`GPU`, and `BackgroundJobs`. Imports use their exact spelling, for example
+`import Library.Audio.RealtimeAudio;`. Capitalize acronyms in stdlib module
+and type names: `MacOS`, `GUI`, `GPU`, `UI`, `HTTP`, `JSON`, `IO`, and `CLI`.
+C symbols and SDK names retain their external spelling. The only lowercase
+stdlib directories are the Windows POSIX header overlays `Windows/sys`,
+`Windows/arpa`, and `Windows/netinet`, whose include paths are external API.
 
 ---
 
@@ -428,13 +432,13 @@ and their golden output live alongside the topic-organized corpus in
 ## btrc Compiler (src/compiler/btrc/)
 
 The self-hosted compiler implements the same six-stage pipeline with fat tagged
-AST and IR nodes. Its destination contains exactly 93 `.btrc` files: 87
+AST and IR nodes. Its destination contains exactly 95 `.btrc` files: 89
 compiler/generated files and six explicit developer-tool files. Only
 `Compiler.btrc` and the thin `BtrccMain.btrc` process entry point remain at the
 package root. The owned packages are:
 
 ```text
-cli/                              BtrccDriver
+cli/                              BtrccDriver and Windows host entry point
 pipeline/                         stage manifest, mutable options/results, CompilerPipeline
 syntax/                           grammar, tokens, identity/canonical rendering, types, literals
 generated/ast/                    ASDL-generated Node data/schema only
@@ -442,7 +446,7 @@ generated/hosted_abi/             generated ABI data
 generated/native_abi/             ASDL-generated native-header semantic data
 generated/runtime/                generated runtime catalog data
 lexer/                            stage manifest and Lexer
-frontend/                         stage, models, source I/O, stdlib, resolver, visibility
+frontend/                         stage, models, source I/O, stdlib, resolver, visibility, native reader
 parser/                           stage, Parser, SourceMacroDefinition
 analyzer/                         semantic composition and domain owners
 analyzer/ownership/               managed-value and cycle semantics
@@ -467,11 +471,18 @@ and the parse inspection tool calls that owner; generated `Node` data owns no
 formatting behavior. The unified generator check structurally verifies that
 the handwritten renderer covers every ASDL constructor and field.
 
-The exact 93-file inventory is normative in
+The exact 95-file inventory is normative in
 `docs/design/compiler-structure.md`. Stage manifests contain imports only;
 implementation behavior belongs to the concrete owner. The unified language
 runner executes the corpus through both compilers, and the bootstrap suite
 proves a byte-stable self-hosting fixed point.
+
+Host capabilities are composed at the process entry point. `BtrccMain.btrc`
+supplies the bounded Unix SDK-reader process; `cli/WindowsMain.btrc` uses the
+same driver and pipeline without SDK scanning, until a real Windows process
+provider exists. Native semantics depend only on `FeNativeHeaderReader`, not
+on Unix process APIs. Build and bootstrap the entry point for the compiler's
+host, not for the target of an arbitrary program it later compiles.
 
 ## Verification
 

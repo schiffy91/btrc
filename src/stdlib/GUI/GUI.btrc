@@ -1,0 +1,525 @@
+/* btrc standard library — GUI (immediate-mode, software-rendered)
+ *
+ * A simple, dependency-light UI: build a frame of widgets each tick and read
+ * back interactions. Surface owns pixels, resizing, fills and readback in
+ * BTRC. The remaining C text/blending backend borrows a typed pixel view.
+ * The optional GUI/Window.btrc presenter is a legacy standalone GLFW backend;
+ * it must not be composed in one process with Library.App.
+ *
+ * NOT auto-included. Use: import Library.GUI;
+ * Build:  make gui
+ *
+ *   var ui = GUI(Surface(480, 320));
+ *   ui.beginFrame();
+ *   ui.label("Hello");
+ *   if (ui.button("Click me")) { ... }
+ */
+
+import Library.OwnedBuffer;
+
+#include "GUI/Geometry.btrc"
+
+class Color {
+	public int r;
+	public int g;
+	public int b;
+	public int a;
+
+	public Color(int r, int g, int b, int a) {
+		self.r = r < 0 ? 0 : (r > 255 ? 255 : r);
+		self.g = g < 0 ? 0 : (g > 255 ? 255 : g);
+		self.b = b < 0 ? 0 : (b > 255 ? 255 : b);
+		self.a = a < 0 ? 0 : (a > 255 ? 255 : a);
+	}
+
+	class Color rgb(int r, int g, int b) { return Color(r, g, b, 255); }
+
+	public unsigned int packed() { return ((unsigned int)self.r << 24) | ((unsigned int)self.g << 16) | ((unsigned int)self.b << 8) | (unsigned int)self.a; }
+}
+
+class GUIRaster {
+	/* One byte per glyph row, top row in the low byte; bit zero is leftmost. */
+	class unsigned long long glyph(int codepoint) {
+		if (codepoint >= 97 && codepoint <= 122) { codepoint -= 32; }
+		switch (codepoint) {
+			case 32: return 0ULL;
+			case 33: return 0x0004000404040404ULL;
+			case 34: return 0x00000000000a0a0aULL;
+			case 35: return 0x000a0a1f0a1f0a0aULL;
+			case 39: return 0x0000000000040404ULL;
+			case 40: return 0x0004020101010204ULL;
+			case 41: return 0x0004081010100804ULL;
+			case 42: return 0x00000a041f040a00ULL;
+			case 43: return 0x000004041f040400ULL;
+			case 44: return 0x0002060600000000ULL;
+			case 45: return 0x000000001f000000ULL;
+			case 46: return 0x0006060000000000ULL;
+			case 47: return 0x0001020204080810ULL;
+			case 48: return 0x000e11131519110eULL;
+			case 49: return 0x000e040404040604ULL;
+			case 50: return 0x001f02040810110eULL;
+			case 51: return 0x000e11100c10110eULL;
+			case 52: return 0x0008081f090a0c08ULL;
+			case 53: return 0x000e1110100f011fULL;
+			case 54: return 0x000e11110f01020cULL;
+			case 55: return 0x000202020408101fULL;
+			case 56: return 0x000e11110e11110eULL;
+			case 57: return 0x000608101e11110eULL;
+			case 58: return 0x0000060600060600ULL;
+			case 59: return 0x0002060600060600ULL;
+			case 60: return 0x0010080402040810ULL;
+			case 61: return 0x0000001f001f0000ULL;
+			case 62: return 0x0001020408040201ULL;
+			case 63: return 0x000400040408110eULL;
+			case 65: return 0x001111111f11110eULL;
+			case 66: return 0x000f11110f11110fULL;
+			case 67: return 0x000e11010101110eULL;
+			case 68: return 0x000f11111111110fULL;
+			case 69: return 0x001f01010f01011fULL;
+			case 70: return 0x000101010f01011fULL;
+			case 71: return 0x000e11111d01110eULL;
+			case 72: return 0x001111111f111111ULL;
+			case 73: return 0x000e04040404040eULL;
+			case 74: return 0x000609090808081cULL;
+			case 75: return 0x0011090503050911ULL;
+			case 76: return 0x001f010101010101ULL;
+			case 77: return 0x0011111115151b11ULL;
+			case 78: return 0x0011111915131111ULL;
+			case 79: return 0x000e11111111110eULL;
+			case 80: return 0x000101010f11110fULL;
+			case 81: return 0x001609151111110eULL;
+			case 82: return 0x001109050f11110fULL;
+			case 83: return 0x000f10100e01011eULL;
+			case 84: return 0x000404040404041fULL;
+			case 85: return 0x000e111111111111ULL;
+			case 86: return 0x00040a1111111111ULL;
+			case 87: return 0x00111b1515111111ULL;
+			case 88: return 0x0011110a040a1111ULL;
+			case 89: return 0x00040404040a1111ULL;
+			case 90: return 0x001f01020408101fULL;
+			case 91: return 0x000e02020202020eULL;
+			case 92: return 0x0010080804020201ULL;
+			case 93: return 0x000e08080808080eULL;
+			case 95: return 0x001f000000000000ULL;
+			default: return 0x001F11111111111FULL;
+		}
+	}
+
+	class int nextCodepoint(string text, int length, int* offset) {
+		int start = *offset;
+		if (start >= length) { return -1; }
+		*offset = start + 1;
+		int first = (int)(unsigned char)text[start];
+		if (first < 128) { return first; }
+		int count = 0;
+		int minimum = 0;
+		int codepoint = 0;
+		if ((first & 224) == 192) { count = 2; minimum = 128; codepoint = first & 31; }
+		else if ((first & 240) == 224) { count = 3; minimum = 2048; codepoint = first & 15; }
+		else if ((first & 248) == 240) { count = 4; minimum = 65536; codepoint = first & 7; }
+		else { return 65533; }
+		if (count > length - start) { return 65533; }
+		for (int index = 1; index < count; index++) {
+			int next = (int)(unsigned char)text[start + index];
+			if ((next & 192) != 128) { return 65533; }
+			codepoint = (codepoint << 6) | (next & 63);
+		}
+		if (codepoint < minimum || codepoint > 1114111 || (codepoint >= 55296 && codepoint <= 57343)) { return 65533; }
+		*offset = start + count;
+		return codepoint;
+	}
+
+	class long long advance(long long position, long long distance) { return position > 9223372036854775807LL - distance ? 9223372036854775807LL : position + distance; }
+
+	class unsigned int blendChannel(unsigned int source, unsigned int sourceAlpha, unsigned int destination, unsigned int destinationAlpha, unsigned int alphaNumerator) {
+		if (alphaNumerator == 0U) { return 0U; }
+		unsigned int numerator = source * sourceAlpha * 255U + destination * destinationAlpha * (255U - sourceAlpha);
+		return (numerator + alphaNumerator / 2U) / alphaNumerator;
+	}
+
+	/* This static callback borrows only the caller's pixel view; no ARC,
+	 * allocation, retained context or asynchronous work crosses the C call. */
+	class void blendPixel(BtrcGuiPixels* pixels, int x, int y, unsigned int rgba) {
+		if (pixels == null || pixels->px == null || x < 0 || y < 0 || x >= pixels->w || y >= pixels->h) { return; }
+		size_t index = (size_t)y * (size_t)pixels->w + (size_t)x;
+		unsigned int destination = pixels->px[index];
+		unsigned int sourceAlpha = rgba & 255U;
+		unsigned int destinationAlpha = destination & 255U;
+		unsigned int alphaNumerator = sourceAlpha * 255U + destinationAlpha * (255U - sourceAlpha);
+		unsigned int red = GUIRaster.blendChannel((rgba >> 24) & 255U, sourceAlpha, (destination >> 24) & 255U, destinationAlpha, alphaNumerator);
+		unsigned int green = GUIRaster.blendChannel((rgba >> 16) & 255U, sourceAlpha, (destination >> 16) & 255U, destinationAlpha, alphaNumerator);
+		unsigned int blue = GUIRaster.blendChannel((rgba >> 8) & 255U, sourceAlpha, (destination >> 8) & 255U, destinationAlpha, alphaNumerator);
+		pixels->px[index] = (red << 24) | (green << 16) | (blue << 8) | ((alphaNumerator + 127U) / 255U);
+	}
+
+	class void rectangle(BtrcGuiPixels* pixels, long long x, long long y, long long width, long long height, unsigned int rgba, bool blend) {
+		if (pixels == null || pixels->px == null || width <= 0LL || height <= 0LL) { return; }
+		long long left = x < 0LL ? 0LL : x;
+		long long top = y < 0LL ? 0LL : y;
+		long long right = GUIRaster.advance(x, width);
+		long long bottom = GUIRaster.advance(y, height);
+		if (right > (long long)pixels->w) { right = (long long)pixels->w; }
+		if (bottom > (long long)pixels->h) { bottom = (long long)pixels->h; }
+		for (long long row = top; row < bottom; row++) {
+			for (long long column = left; column < right; column++) {
+				if (blend) { GUIRaster.blendPixel(pixels, (int)column, (int)row, rgba); }
+				else { pixels->px[(size_t)row * (size_t)pixels->w + (size_t)column] = rgba; }
+			}
+		}
+	}
+
+	class void bitmapText(BtrcGuiPixels* pixels, int x, int y, string text, unsigned int rgba, int scale) {
+		if (text == null) { return; }
+		if (scale < 1) { scale = 1; }
+		int offset = 0;
+		int length = text.len();
+		long long penX = (long long)x;
+		long long penY = (long long)y;
+		long long advance = 8LL * (long long)scale;
+		while (offset < length) {
+			int codepoint = GUIRaster.nextCodepoint(text, length, &offset);
+			if (codepoint == 10) { penX = (long long)x; penY = GUIRaster.advance(penY, advance); continue; }
+			unsigned long long glyph = GUIRaster.glyph(codepoint);
+			for (int row = 0; row < 8; row++) {
+				unsigned int bits = (unsigned int)((glyph >> (row * 8)) & 255ULL);
+				for (int column = 0; column < 8; column++) {
+					if (((bits >> column) & 1U) != 0U) {
+						GUIRaster.rectangle(pixels, GUIRaster.advance(penX, (long long)column * (long long)scale), GUIRaster.advance(penY, (long long)row * (long long)scale), (long long)scale, (long long)scale, rgba, false);
+					}
+				}
+			}
+			penX = GUIRaster.advance(penX, advance);
+		}
+	}
+
+	class int textWidth(string text, int scale) {
+		if (text == null) { return 0; }
+		int nativeWidth = gui_font_width(text);
+		if (nativeWidth >= 0) { return nativeWidth; }
+		if (scale < 1) { scale = 1; }
+		int offset = 0;
+		int length = text.len();
+		int current = 0;
+		int maximum = 0;
+		while (offset < length) {
+			int codepoint = GUIRaster.nextCodepoint(text, length, &offset);
+			if (codepoint == 10) { if (current > maximum) { maximum = current; } current = 0; }
+			else { current = GUIInt.clamp((long long)current + 8LL * (long long)scale); }
+		}
+		return current > maximum ? current : maximum;
+	}
+
+	class int textHeight(int scale) {
+		int nativeHeight = gui_font_height();
+		return nativeHeight >= 0 ? nativeHeight : GUIInt.clamp(8LL * (long long)(scale < 1 ? 1 : scale));
+	}
+}
+
+class Surface {
+	private OwnedBuffer<unsigned int>? storage;
+	private int pixelWidth;
+	private int pixelHeight;
+
+	public Surface(int width, int height) {
+		self.storage = null;
+		self.pixelWidth = 0;
+		self.pixelHeight = 0;
+		self.resize(width, height);
+	}
+
+	public bool opened() { return self.storage != null; }
+
+	public int width() { return self.pixelWidth; }
+
+	public int height() { return self.pixelHeight; }
+
+	/* Synchronous native consumers borrow pixels only until their call returns.
+	 * Resizing replaces storage; callers must never retain this address. */
+	public unsigned int* pixels() { return self.storage == null ? null : self.storage.borrow(); }
+
+	public void resize(int width, int height) {
+		if (width <= 0 || height <= 0 || (width == self.pixelWidth && height == self.pixelHeight)) { return; }
+		if ((size_t)width > (size_t)(-1) / (size_t)height / sizeof(unsigned int)) { return; }
+		var replacement = new OwnedBuffer<unsigned int>((size_t)width * (size_t)height);
+		if (!replacement.opened()) { return; }
+		int copyWidth = self.pixelWidth < width ? self.pixelWidth : width;
+		int copyHeight = self.pixelHeight < height ? self.pixelHeight : height;
+		for (int row = 0; row < copyHeight; row++) {
+			memcpy(replacement.borrow() + (size_t)row * (size_t)width, self.pixels() + (size_t)row * (size_t)self.pixelWidth, (size_t)copyWidth * sizeof(unsigned int));
+		}
+		self.storage = replacement;
+		self.pixelWidth = width;
+		self.pixelHeight = height;
+	}
+
+	public void clear(Color color) {
+		if (!self.opened()) { return; }
+		unsigned int rgba = color.packed();
+		unsigned int* pixels = self.pixels();
+		size_t count = (size_t)self.pixelWidth * (size_t)self.pixelHeight;
+		for (size_t index = (size_t)0; index < count; index++) { pixels[index] = rgba; }
+	}
+
+	public void fillRect(int x, int y, int width, int height, Color color) {
+		if (!self.opened() || width <= 0 || height <= 0) { return; }
+		long long left = x < 0 ? 0LL : (long long)x;
+		long long top = y < 0 ? 0LL : (long long)y;
+		long long right = (long long)x + (long long)width;
+		long long bottom = (long long)y + (long long)height;
+		if (right > (long long)self.pixelWidth) { right = (long long)self.pixelWidth; }
+		if (bottom > (long long)self.pixelHeight) { bottom = (long long)self.pixelHeight; }
+		unsigned int rgba = color.packed();
+		unsigned int* pixels = self.pixels();
+		for (long long row = top; row < bottom; row++) {
+			for (long long column = left; column < right; column++) { pixels[(size_t)row * (size_t)self.pixelWidth + (size_t)column] = rgba; }
+		}
+	}
+
+	public void blendRect(int x, int y, int width, int height, Color color) {
+		if (!self.opened()) { return; }
+		BtrcGuiPixels view;
+		view.w = self.pixelWidth;
+		view.h = self.pixelHeight;
+		view.px = self.pixels();
+		GUIRaster.rectangle(&view, (long long)x, (long long)y, (long long)width, (long long)height, color.packed(), true);
+	}
+
+	public void text(int x, int y, string text, Color color, int scale) {
+		if (!self.opened()) { return; }
+		BtrcGuiPixels view;
+		view.w = self.pixelWidth;
+		view.h = self.pixelHeight;
+		view.px = self.pixels();
+		if (text == null) { return; }
+		unsigned int rgba = color.packed();
+		if (!gui_draw_font(&view, x, y, text, rgba, GUIRaster.blendPixel)) { GUIRaster.bitmapText(&view, x, y, text, rgba, scale); }
+	}
+
+	public unsigned int pixel(int x, int y) {
+		if (x < 0 || y < 0 || x >= self.pixelWidth || y >= self.pixelHeight) { return 0U; }
+		return self.pixels()[(size_t)y * (size_t)self.pixelWidth + (size_t)x];
+	}
+
+	public bool savePpm(string path) {
+		if (!self.opened() || path == null) { return false; }
+		FILE* output = fopen(path, "wb");
+		if (output == null) { return false; }
+		bool written = fprintf(output, "P6\n%d %d\n255\n", self.pixelWidth, self.pixelHeight) >= 0;
+		size_t count = (size_t)self.pixelWidth * (size_t)self.pixelHeight;
+		unsigned int* pixels = self.pixels();
+		unsigned char rgb[3];
+		for (size_t index = (size_t)0; written && index < count; index++) {
+			unsigned int pixel = pixels[index];
+			rgb[0] = (unsigned char)(pixel >> 24);
+			rgb[1] = (unsigned char)(pixel >> 16);
+			rgb[2] = (unsigned char)(pixel >> 8);
+			written = fwrite(rgb, (size_t)1, (size_t)3, output) == (size_t)3;
+		}
+		if (fclose(output) != 0) { written = false; }
+		return written;
+	}
+}
+
+/* Per-frame input. A window backend (or a test) fills these before beginFrame. */
+class GUIInput {
+	public int mouseX;
+	public int mouseY;
+	public bool mouseDown;     /* button currently held */
+	public bool mousePressed;  /* pressed this frame (rising edge) */
+	public string typed;       /* text typed this frame */
+
+	public GUIInput() {
+		self.mouseX = -1;
+		self.mouseY = -1;
+		self.mouseDown = false;
+		self.mousePressed = false;
+		self.typed = "";
+	}
+}
+
+class Theme {
+	public Color bg;
+	public Color panel;
+	public Color text;
+	public Color accent;
+	public Color accentText;
+	public Color border;
+
+	public Theme() {
+		self.bg = Color.rgb(250, 248, 245);
+		self.panel = Color.rgb(255, 255, 255);
+		self.text = Color.rgb(43, 38, 34);
+		self.accent = Color.rgb(189, 93, 58);
+		self.accentText = Color.rgb(255, 255, 255);
+		self.border = Color.rgb(226, 220, 211);
+	}
+
+	class Theme dark() {
+		Theme t = Theme();
+		t.bg = Color.rgb(28, 26, 24);
+		t.panel = Color.rgb(34, 31, 28);
+		t.text = Color.rgb(236, 231, 225);
+		t.accent = Color.rgb(217, 116, 79);
+		t.accentText = Color.rgb(28, 26, 24);
+		t.border = Color.rgb(56, 51, 46);
+		return t;
+	}
+}
+
+/* Immediate-mode UI context. Widgets are laid out top-to-bottom; each returns
+ * the interaction that happened this frame. */
+class GUI {
+	public Surface surface;
+	public GUIInput input;
+	public Theme theme;
+	public int scale;
+	public int pad;
+	public int gap;
+	public int cursorX;
+	public int cursorY;
+	public int contentWidth;
+
+	public GUI(Surface surface) {
+		self.surface = surface;
+		self.input = GUIInput();
+		self.theme = Theme();
+		self.scale = 2;
+		self.pad = 16;
+		self.gap = 8;
+		self.cursorX = 16;
+		self.cursorY = 16;
+		self.contentWidth = GUIInt.subtract(surface.width(), 32);
+	}
+
+	public bool hit(int x, int y, int w, int h) {
+		if (w <= 0 || h <= 0) { return false; }
+		long long mx = (long long)self.input.mouseX;
+		long long my = (long long)self.input.mouseY;
+		return mx >= (long long)x && mx < (long long)x + (long long)w && my >= (long long)y && my < (long long)y + (long long)h;
+	}
+
+	public void beginFrame() {
+		self.surface.clear(self.theme.bg);
+		self.cursorX = self.pad;
+		self.cursorY = self.pad;
+	}
+
+	public void panel(int x, int y, int w, int h) {
+		self.surface.fillRect(x, y, w, h, self.theme.panel);
+		self.surface.fillRect(x, y, w, 1, self.theme.border);
+		self.surface.fillRect(x, GUIInt.subtract(GUIInt.add(y, h), 1), w, 1, self.theme.border);
+	}
+
+	public void label(string text) {
+		self.surface.text(self.cursorX, GUIInt.add(self.cursorY, 4), text, self.theme.text, self.scale);
+		self.cursorY = GUIInt.add(GUIInt.add(self.cursorY, gui_text_height(self.scale)), self.gap);
+	}
+
+	public void heading(string text) {
+		int headingScale = GUIInt.add(self.scale, 1);
+		self.surface.text(self.cursorX, self.cursorY, text, self.theme.accent, headingScale);
+		self.cursorY = GUIInt.add(GUIInt.add(self.cursorY, gui_text_height(headingScale)), self.gap);
+	}
+
+	public void spacer(int px) { self.cursorY = GUIInt.add(self.cursorY, px); }
+
+	/* A clickable button. Returns true on the frame it is clicked. */
+	public bool button(string text) {
+		int th = gui_text_height(self.scale);
+		int tw = gui_text_width(text, self.scale);
+		int w = GUIInt.add(tw, 20);
+		int h = GUIInt.add(th, 12);
+		int x = self.cursorX;
+		int y = self.cursorY;
+		bool hovered = self.hit(x, y, w, h);
+		bool clicked = hovered && self.input.mousePressed;
+		Color fill = hovered ? self.theme.accent : self.theme.panel;
+		Color fg = hovered ? self.theme.accentText : self.theme.text;
+		self.surface.fillRect(x, y, w, h, fill);
+		if (!hovered) {
+			self.surface.fillRect(x, y, w, 1, self.theme.border);
+			self.surface.fillRect(x, GUIInt.subtract(GUIInt.add(y, h), 1), w, 1, self.theme.border);
+			self.surface.fillRect(x, y, 1, h, self.theme.border);
+			self.surface.fillRect(GUIInt.subtract(GUIInt.add(x, w), 1), y, 1, h, self.theme.border);
+		}
+		self.surface.text(GUIInt.add(x, 10), GUIInt.add(y, 6), text, fg, self.scale);
+		self.cursorY = GUIInt.add(GUIInt.add(self.cursorY, h), self.gap);
+		return clicked;
+	}
+
+	/* A checkbox. Returns the (possibly toggled) value for this frame. */
+	public bool checkbox(string text, bool value) {
+		int box = gui_text_height(self.scale);
+		int x = self.cursorX;
+		int y = self.cursorY;
+		int w = GUIInt.add(GUIInt.add(box, 8), gui_text_width(text, self.scale));
+		bool hovered = self.hit(x, y, w, box);
+		bool nv = value;
+		if (hovered && self.input.mousePressed) { nv = !value; }
+		self.surface.fillRect(x, y, box, box, self.theme.border);
+		if (nv) {
+			self.surface.fillRect(GUIInt.add(x, 3), GUIInt.add(y, 3), GUIInt.subtract(box, 6), GUIInt.subtract(box, 6), self.theme.accent);
+		}
+		self.surface.text(GUIInt.add(GUIInt.add(x, box), 8), y, text, self.theme.text, self.scale);
+		self.cursorY = GUIInt.add(GUIInt.add(self.cursorY, box), self.gap);
+		return nv;
+	}
+
+	/* A horizontal value bar (0..max). Returns the value, dragged by the mouse. */
+	public int slider(int value, int max) {
+		int h = 14;
+		int w = self.contentWidth;
+		int x = self.cursorX;
+		int y = self.cursorY;
+		int v = value;
+		if (max <= 0 || w <= 0) {
+			self.cursorY = GUIInt.add(GUIInt.add(self.cursorY, h), self.gap);
+			return 0;
+		}
+		if (v < 0) { v = 0; }
+		if (v > max) { v = max; }
+		if (self.hit(x, y, w, h) && self.input.mouseDown && max > 0) {
+			int rel = self.input.mouseX - x;
+			if (rel < 0) { rel = 0; }
+			if (rel > w) { rel = w; }
+			v = (int)((long long)rel * (long long)max / (long long)w);
+		}
+		self.surface.fillRect(x, y, w, h, self.theme.border);
+		int fillW = (int)((long long)v * (long long)w / (long long)max);
+		self.surface.fillRect(x, y, fillW, h, self.theme.accent);
+		self.cursorY = GUIInt.add(GUIInt.add(self.cursorY, h), self.gap);
+		return v;
+	}
+}
+
+/* A threaded application shell. The render/update loop runs on a background
+ * thread by default (spawn), so the main thread stays free; `alive` is a
+ * thread-safe flag both sides read/write. Typical use:
+ *
+ *   var app = GUIApp(640, 400);
+ *   Thread<int> t = spawn(() => {
+ *       while (app.running()) {
+ *           App.ui.beginFrame();
+ *           if (app.ui.button("Quit")) { App.stop(); }
+ *           // present App.surface via a window backend, or read pixels in tests
+ *       }
+ *       return 0;
+ *   });
+ *   // ... main thread does other work ...
+ *   t.join();
+ */
+class GUIApp {
+	public Surface surface;
+	public GUI ui;
+	public Mutex<int> alive;   /* 1 = running, 0 = stopped (thread-safe) */
+
+	public GUIApp(int width, int height) {
+		self.surface = Surface(width, height);
+		self.ui = GUI(self.surface);
+		self.alive = Mutex(1);
+	}
+
+	public bool running() { return self.alive.get() == 1; }
+
+	public void stop() { self.alive.set(0); }
+}

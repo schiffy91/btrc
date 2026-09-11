@@ -4,7 +4,7 @@ Status: **active architecture contract**.
 
 This document records the ownership-driven destination shared by the Python
 reference compiler, the self-hosted compiler, and developer tooling. The
-normative inventory is exactly 84 production Python compiler files and 93
+normative inventory is exactly 84 production Python compiler files and 95
 self-hosted `.btrc` files. File size is a review signal, not a boundary:
 independent state, invariants, and change reasons justify a separate owner.
 
@@ -213,7 +213,7 @@ src/compiler/python/
 
 ## Exact self-hosted destination
 
-The self-hosted compiler contains exactly 93 `.btrc` files: 87
+The self-hosted compiler contains exactly 95 `.btrc` files: 89
 compiler/generated files and six explicit developer-tool files. Only the
 public compiler application object and thin process entry point remain at the
 package root:
@@ -226,6 +226,7 @@ src/compiler/btrc/
 
   cli/
     Driver.btrc                   # BtrccDriver, command line, paths, output
+    WindowsMain.btrc              # Windows host composition without Unix SDK scanning
 
   pipeline/
     Stage.btrc                    # public package manifest
@@ -259,6 +260,7 @@ src/compiler/btrc/
     Models.btrc                   # source/dependency value types
     Packages.btrc                 # recursive packages, locks, native plans
     NativeImports.btrc            # FeNativeHeaderCodec: checked Clang semantic input
+    NativeHeaderProcess.btrc      # bounded Unix execution of the SDK reader
     SourceIo.btrc                # bounded UTF-8 filesystem owner
     Stdlib.btrc                   # FeStdlibRepository
     Resolver.btrc                 # FeFrontendResolver
@@ -280,7 +282,7 @@ src/compiler/btrc/
     Operators.btrc                # NumericSemantics, OperatorSemantics
     HostedAbi.btrc               # HostedAbiRepository/provenance
     SourceMacros.btrc            # SourceMacroNamespace
-    Gpu.btrc                      # GPU semantic owners
+    GPU.btrc                      # GPU semantic owners
     Realtime.btrc                 # transitive realtime-effect proof
 
     ownership/

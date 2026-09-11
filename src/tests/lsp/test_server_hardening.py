@@ -344,8 +344,8 @@ def test_extension_bundler_excludes_local_state_and_artifacts(tmp_path):
     repo = tmp_path / "repo"
     (repo / "src" / "compiler" / "python").mkdir(parents=True)
     (repo / "src" / "compiler" / "python" / "main.py").write_text("# compiler\n")
-    (repo / "src" / "stdlib" / "gui" / "build").mkdir(parents=True)
-    (repo / "src" / "stdlib" / "gui" / "build" / "libbtrc_gui.a").write_bytes(b"ar")
+    (repo / "src" / "stdlib" / "GUI" / "build").mkdir(parents=True)
+    (repo / "src" / "stdlib" / "GUI" / "build" / "libbtrc_gui.a").write_bytes(b"ar")
     (repo / "src" / "stdlib" / "core.btrc").write_text("class Core {}\n")
     (repo / "src" / "language").mkdir(parents=True)
     (repo / "src" / "language" / "grammar.ebnf").write_text("@keywords\n")
@@ -369,7 +369,7 @@ def test_extension_bundler_excludes_local_state_and_artifacts(tmp_path):
 
     assert (bundle / "src" / "compiler" / "python" / "main.py").exists()
     assert (bundle / "src" / "devex" / "lsp" / "__main__.py").exists()
-    assert not (bundle / "src" / "stdlib" / "gui" / "build").exists()
+    assert not (bundle / "src" / "stdlib" / "GUI" / "build").exists()
     assert not (bundle / "src" / "devex" / "lsp" / ".venv").exists()
     assert not (bundle / "src" / "devex" / "lsp" / ".btrc-cache").exists()
     assert not list(bundle.rglob("*.a"))

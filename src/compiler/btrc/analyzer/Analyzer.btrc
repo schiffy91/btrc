@@ -7,7 +7,7 @@ import ../frontend/Models.btrc;
 import ./Declarations.btrc;
 import ./Expressions.btrc;
 import ./Generics.btrc;
-import ./Gpu.btrc;
+import ./GPU.btrc;
 import ./HostedAbi.btrc;
 import ./Models.btrc;
 import ./Operators.btrc;
@@ -61,7 +61,7 @@ class SemanticAnalyzer {
 
 	public DeclarationRegistry declarationRegistry() { return self.declarations; }
 
-	public void configureNativeDeclarations(Vector<FeNativeImportedDeclaration> declarations) { self.analysis.nativeDeclarations = declarations; }
+	public void configureNativeDeclarations(Vector<FeNativeImportedDeclaration> declarations) { self.analysis.setNativeDeclarations(declarations); }
 
 	public ManagedValueSemantics managedValueSemantics() { return self.managedValues; }
 

@@ -77,7 +77,7 @@ class FeStdlibRepository {
 			"Process.btrc",
 			"FileSystem.btrc",
 			"Daemon.btrc",
-			"Ui.btrc",
+			"UI.btrc",
 		];
 		int priorityIndex = 0;
 		while (priorityIndex < priority.len) {
@@ -123,6 +123,11 @@ class FeStdlibRepository {
 	}
 
 	public FeStdlibLookup requiredModuleForCompilation(string name, FeStdlibRootSnapshot snapshot) {
+		if (name.contains(".")) {
+			string nested = self.sourcePaths.join(self.directoryPath, Strings.replace(name, ".", "/") + ".btrc");
+			if (FileSystem.isFile(nested)) { return FeStdlibLookup(true, nested, ""); }
+			return FeStdlibLookup(false, "", f"stdlib import 'Library.{name}' not found\n  searched: {self.directoryPath}");
+		}
 		string filename = name.endsWith(".btrc") ? name : name + ".btrc";
 		string path = self.findFileForCompilation(filename, snapshot);
 		if (!path.isEmpty()) { return FeStdlibLookup(true, path, ""); }
@@ -131,7 +136,7 @@ class FeStdlibRepository {
 
 	private bool explicitModulePath(string path) {
 		string name = self.sourcePaths.baseName(path);
-		return name.equals("BackgroundJobs.btrc") || name.equals("CoreAudioDevice.btrc") || name.equals("LocalApplicationChannel.btrc") || name.equals("MacOsEncodedImageDecoder.btrc") || name.equals("NativeUi.btrc") || name.equals("NativeUiApp.btrc");
+		return name.equals("BackgroundJobs.btrc") || name.equals("LocalApplicationChannel.btrc") || name.equals("MacOSDirectoryPicker.btrc") || name.equals("MacOSEncodedImageDecoder.btrc") || name.equals("NativeUI.btrc") || name.equals("NativeUIApp.btrc") || name.equals("RealtimeClipTransport.btrc");
 	}
 
 	/* Legacy relaxed composition and the core archive strip imports before

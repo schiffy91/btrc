@@ -1,0 +1,26 @@
+import Library.Audio.MacOS.CoreAudioDevice;
+
+#include <assert.h>
+
+void aggregateAllocationFailure(int index);
+int aggregateAllocationCalls();
+int aggregateOwnedReferences();
+
+int prepareDescription(int failure) {
+	aggregateAllocationFailure(failure);
+	var description = CoreAudioAggregateDescription();
+	assert(description.prepare("device-a", "device-b") == (failure == 0));
+	assert(!description.prepare("device-a", "device-b"));
+	return aggregateAllocationCalls();
+}
+
+int main() {
+	int calls = prepareDescription(0);
+	assert(calls > 0 && aggregateOwnedReferences() == 0);
+	for (int failure = 1; failure <= calls; failure++) {
+		prepareDescription(failure);
+		assert(aggregateOwnedReferences() == 0);
+	}
+	print("PASS: CoreAudio aggregate releases every partial allocation");
+	return 0;
+}

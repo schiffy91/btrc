@@ -1,6 +1,7 @@
 """Canonical hosted-ABI model, provenance, and namespace contracts."""
 
 import re
+import shutil
 from dataclasses import replace
 from pathlib import Path
 
@@ -22,7 +23,8 @@ from src.compiler.python.abi.hosted import HOSTED_ABI
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.application.pipeline import CompilationPipeline
 from src.compiler.python.application.results import CompilerOptions
-from src.compiler.python.frontend.sources import CompilerStdlibSource
+from src.compiler.python.frontend.sources import CompilerStdlibSource, StdlibRepository
+from src.compiler.python.frontend.stage import FrontendStage
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
@@ -291,26 +293,24 @@ def test_native_headers_are_exact_or_an_explicit_internal_seam() -> None:
     pattern = re.compile(r"\b((?:btrc|std)_[A-Za-z0-9_]+)\s*\(")
     stdlib = SOURCE_ROOT / "stdlib"
     for path in stdlib.rglob("*.h"):
-        if path.relative_to(stdlib).parts[0] == "win":
+        if path.relative_to(stdlib).parts[0] == "Windows":
             continue
         names.update(pattern.findall(path.read_text()))
     assert names == set(HOSTED_NATIVE_FUNCTIONS) | set(HOSTED_NATIVE_INTERNAL_NAMES)
 
 
-def test_native_app_background_jobs_and_ui_effects_are_exact() -> None:
+def test_native_app_thread_boundary_and_ui_effects_are_exact() -> None:
     scroll = hosted_function("std_app_event_scroll_x")
-    submit = hosted_function("std_background_jobs_submit")
+    invoke = hosted_function("__btrc_native_thread_invoke")
     add_image = hosted_function("std_gpu_native_ui_add_image")
     add_text = hosted_function("std_gpu_native_ui_add_text")
     measure_text = hosted_function("std_gpu_native_ui_measure_text")
 
     assert scroll is not None and scroll.result == abi_type("float")
-    assert submit is not None
-    assert submit.parameters is not None
-    assert submit.parameters[2] == abi_type("CFunction", generic_args=(INT, VOID_PTR, VOID_PTR))
-    assert submit.parameters[4] == abi_type("CFunction", generic_args=(abi_type("void"), VOID_PTR))
-    assert submit.effects == (MUTATE, VALUE, VALUE, UNKNOWN, VALUE, MUTATE)
-    assert submit.callback_lifetimes == (None, None, "stored_until_unregister", None, "stored_until_unregister", None)
+    assert hosted_function("std_background_jobs_submit") is None
+    assert invoke is not None and invoke.parameters is not None
+    assert invoke.parameters[0] == abi_type("CFunction", generic_args=(INT, VOID_PTR))
+    assert invoke.callback_lifetimes == ("during_call", None, None)
     assert add_image is not None
     assert add_image.effects == (VALUE, READ, READ, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE)
     assert add_text is not None
@@ -329,12 +329,9 @@ def test_local_application_channel_effects_are_exact() -> None:
     poll = hosted_function("std_local_application_channel_server_poll")
     close = hosted_function("std_local_application_channel_server_close")
 
-    assert request is not None
-    assert request.effects == (READ, READ, VALUE, MUTATE, VALUE, VALUE, MUTATE, MUTATE)
-    assert poll is not None
-    assert poll.effects == (MUTATE, MUTATE, VALUE, MUTATE, MUTATE, MUTATE)
-    assert close is not None
-    assert close.effects == (MUTATE,)
+    assert request is None
+    assert poll is None
+    assert close is None
 
 
 def test_gpu_surface_attachment_uses_public_capabilities_and_private_raw_compute() -> None:
@@ -388,10 +385,14 @@ def test_source_runtime_helper_roots_are_generated_from_the_registry() -> None:
     assert not any(name in source_runtime for name in SOURCE_RUNTIME_HELPERS)
 
 
-def test_root_path_cannot_spoof_compiler_stdlib_provenance() -> None:
-    stdlib_path = SOURCE_ROOT / "stdlib" / "Process.btrc"
+def test_root_path_cannot_spoof_compiler_stdlib_provenance(tmp_path: Path) -> None:
+    # Exercise the actual configured stdlib root without publishing a package
+    # lock into the checkout (or an immutable installed compiler directory).
+    library = tmp_path / "stdlib"
+    shutil.copytree(SOURCE_ROOT / "stdlib", library, ignore=shutil.ignore_patterns("btrc.lock"))
+    stdlib_path = library / "Process.btrc"
     source = '#include "Process.btrc"\nextern char** environ;\nint main() { return 0; }'
-    pipeline = CompilationPipeline()
+    pipeline = CompilationPipeline(frontend=FrontendStage(StdlibRepository(directory=str(library))))
     options = CompilerOptions(include_stdlib=False, use_ast_cache=False)
     resolved = pipeline.resolve(
         source,

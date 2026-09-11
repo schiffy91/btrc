@@ -61,6 +61,7 @@ class RealtimeIRVerifier {
 
 	private void validateNode(IRNode? node, string path, Map<string, bool> visiting) {
 		if (node == null) { return; }
+		if (node.kind == IRK_OBJECTIVE_C_MESSAGE || node.kind == IRK_OBJECTIVE_C_AUTORELEASE_POOL || node.kind == IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY || (node.kind == IRK_CAST && node.bridge != "")) { self.fail("Objective-C operation", path); }
 		if (node.kind == IRK_WHILE || node.kind == IRK_DO_WHILE) {
 			self.fail("unbounded loop", path);
 		}

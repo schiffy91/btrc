@@ -14,7 +14,7 @@ from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
-GPU_INCLUDE = Path(__file__).resolve().parents[2] / "stdlib" / "gpu"
+GPU_INCLUDE = Path(__file__).resolve().parents[2] / "stdlib" / "GPU"
 
 _GPU_DECLS = r"""
 #include <stdbool.h>

@@ -1,14 +1,14 @@
-/* JsonValue: real recursive JSON tree — parse, navigate, stringify round-trip,
+/* JSONValue: real recursive JSON tree — parse, navigate, stringify round-trip,
  * \uXXXX unescape, malformed-input safety, deep nesting. Output is fully
  * deterministic (no raw float formatting in the printed lines). */
-import Library.Json;
+import Library.JSON;
 
 #include <assert.h>
 #include <string.h>
 
 int main() {
 	/* ---- Parse + navigate a nested document --------------------------- */
-	var doc = JsonValue.parse("{\"a\":{\"b\":[1,2.5,true,null,\"x\\\"y\"]},\"c\":-3e2}");
+	var doc = JSONValue.parse("{\"a\":{\"b\":[1,2.5,true,null,\"x\\\"y\"]},\"c\":-3e2}");
 	assert(!doc.isError());
 	assert(doc.isObject());
 	assert(doc.size() == 2);
@@ -60,7 +60,7 @@ int main() {
 
 	/* ---- Round-trip: parse(stringify(v)) is structurally equal ------ */
 	var s = doc.stringify();
-	var doc2 = JsonValue.parse(s);
+	var doc2 = JSONValue.parse(s);
 	assert(!doc2.isError());
 	assert(doc2.get("a").get("b").at(0).asInt() == 1);
 	assert(doc2.get("a").get("b").at(1).asFloat() == 2.5);
@@ -73,71 +73,71 @@ int main() {
 	print("PASS: round-trip");
 
 	/* ---- \uXXXX unescape: U+00E9 → é (UTF-8 0xC3 0xA9) -------------- */
-	var acc = JsonValue.parse("\"caf\\u00e9\"");
+	var acc = JSONValue.parse("\"caf\\u00e9\"");
 	assert(acc.isString());
 	assert(strcmp(acc.asString(), "caf\xc3\xa9") == 0);
 	/* astral plane via surrogate pair: U+1F600 → F0 9F 98 80 */
-	var emoji = JsonValue.parse("\"\\ud83d\\ude00\"");
+	var emoji = JSONValue.parse("\"\\ud83d\\ude00\"");
 	assert(emoji.isString());
 	assert(strcmp(emoji.asString(), "\xf0\x9f\x98\x80") == 0);
 	/* the decoded unicode survives a stringify round-trip (kept as raw UTF-8) */
-	var accRound = JsonValue.parse(acc.stringify());
+	var accRound = JSONValue.parse(acc.stringify());
 	assert(strcmp(accRound.asString(), "caf\xc3\xa9") == 0);
 	print("PASS: unicode");
 
 	/* ---- Control-char escaping on output ---------------------------- */
-	var ctrl = JsonValue.makeString("tab\there\x01top");
+	var ctrl = JSONValue.makeString("tab\there\x01top");
 	var cs = ctrl.stringify();
 	assert(cs.contains("\\t"));
 	assert(cs.contains("\\u0001"));
-	var ctrlRound = JsonValue.parse(cs);
+	var ctrlRound = JSONValue.parse(cs);
 	assert(strcmp(ctrlRound.asString(), "tab\there\x01top") == 0);
 	print("PASS: control-escape");
 
 	/* ---- All escape forms decode correctly -------------------------- */
-	var esc = JsonValue.parse("\"\\\"\\\\\\/\\b\\f\\n\\r\\t\"");
+	var esc = JSONValue.parse("\"\\\"\\\\\\/\\b\\f\\n\\r\\t\"");
 	assert(esc.isString());
 	assert(strcmp(esc.asString(), "\"\\/\b\f\n\r\t") == 0);
 	print("PASS: escapes");
 
 	/* ---- Numbers: int, negative, float, exponent -------------------- */
-	assert(JsonValue.parse("42").asInt() == 42);
-	assert(JsonValue.parse("-7").asInt() == -7);
-	assert(JsonValue.parse("0").isInt());
-	assert(JsonValue.parse("3.14").asFloat() == 3.14);
-	assert(JsonValue.parse("1e3").asFloat() == 1000.0);
-	assert(JsonValue.parse("-2.5E-1").asFloat() == -0.25);
-	assert(JsonValue.parse("42").isInt());
-	assert(!JsonValue.parse("42.0").isInt());
+	assert(JSONValue.parse("42").asInt() == 42);
+	assert(JSONValue.parse("-7").asInt() == -7);
+	assert(JSONValue.parse("0").isInt());
+	assert(JSONValue.parse("3.14").asFloat() == 3.14);
+	assert(JSONValue.parse("1e3").asFloat() == 1000.0);
+	assert(JSONValue.parse("-2.5E-1").asFloat() == -0.25);
+	assert(JSONValue.parse("42").isInt());
+	assert(!JSONValue.parse("42.0").isInt());
 	print("PASS: numbers");
 
 	/* ---- Top-level scalars and empty containers --------------------- */
-	assert(JsonValue.parse("true").asBool() == true);
-	assert(JsonValue.parse("null").isNull());
-	assert(JsonValue.parse("\"hi\"").asString().equals("hi"));
-	assert(JsonValue.parse("[]").isArray() && JsonValue.parse("[]").size() == 0);
-	assert(JsonValue.parse("{}").isObject() && JsonValue.parse("{}").size() == 0);
-	assert(JsonValue.parse("  [ 1 , 2 ]  ").size() == 2);   /* whitespace */
+	assert(JSONValue.parse("true").asBool() == true);
+	assert(JSONValue.parse("null").isNull());
+	assert(JSONValue.parse("\"hi\"").asString().equals("hi"));
+	assert(JSONValue.parse("[]").isArray() && JSONValue.parse("[]").size() == 0);
+	assert(JSONValue.parse("{}").isObject() && JSONValue.parse("{}").size() == 0);
+	assert(JSONValue.parse("  [ 1 , 2 ]  ").size() == 2);   /* whitespace */
 	print("PASS: scalars");
 
 	/* ---- Malformed input returns an error sentinel, never crashes --- */
-	assert(JsonValue.parse("{\"a\":}").isError());
-	assert(JsonValue.parse("[1,2").isError());
-	assert(JsonValue.parse("{\"a\" 1}").isError());
-	assert(JsonValue.parse("nul").isError());
-	assert(JsonValue.parse("01").isError());           /* leading zero */
-	assert(JsonValue.parse("1.").isError());           /* dangling dot */
-	assert(JsonValue.parse("\"unterminated").isError());
-	assert(JsonValue.parse("{} junk").isError());      /* trailing garbage */
-	assert(JsonValue.parse("").isError());             /* empty */
-	assert(JsonValue.parse("{\"a\":1,\"a\":2}").isError());
-	assert(JsonValue.parse("{\"outer\":{\"a\":1,\"a\":2}}").isError());
+	assert(JSONValue.parse("{\"a\":}").isError());
+	assert(JSONValue.parse("[1,2").isError());
+	assert(JSONValue.parse("{\"a\" 1}").isError());
+	assert(JSONValue.parse("nul").isError());
+	assert(JSONValue.parse("01").isError());           /* leading zero */
+	assert(JSONValue.parse("1.").isError());           /* dangling dot */
+	assert(JSONValue.parse("\"unterminated").isError());
+	assert(JSONValue.parse("{} junk").isError());      /* trailing garbage */
+	assert(JSONValue.parse("").isError());             /* empty */
+	assert(JSONValue.parse("{\"a\":1,\"a\":2}").isError());
+	assert(JSONValue.parse("{\"outer\":{\"a\":1,\"a\":2}}").isError());
 	/* error sentinel is also "null" for isNull-only callers */
-	assert(JsonValue.parse("[1,2").isNull());
+	assert(JSONValue.parse("[1,2").isNull());
 	print("PASS: malformed");
 
 	/* ---- Deep nesting stays balanced and releases cleanly ----------- */
-	var deep = JsonValue.parse("[[[[[[[[[[42]]]]]]]]]]");
+	var deep = JSONValue.parse("[[[[[[[[[[42]]]]]]]]]]");
 	assert(!deep.isError());
 	assert(deep.isArray());
 	var cur = deep.at(0);          /* read via accessor — no managed-local alias */
@@ -149,15 +149,15 @@ int main() {
 	print("PASS: deep");
 
 	/* ---- Build a tree in code, then stringify ----------------------- */
-	var built = JsonValue.makeObject();
-	built.set("name", JsonValue.makeString("Ada"));
-	built.set("age", JsonValue.makeInt(36));
-	built.set("admin", JsonValue.makeBool(true));
-	var list = JsonValue.makeArray();
-	list.push(JsonValue.makeInt(1));
-	list.push(JsonValue.makeFloat(2.5));
+	var built = JSONValue.makeObject();
+	built.set("name", JSONValue.makeString("Ada"));
+	built.set("age", JSONValue.makeInt(36));
+	built.set("admin", JSONValue.makeBool(true));
+	var list = JSONValue.makeArray();
+	list.push(JSONValue.makeInt(1));
+	list.push(JSONValue.makeFloat(2.5));
 	built.set("scores", list);
-	var builtRound = JsonValue.parse(built.stringify());
+	var builtRound = JSONValue.parse(built.stringify());
 	assert(strcmp(builtRound.get("name").asString(), "Ada") == 0);
 	assert(builtRound.get("age").asInt() == 36);
 	assert(builtRound.get("admin").asBool() == true);
@@ -167,7 +167,7 @@ int main() {
 	/* ---- Parse-heavy loop (ARC stress; ASan-checked separately) ----- */
 	var sum = 0;
 	for i in range(500) {
-		var t = JsonValue.parse("{\"k\":[1,{\"n\":2},[3,4],\"s\"],\"m\":-1.5e1}");
+		var t = JSONValue.parse("{\"k\":[1,{\"n\":2},[3,4],\"s\"],\"m\":-1.5e1}");
 		assert(!t.isError());
 		sum += t.get("k").at(1).get("n").asInt();
 		delete t;

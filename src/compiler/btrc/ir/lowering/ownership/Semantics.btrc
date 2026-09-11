@@ -119,6 +119,7 @@ class OwnershipSemantics {
 
 	public bool expressionOwnsResult(Node? expression, OwnershipOperandEnvironment environment, CallableFlowState callableFlow) {
 		if (expression == null) { return false; }
+		if (expression.kind == NK_IDENTIFIER) { return !self.context.sourceLexicalBindings.has(expression.name) && self.analyzed.isObjectiveCObjectGlobal(expression.name); }
 		Node? resultType = self.expressionType(expression, environment);
 		bool managedResult = self.isManaged(resultType, environment);
 		if (expression.kind == NK_NEW_EXPR || expression.kind == NK_LIST_LITERAL || expression.kind == NK_MAP_LITERAL || expression.kind == NK_BRACE_INITIALIZER) {

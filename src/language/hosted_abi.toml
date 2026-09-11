@@ -24,6 +24,7 @@ functions = [
   "__btrc_exec_signal_guard_child_end",
   "__btrc_exec_signal_guard_parent_end",
   "__btrc_move_descriptor_outside_stdio",
+  "__btrc_native_thread_invoke",
   "__btrc_posix_spawn_cloexec",
   "__btrc_process_descriptors_supported",
   "__btrc_safe_calloc",
@@ -132,25 +133,11 @@ functions = [
   "btrc_gpu_uniform_destroy",
   "btrc_gpu_upload_uniform",
   "btrc_gpu_write_buffer",
-  "btrc_gui_blend_rect",
-  "btrc_gui_clear",
   "btrc_gui_clear_font_if_active",
-  "btrc_gui_draw_text",
-  "btrc_gui_fill_rect",
   "btrc_gui_font_destroy",
   "btrc_gui_font_load",
-  "btrc_gui_get_pixel",
   "btrc_gui_install_font_backend",
-  "btrc_gui_save_ppm",
   "btrc_gui_set_font",
-  "btrc_gui_surface_create",
-  "btrc_gui_surface_destroy",
-  "btrc_gui_surface_height",
-  "btrc_gui_surface_pixels",
-  "btrc_gui_surface_resize",
-  "btrc_gui_surface_width",
-  "btrc_gui_text_height",
-  "btrc_gui_text_width",
   "btrc_gui_window_close",
   "btrc_gui_window_fb_height",
   "btrc_gui_window_fb_width",
@@ -1029,7 +1016,6 @@ functions = [
   "std_app_surface_glfw",
   "std_app_surface_lease_generation",
   "std_app_surface_release",
-  "std_app_window_choose_directory",
   "std_app_window_clipboard_text",
   "std_app_window_close",
   "std_app_window_finalize",
@@ -1040,29 +1026,9 @@ functions = [
   "std_app_window_open",
   "std_app_window_scale_x",
   "std_app_window_scale_y",
-  "std_app_window_selected_directory",
   "std_app_window_set_clipboard_text",
   "std_app_window_set_titlebar_style",
   "std_app_window_show_alert",
-  "std_background_jobs_cancel",
-  "std_background_jobs_cancel_generation",
-  "std_background_jobs_cancel_requested",
-  "std_background_jobs_close",
-  "std_background_jobs_open",
-  "std_background_jobs_outstanding",
-  "std_background_jobs_poll",
-  "std_background_jobs_submit",
-  "std_core_audio_provider_close",
-  "std_core_audio_provider_inventory",
-  "std_core_audio_provider_inventory_device",
-  "std_core_audio_provider_open",
-  "std_core_audio_provider_open_duplex",
-  "std_core_audio_session_close",
-  "std_core_audio_session_dispose",
-  "std_core_audio_session_drain",
-  "std_core_audio_session_epoch",
-  "std_core_audio_session_start",
-  "std_core_audio_session_suspend",
   "std_gpu_attach_surface",
   "std_gpu_begin_capture_frame",
   "std_gpu_begin_frame",
@@ -1109,13 +1075,6 @@ functions = [
   "std_gpu_uniform_destroy",
   "std_gpu_uniform_finalize",
   "std_gpu_uniform_set",
-  "std_local_application_channel_request",
-  "std_local_application_channel_server_close",
-  "std_local_application_channel_server_open",
-  "std_local_application_channel_server_poll",
-  "std_local_application_channel_server_respond",
-  "std_macos_encoded_image_decode",
-  "std_macos_encoded_image_release",
   "strcasecmp",
   "strcasecmp_l",
   "strcasestr",
@@ -6729,6 +6688,7 @@ owned = [
   "__btrc_exec_signal_guard_child_end",
   "__btrc_exec_signal_guard_parent_end",
   "__btrc_move_descriptor_outside_stdio",
+  "__btrc_native_thread_invoke",
   "__btrc_posix_spawn_cloexec",
   "__btrc_process_descriptors_supported",
   "__btrc_safe_calloc",
@@ -6917,25 +6877,11 @@ owned = [
   "btrc_gpu_uniform_destroy",
   "btrc_gpu_upload_uniform",
   "btrc_gpu_write_buffer",
-  "btrc_gui_blend_rect",
-  "btrc_gui_clear",
   "btrc_gui_clear_font_if_active",
-  "btrc_gui_draw_text",
-  "btrc_gui_fill_rect",
   "btrc_gui_font_destroy",
   "btrc_gui_font_load",
-  "btrc_gui_get_pixel",
   "btrc_gui_install_font_backend",
-  "btrc_gui_save_ppm",
   "btrc_gui_set_font",
-  "btrc_gui_surface_create",
-  "btrc_gui_surface_destroy",
-  "btrc_gui_surface_height",
-  "btrc_gui_surface_pixels",
-  "btrc_gui_surface_resize",
-  "btrc_gui_surface_width",
-  "btrc_gui_text_height",
-  "btrc_gui_text_width",
   "btrc_gui_window_close",
   "btrc_gui_window_fb_height",
   "btrc_gui_window_fb_width",
@@ -8100,7 +8046,6 @@ owned = [
   "std_app_surface_glfw",
   "std_app_surface_lease_generation",
   "std_app_surface_release",
-  "std_app_window_choose_directory",
   "std_app_window_clipboard_text",
   "std_app_window_close",
   "std_app_window_finalize",
@@ -8111,29 +8056,9 @@ owned = [
   "std_app_window_open",
   "std_app_window_scale_x",
   "std_app_window_scale_y",
-  "std_app_window_selected_directory",
   "std_app_window_set_clipboard_text",
   "std_app_window_set_titlebar_style",
   "std_app_window_show_alert",
-  "std_background_jobs_cancel",
-  "std_background_jobs_cancel_generation",
-  "std_background_jobs_cancel_requested",
-  "std_background_jobs_close",
-  "std_background_jobs_open",
-  "std_background_jobs_outstanding",
-  "std_background_jobs_poll",
-  "std_background_jobs_submit",
-  "std_core_audio_provider_close",
-  "std_core_audio_provider_inventory",
-  "std_core_audio_provider_inventory_device",
-  "std_core_audio_provider_open",
-  "std_core_audio_provider_open_duplex",
-  "std_core_audio_session_close",
-  "std_core_audio_session_dispose",
-  "std_core_audio_session_drain",
-  "std_core_audio_session_epoch",
-  "std_core_audio_session_start",
-  "std_core_audio_session_suspend",
   "std_gpu_attach_surface",
   "std_gpu_begin_capture_frame",
   "std_gpu_begin_frame",
@@ -8180,13 +8105,6 @@ owned = [
   "std_gpu_uniform_destroy",
   "std_gpu_uniform_finalize",
   "std_gpu_uniform_set",
-  "std_local_application_channel_request",
-  "std_local_application_channel_server_close",
-  "std_local_application_channel_server_open",
-  "std_local_application_channel_server_poll",
-  "std_local_application_channel_server_respond",
-  "std_macos_encoded_image_decode",
-  "std_macos_encoded_image_release",
   "stderr",
   "stdin",
   "stdout",
@@ -8424,22 +8342,9 @@ owned = [
   "ynl",
 ]
 native = [
-  "btrc_gui_blend_rect",
-  "btrc_gui_clear",
-  "btrc_gui_draw_text",
-  "btrc_gui_fill_rect",
   "btrc_gui_font_destroy",
   "btrc_gui_font_load",
-  "btrc_gui_get_pixel",
-  "btrc_gui_save_ppm",
   "btrc_gui_set_font",
-  "btrc_gui_surface_create",
-  "btrc_gui_surface_destroy",
-  "btrc_gui_surface_height",
-  "btrc_gui_surface_resize",
-  "btrc_gui_surface_width",
-  "btrc_gui_text_height",
-  "btrc_gui_text_width",
   "btrc_gui_window_close",
   "btrc_gui_window_fb_height",
   "btrc_gui_window_fb_width",
@@ -8491,7 +8396,6 @@ native = [
   "std_app_surface_finalize",
   "std_app_surface_generation",
   "std_app_surface_release",
-  "std_app_window_choose_directory",
   "std_app_window_clipboard_text",
   "std_app_window_close",
   "std_app_window_finalize",
@@ -8502,29 +8406,9 @@ native = [
   "std_app_window_open",
   "std_app_window_scale_x",
   "std_app_window_scale_y",
-  "std_app_window_selected_directory",
   "std_app_window_set_clipboard_text",
   "std_app_window_set_titlebar_style",
   "std_app_window_show_alert",
-  "std_background_jobs_cancel",
-  "std_background_jobs_cancel_generation",
-  "std_background_jobs_cancel_requested",
-  "std_background_jobs_close",
-  "std_background_jobs_open",
-  "std_background_jobs_outstanding",
-  "std_background_jobs_poll",
-  "std_background_jobs_submit",
-  "std_core_audio_provider_close",
-  "std_core_audio_provider_inventory",
-  "std_core_audio_provider_inventory_device",
-  "std_core_audio_provider_open",
-  "std_core_audio_provider_open_duplex",
-  "std_core_audio_session_close",
-  "std_core_audio_session_dispose",
-  "std_core_audio_session_drain",
-  "std_core_audio_session_epoch",
-  "std_core_audio_session_start",
-  "std_core_audio_session_suspend",
   "std_gpu_attach_surface",
   "std_gpu_begin_capture_frame",
   "std_gpu_begin_frame",
@@ -8571,17 +8455,9 @@ native = [
   "std_gpu_uniform_destroy",
   "std_gpu_uniform_finalize",
   "std_gpu_uniform_set",
-  "std_local_application_channel_request",
-  "std_local_application_channel_server_close",
-  "std_local_application_channel_server_open",
-  "std_local_application_channel_server_poll",
-  "std_local_application_channel_server_respond",
-  "std_macos_encoded_image_decode",
-  "std_macos_encoded_image_release",
 ]
 native_internal = [
   "btrc_app_drain_owner_finalizers",
-  "btrc_app_platform_choose_directory",
   "btrc_app_platform_click_count",
   "btrc_app_platform_dismiss_alert",
   "btrc_app_platform_set_titlebar_style",
@@ -8656,7 +8532,6 @@ native_internal = [
   "btrc_gpu_write_buffer",
   "btrc_gui_clear_font_if_active",
   "btrc_gui_install_font_backend",
-  "btrc_gui_surface_pixels",
   "std_app_surface_attach",
   "std_app_surface_detach",
   "std_app_surface_glfw",
@@ -8732,25 +8607,11 @@ functions = [
   "btrc_gpu_uniform_destroy",
   "btrc_gpu_upload_uniform",
   "btrc_gpu_write_buffer",
-  "btrc_gui_blend_rect",
-  "btrc_gui_clear",
   "btrc_gui_clear_font_if_active",
-  "btrc_gui_draw_text",
-  "btrc_gui_fill_rect",
   "btrc_gui_font_destroy",
   "btrc_gui_font_load",
-  "btrc_gui_get_pixel",
   "btrc_gui_install_font_backend",
-  "btrc_gui_save_ppm",
   "btrc_gui_set_font",
-  "btrc_gui_surface_create",
-  "btrc_gui_surface_destroy",
-  "btrc_gui_surface_height",
-  "btrc_gui_surface_pixels",
-  "btrc_gui_surface_resize",
-  "btrc_gui_surface_width",
-  "btrc_gui_text_height",
-  "btrc_gui_text_width",
   "btrc_gui_window_close",
   "btrc_gui_window_fb_height",
   "btrc_gui_window_fb_width",
@@ -9301,7 +9162,6 @@ functions = [
   "std_app_surface_glfw",
   "std_app_surface_lease_generation",
   "std_app_surface_release",
-  "std_app_window_choose_directory",
   "std_app_window_clipboard_text",
   "std_app_window_close",
   "std_app_window_finalize",
@@ -9312,29 +9172,9 @@ functions = [
   "std_app_window_open",
   "std_app_window_scale_x",
   "std_app_window_scale_y",
-  "std_app_window_selected_directory",
   "std_app_window_set_clipboard_text",
   "std_app_window_set_titlebar_style",
   "std_app_window_show_alert",
-  "std_background_jobs_cancel",
-  "std_background_jobs_cancel_generation",
-  "std_background_jobs_cancel_requested",
-  "std_background_jobs_close",
-  "std_background_jobs_open",
-  "std_background_jobs_outstanding",
-  "std_background_jobs_poll",
-  "std_background_jobs_submit",
-  "std_core_audio_provider_close",
-  "std_core_audio_provider_inventory",
-  "std_core_audio_provider_inventory_device",
-  "std_core_audio_provider_open",
-  "std_core_audio_provider_open_duplex",
-  "std_core_audio_session_close",
-  "std_core_audio_session_dispose",
-  "std_core_audio_session_drain",
-  "std_core_audio_session_epoch",
-  "std_core_audio_session_start",
-  "std_core_audio_session_suspend",
   "std_gpu_attach_surface",
   "std_gpu_begin_capture_frame",
   "std_gpu_begin_frame",
@@ -9381,13 +9221,6 @@ functions = [
   "std_gpu_uniform_destroy",
   "std_gpu_uniform_finalize",
   "std_gpu_uniform_set",
-  "std_local_application_channel_request",
-  "std_local_application_channel_server_close",
-  "std_local_application_channel_server_open",
-  "std_local_application_channel_server_poll",
-  "std_local_application_channel_server_respond",
-  "std_macos_encoded_image_decode",
-  "std_macos_encoded_image_release",
   "strcasecmp",
   "strcasecmp_l",
   "strcasestr",
@@ -12296,6 +12129,23 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
+name = "__btrc_native_thread_invoke"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "CFunction", pointer_depth = 0, is_const = false, generic_args = [
+      { base = "int", pointer_depth = 0, is_const = false },
+      { base = "void", pointer_depth = 1, is_const = false },
+    ], effect = "value", callback_lifetime = "during_call" },
+  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
 name = "__btrc_posix_spawn_cloexec"
 origin = "runtime"
 result = { base = "pid_t", pointer_depth = 0, is_const = false }
@@ -13254,70 +13104,6 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
-name = "btrc_gui_blend_rect"
-origin = "native_gui"
-result = { base = "void", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "unsigned int", pointer_depth = 0, is_const = false, effect = "value" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "btrc_gui_clear"
-origin = "native_gui"
-result = { base = "void", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "unsigned int", pointer_depth = 0, is_const = false, effect = "value" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "btrc_gui_draw_text"
-origin = "native_gui"
-result = { base = "void", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
-  { base = "unsigned int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "btrc_gui_fill_rect"
-origin = "native_gui"
-result = { base = "void", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "unsigned int", pointer_depth = 0, is_const = false, effect = "value" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
 name = "btrc_gui_font_destroy"
 origin = "native_gui"
 result = { base = "void", pointer_depth = 0, is_const = false }
@@ -13345,129 +13131,12 @@ raw_lifetime = false
 return_deallocator = "btrc_gui_font_destroy"
 
 [[functions]]
-name = "btrc_gui_get_pixel"
-origin = "native_gui"
-result = { base = "unsigned int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "read" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "btrc_gui_save_ppm"
-origin = "native_gui"
-result = { base = "bool", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "read" },
-  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
 name = "btrc_gui_set_font"
 origin = "native_gui"
 result = { base = "void", pointer_depth = 0, is_const = false }
 parameters_known = true
 parameters = [
   { base = "void", pointer_depth = 1, is_const = false, effect = "unknown" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "btrc_gui_surface_create"
-origin = "native_gui"
-result = { base = "void", pointer_depth = 1, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-]
-variadic = false
-return_effect = "independent"
-raw_lifetime = false
-return_deallocator = "btrc_gui_surface_destroy"
-
-[[functions]]
-name = "btrc_gui_surface_destroy"
-origin = "native_gui"
-result = { base = "void", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "consume" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = true
-consume_deallocator = "btrc_gui_surface_destroy"
-
-[[functions]]
-name = "btrc_gui_surface_height"
-origin = "native_gui"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "read" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "btrc_gui_surface_resize"
-origin = "native_gui"
-result = { base = "void", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "btrc_gui_surface_width"
-origin = "native_gui"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "read" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "btrc_gui_text_height"
-origin = "native_gui"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "btrc_gui_text_width"
-origin = "native_gui"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
 ]
 variadic = false
 return_effect = "value"
@@ -13580,7 +13249,9 @@ result = { base = "void", pointer_depth = 0, is_const = false }
 parameters_known = true
 parameters = [
   { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "void", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "unsigned int", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
 ]
 variadic = false
 return_effect = "value"
@@ -17106,20 +16777,6 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
-name = "std_app_window_choose_directory"
-origin = "native_app"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
-  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
 name = "std_app_window_clipboard_text"
 origin = "native_app"
 result = { base = "char", pointer_depth = 1, is_const = false }
@@ -17246,18 +16903,6 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
-name = "std_app_window_selected_directory"
-origin = "native_app"
-result = { base = "char", pointer_depth = 1, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
-]
-variadic = false
-return_effect = "independent"
-raw_lifetime = false
-
-[[functions]]
 name = "std_app_window_set_clipboard_text"
 origin = "native_app"
 result = { base = "int", pointer_depth = 0, is_const = false }
@@ -17297,273 +16942,8 @@ parameters = [
 variadic = false
 return_effect = "value"
 raw_lifetime = false
-[[functions]]
-name = "std_background_jobs_cancel"
-origin = "native_background_jobs"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
 
-[[functions]]
-name = "std_background_jobs_cancel_generation"
-origin = "native_background_jobs"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
 
-[[functions]]
-name = "std_background_jobs_cancel_requested"
-origin = "native_background_jobs"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "read" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_background_jobs_close"
-origin = "native_background_jobs"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_background_jobs_open"
-origin = "native_background_jobs"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "void", pointer_depth = 2, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_background_jobs_outstanding"
-origin = "native_background_jobs"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "read" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_background_jobs_poll"
-origin = "native_background_jobs"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "struct BtrcBackgroundJobNativeCompletion", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_background_jobs_submit"
-origin = "native_background_jobs"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "CFunction", pointer_depth = 0, is_const = false, generic_args = [{ base = "int", pointer_depth = 0, is_const = false }, { base = "void", pointer_depth = 1, is_const = false }, { base = "void", pointer_depth = 1, is_const = false }], effect = "value", callback_lifetime = "stored_until_unregister" },
-  { base = "void", pointer_depth = 1, is_const = false, effect = "unknown" },
-  { base = "CFunction", pointer_depth = 0, is_const = false, generic_args = [{ base = "void", pointer_depth = 0, is_const = false }, { base = "void", pointer_depth = 1, is_const = false }], effect = "value", callback_lifetime = "stored_until_unregister" },
-  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_core_audio_provider_close"
-origin = "native_core_audio"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_core_audio_provider_inventory"
-origin = "native_core_audio"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_core_audio_provider_inventory_device"
-origin = "native_core_audio"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "read" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "struct CoreAudioNativeDeviceRecord", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_core_audio_provider_open"
-origin = "native_core_audio"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 2, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_core_audio_provider_open_duplex"
-origin = "native_core_audio"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "char", pointer_depth = 1, is_const = true, effect = "read" },
-  { base = "int", pointer_depth = 1, is_const = true, effect = "read" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "char", pointer_depth = 1, is_const = true, effect = "read" },
-  { base = "int", pointer_depth = 1, is_const = true, effect = "read" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "CFunction", pointer_depth = 0, is_const = false, generic_args = [
-      { base = "void", pointer_depth = 0, is_const = false },
-      { base = "void", pointer_depth = 1, is_const = false },
-      { base = "struct AudioBlockView", pointer_depth = 0, is_const = false },
-      { base = "Span", pointer_depth = 0, is_const = false, generic_args = [{ base = "float", pointer_depth = 0, is_const = true }] },
-      { base = "Span", pointer_depth = 0, is_const = false, generic_args = [{ base = "float", pointer_depth = 0, is_const = false }] },
-    ], effect = "value", callback_lifetime = "stored_until_unregister" },
-  { base = "void", pointer_depth = 1, is_const = false, effect = "unknown" },
-  { base = "void", pointer_depth = 2, is_const = false, effect = "mutate" },
-  { base = "struct CoreAudioNativeNegotiatedFormat", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_core_audio_session_close"
-origin = "native_core_audio"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_core_audio_session_dispose"
-origin = "native_core_audio"
-result = { base = "void", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_core_audio_session_drain"
-origin = "native_core_audio"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_core_audio_session_epoch"
-origin = "native_core_audio"
-result = { base = "unsigned long long", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "read" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_core_audio_session_start"
-origin = "native_core_audio"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_core_audio_session_suspend"
-origin = "native_core_audio"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
 
 [[functions]]
 name = "std_gpu_attach_surface"
@@ -18264,120 +17644,7 @@ variadic = false
 return_effect = "value"
 raw_lifetime = false
 
-[[functions]]
-name = "std_local_application_channel_request"
-origin = "native_local_application_channel"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "char", pointer_depth = 1, is_const = true, effect = "read" },
-  { base = "unsigned char", pointer_depth = 1, is_const = true, effect = "read" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "unsigned char", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
 
-[[functions]]
-name = "std_local_application_channel_server_close"
-origin = "native_local_application_channel"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 2, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_local_application_channel_server_open"
-origin = "native_local_application_channel"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "char", pointer_depth = 1, is_const = true, effect = "read" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "void", pointer_depth = 2, is_const = false, effect = "mutate" },
-  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_local_application_channel_server_poll"
-origin = "native_local_application_channel"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "unsigned char", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_local_application_channel_server_respond"
-origin = "native_local_application_channel"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "unsigned char", pointer_depth = 1, is_const = true, effect = "read" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_macos_encoded_image_decode"
-origin = "native_macos_encoded_image"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "char", pointer_depth = 1, is_const = true, effect = "read" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "long long", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "int", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "void", pointer_depth = 2, is_const = false, effect = "mutate" },
-  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "std_macos_encoded_image_release"
-origin = "native_macos_encoded_image"
-result = { base = "void", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
 
 [[functions]]
 name = "strcat"

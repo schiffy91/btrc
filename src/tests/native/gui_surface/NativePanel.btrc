@@ -1,0 +1,63 @@
+import Library.Image;
+import Library.IO;
+import Library.MacOSEncodedImageDecoder;
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSPanel;
+import Library.GUI.MacOS.MacOSImageView;
+import Library.GUI.MacOS.MacOSViewCapture;
+
+#include <assert.h>
+
+Image panelPixels(MacOSWindow window, string name) {
+	var bytes = MacOSViewCapture.captureTiff(window.contentView());
+	var file = File(f"{name}.tiff", "wb");
+	assert(file.ok() && file.writeBytes(bytes) && file.close());
+	return MacOSEncodedImageDecoder().decode(bytes, EncodedImageDecodeLimits(32000000, 4096, 4096, 4000000LL)).image();
+}
+
+int main() {
+	var app = MacOSApplication();
+	var window = MacOSWindow("Native rounded panel", 200.0, 200.0);
+	var panel = MacOSPanel(RGBA(20, 40, 80), 32.0);
+	panel.setDarkAppearance(true);
+	var appearance = panel.nativeView().appearance();
+	assert(appearance != null && AppKitText.ownedValue(appearance.name()) == AppKitText.ownedValue(NSAppearanceNameDarkAqua));
+	panel.setDarkAppearance(false);
+	appearance = panel.nativeView().appearance();
+	assert(appearance != null && AppKitText.ownedValue(appearance.name()) == AppKitText.ownedValue(NSAppearanceNameAqua));
+	panel.inheritAppearance();
+	assert(panel.nativeView().appearance() == null);
+	panel.setFrame(20.0, 20.0, 160.0, 160.0);
+	window.contentView().addSubview(panel.nativeView());
+	var artwork = Image(160, 80);
+	artwork.fill(RGBA(220, 30, 20));
+	var cover = MacOSImageView();
+	cover.setImage(artwork);
+	cover.setFrame(0.0, 80.0, 160.0, 80.0);
+	panel.addChild(cover.nativeView());
+	app.pumpEvents();
+	var rounded = panelPixels(window, "RoundedPanel");
+	int scale = rounded.width / 200;
+	assert(scale > 0 && rounded.pixel(21 * scale, 21 * scale).alpha < 10);
+	assert(rounded.pixel(100 * scale, 35 * scale).red > 180);
+	assert(rounded.pixel(100 * scale, 150 * scale).blue > 60);
+	panel.setCornerRadius(0.0);
+	panel.setFill(RGBA(20, 180, 40));
+	var square = panelPixels(window, "SquarePanel");
+	assert(square.pixel(21 * scale, 21 * scale).red > 180);
+	assert(square.pixel(100 * scale, 150 * scale).green > 150);
+	bool invalid = false;
+	try { panel.setCornerRadius(-1.0); } catch (string error) { invalid = true; }
+	assert(invalid);
+	cover.close();
+	panel.close();
+	panel.close();
+	bool closed = false;
+	try { panel.setFill(RGBA(0, 0, 0)); } catch (string error) { closed = true; }
+	assert(closed);
+	window.close();
+	assert(rounded.pixel(100 * scale, 35 * scale).red > 180);
+	print("PASS: native panel fill, rounded child clipping, restyling and teardown");
+	return 0;
+}

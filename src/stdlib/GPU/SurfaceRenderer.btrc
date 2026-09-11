@@ -1,0 +1,201 @@
+import Library.Math;
+import Library.GPU.Device;
+import Library.GPU.WebGPU;
+
+enum GPUFrameAvailability {
+	GPU_SURFACE_FRAME_READY,
+	GPU_SURFACE_FRAME_EMPTY,
+	GPU_SURFACE_FRAME_RETRY,
+	GPU_SURFACE_FRAME_UNAVAILABLE
+};
+
+/* Owns configuration and one in-flight frame on a borrowed native surface.
+ * Use on the device's owner thread; close before the device and surface.
+ * Native rendering borrows the active pass. Capture may append commands after
+ * finishDrawing; present submits once, while discardFrame submits nothing. */
+class GPUSurfaceRenderer {
+	private GPUDevice _device;
+	private WGPUSurface _surface;
+	private WGPUTextureFormat _format;
+	private WGPUCompositeAlphaMode _alphaMode;
+	private uint32_t _maximumDimension;
+	private bool _capture;
+	private bool _configured = false;
+	private bool _needsConfigure = false;
+	private bool _closed = false;
+	private int _width = 0;
+	private int _height = 0;
+	private unsigned long long _frameNumber = 0ULL;
+	private string _error = "";
+	private WGPUTexture _texture = null;
+	private WGPUTextureView _view = null;
+	private WGPUCommandEncoder _encoder = null;
+	private WGPURenderPassEncoder _pass = null;
+
+	public GPUSurfaceRenderer(GPUDevice device, WGPUSurface surface, bool capture = true) {
+		if (surface == null || device.state() != GPU_DEVICE_READY) { throw "GPU renderer requires a ready device and surface"; }
+		self._device = device;
+		self._surface = surface;
+		self._capture = capture;
+		self.readCapabilities();
+		self.readLimits();
+	}
+
+	private void readCapabilities() {
+		WGPUSurfaceCapabilities capabilities = {null};
+		var status = wgpuSurfaceGetCapabilities(self._surface, self._device.nativeAdapter(), &capabilities);
+		if (status != WGPUStatus_Success) { wgpuSurfaceCapabilitiesFreeMembers(capabilities); throw "Cannot read GPU surface capabilities"; }
+		bool formatFound = false;
+		for (size_t index = (size_t)0; index < capabilities.formatCount; index++) {
+			var format = capabilities.formats[index];
+			if (format == WGPUTextureFormat_BGRA8Unorm || format == WGPUTextureFormat_RGBA8Unorm) { self._format = format; formatFound = true; break; }
+		}
+		bool alphaFound = capabilities.alphaModeCount > (size_t)0;
+		if (alphaFound) { self._alphaMode = capabilities.alphaModes[0]; }
+		bool renderable = (capabilities.usages & WGPUTextureUsage_RenderAttachment) != 0ULL;
+		bool capturable = (capabilities.usages & WGPUTextureUsage_CopySrc) != 0ULL;
+		wgpuSurfaceCapabilitiesFreeMembers(capabilities);
+		if (!formatFound || !alphaFound || !renderable) { throw "GPU surface has no supported RGBA rendering configuration"; }
+		if (self._capture && !capturable) { throw "GPU surface does not support pixel capture"; }
+	}
+
+	private void readLimits() {
+		WGPULimits limits = {null};
+		if (wgpuDeviceGetLimits(self._device.nativeDevice(), &limits) != WGPUStatus_Success) { throw "Cannot read GPU device limits"; }
+		self._maximumDimension = limits.maxTextureDimension2D;
+	}
+
+	private void requireOpen() { if (self._closed) { throw "GPU renderer is closed"; } }
+
+	public bool isOpen() { return !self._closed && self._device.state() == GPU_DEVICE_READY; }
+
+	public bool captureEnabled() { self.requireOpen(); return self._capture; }
+
+	private void requireIdle() { self.requireOpen(); if (self._encoder != null || self._texture != null) { throw "GPU frame is already active"; } }
+
+	public int width() { self.requireOpen(); return self._width; }
+
+	public int height() { self.requireOpen(); return self._height; }
+
+	public WGPUTextureFormat nativeFormat() { self.requireOpen(); return self._format; }
+
+	public string error() { return self._error; }
+
+	public GPUDevice device() { self.requireOpen(); return self._device; }
+
+	public unsigned long long frameNumber() { self.requireOpen(); return self._frameNumber; }
+
+	public bool frameActive(unsigned long long number) { return !self._closed && self._encoder != null && self._frameNumber == number; }
+
+	public void resize(int width, int height) {
+		self.requireIdle();
+		if (width < 0 || height < 0 || (uint32_t)width > self._maximumDimension || (uint32_t)height > self._maximumDimension) { throw "GPU frame dimensions exceed device limits"; }
+		if (width == self._width && height == self._height) { return; }
+		if (self._configured) { wgpuSurfaceUnconfigure(self._surface); }
+		self._configured = false;
+		self._width = width;
+		self._height = height;
+	}
+
+	private void configure() {
+		WGPUSurfaceConfiguration configuration = {null};
+		configuration.device = self._device.nativeDevice();
+		configuration.format = self._format;
+		configuration.usage = WGPUTextureUsage_RenderAttachment;
+		if (self._capture) { configuration.usage |= WGPUTextureUsage_CopySrc; }
+		configuration.width = (uint32_t)self._width;
+		configuration.height = (uint32_t)self._height;
+		configuration.presentMode = WGPUPresentMode_Fifo;
+		configuration.alphaMode = self._alphaMode;
+		wgpuSurfaceConfigure(self._surface, &configuration);
+		self._configured = true;
+		self._needsConfigure = false;
+	}
+
+	public GPUFrameAvailability beginFrame(double red, double green, double blue, double alpha = 1.0) {
+		self.requireIdle();
+		if (self._frameNumber == ULLONG_MAX) { throw "GPU frame sequence exhausted"; }
+		if (!Math.isFinite(red) || !Math.isFinite(green) || !Math.isFinite(blue) || !Math.isFinite(alpha)) { throw "GPU clear color must be finite"; }
+		self._error = "";
+		if (self._width == 0 || self._height == 0) { return GPU_SURFACE_FRAME_EMPTY; }
+		var device = self._device.nativeDevice();
+		if (!self._configured || self._needsConfigure) { self.configure(); }
+		WGPUSurfaceTexture current = {null};
+		wgpuSurfaceGetCurrentTexture(self._surface, &current);
+		self._texture = current.texture;
+		if (current.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal && current.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
+			self.releaseFrame();
+			if (current.status == WGPUSurfaceGetCurrentTextureStatus_Timeout) { return GPU_SURFACE_FRAME_RETRY; }
+			if (current.status == WGPUSurfaceGetCurrentTextureStatus_Outdated) { self._needsConfigure = true; return GPU_SURFACE_FRAME_RETRY; }
+			int status = (int)current.status;
+			self._error = f"Cannot acquire GPU frame ({status})";
+			return GPU_SURFACE_FRAME_UNAVAILABLE;
+		}
+		if (self._texture == null) { self._error = "GPU surface returned no frame texture"; return GPU_SURFACE_FRAME_UNAVAILABLE; }
+		self._needsConfigure = current.status == WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal;
+		self._view = wgpuTextureCreateView(self._texture, null);
+		self._encoder = wgpuDeviceCreateCommandEncoder(device, null);
+		if (self._view == null || self._encoder == null) { self.releaseFrame(); self._error = "Cannot allocate GPU frame"; return GPU_SURFACE_FRAME_UNAVAILABLE; }
+		WGPURenderPassColorAttachment color = {null};
+		color.view = self._view;
+		color.depthSlice = wgpuDepthSliceUndefined;
+		color.loadOp = WGPULoadOp_Clear;
+		color.storeOp = WGPUStoreOp_Store;
+		color.clearValue.r = red;
+		color.clearValue.g = green;
+		color.clearValue.b = blue;
+		color.clearValue.a = alpha;
+		WGPURenderPassDescriptor descriptor = {null};
+		descriptor.colorAttachmentCount = (size_t)1;
+		descriptor.colorAttachments = &color;
+		self._pass = wgpuCommandEncoderBeginRenderPass(self._encoder, &descriptor);
+		if (self._pass == null) { self.releaseFrame(); self._error = "Cannot begin GPU drawing"; return GPU_SURFACE_FRAME_UNAVAILABLE; }
+		self._frameNumber++;
+		return GPU_SURFACE_FRAME_READY;
+	}
+
+	public WGPURenderPassEncoder nativePass() { self.requireOpen(); if (self._pass == null) { throw "GPU drawing is not active"; } return self._pass; }
+
+	public void finishDrawing() {
+		self.requireOpen();
+		if (self._encoder == null) { throw "GPU frame is not active"; }
+		if (self._pass != null) { wgpuRenderPassEncoderEnd(self._pass); wgpuRenderPassEncoderRelease(self._pass); self._pass = null; }
+	}
+
+	public WGPUCommandEncoder nativeEncoder() { self.requireOpen(); if (self._encoder == null || self._pass != null) { throw "Finish GPU drawing before encoding additional commands"; } return self._encoder; }
+
+	public WGPUTexture nativeTexture() { self.requireOpen(); if (self._texture == null) { throw "GPU frame is not active"; } return self._texture; }
+
+	public bool present() {
+		self.requireOpen();
+		var queue = self._device.nativeQueue();
+		self.finishDrawing();
+		const WGPUCommandBuffer commands = wgpuCommandEncoderFinish(self._encoder, null);
+		if (commands == null) { self.releaseFrame(); self._error = "Cannot finish GPU frame"; return false; }
+		wgpuQueueSubmit(queue, (size_t)1, &commands);
+		var status = wgpuSurfacePresent(self._surface);
+		wgpuCommandBufferRelease(commands);
+		self.releaseFrame();
+		if (status != WGPUStatus_Success) { self._error = "Cannot present GPU frame"; return false; }
+		return true;
+	}
+
+	private void releaseFrame() {
+		if (self._pass != null) { wgpuRenderPassEncoderEnd(self._pass); wgpuRenderPassEncoderRelease(self._pass); self._pass = null; }
+		if (self._encoder != null) { wgpuCommandEncoderRelease(self._encoder); self._encoder = null; }
+		if (self._view != null) { wgpuTextureViewRelease(self._view); self._view = null; }
+		if (self._texture != null) { wgpuTextureRelease(self._texture); self._texture = null; }
+	}
+
+	public void discardFrame() { self.requireOpen(); self.releaseFrame(); }
+
+	public void close() {
+		if (self._closed) { return; }
+		self.releaseFrame();
+		if (self._configured) { wgpuSurfaceUnconfigure(self._surface); }
+		self._configured = false;
+		self._closed = true;
+	}
+
+	public void __del__() { self.close(); }
+}

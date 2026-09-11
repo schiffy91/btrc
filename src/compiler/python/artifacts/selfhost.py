@@ -790,7 +790,7 @@ stdlib/. An invalid BTRC_HOME is an error and never falls back silently.
 
 Generated C that imports a native module must be compiled with the bundle's
 headers. Add the printed stdlib directory and the imported module directory to
-the C include path, for example `-I <stdlib-dir> -I <stdlib-dir>/gui`. Link the
+the C include path, for example `-I <stdlib-dir> -I <stdlib-dir>/GUI`. Link the
 matching runtime source/library and any platform dependencies documented by
 that module (gpu/, gui/, or tray/).
 

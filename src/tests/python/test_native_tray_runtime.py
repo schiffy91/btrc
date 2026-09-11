@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
-TRAY = ROOT / "src" / "stdlib" / "tray"
+TRAY = ROOT / "src" / "stdlib" / "Tray"
 HARNESS = ROOT / "src" / "tests" / "native" / "tray_linux_wire.c"
 DISCONNECT_HARNESS = ROOT / "src" / "tests" / "native" / "tray_linux_disconnect.c"
 

@@ -72,6 +72,24 @@ def test_sole_entry_point_survives_normal_reachability():
     assert [function.name for function in module.function_defs] == ["main"]
 
 
+def test_native_ownership_casts_keep_effectful_global_initializers():
+    module = IRModule(
+        language="objective-c",
+        function_defs=[_fn("main")],
+        global_decls=[
+            IRGlobalDecl(
+                c_type=CType("void*"),
+                name=operation,
+                is_static=True,
+                init=IRCast(CType("void*"), IRLiteral("0"), bridge=operation),
+            )
+            for operation in ("borrow", "retain", "transfer")
+        ],
+    )
+    IROptimizer(module).optimize()
+    assert {declaration.name for declaration in module.global_decls} == {"retain", "transfer"}
+
+
 def test_sole_non_entry_function_is_removed():
     module = IRModule(
         function_defs=[_fn("orphan")],

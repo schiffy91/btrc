@@ -120,7 +120,7 @@ archive layout and cross-translation-unit ownership contract. Run
 | No memory management | ARC (Automatic Reference Counting) |
 | No type inference | `var x = 42;` just works |
 | `printf` formatting | f-strings: `f"x = {x + 1}"` |
-| Ad hoc include order | `import Library.{Json, Process}`, `import ./src/**`, plus old `#include` compatibility |
+| Ad hoc include order | `import Library.{JSON, Process}`, `import ./src/**`, plus old `#include` compatibility |
 | No collections | `Vector<T>`, `Map<K,V>`, `Set<T>`, `List<T>`, `Array<T>` with rich APIs |
 | No lambdas | Arrow lambdas: `(int x) => x * 2` |
 | No exceptions | `try`/`catch`/`finally` with ARC-safe cleanup on throw |
@@ -146,7 +146,7 @@ fragments share visibility in both directions. New modular code should prefer
 `import`; `--relaxed-imports` is the explicit legacy opt-out.
 
 ```
-import Library.{Cli, FileSystem, Json, Process, Toml, Ui}
+import Library.{CLI, FileSystem, JSON, Process, TOML, UI}
 import Library.*
 import ./src/core/*
 import ./src/**
@@ -181,10 +181,10 @@ The current stdlib surfaces are intentionally practical:
   `ChildProcess` for shell/process orchestration
 - `FileSystem`, `PathTools`, `Directory`, `DirectoryLease`, and `FileStatus` for
   filesystem work, including identity-matched recursive removal
-- `JsonObject`, `JsonValue`, and `Toml` for declarative data, including compact,
+- `JSONObject`, `JSONValue`, and `TOML` for declarative data, including compact,
   pretty, and canonical newline-terminated JSON document serialization
-- `CliArgs`, `CliCommand`, `CliCommandLine`, and `CliHelp` for simple CLIs
-- `UiDocument`, `Window`, `Tray`, `DaemonSpec`, and related daemon/UI models for
+- `CLIArgs`, `CLICommand`, `CLICommandLine`, and `CLIHelp` for simple CLIs
+- `UIDocument`, `Window`, `Tray`, `DaemonSpec`, and related daemon/UI models for
   lightweight native-app scaffolding
 - `Platform`, `Environment`, and `Terminal` for OS/runtime integration
 
@@ -853,7 +853,7 @@ Captured class instances are ARC-safe -- the compiler increments the reference c
 Array params become storage buffers, scalar params become uniforms, `gpu_id()` maps to the global invocation index, and `return` writes to an output buffer. Void-returning kernels mutate arrays in-place.
 
 ```
-#include <Gpu.btrc>
+#include <GPU.btrc>
 
 // In-place mutation: each thread scales one element
 @gpu
@@ -1016,7 +1016,7 @@ rng.shuffle(myVector);             // in-place Fisher-Yates
 #### File I/O
 
 ```
-import Library.Io;
+import Library.IO;
 
 File f = File("data.txt", "r");
 if (f.ok()) {
@@ -1278,12 +1278,12 @@ src/
     Math.btrc                  # Math static utilities
     Datetime.btrc              # DateTime + Timer
     Random.btrc                # Random number generation
-    Io.btrc                    # File + Path I/O
+    IO.btrc                    # File + Path I/O
     Console.btrc               # Console output
     Error.btrc                 # Error class hierarchy
     Result.btrc                # Result<T,E> type
     gpu/                       # GPU runtime (WebGPU/wgpu-native)
-      Gpu.btrc                 # GPU btrc types
+      GPU.btrc                 # GPU btrc types
       btrc_gpu.h               # C header for GPU compute functions
       btrc_gpu.c               # Strict-C11 implementation (wgpu-native backend)
       btrc_gpu_compute_singleton.h # Atomic compute-context publication
@@ -1421,11 +1421,11 @@ Verify a release before extracting it with `sha256sum -c <archive>.sha256`
 For generated C that imports a native module, add the reported stdlib path and
 the module subdirectory to the C compiler include path—for example,
 `stdlib="$(btrcc --stdlib-dir)"` followed by
-`cc -I "$stdlib" -I "$stdlib/gui" ...`. Link the corresponding bundled/runtime
-source or library and the platform dependencies documented by `gpu/`, `gui/`,
-or `tray/`.
+`cc -I "$stdlib" -I "$stdlib/GUI" ...`. Link the corresponding bundled/runtime
+source or library and the platform dependencies documented by `GPU/`, `GUI/`,
+or `Tray/`.
 
-**Windows** uses a small compat layer in [`src/stdlib/win/`](src/stdlib/win/)
+**Windows** uses a small compat layer in [`src/stdlib/Windows/`](src/stdlib/Windows/)
 (applied only to Windows builds, via `-I` + `-include`) that fills the handful of
 POSIX headers/symbols MinGW-w64 omits. This gets `btrcc` and ordinary btrc
 programs building and running on Windows; the POSIX-only stdlib modules

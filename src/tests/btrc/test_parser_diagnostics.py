@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from src.compiler.python.syntax.tokens import TokenVocabulary
+
 REPO = Path(__file__).resolve().parents[3]
 CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
 DRIVER_SOURCES = {
@@ -157,6 +159,21 @@ def test_valid_program_still_crosses_both_boundaries(selfhost_drivers: dict[str,
     assert c_result.returncode == 0, c_result.stderr
     run_result = _run([str(binary)], timeout=15)
     assert run_result.returncode == 0
+
+
+def test_keyword_member_names_match_reference_ast(selfhost_drivers: dict[str, Path], tmp_path: Path) -> None:
+    program = tmp_path / "NativeMembers.btrc"
+    members = (
+        f"receiver{operator}{keyword}();"
+        for operator in (".", "?.", "->")
+        for keyword in sorted(TokenVocabulary.canonical().keywords)
+    )
+    program.write_text("void inspect() {\n" + "\n".join(members) + "\n}\n")
+    parsed = _run([str(selfhost_drivers["parser"]), str(program)], timeout=15)
+    reference = _run(["python3", "-m", "tools.compiler_codegen.main", "verify-ast", str(program)], timeout=15)
+    assert parsed.returncode == 0, parsed.stderr
+    assert reference.returncode == 0, reference.stderr
+    assert parsed.stdout == reference.stdout
 
 
 @pytest.mark.skipif(not Path("/dev/full").exists(), reason="requires /dev/full")

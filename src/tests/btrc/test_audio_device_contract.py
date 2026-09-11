@@ -13,7 +13,7 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 REPOSITORY = Path(__file__).resolve().parents[3]
 FIXTURE = Path(__file__).with_name("fixtures") / "AudioDeviceContract.btrc"
-API = REPOSITORY / "src" / "stdlib" / "AudioDevice.btrc"
+API = REPOSITORY / "src" / "stdlib" / "Audio" / "AudioDevice.btrc"
 STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 

@@ -46,6 +46,9 @@ _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _MODULE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$")
 _NATIVE_NAME = re.compile(r"^[A-Za-z0-9_.+-]+$")
 _NATIVE_SYMBOL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$")
+_OBJECTIVE_C_SYMBOL = re.compile(
+    r"^[+-]\[[A-Za-z_][A-Za-z0-9_]* (?:[A-Za-z_][A-Za-z0-9_]*|(?:[A-Za-z_][A-Za-z0-9_]*:)+)\]$"
+)
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _TARGET_OPERATING_SYSTEMS = frozenset({"linux", "macos", "windows"})
@@ -252,6 +255,11 @@ class NativeBinding:
     symbols: tuple[str, ...]
     operating_systems: tuple[str, ...] = ()
     architectures: tuple[str, ...] = ()
+    read_only_borrows: tuple[str, ...] = ()
+    realtime_safe: tuple[str, ...] = ()
+    owned_records: tuple[str, ...] = ()
+    record_inputs: tuple[str, ...] = ()
+    object_fields: tuple[tuple[str, str], ...] = ()
 
     def selected_for(self, target: PackageTarget) -> bool:
         return (not self.operating_systems or target.operating_system in self.operating_systems) and (
@@ -293,12 +301,33 @@ class PackageNode:
 
 
 @dataclass(frozen=True)
+class NativeGeneratedUnit:
+    """Compiler-emitted adapter text, never a file inside a source package."""
+
+    name: str
+    language: str
+    standard: str
+    memory_management: str
+    source: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "name": self.name,
+            "language": self.language,
+            "standard": self.standard,
+            "memory-management": self.memory_management,
+            "source": self.source,
+        }
+
+
+@dataclass(frozen=True)
 class NativeLinkPlan:
     """Canonical, target-filtered native build requirements."""
 
     target: PackageTarget
     packages: tuple[PackageNode, ...] = ()
     declarations: tuple[NativeDeclaration, ...] = ()
+    generated_units: tuple[NativeGeneratedUnit, ...] = ()
 
     @property
     def bindings(self) -> tuple[NativeBinding, ...]:
@@ -314,7 +343,7 @@ class NativeLinkPlan:
         if self.bindings:
             binding = self.bindings[0]
             raise IncludeResolutionError(
-                f"native binding for module {binding.module!r} requires typed native import support, which is not implemented yet"
+                f"native binding for module {binding.module!r} requires BTRC_NATIVE_HEADER_READER for typed header imports"
             )
 
     @classmethod
@@ -325,7 +354,8 @@ class NativeLinkPlan:
     def linker_language(self) -> str:
         return (
             "c++"
-            if any(
+            if any(unit.language in {"c++", "objective-c++"} for unit in self.generated_units)
+            or any(
                 item.selected_for(self.target) and item.kind == "source" and item.language in {"c++", "objective-c++"}
                 for item in self.declarations
             )
@@ -357,7 +387,7 @@ class NativeLinkPlan:
             for item in selected
             if item.kind == "define"
         ]
-        return {
+        result = {
             "defines": sorted(defines, key=lambda item: (item["package"], item["name"], item["value"])),
             "frameworks": sorted(
                 (self._name_record(item) for item in selected if item.kind == "framework"),
@@ -388,6 +418,12 @@ class NativeLinkPlan:
             "target": self.target.as_dict(),
             "units": sorted(sources, key=lambda item: (item["package"], item["path"], item["language"])),
         }
+        if self.generated_units:
+            result["schema"] = 2
+            result["generated-units"] = [
+                unit.as_dict() for unit in sorted(self.generated_units, key=lambda unit: unit.name)
+            ]
+        return result
 
     def canonical_json(self) -> str:
         return (
@@ -449,151 +485,44 @@ class NativeLinkPlan:
                 or any(self._source_identity(module) in source_identities for module in declaration.modules)
             )
         )
-        return NativeLinkPlan(self.target, packages, declarations)
+        return NativeLinkPlan(self.target, packages, declarations, self.generated_units)
 
-    def with_stdlib_background_jobs(self, stdlib_directory: str) -> NativeLinkPlan:
-        """Return a plan that owns the imported background-job runtime.
-
-        The runtime ships with the compiler data bundle.  Describing its
-        source as a native unit keeps plans relocatable and avoids coupling a
-        consumer to an ambient checkout's prebuilt archive.
-        """
-
-        package_name = "btrc_stdlib_runtime"
-        if any(package.name == package_name for package in self.packages):
-            raise IncludeResolutionError(
-                f"package identity {package_name!r} is reserved for compiler-owned stdlib runtimes"
-            )
+    def with_stdlib(self, stdlib_directory: str, sources: Iterable[str]) -> NativeLinkPlan:
+        """Compose compiler-owned native metadata through the ordinary manifest."""
         root = os.path.realpath(stdlib_directory)
-        runtime = os.path.join(root, "background_jobs")
-        source = os.path.join(runtime, "btrc_background_jobs.c")
-        header = os.path.join(runtime, "btrc_background_jobs.h")
-        if not os.path.isdir(root) or not os.path.isdir(runtime):
-            raise IncludeResolutionError("Library.BackgroundJobs native runtime directory is unavailable")
-        if not os.path.isfile(source) or not os.path.isfile(header):
-            raise IncludeResolutionError("Library.BackgroundJobs native runtime sources are unavailable")
-        package = PackageNode(
-            package_name,
-            root,
-            {},
-            {"path": root},
-            "",
-        )
-        supported = ("linux", "macos")
-        declarations = (
-            NativeDeclaration(
-                "source",
-                package_name,
-                source,
-                language="c",
-                standard="c11",
-                operating_systems=supported,
-            ),
-            NativeDeclaration(
-                "header",
-                package_name,
-                header,
-                operating_systems=supported,
-            ),
-            NativeDeclaration(
-                "include-directory",
-                package_name,
-                runtime,
-                operating_systems=supported,
-            ),
-        )
+        path = os.path.join(root, "btrc.toml")
+        if not os.path.exists(path):
+            return self
+        try:
+            manifest, encoded = PackageManifestReader().read_document(path)
+            validator = PackageManifestValidator()
+            name = validator.validate_identity(manifest, path)
+            if name != "btrc_stdlib_runtime" or validator.dependencies(manifest, path):
+                raise ValueError("stdlib manifest must declare btrc_stdlib_runtime without dependencies")
+            native = validator.native(manifest, root, name, path)
+            bindings = validator.bindings(manifest, root, name, path)
+        except (OSError, ValueError) as error:
+            raise IncludeResolutionError(f"stdlib native manifest: {error}") from error
+        package = PackageNode(name, root, {}, {"path": root}, hashlib.sha256(encoded).hexdigest(), native, bindings)
+        selected = NativeLinkPlan(self.target, (package,), native).for_sources(sources)
+        if not selected.declarations and not selected.bindings:
+            return self
+        for existing in self.packages:
+            if existing.name == name:
+                if (
+                    self._source_identity(existing.root) == self._source_identity(root)
+                    and existing.manifest_hash == package.manifest_hash
+                ):
+                    return self
+                raise IncludeResolutionError(
+                    f"package identity {name!r} is reserved for compiler-owned stdlib runtimes"
+                )
         return NativeLinkPlan(
             self.target,
-            self.packages + (package,),
-            self.declarations + declarations,
+            self.packages + selected.packages,
+            self.declarations + selected.declarations,
+            self.generated_units,
         )
-
-    def with_stdlib_local_application_channel(self, stdlib_directory: str) -> NativeLinkPlan:
-        """Return a plan that owns the imported local-application runtime."""
-
-        package_name = "btrc_stdlib_local_application_channel_runtime"
-        if any(package.name == package_name for package in self.packages):
-            raise IncludeResolutionError(
-                f"package identity {package_name!r} is reserved for compiler-owned stdlib runtimes"
-            )
-        root = os.path.realpath(stdlib_directory)
-        runtime = os.path.join(root, "local_application_channel")
-        source = os.path.join(runtime, "btrc_local_application_channel.c")
-        header = os.path.join(runtime, "btrc_local_application_channel.h")
-        if not os.path.isdir(root) or not os.path.isdir(runtime):
-            raise IncludeResolutionError("Library.LocalApplicationChannel native runtime directory is unavailable")
-        if not os.path.isfile(source) or not os.path.isfile(header):
-            raise IncludeResolutionError("Library.LocalApplicationChannel native runtime sources are unavailable")
-        package = PackageNode(package_name, root, {}, {"path": root}, "")
-        supported = ("linux", "macos", "windows")
-        declarations = (
-            NativeDeclaration(
-                "source", package_name, source, language="c", standard="c11", operating_systems=supported
-            ),
-            NativeDeclaration("header", package_name, header, operating_systems=supported),
-            NativeDeclaration("include-directory", package_name, runtime, operating_systems=supported),
-        )
-        return NativeLinkPlan(self.target, self.packages + (package,), self.declarations + declarations)
-
-    def with_stdlib_core_audio_device(self, stdlib_directory: str) -> NativeLinkPlan:
-        """Return a plan that owns the imported macOS CoreAudio runtime."""
-
-        package_name = "btrc_stdlib_core_audio_device_runtime"
-        if any(package.name == package_name for package in self.packages):
-            raise IncludeResolutionError(
-                f"package identity {package_name!r} is reserved for compiler-owned stdlib runtimes"
-            )
-        root = os.path.realpath(stdlib_directory)
-        runtime = os.path.join(root, "core_audio_device")
-        source = os.path.join(runtime, "btrc_core_audio_device.c")
-        header = os.path.join(runtime, "btrc_core_audio_device.h")
-        if not os.path.isdir(root) or not os.path.isdir(runtime):
-            raise IncludeResolutionError("Library.CoreAudioDevice native runtime directory is unavailable")
-        if not os.path.isfile(source) or not os.path.isfile(header):
-            raise IncludeResolutionError("Library.CoreAudioDevice native runtime sources are unavailable")
-        package = PackageNode(package_name, root, {}, {"path": root}, "")
-        supported = ("macos",)
-        declarations = (
-            NativeDeclaration(
-                "source", package_name, source, language="c", standard="c11", operating_systems=supported
-            ),
-            NativeDeclaration("header", package_name, header, operating_systems=supported),
-            NativeDeclaration("include-directory", package_name, runtime, operating_systems=supported),
-            NativeDeclaration("framework", package_name, "AudioToolbox", operating_systems=supported),
-            NativeDeclaration("framework", package_name, "CoreAudio", operating_systems=supported),
-            NativeDeclaration("framework", package_name, "CoreFoundation", operating_systems=supported),
-        )
-        return NativeLinkPlan(self.target, self.packages + (package,), self.declarations + declarations)
-
-    def with_stdlib_macos_encoded_image_decoder(self, stdlib_directory: str) -> NativeLinkPlan:
-        """Return a plan that owns the imported macOS image decoder runtime."""
-
-        package_name = "btrc_stdlib_macos_encoded_image_decoder_runtime"
-        if any(package.name == package_name for package in self.packages):
-            raise IncludeResolutionError(
-                f"package identity {package_name!r} is reserved for compiler-owned stdlib runtimes"
-            )
-        root = os.path.realpath(stdlib_directory)
-        runtime = os.path.join(root, "macos_encoded_image_decoder")
-        source = os.path.join(runtime, "btrc_macos_encoded_image_decoder.c")
-        header = os.path.join(runtime, "btrc_macos_encoded_image_decoder.h")
-        if not os.path.isdir(root) or not os.path.isdir(runtime):
-            raise IncludeResolutionError("Library.MacOsEncodedImageDecoder native runtime directory is unavailable")
-        if not os.path.isfile(source) or not os.path.isfile(header):
-            raise IncludeResolutionError("Library.MacOsEncodedImageDecoder native runtime sources are unavailable")
-        package = PackageNode(package_name, root, {}, {"path": root}, "")
-        supported = ("macos",)
-        declarations = (
-            NativeDeclaration(
-                "source", package_name, source, language="c", standard="c11", operating_systems=supported
-            ),
-            NativeDeclaration("header", package_name, header, operating_systems=supported),
-            NativeDeclaration("include-directory", package_name, runtime, operating_systems=supported),
-            NativeDeclaration("framework", package_name, "CoreFoundation", operating_systems=supported),
-            NativeDeclaration("framework", package_name, "CoreGraphics", operating_systems=supported),
-            NativeDeclaration("framework", package_name, "ImageIO", operating_systems=supported),
-        )
-        return NativeLinkPlan(self.target, self.packages + (package,), self.declarations + declarations)
 
 
 @dataclass(frozen=True)
@@ -922,7 +851,24 @@ class PackageManifestValidator:
         for index, entry in enumerate(entries):
             context = f"package manifest {path!r} native.bindings[{index}]"
             self._reject_unknown(
-                entry, frozenset({"module", "header", "symbols", "language", "standard", "os", "arch"}), context
+                entry,
+                frozenset(
+                    {
+                        "module",
+                        "header",
+                        "symbols",
+                        "language",
+                        "standard",
+                        "os",
+                        "arch",
+                        "read-only-borrows",
+                        "realtime-safe",
+                        "owned-records",
+                        "record-inputs",
+                        "object-fields",
+                    }
+                ),
+                context,
             )
             module = entry.get("module")
             if not isinstance(module, str) or _MODULE_NAME.fullmatch(module) is None:
@@ -933,7 +879,17 @@ class PackageManifestValidator:
             if (
                 not isinstance(symbols, list)
                 or not symbols
-                or not all(isinstance(symbol, str) and _NATIVE_SYMBOL.fullmatch(symbol) for symbol in symbols)
+                or not all(
+                    isinstance(symbol, str)
+                    and (
+                        _NATIVE_SYMBOL.fullmatch(symbol)
+                        or (
+                            entry.get("language") in ("objective-c", "objective-c++")
+                            and _OBJECTIVE_C_SYMBOL.fullmatch(symbol)
+                        )
+                    )
+                    for symbol in symbols
+                )
             ):
                 raise ValueError(f"{context}.symbols must be a non-empty array of qualified native names")
             if len(set(symbols)) != len(symbols):
@@ -944,6 +900,60 @@ class PackageManifestValidator:
                 raise ValueError(f"{context}.language is unsupported")
             if not isinstance(standard, str) or standard not in _SOURCE_STANDARDS[language]:
                 raise ValueError(f"{context}.standard is unsupported for {language}")
+            borrows = entry.get("read-only-borrows", [])
+            if not isinstance(borrows, list) or not all(
+                isinstance(value, str)
+                and value.count(".") == 1
+                and value.rsplit(".", 1)[0] in symbols
+                and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value.rsplit(".", 1)[1])
+                for value in borrows
+            ):
+                raise ValueError(f"{context}.read-only-borrows must be an array of selected function.parameter pairs")
+            if len(set(borrows)) != len(borrows):
+                raise ValueError(f"{context}.read-only-borrows contains a duplicate value")
+            realtime = entry.get("realtime-safe", [])
+            if not isinstance(realtime, list) or not all(
+                isinstance(value, str) and value in symbols for value in realtime
+            ):
+                raise ValueError(f"{context}.realtime-safe must be an array of selected function names")
+            if len(set(realtime)) != len(realtime):
+                raise ValueError(f"{context}.realtime-safe contains a duplicate value")
+            records = entry.get("owned-records", [])
+            if (
+                not isinstance(records, list)
+                or not all(
+                    isinstance(value, str) and value in symbols and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value)
+                    for value in records
+                )
+                or len(set(records)) != len(records)
+            ):
+                raise ValueError(f"{context}.owned-records must name distinct selected records")
+            inputs = entry.get("record-inputs", [])
+            if (
+                not isinstance(inputs, list)
+                or not all(
+                    isinstance(value, str)
+                    and value.count(".") == 1
+                    and value.split(".")[0] in symbols
+                    and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value.split(".")[1])
+                    for value in inputs
+                )
+                or len(set(inputs)) != len(inputs)
+            ):
+                raise ValueError(f"{context}.record-inputs must name distinct selected function.parameter pairs")
+            object_fields = entry.get("object-fields", {})
+            if not isinstance(object_fields, dict) or not all(
+                isinstance(key, str)
+                and key.count(".") == 1
+                and key.split(".")[0] in records
+                and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key.split(".")[1])
+                and isinstance(value, str)
+                and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\??", value)
+                for key, value in object_fields.items()
+            ):
+                raise ValueError(f"{context}.object-fields must map selected record.field names to object types")
+            if (records or inputs or object_fields) and language != "c":
+                raise ValueError(f"{context}: record input projections currently require a C binding")
             binding = NativeBinding(
                 package,
                 module_path,
@@ -953,6 +963,11 @@ class PackageManifestValidator:
                 tuple(sorted(symbols)),
                 self._target_values(entry, "os", _TARGET_OPERATING_SYSTEMS, context),
                 self._target_values(entry, "arch", _TARGET_ARCHITECTURES, context),
+                tuple(sorted(borrows)),
+                tuple(sorted(realtime)),
+                tuple(sorted(records)),
+                tuple(sorted(inputs)),
+                tuple(sorted(object_fields.items())),
             )
             if any(binding.overlaps(previous) for previous in bindings):
                 raise ValueError(f"{context} overlaps a native binding for the same module and target")

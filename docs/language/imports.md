@@ -42,7 +42,7 @@ resolved module. Each imported module must still declare its own dependencies.
 
 ```btrc
 import Library.Vector;
-import Library.{FileSystem, Json};
+import Library.{FileSystem, JSON};
 import ./Model.btrc;
 import ./commands/*;
 ```

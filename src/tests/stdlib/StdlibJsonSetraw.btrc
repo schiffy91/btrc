@@ -1,14 +1,14 @@
-/* JsonObject.setRaw(key, value): emit an UNquoted raw JSON fragment (a nested
- * array/object literal) — the one JsonObject builder setter the suite never
+/* JSONObject.setRaw(key, value): emit an UNquoted raw JSON fragment (a nested
+ * array/object literal) — the one JSONObject builder setter the suite never
  * touches. It distinguishes the quoted vs unquoted code path in stringify():
  * setString wraps its value in quotes and escapes it; setRaw emits the value
  * verbatim. */
-import Library.Json;
+import Library.JSON;
 
 #include <assert.h>
 
 int main() {
-	JsonObject o = JsonObject();
+	JSONObject o = JSONObject();
 	o.setString("name", "x");      /* quoted path */
 	o.setRaw("nums", "[1,2,3]");   /* raw path: array literal, no quotes */
 
@@ -21,7 +21,7 @@ int main() {
 	assert(!s.contains("\"nums\":\"[1,2,3]\""));
 
 	/* A nested object literal also survives raw. */
-	JsonObject o2 = JsonObject();
+	JSONObject o2 = JSONObject();
 	o2.setRaw("obj", "{\"k\":1}");
 	string s2 = o2.stringify();
 	assert(s2.contains("\"obj\":{\"k\":1}"));

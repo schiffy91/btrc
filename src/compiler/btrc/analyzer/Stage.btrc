@@ -15,7 +15,7 @@ import ./ownership/Values.btrc;
 import ./ownership/Cycles.btrc;
 import ../generated/hosted_abi/Tables.btrc;
 import ./HostedAbi.btrc;
-import ./Gpu.btrc;
+import ./GPU.btrc;
 import ./SourceMacros.btrc;
 import ./Realtime.btrc;
 import ./validation/Types.btrc;

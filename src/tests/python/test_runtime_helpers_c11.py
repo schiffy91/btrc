@@ -47,6 +47,7 @@ HELPER_ORDER = (
     (TRYCATCH, "__btrc_cleanup_types"),
     (TRYCATCH, "__btrc_cleanup_capacity"),
     (TRYCATCH, "__btrc_register_cleanup"),
+    (TRYCATCH, "__btrc_register_direct_cleanup"),
     (TRYCATCH, "__btrc_discard_cleanups"),
     (TRYCATCH, "__btrc_run_cleanups"),
     (TRYCATCH, "__btrc_throw"),
@@ -100,6 +101,76 @@ def _compile(tmp_path: Path, compiler: str, main: str, *, ubsan=False) -> Path:
         timeout=120,
     )
     return binary
+
+
+@pytest.mark.skipif(NO_C11_RUNTIME, reason="requires POSIX C11 runtime")
+@pytest.mark.parametrize("c_compiler", COMPILERS)
+def test_foreign_thread_boundary_cleans_tls_and_contains_exceptions(tmp_path: Path, c_compiler: str):
+    main = r"""
+static int disposed;
+static int cleanup_throws;
+static void* take_slot(void* raw) {
+    void* volatile* slot = (void* volatile*)raw;
+    void* value = *slot;
+    *slot = NULL;
+    return value;
+}
+static void dispose_slot(void* value) {
+    (void)value;
+    disposed++;
+    if (cleanup_throws) __btrc_throw("cleanup failure");
+}
+static int action(void* raw) {
+    int mode = *(int*)raw;
+    __btrc_destroyed_tracking_begin();
+    __btrc_mark_destroyed(raw);
+    __btrc_destroyed_tracking_end();
+    if (mode == 2) {
+        int result = 73;
+        int level = __btrc_try_top;
+        if (__btrc_native_thread_invoke(action, raw, &result) != 1
+                || result != 73 || __btrc_try_top != level) return -2;
+    }
+    if (mode == 1 || mode == 3) {
+        void* volatile slot = raw;
+        cleanup_throws = mode == 3;
+        __btrc_register_direct_cleanup((void*)&slot, take_slot, dispose_slot);
+        __btrc_throw("callback failure");
+    }
+    return 42;
+}
+static int clean(void) {
+    return __btrc_try_stack == NULL && __btrc_cleanup_stack == NULL
+        && __btrc_try_top == -1 && __btrc_cleanup_top == -1
+        && __btrc_destroyed == NULL && __btrc_destroyed_cap == 0;
+}
+static void* worker(void* unused) {
+    (void)unused;
+    if (!clean()) return (void*)1;
+    for (int index = 0; index < 256; index++) {
+        int mode = index % 4;
+        int result = 73;
+        int status = __btrc_native_thread_invoke(action, &mode, &result);
+        int failed = mode == 1 || mode == 3;
+        if (status != failed || result != (failed ? 0 : 42) || !clean()) return (void*)2;
+    }
+    int result = 73;
+    if (__btrc_native_thread_invoke(NULL, NULL, &result) != 1
+            || result != 73 || !clean()) return (void*)3;
+    if (__btrc_native_thread_invoke(action, NULL, NULL) != 1 || !clean()) return (void*)4;
+    return NULL;
+}
+int main(void) {
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, worker, NULL) != 0) return 1;
+    void* result = NULL;
+    if (pthread_join(thread, &result) != 0 || result != NULL) return 2;
+    return disposed == 128 ? 0 : 3;
+}
+"""
+    binary = _compile(tmp_path, c_compiler, main)
+    result = subprocess.run([binary], capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, (result.returncode, result.stderr)
 
 
 @pytest.mark.skipif(not CLANG or sys.platform == "win32", reason="requires Clang")

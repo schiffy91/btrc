@@ -13,6 +13,7 @@ from src.compiler.python.analyzer.types import (
     _RUNTIME_AGGREGATE_BASES,
     OperatorTypeError,
 )
+from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.lexer.lexer import LiteralDecoder
 from src.compiler.python.syntax.ast.generated import (
     AssignExpr,
@@ -331,6 +332,25 @@ class ExpressionAnalyzer:
 
     def _validate_address_operand(self, expression) -> None:
         operand = expression.operand
+        operand_type = self.types.canonical_type(self.infer_type(operand))
+        if (
+            self._is_read_only_native_global(operand)
+            and operand_type is not None
+            and (
+                self.types.is_pointer_value(operand_type)
+                or operand_type.base == "__fn_ptr"
+                or (
+                    operand_type.base in self.index.class_table
+                    and self.index.class_table[operand_type.base].native_language == "objective-c"
+                )
+            )
+        ):
+            self.session.error(
+                "Addressing a read-only native pointer slot requires qualified-pointer lowering",
+                expression.line,
+                expression.col,
+            )
+            return
         if self.ownership.addresses_callable_storage(operand):
             self.session.error(
                 "Managed-return callable storage cannot be addressed; an alias cannot preserve flow-sensitive return ownership ABI",
@@ -745,9 +765,23 @@ class ExpressionAnalyzer:
         if require_getter and (not prop.has_getter):
             self.session.error(f"Property '{target.field}' has no getter", line, col)
 
+    def _is_read_only_native_global(self, target) -> bool:
+        if not isinstance(target, Identifier):
+            return False
+        symbol = self.session.scope.lookup(target.name)
+        if symbol is None or symbol is not self.session.global_scope.lookup(target.name):
+            return False
+        declaration = self.index.global_declarations.get(target.name)
+        origin = getattr(declaration, "source_file", None)
+        return isinstance(origin, NativeHeaderSource) and origin.read_only
+
     def validate_mutable_target(self, target, line, col) -> bool:
-        target_type = self.types.canonical_type(self.infer_type(target))
-        if target_type is not None and target_type.is_const and (not self.types.is_pointer_value(target_type)):
+        if self._is_read_only_native_global(target):
+            self.session.error("Cannot modify read-only native global", line, col)
+            return False
+        declared_target_type = self.infer_type(target)
+        target_type = self.types.canonical_type(declared_target_type)
+        if self.storage.effective_outer_const(declared_target_type, self.index.typedef_table):
             self.session.error("Cannot modify const-qualified storage", line, col)
             return False
         if self._target_has_const_receiver(target):
@@ -868,6 +902,17 @@ class ExpressionAnalyzer:
         target = self.types.canonical_type(expression.target_type)
         source = self.types.canonical_type(self._infer_type(expression.expr))
         if target is None or source is None:
+            return
+        native_source = self.index.class_table.get(source.base)
+        native_target = self.index.class_table.get(target.base)
+        if (
+            native_source is not None
+            and native_target is not None
+            and native_source.native_language == "objective-c"
+            and native_target.native_language == "objective-c"
+            and not self.types.is_subclass(source.base, target.base)
+        ):
+            self.session.error("Objective-C casts require a proven object upcast", expression.line, expression.col)
             return
         if target.base == "__realtime_fn_ptr":
             self.session.error(
@@ -1160,7 +1205,17 @@ class ExpressionAnalyzer:
                 return TypeExpr(base="void", pointer_depth=1, is_nullable=True)
             sym = self.session.scope.lookup(expr.name)
             if sym:
-                return self.types.canonical_type(sym.type) or sym.type
+                value_type = self.types.canonical_type(sym.type) or sym.type
+                # Managed/builtin dispatch uses canonical types. Raw pointer
+                # aliases retain their declarator only when flattening would
+                # move const from a handle slot to the opaque pointee.
+                if self.storage.is_raw_pointer_value(value_type) and self.storage.const_qualifier_depths(
+                    sym.type, self.index.typedef_table
+                ) != self.storage.const_qualifier_depths(value_type, self.index.typedef_table):
+                    value_type = sym.type
+                if value_type is not None and (value_type.is_extern or value_type.is_static):
+                    value_type = replace(value_type, is_extern=False, is_static=False)
+                return value_type
             function = self.index.function_table.get(expr.name)
             if function:
                 return self.types.function_value_type(function)
@@ -1621,7 +1676,7 @@ class ExpressionAnalyzer:
             or (self.session.current_method and self.session.current_method.generic_params)
         )
 
-    def _analyze_expr(self, expr):
+    def _analyze_expr(self, expr, *, native_callback_write=False):
         if expr is None:
             return
         if isinstance(expr, (IntLiteral, FloatLiteral, StringLiteral, CharLiteral, BoolLiteral, NullLiteral)):
@@ -1687,10 +1742,10 @@ class ExpressionAnalyzer:
             self._analyze_expr(expr.index)
             self._validate_index_expr(expr)
         elif isinstance(expr, FieldAccessExpr):
-            self._analyze_field_access(expr)
+            self._analyze_field_access(expr, native_callback_write=native_callback_write)
         elif isinstance(expr, AssignExpr):
             with self.session.assignment_target():
-                self._analyze_expr(expr.target)
+                self._analyze_expr(expr.target, native_callback_write=expr.op == "=")
             self._analyze_expr(expr.value)
             self._validate_literal_divisor(expr.op, expr.value)
             if isinstance(expr.value, (ListLiteral, MapLiteral, BraceInitializer)):
@@ -1988,7 +2043,7 @@ class ExpressionAnalyzer:
             else:
                 self._collect_lambda_return_types(child, result)
 
-    def _analyze_field_access(self, expr, *, call_target=False):
+    def _analyze_field_access(self, expr, *, call_target=False, native_callback_write=False):
         if isinstance(expr.obj, Identifier) and expr.obj.name == "MemoryOrder":
             if expr.field not in {"RELAXED", "ACQUIRE", "RELEASE", "ACQ_REL", "SEQ_CST"}:
                 self.session.error(f"MemoryOrder has no member '{expr.field}'", expr.line, expr.col)
@@ -1998,6 +2053,19 @@ class ExpressionAnalyzer:
         else:
             self._analyze_expr(expr.obj)
         obj_type = self._infer_type(expr.obj)
+        canonical = self.types.canonical_type(obj_type)
+        structure = self.index.struct_table.get(canonical.base.removeprefix("struct ")) if canonical else None
+        origin = getattr(structure, "source_file", None)
+        if (
+            not native_callback_write
+            and isinstance(origin, NativeHeaderSource)
+            and expr.field in origin.field_contracts
+        ):
+            self.session.error(
+                "Reading a native callback field with non-null parameters requires a checked callback adapter",
+                expr.line,
+                expr.col,
+            )
         if (
             isinstance(expr.obj, Identifier)
             and self.session.scope.lookup(expr.obj.name) is None

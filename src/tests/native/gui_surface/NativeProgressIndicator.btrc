@@ -1,0 +1,73 @@
+import Library.Datetime;
+import Library.Image;
+import Library.IO;
+import Library.MacOSEncodedImageDecoder;
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSPanel;
+import Library.GUI.MacOS.MacOSProgressIndicator;
+import Library.GUI.MacOS.MacOSViewCapture;
+
+#include <assert.h>
+
+Image indicatorPixels(MacOSWindow window, string name) {
+	var bytes = MacOSViewCapture.captureTiff(window.contentView());
+	var file = File(f"{name}.tiff", "wb");
+	assert(file.ok() && file.writeBytes(bytes) && file.close());
+	return MacOSEncodedImageDecoder().decode(bytes, EncodedImageDecodeLimits(32000000, 4096, 4096, 4000000LL)).image();
+}
+
+int main() {
+	var app = MacOSApplication();
+	var window = MacOSWindow("Native loading", 240.0, 180.0);
+	var background = MacOSPanel(RGBA(25, 26, 27));
+	background.setFrame(0.0, 0.0, 240.0, 180.0);
+	window.contentView().addSubview(background.nativeView());
+	var indicator = MacOSProgressIndicator();
+	indicator.setFrame(104.0, 74.0, 32.0, 32.0);
+	background.addChild(indicator.nativeView());
+	assert(!window.isVisible());
+	window.show();
+	assert(window.isVisible());
+	assert(!indicator.isRunning());
+	var stopped = indicatorPixels(window, "StoppedIndicator");
+	indicator.setRunning(true);
+	indicator.setRunning(true);
+	var timer = Timer();
+	timer.start();
+	while (timer.elapsedMillis() < 200.0f) { app.pumpEvents(); }
+	assert(indicator.isRunning());
+	var running = indicatorPixels(window, "RunningIndicator");
+	var change = stopped.diffRegion(running, 0, 0, 0, 0, stopped.width, stopped.height);
+	assert(change.comparable && change.changedPixels > 0);
+	/* AppKit cacheDisplay captures the static control representation while
+	 * occluded, also in a native Swift baseline. This proves appearance, not
+	 * animation motion; do not compare successive cached images as that oracle. */
+	indicator.setRunning(false);
+	assert(!indicator.isRunning());
+	indicator.setRunning(true);
+	indicator.close();
+	indicator.close();
+	bool closed = false;
+	try { indicator.setRunning(true); } catch (string error) { closed = true; }
+	assert(closed);
+	window.hide();
+	window.hide();
+	assert(!window.isVisible());
+	window.show();
+	assert(window.isVisible());
+	background.close();
+	window.close();
+	window.close();
+	for (int operation = 0; operation < 3; operation++) {
+		bool rejected = false;
+		try {
+			if (operation == 0) { window.show(); }
+			else if (operation == 1) { window.hide(); }
+			else { window.isVisible(); }
+		} catch (string error) { rejected = true; }
+		assert(rejected);
+	}
+	print("PASS: native progress appearance, window visibility, stop/restart and teardown");
+	return 0;
+}

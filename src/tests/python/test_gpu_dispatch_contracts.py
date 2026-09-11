@@ -17,7 +17,7 @@ from src.tests.python.test_gpu_dispatch_failures import (
     _compile_with_gpu_stubs,
 )
 
-GPU_INCLUDE = Path(__file__).resolve().parents[2] / "stdlib" / "gpu"
+GPU_INCLUDE = Path(__file__).resolve().parents[2] / "stdlib" / "GPU"
 GPU_UNAVAILABLE_STUB = Path(__file__).resolve().parents[1] / "btrc" / "fixtures" / "gpu_unavailable_stub.c"
 
 

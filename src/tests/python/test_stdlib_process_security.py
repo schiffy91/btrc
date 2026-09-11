@@ -6,7 +6,7 @@ from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 
 ROOT = Path(__file__).resolve().parents[3]
 PROCESS = ROOT / "src" / "stdlib" / "Process.btrc"
-HTTP_CLIENT = ROOT / "src" / "stdlib" / "HttpClient.btrc"
+HTTP_CLIENT = ROOT / "src" / "stdlib" / "HTTPClient.btrc"
 FILESYSTEM = ROOT / "src" / "stdlib" / "FileSystem.btrc"
 PASSWORD_EXCHANGE = ROOT / "src" / "stdlib" / "TerminalPasswordExchange.btrc"
 TERMINAL = ROOT / "src" / "stdlib" / "Terminal.btrc"

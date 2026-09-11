@@ -14,6 +14,7 @@ from src.compiler.python.analyzer.program import (
     LambdaBodyFacts,
     SymbolInfo,
 )
+from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.syntax.ast.generated import (
     AssignExpr,
     BinaryExpr,
@@ -254,6 +255,14 @@ class StatementAnalyzer:
 
     def _is_static_address_operand(self, expression) -> bool:
         if isinstance(expression, Identifier):
+            declaration = self.index.global_declarations.get(expression.name)
+            origin = getattr(declaration, "source_file", None)
+            if (
+                isinstance(origin, NativeHeaderSource)
+                and origin.language == "objective-c"
+                and declaration.initializer is None
+            ):
+                return False
             return bool(
                 expression.name in self.index.function_table or expression.name in self.session.global_scope.symbols
             )
@@ -913,6 +922,7 @@ class StatementAnalyzer:
         self.session.loop_depth += 1
         self.session.break_depth += 1
         iter_type = self.expressions.infer_type(stmt.iterable)
+        self.generics.collect_type_instances(iter_type)
         if iter_type and iter_type.is_array:
             if self.aggregates.array_target_has_capacity(stmt.iterable, iter_type):
                 self.session.array_iteration_capacity_ids.add(id(stmt.iterable))
@@ -1951,6 +1961,8 @@ class StatementAnalyzer:
     def _check_alias_warning(self, stmt: VarDeclStmt):
         """Warn when a variable aliases a managed class-typed variable."""
         if not isinstance(stmt.initializer, Identifier):
+            return
+        if self.ownership.expression_produces_owned_result(stmt.initializer):
             return
         src_name = stmt.initializer.name
         src_sym = self.session.scope.lookup(src_name)

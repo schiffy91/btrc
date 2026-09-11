@@ -15,7 +15,7 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 REPOSITORY = Path(__file__).resolve().parents[3]
 FIXTURES = Path(__file__).with_name("fixtures")
 REALTIME_AUDIO = FIXTURES / "RealtimeAudioProgram.btrc"
-REALTIME_AUDIO_API = REPOSITORY / "src" / "stdlib" / "RealtimeAudio.btrc"
+REALTIME_AUDIO_API = REPOSITORY / "src" / "stdlib" / "Audio" / "RealtimeAudio.btrc"
 CONSOLE_FATAL = FIXTURES / "ConsoleFatal.btrc"
 STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
@@ -159,7 +159,7 @@ def test_realtime_audio_program_rejects_callbacks_without_direct_proof(
 ) -> None:
     source = tmp_path / "UnprovenRealtimeAudioProgram.btrc"
     source.write_text(
-        "import Library.RealtimeAudio;\n"
+        "import Library.Audio.RealtimeAudio;\n"
         f"{callback_declaration}\n"
         f"int main() {{ RealtimeAudioProgram program = {program_expression}; return program.context() == null ? 0 : 1; }}\n"
     )
@@ -177,7 +177,7 @@ def test_realtime_audio_program_accepts_an_exact_proven_copy(
 ) -> None:
     source = tmp_path / "ProvenRealtimeAudioProgramCopy.btrc"
     source.write_text(
-        "import Library.RealtimeAudio;\n"
+        "import Library.Audio.RealtimeAudio;\n"
         "@realtime void safeProcess(void* context, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {}\n"
         "int main() { RealtimeAudioProcess process = safeProcess; RealtimeAudioProgram program = RealtimeAudioProgram(process, null); return program.context() == null ? 0 : 1; }\n"
     )
@@ -209,7 +209,7 @@ def test_realtime_audio_sample_borrows_cannot_escape(
     expected: str,
 ) -> None:
     source = tmp_path / "EscapingAudioSamples.btrc"
-    source.write_text(f"import Library.RealtimeAudio;\n{source_text}\n")
+    source.write_text(f"import Library.Audio.RealtimeAudio;\n{source_text}\n")
     reference = _reference(source, tmp_path / "reference.c", tmp_path / "reference-cache")
     selfhost = _selfhost(semantic_btrcc, source, tmp_path / "selfhost.c")
     assert reference.returncode == 1

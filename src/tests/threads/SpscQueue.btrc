@@ -1,7 +1,7 @@
-import Library.Spsc;
+import Library.SPSC;
 
 int main() {
-	SpscQueue<int> queue = new SpscQueue<int>(3u);
+	SPSCQueue<int> queue = new SPSCQueue<int>(3u);
 	int output = -1;
 	if (queue.tryPop(&output) || output != -1) { return 1; }
 	if (!queue.tryPush(1) || !queue.tryPush(2) || !queue.tryPush(3)) { return 2; }

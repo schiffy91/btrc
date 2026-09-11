@@ -1,6 +1,6 @@
 import Library.Bytes;
 import Library.FileSystem;
-import Library.Io;
+import Library.IO;
 import Library.Strings;
 import Library.Vector;
 

@@ -34,6 +34,22 @@
       files = import ./build { inherit cfg lib; };
       systems = [ "aarch64-darwin" "x86_64-darwin" "x86_64-linux" "aarch64-linux" ];
       eachSystem = fn: nixpkgs.lib.genAttrs systems (system: fn (import nixpkgs { inherit system; }));
+      nativeHeaderEnvironment = pkgs: let
+        isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
+        linuxHeaders = pkgs.symlinkJoin {
+          name = "btrc-native-sdk-headers";
+          paths = [ (lib.getDev pkgs.stdenv.cc.libc) pkgs.linuxHeaders ];
+        };
+        linuxSysroot = pkgs.runCommand "btrc-native-sysroot" { } ''
+          mkdir -p "$out/usr"
+          ln -s ${linuxHeaders}/include "$out/usr/include"
+        '';
+      in {
+        BTRC_NATIVE_HEADER_READER = "${self.packages.${pkgs.stdenv.hostPlatform.system}.btrc-native-header}/bin/btrc-native-header";
+        BTRC_NATIVE_SYSROOT = if isDarwin then "${pkgs.apple-sdk}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk" else "${linuxSysroot}";
+        BTRC_NATIVE_TARGET = if isDarwin then "${if pkgs.stdenv.hostPlatform.isAarch64 then "arm64" else "x86_64"}-apple-macosx${lib.versions.pad 3 pkgs.stdenv.hostPlatform.darwinMinVersion}"
+          else "${if pkgs.stdenv.hostPlatform.isAarch64 then "aarch64" else "x86_64"}-unknown-linux-gnu";
+      };
     in {
       apps = eachSystem (pkgs: let
         system = pkgs.stdenv.hostPlatform.system;
@@ -65,7 +81,7 @@
         isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
         system = pkgs.stdenv.hostPlatform.system;
       in {
-        default = pkgs.mkShell {
+        default = pkgs.mkShell ({
           # The test suite deliberately compiles strict C at -O0. Nixpkgs'
           # fortify setup diagnoses -O0 as a preprocessor warning, and -Werror
           # correctly promotes it. Release derivations retain their hardening;
@@ -74,6 +90,9 @@
           # btrc-lsp on PATH: the VSCode extension launches the language server
           # via `nix develop <workspace> --command btrc-lsp`.
           packages = cfg.packages pkgs ++ [
+            pkgs.pkg-config
+            self.packages.${system}.wgpu-native
+            self.packages.${system}.btrc-gpu
             self.packages.${system}.btrc-format
             self.packages.${system}.btrc-lsp
           ];
@@ -89,7 +108,7 @@
               " -framework Metal -framework QuartzCore -framework Cocoa -framework IOKit -framework CoreVideo -framework CoreText -framework CoreGraphics -framework CoreFoundation";
           FONT_CFLAGS = "-I${pkgs.freetype.dev}/include/freetype2";
           FONT_LDFLAGS = "-L${pkgs.freetype}/lib -lfreetype";
-        };
+        } // nativeHeaderEnvironment pkgs);
       });
       packages = eachSystem (pkgs: let
         isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
@@ -146,13 +165,13 @@
           excludedPrefixes = [ ];
         };
         appRuntimeSource = sourceSubset {
-          prefixes = [ "src/stdlib/app/" ];
+          prefixes = [ "src/stdlib/App/" ];
           excludedPrefixes = [ ];
         };
         gpuRuntimeSource = sourceSubset {
           prefixes = [
-            "src/stdlib/app/"
-            "src/stdlib/gpu/"
+            "src/stdlib/App/"
+            "src/stdlib/GPU/"
           ];
           excludedPrefixes = [ ];
         };
@@ -188,6 +207,9 @@
           runtimeInputs = [ pkgs.python314 pkgs.git ];
           text = ''
             export PYTHONPATH="${runtimeSource}''${PYTHONPATH:+:$PYTHONPATH}"
+            ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: value:
+              ''export ${name}="''${${name}-${value}}"''
+            ) (nativeHeaderEnvironment pkgs))}
             exec ${pkgs.python314}/bin/python3 -m src.compiler.python.main "$@"
           '';
         };
@@ -218,6 +240,7 @@
           src = selfhostBundleSource;
           strictDeps = true;
           dontBuild = true;
+          nativeBuildInputs = [ pkgs.makeWrapper ];
           installPhase = ''
             runHook preInstall
             mkdir -p "$out/bin" "$out/share/btrc/language"
@@ -225,6 +248,11 @@
             install -m 0644 src/language/grammar.ebnf \
               "$out/share/btrc/language/grammar.ebnf"
             cp -R src/stdlib "$out/share/btrc/stdlib"
+            wrapProgram "$out/bin/btrcc" \
+              --set-default BTRC_HOME "$out/share/btrc" \
+              ${lib.concatStringsSep " " (lib.mapAttrsToList (name: value:
+                "--set-default ${name} ${lib.escapeShellArg value}"
+              ) (nativeHeaderEnvironment pkgs))}
             runHook postInstall
           '';
         };
@@ -268,26 +296,18 @@
           buildPhase = ''
             runHook preBuild
             $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
-              -pthread ${appCompileFlags} -Isrc/stdlib/app \
-              -c src/stdlib/app/btrc_app.c -o btrc_app.o
+              -pthread ${appCompileFlags} -Isrc/stdlib/App \
+              -c src/stdlib/App/btrc_app.c -o btrc_app.o
             ${if isDarwin then ''
               $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
-                -x objective-c ${appCompileFlags} -Isrc/stdlib/app \
-                -c src/stdlib/app/btrc_app_directory_picker_macos.m \
-                -o btrc_app_directory_picker.o
-              $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
-                -x objective-c ${appCompileFlags} -Isrc/stdlib/app \
-                -c src/stdlib/app/btrc_app_window_macos.m -o btrc_app_window.o
+                -x objective-c ${appCompileFlags} -Isrc/stdlib/App \
+                -c src/stdlib/App/btrc_app_window_macos.m -o btrc_app_window.o
             '' else ''
               $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
-                ${appCompileFlags} -Isrc/stdlib/app \
-                -c src/stdlib/app/btrc_app_directory_picker_stub.c \
-                -o btrc_app_directory_picker.o
-              $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
-                ${appCompileFlags} -Isrc/stdlib/app \
-                -c src/stdlib/app/btrc_app_window_stub.c -o btrc_app_window.o
+                ${appCompileFlags} -Isrc/stdlib/App \
+                -c src/stdlib/App/btrc_app_window_stub.c -o btrc_app_window.o
             ''}
-            $AR rcs libbtrc_app.a btrc_app.o btrc_app_directory_picker.o btrc_app_window.o
+            $AR rcs libbtrc_app.a btrc_app.o btrc_app_window.o
             runHook postBuild
           '';
           installPhase = ''
@@ -297,7 +317,7 @@
               "$out/include" \
               "$out/lib/pkgconfig" \
               "$licenseRoot/third-party/glfw"
-            install -m 0644 src/stdlib/app/btrc_app.h "$out/include/"
+            install -m 0644 src/stdlib/App/btrc_app.h "$out/include/"
             install -m 0644 libbtrc_app.a "$out/lib/"
             install -m 0644 ${./LICENSE} "$licenseRoot/LICENSE"
             install -m 0644 ${pkgs.glfw.src}/LICENSE.md \
@@ -331,15 +351,15 @@
               btrc_gpu_surface.c; do
               $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
                 -pthread ${gpuCompileFlags} \
-                -Isrc/stdlib/app -Isrc/stdlib/gpu \
-                -c "src/stdlib/gpu/$source" -o "''${source%.c}.o"
+                -Isrc/stdlib/App -Isrc/stdlib/GPU \
+                -c "src/stdlib/GPU/$source" -o "''${source%.c}.o"
             done
             objects="btrc_gpu.o btrc_gpu_async.o btrc_gpu_native_ui.o btrc_gpu_native_ui_text.o btrc_gpu_surface.o"
             ${lib.optionalString isDarwin ''
               $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
                 -x objective-c ${gpuCompileFlags} \
-                -Isrc/stdlib/app -Isrc/stdlib/gpu \
-                -c src/stdlib/gpu/btrc_gpu_surface_macos.m \
+                -Isrc/stdlib/App -Isrc/stdlib/GPU \
+                -c src/stdlib/GPU/btrc_gpu_surface_macos.m \
                 -o btrc_gpu_surface_macos.o
               objects="$objects btrc_gpu_surface_macos.o"
             ''}
@@ -355,8 +375,8 @@
               "$licenseRoot/third-party/glfw" \
               "$licenseRoot/third-party/wgpu-native" \
               "$licenseRoot/third-party/webgpu-headers"
-            install -m 0644 src/stdlib/app/btrc_app.h "$out/include/"
-            install -m 0644 src/stdlib/gpu/btrc_gpu.h "$out/include/"
+            install -m 0644 src/stdlib/App/btrc_app.h "$out/include/"
+            install -m 0644 src/stdlib/GPU/btrc_gpu.h "$out/include/"
             install -m 0644 ${btrcApp}/lib/libbtrc_app.a "$out/lib/"
             install -m 0644 libbtrc_gpu.a "$out/lib/"
             install -m 0644 ${./LICENSE} "$licenseRoot/LICENSE"
@@ -404,6 +424,7 @@
           version = "0";
           src = ./tools/NativeHeaderReader.cpp;
           dontUnpack = true;
+          nativeBuildInputs = [ pkgs.makeWrapper ];
           buildInputs = with pkgs.llvmPackages_21; [ libclang llvm ];
           buildPhase = ''
             runHook preBuild
@@ -414,8 +435,21 @@
             runHook preInstall
             mkdir -p "$out/bin"
             install -m755 btrc-native-header "$out/bin/"
+            wrapProgram "$out/bin/btrc-native-header" --prefix PATH : ${lib.makeBinPath [ pkgs.pkg-config ]}
             runHook postInstall
           '';
+        };
+        nativeWebGpu = pkgs.symlinkJoin {
+          name = "wgpu-native-${pkgs.wgpu-native.version}";
+          paths = [ pkgs.wgpu-native pkgs.wgpu-native.dev
+            (pkgs.writeTextDir "lib/pkgconfig/wgpu-native.pc" ''
+              Name: wgpu-native
+              Description: Pinned WebGPU native implementation
+              Version: ${pkgs.wgpu-native.version}
+              Cflags: -I${pkgs.wgpu-native.dev}/include/webgpu
+              Libs: -L${pkgs.wgpu-native}/lib -Wl,-rpath,${pkgs.wgpu-native}/lib -lwgpu_native
+            '')
+          ];
         };
         btrc = pkgs.symlinkJoin {
           name = "btrc-tools";
@@ -461,6 +495,7 @@
         btrc-gpu = btrcGpu;
         btrc-native-plan = nativePlan;
         btrc-native-header = nativeHeaderReader;
+        wgpu-native = nativeWebGpu;
         btrc-vscode-extension = btrc-vscode;
         inherit btrc;
         default = btrc;

@@ -280,7 +280,7 @@ def test_frontend_traversal_is_iterative_and_streaming() -> None:
     stdlib = (REPO / "src/compiler/btrc/frontend/Stdlib.btrc").read_text()
     models = (REPO / "src/compiler/btrc/frontend/Models.btrc").read_text()
     filesystem = (REPO / "src/stdlib/FileSystem.btrc").read_text()
-    stream_io = (REPO / "src/stdlib/Io.btrc").read_text()
+    stream_io = (REPO / "src/stdlib/IO.btrc").read_text()
     python_sources = (REPO / "src/compiler/python/frontend/sources.py").read_text()
     python_imports = (REPO / "src/compiler/python/frontend/imports.py").read_text()
 

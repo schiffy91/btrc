@@ -16,7 +16,7 @@ $(PROGRAM): $(GENERATED)
 	$(CC) -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
 		$(GENERATED) -o $(PROGRAM) -lm -lpthread
 
-$(GENERATED): $(SOURCE) $(BTRC_ROOT)/src/stdlib/Spsc.btrc
+$(GENERATED): $(SOURCE) $(BTRC_ROOT)/src/stdlib/SPSC.btrc
 	cd $(BTRC_ROOT) && $(BTRC) examples/realtime-primitives/$(SOURCE) \
 		-o examples/realtime-primitives/$(GENERATED)
 

@@ -1,0 +1,1089 @@
+/* Direct macOS CoreAudio provider for Library.Audio.AudioDevice.
+ *
+ * Device UIDs remain selectable independently for input and output. Native
+ * AUHAL and private aggregate-device details are implementation-only; the
+ * realtime program receives the interleaved Library.Audio.RealtimeAudio ABI in blocks
+ * no larger than the negotiated bufferFrames, with contiguous sliced clocks.
+ * AudioUnit conversion may produce larger native callbacks. A provider
+ * and all sessions opened from it are owned by one control thread; the provider
+ * must outlive those sessions.
+ */
+
+import Library.Audio.AudioDevice;
+import Library.Datetime;
+import Library.OwnedBuffer;
+import Library.Strings;
+import Library.Vector;
+
+AudioDeviceStatus coreAudioStatus(OSStatus status) {
+	if (status == 0) { return AUDIO_DEVICE_OK; }
+	if (status == kAudio_ParamError) { return AUDIO_DEVICE_INVALID_ARGUMENT; }
+	if (status == kAudioHardwareBadDeviceError) { return AUDIO_DEVICE_NOT_FOUND; }
+	if (status == kAudioUnitErr_FormatNotSupported || status == kAudioDeviceUnsupportedFormatError || status == kAudioHardwareUnsupportedOperationError) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
+	if (status == kAudioUnitErr_Unauthorized || status == kAudioDevicePermissionsError) { return AUDIO_DEVICE_PERMISSION_DENIED; }
+	if (status == kAudioUnitErr_CannotDoInCurrentContext || status == kAudioHardwareIllegalOperationError) { return AUDIO_DEVICE_BUSY; }
+	if (status == kAudioHardwareNotRunningError || status == kAudioUnitErr_FailedInitialization || status == kAudioUnitErr_Uninitialized) { return AUDIO_DEVICE_UNAVAILABLE; }
+	return AUDIO_DEVICE_FAILED;
+}
+
+class CoreAudioSessionLease {
+	public bool active;
+	public CoreAudioSessionLease() { self.active = false; }
+}
+
+struct CoreAudioSessionContext {
+	CoreAudioSessionLease lease;
+	CoreAudioSessionResources resources;
+};
+
+AudioDeviceStatus coreAudioSessionStart(void* raw) { return ((struct CoreAudioSessionContext*)raw)->resources.unit().start(); }
+
+AudioDeviceStatus coreAudioSessionSuspend(void* raw) { return ((struct CoreAudioSessionContext*)raw)->resources.unit().suspend(); }
+
+AudioDeviceStatus coreAudioSessionDrain(void* raw) { return ((struct CoreAudioSessionContext*)raw)->resources.unit().drain(); }
+
+AudioDeviceStatus coreAudioSessionClose(void* raw) {
+	struct CoreAudioSessionContext* context = (struct CoreAudioSessionContext*)raw;
+	AudioDeviceStatus status = context->resources.close();
+	if (status == AUDIO_DEVICE_OK) { context->lease.active = false; }
+	return status;
+}
+
+unsigned long long coreAudioSessionEpoch(void* raw) { return ((struct CoreAudioSessionContext*)raw)->resources.unit().epoch(); }
+
+void coreAudioSessionDispose(void* raw) {
+	struct CoreAudioSessionContext* context = (struct CoreAudioSessionContext*)raw;
+	release(context->resources);
+	release(context->lease);
+	free(context);
+}
+
+enum CoreAudioUnitState { CORE_AUDIO_UNIT_READY, CORE_AUDIO_UNIT_RUNNING, CORE_AUDIO_UNIT_SUSPENDED, CORE_AUDIO_UNIT_DRAINED, CORE_AUDIO_UNIT_CLOSED };
+
+/* Only POD borrows cross the SDK callback boundary. CoreAudioUnit owns every
+ * allocation and the program until stop/drain/disposal have all succeeded. */
+struct CoreAudioRenderState {
+	AudioUnit unit;
+	RealtimeAudioProcess process;
+	void* processContext;
+	Atomic<uint>* admission;
+	Atomic<uint>* active;
+	Atomic<uint>* first;
+	int inputCount;
+	int outputCount;
+	int physicalInputCount;
+	int physicalOutputCount;
+	int* inputChannels;
+	int* outputChannels;
+	int maximumFrames;
+	int blockFrames;
+	int sampleRate;
+	int maximumSlices;
+	unsigned long long* sliceNanoseconds;
+	AudioBufferList* inputBuffers;
+	float* physicalInput;
+	float* selectedInput;
+	float* selectedOutput;
+	unsigned long long epoch;
+	bool haveInputFrame;
+	bool haveOutputFrame;
+	unsigned long long nextInputFrame;
+	unsigned long long nextOutputFrame;
+};
+
+class CoreAudioUnit {
+	private OwnedBuffer<CoreAudioRenderState> _render;
+	private AtomicBuffer<uint> _counters;
+	private OwnedBuffer<int>? _inputChannels;
+	private OwnedBuffer<int>? _outputChannels;
+	private OwnedBuffer<float>? _physicalInput;
+	private OwnedBuffer<float>? _selectedInput;
+	private OwnedBuffer<float>? _selectedOutput;
+	private RealtimeAudioProgram? _program;
+	private struct OwnedBufferStorage* _inputBuffers;
+	private OwnedBuffer<unsigned long long>? _sliceNanoseconds;
+	private CoreAudioUnitState _state;
+	private bool _attempted;
+	private bool _initialized;
+
+	public CoreAudioUnit() {
+		self._render = OwnedBuffer((size_t)1);
+		self._counters = AtomicBuffer((size_t)3);
+		self._inputChannels = null;
+		self._outputChannels = null;
+		self._physicalInput = null;
+		self._selectedInput = null;
+		self._selectedOutput = null;
+		self._program = null;
+		self._inputBuffers = null;
+		self._sliceNanoseconds = null;
+		self._state = CORE_AUDIO_UNIT_READY;
+		self._attempted = false;
+		self._initialized = false;
+		if (self._counters.opened()) {
+			var counters = self._counters.borrow();
+			for (int index = 0; index < 3; index++) { counters[index].init(0u); }
+		}
+		if (self._render.opened() && self._counters.opened()) {
+			var render = self._render.borrow();
+			render->admission = self._counters.borrow();
+			render->active = self._counters.borrow() + 1;
+			render->first = self._counters.borrow() + 2;
+		}
+	}
+
+	class AudioStreamBasicDescription format(int sampleRate, int channels) {
+		AudioStreamBasicDescription value;
+		memset(&value, 0, sizeof(AudioStreamBasicDescription));
+		value.mSampleRate = (Float64)sampleRate;
+		value.mFormatID = kAudioFormatLinearPCM;
+		value.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked | kAudioFormatFlagsNativeEndian;
+		value.mBytesPerPacket = (UInt32)((size_t)channels * sizeof(float));
+		value.mFramesPerPacket = 1u;
+		value.mBytesPerFrame = value.mBytesPerPacket;
+		value.mChannelsPerFrame = (UInt32)channels;
+		value.mBitsPerChannel = 8u * (UInt32)sizeof(float);
+		return value;
+	}
+
+	private AudioDeviceStatus set(AudioUnitPropertyID property, AudioUnitScope scope, AudioUnitElement element, const void* value, UInt32 size) { return coreAudioStatus(AudioUnitSetProperty(self._render.borrow()->unit, property, scope, element, value, size)); }
+
+	public AudioDeviceStatus prepare(AudioObjectID device, int physicalInput, int physicalOutput, int outputOffset, DuplexAudioOpenRequest request, RealtimeAudioProgram program) {
+		if (self._attempted || self._state != CORE_AUDIO_UNIT_READY) { return AUDIO_DEVICE_WRONG_STATE; }
+		self._attempted = true;
+		if (!self._render.opened() || !self._counters.opened()) { return AUDIO_DEVICE_FAILED; }
+		var stream = request.stream();
+		int inputCount = request.hasInput() ? request.inputChannels().count() : 0;
+		int outputCount = request.outputChannels().count();
+		if (device == kAudioObjectUnknown || physicalInput < 0 || physicalInput > 512 || physicalOutput <= 0 || physicalOutput > 512 || inputCount < 0 || inputCount > 256 || outputCount <= 0 || outputCount > 256 || outputOffset < 0 || outputOffset > 256 || stream.sampleRate() < 8000 || stream.sampleRate() > 768000 || stream.bufferFrames() < 16 || stream.bufferFrames() > 8192) { return AUDIO_DEVICE_INVALID_ARGUMENT; }
+		self._program = program;
+		var render = self._render.borrow();
+		render->process = program.invokePointer();
+		render->processContext = program.context();
+		render->inputCount = inputCount;
+		render->outputCount = outputCount;
+		render->physicalInputCount = physicalInput;
+		render->physicalOutputCount = physicalOutput;
+		render->sampleRate = stream.sampleRate();
+		render->blockFrames = stream.bufferFrames();
+		var inputChannels = new OwnedBuffer<int>((size_t)(inputCount > 0 ? inputCount : 1));
+		var outputChannels = new OwnedBuffer<int>((size_t)outputCount);
+		if (!inputChannels.opened() || !outputChannels.opened()) { return AUDIO_DEVICE_FAILED; }
+		self._inputChannels = inputChannels;
+		self._outputChannels = outputChannels;
+		render->inputChannels = inputChannels.borrow();
+		render->outputChannels = outputChannels.borrow();
+		for (int index = 0; index < inputCount; index++) {
+			int channel = request.inputChannels().at(index);
+			if (channel < 0 || channel >= physicalInput) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
+			render->inputChannels[index] = channel;
+		}
+		for (int index = 0; index < outputCount; index++) {
+			int channel = request.outputChannels().at(index);
+			if (channel < 0 || channel >= 256 || channel + outputOffset >= physicalOutput) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
+			render->outputChannels[index] = channel + outputOffset;
+		}
+		AudioComponentDescription description = {kAudioUnitType_Output, kAudioUnitSubType_HALOutput, kAudioUnitManufacturer_Apple, 0u, 0u};
+		var component = AudioComponentFindNext(null, &description);
+		if (component == null) { return AUDIO_DEVICE_UNAVAILABLE; }
+		var status = coreAudioStatus(AudioComponentInstanceNew(component, &render->unit));
+		if (status != AUDIO_DEVICE_OK) { return status; }
+		if (render->unit == null) { return AUDIO_DEVICE_FAILED; }
+		UInt32 enabled = 1u;
+		status = self.set(kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, 0u, &enabled, (UInt32)sizeof(UInt32));
+		if (status != AUDIO_DEVICE_OK) { return status; }
+		enabled = inputCount > 0 ? 1u : 0u;
+		status = self.set(kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, 1u, &enabled, (UInt32)sizeof(UInt32));
+		if (status != AUDIO_DEVICE_OK) { return status; }
+		status = self.set(kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0u, &device, (UInt32)sizeof(AudioObjectID));
+		if (status != AUDIO_DEVICE_OK) { return status; }
+		UInt32 maximum = 8192u;
+		status = self.set(kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0u, &maximum, (UInt32)sizeof(UInt32));
+		if (status != AUDIO_DEVICE_OK) { return status; }
+		UInt32 received = (UInt32)sizeof(UInt32);
+		status = coreAudioStatus(AudioUnitGetProperty(render->unit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0u, &maximum, &received));
+		if (status != AUDIO_DEVICE_OK) { return status; }
+		if (received != (UInt32)sizeof(UInt32) || maximum < (UInt32)render->blockFrames || maximum > 65536u) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
+		render->maximumFrames = (int)maximum;
+		render->maximumSlices = (render->maximumFrames + render->blockFrames - 1) / render->blockFrames;
+		var sliceNanoseconds = new OwnedBuffer<unsigned long long>((size_t)render->maximumSlices);
+		if (!sliceNanoseconds.opened()) { return AUDIO_DEVICE_FAILED; }
+		for (int slice = 0; slice < render->maximumSlices; slice++) { sliceNanoseconds.set((size_t)slice, (unsigned long long)slice * (unsigned long long)render->blockFrames * 1000000000ULL / (unsigned long long)render->sampleRate); }
+		self._sliceNanoseconds = sliceNanoseconds;
+		render->sliceNanoseconds = sliceNanoseconds.borrow();
+		var outputFormat = CoreAudioUnit.format(render->sampleRate, physicalOutput);
+		status = self.set(kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0u, &outputFormat, (UInt32)sizeof(AudioStreamBasicDescription));
+		if (status != AUDIO_DEVICE_OK) { return status; }
+		if (inputCount > 0) {
+			struct OwnedBufferStorage* inputBuffers = null;
+			if (OwnedBuffers.tryOpen((size_t)1, sizeof(AudioBufferList), &inputBuffers) != OWNED_BUFFER_OPENED) { return AUDIO_DEVICE_FAILED; }
+			self._inputBuffers = inputBuffers;
+			render->inputBuffers = (AudioBufferList*)OwnedBuffers.borrow(inputBuffers, sizeof(AudioBufferList));
+			var inputFormat = CoreAudioUnit.format(render->sampleRate, physicalInput);
+			status = self.set(kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 1u, &inputFormat, (UInt32)sizeof(AudioStreamBasicDescription));
+			if (status != AUDIO_DEVICE_OK) { return status; }
+			var physicalInputSamples = new OwnedBuffer<float>((size_t)maximum * (size_t)physicalInput);
+			var selectedInput = new OwnedBuffer<float>((size_t)maximum * (size_t)inputCount);
+			if (!physicalInputSamples.opened() || !selectedInput.opened()) { return AUDIO_DEVICE_FAILED; }
+			self._physicalInput = physicalInputSamples;
+			self._selectedInput = selectedInput;
+			render->physicalInput = physicalInputSamples.borrow();
+			render->selectedInput = selectedInput.borrow();
+		}
+		var selectedOutput = new OwnedBuffer<float>((size_t)maximum * (size_t)outputCount);
+		if (!selectedOutput.opened()) { return AUDIO_DEVICE_FAILED; }
+		self._selectedOutput = selectedOutput;
+		render->selectedOutput = selectedOutput.borrow();
+		AURenderCallbackStruct callback;
+		callback.inputProc = CoreAudioUnit.render;
+		callback.inputProcRefCon = render;
+		status = self.set(kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0u, &callback, (UInt32)sizeof(AURenderCallbackStruct));
+		if (status != AUDIO_DEVICE_OK) { return status; }
+		status = coreAudioStatus(AudioUnitInitialize(render->unit));
+		self._initialized = status == AUDIO_DEVICE_OK;
+		return status;
+	}
+
+	class @realtime void silence(AudioBufferList* data, AudioUnitRenderActionFlags* flags) {
+		if (data != null) {
+			int count = (int)data->mNumberBuffers;
+			AudioBuffer* buffers = &data->mBuffers[0];
+			for (int index = 0; index < count; index++) {
+				unsigned char* dataBytes = (unsigned char*)buffers[index].mData;
+				int bytes = (int)buffers[index].mDataByteSize;
+				if (dataBytes != null) { for (int byte = 0; byte < bytes; byte++) { dataBytes[byte] = 0; } }
+			}
+		}
+		if (flags != null) { *flags |= kAudioUnitRenderAction_OutputIsSilence; }
+	}
+
+	class @realtime OSStatus render(void* context, AudioUnitRenderActionFlags* flags, const AudioTimeStamp* timestamp, UInt32 bus, UInt32 frames, AudioBufferList* output) {
+		CoreAudioUnit.silence(output, flags);
+		var state = (CoreAudioRenderState*)context;
+		if (state == null || output == null || state->admission->load(MemoryOrder.ACQUIRE) == 0u) { return 0; }
+		state->active->fetchAdd(1u, MemoryOrder.ACQ_REL);
+		if (state->admission->load(MemoryOrder.ACQUIRE) != 0u && frames > 0u && frames <= (UInt32)state->maximumFrames && state->blockFrames > 0 && state->sampleRate > 0 && output->mNumberBuffers == 1u && output->mBuffers[0].mData != null && output->mBuffers[0].mNumberChannels == (UInt32)state->physicalOutputCount && (size_t)output->mBuffers[0].mDataByteSize >= (size_t)frames * (size_t)state->physicalOutputCount * sizeof(float)) {
+			CoreAudioUnit.process(state, flags, timestamp, (int)frames, output);
+		}
+		state->active->fetchSub(1u, MemoryOrder.RELEASE);
+		return 0;
+	}
+
+	class @realtime void process(CoreAudioRenderState* state, AudioUnitRenderActionFlags* flags, const AudioTimeStamp* timestamp, int frames, AudioBufferList* output) {
+		bool first = state->first->exchange(0u, MemoryOrder.ACQ_REL) != 0u;
+		bool validFrame = timestamp != null && (timestamp->mFlags & kAudioTimeStampSampleTimeValid) != 0u && timestamp->mSampleTime >= 0.0 && timestamp->mSampleTime < 9007199254740992.0;
+		unsigned long long frame = validFrame ? (unsigned long long)timestamp->mSampleTime : 0ULL;
+		uint blockFlags = first || !validFrame || (state->haveOutputFrame && frame != state->nextOutputFrame) ? (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY : 0u;
+		state->haveOutputFrame = validFrame;
+		state->nextOutputFrame = validFrame ? frame + (unsigned long long)frames : 0ULL;
+		int inputCount = state->inputCount;
+		int outputCount = state->outputCount;
+		if (inputCount > 0) {
+			size_t bytes = (size_t)frames * (size_t)state->physicalInputCount * sizeof(float);
+			CoreAudioUnit.clear(state->physicalInput, frames * state->physicalInputCount);
+			state->inputBuffers->mNumberBuffers = 1u;
+			state->inputBuffers->mBuffers[0].mNumberChannels = (UInt32)state->physicalInputCount;
+			state->inputBuffers->mBuffers[0].mDataByteSize = (UInt32)bytes;
+			state->inputBuffers->mBuffers[0].mData = state->physicalInput;
+			AudioUnitRenderActionFlags inputFlags = flags == null ? 0u : *flags & ~kAudioUnitRenderAction_OutputIsSilence;
+			bool rendered = timestamp != null && AudioUnitRender(state->unit, &inputFlags, timestamp, 1u, (UInt32)frames, state->inputBuffers) == 0;
+			if (!rendered) { CoreAudioUnit.clear(state->physicalInput, frames * state->physicalInputCount); }
+			if (!rendered || first || !validFrame || (state->haveInputFrame && frame != state->nextInputFrame)) { blockFlags |= (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY; }
+			state->haveInputFrame = validFrame;
+			state->nextInputFrame = validFrame ? frame + (unsigned long long)frames : 0ULL;
+			for (int index = 0; index < frames; index++) {
+				for (int channel = 0; channel < inputCount; channel++) { state->selectedInput[(size_t)index * (size_t)inputCount + (size_t)channel] = state->physicalInput[(size_t)index * (size_t)state->physicalInputCount + (size_t)state->inputChannels[channel]]; }
+			}
+		}
+		CoreAudioUnit.clear(state->selectedOutput, frames * outputCount);
+		bool validHost = timestamp != null && (timestamp->mFlags & kAudioTimeStampHostTimeValid) != 0u;
+		unsigned long long host = validHost ? AudioConvertHostTimeToNanos(timestamp->mHostTime) : 0ULL;
+		int slices = state->maximumSlices;
+		for (int slice = 0; slice < slices; slice++) {
+			int offset = slice * state->blockFrames;
+			if (offset >= frames) { break; }
+			int count = frames - offset < state->blockFrames ? frames - offset : state->blockFrames;
+			unsigned long long elapsed = state->sliceNanoseconds[slice];
+			unsigned long long sliceHost = !validHost ? 0ULL : (host > 18446744073709551615ULL - elapsed ? 18446744073709551615ULL : host + elapsed);
+			struct AudioBlockView block = {inputCount, outputCount, count, inputCount > 0 && validFrame ? frame + (unsigned long long)offset : 0ULL, validFrame ? frame + (unsigned long long)offset : 0ULL, state->epoch, sliceHost, slice == 0 ? blockFlags : 0u};
+			state->process(state->processContext, block, Span(inputCount > 0 ? (const float*)state->selectedInput + (size_t)offset * (size_t)inputCount : (const float*)null, (size_t)count * (size_t)inputCount), Span(state->selectedOutput + (size_t)offset * (size_t)outputCount, (size_t)count * (size_t)outputCount));
+		}
+		float* physical = (float*)output->mBuffers[0].mData;
+		for (int index = 0; index < frames; index++) {
+			for (int channel = 0; channel < outputCount; channel++) { physical[(size_t)index * (size_t)state->physicalOutputCount + (size_t)state->outputChannels[channel]] = state->selectedOutput[(size_t)index * (size_t)outputCount + (size_t)channel]; }
+		}
+		if (flags != null) { *flags &= ~kAudioUnitRenderAction_OutputIsSilence; }
+	}
+
+	class @realtime void clear(float* samples, int count) { for (int index = 0; index < count; index++) { samples[index] = 0.0f; } }
+
+	public unsigned long long epoch() { return self._render.opened() ? self._render.borrow()->epoch : 0ULL; }
+
+	public AudioDeviceStatus start() {
+		if (self._state != CORE_AUDIO_UNIT_READY || !self._initialized) { return AUDIO_DEVICE_WRONG_STATE; }
+		var render = self._render.borrow();
+		render->epoch = AudioConvertHostTimeToNanos(AudioGetCurrentHostTime());
+		if (render->epoch == 0ULL) { render->epoch = 1ULL; }
+		render->haveInputFrame = false;
+		render->haveOutputFrame = false;
+		render->first->store(1u, MemoryOrder.RELEASE);
+		render->admission->store(1u, MemoryOrder.RELEASE);
+		var status = coreAudioStatus(AudioOutputUnitStart(render->unit));
+		if (status != AUDIO_DEVICE_OK) {
+			render->admission->store(0u, MemoryOrder.RELEASE);
+			return status;
+		}
+		self._state = CORE_AUDIO_UNIT_RUNNING;
+		return AUDIO_DEVICE_OK;
+	}
+
+	public AudioDeviceStatus suspend() {
+		if (self._state != CORE_AUDIO_UNIT_RUNNING) { return AUDIO_DEVICE_WRONG_STATE; }
+		var render = self._render.borrow();
+		render->admission->store(0u, MemoryOrder.RELEASE);
+		var status = coreAudioStatus(AudioOutputUnitStop(render->unit));
+		if (status != AUDIO_DEVICE_OK) {
+			render->admission->store(1u, MemoryOrder.RELEASE);
+			return status;
+		}
+		self._state = CORE_AUDIO_UNIT_SUSPENDED;
+		return AUDIO_DEVICE_OK;
+	}
+
+	public AudioDeviceStatus drain() {
+		if (self._state != CORE_AUDIO_UNIT_SUSPENDED) { return AUDIO_DEVICE_WRONG_STATE; }
+		for (int attempt = 0; attempt < 5000; attempt++) {
+			if (self._render.borrow()->active->load(MemoryOrder.ACQUIRE) == 0u) {
+				self._state = CORE_AUDIO_UNIT_DRAINED;
+				return AUDIO_DEVICE_OK;
+			}
+			Timer.sleepMillis(1);
+		}
+		return AUDIO_DEVICE_BUSY;
+	}
+
+	public AudioDeviceStatus close() {
+		if (self._state == CORE_AUDIO_UNIT_CLOSED) { return AUDIO_DEVICE_OK; }
+		if (self._state != CORE_AUDIO_UNIT_READY && self._state != CORE_AUDIO_UNIT_DRAINED) { return AUDIO_DEVICE_WRONG_STATE; }
+		if (self._render.opened()) {
+			var render = self._render.borrow();
+			if (render->active != null && render->active->load(MemoryOrder.ACQUIRE) != 0u) { return AUDIO_DEVICE_BUSY; }
+			if (render->unit != null) {
+				if (self._initialized) {
+					var status = coreAudioStatus(AudioUnitUninitialize(render->unit));
+					if (status != AUDIO_DEVICE_OK) { return status; }
+					self._initialized = false;
+				}
+				var status = coreAudioStatus(AudioComponentInstanceDispose(render->unit));
+				if (status != AUDIO_DEVICE_OK) { return status; }
+				render->unit = null;
+			}
+		}
+		self._selectedOutput = null;
+		self._selectedInput = null;
+		self._physicalInput = null;
+		self._inputChannels = null;
+		self._outputChannels = null;
+		self._sliceNanoseconds = null;
+		struct OwnedBufferStorage* inputBuffers = self._inputBuffers;
+		self._inputBuffers = null;
+		OwnedBuffers.close(&inputBuffers);
+		self._render.close();
+		self._counters.close();
+		self._program = null;
+		self._state = CORE_AUDIO_UNIT_CLOSED;
+		return AUDIO_DEVICE_OK;
+	}
+
+	public void __del__() { if (self.close() != AUDIO_DEVICE_OK) { Console.fatal("CoreAudio unit destroyed before callback teardown completed"); } }
+}
+
+/* SDK values are borrowed only within a property read. Published descriptors
+ * contain BTRC values, not copies of a private C provider's memory layout. */
+class CoreAudioHardwareDevice {
+	private AudioObjectID _id;
+
+	public CoreAudioHardwareDevice(AudioObjectID id) { self._id = id; }
+
+	public AudioObjectID nativeId() { return self._id; }
+
+	public bool read(AudioObjectPropertySelector selector, AudioObjectPropertyScope scope, void* value, UInt32* size) { return self.readStatus(selector, scope, value, size) == AUDIO_DEVICE_OK; }
+
+	public AudioDeviceStatus readStatus(AudioObjectPropertySelector selector, AudioObjectPropertyScope scope, void* value, UInt32* size) {
+		AudioObjectPropertyAddress address = {selector, scope, kAudioObjectPropertyElementMain};
+		return coreAudioStatus(AudioObjectGetPropertyData(self._id, &address, 0u, null, size, value));
+	}
+
+	public AudioDeviceStatus write(AudioObjectPropertySelector selector, const void* value, UInt32 size) {
+		AudioObjectPropertyAddress address = {selector, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+		return coreAudioStatus(AudioObjectSetPropertyData(self._id, &address, 0u, null, size, value));
+	}
+
+	public AudioDeviceStatus matchesIdentity(string expected) {
+		CFStringRef value = null;
+		UInt32 size = (UInt32)sizeof(CFStringRef);
+		AudioDeviceStatus status = self.readStatus(kAudioDevicePropertyDeviceUID, kAudioObjectPropertyScopeGlobal, (void*)&value, &size);
+		if (status == AUDIO_DEVICE_OK) {
+			char text[512];
+			if (size != (UInt32)sizeof(CFStringRef) || value == null || CFGetTypeID(value) != CFStringGetTypeID() || CFStringGetCString(value, text, 512, kCFStringEncodingUTF8) == 0) { status = AUDIO_DEVICE_UNAVAILABLE; }
+			else if (strcmp(text, expected) != 0) { status = AUDIO_DEVICE_NOT_FOUND; }
+		}
+		if (value != null) { CFRelease(value); }
+		return status;
+	}
+
+	public bool readSize(AudioObjectPropertySelector selector, AudioObjectPropertyScope scope, UInt32* size) {
+		AudioObjectPropertyAddress address = {selector, scope, kAudioObjectPropertyElementMain};
+		return AudioObjectGetPropertyDataSize(self._id, &address, 0u, null, size) == 0;
+	}
+
+	public string text(AudioObjectPropertySelector selector) {
+		CFStringRef value = null;
+		UInt32 size = (UInt32)sizeof(CFStringRef);
+		bool received = self.read(selector, kAudioObjectPropertyScopeGlobal, (void*)&value, &size);
+		string result = "";
+		if (received && size == (UInt32)sizeof(CFStringRef) && value != null && CFGetTypeID(value) == CFStringGetTypeID()) {
+			char characters[512];
+			if (CFStringGetCString(value, characters, 512, kCFStringEncodingUTF8) != 0) { result = Strings.copy(characters); }
+		}
+		if (value != null) { CFRelease(value); }
+		return result;
+	}
+
+	public int channels(AudioObjectPropertyScope scope, int maximum = 256) {
+		if (maximum <= 0 || maximum > 512) { return -1; }
+		AudioBufferList layout;
+		size_t prefix = (size_t)((unsigned char*)&layout.mBuffers[0] - (unsigned char*)&layout);
+		for (int attempt = 0; attempt < 3; attempt++) {
+			UInt32 size = 0u;
+			if (!self.readSize(kAudioDevicePropertyStreamConfiguration, scope, &size) || (size_t)size < prefix || (size_t)size > prefix + (size_t)maximum * sizeof(AudioBuffer)) { return -1; }
+			OwnedBuffer<unsigned char> bytes = OwnedBuffer((size_t)size);
+			if (!bytes.opened()) { return -1; }
+			UInt32 received = size;
+			if (!self.read(kAudioDevicePropertyStreamConfiguration, scope, bytes.borrow(), &received)) { continue; }
+			if (received > size || (size_t)received < prefix) { return -1; }
+			AudioBufferList* list = (AudioBufferList*)bytes.borrow();
+			UInt32 count = list->mNumberBuffers;
+			if ((size_t)count > ((size_t)received - prefix) / sizeof(AudioBuffer)) { return -1; }
+			int channels = 0;
+			for (UInt32 index = 0u; index < count; index++) {
+				AudioBuffer buffer;
+				memcpy(&buffer, bytes.borrow() + prefix + (size_t)index * sizeof(AudioBuffer), sizeof(AudioBuffer));
+				if (buffer.mNumberChannels > (UInt32)(maximum - channels)) { return -1; }
+				channels += (int)buffer.mNumberChannels;
+			}
+			return channels;
+		}
+		return -1;
+	}
+
+	public AudioStreamCapability capability() {
+		Float64 currentRate = 0.0;
+		UInt32 rateSize = (UInt32)sizeof(Float64);
+		AudioValueRange bufferRange = {0.0, 0.0};
+		UInt32 bufferRangeSize = (UInt32)sizeof(AudioValueRange);
+		UInt32 currentBuffer = 0u;
+		UInt32 bufferSize = (UInt32)sizeof(UInt32);
+		UInt32 rangesSize = 0u;
+		if (!self.read(kAudioDevicePropertyNominalSampleRate, kAudioObjectPropertyScopeGlobal, &currentRate, &rateSize) || rateSize != (UInt32)sizeof(Float64) || !self.read(kAudioDevicePropertyBufferFrameSizeRange, kAudioObjectPropertyScopeGlobal, &bufferRange, &bufferRangeSize) || bufferRangeSize != (UInt32)sizeof(AudioValueRange) || !self.read(kAudioDevicePropertyBufferFrameSize, kAudioObjectPropertyScopeGlobal, &currentBuffer, &bufferSize) || bufferSize != (UInt32)sizeof(UInt32) || !self.readSize(kAudioDevicePropertyAvailableNominalSampleRates, kAudioObjectPropertyScopeGlobal, &rangesSize)) { return AudioStreamCapability.unknown(); }
+		if (rangesSize == 0u || (size_t)rangesSize % sizeof(AudioValueRange) != (size_t)0 || (size_t)rangesSize / sizeof(AudioValueRange) > (size_t)64) { return AudioStreamCapability.unknown(); }
+		OwnedBuffer<unsigned char> bytes = OwnedBuffer((size_t)rangesSize);
+		if (!bytes.opened()) { return AudioStreamCapability.unknown(); }
+		UInt32 received = rangesSize;
+		if (!self.read(kAudioDevicePropertyAvailableNominalSampleRates, kAudioObjectPropertyScopeGlobal, bytes.borrow(), &received) || received > rangesSize || received == 0u || (size_t)received % sizeof(AudioValueRange) != (size_t)0) { return AudioStreamCapability.unknown(); }
+		var ranges = new Vector<AudioSampleRateRange>();
+		int count = (int)((size_t)received / sizeof(AudioValueRange));
+		for (int index = 0; index < count; index++) {
+			AudioValueRange range;
+			memcpy(&range, bytes.borrow() + (size_t)index * sizeof(AudioValueRange), sizeof(AudioValueRange));
+			if (!isfinite(range.mMinimum) || !isfinite(range.mMaximum) || range.mMinimum > range.mMaximum) { return AudioStreamCapability.unknown(); }
+			if (range.mMaximum < 8000.0 || range.mMinimum > 768000.0) { continue; }
+			int minimum = (int)ceil(range.mMinimum < 8000.0 ? 8000.0 : range.mMinimum);
+			int maximum = (int)floor(range.mMaximum > 768000.0 ? 768000.0 : range.mMaximum);
+			if (minimum <= maximum) {
+				var retained = AudioSampleRateRange(minimum, maximum);
+				int position = 0;
+				while (position < ranges.len && ranges.get(position).minimum() < minimum) { position++; }
+				ranges.insert(position, retained);
+			}
+		}
+		if (ranges.isEmpty() || !isfinite(currentRate) || currentRate < 8000.0 || currentRate > 768000.0 || !isfinite(bufferRange.mMinimum) || !isfinite(bufferRange.mMaximum) || bufferRange.mMinimum < 1.0 || bufferRange.mMaximum > 65536.0 || bufferRange.mMinimum > bufferRange.mMaximum) { return AudioStreamCapability.unknown(); }
+		var merged = new Vector<AudioSampleRateRange>();
+		for (int index = 0; index < ranges.len; index++) {
+			var range = ranges.get(index);
+			if (!merged.isEmpty() && range.minimum() <= merged.get(merged.len - 1).maximum() + 1) {
+				var previous = merged.get(merged.len - 1);
+				merged.set(merged.len - 1, AudioSampleRateRange(previous.minimum(), range.maximum() > previous.maximum() ? range.maximum() : previous.maximum()));
+			} else { merged.push(range); }
+		}
+		int roundedRate = (int)round(currentRate);
+		int minimumBuffer = (int)ceil(bufferRange.mMinimum);
+		int maximumBuffer = (int)floor(bufferRange.mMaximum);
+		bool containsCurrent = false;
+		for (int index = 0; index < merged.len; index++) { if (merged.get(index).contains(roundedRate)) { containsCurrent = true; } }
+		if (!containsCurrent || maximumBuffer < minimumBuffer || currentBuffer < (UInt32)minimumBuffer || currentBuffer > (UInt32)maximumBuffer) { return AudioStreamCapability.unknown(); }
+		return AudioStreamCapability.available(merged, roundedRate, minimumBuffer, maximumBuffer, (int)currentBuffer);
+	}
+
+	public AudioDeviceDescriptor? describe(AudioObjectID defaultInput, AudioObjectID defaultOutput) {
+		int inputChannels = self.channels(kAudioDevicePropertyScopeInput);
+		int outputChannels = self.channels(kAudioDevicePropertyScopeOutput);
+		if (inputChannels < 0 || outputChannels < 0 || (inputChannels == 0 && outputChannels == 0)) { return null; }
+		string id = self.text(kAudioDevicePropertyDeviceUID);
+		if (id.isEmpty() || id.startsWith("org.btrc.private.coreaudio.")) { return null; }
+		string name = self.text(kAudioObjectPropertyName);
+		return AudioDeviceDescriptor(id, name.isEmpty() ? id : name, inputChannels, outputChannels, self._id == defaultInput && inputChannels > 0, self._id == defaultOutput && outputChannels > 0, self.capability());
+	}
+}
+
+/* One reversible control-thread configuration. Pending writes are retained
+ * until rollback succeeds, or the device/value has been replaced externally. */
+enum CoreAudioSettingState {
+	CORE_AUDIO_SETTING_IDLE,
+	CORE_AUDIO_SETTING_SUBMITTED,
+	CORE_AUDIO_SETTING_APPLIED,
+	CORE_AUDIO_SETTING_RESTORING
+};
+
+class CoreAudioDeviceConfiguration {
+	private CoreAudioHardwareDevice _device;
+	private string _uid;
+	private bool _attempted;
+	private CoreAudioSettingState _rateState;
+	private CoreAudioSettingState _bufferState;
+	private Float64 _originalRate;
+	private UInt32 _originalBuffer;
+	private Float64 _requestedRate;
+	private UInt32 _requestedBuffer;
+
+	public CoreAudioDeviceConfiguration(CoreAudioHardwareDevice device, string uid) {
+		self._device = device;
+		self._uid = uid;
+		self._attempted = false;
+		self._rateState = CORE_AUDIO_SETTING_IDLE;
+		self._bufferState = CORE_AUDIO_SETTING_IDLE;
+		self._originalRate = 0.0;
+		self._originalBuffer = 0u;
+		self._requestedRate = 0.0;
+		self._requestedBuffer = 0u;
+	}
+
+	private AudioDeviceStatus read(Float64* rate, UInt32* frames) {
+		UInt32 size = (UInt32)sizeof(Float64);
+		AudioDeviceStatus status = self._device.readStatus(kAudioDevicePropertyNominalSampleRate, kAudioObjectPropertyScopeGlobal, rate, &size);
+		if (status != AUDIO_DEVICE_OK) { return status; }
+		if (size != (UInt32)sizeof(Float64) || !isfinite(*rate) || *rate <= 0.0) { return AUDIO_DEVICE_UNAVAILABLE; }
+		size = (UInt32)sizeof(UInt32);
+		status = self._device.readStatus(kAudioDevicePropertyBufferFrameSize, kAudioObjectPropertyScopeGlobal, frames, &size);
+		if (status != AUDIO_DEVICE_OK) { return status; }
+		return size == (UInt32)sizeof(UInt32) && *frames > 0u ? AUDIO_DEVICE_OK : AUDIO_DEVICE_UNAVAILABLE;
+	}
+
+	private void observe(Float64 rate, UInt32 frames) {
+		if (self._rateState == CORE_AUDIO_SETTING_SUBMITTED && fabs(rate - self._requestedRate) < 0.5) { self._rateState = CORE_AUDIO_SETTING_APPLIED; }
+		if (self._bufferState == CORE_AUDIO_SETTING_SUBMITTED && frames == self._requestedBuffer) { self._bufferState = CORE_AUDIO_SETTING_APPLIED; }
+	}
+
+	public bool matches(int sampleRate, int bufferFrames) {
+		Float64 rate = 0.0;
+		UInt32 frames = 0u;
+		if (self.read(&rate, &frames) != AUDIO_DEVICE_OK) { return false; }
+		self.observe(rate, frames);
+		return fabs(rate - (Float64)sampleRate) < 0.5 && frames == (UInt32)bufferFrames;
+	}
+
+	public AudioDeviceStatus configure(int sampleRate, int bufferFrames) {
+		if (self._attempted) { return AUDIO_DEVICE_WRONG_STATE; }
+		if (sampleRate < 8000 || sampleRate > 768000 || bufferFrames < 16 || bufferFrames > 8192) { return AUDIO_DEVICE_INVALID_ARGUMENT; }
+		self._attempted = true;
+		AudioDeviceStatus status = self._device.matchesIdentity(self._uid);
+		if (status != AUDIO_DEVICE_OK) { return status; }
+		Float64 originalRate = 0.0;
+		UInt32 originalBuffer = 0u;
+		status = self.read(&originalRate, &originalBuffer);
+		if (status != AUDIO_DEVICE_OK) { return status; }
+		self._originalRate = originalRate;
+		self._originalBuffer = originalBuffer;
+		self._requestedRate = (Float64)sampleRate;
+		self._requestedBuffer = (UInt32)bufferFrames;
+		if (fabs(originalRate - self._requestedRate) >= 0.5) {
+			Float64 requested = self._requestedRate;
+			self._rateState = CORE_AUDIO_SETTING_APPLIED;
+			status = self._device.write(kAudioDevicePropertyNominalSampleRate, &requested, (UInt32)sizeof(Float64));
+			if (status != AUDIO_DEVICE_OK) { return status; }
+			self._rateState = CORE_AUDIO_SETTING_SUBMITTED;
+		}
+		if (originalBuffer != self._requestedBuffer) {
+			UInt32 requested = self._requestedBuffer;
+			self._bufferState = CORE_AUDIO_SETTING_APPLIED;
+			status = self._device.write(kAudioDevicePropertyBufferFrameSize, &requested, (UInt32)sizeof(UInt32));
+			if (status != AUDIO_DEVICE_OK) { return status; }
+			self._bufferState = CORE_AUDIO_SETTING_SUBMITTED;
+		}
+		for (int attempt = 0; attempt < 500; attempt++) {
+			if (self.matches(sampleRate, bufferFrames)) { return AUDIO_DEVICE_OK; }
+			Timer.sleepMillis(1);
+		}
+		return self.matches(sampleRate, bufferFrames) ? AUDIO_DEVICE_OK : AUDIO_DEVICE_UNSUPPORTED_FORMAT;
+	}
+
+	private AudioDeviceStatus restoreBuffer(UInt32 current) {
+		if (self._bufferState == CORE_AUDIO_SETTING_IDLE) { return AUDIO_DEVICE_OK; }
+		if (self._bufferState == CORE_AUDIO_SETTING_SUBMITTED && current == self._originalBuffer) { return AUDIO_DEVICE_OK; }
+		if (current != self._requestedBuffer) { self._bufferState = CORE_AUDIO_SETTING_IDLE; return AUDIO_DEVICE_OK; }
+		if (self._bufferState == CORE_AUDIO_SETTING_RESTORING) { return AUDIO_DEVICE_OK; }
+		UInt32 original = self._originalBuffer;
+		var status = self._device.write(kAudioDevicePropertyBufferFrameSize, &original, (UInt32)sizeof(UInt32));
+		if (status == AUDIO_DEVICE_OK) { self._bufferState = CORE_AUDIO_SETTING_RESTORING; }
+		return status;
+	}
+
+	private AudioDeviceStatus restoreRate(Float64 current) {
+		if (self._rateState == CORE_AUDIO_SETTING_IDLE) { return AUDIO_DEVICE_OK; }
+		if (self._rateState == CORE_AUDIO_SETTING_SUBMITTED && fabs(current - self._originalRate) < 0.5) { return AUDIO_DEVICE_OK; }
+		if (fabs(current - self._requestedRate) >= 0.5) { self._rateState = CORE_AUDIO_SETTING_IDLE; return AUDIO_DEVICE_OK; }
+		if (self._rateState == CORE_AUDIO_SETTING_RESTORING) { return AUDIO_DEVICE_OK; }
+		Float64 original = self._originalRate;
+		var status = self._device.write(kAudioDevicePropertyNominalSampleRate, &original, (UInt32)sizeof(Float64));
+		if (status == AUDIO_DEVICE_OK) { self._rateState = CORE_AUDIO_SETTING_RESTORING; }
+		return status;
+	}
+
+	public AudioDeviceStatus close() {
+		// Setter success means accepted, not observed. Retain pending ownership
+		// through both asynchronous application and asynchronous restoration.
+		for (int attempt = 0; attempt <= 500; attempt++) {
+			if (self._rateState == CORE_AUDIO_SETTING_IDLE && self._bufferState == CORE_AUDIO_SETTING_IDLE) { return AUDIO_DEVICE_OK; }
+			AudioDeviceStatus identity = self._device.matchesIdentity(self._uid);
+			if (identity == AUDIO_DEVICE_NOT_FOUND) {
+				self._rateState = CORE_AUDIO_SETTING_IDLE;
+				self._bufferState = CORE_AUDIO_SETTING_IDLE;
+				return AUDIO_DEVICE_OK;
+			}
+			if (identity != AUDIO_DEVICE_OK) { return identity; }
+			Float64 rate = 0.0;
+			UInt32 frames = 0u;
+			var status = self.read(&rate, &frames);
+			if (status != AUDIO_DEVICE_OK) { return status; }
+			self.observe(rate, frames);
+			var bufferStatus = self.restoreBuffer(frames);
+			var rateStatus = self.restoreRate(rate);
+			if (bufferStatus != AUDIO_DEVICE_OK) { return bufferStatus; }
+			if (rateStatus != AUDIO_DEVICE_OK) { return rateStatus; }
+			if (self._rateState == CORE_AUDIO_SETTING_IDLE && self._bufferState == CORE_AUDIO_SETTING_IDLE) { return AUDIO_DEVICE_OK; }
+			if (attempt < 500) { Timer.sleepMillis(1); }
+		}
+		return AUDIO_DEVICE_BUSY;
+	}
+
+	public void __del__() {
+		if (self.close() != AUDIO_DEVICE_OK) { Console.fatal("CoreAudio configuration destroyed before rollback completed"); }
+	}
+}
+
+class CoreAudioAggregateDescription {
+	private bool _prepared;
+	private CFStringRef _inputUid;
+	private CFStringRef _outputUid;
+	private CFUUIDRef _uuid;
+	private CFStringRef _uuidText;
+	private CFStringRef _aggregateUid;
+	private CFStringRef _name;
+	private CFNumberRef _one;
+	private CFNumberRef _zero;
+	private CFMutableDictionaryRef _input;
+	private CFMutableDictionaryRef _output;
+	private CFMutableDictionaryRef _description;
+	private CFMutableArrayRef _subdevices;
+
+	public CoreAudioAggregateDescription() {
+		self._prepared = false;
+		self._inputUid = null;
+		self._outputUid = null;
+		self._uuid = null;
+		self._uuidText = null;
+		self._aggregateUid = null;
+		self._name = null;
+		self._one = null;
+		self._zero = null;
+		self._input = null;
+		self._output = null;
+		self._description = null;
+		self._subdevices = null;
+	}
+
+	private bool put(CFMutableDictionaryRef dictionary, const char* name, CFTypeRef value) {
+		var key = CFStringCreateWithCString(kCFAllocatorDefault, name, kCFStringEncodingUTF8);
+		if (key == null) { return false; }
+		CFDictionarySetValue(dictionary, key, value);
+		CFRelease(key);
+		return true;
+	}
+
+	public bool prepare(string input, string output) {
+		if (self._prepared || input.isEmpty() || output.isEmpty()) { return false; }
+		self._prepared = true;
+		self._inputUid = CFStringCreateWithCString(kCFAllocatorDefault, input, kCFStringEncodingUTF8);
+		self._outputUid = CFStringCreateWithCString(kCFAllocatorDefault, output, kCFStringEncodingUTF8);
+		self._uuid = CFUUIDCreate(kCFAllocatorDefault);
+		if (self._inputUid == null || self._outputUid == null || self._uuid == null) { return false; }
+		self._uuidText = CFUUIDCreateString(kCFAllocatorDefault, self._uuid);
+		char identifier[64];
+		if (self._uuidText == null || CFStringGetCString(self._uuidText, identifier, 64, kCFStringEncodingUTF8) == 0) { return false; }
+		string uid = "org.btrc.private.coreaudio." + Strings.copy(identifier);
+		self._aggregateUid = CFStringCreateWithCString(kCFAllocatorDefault, uid, kCFStringEncodingUTF8);
+		self._name = CFStringCreateWithCString(kCFAllocatorDefault, "BTRC Private Duplex Audio", kCFStringEncodingUTF8);
+		int one = 1;
+		int zero = 0;
+		self._one = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &one);
+		self._zero = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &zero);
+		self._input = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		self._output = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		self._description = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		self._subdevices = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+		if (self._aggregateUid == null || self._name == null || self._one == null || self._zero == null || self._input == null || self._output == null || self._description == null || self._subdevices == null) { return false; }
+		if (!self.put(self._input, coreAudioSubDeviceUidKey, self._inputUid) || !self.put(self._input, coreAudioDriftCompensationKey, self._one) || !self.put(self._output, coreAudioSubDeviceUidKey, self._outputUid) || !self.put(self._output, coreAudioDriftCompensationKey, self._zero)) { return false; }
+		CFArrayAppendValue(self._subdevices, self._input);
+		CFArrayAppendValue(self._subdevices, self._output);
+		return self.put(self._description, coreAudioAggregateUidKey, self._aggregateUid) && self.put(self._description, coreAudioAggregateNameKey, self._name) && self.put(self._description, coreAudioAggregateSubDevicesKey, self._subdevices) && self.put(self._description, coreAudioAggregateMainDeviceKey, self._outputUid) && self.put(self._description, coreAudioAggregatePrivateKey, self._one) && self.put(self._description, coreAudioAggregateStackedKey, self._one);
+	}
+
+	public CFDictionaryRef dictionary() { return self._description; }
+
+	public void __del__() {
+		if (self._subdevices != null) { CFRelease(self._subdevices); }
+		if (self._description != null) { CFRelease(self._description); }
+		if (self._output != null) { CFRelease(self._output); }
+		if (self._input != null) { CFRelease(self._input); }
+		if (self._zero != null) { CFRelease(self._zero); }
+		if (self._one != null) { CFRelease(self._one); }
+		if (self._name != null) { CFRelease(self._name); }
+		if (self._aggregateUid != null) { CFRelease(self._aggregateUid); }
+		if (self._uuidText != null) { CFRelease(self._uuidText); }
+		if (self._uuid != null) { CFRelease(self._uuid); }
+		if (self._outputUid != null) { CFRelease(self._outputUid); }
+		if (self._inputUid != null) { CFRelease(self._inputUid); }
+	}
+}
+
+class CoreAudioAggregateDevice {
+	private AudioObjectID _id;
+
+	public CoreAudioAggregateDevice() { self._id = kAudioObjectUnknown; }
+
+	public AudioDeviceStatus create(string inputUid, string outputUid) {
+		if (self._id != kAudioObjectUnknown) { return AUDIO_DEVICE_WRONG_STATE; }
+		var description = CoreAudioAggregateDescription();
+		if (!description.prepare(inputUid, outputUid)) { return AUDIO_DEVICE_FAILED; }
+		AudioObjectID created = kAudioObjectUnknown;
+		AudioDeviceStatus status = coreAudioStatus(AudioHardwareCreateAggregateDevice(description.dictionary(), &created));
+		self._id = created;
+		return status == AUDIO_DEVICE_OK && self._id == kAudioObjectUnknown ? AUDIO_DEVICE_FAILED : status;
+	}
+
+	public CoreAudioHardwareDevice device() {
+		if (self._id == kAudioObjectUnknown) { throw "CoreAudio aggregate device is unavailable"; }
+		return CoreAudioHardwareDevice(self._id);
+	}
+
+	public AudioDeviceStatus close() {
+		if (self._id == kAudioObjectUnknown) { return AUDIO_DEVICE_OK; }
+		AudioDeviceStatus status = coreAudioStatus(AudioHardwareDestroyAggregateDevice(self._id));
+		if (status != AUDIO_DEVICE_OK && status != AUDIO_DEVICE_NOT_FOUND) { return status; }
+		self._id = kAudioObjectUnknown;
+		return AUDIO_DEVICE_OK;
+	}
+
+	public void __del__() {
+		if (self.close() != AUDIO_DEVICE_OK) { Console.fatal("CoreAudio aggregate destroyed before native teardown completed"); }
+	}
+}
+
+class CoreAudioHardwareInventory {
+	private Vector<CoreAudioHardwareDevice> _hardware;
+	private Vector<AudioDeviceDescriptor> _descriptors;
+	private unsigned long long _generation;
+
+	public CoreAudioHardwareInventory() {
+		self._hardware = new Vector<CoreAudioHardwareDevice>();
+		self._descriptors = new Vector<AudioDeviceDescriptor>();
+		self._generation = 0ULL;
+	}
+
+	public CoreAudioHardwareDevice? find(string id) {
+		for (int index = 0; index < self._descriptors.len; index++) { if (self._descriptors.get(index).id() == id) { return self._hardware.get(index); } }
+		return null;
+	}
+
+	public AudioDeviceInventoryOutcome refresh() {
+		var system = CoreAudioHardwareDevice(kAudioObjectSystemObject);
+		AudioObjectID defaultInput = kAudioObjectUnknown;
+		AudioObjectID defaultOutput = kAudioObjectUnknown;
+		UInt32 size = (UInt32)sizeof(AudioObjectID);
+		system.read(kAudioHardwarePropertyDefaultInputDevice, kAudioObjectPropertyScopeGlobal, &defaultInput, &size);
+		size = (UInt32)sizeof(AudioObjectID);
+		system.read(kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal, &defaultOutput, &size);
+		for (int attempt = 0; attempt < 3; attempt++) {
+			size = 0u;
+			if (!system.readSize(kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal, &size) || (size_t)size % sizeof(AudioObjectID) != (size_t)0 || (size_t)size / sizeof(AudioObjectID) > (size_t)256) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_UNAVAILABLE); }
+			OwnedBuffer<unsigned char> bytes = OwnedBuffer(size == 0u ? (size_t)1 : (size_t)size);
+			if (!bytes.opened()) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_FAILED); }
+			UInt32 received = size;
+			if (size != 0u && !system.read(kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal, bytes.borrow(), &received)) { continue; }
+			if (received > size || (size_t)received % sizeof(AudioObjectID) != (size_t)0) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_UNAVAILABLE); }
+			var hardware = new Vector<CoreAudioHardwareDevice>();
+			var descriptors = new Vector<AudioDeviceDescriptor>();
+			int count = (int)((size_t)received / sizeof(AudioObjectID));
+			for (int index = 0; index < count; index++) {
+				AudioObjectID id = kAudioObjectUnknown;
+				memcpy(&id, bytes.borrow() + (size_t)index * sizeof(AudioObjectID), sizeof(AudioObjectID));
+				var device = CoreAudioHardwareDevice(id);
+				var descriptor = device.describe(defaultInput, defaultOutput);
+				if (descriptor == null) { continue; }
+				int position = 0;
+				while (position < descriptors.len && descriptors.get(position).id() < descriptor.id()) { position++; }
+				if (position < descriptors.len && descriptors.get(position).id() == descriptor.id()) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_FAILED); }
+				hardware.insert(position, device);
+				descriptors.insert(position, descriptor);
+			}
+			bool changed = self._generation == 0ULL || descriptors.len != self._descriptors.len;
+			for (int index = 0; !changed && index < descriptors.len; index++) {
+				changed = hardware.get(index).nativeId() != self._hardware.get(index).nativeId() || !self.sameDescriptor(descriptors.get(index), self._descriptors.get(index));
+			}
+			if (changed && self._generation == 18446744073709551615ULL) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_FAILED); }
+			if (changed) { self._generation++; }
+			self._hardware = hardware;
+			self._descriptors = descriptors;
+			return AudioDeviceInventoryOutcome.available(AudioDeviceInventory(self._generation, descriptors));
+		}
+		return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_UNAVAILABLE);
+	}
+
+	private bool sameDescriptor(AudioDeviceDescriptor left, AudioDeviceDescriptor right) {
+		if (left.id() != right.id() || left.name() != right.name() || left.inputChannels() != right.inputChannels() || left.outputChannels() != right.outputChannels() || left.isDefaultInput() != right.isDefaultInput() || left.isDefaultOutput() != right.isDefaultOutput()) { return false; }
+		var first = left.streamCapability();
+		var second = right.streamCapability();
+		if (first.isKnown() != second.isKnown()) { return false; }
+		if (!first.isKnown()) { return true; }
+		if (first.currentSampleRate() != second.currentSampleRate() || first.minimumBufferFrames() != second.minimumBufferFrames() || first.maximumBufferFrames() != second.maximumBufferFrames() || first.currentBufferFrames() != second.currentBufferFrames() || first.sampleRateRangeCount() != second.sampleRateRangeCount()) { return false; }
+		for (int index = 0; index < first.sampleRateRangeCount(); index++) {
+			if (first.sampleRateRangeAt(index).minimum() != second.sampleRateRangeAt(index).minimum() || first.sampleRateRangeAt(index).maximum() != second.sampleRateRangeAt(index).maximum()) { return false; }
+		}
+		return true;
+	}
+}
+
+/* Owns setup before publication and resources after session close. A provider
+ * retains failed setup until every native borrower and rollback is finished. */
+class CoreAudioSessionResources {
+	private CoreAudioDeviceConfiguration? _input;
+	private CoreAudioDeviceConfiguration? _output;
+	private CoreAudioAggregateDevice? _aggregate;
+	private CoreAudioDeviceConfiguration? _aggregateConfiguration;
+	private RealtimeAudioProgram? _program;
+	private CoreAudioUnit? _unit;
+	private bool _attempted;
+
+	public CoreAudioSessionResources() {
+		self._input = null;
+		self._output = null;
+		self._aggregate = null;
+		self._aggregateConfiguration = null;
+		self._program = null;
+		self._unit = null;
+		self._attempted = false;
+	}
+
+	public CoreAudioUnit unit() {
+		if (self._unit == null) { throw "CoreAudio unit is unavailable"; }
+		return self._unit;
+	}
+
+	public AudioDeviceStatus prepare(CoreAudioHardwareDevice? input, CoreAudioHardwareDevice output, DuplexAudioOpenRequest request, RealtimeAudioProgram program) {
+		if (self._attempted) { return AUDIO_DEVICE_WRONG_STATE; }
+		self._attempted = true;
+		self._program = program;
+		var stream = request.stream();
+		bool separate = input != null && input.nativeId() != output.nativeId();
+		if (separate) {
+			self._input = CoreAudioDeviceConfiguration(input, request.inputDeviceId());
+			var configured = self._input.configure(stream.sampleRate(), stream.bufferFrames());
+			if (configured != AUDIO_DEVICE_OK) { return configured; }
+		}
+		self._output = CoreAudioDeviceConfiguration(output, request.outputDeviceId());
+		var configured = self._output.configure(stream.sampleRate(), stream.bufferFrames());
+		if (configured != AUDIO_DEVICE_OK) { return configured; }
+		var device = output;
+		int outputOffset = 0;
+		if (separate) {
+			outputOffset = input.channels(kAudioDevicePropertyScopeOutput);
+			if (outputOffset < 0) { return AUDIO_DEVICE_UNAVAILABLE; }
+			self._aggregate = CoreAudioAggregateDevice();
+			var created = self._aggregate.create(request.inputDeviceId(), request.outputDeviceId());
+			if (created != AUDIO_DEVICE_OK) { return created; }
+			device = self._aggregate.device();
+			string uid = device.text(kAudioDevicePropertyDeviceUID);
+			if (uid.isEmpty()) { return AUDIO_DEVICE_UNAVAILABLE; }
+			self._aggregateConfiguration = CoreAudioDeviceConfiguration(device, uid);
+			configured = self._aggregateConfiguration.configure(stream.sampleRate(), stream.bufferFrames());
+			if (configured != AUDIO_DEVICE_OK) { return configured; }
+		}
+		int physicalInput = request.hasInput() ? device.channels(kAudioDevicePropertyScopeInput, 512) : 0;
+		int physicalOutput = device.channels(kAudioDevicePropertyScopeOutput, 512);
+		if (physicalInput < 0 || (request.hasInput() && physicalInput == 0) || physicalOutput <= 0) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
+		self._unit = CoreAudioUnit();
+		var status = self._unit.prepare(device.nativeId(), physicalInput, physicalOutput, outputOffset, request, program);
+		if (status != AUDIO_DEVICE_OK) { return status; }
+		var configuration = separate ? self._aggregateConfiguration : self._output;
+		return configuration.matches(stream.sampleRate(), stream.bufferFrames()) ? AUDIO_DEVICE_OK : AUDIO_DEVICE_UNSUPPORTED_FORMAT;
+	}
+
+	public AudioDeviceStatus close() {
+		if (self._unit != null) {
+			var closed = self._unit.close();
+			if (closed != AUDIO_DEVICE_OK) { return closed; }
+			self._unit = null;
+		}
+		if (self._aggregate != null) {
+			var closed = self._aggregate.close();
+			if (closed != AUDIO_DEVICE_OK) { return closed; }
+			self._aggregate = null;
+		}
+		if (self._aggregateConfiguration != null) {
+			var closed = self._aggregateConfiguration.close();
+			if (closed != AUDIO_DEVICE_OK) { return closed; }
+			self._aggregateConfiguration = null;
+		}
+		var inputStatus = self._input == null ? AUDIO_DEVICE_OK : self._input.close();
+		var outputStatus = self._output == null ? AUDIO_DEVICE_OK : self._output.close();
+		if (inputStatus != AUDIO_DEVICE_OK) { return inputStatus; }
+		if (outputStatus != AUDIO_DEVICE_OK) { return outputStatus; }
+		self._input = null;
+		self._output = null;
+		self._program = null;
+		return AUDIO_DEVICE_OK;
+	}
+
+	public void __del__() {
+		if (self.close() != AUDIO_DEVICE_OK) { Console.fatal("CoreAudio resources destroyed before cleanup completed"); }
+	}
+}
+
+class CoreAudioDeviceProviderOpenOutcome {
+	private AudioDeviceStatus _status;
+	private CoreAudioDeviceProvider? _provider;
+	private string _message;
+
+	private CoreAudioDeviceProviderOpenOutcome(AudioDeviceStatus status, CoreAudioDeviceProvider? provider, string message) {
+		if ((status == AUDIO_DEVICE_OK) != (provider != null && message.isEmpty())) { throw "invalid CoreAudio provider outcome"; }
+		self._status = status;
+		self._provider = provider;
+		self._message = status == AUDIO_DEVICE_OK ? "" : (message.isEmpty() ? audioDeviceStatusMessage(status) : message);
+	}
+
+	class CoreAudioDeviceProviderOpenOutcome opened(CoreAudioDeviceProvider provider) { return CoreAudioDeviceProviderOpenOutcome(AUDIO_DEVICE_OK, provider, ""); }
+
+	class CoreAudioDeviceProviderOpenOutcome failed(AudioDeviceStatus status, string message = "") {
+		if (status == AUDIO_DEVICE_OK) { throw "failed CoreAudio provider open requires an error status"; }
+		return CoreAudioDeviceProviderOpenOutcome(status, null, message);
+	}
+
+	public AudioDeviceStatus status() { return self._status; }
+
+	public bool succeeded() { return self._status == AUDIO_DEVICE_OK; }
+
+	public CoreAudioDeviceProvider provider() {
+		if (self._provider == null) { throw "CoreAudio provider is unavailable"; }
+		return self._provider;
+	}
+
+	public string message() { return self._message; }
+}
+
+class CoreAudioDeviceProvider implements AudioDeviceProvider {
+	private bool _open;
+	private CoreAudioHardwareInventory _inventory;
+	private CoreAudioSessionLease _lease;
+	private CoreAudioSessionResources? _pending;
+
+	private CoreAudioDeviceProvider() {
+		self._open = true;
+		self._inventory = CoreAudioHardwareInventory();
+		self._lease = CoreAudioSessionLease();
+		self._pending = null;
+	}
+
+	class CoreAudioDeviceProviderOpenOutcome open() {
+		var provider = CoreAudioDeviceProvider();
+		var inventory = provider.inventory();
+		if (!inventory.succeeded()) { return CoreAudioDeviceProviderOpenOutcome.failed(inventory.status(), inventory.message()); }
+		return CoreAudioDeviceProviderOpenOutcome.opened(provider);
+	}
+
+	public bool isOpen() { return self._open; }
+
+	public AudioDeviceInventoryOutcome inventory() {
+		if (!self._open) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_WRONG_STATE); }
+		return self._inventory.refresh();
+	}
+
+	public DuplexAudioSessionOpenOutcome openDuplex(DuplexAudioOpenRequest request, RealtimeAudioProgram program) {
+		if (!self._open || request == null || program == null) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_INVALID_ARGUMENT); }
+		if (self._lease.active) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_BUSY); }
+		if (self._pending != null) {
+			var cleanup = self._pending.close();
+			if (cleanup != AUDIO_DEVICE_OK) { return DuplexAudioSessionOpenOutcome.failed(cleanup, "Previous audio setup cleanup is still pending"); }
+			self._pending = null;
+		}
+		var inventoried = self.inventory();
+		if (!inventoried.succeeded()) { return DuplexAudioSessionOpenOutcome.failed(inventoried.status(), inventoried.message()); }
+		var inventory = inventoried.inventory();
+		AudioDeviceStatus validation = request.validate(inventory);
+		if (validation != AUDIO_DEVICE_OK) { return DuplexAudioSessionOpenOutcome.failed(validation); }
+		var output = self._inventory.find(request.outputDeviceId());
+		var input = request.hasInput() ? self._inventory.find(request.inputDeviceId()) : null;
+		if (output == null || (request.hasInput() && input == null)) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_NOT_FOUND); }
+		self._pending = CoreAudioSessionResources();
+		var status = self._pending.prepare(input, output, request, program);
+		if (status != AUDIO_DEVICE_OK) { return self.failedSetup(status); }
+		var refreshed = self.inventory();
+		if (!refreshed.succeeded()) { return self.failedSetup(refreshed.status(), refreshed.message()); }
+		struct CoreAudioSessionContext* context = (struct CoreAudioSessionContext*)calloc((size_t)1, sizeof(struct CoreAudioSessionContext));
+		if (context == null) { return self.failedSetup(AUDIO_DEVICE_FAILED); }
+		context->lease = self._lease;
+		keep(context->lease);
+		context->resources = self._pending;
+		keep(context->resources);
+		self._pending = null;
+		self._lease.active = true;
+		var stream = request.stream();
+		int inputCount = request.hasInput() ? request.inputChannels().count() : 0;
+		var outputSelection = request.outputChannels();
+		RealtimeAudioFormat? inputFormat = request.hasInput() ? RealtimeAudioFormat(stream.sampleRate(), inputCount) : null;
+		var format = DuplexAudioNegotiatedFormat(refreshed.inventory().generation(), request.hasInput() ? request.inputDeviceId() : "", inputFormat, request.outputDeviceId(), RealtimeAudioFormat(stream.sampleRate(), outputSelection.count()), stream.bufferFrames());
+		var session = DuplexAudioSession(format, program, context, coreAudioSessionStart, coreAudioSessionSuspend, coreAudioSessionDrain, coreAudioSessionClose, coreAudioSessionEpoch, coreAudioSessionDispose);
+		return DuplexAudioSessionOpenOutcome.opened(session);
+	}
+
+	public AudioDeviceOperationOutcome close() {
+		if (self._lease.active) { return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_BUSY); }
+		if (self._pending != null) {
+			var cleanup = self._pending.close();
+			if (cleanup != AUDIO_DEVICE_OK) { return AudioDeviceOperationOutcome.fromStatus(cleanup); }
+			self._pending = null;
+		}
+		self._open = false;
+		return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_OK);
+	}
+
+	private DuplexAudioSessionOpenOutcome failedSetup(AudioDeviceStatus status, string message = "") {
+		var cleanup = self._pending.close();
+		if (cleanup != AUDIO_DEVICE_OK) { return DuplexAudioSessionOpenOutcome.failed(cleanup, "Audio setup failed; native cleanup remains pending: " + audioDeviceStatusMessage(status)); }
+		self._pending = null;
+		return DuplexAudioSessionOpenOutcome.failed(status, message);
+	}
+
+	public void __del__() {
+		if (self._open && !self.close().succeeded()) { Console.fatal("CoreAudio provider destroyed before its sessions closed"); }
+	}
+}

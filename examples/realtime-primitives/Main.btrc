@@ -1,4 +1,4 @@
-import Library.Spsc;
+import Library.SPSC;
 
 int main() {
 	int samples[4] = [1, 2, 3, 4];
@@ -11,7 +11,7 @@ int main() {
 	published.store(1u, MemoryOrder.RELEASE);
 	if (published.load(MemoryOrder.ACQUIRE) != 1u) { return 3; }
 
-	SpscQueue<int> queue = new SpscQueue<int>(4u);
+	SPSCQueue<int> queue = new SPSCQueue<int>(4u);
 	if (!queue.tryPush(samples[0]) || !queue.tryPush(samples[2])) {
 		delete queue;
 		return 4;

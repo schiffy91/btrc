@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from src.compiler.python.abi.declarations import ALIAS_EXACT, RETURN_ALIAS
 from src.compiler.python.abi.hosted import HOSTED_ABI
 from src.compiler.python.analyzer.program import DeclarationIndex
+from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.frontend.sources import CompilerStdlibSource
 from src.compiler.python.syntax.ast.generated import (
     AssignExpr,
@@ -456,6 +457,8 @@ class OwnershipAnalyzer:
         elif name in local_names:
             return False
         declaration = self.index.function_table.get(name)
+        if declaration is not None and isinstance(declaration.source_file, NativeHeaderSource):
+            return False
         return bool(
             declaration is None or declaration.body is None or self.hosted_name_bypasses_source_definition(name)
         )
@@ -540,6 +543,15 @@ class OwnershipAnalyzer:
     def expression_produces_owned_result(self, expression) -> bool:
         result = self.types.canonical_type(self.type_of(expression))
         managed = self.is_managed_result_type(result)
+        if isinstance(expression, Identifier):
+            declaration = self.index.global_declarations.get(expression.name)
+            return bool(
+                managed
+                and declaration is not None
+                and isinstance(declaration.source_file, NativeHeaderSource)
+                and declaration.source_file.language == "objective-c"
+                and self.session.scope.lookup(expression.name) is self.session.global_scope.lookup(expression.name)
+            )
         if isinstance(expression, (NewExpr, BraceInitializer, ListLiteral, MapLiteral)):
             return managed
         if isinstance(expression, CastExpr):
@@ -881,7 +893,7 @@ class OwnershipAnalyzer:
                 return False
             if unresolved and self._raw_unresolved_call_is_borrow_only(call, argument_index):
                 continue
-            if unresolved or declaration is None:
+            if declaration is None:
                 return False
             parameter_index = self._raw_bound_parameter_index(declaration, call, argument_index)
             if parameter_index < 0 or not self._raw_parameter_is_borrow_only(declaration, parameter_index):
@@ -1035,6 +1047,9 @@ class OwnershipAnalyzer:
     def _raw_parameter_is_borrow_only(self, declaration, index) -> bool:
         cache = self._raw_borrow_effect_cache
         provenance = getattr(declaration, "source_file", None)
+        if isinstance(provenance, NativeHeaderSource) and provenance.call_contract is not None:
+            borrows = provenance.call_contract.read_only_borrows
+            return 0 <= index < len(borrows) and borrows[index]
         key = (id(declaration), index, provenance)
         if key in cache:
             return cache[key]

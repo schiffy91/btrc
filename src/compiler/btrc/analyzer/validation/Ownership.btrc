@@ -104,6 +104,7 @@ class OwnershipValidator {
 			return !self.state.analyzed.isClass(name);
 		}
 		Node declaration = self.state.analyzed.funcTable.get(name);
+		if (self.state.analyzed.isNativeDeclaration(declaration)) { return false; }
 		return declaration.bodyNode == null || self.hostedCallBypassesSourceDefinition(name);
 	}
 
@@ -712,6 +713,7 @@ class OwnershipValidator {
 
 	public bool expressionOwnsResult(Node? expression, Map<string, Node> vars) {
 		if (expression == null) { return false; }
+		if (expression.kind == NK_IDENTIFIER) { return !self.state.localBindings.has(expression.name) && self.state.analyzed.isObjectiveCObjectGlobal(expression.name); }
 		Node? result = self.types.inferType(expression,  vars);
 		bool managedResult = self.managedResultType(result);
 		if (expression.kind == NK_NEW_EXPR || expression.kind == NK_LIST_LITERAL || expression.kind == NK_MAP_LITERAL || expression.kind == NK_BRACE_INITIALIZER) {

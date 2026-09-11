@@ -43,6 +43,12 @@ class Math {
 
 	class float fmin(float a, float b) { return fminf(a, b); }
 
+	class double absDouble(double x) { return fabs(x); }
+
+	class double maxDouble(double a, double b) { return fmax(a, b); }
+
+	class double minDouble(double a, double b) { return fmin(a, b); }
+
 	class int clamp(int x, int lo, int hi) {
 		if (x < lo) { return lo; }
 		if (x > hi) { return hi; }

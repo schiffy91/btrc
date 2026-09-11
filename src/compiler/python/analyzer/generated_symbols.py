@@ -233,6 +233,9 @@ class GeneratedSymbolRegistry:
     def claim_class_symbols(self, declaration, claims) -> None:
         name = declaration.name
         info = self.index.class_table[name]
+        if info.native_language:
+            self._claim_class_members(declaration, info, claims)
+            return
         for suffix, role in (("init", "initializer"), ("new", "allocator"), ("destroy", "destructor")):
             self._claim_generated_symbol(
                 f"{name}_{suffix}", f"{role} for class '{name}'", declaration.line, declaration.col, claims

@@ -1,0 +1,2 @@
+/* Typed SDK declarations for the native device owner. The existing async
+ * primitive still owns callback references until its BTRC migration. */

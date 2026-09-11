@@ -2,9 +2,9 @@
 /* Deterministic local-socket coverage for split reads/writes and close framing. */
 import Library.Bytes;
 import Library.Datetime;
-import Library.HttpServer;
-import Library.HttpSocket;
-import Library.HttpTypes;
+import Library.HTTPServer;
+import Library.HTTPSocket;
+import Library.HTTPTypes;
 import Library.Strings;
 
 #include <assert.h>
@@ -47,7 +47,7 @@ Bytes readToClose(int descriptor) {
 }
 
 int main() {
-	HttpServer server = HttpServer(0);
+	HTTPServer server = HTTPServer(0);
 
 	struct sigaction pipeAction;
 	memset(&pipeAction, 0, sizeof(pipeAction));
@@ -55,7 +55,7 @@ int main() {
 	sigemptyset(&pipeAction.sa_mask);
 	assert(sigaction((int)SIGPIPE, &pipeAction, NULL) == 0);
 
-	HttpServer lifecycle = HttpServer(0);
+	HTTPServer lifecycle = HTTPServer(0);
 	assert(lifecycle.start());
 	assert(lifecycle.fd >= 0);
 	assert((fcntl(lifecycle.fd, (int)F_GETFD, 0) & (int)FD_CLOEXEC) != 0);
@@ -105,7 +105,7 @@ int main() {
 	int closedPair[2];
 	assert(socketpair((int)AF_UNIX, (int)SOCK_STREAM, 0, closedPair) == 0);
 	close(closedPair[1]);
-	assert(HttpSocket.sendNoSignal(closedPair[0], (char*)"x", (size_t)1) < 0LL);
+	assert(HTTPSocket.sendNoSignal(closedPair[0], (char*)"x", (size_t)1) < 0LL);
 	assert((int)pipeSignals == 1);
 	close(closedPair[0]);
 	server.timeoutSecs = 15;
@@ -158,7 +158,7 @@ int main() {
 	waitpid(largeWriter, &largeStatus, 0);
 	assert(WIFEXITED(largeStatus) && WEXITSTATUS(largeStatus) == 0);
 	assert(largeRaw.length() == (int)strlen(largeRequest));
-	HttpRequest largeParsed = server.parseBytes(largeRaw);
+	HTTPRequest largeParsed = server.parseBytes(largeRaw);
 	assert(largeParsed.valid);
 	assert(largeParsed.bodyBytes.length() == 20000);
 	close(largePair[1]);
@@ -184,7 +184,7 @@ int main() {
 	int writerStatus = 0;
 	waitpid(writer, &writerStatus, 0);
 	assert(WIFEXITED(writerStatus) && WEXITSTATUS(writerStatus) == 0);
-	HttpRequest chunkParsed = server.parseBytes(chunkRaw);
+	HTTPRequest chunkParsed = server.parseBytes(chunkRaw);
 	assert(chunkParsed.valid);
 	assert(chunkParsed.body.equals("AA\r\n0\r\n\r\nBBBBBB"));
 	close(chunkPair[1]);
@@ -213,7 +213,7 @@ int main() {
 		_exit(good ? 0 : 4);
 	}
 	close(responsePair[1]);
-	HttpResponse response = HttpResponse.text("z".repeat(200000));
+	HTTPResponse response = HTTPResponse.text("z".repeat(200000));
 	response.contentType = "text/plain\r\nType-Injection: yes";
 	response.addHeader("X-Good: yes");
 	response.addHeader("Content-Length: 1");
@@ -238,7 +238,7 @@ int main() {
 	/* Statuses that forbid payloads are emitted with a zero-length body. */
 	int emptyPair[2];
 	assert(socketpair((int)AF_UNIX, (int)SOCK_STREAM, 0, emptyPair) == 0);
-	server.respond(emptyPair[0], HttpResponse(204, "text/plain", "must-not-send"));
+	server.respond(emptyPair[0], HTTPResponse(204, "text/plain", "must-not-send"));
 	Bytes emptyResponse = readToClose(emptyPair[1]);
 	string emptyText = emptyResponse.toStringLossy();
 	assert(emptyText.contains("HTTP/1.1 204 No Content\r\n"));

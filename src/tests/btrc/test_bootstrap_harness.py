@@ -13,6 +13,18 @@ import pytest
 from src.tests.btrc import test_bootstrap as bootstrap
 
 
+@pytest.mark.parametrize("entrypoint", ["BtrccMain.btrc", os.path.join("cli", "WindowsMain.btrc")])
+def test_snapshot_preserves_host_entrypoint(tmp_path, monkeypatch, entrypoint) -> None:
+    monkeypatch.setattr(bootstrap, "COMPILER_ENTRYPOINT", entrypoint)
+    project, source_root, compiler = bootstrap._snapshot_compiler_inputs(str(tmp_path))
+    assert compiler == os.path.join(source_root, "compiler", "btrc", entrypoint)
+    assert os.path.isfile(compiler)
+    assert os.path.commonpath([project, compiler]) == project
+    with open(compiler, encoding="utf-8") as source:
+        text = source.read()
+    assert ("FeNativeHeaderProcess.read" in text) == (entrypoint == "BtrccMain.btrc")
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
 def test_stage_timeout_kills_spawned_descendants(tmp_path) -> None:
     marker = tmp_path / "escaped-child"

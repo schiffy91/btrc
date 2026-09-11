@@ -1,0 +1,23 @@
+#include "GUI/GUI.btrc"
+#include "GUI/Window.btrc"
+#include <assert.h>
+
+int main() {
+	var window = GUIWindow("BTRC pixel ownership test", 160, 120);
+	assert(window.isOpen());
+	var surface = Surface(80, 60);
+	var input = GUIInput();
+	for (int frame = 0; frame < 4; frame++) {
+		window.poll(input);
+		window.fit(surface);
+		assert(surface.opened() && surface.width() == window.width() && surface.height() == window.height());
+		surface.clear(Color.rgb(20, 40, 60));
+		surface.fillRect(4, 4, 16, 16, Color.rgb(255, 100, 20));
+		window.present(surface);
+		surface.resize(40, 30);
+	}
+	window.close();
+	assert(!window.isOpen());
+	print("PASS: native window presents BTRC-owned pixels");
+	return 0;
+}

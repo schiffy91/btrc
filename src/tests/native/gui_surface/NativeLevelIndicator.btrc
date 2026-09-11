@@ -1,0 +1,43 @@
+import Library.IO;
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSPanel;
+import Library.GUI.MacOS.MacOSLevelIndicator;
+import Library.GUI.MacOS.MacOSViewCapture;
+
+#include <assert.h>
+
+int main() {
+	var app = MacOSApplication();
+	var window = MacOSWindow("Native level", 400.0, 160.0);
+	var panel = MacOSPanel(RGBA(24, 24, 24));
+	panel.setFrame(0.0, 0.0, 400.0, 160.0);
+	window.contentView().addSubview(panel.nativeView());
+	var level = MacOSLevelIndicator(0.8, 0.95);
+	level.setFrame(24.0, 64.0, 352.0, 24.0);
+	panel.addChild(level.nativeView());
+	assert(level.value() == 0.0);
+	level.setValue(1.0);
+	assert(level.value() == 1.0);
+	level.setValue(0.45);
+	assert(level.value() == 0.45);
+	bool rejected = false;
+	try { level.setValue(1.1); } catch (string error) { rejected = true; }
+	assert(rejected && level.value() == 0.45);
+	rejected = false;
+	try { var invalid = MacOSLevelIndicator(0.9, 0.8); } catch (string error) { rejected = true; }
+	assert(rejected);
+	window.show();
+	app.pumpEvents();
+	var file = File("NativeLevelIndicator.tiff", "wb");
+	assert(file.ok() && file.writeBytes(MacOSViewCapture.captureTiff(window.contentView())) && file.close());
+	level.close();
+	level.close();
+	rejected = false;
+	try { level.setValue(0.0); } catch (string error) { rejected = true; }
+	assert(rejected);
+	panel.close();
+	window.close();
+	print("PASS: native level value, invalid input and teardown");
+	return 0;
+}

@@ -443,7 +443,7 @@ class CycleMetadata:
             return None
         if self._values.is_mutex(type_expr):
             return DirectVisitAction(MUTEX_RUNTIME_NAME)
-        if not self._values.is_class(type_expr):
+        if not self._values.is_arc(type_expr):
             return None
         info = self._analyzed.class_table.get(type_expr.base)
         if info is None:
@@ -462,7 +462,7 @@ class CycleMetadata:
             return False
         if self._values.is_mutex(type_expr):
             return True
-        if not self._values.is_class(type_expr):
+        if not self._values.is_arc(type_expr):
             return False
         info = self._analyzed.class_table.get(type_expr.base)
         if info is None:
@@ -658,10 +658,18 @@ class ManagedValueSemantics:
         )
 
     def is_arc(self, type_expr: TypeExpr | None) -> bool:
-        return self.is_class(type_expr) or self.is_mutex(type_expr)
+        return (self.is_class(type_expr) and not self.is_native(type_expr)) or self.is_mutex(type_expr)
+
+    def is_native_name(self, name: str) -> bool:
+        info = self._analyzed.class_table.get(name)
+        return info is not None and info.native_language == "objective-c"
+
+    def is_native(self, type_expr: TypeExpr | None) -> bool:
+        canonical = self.canonical(type_expr)
+        return canonical is not None and self.is_class(canonical) and self.is_native_name(canonical.base)
 
     def is_managed(self, type_expr: TypeExpr | None) -> bool:
-        return self.is_string(type_expr) or self.is_arc(type_expr)
+        return self.is_string(type_expr) or self.is_class(type_expr) or self.is_mutex(type_expr)
 
     def runtime_name(self, type_expr: TypeExpr) -> str:
         """Return the concrete ownership-bookkeeping name for a value."""
@@ -678,6 +686,8 @@ class ManagedValueSemantics:
         return canonical.base
 
     def cleanup_destroy_symbol(self, emitted_name: str) -> str:
+        if self.is_native_name(emitted_name):
+            return f"__btrc_objc_{emitted_name}_release"
         if emitted_name == STRING_RUNTIME_NAME:
             return "__btrc_string_release_cleanup"
         if emitted_name == MUTEX_RUNTIME_NAME:
@@ -694,6 +704,8 @@ class ManagedValueSemantics:
 
     def emitted_value_c_type(self, emitted_name: str) -> str:
         """Return the exact C value type stored by lexical ownership state."""
+        if self.is_native_name(emitted_name):
+            return f"struct __btrc_native_{emitted_name}*"
         if emitted_name == STRING_RUNTIME_NAME:
             return "const char*"
         if emitted_name == MUTEX_RUNTIME_NAME:
@@ -854,26 +866,28 @@ class ManagedLifetimeLowerer:
         self._session.require_helper(name)
 
     def retain_value(self, value, type_expr):
+        if self._values.is_native(type_expr):
+            return IRCall(callee=f"__btrc_objc_{self._values.runtime_name(type_expr)}_retain", args=[value])
         helper = "__btrc_string_retain" if self._values.is_string(type_expr) else "__btrc_arc_retain"
         self._session.require_helper(helper)
         return IRCall(callee=helper, args=[value], helper_ref=helper)
 
     def retain_edge_value(self, value, type_expr, owner):
-        if self._values.is_string(type_expr):
+        if self._values.is_string(type_expr) or self._values.is_native(type_expr):
             return self.retain_value(value, type_expr)
         helper = "__btrc_arc_retain_edge"
         self._session.require_helper(helper)
         return IRCall(callee=helper, args=[value, owner], helper_ref=helper)
 
     def adopt_edge_value(self, value, type_expr, owner):
-        if self._values.is_string(type_expr):
+        if self._values.is_string(type_expr) or self._values.is_native(type_expr):
             return self._no_op()
         helper = "__btrc_arc_adopt_edge"
         self._session.require_helper(helper)
         return IRCall(callee=helper, args=[value, owner], helper_ref=helper)
 
     def unlink_edge_value(self, value, type_expr, owner=None):
-        if self._values.is_string(type_expr):
+        if self._values.is_string(type_expr) or self._values.is_native(type_expr):
             return self._no_op()
         helper = "__btrc_arc_unlink_edge"
         self._session.require_helper(helper)
@@ -916,6 +930,8 @@ class ManagedLifetimeLowerer:
         return IRCall(callee=helper, args=args, helper_ref=helper)
 
     def release_value(self, value, type_expr):
+        if self._values.is_native(type_expr):
+            return self.release_emitted_value(value, self._values.runtime_name(type_expr))
         if self._values.is_string(type_expr):
             helper = "__btrc_string_release"
             self._session.require_helper(helper)
@@ -972,7 +988,7 @@ class ManagedLifetimeLowerer:
         return declaration
 
     def release_edge_value(self, value, type_expr, replacement=None):
-        if self._values.is_string(type_expr):
+        if self._values.is_string(type_expr) or self._values.is_native(type_expr):
             return self.release_value(value, type_expr)
         helper = "__btrc_arc_release_edge"
         self._session.require_helper(helper)
@@ -987,6 +1003,8 @@ class ManagedLifetimeLowerer:
         )
 
     def release_emitted_value(self, value, emitted_name: str):
+        if self._values.is_native_name(emitted_name):
+            return IRCall(callee=f"__btrc_objc_{emitted_name}_release", args=[value])
         if emitted_name == STRING_RUNTIME_NAME:
             helper = "__btrc_string_release"
             self._session.require_helper(helper)
@@ -1043,6 +1061,8 @@ class ManagedLifetimeLowerer:
 
     def arc_type_descriptor(self, type_expr):
         """Build the copied runtime descriptor for one concrete managed type."""
+        if self._values.is_native(type_expr):
+            raise CodegenError("Native objects do not have a BTRC ARC descriptor")
         if self._values.is_mutex(type_expr):
             self._session.require_helper("__btrc_mutex_arc_type")
             return IRAddressOf(expr=IRVar(name="__btrc_mutex_arc_descriptor"))
@@ -1061,6 +1081,8 @@ class ManagedLifetimeLowerer:
         )
 
     def emitted_type_descriptor(self, emitted_name: str):
+        if self._values.is_native_name(emitted_name):
+            raise CodegenError("Native objects do not have a BTRC ARC descriptor")
         if emitted_name == MUTEX_RUNTIME_NAME:
             self._session.require_helper("__btrc_mutex_arc_type")
             return IRAddressOf(expr=IRVar(name="__btrc_mutex_arc_descriptor"))
@@ -1133,12 +1155,12 @@ class ManagedLifetimeLowerer:
         flag = IRVar(name=flag_decl.name)
         emitted_name = self._values.runtime_name(type_expr)
         destroy = self._values.cleanup_destroy_symbol(emitted_name)
-        string_cleanup = emitted_name == STRING_RUNTIME_NAME
-        if string_cleanup:
+        direct_cleanup = emitted_name == STRING_RUNTIME_NAME or self._values.is_native_name(emitted_name)
+        if emitted_name == STRING_RUNTIME_NAME:
             self._session.require_helper(destroy)
-        visitor = None if string_cleanup else self._visitor_expression(type_expr)
+        visitor = None if direct_cleanup else self._visitor_expression(type_expr)
         register = self._cleanup_slots.register(
-            declaration, IRFunctionRef(name=destroy), visitor=visitor, direct=string_cleanup
+            declaration, IRFunctionRef(name=destroy), visitor=visitor, direct=direct_cleanup
         )
         register_once = IRTernary(
             condition=flag,
@@ -1156,8 +1178,9 @@ class ManagedLifetimeLowerer:
         self._cleanup_scope.mark_cleanup_registration()
         declaration = self._cleanup_slots.require_declaration(statements, var_name)
         destroy = self._values.cleanup_destroy_symbol(emitted_name)
-        if emitted_name == STRING_RUNTIME_NAME:
-            self._session.require_helper(destroy)
+        if emitted_name == STRING_RUNTIME_NAME or self._values.is_native_name(emitted_name):
+            if emitted_name == STRING_RUNTIME_NAME:
+                self._session.require_helper(destroy)
             statements.append(
                 IRExprStmt(expr=self._cleanup_slots.register(declaration, IRFunctionRef(name=destroy), direct=True))
             )
@@ -1289,6 +1312,14 @@ class OwnershipOperandOrder:
             source_type = self._types.resolve_active_type(source_type)
         source_canonical = self._types.canonical_type(source_type)
         effective_canonical = self._types.canonical_type(type_expr)
+        if (
+            effective_canonical is not None
+            and effective_canonical.pointer_depth == 0
+            and not effective_canonical.is_array
+        ):
+            # Sequenced operands are assigned after declaration. A scalar's
+            # source-slot constness does not qualify its copied value.
+            return self._types.value_storage_c_type(effective_canonical)
         if (
             source_type is not None
             and source_canonical is not None
@@ -1458,6 +1489,10 @@ class OwnershipLowerer:
         result_type: TypeExpr | None = None,
     ) -> bool:
         """Whether evaluating ``expression`` produces caller-owned +1."""
+        if isinstance(expression, Identifier):
+            return expression.name in self._analyzed.native_object_globals and not self._session.local_is_declared(
+                expression.name
+            )
         if isinstance(expression, NewExpr):
             return self._values.is_managed(result_type or self._session.type_of(expression))
         if isinstance(expression, (BraceInitializer, ListLiteral, MapLiteral)):
@@ -2451,6 +2486,8 @@ class OwnershipLowerer:
         if isinstance(node, Identifier):
             if self._enum_constant_identifier(node):
                 return False
+            if node.name in self._analyzed.native_object_globals and not self._session.local_is_declared(node.name):
+                return True
             return self._session.type_of(node) is None
         if isinstance(
             node,

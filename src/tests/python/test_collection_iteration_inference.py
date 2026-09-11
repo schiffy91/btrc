@@ -102,3 +102,43 @@ def test_ignored_string_iteration_binding_is_strict_c11(
 
     assert "(void)(ignored);" in generated
     _compile_and_run(generated, tmp_path, c_compiler)
+
+
+@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_temporary_class_vector_iteration_materializes_specialization(tmp_path: Path, c_compiler: str) -> None:
+    source = """
+        import Library.Vector;
+
+        int alive = 0;
+        class Button {
+            public int value;
+            public Button(int value) { self.value = value; alive++; }
+            public void __del__() { alive--; }
+        }
+        class Panel {
+            private Button first = Button(3);
+            private Button second = Button(7);
+            public int total() {
+                int result = 0;
+                for button in [self.first, self.second] { result += button.value; }
+                return result;
+            }
+        }
+        int main() {
+            {
+                var panel = Panel();
+                assert(panel.total() == 10);
+                assert(panel.total() == 10);
+                assert(alive == 2);
+            }
+            assert(alive == 0);
+            return 0;
+        }
+    """
+    source_path = tmp_path / "TemporaryClassVector.btrc"
+    source_path.write_text(source)
+    result = Compiler().compile(source, str(source_path), CompilerOptions(use_cache=False))
+    assert result.successful, result.failure or result.diagnostics
+    assert result.c_source is not None
+    _compile_and_run(result.c_source, tmp_path, c_compiler)

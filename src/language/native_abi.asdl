@@ -3,29 +3,40 @@
 module NativeAbi {
     native_header = NativeHeader(string target_triple, string compiler_version,
                                  bool big_endian, int character_bits,
-                                 native_declaration* exports, native_record* records)
+                                 native_declaration* exports, native_record* records,
+                                 native_interface* interfaces)
 
     native_declaration = NativeFunction(identifier name, string link_name,
                                         native_type signature, native_parameter* parameter_semantics,
                                         string returned_ownership)
+                       | NativeObjectiveCMethod(identifier name, string identity, identifier owner, identifier receiver,
+                                                string selector, bool class_method,
+                                                native_type signature, native_parameter* parameter_semantics,
+                                                string returned_ownership, string method_family,
+                                                bool consumes_self, bool related_result, bool returns_inner_pointer)
                        | NativeTypedef(identifier name, native_type underlying)
                        | NativeConstant(identifier name, native_type value_type, string decimal_value)
+                       | NativeGlobal(identifier name, native_type value_type, bool read_only)
                        | NativeRecordDeclaration(identifier name, native_type record_type)
                        attributes(string source_file, int line, int column)
 
     native_type = NativeBuiltin(identifier name, int bits, int alignment_bits, string signedness)
                 | NativePointer(native_type pointee)
                 | NativeAlias(identifier name, native_type underlying)
-                | NativeRecordType(identifier name, string identity, string record_kind, bool complete, bool opaque)
+                | NativeRecordType(identifier name, string tag_name, string identity, string record_kind, bool complete, bool opaque)
                 | NativeEnumType(identifier name, string identity, native_type underlying)
                 | NativeFunctionType(native_type return_type, native_type* parameters,
                                      bool variadic, string calling_convention)
                 | NativeArrayType(native_type element, string? count)
                 | NativeQualifiedType(native_type underlying)
+                | NativeObjectiveCObject(identifier name, string identity, bool class_object,
+                                         identifier* protocols, native_type* type_arguments)
+                | NativeObjectiveCBlock(native_type signature)
                 attributes(native_qualifiers qualifiers)
 
     native_qualifiers = NativeQualifiers(bool is_const, bool is_volatile, bool is_restrict, string nullability)
-    native_parameter = NativeParameterSemantics(identifier name, bool cf_consumed, bool ns_consumed)
+    native_parameter = NativeParameterSemantics(identifier name, bool cf_consumed, bool ns_consumed, bool no_escape)
+    native_interface = NativeObjectiveCInterface(identifier name, string identity, bool complete, string superclass)
     native_record = NativeRecordLayout(string identity, identifier name, string record_kind,
                                        string size_bits, string alignment_bits,
                                        native_field* fields)

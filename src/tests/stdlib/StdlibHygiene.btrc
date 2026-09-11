@@ -5,7 +5,7 @@
  * Hermetic: uses a fresh temp dir; deterministic; no network/sleep. */
 import Library.FileSystem;
 import Library.Graph;
-import Library.Io;
+import Library.IO;
 import Library.Strings;
 
 #include <assert.h>

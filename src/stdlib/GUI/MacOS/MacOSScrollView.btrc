@@ -1,0 +1,100 @@
+import Library.Math;
+
+/* Native vertical viewport. AppKit owns clipping, wheel/momentum handling and
+ * overlay scrollers. Public offsets count logical points down from the top;
+ * native document children use AppKit's unflipped coordinates. */
+class MacOSScrollView {
+	private NSScrollView? _scroll;
+
+	public MacOSScrollView() {
+		self._scroll = null;
+		self.requireMainThread();
+		var scroll = NSScrollView.new();
+		var document = NSView.new();
+		if (scroll == null || document == null) { throw "Cannot create native scroll view"; }
+		scroll.setBorderType(NSNoBorder);
+		scroll.setDrawsBackground(false);
+		scroll.setHasVerticalScroller(true);
+		scroll.setHasHorizontalScroller(false);
+		scroll.setAutohidesScrollers(true);
+		scroll.setScrollerStyle(NSScrollerStyleOverlay);
+		scroll.setDocumentView(document);
+		self._scroll = scroll;
+	}
+
+	private void requireMainThread() {
+		if (!NSThread.isMainThread()) { throw "AppKit scroll views require the main thread"; }
+	}
+
+	public NSScrollView nativeControl() {
+		self.requireMainThread();
+		if (self._scroll == null) { throw "Scroll view is closed"; }
+		return self._scroll;
+	}
+
+	public NSView documentView() {
+		var document = self.nativeControl().documentView();
+		if (document == null) { throw "Scroll view has no document"; }
+		return document;
+	}
+
+	public void setFrame(double x, double y, double width, double height) {
+		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid scroll view frame"; }
+		double offset = self.scrollOffset();
+		var scroll = self.nativeControl();
+		var frame = scroll.frame();
+		frame.origin.x = x;
+		frame.origin.y = y;
+		frame.size.width = width;
+		frame.size.height = height;
+		scroll.setFrame(frame);
+		scroll.tile();
+		self.scrollTo(offset);
+	}
+
+	public void setContentSize(double width, double height) {
+		if (!Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid scroll content size"; }
+		double offset = self.scrollOffset();
+		var document = self.documentView();
+		var frame = document.frame();
+		frame.size.width = width;
+		frame.size.height = height;
+		document.setFrame(frame);
+		self.nativeControl().tile();
+		self.scrollTo(offset);
+	}
+
+	public double scrollOffset() {
+		var scroll = self.nativeControl();
+		var bounds = scroll.contentView().bounds();
+		var frame = self.documentView().frame();
+		double maximum = frame.size.height - bounds.size.height;
+		if (maximum <= 0.0) { return 0.0; }
+		double offset = maximum - bounds.origin.y;
+		return offset < 0.0 ? 0.0 : (offset > maximum ? maximum : offset);
+	}
+
+	public void scrollTo(double offset) {
+		if (!Math.isFinite(offset)) { throw "Invalid scroll offset"; }
+		var scroll = self.nativeControl();
+		var clip = scroll.contentView();
+		var bounds = clip.bounds();
+		var frame = self.documentView().frame();
+		double maximum = frame.size.height - bounds.size.height;
+		maximum = maximum < 0.0 ? 0.0 : maximum;
+		offset = offset < 0.0 ? 0.0 : (offset > maximum ? maximum : offset);
+		bounds.origin.x = 0.0;
+		bounds.origin.y = maximum - offset;
+		clip.scrollToPoint(bounds.origin);
+		scroll.reflectScrolledClipView(clip);
+	}
+
+	public void close() {
+		self.requireMainThread();
+		var scroll = self._scroll;
+		if (scroll == null) { return; }
+		scroll.setDocumentView(null);
+		scroll.removeFromSuperview();
+		self._scroll = null;
+	}
+}

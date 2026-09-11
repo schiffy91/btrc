@@ -1,12 +1,12 @@
-import Library.Cli;
+import Library.CLI;
 import Library.Daemon;
 import Library.FileSystem;
-import Library.Json;
+import Library.JSON;
 import Library.Pattern;
 import Library.Platform;
 import Library.Process;
 import Library.Strings;
-import Library.Ui;
+import Library.UI;
 import Library.Vector;
 
 int main(int argc, char** argv) {
@@ -59,25 +59,25 @@ int main(int argc, char** argv) {
 	assert(!unsupported.ok());
 	assert(unsupported.stderr().equals("PowerShell support is not implemented"));
 
-	UiNode root = Ui.div().id("root").child(Ui.button("Save & Close")).child(Ui.input("path", "/tmp/a b"));
-	UiDocument document = Ui.document("Demo <App>", root).style("body { color: red; }");
+	UINode root = UI.div().id("root").child(UI.button("Save & Close")).child(UI.input("path", "/tmp/a b"));
+	UIDocument document = UI.document("Demo <App>", root).style("body { color: red; }");
 	string html = document.renderHtml();
 	assert(html.contains("&lt;App&gt;"));
 	assert(html.contains("Save &amp; Close"));
 	assert(html.contains("name=\"path\""));
-	UiDocument rawDocument = Ui.document("Raw", Ui.rawHtml("<main><strong>Native</strong></main>"));
+	UIDocument rawDocument = UI.document("Raw", UI.rawHtml("<main><strong>Native</strong></main>"));
 	assert(rawDocument.renderHtml().contains("<strong>Native</strong>"));
 	assert(!rawDocument.renderHtml().contains("&lt;strong&gt;"));
 
-	NativeUiBackend linuxUi = LinuxUiBuilder.native();
+	NativeUIBackend linuxUi = LinuxUIBuilder.native();
 	assert(linuxUi.name.equals("linux"));
 	assert(linuxUi.notifyCommand("Title", "Body").render().contains("notify-send"));
 	assert(linuxUi.alertCommand("Title", "Body").render().contains("zenity"));
-	NativeUiBackend macUi = MacUiBuilder.native();
+	NativeUIBackend macUi = MacUIBuilder.native();
 	assert(macUi.notifyCommand("Title", "Body").render().contains("osascript"));
-	assert(NativeUi.applescriptString("a \"quote\"").contains("\\\"quote\\\""));
+	assert(NativeUI.applescriptString("a \"quote\"").contains("\\\"quote\\\""));
 
-	Thread<int> uiThread = UiRuntime.runCommandAsync(Command("printf").arg("ui"));
+	Thread<int> uiThread = UIRuntime.runCommandAsync(Command("printf").arg("ui"));
 	assert(uiThread.join() == 0);
 
 	Tray tray = Tray("NixOS").tip("System controls").item("Upgrade", "nixosctl upgrade").add(TrayItem("Disabled", "noop").disabled());
@@ -144,14 +144,14 @@ int main(int argc, char** argv) {
 	assert(Pattern.matches("*.nix", "host.nix"));
 	assert(!Pattern.matches("*.nix", "host.btrc"));
 
-	CliArgs args = CliArgs(argc, argv);
+	CLIArgs args = CLIArgs(argc, argv);
 	assert(args.count() == argc - 1);
 	assert(!args.has("--missing"));
 	assert(args.valueAfter("--missing", "fallback").equals("fallback"));
 	assert(args.valueAfterPrefix("--missing=", "fallback").equals("fallback"));
 	assert(!args.commandIs("__missing__"));
 
-	var json = JsonObject();
+	var json = JSONObject();
 	json.setString("host_path", "modules/hosts/x86_64/VM-TEST.nix");
 	json.setString("target", "Standard-Boot");
 	json.setBool("enabled", true);
@@ -165,7 +165,7 @@ int main(int argc, char** argv) {
 	assert(encoded.contains("\"target\""));
 	assert(encoded.contains("\"Standard-Boot\""));
 
-	var parsed = JsonObject.parse("{\"host_path\":\"modules/hosts/x86_64/VM-TEST.nix\",\"target\":\"Standard-Boot\",\"enabled\":true,\"generation\":42}");
+	var parsed = JSONObject.parse("{\"host_path\":\"modules/hosts/x86_64/VM-TEST.nix\",\"target\":\"Standard-Boot\",\"enabled\":true,\"generation\":42}");
 	assert(parsed.getString("host_path", "").equals("modules/hosts/x86_64/VM-TEST.nix"));
 	assert(parsed.getString("target", "").equals("Standard-Boot"));
 	assert(parsed.getBool("enabled", false));
@@ -173,7 +173,7 @@ int main(int argc, char** argv) {
 
 	var jsonPath = PathTools.join(systemFixtureDir, "system.json");
 	parsed.writeFile(jsonPath);
-	var loaded = JsonObject.readFile(jsonPath);
+	var loaded = JSONObject.readFile(jsonPath);
 	assert(loaded.getString("target", "").equals("Standard-Boot"));
 	assert(FileSystem.removeRecursive(systemFixtureDir) == 0);
 	assert(!FileSystem.exists(systemFixtureDir));

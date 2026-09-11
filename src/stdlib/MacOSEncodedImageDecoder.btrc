@@ -1,0 +1,114 @@
+/* Bounded, synchronous ImageIO decoding. Apple headers own ABI declarations;
+ * this module owns decode policy and the lifetime of each SDK resource. */
+
+import Library.DDSEncodedImageDecoder;
+
+class MacOSEncodedImageDecoder implements EncodedImageDecoder {
+	public MacOSEncodedImageDecoder() {}
+
+	public EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits) {
+		int inputBytes = encoded == null ? 0 : encoded.length();
+		if (encoded == null || encoded.isEmpty() || limits == null) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_INVALID_ARGUMENT, inputBytes); }
+		if (!limits.allowsInput(inputBytes)) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, inputBytes); }
+		if (DDSEncodedImageDecoder.recognizes(encoded)) { return DDSEncodedImageDecoder().decode(encoded, limits); }
+		string format = self.contentType(encoded);
+		if (format == "") { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_UNSUPPORTED, inputBytes); }
+		return ImageIODecodeSession.run(encoded, format, limits);
+	}
+
+	private string contentType(Bytes encoded) {
+		int length = encoded.length();
+		if (length >= 8 && memcmp(encoded.data, "\x89PNG\r\n\x1a\n", 8) == 0) { return "public.png"; }
+		if (length >= 2 && encoded.get(0) == 255 && encoded.get(1) == 216) { return "public.jpeg"; }
+		if (length >= 6 && (memcmp(encoded.data, "GIF87a", 6) == 0 || memcmp(encoded.data, "GIF89a", 6) == 0)) { return "com.compuserve.gif"; }
+		if (length >= 4 && (memcmp(encoded.data, "II\x2a\x00", 4) == 0 || memcmp(encoded.data, "MM\x00\x2a", 4) == 0)) { return "public.tiff"; }
+		return "";
+	}
+}
+
+/* One decode transaction. Handles never escape, including borrowed property
+ * values. The input and destination remain alive until the SDK borrowers are
+ * released in __del__; a successful outcome retains only the BTRC Image. */
+class ImageIODecodeSession {
+	private Bytes _encoded;
+	private Image? _pixels;
+	private CFDataRef _data;
+	private CFMutableDictionaryRef _options;
+	private CGImageSourceRef _source;
+	private CFDictionaryRef _properties;
+	private CGImageRef _image;
+	private CGColorSpaceRef _colorSpace;
+	private CGContextRef _context;
+
+	private ImageIODecodeSession(Bytes encoded) {
+		self._encoded = encoded;
+		self._pixels = null;
+		self._data = null;
+		self._options = null;
+		self._source = null;
+		self._properties = null;
+		self._image = null;
+		self._colorSpace = null;
+		self._context = null;
+	}
+
+	public void __del__() {
+		if (self._context != null) { CGContextRelease(self._context); }
+		if (self._colorSpace != null) { CFRelease(self._colorSpace); }
+		if (self._image != null) { CFRelease(self._image); }
+		if (self._properties != null) { CFRelease(self._properties); }
+		if (self._source != null) { CFRelease(self._source); }
+		if (self._options != null) { CFRelease(self._options); }
+		if (self._data != null) { CFRelease(self._data); }
+	}
+
+	class EncodedImageDecodeOutcome run(Bytes encoded, string format, EncodedImageDecodeLimits limits) { return ImageIODecodeSession(encoded).decode(format, limits); }
+
+	private EncodedImageDecodeOutcome decode(string format, EncodedImageDecodeLimits limits) {
+		self._data = CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, (const unsigned char*)self._encoded.data, self._encoded.length(), kCFAllocatorNull);
+		if (self._data == null) { return self.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY); }
+		self._options = CFDictionaryCreateMutable(kCFAllocatorDefault, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		if (self._options == null) { return self.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY); }
+		CFDictionarySetValue(self._options, kCGImageSourceShouldCache, kCFBooleanFalse);
+		self._source = CGImageSourceCreateWithData(self._data, self._options);
+		if (self._source == null || !self.typeMatches(format) || CGImageSourceGetCount(self._source) == 0) { return self.rejected(ENCODED_IMAGE_DECODE_CORRUPT); }
+		self._properties = CGImageSourceCopyPropertiesAtIndex(self._source, 0, self._options);
+		long long width = self.dimension(kCGImagePropertyPixelWidth);
+		long long height = self.dimension(kCGImagePropertyPixelHeight);
+		if (width <= 0 || height <= 0) { return self.rejected(ENCODED_IMAGE_DECODE_CORRUPT); }
+		if (!Image.validDimensions(width, height) || !limits.allowsDimensions((int)width, (int)height)) { return self.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED); }
+		self._image = CGImageSourceCreateImageAtIndex(self._source, 0, self._options);
+		if (self._image == null || CGImageGetWidth(self._image) != (size_t)width || CGImageGetHeight(self._image) != (size_t)height) { return self.rejected(ENCODED_IMAGE_DECODE_CORRUPT); }
+		var pixels = Image.tryCreate((int)width, (int)height);
+		if (pixels == null) { return self.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY); }
+		self._pixels = pixels;
+		self._colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+		if (self._colorSpace == null) { return self.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY); }
+		self._context = CGBitmapContextCreate(pixels.data, (size_t)width, (size_t)height, 8, (size_t)width * 4, self._colorSpace, kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+		if (self._context == null) { return self.rejected(ENCODED_IMAGE_DECODE_FAILED); }
+		CGContextSetBlendMode(self._context, kCGBlendModeCopy);
+		CGContextDrawImage(self._context, CGRectMake(0.0, 0.0, (double)width, (double)height), self._image);
+		CGContextRelease(self._context);
+		self._context = null;
+		if (!pixels.tryCopyPremultipliedRgba(pixels.data, (unsigned long long)width * (unsigned long long)height * 4ULL)) { return self.rejected(ENCODED_IMAGE_DECODE_FAILED); }
+		return EncodedImageDecodeOutcome.decoded(pixels, self._encoded.length());
+	}
+
+	private bool typeMatches(string expected) {
+		var type = CGImageSourceGetType(self._source);
+		if (type == null) { return false; }
+		char name[32];
+		return CFStringGetCString(type, name, 32, kCFStringEncodingUTF8) != 0 && strcmp(name, expected) == 0;
+	}
+
+	private long long dimension(CFStringRef key) {
+		if (self._properties == null) { return 0LL; }
+		var value = CFDictionaryGetValue(self._properties, key);
+		if (value == null || CFGetTypeID(value) != CFNumberGetTypeID()) { return 0LL; }
+		long long dimension = 0LL;
+		if (CFNumberGetValue((CFNumberRef)value, kCFNumberLongLongType, &dimension) == 0) { return 0LL; }
+		return dimension;
+	}
+
+	private EncodedImageDecodeOutcome rejected(EncodedImageDecodeStatus status) { return EncodedImageDecodeOutcome.rejected(status, self._encoded.length()); }
+}

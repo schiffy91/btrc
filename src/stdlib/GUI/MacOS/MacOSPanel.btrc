@@ -1,0 +1,63 @@
+import Library.Image;
+import Library.Math;
+import Library.GUI.MacOS.MacOSView;
+
+/* A native filled container. AppKit owns drawing; its backing layer clips
+ * child views to the same rounded outline. Child owners outlive attachment. */
+class MacOSPanel {
+	private NSBox? _box;
+	private MacOSView _view;
+
+	public MacOSPanel(RGBA fill, double radius = 0.0) {
+		if (!NSThread.isMainThread()) { throw "Native panels require the main thread"; }
+		var box = NSBox.new();
+		if (box == null) { throw "Cannot create native panel"; }
+		self._box = box;
+		self._view = MacOSView(box);
+		box.setBoxType(NSBoxCustom);
+		box.setTitlePosition(NSNoTitle);
+		box.setBorderWidth(0.0);
+		var margins = box.contentViewMargins();
+		margins.width = 0.0;
+		margins.height = 0.0;
+		box.setContentViewMargins(margins);
+		self._view.nativeView().setWantsLayer(true);
+		self.setFill(fill);
+		self.setCornerRadius(radius);
+	}
+
+	private NSBox control() {
+		self._view.nativeView();
+		if (self._box == null) { throw "Native panel is closed"; }
+		return self._box;
+	}
+
+	public NSView nativeView() { return self._view.nativeView(); }
+
+	public void setFill(RGBA fill) {
+		if (fill == null) { throw "Native panel fill is missing"; }
+		self.control().setFillColor(NSColor.colorWithSRGBRed((double)fill.red / 255.0, (double)fill.green / 255.0, (double)fill.blue / 255.0, (double)fill.alpha / 255.0));
+	}
+
+	public void setCornerRadius(double radius) {
+		if (!Math.isFinite(radius) || radius < 0.0 || radius > 4096.0) { throw "Invalid native panel corner radius"; }
+		var box = self.control();
+		var layer = self._view.nativeView().layer();
+		if (layer == null) { throw "Native panel has no backing layer"; }
+		box.setCornerRadius(radius);
+		layer.setCornerRadius(radius);
+		layer.setMasksToBounds(true);
+	}
+
+	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
+
+	public void setHidden(bool hidden) { self._view.setHidden(hidden); }
+
+	public void setDarkAppearance(bool dark) { self._view.setDarkAppearance(dark); }
+
+	public void inheritAppearance() { self._view.inheritAppearance(); }
+
+	public void addChild(NSView child) { self._view.addChild(child); }
+
+	public void close() { self._view.close(); self._box = null; }
+}

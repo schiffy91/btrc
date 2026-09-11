@@ -1,8 +1,8 @@
 /* Headless smoke test for the FreeType font binding. We can't ship a TTF here,
  * so we load a bogus path (yields a non-ok font) to exercise load → ok →
  * destroy and confirm the Font class links against the FreeType backend. */
-#include "gui/Gui.btrc"
-#include "gui/Font.btrc"
+#include "GUI/GUI.btrc"
+#include "GUI/Font.btrc"
 
 int main() {
 	Font missing = Font("/no/such/font.ttf", 16);

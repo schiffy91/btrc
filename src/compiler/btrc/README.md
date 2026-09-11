@@ -105,7 +105,7 @@ implicit cross-file visibility plus whole-stdlib composition.
 
 Native-module output keeps its C header include. Compile it with the active
 stdlib and relevant module directory on the include path, such as
-`-I "$(btrcc --stdlib-dir)" -I "$(btrcc --stdlib-dir)/gui"`, then link the
+`-I "$(btrcc --stdlib-dir)" -I "$(btrcc --stdlib-dir)/GUI"`, then link the
 module runtime described in that stdlib directory.
 
 `btrcc` resolves strict version-1 local package graphs with dependency-local

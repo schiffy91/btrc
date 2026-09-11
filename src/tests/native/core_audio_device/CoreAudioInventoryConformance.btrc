@@ -1,0 +1,52 @@
+import Library.Audio.MacOS.CoreAudioDevice;
+import Library.Audio.AudioDevice;
+
+#include <assert.h>
+
+void inventoryScenario(int scenario);
+int inventoryRetainedValues();
+
+int main() {
+	inventoryScenario(0);
+	var hardware = CoreAudioHardwareInventory();
+	var first = hardware.refresh();
+	assert(first.succeeded());
+	var inventory = first.inventory();
+	assert(inventory.count() == 2 && inventory.generation() == 1ULL);
+	assert(inventory.at(0).id() == "device-a" && inventory.at(1).id() == "device-b");
+	assert(inventory.at(0).inputChannels() == 3 && inventory.at(1).outputChannels() == 3);
+	assert(inventory.defaultInput().id() == "device-a" && inventory.defaultOutput().id() == "device-b");
+	var capability = inventory.at(0).streamCapability();
+	assert(capability.isKnown() && capability.sampleRateRangeCount() == 1);
+	assert(capability.sampleRateRangeAt(0).minimum() == 8000 && capability.sampleRateRangeAt(0).maximum() == 96000);
+	assert(inventoryRetainedValues() == 0);
+	inventoryScenario(1);
+	assert(hardware.refresh().inventory().generation() == 1ULL);
+	inventoryScenario(5);
+	assert(!hardware.refresh().succeeded());
+	inventoryScenario(8);
+	assert(!hardware.refresh().succeeded());
+	inventoryScenario(7);
+	assert(hardware.refresh().inventory().generation() == 1ULL);
+	inventoryScenario(2);
+	assert(hardware.refresh().inventory().generation() == 2ULL);
+	assert(hardware.find("device-b").nativeId() == 44u);
+	assert(inventory.generation() == 1ULL && inventory.at(1).name() == "device-b");
+	inventoryScenario(3);
+	assert(hardware.refresh().inventory().at(1).name() == "Renamed output");
+	for (int scenario = 4; scenario <= 17; scenario++) {
+		if (scenario == 5 || scenario == 8) { continue; }
+		inventoryScenario(scenario);
+		var result = hardware.refresh();
+		assert(result.succeeded());
+		var snapshot = result.inventory();
+		if (scenario == 4 || scenario == 10 || scenario == 16) { assert(!snapshot.at(0).streamCapability().isKnown()); }
+		if (scenario == 6 || scenario == 11 || scenario == 13 || scenario == 14 || scenario == 17) { assert(snapshot.count() == 1 && snapshot.at(0).id() == "device-a"); }
+		if (scenario == 9) { assert(snapshot.at(0).streamCapability().sampleRateRangeAt(0).maximum() == 768000); }
+		if (scenario == 12) { assert(snapshot.defaultInput() == null && snapshot.defaultOutput() == null); }
+		if (scenario == 15) { assert(snapshot.count() == 0); }
+		assert(inventoryRetainedValues() == 0);
+	}
+	print("PASS: CoreAudio inventory validates SDK data and publishes stable snapshots");
+	return 0;
+}

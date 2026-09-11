@@ -113,14 +113,12 @@ class GeneratedHostedAbiData {
 		self.pushFunctions10();
 		self.pushFunctions11();
 		self.pushFunctions12();
-		self.pushFunctions13();
 		self.functionNames = [];
 		self.pushFunctionNames0();
 		self.pushFunctionNames1();
 		self.pushFunctionNames2();
 		self.pushFunctionNames3();
 		self.pushFunctionNames4();
-		self.pushFunctionNames5();
 		self.macroNames = [];
 		self.pushMacroNames0();
 		self.pushMacroNames1();
@@ -188,7 +186,7 @@ class GeneratedHostedAbiData {
 		self.pushPlatformTypedefNames0();
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
-		self.fingerprint = "04e5eb04dfc148bca3fd101956ddc7f7a48624acb312a87b083d77531fc5d7d6";
+		self.fingerprint = "66492f06dc9327e604d6a2d58e145c070bce7642637c436442f5036c960b077d";
 	}
 
 	private void pushFunctions0() {
@@ -386,6 +384,28 @@ class GeneratedHostedAbiData {
 			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
 			true,
 			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"__btrc_native_thread_invoke",
+			"runtime",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("CFunction", 0, false, [GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), GeneratedAbiTypeRow("void", 1, false, self.emptyTypes())]), "value", "during_call"),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
 			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
 		],
 			false,
@@ -880,6 +900,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions1() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"asin",
 			"math",
@@ -900,9 +923,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions1() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"asinf",
 			"math",
@@ -1659,6 +1679,9 @@ class GeneratedHostedAbiData {
 			"btrc_gpu_pipeline_destroy",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions2() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"btrc_gpu_read_buffer",
 			"native_gpu",
@@ -1682,9 +1705,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions2() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"btrc_gpu_read_buffer_checked",
 			"native_gpu",
@@ -1815,102 +1835,6 @@ class GeneratedHostedAbiData {
 			"",
 			"unknown"));
 		self.functions.push(GeneratedHostedFunctionRow(
-			"btrc_gui_blend_rect",
-			"native_gui",
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned int", 0, false, self.emptyTypes()), "value", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"btrc_gui_clear",
-			"native_gui",
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned int", 0, false, self.emptyTypes()), "value", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"btrc_gui_draw_text",
-			"native_gui",
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()), "read", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"btrc_gui_fill_rect",
-			"native_gui",
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned int", 0, false, self.emptyTypes()), "value", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
 			"btrc_gui_font_destroy",
 			"native_gui",
 			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
@@ -1952,49 +1876,6 @@ class GeneratedHostedAbiData {
 			"",
 			"unknown"));
 		self.functions.push(GeneratedHostedFunctionRow(
-			"btrc_gui_get_pixel",
-			"native_gui",
-			GeneratedAbiTypeRow("unsigned int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "read", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("unsigned int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"btrc_gui_save_ppm",
-			"native_gui",
-			GeneratedAbiTypeRow("bool", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "read", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()), "read", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("bool", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
 			"btrc_gui_set_font",
 			"native_gui",
 			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
@@ -2005,150 +1886,6 @@ class GeneratedHostedAbiData {
 			false,
 			false,
 			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"btrc_gui_surface_create",
-			"native_gui",
-			GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()),
-			"independent",
-			-1,
-			"",
-			false,
-			"btrc_gui_surface_destroy",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"btrc_gui_surface_destroy",
-			"native_gui",
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "consume", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			true,
-			"",
-			"",
-			"btrc_gui_surface_destroy",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"btrc_gui_surface_height",
-			"native_gui",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "read", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"btrc_gui_surface_resize",
-			"native_gui",
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"btrc_gui_surface_width",
-			"native_gui",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "read", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"btrc_gui_text_height",
-			"native_gui",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"btrc_gui_text_width",
-			"native_gui",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()), "read", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
 			"value",
 			-1,
 			"",
@@ -2327,7 +2064,9 @@ class GeneratedHostedAbiData {
 			true,
 			[
 			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "read", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned int", 1, true, self.emptyTypes()), "read", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
 		],
 			false,
 			false,
@@ -2530,9 +2269,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions3() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"btrc_tray_set_item_checked",
 			"native_tray",
@@ -2777,6 +2513,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions3() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"ceill",
 			"math",
@@ -3326,9 +3065,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions4() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"exp2",
 			"math",
@@ -3570,6 +3306,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions4() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"fclose",
 			"stdio",
@@ -4151,9 +3890,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions5() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"fmodl",
 			"math",
@@ -4392,6 +4128,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions5() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"fstat",
 			"posix",
@@ -4912,9 +4651,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions6() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"isspace",
 			"ctype",
@@ -5158,6 +4894,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions6() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"log10",
 			"math",
@@ -5736,9 +5475,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions7() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"nearbyintf",
 			"math",
@@ -5987,6 +5723,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions7() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"popen",
 			"stdio",
@@ -6556,9 +6295,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions8() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"remainderf",
 			"math",
@@ -6805,6 +6541,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions8() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"roundl",
 			"math",
@@ -7390,9 +7129,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions9() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_app_create",
 			"native_app",
@@ -7633,6 +7369,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions9() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_app_event_pointer_click_count",
 			"native_app",
@@ -7918,28 +7657,6 @@ class GeneratedHostedAbiData {
 			"",
 			"unknown"));
 		self.functions.push(GeneratedHostedFunctionRow(
-			"std_app_window_choose_directory",
-			"native_app",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()), "read", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()), "read", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
 			"std_app_window_clipboard_text",
 			"native_app",
 			GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()),
@@ -8147,26 +7864,6 @@ class GeneratedHostedAbiData {
 			"",
 			"unknown"));
 		self.functions.push(GeneratedHostedFunctionRow(
-			"std_app_window_selected_directory",
-			"native_app",
-			GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()),
-			"independent",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
 			"std_app_window_set_clipboard_text",
 			"native_app",
 			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
@@ -8210,9 +7907,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions10() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_app_window_show_alert",
 			"native_app",
@@ -8223,420 +7917,6 @@ class GeneratedHostedAbiData {
 			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
 			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()), "read", ""),
 			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()), "read", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_background_jobs_cancel",
-			"native_background_jobs",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_background_jobs_cancel_generation",
-			"native_background_jobs",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_background_jobs_cancel_requested",
-			"native_background_jobs",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "read", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_background_jobs_close",
-			"native_background_jobs",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_background_jobs_open",
-			"native_background_jobs",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 2, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_background_jobs_outstanding",
-			"native_background_jobs",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "read", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_background_jobs_poll",
-			"native_background_jobs",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("struct BtrcBackgroundJobNativeCompletion", 1, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_background_jobs_submit",
-			"native_background_jobs",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("CFunction", 0, false, [GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), GeneratedAbiTypeRow("void", 1, false, self.emptyTypes())]), "value", "stored_until_unregister"),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "unknown", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("CFunction", 0, false, [GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()), GeneratedAbiTypeRow("void", 1, false, self.emptyTypes())]), "value", "stored_until_unregister"),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_core_audio_provider_close",
-			"native_core_audio",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_core_audio_provider_inventory",
-			"native_core_audio",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_core_audio_provider_inventory_device",
-			"native_core_audio",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "read", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("struct CoreAudioNativeDeviceRecord", 1, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_core_audio_provider_open",
-			"native_core_audio",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 2, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_core_audio_provider_open_duplex",
-			"native_core_audio",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, true, self.emptyTypes()), "read", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, true, self.emptyTypes()), "read", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("CFunction", 0, false, [GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()), GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), GeneratedAbiTypeRow("struct AudioBlockView", 0, false, self.emptyTypes()), GeneratedAbiTypeRow("Span", 0, false, [GeneratedAbiTypeRow("float", 0, true, self.emptyTypes())]), GeneratedAbiTypeRow("Span", 0, false, [GeneratedAbiTypeRow("float", 0, false, self.emptyTypes())])]), "value", "stored_until_unregister"),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "unknown", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 2, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("struct CoreAudioNativeNegotiatedFormat", 1, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_core_audio_session_close",
-			"native_core_audio",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_core_audio_session_dispose",
-			"native_core_audio",
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_core_audio_session_drain",
-			"native_core_audio",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_core_audio_session_epoch",
-			"native_core_audio",
-			GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "read", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_core_audio_session_start",
-			"native_core_audio",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_core_audio_session_suspend",
-			"native_core_audio",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
 		],
 			false,
 			false,
@@ -8962,6 +8242,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions10() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_gpu_native_ui_add_image",
 			"native_gpu",
@@ -9148,9 +8431,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions11() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_gpu_native_ui_destroy",
 			"native_gpu",
@@ -9734,177 +9014,6 @@ class GeneratedHostedAbiData {
 			"",
 			"unknown"));
 		self.functions.push(GeneratedHostedFunctionRow(
-			"std_local_application_channel_request",
-			"native_local_application_channel",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned char", 1, true, self.emptyTypes()), "read", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned char", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_local_application_channel_server_close",
-			"native_local_application_channel",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 2, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_local_application_channel_server_open",
-			"native_local_application_channel",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 2, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_local_application_channel_server_poll",
-			"native_local_application_channel",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned char", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_local_application_channel_server_respond",
-			"native_local_application_channel",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned char", 1, true, self.emptyTypes()), "read", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_macos_encoded_image_decode",
-			"native_macos_encoded_image",
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("long long", 0, false, self.emptyTypes()), "value", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 2, false, self.emptyTypes()), "mutate", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"std_macos_encoded_image_release",
-			"native_macos_encoded_image",
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
 			"strcat",
 			"string",
 			GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()),
@@ -10052,7 +9161,7 @@ class GeneratedHostedAbiData {
 			"unknown"));
 	}
 
-	private void pushFunctions12() {
+	private void pushFunctions11() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"strerror",
 			"string",
@@ -10865,7 +9974,7 @@ class GeneratedHostedAbiData {
 			"unknown"));
 	}
 
-	private void pushFunctions13() {
+	private void pushFunctions12() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"ungetc",
 			"stdio",
@@ -11011,6 +10120,7 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("__btrc_exec_signal_guard_child_end");
 		self.functionNames.push("__btrc_exec_signal_guard_parent_end");
 		self.functionNames.push("__btrc_move_descriptor_outside_stdio");
+		self.functionNames.push("__btrc_native_thread_invoke");
 		self.functionNames.push("__btrc_posix_spawn_cloexec");
 		self.functionNames.push("__btrc_process_descriptors_supported");
 		self.functionNames.push("__btrc_safe_calloc");
@@ -11119,25 +10229,11 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("btrc_gpu_uniform_destroy");
 		self.functionNames.push("btrc_gpu_upload_uniform");
 		self.functionNames.push("btrc_gpu_write_buffer");
-		self.functionNames.push("btrc_gui_blend_rect");
-		self.functionNames.push("btrc_gui_clear");
 		self.functionNames.push("btrc_gui_clear_font_if_active");
-		self.functionNames.push("btrc_gui_draw_text");
-		self.functionNames.push("btrc_gui_fill_rect");
 		self.functionNames.push("btrc_gui_font_destroy");
 		self.functionNames.push("btrc_gui_font_load");
-		self.functionNames.push("btrc_gui_get_pixel");
 		self.functionNames.push("btrc_gui_install_font_backend");
-		self.functionNames.push("btrc_gui_save_ppm");
 		self.functionNames.push("btrc_gui_set_font");
-		self.functionNames.push("btrc_gui_surface_create");
-		self.functionNames.push("btrc_gui_surface_destroy");
-		self.functionNames.push("btrc_gui_surface_height");
-		self.functionNames.push("btrc_gui_surface_pixels");
-		self.functionNames.push("btrc_gui_surface_resize");
-		self.functionNames.push("btrc_gui_surface_width");
-		self.functionNames.push("btrc_gui_text_height");
-		self.functionNames.push("btrc_gui_text_width");
 		self.functionNames.push("btrc_gui_window_close");
 		self.functionNames.push("btrc_gui_window_fb_height");
 		self.functionNames.push("btrc_gui_window_fb_width");
@@ -11246,9 +10342,6 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("erfc");
 		self.functionNames.push("erfcf");
 		self.functionNames.push("erfcl");
-	}
-
-	private void pushFunctionNames1() {
 		self.functionNames.push("erff");
 		self.functionNames.push("erfl");
 		self.functionNames.push("exchangedata");
@@ -11262,6 +10355,9 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("exit");
 		self.functionNames.push("exp");
 		self.functionNames.push("exp2");
+	}
+
+	private void pushFunctionNames1() {
 		self.functionNames.push("exp2f");
 		self.functionNames.push("exp2l");
 		self.functionNames.push("expf");
@@ -11499,9 +10595,6 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("isblank");
 		self.functionNames.push("iscntrl");
 		self.functionNames.push("isdigit");
-	}
-
-	private void pushFunctionNames2() {
 		self.functionNames.push("isfdtype");
 		self.functionNames.push("isgraph");
 		self.functionNames.push("isinff");
@@ -11515,6 +10608,9 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("isspace");
 		self.functionNames.push("isupper");
 		self.functionNames.push("isxdigit");
+	}
+
+	private void pushFunctionNames2() {
 		self.functionNames.push("j0");
 		self.functionNames.push("j0f");
 		self.functionNames.push("j0l");
@@ -11752,9 +10848,6 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("pthread_mutex_destroy");
 		self.functionNames.push("pthread_mutex_getprioceiling");
 		self.functionNames.push("pthread_mutex_init");
-	}
-
-	private void pushFunctionNames3() {
 		self.functionNames.push("pthread_mutex_lock");
 		self.functionNames.push("pthread_mutex_setprioceiling");
 		self.functionNames.push("pthread_mutex_timedlock");
@@ -11768,6 +10861,9 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("pthread_mutexattr_gettype");
 		self.functionNames.push("pthread_mutexattr_init");
 		self.functionNames.push("pthread_mutexattr_setprioceiling");
+	}
+
+	private void pushFunctionNames3() {
 		self.functionNames.push("pthread_mutexattr_setprotocol");
 		self.functionNames.push("pthread_mutexattr_setpshared");
 		self.functionNames.push("pthread_mutexattr_setrobust");
@@ -12005,9 +11101,6 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("std_app_event_logical_height");
 		self.functionNames.push("std_app_event_logical_width");
 		self.functionNames.push("std_app_event_modifiers");
-	}
-
-	private void pushFunctionNames4() {
 		self.functionNames.push("std_app_event_pointer_action");
 		self.functionNames.push("std_app_event_pointer_button");
 		self.functionNames.push("std_app_event_pointer_click_count");
@@ -12021,6 +11114,9 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("std_app_finalize");
 		self.functionNames.push("std_app_poll");
 		self.functionNames.push("std_app_surface_attach");
+	}
+
+	private void pushFunctionNames4() {
 		self.functionNames.push("std_app_surface_create");
 		self.functionNames.push("std_app_surface_detach");
 		self.functionNames.push("std_app_surface_finalize");
@@ -12028,7 +11124,6 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("std_app_surface_glfw");
 		self.functionNames.push("std_app_surface_lease_generation");
 		self.functionNames.push("std_app_surface_release");
-		self.functionNames.push("std_app_window_choose_directory");
 		self.functionNames.push("std_app_window_clipboard_text");
 		self.functionNames.push("std_app_window_close");
 		self.functionNames.push("std_app_window_finalize");
@@ -12039,29 +11134,9 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("std_app_window_open");
 		self.functionNames.push("std_app_window_scale_x");
 		self.functionNames.push("std_app_window_scale_y");
-		self.functionNames.push("std_app_window_selected_directory");
 		self.functionNames.push("std_app_window_set_clipboard_text");
 		self.functionNames.push("std_app_window_set_titlebar_style");
 		self.functionNames.push("std_app_window_show_alert");
-		self.functionNames.push("std_background_jobs_cancel");
-		self.functionNames.push("std_background_jobs_cancel_generation");
-		self.functionNames.push("std_background_jobs_cancel_requested");
-		self.functionNames.push("std_background_jobs_close");
-		self.functionNames.push("std_background_jobs_open");
-		self.functionNames.push("std_background_jobs_outstanding");
-		self.functionNames.push("std_background_jobs_poll");
-		self.functionNames.push("std_background_jobs_submit");
-		self.functionNames.push("std_core_audio_provider_close");
-		self.functionNames.push("std_core_audio_provider_inventory");
-		self.functionNames.push("std_core_audio_provider_inventory_device");
-		self.functionNames.push("std_core_audio_provider_open");
-		self.functionNames.push("std_core_audio_provider_open_duplex");
-		self.functionNames.push("std_core_audio_session_close");
-		self.functionNames.push("std_core_audio_session_dispose");
-		self.functionNames.push("std_core_audio_session_drain");
-		self.functionNames.push("std_core_audio_session_epoch");
-		self.functionNames.push("std_core_audio_session_start");
-		self.functionNames.push("std_core_audio_session_suspend");
 		self.functionNames.push("std_gpu_attach_surface");
 		self.functionNames.push("std_gpu_begin_capture_frame");
 		self.functionNames.push("std_gpu_begin_frame");
@@ -12108,13 +11183,6 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("std_gpu_uniform_destroy");
 		self.functionNames.push("std_gpu_uniform_finalize");
 		self.functionNames.push("std_gpu_uniform_set");
-		self.functionNames.push("std_local_application_channel_request");
-		self.functionNames.push("std_local_application_channel_server_close");
-		self.functionNames.push("std_local_application_channel_server_open");
-		self.functionNames.push("std_local_application_channel_server_poll");
-		self.functionNames.push("std_local_application_channel_server_respond");
-		self.functionNames.push("std_macos_encoded_image_decode");
-		self.functionNames.push("std_macos_encoded_image_release");
 		self.functionNames.push("strcasecmp");
 		self.functionNames.push("strcasecmp_l");
 		self.functionNames.push("strcasestr");
@@ -12258,9 +11326,6 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("waitid");
 		self.functionNames.push("waitpid");
 		self.functionNames.push("wcstombs");
-	}
-
-	private void pushFunctionNames5() {
 		self.functionNames.push("wctomb");
 		self.functionNames.push("write");
 		self.functionNames.push("y0");
@@ -17794,6 +16859,7 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("__btrc_exec_signal_guard_child_end");
 		self.ownedNames.push("__btrc_exec_signal_guard_parent_end");
 		self.ownedNames.push("__btrc_move_descriptor_outside_stdio");
+		self.ownedNames.push("__btrc_native_thread_invoke");
 		self.ownedNames.push("__btrc_posix_spawn_cloexec");
 		self.ownedNames.push("__btrc_process_descriptors_supported");
 		self.ownedNames.push("__btrc_safe_calloc");
@@ -17907,10 +16973,10 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("atomic_long");
 		self.ownedNames.push("atomic_ptrdiff_t");
 		self.ownedNames.push("atomic_schar");
-		self.ownedNames.push("atomic_short");
 	}
 
 	private void pushOwnedNames10() {
+		self.ownedNames.push("atomic_short");
 		self.ownedNames.push("atomic_signal_fence");
 		self.ownedNames.push("atomic_size_t");
 		self.ownedNames.push("atomic_store");
@@ -17985,25 +17051,11 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("btrc_gpu_uniform_destroy");
 		self.ownedNames.push("btrc_gpu_upload_uniform");
 		self.ownedNames.push("btrc_gpu_write_buffer");
-		self.ownedNames.push("btrc_gui_blend_rect");
-		self.ownedNames.push("btrc_gui_clear");
 		self.ownedNames.push("btrc_gui_clear_font_if_active");
-		self.ownedNames.push("btrc_gui_draw_text");
-		self.ownedNames.push("btrc_gui_fill_rect");
 		self.ownedNames.push("btrc_gui_font_destroy");
 		self.ownedNames.push("btrc_gui_font_load");
-		self.ownedNames.push("btrc_gui_get_pixel");
 		self.ownedNames.push("btrc_gui_install_font_backend");
-		self.ownedNames.push("btrc_gui_save_ppm");
 		self.ownedNames.push("btrc_gui_set_font");
-		self.ownedNames.push("btrc_gui_surface_create");
-		self.ownedNames.push("btrc_gui_surface_destroy");
-		self.ownedNames.push("btrc_gui_surface_height");
-		self.ownedNames.push("btrc_gui_surface_pixels");
-		self.ownedNames.push("btrc_gui_surface_resize");
-		self.ownedNames.push("btrc_gui_surface_width");
-		self.ownedNames.push("btrc_gui_text_height");
-		self.ownedNames.push("btrc_gui_text_width");
 		self.ownedNames.push("btrc_gui_window_close");
 		self.ownedNames.push("btrc_gui_window_fb_height");
 		self.ownedNames.push("btrc_gui_window_fb_width");
@@ -18161,9 +17213,6 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("fattributiontag");
 		self.ownedNames.push("fattributiontag_t");
 		self.ownedNames.push("fchdir");
-	}
-
-	private void pushOwnedNames11() {
 		self.ownedNames.push("fchecklv");
 		self.ownedNames.push("fchecklv_t");
 		self.ownedNames.push("fchflags");
@@ -18177,6 +17226,9 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("fcvt");
 		self.ownedNames.push("fcvt_r");
 		self.ownedNames.push("fd_mask");
+	}
+
+	private void pushOwnedNames11() {
 		self.ownedNames.push("fd_set");
 		self.ownedNames.push("fdatasync");
 		self.ownedNames.push("fdclosedir");
@@ -18414,9 +17466,6 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("inet6_option_space");
 		self.ownedNames.push("inet6_rth_add");
 		self.ownedNames.push("inet6_rth_getaddr");
-	}
-
-	private void pushOwnedNames12() {
 		self.ownedNames.push("inet6_rth_init");
 		self.ownedNames.push("inet6_rth_reverse");
 		self.ownedNames.push("inet6_rth_segments");
@@ -18430,6 +17479,9 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("inet6_rthdr_space");
 		self.ownedNames.push("inet_addr");
 		self.ownedNames.push("inet_aton");
+	}
+
+	private void pushOwnedNames12() {
 		self.ownedNames.push("inet_lnaof");
 		self.ownedNames.push("inet_makeaddr");
 		self.ownedNames.push("inet_net_ntop");
@@ -18667,9 +17719,6 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("nearbyintf");
 		self.ownedNames.push("nearbyintl");
 		self.ownedNames.push("nextafter");
-	}
-
-	private void pushOwnedNames13() {
 		self.ownedNames.push("nextafterf");
 		self.ownedNames.push("nextafterl");
 		self.ownedNames.push("nexttoward");
@@ -18683,6 +17732,9 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("nrand48_r");
 		self.ownedNames.push("ntohl");
 		self.ownedNames.push("ntohll");
+	}
+
+	private void pushOwnedNames13() {
 		self.ownedNames.push("ntohs");
 		self.ownedNames.push("off_t");
 		self.ownedNames.push("offsetof");
@@ -18920,9 +17972,6 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("remainder");
 		self.ownedNames.push("remainderf");
 		self.ownedNames.push("remainderl");
-	}
-
-	private void pushOwnedNames14() {
 		self.ownedNames.push("remove");
 		self.ownedNames.push("remquo");
 		self.ownedNames.push("remquof");
@@ -18936,6 +17985,9 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("rint");
 		self.ownedNames.push("rintf");
 		self.ownedNames.push("rintl");
+	}
+
+	private void pushOwnedNames14() {
 		self.ownedNames.push("rlim_t");
 		self.ownedNames.push("rlimit");
 		self.ownedNames.push("rmdir");
@@ -19173,9 +18225,6 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("std_app_finalize");
 		self.ownedNames.push("std_app_poll");
 		self.ownedNames.push("std_app_surface_attach");
-	}
-
-	private void pushOwnedNames15() {
 		self.ownedNames.push("std_app_surface_create");
 		self.ownedNames.push("std_app_surface_detach");
 		self.ownedNames.push("std_app_surface_finalize");
@@ -19183,40 +18232,22 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("std_app_surface_glfw");
 		self.ownedNames.push("std_app_surface_lease_generation");
 		self.ownedNames.push("std_app_surface_release");
-		self.ownedNames.push("std_app_window_choose_directory");
 		self.ownedNames.push("std_app_window_clipboard_text");
 		self.ownedNames.push("std_app_window_close");
 		self.ownedNames.push("std_app_window_finalize");
 		self.ownedNames.push("std_app_window_framebuffer_height");
 		self.ownedNames.push("std_app_window_framebuffer_width");
 		self.ownedNames.push("std_app_window_logical_height");
+	}
+
+	private void pushOwnedNames15() {
 		self.ownedNames.push("std_app_window_logical_width");
 		self.ownedNames.push("std_app_window_open");
 		self.ownedNames.push("std_app_window_scale_x");
 		self.ownedNames.push("std_app_window_scale_y");
-		self.ownedNames.push("std_app_window_selected_directory");
 		self.ownedNames.push("std_app_window_set_clipboard_text");
 		self.ownedNames.push("std_app_window_set_titlebar_style");
 		self.ownedNames.push("std_app_window_show_alert");
-		self.ownedNames.push("std_background_jobs_cancel");
-		self.ownedNames.push("std_background_jobs_cancel_generation");
-		self.ownedNames.push("std_background_jobs_cancel_requested");
-		self.ownedNames.push("std_background_jobs_close");
-		self.ownedNames.push("std_background_jobs_open");
-		self.ownedNames.push("std_background_jobs_outstanding");
-		self.ownedNames.push("std_background_jobs_poll");
-		self.ownedNames.push("std_background_jobs_submit");
-		self.ownedNames.push("std_core_audio_provider_close");
-		self.ownedNames.push("std_core_audio_provider_inventory");
-		self.ownedNames.push("std_core_audio_provider_inventory_device");
-		self.ownedNames.push("std_core_audio_provider_open");
-		self.ownedNames.push("std_core_audio_provider_open_duplex");
-		self.ownedNames.push("std_core_audio_session_close");
-		self.ownedNames.push("std_core_audio_session_dispose");
-		self.ownedNames.push("std_core_audio_session_drain");
-		self.ownedNames.push("std_core_audio_session_epoch");
-		self.ownedNames.push("std_core_audio_session_start");
-		self.ownedNames.push("std_core_audio_session_suspend");
 		self.ownedNames.push("std_gpu_attach_surface");
 		self.ownedNames.push("std_gpu_begin_capture_frame");
 		self.ownedNames.push("std_gpu_begin_frame");
@@ -19263,13 +18294,6 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("std_gpu_uniform_destroy");
 		self.ownedNames.push("std_gpu_uniform_finalize");
 		self.ownedNames.push("std_gpu_uniform_set");
-		self.ownedNames.push("std_local_application_channel_request");
-		self.ownedNames.push("std_local_application_channel_server_close");
-		self.ownedNames.push("std_local_application_channel_server_open");
-		self.ownedNames.push("std_local_application_channel_server_poll");
-		self.ownedNames.push("std_local_application_channel_server_respond");
-		self.ownedNames.push("std_macos_encoded_image_decode");
-		self.ownedNames.push("std_macos_encoded_image_release");
 		self.ownedNames.push("stderr");
 		self.ownedNames.push("stdin");
 		self.ownedNames.push("stdout");
@@ -19426,9 +18450,6 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("uint_fast8_t");
 		self.ownedNames.push("uint_least16_t");
 		self.ownedNames.push("uint_least32_t");
-	}
-
-	private void pushOwnedNames16() {
 		self.ownedNames.push("uint_least64_t");
 		self.ownedNames.push("uint_least8_t");
 		self.ownedNames.push("uintmax_t");
@@ -19470,6 +18491,9 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("uuid_unparse_lower");
 		self.ownedNames.push("uuid_unparse_upper");
 		self.ownedNames.push("va_arg");
+	}
+
+	private void pushOwnedNames16() {
 		self.ownedNames.push("va_copy");
 		self.ownedNames.push("va_end");
 		self.ownedNames.push("va_start");
@@ -19511,22 +18535,9 @@ class GeneratedHostedAbiData {
 	}
 
 	private void pushNativeNames0() {
-		self.nativeNames.push("btrc_gui_blend_rect");
-		self.nativeNames.push("btrc_gui_clear");
-		self.nativeNames.push("btrc_gui_draw_text");
-		self.nativeNames.push("btrc_gui_fill_rect");
 		self.nativeNames.push("btrc_gui_font_destroy");
 		self.nativeNames.push("btrc_gui_font_load");
-		self.nativeNames.push("btrc_gui_get_pixel");
-		self.nativeNames.push("btrc_gui_save_ppm");
 		self.nativeNames.push("btrc_gui_set_font");
-		self.nativeNames.push("btrc_gui_surface_create");
-		self.nativeNames.push("btrc_gui_surface_destroy");
-		self.nativeNames.push("btrc_gui_surface_height");
-		self.nativeNames.push("btrc_gui_surface_resize");
-		self.nativeNames.push("btrc_gui_surface_width");
-		self.nativeNames.push("btrc_gui_text_height");
-		self.nativeNames.push("btrc_gui_text_width");
 		self.nativeNames.push("btrc_gui_window_close");
 		self.nativeNames.push("btrc_gui_window_fb_height");
 		self.nativeNames.push("btrc_gui_window_fb_width");
@@ -19578,7 +18589,6 @@ class GeneratedHostedAbiData {
 		self.nativeNames.push("std_app_surface_finalize");
 		self.nativeNames.push("std_app_surface_generation");
 		self.nativeNames.push("std_app_surface_release");
-		self.nativeNames.push("std_app_window_choose_directory");
 		self.nativeNames.push("std_app_window_clipboard_text");
 		self.nativeNames.push("std_app_window_close");
 		self.nativeNames.push("std_app_window_finalize");
@@ -19589,29 +18599,9 @@ class GeneratedHostedAbiData {
 		self.nativeNames.push("std_app_window_open");
 		self.nativeNames.push("std_app_window_scale_x");
 		self.nativeNames.push("std_app_window_scale_y");
-		self.nativeNames.push("std_app_window_selected_directory");
 		self.nativeNames.push("std_app_window_set_clipboard_text");
 		self.nativeNames.push("std_app_window_set_titlebar_style");
 		self.nativeNames.push("std_app_window_show_alert");
-		self.nativeNames.push("std_background_jobs_cancel");
-		self.nativeNames.push("std_background_jobs_cancel_generation");
-		self.nativeNames.push("std_background_jobs_cancel_requested");
-		self.nativeNames.push("std_background_jobs_close");
-		self.nativeNames.push("std_background_jobs_open");
-		self.nativeNames.push("std_background_jobs_outstanding");
-		self.nativeNames.push("std_background_jobs_poll");
-		self.nativeNames.push("std_background_jobs_submit");
-		self.nativeNames.push("std_core_audio_provider_close");
-		self.nativeNames.push("std_core_audio_provider_inventory");
-		self.nativeNames.push("std_core_audio_provider_inventory_device");
-		self.nativeNames.push("std_core_audio_provider_open");
-		self.nativeNames.push("std_core_audio_provider_open_duplex");
-		self.nativeNames.push("std_core_audio_session_close");
-		self.nativeNames.push("std_core_audio_session_dispose");
-		self.nativeNames.push("std_core_audio_session_drain");
-		self.nativeNames.push("std_core_audio_session_epoch");
-		self.nativeNames.push("std_core_audio_session_start");
-		self.nativeNames.push("std_core_audio_session_suspend");
 		self.nativeNames.push("std_gpu_attach_surface");
 		self.nativeNames.push("std_gpu_begin_capture_frame");
 		self.nativeNames.push("std_gpu_begin_frame");
@@ -19658,18 +18648,10 @@ class GeneratedHostedAbiData {
 		self.nativeNames.push("std_gpu_uniform_destroy");
 		self.nativeNames.push("std_gpu_uniform_finalize");
 		self.nativeNames.push("std_gpu_uniform_set");
-		self.nativeNames.push("std_local_application_channel_request");
-		self.nativeNames.push("std_local_application_channel_server_close");
-		self.nativeNames.push("std_local_application_channel_server_open");
-		self.nativeNames.push("std_local_application_channel_server_poll");
-		self.nativeNames.push("std_local_application_channel_server_respond");
-		self.nativeNames.push("std_macos_encoded_image_decode");
-		self.nativeNames.push("std_macos_encoded_image_release");
 	}
 
 	private void pushNativeInternalNames0() {
 		self.nativeInternalNames.push("btrc_app_drain_owner_finalizers");
-		self.nativeInternalNames.push("btrc_app_platform_choose_directory");
 		self.nativeInternalNames.push("btrc_app_platform_click_count");
 		self.nativeInternalNames.push("btrc_app_platform_dismiss_alert");
 		self.nativeInternalNames.push("btrc_app_platform_set_titlebar_style");
@@ -19744,7 +18726,6 @@ class GeneratedHostedAbiData {
 		self.nativeInternalNames.push("btrc_gpu_write_buffer");
 		self.nativeInternalNames.push("btrc_gui_clear_font_if_active");
 		self.nativeInternalNames.push("btrc_gui_install_font_backend");
-		self.nativeInternalNames.push("btrc_gui_surface_pixels");
 		self.nativeInternalNames.push("std_app_surface_attach");
 		self.nativeInternalNames.push("std_app_surface_detach");
 		self.nativeInternalNames.push("std_app_surface_glfw");
@@ -19820,25 +18801,11 @@ class GeneratedHostedAbiData {
 		self.platformFunctionNames.push("btrc_gpu_uniform_destroy");
 		self.platformFunctionNames.push("btrc_gpu_upload_uniform");
 		self.platformFunctionNames.push("btrc_gpu_write_buffer");
-		self.platformFunctionNames.push("btrc_gui_blend_rect");
-		self.platformFunctionNames.push("btrc_gui_clear");
 		self.platformFunctionNames.push("btrc_gui_clear_font_if_active");
-		self.platformFunctionNames.push("btrc_gui_draw_text");
-		self.platformFunctionNames.push("btrc_gui_fill_rect");
 		self.platformFunctionNames.push("btrc_gui_font_destroy");
 		self.platformFunctionNames.push("btrc_gui_font_load");
-		self.platformFunctionNames.push("btrc_gui_get_pixel");
 		self.platformFunctionNames.push("btrc_gui_install_font_backend");
-		self.platformFunctionNames.push("btrc_gui_save_ppm");
 		self.platformFunctionNames.push("btrc_gui_set_font");
-		self.platformFunctionNames.push("btrc_gui_surface_create");
-		self.platformFunctionNames.push("btrc_gui_surface_destroy");
-		self.platformFunctionNames.push("btrc_gui_surface_height");
-		self.platformFunctionNames.push("btrc_gui_surface_pixels");
-		self.platformFunctionNames.push("btrc_gui_surface_resize");
-		self.platformFunctionNames.push("btrc_gui_surface_width");
-		self.platformFunctionNames.push("btrc_gui_text_height");
-		self.platformFunctionNames.push("btrc_gui_text_width");
 		self.platformFunctionNames.push("btrc_gui_window_close");
 		self.platformFunctionNames.push("btrc_gui_window_fb_height");
 		self.platformFunctionNames.push("btrc_gui_window_fb_width");
@@ -20007,9 +18974,6 @@ class GeneratedHostedAbiData {
 		self.platformFunctionNames.push("getgid");
 		self.platformFunctionNames.push("getgrouplist");
 		self.platformFunctionNames.push("getgroups");
-	}
-
-	private void pushPlatformFunctionNames1() {
 		self.platformFunctionNames.push("gethostid");
 		self.platformFunctionNames.push("gethostname");
 		self.platformFunctionNames.push("gethostuuid");
@@ -20024,6 +18988,9 @@ class GeneratedHostedAbiData {
 		self.platformFunctionNames.push("getpagesize");
 		self.platformFunctionNames.push("getpass");
 		self.platformFunctionNames.push("getpeereid");
+	}
+
+	private void pushPlatformFunctionNames1() {
 		self.platformFunctionNames.push("getpeername");
 		self.platformFunctionNames.push("getpgid");
 		self.platformFunctionNames.push("getpgrp");
@@ -20260,9 +19227,6 @@ class GeneratedHostedAbiData {
 		self.platformFunctionNames.push("regwexec");
 		self.platformFunctionNames.push("regwncomp");
 		self.platformFunctionNames.push("regwnexec");
-	}
-
-	private void pushPlatformFunctionNames2() {
 		self.platformFunctionNames.push("revoke");
 		self.platformFunctionNames.push("rewinddir");
 		self.platformFunctionNames.push("rindex");
@@ -20277,6 +19241,9 @@ class GeneratedHostedAbiData {
 		self.platformFunctionNames.push("scalbl");
 		self.platformFunctionNames.push("scandir");
 		self.platformFunctionNames.push("scandir_b");
+	}
+
+	private void pushPlatformFunctionNames2() {
 		self.platformFunctionNames.push("scandirat");
 		self.platformFunctionNames.push("scandirat_b");
 		self.platformFunctionNames.push("searchfs");
@@ -20395,7 +19362,6 @@ class GeneratedHostedAbiData {
 		self.platformFunctionNames.push("std_app_surface_glfw");
 		self.platformFunctionNames.push("std_app_surface_lease_generation");
 		self.platformFunctionNames.push("std_app_surface_release");
-		self.platformFunctionNames.push("std_app_window_choose_directory");
 		self.platformFunctionNames.push("std_app_window_clipboard_text");
 		self.platformFunctionNames.push("std_app_window_close");
 		self.platformFunctionNames.push("std_app_window_finalize");
@@ -20406,29 +19372,9 @@ class GeneratedHostedAbiData {
 		self.platformFunctionNames.push("std_app_window_open");
 		self.platformFunctionNames.push("std_app_window_scale_x");
 		self.platformFunctionNames.push("std_app_window_scale_y");
-		self.platformFunctionNames.push("std_app_window_selected_directory");
 		self.platformFunctionNames.push("std_app_window_set_clipboard_text");
 		self.platformFunctionNames.push("std_app_window_set_titlebar_style");
 		self.platformFunctionNames.push("std_app_window_show_alert");
-		self.platformFunctionNames.push("std_background_jobs_cancel");
-		self.platformFunctionNames.push("std_background_jobs_cancel_generation");
-		self.platformFunctionNames.push("std_background_jobs_cancel_requested");
-		self.platformFunctionNames.push("std_background_jobs_close");
-		self.platformFunctionNames.push("std_background_jobs_open");
-		self.platformFunctionNames.push("std_background_jobs_outstanding");
-		self.platformFunctionNames.push("std_background_jobs_poll");
-		self.platformFunctionNames.push("std_background_jobs_submit");
-		self.platformFunctionNames.push("std_core_audio_provider_close");
-		self.platformFunctionNames.push("std_core_audio_provider_inventory");
-		self.platformFunctionNames.push("std_core_audio_provider_inventory_device");
-		self.platformFunctionNames.push("std_core_audio_provider_open");
-		self.platformFunctionNames.push("std_core_audio_provider_open_duplex");
-		self.platformFunctionNames.push("std_core_audio_session_close");
-		self.platformFunctionNames.push("std_core_audio_session_dispose");
-		self.platformFunctionNames.push("std_core_audio_session_drain");
-		self.platformFunctionNames.push("std_core_audio_session_epoch");
-		self.platformFunctionNames.push("std_core_audio_session_start");
-		self.platformFunctionNames.push("std_core_audio_session_suspend");
 		self.platformFunctionNames.push("std_gpu_attach_surface");
 		self.platformFunctionNames.push("std_gpu_begin_capture_frame");
 		self.platformFunctionNames.push("std_gpu_begin_frame");
@@ -20475,13 +19421,6 @@ class GeneratedHostedAbiData {
 		self.platformFunctionNames.push("std_gpu_uniform_destroy");
 		self.platformFunctionNames.push("std_gpu_uniform_finalize");
 		self.platformFunctionNames.push("std_gpu_uniform_set");
-		self.platformFunctionNames.push("std_local_application_channel_request");
-		self.platformFunctionNames.push("std_local_application_channel_server_close");
-		self.platformFunctionNames.push("std_local_application_channel_server_open");
-		self.platformFunctionNames.push("std_local_application_channel_server_poll");
-		self.platformFunctionNames.push("std_local_application_channel_server_respond");
-		self.platformFunctionNames.push("std_macos_encoded_image_decode");
-		self.platformFunctionNames.push("std_macos_encoded_image_release");
 		self.platformFunctionNames.push("strcasecmp");
 		self.platformFunctionNames.push("strcasecmp_l");
 		self.platformFunctionNames.push("strcasestr");
@@ -20513,9 +19452,6 @@ class GeneratedHostedAbiData {
 		self.platformFunctionNames.push("sync");
 		self.platformFunctionNames.push("sync_volume_np");
 		self.platformFunctionNames.push("syscall");
-	}
-
-	private void pushPlatformFunctionNames3() {
 		self.platformFunctionNames.push("sysconf");
 		self.platformFunctionNames.push("tcdrain");
 		self.platformFunctionNames.push("tcflow");
@@ -20558,6 +19494,9 @@ class GeneratedHostedAbiData {
 		self.platformFunctionNames.push("utimensat");
 		self.platformFunctionNames.push("utimes");
 		self.platformFunctionNames.push("uuid_clear");
+	}
+
+	private void pushPlatformFunctionNames3() {
 		self.platformFunctionNames.push("uuid_compare");
 		self.platformFunctionNames.push("uuid_copy");
 		self.platformFunctionNames.push("uuid_generate");

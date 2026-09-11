@@ -1,5 +1,5 @@
 .PHONY: all help build package wheel btrcc btrcc-release-c btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
-        btrcc-windows-x64 btrcc-dist test-windows app app-required gpu gpu-required background-jobs local-application-channel gui ast-generate ast-generate-btrc \
+        btrcc-windows-x64 btrcc-dist test-windows app app-required gpu gpu-required gui ast-generate ast-generate-btrc \
         test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
         generated-check compiler-codegen-generate compiler-codegen-check lint format format-check format-btrc format-btrc-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
@@ -35,7 +35,7 @@ LINUX_CI_TARGETS ?= gpu-required test
 # Keep exclusions exact: btrc-format rejects missing or undiscovered paths.
 BTRC_FORMAT_EXCLUDES := --exclude src/tests/formatter/fixtures/ImportGroups.btrc
 
-all: generated-check build gpu background-jobs local-application-channel gui test lint examples extension ## Build and verify everything
+all: generated-check build gpu gui test lint examples extension ## Build and verify everything
 
 build: generated-check ## Create bin/btrcpy wrapper script
 	@mkdir -p bin
@@ -60,12 +60,14 @@ wheel: generated-check ## Build the installable Python wheel -> dist/
 
 # --- Self-hosted compiler (btrcc) native + cross builds ----------------------
 # btrcc is btrc source -> transpiled to C by btrcpy -> compiled by a C toolchain.
-# The transpile runs once into dist/btrcc.c; each target compiles that C. Cross
+# Unix hosts use dist/btrcc.c; Windows uses its capability-specific entry point
+# in dist/btrcc-windows.c. Cross
 # builds use `zig cc` (one host -> many OS/arch). Release targets place private
 # raw binaries under build/btrcc/, then publish relocatable bundles containing
 # bin/btrcc plus share/btrc/{language,stdlib} and deterministic archives.
 ZIG     := $(NIX) zig
 BTRCC_C := dist/btrcc.c
+BTRCC_WINDOWS_C := dist/btrcc-windows.c
 BTRCC_NATIVE := bin/btrcc
 BTRCC_BUILD_ROOT := build/btrcc
 BTRCC_BUNDLER := $(NIX) python3 -m src.compiler.python.main bundle
@@ -77,7 +79,7 @@ BTRC_AST := src/compiler/btrc/generated/ast/Node.btrc
 BTRCC_GENERATED_AST := $(PYTHON_AST) $(BTRC_AST)
 BTRCC_BOOTSTRAP_SOURCES := $(filter-out src/compiler/python/syntax/ast/generated.py,$(shell find src/compiler/python -type f -name '*.py' ! -path '*/tests/*' -print | LC_ALL=C sort))
 BTRCC_SELFHOST_SOURCES := $(filter-out src/compiler/btrc/generated/ast/Node.btrc,$(shell find src/compiler/btrc -type f -name '*.btrc' -print | LC_ALL=C sort))
-BTRCC_STDLIB_SOURCES := $(shell find src/stdlib -type f -name '*.btrc' -print | LC_ALL=C sort)
+BTRCC_STDLIB_SOURCES := $(shell find src/stdlib -type f \( -name '*.btrc' -o -name '*.toml' -o -name '*.h' \) -print | LC_ALL=C sort)
 BTRCC_LANGUAGE_SPECS := $(shell find src/language -type f \( -name '*.ebnf' -o -name '*.asdl' -o -name '*.toml' \) -print | LC_ALL=C sort)
 BTRCC_RUNTIME_SPECS := $(shell find src/runtime/c -type f \( -name '*.c' -o -name '*.h' -o -name '*.toml' \) -print | LC_ALL=C sort)
 BTRCC_CODEGEN_SOURCES := $(shell find tools/compiler_codegen -type f -name '*.py' -print | LC_ALL=C sort)
@@ -87,13 +89,17 @@ BTRCC_INPUTS := $(BTRCC_BOOTSTRAP_SOURCES) $(BTRCC_SELFHOST_SOURCES) \
 # Windows-only compat layer (POSIX builds never see it): shim headers for the
 # handful of POSIX includes MinGW-w64 omits (found via -I) plus a force-included
 # header that supplies the few missing symbols and safe filesystem seams. See
-# src/stdlib/win/README.md. Real Win32 backends for terminal/process/socket are
+# src/stdlib/Windows/README.md. Real Win32 backends for terminal/process/socket are
 # a Milestone-2 follow-up; today these orphan APIs are DCE'd out of btrcc.
-WIN_COMPAT := -I src/stdlib/win -include src/stdlib/win/btrc_win_compat.h
+WIN_COMPAT := -I src/stdlib/Windows -include src/stdlib/Windows/btrc_win_compat.h
 
 $(BTRCC_C): $(BTRCC_INPUTS) | generated-check
 	@mkdir -p dist
 	$(NIX) python3 -m src.compiler.python.main src/compiler/btrc/BtrccMain.btrc --strict-imports --no-cache -o $(BTRCC_C)
+
+$(BTRCC_WINDOWS_C): $(BTRCC_INPUTS) | generated-check
+	@mkdir -p dist
+	$(NIX) python3 -m src.compiler.python.main src/compiler/btrc/cli/WindowsMain.btrc --strict-imports --no-cache -o $(BTRCC_WINDOWS_C)
 
 btrcc-release-c: generated-check
 	$(MAKE) --no-print-directory $(BTRCC_C)
@@ -129,11 +135,11 @@ btrcc-linux-arm64: btrcc-release-c ## Build relocatable btrcc bundle for Linux a
 	$(ZIG) cc -target aarch64-linux-gnu $(NATIVE_CFLAGS) -O2 $(BTRCC_C) -o $(BTRCC_BUILD_ROOT)/linux-arm64/btrcc -lm
 	$(BTRCC_BUNDLER) --binary $(BTRCC_BUILD_ROOT)/linux-arm64/btrcc --target linux-arm64 --output-dir dist --source-root .
 
-btrcc-windows-x64: btrcc-release-c ## Build relocatable btrcc bundle for Windows x86_64 -> dist/
+btrcc-windows-x64: $(BTRCC_WINDOWS_C) ## Build relocatable btrcc bundle for Windows x86_64 -> dist/
 	@mkdir -p $(BTRCC_BUILD_ROOT)/windows-x64 dist
 	@rm -f dist/btrcc-windows-x64.exe
 	@if [ -e dist/btrcc-windows-x64 ] && [ ! -d dist/btrcc-windows-x64 ]; then rm -f dist/btrcc-windows-x64; fi
-	$(ZIG) cc -target x86_64-windows-gnu $(NATIVE_CFLAGS) -O2 $(WIN_COMPAT) $(BTRCC_C) -o $(BTRCC_BUILD_ROOT)/windows-x64/btrcc.exe -lm
+	$(ZIG) cc -target x86_64-windows-gnu $(NATIVE_CFLAGS) -O2 $(WIN_COMPAT) $(BTRCC_WINDOWS_C) -o $(BTRCC_BUILD_ROOT)/windows-x64/btrcc.exe -lm
 	$(BTRCC_BUNDLER) --binary $(BTRCC_BUILD_ROOT)/windows-x64/btrcc.exe --target windows-x64 --output-dir dist --source-root .
 
 btrcc-dist: btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 btrcc-windows-x64 ## Build all relocatable btrcc distributions -> dist/
@@ -170,10 +176,10 @@ test-windows: btrcc-windows-x64 ## Build Windows btrcc bundle + sample; run samp
 
 app: ## Build the sole application/window runtime (skips if GLFW is missing)
 	@$(NIX) bash -c '\
-		D=src/stdlib/app && O=build/stdlib/app && mkdir -p "$$O" && \
-		archive="$$O/libbtrc_app.a" && object="$$O/btrc_app.o" && provider="$$O/btrc_app_directory_picker.o" && window="$$O/btrc_app_window.o" && \
-		rm -f "$$archive" "$$object" "$$provider" "$$window" && \
-		trap "rm -f \"$$archive\" \"$$object\" \"$$provider\" \"$$window\"" EXIT && \
+		D=src/stdlib/App && O=build/stdlib/App && mkdir -p "$$O" && \
+		archive="$$O/libbtrc_app.a" && object="$$O/btrc_app.o" && window="$$O/btrc_app_window.o" && \
+		rm -f "$$archive" "$$object" "$$window" && \
+		trap "rm -f \"$$archive\" \"$$object\" \"$$window\"" EXIT && \
 		if ! $(CC) $$APP_CFLAGS -std=c11 -I"$$D" -E "$$D/btrc_app.c" -o /dev/null 2>/dev/null; then \
 			echo "Application runtime skipped (missing GLFW headers)"; exit 0; \
 		fi && \
@@ -181,21 +187,17 @@ app: ## Build the sole application/window runtime (skips if GLFW is missing)
 			-c "$$D/btrc_app.c" -o "$$object" && \
 		if [ "$$(uname -s)" = Darwin ]; then \
 			$(APP_OBJC) $$APP_CFLAGS $(NATIVE_CFLAGS) -x objective-c -I"$$D" -O2 \
-				-c "$$D/btrc_app_directory_picker_macos.m" -o "$$provider"; \
-			$(APP_OBJC) $$APP_CFLAGS $(NATIVE_CFLAGS) -x objective-c -I"$$D" -O2 \
 				-c "$$D/btrc_app_window_macos.m" -o "$$window"; \
 		else \
 			$(CC) $$APP_CFLAGS $(NATIVE_CFLAGS) -I"$$D" -O2 \
-				-c "$$D/btrc_app_directory_picker_stub.c" -o "$$provider"; \
-			$(CC) $$APP_CFLAGS $(NATIVE_CFLAGS) -I"$$D" -O2 \
 				-c "$$D/btrc_app_window_stub.c" -o "$$window"; \
 		fi && \
-		$(HOST_AR) rcs "$$archive" "$$object" "$$provider" "$$window" && \
+		$(HOST_AR) rcs "$$archive" "$$object" "$$window" && \
 		trap - EXIT && \
 		echo "Built: $$archive"'
 
 app-required: app ## Build application runtime; fail when GLFW is unavailable
-	@$(NIX) bash -c 'archive=build/stdlib/app/libbtrc_app.a; \
+	@$(NIX) bash -c 'archive=build/stdlib/App/libbtrc_app.a; \
 		test -f "$$archive" || { \
 			echo "Application runtime is required; install GLFW development dependencies." >&2; \
 			exit 1; \
@@ -203,12 +205,12 @@ app-required: app ## Build application runtime; fail when GLFW is unavailable
 
 gpu: app ## Build GPU runtime library (skips if deps missing)
 	@$(NIX) bash -c '\
-		D=src/stdlib/gpu && O=build/stdlib/gpu && \
+		D=src/stdlib/GPU && O=build/stdlib/GPU && \
 		mkdir -p "$$O" && \
 		rm -f "$$O/libbtrc_gpu.a" && \
 		probe_ok=1 && \
 		for source in btrc_gpu.c btrc_gpu_async.c btrc_gpu_surface.c btrc_gpu_native_ui.c; do \
-			$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) -std=c11 -Isrc/stdlib/app -I"$$D" \
+			$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) -std=c11 -Isrc/stdlib/App -I"$$D" \
 				-E "$$D/$$source" -o /dev/null 2>/dev/null || probe_ok=0; \
 		done && \
 		if [ "$$(uname -s)" = Darwin ]; then \
@@ -223,7 +225,7 @@ gpu: app ## Build GPU runtime library (skips if deps missing)
 		if [ "$$probe_ok" -ne 1 ]; then \
 			echo "GPU runtime skipped (missing windowing/WebGPU headers)"; exit 0; \
 		fi && \
-		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(GPU_THREAD_FLAGS) $(NATIVE_CFLAGS) -Isrc/stdlib/app -I"$$D" -O2 -c "$$D/btrc_gpu.c" -o "$$O/btrc_gpu.o" && \
+		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(GPU_THREAD_FLAGS) $(NATIVE_CFLAGS) -Isrc/stdlib/App -I"$$D" -O2 -c "$$D/btrc_gpu.c" -o "$$O/btrc_gpu.o" && \
 		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_native_ui.c" -o "$$O/btrc_gpu_native_ui.o" && \
 		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_async.c" -o "$$O/btrc_gpu_async.o" && \
 		$(CC) $$GPU_CFLAGS $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_surface.c" -o "$$O/btrc_gpu_surface.o" && \
@@ -245,7 +247,7 @@ gpu: app ## Build GPU runtime library (skips if deps missing)
 		echo "Built: $$O/libbtrc_gpu.a"'
 
 gpu-required: app-required gpu ## Build GPU runtime library; fail when production dependencies are missing
-	@$(NIX) bash -c 'archive=build/stdlib/gpu/libbtrc_gpu.a; \
+	@$(NIX) bash -c 'archive=build/stdlib/GPU/libbtrc_gpu.a; \
 		test -f "$$archive" || { \
 			echo "GPU runtime is required for production tests; install the WebGPU and GLFW development dependencies." >&2; \
 			exit 1; \
@@ -254,36 +256,10 @@ gpu-required: app-required gpu ## Build GPU runtime library; fail when productio
 		$(HOST_AR) t "$$archive" | grep -q "btrc_gpu_native_ui_text\\.o$$" && \
 		$(HOST_AR) t "$$archive" | grep -q "btrc_gpu_surface\\.o$$"'
 
-background-jobs: ## Build the bounded background-job executor runtime
-	@$(NIX) bash -c '\
-		D=src/stdlib/background_jobs && O=build/stdlib/background_jobs && \
-		mkdir -p "$$O" && \
-		archive="$$O/libbtrc_background_jobs.a" && \
-		object="$$O/btrc_background_jobs.o" && \
-		rm -f "$$archive" "$$object" && \
-		trap "rm -f \"$$archive\" \"$$object\"" EXIT && \
-		$(CC) $(GPU_THREAD_FLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 \
-			-c "$$D/btrc_background_jobs.c" -o "$$object" && \
-		$(HOST_AR) rcs "$$archive" "$$object" && \
-		trap - EXIT && \
-		echo "Built: $$archive"'
-
-local-application-channel: ## Build the bounded same-user application channel runtime
-	@$(NIX) bash -c '\
-		D=src/stdlib/local_application_channel && O=build/stdlib/local_application_channel && \
-		mkdir -p "$$O" && \
-		archive="$$O/libbtrc_local_application_channel.a" && \
-		object="$$O/btrc_local_application_channel.o" && \
-		rm -f "$$archive" "$$object" && \
-		trap "rm -f \"$$archive\" \"$$object\"" EXIT && \
-		$(CC) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_local_application_channel.c" -o "$$object" && \
-		$(HOST_AR) rcs "$$archive" "$$object" && \
-		trap - EXIT && \
-		echo "Built: $$archive"'
 
 gui: ## Build GUI runtime (software renderer always; window backend needs GLFW)
 	@$(NIX) bash -c '\
-		D=src/stdlib/gui && O=build/stdlib/gui && mkdir -p "$$O" && \
+		D=src/stdlib/GUI && O=build/stdlib/GUI && mkdir -p "$$O" && \
 		archive="$$O/libbtrc_gui.a" && object="$$O/btrc_gui.o" && \
 		rm -f "$$archive" "$$object" && \
 		trap "rm -f \"$$archive\" \"$$object\"" EXIT && \
@@ -292,7 +268,7 @@ gui: ## Build GUI runtime (software renderer always; window backend needs GLFW)
 		trap - EXIT && \
 		echo "Built: $$archive (software renderer)"'
 	@$(NIX) bash -c '\
-		D=src/stdlib/gui && O=build/stdlib/gui && mkdir -p "$$O" && \
+		D=src/stdlib/GUI && O=build/stdlib/GUI && mkdir -p "$$O" && \
 		archive="$$O/libbtrc_gui_window.a" && object="$$O/btrc_gui_window.o" && \
 		rm -f "$$archive" "$$object" && \
 		trap "rm -f \"$$archive\" \"$$object\"" EXIT && \
@@ -304,7 +280,7 @@ gui: ## Build GUI runtime (software renderer always; window backend needs GLFW)
 		trap - EXIT && \
 		echo "Built: $$archive (GLFW window backend)"'
 	@$(NIX) bash -c '\
-		D=src/stdlib/gui && O=build/stdlib/gui && mkdir -p "$$O" && \
+		D=src/stdlib/GUI && O=build/stdlib/GUI && mkdir -p "$$O" && \
 		archive="$$O/libbtrc_gui_font.a" && object="$$O/btrc_gui_font.o" && \
 		rm -f "$$archive" "$$object" && \
 		trap "rm -f \"$$archive\" \"$$object\"" EXIT && \
@@ -322,7 +298,7 @@ ast-generate-btrc: compiler-codegen-generate ## Regenerate both AST catalogs thr
 
 # ─── Test ────────────────────────────────────────────────────────────────────
 
-test: generated-check test-boundaries gpu-required background-jobs local-application-channel ## Run everything: unit + LSP + debugger + language corpus on BOTH compilers
+test: generated-check test-boundaries gpu-required ## Run everything: unit + LSP + debugger + language corpus on BOTH compilers
 	$(NIX) $(PYTEST) src/tests/ \
 		--ignore=src/tests/btrc/test_bootstrap.py $(PYTEST_ARGS)
 	$(NIX) $(PYTEST) src/tests/btrc/test_bootstrap.py $(PYTEST_SERIAL_ARGS)

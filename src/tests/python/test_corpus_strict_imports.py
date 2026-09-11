@@ -42,18 +42,18 @@ SUPPORTING_CONSUMERS = frozenset(
         "src/compiler/btrc/syntax/Types.btrc",
         "src/stdlib/Daemon.btrc",
         "src/stdlib/Graph.btrc",
-        "src/stdlib/gui/View.btrc",
+        "src/stdlib/GUI/View.btrc",
     }
 )
 
 # The raw per-file audit intentionally does not expand legacy includes. This
-# example includes gui/View.btrc, whose Ui shadows the unrelated Library.Ui Ui.
+# example includes GUI/View.btrc, whose UI shadows the unrelated Library.UI UI.
 # The fully resolved strict-import audit covers this source without an error.
 RAW_INCLUDE_SHADOWS = frozenset(
     {
         (
             "examples/gui/Declarative.btrc",
-            "'Ui' is defined in Ui.btrc but Declarative.btrc does not import it",
+            "'UI' is defined in UI.btrc but Declarative.btrc does not import it",
         )
     }
 )
@@ -111,7 +111,7 @@ class CorpusImportAudit:
                     duplicate_modules.append(f"{path.relative_to(self.repository)}: Library.{module}")
                     continue
                 imported_modules.add(module)
-                owner = self.stdlib.find_file(f"{module}.btrc")
+                owner = self.stdlib.find_file(module.replace(".", "/") + ".btrc")
                 if owner is None:
                     unknown_modules.append(f"{path.relative_to(self.repository)}: Library.{module}")
                 else:
@@ -168,9 +168,9 @@ def corpus_import_audit() -> CorpusImportAuditResult:
 def test_corpus_declares_every_direct_stdlib_owner(
     corpus_import_audit: CorpusImportAuditResult,
 ) -> None:
-    # Bump with the corpus: the native-header reader's fixture is the 1171st
-    # source. The count guards against the audit silently scanning nothing.
-    assert corpus_import_audit.source_count == 1171
+    # Includes the native SDK lifecycle and AppKit fixtures; guard against
+    # accidentally narrowing the corpus audit as providers move packages.
+    assert corpus_import_audit.source_count == 1191
     assert corpus_import_audit.duplicate_modules == ()
     assert corpus_import_audit.unknown_modules == ()
     assert corpus_import_audit.direct_owner_diagnostics == ()

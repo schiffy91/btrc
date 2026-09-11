@@ -227,6 +227,13 @@ RESULT_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("unwrapErr", "E", "method", (), "unwrapErr"),
 )
 
+# Generated from src/stdlib/spscqueue.btrc
+SPSCQUEUE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("tryPush", "bool", "method", (("T", "value"),), "tryPush"),
+    BuiltinMemberSpec("tryPop", "bool", "method", (("T*", "output"),), "tryPop"),
+    BuiltinMemberSpec("close", "void", "method", (), "close"),
+)
+
 # Generated from src/stdlib/set.btrc
 SET_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("len", "int", "field", doc="len"),
@@ -252,13 +259,6 @@ SET_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("forEach", "void", "method", (("__fn_ptr<void, T>", "fn"),), "forEach"),
     BuiltinMemberSpec("iterLen", "int", "method", (), "iterLen"),
     BuiltinMemberSpec("iterGet", "T", "method", (("int", "n"),), "iterGet"),
-)
-
-# Generated from src/stdlib/spscqueue.btrc
-SPSCQUEUE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
-    BuiltinMemberSpec("tryPush", "bool", "method", (("T", "value"),), "tryPush"),
-    BuiltinMemberSpec("tryPop", "bool", "method", (("T*", "output"),), "tryPop"),
-    BuiltinMemberSpec("close", "void", "method", (), "close"),
 )
 
 # Generated from src/stdlib/state.btrc
@@ -336,8 +336,8 @@ MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("OwnedBuffer", OWNEDBUFFER_MEMBERS),
     ("AtomicBuffer", ATOMICBUFFER_MEMBERS),
     ("Result", RESULT_MEMBERS),
+    ("SPSCQueue", SPSCQUEUE_MEMBERS),
     ("Set", SET_MEMBERS),
-    ("SpscQueue", SPSCQUEUE_MEMBERS),
     ("State", STATE_MEMBERS),
     ("Vector", VECTOR_MEMBERS),
 )
@@ -477,9 +477,9 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("ExactFileSnapshot", (
         BuiltinMemberSpec("validate", "FileSystemError*", "method", (("FileSnapshot", "expected"), ("FileSnapshotOutcome", "held"), ("string", "path"), ("string", "operation"),), "validate"),
     )),
-    ("GraphCli", (
-        BuiltinMemberSpec("args", "Map<string, string>", "method", (("CliArgs", "args"), ("int", "startIndex"),), "args"),
-        BuiltinMemberSpec("targets", "Vector<string>", "method", (("CliArgs", "args"), ("int", "startIndex"),), "targets"),
+    ("GraphCLI", (
+        BuiltinMemberSpec("args", "Map<string, string>", "method", (("CLIArgs", "args"), ("int", "startIndex"),), "args"),
+        BuiltinMemberSpec("targets", "Vector<string>", "method", (("CLIArgs", "args"), ("int", "startIndex"),), "targets"),
     )),
     ("GraphReport", (
         BuiltinMemberSpec("list", "void", "method", (("ExecutionGraph", "graph"),), "list"),
@@ -495,7 +495,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("Browser", (
         BuiltinMemberSpec("open", "void", "method", (("string", "url"),), "open"),
     )),
-    ("HttpFraming", (
+    ("HTTPFraming", (
         BuiltinMemberSpec("hexVal", "int", "method", (("char", "ch"),), "hexVal"),
         BuiltinMemberSpec("tokenChar", "bool", "method", (("char", "ch"),), "tokenChar"),
         BuiltinMemberSpec("token", "bool", "method", (("string", "value"),), "token"),
@@ -509,17 +509,17 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("chunkedEnd", "int", "method", (("Bytes", "raw"), ("int", "bodyStart"), ("int", "maxBodyBytes"), ("int", "maxTrailerBytes"),), "chunkedEnd"),
         BuiltinMemberSpec("decodeChunked", "Bytes", "method", (("Bytes", "body"), ("int", "maxBodyBytes"), ("int", "maxTrailerBytes"),), "decodeChunked"),
     )),
-    ("HttpUrl", (
+    ("HTTPUrl", (
         BuiltinMemberSpec("decode", "string", "method", (("string", "value"),), "decode"),
         BuiltinMemberSpec("encode", "string", "method", (("string", "value"),), "encode"),
     )),
-    ("HttpStatus", (
+    ("HTTPStatus", (
         BuiltinMemberSpec("reason", "string", "method", (("int", "status"),), "reason"),
     )),
-    ("HttpResponseHeaders", (
+    ("HTTPResponseHeaders", (
         BuiltinMemberSpec("reserved", "bool", "method", (("string", "name"),), "reserved"),
     )),
-    ("HttpSocket", (
+    ("HTTPSocket", (
         BuiltinMemberSpec("configureDescriptor", "bool", "method", (("int", "descriptor"), ("bool", "nonblocking"),), "configureDescriptor"),
         BuiltinMemberSpec("sendNoSignal", "long long", "method", (("int", "descriptor"), ("char*", "data"), ("size_t", "length"),), "sendNoSignal"),
         BuiltinMemberSpec("nowMilliseconds", "long long", "method", (), "nowMilliseconds"),
@@ -532,6 +532,11 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("readRequest", "Bytes", "method", (("int", "descriptor"), ("int", "maxHeaderBytes"), ("int", "maxBodyBytes"), ("int", "maxRequestBytes"), ("int", "timeoutSecs"),), "readRequest"),
         BuiltinMemberSpec("sendAllUntil", "bool", "method", (("int", "descriptor"), ("string", "data"), ("long long", "deadline"),), "sendAllUntil"),
         BuiltinMemberSpec("sendAll", "bool", "method", (("int", "descriptor"), ("string", "data"), ("int", "timeoutSecs"),), "sendAll"),
+    )),
+    ("Path", (
+        BuiltinMemberSpec("exists", "bool", "method", (("string", "path"),), "exists"),
+        BuiltinMemberSpec("readAll", "string", "method", (("string", "path"),), "readAll"),
+        BuiltinMemberSpec("writeAll", "bool", "method", (("string", "path"), ("string", "content"),), "writeAll"),
     )),
     ("ImageBinary", (
         BuiltinMemberSpec("has", "bool", "method", (("Bytes", "bytes"), ("long long", "offset"), ("long long", "count"),), "has"),
@@ -554,19 +559,14 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("savePpm", "bool", "method", (("Image", "image"), ("string", "path"),), "savePpm"),
         BuiltinMemberSpec("saveBmp", "bool", "method", (("Image", "image"), ("string", "path"), ("int", "bitsPerPixel"), ("bool", "topDown"),), "saveBmp"),
     )),
-    ("Path", (
-        BuiltinMemberSpec("exists", "bool", "method", (("string", "path"),), "exists"),
-        BuiltinMemberSpec("readAll", "string", "method", (("string", "path"),), "readAll"),
-        BuiltinMemberSpec("writeAll", "bool", "method", (("string", "path"), ("string", "content"),), "writeAll"),
-    )),
-    ("JsonNum", (
+    ("JSONNum", (
         BuiltinMemberSpec("toDouble", "double", "method", (("string", "token"),), "toDouble"),
         BuiltinMemberSpec("format", "string", "method", (("double", "value"), ("bool", "isInt"),), "format"),
         BuiltinMemberSpec("charFromCode", "string", "method", (("int", "code"),), "charFromCode"),
         BuiltinMemberSpec("uEscape", "string", "method", (("int", "code"),), "uEscape"),
         BuiltinMemberSpec("utf8", "string", "method", (("int", "cp"),), "utf8"),
     )),
-    ("JsonText", (
+    ("JSONText", (
         BuiltinMemberSpec("slice", "string", "method", (("string", "text"), ("int", "start"), ("int", "end"),), "slice"),
         BuiltinMemberSpec("unescape", "string", "method", (("string", "text"),), "unescape"),
         BuiltinMemberSpec("stringEnd", "int", "method", (("string", "text"), ("int", "start"),), "stringEnd"),
@@ -589,7 +589,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("expand", "string", "method", (("string", "text"), ("Map<string, string>", "args"),), "expand"),
         BuiltinMemberSpec("putArgPair", "void", "method", (("Map<string, string>", "result"), ("string", "pair"),), "putArgPair"),
     )),
-    ("Json", (
+    ("JSON", (
         BuiltinMemberSpec("esc", "string", "method", (("string", "s"),), "esc"),
         BuiltinMemberSpec("str", "string", "method", (("string", "s"),), "str"),
         BuiltinMemberSpec("getString", "string", "method", (("string", "json"), ("string", "key"),), "getString"),
@@ -598,6 +598,11 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     )),
     ("LocalApplicationChannelClient", (
         BuiltinMemberSpec("request", "LocalApplicationChannelClientOutcome", "method", (("string", "path"), ("Bytes", "request"), ("LocalApplicationChannelConfiguration", "configuration"), ("int", "timeoutMilliseconds"),), "request"),
+        BuiltinMemberSpec("failure", "LocalApplicationChannelClientOutcome", "method", (("LocalApplicationChannelRequestKind", "fallback"),), "failure"),
+    )),
+    ("LocalChannelFrame", (
+        BuiltinMemberSpec("encode", "void", "method", (("unsigned char*", "header"), ("uint", "length"),), "encode"),
+        BuiltinMemberSpec("decode", "uint", "method", (("unsigned char*", "header"),), "decode"),
     )),
     ("Math", (
         BuiltinMemberSpec("PI", "float", "method", (), "PI"),
@@ -647,14 +652,14 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("sign", "int", "method", (("int", "x"),), "sign"),
         BuiltinMemberSpec("fsign", "float", "method", (("float", "x"),), "fsign"),
     )),
-    ("NativeUiStyle", (
+    ("NativeUIStyle", (
         BuiltinMemberSpec("decimal", "bool", "method", (("string", "value"), ("bool", "allowZero"),), "decimal"),
         BuiltinMemberSpec("pixels", "bool", "method", (("string", "value"), ("bool", "allowZero"),), "pixels"),
         BuiltinMemberSpec("hexDigit", "bool", "method", (("char", "value"),), "hexDigit"),
         BuiltinMemberSpec("color", "bool", "method", (("string", "value"),), "color"),
         BuiltinMemberSpec("gradientColors", "Vector<string>", "method", (("string", "value"),), "gradientColors"),
-        BuiltinMemberSpec("validate", "NativeUiStyleError", "method", (("string", "css"),), "validate"),
-        BuiltinMemberSpec("validateClassName", "NativeUiStyleError", "method", (("string", "value"),), "validateClassName"),
+        BuiltinMemberSpec("validate", "NativeUIStyleError", "method", (("string", "css"),), "validate"),
+        BuiltinMemberSpec("validateClassName", "NativeUIStyleError", "method", (("string", "value"),), "validateClassName"),
     )),
     ("OwnedBuffers", (
         BuiltinMemberSpec("tryOpen", "OwnedBufferOpenKind", "method", (("size_t", "count"), ("size_t", "valueSize"), ("struct OwnedBufferStorage**", "output"),), "tryOpen"),
@@ -769,11 +774,11 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("replaceAll", "string", "method", (("string", "pattern"), ("string", "text"), ("string", "replacement"),), "replaceAll"),
         BuiltinMemberSpec("subst", "string", "method", (("string", "pattern"), ("string", "text"), ("string", "replacement"), ("bool", "all"),), "subst"),
     )),
-    ("SpscQueues", (
-        BuiltinMemberSpec("tryOpen", "SpscQueueOpenKind", "method", (("uint", "capacity"), ("size_t", "valueSize"), ("struct SpscQueueStorage**", "output"),), "tryOpen"),
-        BuiltinMemberSpec("tryPushBorrowed", "bool", "method", (("struct SpscQueueStorage*", "queue"), ("void*", "value"),), "tryPushBorrowed"),
-        BuiltinMemberSpec("tryPopBorrowed", "bool", "method", (("struct SpscQueueStorage*", "queue"), ("void*", "output"),), "tryPopBorrowed"),
-        BuiltinMemberSpec("close", "void", "method", (("struct SpscQueueStorage*", "queue"),), "close"),
+    ("SPSCQueues", (
+        BuiltinMemberSpec("tryOpen", "SPSCQueueOpenKind", "method", (("uint", "capacity"), ("size_t", "valueSize"), ("struct SPSCQueueStorage**", "output"),), "tryOpen"),
+        BuiltinMemberSpec("tryPushBorrowed", "bool", "method", (("struct SPSCQueueStorage*", "queue"), ("void*", "value"),), "tryPushBorrowed"),
+        BuiltinMemberSpec("tryPopBorrowed", "bool", "method", (("struct SPSCQueueStorage*", "queue"), ("void*", "output"),), "tryPopBorrowed"),
+        BuiltinMemberSpec("close", "void", "method", (("struct SPSCQueueStorage*", "queue"),), "close"),
     )),
     ("Strings", (
         BuiltinMemberSpec("checkedLength", "int", "method", (("string", "s"),), "checkedLength"),
@@ -808,6 +813,18 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("isAlphaStr", "bool", "method", (("string", "s"),), "isAlphaStr"),
         BuiltinMemberSpec("isBlank", "bool", "method", (("string", "s"),), "isBlank"),
     )),
+    ("TOML", (
+        BuiltinMemberSpec("unquotedPosition", "int", "method", (("string", "line"), ("char", "target"),), "unquotedPosition"),
+        BuiltinMemberSpec("stripInlineComment", "string", "method", (("string", "raw"),), "stripInlineComment"),
+        BuiltinMemberSpec("unquote", "string", "method", (("string", "raw"),), "unquote"),
+        BuiltinMemberSpec("key", "string", "method", (("string", "line"),), "key"),
+        BuiltinMemberSpec("value", "string", "method", (("string", "line"),), "value"),
+        BuiltinMemberSpec("sectionName", "string", "method", (("string", "line"),), "sectionName"),
+        BuiltinMemberSpec("tableArrayName", "string", "method", (("string", "line"),), "tableArrayName"),
+        BuiltinMemberSpec("rootMap", "Map<string, string>", "method", (("string", "content"),), "rootMap"),
+        BuiltinMemberSpec("sectionMap", "Map<string, string>", "method", (("string", "content"), ("string", "section"),), "sectionMap"),
+        BuiltinMemberSpec("tableArrayBlocks", "Vector<Map<string, string>>", "method", (("string", "content"), ("string", "table"),), "tableArrayBlocks"),
+    )),
     ("Terminal", (
         BuiltinMemberSpec("readLine", "string", "method", (), "readLine"),
         BuiltinMemberSpec("prompt", "string", "method", (("string", "label"),), "prompt"),
@@ -836,14 +853,14 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("waitForPtyExitUntil", "int", "method", (("pid_t", "processId"), ("int", "fd"), ("long long", "deadline"),), "waitForPtyExitUntil"),
         BuiltinMemberSpec("change", "bool", "method", (("string", "user"), ("string", "oldPassword"), ("string", "newPassword"),), "change"),
     )),
-    ("TerminalClock", (
-        BuiltinMemberSpec("milliseconds", "long long", "method", (), "milliseconds"),
-        BuiltinMemberSpec("deadlineAfter", "long long", "method", (("int", "milliseconds"),), "deadlineAfter"),
-    )),
     ("UnixPamCStringArray", (
         BuiltinMemberSpec("copyEntry", "char*", "method", (("string", "value"),), "copyEntry"),
         BuiltinMemberSpec("freeEntries", "void", "method", (("char**", "values"),), "freeEntries"),
         BuiltinMemberSpec("copyAll", "char**", "method", (("Vector<string>", "values"),), "copyAll"),
+    )),
+    ("TerminalClock", (
+        BuiltinMemberSpec("milliseconds", "long long", "method", (), "milliseconds"),
+        BuiltinMemberSpec("deadlineAfter", "long long", "method", (("int", "milliseconds"),), "deadlineAfter"),
     )),
     ("TerminalPasswordInput", (
         BuiltinMemberSpec("configureSignalDescriptor", "bool", "method", (("int", "descriptor"),), "configureSignalDescriptor"),
@@ -864,49 +881,37 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("writeResponseUntil", "bool", "method", (("int", "fd"), ("string", "value"), ("long long", "deadline"),), "writeResponseUntil"),
         BuiltinMemberSpec("answer", "bool", "method", (("int", "fd"), ("Vector<string>", "responses"), ("int", "responseCount"), ("long long", "deadline"),), "answer"),
     )),
-    ("Toml", (
-        BuiltinMemberSpec("unquotedPosition", "int", "method", (("string", "line"), ("char", "target"),), "unquotedPosition"),
-        BuiltinMemberSpec("stripInlineComment", "string", "method", (("string", "raw"),), "stripInlineComment"),
-        BuiltinMemberSpec("unquote", "string", "method", (("string", "raw"),), "unquote"),
-        BuiltinMemberSpec("key", "string", "method", (("string", "line"),), "key"),
-        BuiltinMemberSpec("value", "string", "method", (("string", "line"),), "value"),
-        BuiltinMemberSpec("sectionName", "string", "method", (("string", "line"),), "sectionName"),
-        BuiltinMemberSpec("tableArrayName", "string", "method", (("string", "line"),), "tableArrayName"),
-        BuiltinMemberSpec("rootMap", "Map<string, string>", "method", (("string", "content"),), "rootMap"),
-        BuiltinMemberSpec("sectionMap", "Map<string, string>", "method", (("string", "content"), ("string", "section"),), "sectionMap"),
-        BuiltinMemberSpec("tableArrayBlocks", "Vector<Map<string, string>>", "method", (("string", "content"), ("string", "table"),), "tableArrayBlocks"),
-    )),
-    ("Html", (
+    ("HTML", (
         BuiltinMemberSpec("escape", "string", "method", (("string", "raw"),), "escape"),
     )),
-    ("LinuxUiBuilder", (
-        BuiltinMemberSpec("html", "HtmlUiBackend", "method", (), "html"),
-        BuiltinMemberSpec("native", "NativeUiBackend", "method", (), "native"),
+    ("LinuxUIBuilder", (
+        BuiltinMemberSpec("html", "HTMLUIBackend", "method", (), "html"),
+        BuiltinMemberSpec("native", "NativeUIBackend", "method", (), "native"),
     )),
-    ("MacUiBuilder", (
-        BuiltinMemberSpec("html", "HtmlUiBackend", "method", (), "html"),
-        BuiltinMemberSpec("native", "NativeUiBackend", "method", (), "native"),
+    ("MacUIBuilder", (
+        BuiltinMemberSpec("html", "HTMLUIBackend", "method", (), "html"),
+        BuiltinMemberSpec("native", "NativeUIBackend", "method", (), "native"),
     )),
-    ("WindowsUiBuilder", (
-        BuiltinMemberSpec("html", "HtmlUiBackend", "method", (), "html"),
-        BuiltinMemberSpec("native", "NativeUiBackend", "method", (), "native"),
+    ("WindowsUIBuilder", (
+        BuiltinMemberSpec("html", "HTMLUIBackend", "method", (), "html"),
+        BuiltinMemberSpec("native", "NativeUIBackend", "method", (), "native"),
     )),
-    ("Ui", (
-        BuiltinMemberSpec("node", "UiNode", "method", (("string", "tag"),), "node"),
-        BuiltinMemberSpec("text", "UiNode", "method", (("string", "value"),), "text"),
-        BuiltinMemberSpec("rawHtml", "UiNode", "method", (("string", "value"),), "rawHtml"),
-        BuiltinMemberSpec("div", "UiNode", "method", (), "div"),
-        BuiltinMemberSpec("button", "UiNode", "method", (("string", "label"),), "button"),
-        BuiltinMemberSpec("input", "UiNode", "method", (("string", "name"), ("string", "value"),), "input"),
-        BuiltinMemberSpec("document", "UiDocument", "method", (("string", "title"), ("UiNode", "body"),), "document"),
+    ("UI", (
+        BuiltinMemberSpec("node", "UINode", "method", (("string", "tag"),), "node"),
+        BuiltinMemberSpec("text", "UINode", "method", (("string", "value"),), "text"),
+        BuiltinMemberSpec("rawHtml", "UINode", "method", (("string", "value"),), "rawHtml"),
+        BuiltinMemberSpec("div", "UINode", "method", (), "div"),
+        BuiltinMemberSpec("button", "UINode", "method", (("string", "label"),), "button"),
+        BuiltinMemberSpec("input", "UINode", "method", (("string", "name"), ("string", "value"),), "input"),
+        BuiltinMemberSpec("document", "UIDocument", "method", (("string", "title"), ("UINode", "body"),), "document"),
     )),
-    ("NativeUi", (
+    ("NativeUI", (
         BuiltinMemberSpec("applescriptString", "string", "method", (("string", "raw"),), "applescriptString"),
-        BuiltinMemberSpec("detect", "NativeUiBackend", "method", (), "detect"),
+        BuiltinMemberSpec("detect", "NativeUIBackend", "method", (), "detect"),
     )),
-    ("UiRuntime", (
+    ("UIRuntime", (
         BuiltinMemberSpec("runCommandAsync", "Thread<int>", "method", (("Command", "command"),), "runCommandAsync"),
-        BuiltinMemberSpec("notifyAsync", "Thread<int>", "method", (("NativeUiBackend", "backend"), ("string", "title"), ("string", "body"),), "notifyAsync"),
+        BuiltinMemberSpec("notifyAsync", "Thread<int>", "method", (("NativeUIBackend", "backend"), ("string", "title"), ("string", "body"),), "notifyAsync"),
     )),
 )
 

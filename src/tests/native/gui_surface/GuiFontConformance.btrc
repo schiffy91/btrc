@@ -1,0 +1,33 @@
+#include "GUI/GUI.btrc"
+#include "GUI/Font.btrc"
+#include <assert.h>
+
+class GuiFontProbe {
+	class void draw(string path, Surface surface) {
+		var font = Font(path, 18);
+		assert(font.ok());
+		font.use();
+		surface.text(1, 1, "Música", Color(255, 120, 60, 128), 1);
+		bool visible = false;
+		for (int y = 0; y < surface.height(); y++) {
+			for (int x = 0; x < surface.width(); x++) {
+				unsigned int alpha = surface.pixel(x, y) & 255U;
+				assert(alpha <= 128U);
+				if (alpha > 0U) { visible = true; }
+			}
+		}
+		assert(visible);
+	}
+}
+
+int main(int argc, char** argv) {
+	assert(argc == 2);
+	var surface = Surface(200, 50);
+	GuiFontProbe.draw(argv[1], surface);
+	/* The scoped font has been destroyed; fallback must not dereference it. */
+	surface.clear(Color(0, 0, 0, 0));
+	surface.text(0, 0, "A", Color.rgb(255, 255, 255), 1);
+	assert(surface.pixel(1, 0) == 0xFFFFFFFFU && surface.pixel(0, 0) == 0U);
+	print("PASS: FreeType draws into BTRC-owned pixels");
+	return 0;
+}

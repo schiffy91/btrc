@@ -12,6 +12,7 @@ from ..lexer.lexer import Lexer
 from ..parser.parser import Parser
 from ..syntax.tokens import Token
 from .imports import FrontendVisibilityError, ImportResolver, ImportVisibilityChecker
+from .native_imports import NativeHeaderSource
 from .packages import PackageUniverse
 from .sources import (
     CompilerStdlibSource,
@@ -194,6 +195,15 @@ class FrontendStage:
             ).check()
             if errors:
                 raise FrontendVisibilityError(errors)
+
+        program.declarations = [
+            declaration
+            for declaration in program.declarations
+            if not (
+                isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
+                and declaration.source_file.coalesced
+            )
+        ]
 
         return FrontendParseResult(
             tokens=tuple(tokens),

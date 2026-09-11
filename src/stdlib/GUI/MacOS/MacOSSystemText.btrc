@@ -1,0 +1,115 @@
+import Library.GUI.TextRun;
+import Library.Math;
+import Library.OwnedBuffer;
+
+/* System shaping for musical/GPU surfaces. Actual controls retain AppKit's
+ * own text layout; this provider has no global font state or native registry. */
+class MacOSSystemText {
+	class void rasterize(TextRasterization request) { request.complete(MacOSSystemText.raster(request.run())); }
+
+	class Image raster(TextRun run) {
+		if (run == null) { throw "System text requires a run"; }
+		if (run.text().isEmpty()) { return Image.empty(); }
+		return CoreTextRun.render(run);
+	}
+}
+
+/* One synchronous shaping transaction. SDK handles and bitmap borrowers never
+ * escape; the returned Image owns its pixels independently of this owner. */
+class CoreTextRun {
+	private TextRun _run;
+	private CTFontRef _regular = null;
+	private CTFontRef _font = null;
+	private CFNumberRef _weight = null;
+	private CFMutableDictionaryRef _traits = null;
+	private CFMutableDictionaryRef _attributes = null;
+	private CTFontDescriptorRef _descriptor = null;
+	private CFStringRef _string = null;
+	private CFAttributedStringRef _attributed = null;
+	private CTLineRef _line = null;
+	private CGContextRef _context = null;
+	private OwnedBuffer<unsigned char>? _coverage = null;
+
+	private CoreTextRun(TextRun run) { self._run = run; }
+
+	class Image render(TextRun run) { return CoreTextRun(run).raster(); }
+
+	private void prepare() {
+		self._regular = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, (double)self._run.fontSize(), null);
+		if (self._regular == null) { throw "Cannot create system font"; }
+		self._attributes = CFDictionaryCreateMutable(kCFAllocatorDefault, 2L, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		if (self._attributes == null) { throw "Cannot allocate system text attributes"; }
+		if (self._run.weight() != 400) {
+			double weight = self._run.weight() == 500 ? 0.23 : (self._run.weight() == 600 ? 0.30 : 0.40);
+			self._weight = CFNumberCreate(kCFAllocatorDefault, kCFNumberDoubleType, &weight);
+			self._traits = CFDictionaryCreateMutable(kCFAllocatorDefault, 1L, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+			if (self._weight == null || self._traits == null) { throw "Cannot allocate system font weight"; }
+			CFDictionarySetValue(self._traits, kCTFontWeightTrait, self._weight);
+			CFDictionarySetValue(self._attributes, kCTFontTraitsAttribute, self._traits);
+			self._descriptor = CTFontDescriptorCreateWithAttributes(self._attributes);
+			if (self._descriptor == null) { throw "Cannot describe system font weight"; }
+			self._font = CTFontCreateCopyWithAttributes(self._regular, 0.0, null, self._descriptor);
+			if (self._font == null) { throw "Cannot create weighted system font"; }
+		}
+		var font = self._font == null ? self._regular : self._font;
+		CFDictionaryRemoveAllValues(self._attributes);
+		CFDictionarySetValue(self._attributes, kCTFontAttributeName, font);
+		var bytes = Bytes.fromString(self._run.text());
+		self._string = CFStringCreateWithBytes(kCFAllocatorDefault, (const unsigned char*)bytes.data, (long)bytes.length(), kCFStringEncodingUTF8, (unsigned char)0);
+		if (self._string == null) { throw "Cannot create system text string"; }
+		self._attributed = CFAttributedStringCreate(kCFAllocatorDefault, self._string, self._attributes);
+		if (self._attributed == null) { throw "Cannot create attributed system text"; }
+		self._line = CTLineCreateWithAttributedString(self._attributed);
+		if (self._line == null) { throw "Cannot shape system text"; }
+	}
+
+	private Image raster() {
+		self.prepare();
+		double ascent = 0.0;
+		double descent = 0.0;
+		double leading = 0.0;
+		double advance = CTLineGetTypographicBounds(self._line, &ascent, &descent, &leading);
+		var ink = CTLineGetBoundsWithOptions(self._line, kCTLineBoundsUseGlyphPathBounds);
+		double left = Math.minDouble(0.0, ink.origin.x);
+		double right = Math.maxDouble(advance, ink.origin.x + ink.size.width);
+		double below = Math.maxDouble(descent, -ink.origin.y);
+		double above = Math.maxDouble(ascent, ink.origin.y + ink.size.height);
+		double width = Math.maxDouble(1.0, Math.ceilDouble(right - left));
+		double height = Math.maxDouble((double)self._run.lineHeight(), Math.ceilDouble(above + below));
+		if (!Math.isFinite(width) || !Math.isFinite(height) || width > 4096.0 || height > 4096.0) { throw "System text exceeds raster limits"; }
+		var image = Image((int)width, (int)height);
+		var coverage = new OwnedBuffer<unsigned char>((size_t)image.width * (size_t)image.height);
+		if (!coverage.opened()) { throw "Cannot allocate system text coverage"; }
+		self._coverage = coverage;
+		memset(coverage.borrow(), 0, (size_t)image.width * (size_t)image.height);
+		self._context = CGBitmapContextCreate(coverage.borrow(), (size_t)image.width, (size_t)image.height, (size_t)8, (size_t)image.width, null, kCGImageAlphaOnly);
+		if (self._context == null) { throw "Cannot create system text bitmap"; }
+		CGContextSetShouldAntialias(self._context, true);
+		CGContextSetShouldSmoothFonts(self._context, true);
+		CGContextSetTextMatrix(self._context, CGAffineTransformMake(1.0, 0.0, 0.0, 1.0, 0.0, 0.0));
+		CGContextSetTextPosition(self._context, -left, (height - above - below) * 0.5 + below);
+		CTLineDraw(self._line, self._context);
+		CGContextRelease(self._context);
+		self._context = null;
+		for (int index = 0; index < image.width * image.height; index++) {
+			image.data[index * 4] = 255;
+			image.data[index * 4 + 1] = 255;
+			image.data[index * 4 + 2] = 255;
+			image.data[index * 4 + 3] = coverage.borrow()[index];
+		}
+		return image;
+	}
+
+	public void __del__() {
+		if (self._context != null) { CGContextRelease(self._context); }
+		if (self._line != null) { CFRelease(self._line); }
+		if (self._attributed != null) { CFRelease(self._attributed); }
+		if (self._string != null) { CFRelease(self._string); }
+		if (self._descriptor != null) { CFRelease(self._descriptor); }
+		if (self._attributes != null) { CFRelease(self._attributes); }
+		if (self._traits != null) { CFRelease(self._traits); }
+		if (self._weight != null) { CFRelease(self._weight); }
+		if (self._font != null) { CFRelease(self._font); }
+		if (self._regular != null) { CFRelease(self._regular); }
+	}
+}

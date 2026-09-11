@@ -1,0 +1,52 @@
+import Library.Math;
+import Library.GUI.MacOS.AppKitText;
+import Library.GUI.MacOS.MacOSView;
+
+class MacOSLabel {
+	private NSTextField? _label;
+	private MacOSView _view;
+
+	public MacOSLabel(string text = "") {
+		if (!NSThread.isMainThread()) { throw "Native labels require the main thread"; }
+		var label = NSTextField.labelWithString(AppKitText.nativeValue(text));
+		if (label == null) { throw "Cannot create native label"; }
+		self._label = label;
+		self._view = MacOSView(label);
+		self.setWrapping(false);
+	}
+
+	public NSView nativeView() { return self._view.nativeView(); }
+
+	private NSTextField control() {
+		self.nativeView();
+		if (self._label == null) { throw "Native label is closed"; }
+		return self._label;
+	}
+
+	public void setText(string text) { self.control().setStringValue(AppKitText.nativeValue(text)); }
+
+	public string text() { return AppKitText.ownedValue(self.control().stringValue()); }
+
+	public void setFont(double size, bool bold = false) {
+		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native label font size"; }
+		var font = bold ? NSFont.boldSystemFontOfSize(size) : NSFont.systemFontOfSize(size);
+		self.control().setFont(font);
+	}
+
+	public void setSecondary(bool secondary) { self.control().setTextColor(secondary ? NSColor.secondaryLabelColor() : NSColor.labelColor()); }
+
+	public void setCentered(bool centered) { self.control().setAlignment(centered ? NSTextAlignmentCenter : NSTextAlignmentLeft); }
+
+	public void setWrapping(bool wrapping) {
+		var label = self.control();
+		label.setUsesSingleLineMode(!wrapping);
+		label.setMaximumNumberOfLines(wrapping ? 0 : 1);
+		label.setLineBreakMode(wrapping ? NSLineBreakByWordWrapping : NSLineBreakByTruncatingTail);
+	}
+
+	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
+
+	public void setHidden(bool hidden) { self._view.setHidden(hidden); }
+
+	public void close() { self._view.close(); self._label = null; }
+}

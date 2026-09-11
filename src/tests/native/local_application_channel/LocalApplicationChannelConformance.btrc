@@ -1,4 +1,3 @@
-// BTRC_TEST_REQUIRES: local-application-channel
 import Library.Bytes;
 import Library.Datetime;
 import Library.FileSystem;

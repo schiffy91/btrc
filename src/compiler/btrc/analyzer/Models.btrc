@@ -44,6 +44,17 @@ class MethodGenInstance {
 
 class Analyzed {
 	public Vector<FeNativeImportedDeclaration> nativeDeclarations;
+	private Map<string, FeNativeImportedDeclaration> nativeClassIndex;
+
+	/* Native declarations are installed before analysis, then read-only. Keep
+	 * class queries independent of the number of unrelated SDK declarations. */
+	public void setNativeDeclarations(Vector<FeNativeImportedDeclaration> declarations) {
+		self.nativeDeclarations = declarations;
+		self.nativeClassIndex = {};
+		for imported in declarations {
+			if (imported.declaration.kind == NK_CLASS_DECL && !self.nativeClassIndex.has(imported.declaration.name)) { self.nativeClassIndex.put(imported.declaration.name, imported); }
+		}
+	}
 
 	public bool isNativeDeclaration(Node site) {
 		for imported in self.nativeDeclarations {
@@ -59,11 +70,59 @@ class Analyzed {
 		return false;
 	}
 
+	public string nativeClassLanguage(string name) { return self.nativeClassIndex.has(name) ? self.nativeClassIndex.get(name).language : ""; }
+
+	public bool nativeGlobalReadOnly(string name) {
+		for imported in self.nativeDeclarations {
+			if (imported.declaration.kind == NK_VAR_DECL_STMT && imported.declaration.name.equals(name)) { return imported.readOnly; }
+		}
+		return false;
+	}
+
+	public bool isObjectiveCGlobal(string name) {
+		for imported in self.nativeDeclarations {
+			if (imported.language == "objective-c" && imported.declaration.kind == NK_VAR_DECL_STMT && imported.declaration.initializer == null && imported.declaration.name == name) { return true; }
+		}
+		return false;
+	}
+
+	public bool isObjectiveCObjectGlobal(string name) {
+		for imported in self.nativeDeclarations {
+			Node declaration = imported.declaration;
+			if (imported.language == "objective-c" && declaration.kind == NK_VAR_DECL_STMT && declaration.initializer == null && declaration.name == name && declaration.type != null) { return self.nativeClassLanguage(declaration.type.base) == "objective-c"; }
+		}
+		return false;
+	}
+
+	public FeNativeCallContract? nativeCallContract(Node declaration) {
+		for imported in self.nativeDeclarations {
+			if (imported.declaration == declaration) { return imported.callContract; }
+		}
+		return null;
+	}
+
+	public FeNativeCallContract? nativeFieldCallContract(string owner, string field) {
+		for imported in self.nativeDeclarations {
+			if (imported.declaration.kind == NK_STRUCT_DECL && imported.declaration.name.equals(owner) && imported.fieldContracts.has(field)) { return imported.fieldContracts.get(field); }
+		}
+		return null;
+	}
+
 	public string nativeTypeSpelling(string name) {
 		for imported in self.nativeDeclarations {
+			if (imported.coalesced) { continue; }
 			if (imported.declaration.kind == NK_STRUCT_DECL && imported.declaration.name.equals(name)) { return imported.typeSpelling; }
+			if (imported.declaration.kind == NK_TYPEDEF_DECL && imported.declaration.alias.equals(name)) { return imported.typeSpelling; }
 		}
 		return "";
+	}
+
+	public bool isObjectiveCRecord(string name) {
+		for imported in self.nativeDeclarations {
+			if (imported.coalesced) { continue; }
+			if (imported.declaration.kind == NK_STRUCT_DECL && imported.declaration.name == name) { return imported.language == "objective-c"; }
+		}
+		return false;
 	}
 	private Map<string, bool>? lexicalTypeParameterNames;
 	private int lexicalTypeParameterTableSize;
@@ -152,6 +211,7 @@ class Analyzed {
 
 	public Analyzed() {
 		self.nativeDeclarations = [];
+		self.nativeClassIndex = {};
 		self.lexicalTypeParameterNames = null;
 		self.lexicalTypeParameterTableSize = -1;
 		self.funcRetTypes = {};
@@ -333,6 +393,10 @@ class Analyzed {
      * chain from `sub`; `sub == base` counts as true. Mirrors
      * variables._is_subclass. */
 	public bool isSubclass(string sub, string base) {
+		if (self.nativeClassLanguage(sub) == "objective-c") {
+			if (self.nativeClassLanguage(base) != "objective-c") { return false; }
+			return sub == base || self.nativeClassIndex.get(sub).nativeAncestors.contains(base);
+		}
 		string cur = sub;
 		Map<string, bool> seen = {};
 		while (cur != "" && !seen.has(cur)) {

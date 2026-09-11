@@ -154,7 +154,9 @@ class NameValidator {
 		}
 	}
 
-	public Map<string, bool> parameterNames(Vector<Node> params, string owner) {
+	public Map<string, bool> parameterNames(Vector<Node> params, string owner, Node? declaration = null) {
+		bool previousNative = self.nativeDeclaration;
+		if (declaration != null && self.state.analyzed.isNativeDeclaration(declaration)) { self.nativeDeclaration = true; }
 		Map<string, bool> seen = {};
 		int index = 0;
 		while (index < params.len) {
@@ -168,13 +170,14 @@ class NameValidator {
 			seen.put(parameter.name, true);
 			index = index + 1;
 		}
+		self.nativeDeclaration = previousNative;
 		return seen;
 	}
 
 	public void validateCallableNames(Node callable, string owner) {
 		self.validateDeclaredName(callable.name, "Callable", callable);
 		self.validateGenericNames(callable.genericParams, owner, callable);
-		self.parameterNames(callable.params, owner);
+		self.parameterNames(callable.params, owner, callable);
 	}
 
 	public void validateUniqueNodeNames(Vector<Node> nodes, string subject, string owner, bool cNamesGenerated) {
@@ -286,13 +289,14 @@ class NameValidator {
 		}
 	}
 
-	public bool publicNativeBinding(string name) { return name == "btrc_gpu_available" || name == "btrc_gui_surface_width" || name == "btrc_tray_show"; }
+	public bool publicNativeBinding(string name) { return name == "btrc_gpu_available" || name == "btrc_gui_window_fb_width" || name == "btrc_tray_show"; }
 
-	public bool trustedNativeBinding(string name, Node site) { return self.publicNativeBinding(name) || self.hostedAbi.compilerStdlibNode(site); }
+	public bool trustedNativeBinding(string name, Node site) { return self.publicNativeBinding(name) || self.hostedAbi.compilerStdlibNode(site) || (self.state.analyzed.isNativeDeclaration(site) && self.hostedAbi.functionOwnedName(name)); }
 
 	public bool hostedGeneratedNameSite(Node site) { return (site.kind == NK_FUNCTION_DECL && site.bodyNode != null) || site.kind == NK_METHOD_DECL || site.kind == NK_METHOD_SIG || site.kind == NK_PROPERTY_DECL || site.kind == NK_RICH_ENUM_VARIANT; }
 
 	public void validateHostedDeclaredName(string name, string subject, Node site, bool cNameGenerated) {
+		if (site.kind == NK_VAR_DECL_STMT && self.state.analyzed.isNativeDeclaration(site)) { return; }
 		if (name != "" && self.hostedAbi.ownedName(name) && self.hostedAbi.macroName(name) && !cNameGenerated && !self.hostedGeneratedNameSite(site) && !self.hostedTrustedEnviron(site)) {
 			TypeValidator.fail(subject + " name '" + name + "' collides with an automatically included C macro", site);
 		}
@@ -310,6 +314,7 @@ class NameValidator {
 
 	public void validateHostedTopLevelName(Node declaration) {
 		if (!self.namedTopLevel(declaration)) { return; }
+		if ((declaration.kind == NK_TYPEDEF_DECL || declaration.kind == NK_STRUCT_DECL || declaration.kind == NK_VAR_DECL_STMT) && self.state.analyzed.isNativeDeclaration(declaration)) { return; }
 		string name = self.topLevelName(declaration);
 		if (!self.hostedAbi.ownedName(name) || declaration.kind == NK_FUNCTION_DECL || self.hostedTrustedEnviron(declaration) || self.hostedTrustedWinsize(declaration)) {
 			return;
@@ -398,13 +403,16 @@ class NameValidator {
 			Node declaration = program.declarations.get(index);
 			if (self.namedTopLevel(declaration)) {
 				string name = self.topLevelName(declaration);
-				if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward && declaration.fields.len == 0) {
+				if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward && declaration.fields.len == 0 && !self.state.analyzed.isNativeDeclaration(declaration)) {
 					TypeValidator.fail("Struct definition '" + name + "' must contain at least one field", declaration);
 				}
 				if (declarations.has(name)) {
 					Node previous = declarations.get(name);
 					bool globalPair = declaration.kind == NK_VAR_DECL_STMT && previous.kind == NK_VAR_DECL_STMT;
 					if (globalPair) {
+						if (self.state.analyzed.isNativeDeclaration(previous) != self.state.analyzed.isNativeDeclaration(declaration)) {
+							TypeValidator.fail(f"Native global '{name}' must not be redeclared in BTRC", declaration);
+						}
 						if (!self.globalTypesSame(declaration, previous)) {
 							TypeValidator.fail("Conflicting types for global '" + name + "'", declaration);
 						}
@@ -550,15 +558,17 @@ class NameValidator {
 
 	public void claimClassSymbols(Node declaration, Map<string, string> symbols) {
 		string name = declaration.name;
-		self.claimGeneratedSymbol(symbols, name + "_init", "class '" + name + "' initializer", declaration);
-		self.claimGeneratedSymbol(symbols, name + "_new", "class '" + name + "' allocator", declaration);
-		self.claimGeneratedSymbol(symbols, name + "_destroy", "class '" + name + "' destructor", declaration);
-		Node? destructor = self.state.analyzed.classMethod(name, "__del__");
-		if (destructor != null && destructor.bodyNode != null) {
-			self.claimGeneratedSymbol(symbols, GenericSpecializer.destructorHookName(name), "destructor hook for class '" + name + "'", destructor);
-		}
-		if (self.cycles.classNeedsVisitor(name)) {
-			self.claimGeneratedSymbol(symbols, self.cycles.visitorName(name), "class '" + name + "' cycle visitor", declaration);
+		if (self.state.analyzed.nativeClassLanguage(name) == "") {
+			self.claimGeneratedSymbol(symbols, name + "_init", "class '" + name + "' initializer", declaration);
+			self.claimGeneratedSymbol(symbols, name + "_new", "class '" + name + "' allocator", declaration);
+			self.claimGeneratedSymbol(symbols, name + "_destroy", "class '" + name + "' destructor", declaration);
+			Node? destructor = self.state.analyzed.classMethod(name, "__del__");
+			if (destructor != null && destructor.bodyNode != null) {
+				self.claimGeneratedSymbol(symbols, GenericSpecializer.destructorHookName(name), "destructor hook for class '" + name + "'", destructor);
+			}
+			if (self.cycles.classNeedsVisitor(name)) {
+				self.claimGeneratedSymbol(symbols, self.cycles.visitorName(name), "class '" + name + "' cycle visitor", declaration);
+			}
 		}
 		Vector<MethodEntry> methods = self.mergedClassMethods(self.state.analyzed, name);
 		int methodIndex = 0;

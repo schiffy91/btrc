@@ -4,6 +4,40 @@ import Library.Vector;
 
 #include <assert.h>
 
+void verifyPremultipliedImport() {
+	Image source = Image(256, 256);
+	Image result = Image(256, 256);
+	for (int alpha = 0; alpha < 256; alpha++) {
+		for (int channel = 0; channel < 256; channel++) { source.setRGBA(channel, alpha, channel, channel, channel, alpha); }
+	}
+	assert(result.tryCopyPremultipliedRgba(source.data, 262144ULL));
+	for (int alpha = 0; alpha < 256; alpha++) {
+		for (int channel = 0; channel < 256; channel++) {
+			int offset = (alpha * 256 + channel) * 4;
+			int actual = (int)result.data[offset];
+			assert(result.data[offset + 1] == actual && result.data[offset + 2] == actual);
+			assert(result.data[offset + 3] == alpha && source.data[offset] == channel);
+			if (alpha == 0) { assert(actual == 0); }
+			else if (channel > alpha) { assert(actual == 255); }
+			else {
+				/* Nearest integer reconstruction, with exact half-way ties up. */
+				int error = actual * alpha - channel * 255;
+				int distance = error < 0 ? -error : error;
+				assert(distance * 2 <= alpha);
+				if (distance * 2 == alpha) { assert(error >= 0); }
+			}
+		}
+	}
+	Image before = result.crop(0, 0, result.width, result.height);
+	assert(!result.tryCopyPremultipliedRgba(source.data, 262143ULL));
+	assert(!result.tryCopyPremultipliedRgba(null, 262144ULL));
+	assert(result.diff(before).exact());
+	assert(Image.empty().tryCopyPremultipliedRgba(null, 0ULL));
+	assert(!Image.empty().tryCopyPremultipliedRgba(source.data, 0ULL));
+	assert(source.tryCopyPremultipliedRgba(source.data, 262144ULL));
+	assert(source.diff(before).exact());
+}
+
 void fillPair(Image left, Image right) {
 	left.setRGBA(0, 0, 10, 20, 30, 40);
 	left.setRGBA(1, 0, 50, 60, 70, 80);
@@ -154,6 +188,12 @@ void assertRegionFades() {
 }
 
 int main() {
+	assert(Image.tryCreate(0, 0) == null);
+	assert(Image.tryCreate(-1, 2) == null);
+	assert(Image.tryCreate(2147483647, 2147483647) == null);
+	var allocated = Image.tryCreate(2, 3);
+	assert(allocated != null);
+	assert(allocated.width == 2 && allocated.height == 3 && allocated.pixel(1, 2).equals(RGBA(0, 0, 0, 0)));
 	assertRegionFades();
 	assertPixelComposition();
 	assertBulkPainting();
@@ -241,6 +281,7 @@ int main() {
 	assert(!incompatible.comparable);
 	assert(!incompatible.error.isEmpty());
 
+	verifyPremultipliedImport();
 	print("PASS: test_stdlib_image_pixels");
 	return 0;
 }

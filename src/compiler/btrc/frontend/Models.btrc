@@ -1,11 +1,37 @@
 /* Frontend source, dependency, policy, and result value types. */
 
-import Library.Io;
+import Library.IO;
 import Library.Map;
+import Library.Result;
 import Library.Strings;
 import Library.Vector;
 
 import ../generated/ast/Node.btrc;
+import ../generated/native_abi/Models.btrc;
+
+/* A synchronous host capability borrows the request. Its result remains owned
+ * by the request instead of crossing a bare C callback's return ABI. */
+class FeNativeHeaderRead {
+	private string executable;
+	private Vector<string> arguments;
+	private Result<string, string> outcome;
+
+	public FeNativeHeaderRead(string executable, Vector<string> arguments) {
+		self.executable = executable;
+		self.arguments = arguments;
+		self.outcome = new Result<string, string>(false, "", "native header reader did not complete");
+	}
+
+	public string command() { return self.executable; }
+
+	public Vector<string> argv() { return self.arguments; }
+
+	public void complete(Result<string, string> outcome) { self.outcome = outcome; }
+
+	public Result<string, string> result() { return self.outcome; }
+}
+
+typedef CFunction<void, FeNativeHeaderRead> FeNativeHeaderReader;
 
 class FeSourceText {
 	private string content;
@@ -96,8 +122,6 @@ class FeDependencyGraph {
 		self.includeParents = includeParents;
 	}
 
-	public bool hasSource(string sourceIdentity) { return self.outgoing.has(sourceIdentity); }
-
 	public Vector<string> sourceIdentities() { return self.outgoing.keys(); }
 
 	public Vector<FeDependencyEdge> outgoingFrom(string sourceIdentity) {
@@ -149,18 +173,99 @@ class FeStdlibRootSnapshot {
 	}
 }
 
+class FeNativeRecordInputField {
+	public string name;
+	public Node valueType;
+	public string record;
+	public string prefix;
+	public string objectType;
+	public FeNativeRecordInputField(string name, Node valueType, string record = "", string prefix = "", string objectType = "") {
+		self.name = name;
+		self.valueType = valueType;
+		self.record = record;
+		self.prefix = prefix;
+		self.objectType = objectType;
+	}
+}
+
+class FeNativeRecordInput {
+	public string name;
+	public string nativeSpelling;
+	public Vector<FeNativeRecordInputField> fields;
+	public FeNativeRecordInput(string name, string nativeSpelling) {
+		self.name = name;
+		self.nativeSpelling = nativeSpelling;
+		self.fields = [];
+	}
+
+	public string inputName() { return self.name + "Input"; }
+
+	public string identity() {
+		string result = self.nativeSpelling;
+		for field in self.fields {
+			result = result + f"|{field.name}:{field.valueType.base}:{field.valueType.isNullable}:{field.prefix}:{field.objectType}:{field.record}";
+		}
+		return result;
+	}
+}
+
+/* Checked call boundaries also apply when a native function is used as a value. */
+class FeNativeCallContract {
+	public Vector<bool> nonnullParameters;
+	public Vector<bool> readOnlyBorrows;
+	public bool nonnullReturn;
+	public bool realtimeSafe;
+	public Vector<FeNativeRecordInput?> recordInputs;
+	public Map<string, FeNativeRecordInput> recordTypes;
+	public FeNativeCallContract() {
+		self.nonnullParameters = [];
+		self.readOnlyBorrows = [];
+		self.nonnullReturn = false;
+		self.realtimeSafe = false;
+		self.recordInputs = [];
+		self.recordTypes = {};
+	}
+
+	public string adapterSymbol(string name) {
+		if (self.nonnullReturn) { return "__btrc_native_" + name; }
+		for input in self.recordInputs { if (input != null) { return "__btrc_native_" + name; } }
+		for nonnull in self.nonnullParameters {
+			if (nonnull) { return "__btrc_native_" + name; }
+		}
+		return name;
+	}
+}
+
 /* SDK provenance is attached to the actual imported node, never inferred from
  * its spelling, line number, or a user-controlled source marker. */
 class FeNativeImportedDeclaration {
 	public Node declaration;
 	public string module;
 	public string header;
+	public Vector<string> headers;
 	public string typeSpelling;
-	public FeNativeImportedDeclaration(Node declaration, string module, string header, string typeSpelling = "") {
+	public bool readOnly;
+	public FeNativeCallContract? callContract;
+	public Map<string, FeNativeCallContract> fieldContracts;
+	public bool coalesced;
+	public bool generatedInput;
+	public string language;
+	public Map<string, NativeNode> methods;
+	public Vector<string> nativeAncestors;
+	public FeNativeImportedDeclaration(Node declaration, string module, string header, string typeSpelling = "", bool readOnly = false, FeNativeCallContract? callContract = null) {
 		self.declaration = declaration;
 		self.module = module;
 		self.header = header;
+		self.headers = [header];
 		self.typeSpelling = typeSpelling;
+		self.readOnly = readOnly;
+		self.callContract = callContract;
+		self.fieldContracts = {};
+		self.coalesced = false;
+		self.generatedInput = false;
+		self.language = "c";
+		self.methods = {};
+		self.nativeAncestors = [];
 	}
 }
 

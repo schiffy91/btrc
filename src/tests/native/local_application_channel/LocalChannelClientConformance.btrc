@@ -1,0 +1,115 @@
+import Library.Bytes;
+import Library.FileSystem;
+import Library.LocalApplicationChannel;
+
+#include <assert.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <time.h>
+#include <unistd.h>
+
+class ChannelPeer {
+	class void pause(int milliseconds) {
+		struct timespec delay;
+		delay.tv_sec = milliseconds / 1000;
+		delay.tv_nsec = (long)(milliseconds % 1000) * 1000000L;
+		while (nanosleep(&delay, &delay) != 0 && errno == EINTR) {}
+	}
+
+	class int listenAt(string path) {
+		int descriptor = socket(AF_UNIX, SOCK_STREAM, 0);
+		assert(descriptor >= 0);
+		LocalSocketAddress address;
+		memset(&address, 0, sizeof(address));
+		address.sun_family = AF_UNIX;
+		memcpy(address.sun_path, path, (size_t)path.len() + (size_t)1);
+		assert(bind(descriptor, (struct sockaddr*)&address, sizeof(address)) == 0);
+		assert(chmod(path, (mode_t)0600) == 0);
+		assert(listen(descriptor, 4) == 0);
+		return descriptor;
+	}
+
+	class int descriptorCount() {
+		int count = 0;
+		for (int descriptor = 0; descriptor < 1024; descriptor++) { if (fcntl(descriptor, F_GETFD, 0) >= 0) { count++; } }
+		return count;
+	}
+
+	/* The peer intentionally does not use LocalChannelFrame: independently
+	 * written bytes exercise the actual wire contract, not codec self-agreement. */
+	class void respond(int listener, int mode) {
+		int peer = accept(listener, null, null);
+		if (peer < 0) { _exit(20); }
+		unsigned char request[7];
+		if (recv(peer, request, (size_t)7, MSG_WAITALL) != (ssize_t)7) { _exit(21); }
+		if (request[0] != 0 || request[1] != 0 || request[2] != 0 || request[3] != 3 || request[4] != 'a' || request[5] != 0 || request[6] != 'b') { _exit(22); }
+		unsigned char response[7];
+		memset(response, 0, sizeof(response));
+		response[3] = mode == 1 ? 0 : (mode == 2 ? 65 : 3);
+		response[4] = 'x';
+		response[5] = 0;
+		response[6] = 'y';
+		if (mode == 5) { ChannelPeer.pause(200); }
+		else {
+			int count = mode == 1 || mode == 2 ? 4 : (mode == 3 ? 2 : (mode == 4 ? 5 : 7));
+			for (int index = 0; index < count; index++) {
+				if (send(peer, response + index, (size_t)1, MSG_NOSIGNAL) != (ssize_t)1) { _exit(23); }
+				ChannelPeer.pause(2);
+			}
+		}
+		close(peer);
+		close(listener);
+		_exit(0);
+	}
+}
+
+int main() {
+	string directory = FileSystem.tempDir("btrc-channel-client");
+	assert(!directory.isEmpty());
+	string endpoint = f"{directory}/peer.sock";
+	var configuration = LocalApplicationChannelConfiguration(4, 64, 1000, 4);
+	unsigned char message[3];
+	message[0] = 'a'; message[1] = 0; message[2] = 'b';
+	Bytes payload = Bytes.fromRaw((char*)message, 3);
+	int before = ChannelPeer.descriptorCount();
+	assert(LocalApplicationChannelClient.request("relative", payload, configuration, 100).kind == LOCAL_APPLICATION_CHANNEL_REQUEST_INVALID);
+	assert(LocalApplicationChannelClient.request(endpoint, payload, configuration, 100).kind == LOCAL_APPLICATION_CHANNEL_REQUEST_UNAVAILABLE);
+	assert(chmod(directory, (mode_t)0755) == 0);
+	assert(LocalApplicationChannelClient.request(endpoint, payload, configuration, 100).kind == LOCAL_APPLICATION_CHANNEL_REQUEST_SECURITY_REJECTED);
+	assert(chmod(directory, (mode_t)0700) == 0);
+	int insecure = ChannelPeer.listenAt(endpoint);
+	assert(chmod(endpoint, (mode_t)0666) == 0);
+	assert(LocalApplicationChannelClient.request(endpoint, payload, configuration, 100).kind == LOCAL_APPLICATION_CHANNEL_REQUEST_SECURITY_REJECTED);
+	close(insecure);
+	assert(unlink(endpoint) == 0);
+
+	for (int mode = 0; mode <= 5; mode++) {
+		int listener = ChannelPeer.listenAt(endpoint);
+		pid_t child = fork();
+		assert(child >= (pid_t)0);
+		if (child == (pid_t)0) { ChannelPeer.respond(listener, mode); }
+		close(listener);
+		var outcome = LocalApplicationChannelClient.request(endpoint, payload, configuration, mode == 5 ? 50 : 2000);
+		if (mode == 0) { assert(outcome.completed() && outcome.response.len == 3 && outcome.response.data[0] == 'x' && outcome.response.data[1] == 0 && outcome.response.data[2] == 'y'); }
+		else if (mode == 1) { assert(outcome.completed() && outcome.response.len == 0); }
+		else if (mode == 2) { assert(outcome.kind == LOCAL_APPLICATION_CHANNEL_REQUEST_RESPONSE_TOO_LARGE); }
+		else if (mode == 5) { assert(outcome.kind == LOCAL_APPLICATION_CHANNEL_REQUEST_TIMED_OUT && outcome.nativeError == ETIMEDOUT); }
+		else { assert(outcome.kind == LOCAL_APPLICATION_CHANNEL_REQUEST_PROTOCOL_FAILED); }
+		int status = 0;
+		assert(waitpid(child, &status, 0) == child);
+		assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+		assert(ChannelPeer.descriptorCount() == before);
+		assert(unlink(endpoint) == 0);
+	}
+	int stale = ChannelPeer.listenAt(endpoint);
+	close(stale);
+	for (int attempt = 0; attempt < 16; attempt++) { assert(LocalApplicationChannelClient.request(endpoint, payload, configuration, 100).kind == LOCAL_APPLICATION_CHANNEL_REQUEST_UNAVAILABLE); }
+	assert(ChannelPeer.descriptorCount() == before);
+	assert(unlink(endpoint) == 0);
+	assert(FileSystem.removeRecursive(directory) == 0);
+	print("PASS: local channel client wire and lifetime");
+	return 0;
+}

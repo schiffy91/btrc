@@ -1,0 +1,23 @@
+import Library.OwnedBuffer;
+import Library.Strings;
+
+/* Copies UTF-8 values across the native string boundary; never exposes a
+ * pointer whose lifetime depends on an autorelease pool. */
+class AppKitText {
+	class NSString nativeValue(string text) {
+		var bytes = new OwnedBuffer<char>((size_t)text.len() + (size_t)1);
+		if (!bytes.opened()) { throw "Cannot allocate native text"; }
+		strcpy(bytes.borrow(), text);
+		var native = NSString.stringWithUTF8String(bytes.borrow());
+		if (native == null) { throw "Native text is not valid UTF-8"; }
+		return native;
+	}
+
+	class string ownedValue(NSString text) {
+		unsigned long length = text.lengthOfBytesUsingEncoding(NSUTF8StringEncoding);
+		if ((size_t)length == (size_t)(-1)) { throw "Native text is too large"; }
+		var bytes = new OwnedBuffer<char>((size_t)length + (size_t)1);
+		if (!bytes.opened() || !text.getCString(bytes.borrow(), length + 1UL, NSUTF8StringEncoding)) { throw "Cannot read native text"; }
+		return Strings.copy(bytes.borrow());
+	}
+}

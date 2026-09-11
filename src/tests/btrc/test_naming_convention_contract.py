@@ -50,14 +50,20 @@ _PLATFORM_STRUCT_MEMBERS = frozenset(
         "sin_addr",
         "sin_family",
         "sin_port",  # struct sockaddr_in
+        "st_dev",
+        "st_ino",
         "st_nlink",
-        "st_size",  # struct stat
+        "st_size",
+        "st_uid",  # struct stat
+        "sun_family",
+        "sun_path",  # struct sockaddr_un
         "tm_hour",
         "tm_mday",
         "tm_min",
         "tm_mon",
         "tm_sec",
         "tm_year",  # struct tm
+        "tv_usec",  # struct timeval
     }
 )
 
@@ -238,3 +244,33 @@ def test_every_golden_belongs_to_a_corpus_source() -> None:
             orphans.append(relative)
 
     assert not orphans, "golden output with no source: " + ", ".join(sorted(orphans))
+
+
+def test_stdlib_package_directories_and_modules_use_pascal_case_acronyms() -> None:
+    """Owned packages use exact case; POSIX header include paths are foreign."""
+    library = REPO / "src/stdlib"
+    foreign_headers = {Path("Windows/sys"), Path("Windows/arpa"), Path("Windows/netinet")}
+    acronyms = re.compile(r"(?:MacOs|Gui|Gpu|Ui|Http|Html|Jsonx?|Toml|Cli|Io|Dds|Spsc|Sha)(?=[A-Z0-9]|$)")
+    offenders = []
+    for relative in _tracked("src/stdlib/*"):
+        source = Path(relative).relative_to("src/stdlib")
+        for directory in source.parents:
+            if directory == Path(".") or directory in foreign_headers:
+                continue
+            if not re.fullmatch(r"[A-Z][A-Za-z0-9]*", directory.name) or acronyms.search(directory.name):
+                offenders.append(str(directory))
+        if source.suffix == ".btrc" and acronyms.search(source.stem):
+            offenders.append(str(source))
+        if source.suffix == ".btrc":
+            declarations = re.findall(
+                r"^\s*(?:abstract\s+)?(?:class|struct|enum|interface)\s+([A-Z][A-Za-z0-9]*)",
+                (library / source).read_text(),
+                re.MULTILINE,
+            )
+            offenders.extend(f"{source}: {name}" for name in declarations if acronyms.search(name))
+        # Inspect the actual directory spelling too: APFS lookup alone hides a bad rename.
+        assert (library / source).is_file(), f"missing stdlib file: {source}"
+    for directory in library.rglob("*"):
+        if directory.is_dir() and directory.relative_to(library) not in foreign_headers:
+            assert re.fullmatch(r"[A-Z][A-Za-z0-9]*", directory.name), directory
+    assert not offenders, "stdlib package/module spelling: " + ", ".join(sorted(set(offenders)))

@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
-APP = ROOT / "src" / "stdlib" / "app"
-GPU = ROOT / "src" / "stdlib" / "gpu"
+APP = ROOT / "src" / "stdlib" / "App"
+GPU = ROOT / "src" / "stdlib" / "GPU"
 ASYNC_FIXTURE = ROOT / "src" / "tests" / "native" / "gpu_async"
 PENDING_HARNESS = ROOT / "src" / "tests" / "native" / "gpu_pending_list.c"
 RUNTIME_SOURCES = ["btrc_gpu.c", "btrc_gpu_async.c", "btrc_gpu_surface.c"]

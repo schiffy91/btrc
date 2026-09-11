@@ -1,0 +1,214 @@
+import Library.Bytes;
+import Library.FileSystem;
+import Library.LocalApplicationChannel;
+
+#include <assert.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <time.h>
+#include <unistd.h>
+
+class ServerPeer {
+	class void pause(int milliseconds) {
+		struct timespec delay;
+		delay.tv_sec = milliseconds / 1000;
+		delay.tv_nsec = (long)(milliseconds % 1000) * 1000000L;
+		while (nanosleep(&delay, &delay) != 0 && errno == EINTR) {}
+	}
+
+	class int connectTo(string path) {
+		int descriptor = socket(AF_UNIX, SOCK_STREAM, 0);
+		assert(descriptor >= 0);
+		struct timeval timeout;
+		timeout.tv_sec = 2;
+		timeout.tv_usec = 0;
+		assert(setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == 0);
+		LocalSocketAddress address;
+		memset(&address, 0, sizeof(address));
+		address.sun_family = AF_UNIX;
+		memcpy(address.sun_path, path, (size_t)path.len() + (size_t)1);
+		assert(connect(descriptor, (struct sockaddr*)&address, sizeof(address)) == 0);
+		return descriptor;
+	}
+
+	class void sendBytes(int descriptor, const unsigned char* bytes, int length) {
+		int offset = 0;
+		while (offset < length) {
+			ssize_t count = send(descriptor, bytes + offset, (size_t)(length - offset), MSG_NOSIGNAL);
+			if (count < (ssize_t)0 && errno == EINTR) { continue; }
+			assert(count > (ssize_t)0);
+			offset += (int)count;
+		}
+	}
+
+	class void sendText(int descriptor, string text) {
+		assert(text.len() < 256);
+		unsigned char header[4];
+		memset(header, 0, sizeof(header));
+		header[3] = (unsigned char)text.len();
+		ServerPeer.sendBytes(descriptor, header, 4);
+		ServerPeer.sendBytes(descriptor, (const unsigned char*)(const char*)text, text.len());
+	}
+
+	class LocalApplicationChannelRequest request(LocalApplicationChannelServer server) {
+		for (int attempt = 0; attempt < 5000; attempt++) {
+			var outcome = server.poll();
+			if (outcome.ready()) { return outcome.request; }
+			assert(outcome.kind == LOCAL_APPLICATION_CHANNEL_POLL_IDLE || outcome.kind == LOCAL_APPLICATION_CHANNEL_POLL_WORK_REMAINS);
+			ServerPeer.pause(1);
+		}
+		throw "server failed to deliver a frame";
+	}
+
+	class void flush(LocalApplicationChannelServer server) {
+		for (int attempt = 0; attempt < 5000; attempt++) {
+			var outcome = server.poll();
+			assert(outcome.kind == LOCAL_APPLICATION_CHANNEL_POLL_IDLE || outcome.kind == LOCAL_APPLICATION_CHANNEL_POLL_WORK_REMAINS);
+			if (outcome.kind == LOCAL_APPLICATION_CHANNEL_POLL_IDLE) { return; }
+		}
+		throw "server failed to flush a response";
+	}
+
+	class void receive(int descriptor, string expected) {
+		unsigned char header[4];
+		assert(recv(descriptor, header, (size_t)4, MSG_WAITALL) == (ssize_t)4);
+		assert(header[0] == 0 && header[1] == 0 && header[2] == 0 && (int)header[3] == expected.len());
+		unsigned char body[128];
+		assert(expected.len() < 128);
+		if (expected.len() > 0) {
+			assert(recv(descriptor, body, (size_t)expected.len(), MSG_WAITALL) == (ssize_t)expected.len());
+			assert(memcmp(body, expected, (size_t)expected.len()) == 0);
+		}
+	}
+
+	class int descriptorCount() {
+		int count = 0;
+		for (int descriptor = 0; descriptor < 1024; descriptor++) { if (fcntl(descriptor, F_GETFD, 0) >= 0) { count++; } }
+		return count;
+	}
+}
+
+int main() {
+	int before = ServerPeer.descriptorCount();
+	string directory = FileSystem.tempDir("btrc-channel-server");
+	assert(!directory.isEmpty());
+	string endpoint = f"{directory}/application.sock";
+	var configuration = LocalApplicationChannelConfiguration(4, 64, 100, 4);
+	assert(chmod(directory, (mode_t)0755) == 0);
+	assert(LocalApplicationChannelServer.open(endpoint, configuration).kind == LOCAL_APPLICATION_CHANNEL_OPEN_INSECURE_PARENT);
+	assert(chmod(directory, (mode_t)0700) == 0);
+	assert(FileSystem.writeText(endpoint, "sentinel"));
+	assert(LocalApplicationChannelServer.open(endpoint, configuration).kind == LOCAL_APPLICATION_CHANNEL_OPEN_PATH_CONFLICT);
+	assert(unlink(endpoint) == 0);
+	assert(symlink("missing", endpoint) == 0);
+	assert(LocalApplicationChannelServer.open(endpoint, configuration).kind == LOCAL_APPLICATION_CHANNEL_OPEN_PATH_CONFLICT);
+	assert(unlink(endpoint) == 0);
+	var opened = LocalApplicationChannelServer.open(endpoint, configuration);
+	assert(opened.opened());
+	LocalApplicationChannelServer server = opened.server;
+	assert(LocalApplicationChannelServer.open(endpoint, configuration).kind == LOCAL_APPLICATION_CHANNEL_OPEN_ALREADY_RUNNING);
+
+	int partial = ServerPeer.connectTo(endpoint);
+	unsigned char header[4];
+	memset(header, 0, sizeof(header));
+	header[3] = 7;
+	ServerPeer.sendBytes(partial, header, 2);
+	assert(server.poll().kind == LOCAL_APPLICATION_CHANNEL_POLL_IDLE);
+	ServerPeer.sendBytes(partial, header + 2, 2);
+	ServerPeer.sendBytes(partial, (const unsigned char*)"partial", 7);
+	var request = ServerPeer.request(server);
+	assert(request.payload().toStringLossy().equals("partial"));
+	unsigned char oversized[65];
+	memset(oversized, 'x', sizeof(oversized));
+	assert(server.respond(request, Bytes.fromRaw((char*)oversized, 65)).kind == LOCAL_APPLICATION_CHANNEL_RESPONSE_TOO_LARGE);
+	assert(server.respond(request, Bytes.fromString("ok")).queued());
+	ServerPeer.flush(server);
+	ServerPeer.receive(partial, "ok");
+	close(partial);
+	assert(server.respond(request, Bytes()).kind == LOCAL_APPLICATION_CHANNEL_RESPONSE_STALE);
+
+	int excessive = ServerPeer.connectTo(endpoint);
+	header[3] = 65;
+	ServerPeer.sendBytes(excessive, header, 4);
+	for (int attempt = 0; attempt < 100; attempt++) { assert(server.poll().kind != LOCAL_APPLICATION_CHANNEL_POLL_FAILED); }
+	assert(recv(excessive, header, (size_t)1, 0) <= (ssize_t)0);
+	close(excessive);
+	int idle = ServerPeer.connectTo(endpoint);
+	ServerPeer.sendBytes(idle, header, 1);
+	assert(server.poll().kind == LOCAL_APPLICATION_CHANNEL_POLL_IDLE);
+	ServerPeer.pause(150);
+	assert(server.poll().kind == LOCAL_APPLICATION_CHANNEL_POLL_IDLE);
+	assert(recv(idle, header, (size_t)1, 0) <= (ssize_t)0);
+	close(idle);
+
+	int first = ServerPeer.connectTo(endpoint);
+	int second = ServerPeer.connectTo(endpoint);
+	ServerPeer.sendText(first, "one");
+	ServerPeer.sendText(second, "two");
+	var firstRequest = ServerPeer.request(server);
+	var secondRequest = ServerPeer.request(server);
+	assert(firstRequest.identity() != secondRequest.identity());
+	assert(!firstRequest.payload().toStringLossy().equals(secondRequest.payload().toStringLossy()));
+	assert(server.respond(firstRequest, firstRequest.payload()).queued());
+	assert(server.respond(secondRequest, secondRequest.payload()).queued());
+	ServerPeer.flush(server);
+	ServerPeer.receive(first, "one");
+	ServerPeer.receive(second, "two");
+	close(first); close(second);
+	int empty = ServerPeer.connectTo(endpoint);
+	ServerPeer.sendText(empty, "");
+	var emptyRequest = ServerPeer.request(server);
+	assert(emptyRequest.payload().len == 0);
+	assert(server.respond(emptyRequest, Bytes()).queued());
+	ServerPeer.flush(server);
+	ServerPeer.receive(empty, "");
+	close(empty);
+	int abandoned = ServerPeer.connectTo(endpoint);
+	ServerPeer.sendText(abandoned, "late");
+	close(abandoned);
+	var abandonedRequest = ServerPeer.request(server);
+	assert(server.respond(abandonedRequest, Bytes.fromString("ignored")).queued());
+	ServerPeer.flush(server);
+	server.close();
+	assert(access(endpoint, F_OK) != 0);
+	assert(server.poll().kind == LOCAL_APPLICATION_CHANNEL_POLL_CLOSED);
+	assert(server.respond(request, Bytes()).kind == LOCAL_APPLICATION_CHANNEL_RESPONSE_CLOSED);
+
+	var reopened = LocalApplicationChannelServer.open(endpoint, configuration);
+	assert(reopened.opened());
+	LocalApplicationChannelServer replacement = reopened.server;
+	assert(replacement.respond(request, Bytes()).kind == LOCAL_APPLICATION_CHANNEL_RESPONSE_INVALID);
+	assert(unlink(endpoint) == 0);
+	assert(FileSystem.writeText(endpoint, "replacement"));
+	replacement.close();
+	struct stat status;
+	assert(lstat(endpoint, &status) == 0 && S_ISREG(status.st_mode));
+	assert(unlink(endpoint) == 0);
+
+	/* Reproduce a collision between preparation and bind using the actual
+	 * endpoint owner. A failed bind must never delete the interloper. */
+	var collision = LocalChannelEndpoint(endpoint);
+	assert(collision.prepare() == LOCAL_APPLICATION_CHANNEL_OPENED);
+	assert(FileSystem.writeText(endpoint, "interloper"));
+	var listener = LocalChannelSocket();
+	assert(listener.create());
+	assert(!collision.bindListener(listener, 4));
+	collision.close(); listener.close();
+	assert(lstat(endpoint, &status) == 0 && S_ISREG(status.st_mode));
+	assert(unlink(endpoint) == 0);
+	var stale = LocalChannelSocket();
+	assert(stale.create() && stale.bindAt(endpoint));
+	stale.close();
+	var recovered = LocalApplicationChannelServer.open(endpoint, configuration);
+	assert(recovered.opened());
+	LocalApplicationChannelServer recoveredServer = recovered.server;
+	recoveredServer.close();
+	assert(access(endpoint, F_OK) != 0);
+	assert(FileSystem.removeRecursive(directory) == 0);
+	assert(ServerPeer.descriptorCount() == before);
+	print("PASS: local channel server ownership and framing");
+	return 0;
+}

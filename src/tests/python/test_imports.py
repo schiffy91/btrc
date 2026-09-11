@@ -75,12 +75,29 @@ def test_package_resolution_has_no_compiler_defined_resource_quotas() -> None:
 
 
 def test_std_brace_import_resolves_stdlib():
-    source = "import Library.{Strings, Json}\nint main() { return 0; }"
+    source = "import Library.{Strings, JSON}\nint main() { return 0; }"
     resolved = RESOLVER.resolve_includes(source, "Main.btrc")
 
     assert "class Strings" in resolved
-    assert "class JsonObject" in resolved
+    assert "class JSONObject" in resolved
     assert "import std" not in resolved
+
+
+def test_nested_library_import_uses_exact_package_path(tmp_path):
+    library = tmp_path / "stdlib"
+    native = library / "GUI" / "MacOS"
+    native.mkdir(parents=True)
+    (native / "Control.btrc").write_text("class NativeControl {}\n")
+    (library / "GUI" / "Control.btrc").write_text("class WrongControl {}\n")
+    stdlib = StdlibRepository(directory=str(library))
+    resolver = SourceResolver(stdlib, imports=ImportResolver(stdlib))
+    main = str(tmp_path / "Main.btrc")
+    resolved = resolver.resolve_includes("import Library.GUI.MacOS.Control;\nint main() { return 0; }", main)
+    assert "class NativeControl" in resolved and "class WrongControl" not in resolved
+    with pytest.raises(frontend_packages.IncludeResolutionError, match=r"Library\.GUI\.missing\.Control"):
+        resolver.resolve_includes(
+            "import Library.GUI.missing.Control;\nint main() { return 0; }", main, exit_on_error=False
+        )
 
 
 def test_relative_bulk_imports_are_sorted_and_recursive(tmp_path):

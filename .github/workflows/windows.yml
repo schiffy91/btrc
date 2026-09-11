@@ -2,7 +2,7 @@ name: Windows
 
 # Native Windows verification of the self-hosted compiler. Nix doesn't run on
 # Windows, so this installs Python + Zig directly and exercises the same compat
-# layer the cross-build uses (src/stdlib/win, via -I + -include). We pin
+# layer the cross-build uses (src/stdlib/Windows, via -I + -include). We pin
 # `-target x86_64-windows-gnu` so zig uses the MinGW-w64 (gnu) ABI with bundled
 # winpthreads — identical to `make btrcc-windows-x64`. Without it, zig auto-
 # selects the MSVC ABI on the runner, which has no <pthread.h>. The resulting
@@ -23,7 +23,7 @@ jobs:
       run:
         shell: bash
     env:
-      WIN_COMPAT_HEADER: "src/stdlib/win/btrc_win_compat.h"
+      WIN_COMPAT_HEADER: "src/stdlib/Windows/btrc_win_compat.h"
       ZIG_TARGET: "x86_64-windows-gnu"
     steps:
       # Pin action implementations by commit so moving tags cannot alter CI.
@@ -92,8 +92,8 @@ jobs:
         run: |
           python -m tools.compiler_codegen.main check
           mkdir -p dist build/btrcc/windows-x64
-          python -m src.compiler.python.main src/compiler/btrc/BtrccMain.btrc --no-cache -o dist/btrcc.c
-          zig cc -target "$ZIG_TARGET" -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include "$WIN_COMPAT_HEADER" dist/btrcc.c -o build/btrcc/windows-x64/btrcc.exe -lm
+          python -m src.compiler.python.main src/compiler/btrc/cli/WindowsMain.btrc --no-cache -o dist/btrcc-windows.c
+          zig cc -target "$ZIG_TARGET" -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/Windows -include "$WIN_COMPAT_HEADER" dist/btrcc-windows.c -o build/btrcc/windows-x64/btrcc.exe -lm
           python -m src.compiler.python.main bundle --binary build/btrcc/windows-x64/btrcc.exe --target windows-x64 --output-dir dist --source-root .
           test -f dist/btrcc-windows-x64/bin/btrcc.exe
           test -f dist/btrcc-windows-x64.zip
@@ -103,7 +103,7 @@ jobs:
         timeout-minutes: 150
         env:
           BTRC_CC: "zig cc -target x86_64-windows-gnu"
-          BTRC_CFLAGS: "-std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include src/stdlib/win/btrc_win_compat.h"
+          BTRC_CFLAGS: "-std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/Windows -include src/stdlib/Windows/btrc_win_compat.h"
           # Windows hosted runners need more than 20 minutes for one selfhost
           # transpile of the compiler. Keep each stage bounded independently.
           BTRC_BOOTSTRAP_TIMEOUT_SECONDS: "3600"
@@ -114,7 +114,7 @@ jobs:
       - name: Build and run a sample btrc program against its exact golden
         run: |
           python -m src.compiler.python.main src/tests/strings/BracesInCodeGen.btrc --no-cache -o dist/win_sample.c
-          zig cc -target "$ZIG_TARGET" -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include "$WIN_COMPAT_HEADER" dist/win_sample.c -o dist/win_sample.exe -lm
+          zig cc -target "$ZIG_TARGET" -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/Windows -include "$WIN_COMPAT_HEADER" dist/win_sample.c -o dist/win_sample.exe -lm
           ./dist/win_sample.exe > dist/win_sample.stdout
           python - <<'PY'
           from pathlib import Path
@@ -131,7 +131,7 @@ jobs:
       - name: Prove Windows drive, UNC, and separator semantics
         run: |
           python -m src.compiler.python.main src/tests/stdlib/StdlibPathWindowsLexical.btrc --no-cache -o dist/win_paths.c
-          zig cc -target "$ZIG_TARGET" -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include "$WIN_COMPAT_HEADER" dist/win_paths.c -o dist/win_paths.exe -lm
+          zig cc -target "$ZIG_TARGET" -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/Windows -include "$WIN_COMPAT_HEADER" dist/win_paths.c -o dist/win_paths.exe -lm
           ./dist/win_paths.exe > dist/win_paths.stdout
           python - <<'PY'
           from pathlib import Path
@@ -149,13 +149,13 @@ jobs:
 
       - name: Prove dynamic native realpath compatibility
         run: |
-          zig cc -target "$ZIG_TARGET" -std=c11 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include "$WIN_COMPAT_HEADER" src/tests/native/win_compat_main.c src/tests/native/win_compat_helper.c src/tests/native/win_compat_windows_header.c -o dist/win_compat.exe
+          zig cc -target "$ZIG_TARGET" -std=c11 -Wall -Wextra -Werror -pedantic -I src/stdlib/Windows -include "$WIN_COMPAT_HEADER" src/tests/native/win_compat_main.c src/tests/native/win_compat_helper.c src/tests/native/win_compat_windows_header.c -o dist/win_compat.exe
           ./dist/win_compat.exe
           zig cc -target "$ZIG_TARGET" -std=c11 -Wall -Wextra -Werror -pedantic \
             -DBTRC_WIN_GET_LAST_ERROR=btrc_test_get_last_error \
             -DBTRC_WIN_GET_FILE_ATTRIBUTES=btrc_test_get_file_attributes \
             -DBTRC_WIN_REMOVE_DIRECTORY=btrc_test_remove_directory \
-            -I src/stdlib/win -include "$WIN_COMPAT_HEADER" \
+            -I src/stdlib/Windows -include "$WIN_COMPAT_HEADER" \
             src/tests/native/win_compat_error_seam.c -o dist/win_compat_error_seam.exe
           ./dist/win_compat_error_seam.exe
 
@@ -207,7 +207,7 @@ jobs:
           test -s dist/from_btrcc.c
           echo "btrcc.exe produced $(wc -l < dist/from_btrcc.c) lines of C"
           # the C btrcc emits must itself build + run on native Windows
-          zig cc -target "$ZIG_TARGET" -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include "$WIN_COMPAT_HEADER" dist/from_btrcc.c -o dist/from_btrcc.exe -lm
+          zig cc -target "$ZIG_TARGET" -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/Windows -include "$WIN_COMPAT_HEADER" dist/from_btrcc.c -o dist/from_btrcc.exe -lm
           ./dist/from_btrcc.exe > dist/from_btrcc.stdout
           python - <<'PY'
           from pathlib import Path
@@ -245,7 +245,7 @@ jobs:
           $compiler = (Resolve-Path "$env:RUNNER_TEMP\btrcc-windows-smoke\btrcc-windows-x64\bin\btrcc.exe").Path
           & $compiler "dist\path project\Main.btrc" | Set-Content -Encoding utf8NoBOM "dist\path project\program.c"
           if ($LASTEXITCODE -ne 0) { throw "btrcc path compilation failed" }
-          zig cc -target $env:ZIG_TARGET -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include $env:WIN_COMPAT_HEADER "dist\path project\program.c" -o "dist\path project\program.exe" -lm
+          zig cc -target $env:ZIG_TARGET -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/Windows -include $env:WIN_COMPAT_HEADER "dist\path project\program.c" -o "dist\path project\program.exe" -lm
           if ($LASTEXITCODE -ne 0) { throw "generated path program failed to build" }
           $out = & "dist\path project\program.exe"
           if ($LASTEXITCODE -ne 0 -or $out -ne "PASS: windows path") {

@@ -72,6 +72,17 @@ def test_missing_per_file_import_reports_symbol_owner(tmp_path):
     assert errors[0][0] == "'B' is defined in b.btrc but a.btrc does not import it"
 
 
+def test_source_typedef_of_hosted_name_keeps_its_import_boundary(tmp_path):
+    write(tmp_path / "Types.btrc", "typedef unsigned long size_t;\n")
+    write(tmp_path / "Other.btrc", "size_t other() { return 0; }\n")
+    entry = tmp_path / "Main.btrc"
+    write(entry, "import ./Types.btrc;\nimport ./Other.btrc;\nint main() { return 0; }\n")
+
+    errors = visibility_errors(entry)
+
+    assert any("'size_t' is defined in Types.btrc but Other.btrc does not import it" in error[0] for error in errors)
+
+
 def test_legacy_include_fragments_share_one_compilation_unit(tmp_path):
     write(tmp_path / "b.btrc", "class B {}\n")
     write(tmp_path / "a.btrc", "B makeB() { return new B(); }\n")

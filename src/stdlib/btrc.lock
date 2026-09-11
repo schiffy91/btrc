@@ -1,0 +1,1 @@
+{"manifest-hash":"a53542b798f6e03b0ba948298e1d3d5a6c1fdcb2a04bfb37a700639a14e2d605","packages":[{"dependencies":{},"manifest-hash":"b035c38a7c5fa257f2ab35c3c46b61ea78ffc1dabb074579c247d35f57539963","name":"btrc_stdlib_runtime","source":{"path":"."}}],"root":"btrc_stdlib_runtime","schema":3}

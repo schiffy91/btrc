@@ -2473,3 +2473,12 @@ headers = []
 source_visible = true
 realtime_effect = "safe"
 order = { python = 227, btrc = 212 }
+
+[[helpers]]
+name = "__btrc_native_thread_invoke"
+category = "threads"
+asset = "threads.c"
+dependencies = ["__btrc_arc_guard_hook", "__btrc_arc_thread_state_cleanup", "__btrc_try_state_cleanup"]
+headers = []
+source_visible = true
+order = { python = 228, btrc = 213 }

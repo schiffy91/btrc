@@ -1,0 +1,1 @@
+{"manifest-hash":"29f5419232562046aa764c27f907edf8b17c53368789efc09838a405271354c5","packages":[{"dependencies":{},"manifest-hash":"3be2dd5eaa7f97003d9a70fd105d87b0dcb66ba28d438f7b975f2f83be44beeb","name":"nativeGpuChild","source":{"path":"."}}],"root":"nativeGpuChild","schema":3}

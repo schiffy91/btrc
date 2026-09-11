@@ -2,8 +2,8 @@
 
 import Library.Image;
 
-import ../../../stdlib/app/App.btrc;
-import ../../../stdlib/gpu/Gpu.btrc;
+import ../../../stdlib/App/App.btrc;
+import ../../../stdlib/GPU/GPU.btrc;
 
 int std_gpu_native_ui_create(unsigned long long gpu, unsigned long long* compositorOut, unsigned long long* ownerReceiptOut);
 int std_gpu_native_ui_begin(unsigned long long compositor, int logicalWidth, int logicalHeight);

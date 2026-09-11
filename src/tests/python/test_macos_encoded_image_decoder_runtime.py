@@ -1,10 +1,10 @@
-"""macOS ImageIO/CoreGraphics encoded-image provider conformance."""
+"""Real ImageIO provider behavior, typed SDK binding and failure cleanup."""
 
 from __future__ import annotations
 
 import json
 import os
-import shutil
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -12,205 +12,138 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
-RUNTIME = ROOT / "src" / "stdlib" / "macos_encoded_image_decoder"
-FIXTURES = ROOT / "src" / "tests" / "native" / "macos_encoded_image_decoder"
-CONFORMANCE = FIXTURES / "MacOsEncodedImageDecoderConformance.btrc"
-SMOKE = FIXTURES / "macos_encoded_image_decoder_smoke.c"
-FAKE = FIXTURES / "FakeMacOsEncodedImageDecoder.c"
-NATIVE = RUNTIME / "btrc_macos_encoded_image_decoder.c"
-PACKAGE_NAME = "btrc_stdlib_macos_encoded_image_decoder_runtime"
-STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
-APPLE_CLANG = "/usr/bin/clang" if Path("/usr/bin/clang").is_file() else None
+FIXTURES = ROOT / "src/tests/native/macos_encoded_image_decoder"
+APPLE_CLANG = "/usr/bin/clang"
+PACKAGE_NAME = "btrc_stdlib_runtime"
 COMPILE_TIMEOUT = 240
-RUN_TIMEOUT = 30
+RUN_TIMEOUT = 60
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="ImageIO is available only on macOS")
 
 
-def _transpile(frontend: str, generated: Path, plan: Path, request: pytest.FixtureRequest) -> None:
-    environment = {
-        **os.environ,
-        "BTRC_CACHE_DIR": str(generated.parent / f"cache-{frontend}"),
+def _apple_environment() -> dict[str, str]:
+    # Do not select Nix's compiler-rt through the Apple developer-tool shim.
+    return {key: value for key, value in os.environ.items() if key not in {"DEVELOPER_DIR", "SDKROOT"}}
+
+
+@pytest.fixture
+def sdk_environment():
+    reader = os.environ.get("BTRC_NATIVE_HEADER_READER")
+    if not reader or not Path(reader).is_file():
+        pytest.skip("requires the explicitly built native header reader")
+    environment = _apple_environment()
+    sdk = subprocess.run(
+        ["/usr/bin/xcrun", "--sdk", "macosx", "--show-sdk-path"],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    ).stdout.strip()
+    architecture = "arm64" if platform.machine() == "arm64" else "x86_64"
+    return {
+        **environment,
+        "BTRC_NATIVE_SYSROOT": sdk,
+        "BTRC_NATIVE_TARGET": f"{architecture}-apple-macosx14.0.0",
         "BTRC_HOME": str(ROOT / "src"),
     }
+
+
+def _transpile(frontend, fixture, generated, plan, request, environment):
+    target = "macos-arm64" if platform.machine() == "arm64" else "macos-x86_64"
+    flags = ["--strict-imports", "--target", target, "--emit-link-plan", str(plan), str(fixture)]
     if frontend == "python":
-        command = [
-            sys.executable,
-            "-m",
-            "src.compiler.python.main",
-            "--strict-imports",
-            "--no-cache",
-            "--target",
-            "macos-arm64",
-            "--emit-link-plan",
-            str(plan),
-            str(CONFORMANCE),
-            "-o",
-            str(generated),
-        ]
+        command = [sys.executable, "-B", "-m", "src.compiler.python.main", "--no-cache", *flags, "-o", str(generated)]
     else:
-        btrcc = request.getfixturevalue("immutable_btrcc")
-        command = [
-            str(btrcc),
-            "--strict-imports",
-            "--target",
-            "macos-arm64",
-            "--emit-link-plan",
-            str(plan),
-            str(CONFORMANCE),
-        ]
+        command = [str(request.getfixturevalue("immutable_btrcc")), *flags]
     completed = subprocess.run(
-        command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=COMPILE_TIMEOUT
+        command,
+        cwd=ROOT,
+        env={**environment, "BTRC_CACHE_DIR": str(generated.parent / "cache")},
+        capture_output=True,
+        text=True,
+        timeout=COMPILE_TIMEOUT,
     )
-    if frontend != "python" and completed.returncode == 0:
+    assert completed.returncode == 0, completed.stderr
+    if frontend != "python":
         generated.write_text(completed.stdout)
-    assert completed.returncode == 0 and generated.is_file() and plan.is_file(), completed.stderr
-
-
-def _strict_build(
-    compiler: str, source: Path, implementation: Path, output: Path, *, frameworks: bool = False
-) -> subprocess.CompletedProcess[str]:
-    command = [
-        compiler,
-        "-std=c11",
-        "-pedantic-errors",
-        "-Wall",
-        "-Wextra",
-        "-Werror",
-        "-O2",
-        f"-I{RUNTIME}",
-        str(source),
-        str(implementation),
+    payload = json.loads(plan.read_text())
+    assert payload["units"] == []  # No handwritten decoder implementation.
+    assert payload["frameworks"] == [
+        {"name": name, "package": PACKAGE_NAME} for name in ("CoreFoundation", "CoreGraphics", "ImageIO")
     ]
-    if frameworks:
-        command.extend(
-            [
-                "-framework",
-                "CoreFoundation",
-                "-framework",
-                "CoreGraphics",
-                "-framework",
-                "ImageIO",
-            ]
-        )
-    command.extend(["-lm", "-o", str(output)])
-    return subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=COMPILE_TIMEOUT)
+    return payload
 
 
-@pytest.mark.skipif(APPLE_CLANG is None, reason="requires Apple Clang")
-def test_macos_decoder_native_smoke_and_sanitizers(tmp_path: Path) -> None:
-    executable = tmp_path / "macos-encoded-image-smoke"
-    built = _strict_build(APPLE_CLANG, SMOKE, NATIVE, executable, frameworks=True)
+def _build(source, executable, frameworks, *, sanitized=False, hooks=False):
+    command = [APPLE_CLANG, "-std=c11", "-pedantic-errors", "-Wall", "-Wextra", "-Werror", "-O2"]
+    if sanitized:
+        command.extend(["-fsanitize=address,undefined", "-fno-omit-frame-pointer"])
+    if hooks:
+        command.extend(["-include", str(FIXTURES / "ImageIoFaults.h")])
+    command.extend([f"-I{FIXTURES}", str(source)])
+    for framework in frameworks:
+        command.extend(["-framework", framework["name"]])
+    command.extend(["-lm", "-o", str(executable)])
+    built = subprocess.run(
+        command,
+        cwd=ROOT,
+        env=_apple_environment(),
+        capture_output=True,
+        text=True,
+        timeout=COMPILE_TIMEOUT,
+    )
     assert built.returncode == 0, built.stderr
-    ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
-    assert ran.returncode == 0, ran.stderr
-    assert ran.stdout == "PASS MacOsEncodedImageDecoderSmoke\n"
-    executable = tmp_path / "macos-encoded-image-smoke-ubsan"
-    command = [
-        APPLE_CLANG,
-        "-std=c11",
-        "-pedantic-errors",
-        "-Wall",
-        "-Wextra",
-        "-Werror",
-        "-O1",
-        "-fsanitize=undefined",
-        "-fno-omit-frame-pointer",
-        f"-I{RUNTIME}",
-        str(SMOKE),
-        str(NATIVE),
-        "-framework",
-        "CoreFoundation",
-        "-framework",
-        "CoreGraphics",
-        "-framework",
-        "ImageIO",
-        "-o",
-        str(executable),
-    ]
-    built = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=COMPILE_TIMEOUT)
-    assert built.returncode == 0, built.stderr
-    environment = {
-        **os.environ,
-        "UBSAN_OPTIONS": "halt_on_error=1",
-    }
+
+
+def _run(executable, *arguments):
     ran = subprocess.run(
-        [str(executable)], cwd=ROOT, env=environment, capture_output=True, text=True, timeout=RUN_TIMEOUT
+        [str(executable), *(str(argument) for argument in arguments)],
+        env={**_apple_environment(), "ASAN_OPTIONS": "halt_on_error=1", "UBSAN_OPTIONS": "halt_on_error=1"},
+        capture_output=True,
+        text=True,
+        timeout=RUN_TIMEOUT,
     )
     assert ran.returncode == 0, ran.stderr
-    assert ran.stdout == "PASS MacOsEncodedImageDecoderSmoke\n"
-    leaks = shutil.which("leaks")
-    if leaks is not None:
-        executable = tmp_path / "macos-encoded-image-smoke-leaks"
-        built = _strict_build(APPLE_CLANG, SMOKE, NATIVE, executable, frameworks=True)
-        assert built.returncode == 0, built.stderr
-        checked = subprocess.run(
-            [leaks, "-atExit", "--", str(executable)], cwd=ROOT, capture_output=True, text=True, timeout=RUN_TIMEOUT
-        )
-        # ImageIO builds a retain cycle inside its own multi-image TIFF decode
-        # that outlives every CFRelease the caller can make: the same sequence
-        # of framework calls, with no btrc code in the process at all, reports
-        # the same ROOT CYCLE. So `leaks` exiting non-zero here says nothing
-        # about this decoder. What it can still prove is that nothing the
-        # decoder itself allocated is among the leaked blocks, and that is the
-        # line worth holding.
-        assert "PASS MacOsEncodedImageDecoderSmoke" in checked.stdout, checked.stderr
-        ours = [
-            line
-            for line in checked.stdout.splitlines()
-            if "std_macos_encoded_image" in line or "btrc_encoded_image" in line
-        ]
-        assert not ours, "the decoder's own allocations leaked:\n" + "\n".join(ours)
+    return ran
 
 
-@pytest.mark.skipif(not STRICT_COMPILERS, reason="requires GCC or Clang")
-def test_macos_decoder_both_frontends_and_strict_compilers(
-    compiler: str, tmp_path: Path, request: pytest.FixtureRequest
-) -> None:
-    generated = tmp_path / f"macos-encoded-image-{compiler}.c"
-    plan = tmp_path / f"macos-encoded-image-{compiler}.link.json"
-    _transpile(compiler, generated, plan, request)
+@pytest.mark.parametrize(
+    "fixture,hooks",
+    [
+        ("MacOsEncodedImageDecoderConformance", False),
+        ("ImageIoCleanup", True),
+    ],
+)
+def test_imageio_provider(compiler, fixture, hooks, tmp_path, request, sdk_environment):
+    generated = tmp_path / f"{fixture}-{compiler}.c"
+    plan = tmp_path / f"{fixture}-{compiler}.json"
+    payload = _transpile(compiler, FIXTURES / f"{fixture}.btrc", generated, plan, request, sdk_environment)
     if compiler == "btrc":
-        reference_generated = tmp_path / "macos-encoded-image-python.c"
-        reference_plan = tmp_path / "macos-encoded-image-python.link.json"
-        _transpile("python", reference_generated, reference_plan, request)
+        reference_plan = tmp_path / "reference.json"
+        _transpile(
+            "python", FIXTURES / f"{fixture}.btrc", tmp_path / "reference.c", reference_plan, request, sdk_environment
+        )
         assert plan.read_bytes() == reference_plan.read_bytes()
-    payload = json.loads(plan.read_text())
-    assert payload["frameworks"] == [
-        {"name": "CoreFoundation", "package": PACKAGE_NAME},
-        {"name": "CoreGraphics", "package": PACKAGE_NAME},
-        {"name": "ImageIO", "package": PACKAGE_NAME},
-    ]
-    assert payload["units"] == [
-        {
-            "language": "c",
-            "package": PACKAGE_NAME,
-            "path": str(RUNTIME / "btrc_macos_encoded_image_decoder.c"),
-            "standard": "c11",
-        }
-    ]
-    for native_compiler in STRICT_COMPILERS:
-        executable = tmp_path / f"macos-encoded-image-{compiler}-{Path(native_compiler).name}"
-        built = _strict_build(native_compiler, generated, FAKE, executable)
-        assert built.returncode == 0, built.stderr
-        ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
-        assert ran.returncode == 0, ran.stderr
-        assert ran.stdout == "PASS MacOsEncodedImageDecoderConformance\n"
-    if APPLE_CLANG is not None:
-        executable = tmp_path / f"macos-encoded-image-{compiler}-imageio"
-        built = _strict_build(APPLE_CLANG, generated, NATIVE, executable, frameworks=True)
-        assert built.returncode == 0, built.stderr
-        ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
-        assert ran.returncode == 0, ran.stderr
-        assert ran.stdout == "PASS MacOsEncodedImageDecoderConformance\n"
+    arguments = []
+    if not hooks:
+        fixture_encoder = tmp_path / "tiff-encoder"
+        _build(FIXTURES / "ImageIoTiffFixture.c", fixture_encoder, payload["frameworks"])
+        tiff = tmp_path / "two-frames.tiff"
+        _run(fixture_encoder, tiff)
+        assert tiff.is_file()
+        arguments.append(tiff)
+    for sanitized in (False, True):
+        executable = tmp_path / f"{fixture}-{compiler}-{sanitized}"
+        _build(generated, executable, payload["frameworks"], sanitized=sanitized, hooks=hooks)
+        assert _run(executable, *arguments).stdout == f"PASS {fixture}\n"
 
 
-def test_macos_decoder_keeps_native_ownership_inside_provider() -> None:
-    source = (ROOT / "src" / "stdlib" / "MacOsEncodedImageDecoder.btrc").read_text()
-    assert "DdsEncodedImageDecoder.recognizes(encoded)" in source
-    assert source.count("std_macos_encoded_image_release(pixels);") == 2
-    assert "image.tryCopyPackedRgba(pixels, pixelBytes)" in source
-    native = (RUNTIME / "btrc_macos_encoded_image_decoder.c").read_text()
-    assert "CFDataCreateWithBytesNoCopy" in native
-    assert "CGImageSourceGetType" in native
-    assert "free(pixels);" in native
+def test_imageio_binding_requires_reader_before_emitting_code(tmp_path, monkeypatch):
+    from src.compiler.python import Compiler, CompilerOptions
+
+    monkeypatch.delenv("BTRC_NATIVE_HEADER_READER", raising=False)
+    source = FIXTURES / "MacOsEncodedImageDecoderConformance.btrc"
+    result = Compiler().compile(source.read_text(), str(source), CompilerOptions(use_cache=False, target="macos-arm64"))
+    assert not result.successful and not result.c_source
+    assert "BTRC_NATIVE_HEADER_READER" in str(result.failure)

@@ -1,10 +1,10 @@
-/* CliArgs flag/command/value lookup, CliCommand aliases, and CliHelp rendering. */
-import Library.Cli;
+/* CLIArgs flag/command/value lookup, CLICommand aliases, and CLIHelp rendering. */
+import Library.CLI;
 
 #include <assert.h>
 
 int main() {
-	var arguments = CliArgs(0, null);
+	var arguments = CLIArgs(0, null);
 	arguments.values.push("build");
 	arguments.values.push("--name");
 	arguments.values.push("lorem");
@@ -23,7 +23,7 @@ int main() {
 	assert(arguments.valueAfter("--missing", "def").equals("def"));
 	assert(arguments.valueAfterPrefix("--level=", "0").equals("3"));
 
-	var parsed = CliCommandLine.parse(arguments);
+	var parsed = CLICommandLine.parse(arguments);
 	assert(parsed.ok());
 	assert(parsed.operandCount() == 2);
 	assert(parsed.operand(0).equals("build"));
@@ -45,30 +45,30 @@ int main() {
 	}
 	assert(missingRaised);
 
-	var repeated = CliArgs(0, null);
+	var repeated = CLIArgs(0, null);
 	repeated.values.push("run");
 	repeated.values.push("--arg");
 	repeated.values.push("one=1");
 	repeated.values.push("--arg=two=2");
-	var repeatedCommandLine = CliCommandLine.parseFrom(repeated, 1);
+	var repeatedCommandLine = CLICommandLine.parseFrom(repeated, 1);
 	assert(repeatedCommandLine.operandCount() == 0);
 	assert(repeatedCommandLine.values("--arg").len == 2);
 	assert(repeatedCommandLine.values("--arg").get(1).equals("two=2"));
 
-	var negative = CliArgs(0, null);
+	var negative = CLIArgs(0, null);
 	negative.values.push("--limit");
 	negative.values.push("-1");
 	negative.values.push("--verbose");
-	var negativeCommandLine = CliCommandLine.parse(negative);
+	var negativeCommandLine = CLICommandLine.parse(negative);
 	assert(negativeCommandLine.option("--limit").equals("-1"));
 	assert(negativeCommandLine.flag("--verbose"));
 	assert(negativeCommandLine.operandCount() == 0);
 
-	var command = CliCommand("build");
+	var command = CLICommand("build");
 	command.alias("b");
 	assert(command.matches("build") && command.matches("b") && !command.matches("run"));
 
-	var help = CliHelp().withWidth(12);
+	var help = CLIHelp().withWidth(12);
 	help.line("Usage: app").section("Commands").item("run", "Run it").item("very-long-command", "wraps").continuation("more detail");
 	var rendered = help.render();
 	assert(rendered.contains("Usage: app"));

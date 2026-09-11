@@ -9,7 +9,7 @@
 
 BTRC := python3 -m src.compiler.python.main
 ROOT := ../..
-TRAY := ../../src/stdlib/tray
+TRAY := ../../src/stdlib/Tray
 
 UNAME := $(shell uname -s)
 ifeq ($(UNAME),Darwin)

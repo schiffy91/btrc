@@ -199,7 +199,7 @@ class ExpressionValidator {
 	}
 
 	public void validateInitializerValue(Node expected, Node value, string subject, Map<string, Node> vars) {
-		self.storage.validateVolatileReferenceConversion(expected, value, subject, vars);
+		self.storage.validateReferenceQualifiers(expected, value, subject, vars);
 		self.types.validateRealtimeFunctionValue(expected, value, vars);
 		Node? valueExpected = self.types.arrayValueType(expected);
 		if (valueExpected == null) { return; }
@@ -266,7 +266,7 @@ class ExpressionValidator {
 	public void validateTypedInitializer(Node? expected, Node? initializer, string subject, Map<string, Node> vars) {
 		if (expected == null || initializer == null) { return; }
 		self.types.validateRealtimeFunctionValue(expected, initializer, vars);
-		self.storage.validateVolatileReferenceConversion(expected, initializer, subject, vars);
+		self.storage.validateReferenceQualifiers(expected, initializer, subject, vars);
 		Node? valueExpected = self.types.arrayValueType(expected);
 		if (valueExpected == null) { return; }
 		Node representedExpected = valueExpected;
@@ -357,8 +357,16 @@ class ExpressionValidator {
 		TypeValidator.fail("Class '" + receiver.base + "' has no field or method '" + expression.field + "'", expression);
 	}
 
+	private void validateNativeCallbackRead(Node expression, Map<string, Node> vars) {
+		Node? receiver = self.types.inferType(expression.obj, vars);
+		if (receiver == null) { return; }
+		string owner = SemanticTypeSystem.resolvedStructName(receiver, self.state.analyzed);
+		if (!owner.isEmpty() && self.state.analyzed.nativeFieldCallContract(owner, expression.field) != null) { TypeValidator.fail("Reading a native callback field with non-null parameters requires a checked callback adapter", expression); }
+	}
+
 	public void validateField(Node expression, bool requireGetter, Map<string, Node> vars) {
 		if (expression.obj == null) { return; }
+		if (requireGetter) { self.validateNativeCallbackRead(expression, vars); }
 		if (expression.obj.kind == NK_IDENTIFIER && !vars.has(expression.obj.name)) {
 			if (expression.obj.name == "MemoryOrder") {
 				if (expression.field != "RELAXED" && expression.field != "ACQUIRE" && expression.field != "RELEASE" && expression.field != "ACQ_REL" && expression.field != "SEQ_CST") {
@@ -503,6 +511,7 @@ class ExpressionValidator {
 
 	public void validateUnary(Node expression, Map<string, Node> vars) {
 		if (expression.op == "&") {
+			self.storage.validateNativeGlobalAddress(expression.operand, vars, expression);
 			bool addressable = self.storage.isLifetimeStableStorage(expression.operand, vars) || (expression.operand.kind == NK_IDENTIFIER && (self.state.analyzed.funcNames.has(expression.operand.name) || self.sourceRuntimeSymbols.helper(expression.operand.name)));
 			if (!addressable) {
 				Node? invalidType = self.types.inferType(expression.operand, vars);
@@ -618,6 +627,7 @@ class ExpressionValidator {
              * seam.  Validate all other callees as ordinary value expressions. */
 			if (expression.callee != null && expression.callee.kind == NK_FIELD_ACCESS_EXPR) {
 				self.validateExpr(expression.callee.obj,  vars);
+				self.validateNativeCallbackRead(expression.callee, vars);
 			} else if (expression.callee == null || expression.callee.kind != NK_IDENTIFIER) {
 				self.validateExpr(expression.callee,  vars);
 			}
@@ -740,7 +750,7 @@ class ExpressionValidator {
 		Node body = expression.bodyNode;
 		if (body != null && body.kind == NK_LAMBDA_EXPR_BODY) {
 			self.validateExpr(body.expression,  plan.variables);
-			self.storage.validateVolatileReferenceConversion(plan.resultType, body.expression, "Lambda return value", plan.variables);
+			self.storage.validateReferenceQualifiers(plan.resultType, body.expression, "Lambda return value", plan.variables);
 			Node? actual = self.types.inferType(body.expression, plan.variables);
 			if (actual == null) {
 				TypeValidator.fail("Cannot infer lambda expression return type", body.expression);
@@ -933,6 +943,9 @@ class ExpressionValidator {
 			self.validateExpr(expression.expr,  vars);
 			self.rejectThreadValueEscape(expression.expr, "cast", vars);
 			self.validatePointerIntegerCast(expression,  vars);
+			Node? source = self.types.resolveAliases(self.types.inferType(expression.expr, vars));
+			Node? target = self.types.resolveAliases(expression.targetType);
+			if (source != null && target != null && self.state.analyzed.nativeClassLanguage(source.base) == "objective-c" && self.state.analyzed.nativeClassLanguage(target.base) == "objective-c" && !self.state.analyzed.isSubclass(source.base, target.base)) { TypeValidator.fail("Objective-C casts require a proven object upcast", expression); }
 		} else if (expression.kind == NK_SIZEOF_EXPR) {
 			if (expression.operand != null && expression.operand.kind == NK_SIZEOF_EXPR_OP) {
 				self.validateExpr(expression.operand.expr,  vars);

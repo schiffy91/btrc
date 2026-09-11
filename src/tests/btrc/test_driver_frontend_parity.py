@@ -49,6 +49,52 @@ def _selfhost(compiler: Path, program: Path, *flags: str):
     return _run([str(compiler), *flags, "--no-stdlib", str(program)])
 
 
+@pytest.mark.parametrize(
+    "directive",
+    [
+        "import Library.Audio.AudioDevice;",
+        "import Library.{Audio.AudioDevice, Audio.RealtimeAudio,};",
+    ],
+)
+def test_nested_library_packages_resolve_and_execute(semantic_btrcc: Path, tmp_path: Path, directive: str) -> None:
+    program = tmp_path / "Main.btrc"
+    program.write_text(
+        directive + "\nint main() { var stream = AudioStreamRequest(48000, 32); return stream.bufferFrames() - 32; }\n"
+    )
+    reference_c = tmp_path / "Reference.c"
+    reference = _reference(program, reference_c)
+    selfhost = _selfhost(semantic_btrcc, program)
+    assert reference.returncode == 0, reference.stderr
+    assert selfhost.returncode == 0, selfhost.stderr
+    selfhost_c = tmp_path / "Selfhost.c"
+    selfhost_c.write_text(selfhost.stdout)
+    for generated in (reference_c, selfhost_c):
+        executable = generated.with_suffix("")
+        built = _run([*CC, "-std=c11", str(generated), "-lm", "-o", str(executable)])
+        assert built.returncode == 0, built.stderr
+        ran = _run([str(executable)])
+        assert ran.returncode == 0, ran.stderr
+
+
+def test_nested_library_missing_package_does_not_fall_back(semantic_btrcc: Path, tmp_path: Path) -> None:
+    program = tmp_path / "Main.btrc"
+    program.write_text("import Library.missing.Strings;\nint main() { return 0; }\n")
+    for result in (_reference(program, tmp_path / "Reference.c"), _selfhost(semantic_btrcc, program)):
+        assert result.returncode != 0
+        assert "Library.missing.Strings" in result.stderr and "not found" in result.stderr
+
+
+def test_relaxed_core_excludes_explicit_native_providers(semantic_btrcc: Path, tmp_path: Path) -> None:
+    program = tmp_path / "Main.btrc"
+    program.write_text("int main() { return 0; }\n")
+    for command in (
+        [str(semantic_btrcc)],
+        ["python3", "-m", "src.compiler.python.main", "--no-cache", "-o", str(tmp_path / "Main.c")],
+    ):
+        result = _run([*command, "--relaxed-imports", str(program)])
+        assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize("flags", ((), ("--strict-imports",)), ids=("default", "explicit"))
 def test_real_corpus_source_compiles_in_both_strict_modes(
     semantic_btrcc: Path,

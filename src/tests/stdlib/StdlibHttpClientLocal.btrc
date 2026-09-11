@@ -1,6 +1,6 @@
-/* HttpClient end-to-end through a deterministic local curl stand-in. */
+/* HTTPClient end-to-end through a deterministic local curl stand-in. */
 import Library.FileSystem;
-import Library.HttpClient;
+import Library.HTTPClient;
 import Library.Platform;
 import Library.Vector;
 
@@ -26,8 +26,8 @@ int main() {
 		"X-Test: local",
 		"X-Injection: ; touch " + injectionMarker
 	];
-	HttpClient client = HttpClient().timeout(3);
-	HttpClientResponse get = client.get("https://unused.invalid", headers);
+	HTTPClient client = HTTPClient().timeout(3);
+	HTTPClientResponse get = client.get("https://unused.invalid", headers);
 	assert(get.status == 201);
 	assert(get.body.equals("local-response"));
 	assert(get.error.isEmpty());
@@ -37,17 +37,17 @@ int main() {
 	assert(argvLog.endsWith("--\nhttps://unused.invalid\n"));
 	assert(!FileSystem.exists(injectionMarker));
 
-	HttpClientResponse post = client.post("https://unused.invalid", headers, "request-body");
+	HTTPClientResponse post = client.post("https://unused.invalid", headers, "request-body");
 	assert(post.status == 201);
 	assert(post.body.equals("request-body"));
 	assert(post.error.isEmpty());
 
 	client.maxResponseBytes = 4;
-	HttpClientResponse bounded = client.get("https://unused.invalid", headers);
+	HTTPClientResponse bounded = client.get("https://unused.invalid", headers);
 	assert(bounded.status == 0);
 	assert(bounded.error.contains("too large"));
 
-	HttpClientResponse unsupported = client.get("file:///etc/passwd", headers);
+	HTTPClientResponse unsupported = client.get("file:///etc/passwd", headers);
 	assert(unsupported.status == 0);
 	assert(unsupported.error.contains("unsupported URL scheme"));
 

@@ -1,0 +1,43 @@
+import Library.Image;
+import Library.GUI.MacOS.MacOSView;
+
+/* Native artwork presentation. Decode once when the source changes; resizing
+ * does not re-encode it or create a new control. Aspect ratio is preserved. */
+class MacOSImageView {
+	private NSImageView? _imageView;
+	private MacOSView _view;
+
+	public MacOSImageView() {
+		if (!NSThread.isMainThread()) { throw "Native images require the main thread"; }
+		var view = NSImageView.new();
+		if (view == null) { throw "Cannot create native image view"; }
+		self._imageView = view;
+		self._view = MacOSView(view);
+		view.setImageScaling(NSImageScaleProportionallyUpOrDown);
+	}
+
+	public NSView nativeView() { return self._view.nativeView(); }
+
+	public void setImage(Image? pixels, int maximumPixels = 16777216) {
+		self.nativeView();
+		var view = self._imageView;
+		if (view == null) { throw "Native image view is closed"; }
+		if (pixels == null) { view.setImage(null); return; }
+		if (maximumPixels <= 0 || maximumPixels > 16777216 || pixels.isEmpty() || (long long)pixels.width * (long long)pixels.height > (long long)maximumPixels) { throw "Native artwork exceeds image limits"; }
+		var encoded = ImageIO.encodeBmp(pixels);
+		var data = NSData.dataWithBytes(encoded.data, (unsigned long)encoded.length());
+		if (data == null) { throw "Cannot allocate native image data"; }
+		var representation = NSBitmapImageRep.imageRepWithData(data);
+		if (representation == null) { throw "Cannot decode native image"; }
+		var image = NSImage.new();
+		if (image == null) { throw "Cannot allocate native image"; }
+		image.addRepresentation(representation);
+		view.setImage(image);
+	}
+
+	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
+
+	public void setHidden(bool hidden) { self._view.setHidden(hidden); }
+
+	public void close() { self._view.close(); self._imageView = null; }
+}

@@ -7,23 +7,21 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.abi.declarations import AbiType
-from src.compiler.python.abi.hosted import HOSTED_ABI
 from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
-RUNTIME = ROOT / "src" / "stdlib" / "core_audio_device"
 FIXTURE = ROOT / "src" / "tests" / "native" / "core_audio_device"
 CONFORMANCE = FIXTURE / "CoreAudioDeviceConformance.btrc"
-SMOKE = FIXTURE / "core_audio_device_smoke.c"
-PACKAGE_NAME = "btrc_stdlib_core_audio_device_runtime"
+PACKAGE_NAME = "btrc_stdlib_runtime"
 COMPILE_TIMEOUT = 240
 RUN_TIMEOUT = 30
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="CoreAudio is available only on macOS")
 
 
-def _transpile(frontend: str, generated: Path, plan: Path, request: pytest.FixtureRequest) -> None:
+def _transpile(
+    frontend: str, generated: Path, plan: Path, request: pytest.FixtureRequest, fixture: Path = CONFORMANCE
+) -> None:
     environment = {
         **os.environ,
         "BTRC_CACHE_DIR": str(generated.parent / f"cache-{frontend}"),
@@ -40,7 +38,7 @@ def _transpile(frontend: str, generated: Path, plan: Path, request: pytest.Fixtu
             "macos-arm64",
             "--emit-link-plan",
             str(plan),
-            str(CONFORMANCE),
+            str(fixture),
             "-o",
             str(generated),
         ]
@@ -56,7 +54,7 @@ def _transpile(frontend: str, generated: Path, plan: Path, request: pytest.Fixtu
             "macos-arm64",
             "--emit-link-plan",
             str(plan),
-            str(CONFORMANCE),
+            str(fixture),
         ]
         completed = subprocess.run(
             command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=COMPILE_TIMEOUT
@@ -64,72 +62,6 @@ def _transpile(frontend: str, generated: Path, plan: Path, request: pytest.Fixtu
         if completed.returncode == 0:
             generated.write_text(completed.stdout)
     assert completed.returncode == 0 and generated.is_file() and plan.is_file(), completed.stderr
-
-
-def test_core_audio_native_callback_and_lifecycle(tmp_path: Path) -> None:
-    clang = shutil.which("clang")
-    if clang is None:
-        pytest.skip("Clang is unavailable")
-    executable = tmp_path / "core-audio-smoke"
-    command = [
-        clang,
-        "-std=c11",
-        "-Wall",
-        "-Wextra",
-        "-Werror",
-        "-pedantic-errors",
-        f"-I{RUNTIME}",
-        str(SMOKE),
-        str(RUNTIME / "btrc_core_audio_device.c"),
-        "-framework",
-        "AudioToolbox",
-        "-framework",
-        "CoreAudio",
-        "-framework",
-        "CoreFoundation",
-        "-o",
-        str(executable),
-    ]
-    built = subprocess.run(command, capture_output=True, text=True, timeout=COMPILE_TIMEOUT)
-    assert built.returncode == 0, built.stderr
-    ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
-    assert ran.returncode == 0, ran.stderr
-    assert ran.stderr == ""
-    assert ran.stdout in {
-        "PASS: CoreAudio device callback and drain barrier\n",
-        "SKIP: CoreAudio output capability unavailable\n",
-        "SKIP: CoreAudio output session unavailable\n",
-    }
-
-
-def test_core_audio_variable_callback_blocks(tmp_path: Path) -> None:
-    clang = shutil.which("clang")
-    if clang is None:
-        pytest.skip("Clang is unavailable")
-    executable = tmp_path / "core-audio-blocks"
-    command = [
-        clang,
-        "-std=c11",
-        "-Wall",
-        "-Wextra",
-        "-Werror",
-        "-pedantic-errors",
-        f"-I{RUNTIME}",
-        str(FIXTURE / "core_audio_block_slices.c"),
-        "-framework",
-        "AudioToolbox",
-        "-framework",
-        "CoreAudio",
-        "-framework",
-        "CoreFoundation",
-        "-o",
-        str(executable),
-    ]
-    built = subprocess.run(command, capture_output=True, text=True, timeout=COMPILE_TIMEOUT)
-    assert built.returncode == 0, built.stderr
-    ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
-    assert ran.returncode == 0, ran.stderr
-    assert ran.stdout == "PASS: CoreAudio bounded callback slices preserve samples and clocks\n"
 
 
 def test_core_audio_provider_on_both_frontends(compiler: str, tmp_path: Path, request: pytest.FixtureRequest) -> None:
@@ -140,6 +72,8 @@ def test_core_audio_provider_on_both_frontends(compiler: str, tmp_path: Path, re
     generated = tmp_path / f"core-audio-{compiler}.c"
     plan = tmp_path / f"core-audio-{compiler}.link.json"
     _transpile(compiler, generated, plan, request)
+    assert "Audio/MacOS/Hardware.h" in generated.read_text()
+    assert "CoreAudioNativeDeviceRecord" not in generated.read_text()
     if compiler == "btrc":
         reference_generated = tmp_path / "core-audio-reference.c"
         reference_plan = tmp_path / "core-audio-reference.link.json"
@@ -151,14 +85,7 @@ def test_core_audio_provider_on_both_frontends(compiler: str, tmp_path: Path, re
         {"name": "CoreAudio", "package": PACKAGE_NAME},
         {"name": "CoreFoundation", "package": PACKAGE_NAME},
     ]
-    assert payload["units"] == [
-        {
-            "language": "c",
-            "package": PACKAGE_NAME,
-            "path": str(RUNTIME / "btrc_core_audio_device.c"),
-            "standard": "c11",
-        }
-    ]
+    assert payload["units"] == []
     executable = tmp_path / f"core-audio-{compiler}"
     NativePlanBuilder().build(plan_path=plan, generated_c=generated, output=executable, cc=clang, cxx=clangxx)
     ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
@@ -170,41 +97,83 @@ def test_core_audio_provider_on_both_frontends(compiler: str, tmp_path: Path, re
         "SKIP: CoreAudio output capability unavailable\n",
         "SKIP: CoreAudio output session unavailable\n",
     }
+    if ran.stdout.startswith("SKIP:"):
+        pytest.skip(ran.stdout.strip())
 
 
-def test_core_audio_stored_callback_abi_preserves_borrowed_spans() -> None:
-    callback = AbiType(
-        "CFunction",
-        generic_args=(
-            AbiType("void"),
-            AbiType("void", 1),
-            AbiType("struct AudioBlockView"),
-            AbiType("Span", generic_args=(AbiType("float", is_const=True),)),
-            AbiType("Span", generic_args=(AbiType("float"),)),
+@pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.parametrize(
+    "fixture_name, adapter, expected",
+    [
+        (
+            "CoreAudioUnitConformance.btrc",
+            "UnitFaults",
+            "PASS: BTRC CoreAudio unit preserves samples, clocks and retryable ownership",
         ),
-    )
-    opened = HOSTED_ABI.function("std_core_audio_provider_open_duplex")
-    assert opened is not None and opened.parameters is not None
-    assert opened.parameters[10] == callback
-    assert opened.callback_lifetimes[10] == "stored_until_unregister"
-
-
-def test_core_audio_render_path_contains_no_control_plane_operations() -> None:
-    source = (RUNTIME / "btrc_core_audio_device.c").read_text()
-    start = source.index("static OSStatus btrc_core_audio_render(")
-    end = source.index("static int btrc_core_audio_allocate_buffers", start)
-    callback = source[start:end]
-    for forbidden in (
-        "calloc(",
-        "free(",
-        "malloc(",
-        "nanosleep(",
-        "printf(",
-        "pthread_",
-        "AudioComponentInstanceDispose(",
-        "AudioOutputUnitStart(",
-        "AudioOutputUnitStop(",
-        "AudioUnitInitialize(",
-        "AudioUnitUninitialize(",
-    ):
-        assert forbidden not in callback
+        (
+            "CoreAudioInventoryConformance.btrc",
+            "HardwareFaults",
+            "PASS: CoreAudio inventory validates SDK data and publishes stable snapshots",
+        ),
+        ("CoreAudioResourcesConformance.btrc", "ResourceFaults", "PASS: CoreAudio resource ownership and rollback"),
+        (
+            "CoreAudioAggregateAllocations.btrc",
+            "AggregateAllocationFaults",
+            "PASS: CoreAudio aggregate releases every partial allocation",
+        ),
+        (
+            "CoreAudioPendingSession.btrc",
+            "HardwareFaults",
+            "PASS: CoreAudio provider retains partial sessions until cleanup succeeds",
+        ),
+    ],
+)
+def test_core_audio_inventory_sdk_failures(
+    compiler: str,
+    sanitized: bool,
+    tmp_path: Path,
+    request: pytest.FixtureRequest,
+    fixture_name: str,
+    adapter: str,
+    expected: str,
+) -> None:
+    generated = tmp_path / "Inventory.c"
+    plan = tmp_path / "Inventory.link.json"
+    _transpile(compiler, generated, plan, request, FIXTURE / fixture_name)
+    executable = tmp_path / "Inventory"
+    environment = {key: value for key, value in os.environ.items() if key not in {"DEVELOPER_DIR", "SDKROOT"}}
+    sdk_flags = ["-isysroot", os.environ["BTRC_NATIVE_SYSROOT"], "-target", os.environ["BTRC_NATIVE_TARGET"]]
+    command = [
+        "/usr/bin/clang",
+        "-std=c11",
+        "-O2",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-pedantic-errors",
+        *sdk_flags,
+        *(["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if sanitized else []),
+        "-include",
+        str(FIXTURE / f"{adapter}.h"),
+        str(generated),
+        str(FIXTURE / f"{adapter}.c"),
+        *(
+            ["-include", str(FIXTURE / "UnitFaults.h"), str(FIXTURE / "UnitFaults.c")]
+            if fixture_name == "CoreAudioPendingSession.btrc"
+            else []
+        ),
+        "-framework",
+        "CoreAudio",
+        "-framework",
+        "CoreFoundation",
+        "-framework",
+        "AudioToolbox",
+        "-o",
+        str(executable),
+    ]
+    # Link only SDK-shaped fault probes; no handwritten production bridge.
+    built = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=COMPILE_TIMEOUT)
+    assert built.returncode == 0, built.stderr
+    ran = subprocess.run([str(executable)], env=environment, capture_output=True, text=True, timeout=RUN_TIMEOUT)
+    assert ran.returncode == 0, ran.stderr
+    assert ran.stdout == expected + "\n"

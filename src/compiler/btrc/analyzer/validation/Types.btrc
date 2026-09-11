@@ -9,7 +9,7 @@ import ../../syntax/Identity.btrc;
 import ../../syntax/Types.btrc;
 import ../Declarations.btrc;
 import ../Expressions.btrc;
-import ../Gpu.btrc;
+import ../GPU.btrc;
 import ../Models.btrc;
 import ../Operators.btrc;
 import ../Types.btrc;
@@ -849,8 +849,8 @@ class TypeValidator {
 		if (!SemanticTypeSystem.ownedClosureInvokeIsAdmissible(typeExpr, self.state.analyzed, self.state.typeParams)) {
 			TypeValidator.fail("OwnedClosure<Invoke> requires an exact " + "CFunction<Signature> invoke type", site);
 		}
-		if (canonical != null && canonical.base == "SpscQueue" && canonical.genericArgs.len > 0 && !self.state.typeParams.has(canonical.genericArgs.get(0).base) && !self.realtimePod(canonical.genericArgs.get(0))) {
-			TypeValidator.fail("SpscQueue<T> payload must be realtime POD without managed ownership", site);
+		if (canonical != null && canonical.base == "SPSCQueue" && canonical.genericArgs.len > 0 && !self.state.typeParams.has(canonical.genericArgs.get(0).base) && !self.realtimePod(canonical.genericArgs.get(0))) {
+			TypeValidator.fail("SPSCQueue<T> payload must be realtime POD without managed ownership", site);
 		}
 		if (canonical != null && canonical.base == "OwnedBuffer" && canonical.genericArgs.len > 0 && !self.state.typeParams.has(canonical.genericArgs.get(0).base)) {
 			Node payload = canonical.genericArgs.get(0);

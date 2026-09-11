@@ -1,0 +1,43 @@
+import Library.MacOSEncodedImageDecoder;
+import Library.EncodedImage;
+import Library.Image;
+
+import ./ImageIoSamples.btrc;
+#include <assert.h>
+#include "ImageIoFaults.h"
+
+void imageIoBegin(int failure);
+int imageIoOutstanding();
+int imageIoCreations();
+
+void decodeOnce(int failure) {
+	var decoder = MacOSEncodedImageDecoder();
+	/* A temporary input exercises borrowed-data lifetime across the return. */
+	var outcome = decoder.decode(pngFixture(), EncodedImageDecodeLimits(1024, 4, 4, 16LL));
+	if (failure == 0) {
+		assert(outcome.succeeded());
+		assert(outcome.image().pixel(1, 0).equals(RGBA(0, 255, 0, 128)));
+		/* Only the returned image's pixels survive the decode transaction. */
+		assert(imageIoOutstanding() == 1 && imageIoCreations() == 8);
+		return;
+	}
+	assert(!outcome.succeeded() && outcome.decodedBytes() == 0ULL);
+	if (failure == 1 || failure == 2 || failure == 6 || failure == 7) { assert(outcome.status() == ENCODED_IMAGE_DECODE_OUT_OF_MEMORY); }
+	else if (failure == 8) { assert(outcome.status() == ENCODED_IMAGE_DECODE_FAILED); }
+	else if (failure == 13) { assert(outcome.status() == ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED); }
+	else { assert(outcome.status() == ENCODED_IMAGE_DECODE_CORRUPT); }
+	if (failure <= 8) { assert(imageIoCreations() == failure - 1); }
+	assert(imageIoOutstanding() == 0);
+}
+
+int main() {
+	for (int iteration = 0; iteration < 16; iteration++) {
+		for (int failure = 0; failure <= 16; failure++) {
+			imageIoBegin(failure);
+			decodeOnce(failure);
+			assert(imageIoOutstanding() == 0);
+		}
+	}
+	print("PASS ImageIoCleanup");
+	return 0;
+}

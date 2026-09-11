@@ -4,7 +4,7 @@
  * realloc growth path. Hermetic: one temp file, removed at the end. */
 import Library.Bytes;
 import Library.FileSystem;
-import Library.Io;
+import Library.IO;
 
 #include <assert.h>
 

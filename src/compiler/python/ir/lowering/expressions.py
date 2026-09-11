@@ -7,6 +7,7 @@ from dataclasses import dataclass, fields, is_dataclass, replace
 from typing import TYPE_CHECKING
 
 from src.compiler.python.analyzer.types import IndexedProtocolResolver, TypeIdentity, TypeSystem
+from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.ir.nodes import (
     CType,
     IRAddressOf,
@@ -62,6 +63,7 @@ from src.compiler.python.syntax.ast.generated import (
     TupleLiteral,
     TypeExpr,
     UnaryExpr,
+    VarDeclStmt,
 )
 
 from .calls import CallableReturnABI, CallDispatch, CallOperand, CallResultPlan, ValuePreparationPlan
@@ -262,6 +264,14 @@ class ExpressionLowerer:
     ) -> None:
         self._session = session
         self._analyzed = analyzed
+        self._objective_c_globals = frozenset(
+            declaration.name
+            for declaration in analyzed.program.declarations
+            if isinstance(declaration, VarDeclStmt)
+            and isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
+            and declaration.source_file.language == "objective-c"
+            and declaration.initializer is None
+        )
         self._types = types
         self._default_arguments = default_context
         self._type_identity = type_identity
@@ -1979,6 +1989,10 @@ class ExpressionLowerer:
             return IRLiteral(text=predefined)
         if self._session.local_is_declared(name):
             return self._source_identifier_var(node, self._ownership.source_binding_c_name(name, provenance))
+        if name in self._objective_c_globals:
+            if name in self._analyzed.native_object_globals:
+                return IRCall(callee=f"__btrc_objc_read_{name}", args=[])
+            return IRDeref(expr=IRCall(callee=f"__btrc_objc_address_{name}", args=[]))
         if name in self._source_visible_helpers and (not self._session.local_is_declared(name)):
             self._session.require_helper(name)
             return IRFunctionRef(name=name)

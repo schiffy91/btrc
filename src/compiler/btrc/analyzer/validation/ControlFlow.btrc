@@ -619,7 +619,7 @@ class ControlFlowValidator {
 		if (self.state.returnType == null) { return; }
 		Node expectedReturn = self.state.returnType;
 		self.borrows.validateOpaqueBorrowStorage(expectedReturn, statement.valueNode, "Return value", vars);
-		self.storage.validateVolatileReferenceConversion(expectedReturn, statement.valueNode, "Return value", vars);
+		self.storage.validateReferenceQualifiers(expectedReturn, statement.valueNode, "Return value", vars);
 		if (!self.state.gpuCallable || !expectedReturn.isArray) {
 			self.expressions.validateTypedInitializer(expectedReturn, statement.valueNode, "Return value", vars);
 		}

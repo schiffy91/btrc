@@ -1,0 +1,59 @@
+import Library.App;
+import Library.OwnedBuffer;
+import Library.Strings;
+
+class MacOSDirectoryPicker implements AppDirectoryPicker {
+	private string _prompt;
+	private int _maximumPathBytes;
+
+	public MacOSDirectoryPicker(string prompt = "Choose", int maximumPathBytes = 32768) {
+		self._prompt = prompt;
+		self._maximumPathBytes = maximumPathBytes;
+	}
+
+	private NSString? nativeText(string text) {
+		var bytes = new OwnedBuffer<char>((size_t)text.len() + (size_t)1);
+		if (!bytes.opened()) { return null; }
+		strcpy(bytes.borrow(), text);
+		return NSString.stringWithUTF8String(bytes.borrow());
+	}
+
+	private AppDirectoryPickerOutcome openPanel(AppDirectoryPickerRequest request) {
+		var title = self.nativeText(request.title);
+		var prompt = self.nativeText(self._prompt);
+		if (title == null || prompt == null) { return AppDirectoryPickerOutcome.failed(AppError(APP_ERROR_INVALID_ARGUMENT, "directory picker text is not valid UTF-8 or could not be allocated")); }
+		var panel = NSOpenPanel.openPanel();
+		if (panel == null) { return AppDirectoryPickerOutcome.failed(AppError(APP_ERROR_BACKEND_UNAVAILABLE, "directory picker is unavailable")); }
+		panel.setTitle(title);
+		panel.setPrompt(prompt);
+		panel.setCanChooseDirectories(true);
+		panel.setCanChooseFiles(false);
+		panel.setAllowsMultipleSelection(false);
+		panel.setCanCreateDirectories(true);
+		panel.setResolvesAliases(true);
+		if (!request.initialDirectory.isEmpty()) {
+			var initial = self.nativeText(request.initialDirectory);
+			if (initial == null) { return AppDirectoryPickerOutcome.failed(AppError(APP_ERROR_INVALID_ARGUMENT, "initial directory is not valid UTF-8 or could not be allocated")); }
+			var directory = NSURL.fileURLWithPath(initial, true);
+			if (directory == null) { return AppDirectoryPickerOutcome.failed(AppError(APP_ERROR_INVALID_ARGUMENT, "initial directory could not be represented")); }
+			panel.setDirectoryURL(directory);
+		}
+		var response = panel.runModal();
+		if (response == NSModalResponseCancel) { return AppDirectoryPickerOutcome.cancelled(); }
+		if (response != NSModalResponseOK) { return AppDirectoryPickerOutcome.failed(AppError(APP_ERROR_INTERNAL, "directory picker returned an unknown response")); }
+		var selected = panel.URL();
+		if (selected == null) { return AppDirectoryPickerOutcome.failed(AppError(APP_ERROR_INTERNAL, "directory picker selected no directory")); }
+		var path = new OwnedBuffer<char>((size_t)self._maximumPathBytes);
+		if (!path.opened() || !selected.getFileSystemRepresentation(path.borrow(), (unsigned long)self._maximumPathBytes)) { return AppDirectoryPickerOutcome.failed(AppError(APP_ERROR_INTERNAL, "selected directory exceeds the path buffer or could not be allocated")); }
+		string directory = Strings.copy(path.borrow());
+		if (directory.isEmpty()) { return AppDirectoryPickerOutcome.failed(AppError(APP_ERROR_INTERNAL, "directory picker selected an empty path")); }
+		return AppDirectoryPickerOutcome.selected(directory);
+	}
+
+	public AppDirectoryPickerOutcome chooseDirectory(AppDirectoryPickerRequest request) {
+		if (!request.isValid() || self._prompt.isEmpty() || self._maximumPathBytes <= 0) { return AppDirectoryPickerOutcome.failed(AppError(APP_ERROR_INVALID_ARGUMENT, "invalid directory picker request or configuration")); }
+		if (!NSThread.isMainThread()) { return AppDirectoryPickerOutcome.failed(AppError(APP_ERROR_NOT_MAIN_THREAD, "directory picker must run on the main thread")); }
+		try { return self.openPanel(request); }
+		catch (string error) { return AppDirectoryPickerOutcome.failed(AppError(APP_ERROR_INTERNAL, error)); }
+	}
+}

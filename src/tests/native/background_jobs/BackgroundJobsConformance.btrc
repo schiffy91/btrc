@@ -19,8 +19,18 @@ enum JobProbeBehavior {
 	JOB_PROBE_HOLD = 1,
 	JOB_PROBE_CANCEL = 2,
 	JOB_PROBE_FAIL = 3,
-	JOB_PROBE_THROW = 4
+	JOB_PROBE_THROW = 4,
+	JOB_PROBE_CLEANUP_THROW = 5
 };
+
+class JobProbeTemporary {
+	public JobProbeTemporary() {}
+
+	public void __del__() {
+		job_probe_record_disposal(17);
+		throw "temporary cleanup failed";
+	}
+}
 
 class JobProbeWork extends BackgroundJobWork {
 	private int _identity;
@@ -41,6 +51,9 @@ class JobProbeWork extends BackgroundJobWork {
 			while (!cancellation.requested()) { job_probe_yield(); }
 		} else if (self._behavior == JOB_PROBE_THROW) {
 			throw "background job probe failure";
+		} else if (self._behavior == JOB_PROBE_CLEANUP_THROW) {
+			JobProbeTemporary temporary = JobProbeTemporary();
+			assert(temporary != null);
 		}
 		job_probe_mark_finished(self._identity);
 		if (self._behavior == JOB_PROBE_CANCEL) {
@@ -53,6 +66,16 @@ class JobProbeWork extends BackgroundJobWork {
 }
 
 BackgroundJobCompletionKind runProbe(BackgroundJobWork work, BackgroundJobCancellation cancellation) { return ((JobProbeWork)work).run(cancellation); }
+
+class RetainedCancellationWork extends BackgroundJobWork {
+	public BackgroundJobCancellation? token;
+
+	public RetainedCancellationWork() { self.token = null; }
+
+	public BackgroundJobCompletionKind run(BackgroundJobCancellation cancellation) { self.token = cancellation; return BACKGROUND_JOB_COMPLETED; }
+}
+
+BackgroundJobCompletionKind retainCancellation(BackgroundJobWork work, BackgroundJobCancellation cancellation) { return ((RetainedCancellationWork)work).run(cancellation); }
 
 BackgroundJobExecutor openExecutor(int workers, int capacity) {
 	BackgroundJobsOpenOutcome opened = BackgroundJobExecutor.open(workers, capacity);
@@ -216,6 +239,21 @@ int main() {
 	assert(thrownCompletion.kind == BACKGROUND_JOB_FAILED);
 	delete thrownCompletion;
 	assert(job_probe_disposals(15) == 1);
+	/* A throwing temporary destructor cannot escape the foreign thread entry,
+	 * strand its work, or poison the next invocation on the same worker. */
+	for (int attempt = 0; attempt < 64; attempt++) {
+		assert(submitProbe(executor, firstGeneration, 16, JOB_PROBE_CLEANUP_THROW).kind == BACKGROUND_JOB_SUBMITTED);
+		BackgroundJobCompletion cleanupFailure = waitCompletion(executor);
+		assert(cleanupFailure.kind == BACKGROUND_JOB_FAILED);
+		delete cleanupFailure;
+		assert(job_probe_disposals(16) == attempt + 1);
+		assert(job_probe_disposals(17) == attempt + 1);
+	}
+	assert(submitProbe(executor, firstGeneration, 18, JOB_PROBE_COMPLETE).kind == BACKGROUND_JOB_SUBMITTED);
+	BackgroundJobCompletion recovered = waitCompletion(executor);
+	assert(recovered.kind == BACKGROUND_JOB_COMPLETED);
+	delete recovered;
+	assert(job_probe_disposals(18) == 1);
 	assert(executor.outstanding() == 0);
 	assert(executor.poll().kind == BACKGROUND_JOB_POLL_EMPTY);
 
@@ -261,6 +299,43 @@ int main() {
 	assert(drained.disposed == 2);
 	assert(job_probe_disposals(12) == 1);
 	assert(job_probe_disposals(13) == 1);
+
+	/* Escaped cancellation remains valid after slot reuse and executor release.
+	 * Cancelling either generation must never mutate the other token. */
+	BackgroundJobExecutor reuse = openExecutor(1, 1);
+	RetainedCancellationWork earlier = RetainedCancellationWork();
+	assert(reuse.submit(firstGeneration, earlier, retainCancellation).kind == BACKGROUND_JOB_SUBMITTED);
+	BackgroundJobCompletion earlierCompletion = waitCompletion(reuse);
+	delete earlierCompletion;
+	assert(earlier.token != null && !earlier.token.requested());
+	RetainedCancellationWork later = RetainedCancellationWork();
+	assert(reuse.submit(firstGeneration, later, retainCancellation).kind == BACKGROUND_JOB_SUBMITTED);
+	BackgroundJobCompletion laterCompletion = waitCompletion(reuse);
+	delete laterCompletion;
+	assert(later.token != null && !later.token.requested());
+	BackgroundJobCancellation earlierToken = earlier.token;
+	BackgroundJobCancellation laterToken = later.token;
+	assert(reuse.close(BACKGROUND_JOBS_DRAIN).kind == BACKGROUND_JOBS_CLOSED);
+	delete reuse;
+	earlierToken.request();
+	assert(earlierToken.requested());
+	assert(!laterToken.requested());
+	laterToken.request();
+	assert(laterToken.requested());
+
+	/* Reject foreign control calls before reading owner-only shutdown state. */
+	BackgroundJobExecutor ownerGuard = openExecutor(1, 1);
+	Thread<int> observer = spawn(() => {
+			for (int index = 0; index < 2000; index++) {
+				if (ownerGuard.isOpen() || ownerGuard.outstanding() != 0) { return 1; }
+				if (ownerGuard.poll().kind != BACKGROUND_JOB_POLL_NOT_OWNER) { return 2; }
+				if (ownerGuard.cancelGeneration(firstGeneration).kind != BACKGROUND_JOB_CANCEL_NOT_OWNER) { return 3; }
+				if (ownerGuard.close().kind != BACKGROUND_JOBS_CLOSE_NOT_OWNER) { return 4; }
+			}
+			return 0;
+		});
+	assert(ownerGuard.close(BACKGROUND_JOBS_DRAIN).kind == BACKGROUND_JOBS_CLOSED);
+	assert(observer.join() == 0);
 
 	print("PASS: bounded background job ownership");
 	return 0;

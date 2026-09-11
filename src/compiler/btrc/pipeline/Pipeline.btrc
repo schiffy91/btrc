@@ -15,13 +15,15 @@ class CompilerPipeline {
 	private FeStdlibSymbolIndex stdlibSymbols;
 	private HostedAbiRepository hostedAbi;
 	private FeSourceFileReader sourceFiles;
+	private FeNativeHeaderReader nativeHeaderReader;
 
-	public CompilerPipeline(GrammarInfo grammar, string stdlibDirectory, FeSourceFileReader sourceFiles) {
+	public CompilerPipeline(GrammarInfo grammar, string stdlibDirectory, FeSourceFileReader sourceFiles, FeNativeHeaderReader nativeHeaderReader = (FeNativeHeaderReader)null) {
 		self.grammar = grammar;
 		self.stdlib = FeStdlibRepository(stdlibDirectory, sourceFiles);
 		self.stdlibSymbols = FeStdlibSymbolIndex();
 		self.hostedAbi = HostedAbiRepository(GeneratedHostedAbiData());
 		self.sourceFiles = sourceFiles;
+		self.nativeHeaderReader = nativeHeaderReader;
 	}
 
 	private BtrccCompilationResult failure(string diagnostic) { return BtrccCompilationResult(false, "", diagnostic, ""); }
@@ -40,24 +42,10 @@ class CompilerPipeline {
 		FeResolvedPackages packages = FePackageGraphResolver(self.sourceFiles).resolveFor(sourcePath, options.target);
 		FeFrontendResolver resolver = FeFrontendResolver(self.grammar, self.stdlib, options.includeStdlib, options.strictImports, packages);
 		FeResolvedSource resolved = resolver.resolve(source, sourcePath);
-		packages.linkPlan.restrictToSources(resolved.dependencies.sourceIdentities());
-		resolved.nativeDeclarations = FeNativeDeclarationImporter().resolve(packages.linkPlan);
-		string backgroundJobsModule = PathTools.join(self.stdlib.directory(), "BackgroundJobs.btrc");
-		if (resolved.dependencies.hasSource(FeSourcePathPolicy().identity(backgroundJobsModule))) {
-			packages.linkPlan.requireStdlibBackgroundJobs(self.stdlib.directory());
-		}
-		string localApplicationChannelModule = PathTools.join(self.stdlib.directory(), "LocalApplicationChannel.btrc");
-		if (resolved.dependencies.hasSource(FeSourcePathPolicy().identity(localApplicationChannelModule))) {
-			packages.linkPlan.requireStdlibLocalApplicationChannel(self.stdlib.directory());
-		}
-		string coreAudioDeviceModule = PathTools.join(self.stdlib.directory(), "CoreAudioDevice.btrc");
-		if (resolved.dependencies.hasSource(FeSourcePathPolicy().identity(coreAudioDeviceModule))) {
-			packages.linkPlan.requireStdlibCoreAudioDevice(self.stdlib.directory());
-		}
-		string macOsEncodedImageDecoderModule = PathTools.join(self.stdlib.directory(), "MacOsEncodedImageDecoder.btrc");
-		if (resolved.dependencies.hasSource(FeSourcePathPolicy().identity(macOsEncodedImageDecoderModule))) {
-			packages.linkPlan.requireStdlibMacOsEncodedImageDecoder(self.stdlib.directory());
-		}
+		Vector<string> sources = resolved.dependencies.sourceIdentities();
+		packages.linkPlan.restrictToSources(sources);
+		packages.linkPlan.includeStdlib(self.stdlib.directory(), sources, self.sourceFiles);
+		resolved.nativeDeclarations = FeNativeDeclarationImporter(self.nativeHeaderReader).resolve(packages.linkPlan);
 
 		Lexer lexer = Lexer(resolved.source, self.grammar);
 		Vector<Token> tokens = lexer.tokenize();
@@ -72,13 +60,14 @@ class CompilerPipeline {
 		}
 
 		self.hostedAbi.stampProgramSources(program, resolved.stdlibLineCount, resolved.userLines, sourcePath, self.stdlib.directory());
+		Vector<Node> sourceDeclarations = program.declarations;
 		Vector<Node> declarations = [];
 		for imported in resolved.nativeDeclarations { declarations.push(imported.declaration); }
 		for declaration in program.declarations { declarations.push(declaration); }
 		program.declarations = declarations;
 
 		if (options.strictImports) {
-			FeImportVisibilityChecker visibility = FeImportVisibilityChecker(program, resolved, self.stdlib, self.stdlibSymbols, self.grammar, self.hostedAbi.sourceFunctionShadows(program));
+			FeImportVisibilityChecker visibility = FeImportVisibilityChecker(program, resolved, self.stdlib, self.stdlibSymbols, self.grammar, self.hostedAbi.sourceSymbolShadows(program));
 			FeVisibilityCheckResult checked = visibility.check();
 			if (!checked.success) {
 				return self.failure("error: " + checked.diagnostic);
@@ -87,6 +76,17 @@ class CompilerPipeline {
 				return self.failure(self.visibilityDiagnostic(checked.diagnostics));
 			}
 		}
+
+		declarations = [];
+		Vector<FeNativeImportedDeclaration> nativeDeclarations = [];
+		for imported in resolved.nativeDeclarations {
+			if (imported.coalesced) { continue; }
+			declarations.push(imported.declaration);
+			if (!imported.generatedInput) { nativeDeclarations.push(imported); }
+		}
+		for declaration in sourceDeclarations { declarations.push(declaration); }
+		program.declarations = declarations;
+		resolved.nativeDeclarations = nativeDeclarations;
 
 		GeneratedRuntimeCatalogData runtimeData = GeneratedRuntimeCatalogData();
 		SourceRuntimeSymbols sourceRuntimeSymbols = SourceRuntimeSymbols(runtimeData.rows, runtimeData.intrinsicEffects);
@@ -116,10 +116,22 @@ class CompilerPipeline {
 			}
 		}
 		SetjmpEffectAnalysis setjmpEffects = SetjmpEffectAnalysis(self.hostedAbi);
+		for imported in resolved.nativeDeclarations {
+			var contract = imported.callContract;
+			if (contract != null && contract.realtimeSafe) {
+				module.realtimeSafeExternals.put(imported.declaration.name, true);
+				if (!contract.adapterSymbol(imported.declaration.name).equals(imported.declaration.name)) { module.realtimeSafeExternals.put("__builtin_trap", true); }
+			}
+		}
 		SetjmpSafetyPlanner setjmpSafety = SetjmpSafetyPlanner(setjmpEffects);
 		IROptimizer optimizer = IROptimizer(setjmpSafety, runtimeHelpers);
 		optimizer.optimize(module, options.runDce);
 		CEmitter emitter = CEmitter();
+		for name in module.nativeUnits.keys() {
+			IRModule unit = module.nativeUnits.get(name);
+			if (unit.language != "objective-c" || unit.nativeUnits.len > 0) { throw "native adapter must be a standalone Objective-C unit"; }
+			packages.linkPlan.generatedUnits.push(FeNativeGeneratedUnit(name, unit.language, "c11", "arc", CEmitter().emit(unit)));
+		}
 		return BtrccCompilationResult(true, emitter.emit(module), "", packages.linkPlan.canonicalJson());
 	}
 }

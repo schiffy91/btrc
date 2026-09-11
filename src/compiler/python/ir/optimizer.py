@@ -11,6 +11,7 @@ from .nodes import (
     CType,
     IRBlock,
     IRCall,
+    IRCast,
     IRDoWhile,
     IREnumDef,
     IRExprStmt,
@@ -26,6 +27,7 @@ from .nodes import (
     IRMacroDef,
     IRModule,
     IRNode,
+    IRObjectiveCMessage,
     IRReturn,
     IRStatementSequence,
     IRStmtExpr,
@@ -209,6 +211,8 @@ class IROptimizer:
 
         planned = cls.plan_type_declarations(module)
         module.record_type_declaration_plan(planned)
+        for unit in module.native_units.values():
+            cls.refresh_type_declarations(unit)
 
     @staticmethod
     def _provided_type_names_for_order(declaration: TypeDeclaration) -> Iterable[str]:
@@ -437,7 +441,9 @@ class IROptimizer:
     @staticmethod
     def _initializer_has_side_effects(value: object) -> bool:
         for node in IRNode.walk_value(value):
-            if isinstance(node, (IRCall, IRStmtExpr)):
+            if isinstance(node, (IRCall, IRStmtExpr, IRObjectiveCMessage)) or (
+                isinstance(node, IRCast) and node.bridge in ("retain", "transfer")
+            ):
                 return True
             if isinstance(node, IRUnaryOp) and node.op in _MUTATING_UNARY_OPERATORS:
                 return True
@@ -781,10 +787,14 @@ class IROptimizer:
         return False
 
     def _structured_runtime_features(self) -> set[str]:
-        defined_functions = {function.name for function in self._module.function_defs}
+        # Typed imports carry their own header/link dependencies. Their spelling
+        # must not opt into an unrelated legacy runtime header family.
+        provided_functions = {
+            function.name for function in self._module.function_defs
+        } | self._module.native_external_names
         features: set[str] = set()
         for node in IRNode.walk_value(self._module):
-            if not isinstance(node, IRCall) or not isinstance(node.callee, str) or node.callee in defined_functions:
+            if not isinstance(node, IRCall) or not isinstance(node.callee, str) or node.callee in provided_functions:
                 continue
             feature = self._freestanding_runtime.feature_for_call(node.callee)
             if feature is not None:

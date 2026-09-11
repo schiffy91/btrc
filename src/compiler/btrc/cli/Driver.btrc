@@ -19,6 +19,7 @@ import Library.Vector;
 
 import ../Compiler.btrc;
 import ../frontend/Packages.btrc;
+import ../frontend/Models.btrc;
 
 class BtrccDataPaths {
 	public bool valid;
@@ -302,11 +303,13 @@ class BtrccDriver {
 	private BtrccCommandLine commandLine;
 	private BtrccOutput output;
 	private FeSourceFileReader sourceFiles;
+	private FeNativeHeaderReader nativeHeaderReader;
 
-	public BtrccDriver(int argc, char** argv) {
+	public BtrccDriver(int argc, char** argv, FeNativeHeaderReader nativeHeaderReader = (FeNativeHeaderReader)null) {
 		self.commandLine = BtrccCommandLine(argc, argv);
 		self.output = BtrccOutput(stdout);
 		self.sourceFiles = FeSourceFileReader();
+		self.nativeHeaderReader = nativeHeaderReader;
 	}
 
 	private int fail(string diagnostic) {
@@ -354,7 +357,7 @@ class BtrccDriver {
 			return self.fail("link-plan output must differ from the input path");
 		}
 		string source = self.sourceFiles.readRequired(sourcePath);
-		Compiler compiler = Compiler(grammar, dataPaths.stdlib, self.sourceFiles);
+		Compiler compiler = Compiler(grammar, dataPaths.stdlib, self.sourceFiles, self.nativeHeaderReader);
 		BtrccCompilationResult result = compiler.compile(source, sourcePath, options);
 		if (!result.success) {
 			fprintf(stderr, "%s\n", result.diagnostic);

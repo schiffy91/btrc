@@ -106,13 +106,14 @@ class HostedAbiRepository {
 
 	public bool ownedName(string name) { return self.ownedNames.has(name); }
 
-	public Map<string, bool> sourceFunctionShadows(Node program) {
+	public Map<string, bool> sourceSymbolShadows(Node program) {
 		Map<string, bool> result = {};
 		int index = 0;
 		while (index < program.declarations.len) {
 			Node declaration = program.declarations.get(index);
-			if (declaration.kind == NK_FUNCTION_DECL && self.functionOwnedName(declaration.name)) {
-				result.put(declaration.name, true);
+			string name = declaration.kind == NK_TYPEDEF_DECL ? declaration.alias : declaration.name;
+			if (self.ownedName(name)) {
+				result.put(name, true);
 			}
 			index = index + 1;
 		}

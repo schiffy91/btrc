@@ -1,5 +1,5 @@
 import Library.Image;
-import Library.NativeUi;
+import Library.NativeUI;
 import Library.Strings;
 import Library.Vector;
 
@@ -20,15 +20,15 @@ int platformTypographyMeasure(unsigned long long provider, string value, int fon
 	return 1;
 }
 
-NativeUiElement deepVirtualGrid() {
-	NativeUiElement grid = NativeUiElement.virtualGrid("albums", NativeUiVirtualGrid(2000, 4, 40, 1984)).className("album-grid");
+NativeUIElement deepVirtualGrid() {
+	NativeUIElement grid = NativeUIElement.virtualGrid("albums", NativeUIVirtualGrid(2000, 4, 40, 1984)).className("album-grid");
 	for (int index = 1984; index < 2000; index++) {
-		grid.child(NativeUiElement.button(f"album:{index}", f"Album {index}").className("album-card"));
+		grid.child(NativeUIElement.button(f"album:{index}", f"Album {index}").className("album-card"));
 	}
-	return NativeUiElement.column("library").className("library-root").child(NativeUiElement.text("status", "2000 albums")).child(grid);
+	return NativeUIElement.column("library").className("library-root").child(NativeUIElement.text("status", "2000 albums")).child(grid);
 }
 
-void assertRejected(NativeUiFrame frame, NativeUiFrameStatus status) {
+void assertRejected(NativeUIFrame frame, NativeUIFrameStatus status) {
 	assert(!frame.ok());
 	assert(frame.status == status);
 	assert(frame.image.isEmpty());
@@ -36,17 +36,17 @@ void assertRejected(NativeUiFrame frame, NativeUiFrameStatus status) {
 }
 
 void assertRowLayout() {
-	NativeUiElement sidebar = NativeUiElement.column("row-sidebar").style("padding: 0px; width: 100px; height: 50px");
-	NativeUiElement first = NativeUiElement.column("row-first").style("padding: 0px; height: 30px");
-	NativeUiElement second = NativeUiElement.column("row-second").style("padding: 0px; height: 70px");
-	NativeUiElement row = NativeUiElement.row("row").style("gap: 10px; padding: 0px").child(sidebar).child(first).child(second);
+	NativeUIElement sidebar = NativeUIElement.column("row-sidebar").style("padding: 0px; width: 100px; height: 50px");
+	NativeUIElement first = NativeUIElement.column("row-first").style("padding: 0px; height: 30px");
+	NativeUIElement second = NativeUIElement.column("row-second").style("padding: 0px; height: 70px");
+	NativeUIElement row = NativeUIElement.row("row").style("gap: 10px; padding: 0px").child(sidebar).child(first).child(second);
 	assert(row.kind() == NATIVE_UI_ROW);
-	NativeUiFrame frame = NativeUiRenderer().layout(NativeUiElement.column("row-root").style("padding: 0px; gap: 0px").child(row), 400, 200);
+	NativeUIFrame frame = NativeUIRenderer().layout(NativeUIElement.column("row-root").style("padding: 0px; gap: 0px").child(row), 400, 200);
 	assert(frame.ok());
-	NativeUiLayoutBox rowBox = frame.boxFor("row");
-	NativeUiLayoutBox sidebarBox = frame.boxFor("row-sidebar");
-	NativeUiLayoutBox firstBox = frame.boxFor("row-first");
-	NativeUiLayoutBox secondBox = frame.boxFor("row-second");
+	NativeUILayoutBox rowBox = frame.boxFor("row");
+	NativeUILayoutBox sidebarBox = frame.boxFor("row-sidebar");
+	NativeUILayoutBox firstBox = frame.boxFor("row-first");
+	NativeUILayoutBox secondBox = frame.boxFor("row-second");
 	assert(rowBox.bounds.width == 400 && rowBox.bounds.height == 70);
 	assert(rowBox.resolvedSemantics().role() == NATIVE_UI_SEMANTIC_ROLE_GROUP);
 	assert(sidebarBox.bounds.x == 0 && sidebarBox.bounds.width == 100 && sidebarBox.bounds.height == 50);
@@ -56,37 +56,37 @@ void assertRowLayout() {
 }
 
 void assertRowCrossAlignment() {
-	NativeUiElement tall = NativeUiElement.column("align-tall").style("padding: 0px; width: 60px; height: 80px");
-	NativeUiElement centred = NativeUiElement.column("align-centred").style("padding: 0px; height: 20px");
-	NativeUiElement ended = NativeUiElement.column("align-ended").style("padding: 0px; width: 40px; height: 30px");
-	NativeUiElement row = NativeUiElement.row("align-row").style("gap: 0px; padding: 5px; align-items: center").child(tall).child(centred).child(ended);
-	NativeUiFrame frame = NativeUiRenderer().layout(NativeUiElement.column("align-root").style("padding: 0px; gap: 0px").child(row), 300, 200);
+	NativeUIElement tall = NativeUIElement.column("align-tall").style("padding: 0px; width: 60px; height: 80px");
+	NativeUIElement centred = NativeUIElement.column("align-centred").style("padding: 0px; height: 20px");
+	NativeUIElement ended = NativeUIElement.column("align-ended").style("padding: 0px; width: 40px; height: 30px");
+	NativeUIElement row = NativeUIElement.row("align-row").style("gap: 0px; padding: 5px; align-items: center").child(tall).child(centred).child(ended);
+	NativeUIFrame frame = NativeUIRenderer().layout(NativeUIElement.column("align-root").style("padding: 0px; gap: 0px").child(row), 300, 200);
 	assert(frame.ok());
-	NativeUiLayoutBox rowBox = frame.boxFor("align-row");
+	NativeUILayoutBox rowBox = frame.boxFor("align-row");
 	assert(rowBox.bounds.height == 90);
 	assert(frame.boxFor("align-tall").bounds.y == rowBox.bounds.y + 5);
 	assert(frame.boxFor("align-centred").bounds.y == rowBox.bounds.y + 5 + 30);
 	assert(frame.boxFor("align-ended").bounds.y == rowBox.bounds.y + 5 + 25);
-	NativeUiElement endRow = NativeUiElement.row("end-row").style("gap: 0px; padding: 0px; align-items: end").child(NativeUiElement.column("end-tall").style("padding: 0px; width: 60px; height: 80px")).child(NativeUiElement.column("end-short").style("padding: 0px; height: 20px"));
-	NativeUiFrame endFrame = NativeUiRenderer().layout(NativeUiElement.column("end-root").style("padding: 0px; gap: 0px").child(endRow), 300, 200);
+	NativeUIElement endRow = NativeUIElement.row("end-row").style("gap: 0px; padding: 0px; align-items: end").child(NativeUIElement.column("end-tall").style("padding: 0px; width: 60px; height: 80px")).child(NativeUIElement.column("end-short").style("padding: 0px; height: 20px"));
+	NativeUIFrame endFrame = NativeUIRenderer().layout(NativeUIElement.column("end-root").style("padding: 0px; gap: 0px").child(endRow), 300, 200);
 	assert(endFrame.ok());
 	assert(endFrame.boxFor("end-short").bounds.y == endFrame.boxFor("end-row").bounds.y + 60);
-	assert(NativeUiStyle.validate("align-items: start").ok());
-	assert(!NativeUiStyle.validate("align-items: top").ok());
+	assert(NativeUIStyle.validate("align-items: start").ok());
+	assert(!NativeUIStyle.validate("align-items: top").ok());
 }
 
 void assertSelectChevron() {
-	NativeUiElement select = NativeUiElement.select("chevron", NativeUiSelect([NativeUiSelectOption("audio", "Audio")], "audio")).style("width: 120px; height: 40px; padding: 8px; font-size: 18px; line-height: 24px; background-color: #000000; marker-color: #00ff00");
-	NativeUiRenderer renderer = NativeUiRenderer();
-	NativeUiFrame down = renderer.render(select, 120, 100);
+	NativeUIElement select = NativeUIElement.select("chevron", NativeUISelect([NativeUISelectOption("audio", "Audio")], "audio")).style("width: 120px; height: 40px; padding: 8px; font-size: 18px; line-height: 24px; background-color: #000000; marker-color: #00ff00");
+	NativeUIRenderer renderer = NativeUIRenderer();
+	NativeUIFrame down = renderer.render(select, 120, 100);
 	assert(down.ok());
-	NativeUiLayoutBox box = down.boxFor("chevron");
-	NativeUiRect marker = NativeUiSelectIndicator.bounds(box);
+	NativeUILayoutBox box = down.boxFor("chevron");
+	NativeUIRect marker = NativeUISelectIndicator.bounds(box);
 	assert(marker.x == 100 && marker.y == 16 && marker.width == 12 && marker.height == 8);
-	NativeUiRect scrolled = NativeUiSelectIndicator.bounds(box, 7, 9);
+	NativeUIRect scrolled = NativeUISelectIndicator.bounds(box, 7, 9);
 	assert(scrolled.x == 93 && scrolled.y == 7);
 	assert(renderer.activate("chevron").eventCount() == 0);
-	NativeUiFrame up = renderer.render(select, 120, 100);
+	NativeUIFrame up = renderer.render(select, 120, 100);
 	assert(renderer.expandedSelectId() == "chevron");
 	int painted = 0;
 	int softened = 0;
@@ -101,21 +101,21 @@ void assertSelectChevron() {
 		}
 	}
 	assert(painted > 10 && painted < 60 && softened > 0);
-	assert(!NativeUiSelectIndicator.covers(1.0f, 1.0f, 3, 3, false));
-	NativeUiFrame disabled = NativeUiRenderer().render(select.enabled(false), 120, 100);
-	NativeUiColor disabledColor = NativeUiSelectIndicator.color(disabled.boxFor("chevron"), NativeUiTheme.nativeDefault());
-	assert(disabledColor.red == NativeUiTheme.nativeDefault().mutedText.red);
+	assert(!NativeUISelectIndicator.covers(1.0f, 1.0f, 3, 3, false));
+	NativeUIFrame disabled = NativeUIRenderer().render(select.enabled(false), 120, 100);
+	NativeUIColor disabledColor = NativeUISelectIndicator.color(disabled.boxFor("chevron"), NativeUITheme.nativeDefault());
+	assert(disabledColor.red == NativeUITheme.nativeDefault().mutedText.red);
 }
 
 void assertCompositeButtonLayout() {
 	for label in ["", "Album"] {
-		NativeUiElement content = NativeUiElement.column("card-content").style("padding: 0px; width: 80px; height: 60px");
-		NativeUiElement button = NativeUiElement.button("card-button", label).style("padding: 4px; gap: 6px; font-size: 16px; line-height: 24px").child(content);
-		NativeUiRenderer renderer = NativeUiRenderer();
-		NativeUiFrame frame = renderer.layout(button, 200, 150);
+		NativeUIElement content = NativeUIElement.column("card-content").style("padding: 0px; width: 80px; height: 60px");
+		NativeUIElement button = NativeUIElement.button("card-button", label).style("padding: 4px; gap: 6px; font-size: 16px; line-height: 24px").child(content);
+		NativeUIRenderer renderer = NativeUIRenderer();
+		NativeUIFrame frame = renderer.layout(button, 200, 150);
 		assert(frame.ok());
-		NativeUiLayoutBox card = frame.boxFor("card-button");
-		NativeUiLayoutBox body = frame.boxFor("card-content");
+		NativeUILayoutBox card = frame.boxFor("card-button");
+		NativeUILayoutBox body = frame.boxFor("card-content");
 		int labelBand = label.isEmpty() ? 0 : 30;
 		assert(card.bounds.height == 68 + labelBand);
 		assert(body.bounds.x == card.bounds.x + 4 && body.bounds.y == card.bounds.y + 4 + labelBand);
@@ -125,18 +125,18 @@ void assertCompositeButtonLayout() {
 }
 
 void assertFloatingLayout() {
-	NativeUiElement icon = NativeUiElement.column("float-icon").style("padding: 0px; width: 8px; height: 8px; background-color: #00ff00").floating(4, 3);
-	NativeUiElement button = NativeUiElement.button("float-button", "").style("padding: 0px; width: 60px; height: 40px; background-color: #ff0000").child(icon);
-	NativeUiElement popup = NativeUiElement.column("float-popup").style("padding: 0px; gap: 0px; width: 60px; height: 40px").child(button).floating(10, -5);
-	NativeUiElement anchor = NativeUiElement.column("float-anchor").style("padding: 4px; gap: 9px; height: 1px").child(popup);
-	NativeUiElement under = NativeUiElement.button("float-under", "").style("padding: 0px; height: 40px; background-color: #0000ff");
-	NativeUiElement root = NativeUiElement.column("float-root").style("padding: 10px; gap: 0px").child(anchor.floating(20, 20)).child(under);
-	NativeUiRenderer renderer = NativeUiRenderer();
-	NativeUiFrame frame = renderer.render(root, 160, 120);
+	NativeUIElement icon = NativeUIElement.column("float-icon").style("padding: 0px; width: 8px; height: 8px; background-color: #00ff00").floating(4, 3);
+	NativeUIElement button = NativeUIElement.button("float-button", "").style("padding: 0px; width: 60px; height: 40px; background-color: #ff0000").child(icon);
+	NativeUIElement popup = NativeUIElement.column("float-popup").style("padding: 0px; gap: 0px; width: 60px; height: 40px").child(button).floating(10, -5);
+	NativeUIElement anchor = NativeUIElement.column("float-anchor").style("padding: 4px; gap: 9px; height: 1px").child(popup);
+	NativeUIElement under = NativeUIElement.button("float-under", "").style("padding: 0px; height: 40px; background-color: #0000ff");
+	NativeUIElement root = NativeUIElement.column("float-root").style("padding: 10px; gap: 0px").child(anchor.floating(20, 20)).child(under);
+	NativeUIRenderer renderer = NativeUIRenderer();
+	NativeUIFrame frame = renderer.render(root, 160, 120);
 	assert(frame.ok() && frame.contentHeight == 60);
-	NativeUiLayoutBox underBox = frame.boxFor("float-under");
-	NativeUiLayoutBox popupBox = frame.boxFor("float-popup");
-	NativeUiLayoutBox iconBox = frame.boxFor("float-icon");
+	NativeUILayoutBox underBox = frame.boxFor("float-under");
+	NativeUILayoutBox popupBox = frame.boxFor("float-popup");
+	NativeUILayoutBox iconBox = frame.boxFor("float-icon");
 	assert(underBox.bounds.y == 10 && underBox.bounds.height == 40);
 	assert(popupBox.bounds.x == 30 && popupBox.bounds.y == 15 && popupBox.bounds.width == 60);
 	assert(iconBox.bounds.x == 34 && iconBox.bounds.y == 18);
@@ -145,28 +145,28 @@ void assertFloatingLayout() {
 	int pixel = (19 * frame.image.width + 35) * 4;
 	assert(frame.image.data[pixel] == 0 && frame.image.data[pixel + 1] == 255 && frame.image.data[pixel + 2] == 0);
 	renderer.pointerPressed(35, 19);
-	NativeUiEventBatch clicked = renderer.pointerReleased(35, 19);
+	NativeUIEventBatch clicked = renderer.pointerReleased(35, 19);
 	assert(clicked.eventCount() == 1 && clicked.eventAt(0).elementId() == "float-button");
-	NativeUiElement row = NativeUiElement.row("float-row").style("padding: 0px; gap: 10px").child(NativeUiElement.column("float-left").style("padding: 0px; width: 50px; height: 20px")).child(NativeUiElement.column("float-wide").style("padding: 0px; width: 100px; height: 200px").floating(0, 0)).child(NativeUiElement.column("float-right").style("padding: 0px; height: 30px"));
-	NativeUiFrame rowFrame = renderer.layout(row, 200, 100);
+	NativeUIElement row = NativeUIElement.row("float-row").style("padding: 0px; gap: 10px").child(NativeUIElement.column("float-left").style("padding: 0px; width: 50px; height: 20px")).child(NativeUIElement.column("float-wide").style("padding: 0px; width: 100px; height: 200px").floating(0, 0)).child(NativeUIElement.column("float-right").style("padding: 0px; height: 30px"));
+	NativeUIFrame rowFrame = renderer.layout(row, 200, 100);
 	assert(rowFrame.ok() && rowFrame.contentHeight == 30);
-	NativeUiLayoutBox rightBox = rowFrame.boxFor("float-right");
+	NativeUILayoutBox rightBox = rowFrame.boxFor("float-right");
 	assert(rightBox.bounds.x == 60 && rightBox.bounds.width == 140);
-	NativeUiElement grid = NativeUiElement.virtualGrid("float-grid", NativeUiVirtualGrid(1, 1, 40, 0)).style("padding: 0px; gap: 0px").child(NativeUiElement.button("float-cell", "Album")).child(NativeUiElement.column("float-grid-overlay").style("padding: 0px; height: 100px").floating(0, 0));
-	NativeUiFrame gridFrame = renderer.layout(grid, 200, 100);
+	NativeUIElement grid = NativeUIElement.virtualGrid("float-grid", NativeUIVirtualGrid(1, 1, 40, 0)).style("padding: 0px; gap: 0px").child(NativeUIElement.button("float-cell", "Album")).child(NativeUIElement.column("float-grid-overlay").style("padding: 0px; height: 100px").floating(0, 0));
+	NativeUIFrame gridFrame = renderer.layout(grid, 200, 100);
 	assert(gridFrame.ok() && gridFrame.contentHeight == 40 && gridFrame.boxCount() == 3);
-	NativeUiElement last = NativeUiElement.column("float-last").style("padding: 0px; width: 10px; height: 10px").floating(0, 0);
-	NativeUiElement first = NativeUiElement.column("float-first").style("padding: 0px; width: 10px; height: 10px").floating(0, 0);
-	NativeUiFrame order = renderer.layout(NativeUiElement.grid("float-order").style("padding: 0px").child(first).child(last), 200, 100);
+	NativeUIElement last = NativeUIElement.column("float-last").style("padding: 0px; width: 10px; height: 10px").floating(0, 0);
+	NativeUIElement first = NativeUIElement.column("float-first").style("padding: 0px; width: 10px; height: 10px").floating(0, 0);
+	NativeUIFrame order = renderer.layout(NativeUIElement.grid("float-order").style("padding: 0px").child(first).child(last), 200, 100);
 	assert(order.ok() && order.hitId(1, 1) == "float-last" && order.contentHeight == 1);
-	assertRejected(renderer.layout(NativeUiElement.column("bad-root").floating(0, 0), 200, 100), NATIVE_UI_FRAME_INVALID_TREE);
-	assertRejected(renderer.layout(NativeUiElement.column("bad-offset-root").child(NativeUiElement.column("bad-offset").floating(65537, 0)), 200, 100), NATIVE_UI_FRAME_INVALID_TREE);
-	assertRejected(renderer.layout(NativeUiElement.column("duplicate-root").child(NativeUiElement.column("duplicate")).child(NativeUiElement.column("duplicate").floating(0, 0)), 200, 100), NATIVE_UI_FRAME_INVALID_TREE);
+	assertRejected(renderer.layout(NativeUIElement.column("bad-root").floating(0, 0), 200, 100), NATIVE_UI_FRAME_INVALID_TREE);
+	assertRejected(renderer.layout(NativeUIElement.column("bad-offset-root").child(NativeUIElement.column("bad-offset").floating(65537, 0)), 200, 100), NATIVE_UI_FRAME_INVALID_TREE);
+	assertRejected(renderer.layout(NativeUIElement.column("duplicate-root").child(NativeUIElement.column("duplicate")).child(NativeUIElement.column("duplicate").floating(0, 0)), 200, 100), NATIVE_UI_FRAME_INVALID_TREE);
 }
 
 void assertStyleSheetOverrides() {
-	NativeUiStyleSheet base = NativeUiStyleSheet().rule("card", "padding: 4px; color: #101010; gap: 2px");
-	NativeUiStyleSheet themed = base.copy().extend("card", "color: #fefefe").extend("fresh", "gap: 9px").kindRule(NATIVE_UI_BUTTON, "border-radius: 7px; padding: 3px");
+	NativeUIStyleSheet base = NativeUIStyleSheet().rule("card", "padding: 4px; color: #101010; gap: 2px");
+	NativeUIStyleSheet themed = base.copy().extend("card", "color: #fefefe").extend("fresh", "gap: 9px").kindRule(NATIVE_UI_BUTTON, "border-radius: 7px; padding: 3px");
 	assert(themed.ok());
 	assert(base.ok());
 	assert(base.ruleCount() == 1);
@@ -176,56 +176,56 @@ void assertStyleSheetOverrides() {
 	assert(themed.cssFor("fresh") == "gap: 9px");
 	assert(themed.kindCssFor(NATIVE_UI_BUTTON) == "border-radius: 7px; padding: 3px");
 	assert(themed.kindCssFor(NATIVE_UI_TEXT) == "");
-	NativeUiResolvedStyle card = NativeUiResolvedStyle.from(NativeUiElement.column("card-a").className("card"), themed);
+	NativeUIResolvedStyle card = NativeUIResolvedStyle.from(NativeUIElement.column("card-a").className("card"), themed);
 	assert(card.padding() == 4 && card.gap() == 2);
 	assert(card.hasForeground() && card.foreground().red == 254 && card.foreground().green == 254 && card.foreground().blue == 254);
-	NativeUiResolvedStyle button = NativeUiResolvedStyle.from(NativeUiElement.button("card-b", "Play").className("card").style("padding: 1px"), themed);
+	NativeUIResolvedStyle button = NativeUIResolvedStyle.from(NativeUIElement.button("card-b", "Play").className("card").style("padding: 1px"), themed);
 	assert(button.radius() == 7);
 	assert(button.padding() == 1);
-	NativeUiResolvedStyle plainButton = NativeUiResolvedStyle.from(NativeUiElement.button("card-c", "Play"), themed);
+	NativeUIResolvedStyle plainButton = NativeUIResolvedStyle.from(NativeUIElement.button("card-c", "Play"), themed);
 	assert(plainButton.radius() == 7 && plainButton.padding() == 3);
-	assert(!NativeUiStyleSheet().rule("card", "gap: 1px").extend("card", "gap: nope").ok());
-	assert(!NativeUiStyleSheet().rule("card", "gap: 1px").rule("card", "gap: 2px").ok());
+	assert(!NativeUIStyleSheet().rule("card", "gap: 1px").extend("card", "gap: nope").ok());
+	assert(!NativeUIStyleSheet().rule("card", "gap: 1px").rule("card", "gap: 2px").ok());
 }
 
 void assertControlColors() {
-	assert(NativeUiStyle.validate("border-color: #11223344; marker-color: #aabbcc").ok());
-	assert(!NativeUiStyle.validate("border-color: nope").ok());
-	assert(!NativeUiStyle.validate("marker-color: #1122").ok());
-	NativeUiElement panel = NativeUiElement.column("colored-panel").style("padding: 0px; width: 30px; height: 20px; border-radius: 0px; border-color: #ff0000; background-color: #0000ff");
-	NativeUiFrame frame = NativeUiRenderer().render(panel, 40, 30);
+	assert(NativeUIStyle.validate("border-color: #11223344; marker-color: #aabbcc").ok());
+	assert(!NativeUIStyle.validate("border-color: nope").ok());
+	assert(!NativeUIStyle.validate("marker-color: #1122").ok());
+	NativeUIElement panel = NativeUIElement.column("colored-panel").style("padding: 0px; width: 30px; height: 20px; border-radius: 0px; border-color: #ff0000; background-color: #0000ff");
+	NativeUIFrame frame = NativeUIRenderer().render(panel, 40, 30);
 	assert(frame.ok());
 	assert(frame.image.data[0] == 255 && frame.image.data[2] == 0);
 	int center = (10 * frame.image.width + 10) * 4;
 	assert(frame.image.data[center] == 0 && frame.image.data[center + 2] == 255);
-	NativeUiResolvedStyle style = NativeUiResolvedStyle.from(NativeUiElement.textInput("colored-input", "").style("border-color: #123456; marker-color: #abcdef"), NativeUiStyleSheet());
-	assert(style.hasBorder() && style.border().equals(NativeUiColor(18, 52, 86, 255)));
-	assert(style.hasMarker() && style.marker().equals(NativeUiColor(171, 205, 239, 255)));
+	NativeUIResolvedStyle style = NativeUIResolvedStyle.from(NativeUIElement.textInput("colored-input", "").style("border-color: #123456; marker-color: #abcdef"), NativeUIStyleSheet());
+	assert(style.hasBorder() && style.border().equals(NativeUIColor(18, 52, 86, 255)));
+	assert(style.hasMarker() && style.marker().equals(NativeUIColor(171, 205, 239, 255)));
 }
 
 void assertIntrinsicWidth() {
-	NativeUiElement label = NativeUiElement.text("fit-label", "Ready").style("padding: 0px; width: fit");
-	NativeUiElement detail = NativeUiElement.text("fit-detail", "Library scanned").style("padding: 0px");
-	NativeUiElement row = NativeUiElement.row("fit-row").style("padding: 0px; gap: 9px; width: 200px").child(label).child(detail);
-	NativeUiFrame frame = NativeUiRenderer().layout(row, 300, 100);
+	NativeUIElement label = NativeUIElement.text("fit-label", "Ready").style("padding: 0px; width: fit");
+	NativeUIElement detail = NativeUIElement.text("fit-detail", "Library scanned").style("padding: 0px");
+	NativeUIElement row = NativeUIElement.row("fit-row").style("padding: 0px; gap: 9px; width: 200px").child(label).child(detail);
+	NativeUIFrame frame = NativeUIRenderer().layout(row, 300, 100);
 	assert(frame.ok() && frame.contentWidth == 200);
-	NativeUiLayoutBox labelBox = frame.boxFor("fit-label");
-	NativeUiLayoutBox detailBox = frame.boxFor("fit-detail");
-	int expected = NativeUiTypography().measure("Ready", 14, 14, 400).width();
+	NativeUILayoutBox labelBox = frame.boxFor("fit-label");
+	NativeUILayoutBox detailBox = frame.boxFor("fit-detail");
+	int expected = NativeUITypography().measure("Ready", 14, 14, 400).width();
 	assert(labelBox.bounds.width == expected && detailBox.bounds.x == expected + 9 && detailBox.bounds.width == 200 - expected - 9);
-	NativeUiFrame column = NativeUiRenderer().layout(NativeUiElement.column("fit-column").style("padding: 0px").child(label), 300, 100);
-	NativeUiLayoutBox columnLabel = column.boxFor("fit-label");
+	NativeUIFrame column = NativeUIRenderer().layout(NativeUIElement.column("fit-column").style("padding: 0px").child(label), 300, 100);
+	NativeUILayoutBox columnLabel = column.boxFor("fit-label");
 	assert(column.ok() && columnLabel.bounds.width == expected);
-	NativeUiResolvedStyle overridden = NativeUiResolvedStyle.from(label.style("width: fit; width: 70px"), NativeUiStyleSheet());
+	NativeUIResolvedStyle overridden = NativeUIResolvedStyle.from(label.style("width: fit; width: 70px"), NativeUIStyleSheet());
 	assert(!overridden.fitWidth() && overridden.width() == 70);
-	assertRejected(NativeUiRenderer().layout(NativeUiElement.column("fit-invalid").style("width: fit"), 300, 100), NATIVE_UI_FRAME_INVALID_STYLE);
+	assertRejected(NativeUIRenderer().layout(NativeUIElement.column("fit-invalid").style("width: fit"), 300, 100), NATIVE_UI_FRAME_INVALID_STYLE);
 }
 
 void assertTextRaster() {
-	NativeUiTypography typography = NativeUiTypography();
-	NativeUiColor ink = NativeUiColor(200, 100, 50, 255);
-	Image raster = NativeUiTextRaster.rasterize(typography, "Ab", 16, 20, 600, ink);
-	NativeUiTextMetrics metrics = typography.measure("Ab", 16, 20, 600);
+	NativeUITypography typography = NativeUITypography();
+	NativeUIColor ink = NativeUIColor(200, 100, 50, 255);
+	Image raster = NativeUITextRaster.rasterize(typography, "Ab", 16, 20, 600, ink);
+	NativeUITextMetrics metrics = typography.measure("Ab", 16, 20, 600);
 	assert(raster.width == metrics.width());
 	assert(raster.height == 20);
 	int inked = 0;
@@ -244,11 +244,11 @@ void assertTextRaster() {
 		}
 	}
 	assert(inked > 0 && clear > 0);
-	Image scaled = NativeUiTextRaster.rasterize(typography, "Ab", 16, 20, 600, ink, 2.0f);
+	Image scaled = NativeUITextRaster.rasterize(typography, "Ab", 16, 20, 600, ink, 2.0f);
 	assert(scaled.width == 2 * typography.advance(32) && scaled.height == 40);
-	assert(NativeUiTextRaster.rasterize(typography, "", 16, 20, 400, ink).isEmpty());
-	assert(NativeUiTextRaster.tryPlatformRasterize(typography, "Ab", 16, 20, 400, ink) == null);
-	Image translucent = NativeUiTextRaster.rasterize(typography, "A", 16, 20, 400, NativeUiColor(0, 0, 255, 128));
+	assert(NativeUITextRaster.rasterize(typography, "", 16, 20, 400, ink).isEmpty());
+	assert(NativeUITextRaster.tryPlatformRasterize(typography, "Ab", 16, 20, 400, ink) == null);
+	Image translucent = NativeUITextRaster.rasterize(typography, "A", 16, 20, 400, NativeUIColor(0, 0, 255, 128));
 	bool sawHalf = false;
 	for (int i = 0; i < translucent.width * translucent.height; i++) {
 		int alpha = (int)translucent.data[i * 4 + 3];
@@ -257,7 +257,7 @@ void assertTextRaster() {
 	}
 	assert(sawHalf);
 	Image canvas = Image(raster.width + 4, raster.height + 4);
-	NativeUiTextRaster.blit(canvas, raster, 2, 2);
+	NativeUITextRaster.blit(canvas, raster, 2, 2);
 	assert((int)canvas.data[3] == 0);
 	int blitted = 0;
 	for (int i = 0; i < canvas.width * canvas.height; i++) { if ((int)canvas.data[i * 4 + 3] == 255) { blitted++; } }
@@ -266,36 +266,36 @@ void assertTextRaster() {
 	opaque.setRGBA(1, 1, 0, 0, 0, 255);
 	Image dot = Image(1, 1);
 	dot.setRGBA(0, 0, 255, 255, 255, 128);
-	NativeUiTextRaster.blit(opaque, dot, 1, 1);
+	NativeUITextRaster.blit(opaque, dot, 1, 1);
 	assert((int)opaque.data[(1 * 4 + 1) * 4] == 128 && (int)opaque.data[(1 * 4 + 1) * 4 + 3] == 255);
 	string longRun = "";
 	for (int i = 0; i < 1400; i++) { longRun = longRun + "\xc3\xa9" + "a"; }
-	string bounded = NativeUiTextRaster.bounded(longRun);
+	string bounded = NativeUITextRaster.bounded(longRun);
 	assert(bounded.len() == 4095);
-	assert(NativeUiTextInput.validUtf8(bounded));
-	assert(NativeUiTextRaster.bounded("short") == "short");
+	assert(NativeUITextInput.validUtf8(bounded));
+	assert(NativeUITextRaster.bounded("short") == "short");
 	string malformed = "";
 	for (int i = 0; i < 4000; i++) { malformed = malformed + "a"; }
 	malformed = malformed + "\xff";
 	for (int i = 0; i < 200; i++) { malformed = malformed + "a"; }
-	assert(NativeUiTextRaster.bounded(malformed).len() == 4000);
-	Image wide = NativeUiTextRaster.deterministic(typography, "Verse", 14, 20, 400, ink, 1.0f);
+	assert(NativeUITextRaster.bounded(malformed).len() == 4000);
+	Image wide = NativeUITextRaster.deterministic(typography, "Verse", 14, 20, 400, ink, 1.0f);
 	assert(wide.width == 5 * typography.advance(14) && wide.height == 20);
 }
 
-void assertFrozenStyleRejectsMutation(NativeUiResolvedStyle style) {
+void assertFrozenStyleRejectsMutation(NativeUIResolvedStyle style) {
 	bool rejected = false;
 	try { style.apply("padding: 99px"); } catch (string error) { rejected = error == "cannot edit a frozen native UI style; copy it first"; }
 	assert(rejected && style.isFrozen());
 }
 
 void assertFrozenStyleSharing() {
-	NativeUiResolvedStyle style = NativeUiResolvedStyle(NATIVE_UI_BUTTON);
+	NativeUIResolvedStyle style = NativeUIResolvedStyle(NATIVE_UI_BUTTON);
 	style.apply("padding: 3px; background-color: #12345678; color: #23456789; border-color: #3456789a; marker-color: #456789ab");
-	NativeUiColor background = style.background();
-	NativeUiColor foreground = style.foreground();
-	NativeUiColor border = style.border();
-	NativeUiColor marker = style.marker();
+	NativeUIColor background = style.background();
+	NativeUIColor foreground = style.foreground();
+	NativeUIColor border = style.border();
+	NativeUIColor marker = style.marker();
 	assert(!style.isFrozen() && style.freeze() == style && style.freeze() == style);
 	background.red = 255;
 	foreground.green = 255;
@@ -308,19 +308,19 @@ void assertFrozenStyleSharing() {
 	style.marker().alpha = 0;
 	assert(style.background().red == 18 && style.foreground().green == 69 && style.border().blue == 120 && style.marker().alpha == 171);
 	assertFrozenStyleRejectsMutation(style);
-	NativeUiResolvedStyle editable = style.copy();
+	NativeUIResolvedStyle editable = style.copy();
 	assert(!editable.isFrozen());
 	editable.apply("padding: 7px; color: #ffffff");
 	editable.background().red = 255;
 	assert(style.padding() == 3 && style.foreground().red == 35 && style.background().red == 18);
 	assert(editable.padding() == 7 && editable.foreground().red == 255 && editable.background().red == 255);
-	NativeUiStyleCache cache = NativeUiStyleCache();
-	NativeUiStyleSheet sheet = NativeUiStyleSheet();
-	NativeUiElement first = NativeUiElement.text("one", "One").style("color: #123456");
-	NativeUiElement second = NativeUiElement.text("two", "Two").style("color: #123456");
-	NativeUiResolvedStyle shared = cache.resolve(first, sheet, false);
+	NativeUIStyleCache cache = NativeUIStyleCache();
+	NativeUIStyleSheet sheet = NativeUIStyleSheet();
+	NativeUIElement first = NativeUIElement.text("one", "One").style("color: #123456");
+	NativeUIElement second = NativeUIElement.text("two", "Two").style("color: #123456");
+	NativeUIResolvedStyle shared = cache.resolve(first, sheet, false);
 	assert(shared.isFrozen() && cache.resolve(second, sheet, false) == shared);
-	NativeUiResolvedStyle independent = cache.resolve(first, sheet);
+	NativeUIResolvedStyle independent = cache.resolve(first, sheet);
 	assert(!independent.isFrozen() && independent != shared);
 	independent.apply("color: #ffffff");
 	assert(shared.foreground().red == 18);
@@ -328,9 +328,9 @@ void assertFrozenStyleSharing() {
 
 void assertLayoutStyleReuse() {
 	assertFrozenStyleSharing();
-	NativeUiResolvedStyle original = NativeUiResolvedStyle(NATIVE_UI_BUTTON);
+	NativeUIResolvedStyle original = NativeUIResolvedStyle(NATIVE_UI_BUTTON);
 	original.apply("gap: 3px; padding: 5px; border-radius: 7px; width: fit; height: 31px; font-size: 18px; line-height: 22px; font-weight: 600; text-align: right; align-items: end; background-color: #12345678; color: #23456789; border-color: #3456789a; marker-color: #456789ab");
-	NativeUiResolvedStyle copied = original.copy();
+	NativeUIResolvedStyle copied = original.copy();
 	assert(copied != original && copied.gap() == 3 && copied.padding() == 5 && copied.radius() == 7);
 	assert(copied.width() == 0 && copied.fitWidth() && copied.height() == 31 && copied.fontSize() == 18 && copied.lineHeight() == 22 && copied.fontWeight() == 600);
 	assert(copied.textAlignment() == NATIVE_UI_TEXT_ALIGN_RIGHT && copied.crossAlignment() == NATIVE_UI_ALIGN_END);
@@ -346,15 +346,15 @@ void assertLayoutStyleReuse() {
 	assert(original.background().red == 18 && original.foreground().green == 69 && original.border().blue == 120 && original.marker().alpha == 171);
 	original.background().red = -1;
 	original.marker().alpha = 300;
-	NativeUiResolvedStyle clamped = original.copy();
+	NativeUIResolvedStyle clamped = original.copy();
 	assert(clamped.background().red == 0 && clamped.marker().alpha == 255);
-	NativeUiStyleCache cache = NativeUiStyleCache();
-	NativeUiStyleSheet sheet = NativeUiStyleSheet().kindRule(NATIVE_UI_TEXT, "font-size: 20px; line-height: 24px").rule("cached", "color: #123456");
-	NativeUiElement styled = NativeUiElement.text("cached", "Cached").className("cached").style("width: 20px");
-	NativeUiResolvedStyle resolved = cache.resolve(styled, sheet);
+	NativeUIStyleCache cache = NativeUIStyleCache();
+	NativeUIStyleSheet sheet = NativeUIStyleSheet().kindRule(NATIVE_UI_TEXT, "font-size: 20px; line-height: 24px").rule("cached", "color: #123456");
+	NativeUIElement styled = NativeUIElement.text("cached", "Cached").className("cached").style("width: 20px");
+	NativeUIResolvedStyle resolved = cache.resolve(styled, sheet);
 	resolved.apply("width: 99px");
 	resolved.foreground().red = 255;
-	NativeUiResolvedStyle untouched = cache.resolve(styled, sheet);
+	NativeUIResolvedStyle untouched = cache.resolve(styled, sheet);
 	assert(untouched.width() == 20 && untouched.foreground().red == 18 && cache.count() == 1);
 	sheet.extend("cached", "color: #654321");
 	assert(cache.resolve(styled, sheet).foreground().red == 101);
@@ -363,12 +363,12 @@ void assertLayoutStyleReuse() {
 	styled.style("width: 60px");
 	assert(cache.resolve(styled, sheet).width() == 60);
 	for (int index = 0; index < 600; index++) {
-		cache.resolve(NativeUiElement.text("bounded-style", "Same").style(f"width: {index + 1}px"), sheet);
+		cache.resolve(NativeUIElement.text("bounded-style", "Same").style(f"width: {index + 1}px"), sheet);
 		assert(cache.count() <= 256);
 	}
 	assert(cache.resolve(styled, sheet).width() == 60);
-	NativeUiTypography typography = NativeUiTypography();
-	NativeUiTextMetrics metrics = typography.measure("Repeated", 14, 18);
+	NativeUITypography typography = NativeUITypography();
+	NativeUITextMetrics metrics = typography.measure("Repeated", 14, 18);
 	assert(typography.measure("Repeated", 14, 18) == metrics && typography.cachedMeasurementCount() == 1);
 	assert(typography.measure("Repeated", 20, 24).width() != metrics.width());
 	for (int index = 0; index < 700; index++) {
@@ -376,73 +376,73 @@ void assertLayoutStyleReuse() {
 		assert(typography.cachedMeasurementCount() <= 512);
 	}
 	assert(typography.measure("Repeated", 14, 18).width() == metrics.width());
-	NativeUiBuildContext context = NativeUiBuildContext(NativeUiStyleSheet(), NativeUiTypography());
-	NativeUiElement first = NativeUiElement.text("cached-first", "One").style("width: 20px");
-	NativeUiElement second = NativeUiElement.text("cached-second", "Two").style("width: 20px");
-	NativeUiResolvedStyle style = context.resolveStyle(first);
+	NativeUIBuildContext context = NativeUIBuildContext(NativeUIStyleSheet(), NativeUITypography());
+	NativeUIElement first = NativeUIElement.text("cached-first", "One").style("width: 20px");
+	NativeUIElement second = NativeUIElement.text("cached-second", "Two").style("width: 20px");
+	NativeUIResolvedStyle style = context.resolveStyle(first);
 	assert(context.resolveStyle(first) == style);
 	assert(context.resolveStyle(second) != style);
-	NativeUiElement root = NativeUiElement.row("cached-row").child(first).child(second);
-	NativeUiRenderer renderer = NativeUiRenderer();
-	NativeUiFrame before = renderer.layout(root, 400, 200);
+	NativeUIElement root = NativeUIElement.row("cached-row").child(first).child(second);
+	NativeUIRenderer renderer = NativeUIRenderer();
+	NativeUIFrame before = renderer.layout(root, 400, 200);
 	assert(before.ok());
 	first.style("width: 40px");
-	NativeUiFrame after = renderer.layout(root, 400, 200);
+	NativeUIFrame after = renderer.layout(root, 400, 200);
 	assert(after.ok());
-	NativeUiLayoutBox firstBefore = before.boxFor("cached-first");
-	NativeUiLayoutBox firstAfter = after.boxFor("cached-first");
+	NativeUILayoutBox firstBefore = before.boxFor("cached-first");
+	NativeUILayoutBox firstAfter = after.boxFor("cached-first");
 	assert(firstBefore.style.width() == 20 && firstAfter.style.width() == 40);
 	firstAfter.style.apply("width: 99px");
-	NativeUiFrame again = renderer.layout(root, 400, 200);
-	NativeUiLayoutBox firstAgain = again.boxFor("cached-first");
+	NativeUIFrame again = renderer.layout(root, 400, 200);
+	NativeUILayoutBox firstAgain = again.boxFor("cached-first");
 	assert(firstAgain.style.width() == 40);
-	assertRejected(renderer.layout(NativeUiElement.row("duplicates").child(NativeUiElement.text("same", "A").style("width: 20px")).child(NativeUiElement.text("same", "B").style("width: 30px")), 400, 200), NATIVE_UI_FRAME_INVALID_TREE);
+	assertRejected(renderer.layout(NativeUIElement.row("duplicates").child(NativeUIElement.text("same", "A").style("width: 20px")).child(NativeUIElement.text("same", "B").style("width: 30px")), 400, 200), NATIVE_UI_FRAME_INVALID_TREE);
 }
 
 void assertRetainedResourceBounds() {
-	NativeUiRenderer renderer = NativeUiRenderer();
-	NativeUiElement large = NativeUiElement.column("large");
-	for (int index = 0; index < 4094; index++) { large.child(NativeUiElement.text(f"large:{index}", "N")); }
-	assert(renderer.layoutImmutable(NativeUiElement.column("limit-root").child(large), 80, 80).ok());
-	assertRejected(renderer.layoutImmutable(NativeUiElement.column("limit-root").child(NativeUiElement.text("extra", "N")).child(large), 80, 80), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
+	NativeUIRenderer renderer = NativeUIRenderer();
+	NativeUIElement large = NativeUIElement.column("large");
+	for (int index = 0; index < 4094; index++) { large.child(NativeUIElement.text(f"large:{index}", "N")); }
+	assert(renderer.layoutImmutable(NativeUIElement.column("limit-root").child(large), 80, 80).ok());
+	assertRejected(renderer.layoutImmutable(NativeUIElement.column("limit-root").child(NativeUIElement.text("extra", "N")).child(large), 80, 80), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
 	assert(renderer.retainedMeasurementCount() == 0);
-	NativeUiElement metadata = NativeUiElement.column("metadata");
-	NativeUiElement moreMetadata = NativeUiElement.column("more-metadata");
+	NativeUIElement metadata = NativeUIElement.column("metadata");
+	NativeUIElement moreMetadata = NativeUIElement.column("more-metadata");
 	string content = Strings.repeat("m", 4096);
 	for (int index = 0; index < 550; index++) {
-		metadata.child(NativeUiElement.text(f"metadata:{index}", content));
-		moreMetadata.child(NativeUiElement.text(f"more-metadata:{index}", content));
+		metadata.child(NativeUIElement.text(f"metadata:{index}", content));
+		moreMetadata.child(NativeUIElement.text(f"more-metadata:{index}", content));
 	}
-	assert(renderer.layoutImmutable(NativeUiElement.column("metadata-root").child(metadata), 80, 80).ok());
-	assertRejected(renderer.layoutImmutable(NativeUiElement.column("metadata-root").child(moreMetadata).child(metadata), 80, 80), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
+	assert(renderer.layoutImmutable(NativeUIElement.column("metadata-root").child(metadata), 80, 80).ok());
+	assertRejected(renderer.layoutImmutable(NativeUIElement.column("metadata-root").child(moreMetadata).child(metadata), 80, 80), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
 	Image sharedImage = Image(1024, 1024);
-	NativeUiElement images = NativeUiElement.column("images");
-	NativeUiElement moreImages = NativeUiElement.column("more-images");
+	NativeUIElement images = NativeUIElement.column("images");
+	NativeUIElement moreImages = NativeUIElement.column("more-images");
 	for (int index = 0; index < 33; index++) {
-		images.child(NativeUiElement.image(f"image:{index}", sharedImage, "Image"));
-		moreImages.child(NativeUiElement.image(f"more-image:{index}", sharedImage, "Image"));
+		images.child(NativeUIElement.image(f"image:{index}", sharedImage, "Image"));
+		moreImages.child(NativeUIElement.image(f"more-image:{index}", sharedImage, "Image"));
 	}
-	assert(renderer.layoutImmutable(NativeUiElement.column("image-root").child(images), 80, 80).ok());
-	assertRejected(renderer.layoutImmutable(NativeUiElement.column("image-root").child(moreImages).child(images), 80, 80), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
+	assert(renderer.layoutImmutable(NativeUIElement.column("image-root").child(images), 80, 80).ok());
+	assertRejected(renderer.layoutImmutable(NativeUIElement.column("image-root").child(moreImages).child(images), 80, 80), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
 }
 
 void assertRetainedMeasurements() {
-	NativeUiStyleSheet sheet = NativeUiStyleSheet().rule("retained", "padding: 2px; background-color: #112233");
-	NativeUiRenderer renderer = NativeUiRenderer.styled(sheet);
-	NativeUiElement retained = NativeUiElement.column("retained").className("retained");
-	for (int index = 0; index < 100; index++) { retained.child(NativeUiElement.text(f"retained:{index}", "Shared")); }
-	NativeUiElement root = NativeUiElement.column("root").child(retained).child(NativeUiElement.text("changing", "Before"));
-	NativeUiFrame first = renderer.layoutImmutable(root, 400, 200);
+	NativeUIStyleSheet sheet = NativeUIStyleSheet().rule("retained", "padding: 2px; background-color: #112233");
+	NativeUIRenderer renderer = NativeUIRenderer.styled(sheet);
+	NativeUIElement retained = NativeUIElement.column("retained").className("retained");
+	for (int index = 0; index < 100; index++) { retained.child(NativeUIElement.text(f"retained:{index}", "Shared")); }
+	NativeUIElement root = NativeUIElement.column("root").child(retained).child(NativeUIElement.text("changing", "Before"));
+	NativeUIFrame first = renderer.layoutImmutable(root, 400, 200);
 	assert(first.ok() && renderer.measuredNodeCount() == 103 && renderer.reusedNodeCount() == 0);
-	NativeUiFrame same = renderer.layoutImmutable(root, 400, 200);
+	NativeUIFrame same = renderer.layoutImmutable(root, 400, 200);
 	assert(same.ok() && renderer.measuredNodeCount() == 0 && renderer.reusedNodeCount() == 103 && renderer.retainedMeasurementCount() == 103);
 	assert(first.boxFor("retained").style == same.boxFor("retained").style && first.boxFor("retained").style.isFrozen());
 	assertFrozenStyleRejectsMutation(first.boxFor("retained").style);
 	first.boxFor("retained").style = first.boxFor("retained").style.copy();
 	first.boxFor("retained").style.apply("padding: 99px");
 	first.boxFor("retained").style.background().red = 255;
-	NativeUiElement changed = NativeUiElement.column("root").child(retained).child(NativeUiElement.text("changing", "After"));
-	NativeUiFrame next = renderer.layoutImmutable(changed, 400, 200);
+	NativeUIElement changed = NativeUIElement.column("root").child(retained).child(NativeUIElement.text("changing", "After"));
+	NativeUIFrame next = renderer.layoutImmutable(changed, 400, 200);
 	assert(next.ok() && renderer.measuredNodeCount() == 2 && renderer.reusedNodeCount() == 101);
 	assert(next.boxFor("retained").style.padding() == 2 && next.boxFor("retained").style.background().red == 17);
 	assert(same.boxFor("retained").style.padding() == 2 && same.boxFor("retained").style.background().red == 17);
@@ -451,42 +451,42 @@ void assertRetainedMeasurements() {
 	sheet.extend("retained", "padding: 6px");
 	assert(renderer.layoutImmutable(changed, 240, 200).boxFor("retained").style.padding() == 6 && renderer.reusedNodeCount() == 0);
 	sheet.kindRule(NATIVE_UI_TEXT, "line-height: 30px");
-	NativeUiFrame kindChanged = renderer.layoutImmutable(changed, 240, 200);
-	NativeUiLayoutBox kindChangedBox = kindChanged.boxFor("retained:0");
+	NativeUIFrame kindChanged = renderer.layoutImmutable(changed, 240, 200);
+	NativeUILayoutBox kindChangedBox = kindChanged.boxFor("retained:0");
 	assert(kindChangedBox.style.lineHeight() == 30 && kindChangedBox.bounds.height == 30 + 2 * kindChangedBox.style.padding() && renderer.reusedNodeCount() == 0);
-	NativeUiElement duplicate = NativeUiElement.column("root").child(retained).child(NativeUiElement.text("retained:0", "Duplicate"));
+	NativeUIElement duplicate = NativeUIElement.column("root").child(retained).child(NativeUIElement.text("retained:0", "Duplicate"));
 	assertRejected(renderer.layoutImmutable(duplicate, 240, 200), NATIVE_UI_FRAME_INVALID_TREE);
 	assert(renderer.retainedMeasurementCount() == 0);
 	assert(renderer.layoutImmutable(changed, 240, 200).ok() && renderer.reusedNodeCount() == 0);
-	assert(renderer.layoutImmutable(NativeUiElement.column("empty"), 240, 200).ok() && renderer.retainedMeasurementCount() == 1);
+	assert(renderer.layoutImmutable(NativeUIElement.column("empty"), 240, 200).ok() && renderer.retainedMeasurementCount() == 1);
 	assert(renderer.layoutImmutable(changed, 240, 200).ok() && renderer.reusedNodeCount() == 0);
-	changed.child(NativeUiElement.text("mutable-addition", "New"));
+	changed.child(NativeUIElement.text("mutable-addition", "New"));
 	assert(renderer.layout(changed, 240, 200).boxFor("mutable-addition").element.contentText() == "New" && renderer.retainedMeasurementCount() == 0);
 
 	// A virtual row's assigned height must not modify cached intrinsic size.
-	NativeUiElement row = NativeUiElement.row("row").style("align-items: center").child(NativeUiElement.text("row-text", "Short"));
-	NativeUiRenderer virtualRenderer = NativeUiRenderer();
-	NativeUiElement grid = NativeUiElement.virtualGrid("grid", NativeUiVirtualGrid(1, 1, 100, 0)).child(row);
-	NativeUiFrame gridFrame = virtualRenderer.layoutImmutable(grid, 240, 200);
+	NativeUIElement row = NativeUIElement.row("row").style("align-items: center").child(NativeUIElement.text("row-text", "Short"));
+	NativeUIRenderer virtualRenderer = NativeUIRenderer();
+	NativeUIElement grid = NativeUIElement.virtualGrid("grid", NativeUIVirtualGrid(1, 1, 100, 0)).child(row);
+	NativeUIFrame gridFrame = virtualRenderer.layoutImmutable(grid, 240, 200);
 	assert(gridFrame.ok() && gridFrame.boxFor("row").bounds.height == 100);
-	NativeUiElement tallerGrid = NativeUiElement.virtualGrid("grid", NativeUiVirtualGrid(1, 1, 140, 0)).child(row);
-	NativeUiFrame tallerFrame = virtualRenderer.layoutImmutable(tallerGrid, 240, 200);
+	NativeUIElement tallerGrid = NativeUIElement.virtualGrid("grid", NativeUIVirtualGrid(1, 1, 140, 0)).child(row);
+	NativeUIFrame tallerFrame = virtualRenderer.layoutImmutable(tallerGrid, 240, 200);
 	assert(tallerFrame.ok() && virtualRenderer.reusedNodeCount() == 2 && tallerFrame.boxFor("row").bounds.height == 140);
 	assert(tallerFrame.boxFor("row-text").bounds.y == gridFrame.boxFor("row-text").bounds.y + 20);
-	NativeUiFrame columnFrame = virtualRenderer.layoutImmutable(NativeUiElement.column("column").child(row), 240, 200);
+	NativeUIFrame columnFrame = virtualRenderer.layoutImmutable(NativeUIElement.column("column").child(row), 240, 200);
 	assert(columnFrame.ok() && virtualRenderer.reusedNodeCount() == 2 && columnFrame.boxFor("row").bounds.height < 100);
 
-	NativeUiElement deep = NativeUiElement.column("deep:0");
-	NativeUiElement cursor = deep;
+	NativeUIElement deep = NativeUIElement.column("deep:0");
+	NativeUIElement cursor = deep;
 	for (int index = 1; index <= 64; index++) {
-		NativeUiElement child = NativeUiElement.column(f"deep:{index}");
+		NativeUIElement child = NativeUIElement.column(f"deep:{index}");
 		cursor.child(child);
 		cursor = child;
 	}
 	assert(renderer.layoutImmutable(deep, 240, 200).ok());
-	assertRejected(renderer.layoutImmutable(NativeUiElement.column("deeper").child(deep), 240, 200), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
+	assertRejected(renderer.layoutImmutable(NativeUIElement.column("deeper").child(deep), 240, 200), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
 	for (int index = 0; index < 100; index++) {
-		NativeUiElement window = NativeUiElement.column(f"window:{index}").child(NativeUiElement.text(f"entering:{index}", "Album"));
+		NativeUIElement window = NativeUIElement.column(f"window:{index}").child(NativeUIElement.text(f"entering:{index}", "Album"));
 		assert(renderer.layoutImmutable(window, 240, 200).ok());
 		assert(renderer.retainedMeasurementCount() == 2 && renderer.measuredNodeCount() == 2 && renderer.reusedNodeCount() == 0);
 	}
@@ -495,37 +495,37 @@ void assertRetainedMeasurements() {
 void assertDirectionalPadding() {
 	Vector<string> edges = ["top", "right", "bottom", "left"];
 	for edge in edges {
-		assert(NativeUiStyle.validate(f"padding-{edge}: 0px").ok());
-		assert(NativeUiStyle.validate(f"padding-{edge}: 4096px").ok());
-		assert(!NativeUiStyle.validate(f"padding-{edge}: -1px").ok());
-		assert(!NativeUiStyle.validate(f"padding-{edge}: 4097px").ok());
-		assert(!NativeUiStyle.validate(f"padding-{edge}: 2em").ok());
+		assert(NativeUIStyle.validate(f"padding-{edge}: 0px").ok());
+		assert(NativeUIStyle.validate(f"padding-{edge}: 4096px").ok());
+		assert(!NativeUIStyle.validate(f"padding-{edge}: -1px").ok());
+		assert(!NativeUIStyle.validate(f"padding-{edge}: 4097px").ok());
+		assert(!NativeUIStyle.validate(f"padding-{edge}: 2em").ok());
 	}
-	NativeUiStyleSheet sheet = NativeUiStyleSheet().rule("inset", "padding: 3px; padding-right: 9px");
-	NativeUiElement root = NativeUiElement.column("inset-root").className("inset").style("gap: 0px; padding-top: 5px; padding-left: 7px").child(NativeUiElement.column("inset-child").style("padding: 0px; height: 20px"));
-	NativeUiRenderer renderer = NativeUiRenderer.styled(sheet);
-	NativeUiFrame frame = renderer.layoutImmutable(root, 100, 100);
+	NativeUIStyleSheet sheet = NativeUIStyleSheet().rule("inset", "padding: 3px; padding-right: 9px");
+	NativeUIElement root = NativeUIElement.column("inset-root").className("inset").style("gap: 0px; padding-top: 5px; padding-left: 7px").child(NativeUIElement.column("inset-child").style("padding: 0px; height: 20px"));
+	NativeUIRenderer renderer = NativeUIRenderer.styled(sheet);
+	NativeUIFrame frame = renderer.layoutImmutable(root, 100, 100);
 	assert(frame.ok());
-	NativeUiResolvedStyle style = frame.boxFor("inset-root").style;
+	NativeUIResolvedStyle style = frame.boxFor("inset-root").style;
 	assert(style.padding() == 3 && style.paddingTop() == 5 && style.paddingRight() == 9 && style.paddingBottom() == 3 && style.paddingLeft() == 7);
 	assert(frame.boxFor("inset-root").bounds.height == 28);
 	assert(frame.boxFor("inset-child").bounds.x == 7 && frame.boxFor("inset-child").bounds.y == 5 && frame.boxFor("inset-child").bounds.width == 84);
-	NativeUiResolvedStyle copy = style.copy();
+	NativeUIResolvedStyle copy = style.copy();
 	copy.apply("padding-left: 11px");
 	assert(copy.paddingLeft() == 11 && style.paddingLeft() == 7 && copy.paddingTop() == 5 && copy.paddingRight() == 9 && copy.paddingBottom() == 3);
 	copy.apply("padding: 2px");
 	assert(copy.paddingTop() == 2 && copy.paddingRight() == 2 && copy.paddingBottom() == 2 && copy.paddingLeft() == 2);
-	NativeUiElement row = NativeUiElement.row("inset-row").style("padding: 0px; padding-top: 5px; padding-bottom: 3px; padding-left: 7px; padding-right: 9px; height: 40px; align-items: end").child(NativeUiElement.column("inset-row-child").style("padding: 0px; height: 20px"));
-	NativeUiFrame rowFrame = NativeUiRenderer().layout(row, 100, 100);
+	NativeUIElement row = NativeUIElement.row("inset-row").style("padding: 0px; padding-top: 5px; padding-bottom: 3px; padding-left: 7px; padding-right: 9px; height: 40px; align-items: end").child(NativeUIElement.column("inset-row-child").style("padding: 0px; height: 20px"));
+	NativeUIFrame rowFrame = NativeUIRenderer().layout(row, 100, 100);
 	assert(rowFrame.ok() && rowFrame.boxFor("inset-row-child").bounds.x == 7 && rowFrame.boxFor("inset-row-child").bounds.y == 17 && rowFrame.boxFor("inset-row-child").bounds.width == 84);
-	NativeUiElement grid = NativeUiElement.virtualGrid("inset-grid", NativeUiVirtualGrid(8, 2, 20, 0)).style("gap: 0px; padding: 0px; padding-top: 5px; padding-bottom: 3px; padding-left: 7px; padding-right: 9px").child(NativeUiElement.column("inset-grid-child").style("padding: 0px"));
-	NativeUiFrame gridFrame = NativeUiRenderer().layout(grid, 100, 60);
+	NativeUIElement grid = NativeUIElement.virtualGrid("inset-grid", NativeUIVirtualGrid(8, 2, 20, 0)).style("gap: 0px; padding: 0px; padding-top: 5px; padding-bottom: 3px; padding-left: 7px; padding-right: 9px").child(NativeUIElement.column("inset-grid-child").style("padding: 0px"));
+	NativeUIFrame gridFrame = NativeUIRenderer().layout(grid, 100, 60);
 	assert(gridFrame.ok() && gridFrame.contentHeight == 88);
 	assert(gridFrame.boxFor("inset-grid-child").bounds.x == 7 && gridFrame.boxFor("inset-grid-child").bounds.y == 5 && gridFrame.boxFor("inset-grid-child").bounds.width == 42);
 	Image source = Image(1, 1);
 	source.setRGBA(0, 0, 201, 37, 19, 255);
-	NativeUiElement picture = NativeUiElement.image("inset-image", source, "cover").style("width: 30px; height: 25px; padding: 0px; padding-top: 5px; padding-bottom: 3px; padding-left: 7px; padding-right: 9px");
-	NativeUiFrame raster = NativeUiRenderer().render(picture, 40, 40);
+	NativeUIElement picture = NativeUIElement.image("inset-image", source, "cover").style("width: 30px; height: 25px; padding: 0px; padding-top: 5px; padding-bottom: 3px; padding-left: 7px; padding-right: 9px");
+	NativeUIFrame raster = NativeUIRenderer().render(picture, 40, 40);
 	assert(raster.ok());
 	for (int y = 0; y < 40; y++) {
 		for (int x = 0; x < 40; x++) {
@@ -534,25 +534,25 @@ void assertDirectionalPadding() {
 			assert((raster.image.data[offset] == 201 && raster.image.data[offset + 1] == 37 && raster.image.data[offset + 2] == 19) == painted);
 		}
 	}
-	NativeUiElement wide = NativeUiElement.column("wide-padding").style("padding: 0px; padding-left: 90px; padding-right: 90px").child(NativeUiElement.column("wide-child").style("padding: 0px; height: 5px"));
-	NativeUiFrame narrow = NativeUiRenderer().layout(wide, 30, 30);
+	NativeUIElement wide = NativeUIElement.column("wide-padding").style("padding: 0px; padding-left: 90px; padding-right: 90px").child(NativeUIElement.column("wide-child").style("padding: 0px; height: 5px"));
+	NativeUIFrame narrow = NativeUIRenderer().layout(wide, 30, 30);
 	assert(narrow.ok() && narrow.boxFor("wide-child").bounds.width == 1);
 }
 
 void assertTransparentButtonFeedback() {
-	for theme in [NativeUiTheme.dark(), NativeUiTheme.light()] {
-		NativeUiElement button = NativeUiElement.button("transparent-control", "").style("padding: 0px; width: 40px; height: 40px; border-radius: 8px; background-color: #00000000; color: #ffffffff");
-		NativeUiResolvedStyle style = NativeUiResolvedStyle.from(button, NativeUiStyleSheet());
+	for theme in [NativeUITheme.dark(), NativeUITheme.light()] {
+		NativeUIElement button = NativeUIElement.button("transparent-control", "").style("padding: 0px; width: 40px; height: 40px; border-radius: 8px; background-color: #00000000; color: #ffffffff");
+		NativeUIResolvedStyle style = NativeUIResolvedStyle.from(button, NativeUIStyleSheet());
 		assert(theme.buttonFill(style, false).alpha == 0);
-		NativeUiColor hover = theme.buttonFill(style, true);
-		NativeUiColor pressed = theme.buttonFill(style, true, true);
-		assert(hover.equals(NativeUiColor(255, 255, 255, 15)));
-		assert(pressed.equals(NativeUiColor(255, 255, 255, 30)));
-		NativeUiElement root = NativeUiElement.column("material").style("padding: 0px; width: 60px; height: 60px; background-color: #202020").child(button);
-		NativeUiRenderer renderer = NativeUiRenderer(theme);
-		NativeUiFrame idle = renderer.render(root, 60, 60);
+		NativeUIColor hover = theme.buttonFill(style, true);
+		NativeUIColor pressed = theme.buttonFill(style, true, true);
+		assert(hover.equals(NativeUIColor(255, 255, 255, 15)));
+		assert(pressed.equals(NativeUIColor(255, 255, 255, 30)));
+		NativeUIElement root = NativeUIElement.column("material").style("padding: 0px; width: 60px; height: 60px; background-color: #202020").child(button);
+		NativeUIRenderer renderer = NativeUIRenderer(theme);
+		NativeUIFrame idle = renderer.render(root, 60, 60);
 		renderer.pointerMoved(20, 20);
-		NativeUiFrame highlighted = renderer.render(root, 60, 60);
+		NativeUIFrame highlighted = renderer.render(root, 60, 60);
 		assert(highlighted.image.pixel(20, 3).red > idle.image.pixel(20, 3).red);
 		assert(highlighted.image.pixel(1, 1).equals(idle.image.pixel(1, 1)));
 		renderer.pointerMoved(50, 50);
@@ -561,13 +561,13 @@ void assertTransparentButtonFeedback() {
 }
 
 void assertDisabledButtonText() {
-	Vector<NativeUiTheme> themes = [NativeUiTheme.dark(), NativeUiTheme.light()];
+	Vector<NativeUITheme> themes = [NativeUITheme.dark(), NativeUITheme.light()];
 	for theme in themes {
 		for decoration in ["", "; background-color: #303030; color: #ffffff", "; background-image: linear-gradient(#404040,#202020); color: #ffffff"] {
-			NativeUiElement button = NativeUiElement.button("disabled-button", "Test Input").style("padding: 8px; width: 180px; height: 40px" + decoration).enabled(false);
-			NativeUiRenderer renderer = NativeUiRenderer(theme);
-			NativeUiFrame disabled = renderer.render(button, 200, 60);
-			NativeUiLayoutBox box = disabled.boxFor("disabled-button");
+			NativeUIElement button = NativeUIElement.button("disabled-button", "Test Input").style("padding: 8px; width: 180px; height: 40px" + decoration).enabled(false);
+			NativeUIRenderer renderer = NativeUIRenderer(theme);
+			NativeUIFrame disabled = renderer.render(button, 200, 60);
+			NativeUILayoutBox box = disabled.boxFor("disabled-button");
 			assert(theme.buttonText(box.style, false, false).equals(theme.mutedText));
 			assert(theme.buttonText(box.style, false, true).equals(theme.mutedText));
 			renderer.pointerMoved(20, 20);
@@ -575,55 +575,55 @@ void assertDisabledButtonText() {
 			assert(renderer.pointerReleased(20, 20).eventCount() == 0);
 			assert(renderer.activate("disabled-button").eventCount() == 0);
 			assert(renderer.currentFrame().image.diff(disabled.image).exact());
-			NativeUiFrame enabled = renderer.render(button.copy().enabled(true), 200, 60);
+			NativeUIFrame enabled = renderer.render(button.copy().enabled(true), 200, 60);
 			assert(enabled.boxFor("disabled-button").bounds.width == box.bounds.width);
 			assert(enabled.boxFor("disabled-button").bounds.height == box.bounds.height);
 			assert(enabled.image.diff(disabled.image).changedPixels > 20);
 			assert(renderer.activate("disabled-button").eventCount() == 1);
 			assert(renderer.render(button, 200, 60).image.diff(disabled.image).exact());
 		}
-		NativeUiResolvedStyle transparent = NativeUiResolvedStyle.from(NativeUiElement.button("hidden-label", "Test").style("color: #ffffff00"), NativeUiStyleSheet());
+		NativeUIResolvedStyle transparent = NativeUIResolvedStyle.from(NativeUIElement.button("hidden-label", "Test").style("color: #ffffff00"), NativeUIStyleSheet());
 		assert(theme.buttonText(transparent, false, true).alpha == 0);
 	}
 }
 
 void assertGradients() {
-	for value in ["none", "linear-gradient(#ff0000, #0000ff00)", "linear-gradient( #11223344 , #abcdef )"] { assert(NativeUiStyle.validate("background-image: " + value).ok()); }
-	for value in ["linear-gradient()", "linear-gradient(#ffffff)", "linear-gradient(#ffffff,#000000,#ff0000)", "linear-gradient(to right,#ffffff,#000000)", "url(image.png)", "linear-gradient(#zzzzzz,#000000)"] { assert(!NativeUiStyle.validate("background-image: " + value).ok()); }
-	NativeUiColor top = NativeUiColor(255, 0, 0);
-	NativeUiLinearGradient gradient = NativeUiLinearGradient(top, NativeUiColor(0, 0, 255, 0));
+	for value in ["none", "linear-gradient(#ff0000, #0000ff00)", "linear-gradient( #11223344 , #abcdef )"] { assert(NativeUIStyle.validate("background-image: " + value).ok()); }
+	for value in ["linear-gradient()", "linear-gradient(#ffffff)", "linear-gradient(#ffffff,#000000,#ff0000)", "linear-gradient(to right,#ffffff,#000000)", "url(image.png)", "linear-gradient(#zzzzzz,#000000)"] { assert(!NativeUIStyle.validate("background-image: " + value).ok()); }
+	NativeUIColor top = NativeUIColor(255, 0, 0);
+	NativeUILinearGradient gradient = NativeUILinearGradient(top, NativeUIColor(0, 0, 255, 0));
 	top.red = 0;
 	gradient.top().red = 0;
-	assert(gradient.sample(0.5).equals(NativeUiColor(255, 0, 0, 128)));
-	NativeUiResolvedStyle style = NativeUiResolvedStyle(NATIVE_UI_COLUMN);
+	assert(gradient.sample(0.5).equals(NativeUIColor(255, 0, 0, 128)));
+	NativeUIResolvedStyle style = NativeUIResolvedStyle(NATIVE_UI_COLUMN);
 	style.apply("background-color: #0000ff; background-image: linear-gradient(#ff0000, #0000ff00)");
 	style.freeze();
-	NativeUiResolvedStyle copy = style.copy();
+	NativeUIResolvedStyle copy = style.copy();
 	copy.apply("background-image: none; background-color: #00ff00");
 	assert(copy.backgroundGradient() == null && style.backgroundGradient() != null);
-	NativeUiTheme theme = NativeUiTheme.dark();
-	NativeUiLinearGradient normal = theme.buttonGradient(style, false);
-	NativeUiLinearGradient hovered = theme.buttonGradient(style, true);
-	NativeUiLinearGradient pressed = theme.buttonGradient(style, true, true);
+	NativeUITheme theme = NativeUITheme.dark();
+	NativeUILinearGradient normal = theme.buttonGradient(style, false);
+	NativeUILinearGradient hovered = theme.buttonGradient(style, true);
+	NativeUILinearGradient pressed = theme.buttonGradient(style, true, true);
 	assert(normal == style.backgroundGradient());
 	assert(hovered.top().green > normal.top().green && pressed.top().green > hovered.top().green);
 	assert(normal.bottom().alpha == 0 && hovered.bottom().alpha == 0 && pressed.bottom().alpha == 0);
-	NativeUiElement panel = NativeUiElement.column("gradient").style("padding: 0px; width: 20px; height: 20px; background-color: #0000ff; background-image: linear-gradient(#ff0000,#0000ff00)");
-	NativeUiFrame frame = NativeUiRenderer().render(panel, 20, 20);
+	NativeUIElement panel = NativeUIElement.column("gradient").style("padding: 0px; width: 20px; height: 20px; background-color: #0000ff; background-image: linear-gradient(#ff0000,#0000ff00)");
+	NativeUIFrame frame = NativeUIRenderer().render(panel, 20, 20);
 	assert(frame.ok());
 	RGBA first = frame.image.pixel(10, 0);
 	RGBA last = frame.image.pixel(10, 19);
 	assert(first.red > 245 && first.blue < 10 && first.green == 0);
 	assert(last.red < 10 && last.blue > 245 && last.green == 0);
 	assert(frame.image.pixel(10, 10).red >= 120 && frame.image.pixel(10, 10).red <= 122);
-	NativeUiFrame clipped = NativeUiRenderer().render(NativeUiElement.column("gradient-clip").style("padding: 0px").child(panel.floating(0, -10)), 20, 20);
+	NativeUIFrame clipped = NativeUIRenderer().render(NativeUIElement.column("gradient-clip").style("padding: 0px").child(panel.floating(0, -10)), 20, 20);
 	assert(clipped.ok() && clipped.image.pixel(10, 0).equals(frame.image.pixel(10, 10)));
 }
 
 int proportionalTypographyMeasure(unsigned long long provider, string value, int fontSize, int lineHeight, int fontWeight, int* widthOut, int* heightOut, int* ascentOut, int* descentOut, int* advanceOut) {
 	assert(provider == 43ULL && fontSize == 14 && fontWeight == 400);
 	int width = 0;
-	for (int offset = 0; offset < value.len(); offset = NativeUiTextInput.nextBoundary(value, offset)) { width += value[offset] == 'i' ? 2 : (value[offset] == 'W' ? 14 : 8); }
+	for (int offset = 0; offset < value.len(); offset = NativeUITextInput.nextBoundary(value, offset)) { width += value[offset] == 'i' ? 2 : (value[offset] == 'W' ? 14 : 8); }
 	widthOut[0] = width;
 	heightOut[0] = lineHeight;
 	ascentOut[0] = 12;
@@ -633,7 +633,7 @@ int proportionalTypographyMeasure(unsigned long long provider, string value, int
 }
 
 void assertEllipsis() {
-	NativeUiTypography typography = NativeUiTypography.platform(43ULL, proportionalTypographyMeasure);
+	NativeUITypography typography = NativeUITypography.platform(43ULL, proportionalTypographyMeasure);
 	assert(typography.ellipsize("iiiiWW", 14, 20, 400, 36).lineAt(0).text() == "iiiiWW");
 	assert(typography.ellipsize("iiiiWW", 14, 20, 400, 30).lineAt(0).text() == "iiiiW…");
 	assert(typography.ellipsize("WWiiii", 14, 20, 400, 30).lineAt(0).text() == "W…");
@@ -646,57 +646,57 @@ void assertEllipsis() {
 	assert(rejected);
 	string longText = "";
 	for (int index = 0; index < 4096; index++) { longText += "W"; }
-	NativeUiTextLayout bounded = typography.ellipsize(longText, 14, 20, 400, 57343);
+	NativeUITextLayout bounded = typography.ellipsize(longText, 14, 20, 400, 57343);
 	assert(bounded.lineAt(0).text().len() <= 4096 && bounded.width() <= 57343 && bounded.lineAt(0).text().endsWith("…"));
-	assert(NativeUiStyle.validate("text-overflow: ellipsis").ok() && NativeUiStyle.validate("text-overflow: clip").ok());
-	assert(!NativeUiStyle.validate("text-overflow: fade").ok());
-	NativeUiResolvedStyle style = NativeUiResolvedStyle(NATIVE_UI_BUTTON);
+	assert(NativeUIStyle.validate("text-overflow: ellipsis").ok() && NativeUIStyle.validate("text-overflow: clip").ok());
+	assert(!NativeUIStyle.validate("text-overflow: fade").ok());
+	NativeUIResolvedStyle style = NativeUIResolvedStyle(NATIVE_UI_BUTTON);
 	style.apply("text-overflow: ellipsis");
-	NativeUiResolvedStyle copy = style.freeze().copy();
+	NativeUIResolvedStyle copy = style.freeze().copy();
 	copy.apply("text-overflow: clip");
 	assert(style.ellipsizesText() && !copy.ellipsizesText());
 	for (int kind = 0; kind < 2; kind++) {
-		NativeUiElement label = kind == 0 ? NativeUiElement.text("fitted", "iiiiWW") : NativeUiElement.button("fitted", "iiiiWW");
+		NativeUIElement label = kind == 0 ? NativeUIElement.text("fitted", "iiiiWW") : NativeUIElement.button("fitted", "iiiiWW");
 		label.style("text-overflow: ellipsis; padding: 4px; font-size: 14px; line-height: 20px; font-weight: 400");
-		NativeUiRenderer renderer = NativeUiRenderer(null, null, typography);
-		NativeUiFrame first = renderer.layoutImmutable(label, 38, 60);
+		NativeUIRenderer renderer = NativeUIRenderer(null, null, typography);
+		NativeUIFrame first = renderer.layoutImmutable(label, 38, 60);
 		assert(first.ok() && first.boxFor("fitted").displayText() == "iiiiW…");
 		assert(first.boxFor("fitted").element.contentText() == "iiiiWW");
-		NativeUiTextLayout retained = first.boxFor("fitted").textLayout();
+		NativeUITextLayout retained = first.boxFor("fitted").textLayout();
 		assert(renderer.layoutImmutable(label, 38, 60).boxFor("fitted").textLayout() == retained && renderer.measuredNodeCount() == 0);
-		NativeUiFrame wide = renderer.layoutImmutable(label, 80, 60);
+		NativeUIFrame wide = renderer.layoutImmutable(label, 80, 60);
 		assert(wide.ok() && wide.boxFor("fitted").displayText() == "iiiiWW" && retained.lineAt(0).text() == "iiiiW…");
 		assert(renderer.render(label, 38, 60).ok());
 	}
 }
 
 void assertWrappedText() {
-	NativeUiTypography typography = NativeUiTypography();
-	NativeUiTextLayout words = typography.wrap("one two three", 14, 20, 400, 84);
+	NativeUITypography typography = NativeUITypography();
+	NativeUITextLayout words = typography.wrap("one two three", 14, 20, 400, 84);
 	assert(words.lineCount() == 2 && words.lineAt(0).text() == "one two" && words.lineAt(1).text() == "three");
 	assert(words.width() == 84 && words.height() == 40 && words.lineAt(1).top() == 20);
-	NativeUiTextLayout breaks = typography.wrap("one\r\n\ntwo\n", 14, 20, 400, 300);
+	NativeUITextLayout breaks = typography.wrap("one\r\n\ntwo\n", 14, 20, 400, 300);
 	assert(breaks.lineCount() == 4 && breaks.lineAt(0).text() == "one" && breaks.lineAt(1).text() == "" && breaks.lineAt(2).text() == "two" && breaks.lineAt(3).text() == "");
 	assert(typography.wrap("", 14, 20, 400, 1).height() == 20);
 	assert(typography.wrap("éñ", 14, 20, 400, 1).lineCount() == 2);
-	NativeUiTextLayout path = typography.wrap("/Music/longFilename.psarc", 14, 20, 400, 48);
+	NativeUITextLayout path = typography.wrap("/Music/longFilename.psarc", 14, 20, 400, 48);
 	string restored = "";
 	for (int index = 0; index < path.lineCount(); index++) { assert(path.lineAt(index).metrics().width() <= 48); restored += path.lineAt(index).text(); }
 	assert(restored == "/Music/longFilename.psarc");
 
-	NativeUiElement label = NativeUiElement.text("wrapped", "one two three").style("text-wrap: wrap; padding: 4px; line-height: 20px; text-align: center");
-	NativeUiElement root = NativeUiElement.column("wrap-root").style("padding: 0px; gap: 8px").child(label).child(NativeUiElement.button("after-wrap", "Retry"));
-	NativeUiRenderer renderer = NativeUiRenderer();
-	NativeUiFrame first = renderer.layoutImmutable(root, 92, 180);
+	NativeUIElement label = NativeUIElement.text("wrapped", "one two three").style("text-wrap: wrap; padding: 4px; line-height: 20px; text-align: center");
+	NativeUIElement root = NativeUIElement.column("wrap-root").style("padding: 0px; gap: 8px").child(label).child(NativeUIElement.button("after-wrap", "Retry"));
+	NativeUIRenderer renderer = NativeUIRenderer();
+	NativeUIFrame first = renderer.layoutImmutable(root, 92, 180);
 	assert(first.ok());
 	assert(first.boxFor("wrapped").bounds.height == 48 && first.boxFor("after-wrap").bounds.y == 56);
-	NativeUiTextLayout retained = first.boxFor("wrapped").textLayout();
+	NativeUITextLayout retained = first.boxFor("wrapped").textLayout();
 	assert(retained.lineCount() == 2);
 	assert(renderer.layoutImmutable(root, 92, 180).boxFor("wrapped").textLayout() == retained && renderer.measuredNodeCount() == 0);
-	NativeUiFrame narrow = renderer.layoutImmutable(root, 56, 180);
+	NativeUIFrame narrow = renderer.layoutImmutable(root, 56, 180);
 	assert(narrow.ok() && narrow.boxFor("wrapped").textLayout().lineCount() == 4);
 	assert(retained.lineCount() == 2 && first.boxFor("wrapped").bounds.height == 48);
-	NativeUiFrame painted = renderer.render(root, 92, 180);
+	NativeUIFrame painted = renderer.render(root, 92, 180);
 	assert(painted.ok() && !painted.image.isEmpty());
 	bool secondLineInk = false;
 	for (int y = 24; y < 44; y++) {
@@ -706,85 +706,85 @@ void assertWrappedText() {
 		}
 	}
 	assert(secondLineInk);
-	NativeUiFrame noWrap = renderer.layout(NativeUiElement.text("single", "one two three").style("text-wrap: nowrap; padding: 4px; line-height: 20px"), 56, 180);
+	NativeUIFrame noWrap = renderer.layout(NativeUIElement.text("single", "one two three").style("text-wrap: nowrap; padding: 4px; line-height: 20px"), 56, 180);
 	assert(noWrap.ok() && noWrap.boxFor("single").bounds.height == 28 && noWrap.boxFor("single").textLayout() == null);
-	assert(!NativeUiStyle.validate("text-wrap: ellipsis").ok());
-	NativeUiResolvedStyle style = NativeUiResolvedStyle(NATIVE_UI_TEXT);
+	assert(!NativeUIStyle.validate("text-wrap: ellipsis").ok());
+	NativeUIResolvedStyle style = NativeUIResolvedStyle(NATIVE_UI_TEXT);
 	style.apply("text-wrap: wrap");
-	NativeUiResolvedStyle copy = style.freeze().copy();
+	NativeUIResolvedStyle copy = style.freeze().copy();
 	copy.apply("text-wrap: nowrap");
 	assert(style.wrapsText() && !copy.wrapsText());
 }
 
 void assertVerticalScrollbar() {
-	NativeUiRenderer menus = NativeUiRenderer();
-	NativeUiElement narrow = NativeUiElement.select("tuning", NativeUiSelect([NativeUiSelectOption("any", "Any"), NativeUiSelectOption("standard", "Guitar E-flat Standard")], "any")).style("padding: 0px; width: 62px; font-size: 17px; line-height: 24px");
+	NativeUIRenderer menus = NativeUIRenderer();
+	NativeUIElement narrow = NativeUIElement.select("tuning", NativeUISelect([NativeUISelectOption("any", "Any"), NativeUISelectOption("standard", "Guitar E-flat Standard")], "any")).style("padding: 0px; width: 62px; font-size: 17px; line-height: 24px");
 	menus.render(narrow, 400, 300);
 	menus.activate("tuning");
-	NativeUiSelectPopup popup = menus.selectPopup();
+	NativeUISelectPopup popup = menus.selectPopup();
 	int labelWidth = menus.typography().measure("Guitar E-flat Standard", 17, 24).width();
 	assert(popup.visible() && popup.bounds().width >= labelWidth + 30 && popup.bounds().width <= 400);
-	NativeUiRect row = popup.optionBounds(1);
+	NativeUIRect row = popup.optionBounds(1);
 	assert(row.width == popup.bounds().width - 10 && row.x == popup.bounds().x + 5);
 	assert(popup.optionBounds(0).y == popup.bounds().y + 5);
 	assert(popup.optionAt(row.x, row.y) == 1 && popup.optionAt(row.x + row.width - 1, row.y + row.height - 1) == 1);
 	assert(popup.optionAt(popup.bounds().x + 2, row.y) == -1);
 	assert(popup.optionAt(row.x, popup.bounds().y + 2) == -1);
-	NativeUiEventBatch highlighted = menus.pointerMoved(row.x + row.width - 3, row.y + row.height / 2);
+	NativeUIEventBatch highlighted = menus.pointerMoved(row.x + row.width - 3, row.y + row.height / 2);
 	assert(menus.highlightedSelectIndex() == 1);
 	RGBA left = highlighted.frame.image.pixel(row.x + 4, row.y + 4);
 	RGBA right = highlighted.frame.image.pixel(row.x + row.width - 4, row.y + 4);
-	assert(left.equals(right) && left.red == NativeUiTheme.nativeDefault().accent.red);
+	assert(left.equals(right) && left.red == NativeUITheme.nativeDefault().accent.red);
 	menus.dismiss();
 	narrow.style("padding: 24px; width: 62px; height: 108px; border-radius: 0px; font-size: 17px; line-height: 60px");
 	menus.render(narrow, 400, 300);
 	menus.activate("tuning");
 	assert(menus.selectPopup().rowHeight() == popup.rowHeight());
 	assert(menus.selectPopup().bounds().width == popup.bounds().width);
-	NativeUiResolvedStyle triggerStyle = menus.currentFrame().boxFor("tuning").style;
-	NativeUiResolvedStyle menuStyle = NativeUiSelectPopup.textStyle(triggerStyle);
+	NativeUIResolvedStyle triggerStyle = menus.currentFrame().boxFor("tuning").style;
+	NativeUIResolvedStyle menuStyle = NativeUISelectPopup.textStyle(triggerStyle);
 	assert(triggerStyle.lineHeight() == 60 && menuStyle.fontSize() == 17 && menuStyle.lineHeight() == 21);
-	NativeUiRect paddedFirst = menus.selectPopup().optionBounds(0);
+	NativeUIRect paddedFirst = menus.selectPopup().optionBounds(0);
 	menus.pointerMoved(paddedFirst.x + 4, paddedFirst.y + paddedFirst.height / 2);
 	menus.wheelBy(0, popup.rowHeight() - 1);
 	assert(menus.highlightedSelectIndex() == 0);
 	menus.wheelBy(0, 1);
 	assert(menus.highlightedSelectIndex() == 1);
 	menus.dismiss();
-	Vector<NativeUiSelectOption> manyOptions = [];
-	for (int index = 0; index < 40; index++) { manyOptions.push(NativeUiSelectOption(f"{index}", f"Option {index}")); }
-	menus.render(NativeUiElement.select("many", NativeUiSelect(manyOptions, "0")).style("padding: 0px; width: 80px"), 180, 120);
+	Vector<NativeUISelectOption> manyOptions = [];
+	for (int index = 0; index < 40; index++) { manyOptions.push(NativeUISelectOption(f"{index}", f"Option {index}")); }
+	menus.render(NativeUIElement.select("many", NativeUISelect(manyOptions, "0")).style("padding: 0px; width: 80px"), 180, 120);
 	menus.activate("many");
-	NativeUiRect manyFirst = menus.selectPopup().optionBounds(0);
+	NativeUIRect manyFirst = menus.selectPopup().optionBounds(0);
 	menus.pointerMoved(manyFirst.x + 4, manyFirst.y + manyFirst.height / 2);
 	menus.wheelBy(0, 2000);
-	NativeUiSelectPopup tail = menus.selectPopup();
+	NativeUISelectPopup tail = menus.selectPopup();
 	assert(menus.highlightedSelectIndex() == 39 && tail.firstOptionIndex() + tail.visibleOptionCount() == 40);
 	assert(tail.bounds().y >= 0 && tail.bounds().y + tail.bounds().height <= 120);
-	NativeUiRect last = tail.optionBounds(39);
+	NativeUIRect last = tail.optionBounds(39);
 	assert(tail.optionAt(last.x + last.width - 1, last.y + last.height / 2) == 39);
-	NativeUiRenderer renderer = NativeUiRenderer();
-	NativeUiElement root = deepVirtualGrid();
-	NativeUiFrame initial = renderer.render(root, 320, 200);
+	NativeUIRenderer renderer = NativeUIRenderer();
+	NativeUIElement root = deepVirtualGrid();
+	NativeUIFrame initial = renderer.render(root, 320, 200);
 	assert(!renderer.verticalScrollbar().visible());
 	renderer.showVerticalScrollbar();
 	initial = renderer.render(root, 320, 200);
-	NativeUiScrollbar bar = renderer.verticalScrollbar();
+	NativeUIScrollbar bar = renderer.verticalScrollbar();
 	assert(bar.visible() && bar.thumb().height == 28 && bar.travel() == 164);
 	assert(initial.boxCount() == 19 && initial.contentHeight > 20000);
-	NativeUiColor color = bar.color(NativeUiTheme.nativeDefault());
+	NativeUIColor color = bar.color(NativeUITheme.nativeDefault());
 	var painted = initial.image.pixel(bar.thumb().x + 4, bar.thumb().y + 14);
 	assert(painted.red == color.red && painted.green == color.green && painted.blue == color.blue);
 	int x = bar.thumb().x + 4;
 	int y = bar.thumb().y + 14;
 	renderer.pointerPressed(x, y);
 	assert(renderer.currentFrame().viewport.scrollY() == 0);
-	NativeUiEventBatch dragged = renderer.pointerMoved(x, y + bar.travel());
+	NativeUIEventBatch dragged = renderer.pointerMoved(x, y + bar.travel());
 	assert(dragged.frame.viewport.scrollY() == initial.contentHeight - 200);
 	assert(dragged.frame.boxCount() == 19 && dragged.frame.boxes == initial.boxes);
 	bool scrolled = false;
 	for (int index = 0; index < dragged.eventCount(); index++) {
-		NativeUiEvent event = dragged.eventAt(index);
+		NativeUIEvent event = dragged.eventAt(index);
 		if (event.kind() == NATIVE_UI_SCROLLED) { assert(event.elementId() == "albums"); scrolled = true; }
 	}
 	assert(scrolled);
@@ -815,23 +815,23 @@ void assertVerticalScrollbar() {
 	renderer.showVerticalScrollbar(false);
 	assert(!renderer.verticalScrollbar().visible());
 	renderer.showVerticalScrollbar();
-	renderer.render(NativeUiElement.text("short", "Short"), 320, 200);
+	renderer.render(NativeUIElement.text("short", "Short"), 320, 200);
 	assert(!renderer.verticalScrollbar().visible());
 }
 
 void assertPinnedScrollbar() {
-	NativeUiRenderer renderer = NativeUiRenderer();
+	NativeUIRenderer renderer = NativeUIRenderer();
 	renderer.showVerticalScrollbar();
 	renderer.configureScrollbar(true, 100.0, 200.0);
-	NativeUiElement header = NativeUiElement.column("header").style("padding: 0px; gap: 0px; height: 60px; background-color: #123456ff").pinnedTop().child(NativeUiElement.button("header-action", "Back").style("width: 80px; height: 30px; padding: 0px"));
-	NativeUiElement content = NativeUiElement.column("content").style("padding: 0px; gap: 0px; height: 2000px").child(NativeUiElement.button("content-action", "Song").style("height: 30px; padding: 0px"));
-	NativeUiElement root = NativeUiElement.column("pinned-root").style("padding: 0px; gap: 0px").child(header).child(content);
-	NativeUiFrame initial = renderer.render(root, 320, 200);
+	NativeUIElement header = NativeUIElement.column("header").style("padding: 0px; gap: 0px; height: 60px; background-color: #123456ff").pinnedTop().child(NativeUIElement.button("header-action", "Back").style("width: 80px; height: 30px; padding: 0px"));
+	NativeUIElement content = NativeUIElement.column("content").style("padding: 0px; gap: 0px; height: 2000px").child(NativeUIElement.button("content-action", "Song").style("height: 30px; padding: 0px"));
+	NativeUIElement root = NativeUIElement.column("pinned-root").style("padding: 0px; gap: 0px").child(header).child(content);
+	NativeUIFrame initial = renderer.render(root, 320, 200);
 	RGBA headerPixel = initial.image.pixel(150, 25);
 	assert(headerPixel.red == 18 && headerPixel.green == 52 && headerPixel.blue == 86);
-	NativeUiScrollbar bar = renderer.verticalScrollbar();
+	NativeUIScrollbar bar = renderer.verticalScrollbar();
 	assert(bar.track().y == 64 && bar.track().height == 132 && bar.thumb().height == 28);
-	NativeUiFrame moved = renderer.scrollBy(0, 50).frame;
+	NativeUIFrame moved = renderer.scrollBy(0, 50).frame;
 	assert(moved.boxFor("header-action").bounds.y - moved.viewport.scrollY() == 0);
 	assert(moved.image.pixel(150, 25).equals(headerPixel));
 	assert(moved.hitId(20, 15, true) == "header-action");
@@ -845,13 +845,13 @@ void assertPinnedScrollbar() {
 	renderer.pointerMoved(150, 100);
 	assert(!renderer.tickScrollbar(100.0));
 	assert(renderer.tickScrollbar(200.0));
-	assert(renderer.verticalScrollbar().color(NativeUiTheme.nativeDefault()).alpha == 128);
+	assert(renderer.verticalScrollbar().color(NativeUITheme.nativeDefault()).alpha == 128);
 	assert(renderer.tickScrollbar(300.0) && !renderer.verticalScrollbar().visible());
 	assert(!renderer.tickScrollbar(400.0));
 	renderer.pointerMoved(310, 90);
 	assert(renderer.verticalScrollbar().visible());
 	renderer.tickScrollbar(1000.0);
-	assert(renderer.verticalScrollbar().color(NativeUiTheme.nativeDefault()).alpha == 255);
+	assert(renderer.verticalScrollbar().color(NativeUITheme.nativeDefault()).alpha == 255);
 	bar = renderer.verticalScrollbar();
 	renderer.pointerPressed(310, bar.thumb().y + 10);
 	renderer.pointerMoved(310, 190);
@@ -867,35 +867,35 @@ void assertPinnedScrollbar() {
 	renderer.tickScrollbar(5000.0);
 	assert(renderer.verticalScrollbar().visible());
 	assert(header.copy().isPinnedTop());
-	assert(!renderer.render(NativeUiElement.column("bad").child(content).child(header), 320, 200).ok());
-	assert(!renderer.render(NativeUiElement.column("nested").child(NativeUiElement.column("wrapper").child(header)), 320, 200).ok());
+	assert(!renderer.render(NativeUIElement.column("bad").child(content).child(header), 320, 200).ok());
+	assert(!renderer.render(NativeUIElement.column("nested").child(NativeUIElement.column("wrapper").child(header)), 320, 200).ok());
 }
 
 void assertLeadingInputIcon() {
 	Image icon = Image(32, 34);
 	for (int row = 0; row < icon.height; row++) { for (int column = 0; column < icon.width; column++) { icon.setPixel(column, row, RGBA(220, 30, 40)); } }
 	string css = "width: 180px; height: 35px; padding: 1px; padding-left: 12px; padding-right: 12px; border-radius: 6px; background-color: #222325ff";
-	NativeUiElement field = NativeUiElement.textInput("search", "Hello world", "Search", 64).style(css).leadingIcon(icon, 16, 17, 11).imageRevision(7ULL);
-	NativeUiElement copy = field.copy();
+	NativeUIElement field = NativeUIElement.textInput("search", "Hello world", "Search", 64).style(css).leadingIcon(icon, 16, 17, 11).imageRevision(7ULL);
+	NativeUIElement copy = field.copy();
 	assert(copy.leadingIconWidth() == 16 && copy.leadingIconHeight() == 17 && copy.leadingIconInset() == 27 && copy.contentImageRevision() == 7ULL && copy.contentImage() == icon);
-	NativeUiStyleCache cache = NativeUiStyleCache();
-	NativeUiStyleSheet sheet = NativeUiStyleSheet();
+	NativeUIStyleCache cache = NativeUIStyleCache();
+	NativeUIStyleSheet sheet = NativeUIStyleSheet();
 	assert(cache.resolve(field, sheet).paddingLeft() == 39);
-	assert(cache.resolve(NativeUiElement.textInput("plain", "").style(css), sheet).paddingLeft() == 12);
+	assert(cache.resolve(NativeUIElement.textInput("plain", "").style(css), sheet).paddingLeft() == 12);
 	assert(cache.resolve(copy.leadingIcon(icon, 12, 17, 4), sheet).paddingLeft() == 28);
 	assert(cache.resolve(field, sheet).paddingLeft() == 39);
-	NativeUiRenderer renderer = NativeUiRenderer();
-	NativeUiFrame frame = renderer.render(field, 200, 60);
+	NativeUIRenderer renderer = NativeUIRenderer();
+	NativeUIFrame frame = renderer.render(field, 200, 60);
 	assert(frame.ok() && frame.boxCount() == 1);
-	NativeUiLayoutBox box = frame.boxFor("search");
-	NativeUiRect bounds = NativeUiTextInput.iconBounds(box);
+	NativeUILayoutBox box = frame.boxFor("search");
+	NativeUIRect bounds = NativeUITextInput.iconBounds(box);
 	assert(bounds.x == 12 && bounds.y == 9 && bounds.width == 16 && bounds.height == 17);
 	assert(frame.image.pixel(20, 17).red == 220);
 	renderer.pointerPressed(20, 17);
 	renderer.pointerReleased(20, 17);
 	assert(renderer.focusedId() == "search" && renderer.focusedCaret() == 0);
-	NativeUiFrame focused = renderer.currentFrame();
-	assert(focused.image.pixel(90, 0).blue == NativeUiTheme.nativeDefault().accent.blue);
+	NativeUIFrame focused = renderer.currentFrame();
+	assert(focused.image.pixel(90, 0).blue == NativeUITheme.nativeDefault().accent.blue);
 	assert(focused.image.pixel(39, 2).blue == 37);
 	renderer.selectAllText();
 	assert(renderer.textEntered("Bowie").eventAt(0).value() == "Bowie");
@@ -903,20 +903,20 @@ void assertLeadingInputIcon() {
 	assert(renderer.render(field.copy().enabled(false), 200, 60).ok());
 	renderer.pointerPressed(20, 17);
 	assert(renderer.focusedId().isEmpty());
-	NativeUiFrame narrow = NativeUiRenderer().render(field, 20, 60);
-	assert(narrow.ok() && NativeUiTextInput.iconBounds(narrow.boxFor("search")).width == 0);
-	NativeUiFrame shortField = NativeUiRenderer().render(field.copy().style("height: 10px; padding: 1px"), 200, 60);
-	assert(shortField.ok() && NativeUiTextInput.iconBounds(shortField.boxFor("search")).height == 0);
-	assertRejected(NativeUiRenderer().render(NativeUiElement.textInput("oversized-icon", "").leadingIcon(Image(4097, 1), 16, 17), 200, 60), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
+	NativeUIFrame narrow = NativeUIRenderer().render(field, 20, 60);
+	assert(narrow.ok() && NativeUITextInput.iconBounds(narrow.boxFor("search")).width == 0);
+	NativeUIFrame shortField = NativeUIRenderer().render(field.copy().style("height: 10px; padding: 1px"), 200, 60);
+	assert(shortField.ok() && NativeUITextInput.iconBounds(shortField.boxFor("search")).height == 0);
+	assertRejected(NativeUIRenderer().render(NativeUIElement.textInput("oversized-icon", "").leadingIcon(Image(4097, 1), 16, 17), 200, 60), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
 	Image shared = Image(1024, 1024);
-	NativeUiElement aggregate = NativeUiElement.column("icons");
-	for (int index = 0; index < 65; index++) { aggregate.child(NativeUiElement.textInput(f"icon:{index}", "").leadingIcon(shared, 16, 16)); }
-	assertRejected(NativeUiRenderer().layout(aggregate, 200, 60), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
+	NativeUIElement aggregate = NativeUIElement.column("icons");
+	for (int index = 0; index < 65; index++) { aggregate.child(NativeUIElement.textInput(f"icon:{index}", "").leadingIcon(shared, 16, 16)); }
+	assertRejected(NativeUIRenderer().layout(aggregate, 200, 60), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
 }
 
 void assertTextUndoHistory() {
-	NativeUiRenderer renderer = NativeUiRenderer();
-	renderer.layout(NativeUiElement.textInput("undo", "", "", 4096), 240, 48);
+	NativeUIRenderer renderer = NativeUIRenderer();
+	renderer.layout(NativeUIElement.textInput("undo", "", "", 4096), 240, 48);
 	renderer.focusNext();
 	assert(renderer.undoText().eventCount() == 0);
 	for (int index = 0; index < 140; index++) { renderer.textEntered("x"); }
@@ -926,12 +926,12 @@ void assertTextUndoHistory() {
 	renderer.textEntered("y");
 	assert(renderer.undoText(true).eventCount() == 0);
 	string edited = renderer.focusedValue();
-	renderer.layout(NativeUiElement.textInput("undo", edited, "", 4096), 240, 48);
+	renderer.layout(NativeUIElement.textInput("undo", edited, "", 4096), 240, 48);
 	assert(renderer.undoText().eventAt(0).value().len() == 13);
-	renderer.layout(NativeUiElement.textInput("undo", "replacement", "", 4096), 240, 48);
+	renderer.layout(NativeUIElement.textInput("undo", "replacement", "", 4096), 240, 48);
 	assert(renderer.undoText().eventCount() == 0 && renderer.undoText(true).eventCount() == 0);
 	renderer.textEntered("!");
-	renderer.layout(NativeUiElement.textInput("undo", renderer.focusedValue(), "", 32), 240, 48);
+	renderer.layout(NativeUIElement.textInput("undo", renderer.focusedValue(), "", 32), 240, 48);
 	assert(renderer.undoText().eventCount() == 0);
 	renderer.blur();
 	assert(renderer.undoText().eventCount() == 0);
@@ -949,21 +949,21 @@ int main() {
 	assertGradients();
 	Image cropSource = Image(4, 4);
 	for (int row = 0; row < 4; row++) { for (int column = 0; column < 4; column++) { cropSource.setPixel(column, row, RGBA(column * 60, row * 60, 17)); } }
-	NativeUiElement cropped = NativeUiElement.image("cropped", cropSource, "crop").imageRevision(7ULL).style("padding: 0px; width: 40px; height: 40px").imageRegion(NativeUiImageRegion(0.5, 0.25, 0.5, 0.5));
-	NativeUiElement copiedCrop = cropped.copy();
+	NativeUIElement cropped = NativeUIElement.image("cropped", cropSource, "crop").imageRevision(7ULL).style("padding: 0px; width: 40px; height: 40px").imageRegion(NativeUIImageRegion(0.5, 0.25, 0.5, 0.5));
+	NativeUIElement copiedCrop = cropped.copy();
 	assert(copiedCrop.contentImageRegion() == cropped.contentImageRegion());
 	assert(copiedCrop.contentImageRevision() == 7ULL && copiedCrop.contentImage().data == cropSource.data);
-	NativeUiFrame cropFrame = NativeUiRenderer().render(cropped, 40, 40);
+	NativeUIFrame cropFrame = NativeUIRenderer().render(cropped, 40, 40);
 	assert(cropFrame.ok());
 	assert(cropFrame.image.pixel(1, 1).red == 120 && cropFrame.image.pixel(1, 1).green == 60);
 	assert(cropFrame.image.pixel(38, 38).red == 180 && cropFrame.image.pixel(38, 38).green == 120);
 	copiedCrop.imageRegion(null);
 	assert(cropped.contentImageRegion() != null && copiedCrop.contentImageRegion() == null);
 	bool cropRejected = false;
-	try { NativeUiImageRegion invalid = NativeUiImageRegion(0.7, 0.0, 0.4, 1.0); } catch (string error) { cropRejected = !error.isEmpty(); }
+	try { NativeUIImageRegion invalid = NativeUIImageRegion(0.7, 0.0, 0.4, 1.0); } catch (string error) { cropRejected = !error.isEmpty(); }
 	assert(cropRejected);
 	cropRejected = false;
-	try { NativeUiElement invalid = NativeUiElement.text("invalid-crop", "text").imageRegion(cropped.contentImageRegion()); } catch (string error) { cropRejected = !error.isEmpty(); }
+	try { NativeUIElement invalid = NativeUIElement.text("invalid-crop", "text").imageRegion(cropped.contentImageRegion()); } catch (string error) { cropRejected = !error.isEmpty(); }
 	assert(cropRejected);
 	assertDirectionalPadding();
 	assertRetainedResourceBounds();
@@ -978,92 +978,92 @@ int main() {
 	assertControlColors();
 	assertIntrinsicWidth();
 	assertTextRaster();
-	NativeUiStyleSheet sheet = NativeUiStyleSheet().rule("library-root", "gap: 10px; padding: 6px").rule("album-grid", "gap: 4px; padding: 4px; background-color: #112233").rule("album-card", "border-radius: 4px; color: #fefefe");
-	NativeUiRenderer renderer = NativeUiRenderer.styled(sheet);
-	NativeUiFrame frame = renderer.render(deepVirtualGrid(), 320, 120);
+	NativeUIStyleSheet sheet = NativeUIStyleSheet().rule("library-root", "gap: 10px; padding: 6px").rule("album-grid", "gap: 4px; padding: 4px; background-color: #112233").rule("album-card", "border-radius: 4px; color: #fefefe");
+	NativeUIRenderer renderer = NativeUIRenderer.styled(sheet);
+	NativeUIFrame frame = renderer.render(deepVirtualGrid(), 320, 120);
 	assert(frame.ok());
 	assert(frame.boxCount() == 19);
 	assert(frame.contentHeight == 22044);
 	assert(frame.viewport.scrollX() == 0);
 	assert(frame.viewport.scrollY() == 0);
 	assert(frame.virtualGridCount() == 1);
-	NativeUiVirtualGridViewport initialGeometry = frame.virtualGridFor("albums");
+	NativeUIVirtualGridViewport initialGeometry = frame.virtualGridFor("albums");
 	assert(initialGeometry.gridId() == "albums");
 	assert(initialGeometry.contentOffsetY() == 38);
 	assert(initialGeometry.rowPitch() == 44);
 	assert(initialGeometry.firstVisibleDataIndex() == 0);
 	assert(initialGeometry.visibleDataCount() == 8);
-	NativeUiLayoutBox rootBox = frame.boxFor("albums");
+	NativeUILayoutBox rootBox = frame.boxFor("albums");
 	assert(rootBox.style.padding() == 4);
 	assert(rootBox.style.gap() == 4);
 	assert(rootBox.style.hasBackground());
 	assert(rootBox.style.background().red == 17);
-	NativeUiTypography typography = NativeUiTypography();
-	NativeUiTextMetrics headingMetrics = typography.measure("AB", 28, 34);
+	NativeUITypography typography = NativeUITypography();
+	NativeUITextMetrics headingMetrics = typography.measure("AB", 28, 34);
 	assert(headingMetrics.width() == 48 && headingMetrics.height() == 34 && headingMetrics.advance() == 24);
 	assert(!typography.platformBacked());
-	NativeUiTypography platformTypography = NativeUiTypography.platform(42ULL, platformTypographyMeasure);
-	NativeUiTextMetrics platformMetrics = platformTypography.measure("System", 20, 26, 600);
+	NativeUITypography platformTypography = NativeUITypography.platform(42ULL, platformTypographyMeasure);
+	NativeUITextMetrics platformMetrics = platformTypography.measure("System", 20, 26, 600);
 	assert(platformTypography.measure("System", 20, 26, 600) == platformMetrics && typographyMeasurementCalls == 1);
 	assert(platformTypography.platformBacked());
 	assert(platformMetrics.width() == 71 && platformMetrics.height() == 26 && platformMetrics.ascent() == 18 && platformMetrics.descent() == 5 && platformMetrics.advance() == 15);
 	assert(typography.alignedX(10, 100, 8, 48, NATIVE_UI_TEXT_ALIGN_LEFT) == 18);
 	assert(typography.alignedX(10, 100, 8, 48, NATIVE_UI_TEXT_ALIGN_CENTER) == 36);
 	assert(typography.alignedX(10, 100, 8, 48, NATIVE_UI_TEXT_ALIGN_RIGHT) == 54);
-	NativeUiRenderer typographyRenderer = NativeUiRenderer(null, null, typography);
-	NativeUiFrame typographyFrame = typographyRenderer.render(NativeUiElement.text("heading", "AB").style("width: 100px; padding: 8px; font-size: 28px; line-height: 34px; font-weight: 600; text-align: right"), 160, 80);
+	NativeUIRenderer typographyRenderer = NativeUIRenderer(null, null, typography);
+	NativeUIFrame typographyFrame = typographyRenderer.render(NativeUIElement.text("heading", "AB").style("width: 100px; padding: 8px; font-size: 28px; line-height: 34px; font-weight: 600; text-align: right"), 160, 80);
 	assert(typographyFrame.ok());
-	NativeUiLayoutBox heading = typographyFrame.boxFor("heading");
+	NativeUILayoutBox heading = typographyFrame.boxFor("heading");
 	assert(typographyFrame.contentWidth == 100 && heading.bounds.width == 100 && heading.bounds.height == 50);
 	assert(heading.style.fontSize() == 28 && heading.style.lineHeight() == 34 && heading.style.fontWeight() == 600 && heading.style.textAlignment() == NATIVE_UI_TEXT_ALIGN_RIGHT);
-	NativeUiFrame styledButtonFrame = NativeUiRenderer().render(NativeUiElement.button("styled-button", "").style("padding: 0px; border-radius: 0px; background-color: #393c43ff; color: #ffffffff"), 40, 36);
+	NativeUIFrame styledButtonFrame = NativeUIRenderer().render(NativeUIElement.button("styled-button", "").style("padding: 0px; border-radius: 0px; background-color: #393c43ff; color: #ffffffff"), 40, 36);
 	assert(styledButtonFrame.ok());
-	NativeUiLayoutBox styledButton = styledButtonFrame.boxFor("styled-button");
+	NativeUILayoutBox styledButton = styledButtonFrame.boxFor("styled-button");
 	assert(styledButton.style.hasBackground() && styledButton.style.background().red == 57 && styledButton.style.background().green == 60 && styledButton.style.background().blue == 67 && styledButton.style.background().alpha == 255);
 	assert(styledButtonFrame.image.data[0] == 57 && styledButtonFrame.image.data[1] == 60 && styledButtonFrame.image.data[2] == 67 && styledButtonFrame.image.data[3] == 255);
 
-	NativeUiRenderer layoutRenderer = NativeUiRenderer.styled(sheet);
+	NativeUIRenderer layoutRenderer = NativeUIRenderer.styled(sheet);
 	for (int iteration = 0; iteration < 32; iteration++) {
-		NativeUiFrame layoutOnly = layoutRenderer.layout(deepVirtualGrid(), 320, 120);
+		NativeUIFrame layoutOnly = layoutRenderer.layout(deepVirtualGrid(), 320, 120);
 		assert(layoutOnly.ok());
 		assert(layoutOnly.image.isEmpty());
 		assert(layoutOnly.boxCount() == 19);
 	}
-	NativeUiFrame beforeLayoutScroll = layoutRenderer.currentFrame();
-	NativeUiEventBatch layoutScroll = layoutRenderer.scrollBy(0, 400);
+	NativeUIFrame beforeLayoutScroll = layoutRenderer.currentFrame();
+	NativeUIEventBatch layoutScroll = layoutRenderer.scrollBy(0, 400);
 	assert(layoutScroll.frame.ok());
 	assert(layoutScroll.frame.image.isEmpty());
 	assert(layoutScroll.frame.boxCount() == 19);
 	assert(layoutScroll.frame.boxes == beforeLayoutScroll.boxes);
 	assert(layoutScroll.frame.viewport.scrollY() == 400 && beforeLayoutScroll.viewport.scrollY() == 0);
-	NativeUiEventBatch clampedScroll = layoutRenderer.scrollBy(0, 2147483647);
+	NativeUIEventBatch clampedScroll = layoutRenderer.scrollBy(0, 2147483647);
 	assert(clampedScroll.frame.boxes == beforeLayoutScroll.boxes);
 	assert(clampedScroll.frame.viewport.scrollY() == clampedScroll.frame.contentHeight - 120);
-	NativeUiEventBatch resetScroll = layoutRenderer.scrollBy(0, -2147483647);
+	NativeUIEventBatch resetScroll = layoutRenderer.scrollBy(0, -2147483647);
 	assert(resetScroll.frame.viewport.scrollY() == 0 && resetScroll.frame.boxes == beforeLayoutScroll.boxes);
-	NativeUiElement originalContainer = NativeUiElement.column("copy-root").className("card").style("gap: 9px").child(NativeUiElement.text("copy-child", "Shared"));
-	NativeUiElement copiedContainer = originalContainer.copy().child(NativeUiElement.text("copy-extra", "New"));
+	NativeUIElement originalContainer = NativeUIElement.column("copy-root").className("card").style("gap: 9px").child(NativeUIElement.text("copy-child", "Shared"));
+	NativeUIElement copiedContainer = originalContainer.copy().child(NativeUIElement.text("copy-extra", "New"));
 	assert(originalContainer.childCount() == 1 && copiedContainer.childCount() == 2);
 	assert(originalContainer.childAt(0) == copiedContainer.childAt(0));
-	NativeUiFrame copiedFrame = NativeUiRenderer.styled(sheet).layout(copiedContainer, 320, 120);
+	NativeUIFrame copiedFrame = NativeUIRenderer.styled(sheet).layout(copiedContainer, 320, 120);
 	assert(copiedFrame.ok() && copiedFrame.boxFor("copy-root").style.gap() == 9);
-	NativeUiElement replacementChild = NativeUiElement.text("copy-child", "Replacement");
-	NativeUiElement replacedContainer = copiedContainer.copy().replaceChild(0, replacementChild);
+	NativeUIElement replacementChild = NativeUIElement.text("copy-child", "Replacement");
+	NativeUIElement replacedContainer = copiedContainer.copy().replaceChild(0, replacementChild);
 	assert(replacedContainer.childCount() == 2 && replacedContainer.childAt(0) == replacementChild);
 	assert(replacedContainer.childAt(1) == copiedContainer.childAt(1));
 	assert(originalContainer.childAt(0) == copiedContainer.childAt(0) && originalContainer.childAt(0).contentText() == "Shared");
-	NativeUiRenderer replacementRenderer = NativeUiRenderer.styled(sheet);
+	NativeUIRenderer replacementRenderer = NativeUIRenderer.styled(sheet);
 	assert(replacementRenderer.layoutImmutable(copiedContainer, 320, 120).ok());
-	NativeUiFrame replacementFrame = replacementRenderer.layoutImmutable(replacedContainer, 320, 120);
+	NativeUIFrame replacementFrame = replacementRenderer.layoutImmutable(replacedContainer, 320, 120);
 	assert(replacementFrame.ok() && replacementFrame.boxFor("copy-child").element.contentText() == "Replacement");
 	assert(replacementRenderer.measuredNodeCount() == 2 && replacementRenderer.reusedNodeCount() == 1);
 	assert(replacedContainer.replaceChild(0, replacementChild).childAt(0) == replacementChild);
 
-	NativeUiRenderer inputRenderer = NativeUiRenderer();
-	NativeUiElement inputTree = NativeUiElement.column("query-root").child(NativeUiElement.textInput("query", "a\xc3\xa9", "Search albums", 5)).child(NativeUiElement.textInput("secondary-query", "", "Second", 16));
-	NativeUiFrame inputFrame = inputRenderer.render(inputTree, 240, 120);
+	NativeUIRenderer inputRenderer = NativeUIRenderer();
+	NativeUIElement inputTree = NativeUIElement.column("query-root").child(NativeUIElement.textInput("query", "a\xc3\xa9", "Search albums", 5)).child(NativeUIElement.textInput("secondary-query", "", "Second", 16));
+	NativeUIFrame inputFrame = inputRenderer.render(inputTree, 240, 120);
 	assert(inputFrame.ok());
-	NativeUiLayoutBox inputBox = inputFrame.boxFor("query");
+	NativeUILayoutBox inputBox = inputFrame.boxFor("query");
 	inputRenderer.pointerPressed(inputBox.bounds.x + 2, inputBox.bounds.y + 2);
 	assert(inputRenderer.focusedCaret() == 0);
 	inputRenderer.pointerReleased(inputBox.bounds.x + 2, inputBox.bounds.y + 2);
@@ -1073,16 +1073,16 @@ int main() {
 	assert(inputRenderer.focusedCaret() == 3);
 	inputRenderer.moveCaretLeft();
 	assert(inputRenderer.focusedCaret() == 1);
-	NativeUiEventBatch inserted = inputRenderer.textEntered("Z");
+	NativeUIEventBatch inserted = inputRenderer.textEntered("Z");
 	assert(inserted.eventCount() == 1);
 	assert(inserted.eventAt(0).kind() == NATIVE_UI_VALUE_CHANGED);
 	assert(inserted.eventAt(0).elementId() == "query");
 	assert(inserted.eventAt(0).value() == "aZ\xc3\xa9");
-	NativeUiEventBatch removed = inputRenderer.backspace();
+	NativeUIEventBatch removed = inputRenderer.backspace();
 	assert(removed.eventCount() == 1);
 	assert(removed.eventAt(0).value() == "a\xc3\xa9");
 	inputRenderer.moveCaretRight();
-	NativeUiEventBatch appended = inputRenderer.textEntered("!");
+	NativeUIEventBatch appended = inputRenderer.textEntered("!");
 	assert(appended.eventCount() == 1);
 	assert(appended.eventAt(0).value() == "a\xc3\xa9!");
 	assert(inputRenderer.textEntered("\xf0\x9f\x98\x80").eventCount() == 0);
@@ -1100,14 +1100,14 @@ int main() {
 	inputRenderer.blur();
 	assert(inputRenderer.focusedId().isEmpty());
 
-	NativeUiRenderer controlledRenderer = NativeUiRenderer();
-	NativeUiFrame controlledFrame = controlledRenderer.layout(NativeUiElement.textInput("controlled", "old", "", 16), 200, 48);
-	NativeUiLayoutBox controlledBox = controlledFrame.boxFor("controlled");
+	NativeUIRenderer controlledRenderer = NativeUIRenderer();
+	NativeUIFrame controlledFrame = controlledRenderer.layout(NativeUIElement.textInput("controlled", "old", "", 16), 200, 48);
+	NativeUILayoutBox controlledBox = controlledFrame.boxFor("controlled");
 	controlledRenderer.pointerPressed(controlledBox.bounds.x + 2, controlledBox.bounds.y + 2);
 	controlledRenderer.pointerReleased(controlledBox.bounds.x + 2, controlledBox.bounds.y + 2);
 	controlledRenderer.moveCaretRight(false, false, true);
 	assert(controlledRenderer.textEntered("!").eventAt(0).value() == "old!");
-	controlledRenderer.layout(NativeUiElement.textInput("controlled", "server", "", 16), 200, 48);
+	controlledRenderer.layout(NativeUIElement.textInput("controlled", "server", "", 16), 200, 48);
 	assert(controlledRenderer.focusedValue() == "server");
 	assert(controlledRenderer.focusedCaret() == 6);
 	assert(controlledRenderer.undoText().eventCount() == 0);
@@ -1139,22 +1139,22 @@ int main() {
 	assert(controlledRenderer.tickTextInput(1000.0) && controlledRenderer.caretVisible());
 	controlledRenderer.moveCaretLeft(true, false, true);
 	assert(!controlledRenderer.tickTextInput(1500.0));
-	controlledRenderer.layout(NativeUiElement.textInput("controlled", "a!", "", 16), 200, 48);
+	controlledRenderer.layout(NativeUIElement.textInput("controlled", "a!", "", 16), 200, 48);
 	assert(controlledRenderer.selectedText() == "a");
 	controlledRenderer.blur();
 	assert(!controlledRenderer.tickTextInput(2000.0));
-	NativeUiResolvedStyle fieldStyle = NativeUiResolvedStyle(NATIVE_UI_TEXT_INPUT);
-	NativeUiResolvedStyle caretStyle = fieldStyle.copy();
+	NativeUIResolvedStyle fieldStyle = NativeUIResolvedStyle(NATIVE_UI_TEXT_INPUT);
+	NativeUIResolvedStyle caretStyle = fieldStyle.copy();
 	caretStyle.apply("font-size: 18px; line-height: 28px");
-	NativeUiRect caretBounds = NativeUiTextViewport.caretBounds(31, 20, caretStyle);
+	NativeUIRect caretBounds = NativeUITextViewport.caretBounds(31, 20, caretStyle);
 	assert(caretBounds.x == 31 && caretBounds.y == 25 && caretBounds.width == 1 && caretBounds.height == 18);
 	caretStyle.apply("line-height: 14px");
-	NativeUiRect tightCaret = NativeUiTextViewport.caretBounds(31, 20, caretStyle);
+	NativeUIRect tightCaret = NativeUITextViewport.caretBounds(31, 20, caretStyle);
 	assert(tightCaret.y == 20 && tightCaret.height == 14);
-	NativeUiRenderer menuRenderer = NativeUiRenderer();
-	NativeUiElement menuRoot = NativeUiElement.textInput("edit", "a\xc3\xa9 melody", "", 64);
-	NativeUiFrame menuFrame = menuRenderer.render(menuRoot, 320, 240);
-	NativeUiLayoutBox menuField = menuFrame.boxFor("edit");
+	NativeUIRenderer menuRenderer = NativeUIRenderer();
+	NativeUIElement menuRoot = NativeUIElement.textInput("edit", "a\xc3\xa9 melody", "", 64);
+	NativeUIFrame menuFrame = menuRenderer.render(menuRoot, 320, 240);
+	NativeUILayoutBox menuField = menuFrame.boxFor("edit");
 	int menuX = menuField.bounds.x + menuField.style.paddingLeft() + 1;
 	int menuY = menuField.bounds.y + menuField.style.paddingTop() + 1;
 	menuRenderer.pointerPressed(menuX, menuY);
@@ -1162,9 +1162,9 @@ int main() {
 	menuRenderer.selectAllText();
 	menuRenderer.openTextMenu(menuX, menuY, true);
 	assert(menuRenderer.selectedText() == "a\xc3\xa9 melody");
-	NativeUiTextMenu menu = menuRenderer.textMenu();
+	NativeUITextMenu menu = menuRenderer.textMenu();
 	assert(menu != null && menu.enabled(0) && menu.enabled(1) && menu.enabled(2) && menu.enabled(3));
-	NativeUiRect copyRow = menu.geometry.optionBounds(NATIVE_UI_TEXT_EDIT_COPY);
+	NativeUIRect copyRow = menu.geometry.optionBounds(NATIVE_UI_TEXT_EDIT_COPY);
 	menuRenderer.pointerMoved(copyRow.x + copyRow.width - 1, copyRow.y + 1);
 	assert(menu.highlighted == NATIVE_UI_TEXT_EDIT_COPY);
 	menuRenderer.pointerPressed(copyRow.x + 1, copyRow.y + 1);
@@ -1185,16 +1185,16 @@ int main() {
 	menuRenderer.viewportChanged(300, 220);
 	assert(menuRenderer.textMenu() == null);
 	menuRenderer.openTextMenu(menuX, menuY, true);
-	menuRenderer.layout(NativeUiElement.textInput("edit", "replacement", "", 64), 320, 240);
+	menuRenderer.layout(NativeUIElement.textInput("edit", "replacement", "", 64), 320, 240);
 	assert(menuRenderer.textMenu() == null && menuRenderer.focusedValue() == "replacement");
 	menuRenderer.openTextMenu(menuX, menuY, true);
 	menuRenderer.blur();
 	assert(menuRenderer.textMenu() == null);
-	NativeUiTextViewport textRun = NativeUiTextViewport("abcdef", 18, 6, 0, NativeUiTypography(), fieldStyle);
+	NativeUITextViewport textRun = NativeUITextViewport("abcdef", 18, 6, 0, NativeUITypography(), fieldStyle);
 	assert(textRun.start > 0 && textRun.text.endsWith("f") && textRun.caretX <= 16 && textRun.selectionWidth > 0);
-	NativeUiRenderer selectionRenderer = NativeUiRenderer();
-	NativeUiFrame selectionFrame = selectionRenderer.render(NativeUiElement.textInput("selection", "a\xc3\xa9x", "", 5), 200, 48);
-	NativeUiLayoutBox selectionBox = selectionFrame.boxFor("selection");
+	NativeUIRenderer selectionRenderer = NativeUIRenderer();
+	NativeUIFrame selectionFrame = selectionRenderer.render(NativeUIElement.textInput("selection", "a\xc3\xa9x", "", 5), 200, 48);
+	NativeUILayoutBox selectionBox = selectionFrame.boxFor("selection");
 	int selectionLeft = selectionBox.bounds.x + selectionBox.style.paddingLeft();
 	int selectionY = selectionBox.bounds.y + selectionBox.bounds.height / 2;
 	int selectedWidth = selectionRenderer.typography().measure("a\xc3\xa9", selectionBox.style.fontSize(), selectionBox.style.lineHeight(), selectionBox.style.fontWeight()).width();
@@ -1207,45 +1207,45 @@ int main() {
 	assert(selectionRenderer.textEntered("123456").eventCount() == 0 && selectionRenderer.selectedText() == "\xf0\x9f\x98\x80x");
 	assert(selectionRenderer.textEntered("\xc3").eventCount() == 0 && selectionRenderer.selectedText() == "\xf0\x9f\x98\x80x");
 
-	Vector<NativeUiSelectOption> selectOptions = [];
-	selectOptions.push(NativeUiSelectOption("song-effects", "Song effects"));
-	selectOptions.push(NativeUiSelectOption("unavailable", "Unavailable", false));
-	selectOptions.push(NativeUiSelectOption("raw-signal", "Raw signal"));
-	NativeUiElement selectElement = NativeUiElement.select("monitor", NativeUiSelect(selectOptions, "song-effects"));
-	NativeUiRenderer selectRenderer = NativeUiRenderer();
-	NativeUiFrame selectFrame = selectRenderer.render(selectElement, 240, 200);
+	Vector<NativeUISelectOption> selectOptions = [];
+	selectOptions.push(NativeUISelectOption("song-effects", "Song effects"));
+	selectOptions.push(NativeUISelectOption("unavailable", "Unavailable", false));
+	selectOptions.push(NativeUISelectOption("raw-signal", "Raw signal"));
+	NativeUIElement selectElement = NativeUIElement.select("monitor", NativeUISelect(selectOptions, "song-effects"));
+	NativeUIRenderer selectRenderer = NativeUIRenderer();
+	NativeUIFrame selectFrame = selectRenderer.render(selectElement, 240, 200);
 	assert(selectFrame.ok());
-	NativeUiLayoutBox selectBox = selectFrame.boxFor("monitor");
+	NativeUILayoutBox selectBox = selectFrame.boxFor("monitor");
 	assert(selectBox.bounds.height == 36 && selectBox.selectable());
 	selectRenderer.pointerPressed(selectBox.bounds.x + 4, selectBox.bounds.y + 4);
-	NativeUiEventBatch openedSelect = selectRenderer.pointerReleased(selectBox.bounds.x + 4, selectBox.bounds.y + 4);
+	NativeUIEventBatch openedSelect = selectRenderer.pointerReleased(selectBox.bounds.x + 4, selectBox.bounds.y + 4);
 	assert(openedSelect.eventCount() == 0);
 	assert(selectRenderer.expandedSelectId() == "monitor");
-	NativeUiSelectPopup popup = selectRenderer.selectPopup();
+	NativeUISelectPopup popup = selectRenderer.selectPopup();
 	assert(popup.visible() && popup.ownerId() == "monitor");
 	assert(popup.firstOptionIndex() == 0 && popup.visibleOptionCount() == 3 && popup.rowHeight() == 28);
 	assert(popup.bounds().y == selectBox.bounds.y + selectBox.bounds.height);
 	assert(openedSelect.frame.image.data[(popup.bounds().y * openedSelect.frame.image.width + popup.bounds().x + popup.bounds().width / 2) * 4] == 205);
-	NativeUiRect firstOption = popup.optionBounds(0);
+	NativeUIRect firstOption = popup.optionBounds(0);
 	assert(openedSelect.frame.image.pixel(firstOption.x + 4, firstOption.y + 4).red == 24);
-	NativeUiRect rawOption = popup.optionBounds(2);
+	NativeUIRect rawOption = popup.optionBounds(2);
 	int rawX = rawOption.x + 4;
 	int rawY = rawOption.y + rawOption.height / 2;
 	selectRenderer.pointerPressed(rawX, rawY);
-	NativeUiEventBatch pointerSelected = selectRenderer.pointerReleased(rawX, rawY);
+	NativeUIEventBatch pointerSelected = selectRenderer.pointerReleased(rawX, rawY);
 	assert(pointerSelected.eventCount() == 1);
 	assert(pointerSelected.eventAt(0).kind() == NATIVE_UI_SELECTION_CHANGED);
 	assert(pointerSelected.eventAt(0).elementId() == "monitor");
 	assert(pointerSelected.eventAt(0).value() == "raw-signal");
 	assert(selectRenderer.expandedSelectId().isEmpty());
 	assert(selectRenderer.focusedId() == "monitor");
-	NativeUiElement controlledSelect = NativeUiElement.select("monitor", NativeUiSelect(selectOptions, "raw-signal"));
+	NativeUIElement controlledSelect = NativeUIElement.select("monitor", NativeUISelect(selectOptions, "raw-signal"));
 	assert(selectRenderer.render(controlledSelect, 240, 200).ok());
-	NativeUiLayoutBox controlledSelectBox = selectRenderer.currentFrame().boxFor("monitor");
-	NativeUiSelect controlledSelectDescriptor = controlledSelectBox.element.selectDescriptor();
+	NativeUILayoutBox controlledSelectBox = selectRenderer.currentFrame().boxFor("monitor");
+	NativeUISelect controlledSelectDescriptor = controlledSelectBox.element.selectDescriptor();
 	assert(controlledSelectDescriptor.selectedValue() == "raw-signal");
 	selectRenderer.activate("monitor");
-	NativeUiRect disabledOption = selectRenderer.selectPopup().optionBounds(1);
+	NativeUIRect disabledOption = selectRenderer.selectPopup().optionBounds(1);
 	selectRenderer.pointerPressed(disabledOption.x + 4, disabledOption.y + 4);
 	assert(selectRenderer.pointerReleased(disabledOption.x + 4, disabledOption.y + 4).eventCount() == 0);
 	assert(selectRenderer.expandedSelectId() == "monitor");
@@ -1256,83 +1256,83 @@ int main() {
 	assert(selectRenderer.highlightedSelectIndex() == 2);
 	selectRenderer.navigateFocusedSelect(-1);
 	assert(selectRenderer.highlightedSelectIndex() == 0);
-	NativeUiEventBatch keyboardSelected = selectRenderer.activate("monitor");
+	NativeUIEventBatch keyboardSelected = selectRenderer.activate("monitor");
 	assert(keyboardSelected.eventCount() == 1);
 	assert(keyboardSelected.eventAt(0).kind() == NATIVE_UI_SELECTION_CHANGED);
 	assert(keyboardSelected.eventAt(0).value() == "song-effects");
 
-	Vector<NativeUiSelectOption> noOptions = [];
-	assertRejected(NativeUiRenderer().render(NativeUiElement.select("empty-select", NativeUiSelect(noOptions, "none")), 120, 80), NATIVE_UI_FRAME_INVALID_TREE);
-	Vector<NativeUiSelectOption> duplicateSelectOptions = [];
-	duplicateSelectOptions.push(NativeUiSelectOption("same", "First"));
-	duplicateSelectOptions.push(NativeUiSelectOption("same", "Second"));
-	assertRejected(NativeUiRenderer().render(NativeUiElement.select("duplicate-select", NativeUiSelect(duplicateSelectOptions, "same")), 120, 80), NATIVE_UI_FRAME_INVALID_TREE);
-	assertRejected(NativeUiRenderer().render(NativeUiElement.select("missing-selection", NativeUiSelect(selectOptions, "missing")), 120, 80), NATIVE_UI_FRAME_INVALID_TREE);
-	Vector<NativeUiSelectOption> invalidUtf8Options = [];
-	invalidUtf8Options.push(NativeUiSelectOption("bad", "\xc3"));
-	assertRejected(NativeUiRenderer().render(NativeUiElement.select("invalid-option", NativeUiSelect(invalidUtf8Options, "bad")), 120, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	Vector<NativeUISelectOption> noOptions = [];
+	assertRejected(NativeUIRenderer().render(NativeUIElement.select("empty-select", NativeUISelect(noOptions, "none")), 120, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	Vector<NativeUISelectOption> duplicateSelectOptions = [];
+	duplicateSelectOptions.push(NativeUISelectOption("same", "First"));
+	duplicateSelectOptions.push(NativeUISelectOption("same", "Second"));
+	assertRejected(NativeUIRenderer().render(NativeUIElement.select("duplicate-select", NativeUISelect(duplicateSelectOptions, "same")), 120, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	assertRejected(NativeUIRenderer().render(NativeUIElement.select("missing-selection", NativeUISelect(selectOptions, "missing")), 120, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	Vector<NativeUISelectOption> invalidUtf8Options = [];
+	invalidUtf8Options.push(NativeUISelectOption("bad", "\xc3"));
+	assertRejected(NativeUIRenderer().render(NativeUIElement.select("invalid-option", NativeUISelect(invalidUtf8Options, "bad")), 120, 80), NATIVE_UI_FRAME_INVALID_TREE);
 
-	NativeUiSemanticRange maximumEdge = NativeUiSemanticRange.horizontal("Maximum edge", -10LL, 9223372036854775807LL, 9223372036854775806LL, 10LL, 100LL);
+	NativeUISemanticRange maximumEdge = NativeUISemanticRange.horizontal("Maximum edge", -10LL, 9223372036854775807LL, 9223372036854775806LL, 10LL, 100LL);
 	assert(maximumEdge.valid());
 	assert(maximumEdge.adjustedValue(NATIVE_UI_RANGE_ADJUST_SMALL_INCREMENT) == 9223372036854775807LL);
 	assert(maximumEdge.adjustedValue(NATIVE_UI_RANGE_ADJUST_MAXIMUM) == 9223372036854775807LL);
-	NativeUiSemanticRange minimumEdge = NativeUiSemanticRange.vertical("Minimum edge", -9223372036854775807LL - 1LL, 10LL, -9223372036854775807LL, 10LL, 100LL);
+	NativeUISemanticRange minimumEdge = NativeUISemanticRange.vertical("Minimum edge", -9223372036854775807LL - 1LL, 10LL, -9223372036854775807LL, 10LL, 100LL);
 	assert(minimumEdge.valid());
 	assert(minimumEdge.adjustedValue(NATIVE_UI_RANGE_ADJUST_SMALL_DECREMENT) == -9223372036854775807LL - 1LL);
 	assert(minimumEdge.adjustedValue(NATIVE_UI_RANGE_ADJUST_MINIMUM) == -9223372036854775807LL - 1LL);
-	assert(!NativeUiSemanticRange.horizontal("", 0LL, 10LL, 5LL).valid());
-	assert(!NativeUiSemanticRange.horizontal("Backwards", 10LL, 0LL, 5LL).valid());
-	assert(!NativeUiSemanticRange.horizontal("Outside", 0LL, 10LL, 11LL).valid());
-	assert(!NativeUiSemanticRange.horizontal("Zero step", 0LL, 10LL, 5LL, 0LL, 1LL).valid());
+	assert(!NativeUISemanticRange.horizontal("", 0LL, 10LL, 5LL).valid());
+	assert(!NativeUISemanticRange.horizontal("Backwards", 10LL, 0LL, 5LL).valid());
+	assert(!NativeUISemanticRange.horizontal("Outside", 0LL, 10LL, 11LL).valid());
+	assert(!NativeUISemanticRange.horizontal("Zero step", 0LL, 10LL, 5LL, 0LL, 1LL).valid());
 
-	NativeUiSemanticRange positionRange = NativeUiSemanticRange.horizontal("Song position", 0LL, 1000LL, 100LL, 5LL, 50LL);
+	NativeUISemanticRange positionRange = NativeUISemanticRange.horizontal("Song position", 0LL, 1000LL, 100LL, 5LL, 50LL);
 	Image scrubImage = Image(80, 20);
-	NativeUiElement scrubElement = NativeUiElement.image("scrubber", scrubImage, "Song position").semanticRange(positionRange);
+	NativeUIElement scrubElement = NativeUIElement.image("scrubber", scrubImage, "Song position").semanticRange(positionRange);
 	assert(scrubElement.semanticRangeDescriptor() != null);
-	NativeUiRenderer rangeRenderer = NativeUiRenderer();
-	NativeUiFrame rangeFrame = rangeRenderer.layout(scrubElement, 120, 60);
+	NativeUIRenderer rangeRenderer = NativeUIRenderer();
+	NativeUIFrame rangeFrame = rangeRenderer.layout(scrubElement, 120, 60);
 	assert(rangeFrame.ok());
-	NativeUiLayoutBox scrubBox = rangeFrame.boxFor("scrubber");
+	NativeUILayoutBox scrubBox = rangeFrame.boxFor("scrubber");
 	assert(scrubBox.adjustable() && scrubBox.focusable() && !scrubBox.clickable());
 	int scrubX = scrubBox.bounds.x + 10;
 	int scrubY = scrubBox.bounds.y + 4;
 	rangeRenderer.pointerMoved(scrubX, scrubY);
-	NativeUiEventBatch rangePressed = rangeRenderer.pointerPressed(scrubX, scrubY);
+	NativeUIEventBatch rangePressed = rangeRenderer.pointerPressed(scrubX, scrubY);
 	assert(rangePressed.eventCount() == 1);
 	assert(rangePressed.eventAt(0).kind() == NATIVE_UI_RANGE_POINTER_PRESSED);
-	NativeUiPointerSample pressedSample = rangePressed.eventAt(0).pointer();
+	NativeUIPointerSample pressedSample = rangePressed.eventAt(0).pointer();
 	assert(pressedSample.coordinate() == 10 && pressedSample.extent() == scrubBox.bounds.width);
 	assert(rangeRenderer.capturedRangeId() == "scrubber");
 	assert(rangeRenderer.focusedId() == "scrubber");
 	assert(rangeRenderer.textEntered("ignored").eventCount() == 0);
 	assert(rangeRenderer.backspace().eventCount() == 0);
 
-	NativeUiEventBatch rangeMoved = rangeRenderer.pointerMoved(scrubBox.bounds.x + scrubBox.bounds.width + 25, scrubY);
+	NativeUIEventBatch rangeMoved = rangeRenderer.pointerMoved(scrubBox.bounds.x + scrubBox.bounds.width + 25, scrubY);
 	assert(rangeMoved.eventCount() == 2);
 	assert(rangeMoved.eventAt(0).kind() == NATIVE_UI_HOVER_LEFT);
-	NativeUiEvent movedEvent = rangeMoved.eventAt(1);
+	NativeUIEvent movedEvent = rangeMoved.eventAt(1);
 	assert(movedEvent.kind() == NATIVE_UI_RANGE_POINTER_MOVED);
-	NativeUiPointerSample movedSample = movedEvent.pointer();
+	NativeUIPointerSample movedSample = movedEvent.pointer();
 	assert(movedSample.coordinate() == scrubBox.bounds.width + 25 && movedSample.extent() == scrubBox.bounds.width);
-	NativeUiEventBatch rangeReleased = rangeRenderer.pointerReleased(scrubBox.bounds.x - 15, scrubY);
+	NativeUIEventBatch rangeReleased = rangeRenderer.pointerReleased(scrubBox.bounds.x - 15, scrubY);
 	assert(rangeReleased.eventCount() == 1);
 	assert(rangeReleased.eventAt(0).kind() == NATIVE_UI_RANGE_POINTER_RELEASED);
-	NativeUiPointerSample releasedSample = rangeReleased.eventAt(0).pointer();
+	NativeUIPointerSample releasedSample = rangeReleased.eventAt(0).pointer();
 	assert(releasedSample.coordinate() == -15 && releasedSample.extent() == scrubBox.bounds.width);
 	assert(rangeRenderer.capturedRangeId().isEmpty());
 
 	rangeRenderer.pointerPressed(scrubX, scrubY);
 	rangeRenderer.pointerMoved(scrubBox.bounds.x + 30, scrubY);
-	NativeUiEventBatch rangeCancelled = rangeRenderer.pointerCancelled();
+	NativeUIEventBatch rangeCancelled = rangeRenderer.pointerCancelled();
 	assert(rangeCancelled.eventCount() == 1);
 	assert(rangeCancelled.eventAt(0).kind() == NATIVE_UI_RANGE_POINTER_CANCELLED);
-	NativeUiPointerSample cancelledSample = rangeCancelled.eventAt(0).pointer();
+	NativeUIPointerSample cancelledSample = rangeCancelled.eventAt(0).pointer();
 	assert(cancelledSample.coordinate() == 30 && cancelledSample.extent() == scrubBox.bounds.width);
 	assert(rangeRenderer.pointerCancelled().eventCount() == 0);
 	assert(rangeRenderer.pointerReleased(scrubX, scrubY).eventCount() == 0);
 
 	rangeRenderer.pointerMoved(scrubX, scrubY);
-	NativeUiEventBatch rangeWheel = rangeRenderer.wheelBy(0, 40);
+	NativeUIEventBatch rangeWheel = rangeRenderer.wheelBy(0, 40);
 	assert(rangeWheel.eventCount() == 1);
 	assert(rangeWheel.eventAt(0).kind() == NATIVE_UI_RANGE_WHEEL);
 	assert(rangeWheel.eventAt(0).elementId() == "scrubber");
@@ -1340,41 +1340,41 @@ int main() {
 	assert(rangeWheel.eventAt(0).rangeValue() == 105LL);
 	assert(rangeWheel.eventAt(0).scroll().x() == 0 && rangeWheel.eventAt(0).scroll().y() == 40);
 	assert(rangeWheel.frame.viewport.scrollY() == 0);
-	NativeUiRenderer wheelRenderer = NativeUiRenderer();
+	NativeUIRenderer wheelRenderer = NativeUIRenderer();
 	Image wheelFiller = Image(80, 200);
-	NativeUiElement wheelTree = NativeUiElement.column("wheel-root").child(NativeUiElement.image("wheel-range", scrubImage, "Position").semanticRange(positionRange)).child(NativeUiElement.image("wheel-filler", wheelFiller, "Filler"));
-	NativeUiFrame wheelFrame = wheelRenderer.layout(wheelTree, 120, 60);
-	NativeUiLayoutBox wheelRangeBox = wheelFrame.boxFor("wheel-range");
+	NativeUIElement wheelTree = NativeUIElement.column("wheel-root").child(NativeUIElement.image("wheel-range", scrubImage, "Position").semanticRange(positionRange)).child(NativeUIElement.image("wheel-filler", wheelFiller, "Filler"));
+	NativeUIFrame wheelFrame = wheelRenderer.layout(wheelTree, 120, 60);
+	NativeUILayoutBox wheelRangeBox = wheelFrame.boxFor("wheel-range");
 	wheelRenderer.pointerMoved(wheelRangeBox.bounds.x + 4, wheelRangeBox.bounds.y + 4);
 	assert(wheelRenderer.wheelBy(0, 40).eventAt(0).kind() == NATIVE_UI_RANGE_WHEEL);
 	assert(wheelRenderer.currentFrame().viewport.scrollY() == 0);
 	wheelRenderer.pointerMoved(wheelRangeBox.bounds.x + 4, wheelRangeBox.bounds.y + wheelRangeBox.bounds.height + 4);
-	NativeUiEventBatch ordinaryWheel = wheelRenderer.wheelBy(0, 40);
+	NativeUIEventBatch ordinaryWheel = wheelRenderer.wheelBy(0, 40);
 	assert(ordinaryWheel.eventCount() == 1);
 	assert(ordinaryWheel.eventAt(0).kind() == NATIVE_UI_SCROLLED);
 	assert(ordinaryWheel.eventAt(0).elementId() == "wheel-root");
 	assert(ordinaryWheel.frame.viewport.scrollY() == 40);
-	NativeUiEventBatch smallAdjusted = rangeRenderer.adjustFocusedRange(NATIVE_UI_RANGE_ADJUST_SMALL_DECREMENT);
+	NativeUIEventBatch smallAdjusted = rangeRenderer.adjustFocusedRange(NATIVE_UI_RANGE_ADJUST_SMALL_DECREMENT);
 	assert(smallAdjusted.eventCount() == 1 && smallAdjusted.eventAt(0).rangeValue() == 95LL);
-	NativeUiEventBatch largeAdjusted = rangeRenderer.adjustFocusedRange(NATIVE_UI_RANGE_ADJUST_LARGE_INCREMENT);
+	NativeUIEventBatch largeAdjusted = rangeRenderer.adjustFocusedRange(NATIVE_UI_RANGE_ADJUST_LARGE_INCREMENT);
 	assert(largeAdjusted.eventCount() == 1 && largeAdjusted.eventAt(0).rangeValue() == 150LL);
-	NativeUiEventBatch endpointAdjusted = rangeRenderer.adjustRange("scrubber", NATIVE_UI_RANGE_ADJUST_MAXIMUM);
+	NativeUIEventBatch endpointAdjusted = rangeRenderer.adjustRange("scrubber", NATIVE_UI_RANGE_ADJUST_MAXIMUM);
 	assert(endpointAdjusted.eventCount() == 1 && endpointAdjusted.eventAt(0).rangeValue() == 1000LL);
 	assert(rangeRenderer.adjustRange("missing", NATIVE_UI_RANGE_ADJUST_SMALL_INCREMENT).eventCount() == 0);
-	assert(rangeRenderer.adjustRange("scrubber", (NativeUiRangeAdjustment)99).eventCount() == 0);
+	assert(rangeRenderer.adjustRange("scrubber", (NativeUIRangeAdjustment)99).eventCount() == 0);
 
-	NativeUiSemanticRange verticalRange = NativeUiSemanticRange.vertical("Column value", -100LL, 100LL, 0LL, 2LL, 20LL);
-	NativeUiElement rangeSurface = NativeUiElement.column("range-surface").semanticRange(verticalRange).child(NativeUiElement.text("range-label", "Range"));
-	NativeUiRenderer surfaceRenderer = NativeUiRenderer();
-	NativeUiFrame surfaceFrame = surfaceRenderer.layout(rangeSurface, 120, 60);
+	NativeUISemanticRange verticalRange = NativeUISemanticRange.vertical("Column value", -100LL, 100LL, 0LL, 2LL, 20LL);
+	NativeUIElement rangeSurface = NativeUIElement.column("range-surface").semanticRange(verticalRange).child(NativeUIElement.text("range-label", "Range"));
+	NativeUIRenderer surfaceRenderer = NativeUIRenderer();
+	NativeUIFrame surfaceFrame = surfaceRenderer.layout(rangeSurface, 120, 60);
 	assert(surfaceFrame.ok());
-	NativeUiLayoutBox surfaceBox = surfaceFrame.boxFor("range-surface");
+	NativeUILayoutBox surfaceBox = surfaceFrame.boxFor("range-surface");
 	assert(surfaceBox.adjustable());
-	NativeUiEventBatch targetedVertical = surfaceRenderer.adjustRange("range-surface", NATIVE_UI_RANGE_ADJUST_LARGE_DECREMENT);
+	NativeUIEventBatch targetedVertical = surfaceRenderer.adjustRange("range-surface", NATIVE_UI_RANGE_ADJUST_LARGE_DECREMENT);
 	assert(targetedVertical.eventCount() == 1 && targetedVertical.eventAt(0).rangeValue() == -20LL);
 
-	NativeUiRenderer rangeFocusRenderer = NativeUiRenderer();
-	NativeUiElement focusTree = NativeUiElement.column("focus-root").child(NativeUiElement.image("focus-range", scrubImage, "Position").semanticRange(positionRange)).child(NativeUiElement.textInput("focus-input", "", "Text", 8));
+	NativeUIRenderer rangeFocusRenderer = NativeUIRenderer();
+	NativeUIElement focusTree = NativeUIElement.column("focus-root").child(NativeUIElement.image("focus-range", scrubImage, "Position").semanticRange(positionRange)).child(NativeUIElement.textInput("focus-input", "", "Text", 8));
 	assert(rangeFocusRenderer.layout(focusTree, 120, 80).ok());
 	rangeFocusRenderer.focusNext();
 	assert(rangeFocusRenderer.focusedId() == "focus-range");
@@ -1383,7 +1383,7 @@ int main() {
 	rangeFocusRenderer.focusNext(true);
 	assert(rangeFocusRenderer.focusedId() == "focus-range");
 
-	NativeUiEventBatch deepScroll = renderer.scrollBy(0, 1000000000);
+	NativeUIEventBatch deepScroll = renderer.scrollBy(0, 1000000000);
 	assert(deepScroll.frame.ok());
 	assert(deepScroll.frame.boxCount() == 19);
 	assert(deepScroll.frame.viewport.scrollY() == 21924);
@@ -1391,7 +1391,7 @@ int main() {
 	assert(deepScroll.eventAt(0).kind() == NATIVE_UI_SCROLLED);
 	assert(deepScroll.eventAt(0).elementId() == "albums");
 	assert(deepScroll.eventAt(0).scroll().y() == 21924);
-	NativeUiVirtualGridViewport deepGeometry = deepScroll.eventAt(0).virtualGridViewport();
+	NativeUIVirtualGridViewport deepGeometry = deepScroll.eventAt(0).virtualGridViewport();
 	assert(deepGeometry.gridId() == "albums");
 	assert(deepGeometry.contentOffsetY() == 38);
 	assert(deepGeometry.contentLocalScrollY() == 21886);
@@ -1400,100 +1400,100 @@ int main() {
 	assert(deepGeometry.rowPitch() == 44);
 	assert(deepGeometry.firstVisibleDataIndex() == 1988);
 	assert(deepGeometry.visibleDataCount() == 12);
-	NativeUiLayoutBox item1990 = deepScroll.frame.boxFor("album:1990");
+	NativeUILayoutBox item1990 = deepScroll.frame.boxFor("album:1990");
 	assert(item1990.bounds.y == 21906);
-	NativeUiLayoutBox item1999 = deepScroll.frame.boxFor("album:1999");
+	NativeUILayoutBox item1999 = deepScroll.frame.boxFor("album:1999");
 	assert(item1999.bounds.y == 21994);
 
-	NativeUiEventBatch hovered = renderer.pointerMoved(245, 80);
+	NativeUIEventBatch hovered = renderer.pointerMoved(245, 80);
 	assert(hovered.eventCount() == 1);
 	assert(hovered.eventAt(0).kind() == NATIVE_UI_HOVER_ENTERED);
 	assert(hovered.eventAt(0).elementId() == "album:1999");
-	NativeUiEventBatch pressed = renderer.pointerPressed(245, 80);
+	NativeUIEventBatch pressed = renderer.pointerPressed(245, 80);
 	assert(pressed.eventCount() == 0);
-	NativeUiEventBatch clicked = renderer.pointerReleased(245, 80);
+	NativeUIEventBatch clicked = renderer.pointerReleased(245, 80);
 	assert(clicked.eventCount() == 1);
 	assert(clicked.eventAt(0).kind() == NATIVE_UI_CLICKED);
 	assert(clicked.eventAt(0).elementId() == "album:1999");
 	renderer.pointerPressed(245, 80);
 	renderer.pointerCancelled();
 	assert(renderer.pointerReleased(245, 80).eventCount() == 0);
-	NativeUiEventBatch resized = renderer.viewportChanged(320, 160);
+	NativeUIEventBatch resized = renderer.viewportChanged(320, 160);
 	assert(resized.eventCount() >= 1);
 	assert(resized.eventAt(0).kind() == NATIVE_UI_VIEWPORT_CHANGED);
 	assert(resized.eventAt(0).elementId() == "albums");
 	assert(resized.frame.viewport.width() == 320);
 	assert(resized.frame.viewport.height() == 160);
 	assert(resized.frame.viewport.scrollY() == 21884);
-	NativeUiVirtualGridViewport resizedGeometry = resized.eventAt(0).virtualGridViewport();
+	NativeUIVirtualGridViewport resizedGeometry = resized.eventAt(0).virtualGridViewport();
 	assert(resizedGeometry.gridId() == "albums");
 	assert(resizedGeometry.contentLocalScrollY() == 21846);
 	assert(resizedGeometry.firstVisibleDataIndex() == 1984);
 	assert(resizedGeometry.visibleDataCount() == 16);
 
-	NativeUiElement firstGrid = NativeUiElement.virtualGrid("first-grid", NativeUiVirtualGrid(1, 1, 40, 0)).child(NativeUiElement.text("first-item", "first"));
-	NativeUiElement secondGrid = NativeUiElement.virtualGrid("second-grid", NativeUiVirtualGrid(1, 1, 40, 0)).child(NativeUiElement.text("second-item", "second"));
-	NativeUiFrame multiple = NativeUiRenderer().render(NativeUiElement.column("multiple").child(firstGrid).child(secondGrid), 160, 180);
+	NativeUIElement firstGrid = NativeUIElement.virtualGrid("first-grid", NativeUIVirtualGrid(1, 1, 40, 0)).child(NativeUIElement.text("first-item", "first"));
+	NativeUIElement secondGrid = NativeUIElement.virtualGrid("second-grid", NativeUIVirtualGrid(1, 1, 40, 0)).child(NativeUIElement.text("second-item", "second"));
+	NativeUIFrame multiple = NativeUIRenderer().render(NativeUIElement.column("multiple").child(firstGrid).child(secondGrid), 160, 180);
 	assert(multiple.ok());
 	assert(multiple.virtualGridCount() == 2);
 	assert(multiple.scrollOwnerId(-1, -1) == "first-grid");
 	assert(multiple.scrollOwnerId(20, 100) == "second-grid");
 
-	NativeUiElement duplicate = NativeUiElement.column("root").child(NativeUiElement.text("same", "one")).child(NativeUiElement.text("same", "two"));
-	assertRejected(NativeUiRenderer().render(duplicate, 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	NativeUIElement duplicate = NativeUIElement.column("root").child(NativeUIElement.text("same", "one")).child(NativeUIElement.text("same", "two"));
+	assertRejected(NativeUIRenderer().render(duplicate, 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
 
-	NativeUiElement shared = NativeUiElement.text("shared", "shared");
-	NativeUiElement sharedTree = NativeUiElement.column("shared-root").child(shared).child(shared);
-	assertRejected(NativeUiRenderer().render(sharedTree, 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	NativeUIElement shared = NativeUIElement.text("shared", "shared");
+	NativeUIElement sharedTree = NativeUIElement.column("shared-root").child(shared).child(shared);
+	assertRejected(NativeUIRenderer().render(sharedTree, 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
 
-	NativeUiElement cycle = NativeUiElement.column("cycle");
+	NativeUIElement cycle = NativeUIElement.column("cycle");
 	cycle.child(cycle);
-	assertRejected(NativeUiRenderer().render(cycle, 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	assertRejected(NativeUIRenderer().render(cycle, 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
 
-	NativeUiElement badStyle = NativeUiElement.text("bad-style", "bad").style("position: fixed");
-	NativeUiFrame badStyleFrame = NativeUiRenderer().render(badStyle, 80, 80);
+	NativeUIElement badStyle = NativeUIElement.text("bad-style", "bad").style("position: fixed");
+	NativeUIFrame badStyleFrame = NativeUIRenderer().render(badStyle, 80, 80);
 	assertRejected(badStyleFrame, NATIVE_UI_FRAME_INVALID_STYLE);
 	assert(badStyleFrame.styleIssue.code() == NATIVE_UI_STYLE_UNSUPPORTED_PROPERTY);
 
-	NativeUiElement badClass = NativeUiElement.text("bad-class", "bad").className("two classes");
-	assertRejected(NativeUiRenderer().render(badClass, 80, 80), NATIVE_UI_FRAME_INVALID_STYLE);
+	NativeUIElement badClass = NativeUIElement.text("bad-class", "bad").className("two classes");
+	assertRejected(NativeUIRenderer().render(badClass, 80, 80), NATIVE_UI_FRAME_INVALID_STYLE);
 
-	NativeUiStyleSheet badSheet = NativeUiStyleSheet().rule("bad", "display: block");
-	assertRejected(NativeUiRenderer.styled(badSheet).render(NativeUiElement.text("sheet", "bad"), 80, 80), NATIVE_UI_FRAME_INVALID_STYLE);
+	NativeUIStyleSheet badSheet = NativeUIStyleSheet().rule("bad", "display: block");
+	assertRejected(NativeUIRenderer.styled(badSheet).render(NativeUIElement.text("sheet", "bad"), 80, 80), NATIVE_UI_FRAME_INVALID_STYLE);
 
-	assertRejected(NativeUiRenderer().render(NativeUiElement.text("viewport", "bad"), 0, 80), NATIVE_UI_FRAME_INVALID_VIEWPORT);
+	assertRejected(NativeUIRenderer().render(NativeUIElement.text("viewport", "bad"), 0, 80), NATIVE_UI_FRAME_INVALID_VIEWPORT);
 
-	assertRejected(NativeUiRenderer().render(NativeUiElement.textInput("bad-utf8", "\xc3", "", 8), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
-	assertRejected(NativeUiRenderer().render(NativeUiElement.text("bad-content-utf8", "\xc3"), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
-	assertRejected(NativeUiRenderer().render(NativeUiElement.textInput("bad-bound", "four", "", 3), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
-	assertRejected(NativeUiRenderer().render(NativeUiElement.textInput("bad-max", "", "", 0), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
-	assertRejected(NativeUiRenderer().render(NativeUiElement.textInput("bad-placeholder", "", "\xc3", 8), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
-	assertRejected(NativeUiRenderer().render(NativeUiElement.textInput("too-large-max", "", "", 4097), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
-	assertRejected(NativeUiRenderer().render(NativeUiElement.text("invalid-range", "bad").semanticRange(NativeUiSemanticRange.horizontal("", 0LL, 1LL, 0LL)), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
-	assertRejected(NativeUiRenderer().render(NativeUiElement.text("invalid-range-label", "bad").semanticRange(NativeUiSemanticRange.horizontal("\xc3", 0LL, 1LL, 0LL)), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	assertRejected(NativeUIRenderer().render(NativeUIElement.textInput("bad-utf8", "\xc3", "", 8), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	assertRejected(NativeUIRenderer().render(NativeUIElement.text("bad-content-utf8", "\xc3"), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	assertRejected(NativeUIRenderer().render(NativeUIElement.textInput("bad-bound", "four", "", 3), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	assertRejected(NativeUIRenderer().render(NativeUIElement.textInput("bad-max", "", "", 0), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	assertRejected(NativeUIRenderer().render(NativeUIElement.textInput("bad-placeholder", "", "\xc3", 8), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	assertRejected(NativeUIRenderer().render(NativeUIElement.textInput("too-large-max", "", "", 4097), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	assertRejected(NativeUIRenderer().render(NativeUIElement.text("invalid-range", "bad").semanticRange(NativeUISemanticRange.horizontal("", 0LL, 1LL, 0LL)), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	assertRejected(NativeUIRenderer().render(NativeUIElement.text("invalid-range-label", "bad").semanticRange(NativeUISemanticRange.horizontal("\xc3", 0LL, 1LL, 0LL)), 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
 
 	Image tooWide = Image(4097, 1);
-	assertRejected(NativeUiRenderer().render(NativeUiElement.image("too-wide", tooWide, "oversized"), 80, 80), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
+	assertRejected(NativeUIRenderer().render(NativeUIElement.image("too-wide", tooWide, "oversized"), 80, 80), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
 
-	NativeUiElement invalidPool = NativeUiElement.virtualGrid("invalid-pool", NativeUiVirtualGrid(2, 1, 40, 2)).child(NativeUiElement.text("past-end", "bad"));
-	assertRejected(NativeUiRenderer().render(invalidPool, 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
+	NativeUIElement invalidPool = NativeUIElement.virtualGrid("invalid-pool", NativeUIVirtualGrid(2, 1, 40, 2)).child(NativeUIElement.text("past-end", "bad"));
+	assertRejected(NativeUIRenderer().render(invalidPool, 80, 80), NATIVE_UI_FRAME_INVALID_TREE);
 
-	NativeUiElement deep = NativeUiElement.column("depth:0");
-	NativeUiElement cursor = deep;
+	NativeUIElement deep = NativeUIElement.column("depth:0");
+	NativeUIElement cursor = deep;
 	for (int index = 1; index <= 66; index++) {
-		NativeUiElement child = NativeUiElement.column(f"depth:{index}");
+		NativeUIElement child = NativeUIElement.column(f"depth:{index}");
 		cursor.child(child);
 		cursor = child;
 	}
-	assertRejected(NativeUiRenderer().render(deep, 80, 80), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
+	assertRejected(NativeUIRenderer().render(deep, 80, 80), NATIVE_UI_FRAME_LIMIT_EXCEEDED);
 
-	NativeUiRenderer wordRenderer = NativeUiRenderer();
-	NativeUiFrame wordFrame = wordRenderer.render(NativeUiElement.textInput("words", "Hello,  Bj\xc3\xb6rk world!", "", 64), 500, 48);
-	NativeUiLayoutBox wordBox = wordFrame.boxFor("words");
-	NativeUiResolvedStyle wordStyle = wordBox.style;
+	NativeUIRenderer wordRenderer = NativeUIRenderer();
+	NativeUIFrame wordFrame = wordRenderer.render(NativeUIElement.textInput("words", "Hello,  Bj\xc3\xb6rk world!", "", 64), 500, 48);
+	NativeUILayoutBox wordBox = wordFrame.boxFor("words");
+	NativeUIResolvedStyle wordStyle = wordBox.style;
 	int wordLeft = wordBox.bounds.x + wordStyle.paddingLeft();
 	int wordY = wordBox.bounds.y + wordBox.bounds.height / 2;
-	int bjorkX = wordLeft + NativeUiTextViewport.width("Hello,  B", 0, 9, wordRenderer.typography(), wordStyle) - 1;
+	int bjorkX = wordLeft + NativeUITextViewport.width("Hello,  B", 0, 9, wordRenderer.typography(), wordStyle) - 1;
 	wordRenderer.pointerPressed(bjorkX, wordY, false, 2);
 	assert(wordRenderer.selectedText() == "Bj\xc3\xb6rk");
 	wordRenderer.pointerReleased(bjorkX, wordY);
@@ -1503,7 +1503,7 @@ int main() {
 	assert(wordRenderer.selectedText() == "Hello,  Bj\xc3\xb6rk");
 	wordRenderer.pointerMoved(bjorkX, wordY);
 	assert(wordRenderer.selectedText() == "Bj\xc3\xb6rk");
-	int worldX = wordLeft + NativeUiTextViewport.width("Hello,  Bj\xc3\xb6rk w", 0, 16, wordRenderer.typography(), wordStyle) - 1;
+	int worldX = wordLeft + NativeUITextViewport.width("Hello,  Bj\xc3\xb6rk w", 0, 16, wordRenderer.typography(), wordStyle) - 1;
 	wordRenderer.pointerMoved(worldX, wordY);
 	assert(wordRenderer.selectedText() == "Bj\xc3\xb6rk world");
 	wordRenderer.pointerReleased(worldX, wordY);
@@ -1519,10 +1519,10 @@ int main() {
 	wordRenderer.pointerCancelled();
 	wordRenderer.pointerMoved(wordLeft, wordY);
 	assert(wordRenderer.selectedText().isEmpty());
-	assert(NativeUiTextInput.selectionWordStart("a,  b", 1) == 1 && NativeUiTextInput.selectionWordEnd("a,  b", 1) == 2);
-	assert(NativeUiTextInput.selectionWordStart("a,  b", 3) == 2 && NativeUiTextInput.selectionWordEnd("a,  b", 3) == 4);
-	assert(NativeUiTextInput.selectionWordStart("", 0) == 0 && NativeUiTextInput.selectionWordEnd("", 0) == 0);
-	assert(NativeUiTextInput.selectionWordStart("last", 4) == 0 && NativeUiTextInput.selectionWordEnd("last", 4) == 4);
+	assert(NativeUITextInput.selectionWordStart("a,  b", 1) == 1 && NativeUITextInput.selectionWordEnd("a,  b", 1) == 2);
+	assert(NativeUITextInput.selectionWordStart("a,  b", 3) == 2 && NativeUITextInput.selectionWordEnd("a,  b", 3) == 4);
+	assert(NativeUITextInput.selectionWordStart("", 0) == 0 && NativeUITextInput.selectionWordEnd("", 0) == 0);
+	assert(NativeUITextInput.selectionWordStart("last", 4) == 0 && NativeUITextInput.selectionWordEnd("last", 4) == 4);
 	print("PASS: native UI layout, virtual scroll, and input");
 	return 0;
 }

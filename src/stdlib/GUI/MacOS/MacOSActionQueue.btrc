@@ -1,0 +1,77 @@
+import Library.GUI.MacOS.ObjectiveCRuntime;
+
+/* Ordered momentary-control activations, consumed after AppKit dispatch.
+ * Native targets only retain the sender; no BTRC callback or exception crosses
+ * an AppKit tracking frame. This does not snapshot slider/toggle values. */
+class MacOSActionQueue {
+	private NSMutableArray? _pending;
+	private NSMutableArray? _controls;
+
+	public MacOSActionQueue() {
+		if (!NSThread.isMainThread()) { throw "Native actions require the main thread"; }
+		self._pending = NSMutableArray.new();
+		self._controls = NSMutableArray.new();
+		if (self._pending == null || self._controls == null) { throw "Cannot create native action queue"; }
+	}
+
+	private NSMutableArray pending() {
+		if (!NSThread.isMainThread()) { throw "Native actions require the main thread"; }
+		if (self._pending == null) { throw "Native action queue is closed"; }
+		return self._pending;
+	}
+
+	private NSMutableArray controls() {
+		self.pending();
+		if (self._controls == null) { throw "Native action queue is closed"; }
+		return self._controls;
+	}
+
+	public void bind(NSButton control) {
+		var pending = self.pending();
+		var controls = self.controls();
+		if (controls.indexOfObjectIdenticalTo(control) < controls.count()) { throw "Native control is already bound"; }
+		if (control.target() != null || control.action() != null) { throw "Native control already has an action target"; }
+		controls.addObject(control);
+		try {
+			control.setAction(sel_registerName("addObject:"));
+			control.setTarget(pending);
+		} catch (string error) {
+			control.setAction(null);
+			control.setTarget(null);
+			controls.removeObjectIdenticalTo(control);
+			throw error;
+		}
+	}
+
+	public void unbind(NSButton control) {
+		var pending = self.pending();
+		var controls = self.controls();
+		if (controls.indexOfObjectIdenticalTo(control) >= controls.count()) { throw "Native control is not bound"; }
+		control.setAction(null);
+		control.setTarget(null);
+		pending.removeObjectIdenticalTo(control);
+		controls.removeObjectIdenticalTo(control);
+	}
+
+	public id? take() {
+		var pending = self.pending();
+		if (pending.count() == 0UL) { return null; }
+		var sender = pending.objectAtIndex(0UL);
+		pending.removeObjectAtIndex(0UL);
+		return sender;
+	}
+
+	public void discard(NSButton control) {
+		var controls = self.controls();
+		if (controls.indexOfObjectIdenticalTo(control) >= controls.count()) { throw "Native control is not bound"; }
+		self.pending().removeObjectIdenticalTo(control);
+	}
+
+	public void close() {
+		if (!NSThread.isMainThread()) { throw "Native actions require the main thread"; }
+		if (self._pending == null) { return; }
+		if (self.controls().count() != 0UL) { throw "Close native controls before their action queue"; }
+		self._pending = null;
+		self._controls = null;
+	}
+}

@@ -281,6 +281,10 @@ class ManagedLifetimeLowerer {
 	public IRNode noOp() { return IRNode.cast("void", IRNode.literal("0")); }
 
 	public IRNode runtimeDescriptor(string emittedName) {
+		if (self.managedValues.isNativeName(emittedName)) {
+			print("internal compiler error: native object cannot use a BTRC ARC descriptor");
+			exit(1);
+		}
 		if (emittedName == self.managedValues.mutexRuntimeType()) {
 			self.context.referenceHelper("__btrc_mutex_arc_type");
 			return IRNode.addressOf(IRNode.variable("__btrc_mutex_arc_descriptor"));
@@ -305,6 +309,9 @@ class ManagedLifetimeLowerer {
 	}
 
 	public IRNode retainValue(IRNode value, Node resolvedType) {
+		if (self.managedValues.isNative(resolvedType)) {
+			return IRNode.call("__btrc_objc_" + self.managedValues.runtimeType(resolvedType) + "_retain", [value]);
+		}
 		if (self.managedValues.isString(resolvedType)) {
 			self.context.referenceHelper("__btrc_string_retain");
 			Vector<IRNode> arguments = [];
@@ -318,7 +325,7 @@ class ManagedLifetimeLowerer {
 	}
 
 	public IRNode retainEdge(IRNode value, Node resolvedType, IRNode owner) {
-		if (self.managedValues.isString(resolvedType)) {
+		if (self.managedValues.isString(resolvedType) || self.managedValues.isNative(resolvedType)) {
 			return self.retainValue(value, resolvedType);
 		}
 		self.context.referenceHelper("__btrc_arc_retain_edge");
@@ -329,7 +336,7 @@ class ManagedLifetimeLowerer {
 	}
 
 	public IRNode adoptEdge(IRNode value, Node resolvedType, IRNode owner) {
-		if (self.managedValues.isString(resolvedType)) {
+		if (self.managedValues.isString(resolvedType) || self.managedValues.isNative(resolvedType)) {
 			return self.noOp();
 		}
 		self.context.referenceHelper("__btrc_arc_adopt_edge");
@@ -340,7 +347,7 @@ class ManagedLifetimeLowerer {
 	}
 
 	public IRNode unlinkEdge(IRNode value, Node resolvedType, IRNode owner) {
-		if (self.managedValues.isString(resolvedType)) {
+		if (self.managedValues.isString(resolvedType) || self.managedValues.isNative(resolvedType)) {
 			return self.noOp();
 		}
 		self.context.referenceHelper("__btrc_arc_unlink_edge");
@@ -351,6 +358,9 @@ class ManagedLifetimeLowerer {
 	}
 
 	public IRNode releaseRuntime(IRNode value, string runtimeType) {
+		if (self.managedValues.isNativeName(runtimeType)) {
+			return IRNode.call(self.managedValues.cleanupSymbol(runtimeType), [value]);
+		}
 		if (runtimeType == self.managedValues.stringRuntimeType()) {
 			self.context.referenceHelper("__btrc_string_release");
 			Vector<IRNode> arguments = [];
@@ -371,7 +381,7 @@ class ManagedLifetimeLowerer {
 	public IRNode releaseValue(IRNode value, Node resolvedType) { return self.releaseRuntime(value, self.managedValues.runtimeType(resolvedType)); }
 
 	public IRNode releaseEdge(IRNode value, Node resolvedType, IRNode replacement) {
-		if (self.managedValues.isString(resolvedType)) {
+		if (self.managedValues.isString(resolvedType) || self.managedValues.isNative(resolvedType)) {
 			return self.releaseValue(value, resolvedType);
 		}
 		self.context.referenceHelper("__btrc_arc_release_edge");
@@ -441,7 +451,7 @@ class ManagedLifetimeLowerer {
 	public IRNode registerCleanupSlot(IRNode declaration, string runtimeType) {
 		self.markCleanupRegistration();
 		string cleanup = self.cleanupSymbol(runtimeType);
-		if (runtimeType == self.managedValues.stringRuntimeType()) {
+		if (runtimeType == self.managedValues.stringRuntimeType() || self.managedValues.isNativeName(runtimeType)) {
 			return self.cleanupSlots.registerSlot(self.context, declaration, IRNode.functionReference(cleanup), null, true);
 		}
 		IRNode visitor = IRNode.literal("NULL");

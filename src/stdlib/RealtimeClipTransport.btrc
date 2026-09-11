@@ -9,11 +9,11 @@
  */
 
 import Library.OwnedBuffer;
-import Library.RealtimeAudio;
+import Library.Audio.RealtimeAudio;
 import Library.RealtimeClock;
 import Library.RealtimeClipPractice;
 
-import ./realtime_clip_transport/Runtime.btrc;
+import ./RealtimeClipTransport/Runtime.btrc;
 
 enum RealtimeClipTransportStatus {
 	REALTIME_CLIP_TRANSPORT_OK,

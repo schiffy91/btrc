@@ -1,4 +1,4 @@
-import Library.DdsEncodedImageDecoder;
+import Library.DDSEncodedImageDecoder;
 import Library.EncodedImage;
 import Library.Bytes;
 import Library.Image;
@@ -70,10 +70,10 @@ Bytes genuinePsarcArtwork() {
 }
 
 int main() {
-	DdsEncodedImageDecoder decoder = DdsEncodedImageDecoder();
+	DDSEncodedImageDecoder decoder = DDSEncodedImageDecoder();
 	EncodedImageDecodeLimits limits = EncodedImageDecodeLimits(1024, 8, 8, 64LL);
 	Bytes artwork = genuinePsarcArtwork();
-	assert(artwork.length() == 160 && DdsEncodedImageDecoder.recognizes(artwork));
+	assert(artwork.length() == 160 && DDSEncodedImageDecoder.recognizes(artwork));
 	EncodedImageDecodeOutcome decoded = decoder.decode(artwork, limits);
 	assert(decoded.succeeded() && decoded.inputBytes() == 160 && decoded.decodedBytes() == 256ULL);
 	Image image = decoded.image();

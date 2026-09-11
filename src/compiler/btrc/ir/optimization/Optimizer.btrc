@@ -49,7 +49,7 @@ class IROptimizer {
 
 	private bool globalInitializerHasEffects(IRNode? node) {
 		if (node == null) { return false; }
-		if (node.kind == IRK_CALL || node.kind == IRK_STMT_EXPR || node.kind == IRK_INVALID_EXPR || node.kind >= IRK_VAR_DECL) {
+		if (node.kind == IRK_CALL || node.kind == IRK_OBJECTIVE_C_MESSAGE || (node.kind == IRK_CAST && (node.bridge == "retain" || node.bridge == "transfer")) || node.kind == IRK_STMT_EXPR || node.kind == IRK_INVALID_EXPR || node.kind >= IRK_VAR_DECL) {
 			return true;
 		}
 		if (node.kind == IRK_UNARYOP && (node.op == "++" || node.op == "--")) {

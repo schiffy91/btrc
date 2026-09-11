@@ -28,7 +28,7 @@ def test_upper_camel_contract_programs_are_runnable_corpus_entries():
 def test_native_programs_are_owned_by_their_dedicated_harnesses():
     selected = set(language_test_files(TESTS))
 
-    assert "native/app_surface/NativeUiAppSession.btrc" not in selected
+    assert "native/app_surface/NativeUIAppSession.btrc" not in selected
 
 
 def test_formatter_fixtures_are_owned_by_syntax_preservation_tests():

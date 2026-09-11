@@ -139,7 +139,7 @@ def test_gui_rule_removes_stale_outputs_on_probe_or_compile_failure(
     stem: str,
     succeeds: bool,
 ) -> None:
-    build = tmp_path / "build/stdlib/gui"
+    build = tmp_path / "build/stdlib/GUI"
     build.mkdir(parents=True)
     archive = build / f"lib{stem}.a"
     object_file = build / f"{stem}.o"

@@ -54,9 +54,13 @@ class ManagedValueSemantics {
 		return !resolved.isArray && depth == 0 && resolved.base == "Mutex" && resolved.genericArgs.len == 1;
 	}
 
-	public bool isArc(Node? typeExpr) { return self.isClass(typeExpr) || self.isMutex(typeExpr); }
+	public bool isNativeName(string name) { return self.analyzed.nativeClassLanguage(name) == "objective-c"; }
 
-	public bool isManaged(Node? typeExpr) { return self.isString(typeExpr) || self.isArc(typeExpr); }
+	public bool isNative(Node? typeExpr) { return self.isClass(typeExpr) && self.isNativeName(self.canonical(typeExpr).base); }
+
+	public bool isArc(Node? typeExpr) { return (self.isClass(typeExpr) && !self.isNative(typeExpr)) || self.isMutex(typeExpr); }
+
+	public bool isManaged(Node? typeExpr) { return self.isString(typeExpr) || self.isClass(typeExpr) || self.isMutex(typeExpr); }
 
 	public string runtimeType(Node typeExpr) {
 		Node resolved = self.canonical(typeExpr);
@@ -69,6 +73,7 @@ class ManagedValueSemantics {
 	}
 
 	public string runtimeCType(string runtimeType) {
+		if (self.isNativeName(runtimeType)) { return "struct __btrc_native_" + runtimeType + "*"; }
 		if (runtimeType == self.stringRuntimeType()) {
 			return "const char*";
 		}
@@ -79,6 +84,7 @@ class ManagedValueSemantics {
 	}
 
 	public string cleanupSymbol(string runtimeType) {
+		if (self.isNativeName(runtimeType)) { return "__btrc_objc_" + runtimeType + "_release"; }
 		if (runtimeType == self.stringRuntimeType()) {
 			return "__btrc_string_release_cleanup";
 		}

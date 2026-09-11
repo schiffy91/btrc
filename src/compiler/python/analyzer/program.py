@@ -80,6 +80,8 @@ class Diag:
 @dataclass
 class ClassInfo:
     name: str
+    native_language: str = ""
+    native_ancestors: tuple[str, ...] = ()
     generic_params: list[str] = field(default_factory=list)
     fields: dict[str, FieldDecl] = field(default_factory=dict)
     static_fields: dict[str, FieldDecl] = field(default_factory=dict)
@@ -291,6 +293,8 @@ class AnalyzedProgram:
     function_table: dict[str, FunctionDecl] = field(default_factory=dict)
     global_var_types: dict[str, TypeExpr] = field(default_factory=dict)
     defined_global_names: frozenset[str] = frozenset()
+    native_object_globals: frozenset[str] = frozenset()
+    native_type_spellings: dict[str, str] = field(default_factory=dict)
     hosted_call_ids: set[int] = field(default_factory=set)
     realtime_safe_callables: frozenset[str] = frozenset()
     realtime_bounded_loop_ids: set[int] = field(default_factory=set)

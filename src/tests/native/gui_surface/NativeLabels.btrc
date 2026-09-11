@@ -1,0 +1,92 @@
+import Library.Image;
+import Library.IO;
+import Library.MacOSEncodedImageDecoder;
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSPanel;
+import Library.GUI.MacOS.MacOSLabel;
+import Library.GUI.MacOS.MacOSViewCapture;
+
+#include <assert.h>
+
+Image labelPixels(MacOSWindow window, string name) {
+	var bytes = MacOSViewCapture.captureTiff(window.contentView());
+	var file = File(f"{name}.tiff", "wb");
+	assert(file.ok() && file.writeBytes(bytes) && file.close());
+	return MacOSEncodedImageDecoder().decode(bytes, EncodedImageDecodeLimits(32000000, 4096, 4096, 4000000LL)).image();
+}
+
+int labelInkRows(Image image) {
+	int scale = image.width / 240;
+	int rows = 0;
+	for (int y = 20 * scale; y < 180 * scale; y++) {
+		bool ink = false;
+		for (int x = 20 * scale; x < 220 * scale; x++) {
+			if (image.pixel(x, y).red > 90) { ink = true; break; }
+		}
+		if (ink) { rows++; }
+	}
+	return rows;
+}
+
+/* An all-M caption must end in a short dot, not a clipped full-height M.
+ * Inspect the rightmost connected ink columns at actual backing resolution. */
+int finalGlyphHeight(Image image) {
+	int scale = image.width / 240;
+	int top = image.height;
+	int bottom = 0;
+	bool found = false;
+	for (int x = 220 * scale - 1; x >= 20 * scale; x--) {
+		bool ink = false;
+		for (int y = 20 * scale; y < 180 * scale; y++) {
+			if (image.pixel(x, y).red <= 90) { continue; }
+			ink = true;
+			if (y < top) { top = y; }
+			if (y > bottom) { bottom = y; }
+		}
+		if (found && !ink) { break; }
+		if (ink) { found = true; }
+	}
+	assert(found);
+	return bottom - top + 1;
+}
+
+int main() {
+	var app = MacOSApplication();
+	var window = MacOSWindow("Native label layout", 240.0, 200.0);
+	var background = MacOSPanel(RGBA(30, 30, 30), 0.0);
+	background.setFrame(0.0, 0.0, 240.0, 200.0);
+	window.contentView().addSubview(background.nativeView());
+	string text = "MMMM MMMM MMMM MMMM MMMM MMMM MMMM MMMM";
+	var label = MacOSLabel(text);
+	label.setFont(20.0);
+	label.setFrame(20.0, 20.0, 200.0, 160.0);
+	background.addChild(label.nativeView());
+	window.show();
+	app.pumpEvents();
+	label.setWrapping(false);
+	var single = labelPixels(window, "NativeLabelSingleLine");
+	int scale = single.width / 240;
+	assert(scale > 0 && label.text() == text);
+	int singleRows = labelInkRows(single);
+	assert(singleRows > 8 * scale && singleRows < 24 * scale);
+	assert(finalGlyphHeight(single) <= 6 * scale);
+	label.setWrapping(true);
+	var wrapped = labelPixels(window, "NativeLabelWrapped");
+	assert(label.text() == text && labelInkRows(wrapped) > singleRows * 2);
+	label.setWrapping(false);
+	var restored = labelPixels(window, "NativeLabelRestored");
+	assert(labelInkRows(restored) == singleRows && finalGlyphHeight(restored) <= 6 * scale);
+	label.setText("MMMM");
+	var shortText = labelPixels(window, "NativeLabelShort");
+	assert(label.text() == "MMMM" && finalGlyphHeight(shortText) > 8 * scale);
+	label.close();
+	label.close();
+	bool rejected = false;
+	try { label.setWrapping(true); } catch (string error) { rejected = true; }
+	assert(rejected);
+	background.close();
+	window.close();
+	print("PASS: native label ellipsis, wrapping, full text and teardown");
+	return 0;
+}

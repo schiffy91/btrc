@@ -1,0 +1,26 @@
+manifest-version = 1
+[package]
+name = "nativeGpuChild"
+[[native.bindings]]
+module = "WebGpu"
+header = "WebGpu.h"
+language = "c"
+standard = "c11"
+symbols = [
+ "wgpuInstanceRequestAdapter", "WGPURequestAdapterOptions", "WGPUStringView", "wgpuAdapterRequestDevice", "wgpuAdapterRelease", "wgpuDeviceRelease", "wgpuDeviceGetQueue", "wgpuQueueRelease",
+ "WGPUCallbackMode_AllowProcessEvents", "WGPURequestAdapterStatus_Success", "WGPURequestDeviceStatus_Success",
+ "wgpuSurfaceGetCapabilities", "wgpuSurfaceCapabilitiesFreeMembers", "WGPUStatus_Success", "WGPUTextureFormat_BGRA8Unorm", "WGPUTextureFormat_RGBA8Unorm",
+ "wgpuSurfaceConfigure", "wgpuSurfaceUnconfigure", "WGPUSurfaceConfiguration", "WGPUTextureUsage_RenderAttachment", "WGPUPresentMode_Fifo",
+ "wgpuSurfaceGetCurrentTexture", "WGPUSurfaceTexture", "WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal", "WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal",
+ "wgpuTextureCreateView", "wgpuDeviceCreateCommandEncoder", "wgpuCommandEncoderBeginRenderPass", "WGPURenderPassColorAttachment", "WGPURenderPassDescriptor", "WGPULoadOp_Clear", "WGPUStoreOp_Store",
+ "wgpuRenderPassEncoderEnd", "wgpuRenderPassEncoderRelease", "wgpuCommandEncoderFinish", "wgpuQueueSubmit", "wgpuSurfacePresent",
+ "wgpuCommandBufferRelease", "wgpuCommandEncoderRelease", "wgpuTextureViewRelease", "wgpuTextureRelease",
+ "wgpuDeviceCreateBuffer", "WGPUBufferDescriptor", "WGPUBufferUsage_CopyDst", "WGPUBufferUsage_MapRead", "WGPUTextureUsage_CopySrc",
+ "WGPUTexelCopyTextureInfo", "WGPUTexelCopyBufferInfo", "WGPUExtent3D", "WGPUTextureAspect_All", "wgpuCommandEncoderCopyTextureToBuffer",
+ "wgpuBufferMapAsync", "WGPUMapMode_Read", "WGPUMapAsyncStatus_Success", "wgpuDevicePoll", "wgpuBufferGetConstMappedRange", "wgpuBufferUnmap", "wgpuBufferRelease"
+]
+os = ["macos"]
+[[native.pkg-config]]
+name = "wgpu-native"
+modules = ["WebGpu"]
+os = ["macos"]

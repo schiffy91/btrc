@@ -392,10 +392,10 @@ def test_import_stdlib_single(tmp_path):
 
 
 def test_import_stdlib_brace(tmp_path):
-    src = "import Library.{Math, Json};\nint main() { return 0; }\n"
+    src = "import Library.{Math, JSON};\nint main() { return 0; }\n"
     p = write(tmp_path / "m.btrc", src)
     resolved = RESOLVER.resolve_includes(src, p)
-    assert "Math" in resolved and "Json" in resolved
+    assert "Math" in resolved and "JSON" in resolved
 
 
 def test_import_stdlib_glob(tmp_path):
@@ -544,8 +544,8 @@ def test_native_adapters_remain_explicit_stdlib_modules():
     explicit_modules = (
         "BackgroundJobs.btrc",
         "LocalApplicationChannel.btrc",
-        "NativeUi.btrc",
-        "NativeUiApp.btrc",
+        "NativeUI.btrc",
+        "NativeUIApp.btrc",
     )
     discovered = STDLIB.discover_files()
     relaxed = STDLIB.relaxed_composition_files()
@@ -557,8 +557,8 @@ def test_native_adapters_remain_explicit_stdlib_modules():
 
     source = STDLIB.source("")
     assert "class BackgroundJobExecutor" not in source
-    assert "class NativeUiElement" not in source
-    assert "class NativeUiAppSession" not in source
+    assert "class NativeUIElement" not in source
+    assert "class NativeUIAppSession" not in source
 
 
 def test_get_stdlib_source_skips_redefined():
@@ -574,9 +574,9 @@ def test_get_stdlib_source_skips_redefined_interface():
 
 
 def test_find_stdlib_file_subdir():
-    # gui/Gui.btrc lives in a subdirectory; basename lookup should find it.
-    path = STDLIB.find_file("Gui.btrc")
-    assert path is not None and path.endswith("Gui.btrc")
+    # GUI/GUI.btrc lives in a subdirectory; basename lookup should find it.
+    path = STDLIB.find_file("GUI.btrc")
+    assert path is not None and path.endswith("GUI.btrc")
 
 
 def test_cached_stdlib_decls_roundtrip(tmp_path, monkeypatch):

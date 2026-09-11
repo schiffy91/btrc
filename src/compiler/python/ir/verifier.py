@@ -6,6 +6,7 @@ from typing import ClassVar
 
 from .nodes import (
     IRAddressOf,
+    IRBlock,
     IRCall,
     IRCast,
     IRCleanupSlot,
@@ -24,6 +25,9 @@ from .nodes import (
     IRMacroDef,
     IRModule,
     IRNode,
+    IRObjectiveCAutoreleasePool,
+    IRObjectiveCExceptionBoundary,
+    IRObjectiveCMessage,
     IRStructDef,
     IRStructForward,
     IRTaggedUnionDef,
@@ -54,9 +58,40 @@ class IRVerifier:
         self._functions = {function.name: function for function in self.module.function_defs}
         self._validate_cleanup_slots()
         self.validate_type_declarations()
+        for unit in self.module.native_units.values():
+            IRVerifier(unit).validate()
 
     def validate_schema(self) -> None:
         """Reject raw strings and values in the wrong declaration category."""
+
+        if self.module.language not in ("c", "objective-c"):
+            raise ValueError("unsupported IR translation-unit language")
+        if not isinstance(self.module.native_units, dict):
+            raise TypeError("IRModule.native_units requires named translation units")
+        for name, unit in self.module.native_units.items():
+            if (
+                not isinstance(name, str)
+                or not name.isascii()
+                or not name.isidentifier()
+                or not isinstance(unit, IRModule)
+            ):
+                raise TypeError("native adapter requires an identifier and IRModule")
+            if unit.language != "objective-c" or unit.native_units:
+                raise ValueError("native adapter must be a standalone Objective-C unit")
+            IRVerifier(unit).validate_schema()
+        for node in self.module.walk():
+            if isinstance(node, IRCast) and node.bridge:
+                if self.module.language != "objective-c" or node.bridge not in ("borrow", "retain", "transfer"):
+                    raise ValueError("Objective-C bridge requires an Objective-C adapter unit and valid ownership")
+            if isinstance(node, (IRObjectiveCMessage, IRObjectiveCAutoreleasePool, IRObjectiveCExceptionBoundary)):
+                if self.module.language != "objective-c":
+                    raise ValueError("Objective-C IR requires an Objective-C adapter unit")
+                if isinstance(node, IRObjectiveCMessage):
+                    node.validate()
+                elif not isinstance(node.body, IRBlock):
+                    raise TypeError("Objective-C scope requires an IRBlock")
+                if isinstance(node, IRObjectiveCExceptionBoundary) and not isinstance(node.failure, IRBlock):
+                    raise TypeError("Objective-C exception boundary requires an IRBlock failure path")
 
         for field_name in ("freestanding", "needs_runtime", "debug"):
             if not isinstance(getattr(self.module, field_name), bool):
@@ -170,6 +205,10 @@ class IRVerifier:
         visiting = visiting | {function.name}
         path = (*path, function.name)
         for node in IRNode.walk_value(function.body):
+            if isinstance(node, IRCast) and node.bridge:
+                raise ValueError(f"IR realtime backstop rejected Objective-C ownership via {' -> '.join(path)}")
+            if isinstance(node, (IRObjectiveCMessage, IRObjectiveCAutoreleasePool, IRObjectiveCExceptionBoundary)):
+                raise ValueError(f"IR realtime backstop rejected Objective-C operation via {' -> '.join(path)}")
             if isinstance(node, (IRWhile, IRDoWhile)):
                 raise ValueError(f"IR realtime backstop rejected unbounded loop via {' -> '.join(path)}")
             if isinstance(node, IRFor):

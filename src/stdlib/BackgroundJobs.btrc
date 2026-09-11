@@ -1,30 +1,7 @@
-/* A bounded, owned background executor for serialized applications.
- *
- * Product code submits a managed BackgroundJobWork and a typed action. This
- * module alone adapts that pair to the native {run, void*, dispose} ABI. An
- * accepted submission owns the work until poll() publishes a typed completion
- * or close() reclaims it. A rejected submission retains nothing.
- */
-
-typedef CFunction<int, void*, void*> BtrcBackgroundJobNativeRun;
-typedef CFunction<void, void*> BtrcBackgroundJobNativeDispose;
-
-struct BtrcBackgroundJobNativeCompletion {
-	int kind;
-	unsigned long long sequence;
-	unsigned long long generation;
-	void* context;
-	BtrcBackgroundJobNativeDispose disposeContext;
-};
-
-int std_background_jobs_open(int workerCount, int capacity, void** executorOut);
-int std_background_jobs_submit(void* executor, unsigned long long generation, BtrcBackgroundJobNativeRun run, void* context, BtrcBackgroundJobNativeDispose disposeContext, unsigned long long* sequenceOut);
-int std_background_jobs_cancel(void* executor, unsigned long long sequence, unsigned long long generation);
-int std_background_jobs_cancel_generation(void* executor, unsigned long long generation, int* requestedOut);
-int std_background_jobs_poll(void* executor, struct BtrcBackgroundJobNativeCompletion* completionOut);
-int std_background_jobs_outstanding(void* executor);
-int std_background_jobs_cancel_requested(void* cancellation);
-int std_background_jobs_close(void* executor, int mode, int* completedOut, int* failedOut, int* cancelledOut, int* disposedOut);
+/* Bounded background jobs. BTRC owns queue, cancellation and worker lifetime;
+ * imported pthread declarations supply only the operating-system primitives. */
+import Library.OwnedBuffer;
+import Library.Vector;
 
 enum BackgroundJobsOpenKind {
 	BACKGROUND_JOBS_OPENED = 0,
@@ -85,53 +62,16 @@ class BackgroundJobWork {
 }
 
 class BackgroundJobCancellation {
-	private void* nativeCancellation;
+	private Atomic<bool> cancelled;
 
-	public BackgroundJobCancellation(void* nativeCancellation) { self.nativeCancellation = nativeCancellation; }
+	public BackgroundJobCancellation() { self.cancelled.init(false); }
 
-	public bool requested() { return self.nativeCancellation != null && std_background_jobs_cancel_requested(self.nativeCancellation) != 0; }
+	public bool requested() { return self.cancelled.load(MemoryOrder.ACQUIRE); }
+
+	public void request() { self.cancelled.store(true, MemoryOrder.RELEASE); }
 }
 
-typedef CFunction< BackgroundJobCompletionKind, BackgroundJobWork, BackgroundJobCancellation > BackgroundJobAction;
-
-struct BtrcBackgroundJobOwnedEnvelope {
-	BackgroundJobWork? work;
-	BackgroundJobAction action;
-};
-
-struct BtrcBackgroundJobOwnedEnvelope* backgroundJobOwnedEnvelopeCreate(BackgroundJobWork work, BackgroundJobAction action) {
-	if (work == null || action == null) { return null; }
-	struct BtrcBackgroundJobOwnedEnvelope* envelope = (struct BtrcBackgroundJobOwnedEnvelope*)calloc(1, sizeof(struct BtrcBackgroundJobOwnedEnvelope));
-	if (envelope == null) { return null; }
-	keep work;
-	envelope->work = work;
-	envelope->action = action;
-	return envelope;
-}
-
-int backgroundJobOwnedEnvelopeRun(void* context, void* cancellation) {
-	if (context == null || cancellation == null) {
-		return BACKGROUND_JOB_FAILED;
-	}
-	struct BtrcBackgroundJobOwnedEnvelope* envelope = (struct BtrcBackgroundJobOwnedEnvelope*)context;
-	BackgroundJobWork? work = envelope->work;
-	if (work == null || envelope->action == null) {
-		return BACKGROUND_JOB_FAILED;
-	}
-	try {
-		BackgroundJobCompletionKind kind = envelope->action(work, BackgroundJobCancellation(cancellation));
-		return kind >= BACKGROUND_JOB_COMPLETED && kind <= BACKGROUND_JOB_CANCELLED ? (int)kind : BACKGROUND_JOB_FAILED;
-	} catch (string error) {
-		return BACKGROUND_JOB_FAILED;
-	}
-}
-
-void backgroundJobOwnedEnvelopeDispose(void* context) {
-	if (context == null) { return; }
-	struct BtrcBackgroundJobOwnedEnvelope* envelope = (struct BtrcBackgroundJobOwnedEnvelope*)context;
-	release envelope->work;
-	free(envelope);
-}
+typedef CFunction<BackgroundJobCompletionKind, BackgroundJobWork, BackgroundJobCancellation> BackgroundJobAction;
 
 class BackgroundJobGeneration {
 	private unsigned long long identity;
@@ -246,138 +186,485 @@ class BackgroundJobsCloseOutcome {
 	}
 }
 
-class BackgroundJobExecutor {
-	private void* nativeHandle;
-	private int closingMode;
+enum BackgroundJobState {
+	BACKGROUND_SLOT_FREE,
+	BACKGROUND_SLOT_QUEUED,
+	BACKGROUND_SLOT_RUNNING,
+	BACKGROUND_SLOT_TERMINAL
+};
 
-	private BackgroundJobExecutor(void* nativeHandle) {
-		self.nativeHandle = nativeHandle;
-		self.closingMode = -1;
+class BackgroundJobSlot {
+	public BackgroundJobState state;
+	public unsigned long long sequence;
+	public unsigned long long generation;
+	public BackgroundJobCompletionKind result;
+	private BackgroundJobWork? ownedWork;
+	private BackgroundJobAction action;
+	private BackgroundJobCancellation? cancellation;
+
+	public BackgroundJobSlot() {
+		self.state = BACKGROUND_SLOT_FREE;
+		self.sequence = 0ULL;
+		self.generation = 0ULL;
+		self.result = BACKGROUND_JOB_FAILED;
+		self.ownedWork = null;
+		self.action = (BackgroundJobAction)null;
+		self.cancellation = null;
 	}
 
-	class BackgroundJobsOpenOutcome open(int workerCount, int capacity) {
-		void* executor = null;
-		int status = std_background_jobs_open(workerCount, capacity, &executor);
-		BackgroundJobsOpenKind kind = status >= BACKGROUND_JOBS_OPENED && status <= BACKGROUND_JOBS_OPEN_THREAD_FAILED ? (BackgroundJobsOpenKind)status : BACKGROUND_JOBS_OPEN_THREAD_FAILED;
-		if (kind != BACKGROUND_JOBS_OPENED || executor == null) {
-			return BackgroundJobsOpenOutcome(kind, null, kind == BACKGROUND_JOBS_OPEN_INVALID ? "worker count must be 1..16 and capacity 1..4096" : (kind == BACKGROUND_JOBS_OPEN_OUT_OF_MEMORY ? "background job executor allocation failed" : "background job worker creation failed"));
+	public void prepare(unsigned long long sequence, BackgroundJobGeneration generation, BackgroundJobWork work, BackgroundJobAction action) {
+		self.sequence = sequence;
+		self.generation = generation.value();
+		self.ownedWork = work;
+		self.action = action;
+		self.cancellation = BackgroundJobCancellation();
+		self.result = BACKGROUND_JOB_FAILED;
+		self.state = BACKGROUND_SLOT_QUEUED;
+	}
+
+	public void cancel() { if (self.cancellation != null) { self.cancellation.request(); } }
+
+	public BackgroundJobCompletionKind run() {
+		if (self.ownedWork == null || self.action == null || self.cancellation == null) { return BACKGROUND_JOB_FAILED; }
+		if (self.cancellation.requested()) { return BACKGROUND_JOB_CANCELLED; }
+		try {
+			BackgroundJobCompletionKind result = self.action(self.ownedWork, self.cancellation);
+			return result >= BACKGROUND_JOB_COMPLETED && result <= BACKGROUND_JOB_CANCELLED ? result : BACKGROUND_JOB_FAILED;
+		} catch (string error) {
+			return BACKGROUND_JOB_FAILED;
 		}
-		return BackgroundJobsOpenOutcome(BACKGROUND_JOBS_OPENED, BackgroundJobExecutor(executor), "");
 	}
 
-	public bool isOpen() { return self.nativeHandle != null && self.closingMode < 0; }
+	public BackgroundJobCompletion completion() {
+		if (self.state != BACKGROUND_SLOT_TERMINAL || self.ownedWork == null) { throw "invalid background completion"; }
+		return BackgroundJobCompletion(self.result, BackgroundJobTicket(self.sequence, BackgroundJobGeneration(self.generation)), self.ownedWork);
+	}
 
-	public int outstanding() {
-		if (!self.isOpen()) { return 0; }
-		int value = std_background_jobs_outstanding(self.nativeHandle);
-		return value < 0 ? 0 : value;
+	public void clear() {
+		/* Detach before releasing user work: a destructor may throw or reenter. */
+		BackgroundJobWork? retired = self.ownedWork;
+		self.ownedWork = null;
+		self.action = (BackgroundJobAction)null;
+		self.cancellation = null;
+		self.state = BACKGROUND_SLOT_FREE;
+		self.sequence = 0ULL;
+		self.generation = 0ULL;
+	}
+}
+
+class BackgroundJobRing {
+	private OwnedBuffer<int> storage;
+	private int head;
+	private int size;
+
+	public BackgroundJobRing(int capacity) {
+		self.storage = OwnedBuffer((size_t)capacity);
+		self.head = 0;
+		self.size = 0;
+	}
+
+	public bool opened() { return self.storage.opened(); }
+
+	public int count() { return self.size; }
+
+	public bool push(int slot) {
+		int capacity = (int)self.storage.count();
+		if (self.size >= capacity) { return false; }
+		self.storage.set((size_t)((self.head + self.size) % capacity), slot);
+		self.size++;
+		return true;
+	}
+
+	public int pop() {
+		if (self.size == 0) { return -1; }
+		int slot = self.storage.get((size_t)self.head);
+		self.head = (self.head + 1) % (int)self.storage.count();
+		self.size--;
+		return slot;
+	}
+
+	public void clear() { self.head = 0; self.size = 0; }
+}
+
+class BackgroundJobQueue {
+	private pthread_mutex_t* mutex;
+	private pthread_cond_t* available;
+	private bool mutexReady;
+	private bool conditionReady;
+	private Vector<BackgroundJobSlot> slots;
+	private BackgroundJobRing pending;
+	private BackgroundJobRing completed;
+	private unsigned long long nextSequence;
+	private int outstandingCount;
+	private bool closing;
+	private bool retired;
+	private Atomic<bool> failedWorker;
+	private BackgroundJobsOpenKind openKind;
+	private int closedCompleted;
+	private int closedFailed;
+	private int closedCancelled;
+	private int closedDisposed;
+
+	public BackgroundJobQueue(int capacity) {
+		self.mutex = null;
+		self.available = null;
+		self.mutexReady = false;
+		self.conditionReady = false;
+		self.slots = [];
+		self.pending = BackgroundJobRing(capacity);
+		self.completed = BackgroundJobRing(capacity);
+		self.nextSequence = 1ULL;
+		self.outstandingCount = 0;
+		self.closing = false;
+		self.retired = false;
+		self.failedWorker.init(false);
+		self.openKind = BACKGROUND_JOBS_OPEN_OUT_OF_MEMORY;
+		self.closedCompleted = 0;
+		self.closedFailed = 0;
+		self.closedCancelled = 0;
+		self.closedDisposed = 0;
+		if (!self.pending.opened() || !self.completed.opened()) { return; }
+		self.mutex = (pthread_mutex_t*)calloc(1, sizeof(pthread_mutex_t));
+		self.available = (pthread_cond_t*)calloc(1, sizeof(pthread_cond_t));
+		if (self.mutex == null || self.available == null) { return; }
+		self.openKind = BACKGROUND_JOBS_OPEN_THREAD_FAILED;
+		if (pthread_mutex_init(self.mutex, null) != 0) { return; }
+		self.mutexReady = true;
+		if (pthread_cond_init(self.available, null) != 0) { return; }
+		self.conditionReady = true;
+		for (int index = 0; index < capacity; index++) { self.slots.push(BackgroundJobSlot()); }
+		self.openKind = BACKGROUND_JOBS_OPENED;
+	}
+
+	public BackgroundJobsOpenKind status() { return self.openKind; }
+
+	private void cancelPending() {
+		for slot in self.slots {
+			if (slot.state == BACKGROUND_SLOT_QUEUED || slot.state == BACKGROUND_SLOT_RUNNING) { slot.cancel(); }
+		}
+	}
+
+	private void failLocked() {
+		self.failedWorker.store(true, MemoryOrder.RELEASE);
+		self.closing = true;
+		self.cancelPending();
+		pthread_cond_broadcast(self.available);
+	}
+
+	public int workLoop() {
+		for (;;) {
+			if (pthread_mutex_lock(self.mutex) != 0) { return 1; }
+			while (self.pending.count() == 0 && !self.closing) {
+				if (pthread_cond_wait(self.available, self.mutex) != 0) {
+					self.failLocked();
+					pthread_mutex_unlock(self.mutex);
+					return 1;
+				}
+			}
+			if (self.pending.count() == 0) { pthread_mutex_unlock(self.mutex); return 0; }
+			int index = self.pending.pop();
+			BackgroundJobSlot slot = self.slots.get(index);
+			slot.state = BACKGROUND_SLOT_RUNNING;
+			pthread_mutex_unlock(self.mutex);
+			BackgroundJobCompletionKind result = slot.run();
+			if (pthread_mutex_lock(self.mutex) != 0) { return 1; }
+			slot.result = result;
+			slot.state = BACKGROUND_SLOT_TERMINAL;
+			if (!self.completed.push(index)) { self.failLocked(); }
+			pthread_mutex_unlock(self.mutex);
+		}
+		return 1;
 	}
 
 	public BackgroundJobSubmitOutcome submit(BackgroundJobGeneration generation, BackgroundJobWork work, BackgroundJobAction action) {
-		if (!self.isOpen()) {
-			return BackgroundJobSubmitOutcome(BACKGROUND_JOB_SUBMIT_CLOSED, null, "background job executor is closed");
-		}
-		if (generation == null || work == null || action == null) {
-			return BackgroundJobSubmitOutcome(BACKGROUND_JOB_SUBMIT_INVALID, null, "background job submission is incomplete");
-		}
-		struct BtrcBackgroundJobOwnedEnvelope* envelope = backgroundJobOwnedEnvelopeCreate(work, action);
-		if (envelope == null) {
-			return BackgroundJobSubmitOutcome(BACKGROUND_JOB_SUBMIT_OUT_OF_MEMORY, null, "background job envelope allocation failed");
-		}
-		unsigned long long sequence = 0ULL;
-		int status = std_background_jobs_submit(self.nativeHandle, generation.value(), backgroundJobOwnedEnvelopeRun, envelope, backgroundJobOwnedEnvelopeDispose, &sequence);
-		BackgroundJobSubmitKind kind = status >= BACKGROUND_JOB_SUBMITTED && status <= BACKGROUND_JOB_TICKETS_EXHAUSTED ? (BackgroundJobSubmitKind)status : BACKGROUND_JOB_SUBMIT_CLOSED;
-		if (kind != BACKGROUND_JOB_SUBMITTED || sequence == 0ULL) {
-			backgroundJobOwnedEnvelopeDispose(envelope);
-			string error = kind == BACKGROUND_JOB_QUEUE_FULL ? "background job queue is full" : (kind == BACKGROUND_JOB_SUBMIT_NOT_OWNER ? "background job submission requires its owner thread" : (kind == BACKGROUND_JOB_TICKETS_EXHAUSTED ? "background job ticket sequence is exhausted" : "background job submission was rejected"));
-			return BackgroundJobSubmitOutcome(kind, null, error);
-		}
-		return BackgroundJobSubmitOutcome(BACKGROUND_JOB_SUBMITTED, BackgroundJobTicket(sequence, generation), "");
-	}
-
-	public BackgroundJobCancelOutcome cancel(BackgroundJobTicket ticket) {
-		if (!self.isOpen()) {
-			return BackgroundJobCancelOutcome(BACKGROUND_JOB_CANCEL_CLOSED, 0, "background job executor is closed");
-		}
-		if (ticket == null) {
-			return BackgroundJobCancelOutcome(BACKGROUND_JOB_CANCEL_STALE, 0, "background job ticket is invalid");
-		}
-		int status = std_background_jobs_cancel(self.nativeHandle, ticket.sequence(), ticket.generation().value());
-		BackgroundJobCancelKind kind = status >= BACKGROUND_JOB_CANCEL_REQUESTED && status <= BACKGROUND_JOB_CANCEL_NOT_OWNER ? (BackgroundJobCancelKind)status : BACKGROUND_JOB_CANCEL_CLOSED;
-		return BackgroundJobCancelOutcome(kind, kind == BACKGROUND_JOB_CANCEL_REQUESTED ? 1 : 0, kind == BACKGROUND_JOB_CANCEL_NOT_OWNER ? "background job cancellation requires its owner thread" : (kind == BACKGROUND_JOB_CANCEL_STALE ? "background job ticket is stale" : ""));
-	}
-
-	public BackgroundJobCancelOutcome cancelGeneration(BackgroundJobGeneration generation) {
-		if (!self.isOpen()) {
-			return BackgroundJobCancelOutcome(BACKGROUND_JOB_CANCEL_CLOSED, 0, "background job executor is closed");
-		}
-		if (generation == null) {
-			return BackgroundJobCancelOutcome(BACKGROUND_JOB_CANCEL_STALE, 0, "background job generation is invalid");
-		}
-		int requested = 0;
-		int status = std_background_jobs_cancel_generation(self.nativeHandle, generation.value(), &requested);
-		BackgroundJobCancelKind kind = status >= BACKGROUND_JOB_CANCEL_REQUESTED && status <= BACKGROUND_JOB_CANCEL_NOT_OWNER ? (BackgroundJobCancelKind)status : BACKGROUND_JOB_CANCEL_CLOSED;
-		return BackgroundJobCancelOutcome(kind, requested, kind == BACKGROUND_JOB_CANCEL_NOT_OWNER ? "background job cancellation requires its owner thread" : "");
-	}
-
-	/* Never waits for a worker or condition. A briefly-held publication lock
-     * reports BUSY so the serialized app loop can try again next turn. */
-	public BackgroundJobPollOutcome poll() {
-		if (!self.isOpen()) {
-			return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_CLOSED, null, "background job executor is closed");
-		}
-		struct BtrcBackgroundJobNativeCompletion native;
-		int status = std_background_jobs_poll(self.nativeHandle, &native);
-		BackgroundJobPollKind kind = status >= BACKGROUND_JOB_POLL_READY && status <= BACKGROUND_JOB_POLL_BUSY ? (BackgroundJobPollKind)status : BACKGROUND_JOB_POLL_CLOSED;
-		if (kind != BACKGROUND_JOB_POLL_READY) {
-			return BackgroundJobPollOutcome(kind, null, kind == BACKGROUND_JOB_POLL_NOT_OWNER ? "background job polling requires its owner thread" : (kind == BACKGROUND_JOB_POLL_CLOSED ? "background job executor is closed" : ""));
-		}
-		if (native.sequence == 0ULL || native.generation == 0ULL || native.context == null || native.disposeContext == null || native.disposeContext != backgroundJobOwnedEnvelopeDispose || native.kind < BACKGROUND_JOB_COMPLETED || native.kind > BACKGROUND_JOB_CANCELLED) {
-			if (native.context != null && native.disposeContext != null) {
-				native.disposeContext(native.context);
+		if (pthread_mutex_lock(self.mutex) != 0) { return BackgroundJobSubmitOutcome(BACKGROUND_JOB_SUBMIT_CLOSED, null, "background job synchronization failed"); }
+		BackgroundJobSubmitKind status = BACKGROUND_JOB_QUEUE_FULL;
+		BackgroundJobTicket? ticket = null;
+		if (self.closing) { status = BACKGROUND_JOB_SUBMIT_CLOSED; }
+		else if (self.nextSequence == 0ULL) { status = BACKGROUND_JOB_TICKETS_EXHAUSTED; }
+		else {
+			for (int index = 0; index < self.slots.len; index++) {
+				BackgroundJobSlot slot = self.slots.get(index);
+				if (slot.state != BACKGROUND_SLOT_FREE) { continue; }
+				unsigned long long sequence = self.nextSequence;
+				slot.prepare(sequence, generation, work, action);
+				if (!self.pending.push(index)) { slot.clear(); break; }
+				self.nextSequence = sequence + 1ULL;
+				self.outstandingCount++;
+				ticket = BackgroundJobTicket(sequence, generation);
+				status = BACKGROUND_JOB_SUBMITTED;
+				pthread_cond_signal(self.available);
+				break;
 			}
-			return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_CLOSED, null, "background job completion was malformed");
 		}
-		struct BtrcBackgroundJobOwnedEnvelope* envelope = (struct BtrcBackgroundJobOwnedEnvelope*)native.context;
-		BackgroundJobWork? work = envelope->work;
-		if (work == null) {
-			native.disposeContext(native.context);
-			return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_CLOSED, null, "background job completion lost its work");
+		pthread_mutex_unlock(self.mutex);
+		string error = status == BACKGROUND_JOB_SUBMITTED ? "" : (status == BACKGROUND_JOB_QUEUE_FULL ? "background job queue is full" : (status == BACKGROUND_JOB_TICKETS_EXHAUSTED ? "background job ticket sequence is exhausted" : "background job executor is closed"));
+		return BackgroundJobSubmitOutcome(status, ticket, error);
+	}
+
+	public BackgroundJobCancelOutcome cancel(unsigned long long generation, unsigned long long sequence, bool wholeGeneration) {
+		if (pthread_mutex_lock(self.mutex) != 0) { return BackgroundJobCancelOutcome(BACKGROUND_JOB_CANCEL_CLOSED, 0, "background job synchronization failed"); }
+		BackgroundJobCancelKind status = wholeGeneration ? BACKGROUND_JOB_CANCEL_REQUESTED : BACKGROUND_JOB_CANCEL_STALE;
+		int requested = 0;
+		if (self.closing) { status = BACKGROUND_JOB_CANCEL_CLOSED; }
+		else {
+			for slot in self.slots {
+				if (slot.state == BACKGROUND_SLOT_FREE || slot.generation != generation || (!wholeGeneration && slot.sequence != sequence)) { continue; }
+				if (slot.state == BACKGROUND_SLOT_TERMINAL) {
+					if (!wholeGeneration) { status = BACKGROUND_JOB_ALREADY_TERMINAL; }
+				} else {
+					slot.cancel();
+					requested++;
+					status = BACKGROUND_JOB_CANCEL_REQUESTED;
+				}
+			}
 		}
-		BackgroundJobGeneration generation = BackgroundJobGeneration(native.generation);
-		BackgroundJobCompletion completion = BackgroundJobCompletion((BackgroundJobCompletionKind)native.kind, BackgroundJobTicket(native.sequence, generation), work);
-		native.disposeContext(native.context);
+		pthread_mutex_unlock(self.mutex);
+		return BackgroundJobCancelOutcome(status, requested, status == BACKGROUND_JOB_CANCEL_STALE ? "background job ticket is stale" : "");
+	}
+
+	public int outstanding() {
+		if (pthread_mutex_lock(self.mutex) != 0) { return 0; }
+		int result = self.outstandingCount;
+		pthread_mutex_unlock(self.mutex);
+		return result;
+	}
+
+	public BackgroundJobPollOutcome poll() {
+		int locked = pthread_mutex_trylock(self.mutex);
+		if (locked == EBUSY) { return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_BUSY, null, ""); }
+		if (locked != 0) { return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_CLOSED, null, "background job synchronization failed"); }
+		int index = self.completed.pop();
+		if (index < 0) {
+			pthread_mutex_unlock(self.mutex);
+			return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_EMPTY, null, "");
+		}
+		BackgroundJobSlot slot = self.slots.get(index);
+		BackgroundJobCompletion completion = slot.completion();
+		slot.clear();
+		self.outstandingCount--;
+		pthread_mutex_unlock(self.mutex);
 		return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_READY, completion, "");
 	}
 
-	public BackgroundJobsCloseOutcome close(BackgroundJobsCloseMode mode = BACKGROUND_JOBS_CANCEL_PENDING) {
-		if (self.nativeHandle == null) {
-			return BackgroundJobsCloseOutcome(BACKGROUND_JOBS_ALREADY_CLOSED, 0, 0, 0, 0, "");
+	public bool beginClose(BackgroundJobsCloseMode mode) {
+		if (pthread_mutex_lock(self.mutex) != 0) { return false; }
+		self.closing = true;
+		if (mode == BACKGROUND_JOBS_CANCEL_PENDING) { self.cancelPending(); }
+		pthread_cond_broadcast(self.available);
+		pthread_mutex_unlock(self.mutex);
+		return true;
+	}
+
+	private bool releaseSynchronization() {
+		if (self.conditionReady) {
+			if (pthread_cond_destroy(self.available) != 0) { return false; }
+			self.conditionReady = false;
 		}
-		if (self.closingMode >= 0 && self.closingMode != (int)mode) {
-			return BackgroundJobsCloseOutcome(BACKGROUND_JOBS_CLOSE_INVALID_MODE, 0, 0, 0, 0, "background job close mode cannot change during retry");
+		if (self.mutexReady) {
+			if (pthread_mutex_destroy(self.mutex) != 0) { return false; }
+			self.mutexReady = false;
 		}
-		int completed = 0;
-		int failed = 0;
-		int cancelled = 0;
-		int disposed = 0;
-		int status = std_background_jobs_close(self.nativeHandle, (int)mode, &completed, &failed, &cancelled, &disposed);
-		BackgroundJobsCloseKind kind = status >= BACKGROUND_JOBS_CLOSED && status <= BACKGROUND_JOBS_CLOSE_SYNC_FAILED ? (BackgroundJobsCloseKind)status : BACKGROUND_JOBS_CLOSE_WORKER_FAILED;
-		if (kind == BACKGROUND_JOBS_CLOSE_JOIN_FAILED) {
-			self.closingMode = (int)mode;
-		} else if (kind == BACKGROUND_JOBS_CLOSED || kind == BACKGROUND_JOBS_CLOSE_WORKER_FAILED) {
-			self.nativeHandle = null;
-			self.closingMode = -1;
+		free(self.available);
+		free(self.mutex);
+		self.available = null;
+		self.mutex = null;
+		return true;
+	}
+
+	public BackgroundJobsCloseOutcome finishClose(bool workerFailed) {
+		if (!self.retired) {
+			self.retired = true;
+			self.pending.clear();
+			self.completed.clear();
+			self.outstandingCount = 0;
+			for slot in self.slots {
+				if (slot.state == BACKGROUND_SLOT_FREE) { continue; }
+				if (slot.state != BACKGROUND_SLOT_TERMINAL || slot.result == BACKGROUND_JOB_CANCELLED) { self.closedCancelled++; }
+				else if (slot.result == BACKGROUND_JOB_COMPLETED) { self.closedCompleted++; }
+				else { self.closedFailed++; }
+				self.closedDisposed++;
+				try { slot.clear(); }
+				catch (string error) { self.failedWorker.store(true, MemoryOrder.RELEASE); }
+			}
 		}
-		string error = kind == BACKGROUND_JOBS_CLOSE_NOT_OWNER ? "background job close requires its owner thread" : (kind == BACKGROUND_JOBS_CLOSE_JOIN_FAILED ? "background job worker join failed" : (kind == BACKGROUND_JOBS_CLOSE_WORKER_FAILED ? "background job worker failed during shutdown" : (kind == BACKGROUND_JOBS_CLOSE_SYNC_FAILED ? "background job close synchronization failed" : "")));
-		return BackgroundJobsCloseOutcome(kind, completed, failed, cancelled, disposed, error);
+		if (workerFailed) { self.failedWorker.store(true, MemoryOrder.RELEASE); }
+		BackgroundJobsCloseKind status = self.failedWorker.load(MemoryOrder.ACQUIRE) ? BACKGROUND_JOBS_CLOSE_WORKER_FAILED : BACKGROUND_JOBS_CLOSED;
+		if (!self.releaseSynchronization()) { status = BACKGROUND_JOBS_CLOSE_SYNC_FAILED; }
+		return BackgroundJobsCloseOutcome(status, self.closedCompleted, self.closedFailed, self.closedCancelled, self.closedDisposed, status == BACKGROUND_JOBS_CLOSED ? "" : "background job shutdown failed");
 	}
 
 	public void __del__() {
-		if (self.nativeHandle == null) { return; }
-		BackgroundJobsCloseMode mode = self.closingMode >= 0 ? (BackgroundJobsCloseMode)self.closingMode : BACKGROUND_JOBS_CANCEL_PENDING;
-		BackgroundJobsCloseOutcome closed = self.close(mode);
-		if (closed.kind != BACKGROUND_JOBS_CLOSED && closed.kind != BACKGROUND_JOBS_CLOSE_WORKER_FAILED) {
+		if (!self.releaseSynchronization()) { fprintf(stderr, "background synchronization is still in use\n"); abort(); }
+	}
+}
+
+/* The executor retains this one managed state reference until every SDK thread
+ * has joined. No thread can outlive its callback context. */
+struct BackgroundJobWorkerContext {
+	BackgroundJobQueue queue;
+};
+
+int backgroundJobWorkerRun(void* raw) {
+	struct BackgroundJobWorkerContext* context = (struct BackgroundJobWorkerContext*)raw;
+	BackgroundJobQueue queue = context->queue;
+	return queue.workLoop();
+}
+
+void* backgroundJobWorkerEntry(void* raw) {
+	int result = 1;
+	if (__btrc_native_thread_invoke(backgroundJobWorkerRun, raw, &result) != 0) { return raw; }
+	return result == 0 ? null : raw;
+}
+
+class BackgroundJobWorker {
+	private pthread_t handle;
+	private bool started;
+	private bool joined;
+	private bool failed;
+
+	public BackgroundJobWorker() {
+		self.handle = (pthread_t)0;
+		self.started = false;
+		self.joined = false;
+		self.failed = false;
+	}
+
+	public bool start(struct BackgroundJobWorkerContext* context) {
+		pthread_t handle = (pthread_t)0;
+		if (pthread_create(&handle, null, backgroundJobWorkerEntry, context) != 0) { return false; }
+		self.handle = handle;
+		self.started = true;
+		return true;
+	}
+
+	public bool join() {
+		if (!self.started || self.joined) { return true; }
+		void* result = null;
+		if (pthread_join(self.handle, &result) != 0) { return false; }
+		self.joined = true;
+		self.failed = result != null;
+		return true;
+	}
+
+	public bool workerFailed() { return self.failed; }
+
+	public void __del__() {
+		if (self.started && !self.joined) { fprintf(stderr, "background worker destroyed before join\n"); abort(); }
+	}
+}
+
+class BackgroundJobExecutor {
+	private pthread_t owner;
+	private BackgroundJobQueue queue;
+	private Vector<BackgroundJobWorker> workers;
+	private struct BackgroundJobWorkerContext* context;
+	private int closingMode;
+	private bool closed;
+	private bool finishing;
+
+	private BackgroundJobExecutor(BackgroundJobQueue queue) {
+		self.owner = pthread_self();
+		self.queue = queue;
+		self.workers = [];
+		self.closingMode = -1;
+		self.closed = false;
+		self.finishing = false;
+		self.context = (struct BackgroundJobWorkerContext*)calloc(1, sizeof(struct BackgroundJobWorkerContext));
+		if (self.context != null) { keep queue; self.context->queue = queue; }
+	}
+
+	class BackgroundJobsOpenOutcome open(int workerCount, int capacity) {
+		if (workerCount <= 0 || workerCount > 16 || capacity <= 0 || capacity > 4096) {
+			return BackgroundJobsOpenOutcome(BACKGROUND_JOBS_OPEN_INVALID, null, "worker count must be 1..16 and capacity 1..4096");
+		}
+		BackgroundJobQueue queue = BackgroundJobQueue(capacity);
+		if (queue.status() != BACKGROUND_JOBS_OPENED) { return BackgroundJobsOpenOutcome(queue.status(), null, "background job initialization failed"); }
+		BackgroundJobExecutor executor = BackgroundJobExecutor(queue);
+		if (executor.context == null) {
+			executor.closed = true;
+			return BackgroundJobsOpenOutcome(BACKGROUND_JOBS_OPEN_OUT_OF_MEMORY, null, "background job context allocation failed");
+		}
+		for (int index = 0; index < workerCount; index++) {
+			BackgroundJobWorker worker = BackgroundJobWorker();
+			if (!worker.start(executor.context)) {
+				BackgroundJobsCloseOutcome stopped = executor.close(BACKGROUND_JOBS_CANCEL_PENDING);
+				if (stopped.kind == BACKGROUND_JOBS_CLOSE_JOIN_FAILED || stopped.kind == BACKGROUND_JOBS_CLOSE_SYNC_FAILED) {
+					return BackgroundJobsOpenOutcome(BACKGROUND_JOBS_OPEN_THREAD_FAILED, executor, "partial worker startup requires close retry");
+				}
+				return BackgroundJobsOpenOutcome(BACKGROUND_JOBS_OPEN_THREAD_FAILED, null, "background job worker creation failed");
+			}
+			executor.workers.push(worker);
+		}
+		return BackgroundJobsOpenOutcome(BACKGROUND_JOBS_OPENED, executor, "");
+	}
+
+	private bool onOwner() { return pthread_equal(self.owner, pthread_self()) != 0; }
+
+	public bool isOpen() { return self.onOwner() && !self.closed && self.closingMode < 0; }
+
+	public int outstanding() { return self.isOpen() && self.onOwner() ? self.queue.outstanding() : 0; }
+
+	public BackgroundJobSubmitOutcome submit(BackgroundJobGeneration generation, BackgroundJobWork work, BackgroundJobAction action) {
+		if (!self.onOwner()) { return BackgroundJobSubmitOutcome(BACKGROUND_JOB_SUBMIT_NOT_OWNER, null, "background job submission requires its owner thread"); }
+		if (!self.isOpen()) { return BackgroundJobSubmitOutcome(BACKGROUND_JOB_SUBMIT_CLOSED, null, "background job executor is closed"); }
+		if (generation == null || work == null || action == null) { return BackgroundJobSubmitOutcome(BACKGROUND_JOB_SUBMIT_INVALID, null, "background job submission is incomplete"); }
+		return self.queue.submit(generation, work, action);
+	}
+
+	public BackgroundJobCancelOutcome cancel(BackgroundJobTicket ticket) {
+		if (!self.onOwner()) { return BackgroundJobCancelOutcome(BACKGROUND_JOB_CANCEL_NOT_OWNER, 0, "background job cancellation requires its owner thread"); }
+		if (!self.isOpen()) { return BackgroundJobCancelOutcome(BACKGROUND_JOB_CANCEL_CLOSED, 0, "background job executor is closed"); }
+		if (ticket == null) { return BackgroundJobCancelOutcome(BACKGROUND_JOB_CANCEL_STALE, 0, "background job ticket is invalid"); }
+		return self.queue.cancel(ticket.generation().value(), ticket.sequence(), false);
+	}
+
+	public BackgroundJobCancelOutcome cancelGeneration(BackgroundJobGeneration generation) {
+		if (!self.onOwner()) { return BackgroundJobCancelOutcome(BACKGROUND_JOB_CANCEL_NOT_OWNER, 0, "background job cancellation requires its owner thread"); }
+		if (!self.isOpen()) { return BackgroundJobCancelOutcome(BACKGROUND_JOB_CANCEL_CLOSED, 0, "background job executor is closed"); }
+		if (generation == null) { return BackgroundJobCancelOutcome(BACKGROUND_JOB_CANCEL_STALE, 0, "background job generation is invalid"); }
+		return self.queue.cancel(generation.value(), 0ULL, true);
+	}
+
+	public BackgroundJobPollOutcome poll() {
+		if (!self.onOwner()) { return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_NOT_OWNER, null, "background job polling requires its owner thread"); }
+		if (!self.isOpen()) { return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_CLOSED, null, "background job executor is closed"); }
+		return self.queue.poll();
+	}
+
+	public BackgroundJobsCloseOutcome close(BackgroundJobsCloseMode mode = BACKGROUND_JOBS_CANCEL_PENDING) {
+		if (!self.onOwner()) { return BackgroundJobsCloseOutcome(BACKGROUND_JOBS_CLOSE_NOT_OWNER, 0, 0, 0, 0, "background job close requires its owner thread"); }
+		if (self.closed) { return BackgroundJobsCloseOutcome(BACKGROUND_JOBS_ALREADY_CLOSED, 0, 0, 0, 0, ""); }
+		if ((mode != BACKGROUND_JOBS_DRAIN && mode != BACKGROUND_JOBS_CANCEL_PENDING) || (self.closingMode >= 0 && self.closingMode != (int)mode)) {
+			return BackgroundJobsCloseOutcome(BACKGROUND_JOBS_CLOSE_INVALID_MODE, 0, 0, 0, 0, "background job close mode cannot change during retry");
+		}
+		if (self.finishing) { return BackgroundJobsCloseOutcome(BACKGROUND_JOBS_CLOSE_SYNC_FAILED, 0, 0, 0, 0, "background job close is already disposing work"); }
+		if (self.closingMode < 0) {
+			if (!self.queue.beginClose(mode)) { return BackgroundJobsCloseOutcome(BACKGROUND_JOBS_CLOSE_SYNC_FAILED, 0, 0, 0, 0, "background job close synchronization failed"); }
+			self.closingMode = (int)mode;
+		}
+		bool joined = true;
+		bool workerFailed = false;
+		for worker in self.workers {
+			if (!worker.join()) { joined = false; }
+			if (worker.workerFailed()) { workerFailed = true; }
+		}
+		if (!joined) { return BackgroundJobsCloseOutcome(BACKGROUND_JOBS_CLOSE_JOIN_FAILED, 0, 0, 0, 0, "background job worker join failed"); }
+		self.finishing = true;
+		BackgroundJobsCloseOutcome result = self.queue.finishClose(workerFailed);
+		self.finishing = false;
+		if (result.kind == BACKGROUND_JOBS_CLOSE_SYNC_FAILED) { return result; }
+		self.closed = true;
+		struct BackgroundJobWorkerContext* context = self.context;
+		self.context = null;
+		if (context != null) { release context->queue; free(context); }
+		return result;
+	}
+
+	public void __del__() {
+		if (self.closed) { return; }
+		BackgroundJobsCloseOutcome result = self.close(self.closingMode < 0 ? BACKGROUND_JOBS_CANCEL_PENDING : (BackgroundJobsCloseMode)self.closingMode);
+		if (result.kind != BACKGROUND_JOBS_CLOSED && result.kind != BACKGROUND_JOBS_CLOSE_WORKER_FAILED) {
 			fprintf(stderr, "BackgroundJobExecutor destruction did not join workers\n");
 			abort();
 		}

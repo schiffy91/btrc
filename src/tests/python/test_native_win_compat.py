@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
-WIN = ROOT / "src" / "stdlib" / "win"
+WIN = ROOT / "src" / "stdlib" / "Windows"
 NATIVE_TESTS = ROOT / "src" / "tests" / "native"
 
 

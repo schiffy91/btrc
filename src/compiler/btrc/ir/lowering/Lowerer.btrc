@@ -3,7 +3,7 @@ import Library.Vector;
 
 import ../../analyzer/Declarations.btrc;
 import ../../analyzer/Expressions.btrc;
-import ../../analyzer/Gpu.btrc;
+import ../../analyzer/GPU.btrc;
 import ../../analyzer/HostedAbi.btrc;
 import ../../analyzer/Models.btrc;
 import ../../analyzer/Operators.btrc;

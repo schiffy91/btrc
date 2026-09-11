@@ -1,8 +1,9 @@
 /* Production self-hosted compiler process entry point. */
 
 import ./cli/Driver.btrc;
+import ./frontend/NativeHeaderProcess.btrc;
 
 int main(int argc, char** argv) {
-	BtrccDriver driver = BtrccDriver(argc, argv);
+	BtrccDriver driver = BtrccDriver(argc, argv, FeNativeHeaderProcess.read);
 	return driver.run();
 }

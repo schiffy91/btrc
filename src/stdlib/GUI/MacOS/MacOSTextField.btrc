@@ -1,0 +1,72 @@
+import Library.Math;
+import Library.GUI.MacOS.AppKitText;
+
+/* Main-thread owner of an actual AppKit text field, not a painted imitation.
+ * The host attaches nativeControl() to its view tree and closes this owner
+ * before releasing that tree. AppKit owns selection, IME and field editing. */
+class MacOSTextField {
+	private NSTextField? _control;
+
+	public MacOSTextField(string text = "", string placeholder = "") {
+		self._control = null;
+		self.requireMainThread();
+		self._control = NSTextField.textFieldWithString(AppKitText.nativeValue(text));
+		self.setPlaceholder(placeholder);
+	}
+
+	private void requireMainThread() {
+		if (!NSThread.isMainThread()) { throw "AppKit text fields require the main thread"; }
+	}
+
+	public NSTextField nativeControl() {
+		self.requireMainThread();
+		if (self._control == null) { throw "Text field is closed"; }
+		return self._control;
+	}
+
+	public string text() {
+		var control = self.nativeControl();
+		control.validateEditing();
+		return AppKitText.ownedValue(control.stringValue());
+	}
+
+	/* Re-publishing unchanged application state must not reset selection or
+	 * the active input-method composition. */
+	public void setText(string text) {
+		var control = self.nativeControl();
+		if (self.text().equals(text)) { return; }
+		control.setStringValue(AppKitText.nativeValue(text));
+	}
+
+	public void setPlaceholder(string text) { self.nativeControl().setPlaceholderString(AppKitText.nativeValue(text)); }
+
+	public void setEnabled(bool enabled) { self.nativeControl().setEnabled(enabled); }
+
+	public void setFont(double size) {
+		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native text field font size"; }
+		self.nativeControl().setFont(NSFont.systemFontOfSize(size));
+	}
+
+	public bool isEnabled() { return self.nativeControl().isEnabled(); }
+
+	/* AppKit frame coordinates are logical points in the parent view. */
+	public void setFrame(double x, double y, double width, double height) {
+		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid text field frame"; }
+		var control = self.nativeControl();
+		var frame = control.frame();
+		frame.origin.x = x;
+		frame.origin.y = y;
+		frame.size.width = width;
+		frame.size.height = height;
+		control.setFrame(frame);
+	}
+
+	public void close() {
+		self.requireMainThread();
+		var control = self._control;
+		if (control == null) { return; }
+		control.abortEditing();
+		control.removeFromSuperview();
+		self._control = null;
+	}
+}

@@ -346,17 +346,17 @@ class FeImportVisibilityChecker {
 	private FeStdlibRepository stdlib;
 	private FeStdlibSymbolIndex stdlibSymbols;
 	private FeDeclarationSymbolExtractor symbolExtractor;
-	private Map<string, bool> compilerImplicitFunctions;
+	private Map<string, bool> compilerImplicitSymbols;
 	private GrammarInfo grammar;
 	private FeSourcePathPolicy sourcePaths;
 
-	public FeImportVisibilityChecker(Node program, FeResolvedSource resolved, FeStdlibRepository stdlib, FeStdlibSymbolIndex stdlibSymbols, GrammarInfo grammar, Map<string, bool> compilerImplicitFunctions) {
+	public FeImportVisibilityChecker(Node program, FeResolvedSource resolved, FeStdlibRepository stdlib, FeStdlibSymbolIndex stdlibSymbols, GrammarInfo grammar, Map<string, bool> compilerImplicitSymbols) {
 		self.program = program;
 		self.resolved = resolved;
 		self.stdlib = stdlib;
 		self.stdlibSymbols = stdlibSymbols;
 		self.symbolExtractor = FeDeclarationSymbolExtractor();
-		self.compilerImplicitFunctions = compilerImplicitFunctions;
+		self.compilerImplicitSymbols = compilerImplicitSymbols;
 		self.grammar = grammar;
 		self.sourcePaths = FeSourcePathPolicy();
 	}
@@ -393,6 +393,9 @@ class FeImportVisibilityChecker {
 	private Map<string, Vector<string>> localSymbolFiles() {
 		Map<string, Vector<string>> symbols = {};
 		for imported in self.resolved.nativeDeclarations {
+			/* SDK typedefs refine an existing hosted type without making it
+			 * private to this module. New aliases and source declarations stay scoped. */
+			if (imported.declaration.kind == NK_TYPEDEF_DECL && self.compilerImplicitSymbols.has(imported.declaration.alias)) { continue; }
 			self.addDeclarationSymbols(symbols, imported.declaration, imported.module);
 		}
 		int index = 0;
@@ -492,12 +495,21 @@ class FeImportVisibilityChecker {
 		while (declarationIndex < self.program.declarations.len) {
 			Node declaration = self.program.declarations.get(declarationIndex);
 			declarationIndex++;
+			bool native = false;
+			string generatedModule = "";
+			for imported in self.resolved.nativeDeclarations {
+				if (imported.declaration != declaration) { continue; }
+				if (imported.generatedInput) { generatedModule = imported.module; }
+				else { native = true; }
+				break;
+			}
+			if (native) { continue; }
 			if (!self.symbolExtractor.isNamedDeclaration(declaration) && declaration.kind != NK_PREPROCESSOR_DIRECTIVE) {
 				continue;
 			}
 			FeLine? declarationLine = self.resolved.userLineForCombined(declaration.line);
-			if (declarationLine == null) { continue; }
-			string sourceFile = declarationLine.sourceFile;
+			if (declarationLine == null && generatedModule.isEmpty()) { continue; }
+			string sourceFile = generatedModule.isEmpty() ? declarationLine.sourceFile : generatedModule;
 			Map<string, bool> reachable = self.visibilityReachable(sourceFile);
 			FeImportReferenceCollector collector = FeImportReferenceCollector(declaration.genericParams);
 			collector.visit(declaration);
@@ -510,7 +522,7 @@ class FeImportVisibilityChecker {
 				if (seen.has(key)) { continue; }
 				seen.put(key, true);
 				if (!symbols.has(reference.name)) { continue; }
-				if (self.compilerStdlibSource(sourceFile) && self.compilerImplicitFunctions.has(reference.name)) {
+				if (self.compilerStdlibSource(sourceFile) && self.compilerImplicitSymbols.has(reference.name)) {
 					continue;
 				}
 				Vector<string> owners = symbols.get(reference.name);

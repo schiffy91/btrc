@@ -761,8 +761,12 @@ class StorageLowerer:
         return f"{class_name}_{target.field}"
 
     def _temporary(self, type_expr, prefix: str, *, managed: bool = False) -> IRVarDecl:
+        canonical = self._types.canonical_type(type_expr)
+        copied_scalar = canonical is not None and canonical.pointer_depth == 0 and not canonical.is_array
         declaration = IRVarDecl(
-            c_type=CType(text=self._types.render(type_expr)),
+            c_type=CType(
+                text=self._types.value_storage_c_type(canonical) if copied_scalar else self._types.render(type_expr)
+            ),
             name=self._session.fresh_temp(prefix),
             init=IRLiteral(text="NULL") if managed else None,
         )

@@ -1,0 +1,92 @@
+import Library.Math;
+import Library.GUI.MacOS.AppKitText;
+
+/* Main-thread native window owner. The application owns AppKit startup and
+ * event dispatch; callers close child owners before closing the window. */
+class MacOSWindow {
+	private NSWindow? _window;
+
+	public MacOSWindow(string title, double width, double height) {
+		self._window = null;
+		self.requireMainThread();
+		self.requireSize(width, height);
+		var nativeTitle = AppKitText.nativeValue(title);
+		var window = NSWindow.new();
+		if (window == null) { throw "Cannot create native window"; }
+		window.setReleasedWhenClosed(false);
+		self._window = window;
+		try {
+			window.setStyleMask(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable);
+			window.setTitle(nativeTitle);
+			self.setContentSize(width, height);
+		} catch (string error) {
+			self.close();
+			throw error;
+		}
+	}
+
+	private void requireMainThread() {
+		if (!NSThread.isMainThread()) { throw "AppKit windows require the main thread"; }
+	}
+
+	private void requireSize(double width, double height) {
+		if (!Math.isFinite(width) || !Math.isFinite(height) || width <= 0.0 || height <= 0.0) { throw "Invalid window content size"; }
+	}
+
+	public NSWindow nativeWindow() {
+		self.requireMainThread();
+		if (self._window == null) { throw "Window is closed"; }
+		return self._window;
+	}
+
+	public NSView contentView() {
+		var content = self.nativeWindow().contentView();
+		if (content == null) { throw "Window has no content view"; }
+		return content;
+	}
+
+	public void setContentSize(double width, double height) {
+		self.requireSize(width, height);
+		var window = self.nativeWindow();
+		var frame = window.frame();
+		frame.size.width = width;
+		frame.size.height = height;
+		window.setContentSize(frame.size);
+	}
+
+	public void setTitle(string title) { self.nativeWindow().setTitle(AppKitText.nativeValue(title)); }
+
+	public void show() { self.nativeWindow().makeKeyAndOrderFront(null); }
+
+	public void hide() { self.nativeWindow().orderOut(null); }
+
+	public bool isVisible() { return self.nativeWindow().isVisible(); }
+
+	public bool isPresented() { return self.isVisible() || self.nativeWindow().isMiniaturized(); }
+
+	public void setMinimumContentSize(double width, double height) {
+		self.requireSize(width, height);
+		var size = self.contentView().bounds().size;
+		size.width = width;
+		size.height = height;
+		self.nativeWindow().setContentMinSize(size);
+	}
+
+	public void showAlert(string title, string message) {
+		self.nativeWindow();
+		var alert = NSAlert.new();
+		if (alert == null) { throw "Cannot create native alert"; }
+		alert.setMessageText(AppKitText.nativeValue(title));
+		alert.setInformativeText(AppKitText.nativeValue(message));
+		alert.addButtonWithTitle(AppKitText.nativeValue("OK"));
+		alert.runModal();
+	}
+
+	public void close() {
+		self.requireMainThread();
+		var window = self._window;
+		if (window == null) { return; }
+		window.close();
+		self._window = null;
+	}
+}

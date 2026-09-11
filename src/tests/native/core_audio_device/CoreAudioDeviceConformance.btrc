@@ -1,6 +1,6 @@
-import Library.CoreAudioDevice;
-import Library.AudioDevice;
-import Library.RealtimeAudio;
+import Library.Audio.MacOS.CoreAudioDevice;
+import Library.Audio.AudioDevice;
+import Library.Audio.RealtimeAudio;
 
 #include <assert.h>
 #include <time.h>
@@ -29,6 +29,11 @@ int main() {
 	AudioDeviceInventoryOutcome inventoried = provider.inventory();
 	assert(inventoried.succeeded());
 	AudioDeviceInventory inventory = inventoried.inventory();
+	assert(inventory.generation() != 0ULL && inventory.count() <= 256);
+	for (int index = 0; index < inventory.count(); index++) {
+		assert(!inventory.at(index).id().isEmpty() && !inventory.at(index).name().isEmpty());
+		if (index > 0) { assert(inventory.at(index - 1).id() < inventory.at(index).id()); }
+	}
 	AudioDeviceDescriptor? selected = inventory.defaultOutput();
 	if (selected == null) {
 		for (int index = 0; index < inventory.count(); index++) { if (selected == null && inventory.at(index).hasOutput()) { selected = inventory.at(index); } }
@@ -46,8 +51,16 @@ int main() {
 	struct CoreAudioConformanceContext context = {&callbacks, &failure, &firstDiscontinuity, stream.bufferFrames()};
 	RealtimeAudioProgram program = RealtimeAudioProgram(coreAudioConformanceProcess, &context);
 	DuplexAudioOpenRequest request = DuplexAudioOpenRequest.outputOnly(inventory.generation(), output.id(), AudioChannelSelection.leading(1), stream);
+	unsigned long long stale = inventory.generation() == 1ULL ? 18446744073709551615ULL : inventory.generation() - 1ULL;
+	var staleRequest = DuplexAudioOpenRequest.outputOnly(stale, output.id(), AudioChannelSelection.leading(1), stream);
+	assert(provider.openDuplex(staleRequest, program).status() == AUDIO_DEVICE_STALE_INVENTORY);
 	DuplexAudioSessionOpenOutcome sessionOpened = provider.openDuplex(request, program);
-	if (!sessionOpened.succeeded()) { assert(provider.close().succeeded()); print("SKIP: CoreAudio output session unavailable"); return 0; }
+	if (!sessionOpened.succeeded()) {
+		assert(sessionOpened.status() == AUDIO_DEVICE_UNAVAILABLE || sessionOpened.status() == AUDIO_DEVICE_BUSY || sessionOpened.status() == AUDIO_DEVICE_PERMISSION_DENIED);
+		assert(provider.close().succeeded());
+		print("SKIP: CoreAudio output session unavailable");
+		return 0;
+	}
 	DuplexAudioSession session = sessionOpened.session();
 	assert(!session.drain().succeeded());
 	assert(provider.close().status() == AUDIO_DEVICE_BUSY);

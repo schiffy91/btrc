@@ -7,7 +7,7 @@ from src.tests.btrc.test_semantic_validation import _compile_source, _strict_bui
 REPO = Path(__file__).resolve().parents[3]
 ANALYZER = REPO / "src/compiler/btrc/analyzer/Expressions.btrc"
 MEMO = ANALYZER
-GPU_SEMANTICS = REPO / "src/compiler/btrc/analyzer/Gpu.btrc"
+GPU_SEMANTICS = REPO / "src/compiler/btrc/analyzer/GPU.btrc"
 LOWERING = REPO / "src/compiler/btrc/ir/lowering"
 LOWERER = LOWERING / "Lowerer.btrc"
 FUNCTIONS = LOWERING / "Functions.btrc"

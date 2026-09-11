@@ -118,8 +118,8 @@ def test_explicit_string_adoption_is_owned_and_materializes_its_helpers():
     (
         ("extern bool btrc_gpu_available();", "btrc_gpu_available()", "BTRC_RT_NEEDS_GPU"),
         (
-            "extern int btrc_gui_surface_width(void* surface);",
-            "btrc_gui_surface_width(null)",
+            "extern int btrc_gui_window_fb_width(void* window);",
+            "btrc_gui_window_fb_width(null)",
             "BTRC_RT_NEEDS_GUI",
         ),
         (
@@ -183,14 +183,14 @@ def test_try_runtime_selects_target_owned_setjmp_type():
     ("source", "header_macro", "include_dir"),
     (
         (
-            "extern int btrc_gui_surface_width(void* surface); int main() { return btrc_gui_surface_width(null); }",
-            "BTRC_RT_GUI_HEADER=<btrc_gui.h>",
-            STDLIB / "gui",
+            "extern int btrc_gui_window_fb_width(void* window); int main() { return btrc_gui_window_fb_width(null); }",
+            "BTRC_RT_GUI_HEADER=<btrc_gui_window.h>",
+            STDLIB / "GUI",
         ),
         (
             "extern bool btrc_tray_show(void* tray); int main() { return btrc_tray_show(null) ? 0 : 1; }",
             "BTRC_RT_TRAY_HEADER=<btrc_tray.h>",
-            STDLIB / "tray",
+            STDLIB / "Tray",
         ),
     ),
     ids=("gui", "tray"),

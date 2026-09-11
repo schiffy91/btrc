@@ -1,0 +1,75 @@
+import Library.Math;
+
+/* One application owner on the main thread. Dispatch is bounded so an embedded
+ * GPU renderer can share the loop without blocking on an absent native event. */
+class MacOSApplication {
+	private NSApplication _application;
+	private bool _dispatching;
+
+	public MacOSApplication() {
+		self.requireMainThread();
+		self._application = NSApplication.sharedApplication();
+		self._dispatching = false;
+		// An unbundled executable defaults to prohibited activation, which leaves
+		// visible windows unable to become key and receive Player shortcuts.
+		if (!self._application.setActivationPolicy(NSApplicationActivationPolicyRegular)) { throw "Cannot enable native application activation"; }
+		self._application.finishLaunching();
+	}
+
+	private void requireMainThread() {
+		if (!NSThread.isMainThread()) { throw "AppKit application dispatch requires the main thread"; }
+	}
+
+	private void requireIdle() {
+		self.requireMainThread();
+		if (self._dispatching) { throw "Native event dispatch is already active"; }
+	}
+
+	/* A host can consume its own shortcuts before dispatching the remaining
+	 * event to AppKit. Native tracking is never replaced by a painted widget. */
+	public NSEvent? nextEvent() {
+		self.requireIdle();
+		return self._application.nextEventMatchingMask(NSEventMaskAny, NSDate.distantPast(), NSDefaultRunLoopMode, true);
+	}
+
+	public void dispatchEvent(NSEvent event) {
+		self.requireIdle();
+		if (event == null) { throw "Cannot dispatch a missing native event"; }
+		self._dispatching = true;
+		try {
+			self._application.sendEvent(event);
+		} catch (string error) {
+			self._dispatching = false;
+			throw error;
+		}
+		self._dispatching = false;
+	}
+
+	public void updateWindows() { self.requireIdle(); self._application.updateWindows(); }
+
+	/* Activation is a request, not a focus guarantee. AppKit may defer or deny it. */
+	public void requestActivation() { self.requireIdle(); self._application.activate(); }
+
+	/* Wait without consuming the event: the host still owns shortcut routing.
+	 * A deadline keeps non-AppKit work (audio snapshots, jobs, IPC) progressing. */
+	public bool waitForEvents(double seconds) {
+		self.requireIdle();
+		if (!Math.isFinite(seconds) || seconds < 0.0) { throw "Native event wait must be finite and nonnegative"; }
+		var deadline = NSDate.dateWithTimeIntervalSinceNow(seconds);
+		return self._application.nextEventMatchingMask(NSEventMaskAny, deadline, NSDefaultRunLoopMode, false) != null;
+	}
+
+	public int pumpEvents(int maximum = 64) {
+		self.requireIdle();
+		if (maximum <= 0) { throw "Event dispatch limit must be positive"; }
+		int dispatched = 0;
+		while (dispatched < maximum) {
+			var event = self.nextEvent();
+			if (event == null) { break; }
+			self.dispatchEvent(event);
+			dispatched++;
+		}
+		self.updateWindows();
+		return dispatched;
+	}
+}

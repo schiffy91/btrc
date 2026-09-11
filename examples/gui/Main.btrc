@@ -1,11 +1,11 @@
 /* Headless GUI example/test: drives the immediate-mode widgets and asserts
  * their behavior + rendered pixels, then writes a showcase frame to PPM.
  * Runs without a display (offscreen surface). */
-#include "gui/Gui.btrc"
+#include "GUI/GUI.btrc"
 
 int main() {
 	Surface surf = Surface(360, 240);
-	Gui ui = Gui(surf);
+	GUI ui = GUI(surf);
 	int checks = 0;
 	int fails = 0;
 
@@ -61,14 +61,14 @@ int main() {
 	}
 	if (lit > 0) { checks++; } else { fails++; print("FAIL: drawText renders glyph"); }
 
-	Gui sg = Gui(Surface(200, 40));
+	GUI sg = GUI(Surface(200, 40));
 	sg.input.mouseDown = false;
 	sg.beginFrame();
 	if (sg.slider(50, 100) == 50) { checks++; } else { fails++; print("FAIL: slider holds value"); }
 
 	/* Threaded by default: drive the GUI loop on a background thread and
      * coordinate via the thread-safe `alive` flag + a Mutex frame counter. */
-	GuiApp app = GuiApp(120, 60);
+	GUIApp app = GUIApp(120, 60);
 	Mutex<int> frames = Mutex(0);
 	Thread<int> worker = spawn(() => {
 			while (app.running()) {

@@ -34,6 +34,7 @@ LDLIBS = shlex.split(os.environ.get("BTRC_LDLIBS", "-lm" if os.name == "nt" else
 PYTHON = shlex.split(os.environ.get("BTRC_PYTHON", "python" if os.name == "nt" else "python3"))
 BOOTSTRAP_TIMEOUT = int(os.environ.get("BTRC_BOOTSTRAP_TIMEOUT_SECONDS", "1200"))
 EXE_SUFFIX = ".exe" if os.name == "nt" else ""
+COMPILER_ENTRYPOINT = os.path.join("cli", "WindowsMain.btrc") if os.name == "nt" else "BtrccMain.btrc"
 
 
 def _terminate_process_tree(process: subprocess.Popen) -> None:
@@ -172,7 +173,7 @@ def _snapshot_compiler_inputs(tmp_dir: str) -> tuple[str, str, str]:
         destination = os.path.join(source_root, relative)
         os.makedirs(os.path.dirname(destination), exist_ok=True)
         shutil.copytree(source, destination, ignore=ignored)
-    compiler = os.path.join(source_root, "compiler", "btrc", "BtrccMain.btrc")
+    compiler = os.path.join(source_root, "compiler", "btrc", COMPILER_ENTRYPOINT)
     return project_root, source_root, compiler
 
 

@@ -1,12 +1,12 @@
 import Library.Image;
-import Library.NativeUi;
+import Library.NativeUI;
 import Library.Strings;
 import Library.Vector;
 
 #include <assert.h>
 
 class NativeUiSemanticTest {
-	class bool hasEvent(NativeUiEventBatch batch, NativeUiEventKind kind) {
+	class bool hasEvent(NativeUIEventBatch batch, NativeUIEventKind kind) {
 		for (int index = 0; index < batch.eventCount(); index++) {
 			if (batch.eventAt(index).kind() == kind) { return true; }
 		}
@@ -15,7 +15,7 @@ class NativeUiSemanticTest {
 }
 
 int main() {
-	NativeUiSemantics toggle = NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_TOGGLE_BUTTON, "Playback", "Starts or pauses playback", "Playing", NATIVE_UI_SEMANTIC_LIVE_POLITE).pressed(NATIVE_UI_SEMANTIC_TOGGLE_ON).expanded(NATIVE_UI_SEMANTIC_EXPANSION_OFF).busy(true).readOnly(true);
+	NativeUISemantics toggle = NativeUISemantics(NATIVE_UI_SEMANTIC_ROLE_TOGGLE_BUTTON, "Playback", "Starts or pauses playback", "Playing", NATIVE_UI_SEMANTIC_LIVE_POLITE).pressed(NATIVE_UI_SEMANTIC_TOGGLE_ON).expanded(NATIVE_UI_SEMANTIC_EXPANSION_OFF).busy(true).readOnly(true);
 	assert(toggle.valid());
 	assert(toggle.role() == NATIVE_UI_SEMANTIC_ROLE_TOGGLE_BUTTON);
 	assert(toggle.label() == "Playback");
@@ -27,30 +27,30 @@ int main() {
 	assert(toggle.expansionState() == NATIVE_UI_SEMANTIC_EXPANSION_OFF);
 	assert(toggle.isBusy());
 	assert(toggle.isReadOnly());
-	assert(NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_TOGGLE_BUTTON).checked(NATIVE_UI_SEMANTIC_TOGGLE_MIXED).pressed(NATIVE_UI_SEMANTIC_TOGGLE_OFF).valid());
+	assert(NativeUISemantics(NATIVE_UI_SEMANTIC_ROLE_TOGGLE_BUTTON).checked(NATIVE_UI_SEMANTIC_TOGGLE_MIXED).pressed(NATIVE_UI_SEMANTIC_TOGGLE_OFF).valid());
 
-	assert(!NativeUiSemantics((NativeUiSemanticRole)99).valid());
-	assert(!NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_STATUS, "", "", "", (NativeUiSemanticLiveMode)99).valid());
-	assert(!NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_STATUS, "", "\xc3").valid());
-	assert(!NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_CHECKBOX).checked((NativeUiSemanticToggleState)99).valid());
-	assert(!NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_BUTTON).expanded((NativeUiSemanticExpansionState)99).valid());
+	assert(!NativeUISemantics((NativeUISemanticRole)99).valid());
+	assert(!NativeUISemantics(NATIVE_UI_SEMANTIC_ROLE_STATUS, "", "", "", (NativeUISemanticLiveMode)99).valid());
+	assert(!NativeUISemantics(NATIVE_UI_SEMANTIC_ROLE_STATUS, "", "\xc3").valid());
+	assert(!NativeUISemantics(NATIVE_UI_SEMANTIC_ROLE_CHECKBOX).checked((NativeUISemanticToggleState)99).valid());
+	assert(!NativeUISemantics(NATIVE_UI_SEMANTIC_ROLE_BUTTON).expanded((NativeUISemanticExpansionState)99).valid());
 	StringBuilder longLabel = StringBuilder();
 	for (int index = 0; index < 513; index++) { longLabel.append("x"); }
-	assert(!NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_STATUS, longLabel.toString()).valid());
+	assert(!NativeUISemantics(NATIVE_UI_SEMANTIC_ROLE_STATUS, longLabel.toString()).valid());
 
-	NativeUiElement enabledButton = NativeUiElement.button("enabled", "Play").selected(true).semantics(toggle);
-	NativeUiElement disabledButton = NativeUiElement.button("disabled", "Unavailable").enabled(false).semantics(NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_BUTTON, "Unavailable"));
-	NativeUiElement focusTarget = NativeUiElement.text("tab", "Practice").focusable(true).semantics(NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_TAB, "Practice tab").expanded(NATIVE_UI_SEMANTIC_EXPANSION_ON));
+	NativeUIElement enabledButton = NativeUIElement.button("enabled", "Play").selected(true).semantics(toggle);
+	NativeUIElement disabledButton = NativeUIElement.button("disabled", "Unavailable").enabled(false).semantics(NativeUISemantics(NATIVE_UI_SEMANTIC_ROLE_BUTTON, "Unavailable"));
+	NativeUIElement focusTarget = NativeUIElement.text("tab", "Practice").focusable(true).semantics(NativeUISemantics(NATIVE_UI_SEMANTIC_ROLE_TAB, "Practice tab").expanded(NATIVE_UI_SEMANTIC_EXPANSION_ON));
 	Image rangeImage = Image(80, 20);
-	NativeUiElement disabledRange = NativeUiElement.image("disabled-range", rangeImage, "Position").semanticRange(NativeUiSemanticRange.horizontal("Position", 0LL, 100LL, 50LL)).enabled(false);
-	NativeUiElement disabledInput = NativeUiElement.textInput("disabled-input", "old", "Unavailable input", 16).enabled(false);
-	NativeUiElement root = NativeUiElement.column("root").child(enabledButton).child(disabledButton).child(focusTarget).child(disabledRange).child(disabledInput);
-	NativeUiRenderer renderer = NativeUiRenderer();
-	NativeUiFrame frame = renderer.layout(root, 240, 240);
+	NativeUIElement disabledRange = NativeUIElement.image("disabled-range", rangeImage, "Position").semanticRange(NativeUISemanticRange.horizontal("Position", 0LL, 100LL, 50LL)).enabled(false);
+	NativeUIElement disabledInput = NativeUIElement.textInput("disabled-input", "old", "Unavailable input", 16).enabled(false);
+	NativeUIElement root = NativeUIElement.column("root").child(enabledButton).child(disabledButton).child(focusTarget).child(disabledRange).child(disabledInput);
+	NativeUIRenderer renderer = NativeUIRenderer();
+	NativeUIFrame frame = renderer.layout(root, 240, 240);
 	assert(frame.ok());
 
-	NativeUiLayoutBox enabledSemanticBox = frame.boxFor("enabled");
-	NativeUiResolvedSemantics enabled = enabledSemanticBox.resolvedSemantics();
+	NativeUILayoutBox enabledSemanticBox = frame.boxFor("enabled");
+	NativeUIResolvedSemantics enabled = enabledSemanticBox.resolvedSemantics();
 	assert(enabled.role() == NATIVE_UI_SEMANTIC_ROLE_TOGGLE_BUTTON);
 	assert(enabled.enabled() && enabled.selected() && enabled.focusable() && !enabled.focused());
 	assert(enabled.label() == "Playback" && enabled.hint() == "Starts or pauses playback" && enabled.value() == "Playing");
@@ -61,16 +61,16 @@ int main() {
 	assert(frame.resolvedSemanticsFor("enabled") != null);
 	assert(frame.resolvedSemanticsFor("missing") == null);
 
-	NativeUiLayoutBox disabledSemanticBox = frame.boxFor("disabled");
-	NativeUiResolvedSemantics disabled = disabledSemanticBox.resolvedSemantics();
+	NativeUILayoutBox disabledSemanticBox = frame.boxFor("disabled");
+	NativeUIResolvedSemantics disabled = disabledSemanticBox.resolvedSemantics();
 	assert(!disabled.enabled() && !disabled.focusable() && !disabled.focused());
 	assert(disabledButton.hasFocusableOverride() == false);
 	disabledButton.focusable(true);
 	assert(disabledButton.hasFocusableOverride() && disabledButton.focusableOverride());
 	assert(!disabledButton.isFocusable());
-	assert(NativeUiElement.button("not-focusable", "No focus").focusable(false).isFocusable() == false);
-	assert(NativeUiElement.text("automatic", "Text").effectiveSemanticRole() == NATIVE_UI_SEMANTIC_ROLE_TEXT);
-	assert(NativeUiElement.image("automatic-image", rangeImage, "Image").effectiveSemanticRole() == NATIVE_UI_SEMANTIC_ROLE_IMAGE);
+	assert(NativeUIElement.button("not-focusable", "No focus").focusable(false).isFocusable() == false);
+	assert(NativeUIElement.text("automatic", "Text").effectiveSemanticRole() == NATIVE_UI_SEMANTIC_ROLE_TEXT);
+	assert(NativeUIElement.image("automatic-image", rangeImage, "Image").effectiveSemanticRole() == NATIVE_UI_SEMANTIC_ROLE_IMAGE);
 	assert(disabledRange.effectiveSemanticRole() == NATIVE_UI_SEMANTIC_ROLE_SLIDER);
 
 	assert(renderer.activate("enabled").eventCount() == 1);
@@ -80,22 +80,22 @@ int main() {
 
 	renderer.focusNext();
 	assert(renderer.focusedId() == "enabled");
-	NativeUiLayoutBox focusedEnabledBox = renderer.currentFrame().boxFor("enabled");
+	NativeUILayoutBox focusedEnabledBox = renderer.currentFrame().boxFor("enabled");
 	assert(focusedEnabledBox.resolvedSemantics().focused());
 	renderer.focusNext();
 	assert(renderer.focusedId() == "tab");
-	NativeUiLayoutBox unfocusedEnabledBox = renderer.currentFrame().boxFor("enabled");
-	NativeUiLayoutBox focusedTabBox = renderer.currentFrame().boxFor("tab");
+	NativeUILayoutBox unfocusedEnabledBox = renderer.currentFrame().boxFor("enabled");
+	NativeUILayoutBox focusedTabBox = renderer.currentFrame().boxFor("tab");
 	assert(!unfocusedEnabledBox.resolvedSemantics().focused());
 	assert(focusedTabBox.resolvedSemantics().focused());
 	renderer.focusNext();
 	assert(renderer.focusedId() == "enabled");
 	renderer.blur();
 	assert(renderer.focusedId().isEmpty());
-	NativeUiLayoutBox blurredEnabledBox = renderer.currentFrame().boxFor("enabled");
+	NativeUILayoutBox blurredEnabledBox = renderer.currentFrame().boxFor("enabled");
 	assert(!blurredEnabledBox.resolvedSemantics().focused());
 
-	NativeUiLayoutBox disabledBox = renderer.currentFrame().boxFor("disabled");
+	NativeUILayoutBox disabledBox = renderer.currentFrame().boxFor("disabled");
 	int disabledX = disabledBox.bounds.x + 2;
 	int disabledY = disabledBox.bounds.y + 2;
 	assert(renderer.pointerMoved(disabledX, disabledY).eventCount() == 0);
@@ -103,7 +103,7 @@ int main() {
 	assert(renderer.pointerPressed(disabledX, disabledY).eventCount() == 0);
 	assert(!NativeUiSemanticTest.hasEvent(renderer.pointerReleased(disabledX, disabledY), NATIVE_UI_CLICKED));
 
-	NativeUiLayoutBox rangeBox = renderer.currentFrame().boxFor("disabled-range");
+	NativeUILayoutBox rangeBox = renderer.currentFrame().boxFor("disabled-range");
 	int rangeX = rangeBox.bounds.x + 2;
 	int rangeY = rangeBox.bounds.y + 2;
 	assert(renderer.pointerMoved(rangeX, rangeY).eventCount() == 0);
@@ -112,22 +112,22 @@ int main() {
 	assert(renderer.adjustRange("disabled-range", NATIVE_UI_RANGE_ADJUST_SMALL_INCREMENT).eventCount() == 0);
 	assert(!NativeUiSemanticTest.hasEvent(renderer.wheelBy(0, 40), NATIVE_UI_RANGE_WHEEL));
 
-	NativeUiLayoutBox inputBox = renderer.currentFrame().boxFor("disabled-input");
+	NativeUILayoutBox inputBox = renderer.currentFrame().boxFor("disabled-input");
 	renderer.pointerPressed(inputBox.bounds.x + 2, inputBox.bounds.y + 2);
 	assert(renderer.focusedId().isEmpty());
 	assert(renderer.textEntered("x").eventCount() == 0);
 	assert(renderer.backspace().eventCount() == 0);
 
-	Vector<NativeUiSelectOption> monitorOptions = [];
-	monitorOptions.push(NativeUiSelectOption("song-effects", "Song effects"));
-	monitorOptions.push(NativeUiSelectOption("disabled", "Unavailable", false));
-	monitorOptions.push(NativeUiSelectOption("raw-signal", "Raw signal"));
-	NativeUiRenderer selectRenderer = NativeUiRenderer();
-	NativeUiElement monitor = NativeUiElement.select("monitor", NativeUiSelect(monitorOptions, "song-effects")).semantics(NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_AUTOMATIC, "Monitor"));
-	NativeUiFrame selectFrame = selectRenderer.layout(monitor, 240, 120);
+	Vector<NativeUISelectOption> monitorOptions = [];
+	monitorOptions.push(NativeUISelectOption("song-effects", "Song effects"));
+	monitorOptions.push(NativeUISelectOption("disabled", "Unavailable", false));
+	monitorOptions.push(NativeUISelectOption("raw-signal", "Raw signal"));
+	NativeUIRenderer selectRenderer = NativeUIRenderer();
+	NativeUIElement monitor = NativeUIElement.select("monitor", NativeUISelect(monitorOptions, "song-effects")).semantics(NativeUISemantics(NATIVE_UI_SEMANTIC_ROLE_AUTOMATIC, "Monitor"));
+	NativeUIFrame selectFrame = selectRenderer.layout(monitor, 240, 120);
 	assert(selectFrame.ok());
-	NativeUiLayoutBox collapsedMonitorBox = selectFrame.boxFor("monitor");
-	NativeUiResolvedSemantics monitorSemantics = collapsedMonitorBox.resolvedSemantics();
+	NativeUILayoutBox collapsedMonitorBox = selectFrame.boxFor("monitor");
+	NativeUIResolvedSemantics monitorSemantics = collapsedMonitorBox.resolvedSemantics();
 	assert(monitorSemantics.role() == NATIVE_UI_SEMANTIC_ROLE_COMBO_BOX);
 	assert(monitorSemantics.label() == "Monitor");
 	assert(monitorSemantics.value() == "Song effects");
@@ -135,21 +135,21 @@ int main() {
 	assert(monitorSemantics.focusable() && !monitorSemantics.focused());
 	assert(selectRenderer.activate("monitor").eventCount() == 0);
 	assert(selectRenderer.expandedSelectId() == "monitor");
-	NativeUiLayoutBox expandedMonitorBox = selectRenderer.currentFrame().boxFor("monitor");
+	NativeUILayoutBox expandedMonitorBox = selectRenderer.currentFrame().boxFor("monitor");
 	monitorSemantics = expandedMonitorBox.resolvedSemantics();
 	assert(monitorSemantics.focused());
 	assert(monitorSemantics.expansionState() == NATIVE_UI_SEMANTIC_EXPANSION_ON);
 	selectRenderer.navigateFocusedSelect(1);
 	assert(selectRenderer.highlightedSelectIndex() == 2);
-	NativeUiEventBatch monitorChanged = selectRenderer.activate("monitor");
+	NativeUIEventBatch monitorChanged = selectRenderer.activate("monitor");
 	assert(monitorChanged.eventCount() == 1);
 	assert(monitorChanged.eventAt(0).kind() == NATIVE_UI_SELECTION_CHANGED);
 	assert(monitorChanged.eventAt(0).value() == "raw-signal");
 	assert(selectRenderer.expandedSelectId().isEmpty());
 	assert(selectRenderer.focusedId() == "monitor");
-	NativeUiElement rawMonitor = NativeUiElement.select("monitor", NativeUiSelect(monitorOptions, "raw-signal")).semantics(NativeUiSemantics(NATIVE_UI_SEMANTIC_ROLE_AUTOMATIC, "Monitor"));
+	NativeUIElement rawMonitor = NativeUIElement.select("monitor", NativeUISelect(monitorOptions, "raw-signal")).semantics(NativeUISemantics(NATIVE_UI_SEMANTIC_ROLE_AUTOMATIC, "Monitor"));
 	selectRenderer.layout(rawMonitor, 240, 120);
-	NativeUiLayoutBox rawMonitorBox = selectRenderer.currentFrame().boxFor("monitor");
+	NativeUILayoutBox rawMonitorBox = selectRenderer.currentFrame().boxFor("monitor");
 	assert(rawMonitorBox.resolvedSemantics().value() == "Raw signal");
 	assert(selectRenderer.activate("monitor").eventCount() == 0);
 	selectRenderer.dismiss();
@@ -157,13 +157,13 @@ int main() {
 	assert(selectRenderer.focusedId() == "monitor");
 	selectRenderer.dismiss();
 	assert(selectRenderer.focusedId().isEmpty());
-	NativeUiFrame disabledSelectFrame = NativeUiRenderer().layout(NativeUiElement.select("disabled-select", NativeUiSelect(monitorOptions, "song-effects")).enabled(false), 240, 60);
+	NativeUIFrame disabledSelectFrame = NativeUIRenderer().layout(NativeUIElement.select("disabled-select", NativeUISelect(monitorOptions, "song-effects")).enabled(false), 240, 60);
 	assert(disabledSelectFrame.ok());
-	NativeUiLayoutBox disabledSelectBox = disabledSelectFrame.boxFor("disabled-select");
+	NativeUILayoutBox disabledSelectBox = disabledSelectFrame.boxFor("disabled-select");
 	assert(!disabledSelectBox.resolvedSemantics().enabled());
 	assert(!disabledSelectBox.resolvedSemantics().focusable());
 
-	NativeUiFrame semanticCss = NativeUiRenderer().render(NativeUiElement.button("css", "CSS").style("selected: true"), 80, 40);
+	NativeUIFrame semanticCss = NativeUIRenderer().render(NativeUIElement.button("css", "CSS").style("selected: true"), 80, 40);
 	assert(!semanticCss.ok());
 	assert(semanticCss.status == NATIVE_UI_FRAME_INVALID_STYLE);
 

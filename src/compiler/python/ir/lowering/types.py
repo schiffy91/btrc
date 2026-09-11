@@ -194,11 +194,14 @@ class CTypeLowerer:
             self._identity.ensure_supported_generic_arguments(type_expr.generic_args)
             c_type = self._identity.generic_symbol(base, type_expr.generic_args)
         else:
-            c_type = base
+            c_type = self._analyzed.native_type_spellings.get(base, base)
+            native_class = self._analyzed.class_table.get(base)
+            if native_class is not None and native_class.native_language == "objective-c":
+                c_type = f"struct __btrc_native_{base}"
             declaration = self._analyzed.struct_table.get(base)
             origin = getattr(declaration, "source_file", None)
             if isinstance(origin, NativeHeaderSource) and origin.type_spelling:
-                c_type = origin.type_spelling
+                c_type = f"struct __btrc_value_{base}" if origin.language == "objective-c" else origin.type_spelling
         depth = type_expr.pointer_depth
         base_is_reference = (
             c_type.endswith("*") or base in {"__fn_ptr", "__realtime_fn_ptr"} or self._typedef_base_is_reference(base)
@@ -792,6 +795,12 @@ class CTypeLowerer:
         if not sub or not base:
             return False
         ct = self._analyzed.class_table
+        native = ct.get(sub)
+        if native and native.native_language == "objective-c":
+            target = ct.get(base)
+            return bool(
+                target and target.native_language == "objective-c" and (sub == base or base in native.native_ancestors)
+            )
         seen: set[str] = set()
         cur = sub
         while cur and cur not in seen:

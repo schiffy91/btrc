@@ -1,5 +1,5 @@
-import Library.RealtimeAudioRouter;
-import Library.RealtimeAudio;
+import Library.Audio.RealtimeAudioRouter;
+import Library.Audio.RealtimeAudio;
 
 #include <assert.h>
 

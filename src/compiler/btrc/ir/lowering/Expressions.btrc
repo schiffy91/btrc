@@ -1038,6 +1038,11 @@ class ExpressionLowerer {
 			if (self.analyzed.funcTable.has(node.name) && !varTypes.has(node.name)) {
 				return IRNode.functionReference(self.declarations.sourceFunctionSymbol(node.name));
 			}
+			if (!self.context.sourceLexicalBindings.has(node.name) && self.analyzed.isObjectiveCGlobal(node.name)) {
+				Vector<IRNode> noArguments = [];
+				if (self.analyzed.isObjectiveCObjectGlobal(node.name)) { return IRNode.call("__btrc_objc_read_" + node.name, noArguments); }
+				return IRNode.dereference(IRNode.call("__btrc_objc_address_" + node.name, noArguments));
+			}
 			if (varTypes.has(node.name)) {
 				Node bindingType = varTypes.get(node.name);
 				return IRNode.recordArrayValue(IRNode.variable(self.context.sourceCName(node.name)), bindingType != null && bindingType.isArray);
@@ -1177,7 +1182,10 @@ class ExpressionLowerer {
 
 	public string directGenericTargetC(Node target, Node targetType, Map<string, Node> varTypes) {
 		if (!self.context.genericBody && self.context.callDefaultTypeDepth == 0) {
-			return self.cTypes.lower(targetType);
+			/* Addressing a slot needs its declared C type, not its arithmetic
+             * type: enum-pointer fields must retain their SDK identity. */
+			Node? declared = self.operandPlanner.expressionStorageType(target, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()));
+			return self.cTypes.lower(declared == null ? targetType : declared);
 		}
 		if (target.kind == NK_IDENTIFIER && varTypes.has(target.name)) {
 			return self.cTypes.lowerGeneric(varTypes.get(target.name), self.context.activeTypeMap);
@@ -1675,7 +1683,7 @@ class ExpressionLowerer {
 				if (rightType != null) { rightLabel = TypeIdentity.shapeKey(rightType); }
 				/* Generic instances emit every method before function DCE. An
                  * invalid typed operator in an unreachable method must not
-                 * reject the whole instance (for example Vector<UiNode>.min).
+                 * reject the whole instance (for example Vector<UINode>.min).
                  * Defer the structured diagnostic until after function DCE. */
 				if (self.context.genericBody) {
 					return IRNode.invalidExpression("operator '" + op + "' is not defined for operands '" + leftLabel + "' and '" + rightLabel + "'");

@@ -5051,6 +5051,37 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         source_visible=True,
         realtime_effect='safe',
     ),
+    GeneratedRuntimeHelperRow(
+        category='threads',
+        name='__btrc_native_thread_invoke',
+        c_source=(
+            'typedef struct {\n    int (*action)(void*);\n    void* context;\n    int va'
+            'lue;\n} __btrc_native_thread_call;\n\nstatic void __btrc_native_thread_call'
+            '_thunk(void* raw) {\n    __btrc_native_thread_call* call = (__btrc_native'
+            '_thread_call*)raw;\n    call->value = call->action(call->context);\n}\n\nsta'
+            'tic void __btrc_native_thread_cleanup_thunk(void* unused) {\n    (void)un'
+            'used;\n    __btrc_arc_thread_state_cleanup();\n}\n\n/* A call-only entry on '
+            "a foreign thread, never inside an active BTRC frame.\n * The callback's m"
+            'anaged scopes unwind before its thread-local state is freed.\n * Neither '
+            'a callback exception nor a cleanup exception crosses the C boundary. */\n'
+            'static int __btrc_native_thread_invoke(\n        int (*action)(void*), vo'
+            'id* context, int* result) {\n    if (!action || !result || __btrc_try_top'
+            ' != -1\n            || __btrc_cleanup_top != -1) return 1;\n    *result = '
+            '0;\n    __btrc_native_thread_call call = {action, context, 0};\n    int fa'
+            'iled = __btrc_arc_guard_hook(\n        __btrc_native_thread_call_thunk, &'
+            'call, NULL, 0);\n    int cleanup_failed = __btrc_arc_guard_hook(\n        '
+            '__btrc_native_thread_cleanup_thunk, NULL, NULL, 0);\n    if (cleanup_fail'
+            'ed) __btrc_arc_thread_state_finalize();\n    __btrc_try_state_cleanup();\n'
+            '    if (failed || cleanup_failed) return 1;\n    *result = call.value;\n  '
+            '  return 0;\n}'
+        ),
+        depends_on=('__btrc_arc_guard_hook', '__btrc_arc_thread_state_cleanup', '__btrc_try_state_cleanup'),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='unknown',
+    ),
 )
 
 INTRINSIC_EFFECT_ROWS: tuple[GeneratedIntrinsicEffectRow, ...] = (

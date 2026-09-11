@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <fake_app_gpu_runtime.h>
-import ../../../stdlib/app/App.btrc;
-import ../../../stdlib/gpu/Gpu.btrc;
+import ../../../stdlib/App/App.btrc;
+import ../../../stdlib/GPU/GPU.btrc;
 
 void fake_platform_reset();
 void fake_platform_push_pointer(int action, int button, float x, float y, int modifiers);
@@ -9,9 +9,6 @@ void fake_platform_push_keyboard(int action, int key, int modifiers);
 void fake_platform_push_text(string text);
 void fake_platform_push_surface(int kind, int logicalWidth, int logicalHeight, int framebufferWidth, int framebufferHeight, float scaleX, float scaleY);
 void fake_platform_push_close();
-void fake_platform_set_directory_picker(int outcome, string directory, int error);
-string fake_platform_directory_picker_title();
-string fake_platform_directory_picker_initial_directory();
 void fake_platform_expire_surface(unsigned long long surface);
 void fake_gpu_fail_next_attach(int status);
 void fake_gpu_malformed_next_attach(int status, int publishHandle);
@@ -73,6 +70,27 @@ GPUUniform readyUniform(GPU gpu) {
 	return uniform;
 }
 
+class TestDirectoryPicker implements AppDirectoryPicker {
+	public AppDirectoryPickerOutcome outcome;
+	public string title;
+	public string initialDirectory;
+	public int calls;
+
+	public TestDirectoryPicker() {
+		self.outcome = AppDirectoryPickerOutcome.cancelled();
+		self.title = "";
+		self.initialDirectory = "";
+		self.calls = 0;
+	}
+
+	public AppDirectoryPickerOutcome chooseDirectory(AppDirectoryPickerRequest request) {
+		self.calls++;
+		self.title = request.title;
+		self.initialDirectory = request.initialDirectory;
+		return self.outcome;
+	}
+}
+
 void directoryPickerOutcomes() {
 	fake_platform_reset();
 	Application application = new Application();
@@ -82,62 +100,71 @@ void directoryPickerOutcomes() {
 	assert(invalidAlert != null);
 	if (invalidAlert != null) { assert(invalidAlert.code == APP_ERROR_INVALID_ARGUMENT); }
 
-	AppDirectoryPickerOutcome invalid = window.chooseDirectory(new AppDirectoryPickerRequest(""));
+	var picker = TestDirectoryPicker();
+	AppDirectoryPickerOutcome invalid = window.chooseDirectory(new AppDirectoryPickerRequest(""), picker);
+	assert(picker.calls == 0);
 	assert(invalid.kind == APP_DIRECTORY_PICKER_FAILED);
 	AppError? invalidError = invalid.error;
 	if (invalidError == null) { assert(false); return; }
 	AppError invalidValue = invalidError;
 	assert(invalidValue.code == APP_ERROR_INVALID_ARGUMENT);
 
-	fake_platform_set_directory_picker(APP_DIRECTORY_PICKER_SELECTED, "/Music/Library", APP_ERROR_NONE);
-	AppDirectoryPickerOutcome selected = window.chooseDirectory(new AppDirectoryPickerRequest("Choose a library", "/Music"));
+	picker.outcome = AppDirectoryPickerOutcome.selected("/Music/Library");
+	AppDirectoryPickerOutcome selected = window.chooseDirectory(new AppDirectoryPickerRequest("Choose a library", "/Music"), picker);
 	assert(selected.kind == APP_DIRECTORY_PICKER_SELECTED);
 	assert(selected.directory.equals("/Music/Library"));
 	assert(selected.error == null);
-	assert(fake_platform_directory_picker_title().equals("Choose a library"));
-	assert(fake_platform_directory_picker_initial_directory().equals("/Music"));
+	assert(picker.title.equals("Choose a library"));
+	assert(picker.initialDirectory.equals("/Music"));
+	picker.outcome.directory = "/Changed";
+	assert(selected.directory.equals("/Music/Library"));
 
-	fake_platform_set_directory_picker(APP_DIRECTORY_PICKER_CANCELLED, "", APP_ERROR_NONE);
-	AppDirectoryPickerOutcome cancelled = window.chooseDirectory(new AppDirectoryPickerRequest("Choose elsewhere"));
+	picker.outcome = AppDirectoryPickerOutcome.cancelled();
+	AppDirectoryPickerOutcome cancelled = window.chooseDirectory(new AppDirectoryPickerRequest("Choose elsewhere"), picker);
 	assert(cancelled.kind == APP_DIRECTORY_PICKER_CANCELLED);
 	assert(cancelled.directory.isEmpty() && cancelled.error == null);
 	assert(selected.directory.equals("/Music/Library"));
 
-	fake_platform_set_directory_picker(APP_DIRECTORY_PICKER_FAILED, "", APP_ERROR_BACKEND_UNAVAILABLE);
-	AppDirectoryPickerOutcome failed = window.chooseDirectory(new AppDirectoryPickerRequest("Unavailable"));
+	picker.outcome = AppDirectoryPickerOutcome.failed(AppError(APP_ERROR_BACKEND_UNAVAILABLE, "unavailable"));
+	AppDirectoryPickerOutcome failed = window.chooseDirectory(new AppDirectoryPickerRequest("Unavailable"), picker);
 	assert(failed.kind == APP_DIRECTORY_PICKER_FAILED);
 	AppError? failedError = failed.error;
 	if (failedError == null) { assert(false); return; }
 	AppError failedValue = failedError;
 	assert(failedValue.code == APP_ERROR_BACKEND_UNAVAILABLE);
+	var providerError = picker.outcome.error;
+	assert(providerError != null);
+	if (providerError != null) { providerError.message = "changed"; }
+	assert(failedValue.message.equals("unavailable"));
+	picker.outcome.error = null;
+	var missingError = window.chooseDirectory(AppDirectoryPickerRequest("Missing error"), picker).error;
+	assert(missingError != null);
+	if (missingError != null) { assert(missingError.code == APP_ERROR_INTERNAL); }
+	picker.outcome.error = AppError((AppErrorCode)99, "invalid code");
+	var invalidCode = window.chooseDirectory(AppDirectoryPickerRequest("Invalid code"), picker).error;
+	assert(invalidCode != null);
+	if (invalidCode != null) { assert(invalidCode.code == APP_ERROR_INTERNAL); }
 
-	fake_platform_set_directory_picker(APP_DIRECTORY_PICKER_SELECTED, "", APP_ERROR_NONE);
-	AppDirectoryPickerOutcome emptySelection = window.chooseDirectory(new AppDirectoryPickerRequest("Malformed"));
+	picker.outcome = AppDirectoryPickerOutcome.selected("");
+	AppDirectoryPickerOutcome emptySelection = window.chooseDirectory(new AppDirectoryPickerRequest("Malformed"), picker);
 	assert(emptySelection.kind == APP_DIRECTORY_PICKER_FAILED);
 	AppError? emptySelectionError = emptySelection.error;
 	if (emptySelectionError == null) { assert(false); return; }
 	AppError emptySelectionValue = emptySelectionError;
 	assert(emptySelectionValue.code == APP_ERROR_INTERNAL);
 
-	fake_platform_set_directory_picker(99, "", APP_ERROR_NONE);
-	AppDirectoryPickerOutcome unknown = window.chooseDirectory(new AppDirectoryPickerRequest("Unknown"));
+	picker.outcome.kind = (AppDirectoryPickerKind)99;
+	AppDirectoryPickerOutcome unknown = window.chooseDirectory(new AppDirectoryPickerRequest("Unknown"), picker);
 	assert(unknown.kind == APP_DIRECTORY_PICKER_FAILED);
 	AppError? unknownError = unknown.error;
 	if (unknownError == null) { assert(false); return; }
 	AppError unknownValue = unknownError;
 	assert(unknownValue.code == APP_ERROR_INTERNAL);
 
-	Thread<int> wrongThread = spawn(() => {
-			AppDirectoryPickerOutcome outcome = window.chooseDirectory(new AppDirectoryPickerRequest("Wrong thread"));
-			AppError? error = outcome.error;
-			if (error == null) { return 1; }
-			AppError value = error;
-			return outcome.kind == APP_DIRECTORY_PICKER_FAILED && value.code == APP_ERROR_NOT_MAIN_THREAD ? 0 : 1;
-		});
-	assert(wrongThread.join() == 0);
-
+	int callsBeforeClose = picker.calls;
 	assert(window.close().kind == APP_CLOSED);
-	AppDirectoryPickerOutcome closed = window.chooseDirectory(new AppDirectoryPickerRequest("Closed"));
+	AppDirectoryPickerOutcome closed = window.chooseDirectory(new AppDirectoryPickerRequest("Closed"), picker);
+	assert(picker.calls == callsBeforeClose);
 	assert(closed.kind == APP_DIRECTORY_PICKER_FAILED);
 	AppError? closedError = closed.error;
 	if (closedError == null) { assert(false); return; }

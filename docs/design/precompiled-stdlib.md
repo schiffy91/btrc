@@ -59,7 +59,7 @@ treat an in-progress journal as a retryable archive-version mismatch.
 `--build-stdlib` runs the canonical core stdlib through the normal compiler
 pipeline with dead-code elimination disabled, then transforms the resulting IR
 for separate linkage. Native adapters such as `Library.BackgroundJobs`,
-`Library.NativeUi`, and `Library.NativeUiApp` stay explicit imports so their nested
+`Library.NativeUI`, and `Library.NativeUIApp` stay explicit imports so their nested
 source graph and native link plan remain intact.
 
 The archive transform then:

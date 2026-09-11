@@ -6,7 +6,7 @@
  */
 
 import Library.Bytes;
-import Library.Io;
+import Library.IO;
 import Library.Platform;
 import Library.Strings;
 import Library.Vector;

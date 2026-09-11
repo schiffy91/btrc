@@ -1,0 +1,51 @@
+import Library.App;
+import Library.MacOSDirectoryPicker;
+
+#include <assert.h>
+#include <DirectoryPickerControl.h>
+
+void directoryPickerPrepare(int mode);
+int directoryPickerCalls();
+
+void requireFailure(AppDirectoryPickerOutcome outcome, AppErrorCode expected) {
+	assert(outcome.kind == APP_DIRECTORY_PICKER_FAILED);
+	assert(outcome.directory.isEmpty());
+	var error = outcome.error;
+	assert(error != null);
+	if (error != null) { assert(error.code == expected); }
+}
+
+int main(int argc, char** argv) {
+	int mode = argc > 1 ? atoi(argv[1]) : 0;
+	var picker = MacOSDirectoryPicker("Use folder");
+	var request = AppDirectoryPickerRequest("Choose music", "/tmp");
+	requireFailure(picker.chooseDirectory(AppDirectoryPickerRequest("")), APP_ERROR_INVALID_ARGUMENT);
+	requireFailure(MacOSDirectoryPicker("", 128).chooseDirectory(request), APP_ERROR_INVALID_ARGUMENT);
+	requireFailure(MacOSDirectoryPicker("Use folder", 0).chooseDirectory(request), APP_ERROR_INVALID_ARGUMENT);
+	Thread<int> worker = spawn(() => {
+			requireFailure(picker.chooseDirectory(request), APP_ERROR_NOT_MAIN_THREAD);
+			return 0;
+		});
+	assert(worker.join() == 0);
+	directoryPickerPrepare(mode);
+	var result = mode == 5 ? MacOSDirectoryPicker("Use folder", 2).chooseDirectory(request) : picker.chooseDirectory(request);
+	assert(directoryPickerCalls() == 1);
+	if (mode == 0 || mode == 6) {
+		assert(result.kind == APP_DIRECTORY_PICKER_CANCELLED);
+		assert(result.directory.isEmpty() && result.error == null);
+	} else if (mode == 7) {
+		assert(result.kind == APP_DIRECTORY_PICKER_SELECTED);
+		assert(result.directory.equals("/tmp") || result.directory.equals("/private/tmp"));
+		assert(result.error == null);
+	} else if (mode == 1) {
+		assert(result.kind == APP_DIRECTORY_PICKER_SELECTED);
+		/* NSURL's filesystem representation uses decomposed Unicode on macOS. */
+		assert(result.directory.equals("/tmp/Música 🎸"));
+		assert(result.error == null);
+		directoryPickerPrepare(0);
+		assert(picker.chooseDirectory(request).kind == APP_DIRECTORY_PICKER_CANCELLED);
+		assert(result.directory.equals("/tmp/Música 🎸"));
+	} else { requireFailure(result, APP_ERROR_INTERNAL); }
+	printf("PASS: BTRC directory picker mode %d\n", mode);
+	return 0;
+}

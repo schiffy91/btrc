@@ -1,0 +1,63 @@
+import Library.Image;
+import Library.Bytes;
+import Library.Vector;
+import Library.Math;
+import Library.GUI.MacOS.MacOSGPUSurface;
+import Library.GUI.MacOS.MacOSViewCapture;
+
+/* An independently owned, completed renderer readback. Do not change its pixels
+ * during capture. Native controls belong beside the leaf GPU surface in their
+ * common container, not inside the renderer's native view. */
+class MacOSCaptureLayer {
+	public MacOSGPUSurface surface;
+	public Image pixels;
+
+	public MacOSCaptureLayer(MacOSGPUSurface surface, Image pixels) { self.surface = surface; self.pixels = pixels; }
+}
+
+class MacOSComposedCapture {
+	/* AppKit owns clipping and sibling order. Proxies exist only for synchronous
+	 * capture; no event dispatch or renderer callback occurs while attached. */
+	class Bytes captureTiff(NSView root, Vector<MacOSCaptureLayer> layers, int maximumPixels = 16777216, int maximumBytes = 134217728) {
+		if (!NSThread.isMainThread()) { throw "Native capture requires the main thread"; }
+		if (root == null || layers == null || layers.len > 1024 || maximumPixels <= 0 || maximumPixels > 268435200 || maximumBytes <= 0 || maximumBytes > 1073740800) { throw "Invalid composed capture limits"; }
+		long long totalPixels = 0LL;
+		for (int index = 0; index < layers.len; index++) {
+			var layer = layers[index];
+			if (layer == null || layer.surface == null || layer.pixels == null || layer.pixels.isEmpty()) { throw "Invalid GPU capture layer"; }
+			var view = layer.surface.nativeView();
+			if (!view.isDescendantOf(root)) { throw "GPU capture layer is outside the capture root"; }
+			for (int previous = 0; previous < index; previous++) {
+				if (layers[previous].surface.nativeView() == view) { throw "Duplicate GPU capture layer"; }
+			}
+			var backing = view.convertRectToBacking(view.bounds());
+			if (!Math.isFinite(backing.size.width) || !Math.isFinite(backing.size.height) || (double)layer.pixels.width != Math.ceilDouble(backing.size.width) || (double)layer.pixels.height != Math.ceilDouble(backing.size.height)) { throw "GPU readback size does not match its view"; }
+			totalPixels += (long long)layer.pixels.width * (long long)layer.pixels.height;
+			if (totalPixels > (long long)maximumPixels || totalPixels * 4LL + (long long)layers.len * 70LL > (long long)maximumBytes) { throw "GPU readbacks exceed capture limits"; }
+		}
+		Vector<NSImageView> proxies = [];
+		try {
+			for layer in layers {
+				var encoded = ImageIO.encodeBmp(layer.pixels);
+				var data = NSData.dataWithBytes(encoded.data, (unsigned long)encoded.length());
+				if (data == null) { throw "Cannot allocate GPU capture data"; }
+				var representation = NSBitmapImageRep.imageRepWithData(data);
+				if (representation == null) { throw "Cannot decode GPU capture image"; }
+				var image = NSImage.new();
+				if (image == null) { throw "Cannot allocate capture image"; }
+				image.addRepresentation(representation);
+				var proxy = NSImageView.new();
+				if (proxy == null) { throw "Cannot allocate capture view"; }
+				var view = layer.surface.nativeView();
+				proxy.setFrame(view.bounds());
+				proxy.setImageScaling(NSImageScaleAxesIndependently);
+				proxy.setImage(image);
+				proxies.push(proxy);
+				view.addSubview(proxy);
+			}
+			return MacOSViewCapture.captureTiff(root, maximumPixels, maximumBytes);
+		} finally {
+			for proxy in proxies { proxy.removeFromSuperview(); }
+		}
+	}
+}

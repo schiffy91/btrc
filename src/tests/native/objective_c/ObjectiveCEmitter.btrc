@@ -1,0 +1,79 @@
+import Library.Vector;
+
+import ../../../compiler/btrc/ir/Model.btrc;
+import ../../../compiler/btrc/ir/Emitter.btrc;
+import ../../../compiler/btrc/ir/lowering/ControlFlow.btrc;
+import ../../../compiler/btrc/ir/optimization/Realtime.btrc;
+import ../../../compiler/btrc/frontend/Packages.btrc;
+
+int main(int argc, char** argv) {
+	var module = IRModule();
+	module.language = "objective-c";
+	var header = IRPreprocessorDecl();
+	header.kind = IR_PREPROCESSOR_INCLUDE;
+	header.header = "Probe.h";
+	header.isSystem = false;
+	module.preprocessorDecls.push(header);
+	var message = IRNode.objectiveCMessage(IRNode.variable("NSString"), "stringWithUTF8String:", [IRNode.literal("\"guitar\"")]);
+	var definition = IRFunction();
+	definition.name = "nativeLength";
+	definition.returnType = "unsigned long";
+	definition.params = [IRParam("int", "fail")];
+	Vector<IRNode> noArguments = [];
+	var pool = IRNode.objectiveCAutoreleasePool(IRNode.block([
+		IRNode.expressionStatement(IRNode.objectiveCMessage(IRNode.variable("NativeProbe"), "makeMarker", noArguments)),
+		IRNode.variableDeclaration("NativeProbe*", "held", IRNode.objectiveCMessage(IRNode.variable("NativeProbe"), "makeMarker", noArguments)),
+		IRNode.variableDeclaration("NSString*", "value", message),
+		IRNode.ifStatement(IRNode.variable("fail"), IRNode.block([
+		IRNode.expressionStatement(IRNode.objectiveCMessage(IRNode.variable("value"), "substringFromIndex:", [IRNode.literal("999")]))
+	]), null),
+		IRNode.expressionStatement(IRNode.objectiveCMessage(IRNode.variable("held"), "description", noArguments)),
+		IRNode.returnStatement(IRNode.binary(
+		IRNode.binary(
+		IRNode.objectiveCMessage(IRNode.variable("value"), "length", noArguments), "+",
+		IRNode.objectiveCMessage(IRNode.objectiveCMessage(IRNode.variable("NSNumber"), "numberWithUnsignedLong:", [IRNode.literal("4294967296UL")]), "unsignedLongValue", noArguments)
+	), "+",
+		IRNode.objectiveCMessage(IRNode.variable("value"), "compare:options:", [IRNode.variable("value"), IRNode.literal("0")])
+	))
+	]));
+	var boundary = IRNode.objectiveCExceptionBoundary(pool.body, IRNode.block([IRNode.returnStatement(IRNode.literal("999"))]));
+	pool.body = IRNode.block([boundary]);
+	definition.body = IRNode.block([pool]);
+	module.functions.push(definition);
+	if (IRStatementSequence(definition.body.stmts).mayFallThrough()) { throw "adapter return flow was lost"; }
+	if (argc > 1) {
+		string mode = (string)argv[1];
+		if (mode == "bridge-borrow" || mode == "bridge-retain" || mode == "bridge-transfer" || mode == "bridge-invalid" || mode == "bridge-c" || mode == "bridge-realtime") {
+			string operation = "borrow";
+			if (mode == "bridge-retain") { operation = "retain"; }
+			if (mode == "bridge-transfer") { operation = "transfer"; }
+			if (mode == "bridge-invalid") { operation = "invalid"; }
+			module = IRModule();
+			module.language = mode == "bridge-c" ? "c" : "objective-c";
+			definition = IRFunction();
+			definition.name = "bridgeValue";
+			definition.returnType = "void*";
+			definition.params = [IRParam("void*", "value")];
+			definition.body = IRNode.block([IRNode.returnStatement(IRNode.cast("void*", IRNode.variable("value"), operation))]);
+			definition.isRealtime = mode == "bridge-realtime";
+			module.functions.push(definition);
+		}
+		if (mode == "c") { module.language = "c"; }
+		else if (mode == "language") { module.language = "swift"; }
+		else if (mode == "arity") { message.name = "stringWithUTF8String"; }
+		else if (mode == "identifier") { message.name = "invalid];:"; }
+		else if (mode == "pool") { pool.body = IRNode.literal("0"); }
+		else if (mode == "failure") { boundary.elseBlock = IRNode.literal("0"); }
+		else if (mode == "realtime") { definition.isRealtime = true; }
+	}
+	RealtimeIRVerifier(module).validate(module);
+	string emitted = CEmitter().emit(module);
+	if (argc > 1 && (string)argv[1] == "plan") {
+		Vector<FePackageNode> packages = [];
+		Vector<FeNativeDeclaration> declarations = [];
+		var plan = FeNativeLinkPlan(FePackageTarget.parse("macos-arm64"), packages, declarations);
+		plan.generatedUnits.push(FeNativeGeneratedUnit("ObjectiveCAdapters", "objective-c", "c11", "arc", emitted));
+		printf("%s", plan.canonicalJson());
+	} else { printf("%s", emitted); }
+	return 0;
+}

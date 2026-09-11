@@ -49,6 +49,7 @@ class StorageValidator {
 		if (expression == null) { return false; }
 		if (expression.kind == NK_STRING_LITERAL) { return true; }
 		if (expression.kind == NK_IDENTIFIER) {
+			if (self.state.analyzed.isObjectiveCGlobal(expression.name)) { return false; }
 			return self.state.analyzed.funcNames.has(expression.name) || self.state.analyzed.globalVarTypes.has(expression.name);
 		}
 		if (expression.kind == NK_FIELD_ACCESS_EXPR && !expression.arrow) {
@@ -475,8 +476,20 @@ class StorageValidator {
 	}
 
 	public void validateTargetReceiverMutability(Node? target, Map<string, Node> vars, Node site) {
+		if (self.readOnlyNativeGlobal(target)) { TypeValidator.fail("Cannot modify read-only native global", site); }
+		if (self.expressionQualifierAtDepth(target, 0, vars, true)) { TypeValidator.fail("Cannot modify const-qualified storage", site); }
 		if (self.targetHasConstReceiver(target, vars)) {
 			TypeValidator.fail("Cannot modify through a const-qualified receiver", site);
+		}
+	}
+
+	public bool readOnlyNativeGlobal(Node? target) { return target != null && target.kind == NK_IDENTIFIER && !self.state.localBindings.has(target.name) && self.state.analyzed.nativeGlobalReadOnly(target.name); }
+
+	public void validateNativeGlobalAddress(Node target, Map<string, Node> vars, Node site) {
+		if (!self.readOnlyNativeGlobal(target)) { return; }
+		Node? type = self.types.resolveAliases(self.types.inferType(target, vars));
+		if (type != null && (self.rawLvaluePointer(type) || type.base == "__fn_ptr" || self.state.analyzed.isObjectiveCObjectGlobal(target.name))) {
+			TypeValidator.fail("Addressing a read-only native pointer slot requires qualified-pointer lowering", site);
 		}
 	}
 
@@ -1177,46 +1190,51 @@ class StorageValidator {
 		return null;
 	}
 
-	public bool expressionVolatileAtDepth(Node? expression, int depth, Map<string, Node> vars) {
+	public bool declaredQualifierAtDepth(Node? declared, int depth, bool constant) {
+		if (constant) { return SemanticTypeSystem.typeConstAtDepth(declared, self.state.analyzed.typedefTable, depth); }
+		return SemanticTypeSystem.typeVolatileAtDepth(declared, self.state.analyzed.typedefTable, depth);
+	}
+
+	public bool expressionQualifierAtDepth(Node? expression, int depth, Map<string, Node> vars, bool constant = false) {
 		if (expression == null || depth < 0) { return false; }
 		if (expression.kind == NK_INDEX_EXPR) {
 			if (!self.qualifierRawIndex(expression, vars)) {
-				return SemanticTypeSystem.typeVolatileAtDepth(self.qualifierIndexResult(expression, vars), self.state.analyzed.typedefTable, depth);
+				return self.declaredQualifierAtDepth(self.qualifierIndexResult(expression, vars), depth, constant);
 			}
-			return self.expressionVolatileAtDepth(expression.obj, depth + 1, vars);
+			return self.expressionQualifierAtDepth(expression.obj, depth + 1, vars, constant);
 		}
 		if (expression.kind == NK_UNARY_EXPR) {
 			Node? overloaded = self.qualifierOperatorResult(expression, vars);
 			if (overloaded != null) {
-				return SemanticTypeSystem.typeVolatileAtDepth(overloaded, self.state.analyzed.typedefTable, depth);
+				return self.declaredQualifierAtDepth(overloaded, depth, constant);
 			}
 			if (expression.op == "&") {
 				if (depth == 0) { return false; }
-				return self.expressionVolatileAtDepth(expression.operand, depth - 1, vars);
+				return self.expressionQualifierAtDepth(expression.operand, depth - 1, vars, constant);
 			}
 			if (expression.op == "*") {
-				return self.expressionVolatileAtDepth(expression.operand, depth + 1, vars);
+				return self.expressionQualifierAtDepth(expression.operand, depth + 1, vars, constant);
 			}
 			if (expression.op == "!") { return false; }
-			return self.expressionVolatileAtDepth(expression.operand, depth, vars);
+			return self.expressionQualifierAtDepth(expression.operand, depth, vars, constant);
 		}
 		if (expression.kind == NK_TERNARY_EXPR) {
-			return self.expressionVolatileAtDepth(expression.trueExpr, depth, vars) || self.expressionVolatileAtDepth(expression.falseExpr, depth, vars);
+			return self.expressionQualifierAtDepth(expression.trueExpr, depth, vars, constant) || self.expressionQualifierAtDepth(expression.falseExpr, depth, vars, constant);
 		}
 		if (expression.kind == NK_ASSIGN_EXPR) {
-			return depth > 0 && self.expressionVolatileAtDepth(expression.target, depth, vars);
+			return depth > 0 && self.expressionQualifierAtDepth(expression.target, depth, vars, constant);
 		}
 		if (expression.kind == NK_BINARY_EXPR) {
 			Node? overloaded = self.qualifierOperatorResult(expression, vars);
 			if (overloaded != null) {
-				return SemanticTypeSystem.typeVolatileAtDepth(overloaded, self.state.analyzed.typedefTable, depth);
+				return self.declaredQualifierAtDepth(overloaded, depth, constant);
 			}
 			if (expression.op == "??") {
-				return self.expressionVolatileAtDepth(expression.left, depth, vars) || self.expressionVolatileAtDepth(expression.right, depth, vars);
+				return self.expressionQualifierAtDepth(expression.left, depth, vars, constant) || self.expressionQualifierAtDepth(expression.right, depth, vars, constant);
 			}
 		}
 		Node? declared = self.qualifierDeclaredType(expression, vars);
-		return SemanticTypeSystem.typeVolatileAtDepth(declared, self.state.analyzed.typedefTable, depth);
+		return self.declaredQualifierAtDepth(declared, depth, constant);
 	}
 
 	public int expressionVolatileMaxDepth(Node? expression, Map<string, Node> vars) {
@@ -1265,15 +1283,28 @@ class StorageValidator {
 		return SemanticTypeSystem.typeVolatileMaxDepth(self.qualifierDeclaredType(expression, vars), self.state.analyzed.typedefTable);
 	}
 
-	public void validateVolatileReferenceConversion(Node? target, Node? value, string subject, Map<string, Node> vars) {
+	public void validateReferenceQualifiers(Node? target, Node? value, string subject, Map<string, Node> vars) {
 		if (target == null || value == null) { return; }
 		int depth = 1;
 		int maximum = self.expressionVolatileMaxDepth(value, vars);
 		while (depth <= maximum) {
-			if (self.expressionVolatileAtDepth(value, depth, vars) && !SemanticTypeSystem.typeVolatileAtDepth(target, self.state.analyzed.typedefTable, depth)) {
+			if (self.expressionQualifierAtDepth(value, depth, vars) && !SemanticTypeSystem.typeVolatileAtDepth(target, self.state.analyzed.typedefTable, depth)) {
 				TypeValidator.fail(subject + " would discard volatile storage qualification at pointer depth " + Strings.fromInt(depth) + "; use a typedef that preserves the qualified pointee instead of unsupported layered pointer qualifiers", value);
 			}
 			depth = depth + 1;
+		}
+		Node? source = self.types.inferType(value, vars);
+		Node? destination = self.types.resolveAliases(target);
+		if (source == null || destination == null || self.operators.isNullType(source)) { return; }
+		int sourceDepth = self.operators.valueDepth(source) + (source.isArray ? 1 : 0);
+		int destinationDepth = self.operators.valueDepth(destination) + (destination.isArray ? 1 : 0);
+		if (sourceDepth == 0 || destinationDepth == 0) { return; }
+		maximum = sourceDepth > destinationDepth ? sourceDepth : destinationDepth;
+		for (int level = 1; level <= maximum; level++) {
+			bool required = self.expressionQualifierAtDepth(value, level, vars, true);
+			bool available = SemanticTypeSystem.typeConstAtDepth(target, self.state.analyzed.typedefTable, level);
+			if (required && !available) { TypeValidator.fail(subject + " would discard const storage qualification at pointer depth " + Strings.fromInt(level), value); }
+			if (available && !required && level > 1) { TypeValidator.fail(subject + " would add unsafe nested const qualification at pointer depth " + Strings.fromInt(level), value); }
 		}
 	}
 
@@ -1318,7 +1349,7 @@ class StorageValidator {
 			genericNull = expression.valueNode.kind == NK_NULL_LITERAL && canonicalTarget != null && canonicalTarget.genericArgs.len == 0 && self.state.typeParams.has(canonicalTarget.base);
 			Node? qualifiedTarget = self.qualifierDeclaredType(expression.target, vars);
 			if (setterType != null) { qualifiedTarget = setterType; }
-			self.validateVolatileReferenceConversion(qualifiedTarget, expression.valueNode, "Assignment", vars);
+			self.validateReferenceQualifiers(qualifiedTarget, expression.valueNode, "Assignment", vars);
 			if (!gpuTargetHasCapacity && !genericNull) {
 				self.types.validateTypedInitializer(target, expression.valueNode, "Assignment", vars);
 			}

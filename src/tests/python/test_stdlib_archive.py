@@ -89,10 +89,10 @@ int main() {
 """
 
 ARCHIVE_THROW_PROG = """
-import Library.Cli;
+import Library.CLI;
 
 int main() {
-    var arguments = CliArgs(0, null);
+    var arguments = CLIArgs(0, null);
     var caught = false;
     try {
         arguments.require(3, "missing");
@@ -290,21 +290,21 @@ def test_archive_header_excludes_private_ir_function_declarations():
 
 def test_archive_override_check_distinguishes_imports_from_user_code(tmp_path):
     manifest = {
-        "types": ["CliArgs"],
+        "types": ["CLIArgs"],
         "functions": [],
         "global_decl_names": [],
     }
     stdlib_root = Path(StdlibRepository().directory())
     stdlib_decl = SimpleNamespace(
-        name="CliArgs",
-        source_file=CompilerStdlibSource(str(stdlib_root / "Cli.btrc")),
+        name="CLIArgs",
+        source_file=CompilerStdlibSource(str(stdlib_root / "CLI.btrc")),
     )
     archive = _archive_adapter()
     archive.reject_user_overrides(SimpleNamespace(declarations=[stdlib_decl]), manifest)
 
     for user_path in (tmp_path / "program.btrc", stdlib_root / "program.btrc"):
-        user_decl = SimpleNamespace(name="CliArgs", source_file=str(user_path))
-        with pytest.raises(StdlibArchiveError, match=r"overrides.*CliArgs"):
+        user_decl = SimpleNamespace(name="CLIArgs", source_file=str(user_path))
+        with pytest.raises(StdlibArchiveError, match=r"overrides.*CLIArgs"):
             archive.reject_user_overrides(SimpleNamespace(declarations=[user_decl]), manifest)
 
 

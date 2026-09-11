@@ -1,0 +1,44 @@
+import Library.Math;
+import Library.GUI.MacOS.MacOSView;
+
+/* A read-only native level indicator. The caller supplies normalized values
+ * and warning thresholds; the control owns no signal sampling or smoothing. */
+class MacOSLevelIndicator {
+	private NSLevelIndicator? _indicator;
+	private MacOSView _view;
+
+	public MacOSLevelIndicator(double warning, double critical) {
+		if (!NSThread.isMainThread()) { throw "Native level indicators require the main thread"; }
+		if (!Math.isFinite(warning) || !Math.isFinite(critical) || warning < 0.0 || critical > 1.0 || warning > critical) { throw "Invalid native level thresholds"; }
+		var indicator = NSLevelIndicator.new();
+		if (indicator == null) { throw "Cannot create native level indicator"; }
+		self._indicator = indicator;
+		self._view = MacOSView(indicator);
+		indicator.setLevelIndicatorStyle(NSLevelIndicatorStyleContinuousCapacity);
+		indicator.setEditable(false);
+		indicator.setMinValue(0.0);
+		indicator.setMaxValue(1.0);
+		indicator.setWarningValue(warning);
+		indicator.setCriticalValue(critical);
+		indicator.setDoubleValue(0.0);
+	}
+
+	private NSLevelIndicator control() {
+		self._view.nativeView();
+		if (self._indicator == null) { throw "Native level indicator is closed"; }
+		return self._indicator;
+	}
+
+	public NSView nativeView() { return self._view.nativeView(); }
+
+	public void setValue(double value) {
+		if (!Math.isFinite(value) || value < 0.0 || value > 1.0) { throw "Native level must be between zero and one"; }
+		self.control().setDoubleValue(value);
+	}
+
+	public double value() { return self.control().doubleValue(); }
+
+	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
+
+	public void close() { self._view.close(); self._indicator = null; }
+}

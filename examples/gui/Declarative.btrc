@@ -1,7 +1,7 @@
 /* Headless test of the declarative GUI: build a View tree, frame it, and assert
  * layout, events-by-id, resize reflow, and UTF-8 text metrics. */
-#include "gui/Gui.btrc"
-#include "gui/View.btrc"
+#include "GUI/GUI.btrc"
+#include "GUI/View.btrc"
 
 int fails = 0;
 void check(bool c, string label) {
@@ -24,12 +24,12 @@ View build() {
 int main() {
 	Surface s = Surface(300, 200);
 	Theme theme = Theme();
-	GuiInput input = GuiInput();
+	GUIInput input = GUIInput();
 	View root = build();
 
 	/* Frame 1: pointer off-screen — no events; tree fills the surface. */
 	input.mouseX = -1; input.mouseY = -1; input.mousePressed = false;
-	GuiEvents e1 = Ui.frame(s, input, theme, root);
+	GUIEvents e1 = UI.frame(s, input, theme, root);
 	check(e1.clicked.isEmpty(), "no spurious click");
 	check(root.w == 300 && root.h == 200, "root fills surface");
 	View firstText = root.children.get(0);
@@ -40,14 +40,14 @@ int main() {
 	input.mouseX = incBtn.x + incBtn.w / 2;
 	input.mouseY = incBtn.y + incBtn.h / 2;
 	input.mousePressed = true;
-	GuiEvents e2 = Ui.frame(s, input, theme, root);
+	GUIEvents e2 = UI.frame(s, input, theme, root);
 	check(e2.wasClicked("inc"), "increment button clicked by id");
 	check(!e2.wasClicked("save"), "other buttons not clicked");
 
 	/* Resizing: same tree reflows to a larger surface. */
 	Surface big = Surface(640, 480);
 	input.mouseX = -1; input.mouseY = -1; input.mousePressed = false;
-	Ui.frame(big, input, theme, root);
+	UI.frame(big, input, theme, root);
 	check(root.w == 640 && root.h == 480, "reflows on resize");
 
 	/* In-place surface resize (what window resizing uses each frame). */
@@ -60,8 +60,8 @@ int main() {
 	check(rs.pixel(12, 12) == red.packed(), "draws correctly after resize");
 
 	/* UTF-8: 'é' (2 bytes) measures as one glyph, like one of "aa". */
-	View ue = View.text("é"); Ui.measure(ue);
-	View aa = View.text("aa"); Ui.measure(aa);
+	View ue = View.text("é"); UI.measure(ue);
+	View aa = View.text("aa"); UI.measure(aa);
 	check(ue.mW == aa.mW / 2, "utf-8 width counts codepoints");
 
 	s.savePpm("/tmp/gui_declarative.ppm");

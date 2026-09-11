@@ -1,5 +1,5 @@
 /* JSON numbers use their grammar's '.' radix even when LC_NUMERIC uses ','. */
-import Library.Json;
+import Library.JSON;
 import Library.Strings;
 
 #include <assert.h>
@@ -36,25 +36,25 @@ int main() {
 	if (hasCommaLocale) {
 		string active = Strings.copy(setlocale(LC_NUMERIC, NULL));
 
-		JsonValue fraction = JsonValue.parse("1.25");
+		JSONValue fraction = JSONValue.parse("1.25");
 		assert(fraction.isNumber());
 		assert(fraction.asFloat() > 1.249 && fraction.asFloat() < 1.251);
 
-		JsonValue exponent = JsonValue.parse("-12.5e-1");
+		JSONValue exponent = JSONValue.parse("-12.5e-1");
 		assert(exponent.isNumber());
 		assert(exponent.asFloat() > -1.251 && exponent.asFloat() < -1.249);
-		assert(JsonValue.parse("1,25").isError());
+		assert(JSONValue.parse("1,25").isError());
 
-		string compact = JsonValue.makeFloat(1234.5).stringify();
+		string compact = JSONValue.makeFloat(1234.5).stringify();
 		assert(compact.equals("1234.5"));
-		assert(JsonValue.makeFloat(1234.5).stringifyPretty().equals(compact));
-		assert(JsonValue.makeFloat(1234.5).document().equals("1234.5\n"));
-		assert(JsonValue.parse(compact).stringify().equals(compact));
+		assert(JSONValue.makeFloat(1234.5).stringifyPretty().equals(compact));
+		assert(JSONValue.makeFloat(1234.5).document().equals("1234.5\n"));
+		assert(JSONValue.parse(compact).stringify().equals(compact));
 
 		assert(strcmp(setlocale(LC_NUMERIC, NULL), active) == 0);
 	} else {
 		assert(setlocale(LC_NUMERIC, "C") != NULL);
-		assert(JsonValue.parse("1.25").stringify().equals("1.25"));
+		assert(JSONValue.parse("1.25").stringify().equals("1.25"));
 	}
 
 	assert(setlocale(LC_NUMERIC, original) != NULL);

@@ -11,6 +11,8 @@ import ../../analyzer/ownership/Values.btrc;
 import ../../analyzer/Types.btrc;
 import ../../analyzer/validation/Declarations.btrc;
 import ../../generated/ast/Node.btrc;
+import ../../generated/native_abi/Models.btrc;
+import ../../frontend/Models.btrc;
 import ../../syntax/Identity.btrc;
 import ../../syntax/Types.btrc;
 import ../Model.btrc;
@@ -132,10 +134,318 @@ class DeclarationLowerer {
 		return alignments;
 	}
 
+	private IRNode nativeNullGuard(IRNode value, string message, bool realtime = false) {
+		Vector<IRNode> noArguments = [];
+		if (realtime) {
+			IRNode trap = IRNode.call("__builtin_trap", noArguments);
+			trap.neverReturns = true;
+			return IRNode.ifStatement(IRNode.binary(value, "==", IRNode.literal("NULL")), IRNode.block([IRNode.expressionStatement(trap)]), null);
+		}
+		IRNode abortCall = IRNode.call("abort", noArguments);
+		abortCall.neverReturns = true;
+		Vector<IRNode> failure = [IRNode.expressionStatement(IRNode.call("fputs", [IRNode.literal("\"" + message + "\\n\""), IRNode.variable("stderr")])), IRNode.expressionStatement(abortCall)];
+		return IRNode.ifStatement(IRNode.binary(value, "==", IRNode.literal("NULL")), IRNode.block(failure), null);
+	}
+
+	private void emitNativeAdapter(Node declaration, FeNativeCallContract contract, IRModule module) {
+		string name = contract.adapterSymbol(declaration.name);
+		if (name.equals(declaration.name)) { return; }
+		var adapter = IRFunction();
+		adapter.name = name;
+		adapter.returnType = self.cTypes.lower(declaration.returnType);
+		adapter.isStatic = true;
+		Vector<IRNode> arguments = [];
+		Vector<IRNode> statements = [];
+		Map<string, bool> parameterNames = {};
+		for index in range(declaration.params.len) {
+			Node parameter = declaration.params.get(index);
+			adapter.params.push(self.cTypes.lowerParameter(parameter));
+			parameterNames.put(parameter.name, true);
+			IRNode argument = IRNode.variable(parameter.name);
+			arguments.push(argument);
+			if (contract.nonnullParameters.get(index)) { statements.push(self.nativeNullGuard(argument, f"Native call {declaration.name}: null argument {parameter.name}", contract.realtimeSafe)); }
+		}
+		Vector<IRNode> locals = [];
+		for index in range(contract.recordInputs.len) {
+			var projection = contract.recordInputs.get(index);
+			if (projection != null) { arguments.set(index, self.nativeRecordInput(projection, arguments.get(index), locals, statements, declaration.name, declaration.params.get(index).name, parameterNames, contract.recordTypes)); }
+		}
+		locals.extend(statements);
+		statements = locals;
+		IRNode call = IRNode.call(declaration.name, arguments);
+		if (adapter.returnType.equals("void")) {
+			statements.push(IRNode.expressionStatement(call));
+		} else if (contract.nonnullReturn) {
+			string result = "__btrc_native_result";
+			while (parameterNames.has(result)) { result = result + "_"; }
+			statements.push(IRNode.variableDeclaration(adapter.returnType, result, call));
+			statements.push(self.nativeNullGuard(IRNode.variable(result), f"Native call {declaration.name}: null result", contract.realtimeSafe));
+			statements.push(IRNode.returnStatement(IRNode.variable(result)));
+		} else {
+			statements.push(IRNode.returnStatement(call));
+		}
+		adapter.body = IRNode.block(statements);
+		var prototype = IRFunctionDecl(name, adapter.returnType, true);
+		prototype.params = adapter.params;
+		module.functionDecls.push(prototype);
+		module.functions.push(adapter);
+	}
+
+	private IRNode nativeRecordInput(FeNativeRecordInput projection, IRNode value, Vector<IRNode> locals, Vector<IRNode> statements, string callName, string path, Map<string, bool> parameterNames, Map<string, FeNativeRecordInput> recordTypes, string prefix = "") {
+		/* Declare nested SDK storage at adapter scope, outside conditional initialization. */
+		string name = f"__btrc_record_input_{locals.len}";
+		while (parameterNames.has(name)) { name = name + "_"; }
+		IRNode native = IRNode.variable(name);
+		locals.push(IRNode.variableDeclaration(projection.nativeSpelling, name, IRNode.initializerList([IRNode.literal("0")])));
+		Vector<IRNode> assignments = [];
+		for field in projection.fields {
+			IRNode source = IRNode.fieldAccess(value, field.name, true);
+			IRNode target = IRNode.fieldAccess(native, field.name, false);
+			string fieldPath = path + "." + field.name;
+			if ((!field.record.isEmpty() || !field.objectType.isEmpty()) && !field.valueType.isNullable) { assignments.push(self.nativeNullGuard(source, f"Native call {callName}: null input {fieldPath}", false)); }
+			if (!field.record.isEmpty()) { source = self.nativeRecordInput(recordTypes.get(field.record), source, locals, assignments, callName, fieldPath, parameterNames, recordTypes, field.prefix); }
+			else if (!field.objectType.isEmpty()) { source = IRNode.cast("void*", source); }
+			assignments.push(IRNode.assignment(target, source));
+		}
+		statements.push(IRNode.ifStatement(IRNode.binary(value, "!=", IRNode.literal("NULL")), IRNode.block(assignments), null));
+		IRNode address = IRNode.addressOf(prefix.isEmpty() ? native : IRNode.fieldAccess(native, prefix, false));
+		return IRNode.ternary(IRNode.binary(value, "==", IRNode.literal("NULL")), IRNode.literal("NULL"), address);
+	}
+
+	private IRModule objectiveCUnit(FeNativeImportedDeclaration imported, IRModule module) {
+		if (!module.nativeUnits.has("ObjectiveCAdapters")) { var unit = IRModule(); unit.language = "objective-c"; module.nativeUnits.put("ObjectiveCAdapters", unit); }
+		IRModule native = module.nativeUnits.get("ObjectiveCAdapters");
+		self.appendPreprocessorDecl(native, IRPreprocessorDecl.include("stdlib.h", true));
+		for header in imported.headers { self.appendPreprocessorDecl(native, IRPreprocessorDecl.include(header, false)); }
+		var records = Node();
+		records.kind = NK_PROGRAM;
+		for importedRecord in self.analyzed.nativeDeclarations {
+			if (importedRecord.declaration.kind == NK_STRUCT_DECL && importedRecord.language == "objective-c" && !importedRecord.coalesced) { records.declarations.push(importedRecord.declaration); }
+		}
+		for record in DeclarationValidator.orderedStructDefinitions(records, self.analyzed.structTable) {
+			string name = "__btrc_value_" + record.name;
+			bool declared = false;
+			for definition in native.structDefs { if (definition.name == name) { declared = true; } }
+			if (declared) { continue; }
+			var definition = IRStructDef();
+			definition.name = name;
+			for field in record.fields { definition.fields.push(IRStructField(self.cTypes.lower(field.type), field.name)); }
+			native.structForwards.push(IRStructForward(name));
+			native.structDefs.push(definition);
+			module.structForwards.push(IRStructForward(name));
+			module.structDefs.push(definition);
+		}
+		return native;
+	}
+
+	private bool objectiveCRecord(Node type) { return type.pointerDepth == 0 && !type.isArray && self.analyzed.isObjectiveCRecord(type.base); }
+
+	private IRNode objectiveCValue(Node type, IRNode value, bool toNative) {
+		if (!self.objectiveCRecord(type)) { return value; }
+		Node record = self.analyzed.structTable.get(type.base);
+		Vector<string> names = [];
+		Vector<IRNode> values = [];
+		for field in record.fields {
+			names.push(field.name);
+			values.push(self.objectiveCValue(field.type, IRNode.fieldAccess(value, field.name, false), toNative));
+		}
+		string spelling = toNative ? self.analyzed.nativeTypeSpelling(type.base) : self.cTypes.lower(type);
+		return IRNode.compoundLiteral(spelling, names, values);
+	}
+
+	private void emitObjectiveCGlobal(FeNativeImportedDeclaration imported, IRModule module) {
+		IRModule native = self.objectiveCUnit(imported, module);
+		if (self.analyzed.isObjectiveCObjectGlobal(imported.declaration.name)) {
+			self.emitObjectiveCObjectGlobal(imported, module, native);
+			return;
+		}
+		var adapter = IRFunction();
+		adapter.name = "__btrc_objc_address_" + imported.declaration.name;
+		adapter.returnType = self.cTypes.lower(imported.declaration.type) + "*";
+		adapter.body = IRNode.block([IRNode.returnStatement(IRNode.addressOf(IRNode.variable(imported.declaration.name)))]);
+		native.functions.push(adapter);
+		module.functionDecls.push(IRFunctionDecl(adapter.name, adapter.returnType, false));
+	}
+
+	private void emitObjectiveCObjectGlobal(FeNativeImportedDeclaration imported, IRModule module, IRModule native) {
+		Node declaration = imported.declaration;
+		var wrapper = IRFunction();
+		wrapper.name = "__btrc_objc_read_" + declaration.name;
+		wrapper.returnType = self.cTypes.lower(declaration.type);
+		wrapper.isStatic = true;
+		var adapter = IRFunction();
+		adapter.name = wrapper.name + "_adapter";
+		adapter.returnType = "int";
+		adapter.params.push(IRParam(wrapper.returnType + "*", "nativeResult"));
+		IRNode result = IRNode.variable("nativeResult");
+		IRNode value = IRNode.cast(wrapper.returnType, IRNode.variable(declaration.name), "retain");
+		IRNode body = IRNode.block([IRNode.assignment(IRNode.dereference(result), value), IRNode.returnStatement(IRNode.literal("0"))]);
+		IRNode failureBody = IRNode.block([IRNode.returnStatement(IRNode.literal("1"))]);
+		adapter.body = IRNode.block([IRNode.objectiveCAutoreleasePool(IRNode.block([IRNode.objectiveCExceptionBoundary(body, failureBody)]))]);
+		native.functions.push(adapter);
+		var external = IRFunctionDecl(adapter.name, "int", false);
+		external.params = adapter.params;
+		module.functionDecls.push(external);
+		self.context.referenceHelper("__btrc_throw");
+		IRNode failure = IRNode.call("__btrc_throw", [IRNode.literal("\"Objective-C exception reading " + declaration.name + "\"")]);
+		failure.neverReturns = true;
+		Vector<IRNode> statements = [
+			IRNode.variableDeclaration(wrapper.returnType, "nativeResult", IRNode.literal("0")),
+			IRNode.ifStatement(IRNode.call(adapter.name, [IRNode.addressOf(result)]), IRNode.block([IRNode.expressionStatement(failure)]), null)
+		];
+		if (!declaration.type.isNullable) { statements.push(self.objectiveCNullGuard(result, "Objective-C global " + declaration.name + ": null result")); }
+		statements.push(IRNode.returnStatement(result));
+		wrapper.body = IRNode.block(statements);
+		module.functionDecls.push(IRFunctionDecl(wrapper.name, wrapper.returnType, true));
+		module.functions.push(wrapper);
+	}
+
+	private void emitObjectiveCAdapters(FeNativeImportedDeclaration imported, IRModule module) {
+		IRModule native = self.objectiveCUnit(imported, module);
+		for declaration in self.analyzed.nativeDeclarations {
+			if (declaration.declaration.kind != NK_CLASS_DECL || declaration.language != "objective-c") { continue; }
+			string opaqueName = "__btrc_native_" + declaration.declaration.name;
+			bool declared = false;
+			for forward in native.structForwards { if (forward.name == opaqueName) { declared = true; } }
+			if (!declared) {
+				native.structForwards.push(IRStructForward(opaqueName));
+				module.structForwards.push(IRStructForward(opaqueName));
+			}
+		}
+		self.emitObjectiveCLifetime(imported, module, native);
+		for method in imported.declaration.members {
+			NativeNode descriptor = imported.methods.get(method.name);
+			string name = imported.declaration.name + "_" + method.name;
+			var wrapper = IRFunction();
+			wrapper.name = name;
+			wrapper.returnType = self.cTypes.lower(method.returnType);
+			wrapper.isStatic = true;
+			var adapter = IRFunction();
+			adapter.name = "__btrc_objc_" + name;
+			adapter.returnType = "int";
+			Vector<IRNode> arguments = [];
+			Vector<IRNode> nativeArguments = [];
+			IRNode receiver = IRNode.variable(imported.declaration.name);
+			if (!descriptor.classMethod) {
+				var parameter = IRParam("struct __btrc_native_" + imported.declaration.name + "*", "self");
+				wrapper.params.push(parameter);
+				adapter.params.push(parameter);
+				arguments.push(IRNode.variable("self"));
+				receiver = IRNode.cast(self.objectiveCObjectType(imported.declaration.name), IRNode.variable("self"), "borrow");
+			}
+			for parameter in method.params {
+				var lowered = self.cTypes.lowerParameter(parameter);
+				wrapper.params.push(lowered);
+				adapter.params.push(lowered);
+				arguments.push(IRNode.variable(parameter.name));
+				IRNode argument = IRNode.variable(parameter.name);
+				if (self.managedValues.isNative(parameter.type)) { argument = IRNode.cast(self.objectiveCObjectType(parameter.type.base), argument, "borrow"); }
+				else { argument = self.objectiveCValue(parameter.type, argument, true); }
+				nativeArguments.push(argument);
+			}
+			bool returnsValue = wrapper.returnType != "void";
+			IRNode result = IRNode.variable("nativeResult");
+			IRNode message = IRNode.objectiveCMessage(receiver, descriptor.selector, nativeArguments);
+			if (self.managedValues.isNative(method.returnType)) { message = IRNode.cast(wrapper.returnType, message, "retain"); }
+			Vector<IRNode> body = [];
+			bool recordReturn = self.objectiveCRecord(method.returnType);
+			if (recordReturn) {
+				body.push(IRNode.variableDeclaration(self.analyzed.nativeTypeSpelling(method.returnType.base), "sdkResult", message));
+				message = self.objectiveCValue(method.returnType, IRNode.variable("sdkResult"), false);
+			}
+			if (returnsValue) {
+				adapter.params.push(IRParam(wrapper.returnType + "*", "nativeResult"));
+				body.push(IRNode.assignment(IRNode.dereference(result), message));
+			} else { body.push(IRNode.expressionStatement(message)); }
+			body.push(IRNode.returnStatement(IRNode.literal("0")));
+			adapter.body = IRNode.block([IRNode.objectiveCAutoreleasePool(IRNode.block([IRNode.objectiveCExceptionBoundary(IRNode.block(body), IRNode.block([IRNode.returnStatement(IRNode.literal("1"))]))]))]);
+			native.functions.push(adapter);
+			var external = IRFunctionDecl(adapter.name, "int", false);
+			external.params = adapter.params;
+			module.functionDecls.push(external);
+			Vector<IRNode> statements = [];
+			Vector<IRNode> callArguments = [];
+			callArguments.extend(arguments);
+			if (returnsValue) {
+				bool aggregateReturn = method.returnType.pointerDepth == 0 && !method.returnType.isArray && self.analyzed.structTable.has(method.returnType.base);
+				IRNode initial = aggregateReturn ? IRNode.initializerList([IRNode.literal("0")]) : IRNode.literal("0");
+				statements.push(IRNode.variableDeclaration(wrapper.returnType, "nativeResult", initial));
+				callArguments.push(IRNode.addressOf(result));
+			}
+			self.context.referenceHelper("__btrc_throw");
+			if (!descriptor.classMethod) { statements.push(self.objectiveCNullGuard(IRNode.variable("self"), "Objective-C call " + descriptor.name + ": null argument self")); }
+			for parameter in method.params {
+				if (parameter.type.pointerDepth > 0 && !parameter.type.isNullable) { statements.push(self.objectiveCNullGuard(IRNode.variable(parameter.name), "Objective-C call " + descriptor.name + ": null argument " + parameter.name)); }
+			}
+			IRNode failure = IRNode.call("__btrc_throw", [IRNode.literal("\"Objective-C exception in " + descriptor.name + "\"")]);
+			failure.neverReturns = true;
+			statements.push(IRNode.ifStatement(IRNode.call(adapter.name, callArguments), IRNode.block([IRNode.expressionStatement(failure)]), null));
+			if (returnsValue) {
+				if (self.managedValues.isNative(method.returnType) && !method.returnType.isNullable) { statements.push(self.objectiveCNullGuard(result, "Objective-C call " + descriptor.name + ": null result")); }
+				statements.push(IRNode.returnStatement(result));
+			}
+			wrapper.body = IRNode.block(statements);
+			var prototype = IRFunctionDecl(name, wrapper.returnType, true);
+			prototype.params = wrapper.params;
+			module.functionDecls.push(prototype);
+			module.functions.push(wrapper);
+		}
+	}
+
+	private IRNode objectiveCNullGuard(IRNode value, string message) {
+		self.context.referenceHelper("__btrc_throw");
+		IRNode failure = IRNode.call("__btrc_throw", [IRNode.literal("\"" + message + "\"")]);
+		failure.neverReturns = true;
+		return IRNode.ifStatement(IRNode.binary(value, "==", IRNode.literal("NULL")), IRNode.block([IRNode.expressionStatement(failure)]), null);
+	}
+
+	private string objectiveCObjectType(string name) { return name == "id" ? "id" : name + "*"; }
+
+	private void emitObjectiveCLifetime(FeNativeImportedDeclaration imported, IRModule module, IRModule native) {
+		Vector<string> operations = ["retain", "release"];
+		for operation in operations {
+			var adapter = IRFunction();
+			adapter.name = "__btrc_objc_" + imported.declaration.name + "_" + operation;
+			adapter.returnType = "void";
+			adapter.params.push(IRParam("void*", "value"));
+			string nativeType = self.objectiveCObjectType(imported.declaration.name);
+			IRNode value = IRNode.variable("value");
+			Vector<IRNode> body = [];
+			if (operation == "retain") {
+				IRNode borrowed = IRNode.cast(nativeType, value, "borrow");
+				body.push(IRNode.expressionStatement(IRNode.cast("void", IRNode.cast("void*", borrowed, "retain"))));
+			} else {
+				body.push(IRNode.variableDeclaration(nativeType, "owned", IRNode.cast(nativeType, value, "transfer")));
+				body.push(IRNode.expressionStatement(IRNode.cast("void", IRNode.variable("owned"))));
+			}
+			Vector<IRNode> noArguments = [];
+			IRNode failure = IRNode.call("abort", noArguments);
+			failure.neverReturns = true;
+			IRNode boundary = IRNode.objectiveCExceptionBoundary(IRNode.block(body), IRNode.block([IRNode.expressionStatement(failure)]));
+			adapter.body = IRNode.block([IRNode.objectiveCAutoreleasePool(IRNode.block([boundary]))]);
+			native.functions.push(adapter);
+			var prototype = IRFunctionDecl(adapter.name, "void", false);
+			prototype.params = adapter.params;
+			module.functionDecls.push(prototype);
+		}
+	}
+
 	public void emitDeclarations(Node prog, IRModule m) {
+		Map<string, bool> nativeAdapters = {};
+		Map<string, bool> nativeConstants = {};
 		for imported in self.analyzed.nativeDeclarations {
 			if (!self.validIncludeHeader(imported.header)) { self.preprocessorFail("invalid native include header"); }
-			self.appendPreprocessorDecl(m, IRPreprocessorDecl.include(imported.header, false));
+			if (imported.language == "c") { self.appendPreprocessorDecl(m, IRPreprocessorDecl.include(imported.header, false)); }
+			if (imported.declaration.kind == NK_CLASS_DECL && !imported.coalesced) { self.emitObjectiveCAdapters(imported, m); }
+			if (imported.language == "objective-c" && imported.declaration.kind == NK_VAR_DECL_STMT && !nativeConstants.has(imported.declaration.name)) {
+				if (imported.declaration.initializer == null) { self.emitObjectiveCGlobal(imported, m); }
+				else { self.emitGlobalVar(imported.declaration, m, false); }
+				nativeConstants.put(imported.declaration.name, true);
+			}
+			if (imported.declaration.kind == NK_FUNCTION_DECL && imported.callContract != null && !nativeAdapters.has(imported.declaration.name)) {
+				self.emitNativeAdapter(imported.declaration, imported.callContract, m);
+				nativeAdapters.put(imported.declaration.name, true);
+			}
 		}
 		Map<string, bool> externallyDefinedGlobals = {};
 		int globalDeclarationIndex = 0;

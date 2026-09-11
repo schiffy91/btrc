@@ -1,0 +1,30 @@
+import Library.Audio.MacOS.CoreAudioDevice;
+import Library.Audio.AudioDevice;
+import Library.Audio.RealtimeAudio;
+
+#include <assert.h>
+
+int pendingSessions();
+void allowSessionCleanup();
+void unitReset(int failure);
+
+@realtime void pendingProcess(void* context, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {}
+
+int main() {
+	unitReset(10);
+	var opened = CoreAudioDeviceProvider.open();
+	assert(opened.succeeded());
+	var provider = opened.provider();
+	var inventory = provider.inventory().inventory();
+	var request = DuplexAudioOpenRequest.outputOnly(inventory.generation(), "device-b", AudioChannelSelection.leading(1), AudioStreamRequest(48000, 128));
+	var program = RealtimeAudioProgram(pendingProcess, null);
+	var failed = provider.openDuplex(request, program);
+	assert(failed.status() == AUDIO_DEVICE_BUSY && pendingSessions() == 1);
+	assert(provider.openDuplex(request, program).status() == AUDIO_DEVICE_BUSY && pendingSessions() == 1);
+	assert(provider.close().status() == AUDIO_DEVICE_BUSY && provider.isOpen());
+	allowSessionCleanup();
+	assert(provider.close().succeeded() && !provider.isOpen() && pendingSessions() == 0);
+	assert(provider.close().succeeded());
+	print("PASS: CoreAudio provider retains partial sessions until cleanup succeeds");
+	return 0;
+}

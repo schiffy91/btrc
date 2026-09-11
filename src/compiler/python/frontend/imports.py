@@ -19,6 +19,7 @@ from src.compiler.python.syntax.ast.generated import (
 from src.compiler.python.syntax.tokens import SourceSymbolDirective
 
 from ..abi.hosted import HOSTED_ABI
+from .native_imports import NativeHeaderSource
 from .packages import IncludeResolutionError, ResolvedPackages
 from .sources import (
     CompilerStdlibSource,
@@ -192,8 +193,12 @@ class ImportResolver:
         )
 
     def _stdlib_module_path(self, name: str) -> str:
-        filename = name if name.endswith(".btrc") else f"{name}.btrc"
-        path = self.stdlib.find_file(filename)
+        filename = name.replace(".", os.sep) + ".btrc"
+        if "." in name:
+            candidate = os.path.join(self.stdlib.directory(), filename)
+            path = candidate if os.path.isfile(candidate) else None
+        else:
+            path = self.stdlib.find_file(filename)
         if path is None:
             raise IncludeResolutionError(
                 f"stdlib import 'Library.{name}' not found\n  searched: {self.stdlib.directory()}"
@@ -591,6 +596,15 @@ class ImportVisibilityChecker:
             for name, paths in self.external_symbol_files.items()
         }
         for declaration in self.program.declarations:
+            # SDK typedefs refine the target ABI, but must not privatize an
+            # existing hosted name such as size_t to the importing module.
+            # Ordinary source declarations and new SDK aliases remain scoped.
+            if (
+                isinstance(declaration, ast.TypedefDecl)
+                and isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
+                and HOSTED_ABI.owned_name(declaration.alias)
+            ):
+                continue
             if isinstance(declaration, ast.PreprocessorDirective):
                 directive = SourceSymbolDirective.parse(declaration.text)
                 name = directive.name if directive is not None and directive.operation == "define" else ""
@@ -664,6 +678,12 @@ class ImportVisibilityChecker:
 
         for declaration in self.program.declarations:
             if not isinstance(declaration, _REFERENCE_DECLS):
+                continue
+            # SDK declaration types are checked by the native reader. Method
+            # unions may contribute types from several native module owners;
+            # that does not create missing imports in the first class owner.
+            # Generated ordinary Input classes still undergo normal visibility.
+            if isinstance(getattr(declaration, "source_file", None), NativeHeaderSource):
                 continue
             source_file = self._declaration_file(declaration)
             if source_file is None:

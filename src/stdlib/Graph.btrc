@@ -5,11 +5,11 @@
  * domain-specific readiness checks and node execution in their own runners.
  */
 
-import Library.Io;
-import Library.Cli;
+import Library.IO;
+import Library.CLI;
 import Library.Console;
 import Library.FileSystem;
-import Library.Json;
+import Library.JSON;
 import Library.Map;
 import Library.Set;
 import Library.Vector;
@@ -89,18 +89,18 @@ class ExecutionGraph {
 	public bool valid() { return self.validationError().isEmpty(); }
 }
 
-class GraphCli {
-	class Map<string, string> args(CliArgs args, int startIndex) {
+class GraphCLI {
+	class Map<string, string> args(CLIArgs args, int startIndex) {
 		Map<string, string> result = {};
-		CliCommandLine parsed = CliCommandLine.parseFrom(args, startIndex);
+		CLICommandLine parsed = CLICommandLine.parseFrom(args, startIndex);
 		for value in parsed.values("--arg") {
-			JsonText.putArgPair(result, value);
+			JSONText.putArgPair(result, value);
 		}
 		return result;
 	}
 
-	class Vector<string> targets(CliArgs args, int startIndex) {
-		CliCommandLine parsed = CliCommandLine.parseFrom(args, startIndex);
+	class Vector<string> targets(CLIArgs args, int startIndex) {
+		CLICommandLine parsed = CLICommandLine.parseFrom(args, startIndex);
 		return parsed.operands;
 	}
 }
@@ -245,10 +245,10 @@ class GraphValidation {
 class GraphParser {
 	class GraphNode node(string objectText) {
 		var node = GraphNode();
-		node.id = JsonText.field(objectText, "id", "");
-		node.specPath = JsonText.field(objectText, "spec", "");
-		node.after = JsonText.stringArray(objectText, "after");
-		node.args = JsonText.argsObject(objectText);
+		node.id = JSONText.field(objectText, "id", "");
+		node.specPath = JSONText.field(objectText, "spec", "");
+		node.after = JSONText.stringArray(objectText, "after");
+		node.args = JSONText.argsObject(objectText);
 		/* Missing id/spec is a DATA error in the source JSON, not an internal
          * invariant — throw a catchable message instead of aborting. (readFile
          * also surfaces these via the recoverable validationError() path.) */
@@ -266,11 +266,11 @@ class GraphParser {
 		var graph = ExecutionGraph();
 		graph.path = path;
 		graph.baseDir = PathTools.dirname(path);
-		graph.name = JsonText.field(text, "name", graph.name);
-		graph.workspaceRoot = JsonText.field(text, "workspaceRoot", graph.workspaceRoot);
-		graph.defaults = JsonText.stringArray(text, "default");
-		graph.required = JsonText.stringArray(text, "required");
-		for objectText in JsonText.objectArray(text, "nodes") {
+		graph.name = JSONText.field(text, "name", graph.name);
+		graph.workspaceRoot = JSONText.field(text, "workspaceRoot", graph.workspaceRoot);
+		graph.defaults = JSONText.stringArray(text, "default");
+		graph.required = JSONText.stringArray(text, "required");
+		for objectText in JSONText.objectArray(text, "nodes") {
 			graph.nodes.push(GraphParser.node(objectText));
 		}
 		/* Validation failures are DATA errors (bad graph JSON), so throw a

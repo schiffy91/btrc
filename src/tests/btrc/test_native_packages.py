@@ -22,6 +22,22 @@ def _environment() -> dict[str, str]:
     return {**os.environ, "BTRC_HOME": str(REPO / "src")}
 
 
+def test_stdlib_native_headers_require_target_even_without_project_manifest(immutable_btrcc, tmp_path):
+    source = tmp_path / "Main.btrc"
+    source.write_text("import Library.BackgroundJobs;\nint main() { return 0; }\n", encoding="utf-8")
+    result = subprocess.run(
+        [str(immutable_btrcc), "--strict-imports", str(source)],
+        cwd=REPO,
+        env=_environment(),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode != 0
+    assert result.stdout == ""
+    assert "native header bindings require --target OS-ARCH" in result.stderr
+
+
 def _reference(
     source: Path,
     generated: Path,
@@ -100,7 +116,7 @@ def test_native_binding_selection_has_frontend_parity(
     for result in (reference, selfhost):
         if selected:
             assert result.returncode != 0
-            assert "requires typed native import support" in result.stderr
+            assert "requires BTRC_NATIVE_HEADER_READER" in result.stderr
             assert str(tmp_path / "src/Api.btrc") in result.stderr
         else:
             assert result.returncode == 0, result.stderr
@@ -129,6 +145,36 @@ def test_native_binding_rejections_have_frontend_parity(semantic_btrcc: Path, tm
     for result in (_reference(source, tmp_path / "reference.c"), _selfhost(semantic_btrcc, source)):
         assert result.returncode != 0
         assert message in result.stderr
+
+
+@pytest.mark.parametrize(
+    "language, symbol, accepted",
+    [
+        ("objective-c", "+[NSThread isMainThread]", True),
+        ("objective-c", "-[NSString compare:options:]", True),
+        ("objective-c++", "+[Probe value]", True),
+        ("c", "+[Probe value]", False),
+        ("objective-c", "+[Probe value:trailing]", False),
+        ("objective-c", "+[Probe value::]", False),
+        ("objective-c", "+[Probe  value]", False),
+        ("objective-c", "+[Probe value];abort()", False),
+        ("objective-c", "+[Probe ]", False),
+    ],
+)
+def test_objective_c_selector_manifest_has_frontend_parity(semantic_btrcc, tmp_path, language, symbol, accepted):
+    binding = _BINDING.replace('language = "c"', f'language = "{language}"').replace(
+        '["measure"]', json.dumps([symbol])
+    )
+    if language == "objective-c++":
+        binding = binding.replace('standard = "c11"', 'standard = "c++17"')
+    source = _binding_source(tmp_path, binding)
+    reference = _reference(source, tmp_path / "Reference.c")
+    selfhost = _selfhost(semantic_btrcc, source)
+    assert (reference.returncode == 0) == accepted, reference.stderr
+    assert (selfhost.returncode == 0) == accepted, selfhost.stderr
+    if not accepted:
+        assert "qualified native names" in reference.stderr
+        assert "qualified native names" in selfhost.stderr
 
 
 def test_native_binding_provider_overlap_has_frontend_parity(semantic_btrcc: Path, tmp_path: Path):

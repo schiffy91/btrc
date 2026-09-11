@@ -1,6 +1,6 @@
 import Library.Datetime;
 import Library.FileSystem;
-import Library.Io;
+import Library.IO;
 import Library.Terminal;
 import Library.TerminalClock;
 import Library.TerminalPassword;

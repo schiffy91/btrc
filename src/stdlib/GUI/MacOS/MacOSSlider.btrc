@@ -1,0 +1,55 @@
+import Library.Math;
+import Library.GUI.MacOS.MacOSView;
+
+/* AppKit owns pointer/keyboard tracking. Read the value after dispatch; model
+ * refreshes must not overwrite a pending edit before the binding consumes it. */
+class MacOSSlider {
+	private NSSlider? _slider;
+	private MacOSView _view;
+	private double _minimum;
+	private double _maximum;
+	private int _intervals;
+
+	public MacOSSlider(double minimum, double maximum, int intervals = 0) {
+		if (!NSThread.isMainThread()) { throw "Native sliders require the main thread"; }
+		if (!Math.isFinite(minimum) || !Math.isFinite(maximum) || maximum <= minimum || !Math.isFinite(maximum - minimum) || intervals < 0 || intervals > 1000) { throw "Invalid native slider range"; }
+		var slider = NSSlider.new();
+		if (slider == null) { throw "Cannot create native slider"; }
+		self._slider = slider;
+		self._view = MacOSView(slider);
+		self._minimum = minimum;
+		self._maximum = maximum;
+		self._intervals = intervals;
+		slider.setMinValue(minimum);
+		slider.setMaxValue(maximum);
+		slider.setNumberOfTickMarks(intervals == 0 ? 0 : intervals + 1);
+		slider.setAllowsTickMarkValuesOnly(intervals > 0);
+		slider.setContinuous(false);
+		self.setValue(minimum);
+	}
+
+	private NSSlider control() {
+		self._view.nativeView();
+		if (self._slider == null) { throw "Native slider is closed"; }
+		return self._slider;
+	}
+
+	public NSView nativeView() { return self._view.nativeView(); }
+
+	public double value() { return self.control().doubleValue(); }
+
+	public void setValue(double value) {
+		var slider = self.control();
+		if (!Math.isFinite(value) || value < self._minimum || value > self._maximum) { throw "Native slider value is out of range"; }
+		if (self._intervals > 0) { value = slider.closestTickMarkValueToValue(value); }
+		slider.setDoubleValue(value);
+	}
+
+	public void setEnabled(bool enabled) { self.control().setEnabled(enabled); }
+
+	public bool isEnabled() { return self.control().isEnabled(); }
+
+	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
+
+	public void close() { self._view.close(); self._slider = null; }
+}

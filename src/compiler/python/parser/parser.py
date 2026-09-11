@@ -86,7 +86,7 @@ from src.compiler.python.syntax.ast.generated import (
 )
 
 from ..lexer.lexer import Lexer, LiteralDecoder
-from ..syntax.tokens import TYPE_KEYWORDS, Token, TokenKind
+from ..syntax.tokens import TYPE_KEYWORDS, Token, TokenKind, TokenVocabulary
 
 
 class ParseError(Exception):
@@ -121,6 +121,12 @@ class Parser:
         tok = self.tokens[self.pos]
         self.pos += 1
         return tok
+
+    def _member_name(self) -> Token:
+        token = self._peek()
+        if token.type == TokenKind.IDENT or TokenVocabulary.canonical().keywords.get(token.value) == token.type:
+            return self._advance()
+        return self._expect(TokenKind.IDENT, "field name")
 
     def _at_end(self) -> bool:
         return self._peek().type == TokenKind.EOF
@@ -660,14 +666,20 @@ class Parser:
         if self._match(TokenKind.STAR):
             return LibraryGlob(recursive=bool(self._match(TokenKind.STAR)))
         if self._match(TokenKind.LBRACE):
-            names = [self._expect(TokenKind.IDENT, "module name").value]
+            names = [self._parse_library_module_name()]
             while self._match(TokenKind.COMMA):
                 if self._check(TokenKind.RBRACE):
                     break
-                names.append(self._expect(TokenKind.IDENT, "module name").value)
+                names.append(self._parse_library_module_name())
             self._expect(TokenKind.RBRACE)
             return LibraryModules(names=names)
-        return LibraryModules(names=[self._expect(TokenKind.IDENT, "module name").value])
+        return LibraryModules(names=[self._parse_library_module_name()])
+
+    def _parse_library_module_name(self):
+        segments = [self._expect(TokenKind.IDENT, "module name").value]
+        while self._match(TokenKind.DOT):
+            segments.append(self._expect(TokenKind.IDENT, "module segment").value)
+        return ".".join(segments)
 
     def _parse_struct_decl(self) -> StructDecl:
         tok = self._expect(TokenKind.STRUCT)
@@ -1714,19 +1726,19 @@ class Parser:
                     idx_tok = self._advance()
                     field_name = f"_{idx_tok.value}"
                 else:
-                    field_name = self._expect(TokenKind.IDENT, "field name").value
+                    field_name = self._member_name().value
                 expr = FieldAccessExpr(obj=expr, field=field_name, arrow=False, line=expr.line, col=expr.col)
 
             elif tok.type == TokenKind.QUESTION_DOT:
                 self._advance()
-                field_name = self._expect(TokenKind.IDENT, "field name").value
+                field_name = self._member_name().value
                 expr = FieldAccessExpr(
                     obj=expr, field=field_name, arrow=True, optional=True, line=expr.line, col=expr.col
                 )
 
             elif tok.type == TokenKind.ARROW:
                 self._advance()
-                field_name = self._expect(TokenKind.IDENT, "field name").value
+                field_name = self._member_name().value
                 expr = FieldAccessExpr(obj=expr, field=field_name, arrow=True, line=expr.line, col=expr.col)
 
             elif tok.type == TokenKind.PLUS_PLUS:
