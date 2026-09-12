@@ -1,0 +1,11 @@
+import Library.GUI.IView;
+
+/* Attachment transfers subtree lifecycle responsibility to the parent.
+ * Detach returns the same still-open child. Reparent by detaching first;
+ * aliases cannot close attached children. Parent close closes descendants. */
+interface IContainer extends IView {
+	void attach(IView child);
+	IView detach(IView child);
+	int childCount();
+	IView childAt(int index);
+}

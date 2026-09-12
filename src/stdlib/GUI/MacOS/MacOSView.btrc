@@ -1,9 +1,20 @@
 import Library.Math;
+import Library.GUI.IView;
+
+/* Provider-only projection for composition. Querying it aliases the existing
+ * receiver, without exposing native handles on the portable IView contract. */
+interface IMacOSView extends IView {
+	NSView nativeView();
+	void attachTo(NSView parent);
+	void detachFrom(NSView parent);
+}
 
 /* Main-thread view ownership shared by native leaf controls and containers.
- * Parents retain attached native children; BTRC owners detach on close. */
-class MacOSView {
+ * Managed attachment reserves close for the owning container. Direct native
+ * mounting remains available for legacy window/container consumers. */
+class MacOSView implements IMacOSView {
 	private NSView? _view;
+	private bool _attached = false;
 
 	public MacOSView(NSView? view = null) {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
@@ -15,6 +26,84 @@ class MacOSView {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
 		if (self._view == null) { throw "Native view is closed"; }
 		return self._view;
+	}
+
+	public bool isOpen() {
+		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
+		return self._view != null;
+	}
+
+	public void requireDetached() {
+		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
+		if (self._attached) { throw "Detach the view from its container before closing it"; }
+	}
+
+	class void validateAttachment(NSView child, NSView parent) {
+		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
+		if (parent == null || child == null || child.superview() != null || parent.isDescendantOf(child)) { throw "Native child is already attached or creates a cycle"; }
+	}
+
+	class void attachNative(NSView child, NSView parent) {
+		MacOSView.validateAttachment(child, parent);
+		try {
+			parent.addSubview(child);
+		} catch (string error) {
+			if (child.superview() == parent) { child.removeFromSuperview(); }
+			throw error;
+		}
+	}
+
+	class void detachNative(NSView child, NSView parent) {
+		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
+		if (parent == null || child == null || child.superview() != parent) { throw "View does not belong to this native parent"; }
+		child.removeFromSuperview();
+	}
+
+	public void attachTo(NSView parent) {
+		self.requireDetached();
+		var view = self.nativeView();
+		MacOSView.validateAttachment(view, parent);
+		self._attached = true;
+		try { MacOSView.attachNative(view, parent); } catch (string error) {
+			self._attached = view.superview() == parent;
+			throw error;
+		}
+	}
+
+	public void detachFrom(NSView parent) {
+		var view = self.nativeView();
+		if (!self._attached) { throw "View has no container attachment"; }
+		MacOSView.detachNative(view, parent);
+		self._attached = false;
+	}
+
+	public double fittingWidth() { return self.nativeView().fittingSize().width; }
+
+	public double fittingHeight() { return self.nativeView().fittingSize().height; }
+
+	public bool isVisible() { return !self.nativeView().isHidden(); }
+
+	public void setVisible(bool visible) { self.setHidden(!visible); }
+
+	public void arrange(double x, double y, double width, double height) { MacOSView.arrangeNative(self.nativeView(), x, y, width, height); }
+
+	/* Provider-only projection shared by controls that already own an NSView
+	 * subtype. It does not allocate another BTRC owner for the same native view. */
+	class void arrangeNative(NSView view, double x, double y, double width, double height) {
+		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
+		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid native view frame"; }
+		var parent = view.superview();
+		if (parent == null) { throw "Attach a native view before arranging it"; }
+		var bounds = parent.bounds();
+		double nativeX = bounds.origin.x + x;
+		double nativeY = parent.isFlipped() ? bounds.origin.y + y : bounds.origin.y + bounds.size.height - y - height;
+		if (!Math.isFinite(nativeX) || !Math.isFinite(nativeY)) { throw "Invalid native view frame"; }
+		var frame = view.frame();
+		frame.origin.x = nativeX;
+		frame.origin.y = nativeY;
+		frame.size.width = width;
+		frame.size.height = height;
+		view.setFrame(frame);
 	}
 
 	public void setFrame(double x, double y, double width, double height) {
@@ -46,7 +135,7 @@ class MacOSView {
 	}
 
 	public void close() {
-		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
+		self.requireDetached();
 		var view = self._view;
 		if (view == null) { return; }
 		view.removeFromSuperview();

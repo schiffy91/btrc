@@ -1,3 +1,4 @@
+import Library.Image;
 import Library.GUI.MacOS.MacOSSystemText;
 
 long long coverage(Image image) {

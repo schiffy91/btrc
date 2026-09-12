@@ -19,9 +19,7 @@ def _has(msgs, sub):
     return any(sub.lower() in m.lower() for m in msgs)
 
 
-def test_interface_parameter_is_rejected_before_codegen():
-    # Interfaces validate implementations but have no runtime dispatch object;
-    # accepting this signature would emit an unknown C type.
+def test_interface_parameter_accepts_inherited_implementation():
     src = """
     interface Speaker { int speak(); }
     class Mid implements Speaker { public int v; public Mid() { self.v = 0; } public int speak() { return 1; } }
@@ -29,7 +27,7 @@ def test_interface_parameter_is_rejected_before_codegen():
     int call(Speaker s) { return s.speak(); }
     int main() { Sub x = new Sub(); return call(x); }
     """
-    assert _has(errors(src), "cannot be used as a runtime value")
+    assert errors(src) == []
 
 
 def test_deep_subclass_accepted_as_base():

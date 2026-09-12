@@ -10,6 +10,7 @@ import Library.TOML;
 import Library.Vector;
 
 import ./SourceIo.btrc;
+import ./Models.btrc;
 
 class FePackageFailure {
 	class void fail(string diagnostic) {
@@ -101,6 +102,7 @@ class FeNativeDeclaration {
 }
 
 class FeNativeBinding {
+	public Map<string, FeNativeCallbackBinding> callbacks = {};
 	public string packageName;
 	public string module;
 	public string header;
@@ -114,6 +116,9 @@ class FeNativeBinding {
 	public Vector<string> ownedRecords;
 	public Vector<string> recordInputs;
 	public Map<string, string> objectFields;
+	public Map<string, FeNativeResourceBinding> resources;
+	public Vector<string> ownedResults;
+	public Vector<string> borrowedParameters;
 
 	public FeNativeBinding(string packageName, string module, string header, string language, string standard, Vector<string> symbols, Vector<string> operatingSystems, Vector<string> architectures) {
 		self.packageName = packageName;
@@ -129,6 +134,9 @@ class FeNativeBinding {
 		self.ownedRecords = [];
 		self.recordInputs = [];
 		self.objectFields = {};
+		self.resources = {};
+		self.ownedResults = [];
+		self.borrowedParameters = [];
 	}
 
 	private bool intersects(Vector<string> left, Vector<string> right) {
@@ -151,6 +159,36 @@ class FeNativeBinding {
 	public bool overlaps(FeNativeBinding other) { return self.module.equals(other.module) && self.intersects(self.symbols, other.symbols) && self.targetsOverlap(self.operatingSystems, other.operatingSystems) && self.targetsOverlap(self.architectures, other.architectures); }
 
 	public string sortKey() { return self.packageName + "\x1f" + self.module + "\x1f" + self.header + "\x1f" + Strings.join(self.symbols, ",") + "\x1f" + Strings.join(self.operatingSystems, ",") + "\x1f" + Strings.join(self.architectures, ","); }
+}
+
+class FeModuleProvider {
+	public string module;
+	public string implementation;
+	public Vector<string> operatingSystems;
+	public Vector<string> architectures;
+
+	public FeModuleProvider(string module, string implementation, Vector<string> operatingSystems, Vector<string> architectures) {
+		self.module = module;
+		self.implementation = implementation;
+		self.operatingSystems = operatingSystems;
+		self.architectures = architectures;
+	}
+
+	private bool overlapsValues(Vector<string> left, Vector<string> right) {
+		if (left.len == 0 || right.len == 0) { return true; }
+		for first in left { for second in right { if (first == second) { return true; } } }
+		return false;
+	}
+
+	public bool overlaps(FeModuleProvider other) { return self.module == other.module && self.overlapsValues(self.operatingSystems, other.operatingSystems) && self.overlapsValues(self.architectures, other.architectures); }
+
+	public bool selectedFor(FePackageTarget target) {
+		bool osMatches = self.operatingSystems.len == 0;
+		bool archMatches = self.architectures.len == 0;
+		for os in self.operatingSystems { if (os == target.operatingSystem) { osMatches = true; } }
+		for arch in self.architectures { if (arch == target.architecture) { archMatches = true; } }
+		return osMatches && archMatches;
+	}
 }
 
 class FeManifestDependency {
@@ -188,28 +226,46 @@ class FePackageNode {
 }
 
 class FeParsedPackageManifest {
+	public Vector<FeModuleProvider> providers;
 	public string name;
 	public Vector<FeManifestDependency> dependencies;
 	public Vector<FeNativeDeclaration> nativeDeclarations;
 	public Vector<FeNativeBinding> bindings;
+	public bool restrictedExports = false;
+	public Vector<string> exportedModules;
 
 	public FeParsedPackageManifest(string name, Vector<FeManifestDependency> dependencies, Vector<FeNativeDeclaration> nativeDeclarations) {
+		self.providers = [];
 		self.name = name;
 		self.dependencies = dependencies;
 		self.nativeDeclarations = nativeDeclarations;
 		self.bindings = [];
+		self.exportedModules = [];
 	}
 }
 
-class FeNativeBlock {
+class FeManifestBlock {
 	private string tableName;
 	private string manifestPath;
 	private Map<string, string> fields;
+	private Map<string, bool> resourceNames;
+	private Map<string, bool> callbackNames = {};
 
-	public FeNativeBlock(string tableName, string manifestPath) {
+	public FeManifestBlock(string tableName, string manifestPath) {
 		self.tableName = tableName;
 		self.manifestPath = manifestPath;
 		self.fields = {};
+		self.resourceNames = {};
+	}
+
+	public void declareResource(string name) {
+		if (self.resourceNames.has(name)) { FePackageFailure.fail(f"duplicate resource table '{name}'"); }
+		self.resourceNames.put(name, true);
+	}
+
+	public void declareCallback(string name) {
+		if (self.callbackNames.has(name)) { FePackageFailure.fail(f"duplicate callback table '{name}'"); }
+		self.callbackNames.put(name, true);
 	}
 
 	public void set(string key, string raw) {
@@ -222,7 +278,10 @@ class FeNativeBlock {
 	private string context() { return f"package manifest '{self.manifestPath}' {self.tableName}"; }
 
 	private bool allowedField(string key) {
+		if (self.isProvider()) { return key == "module" || key == "implementation" || key == "os" || key == "arch"; }
 		if (self.isBinding()) {
+			if (key.startsWith("callbacks.")) { return true; }
+			if (key.startsWith("resources.") || key == "owned-results" || key == "borrowed-parameters") { return true; }
 			return key.equals("module") || key.equals("header") || key.equals("symbols") || key.equals("language") || key.equals("standard") || key.equals("os") || key.equals("arch") || key.equals("read-only-borrows") || key.equals("realtime-safe") || key.equals("owned-records") || key.equals("record-inputs") || key.startsWith("object-fields.");
 		}
 		if (key.equals("os") || key.equals("arch") || key.equals("modules")) { return true; }
@@ -350,16 +409,17 @@ class FeNativeBlock {
 		return true;
 	}
 
-	private Vector<string> modulePaths(string root) {
+	public Vector<string> modulePaths(string root, string field = "modules", bool allowEmpty = false) {
 		Vector<string> result = [];
 		Vector<string> modules = [];
-		if (self.isBinding()) { modules.push(self.requiredText("module")); }
+		if (self.isProvider()) { modules.push(self.requiredText(field)); }
+		else if (self.isBinding()) { modules.push(self.requiredText("module")); }
 		else {
-			if (!self.fields.has("modules")) { return result; }
-			modules = self.stringArray("modules");
+			if (!self.fields.has(field)) { return result; }
+			modules = self.stringArray(field);
 		}
-		if (modules.len == 0) {
-			FePackageFailure.fail(f"{self.context()}.modules must not be empty");
+		if (modules.len == 0 && !allowEmpty) {
+			FePackageFailure.fail(f"{self.context()}.{field} must not be empty");
 		}
 		string canonicalRoot = PathTools.absolute(root);
 		string prefix = canonicalRoot.endsWith(Platform.pathSeparator()) ? canonicalRoot : canonicalRoot + Platform.pathSeparator();
@@ -369,19 +429,19 @@ class FeNativeBlock {
 		while (index < modules.len) {
 			string module = modules.get(index);
 			if (!self.moduleName(module)) {
-				FePackageFailure.fail(f"{self.context()}.modules contains invalid module '{module}'");
+				FePackageFailure.fail(f"{self.context()}.{field} contains invalid module '{module}'");
 			}
 			string relative = Strings.replace(module, ".", Platform.pathSeparator()) + ".btrc";
 			string underSource = PathTools.join(PathTools.join(root, "src"), relative);
 			string underRoot = PathTools.join(root, relative);
 			string selected = FileSystem.isFile(underSource) ? underSource : (FileSystem.isFile(underRoot) ? underRoot : "");
 			if (selected.isEmpty()) {
-				FePackageFailure.fail(f"{self.context()}.modules names unknown module '{module}'");
+				FePackageFailure.fail(f"{self.context()}.{field} names unknown module '{module}'");
 			}
 			string canonical = PathTools.absolute(selected);
 			string compared = Platform.isWindows() ? canonical.toLower() : canonical;
 			if (!compared.equals(comparedRoot) && !compared.startsWith(comparedPrefix)) {
-				FePackageFailure.fail(f"{self.context()}.modules module '{module}' escapes " + f"package root '{canonicalRoot}'");
+				FePackageFailure.fail(f"{self.context()}.{field} module '{module}' escapes " + f"package root '{canonicalRoot}'");
 			}
 			result.push(canonical);
 			index++;
@@ -433,6 +493,18 @@ class FeNativeBlock {
 
 	public bool isBinding() { return self.tableName.equals("native.bindings"); }
 
+	public bool isProvider() { return self.tableName == "package.providers"; }
+
+	public FeModuleProvider finishProvider(string root) {
+		self.validateFields();
+		string module = self.modulePaths(root, "module").get(0);
+		string implementation = self.modulePaths(root, "implementation").get(0);
+		if (module == implementation) { FePackageFailure.fail(f"{self.context()} cannot select its own module as implementation"); }
+		Vector<string> operatingSystemValues = ["linux", "macos", "windows"];
+		Vector<string> architectureValues = ["x86_64", "aarch64"];
+		return FeModuleProvider(module, implementation, self.targetArray("os", operatingSystemValues), self.targetArray("arch", architectureValues));
+	}
+
 	private bool nativeSymbol(string symbol, string language) {
 		if ((language == "objective-c" || language == "objective-c++") && (symbol.startsWith("+[") || symbol.startsWith("-[")) && symbol.endsWith("]")) {
 			var parts = Strings.split(symbol.substring(2, symbol.length() - 3), " ");
@@ -445,6 +517,77 @@ class FeNativeBlock {
 		}
 		for component in Strings.split(symbol, "::") { if (!self.identifier(component)) { return false; } }
 		return !symbol.isEmpty();
+	}
+
+	private void finishCallbacks(FeNativeBinding binding) {
+		for key in self.fields.keys() {
+			if (!key.startsWith("callbacks.")) { continue; }
+			var parts = Strings.split(key, ".");
+			if (parts.len != 4 || !binding.symbols.contains(parts.get(1)) || !self.identifier(parts.get(2))) { FePackageFailure.fail("callbacks must name selected function.parameter pairs"); }
+			string field = parts.get(3);
+			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
+			self.callbackNames.put(parts.get(1) + "." + parts.get(2), true);
+		}
+		for name in self.callbackNames.keys() {
+			var parts = Strings.split(name, ".");
+			if (parts.len != 2 || !binding.symbols.contains(parts.get(0)) || !self.identifier(parts.get(1))) { FePackageFailure.fail("callbacks must name selected function.parameter pairs"); }
+			string prefix = "callbacks." + name + ".";
+			string context = self.requiredText(prefix + "context");
+			string interfaceName = self.requiredText(prefix + "interface");
+			if (!self.identifier(context) || !self.identifier(interfaceName)) { FePackageFailure.fail("callback context/interface must be identifiers"); }
+			if (binding.symbols.contains(interfaceName)) { FePackageFailure.fail("callback interface conflicts with another imported name"); }
+			if (self.requiredText(prefix + "lifetime") != "call") { FePackageFailure.fail("callback lifetime currently requires call"); }
+			if (self.requiredText(prefix + "failure") != "abort") { FePackageFailure.fail("callback failure currently requires abort"); }
+			if (self.requiredText(prefix + "executor") != "caller") { FePackageFailure.fail("callback executor currently requires caller"); }
+			string raw = self.fields.getOrDefault(prefix + "context-index", "").trim();
+			if (raw.isEmpty() || raw.length() > 9) { FePackageFailure.fail("callback context-index must be a nonnegative native parameter index"); }
+			for character in raw { if (character < '0' || character > '9') { FePackageFailure.fail("callback context-index must be a nonnegative native parameter index"); } }
+			binding.callbacks.put(name, FeNativeCallbackBinding(name, context, Strings.toInt(raw), interfaceName));
+		}
+		if (binding.callbacks.len > 0 && binding.language != "c") { FePackageFailure.fail("callback mappings currently require C"); }
+	}
+
+	private void finishResources(FeNativeBinding binding) {
+		Map<string, bool> names = self.resourceNames;
+		Map<string, bool> operations = {};
+		for key in self.fields.keys() {
+			if (!key.startsWith("resources.")) { continue; }
+			var parts = Strings.split(key, ".");
+			if (parts.len != 3 || !self.identifier(parts.get(1)) || !binding.symbols.contains(parts.get(1))) { FePackageFailure.fail("resources must name selected typedefs"); }
+			string field = parts.get(2);
+			if (field != "ownership" && field != "retain" && field != "release") { FePackageFailure.fail(f"unexpected resource field '{field}'"); }
+			names.put(parts.get(1), true);
+		}
+		for name in names.keys() {
+			if (!self.identifier(name) || !binding.symbols.contains(name)) { FePackageFailure.fail("resources must name selected typedefs"); }
+			string prefix = "resources." + name + ".";
+			string ownership = self.requiredText(prefix + "ownership");
+			if (ownership != "reference-counted") { FePackageFailure.fail("resource ownership currently requires reference-counted"); }
+			string retainFunction = self.requiredText(prefix + "retain");
+			string releaseFunction = self.requiredText(prefix + "release");
+			if (retainFunction == releaseFunction) { FePackageFailure.fail("resource lifetime operations must be distinct"); }
+			for operation in [retainFunction, releaseFunction] {
+				if (!self.identifier(operation) || !binding.symbols.contains(operation)) { FePackageFailure.fail("resource retain/release must name selected functions"); }
+				if (names.has(operation)) { FePackageFailure.fail("resource lifetime operations must be distinct from resource types"); }
+				operations.put(operation, true);
+			}
+			binding.resources.put(name, FeNativeResourceBinding(name, ownership, retainFunction, releaseFunction));
+		}
+		binding.ownedResults = self.stringArray("owned-results");
+		binding.borrowedParameters = self.stringArray("borrowed-parameters");
+		for name in binding.ownedResults {
+			if (!binding.symbols.contains(name)) { FePackageFailure.fail("owned-results must name selected functions"); }
+			if (operations.has(name)) { FePackageFailure.fail("resource lifetime operations are reserved"); }
+		}
+		for parameter in binding.borrowedParameters {
+			var parts = Strings.split(parameter, ".");
+			if (parts.len != 2 || !binding.symbols.contains(parts.get(0)) || !self.identifier(parts.get(1))) { FePackageFailure.fail("borrowed-parameters must name selected function.parameter pairs"); }
+			if (operations.has(parts.get(0))) { FePackageFailure.fail("resource lifetime operations are reserved"); }
+		}
+		if (binding.resources.len > 0 || binding.ownedResults.len > 0 || binding.borrowedParameters.len > 0) {
+			if (binding.language != "c") { FePackageFailure.fail("resource bindings currently require C"); }
+			if (binding.resources.len == 0) { FePackageFailure.fail("resource ownership requires declared resources"); }
+		}
 	}
 
 	public FeNativeBinding finishBinding(string root, string packageName) {
@@ -461,6 +604,8 @@ class FeNativeBlock {
 		Vector<string> operatingSystemValues = ["linux", "macos", "windows"];
 		Vector<string> architectureValues = ["x86_64", "aarch64"];
 		var binding = FeNativeBinding(packageName, modules.get(0), header, language, standard, symbols, self.targetArray("os", operatingSystemValues), self.targetArray("arch", architectureValues));
+		self.finishResources(binding);
+		self.finishCallbacks(binding);
 		binding.readOnlyBorrows = self.stringArray("read-only-borrows");
 		binding.realtimeSafe = self.stringArray("realtime-safe");
 		binding.ownedRecords = self.stringArray("owned-records");
@@ -618,12 +763,14 @@ class FePackageManifestParser {
 
 	public FeParsedPackageManifest parse() {
 		string section = "";
-		FeNativeBlock block = null;
+		FeManifestBlock block = null;
+		var packageFields = FeManifestBlock("package", self.manifestPath);
+		bool restrictedExports = false;
 		bool sawVersion = false;
 		bool sawName = false;
 		string packageName = "";
 		Vector<FeManifestDependency> dependencies = [];
-		Vector<FeNativeBlock> nativeBlocks = [];
+		Vector<FeManifestBlock> nativeBlocks = [];
 		Vector<string> lines = Strings.split(self.source, "\n");
 		int index = 0;
 		while (index < lines.len) {
@@ -632,16 +779,31 @@ class FePackageManifestParser {
 			if (line.isEmpty()) { continue; }
 			string tableArray = TOML.tableArrayName(line);
 			if (!tableArray.isEmpty()) {
-				if (!self.nativeTable(tableArray)) {
+				if (!self.nativeTable(tableArray) && tableArray != "package.providers") {
 					FePackageFailure.fail(f"package manifest '{self.manifestPath}' contains " + f"unexpected table array '{tableArray}'");
 				}
-				block = FeNativeBlock(tableArray, self.manifestPath);
+				block = FeManifestBlock(tableArray, self.manifestPath);
 				nativeBlocks.push(block);
 				section = tableArray;
 				continue;
 			}
 			string table = TOML.sectionName(line);
 			if (!table.isEmpty()) {
+				string callbackPrefix = "native.bindings.callbacks.";
+				if (table.startsWith(callbackPrefix)) {
+					string name = TOML.unquote(table.substring(callbackPrefix.length(), table.length() - callbackPrefix.length()));
+					if (block == null || !block.isBinding()) { FePackageFailure.fail("callbacks requires a preceding native binding"); }
+					block.declareCallback(name);
+					section = callbackPrefix + name;
+					continue;
+				}
+				if (table.startsWith("native.bindings.resources.")) {
+					string name = table.substring(26, table.length() - 26);
+					if (block == null || !block.isBinding() || !self.identifier(name)) { FePackageFailure.fail("resources requires a preceding native binding and a typedef name"); }
+					block.declareResource(name);
+					section = table;
+					continue;
+				}
 				if (table.equals("native.bindings.object-fields")) {
 					if (block == null || !block.isBinding() || section.equals(table)) { FePackageFailure.fail("object-fields requires a preceding native binding"); }
 					section = table;
@@ -672,6 +834,11 @@ class FePackageManifestParser {
 				}
 				sawVersion = true;
 			} else if (section.equals("package")) {
+				if (key == "exports") {
+					packageFields.set(key, raw);
+					restrictedExports = true;
+					continue;
+				}
 				if (!key.equals("name") || sawName) {
 					FePackageFailure.fail(f"package manifest '{self.manifestPath}' [package] " + f"contains unexpected or duplicate field '{key}'");
 				}
@@ -683,7 +850,8 @@ class FePackageManifestParser {
 			} else if (section.equals("dependencies")) {
 				dependencies.push(self.dependency(key, raw));
 			} else {
-				block.set(section.equals("native.bindings.object-fields") ? "object-fields." + TOML.unquote(key) : key, raw);
+				string prefix = section.startsWith("native.bindings.resources.") || section.startsWith("native.bindings.callbacks.") ? section.substring(16, section.length() - 16) + "." : section.equals("native.bindings.object-fields") ? "object-fields." : "";
+				block.set(prefix + TOML.unquote(key), raw);
 			}
 		}
 		if (!sawVersion || !sawName) {
@@ -700,9 +868,17 @@ class FePackageManifestParser {
 			dependencyIndex++;
 		}
 		Vector<FeNativeDeclaration> nativeDeclarations = [];
+		Vector<FeModuleProvider> providers = [];
 		Vector<FeNativeBinding> bindings = [];
 		int nativeIndex = 0;
 		while (nativeIndex < nativeBlocks.len) {
+			if (nativeBlocks.get(nativeIndex).isProvider()) {
+				var provider = nativeBlocks.get(nativeIndex).finishProvider(self.root);
+				for previous in providers { if (provider.overlaps(previous)) { FePackageFailure.fail("package.providers overlaps a provider for the same module and target"); } }
+				providers.push(provider);
+				nativeIndex++;
+				continue;
+			}
 			if (nativeBlocks.get(nativeIndex).isBinding()) {
 				FeNativeBinding binding = nativeBlocks.get(nativeIndex).finishBinding(self.root, packageName);
 				for previous in bindings {
@@ -725,7 +901,94 @@ class FePackageManifestParser {
 		}
 		FeParsedPackageManifest parsed = FeParsedPackageManifest(packageName, dependencies, nativeDeclarations);
 		parsed.bindings = bindings;
+		parsed.providers = providers;
+		parsed.restrictedExports = restrictedExports;
+		parsed.exportedModules = packageFields.modulePaths(self.root, "exports", true);
 		return parsed;
+	}
+}
+
+/* Check every source edge before deduplication. Canonical package ownership
+ * makes relative imports, includes and symlinks obey the same export boundary. */
+class FePackageImportPolicy {
+	private FePackageTarget target;
+	private Map<string, Vector<FeModuleProvider>> providers;
+	private Map<string, string> owners;
+	private Map<string, FeParsedPackageManifest> manifests;
+	private FeSourcePathPolicy paths;
+	private FeSourceFileReader files;
+
+	public FePackageImportPolicy(FePackageTarget target = null) {
+		self.target = target;
+		self.providers = {};
+		self.owners = {};
+		self.manifests = {};
+		self.paths = FeSourcePathPolicy();
+		self.files = FeSourceFileReader();
+	}
+
+	private FeParsedPackageManifest loadManifest(string manifestPath) {
+		if (!self.manifests.has(manifestPath)) {
+			string content = self.files.readRequired(manifestPath);
+			FeParsedPackageManifest parsed = null;
+			if (TOML.rootMap(content).has("manifest-version")) { parsed = FePackageManifestParser(content, manifestPath, PathTools.dirname(manifestPath)).parse(); }
+			self.manifests.put(manifestPath, parsed);
+			if (parsed != null) {
+				for provider in parsed.providers {
+					string identity = self.paths.identity(provider.module);
+					if (!self.providers.has(identity)) { Vector<FeModuleProvider> empty = []; self.providers.put(identity, empty); }
+					self.providers.get(identity).push(provider);
+				}
+			}
+		}
+		return self.manifests.get(manifestPath);
+	}
+
+	public Vector<string> providersFor(string source) {
+		Vector<string> result = [];
+		string identity = self.paths.identity(source);
+		string manifestPath = self.manifestFor(identity);
+		if (manifestPath.isEmpty()) { return result; }
+		self.loadManifest(manifestPath);
+		if (!self.providers.has(identity)) { return result; }
+		if (self.target == null) { FePackageFailure.fail(f"module '{source}' requires a compilation target for provider selection"); }
+		Vector<FeModuleProvider> candidates = self.providers.get(identity);
+		for provider in candidates {
+			if (provider.selectedFor(self.target)) { result.push(provider.implementation); return result; }
+		}
+		FePackageFailure.fail(f"module '{source}' has no provider for target {self.target.operatingSystem}-{self.target.architecture}");
+		return result;
+	}
+
+	private string manifestFor(string source) {
+		string directory = PathTools.dirname(self.paths.absolute(source));
+		Vector<string> visited = [];
+		while (!self.owners.has(directory)) {
+			visited.push(directory);
+			string candidate = PathTools.join(directory, "btrc.toml");
+			if (FileSystem.exists(candidate)) { self.owners.put(directory, self.paths.identity(candidate)); break; }
+			string parent = PathTools.dirname(directory);
+			if (parent == directory || parent.isEmpty()) { self.owners.put(directory, ""); break; }
+			directory = parent;
+		}
+		string owner = self.owners.get(directory);
+		for path in visited { self.owners.put(path, owner); }
+		return owner;
+	}
+
+	public void check(string source, string target) {
+		self.checkOwner(source, target);
+		self.checkOwner(self.paths.identity(source), self.paths.identity(target));
+	}
+
+	private void checkOwner(string source, string target) {
+		string manifestPath = self.manifestFor(target);
+		if (manifestPath.isEmpty() || manifestPath == self.manifestFor(source)) { return; }
+		var manifest = self.loadManifest(manifestPath);
+		if (manifest == null || !manifest.restrictedExports) { return; }
+		string identity = self.paths.identity(target);
+		for exported in manifest.exportedModules { if (self.paths.identity(exported) == identity) { return; } }
+		FePackageFailure.fail(f"module '{target}' is private to package '{manifest.name}'; import an exported module");
 	}
 }
 
@@ -1343,11 +1606,11 @@ class FeResolvedPackages {
 		string underSource = PathTools.join(PathTools.join(target.root, "src"), relative);
 		string underRoot = PathTools.join(target.root, relative);
 		if (FileSystem.isFile(underSource)) {
-			result.push(PathTools.absolute(underSource));
+			result.push(underSource);
 			return result;
 		}
 		if (FileSystem.isFile(underRoot)) {
-			result.push(PathTools.absolute(underRoot));
+			result.push(underRoot);
 			return result;
 		}
 		FePackageFailure.fail(f"package import '{spec}' not found in dependency '{alias}'\n" + f"  package root: {target.root}");

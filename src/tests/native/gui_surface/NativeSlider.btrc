@@ -1,4 +1,5 @@
 import Library.IO;
+import Library.Image;
 import Library.GUI.MacOS.MacOSApplication;
 import Library.GUI.MacOS.MacOSWindow;
 import Library.GUI.MacOS.MacOSPanel;
@@ -11,11 +12,14 @@ void clickSlider(MacOSApplication app, MacOSWindow window, MacOSSlider slider) {
 	var point = slider.nativeView().frame().origin;
 	point.x += 285.0;
 	point.y += 15.0;
+	assert(window.contentView().hitTest(point) == slider.nativeView());
 	var down = NSEvent.mouseEventWithType(NSEventTypeLeftMouseDown, point, 0UL, 0.0, window.nativeWindow().windowNumber(), null, 1L, 1L, 1.0f);
 	var up = NSEvent.mouseEventWithType(NSEventTypeLeftMouseUp, point, 0UL, 0.0, window.nativeWindow().windowNumber(), null, 2L, 1L, 0.0f);
 	assert(down != null && up != null);
-	NSApplication.sharedApplication().postEvent(down, false);
 	NSApplication.sharedApplication().postEvent(up, false);
+	// Match native button tests: AppKit routes/tracks the synthetic click,
+	// without assuming WindowServer activation (including on a locked Mac).
+	window.nativeWindow().sendEvent(down);
 	app.pumpEvents();
 }
 

@@ -1,10 +1,14 @@
 import Library.Datetime;
 import Library.IO;
 import Library.Image;
+import Library.EncodedImage;
 import Library.MacOSEncodedImageDecoder;
+import Library.GUI.IView;
+import Library.GUI.IButton;
 import Library.GUI.MacOS.MacOSApplication;
 import Library.GUI.MacOS.MacOSWindow;
 import Library.GUI.MacOS.MacOSButton;
+import Library.GUI.MacOS.MacOSView;
 import Library.GUI.MacOS.MacOSPanel;
 import Library.GUI.MacOS.MacOSViewCapture;
 
@@ -13,6 +17,44 @@ import Library.GUI.MacOS.MacOSViewCapture;
 bool takesButton(MacOSActionQueue actions, MacOSButton button) {
 	var sender = actions.take();
 	return sender != null && button.matches(sender);
+}
+
+void verifyPortableButton(IButton button) {
+	assert(button.isOpen() && button.isEnabled() && button.title().equals("Library"));
+	double width = button.fittingWidth();
+	assert(width > 0.0 && button.fittingHeight() > 0.0);
+	button.setTitle("A much longer native button title — 音楽");
+	assert(button.title().equals("A much longer native button title — 音楽"));
+	assert(button.fittingWidth() > width);
+	button.setTitle("Library");
+	button.setVisible(false);
+	assert(!button.isVisible());
+	button.setVisible(true);
+	assert(button.isVisible());
+	button.setEnabled(false);
+	assert(!button.activate());
+	button.setEnabled(true);
+}
+
+void verifyCoordinates(NSView parent, bool flipped) {
+	assert(parent.isFlipped() == flipped);
+	var parentFrame = parent.frame();
+	parentFrame.size.width = 220.0;
+	parentFrame.size.height = 130.0;
+	parent.setFrame(parentFrame);
+	var origin = parent.bounds().origin;
+	origin.x = 11.0;
+	origin.y = 17.0;
+	parent.setBoundsOrigin(origin);
+	var child = MacOSView();
+	IView view = child;
+	parent.addSubview(child.nativeView());
+	view.arrange(3.0, 5.0, 31.0, 23.0);
+	var frame = child.nativeView().frame();
+	assert(frame.origin.x == 14.0 && frame.origin.y == (flipped ? 22.0 : 119.0));
+	assert(frame.size.width == 31.0 && frame.size.height == 23.0);
+	view.close();
+	assert(!child.isOpen());
 }
 
 void verifyEventWait(MacOSApplication app) {
@@ -34,16 +76,20 @@ void clickNativeButton(MacOSApplication app, MacOSWindow window, MacOSButton but
 	var point = button.nativeView().frame().origin;
 	point.x += 30.0;
 	point.y += 16.0;
+	assert(window.contentView().hitTest(point) == button.nativeView());
 	var down = NSEvent.mouseEventWithType(NSEventTypeLeftMouseDown, point, 0UL, 0.0, window.nativeWindow().windowNumber(), null, 1L, 1L, 1.0f);
 	var up = NSEvent.mouseEventWithType(NSEventTypeLeftMouseUp, point, 0UL, 0.0, window.nativeWindow().windowNumber(), null, 2L, 1L, 0.0f);
 	assert(down != null && up != null);
-	NSApplication.sharedApplication().postEvent(down, false);
 	NSApplication.sharedApplication().postEvent(up, false);
 	var wake = Timer();
 	wake.start();
 	assert(app.waitForEvents(0.5));
 	assert(wake.elapsedMillis() < 250.0f);
-	// Waiting must not consume the down/up pair or bypass native tracking.
+	// Synthetic events have no WindowServer activation. Deliver the down event
+	// through NSWindow routing; native button tracking consumes the queued up.
+	// This exercises AppKit hit testing/tracking even when the Mac is locked,
+	// not desktop activation or external WindowServer input delivery.
+	window.nativeWindow().sendEvent(down);
 	app.pumpEvents();
 }
 
@@ -63,6 +109,8 @@ bool hasButtonText(Image image, int left) {
 
 int main() {
 	var app = MacOSApplication();
+	verifyCoordinates(NSView.new(), false);
+	verifyCoordinates(FlippedTestView.new(), true);
 	bool invalidWait = false;
 	try { app.waitForEvents(-1.0); } catch (string error) { invalidWait = true; }
 	assert(invalidWait);
@@ -76,6 +124,17 @@ int main() {
 	var actions = MacOSActionQueue();
 	var first = MacOSButton("Library", actions);
 	var second = MacOSButton("Settings", actions);
+	IButton portable = first;
+	IView view = portable;
+	IMacOSView? native = (IMacOSView?)view;
+	assert(native != null && native.nativeView() == first.nativeView());
+	IButton? projectedButton = (IButton?)native;
+	assert(projectedButton != null && projectedButton.title().equals("Library"));
+	verifyPortableButton(portable);
+	assert(actions.take() == null);
+	bool unattachedRejected = false;
+	try { view.arrange(20.0, 58.0, 150.0, 32.0); } catch (string error) { unattachedRejected = true; }
+	assert(unattachedRejected);
 	first.setFont(18.0);
 	second.setFont(18.0);
 	first.setSystemSymbol("folder");
@@ -89,6 +148,11 @@ int main() {
 	first.setFrame(20.0, 50.0, 150.0, 32.0);
 	second.setFrame(220.0, 50.0, 150.0, 32.0);
 	for view in [first.nativeView(), second.nativeView()] { window.contentView().addSubview(view); }
+	view.arrange(20.0, 58.0, 150.0, 32.0);
+	assert(first.nativeView().frame().origin.x == 20.0 && first.nativeView().frame().origin.y == 50.0);
+	bool invalidBounds = false;
+	try { view.arrange(20.0, 58.0, -1.0, 32.0); } catch (string error) { invalidBounds = true; }
+	assert(invalidBounds && first.nativeView().frame().size.width == 150.0);
 	for button in [first, second] { assert(button.isEnabled()); }
 	window.show();
 	app.pumpEvents();
@@ -138,7 +202,8 @@ int main() {
 	assert(first.activate() && takesButton(actions, first));
 	first.setTransparent(false);
 	assert(first.activate() && second.activate() && first.activate());
-	first.close();
+	view.close();
+	assert(!portable.isOpen() && !first.isOpen());
 	first.close();
 	assert(takesButton(actions, second) && actions.take() == null);
 	rejected = false;

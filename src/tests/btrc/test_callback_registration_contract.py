@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.runtime_ownership_harness import SANITIZER_FLAGS, require_sanitizers, sanitizer_environment
 from src.tests.btrc.test_mutex_value_contract import COMPILERS
 from src.tests.btrc.test_semantic_validation import REPO, _compile_reference_source, _compile_source
 
@@ -285,6 +286,111 @@ float snapshotSamples[1];
 float retrySamples[1];
 float throwingSamples[1];
 float activationThrowSamples[1];
+
+class CancellationHolder {
+    public CallbackRegistration<CFunction<void, void*>> registration;
+
+    public CancellationHolder(CallbackRegistration<CFunction<void, void*>> registration) { self.registration = registration; }
+}
+
+class CancellationGlobals {
+    class CancellationHolder holder = null;
+}
+
+bool cancelFromUnregister(void* raw) {
+    assert(CancellationGlobals.holder.registration.cancel() == CallbackCancellation.Pending);
+    assert(CancellationGlobals.holder.registration.pollCompletion() == CallbackCancellation.Pending);
+    return fake_unregister(raw);
+}
+
+void cancelFromDestroy(void* raw) {
+    assert(CancellationGlobals.holder.registration.cancel() == CallbackCancellation.Pending);
+    assert(CancellationGlobals.holder.registration.pollCompletion() == CallbackCancellation.Pending);
+    destroyContext(raw);
+}
+
+void cancellationDoesNotWaitForItsOwnExecutor() {
+    resetScenario();
+    StoredContext* context = makeStoredContext(null, 0u);
+    var registration = new CallbackRegistration<CFunction<void, void*>>(storedTrampoline, context, cancelFromDestroy, activateStored, null, cancelFromUnregister, null);
+    CancellationGlobals.holder = new CancellationHolder(registration);
+    assert(registration.pollCompletion() == CallbackCancellation.NotRequested);
+    assert(callbackGateTryEnter(context->gate));
+    assert(registration.cancel() == CallbackCancellation.Pending);
+    assert(!registration.isOpen());
+    assert(!callbackGateTryEnter(context->gate));
+    assert(registration.pollCompletion() == CallbackCancellation.Pending);
+    assert(destroyed.load(MemoryOrder.ACQUIRE) == 0u);
+    callbackGateLeave(context->gate);
+    assert(registration.pollCompletion() == CallbackCancellation.Complete);
+    assert(registration.cancel() == CallbackCancellation.Complete);
+    assert(registration.close());
+    assert(destroyed.load(MemoryOrder.ACQUIRE) == 1u);
+    assert(fake_unregister_attempt_count() == 1);
+    CancellationGlobals.holder = null;
+}
+
+void cancellationFailureKeepsContextUntilExplicitRetry() {
+    resetScenario();
+    var registration = makeRegistration(null, 0u, fake_unregister);
+    fake_set_unregister_failures(1);
+    assert(registration.cancel() == CallbackCancellation.RetryableFailure);
+    assert(registration.pollCompletion() == CallbackCancellation.RetryableFailure);
+    assert(fake_unregister_attempt_count() == 1);
+    assert(destroyed.load(MemoryOrder.ACQUIRE) == 0u);
+    assert(registration.cancel() == CallbackCancellation.Complete);
+    assert(destroyed.load(MemoryOrder.ACQUIRE) == 1u);
+}
+
+void concurrentCancellationClosesAdmissionForEveryCaller() {
+    resetScenario();
+    StoredContext* context = makeStoredContext(null, 0u);
+    var registration = new CallbackRegistration<CFunction<void, void*>>(storedTrampoline, context, destroyContext, activateStored, null, fake_unregister, null);
+    assert(callbackGateTryEnter(context->gate));
+    Thread<int> first = spawn(() => {
+        assert(registration.cancel() == CallbackCancellation.Pending);
+        assert(!callbackGateTryEnter(context->gate));
+        return 1;
+    });
+    Thread<int> second = spawn(() => {
+        assert(registration.cancel() == CallbackCancellation.Pending);
+        assert(!callbackGateTryEnter(context->gate));
+        return 1;
+    });
+    assert(first.join() == 1);
+    assert(second.join() == 1);
+    assert(destroyed.load(MemoryOrder.ACQUIRE) == 0u);
+    callbackGateLeave(context->gate);
+    assert(registration.pollCompletion() == CallbackCancellation.Complete);
+    assert(destroyed.load(MemoryOrder.ACQUIRE) == 1u);
+    assert(fake_unregister_attempt_count() == 1);
+}
+
+void cancellationOfRunningCallbackHasOneFinalizer() {
+    resetScenario();
+    var registration = makeRegistration(null, 0u, fake_unregister);
+    fake_start(0);
+    while (entered.load(MemoryOrder.ACQUIRE) == 0u) {}
+    assert(registration.cancel() == CallbackCancellation.Pending);
+    assert(registration.pollCompletion() == CallbackCancellation.Pending);
+    assert(destroyed.load(MemoryOrder.ACQUIRE) == 0u);
+    releaseCallback.store(1u, MemoryOrder.RELEASE);
+    fake_join();
+    Thread<int> first = spawn(() => {
+        CallbackCancellation result = registration.pollCompletion();
+        while (result == CallbackCancellation.Pending) { result = registration.pollCompletion(); }
+        return result == CallbackCancellation.Complete ? 1 : 0;
+    });
+    Thread<int> second = spawn(() => {
+        CallbackCancellation result = registration.pollCompletion();
+        while (result == CallbackCancellation.Pending) { result = registration.pollCompletion(); }
+        return result == CallbackCancellation.Complete ? 1 : 0;
+    });
+    assert(first.join() == 1);
+    assert(second.join() == 1);
+    assert(destroyed.load(MemoryOrder.ACQUIRE) == 1u);
+    assert(fake_unregister_attempt_count() == 1);
+}
 
 static void ownedNoop(void* raw) {
     (void*)raw;
@@ -574,6 +680,12 @@ int main() {
     throwingActivationRollsBackBeforeConstructionEscapes();
     saturatedAndClosedGatesFailClosed();
     ownedClosureCloseIsACompletionBarrier();
+    cancellationDoesNotWaitForItsOwnExecutor();
+    cancellationFailureKeepsContextUntilExplicitRetry();
+    for (int attempt = 0; attempt < 20; attempt++) {
+        concurrentCancellationClosesAdmissionForEveryCaller();
+        cancellationOfRunningCallbackHasOneFinalizer();
+    }
     fake_reset();
     return 0;
 }
@@ -818,16 +930,25 @@ def _compile_pair(semantic_btrcc: Path, tmp_path: Path, source: str, stem: str) 
     return {"selfhost": selfhost_c, "reference": reference_c}
 
 
-def _build(c_compiler: str, generated: Path, fake: Path, output: Path) -> None:
+def _build(
+    c_compiler: str | tuple[str, ...],
+    generated: Path,
+    fake: Path,
+    output: Path,
+    *,
+    extra_flags: tuple[str, ...] = (),
+    environment: dict[str, str] | None = None,
+) -> None:
     build = subprocess.run(
         [
-            c_compiler,
+            *([c_compiler] if isinstance(c_compiler, str) else c_compiler),
             "-std=c11",
             "-pedantic-errors",
             "-Wall",
             "-Wextra",
             "-Werror",
             "-O2",
+            *extra_flags,
             str(generated),
             str(fake),
             "-o",
@@ -836,6 +957,7 @@ def _build(c_compiler: str, generated: Path, fake: Path, output: Path) -> None:
             "-lpthread",
         ],
         cwd=REPO,
+        env=environment,
         capture_output=True,
         text=True,
         timeout=60,
@@ -874,6 +996,183 @@ def test_registration_runtime_matrix_covers_activation_barriers_and_retries(
             text=True,
             timeout=30,
         )
+        assert run.returncode == 0, (identity, run.stderr)
+
+
+def test_cancellation_lifetimes_under_sanitizers(semantic_btrcc: Path, tmp_path: Path) -> None:
+    toolchain = require_sanitizers(tmp_path)
+    generated = _compile_pair(semantic_btrcc, tmp_path, _POSITIVE_PROGRAM, "sanitized")
+    fake = tmp_path / "fake_stored_callback.c"
+    fake.write_text(_FAKE_STORED_CALLBACK)
+    for frontend, source in generated.items():
+        executable = tmp_path / f"{frontend}-sanitized"
+        _build(
+            toolchain.command,
+            source,
+            fake,
+            executable,
+            extra_flags=SANITIZER_FLAGS,
+            environment=toolchain.environment,
+        )
+        run = subprocess.run(
+            [str(executable)],
+            cwd=REPO,
+            env=sanitizer_environment(toolchain),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert run.returncode == 0, (frontend, run.stderr)
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.parametrize("frontend", ["selfhost", "reference"])
+@pytest.mark.parametrize("scenario", ["cancelInline", "drainAdmittedCallback", "abandonCycle", "abandonScopedCycle"])
+def test_managed_registration_contexts_share_inline_cancel_and_cycle_cleanup(
+    semantic_btrcc: Path, tmp_path: Path, sanitized: bool, frontend: str, scenario: str
+) -> None:
+    program = """import Library.Callback;
+int unregistered = 0;
+int closed = 0;
+int destroyed = 0;
+class Receiver { public void __del__() { destroyed++; } }
+class Context implements ICallbackContext {
+	public Receiver? receiver = Receiver();
+	public CallbackState? registration;
+	public bool unregister() {
+		unregistered++;
+		assert(self.registration.cancel() == CallbackCancellation.Pending);
+		return true;
+	}
+	public bool close() {
+		closed++;
+		assert(self.registration.cancel() == CallbackCancellation.Pending);
+		self.receiver = null;
+		self.registration = null;
+		return true;
+	}
+}
+void cancelInline() {
+	var context = Context();
+	var state = CallbackState(context);
+	context.registration = state;
+	assert(callbackGateTryEnter(state.activationGate()));
+	assert(state.cancel() == CallbackCancellation.Pending);
+	assert(unregistered == 0 && closed == 0 && destroyed == 0);
+	assert(!callbackGateTryEnter(state.activationGate()));
+	callbackGateLeave(state.activationGate());
+	state.finishActivation(true);
+	assert(state.pollCompletion() == CallbackCancellation.Complete);
+	assert(state.cancel() == CallbackCancellation.Complete);
+}
+void drainAdmittedCallback() {
+	var context = Context();
+	var state = CallbackState(context);
+	context.registration = state;
+	state.finishActivation(true);
+	ICallbackRegistration subscription = state;
+	assert(subscription.isOpen());
+	assert(callbackGateTryEnter(state.activationGate()));
+	assert(subscription.cancel() == CallbackCancellation.Pending);
+	assert(unregistered == 1 && closed == 0 && destroyed == 0);
+	callbackGateLeave(state.activationGate());
+	assert(subscription.pollCompletion() == CallbackCancellation.Complete);
+}
+void abandonCycle() {
+	var context = Context();
+	var state = CallbackState(context);
+	context.registration = state;
+	state.finishActivation(true);
+}
+class ComponentScope {
+	private CallbackState state;
+	public ComponentScope(CallbackState state) { self.state = state; }
+	public void __del__() { assert(self.state.close()); }
+}
+void abandonScopedCycle() {
+	var context = Context();
+	var state = CallbackState(context);
+	context.registration = state;
+	state.finishActivation(true);
+	var scope = ComponentScope(state);
+}
+"""
+    program += f"int main() {{ {scenario}(); assert(unregistered == 1 && closed == 1 && destroyed == 1); return 0; }}\n"
+    compile_result, source = (
+        _compile_source(semantic_btrcc, tmp_path, program)
+        if frontend == "selfhost"
+        else _compile_reference_source(tmp_path, program)
+    )
+    assert compile_result.returncode == 0, (frontend, compile_result.stderr)
+    fake = tmp_path / "empty.c"
+    fake.write_text("typedef int EmptyNativeDriver;\n")
+    toolchain = require_sanitizers(tmp_path) if sanitized else None
+    executable = tmp_path / f"{frontend}-managed"
+    _build(
+        toolchain.command if toolchain else COMPILERS[0],
+        source,
+        fake,
+        executable,
+        extra_flags=SANITIZER_FLAGS if toolchain else (),
+        environment=toolchain.environment if toolchain else None,
+    )
+    run = subprocess.run(
+        [str(executable)],
+        cwd=REPO,
+        env=sanitizer_environment(toolchain) if toolchain else None,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert run.returncode == 0, (frontend, scenario, run.stderr)
+
+
+def test_activation_failure_releases_native_operation_guard(semantic_btrcc: Path, tmp_path: Path) -> None:
+    probe = tmp_path / "OperationGuard.h"
+    probe.write_text(
+        "#include <pthread.h>\n"
+        "static int initialized = 0;\nstatic int disposed = 0;\n"
+        "static int tracked_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attributes) {\n"
+        " int result = pthread_mutex_init(mutex, attributes); if (!result) ++initialized; return result;\n}\n"
+        "static int tracked_destroy(pthread_mutex_t *mutex) {\n"
+        " int result = pthread_mutex_destroy(mutex); if (!result) ++disposed; return result;\n}\n"
+        "int operationGuardCount(void) { return initialized - disposed; }\n"
+        "#define pthread_mutex_init tracked_init\n#define pthread_mutex_destroy tracked_destroy\n"
+    )
+    program = (
+        f'#include "{probe}"\n'
+        + r"""
+import Library.Callback;
+extern int operationGuardCount();
+int destroyed = 0;
+@realtime void inert(void* context) { (void*)context; }
+void destroy(void* context) { (void*)context; destroyed++; }
+bool activate(CFunction<void, void*> invoke, void* context, Atomic<uint>* gate, void* state) {
+    assert(invoke != null && context == null && gate != null && state == null);
+    throw "activation failed before publication";
+}
+bool unregister(void* context) { (void*)context; assert(false); return true; }
+int main() {
+    for (int index = 0; index < 20; index++) {
+        bool caught = false;
+        try {
+            var registration = new CallbackRegistration<CFunction<void, void*>>(inert, null, destroy, activate, null, unregister, null);
+        } catch (string error) {
+            caught = error == "activation failed before publication";
+        }
+        assert(caught);
+        assert(destroyed == index + 1);
+        assert(operationGuardCount() == 0);
+    }
+    return 0;
+}
+"""
+    )
+    generated = _compile_pair(semantic_btrcc, tmp_path, program, "operationGuard")
+    fake = tmp_path / "empty.c"
+    fake.write_text("typedef int EmptyNativeDriver;\n")
+    for identity, executable in _runtime_matrix(generated, fake, tmp_path).items():
+        run = subprocess.run([str(executable)], cwd=REPO, capture_output=True, text=True, timeout=30)
         assert run.returncode == 0, (identity, run.stderr)
 
 
@@ -958,9 +1257,11 @@ def test_registration_rejects_unproven_or_null_invoke_values(
     assert diagnostic in reference.stderr
 
 
-def test_realtime_invoke_cannot_close_its_registration(
+@pytest.mark.parametrize("operation", ("close", "cancel", "pollCompletion"))
+def test_realtime_invoke_cannot_change_registration_lifecycle(
     semantic_btrcc: Path,
     tmp_path: Path,
+    operation: str,
 ) -> None:
     source = """
         import Library.Callback;
@@ -990,13 +1291,14 @@ def test_realtime_invoke_cannot_close_its_registration(
             return 0;
         }
     """
+    source = source.replace("registration.close()", f"registration.{operation}()")
     selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
     reference, _ = _compile_reference_source(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     for diagnostic in (selfhost.stderr, reference.stderr):
         assert "@realtime" in diagnostic
-        assert "close" in diagnostic or "managed" in diagnostic
+        assert operation in diagnostic or "managed" in diagnostic
 
 
 def test_raw_c_atomic_name_is_not_a_realtime_certificate(

@@ -722,7 +722,12 @@ class RealtimeAnalyzer:
         base = getattr(type_expr, "base", "")
         if base in seen:
             return False
-        if base == "string" or base in self._COLLECTION_TYPES or base in self.index.class_table:
+        if (
+            base == "string"
+            or base in self._COLLECTION_TYPES
+            or base in self.index.class_table
+            or base in self.index.interface_table
+        ):
             return True
         alias = self.index.typedef_table.get(base)
         if alias is not None:

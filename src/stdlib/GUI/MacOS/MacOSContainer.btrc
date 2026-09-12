@@ -1,0 +1,169 @@
+import Library.Vector;
+import Library.GUI.IContainer;
+import Library.GUI.MacOS.MacOSView;
+
+/* A native grouping view with BTRC-owned children, not an OS-handle registry.
+ * Native parents are queried when needed; children never retain BTRC parents. */
+class MacOSContainer implements IContainer, IMacOSView {
+	private NSView? _view;
+	private Vector<IView> _children = [];
+	private bool _attached = false;
+	private bool _closing = false;
+	private bool _mutating = false;
+	private string _closeFailure = "";
+
+	public MacOSContainer() {
+		self.requireMainThread();
+		self._view = NSView.new();
+		if (self._view == null) { throw "Cannot create native container"; }
+	}
+
+	private void requireMainThread() {
+		if (!NSThread.isMainThread()) { throw "Native containers require the main thread"; }
+	}
+
+	public NSView nativeView() {
+		self.requireMainThread();
+		if (self._view == null) { throw "Native container is closed"; }
+		if (self._closing) { throw "Native container shutdown has started"; }
+		return self._view;
+	}
+
+	private IMacOSView projection(IView child) {
+		if (child == null) { throw "Cannot attach a missing view"; }
+		IMacOSView? native = (IMacOSView?)child;
+		if (native == null) { throw "View has no macOS implementation"; }
+		return native;
+	}
+
+	private NSView mutationView() {
+		var view = self.nativeView();
+		if (self._mutating) { throw "Native container mutation is already active"; }
+		return view;
+	}
+
+	private int childIndex(IView child) {
+		for (int index = 0; index < self._children.len; index++) {
+			if (self._children.get(index) == child) { return index; }
+		}
+		throw "View does not belong to this container";
+	}
+
+	public bool isOpen() { self.requireMainThread(); return self._view != null && !self._closing; }
+
+	public int childCount() { self.requireMainThread(); return self._children.len; }
+
+	public IView childAt(int index) {
+		self.requireMainThread();
+		if (index < 0 || index >= self._children.len) { throw "Container child index is out of bounds"; }
+		return self._children.get(index);
+	}
+
+	public void attach(IView child) {
+		var parent = self.mutationView();
+		self._mutating = true;
+		try { self.attachChild(child, parent); } catch (string error) { self._mutating = false; throw error; }
+		self._mutating = false;
+	}
+
+	private void attachChild(IView child, NSView parent) {
+		var native = self.projection(child);
+		var childView = native.nativeView();
+		MacOSView.validateAttachment(childView, parent);
+		// Retain before publishing to AppKit, so allocation cannot fail after
+		// native attachment has transferred the child's lifecycle to this tree.
+		self._children.push(child);
+		try {
+			native.attachTo(parent);
+		} catch (string error) {
+			if (childView.superview() == parent) {
+				self._closeFailure = error;
+				self._closing = true;
+			} else {
+				self._children.pop();
+			}
+			throw error;
+		}
+	}
+
+	public IView detach(IView child) {
+		var parent = self.mutationView();
+		int index = self.childIndex(child);
+		self._mutating = true;
+		try {
+			self.projection(child).detachFrom(parent);
+			self._children.remove(index);
+		} catch (string error) {
+			self._mutating = false;
+			self._closeFailure = error;
+			self._closing = true;
+			throw error;
+		}
+		self._mutating = false;
+		return child;
+	}
+
+	public void attachTo(NSView parent) {
+		var view = self.mutationView();
+		if (self._attached) { throw "View already belongs to a container"; }
+		MacOSView.validateAttachment(view, parent);
+		self._attached = true;
+		self._mutating = true;
+		try { MacOSView.attachNative(view, parent); } catch (string error) {
+			self._mutating = false;
+			self._attached = view.superview() == parent;
+			throw error;
+		}
+		self._mutating = false;
+	}
+
+	public void detachFrom(NSView parent) {
+		var view = self.mutationView();
+		if (!self._attached) { throw "View has no container attachment"; }
+		self._mutating = true;
+		try { MacOSView.detachNative(view, parent); } catch (string error) {
+			self._mutating = false;
+			throw error;
+		}
+		self._mutating = false;
+		self._attached = false;
+	}
+
+	public double fittingWidth() { return self.nativeView().fittingSize().width; }
+
+	public double fittingHeight() { return self.nativeView().fittingSize().height; }
+
+	public void arrange(double x, double y, double width, double height) { MacOSView.arrangeNative(self.nativeView(), x, y, width, height); }
+
+	public bool isVisible() { return !self.nativeView().isHidden(); }
+
+	public void setVisible(bool visible) { self.nativeView().setHidden(!visible); }
+
+	public void close() {
+		self.requireMainThread();
+		if (self._view == null) { return; }
+		if (self._closeFailure != "") { throw self._closeFailure; }
+		if (self._closing) { throw "Native container shutdown is already active"; }
+		if (self._mutating) { throw "Native container mutation is already active"; }
+		if (self._attached) { throw "Detach the view from its container before closing it"; }
+		var view = self._view;
+		self._closing = true;
+		try {
+			while (self._children.len > 0) {
+				var child = self._children.get(self._children.len - 1);
+				self.projection(child).detachFrom(view);
+				child.close();
+				self._children.pop();
+			}
+			view.removeFromSuperview();
+			self._view = null;
+		} catch (string error) {
+			// Do not retry an indeterminate native close or restore a partially
+			// dismantled container to its usable state.
+			self._closeFailure = error;
+			throw error;
+		}
+	}
+
+	public void __del__() { self.close(); }
+}

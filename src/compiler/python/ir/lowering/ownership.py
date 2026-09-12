@@ -34,6 +34,7 @@ from src.compiler.python.ir.nodes import (
     IRLiteral,
     IRParam,
     IRReturn,
+    IRSizeof,
     IRStmt,
     IRStmtExpr,
     IRStructField,
@@ -446,7 +447,7 @@ class CycleMetadata:
         if not self._values.is_arc(type_expr):
             return None
         info = self._analyzed.class_table.get(type_expr.base)
-        if info is None:
+        if info is None and type_expr.base not in self._analyzed.interface_table:
             return None
         emitted = (
             self._type_identity.specialization_symbol(type_expr.base, type_expr.generic_args)
@@ -554,6 +555,10 @@ class CycleMetadata:
         return outgoing
 
     def _runtime_type_candidates(self, static_type: TypeExpr) -> list[TypeExpr]:
+        if static_type.base in self._analyzed.interface_table:
+            return [
+                TypeExpr(base=name) for name in self._analyzed.class_table if self._is_subclass(name, static_type.base)
+            ]
         candidates = [static_type]
         if static_type.generic_args or static_type.base not in self._analyzed.class_table:
             return candidates
@@ -565,14 +570,22 @@ class CycleMetadata:
         return candidates
 
     def _is_subclass(self, child: str, parent: str) -> bool:
-        current = child
+        pending = [child]
         seen: set[str] = set()
-        while current and current not in seen:
-            seen.add(current)
-            info = self._analyzed.class_table.get(current)
-            current = info.parent if info is not None else None
+        while pending:
+            current = pending.pop()
+            if current in seen:
+                continue
             if current == parent:
                 return True
+            seen.add(current)
+            info = self._analyzed.class_table.get(current)
+            if info is not None:
+                pending.extend(info.interfaces)
+            else:
+                info = self._analyzed.interface_table.get(current)
+            if info is not None and info.parent:
+                pending.append(info.parent)
         return False
 
     def _substitute_type(self, type_expr: TypeExpr, substitutions: dict[str, TypeExpr]) -> TypeExpr:
@@ -638,7 +651,7 @@ class ManagedValueSemantics:
             canonical is not None
             and (not canonical.is_array)
             and (depth <= 1)
-            and (canonical.base in self._analyzed.class_table)
+            and (canonical.base in self._analyzed.class_table or canonical.base in self._analyzed.interface_table)
         )
 
     def is_mutex(self, type_expr: TypeExpr | None) -> bool:
@@ -662,7 +675,12 @@ class ManagedValueSemantics:
 
     def is_native_name(self, name: str) -> bool:
         info = self._analyzed.class_table.get(name)
-        return info is not None and info.native_language == "objective-c"
+        return info is not None and bool(info.native_language)
+
+    def native_lifetime_symbol(self, name: str, operation: str) -> str:
+        language = self._analyzed.class_table[name].native_language
+        prefix = "objc" if language == "objective-c" else "native"
+        return f"__btrc_{prefix}_{name}_{operation}"
 
     def is_native(self, type_expr: TypeExpr | None) -> bool:
         canonical = self.canonical(type_expr)
@@ -687,7 +705,7 @@ class ManagedValueSemantics:
 
     def cleanup_destroy_symbol(self, emitted_name: str) -> str:
         if self.is_native_name(emitted_name):
-            return f"__btrc_objc_{emitted_name}_release"
+            return self.native_lifetime_symbol(emitted_name, "release")
         if emitted_name == STRING_RUNTIME_NAME:
             return "__btrc_string_release_cleanup"
         if emitted_name == MUTEX_RUNTIME_NAME:
@@ -867,7 +885,9 @@ class ManagedLifetimeLowerer:
 
     def retain_value(self, value, type_expr):
         if self._values.is_native(type_expr):
-            return IRCall(callee=f"__btrc_objc_{self._values.runtime_name(type_expr)}_retain", args=[value])
+            return IRCall(
+                callee=self._values.native_lifetime_symbol(self._values.runtime_name(type_expr), "retain"), args=[value]
+            )
         helper = "__btrc_string_retain" if self._values.is_string(type_expr) else "__btrc_arc_retain"
         self._session.require_helper(helper)
         return IRCall(callee=helper, args=[value], helper_ref=helper)
@@ -1004,7 +1024,7 @@ class ManagedLifetimeLowerer:
 
     def release_emitted_value(self, value, emitted_name: str):
         if self._values.is_native_name(emitted_name):
-            return IRCall(callee=f"__btrc_objc_{emitted_name}_release", args=[value])
+            return IRCall(callee=self._values.native_lifetime_symbol(emitted_name, "release"), args=[value])
         if emitted_name == STRING_RUNTIME_NAME:
             helper = "__btrc_string_release"
             self._session.require_helper(helper)
@@ -1059,8 +1079,18 @@ class ManagedLifetimeLowerer:
             statements.append(IRExprStmt(expr=flush))
         return statements
 
+    def arc_type_descriptor_size(self, type_expr):
+        """Interfaces use the receiver's descriptor, not a copied static fallback."""
+        return (
+            IRLiteral(text="0")
+            if type_expr.base in self._analyzed.interface_table
+            else IRSizeof(operand=CType(text="__btrc_arc_type"))
+        )
+
     def arc_type_descriptor(self, type_expr):
         """Build the copied runtime descriptor for one concrete managed type."""
+        if type_expr.base in self._analyzed.interface_table:
+            return IRLiteral(text="NULL")
         if self._values.is_native(type_expr):
             raise CodegenError("Native objects do not have a BTRC ARC descriptor")
         if self._values.is_mutex(type_expr):
@@ -1081,6 +1111,8 @@ class ManagedLifetimeLowerer:
         )
 
     def emitted_type_descriptor(self, emitted_name: str):
+        if emitted_name in self._analyzed.interface_table:
+            return IRLiteral(text="NULL")
         if self._values.is_native_name(emitted_name):
             raise CodegenError("Native objects do not have a BTRC ARC descriptor")
         if emitted_name == MUTEX_RUNTIME_NAME:
@@ -1147,21 +1179,12 @@ class ManagedLifetimeLowerer:
             active = self._cleanup_scope.exception_cleanup_active()
         if not active:
             return ([], [])
-        self._cleanup_scope.mark_cleanup_registration()
         flag_decl = IRVarDecl(
             c_type=CType(text="bool"), name=self._session.fresh_temp(prefix), init=IRLiteral(text="false")
         )
         self._session.record_declaration(flag_decl)
         flag = IRVar(name=flag_decl.name)
-        emitted_name = self._values.runtime_name(type_expr)
-        destroy = self._values.cleanup_destroy_symbol(emitted_name)
-        direct_cleanup = emitted_name == STRING_RUNTIME_NAME or self._values.is_native_name(emitted_name)
-        if emitted_name == STRING_RUNTIME_NAME:
-            self._session.require_helper(destroy)
-        visitor = None if direct_cleanup else self._visitor_expression(type_expr)
-        register = self._cleanup_slots.register(
-            declaration, IRFunctionRef(name=destroy), visitor=visitor, direct=direct_cleanup
-        )
+        register = self.register_cleanup_slot(declaration, type_expr)
         register_once = IRTernary(
             condition=flag,
             true_expr=IRLiteral(text="0"),
@@ -1170,6 +1193,20 @@ class ManagedLifetimeLowerer:
             ),
         )
         return ([flag_decl], [register_once])
+
+    def register_cleanup_slot(self, declaration, type_expr):
+        """Protect one initialized managed slot using ordinary exception cleanup."""
+        self._cleanup_scope.mark_cleanup_registration()
+        emitted_name = self._values.runtime_name(type_expr)
+        destroy = self._values.cleanup_destroy_symbol(emitted_name)
+        direct_cleanup = emitted_name == STRING_RUNTIME_NAME or self._values.is_native_name(emitted_name)
+        if emitted_name == STRING_RUNTIME_NAME:
+            self._session.require_helper(destroy)
+        visitor = None if direct_cleanup else self._visitor_expression(type_expr)
+        destroy_callback = (
+            IRLiteral(text="NULL") if emitted_name in self._analyzed.interface_table else IRFunctionRef(name=destroy)
+        )
+        return self._cleanup_slots.register(declaration, destroy_callback, visitor=visitor, direct=direct_cleanup)
 
     def register_named_cleanup(self, var_name: str, emitted_name: str, statements: list[IRStmt]) -> None:
         """Register one named managed local with the active cleanup scope."""
@@ -1189,9 +1226,10 @@ class ManagedLifetimeLowerer:
         if emitted_name == MUTEX_RUNTIME_NAME:
             self._session.require_helper("__btrc_mutex_arc_type")
         visitor = IRFunctionRef(name=visitor_name) if visitor_name else IRLiteral(text="NULL")
-        statements.append(
-            IRExprStmt(expr=self._cleanup_slots.register(declaration, IRFunctionRef(name=destroy), visitor=visitor))
+        destroy_callback = (
+            IRLiteral(text="NULL") if emitted_name in self._analyzed.interface_table else IRFunctionRef(name=destroy)
         )
+        statements.append(IRExprStmt(expr=self._cleanup_slots.register(declaration, destroy_callback, visitor=visitor)))
 
     def register_direct_cleanup(self, var_name: str, cleanup_fn: str, statements: list[IRStmt]) -> None:
         if not self._cleanup_scope.exception_cleanup_active():
@@ -2051,7 +2089,9 @@ class OwnershipLowerer:
     def descriptor_pointer(emitted_name: str):
         return IRAddressOf(expr=IRVar(name=OwnershipLowerer.descriptor_symbol(emitted_name)))
 
-    def emit_arc_descriptor(self, emitted_name: str, visitor_name: str | None, hook_name: str | None = None) -> None:
+    def emit_arc_descriptor(
+        self, emitted_name: str, visitor_name: str | None, hook_name: str | None = None, interface_count: int = 0
+    ) -> None:
         """Emit one process-lifetime descriptor for a concrete managed type."""
         emitted = self._session.arc_descriptor_types
         if emitted_name in emitted:
@@ -2087,6 +2127,8 @@ class OwnershipLowerer:
                         IRFunctionRef(name=hook_name) if hook_name is not None else IRLiteral(text="NULL"),
                         IRFunctionRef(name=guard_name) if guard_name is not None else IRLiteral(text="NULL"),
                         IRFunctionRef(name=raise_name) if raise_name is not None else IRLiteral(text="NULL"),
+                        IRVar(name=f"__btrc_interfaces_{emitted_name}") if interface_count else IRLiteral(text="NULL"),
+                        IRLiteral(text=str(interface_count)),
                     ]
                 ),
             )

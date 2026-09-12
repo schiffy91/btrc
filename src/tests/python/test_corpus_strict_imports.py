@@ -170,7 +170,7 @@ def test_corpus_declares_every_direct_stdlib_owner(
 ) -> None:
     # Includes the native SDK lifecycle and AppKit fixtures; guard against
     # accidentally narrowing the corpus audit as providers move packages.
-    assert corpus_import_audit.source_count == 1191
+    assert corpus_import_audit.source_count == 1201
     assert corpus_import_audit.duplicate_modules == ()
     assert corpus_import_audit.unknown_modules == ()
     assert corpus_import_audit.direct_owner_diagnostics == ()

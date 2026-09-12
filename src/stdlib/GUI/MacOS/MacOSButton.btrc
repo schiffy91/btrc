@@ -1,9 +1,10 @@
 import Library.Math;
+import Library.GUI.IButton;
 import Library.GUI.MacOS.AppKitText;
 import Library.GUI.MacOS.MacOSView;
 import Library.GUI.MacOS.MacOSActionQueue;
 
-class MacOSButton {
+class MacOSButton implements IButton, IMacOSView {
 	private NSButton? _button;
 	private MacOSView _view;
 	private MacOSActionQueue _actions;
@@ -30,6 +31,24 @@ class MacOSButton {
 	}
 
 	public NSView nativeView() { return self._view.nativeView(); }
+
+	public void attachTo(NSView parent) { self._view.attachTo(parent); }
+
+	public void detachFrom(NSView parent) { self._view.detachFrom(parent); }
+
+	public bool isOpen() { return self._view.isOpen(); }
+
+	public double fittingWidth() { return self._view.fittingWidth(); }
+
+	public double fittingHeight() { return self._view.fittingHeight(); }
+
+	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public bool isVisible() { return self._view.isVisible(); }
+
+	public void setVisible(bool visible) { self._view.setVisible(visible); }
+
+	public string title() { return AppKitText.ownedValue(self.control().title()); }
 
 	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
 
@@ -83,6 +102,7 @@ class MacOSButton {
 	public void close() {
 		if (!NSThread.isMainThread()) { throw "Native buttons require the main thread"; }
 		if (self._button == null) { return; }
+		self._view.requireDetached();
 		self._actions.unbind(self._button);
 		self._view.close();
 		self._button = null;

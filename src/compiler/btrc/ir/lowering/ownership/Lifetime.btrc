@@ -281,6 +281,7 @@ class ManagedLifetimeLowerer {
 	public IRNode noOp() { return IRNode.cast("void", IRNode.literal("0")); }
 
 	public IRNode runtimeDescriptor(string emittedName) {
+		if (self.analyzed.isInterface(emittedName)) { return IRNode.literal("NULL"); }
 		if (self.managedValues.isNativeName(emittedName)) {
 			print("internal compiler error: native object cannot use a BTRC ARC descriptor");
 			exit(1);
@@ -308,9 +309,11 @@ class ManagedLifetimeLowerer {
 		return IRNode.addressOf(IRNode.compoundLiteral("__btrc_arc_type", fields, values));
 	}
 
+	public IRNode runtimeDescriptorSize(string emittedName) { return self.analyzed.isInterface(emittedName) ? IRNode.literal("0") : IRNode.sizeofType("__btrc_arc_type"); }
+
 	public IRNode retainValue(IRNode value, Node resolvedType) {
 		if (self.managedValues.isNative(resolvedType)) {
-			return IRNode.call("__btrc_objc_" + self.managedValues.runtimeType(resolvedType) + "_retain", [value]);
+			return IRNode.call(self.managedValues.nativeLifetimeSymbol(self.managedValues.runtimeType(resolvedType), "retain"), [value]);
 		}
 		if (self.managedValues.isString(resolvedType)) {
 			self.context.referenceHelper("__btrc_string_retain");
@@ -450,6 +453,7 @@ class ManagedLifetimeLowerer {
 
 	public IRNode registerCleanupSlot(IRNode declaration, string runtimeType) {
 		self.markCleanupRegistration();
+		if (self.analyzed.isInterface(runtimeType)) { return self.cleanupSlots.registerSlot(self.context, declaration, IRNode.literal("NULL"), IRNode.literal("NULL"), false); }
 		string cleanup = self.cleanupSymbol(runtimeType);
 		if (runtimeType == self.managedValues.stringRuntimeType() || self.managedValues.isNativeName(runtimeType)) {
 			return self.cleanupSlots.registerSlot(self.context, declaration, IRNode.functionReference(cleanup), null, true);

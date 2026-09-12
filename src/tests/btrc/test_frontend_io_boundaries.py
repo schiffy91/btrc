@@ -366,8 +366,9 @@ def test_frontend_resolver_reuse_resets_state_and_isolates_results(
         '            || !second.userSource.contains("int secondValue")) { return 3; }\n'
         "    if (first.stdlibSnapshot.sameContents(second.stdlibSnapshot)) { return 4; }\n"
         f"    string isolatedPath = {json.dumps(str(isolated_source))};\n"
-        "    if (!second.dependencies.hasSource(isolatedPath)\n"
-        "            || first.dependencies.hasSource(isolatedPath)) { return 5; }\n"
+        "    string isolatedIdentity = FeSourcePathPolicy().identity(isolatedPath);\n"
+        "    if (!second.dependencies.sourceIdentities().contains(isolatedIdentity)\n"
+        "            || first.dependencies.sourceIdentities().contains(isolatedIdentity)) { return 5; }\n"
         "    return 0;\n"
         "}\n",
         encoding="utf-8",

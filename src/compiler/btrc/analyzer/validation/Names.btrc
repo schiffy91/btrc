@@ -730,6 +730,8 @@ class NameValidator {
 				self.claimGpuSymbols(symbols, declaration);
 			} else if (declaration.kind == NK_CLASS_DECL && declaration.genericParams.len == 0) {
 				self.claimClassSymbols(declaration,  symbols);
+			} else if (declaration.kind == NK_INTERFACE_DECL && declaration.genericParams.len == 0) {
+				for method in self.state.analyzed.interfaceMethods(declaration.name) { self.claimGeneratedSymbol(symbols, declaration.name + "_" + method.name, "interface method '" + declaration.name + "." + method.name + "'", method); }
 			} else if (declaration.kind == NK_ENUM_DECL) {
 				self.claimEnumSymbols(declaration,  symbols);
 			} else if (declaration.kind == NK_RICH_ENUM_DECL) {

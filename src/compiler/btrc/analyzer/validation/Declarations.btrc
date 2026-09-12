@@ -350,6 +350,10 @@ class DeclarationValidator {
 	}
 
 	public bool methodSignatureMatches(Node requirement, Node implementation, Map<string, Node> substitutions) {
+		Map<int, bool> expectedTransfers = DeclarationRegistry.ownedTransferParameters(requirement);
+		Map<int, bool> actualTransfers = DeclarationRegistry.ownedTransferParameters(implementation);
+		if (expectedTransfers.len != actualTransfers.len) { return false; }
+		for index in expectedTransfers.keys() { if (!actualTransfers.has(index)) { return false; } }
 		Node? expectedReturn = requirement.returnType;
 		if (expectedReturn != null && substitutions.len > 0) {
 			expectedReturn = SemanticTypeSystem.resolveGenericType(expectedReturn, substitutions, self.state.analyzed);

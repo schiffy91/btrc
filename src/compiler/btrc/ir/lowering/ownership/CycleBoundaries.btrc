@@ -11,6 +11,7 @@ import ../../Model.btrc;
 import ../Context.btrc;
 import ../Statements.btrc;
 import ../Types.btrc;
+import ./Lifetime.btrc;
 
 /* Typed cycle visitors and deterministic topology/release boundaries. */
 
@@ -156,65 +157,19 @@ class CycleBoundaryLowerer {
 	private CleanupSlotRegistry cleanupSlots;
 	private LoweringContext context;
 	private CTypeLowerer cTypes;
+	private ManagedLifetimeLowerer lifetime;
 
-	public CycleBoundaryLowerer(Analyzed analyzed, ManagedValueSemantics managedValues, CycleSemantics cycles, CleanupSlotRegistry cleanupSlots, LoweringContext context, CTypeLowerer cTypes) {
+	public CycleBoundaryLowerer(Analyzed analyzed, ManagedValueSemantics managedValues, CycleSemantics cycles, CleanupSlotRegistry cleanupSlots, LoweringContext context, CTypeLowerer cTypes, ManagedLifetimeLowerer lifetime) {
 		self.analyzed = analyzed;
 		self.managedValues = managedValues;
 		self.cycles = cycles;
 		self.cleanupSlots = cleanupSlots;
 		self.context = context;
 		self.cTypes = cTypes;
+		self.lifetime = lifetime;
 	}
 
 	public bool publicCollectionBase(string name) { return name == "Array" || name == "List" || name == "Map" || name == "Set" || name == "Vector"; }
-
-	private IRNode edgeDescriptor(Node typeExpr) {
-		if (self.managedValues.isMutex(typeExpr)) {
-			return self.arcDescriptor(self.managedValues.mutexRuntimeType());
-		}
-		string emitted = self.cycles.edgeEmittedName(typeExpr);
-		Vector<string> fields = [];
-		fields.push("visit");
-		fields.push("destroy");
-		fields.push("hook");
-		fields.push("guard");
-		fields.push("raise");
-		Vector<IRNode> values = [];
-		if ((typeExpr.genericArgs.len > 0 && self.cycles.genericTypeNeedsVisitor(typeExpr)) || (typeExpr.genericArgs.len == 0 && self.cycles.classNeedsVisitor(typeExpr.base))) {
-			values.push(IRNode.functionReference(self.cycles.visitorName(emitted)));
-		} else {
-			values.push(IRNode.literal("NULL"));
-		}
-		values.push(IRNode.functionReference(emitted + "_destroy"));
-		values.push(IRNode.literal("NULL"));
-		values.push(IRNode.literal("NULL"));
-		values.push(IRNode.literal("NULL"));
-		return IRNode.addressOf(IRNode.compoundLiteral("__btrc_arc_type", fields, values));
-	}
-
-	private IRNode arcDescriptor(string emittedName) {
-		if (emittedName == self.managedValues.mutexRuntimeType()) {
-			self.context.referenceHelper("__btrc_mutex_arc_type");
-			return IRNode.addressOf(IRNode.variable("__btrc_mutex_arc_descriptor"));
-		}
-		Vector<string> fields = [];
-		fields.push("visit");
-		fields.push("destroy");
-		fields.push("hook");
-		fields.push("guard");
-		fields.push("raise");
-		Vector<IRNode> values = [];
-		if (self.cycles.emittedTypeNeedsVisitor(emittedName)) {
-			values.push(IRNode.functionReference(self.cycles.visitorName(emittedName)));
-		} else {
-			values.push(IRNode.literal("NULL"));
-		}
-		values.push(IRNode.functionReference(emittedName + "_destroy"));
-		values.push(IRNode.literal("NULL"));
-		values.push(IRNode.literal("NULL"));
-		values.push(IRNode.literal("NULL"));
-		return IRNode.addressOf(IRNode.compoundLiteral("__btrc_arc_type", fields, values));
-	}
 
 	private void appendCycleCallback(Node typeExpr, IRNode slot, Vector<IRNode> output) {
 		Node? canonical = SemanticTypeSystem.resolveOuterTypedefType(typeExpr, self.analyzed.typedefTable);
@@ -224,7 +179,7 @@ class CycleBoundaryLowerer {
 		Vector<IRNode> arguments = [];
 		arguments.push(IRNode.cast("volatile void*", IRNode.addressOf(slot)));
 		arguments.push(IRNode.functionReference(access));
-		arguments.push(self.edgeDescriptor(resolved));
+		arguments.push(self.lifetime.runtimeDescriptor(self.managedValues.runtimeType(resolved)));
 		arguments.push(IRNode.variable("context"));
 		Vector<IRNode> thenBody = [];
 		thenBody.push(IRNode.expressionStatement(IRNode.call("fn", arguments)));

@@ -44,7 +44,7 @@ are ordinary values and do not introduce typed exception payloads.
 |---|---------|------------|-----------------|
 | 1 | `typedef` aliases | Lowered as typed `IRTypedefDef` declarations and emitted before dependent declarations. | `basics/TypedefAliasLowering.btrc` |
 | 2 | Local storage qualifiers | `static`, `extern`, and `volatile` are preserved as `IRVarDecl` metadata in ordinary declarations and loop initializers. | `basics/LocalStorageQualifiers.btrc` |
-| 3 | Class C-style casts | Class targets lower to pointer C types. Interfaces remain compile-time implementation contracts rather than runtime value types. | `classes/ClassCastLowering.btrc` |
+| 3 | Class C-style casts | Class targets lower to pointer C types. Non-generic interfaces support managed runtime values, proven implementation upcasts and checked nullable interface queries. Unchecked interface-to-class downcasts and generic interface values remain rejected. | `classes/ClassCastLowering.btrc`, `python/test_interface_runtime_boundaries.py` |
 | 4 | Wide and unsigned integer string conversion | Dedicated helpers and matching format specifiers cover `long long`, unsigned integer widths, and `long double`. | `basics/WideIntegerStrings.btrc` |
 | 5 | Rich enums in by-value declarations | Rich enums use structured tagged-union IR and are completed before callable declarations or class fields that use them by value. | `enums/RichEnumSignatures.btrc` |
 | 6 | Class compound assignment | Compound operators call the corresponding overload once and assign its result. | `classes/ClassCompoundAssignment.btrc` |
@@ -57,3 +57,13 @@ are ordinary values and do not introduce typed exception payloads.
 
 Single-dimensional top-level fixed arrays are also represented by typed
 `IRGlobalDecl` nodes and covered by `basics/GlobalFixedArray.btrc`.
+
+For an interface reference, `(IButton?)view` queries the receiver's actual
+implementation. It returns the same object, or `null` for a missing interface or
+null receiver. The nullable target is required for a query; implicit conversions
+remain proven upcasts. Raw pointers and unrelated concrete objects cannot be
+converted into interface references this way. Queries evaluate their operand
+once, reuse the existing per-class dispatch directory, and allocate no adapter.
+A temporary operand is released on a miss; on success its normal managed
+ownership follows the result, including exception cleanup. Empty marker
+interfaces and interfaces inherited by a class participate in the same lookup.

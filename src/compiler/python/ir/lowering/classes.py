@@ -12,6 +12,7 @@ from src.compiler.python.analyzer.storage import StorageModel
 from src.compiler.python.analyzer.types import TypeIdentity, TypeSystem
 from src.compiler.python.ir.nodes import (
     CType,
+    IRAddressOf,
     IRAssign,
     IRBlock,
     IRCall,
@@ -20,7 +21,10 @@ from src.compiler.python.ir.nodes import (
     IRFieldAccess,
     IRFunctionDecl,
     IRFunctionDef,
+    IRFunctionPointerTypedef,
+    IRFunctionRef,
     IRGlobalDecl,
+    IRInitializerList,
     IRLiteral,
     IRParam,
     IRReturn,
@@ -118,6 +122,120 @@ class ClassLowerer:
     def configure_pack_alignments(self, alignments: dict[int, int]) -> None:
         """Install the translation unit's resolved pragma-pack layout."""
         self._pack_alignments = dict(alignments)
+
+    def emit_interface(self, name: str) -> None:
+        """Emit typed dispatch over an unchanged managed receiver identity."""
+        info = self._analyzed.interface_table[name]
+        if info.generic_params:
+            return
+        table_name = f"__btrc_interface_{len(name)}_{name}"
+        fields = []
+        for method in info.methods.values():
+            result = CType(text=self._types.render(method.return_type))
+            parameters = [self._signatures.lower_source_param(param) for param in method.params]
+            signature = f"{table_name}_{method.name}_fn"
+            self._session.module.function_pointer_typedefs.append(
+                IRFunctionPointerTypedef(
+                    name=signature,
+                    return_type=result,
+                    param_types=[CType(text="void*"), *[param.c_type for param in parameters]],
+                )
+            )
+            fields.append(IRStructField(c_type=CType(text=signature), name=method.name))
+            function_name = f"{name}_{method.name}"
+            dispatch_parameters = [IRParam(c_type=CType(text=f"{name}*"), name="self"), *parameters]
+            self._session.module.function_decls.append(
+                IRFunctionDecl(name=function_name, return_type=result, params=dispatch_parameters, is_static=True)
+            )
+            lookup = IRCall(
+                callee="__btrc_interface_methods",
+                args=[IRVar(name="self"), IRLiteral(text=f'"{name}"')],
+                helper_ref="__btrc_interface_methods",
+            )
+            table = IRVarDecl(
+                c_type=CType(text=f"const struct {table_name}*"),
+                name="__btrc_methods",
+                init=IRCast(target_type=CType(text=f"const struct {table_name}*"), expr=lookup),
+            )
+            call = IRCall(
+                callee=IRFieldAccess(obj=IRVar(name="__btrc_methods"), field=method.name, arrow=True),
+                args=[IRVar(name="self"), *[IRVar(name=param.name) for param in parameters]],
+            )
+            terminal = IRExprStmt(expr=call) if str(result) == "void" else IRReturn(value=call)
+            self._session.module.function_defs.append(
+                IRFunctionDef(
+                    name=function_name,
+                    return_type=result,
+                    params=dispatch_parameters,
+                    body=IRBlock(stmts=[table, terminal]),
+                    is_static=True,
+                )
+            )
+        if fields:
+            self._session.module.struct_defs.append(IRStructDef(name=table_name, fields=fields))
+
+    def emit_interface_bindings(self, emitted_name: str, info: ClassInfo) -> int:
+        """One sparse, sorted dispatch directory per concrete class, not per value."""
+        if info.is_abstract:
+            return 0
+        entries = []
+        for name, interface in sorted(self._analyzed.interface_table.items()):
+            if interface.generic_params or not self._types.is_subclass(info.name, name):
+                continue
+            methods = []
+            for method in interface.methods.values():
+                result = CType(text=self._types.render(method.return_type))
+                parameters = [self._signatures.lower_source_param(param) for param in method.params]
+                thunk_name = (
+                    f"__btrc_interface_impl_{len(emitted_name)}_{emitted_name}_{len(name)}_{name}_{method.name}"
+                )
+                thunk_parameters = [IRParam(c_type=CType(text="void*"), name="__btrc_receiver"), *parameters]
+                self._session.module.function_decls.append(
+                    IRFunctionDecl(name=thunk_name, return_type=result, params=thunk_parameters, is_static=True)
+                )
+                call = IRCall(
+                    callee=f"{emitted_name}_{method.name}",
+                    args=[
+                        IRCast(target_type=CType(text=f"{emitted_name}*"), expr=IRVar(name="__btrc_receiver")),
+                        *[IRVar(name=param.name) for param in parameters],
+                    ],
+                )
+                terminal = IRExprStmt(expr=call) if str(result) == "void" else IRReturn(value=call)
+                self._session.module.function_defs.append(
+                    IRFunctionDef(
+                        name=thunk_name,
+                        return_type=result,
+                        params=thunk_parameters,
+                        body=IRBlock(stmts=[terminal]),
+                        is_static=True,
+                    )
+                )
+                methods.append(IRFunctionRef(name=thunk_name))
+            table_name = f"__btrc_interface_table_{len(emitted_name)}_{emitted_name}_{name}"
+            self._session.module.global_decls.append(
+                IRGlobalDecl(
+                    c_type=CType(
+                        text=f"const struct __btrc_interface_{len(name)}_{name}" if methods else "const unsigned char"
+                    ),
+                    name=table_name,
+                    init=IRInitializerList(elements=methods) if methods else IRLiteral(text="0"),
+                    is_static=True,
+                )
+            )
+            entries.append(
+                IRInitializerList(elements=[IRLiteral(text=f'"{name}"'), IRAddressOf(expr=IRVar(name=table_name))])
+            )
+        if entries:
+            self._session.module.global_decls.append(
+                IRGlobalDecl(
+                    c_type=CType(text="const __btrc_interface_entry"),
+                    name=f"__btrc_interfaces_{emitted_name}",
+                    init=IRInitializerList(elements=entries),
+                    is_unsized_array=True,
+                    is_static=True,
+                )
+            )
+        return len(entries)
 
     def emit_constructor(self, decl: ClassDecl, cls_info: ClassInfo) -> None:
         """Emit ``Class_init`` and allocating ``Class_new`` functions."""
@@ -1052,7 +1170,8 @@ class ClassLowerer:
                 cls_info.instance_storage,
             )
             visitor_name = self._cycles.visitor_symbol(decl.name)
-        self._ownership.emit_arc_descriptor(decl.name, visitor_name, destructor_hook)
+        interface_count = self.emit_interface_bindings(decl.name, cls_info)
+        self._ownership.emit_arc_descriptor(decl.name, visitor_name, destructor_hook, interface_count)
         own_methods = set()
         own_properties = set()
         for member in decl.members:

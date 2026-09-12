@@ -1,0 +1,16 @@
+/* Native view contract. Layout uses logical points from the parent's top-left.
+ * Fitting sizes are native minima: an unconstrained dimension may be zero.
+ * Measure before arranging; attachment and subtree ownership belong to the
+ * container. Visibility is the view's own flag, not a promise of on-screen
+ * exposure. Interface aliases refer to the same view and observe its close.
+ * An attached view must be detached before an alias can close it; its owning
+ * container closes it during subtree shutdown. */
+interface IView {
+	bool isOpen();
+	double fittingWidth();
+	double fittingHeight();
+	void arrange(double x, double y, double width, double height);
+	bool isVisible();
+	void setVisible(bool visible);
+	void close();
+}

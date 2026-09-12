@@ -1519,6 +1519,8 @@ class ExpressionLowerer:
                 return IRDeref(expr=operand)
             return IRUnaryOp(op=node.op, operand=operand, prefix=node.prefix)
         if isinstance(node, CastExpr):
+            if self._is_interface_query(node):
+                return self._lower_interface_query(node, provenance)
             return IRCast(
                 target_type=CType(text=self._cast_target_type(node.target_type)),
                 expr=self._materialize_static_scalar(node.expr, provenance),
@@ -1589,6 +1591,43 @@ class ExpressionLowerer:
         if target.base in reference_types and not target_type.endswith("*"):
             target_type += "*"
         return target_type
+
+    def _is_interface_query(self, node: CastExpr) -> bool:
+        source = self._types.canonical_type(self._session.type_of(node.expr))
+        target = self._types.canonical_type(node.target_type)
+        return bool(
+            source
+            and target
+            and source.base in self._analyzed.interface_table
+            and target.base in self._analyzed.interface_table
+            and target.is_nullable
+        )
+
+    def _lower_interface_query(self, node: CastExpr, provenance: CallableProvenance) -> IRExpr:
+        target = self._types.canonical_type(node.target_type)
+        prepared = self._prepare_operand_evaluation((node.expr,), provenance, operand_targets=(None,), force=True)
+        if prepared is None:
+            return IRCast(
+                target_type=CType(text=self._cast_target_type(target)), expr=self.lower_expr(node.expr, provenance)
+            )
+        evaluation, fact_types = prepared
+        with self._session.operand_scope(evaluation.values, fact_types, evaluation.ownership):
+            receiver = self.lower_expr(node.expr, provenance)
+        lookup = IRCall(
+            callee="__btrc_interface_try_methods",
+            args=[receiver, IRLiteral(text=f'"{target.base}"')],
+            helper_ref="__btrc_interface_try_methods",
+        )
+        result = IRCast(
+            target_type=CType(text=self._cast_target_type(target)),
+            expr=IRTernary(condition=lookup, true_expr=receiver, false_expr=IRLiteral(text="NULL")),
+        )
+        owned = self._ownership.owns_result(node.expr, provenance=provenance)
+        return self._call_boundary.materialize(
+            evaluation,
+            result,
+            CallResultPlan(c_type=self._cast_target_type(target), type_expr=target, promote=owned, owned=owned),
+        )
 
     def prepare_value(
         self,
@@ -1874,6 +1913,8 @@ class ExpressionLowerer:
             return result
         if isinstance(node, CastExpr):
             self._callable_boundaries.reject_nonportable_callable_cast(node, provenance)
+            if self._is_interface_query(node):
+                return self._lower_interface_query(node, provenance)
             return IRCast(
                 target_type=CType(text=self._cast_target_type(node.target_type)),
                 expr=self.lower_expr(

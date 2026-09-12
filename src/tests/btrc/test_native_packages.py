@@ -99,6 +99,55 @@ def _binding_source(root: Path, declaration: str, imported: bool = False) -> Pat
 
 
 @pytest.mark.parametrize(
+    ("mutation", "diagnostic"),
+    [
+        ("valid", ""),
+        ("shared-hooks", ""),
+        ("unique", "reference-counted"),
+        ("unselected", "selected functions"),
+        ("same-operation", "distinct"),
+        ("unknown-field", "unexpected"),
+        ("reserved", "reserved"),
+        ("missing-release", "release"),
+        ("empty-resource", "ownership"),
+    ],
+)
+def test_resource_binding_validation_has_frontend_parity(semantic_btrcc, tmp_path, mutation, diagnostic):
+    binding = _BINDING.replace(
+        '["measure"]', '["WidgetRef", "WidgetCreate", "WidgetRead", "WidgetRetain", "WidgetRelease"]'
+    ) + (
+        'owned-results = ["WidgetCreate"]\nborrowed-parameters = ["WidgetRead.widget"]\n'
+        '[native.bindings.resources.WidgetRef]\nownership = "reference-counted"\n'
+        'retain = "WidgetRetain"\nrelease = "WidgetRelease"\n'
+    )
+    if mutation == "shared-hooks":
+        binding = binding.replace('["WidgetRef",', '["OtherRef", "WidgetRef",')
+        binding += (
+            '[native.bindings.resources.OtherRef]\nownership = "reference-counted"\n'
+            'retain = "WidgetRetain"\nrelease = "WidgetRelease"\n'
+        )
+    elif mutation == "unique":
+        binding = binding.replace('ownership = "reference-counted"', 'ownership = "unique"')
+    elif mutation == "unselected":
+        binding = binding.replace('retain = "WidgetRetain"', 'retain = "Unknown"')
+    elif mutation == "same-operation":
+        binding = binding.replace('release = "WidgetRelease"', 'release = "WidgetRetain"')
+    elif mutation == "unknown-field":
+        binding += 'cleanup = "arbitrary code"\n'
+    elif mutation == "reserved":
+        binding = binding.replace('owned-results = ["WidgetCreate"]', 'owned-results = ["WidgetRelease"]')
+    elif mutation == "missing-release":
+        binding = binding.replace('release = "WidgetRelease"\n', "")
+    elif mutation == "empty-resource":
+        binding = binding.split("ownership =")[0]
+    source = _binding_source(tmp_path, binding)
+    for result in (_reference(source, tmp_path / "Reference.c"), _selfhost(semantic_btrcc, source)):
+        assert (result.returncode == 0) == (not diagnostic), result.stderr
+        if diagnostic:
+            assert diagnostic in result.stderr
+
+
+@pytest.mark.parametrize(
     ("target", "imported", "selected"),
     [("linux-x86_64", True, False), ("macos-aarch64", False, False), ("macos-aarch64", True, True)],
 )

@@ -235,7 +235,7 @@ class StringLowerer {
 		if (!self.requiresTargetStringConversion(target, source)) {
 			IRNode value = self.upcastClassPointer(target, source, lowered);
 			Node? effective = source;
-			if (target != null && source != null && self.analyzed.isClass(target.base) && target.genericArgs.len == 0 && source.base != target.base && self.analyzed.isSubclass(source.base, target.base)) {
+			if (target != null && source != null && (self.analyzed.isClass(target.base) || self.analyzed.isInterface(target.base)) && target.genericArgs.len == 0 && source.base != target.base && self.analyzed.isSubclass(source.base, target.base)) {
 				effective = target;
 			}
 			if (effective == null) { effective = target; }
@@ -281,7 +281,7 @@ class StringLowerer {
 
 	public IRNode upcastClassPointer(Node? targetType, Node? sourceType, IRNode value) {
 		if (targetType == null || sourceType == null) { return value; }
-		if (!self.analyzed.isClass(targetType.base) || targetType.genericArgs.len > 0 || sourceType.base == targetType.base || !self.analyzed.isSubclass(sourceType.base, targetType.base)) {
+		if ((!self.analyzed.isClass(targetType.base) && !self.analyzed.isInterface(targetType.base)) || targetType.genericArgs.len > 0 || sourceType.base == targetType.base || !self.analyzed.isSubclass(sourceType.base, targetType.base)) {
 			return value;
 		}
 		return IRNode.cast(self.cTypes.lower(targetType), value);

@@ -210,7 +210,54 @@ class FeNativeRecordInput {
 }
 
 /* Checked call boundaries also apply when a native function is used as a value. */
+class FeNativeResourceBinding {
+	public string name;
+	public string ownership;
+	public string retainFunction;
+	public string releaseFunction;
+	public FeNativeResourceBinding(string name, string ownership, string retainFunction, string releaseFunction) {
+		self.name = name;
+		self.ownership = ownership;
+		self.retainFunction = retainFunction;
+		self.releaseFunction = releaseFunction;
+	}
+
+	public string identity() { return f"{self.name}:{self.ownership}:{self.retainFunction}:{self.releaseFunction}"; }
+}
+
+class FeNativeCallbackBinding {
+	public string parameter;
+	public string context;
+	public int contextIndex;
+	public string interfaceName;
+	public FeNativeCallbackBinding(string parameter, string context, int contextIndex, string interfaceName) {
+		self.parameter = parameter;
+		self.context = context;
+		self.contextIndex = contextIndex;
+		self.interfaceName = interfaceName;
+	}
+}
+
+class FeNativeCallbackProjection {
+	public string interfaceName;
+	public int parameterIndex;
+	public int contextIndex;
+	public int callbackContextIndex;
+	public Vector<Node> parameters = [];
+	public Node returnType;
+	public FeNativeCallbackProjection(string interfaceName, int parameterIndex, int contextIndex, int callbackContextIndex, Node returnType) {
+		self.interfaceName = interfaceName;
+		self.parameterIndex = parameterIndex;
+		self.contextIndex = contextIndex;
+		self.callbackContextIndex = callbackContextIndex;
+		self.returnType = returnType;
+	}
+}
+
 class FeNativeCallContract {
+	public Vector<FeNativeCallbackProjection> callbacks = [];
+	public Vector<string> resourceParameters = [];
+	public string resourceResult = "";
 	public Vector<bool> nonnullParameters;
 	public Vector<bool> readOnlyBorrows;
 	public bool nonnullReturn;
@@ -227,6 +274,9 @@ class FeNativeCallContract {
 	}
 
 	public string adapterSymbol(string name) {
+		if (self.callbacks.len > 0) { return "__btrc_native_" + name; }
+		if (!self.resourceResult.isEmpty()) { return "__btrc_native_" + name; }
+		for resource in self.resourceParameters { if (!resource.isEmpty()) { return "__btrc_native_" + name; } }
 		if (self.nonnullReturn) { return "__btrc_native_" + name; }
 		for input in self.recordInputs { if (input != null) { return "__btrc_native_" + name; } }
 		for nonnull in self.nonnullParameters {
@@ -239,6 +289,7 @@ class FeNativeCallContract {
 /* SDK provenance is attached to the actual imported node, never inferred from
  * its spelling, line number, or a user-controlled source marker. */
 class FeNativeImportedDeclaration {
+	public FeNativeResourceBinding? resource = null;
 	public Node declaration;
 	public string module;
 	public string header;

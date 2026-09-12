@@ -630,6 +630,10 @@ class ExpressionTypeResolver {
 						return SemanticTypeSystem.primitive("bool");
 					}
 				}
+				if (ot != null && a.isInterface(ot.base)) {
+					Node? requirement = a.interfaceMethod(ot.base, method);
+					if (requirement != null) { return requirement.returnType; }
+				}
 				if (ot != null && a.isClass(ot.base)) {
 					Node? mm = a.classMethod(ot.base, method);
 					if (mm != null && mm.kind == NK_METHOD_DECL) {
@@ -787,7 +791,7 @@ class ExpressionTypeResolver {
 		Vector<Node> ga = [];
 		/* arg[0] is the explicit or structurally inferred return type. */
 		Node ret = self.inferredLambdaReturnType(node, a, operators, varTypes);
-		if ((a.isClass(ret.base) || a.isGenericClass(ret.base)) && ret.pointerDepth == 0 && !ret.isArray) {
+		if ((a.isClass(ret.base) || a.isGenericClass(ret.base) || a.isInterface(ret.base)) && ret.pointerDepth == 0 && !ret.isArray) {
 			ret = SemanticTypeSystem.classReference(ret);
 		}
 		ga.push(ret);

@@ -1,0 +1,349 @@
+import Library.GUI.IContainer;
+import Library.GUI.IWindow;
+import Library.GUI.ITextField;
+import Library.GUI.IButton;
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSContainer;
+import Library.GUI.MacOS.MacOSButton;
+import Library.GUI.MacOS.MacOSTextField;
+
+#include <assert.h>
+
+int closeAttempts = 0;
+
+/* Failure injection around a real native view, not a production adapter. */
+class FailingView implements IMacOSView {
+	private MacOSView _view;
+	private IContainer? _observer;
+	private IWindow? _windowObserver;
+	private bool _failClose;
+	private bool _failArrange = false;
+	private bool _observeQuery = false;
+
+	public FailingView(IContainer? observer = null, bool failClose = true) {
+		self._view = MacOSView(OwnedViewProbe.new());
+		self._observer = observer;
+		self._failClose = failClose;
+	}
+
+	public NSView nativeView() { if (self._observeQuery) { self.verifyReentry(); } return self._view.nativeView(); }
+
+	public void watchQuery() { self._observeQuery = true; }
+
+	public void watchWindow(IWindow window) { self._windowObserver = window; }
+
+	public void failArrangement() { self._failArrange = true; }
+
+	private void verifyReentry() {
+		var window = self._windowObserver;
+		self._windowObserver = null;
+		if (window != null) {
+			bool rejected = false;
+			try { window.attachRoot(self); } catch (string error) { rejected = true; }
+			assert(rejected);
+			rejected = false;
+			try { window.detachRoot(); } catch (string error) { rejected = true; }
+			assert(rejected);
+			rejected = false;
+			try { window.close(); } catch (string error) { rejected = true; }
+			assert(rejected);
+		}
+		var observer = self._observer;
+		self._observer = null;
+		if (observer != null) {
+			bool rejected = false;
+			try { observer.attach(self); } catch (string error) { rejected = true; }
+			assert(rejected);
+			rejected = false;
+			try { observer.detach(self); } catch (string error) { rejected = true; }
+			assert(rejected);
+			rejected = false;
+			try { observer.close(); } catch (string error) { rejected = true; }
+			assert(rejected);
+		}
+	}
+
+	public void attachTo(NSView parent) { self.verifyReentry(); self._view.attachTo(parent); }
+
+	public void detachFrom(NSView parent) { self._view.detachFrom(parent); }
+
+	public bool isOpen() { return self._view.isOpen(); }
+
+	public double fittingWidth() { return self._view.fittingWidth(); }
+
+	public double fittingHeight() { return self._view.fittingHeight(); }
+
+	public void arrange(double x, double y, double width, double height) {
+		if (self._failArrange) { throw "Injected root arrangement failure"; }
+		self._view.arrange(x, y, width, height);
+	}
+
+	public bool isVisible() { return self._view.isVisible(); }
+
+	public void setVisible(bool visible) { self._view.setVisible(visible); }
+
+	public void close() {
+		closeAttempts++;
+		self._view.close();
+		if (self._failClose) { throw "Injected container child close failure"; }
+	}
+}
+
+bool rejectsClose(IView view) {
+	try { view.close(); } catch (string error) { return true; }
+	return false;
+}
+
+ITextField escapedField() {
+	var parent = MacOSContainer();
+	var field = MacOSTextField("Owned by its container");
+	parent.attach(field);
+	return field;
+}
+
+void verifyCloseFailure() {
+	var owner = MacOSContainer();
+	owner.attach(FailingView());
+	for (int attempt = 0; attempt < 2; attempt++) {
+		bool rejected = false;
+		try { owner.close(); } catch (string error) { rejected = error.equals("Injected container child close failure"); }
+		assert(rejected && !owner.isOpen() && owner.childCount() == 1);
+		assert(closeAttempts == 1 && OwnedViewProbe.liveCount() == 0L);
+	}
+	bool rejected = false;
+	try { owner.setVisible(true); } catch (string error) { rejected = true; }
+	assert(rejected);
+	// Scope cleanup reports the sticky failure; it must not call the failed
+	// child again or pretend that shutdown completed successfully.
+}
+
+void verifyWindowRoots() {
+	var firstOwner = MacOSWindow("First", 480.0, 240.0);
+	IWindow first = firstOwner;
+	IWindow second = MacOSWindow("Second", 640.0, 360.0);
+	var root = MacOSContainer();
+	var child = MacOSView(OwnedViewProbe.new());
+	root.attach(child);
+	root.nativeView().setAutoresizingMask(NSViewWidthSizable);
+	assert(first.isOpen() && first.root() == null && first.detachRoot() == null);
+	first.setTitle("Library — 音楽");
+	assert(first.title().equals("Library — 音楽"));
+	first.attachRoot(root);
+	assert(first.root() == root && rejectsClose(root));
+	var frame = root.nativeView().frame();
+	assert(frame.origin.x == 0.0 && frame.origin.y == 0.0 && frame.size.width == 480.0 && frame.size.height == 240.0);
+	first.setContentSize(720.0, 400.0);
+	frame = root.nativeView().frame();
+	assert(first.contentWidth() == 720.0 && first.contentHeight() == 400.0);
+	assert(frame.size.width == 720.0 && frame.size.height == 400.0);
+	// Exercise a native resize too, not only the portable setter.
+	var nativeSize = firstOwner.contentView().bounds().size;
+	nativeSize.width = 600.0;
+	nativeSize.height = 320.0;
+	firstOwner.nativeWindow().setContentSize(nativeSize);
+	frame = root.nativeView().frame();
+	assert(frame.size.width == 600.0 && frame.size.height == 320.0);
+	bool rejected = false;
+	try { second.attachRoot(root); } catch (string error) { rejected = true; }
+	assert(rejected && second.root() == null && first.root() == root);
+	var other = MacOSContainer();
+	rejected = false;
+	try { first.attachRoot(other); } catch (string error) { rejected = true; }
+	assert(rejected && first.root() == root && other.isOpen());
+	Thread<int> worker = spawn(() => {
+			try { first.close(); } catch (string error) { return 0; }
+			return 1;
+		});
+	assert(worker.join() == 0 && first.isOpen() && root.isOpen());
+	var detached = first.detachRoot();
+	assert(detached == root && first.root() == null && root.isOpen());
+	assert(root.nativeView().superview() == null && root.nativeView().autoresizingMask() == NSViewWidthSizable);
+	second.attachRoot(root);
+	first.close();
+	assert(root.isOpen() && child.isOpen());
+	second.close();
+	assert(!root.isOpen() && !child.isOpen() && OwnedViewProbe.liveCount() == 0L);
+	assert(!second.isOpen() && second.root() == null);
+	second.close();
+	other.close();
+}
+
+void verifyWindowRollback() {
+	IWindow window = MacOSWindow("Root rollback", 480.0, 240.0);
+	var root = MacOSView(OwnedViewProbe.new());
+	root.setFrame(11.0, 17.0, 90.0, 50.0);
+	OwnedViewProbe.failNextAttachment();
+	bool rejected = false;
+	try { window.attachRoot(root); } catch (string error) { rejected = true; }
+	assert(rejected && window.isOpen() && window.root() == null && root.isOpen());
+	assert(root.nativeView().superview() == null && root.nativeView().frame().origin.x == 11.0);
+	assert(root.nativeView().autoresizingMask() == 0UL);
+	window.attachRoot(root);
+	window.close();
+	assert(!root.isOpen() && OwnedViewProbe.liveCount() == 0L);
+	IWindow failingWindow = MacOSWindow("Arrangement rollback", 480.0, 240.0);
+	rejected = false;
+	try { failingWindow.attachRoot(root); } catch (string error) { rejected = true; }
+	assert(rejected && failingWindow.isOpen() && failingWindow.root() == null);
+	var failingRoot = FailingView(null, false);
+	failingRoot.failArrangement();
+	rejected = false;
+	try { failingWindow.attachRoot(failingRoot); } catch (string error) { rejected = error.equals("Injected root arrangement failure"); }
+	assert(rejected && failingWindow.isOpen() && failingWindow.root() == null && failingRoot.isOpen());
+	assert(failingRoot.nativeView().superview() == null && failingRoot.nativeView().autoresizingMask() == 0UL);
+	failingRoot.close();
+	failingWindow.close();
+	IWindow reentrantWindow = MacOSWindow("Root reentry", 480.0, 240.0);
+	var reentrantRoot = FailingView(null, false);
+	reentrantRoot.watchWindow(reentrantWindow);
+	reentrantWindow.attachRoot(reentrantRoot);
+	assert(reentrantWindow.root() == reentrantRoot && reentrantRoot.isOpen());
+	var detached = reentrantWindow.detachRoot();
+	assert(detached == reentrantRoot);
+	reentrantRoot.close();
+	var queriedRoot = FailingView(null, false);
+	queriedRoot.watchWindow(reentrantWindow);
+	queriedRoot.watchQuery();
+	reentrantWindow.attachRoot(queriedRoot);
+	assert(reentrantWindow.root() == queriedRoot && queriedRoot.isOpen());
+	reentrantWindow.close();
+	assert(!queriedRoot.isOpen() && OwnedViewProbe.liveCount() == 0L);
+}
+
+NSWindow escapedWindow(IView root) {
+	var owner = MacOSWindow("Scope cleanup", 480.0, 240.0);
+	owner.attachRoot(root);
+	owner.show();
+	assert(owner.isVisible());
+	return owner.nativeWindow();
+}
+
+void verifyWindowCloseFailure() {
+	IWindow window = MacOSWindow("Close failure", 480.0, 240.0);
+	window.attachRoot(FailingView());
+	for (int attempt = 0; attempt < 2; attempt++) {
+		bool rejected = false;
+		try { window.close(); } catch (string error) { rejected = error.equals("Injected container child close failure"); }
+		assert(rejected && !window.isOpen() && window.root() != null);
+		assert(closeAttempts == 1 && OwnedViewProbe.liveCount() == 0L);
+	}
+	bool rejected = false;
+	try { window.show(); } catch (string error) { rejected = true; }
+	assert(rejected);
+}
+
+int main() {
+	var app = MacOSApplication();
+	var window = MacOSWindow("Portable container ownership", 480.0, 240.0);
+	var rootOwner = MacOSContainer();
+	IContainer root = rootOwner;
+	IWindow surface = window;
+	surface.attachRoot(root);
+	root.arrange(12.0, 12.0, 456.0, 216.0);
+	var nestedOwner = MacOSContainer();
+	IContainer nested = nestedOwner;
+	root.attach(nested);
+	nested.arrange(8.0, 8.0, 300.0, 100.0);
+	var actions = MacOSActionQueue();
+	var buttonOwner = MacOSButton("Library", actions);
+	IButton button = buttonOwner;
+	ITextField field = MacOSTextField("Search library");
+	var observed = MacOSView(OwnedViewProbe.new());
+	assert(OwnedViewProbe.liveCount() == 1L);
+	root.attach(button);
+	nested.attach(field);
+	nested.attach(observed);
+	button.arrange(10.0, 130.0, 120.0, button.fittingHeight());
+	field.arrange(8.0, 10.0, 280.0, field.fittingHeight());
+	assert(root.childCount() == 2 && nested.childCount() == 2);
+	assert(root.childAt(0) == nested && nested.childAt(0) == field);
+	assert(rejectsClose(button) && rejectsClose(field) && rejectsClose(nested));
+	assert(button.activate());
+	assert(buttonOwner.matches(actions.take()));
+	assert(field.text().equals("Search library"));
+	bool rejected = false;
+	try { root.attach(field); } catch (string error) { rejected = true; }
+	assert(rejected && root.childCount() == 2 && nested.childCount() == 2);
+	rejected = false;
+	try { root.attach(root); } catch (string error) { rejected = true; }
+	assert(rejected && root.childCount() == 2);
+	rejected = false;
+	try { nested.attach(root); } catch (string error) { rejected = true; }
+	assert(rejected && nested.childCount() == 2);
+	rejected = false;
+	try { root.detach(field); } catch (string error) { rejected = true; }
+	assert(rejected && root.childCount() == 2 && field.isOpen());
+	rejected = false;
+	try { root.childAt(-1); } catch (string error) { rejected = true; }
+	assert(rejected);
+	var detached = nested.detach(field);
+	assert(detached == field && detached.isOpen() && nested.childCount() == 1);
+	ITextField? editable = (ITextField?)detached;
+	assert(editable != null);
+	editable.setText("Still the same native field");
+	root.attach(detached);
+	assert(root.childCount() == 3 && field.text().equals("Still the same native field"));
+	field.arrange(10.0, 170.0, 420.0, field.fittingHeight());
+	var retained = MacOSTextField("Detached lifetime");
+	nested.attach(retained);
+	var independent = nested.detach(retained);
+	Thread<int> worker = spawn(() => {
+			try { root.close(); } catch (string error) { return 0; }
+			return 1;
+		});
+	assert(worker.join() == 0 && root.isOpen());
+	window.show();
+	app.pumpEvents();
+	window.close();
+	assert(!root.isOpen() && !nested.isOpen() && !field.isOpen() && !button.isOpen());
+	assert(!observed.isOpen() && OwnedViewProbe.liveCount() == 0L);
+	assert(root.childCount() == 0 && nested.childCount() == 0);
+	assert(independent.isOpen() && retained.text().equals("Detached lifetime"));
+	independent.close();
+	assert(!retained.isOpen());
+	root.close();
+	nested.close();
+	actions.close();
+	var escaped = escapedField();
+	assert(!escaped.isOpen());
+	var rollbackOwner = MacOSContainer();
+	var rollbackChild = MacOSView(OwnedViewProbe.new());
+	OwnedViewProbe.failNextAttachment();
+	rejected = false;
+	try { rollbackOwner.attach(rollbackChild); } catch (string error) { rejected = true; }
+	assert(rejected && rollbackOwner.isOpen() && rollbackOwner.childCount() == 0);
+	assert(rollbackChild.isOpen() && rollbackChild.nativeView().superview() == null);
+	rollbackOwner.attach(rollbackChild);
+	assert(rollbackOwner.childCount() == 1);
+	rollbackOwner.close();
+	assert(!rollbackChild.isOpen() && OwnedViewProbe.liveCount() == 0L);
+	var reentrantOwner = MacOSContainer();
+	reentrantOwner.attach(FailingView(reentrantOwner, false));
+	var queriedChild = FailingView(reentrantOwner, false);
+	queriedChild.watchQuery();
+	reentrantOwner.attach(queriedChild);
+	assert(reentrantOwner.childCount() == 2);
+	reentrantOwner.close();
+	assert(closeAttempts == 2 && OwnedViewProbe.liveCount() == 0L);
+	closeAttempts = 0;
+	rejected = false;
+	try { verifyCloseFailure(); } catch (string error) { rejected = error.equals("Injected container child close failure"); }
+	assert(rejected && closeAttempts == 1 && OwnedViewProbe.liveCount() == 0L);
+	window.close();
+	verifyWindowRoots();
+	verifyWindowRollback();
+	var escapedRoot = MacOSContainer();
+	var escapedChild = MacOSView(OwnedViewProbe.new());
+	escapedRoot.attach(escapedChild);
+	var nativeWindow = escapedWindow(escapedRoot);
+	assert(!nativeWindow.isVisible() && !escapedRoot.isOpen() && !escapedChild.isOpen());
+	assert(OwnedViewProbe.liveCount() == 0L);
+	closeAttempts = 0;
+	rejected = false;
+	try { verifyWindowCloseFailure(); } catch (string error) { rejected = error.equals("Injected container child close failure"); }
+	assert(rejected && closeAttempts == 1 && OwnedViewProbe.liveCount() == 0L);
+	print("PASS: portable container ownership, detach, aliases and native destruction");
+	return 0;
+}

@@ -45,13 +45,21 @@ class MethodGenInstance {
 class Analyzed {
 	public Vector<FeNativeImportedDeclaration> nativeDeclarations;
 	private Map<string, FeNativeImportedDeclaration> nativeClassIndex;
+	private Map<string, Node> nativeOwnedFunctions = {};
+	public Map<string, bool> nativeLifetimeOperations = {};
 
 	/* Native declarations are installed before analysis, then read-only. Keep
 	 * class queries independent of the number of unrelated SDK declarations. */
 	public void setNativeDeclarations(Vector<FeNativeImportedDeclaration> declarations) {
 		self.nativeDeclarations = declarations;
 		self.nativeClassIndex = {};
+		self.nativeLifetimeOperations = {};
+		self.nativeOwnedFunctions = {};
 		for imported in declarations {
+			var contract = imported.callContract;
+			if (imported.declaration.kind == NK_FUNCTION_DECL && contract != null && !contract.resourceResult.isEmpty() && !imported.coalesced) { self.nativeOwnedFunctions.put(imported.declaration.name, imported.declaration); }
+			var resource = imported.resource;
+			if (resource != null) { self.nativeLifetimeOperations.put(resource.retainFunction, true); self.nativeLifetimeOperations.put(resource.releaseFunction, true); }
 			if (imported.declaration.kind == NK_CLASS_DECL && !self.nativeClassIndex.has(imported.declaration.name)) { self.nativeClassIndex.put(imported.declaration.name, imported); }
 		}
 	}
@@ -71,6 +79,8 @@ class Analyzed {
 	}
 
 	public string nativeClassLanguage(string name) { return self.nativeClassIndex.has(name) ? self.nativeClassIndex.get(name).language : ""; }
+
+	public bool nativeFunctionReturnsOwned(Node declaration) { return self.nativeOwnedFunctions.has(declaration.name) && self.nativeOwnedFunctions.get(declaration.name) == declaration; }
 
 	public bool nativeGlobalReadOnly(string name) {
 		for imported in self.nativeDeclarations {
@@ -136,9 +146,7 @@ class Analyzed {
 	public Map<string, Node> classTable;
 	/* generic class base name -> its ClassDecl node (generic_params non-empty). */
 	public Map<string, Node> genericClassTable;
-	/* interface name -> its InterfaceDecl node. Interface declarations remain
-     * compile-time-only, but every semantic consumer needs the same registered
-     * method namespace instead of borrowing validation-pass state. */
+	/* Interface declaration index shared by semantic checks and runtime dispatch. */
 	public Map<string, Node> interfaceTable;
 	/* Concrete generic instances in discovery (declaration-walk) order, deduped
      * by mangled name. Mirrors analyzer.generic_instances flattened. */
@@ -349,7 +357,7 @@ class Analyzed {
 	/* True if `name` names a known (non-generic) class. */
 	public bool isClass(string name) { return self.classTable.has(name); }
 
-	/* True if `name` names a registered compile-time interface. */
+	/* Interfaces share managed receiver identity with their implementers. */
 	public bool isInterface(string name) { return self.interfaceTable.has(name); }
 
 	/* Find an interface method through its declared inheritance chain. The
@@ -374,6 +382,20 @@ class Analyzed {
 		return null;
 	}
 
+	public Vector<Node> interfaceMethods(string name) {
+		Vector<Node> methods = [];
+		if (!self.interfaceTable.has(name)) { return methods; }
+		Node declaration = self.interfaceTable.get(name);
+		if (declaration.parent != null) { methods = self.interfaceMethods(declaration.parent); }
+		for method in declaration.methods {
+			int slot = -1;
+			for index in range(methods.len) { if (methods.get(index).name == method.name) { slot = index; } }
+			if (slot < 0) { methods.push(method); }
+			else { methods.set(slot, method); }
+		}
+		return methods;
+	}
+
 	/* Return types for language builtins that do not have source declarations
      * or hosted-ABI entries. Keeping this on the analyzed semantic environment
      * gives every inference consumer the same typed contract. */
@@ -389,22 +411,26 @@ class Analyzed {
 		exit(1);
 	}
 
-	/* True if `base` is a (transitive) parent class of `sub`. Walks the parent
-     * chain from `sub`; `sub == base` counts as true. Mirrors
-     * variables._is_subclass. */
+	/* Nominal ancestry includes class inheritance and implemented interfaces. */
 	public bool isSubclass(string sub, string base) {
 		if (self.nativeClassLanguage(sub) == "objective-c") {
 			if (self.nativeClassLanguage(base) != "objective-c") { return false; }
 			return sub == base || self.nativeClassIndex.get(sub).nativeAncestors.contains(base);
 		}
-		string cur = sub;
+		Vector<string> pending = [sub];
 		Map<string, bool> seen = {};
-		while (cur != "" && !seen.has(cur)) {
+		while (pending.len > 0) {
+			string cur = pending.pop();
 			if (cur == base) { return true; }
+			if (cur == "" || seen.has(cur)) { continue; }
 			seen.put(cur, true);
-			if (!self.classTable.has(cur)) { return false; }
-			Node decl = self.classTable.get(cur);
-			cur = self.parentName(decl);
+			Node? declaration = null;
+			if (self.classTable.has(cur)) { declaration = self.classTable.get(cur); }
+			else if (self.genericClassTable.has(cur)) { declaration = self.genericClassTable.get(cur); }
+			else if (self.interfaceTable.has(cur)) { declaration = self.interfaceTable.get(cur); }
+			if (declaration == null) { continue; }
+			if (declaration.parent != null) { pending.push(declaration.parent); }
+			for implemented in declaration.interfaces { pending.push(implemented); }
 		}
 		return false;
 	}

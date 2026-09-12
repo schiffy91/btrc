@@ -532,9 +532,7 @@ class TypeIdentity:
 
     def is_null(self, type_expr: TypeExpr | None) -> bool:
         """Whether a type is the nullable null-literal domain."""
-        return bool(
-            type_expr and type_expr.base in {"null", "void"} and (type_expr.pointer_depth > 0) and type_expr.is_nullable
-        )
+        return bool(type_expr and type_expr.base == "null" and type_expr.pointer_depth == 1 and type_expr.is_nullable)
 
     def is_c_string_pointer(self, type_expr: TypeExpr | None) -> bool:
         """Whether a C interop type is exactly one ``char`` pointer/array."""
@@ -1497,9 +1495,13 @@ class TypeSystem:
                 self.report_type_shape_error(
                     "Nested array composition through typedef is not supported", type_expr, type_line, type_col
                 )
-        if type_expr.base in self.index.interface_table and type_expr.base not in set(active_type_params):
+        if (
+            type_expr.base in self.index.interface_table
+            and self.index.interface_table[type_expr.base].generic_params
+            and type_expr.base not in set(active_type_params)
+        ):
             self.report_type_shape_error(
-                f"Interface type '{type_expr.base}' cannot be used as a runtime value; use an implementing concrete class",
+                f"Generic interface type '{type_expr.base}' cannot be used as a runtime value yet",
                 type_expr,
                 type_line,
                 type_col,
@@ -1828,7 +1830,11 @@ class TypeSystem:
         if canonical is None or canonical.is_array or canonical.is_nullable or canonical.generic_args:
             return False
         if canonical.pointer_depth > 0:
-            return canonical.base not in {"string", "Atomic", "Span"} and canonical.base not in self.index.class_table
+            return (
+                canonical.base not in {"string", "Atomic", "Span"}
+                and canonical.base not in self.index.class_table
+                and canonical.base not in self.index.interface_table
+            )
         if canonical.is_const or canonical.is_volatile:
             return False
         return canonical.base in {"bool", "int", "signed", "signed int", "uint", "unsigned", "unsigned int"}
@@ -1839,7 +1845,11 @@ class TypeSystem:
         if canonical is None or canonical.is_array or canonical.is_nullable:
             return False
         if canonical.pointer_depth > 0:
-            return canonical.base != "string" and canonical.base not in self.index.class_table
+            return (
+                canonical.base != "string"
+                and canonical.base not in self.index.class_table
+                and canonical.base not in self.index.interface_table
+            )
         if canonical.base == "__realtime_fn_ptr":
             return True
         if canonical.generic_args:
@@ -1921,7 +1931,9 @@ class TypeSystem:
             upgraded_args = [self.upgrade_class_type(argument, shadowed_names) for argument in type_expr.generic_args]
             if upgraded_args != type_expr.generic_args:
                 type_expr = replace(type_expr, generic_args=upgraded_args)
-        if type_expr.base not in self.index.class_table or type_expr.base in shadowed_names:
+        if (
+            type_expr.base not in self.index.class_table and type_expr.base not in self.index.interface_table
+        ) or type_expr.base in shadowed_names:
             return type_expr
         if type_expr.pointer_depth > 1:
             return replace(type_expr, generic_args=upgraded_args)
@@ -2152,6 +2164,15 @@ class TypeSystem:
         const_allowed = self._const_conversion_allowed(target, source)
         target = self.canonical_type(target)
         source = self.canonical_type(source)
+        if target.base == "null":
+            return source.base == "null"
+        if (
+            target.base in self.index.interface_table
+            and source.base != "null"
+            and source.base not in self.index.class_table
+            and source.base not in self.index.interface_table
+        ):
+            return False
         if source.base == "null" or (source.base == "void" and source.pointer_depth > 0):
             return target.pointer_depth > 0 or target.is_array or target.base == "string"
         if target.base in _FUNCTION_POINTER_BASES and source.base in _FUNCTION_POINTER_BASES:
@@ -2227,7 +2248,15 @@ class TypeSystem:
         if target.base in self.index.class_table and source.base in self.index.class_table:
             return self._reference_shapes_compatible(target, source) and self.is_subclass(source.base, target.base)
         if target.base in self.index.interface_table and source.base in self.index.class_table:
-            return self._reference_shapes_compatible(target, source) and self.is_subclass(source.base, target.base)
+            return (
+                const_allowed
+                and self._type_identity.references_compatible(
+                    target, source, self.index.class_table, self.index.interface_table
+                )
+                and self._type_identity.specialization_is_subtype(
+                    source, target, self.index.class_table, self.index.interface_table
+                )
+            )
         if target.base in self.index.interface_table and source.base in self.index.interface_table:
             return self._reference_shapes_compatible(target, source) and self._is_interface_subtype(
                 source.base, target.base

@@ -191,7 +191,7 @@ class CallableValueSemantics {
 				return 0;
 			}
 			Node declaration = self.analysis.funcTable.get(expression.name);
-			return declaration.bodyNode != null ? 1 : 0;
+			return declaration.bodyNode != null || self.analysis.nativeFunctionReturnsOwned(declaration) ? 1 : 0;
 		}
 		if (expression.kind == NK_FIELD_ACCESS_EXPR) {
 			Node? method = self.methodDeclaration(expression, context);

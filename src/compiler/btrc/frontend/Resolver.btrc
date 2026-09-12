@@ -533,6 +533,7 @@ class FeResolutionFrame {
 }
 
 class FeFrontendResolver {
+	private FePackageImportPolicy importPolicy;
 	private FeDirectiveScanner directiveScanner;
 	private FeSourceDirectoryScanner sourceDirectories;
 	private FeStdlibRepository stdlib;
@@ -546,6 +547,7 @@ class FeFrontendResolver {
 	private FeResolvedPackages packages;
 
 	public FeFrontendResolver(GrammarInfo grammar, FeStdlibRepository stdlib, bool includeStdlib, bool strictImports, FeResolvedPackages packages = null) {
+		self.importPolicy = FePackageImportPolicy(packages == null ? null : packages.linkPlan.target);
 		self.directiveScanner = FeDirectiveScanner(grammar);
 		self.sourceDirectories = FeSourceDirectoryScanner();
 		self.sourcePaths = FeSourcePathPolicy();
@@ -587,7 +589,9 @@ class FeFrontendResolver {
 			}
 			directiveIndex++;
 		}
-		return FeResolutionFrame(absPath, self.sourcePaths.directoryName(absPath), FeSourceText(source).lines(), directives, byStart, covered);
+		var frame = FeResolutionFrame(absPath, self.sourcePaths.directoryName(absPath), FeSourceText(source).lines(), directives, byStart, covered);
+		for implementation in self.importPolicy.providersFor(absPath) { frame.queue(FePendingSource(implementation, 1, false), false); }
+		return frame;
 	}
 
 	/* Queue every source one directive contributes, in resolution order. */
@@ -614,6 +618,7 @@ class FeFrontendResolver {
      * include lines; btrc sources push a child frame. */
 	private void enter(FeResolutionFrame frame, FePendingSource dependency, Vector<FeLine> out, Vector<FeResolutionFrame> stack) {
 		string absolute = self.sourcePaths.absolute(dependency.path);
+		self.importPolicy.check(frame.absPath, dependency.path);
 		if (!dependency.viaInclude) {
 			self.dependencies.addImport(frame.absPath, absolute);
 		}
@@ -660,6 +665,7 @@ class FeFrontendResolver {
 		/* Each result owns a stable dependency graph. Resolver reuse must not
          * retain a prior call's include guards or dependency edges. */
 		self.included = {};
+		self.importPolicy = FePackageImportPolicy(self.packages == null ? null : self.packages.linkPlan.target);
 		self.dependencies = FeDependencyGraphBuilder(self.sourcePaths);
 		FeStdlibRootSnapshot currentSnapshot = self.stdlib.rootSnapshot();
 		self.stdlibSnapshot = currentSnapshot;

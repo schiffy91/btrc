@@ -50,17 +50,7 @@ class CallValidator {
 		}
 	}
 
-	private Node? interfaceMethod(string owner, string name) {
-		if (!self.state.interfaces.has(owner)) { return null; }
-		Node declaration = self.state.interfaces.get(owner);
-		int index = 0;
-		while (index < declaration.methods.len) {
-			Node method = declaration.methods.get(index);
-			if (method.name == name) { return method; }
-			index = index + 1;
-		}
-		return null;
-	}
+	private Node? interfaceMethod(string owner, string name) { return self.state.analyzed.interfaceMethod(owner, name); }
 
 	private void validateBuiltinSignature(string label, Vector<Node> expectedTypes, Node call, Map<string, Node> vars) {
 		int namedIndex = 0;
@@ -202,6 +192,7 @@ class CallValidator {
 		if (callee == null) { return; }
 		if (callee.kind == NK_IDENTIFIER) {
 			string name = callee.name;
+			if (self.state.analyzed.nativeLifetimeOperations.has(name)) { TypeValidator.fail("Native resource lifetime operations are reserved for managed cleanup", call); }
 			if (self.validateCallableValueCall(call, name, vars)) { return; }
 			if (self.validateGpuBuiltinCall(call, vars)) { return; }
 			if (self.validateHostedIdentifierCall(call, vars)) {
@@ -421,6 +412,11 @@ class CallValidator {
 			substitutions = SemanticTypeSystem.genericTypeMap(self.state.analyzed, receiver);
 		} else if (self.state.interfaces.has(receiver.base)) {
 			method = self.interfaceMethod( receiver.base, methodName);
+			if (method == null) { TypeValidator.fail("Interface '" + receiver.base + "' has no method '" + methodName + "'", call); }
+			self.validateSignature(receiver.base + "." + methodName, method.params, call, substitutions, false, vars);
+			self.borrows.validateOpaqueCallArguments(method, method.params, call, receiver.base + "." + methodName, substitutions, false, vars);
+			self.ownership.validateTransferredArguments(method, call, vars);
+			return;
 		} else {
 			return;
 		}

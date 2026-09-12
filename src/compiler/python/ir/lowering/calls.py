@@ -1212,7 +1212,15 @@ class CallableProvenance:
             if self.is_local(expression.name):
                 return CallableReturnABI.BORROWED
             declaration = self._analyzed.function_table.get(expression.name)
-            if declaration is not None and declaration.body is not None:
+            origin = declaration.source_file if declaration is not None else None
+            if declaration is not None and (
+                declaration.body is not None
+                or (
+                    isinstance(origin, NativeHeaderSource)
+                    and origin.call_contract is not None
+                    and origin.call_contract.resource_result
+                )
+            ):
                 return CallableReturnABI.OWNED
             return CallableReturnABI.BORROWED
         if isinstance(expression, FieldAccessExpr):
@@ -2384,6 +2392,17 @@ class CallLowerer:
         if receiver_type is None:
             receiver_type = self._resolved_receiver_type(receiver)
         class_info = self._analyzed.class_table.get(receiver_type.base) if receiver_type is not None else None
+        interface = self._analyzed.interface_table.get(receiver_type.base) if receiver_type is not None else None
+        if interface is not None and callee.field in interface.methods:
+            signature = interface.methods[callee.field]
+            method = MethodDecl(
+                access="public",
+                name=signature.name,
+                return_type=signature.return_type,
+                params=signature.params,
+                keep_return=signature.keep_return,
+            )
+            return (f"{receiver_type.base}_{signature.name}", method, receiver)
         method = class_info.methods.get(callee.field) if class_info is not None else None
         if method is None:
             return None

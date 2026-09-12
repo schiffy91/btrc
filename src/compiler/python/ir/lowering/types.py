@@ -49,6 +49,7 @@ _PRIMITIVE_MAP = {
     "char": "char",
     "string": "char*",
     "void": "void",
+    "null": "void",
     "long": "long",
     "short": "short",
     "byte": "unsigned char",
@@ -196,7 +197,7 @@ class CTypeLowerer:
         else:
             c_type = self._analyzed.native_type_spellings.get(base, base)
             native_class = self._analyzed.class_table.get(base)
-            if native_class is not None and native_class.native_language == "objective-c":
+            if native_class is not None and native_class.native_language:
                 c_type = f"struct __btrc_native_{base}"
             declaration = self._analyzed.struct_table.get(base)
             origin = getattr(declaration, "source_file", None)
@@ -802,13 +803,21 @@ class CTypeLowerer:
                 target and target.native_language == "objective-c" and (sub == base or base in native.native_ancestors)
             )
         seen: set[str] = set()
-        cur = sub
-        while cur and cur not in seen:
+        pending = [sub]
+        while pending:
+            cur = pending.pop()
+            if cur in seen:
+                continue
             if cur == base:
                 return True
             seen.add(cur)
             info = ct.get(cur)
-            cur = info.parent if info else None
+            if info is not None:
+                pending.extend(info.interfaces)
+            else:
+                info = self._analyzed.interface_table.get(cur)
+            if info is not None and info.parent:
+                pending.append(info.parent)
         return False
 
     def upcast_class_pointer(
@@ -817,21 +826,13 @@ class CTypeLowerer:
         source_type: TypeExpr | None,
         value: IRExpr,
     ) -> IRExpr:
-        """Wrap `value` in an explicit ``(Base*)`` cast for a Derived→Base upcast.
-
-        Returns `value` unchanged unless ALL of the following hold:
-          - `target_type` is a concrete class in the class table with NO generic args
-            (a sibling/derived struct pointer is otherwise incompatible C);
-          - `source_type` names a DIFFERENT class that is a strict subclass of
-            `target_type.base`.
-
-        Generic class targets are skipped: all instances of a generic share one
-        mangled struct, so no upcast is needed (and the cast text would be wrong).
-        """
+        """Preserve receiver identity through a checked class/interface upcast."""
         if target_type is None or source_type is None:
             return value
         ct = self._analyzed.class_table
-        if target_type.base not in ct or target_type.generic_args:
+        if (
+            target_type.base not in ct and target_type.base not in self._analyzed.interface_table
+        ) or target_type.generic_args:
             return value
         if source_type.base == target_type.base:
             return value

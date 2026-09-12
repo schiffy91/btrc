@@ -1,10 +1,18 @@
 import Library.Math;
+import Library.GUI.IWindow;
+import Library.GUI.IView;
 import Library.GUI.MacOS.AppKitText;
+import Library.GUI.MacOS.MacOSView;
 
-/* Main-thread native window owner. The application owns AppKit startup and
- * event dispatch; callers close child owners before closing the window. */
-class MacOSWindow {
+/* Main-thread native window owner. Managed roots transfer subtree lifecycle;
+ * raw native children remain a legacy provider-only mounting path. */
+class MacOSWindow implements IWindow {
 	private NSWindow? _window;
+	private IView? _root;
+	private unsigned long _rootMask = 0UL;
+	private bool _closing = false;
+	private bool _mutating = false;
+	private string _closeFailure = "";
 
 	public MacOSWindow(string title, double width, double height) {
 		self._window = null;
@@ -36,7 +44,84 @@ class MacOSWindow {
 	public NSWindow nativeWindow() {
 		self.requireMainThread();
 		if (self._window == null) { throw "Window is closed"; }
+		if (self._closing) { throw "Window shutdown has started"; }
 		return self._window;
+	}
+
+	private NSWindow mutationWindow() {
+		var window = self.nativeWindow();
+		if (self._mutating) { throw "Window root mutation is already active"; }
+		return window;
+	}
+
+	private IMacOSView projection(IView view) {
+		if (view == null) { throw "Cannot attach a missing root"; }
+		IMacOSView? native = (IMacOSView?)view;
+		if (native == null) { throw "Root has no macOS implementation"; }
+		return native;
+	}
+
+	public bool isOpen() { self.requireMainThread(); return self._window != null && !self._closing; }
+
+	public IView? root() { self.requireMainThread(); return self._root; }
+
+	public void attachRoot(IView view) {
+		self.mutationWindow();
+		if (self._root != null) { throw "Detach the existing window root before replacing it"; }
+		var parent = self.contentView();
+		self._mutating = true;
+		try { self.mountRoot(view, parent); } catch (string error) { self._mutating = false; throw error; }
+		self._mutating = false;
+	}
+
+	private void mountRoot(IView view, NSView parent) {
+		var native = self.projection(view);
+		var child = native.nativeView();
+		MacOSView.validateAttachment(child, parent);
+		var previousFrame = child.frame();
+		self._rootMask = child.autoresizingMask();
+		self._root = view;
+		try {
+			native.attachTo(parent);
+			child.setAutoresizingMask(NSViewWidthSizable | NSViewHeightSizable);
+			var bounds = parent.bounds();
+			view.arrange(0.0, 0.0, bounds.size.width, bounds.size.height);
+		} catch (string error) {
+			try {
+				child.setAutoresizingMask(self._rootMask);
+				child.setFrame(previousFrame);
+				if (child.superview() == parent) { native.detachFrom(parent); }
+				self._root = null;
+			} catch (string rollbackError) {
+				self._closing = true;
+				self._closeFailure = rollbackError;
+				throw rollbackError;
+			}
+			throw error;
+		}
+	}
+
+	public IView? detachRoot() {
+		self.mutationWindow();
+		var root = self._root;
+		if (root == null) { return null; }
+		var parent = self.contentView();
+		self._mutating = true;
+		try {
+			var native = self.projection(root);
+			var child = native.nativeView();
+			// Keep alias-close admission reserved until native state is restored.
+			child.setAutoresizingMask(self._rootMask);
+			native.detachFrom(parent);
+			self._root = null;
+		} catch (string error) {
+			self._closing = true;
+			self._closeFailure = error;
+			self._mutating = false;
+			throw error;
+		}
+		self._mutating = false;
+		return root;
 	}
 
 	public NSView contentView() {
@@ -47,12 +132,20 @@ class MacOSWindow {
 
 	public void setContentSize(double width, double height) {
 		self.requireSize(width, height);
-		var window = self.nativeWindow();
+		var window = self.mutationWindow();
 		var frame = window.frame();
 		frame.size.width = width;
 		frame.size.height = height;
-		window.setContentSize(frame.size);
+		self._mutating = true;
+		try { window.setContentSize(frame.size); } catch (string error) { self._mutating = false; throw error; }
+		self._mutating = false;
 	}
+
+	public double contentWidth() { return self.contentView().bounds().size.width; }
+
+	public double contentHeight() { return self.contentView().bounds().size.height; }
+
+	public string title() { return AppKitText.ownedValue(self.nativeWindow().title()); }
 
 	public void setTitle(string title) { self.nativeWindow().setTitle(AppKitText.nativeValue(title)); }
 
@@ -86,7 +179,26 @@ class MacOSWindow {
 		self.requireMainThread();
 		var window = self._window;
 		if (window == null) { return; }
-		window.close();
-		self._window = null;
+		if (self._closeFailure != "") { throw self._closeFailure; }
+		if (self._closing) { throw "Window shutdown is already active"; }
+		if (self._mutating) { throw "Window root mutation is already active"; }
+		self._closing = true;
+		try {
+			var root = self._root;
+			if (root != null) {
+				var parent = window.contentView();
+				if (parent == null) { throw "Window has no content view"; }
+				self.projection(root).detachFrom(parent);
+				root.close();
+				self._root = null;
+			}
+			window.close();
+			self._window = null;
+		} catch (string error) {
+			self._closeFailure = error;
+			throw error;
+		}
 	}
+
+	public void __del__() { self.close(); }
 }

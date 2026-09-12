@@ -1,26 +1,36 @@
+import Library.GUI.IView;
+import Library.GUI.ITextField;
 import Library.GUI.MacOS.MacOSApplication;
 import Library.GUI.MacOS.MacOSTextField;
 import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSView;
 
 import ./ControlProbe.btrc;
 #include <assert.h>
-
-NSView asView(NSTextField field) { return field; }
 
 int main() {
 	var app = MacOSApplication();
 	var window = MacOSWindow("Library Música 🎸", 480.0, 180.0);
 	NativeTextFieldProbe.prepare(window.nativeWindow());
 	var field = MacOSTextField("Library Música 🎸", "Search library");
-	assert(field.text().equals("Library Música 🎸"));
-	field.setEnabled(false);
-	assert(!field.isEnabled());
-	field.setEnabled(true);
-	assert(field.isEnabled());
+	ITextField textField = field;
+	IView view = textField;
+	assert(textField.text().equals("Library Música 🎸") && view.isOpen());
+	assert(view.fittingWidth() >= 0.0 && view.fittingHeight() > 0.0);
+	textField.setEnabled(false);
+	assert(!textField.isEnabled());
+	textField.setEnabled(true);
+	assert(textField.isEnabled());
+	view.setVisible(false);
+	assert(!view.isVisible());
+	view.setVisible(true);
 	var parent = window.contentView();
-	NSView child = asView(field.nativeControl());
+	IMacOSView? native = (IMacOSView?)view;
+	assert(native != null);
+	NSView child = native.nativeView();
+	assert(view.fittingWidth() == child.fittingSize().width && view.fittingHeight() == child.fittingSize().height);
 	parent.addSubview(child);
-	field.setFrame(24.25, 72.5, 431.75, 30.125);
+	view.arrange(24.25, 77.375, 431.75, 30.125);
 	var frame = field.nativeControl().frame();
 	assert(frame.origin.x == 24.25 && frame.origin.y == 72.5 && frame.size.width == 431.75 && frame.size.height == 30.125);
 	bool invalidFrame = false;
@@ -28,17 +38,17 @@ int main() {
 	assert(invalidFrame);
 	assert(NativeTextFieldProbe.mount(field.nativeControl()));
 	assert(NativeTextFieldProbe.replaceSelection());
-	assert(field.text().equals("Guitar 🎸"));
-	field.setText("Guitar 🎸");
+	assert(textField.text().equals("Guitar 🎸"));
+	textField.setText("Guitar 🎸");
 	assert(NativeTextFieldProbe.selectionUnchanged());
 	assert(NativeTextFieldProbe.undo());
-	assert(field.text().equals("Library Música 🎸"));
+	assert(textField.text().equals("Library Música 🎸"));
 	assert(NativeTextFieldProbe.redo());
-	assert(field.text().equals("Guitar 🎸"));
+	assert(textField.text().equals("Guitar 🎸"));
 	for (int drain = 0; drain < 20; drain++) { if (app.pumpEvents() == 0) { break; } }
 	assert(NativeTextFieldProbe.queueKey());
 	assert(app.pumpEvents(1) == 1);
-	assert(field.text().equals("n 🎸"));
+	assert(textField.text().equals("n 🎸"));
 	bool invalidLimit = false;
 	try { app.pumpEvents(0); } catch (string error) { invalidLimit = error.equals("Event dispatch limit must be positive"); }
 	assert(invalidLimit);
@@ -48,7 +58,8 @@ int main() {
 		});
 	assert(applicationWorker.join() == 0);
 	var control = field.nativeControl();
-	field.close();
+	view.close();
+	assert(!textField.isOpen() && !field.isOpen());
 	field.close();
 	assert(NativeTextFieldProbe.finish(control));
 	window.close();

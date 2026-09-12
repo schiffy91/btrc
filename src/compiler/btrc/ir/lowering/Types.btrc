@@ -75,7 +75,7 @@ class CTypeLowerer {
 		Node? canonical = SemanticTypeSystem.resolveOuterTypedefType(aliasUse, self.analyzed.typedefTable);
 		if (canonical == null) { return false; }
 		Node resolved = canonical;
-		return TypeComposition.resolvedReferenceShape(resolved) || self.analyzed.isClass(resolved.base) || (resolved.genericArgs.len > 0 && self.analyzed.isGenericClass(resolved.base));
+		return TypeComposition.resolvedReferenceShape(resolved) || self.analyzed.isClass(resolved.base) || self.analyzed.isInterface(resolved.base) || (resolved.genericArgs.len > 0 && self.analyzed.isGenericClass(resolved.base));
 	}
 
 	public string lower(Node? typeExpr) {
@@ -113,6 +113,7 @@ class CTypeLowerer {
 				rendered = TypeIdentity.mangleGenericType(base, concrete.genericArgs);
 			}
 		} else if (base == "string") { rendered = "char*"; }
+		else if (base == "null") { rendered = "void"; }
 		else if (base == "bool") { rendered = "bool"; }
 		else if (base == "byte") { rendered = "unsigned char"; }
 		else if (base == "uint") { rendered = "unsigned int"; }
@@ -120,7 +121,7 @@ class CTypeLowerer {
 		string nativeSpelling = self.analyzed.nativeTypeSpelling(base);
 		if (!nativeSpelling.isEmpty()) { rendered = nativeSpelling; }
 		if (self.analyzed.isObjectiveCRecord(base)) { rendered = "struct __btrc_value_" + base; }
-		if (self.analyzed.nativeClassLanguage(base) == "objective-c") { rendered = "struct __btrc_native_" + base; }
+		if (!self.analyzed.nativeClassLanguage(base).isEmpty()) { rendered = "struct __btrc_native_" + base; }
 		int depth = concrete.pointerDepth;
 		bool baseIsReference = rendered.endsWith("*") || base == "__fn_ptr" || base == "__realtime_fn_ptr" || self.aliasBaseIsReference(base);
 		if (TypeComposition.nullableCollapsesReferenceLayer(concrete, baseIsReference)) {
@@ -131,7 +132,7 @@ class CTypeLowerer {
 			rendered = rendered + "*";
 			pointer = pointer + 1;
 		}
-		if (concrete.genericArgs.len == 0 && self.analyzed.isClass(base) && concrete.pointerDepth == 0) {
+		if (concrete.genericArgs.len == 0 && (self.analyzed.isClass(base) || self.analyzed.isInterface(base)) && concrete.pointerDepth == 0) {
 			rendered = rendered + "*";
 		} else if (concrete.genericArgs.len > 0 && self.analyzed.isGenericClass(base) && concrete.pointerDepth == 0) {
 			rendered = rendered + "*";

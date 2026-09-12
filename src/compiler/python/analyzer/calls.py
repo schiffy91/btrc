@@ -674,6 +674,8 @@ class CallAnalyzer:
                 field = cls.static_fields.get(callee.field)
                 return bool(field and self.types.function_pointer_signature(field.type) is not None)
         receiver = self.type_of(callee.obj)
+        if receiver and receiver.base in self.index.interface_table:
+            return callee.field in self.index.interface_table[receiver.base].methods
         if (
             receiver
             and receiver.base not in self.index.class_table
@@ -789,6 +791,9 @@ class CallAnalyzer:
         if signature is not None:
             return signature[0]
         object_type = self.type_of(callee.obj)
+        if object_type and object_type.base in self.index.interface_table:
+            method = self.index.interface_table[object_type.base].methods.get(callee.field)
+            return method.return_type if method is not None else None
         if (
             object_type
             and (
@@ -915,6 +920,11 @@ class CallAnalyzer:
 
     def _validate_identifier_call(self, expr):
         name = expr.callee.name
+        if name in self.index.native_lifetime_operations:
+            self.session.error(
+                "Native resource lifetime operations are reserved for managed cleanup", expr.line, expr.col
+            )
+            return
         if self.ownership.is_raw_lifetime_call(expr):
             self.ownership.validate_raw_lifetime_call(expr)
         if self.gpu.call_uses_intrinsic(expr):
@@ -1082,6 +1092,27 @@ class CallAnalyzer:
             self._collect_method_instance(expr, cls, method, None, substitutions)
             return
         if not receiver_type:
+            return
+        if receiver_type.base in self.index.interface_table:
+            interface = self.index.interface_table[receiver_type.base]
+            method = interface.methods.get(callee.field)
+            if method is None:
+                self.session.error(f"Interface '{interface.name}' has no method '{callee.field}'", expr.line, expr.col)
+                return
+            self._validate_call_signature(
+                f"{interface.name}.{method.name}",
+                method.params,
+                expr.args,
+                expr.arg_names,
+                expr.line,
+                expr.col,
+                declaration=method,
+            )
+            self.ownership.validate_consuming_arguments(
+                method,
+                self._consumption_argument_plan(method.params, expr.args, expr.arg_names),
+                f"{interface.name}.{method.name}",
+            )
             return
         if receiver_type.base not in self.index.class_table:
             self.generics.record_class_method_use(receiver_type, callee.field)

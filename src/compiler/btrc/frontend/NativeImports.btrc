@@ -1,5 +1,5 @@
-/* Checked SDK semantics and lossless projections into the typed source pipeline.
- * Managed native ownership and Objective-C/C++ adapters remain explicit errors. */
+/* Checked SDK projections and managed C/Objective-C imports. Unknown ownership
+ * and unsupported native shapes fail before structured adapter lowering. */
 
 import Library.JSON;
 import Library.FileSystem;
@@ -32,6 +32,12 @@ class FeNativeDeclarationImporter {
 	private Map<string, NativeNode> recordLayouts;
 	private Vector<FeNativeImportedDeclaration> inputClasses;
 	private bool requiresSelector = false;
+	private Map<string, FeNativeResourceBinding> resources = {};
+	private Map<string, NativeNode> resourceTypes = {};
+	private Map<string, bool> resourceOperations = {};
+	private Map<string, bool> ownedResults = {};
+	private Map<string, bool> resourceBorrows = {};
+	private Map<string, FeNativeCallbackBinding> callbacks = {};
 
 	public FeNativeDeclarationImporter(FeNativeHeaderReader headerReader = (FeNativeHeaderReader)null) {
 		self.nativeInterfaces = {};
@@ -92,13 +98,14 @@ class FeNativeDeclarationImporter {
 		return "";
 	}
 
-	private void add(string name, Node declaration, string identity, string typeSpelling = "", bool readOnly = false, FeNativeCallContract? callContract = null) {
+	private void add(string name, Node declaration, string identity, string typeSpelling = "", bool readOnly = false, FeNativeCallContract? callContract = null, FeNativeResourceBinding? resource = null) {
 		string key = self.module + "\x1f" + name;
 		if (self.typeIdentities.has(key)) {
 			if (identity.isEmpty() || !self.typeIdentities.get(key).equals(identity)) { self.fail(f"conflicting native declaration '{name}'"); }
 			for previous in self.declarations {
 				Node prior = previous.declaration;
 				string priorName = prior.kind == NK_TYPEDEF_DECL ? prior.alias : prior.name;
+				if (previous.module == self.module && priorName == name && !self.sameResource(previous.resource, resource)) { self.fail(f"conflicting native resource '{name}'"); }
 				if (previous.module.equals(self.module) && priorName.equals(name) && (prior.kind != declaration.kind || !previous.typeSpelling.equals(typeSpelling) || previous.readOnly != readOnly || !self.sameCallContract(previous.callContract, callContract))) { self.fail(f"conflicting native declaration '{name}'"); }
 			}
 			return;
@@ -107,7 +114,142 @@ class FeNativeDeclarationImporter {
 		self.typeIdentities.put(key, identity);
 		var imported = FeNativeImportedDeclaration(declaration, self.module, self.header, typeSpelling, readOnly, callContract);
 		imported.language = self.language;
+		imported.resource = resource;
 		self.declarations.push(imported);
+	}
+
+	private bool sameResource(FeNativeResourceBinding? left, FeNativeResourceBinding? right) {
+		if (left == null || right == null) { return left == right; }
+		return left.identity() == right.identity();
+	}
+
+	private bool resourcePointerAccepts(NativeNode target, NativeNode source) {
+		NativeNode targetPointer = self.unqualifiedNative(target);
+		NativeNode sourcePointer = self.unqualifiedNative(source);
+		if (targetPointer.kind != NNK_NATIVE_POINTER || sourcePointer.kind != NNK_NATIVE_POINTER) { return false; }
+		NativeNode targetValue = self.unqualifiedNative(targetPointer.pointee);
+		NativeNode sourceValue = self.unqualifiedNative(sourcePointer.pointee);
+		if (sourceValue.qualifiers.isConst && !targetValue.qualifiers.isConst) { return false; }
+		return (targetValue.kind == NNK_NATIVE_BUILTIN && targetValue.name == "void") || (targetValue.kind == NNK_NATIVE_RECORD_TYPE && sourceValue.kind == NNK_NATIVE_RECORD_TYPE && targetValue.identity == sourceValue.identity);
+	}
+
+	private Vector<FeNativeCallbackProjection> projectCallbacks(NativeNode declaration) {
+		Vector<FeNativeCallbackProjection> projections = [];
+		Map<int, bool> occupied = {};
+		for index in range(declaration.parameterSemantics.len) {
+			string key = declaration.name + "." + declaration.parameterSemantics.get(index).name;
+			if (!self.callbacks.has(key)) { continue; }
+			var binding = self.callbacks.get(key);
+			self.callbacks.remove(key);
+			int contextIndex = -1;
+			for position in range(declaration.parameterSemantics.len) {
+				if (declaration.parameterSemantics.get(position).name != binding.context) { continue; }
+				if (contextIndex >= 0) { self.fail("callback context must identify one native parameter"); }
+				contextIndex = position;
+			}
+			if (contextIndex < 0) { self.fail("callback context must identify one native parameter"); }
+			if (index == contextIndex || occupied.has(index) || occupied.has(contextIndex)) { self.fail("callback and context parameters must be distinct and unshared"); }
+			occupied.put(index, true);
+			occupied.put(contextIndex, true);
+			NativeNode native = self.unqualifiedNative(declaration.signature.parameters.get(index));
+			if (native.kind != NNK_NATIVE_POINTER) { self.fail("callback expected a nonvariadic function pointer"); }
+			NativeNode signature = self.unqualifiedNative(native.pointee);
+			if (signature.kind != NNK_NATIVE_FUNCTION_TYPE || signature.variadic) { self.fail("callback expected a nonvariadic function pointer"); }
+			if (binding.contextIndex >= signature.parameters.len) { self.fail("callback context-index is outside the native signature"); }
+			for context in [declaration.signature.parameters.get(contextIndex), signature.parameters.get(binding.contextIndex)] {
+				NativeNode pointer = self.unqualifiedNative(context);
+				if (pointer.kind != NNK_NATIVE_POINTER) { self.fail("callback context must be an unqualified void pointer"); }
+				NativeNode pointee = self.unqualifiedNative(pointer.pointee);
+				if (pointee.kind != NNK_NATIVE_BUILTIN || pointee.name != "void" || pointee.qualifiers.isConst) { self.fail("callback context must be an unqualified void pointer"); }
+			}
+			NativeNode result = self.unqualifiedNative(signature.returnType);
+			if (result.kind != NNK_NATIVE_BUILTIN && result.kind != NNK_NATIVE_ENUM_TYPE) { self.fail("callback non-scalar results require an ownership mapping"); }
+			var projection = FeNativeCallbackProjection(binding.interfaceName, index, contextIndex, binding.contextIndex, self.callType(signature.returnType));
+			Node method = self.node(NK_METHOD_SIG);
+			method.name = "invoke";
+			method.returnType = projection.returnType;
+			string identity = "callback-interface:" + self.typeIdentity(signature.returnType);
+			for position in range(signature.parameters.len) {
+				Node parameter = self.node(NK_PARAM);
+				parameter.name = f"argument{method.params.len}";
+				if (position == binding.contextIndex) {
+					parameter.type = self.node(NK_TYPE_EXPR);
+					parameter.type.base = "void";
+					parameter.type.pointerDepth = 1;
+				} else {
+					NativeNode scalar = self.unqualifiedNative(signature.parameters.get(position));
+					if (scalar.kind != NNK_NATIVE_BUILTIN && scalar.kind != NNK_NATIVE_ENUM_TYPE) { self.fail("callback non-scalar arguments require a borrow mapping"); }
+					parameter.type = self.callType(signature.parameters.get(position), true);
+					method.params.push(parameter);
+					identity = identity + ":" + self.typeIdentity(signature.parameters.get(position));
+				}
+				projection.parameters.push(parameter.type);
+			}
+			Node projectedInterface = self.node(NK_INTERFACE_DECL);
+			projectedInterface.name = binding.interfaceName;
+			projectedInterface.methods.push(method);
+			self.add(binding.interfaceName, projectedInterface, identity);
+			projections.push(projection);
+		}
+		return projections;
+	}
+
+	private void prepareResources(FeNativeBinding binding, NativeNode header) {
+		self.resources = binding.resources;
+		self.resourceTypes = {};
+		self.ownedResults = {};
+		self.resourceBorrows = {};
+		for name in binding.ownedResults { self.ownedResults.put(name, true); }
+		for name in binding.borrowedParameters { self.resourceBorrows.put(name, true); }
+		Map<string, NativeNode> exports = {};
+		for declaration in header.exports { exports.put(declaration.name, declaration); }
+		for name in binding.resources.keys() {
+			FeNativeResourceBinding resource = binding.resources.get(name);
+			if (!exports.has(name) || exports.get(name).kind != NNK_NATIVE_TYPEDEF) { self.fail(f"resource {name}: expected a selected pointer typedef"); }
+			NativeNode declaration = exports.get(name);
+			NativeNode pointer = self.unqualifiedNative(declaration.underlying);
+			if (pointer.kind != NNK_NATIVE_POINTER || self.unqualifiedNative(pointer.pointee).kind != NNK_NATIVE_RECORD_TYPE) { self.fail(f"resource {name}: expected a record-pointer typedef"); }
+			self.resourceTypes.put(name, declaration.underlying);
+			for operation in [resource.retainFunction, resource.releaseFunction] {
+				if (!exports.has(operation) || exports.get(operation).kind != NNK_NATIVE_FUNCTION) { self.fail(f"resource {name}: lifetime operation {operation} requires one pointer parameter"); }
+				NativeNode nativeFunction = exports.get(operation);
+				if (nativeFunction.signature.variadic || nativeFunction.signature.parameters.len != 1) { self.fail(f"resource {name}: lifetime operation {operation} requires one pointer parameter"); }
+				if (!self.resourcePointerAccepts(nativeFunction.signature.parameters.get(0), pointer)) { self.fail(f"resource {name}: incompatible lifetime parameter in {operation}"); }
+				NativeNode result = self.unqualifiedNative(nativeFunction.signature.returnType);
+				bool returnsVoid = result.kind == NNK_NATIVE_BUILTIN && result.name == "void";
+				if (!returnsVoid && (operation == resource.releaseFunction || !self.resourcePointerAccepts(result, pointer))) { self.fail(f"resource {name}: unsupported lifetime result in {operation}"); }
+				if (nativeFunction.returnedOwnership != "unspecified" && nativeFunction.returnedOwnership != "cf_retained") { self.fail(f"resource {name}: conflicting lifetime ownership in {operation}"); }
+				for parameter in nativeFunction.parameterSemantics { if (parameter.cfConsumed || parameter.nsConsumed) { self.fail(f"resource {name}: conflicting lifetime ownership in {operation}"); } }
+				self.resourceOperations.put(operation, true);
+			}
+			Node imported = self.node(NK_CLASS_DECL);
+			imported.name = name;
+			imported.isAbstract = true;
+			self.add(name, imported, self.typeIdentity(declaration.underlying), "", false, null, resource);
+		}
+	}
+
+	private string resourceName(NativeNode native) {
+		while (native.kind == NNK_NATIVE_ALIAS || native.kind == NNK_NATIVE_QUALIFIED_TYPE) {
+			if (native.kind == NNK_NATIVE_ALIAS && self.resources.has(native.name)) { return native.name; }
+			native = native.underlying;
+		}
+		return "";
+	}
+
+	private Node resourceCallType(NativeNode native) {
+		string name = self.resourceName(native);
+		if (name.isEmpty()) { return self.callType(native); }
+		NativeNode current = native;
+		while (current.kind == NNK_NATIVE_ALIAS || current.kind == NNK_NATIVE_QUALIFIED_TYPE || current.kind == NNK_NATIVE_POINTER) {
+			if (current.qualifiers.isVolatile || current.qualifiers.isRestrict) { self.fail("resource qualifiers require managed native lowering"); }
+			current = current.kind == NNK_NATIVE_POINTER ? current.pointee : current.underlying;
+		}
+		Node result = self.node(NK_TYPE_EXPR);
+		result.base = name;
+		result.isNullable = self.callNullability(native) != "nonnull";
+		result.pointerDepth = result.isNullable ? 1 : 0;
+		return result;
 	}
 
 	private Node qualify(Node projected, NativeNode native, bool callBoundary = false) {
@@ -234,6 +376,8 @@ class FeNativeDeclarationImporter {
 	}
 
 	private Node type(NativeNode input) {
+		if (!self.resourceName(input).isEmpty()) { self.fail("resource storage requires a checked managed call boundary"); }
+		for name in self.resourceTypes.keys() { if (self.typeIdentity(input) == self.typeIdentity(self.resourceTypes.get(name))) { self.fail("resource storage requires a checked managed call boundary"); } }
 		NativeNode native = self.withoutSpellingWrappers(input);
 		Node projected = self.node(NK_TYPE_EXPR);
 		if (native.kind == NNK_NATIVE_BUILTIN) {
@@ -295,6 +439,7 @@ class FeNativeDeclarationImporter {
 		Node imported = Node();
 		FeNativeCallContract? contract = null;
 		if (declaration.kind == NNK_NATIVE_FUNCTION) {
+			if (self.resourceOperations.has(declaration.name)) { return; }
 			var callContract = FeNativeCallContract();
 			callContract.realtimeSafe = self.realtime.has(declaration.name);
 			self.realtime.remove(declaration.name);
@@ -302,7 +447,13 @@ class FeNativeDeclarationImporter {
 			if (signature.variadic) { self.fail("variadic native calls require adapter lowering"); }
 			/* The included SDK header owns asm labels. Calls use its source name,
 			 * never a reconstructed declaration or the native linker spelling. */
-			if (!declaration.returnedOwnership.equals("unspecified")) { self.fail("annotated native ownership requires managed native lowering"); }
+			callContract.resourceResult = self.resourceName(signature.returnType);
+			if (declaration.returnedOwnership != "unspecified" && callContract.resourceResult.isEmpty()) { self.fail("annotated native ownership requires managed native lowering"); }
+			if (!callContract.resourceResult.isEmpty()) {
+				if (declaration.returnedOwnership != "unspecified" && declaration.returnedOwnership != "cf_retained") { self.fail("resource result contradicts owned ownership; borrowed results require an owner"); }
+				if (!self.ownedResults.has(declaration.name) && declaration.returnedOwnership != "cf_retained") { self.fail("resource result requires owned-results or SDK retained ownership"); }
+				self.ownedResults.remove(declaration.name);
+			}
 			Map<string, bool> names = {};
 			for semantics in declaration.parameterSemantics {
 				if (semantics.cfConsumed || semantics.nsConsumed) { self.fail("annotated native ownership requires managed native lowering"); }
@@ -310,6 +461,13 @@ class FeNativeDeclarationImporter {
 			}
 			imported = self.node(NK_FUNCTION_DECL);
 			imported.name = declaration.name;
+			callContract.callbacks = self.projectCallbacks(declaration);
+			Map<int, FeNativeCallbackProjection> callbackParameters = {};
+			Map<int, bool> callbackContexts = {};
+			for callback in callContract.callbacks {
+				callbackParameters.put(callback.parameterIndex, callback);
+				callbackContexts.put(callback.contextIndex, true);
+			}
 			for index in range(signature.parameters.len) {
 				string name = declaration.parameterSemantics.get(index).name;
 				if (name.isEmpty()) {
@@ -319,8 +477,22 @@ class FeNativeDeclarationImporter {
 				}
 				Node parameter = self.node(NK_PARAM);
 				parameter.name = name;
-				parameter.type = self.callType(signature.parameters.get(index), true);
 				string key = declaration.name + "." + declaration.parameterSemantics.get(index).name;
+				string resourceParameter = self.resourceName(signature.parameters.get(index));
+				if (callbackContexts.has(index)) {
+					if (self.borrows.has(key) || !resourceParameter.isEmpty()) { self.fail("callback context cannot also declare a borrow or resource mapping"); }
+					continue;
+				}
+				if (!resourceParameter.isEmpty()) {
+					if (!self.resourceBorrows.has(key)) { self.fail(f"resource parameter {key} requires borrowed-parameters"); }
+					self.resourceBorrows.remove(key);
+				}
+				callContract.resourceParameters.push(resourceParameter);
+				parameter.type = resourceParameter.isEmpty() ? self.callType(signature.parameters.get(index), true) : self.resourceCallType(signature.parameters.get(index));
+				if (callbackParameters.has(index)) {
+					parameter.type = self.node(NK_TYPE_EXPR);
+					parameter.type.base = callbackParameters.get(index).interfaceName;
+				}
 				bool borrowed = self.borrows.has(key);
 				if (borrowed) {
 					NativeNode scalar = signature.parameters.get(index);
@@ -331,10 +503,15 @@ class FeNativeDeclarationImporter {
 					self.borrows.remove(key);
 				}
 				callContract.readOnlyBorrows.push(borrowed);
-				callContract.nonnullParameters.push(self.callNullability(signature.parameters.get(index)).equals("nonnull"));
+				callContract.nonnullParameters.push(callbackParameters.has(index) || self.callNullability(signature.parameters.get(index)).equals("nonnull"));
 				imported.params.push(parameter);
 			}
-			imported.returnType = self.callType(signature.returnType);
+			imported.returnType = self.resourceCallType(signature.returnType);
+			if (callContract.realtimeSafe) {
+				if (callContract.callbacks.len > 0) { self.fail("managed callback adapters are not realtime-safe"); }
+				if (!callContract.resourceResult.isEmpty()) { self.fail("managed resource adapters are not realtime-safe"); }
+				for resource in callContract.resourceParameters { if (!resource.isEmpty()) { self.fail("managed resource adapters are not realtime-safe"); } }
+			}
 			callContract.nonnullReturn = self.callNullability(signature.returnType).equals("nonnull");
 			contract = callContract;
 		} else if (declaration.kind == NNK_NATIVE_GLOBAL) {
@@ -356,6 +533,7 @@ class FeNativeDeclarationImporter {
 			while (native.kind == NNK_NATIVE_ALIAS || native.kind == NNK_NATIVE_QUALIFIED_TYPE || native.kind == NNK_NATIVE_ENUM_TYPE) { native = native.underlying; }
 			imported.initializer = self.integer(declaration.decimalValue, native.kind == NNK_NATIVE_BUILTIN && native.signedness == "unsigned" ? "U" : "");
 		} else if (declaration.kind == NNK_NATIVE_TYPEDEF) {
+			if (self.resources.has(declaration.name)) { return; }
 			self.alias(declaration.name, declaration.underlying);
 			return;
 		} else if (declaration.kind == NNK_NATIVE_RECORD_DECLARATION) {
@@ -518,6 +696,14 @@ class FeNativeDeclarationImporter {
 
 	private bool sameCallContract(FeNativeCallContract? left, FeNativeCallContract? right) {
 		if (left == null || right == null) { return left == right; }
+		if (left.callbacks.len != right.callbacks.len) { return false; }
+		for index in range(left.callbacks.len) {
+			var first = left.callbacks.get(index);
+			var second = right.callbacks.get(index);
+			if (first.interfaceName != second.interfaceName || first.parameterIndex != second.parameterIndex || first.contextIndex != second.contextIndex || first.callbackContextIndex != second.callbackContextIndex) { return false; }
+		}
+		if (left.resourceResult != right.resourceResult || left.resourceParameters.len != right.resourceParameters.len) { return false; }
+		for index in range(left.resourceParameters.len) { if (left.resourceParameters.get(index) != right.resourceParameters.get(index)) { return false; } }
 		if (left.nonnullReturn != right.nonnullReturn || left.realtimeSafe != right.realtimeSafe || left.nonnullParameters.len != right.nonnullParameters.len || left.readOnlyBorrows.len != right.readOnlyBorrows.len) { return false; }
 		for index in range(left.nonnullParameters.len) { if (left.nonnullParameters.get(index) != right.nonnullParameters.get(index)) { return false; } }
 
@@ -575,6 +761,7 @@ class FeNativeDeclarationImporter {
 			if (declaration.kind == NK_CLASS_DECL && imported.language == "objective-c" && name != "id") { imported.nativeAncestors.push("id"); }
 			if (!selected.has(name)) { selected.put(name, imported); continue; }
 			FeNativeImportedDeclaration previous = selected.get(name);
+			if (!self.sameResource(previous.resource, imported.resource)) { self.fail(f"conflicting native resource '{name}'"); }
 			Node prior = previous.declaration;
 			string identity = self.typeIdentities.get(imported.module + "\x1f" + name);
 			string priorIdentity = self.typeIdentities.get(previous.module + "\x1f" + name);
@@ -871,6 +1058,9 @@ class FeNativeDeclarationImporter {
 			var result = request.result();
 			if (result.isErr()) { self.fail(result.unwrapErr()); }
 			NativeNode decoded = FeNativeHeaderCodec().decode(result.unwrap(), target);
+			self.prepareResources(binding, decoded);
+			self.callbacks = {};
+			for key in binding.callbacks.keys() { self.callbacks.put(key, binding.callbacks.get(key)); }
 			self.mergeInterfaces(decoded.interfaces);
 			self.layouts = {};
 			for layout in decoded.records {
@@ -882,7 +1072,10 @@ class FeNativeDeclarationImporter {
 			for declaration in decoded.exports { self.importDeclaration(declaration); }
 			if (self.borrows.len > 0) { self.fail("read-only-borrows names unknown function parameter"); }
 			if (self.realtime.len > 0) { self.fail("realtime-safe names a non-function declaration"); }
+			if (self.ownedResults.len > 0 || self.resourceBorrows.len > 0) { self.fail("resource ownership names an unknown or non-resource result/parameter"); }
+			if (self.callbacks.len > 0) { self.fail("callbacks names an unknown function parameter"); }
 		}
+		for imported in self.declarations { if (self.resourceOperations.has(imported.declaration.name)) { self.fail("resource lifetime operations are reserved across native bindings"); } }
 		self.projectRecordInputs(bindings);
 		self.coalesce();
 		self.validateSelectorStorage();

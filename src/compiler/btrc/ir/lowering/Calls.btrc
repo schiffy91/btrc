@@ -526,7 +526,7 @@ class CallTargetResolver {
 				declaration, {});
 			functionTarget.symbol = self.declarations.sourceCallSymbol(name, call);
 			functionTarget.defaultCName = self.declarations.sourceFunctionSymbol(name);
-			functionTarget.languageCall = declaration.bodyNode != null;
+			functionTarget.languageCall = declaration.bodyNode != null || self.analyzed.nativeFunctionReturnsOwned(declaration);
 			return functionTarget;
 		}
 		return self.builtinTarget(call, name, null, null, variableTypes);
@@ -571,6 +571,10 @@ class CallTargetResolver {
 		}
 		Node? receiverType = self.expressionType(receiver, variableTypes);
 		if (receiverType != null) {
+			if (self.analyzed.isInterface(receiverType.base)) {
+				Node? requirement = self.analyzed.interfaceMethod(receiverType.base, callee.field);
+				if (requirement != null) { return self.methodTarget(call, receiver, receiverType, requirement, variableTypes, true); }
+			}
 			Node? method = self.analyzed.isGenericClass(receiverType.base) ? self.analyzed.genericClassMethod(receiverType.base, callee.field) : self.analyzed.classMethod(receiverType.base, callee.field);
 			if (method != null && method.kind == NK_METHOD_DECL) {
 				return self.methodTarget(call, receiver, receiverType, method, variableTypes, true);

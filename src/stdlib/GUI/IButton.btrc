@@ -1,0 +1,12 @@
+import Library.GUI.IView;
+
+/* Setters publish model state without synthesizing user actions. activate()
+ * uses native control tracking and returns false when the control is disabled.
+ * Typed action subscription belongs to the checked callback binding. */
+interface IButton extends IView {
+	string title();
+	void setTitle(string title);
+	bool isEnabled();
+	void setEnabled(bool enabled);
+	bool activate();
+}

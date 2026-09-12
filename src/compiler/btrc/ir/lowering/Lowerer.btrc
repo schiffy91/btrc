@@ -81,7 +81,7 @@ class IRLowerer {
 		OwnershipSemantics ownershipSemantics = OwnershipSemantics(analyzed, hostedAbi, operators, managedValues, callableValues, operandPlanner, self.context, callTargets);
 		CallOwnershipLowerer callOwnership = CallOwnershipLowerer(analyzed, managedValues, ownershipSemantics, operandPlanner, callableValues, self.context, managedLifetime, self.cTypes, callTargets);
 		ManagedTypeLowerer managedTypes = ManagedTypeLowerer(analyzed, managedValues, cycles, operandPlanner, self.context, managedLifetime, self.cTypes);
-		CycleBoundaryLowerer cycleBoundaries = CycleBoundaryLowerer(analyzed, managedValues, cycles, self.cleanupSlots, self.context, self.cTypes);
+		CycleBoundaryLowerer cycleBoundaries = CycleBoundaryLowerer(analyzed, managedValues, cycles, self.cleanupSlots, self.context, self.cTypes, managedLifetime);
 		CycleReturnBoundaryLowerer cycleReturns = CycleReturnBoundaryLowerer(self.context.temporaryNames());
 		AggregateValueLowerer aggregateValues = AggregateValueLowerer(analyzed, managedValues, operandPlanner);
 		CallLowerer calls = CallLowerer(callTargets, self.cTypes, self.context);

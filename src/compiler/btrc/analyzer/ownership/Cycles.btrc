@@ -64,7 +64,7 @@ class CycleSemantics {
 			return;
 		}
 		if (!self.isGraphManaged(resolved)) { return; }
-		if (resolved.genericArgs.len == 0 && self.analyzed.isClass(resolved.base)) {
+		if (resolved.genericArgs.len == 0 && (self.analyzed.isClass(resolved.base) || self.analyzed.isInterface(resolved.base))) {
 			Vector<string> runtimeClasses = self.analyzed.classTable.keys();
 			int index = 0;
 			while (index < runtimeClasses.len) {
@@ -73,6 +73,11 @@ class CycleSemantics {
 					output.push(SemanticTypeSystem.primitive(runtimeClass));
 				}
 				index = index + 1;
+			}
+			if (self.analyzed.isInterface(resolved.base)) {
+				for instance in self.analyzed.genericInstances {
+					if (self.analyzed.isSubclass(instance.base, resolved.base)) { output.push(self.rootType(instance)); }
+				}
 			}
 			return;
 		}
@@ -244,23 +249,6 @@ class CycleSemantics {
 		return false;
 	}
 
-	public bool genericTypeNeedsVisitor(Node typeExpr) {
-		Node? canonical = self.canonical(typeExpr);
-		if (canonical == null || canonical.genericArgs.len == 0 || canonical.pointerDepth > 1 || canonical.isArray) {
-			return false;
-		}
-		string mangled = TypeIdentity.mangleGenericType(canonical.base, canonical.genericArgs);
-		int index = 0;
-		while (index < self.analyzed.genericInstances.len) {
-			GenInstance instance = self.analyzed.genericInstances.get(index);
-			if (instance.mangled == mangled) {
-				return self.genericInstanceNeedsVisitor(instance);
-			}
-			index = index + 1;
-		}
-		return false;
-	}
-
 	public bool emittedTypeNeedsVisitor(string emittedName) {
 		if (emittedName == self.values.mutexRuntimeType()) {
 			return true;
@@ -330,12 +318,5 @@ class CycleSemantics {
 		self.runtimeTypeKnown.put(runtimeType, true);
 		self.runtimeTypeMayCycleValues.put(runtimeType, result);
 		return result;
-	}
-
-	public string edgeEmittedName(Node typeExpr) {
-		if (typeExpr.genericArgs.len > 0) {
-			return TypeIdentity.mangleGenericType(typeExpr.base, typeExpr.genericArgs);
-		}
-		return typeExpr.base;
 	}
 }

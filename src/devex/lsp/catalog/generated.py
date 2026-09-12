@@ -123,12 +123,15 @@ OWNEDCLOSURE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("invokePointer", "Invoke", "method", (), "invokePointer"),
     BuiltinMemberSpec("context", "void*", "method", (), "context"),
     BuiltinMemberSpec("isOpen", "bool", "method", (), "isOpen"),
+    BuiltinMemberSpec("unregister", "bool", "method", (), "unregister"),
     BuiltinMemberSpec("close", "bool", "method", (), "close"),
 )
 
 # Generated from src/stdlib/callbackregistration.btrc
 CALLBACKREGISTRATION_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("isOpen", "bool", "method", (), "isOpen"),
+    BuiltinMemberSpec("cancel", "CallbackCancellation", "method", (), "cancel"),
+    BuiltinMemberSpec("pollCompletion", "CallbackCancellation", "method", (), "pollCompletion"),
     BuiltinMemberSpec("close", "bool", "method", (), "close"),
 )
 
@@ -617,6 +620,9 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("min", "int", "method", (("int", "a"), ("int", "b"),), "min"),
         BuiltinMemberSpec("fmax", "float", "method", (("float", "a"), ("float", "b"),), "fmax"),
         BuiltinMemberSpec("fmin", "float", "method", (("float", "a"), ("float", "b"),), "fmin"),
+        BuiltinMemberSpec("absDouble", "double", "method", (("double", "x"),), "absDouble"),
+        BuiltinMemberSpec("maxDouble", "double", "method", (("double", "a"), ("double", "b"),), "maxDouble"),
+        BuiltinMemberSpec("minDouble", "double", "method", (("double", "a"), ("double", "b"),), "minDouble"),
         BuiltinMemberSpec("clamp", "int", "method", (("int", "x"), ("int", "lo"), ("int", "hi"),), "clamp"),
         BuiltinMemberSpec("power", "float", "method", (("float", "base"), ("int", "exp"),), "power"),
         BuiltinMemberSpec("sqrt", "float", "method", (("float", "x"),), "sqrt"),

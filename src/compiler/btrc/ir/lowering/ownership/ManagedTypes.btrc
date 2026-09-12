@@ -650,7 +650,7 @@ class ManagedTypeLowerer {
 		output.push(IRNode.assignment(self.headerMember(IRNode.variable("self"), "state"), IRNode.variable("__BTRC_ARC_LIVE")));
 	}
 
-	public void emitDescriptor(IRModule module, string emittedName, bool hasVisitor, bool hasHook) {
+	public void emitDescriptor(IRModule module, string emittedName, bool hasVisitor, bool hasHook, int interfaceCount = 0) {
 		self.context.referenceHelper("__btrc_arc_callback_types");
 		IRGlobalDecl descriptor = IRGlobalDecl("const __btrc_arc_type", self.descriptorSymbol(emittedName));
 		Vector<IRNode> values = [];
@@ -680,6 +680,8 @@ class ManagedTypeLowerer {
 				values.push(IRNode.literal("NULL"));
 			}
 		}
+		values.push(interfaceCount > 0 ? IRNode.variable("__btrc_interfaces_" + emittedName) : IRNode.literal("NULL"));
+		values.push(IRNode.literal(Strings.fromInt(interfaceCount)));
 		descriptor.init = IRNode.initializerList(values);
 		module.globalDecls.push(descriptor);
 	}

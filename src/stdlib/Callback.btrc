@@ -11,6 +11,8 @@
  * at the position required by that C API; no hidden ABI rewriting occurs.
  */
 
+import Library.OwnedBuffer;
+
 #include <pthread.h>
 
 /* A typed, non-owning callback lease. The producer owns the context and must
@@ -66,15 +68,25 @@ void callbackGateDrain(Atomic<uint>* state) {
 	while (state->load(MemoryOrder.ACQUIRE) != 1u) {}
 }
 
-class OwnedClosure<Invoke> {
+/* Internal context protocol: registration owns this object until the native
+ * entry barrier and admitted calls have drained. Managed implementations keep
+ * their receivers in ordinary fields visible to BTRC's cycle collector. */
+interface ICallbackContext {
+	bool unregister();
+	bool close();
+}
+
+class OwnedClosure<Invoke> implements ICallbackContext {
 	private Invoke _invoke;
 	private void* _context;
 	private CFunction<void, void*> _destroy;
+	private CFunction<bool, void*> _unregister;
+	private void* _unregisterContext;
 	private Atomic<uint> _state;
 	private Atomic<bool> _closingThreadReady;
 	private pthread_t _closingThread;
 
-	public OwnedClosure(Invoke invoke, void* context, CFunction<void, void*> destroy) {
+	public OwnedClosure(Invoke invoke, void* context, CFunction<void, void*> destroy, CFunction<bool, void*> unregister = (CFunction<bool, void*>)null, void* unregisterContext = null) {
 		if (invoke == (Invoke)null) {
 			fprintf(stderr, "OwnedClosure requires a nonnull invoke callback\n");
 			abort();
@@ -86,6 +98,8 @@ class OwnedClosure<Invoke> {
 		self._invoke = invoke;
 		self._context = context;
 		self._destroy = destroy;
+		self._unregister = unregister;
+		self._unregisterContext = unregisterContext;
 		self._state.init(0u);
 		self._closingThreadReady.init(false);
 	}
@@ -95,6 +109,11 @@ class OwnedClosure<Invoke> {
 	public void* context() { return self._context; }
 
 	public bool isOpen() { return self._state.load(MemoryOrder.ACQUIRE) == 0u; }
+
+	public bool unregister() {
+		if (self._unregister == null) { throw "OwnedClosure has no native unregister operation"; }
+		return self._unregister(self._unregisterContext);
+	}
 
 	private uint beginClose() {
 		uint expected = 0u;
@@ -145,37 +164,168 @@ class OwnedClosure<Invoke> {
 	}
 }
 
-/* Owns one stored callback registration. `unregister` must provide an entry
+enum CallbackCancellation { NotRequested, Pending, Complete, RetryableFailure, Failed };
+
+interface ICallbackRegistration {
+	bool isOpen();
+	CallbackCancellation cancel();
+	CallbackCancellation pollCompletion();
+}
+
+/* Shared state for one stored callback registration. `unregister` must provide an entry
  * barrier: when it returns, no callback can later execute its first gate
  * atomic unless that callback already published an in-flight count. This is
  * stronger than merely promising that no new callback will be scheduled.
  *
- * A caller gives its exact static @realtime trampoline and raw context directly.
- * Construction initializes every lifetime guard, then invokes one typed
- * activation adapter. The adapter receives the exact invoke/context/gate tuple,
- * stores the gate in the raw context, and publishes the tuple to the external
- * API before construction can return. A false activation result guarantees that
- * nothing was published. Raw registration parts are never exposed afterward.
+ * Activation initializes every lifetime guard before native publication.
+ * finishActivation(false) is valid only when nothing was published. The owning
+ * component scope must cancel before releasing a cyclic context: collection
+ * detaches managed fields before user destructors, so a receiver destructor is
+ * not a replacement for scope-owned cancellation.
+ *
+ * cancel/pollCompletion never wait for admitted callbacks. For executor use,
+ * unregister must itself be a nonblocking entry barrier and destroy must be
+ * bounded; these methods cannot make a blocking foreign operation asynchronous.
+ * Keep the registration in its component scope until completion, polling on
+ * the required cleanup executor. close/destruction remain blocking worker APIs.
+ * A false/throwing unregister promises that retry is safe, with context intact.
+ * APIs with indeterminate failure or asynchronous unregister need a different
+ * checked mapping, not an adapter that reports a premature successful barrier.
  */
-class CallbackRegistration<Invoke> {
-	private OwnedClosure<Invoke> _closure;
-	private CFunction<bool, void*> _unregister;
-	private void* _unregisterContext;
-	private Atomic<uint>* _gateState;
+class CallbackState implements ICallbackRegistration {
+	private ICallbackContext _context;
+	private AtomicBuffer<uint> _gateState;
 	private Atomic<uint> _state;
-	private Atomic<bool> _closingThreadReady;
+	private pthread_mutex_t _closingThreadMutex;
+	private bool _closingThreadReady;
 	private pthread_t _closingThread;
 
-	private void rollbackActivation() {
-		bool destroyed = false;
-		try {
-			destroyed = self._closure.close();
-		} finally {
-			free(self._gateState);
-			self._gateState = null;
-			self._state.store(destroyed ? 2u : 4u, MemoryOrder.RELEASE);
+	public CallbackState(ICallbackContext context) {
+		self._context = context;
+		self._gateState = new AtomicBuffer<uint>((size_t)1);
+		if (!self._gateState.opened()) { throw "CallbackRegistration cannot allocate its gate"; }
+		self._gateState.borrow()->init(0u);
+		self._state.init(6u);
+		self._closingThread = pthread_self();
+		self._closingThreadReady = true;
+		if (pthread_mutex_init(&self._closingThreadMutex, null) != 0) {
+			fprintf(stderr, "CallbackRegistration cannot initialize its operation guard\n");
+			abort();
 		}
 	}
+
+	/* Activation owns the sole publication path. Cancellation during an inline
+	 * callback closes admission immediately and defers unregister until native
+	 * activation has returned. Existing stable atomic storage owns the native
+	 * borrow until the entry barrier and every admitted callback have drained. */
+	public Atomic<uint>* activationGate() { return self._gateState.borrow(); }
+
+	public void finishActivation(bool published) {
+		if (self._state.load(MemoryOrder.ACQUIRE) != 6u) { throw "Callback activation already finished"; }
+		if (published) {
+			self.endOperation(0u);
+			if ((self._gateState.borrow()->load(MemoryOrder.ACQUIRE) & 1u) != 0u) { self.cancel(); }
+			return;
+		}
+		self._state.store(1u, MemoryOrder.RELEASE);
+		bool destroyed = false;
+		try { destroyed = self._context.close(); }
+		finally { self.endOperation(destroyed ? 2u : 4u); }
+	}
+
+	public bool isOpen() { return self._state.load(MemoryOrder.ACQUIRE) == 0u; }
+
+	private bool claimOperation(uint observed) { return self._state.compareExchangeStrong(&observed, 1u, MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE); }
+
+	/* Only thread identity is protected here. Never hold this guard across an
+	 * adapter call or drain: reentrant cancellation must be able to return. */
+	private void beginOperation() {
+		pthread_mutex_lock(&self._closingThreadMutex);
+		self._closingThread = pthread_self();
+		self._closingThreadReady = true;
+		pthread_mutex_unlock(&self._closingThreadMutex);
+	}
+
+	private void endOperation(uint state) {
+		pthread_mutex_lock(&self._closingThreadMutex);
+		self._closingThreadReady = false;
+		self._state.store(state, MemoryOrder.RELEASE);
+		pthread_mutex_unlock(&self._closingThreadMutex);
+	}
+
+	private void rejectReentrantClose() {
+		pthread_mutex_lock(&self._closingThreadMutex);
+		bool reentrant = self._closingThreadReady && pthread_equal(self._closingThread, pthread_self()) != 0;
+		pthread_mutex_unlock(&self._closingThreadMutex);
+		if (reentrant) {
+			fprintf(stderr, "CallbackRegistration.close cannot re-enter unregister or destroy\n");
+			abort();
+		}
+	}
+
+	public CallbackCancellation cancel() {
+		uint observed = self._state.load(MemoryOrder.ACQUIRE);
+		if (observed != 2u && observed != 4u) { callbackGateCloseAdmission(self._gateState.borrow()); }
+		observed = self._state.load(MemoryOrder.ACQUIRE);
+		if (observed != 0u && observed != 3u) { return self.pollCompletion(); }
+		if (!self.claimOperation(observed)) { return CallbackCancellation.Pending; }
+		self.beginOperation();
+		bool barrier = false;
+		try {
+			barrier = self._context.unregister();
+		} finally {
+			self.endOperation(barrier ? 5u : 3u);
+		}
+		if (!barrier) { return CallbackCancellation.RetryableFailure; }
+		return self.pollCompletion();
+	}
+
+	public CallbackCancellation pollCompletion() {
+		uint observed = self._state.load(MemoryOrder.ACQUIRE);
+		if (observed == 0u) { return CallbackCancellation.NotRequested; }
+		if (observed == 2u) { return CallbackCancellation.Complete; }
+		if (observed == 3u) { return CallbackCancellation.RetryableFailure; }
+		if (observed == 4u) { return CallbackCancellation.Failed; }
+		if (observed != 5u || self._gateState.borrow()->load(MemoryOrder.ACQUIRE) != 1u) { return CallbackCancellation.Pending; }
+		if (!self.claimOperation(observed)) { return CallbackCancellation.Pending; }
+		self.beginOperation();
+		bool destroyed = false;
+		try {
+			destroyed = self._context.close();
+		} finally {
+			self.endOperation(destroyed ? 2u : 4u);
+		}
+		return destroyed ? CallbackCancellation.Complete : CallbackCancellation.Failed;
+	}
+
+	public bool close() {
+		CallbackCancellation result = self.cancel();
+		while (result == CallbackCancellation.Pending) {
+			self.rejectReentrantClose();
+			result = self.pollCompletion();
+		}
+		return result == CallbackCancellation.Complete;
+	}
+
+	public void __del__() {
+		uint observed = self._state.load(MemoryOrder.ACQUIRE);
+		if (observed != 2u && observed != 4u && (self._context == null || self._gateState == null)) {
+			fprintf(stderr, "CallbackRegistration collected before its owning scope cancelled it\n");
+			abort();
+		}
+		if (!self.close()) {
+			fprintf(stderr, "CallbackRegistration destruction did not complete\n");
+			abort();
+		}
+		pthread_mutex_destroy(&self._closingThreadMutex);
+	}
+}
+
+/* Raw realtime seam retained for existing native audio providers. Typed native
+ * imports will construct CallbackState with a generated managed context; both
+ * paths share exactly the same cancellation and drain implementation. */
+class CallbackRegistration<Invoke> implements ICallbackRegistration {
+	private CallbackState _state;
 
 	public CallbackRegistration(Invoke invoke, void* context, CFunction<void, void*> destroy, CFunction<bool, Invoke, void*, Atomic<uint>*, void*> activate, void* activationContext, CFunction<bool, void*> unregister, void* unregisterContext) {
 		if (activate == null) {
@@ -186,94 +336,22 @@ class CallbackRegistration<Invoke> {
 			fprintf(stderr, "CallbackRegistration requires unregister\n");
 			abort();
 		}
-		self._closure = new OwnedClosure<Invoke>(invoke, context, destroy);
-		self._unregister = unregister;
-		self._unregisterContext = unregisterContext;
-		self._gateState = (Atomic<uint>*)malloc(sizeof(Atomic<uint>));
-		if (self._gateState == null) {
-			fprintf(stderr, "CallbackRegistration cannot allocate its gate\n");
-			abort();
-		}
-		self._gateState->init(0u);
-		self._state.init(0u);
-		self._closingThreadReady.init(false);
+		var closure = new OwnedClosure<Invoke>(invoke, context, destroy, unregister, unregisterContext);
+		self._state = CallbackState(closure);
 		bool activated = false;
-		try {
-			activated = activate(self._closure.invokePointer(), self._closure.context(), self._gateState, activationContext);
-		} finally {
-			if (!activated) { self.rollbackActivation(); }
-		}
+		try { activated = activate(closure.invokePointer(), closure.context(), self._state.activationGate(), activationContext); }
+		finally { self._state.finishActivation(activated); }
 		if (!activated) {
 			fprintf(stderr, "CallbackRegistration activation failed before publication\n");
 			abort();
 		}
 	}
 
-	public bool isOpen() { return self._state.load(MemoryOrder.ACQUIRE) == 0u; }
+	public bool isOpen() { return self._state.isOpen(); }
 
-	private bool beginClose(uint observed) {
-		uint expected = observed;
-		return self._state.compareExchangeStrong(&expected, 1u, MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE);
-	}
+	public CallbackCancellation cancel() { return self._state.cancel(); }
 
-	public bool close() {
-		while (true) {
-			uint observed = self._state.load(MemoryOrder.ACQUIRE);
-			if (observed == 2u) { return true; }
-			if (observed == 4u) { return false; }
-			if (observed == 1u) {
-				while (!self._closingThreadReady.load(MemoryOrder.ACQUIRE)) {
-					if (self._state.load(MemoryOrder.ACQUIRE) != 1u) {
-						break;
-					}
-				}
-				if (self._state.load(MemoryOrder.ACQUIRE) != 1u) {
-					continue;
-				}
-				if (pthread_equal(self._closingThread, pthread_self()) != 0) {
-					fprintf(stderr, "CallbackRegistration.close cannot re-enter unregister or destroy\n");
-					abort();
-				}
-				while (self._state.load(MemoryOrder.ACQUIRE) == 1u) {}
-				continue;
-			}
+	public CallbackCancellation pollCompletion() { return self._state.pollCompletion(); }
 
-			if ((observed == 0u || observed == 3u) && self.beginClose(observed)) {
-				break;
-			}
-		}
-
-		self._closingThread = pthread_self();
-		self._closingThreadReady.store(true, MemoryOrder.RELEASE);
-		callbackGateCloseAdmission(self._gateState);
-		bool barrier = false;
-		try {
-			barrier = self._unregister(self._unregisterContext);
-		} finally {
-			if (!barrier) {
-				self._state.store(3u, MemoryOrder.RELEASE);
-				self._closingThreadReady.store(false, MemoryOrder.RELEASE);
-			}
-		}
-		if (!barrier) { return false; }
-
-		callbackGateDrain(self._gateState);
-		bool destroyed = false;
-		try {
-			destroyed = self._closure.close();
-		} finally {
-			self._state.store(destroyed ? 2u : 4u, MemoryOrder.RELEASE);
-			self._closingThreadReady.store(false, MemoryOrder.RELEASE);
-		}
-		return destroyed;
-	}
-
-	public void __del__() {
-		if (!self.close()) {
-			fprintf(stderr, "CallbackRegistration destruction did not complete\n");
-			abort();
-		}
-		free(self._gateState);
-		self._gateState = null;
-	}
+	public bool close() { return self._state.close(); }
 }

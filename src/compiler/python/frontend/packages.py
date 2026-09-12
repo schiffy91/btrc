@@ -244,6 +244,59 @@ class NativeDeclaration:
 
 
 @dataclass(frozen=True)
+class ModuleProvider:
+    """One target-selected source dependency of an ordinary package module."""
+
+    module: str
+    implementation: str
+    operating_systems: tuple[str, ...]
+    architectures: tuple[str, ...]
+
+    def selected_for(self, target: PackageTarget) -> bool:
+        return (not self.operating_systems or target.operating_system in self.operating_systems) and (
+            not self.architectures or target.architecture in self.architectures
+        )
+
+    def overlaps(self, other: ModuleProvider) -> bool:
+        return (
+            self.module == other.module
+            and (
+                not self.operating_systems
+                or not other.operating_systems
+                or bool(set(self.operating_systems) & set(other.operating_systems))
+            )
+            and (
+                not self.architectures
+                or not other.architectures
+                or bool(set(self.architectures) & set(other.architectures))
+            )
+        )
+
+
+@dataclass(frozen=True)
+class NativeResourceBinding:
+    """Missing ownership facts for one header-declared native resource."""
+
+    name: str
+    ownership: str
+    retain: str
+    release: str
+
+
+@dataclass(frozen=True)
+class NativeCallbackBinding:
+    """Foreign lifetime and context facts for a typed receiver projection."""
+
+    parameter: str
+    context: str
+    context_index: int
+    interface: str
+    lifetime: str
+    failure: str
+    executor: str
+
+
+@dataclass(frozen=True)
 class NativeBinding:
     """A header import owned by one BTRC module, not a handwritten ABI."""
 
@@ -260,6 +313,10 @@ class NativeBinding:
     owned_records: tuple[str, ...] = ()
     record_inputs: tuple[str, ...] = ()
     object_fields: tuple[tuple[str, str], ...] = ()
+    resources: tuple[NativeResourceBinding, ...] = ()
+    owned_results: tuple[str, ...] = ()
+    borrowed_parameters: tuple[str, ...] = ()
+    callbacks: tuple[NativeCallbackBinding, ...] = ()
 
     def selected_for(self, target: PackageTarget) -> bool:
         return (not self.operating_systems or target.operating_system in self.operating_systems) and (
@@ -584,6 +641,91 @@ class ResolvedPackages:
         )
 
 
+class PackageImportPolicy:
+    """Invocation-local package boundaries, checked before import de-duplication."""
+
+    def __init__(self, target: PackageTarget | None = None) -> None:
+        self._target = target
+        self._owners: dict[str, str | None] = {}
+        self._exports: dict[str, tuple[str, frozenset[str] | None]] = {}
+        self._providers: dict[str, dict[str, list[ModuleProvider]]] = {}
+
+    def provider_for(self, source: str) -> tuple[str, ...]:
+        identity = os.path.normcase(os.path.realpath(source))
+        manifest_path = self._manifest_for(identity)
+        if manifest_path is None:
+            return ()
+        if manifest_path not in self._providers:
+            try:
+                manifest = PackageManifestReader().read(manifest_path)
+                providers: dict[str, list[ModuleProvider]] = {}
+                if "manifest-version" in manifest:
+                    validator = PackageManifestValidator()
+                    validator.validate_identity(manifest, manifest_path)
+                    for provider in validator.providers(manifest, manifest_path):
+                        providers.setdefault(os.path.normcase(provider.module), []).append(provider)
+                self._providers[manifest_path] = providers
+            except (OSError, ValueError) as error:
+                raise IncludeResolutionError(str(error)) from error
+        candidates = self._providers[manifest_path].get(identity, ())
+        if not candidates:
+            return ()
+        if self._target is None:
+            raise IncludeResolutionError(f"module {source!r} requires a compilation target for provider selection")
+        for provider in candidates:
+            if provider.selected_for(self._target):
+                return (provider.implementation,)
+        raise IncludeResolutionError(
+            f"module {source!r} has no provider for target {self._target.operating_system}-{self._target.architecture}"
+        )
+
+    def _manifest_for(self, source: str) -> str | None:
+        directory = os.path.dirname(os.path.normcase(os.path.abspath(source)))
+        visited = []
+        while directory not in self._owners:
+            visited.append(directory)
+            candidate = os.path.join(directory, "btrc.toml")
+            if os.path.exists(candidate):
+                self._owners[directory] = os.path.normcase(os.path.realpath(candidate))
+                break
+            parent = os.path.dirname(directory)
+            if parent == directory:
+                self._owners[directory] = None
+                break
+            directory = parent
+        owner = self._owners[directory]
+        for path in visited:
+            self._owners[path] = owner
+        return owner
+
+    def check(self, source: str, target: str) -> None:
+        self._check_owner(source, target)
+        self._check_owner(os.path.realpath(source), os.path.realpath(target))
+
+    def _check_owner(self, source: str, target: str) -> None:
+        manifest_path = self._manifest_for(target)
+        if manifest_path is None or manifest_path == self._manifest_for(source):
+            return
+        if manifest_path not in self._exports:
+            try:
+                manifest = PackageManifestReader().read(manifest_path)
+                if "manifest-version" not in manifest:
+                    self._exports[manifest_path] = ("", None)
+                else:
+                    validator = PackageManifestValidator()
+                    name = validator.validate_identity(manifest, manifest_path)
+                    exports = validator.exported_modules(manifest, manifest_path)
+                    self._exports[manifest_path] = (
+                        name,
+                        None if exports is None else frozenset(os.path.normcase(path) for path in exports),
+                    )
+            except (OSError, ValueError) as error:
+                raise IncludeResolutionError(str(error)) from error
+        name, exports = self._exports[manifest_path]
+        if exports is not None and os.path.normcase(os.path.realpath(target)) not in exports:
+            raise IncludeResolutionError(f"module {target!r} is private to package {name!r}; import an exported module")
+
+
 class PackageManifestReader:
     """Own UTF-8 TOML reads for package resolution."""
 
@@ -677,33 +819,35 @@ class PackageManifestValidator:
         return candidate
 
     @staticmethod
-    def _module_paths(root: str, entry: Mapping, context: str) -> tuple[str, ...]:
-        if "modules" not in entry:
+    def _module_paths(
+        root: str, entry: Mapping, context: str, *, field: str = "modules", allow_empty: bool = False
+    ) -> tuple[str, ...]:
+        if field not in entry:
             return ()
-        modules = entry["modules"]
+        modules = entry[field]
         if not isinstance(modules, list) or not all(isinstance(module, str) for module in modules):
-            raise ValueError(f"{context}.modules must be an array of strings")
-        if not modules:
-            raise ValueError(f"{context}.modules must not be empty")
+            raise ValueError(f"{context}.{field} must be an array of strings")
+        if not modules and not allow_empty:
+            raise ValueError(f"{context}.{field} must not be empty")
         if len(set(modules)) != len(modules):
-            raise ValueError(f"{context}.modules contains a duplicate value")
+            raise ValueError(f"{context}.{field} contains a duplicate value")
         resolved = []
         canonical_root = os.path.realpath(root)
         for module in sorted(modules):
             if _MODULE_NAME.fullmatch(module) is None:
-                raise ValueError(f"{context}.modules contains invalid module {module!r}")
+                raise ValueError(f"{context}.{field} contains invalid module {module!r}")
             relative = module.replace(".", os.sep) + ".btrc"
             candidates = (os.path.join(root, "src", relative), os.path.join(root, relative))
             selected = next((candidate for candidate in candidates if os.path.isfile(candidate)), None)
             if selected is None:
-                raise ValueError(f"{context}.modules names unknown module {module!r}")
+                raise ValueError(f"{context}.{field} names unknown module {module!r}")
             canonical = os.path.realpath(selected)
             try:
                 inside = os.path.commonpath((canonical_root, canonical)) == canonical_root
             except ValueError:
                 inside = False
             if not inside:
-                raise ValueError(f"{context}.modules module {module!r} escapes package root {canonical_root!r}")
+                raise ValueError(f"{context}.{field} module {module!r} escapes package root {canonical_root!r}")
             resolved.append(canonical)
         return tuple(resolved)
 
@@ -716,8 +860,47 @@ class PackageManifestValidator:
         package = manifest.get("package")
         if not isinstance(package, dict):
             raise ValueError(f"package manifest {path!r} must contain a [package] table")
-        self._reject_unknown(package, frozenset({"name"}), f"package manifest {path!r} [package]")
+        self._reject_unknown(
+            package, frozenset({"name", "exports", "providers"}), f"package manifest {path!r} [package]"
+        )
+        self.exported_modules(manifest, path)
+        self.providers(manifest, path)
         return self._identifier(package.get("name"), f"package manifest {path!r} package.name")
+
+    def providers(self, manifest: Mapping, path: str) -> tuple[ModuleProvider, ...]:
+        entries = manifest.get("package", {}).get("providers", [])
+        if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
+            raise ValueError(f"package manifest {path!r} package.providers must be an array of tables")
+        providers = []
+        root = os.path.dirname(path)
+        for entry in entries:
+            context = f"package manifest {path!r} package.providers"
+            self._reject_unknown(entry, frozenset({"module", "implementation", "os", "arch"}), context)
+            paths = []
+            for field in ("module", "implementation"):
+                value = entry.get(field)
+                if not isinstance(value, str) or _MODULE_NAME.fullmatch(value) is None:
+                    raise ValueError(f"{context}.{field} must be a dotted module name")
+                paths.append(self._module_paths(root, {"modules": [value]}, context)[0])
+            if paths[0] == paths[1]:
+                raise ValueError(f"{context} cannot select its own module as implementation")
+            provider = ModuleProvider(
+                *paths,
+                self._target_values(entry, "os", _TARGET_OPERATING_SYSTEMS, context),
+                self._target_values(entry, "arch", _TARGET_ARCHITECTURES, context),
+            )
+            if any(provider.overlaps(previous) for previous in providers):
+                raise ValueError(f"{context} overlaps a provider for the same module and target")
+            providers.append(provider)
+        return tuple(providers)
+
+    def exported_modules(self, manifest: Mapping, path: str) -> tuple[str, ...] | None:
+        package = manifest.get("package", {})
+        if "exports" not in package:
+            return None
+        return self._module_paths(
+            os.path.dirname(path), package, f"package manifest {path!r} package", field="exports", allow_empty=True
+        )
 
     def dependencies(self, manifest: Mapping, path: str) -> dict[str, Mapping]:
         dependencies = manifest.get("dependencies", {})
@@ -843,6 +1026,85 @@ class PackageManifestValidator:
                 declarations.append(declaration)
         return tuple(sorted(declarations))
 
+    def _callback_bindings(self, values, symbols, context) -> tuple[NativeCallbackBinding, ...]:
+        if not isinstance(values, dict):
+            raise ValueError(f"{context}.callbacks must map function.parameter names to callback facts")
+        callbacks = []
+        for parameter, value in sorted(values.items()):
+            self._resource_functions([parameter], symbols, context, "callbacks", parameters=True)
+            location = f"{context}.callbacks.{parameter}"
+            if not isinstance(value, dict):
+                raise ValueError(f"{location} must be a callback declaration")
+            self._reject_unknown(
+                value, frozenset({"context", "context-index", "interface", "lifetime", "failure", "executor"}), location
+            )
+            context_name = self._identifier(value.get("context"), f"{location}.context")
+            interface = self._identifier(value.get("interface"), f"{location}.interface")
+            index = value.get("context-index")
+            if type(index) is not int or index < 0:
+                raise ValueError(f"{location}.context-index must be a nonnegative native parameter index")
+            if value.get("lifetime") != "call":
+                raise ValueError(f"{location}.lifetime currently requires call")
+            if value.get("failure") != "abort":
+                raise ValueError(f"{location}.failure currently requires abort")
+            if value.get("executor") != "caller":
+                raise ValueError(f"{location}.executor currently requires caller")
+            if interface in symbols:
+                raise ValueError(f"{location}.interface conflicts with another imported name")
+            callbacks.append(
+                NativeCallbackBinding(parameter, context_name, index, interface, "call", "abort", "caller")
+            )
+        return tuple(callbacks)
+
+    def _resource_bindings(self, values, symbols, context) -> tuple[NativeResourceBinding, ...]:
+        if not isinstance(values, dict):
+            raise ValueError(f"{context}.resources must map selected typedefs to ownership declarations")
+        resources = []
+        operations = set()
+        for name, value in sorted(values.items()):
+            if (
+                name not in symbols
+                or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None
+                or not isinstance(value, dict)
+            ):
+                raise ValueError(f"{context}.resources must map selected typedefs to ownership declarations")
+            location = f"{context}.resources.{name}"
+            self._reject_unknown(value, frozenset({"ownership", "retain", "release"}), location)
+            if value.get("ownership") != "reference-counted":
+                raise ValueError(f"{location}.ownership currently requires reference-counted")
+            retain, release = value.get("retain"), value.get("release")
+            for operation in (retain, release):
+                if (
+                    not isinstance(operation, str)
+                    or operation not in symbols
+                    or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", operation) is None
+                ):
+                    raise ValueError(f"{location}: retain/release must name selected functions")
+                operations.add(operation)
+            if retain == release:
+                raise ValueError(f"{location}: lifetime operations must be distinct")
+            resources.append(NativeResourceBinding(name, "reference-counted", retain, release))
+        if operations.intersection(values):
+            raise ValueError(f"{context}: lifetime operations must be distinct from resource types")
+        return tuple(resources)
+
+    def _resource_functions(self, values, symbols, context, field, *, parameters=False) -> tuple[str, ...]:
+        if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+            raise ValueError(f"{context}.{field} must be an array of selected names")
+        for value in values:
+            parts = value.split(".")
+            if (
+                len(parts) != (2 if parameters else 1)
+                or parts[0] not in symbols
+                or (parameters and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", parts[1]) is None)
+            ):
+                raise ValueError(
+                    f"{context}.{field} must name selected {'function.parameter pairs' if parameters else 'functions'}"
+                )
+        if len(set(values)) != len(values):
+            raise ValueError(f"{context}.{field} contains a duplicate value")
+        return tuple(sorted(values))
+
     def bindings(self, manifest: Mapping, root: str, package: str, path: str) -> tuple[NativeBinding, ...]:
         entries = manifest.get("native", {}).get("bindings", [])
         if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
@@ -866,6 +1128,10 @@ class PackageManifestValidator:
                         "owned-records",
                         "record-inputs",
                         "object-fields",
+                        "resources",
+                        "owned-results",
+                        "borrowed-parameters",
+                        "callbacks",
                     }
                 ),
                 context,
@@ -954,6 +1220,24 @@ class PackageManifestValidator:
                 raise ValueError(f"{context}.object-fields must map selected record.field names to object types")
             if (records or inputs or object_fields) and language != "c":
                 raise ValueError(f"{context}: record input projections currently require a C binding")
+            resources = self._resource_bindings(entry.get("resources", {}), symbols, context)
+            owned_results = self._resource_functions(entry.get("owned-results", []), symbols, context, "owned-results")
+            borrowed_parameters = self._resource_functions(
+                entry.get("borrowed-parameters", []), symbols, context, "borrowed-parameters", parameters=True
+            )
+            callbacks = self._callback_bindings(entry.get("callbacks", {}), symbols, context)
+            if callbacks and language != "c":
+                raise ValueError(f"{context}: callback mappings currently require C")
+            if resources or owned_results or borrowed_parameters:
+                if language != "c":
+                    raise ValueError(f"{context}: resource bindings currently require C")
+                if not resources:
+                    raise ValueError(f"{context}: resource ownership requires declared resources")
+                operations = {operation for resource in resources for operation in (resource.retain, resource.release)}
+                if operations.intersection(owned_results) or any(
+                    value.split(".")[0] in operations for value in borrowed_parameters
+                ):
+                    raise ValueError(f"{context}: resource lifetime operations are reserved")
             binding = NativeBinding(
                 package,
                 module_path,
@@ -968,6 +1252,10 @@ class PackageManifestValidator:
                 tuple(sorted(records)),
                 tuple(sorted(inputs)),
                 tuple(sorted(object_fields.items())),
+                resources,
+                owned_results,
+                borrowed_parameters,
+                callbacks,
             )
             if any(binding.overlaps(previous) for previous in bindings):
                 raise ValueError(f"{context} overlaps a native binding for the same module and target")

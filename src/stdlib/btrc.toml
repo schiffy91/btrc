@@ -72,7 +72,7 @@ header = "GUI/MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
 symbols = [
-	"+[NSThread isMainThread]", "+[NSButton new]", "-[NSButton setTitle:]", "-[NSButton setButtonType:]", "-[NSButton setBezelStyle:]", "-[NSButton setContinuous:]",
+	"+[NSThread isMainThread]", "+[NSButton new]", "-[NSButton title]", "-[NSButton setTitle:]", "-[NSButton setButtonType:]", "-[NSButton setBezelStyle:]", "-[NSButton setContinuous:]",
 	"NSButtonTypeMomentaryPushIn", "NSButtonTypePushOnPushOff", "NSBezelStyleRounded", "-[NSButton setEnabled:]", "-[NSButton isEnabled]", "-[NSButton performClick:]",
 	"-[NSButton setFont:]", "+[NSFont systemFontOfSize:]", "-[NSButton setState:]", "-[NSButton state]", "NSControlStateValueOn", "NSControlStateValueOff",
 	"+[NSImage imageWithSystemSymbolName:accessibilityDescription:]", "-[NSButton setImage:]", "-[NSButton setImagePosition:]", "NSImageLeading",
@@ -118,7 +118,7 @@ module = "GUI.MacOS.MacOSView"
 header = "GUI/MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
-symbols = ["+[NSThread isMainThread]", "+[NSView new]", "-[NSView frame]", "-[NSView setFrame:]", "-[NSView setHidden:]", "-[NSView isHidden]", "-[NSView fittingSize]", "-[NSView intrinsicContentSize]", "-[NSView isDescendantOf:]", "-[NSView addSubview:]", "-[NSView removeFromSuperview]", "-[NSView setAppearance:]", "-[NSView appearance]", "+[NSAppearance appearanceNamed:]", "-[NSAppearance name]", "NSAppearanceNameAqua", "NSAppearanceNameDarkAqua"]
+symbols = ["+[NSThread isMainThread]", "+[NSView new]", "-[NSView frame]", "-[NSView setFrame:]", "-[NSView superview]", "-[NSView bounds]", "-[NSView isFlipped]", "-[NSView setHidden:]", "-[NSView isHidden]", "-[NSView fittingSize]", "-[NSView intrinsicContentSize]", "-[NSView isDescendantOf:]", "-[NSView addSubview:]", "-[NSView removeFromSuperview]", "-[NSView setAppearance:]", "-[NSView appearance]", "+[NSAppearance appearanceNamed:]", "-[NSAppearance name]", "NSAppearanceNameAqua", "NSAppearanceNameDarkAqua"]
 os = ["macos"]
 
 [[native.bindings]]
@@ -199,7 +199,8 @@ standard = "c11"
 symbols = [
 	"+[NSThread isMainThread]", "+[NSWindow new]", "-[NSWindow setReleasedWhenClosed:]",
 	"-[NSWindow setStyleMask:]", "NSWindowStyleMaskTitled", "NSWindowStyleMaskClosable", "NSWindowStyleMaskMiniaturizable", "NSWindowStyleMaskResizable",
-	"-[NSWindow setTitle:]", "-[NSWindow contentView]", "-[NSView bounds]", "-[NSWindow frame]", "-[NSWindow setContentSize:]", "-[NSWindow close]",
+	"-[NSWindow title]", "-[NSWindow setTitle:]", "-[NSWindow contentView]", "-[NSView bounds]", "-[NSWindow frame]", "-[NSWindow setContentSize:]", "-[NSWindow close]",
+	"-[NSView autoresizingMask]", "-[NSView setAutoresizingMask:]", "NSViewWidthSizable", "NSViewHeightSizable",
 	"-[NSWindow makeKeyAndOrderFront:]", "-[NSWindow orderOut:]", "-[NSWindow isVisible]", "-[NSWindow isMiniaturized]", "-[NSWindow setContentMinSize:]",
 	"+[NSAlert new]", "-[NSAlert setMessageText:]", "-[NSAlert setInformativeText:]", "-[NSAlert addButtonWithTitle:]", "-[NSAlert runModal]"
 ]

@@ -48,6 +48,7 @@ from src.compiler.python.syntax.ast.generated import (
     LambdaExprBody,
     MethodDecl,
     ReturnStmt,
+    TypeExpr,
 )
 
 from .calls import (
@@ -58,7 +59,7 @@ from .calls import (
     DefaultArgumentLoweringContext,
     GenericDefaultHelperPlan,
 )
-from .ownership import OwnershipLowerer
+from .ownership import ManagedLifetimeLowerer, OwnershipLowerer
 from .types import CTypeLowerer
 
 if TYPE_CHECKING:
@@ -90,6 +91,7 @@ class FunctionLowerer:
         concurrency: ConcurrencyLowerer,
         gpu: GpuLowerer,
         calls: CallLowerer,
+        lifetime: ManagedLifetimeLowerer,
     ) -> None:
         self._session = session
         self._analyzed = analyzed
@@ -103,6 +105,7 @@ class FunctionLowerer:
         self._concurrency = concurrency
         self._gpu = gpu
         self._calls = calls
+        self._lifetime = lifetime
         self._emitted_gpu_functions: set[str] = set()
         self._last_lambda_id = 0
         self._normalizing_void_main = False
@@ -169,19 +172,73 @@ class FunctionLowerer:
                     {record.name: record for record in contract.record_types},
                 )
         statements = [*locals, *statements]
+        releases = []
+        cleanup = []
+        contexts = {callback.context_index for callback in contract.callbacks}
+        visible = [index for index in range(len(arguments) + len(contexts)) if index not in contexts]
+        leases = {index for index, resource in enumerate(contract.resource_parameters) if resource}
+        leases.update(visible.index(callback.parameter_index) for callback in contract.callbacks)
+        if leases:
+            cleanup = self._native_cleanup_scope(parameters, statements)
+            for index in sorted(leases):
+                arguments[index] = self._native_lease(
+                    index, declaration.params[index].type, arguments[index], parameters, statements, releases
+                )
+            flush = self._lifetime.flush_release_batch(
+                type_exprs=[declaration.params[index].type for index in sorted(leases)]
+            )
+            if flush is not None:
+                cleanup.insert(0, IRExprStmt(expr=flush))
+        for index, resource in enumerate(contract.resource_parameters):
+            if resource:
+                arguments[index] = IRCast(target_type=CType(text=resource), expr=arguments[index])
+        if contract.callbacks:
+            native_arguments = dict(zip(visible, arguments, strict=True))
+            for callback in contract.callbacks:
+                receiver = native_arguments[callback.parameter_index]
+                thunk = self._native_callback(declaration.name, callback)
+                context_type = CType(text=f"struct {thunk.name}_context")
+                context_name = f"__btrc_callback_context_{callback.parameter_index}"
+                while any(parameter.name == context_name for parameter in parameters):
+                    context_name += "_"
+                statements.append(
+                    IRVarDecl(
+                        c_type=context_type,
+                        name=context_name,
+                        init=IRCompoundLiteral(
+                            c_type=context_type,
+                            fields=[("receiver", receiver), ("thread", IRAddressOf(expr=IRVar(name="__btrc_try_top")))],
+                        ),
+                    )
+                )
+                native_arguments[callback.context_index] = IRAddressOf(expr=IRVar(name=context_name))
+                native_arguments[callback.parameter_index] = thunk
+            arguments = [native_arguments[index] for index in range(len(native_arguments))]
         call = IRCall(callee=declaration.name, args=arguments)
+        if contract.resource_result:
+            call = IRCast(target_type=return_type, expr=call)
         if return_type.text == "void":
             statements.append(IRExprStmt(expr=call))
-        elif contract.nonnull_return:
+            statements.extend(releases)
+            statements.extend(cleanup)
+        elif contract.nonnull_return or releases:
             result = "__btrc_native_result"
             while any(parameter.name == result for parameter in parameters):
                 result += "_"
-            statements.append(IRVarDecl(c_type=return_type, name=result, init=call))
-            statements.append(
-                self._native_null_guard(
-                    IRVar(name=result), f"Native call {declaration.name}: null result", contract.realtime_safe
+            result_slot = IRVarDecl(c_type=return_type, name=result, init=call)
+            statements.append(result_slot)
+            if leases and contract.resource_result:
+                statements.append(
+                    IRExprStmt(expr=self._lifetime.register_cleanup_slot(result_slot, declaration.return_type))
                 )
-            )
+            statements.extend(releases)
+            if contract.nonnull_return:
+                statements.append(
+                    self._native_null_guard(
+                        IRVar(name=result), f"Native call {declaration.name}: null result", contract.realtime_safe
+                    )
+                )
+            statements.extend(cleanup)
             statements.append(IRReturn(value=IRVar(name=result)))
         else:
             statements.append(IRReturn(value=call))
@@ -193,6 +250,159 @@ class FunctionLowerer:
                 name=name, return_type=return_type, params=parameters, body=IRBlock(stmts=statements), is_static=True
             )
         )
+
+    def _native_cleanup_scope(self, parameters, statements):
+        marker = "__btrc_native_cleanup_mark"
+        while any(parameter.name == marker for parameter in parameters):
+            marker += "_"
+        self._session.require_helper("__btrc_cleanup_mark")
+        self._session.require_helper("__btrc_discard_cleanups_to")
+        statements.append(
+            IRVarDecl(
+                c_type=CType(text="int"),
+                name=marker,
+                init=IRCall(callee="__btrc_cleanup_mark", args=[], helper_ref="__btrc_cleanup_mark"),
+            )
+        )
+        return [
+            IRExprStmt(
+                expr=IRCall(
+                    callee="__btrc_discard_cleanups_to",
+                    args=[IRVar(name=marker)],
+                    helper_ref="__btrc_discard_cleanups_to",
+                )
+            )
+        ]
+
+    def _native_lease(self, index, value_type, argument, parameters, statements, releases):
+        name = f"__btrc_native_argument_{index}"
+        while any(parameter.name == name for parameter in parameters):
+            name += "_"
+        slot = IRVarDecl(c_type=CType(text=self._types.render(value_type)), name=name, init=argument)
+        statements.append(slot)
+        value = IRVar(name=name)
+        statements.append(IRExprStmt(expr=self._lifetime.retain_value(value, value_type)))
+        statements.append(IRExprStmt(expr=self._lifetime.register_cleanup_slot(slot, value_type)))
+        release_statements = []
+        release_expressions = self._lifetime.release_and_clear(
+            value, value_type, release_statements, self._types.render(value_type)
+        )
+        releases[:0] = [*release_statements, *[IRExprStmt(expr=expression) for expression in release_expressions]]
+        return value
+
+    def _native_callback(self, function, callback):
+        name = f"__btrc_native_callback_{function}_{callback.parameter_index}"
+        self._session.module.struct_defs.append(
+            IRStructDef(
+                name=f"{name}_context",
+                fields=[
+                    IRStructField(c_type=CType(text=f"{callback.interface}*"), name="receiver"),
+                    IRStructField(c_type=CType(text="volatile int*"), name="thread"),
+                ],
+            )
+        )
+        parameters = [
+            IRParam(c_type=CType(text=self._types.render(value)), name=f"argument{index}")
+            for index, value in enumerate(callback.parameters)
+        ]
+        result_type = CType(text=self._types.render(callback.return_type))
+        context_type = CType(text=f"const struct {name}_context*")
+        context = IRVar(name="__btrc_context")
+        context_declaration = IRVarDecl(
+            c_type=context_type,
+            name=context.name,
+            init=IRCast(
+                target_type=context_type,
+                expr=IRVar(name=parameters[callback.callback_context_index].name),
+            ),
+        )
+        receiver = IRFieldAccess(obj=context, field="receiver", arrow=True)
+        call = IRCall(
+            callee=f"{callback.interface}_invoke",
+            args=[
+                receiver,
+                *[
+                    IRVar(name=parameter.name)
+                    for index, parameter in enumerate(parameters)
+                    if index != callback.callback_context_index
+                ],
+            ],
+        )
+        body = (
+            [IRExprStmt(expr=call)]
+            if result_type.text == "void"
+            else [IRVarDecl(c_type=result_type, name="__btrc_callback_result", init=call)]
+        )
+        body.extend(self._exceptions.pop_try_frames(1))
+        body.append(IRReturn(value=None if result_type.text == "void" else IRVar(name="__btrc_callback_result")))
+        self._session.module.function_decls.append(
+            IRFunctionDecl(name=name, return_type=result_type, params=parameters, is_static=True)
+        )
+        self._session.module.function_defs.append(
+            IRFunctionDef(
+                name=name,
+                return_type=result_type,
+                params=parameters,
+                is_static=True,
+                body=IRBlock(
+                    stmts=[
+                        context_declaration,
+                        IRIf(
+                            condition=IRBinOp(
+                                left=IRFieldAccess(obj=context, field="thread", arrow=True),
+                                op="!=",
+                                right=IRAddressOf(expr=IRVar(name="__btrc_try_top")),
+                            ),
+                            then_block=IRBlock(
+                                stmts=[
+                                    IRExprStmt(
+                                        expr=IRCall(
+                                            callee="fputs",
+                                            args=[
+                                                IRLiteral(
+                                                    text='"BTRC native callback delivered on the wrong thread\\n"'
+                                                ),
+                                                IRVar(name="stderr"),
+                                            ],
+                                        )
+                                    ),
+                                    IRExprStmt(expr=IRCall(callee="abort", args=[], never_returns=True)),
+                                ]
+                            ),
+                        ),
+                        *self._exceptions.native_callback_boundary(IRBlock(stmts=body)).stmts,
+                    ]
+                ),
+            )
+        )
+        return IRFunctionRef(name=name)
+
+    def emit_resource_lifetime(self, declaration):
+        resource = declaration.source_file.resource
+        module = self._session.module
+        forward = IRStructForward(name=f"__btrc_native_{declaration.name}")
+        if forward not in module.struct_forwards:
+            module.struct_forwards.append(forward)
+        for operation, native_name in (("retain", resource.retain), ("release", resource.release)):
+            module.native_external_names.add(native_name)
+            name = f"__btrc_native_{declaration.name}_{operation}"
+            parameters = [IRParam(c_type=CType(text="void*"), name="value")]
+            value = IRVar(name="value")
+            call = IRCall(callee=native_name, args=[IRCast(target_type=CType(text=resource.name), expr=value)])
+            body = IRBlock(
+                stmts=[
+                    IRIf(
+                        condition=IRBinOp(left=value, op="!=", right=IRLiteral(text="NULL")),
+                        then_block=IRBlock(stmts=[IRExprStmt(expr=IRCast(target_type=CType(text="void"), expr=call))]),
+                    )
+                ]
+            )
+            module.function_decls.append(
+                IRFunctionDecl(name=name, return_type=CType(text="void"), params=parameters, is_static=True)
+            )
+            module.function_defs.append(
+                IRFunctionDef(name=name, return_type=CType(text="void"), params=parameters, body=body, is_static=True)
+            )
 
     def _native_record_input(
         self, projection, value, locals, statements, function, path, parameter_names, record_types, prefix=""
@@ -490,6 +700,20 @@ class FunctionLowerer:
                         IRVar(name=parameter), f"Objective-C call {descriptor.name}: null argument {parameter}"
                     )
                 )
+            argument_types = [parameter.type for parameter in method.params]
+            if not descriptor.class_method:
+                argument_types.insert(0, TypeExpr(base=declaration.name, pointer_depth=1))
+            leases = [
+                index
+                for index, value_type in enumerate(argument_types)
+                if (info := self._analyzed.class_table.get(value_type.base)) is not None and info.native_language
+            ]
+            releases = []
+            cleanup = self._native_cleanup_scope(parameters, statements) if leases else []
+            for index in leases:
+                arguments[index] = self._native_lease(
+                    index, argument_types[index], arguments[index], parameters, statements, releases
+                )
             statements.append(
                 IRIf(
                     condition=IRCall(
@@ -509,6 +733,8 @@ class FunctionLowerer:
                     ),
                 )
             )
+            statements.extend(releases)
+            statements.extend(cleanup)
             if returns_value:
                 if object_return is not None and object_return.native_language and not method.return_type.is_nullable:
                     statements.append(

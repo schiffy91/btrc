@@ -7,6 +7,7 @@ from dataclasses import replace
 
 from src.compiler.python.abi.declarations import AbiType
 from src.compiler.python.abi.hosted import HOSTED_ABI
+from src.compiler.python.analyzer.ownership import OwnershipAnalyzer
 from src.compiler.python.analyzer.program import (
     AnalysisContext,
     AnalysisSession,
@@ -620,6 +621,12 @@ class HierarchyValidator:
         if bool(getattr(implementation, "keep_return", False)) != bool(getattr(expected, "keep_return", False)):
             self.context.error(
                 f"Override '{name}' in '{class_name}' has incompatible keep-return ownership from {source}", line, col
+            )
+        if OwnershipAnalyzer.owned_transfer_param_indices(
+            implementation
+        ) != OwnershipAnalyzer.owned_transfer_param_indices(expected):
+            self.context.error(
+                f"Override '{name}' in '{class_name}' changes consuming-parameter ownership from {source}", line, col
             )
         if bool(getattr(implementation, "is_gpu", False)) != bool(getattr(expected, "is_gpu", False)):
             self.context.error(f"Override '{name}' in '{class_name}' changes @gpu execution from {source}", line, col)
@@ -1417,6 +1424,9 @@ class DeclarationRegistry:
                     storage_names.add(storage_name)
                     info.instance_storage.append((storage_name, member))
         self.index.class_table[declaration.name] = info
+        if isinstance(declaration.source_file, NativeHeaderSource) and declaration.source_file.resource is not None:
+            resource = declaration.source_file.resource
+            self.index.native_lifetime_operations.update((resource.retain, resource.release))
 
 
 __all__ = [

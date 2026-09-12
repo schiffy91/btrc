@@ -209,7 +209,7 @@ class OwnershipValidator {
 		Node? canonical = self.types.resolveAliases(typeExpr);
 		if (canonical == null || canonical.isArray) { return false; }
 		bool scalarString = TypeComposition.isSemanticScalarString(canonical);
-		bool classReference = canonical.pointerDepth <= 1 && (self.state.analyzed.isClass(canonical.base) || (canonical.genericArgs.len > 0 && self.state.analyzed.isGenericClass(canonical.base)));
+		bool classReference = canonical.pointerDepth <= 1 && (self.state.analyzed.isClass(canonical.base) || self.state.analyzed.isInterface(canonical.base) || (canonical.genericArgs.len > 0 && self.state.analyzed.isGenericClass(canonical.base)));
 		return scalarString || classReference;
 	}
 
@@ -349,7 +349,7 @@ class OwnershipValidator {
 	public bool mutexDirectManagedValue(Node? typeExpr) {
 		Node? canonical = self.types.resolveAliases(typeExpr);
 		if (canonical == null || canonical.isArray) { return false; }
-		return TypeComposition.isSemanticScalarString(canonical) || (canonical.pointerDepth <= 1 && (self.state.analyzed.isClass(canonical.base) || (canonical.genericArgs.len > 0 && self.state.analyzed.isGenericClass(canonical.base))));
+		return TypeComposition.isSemanticScalarString(canonical) || (canonical.pointerDepth <= 1 && (self.state.analyzed.isClass(canonical.base) || self.state.analyzed.isInterface(canonical.base) || (canonical.genericArgs.len > 0 && self.state.analyzed.isGenericClass(canonical.base))));
 	}
 
 	public bool mutexPayloadMatches(Node? typeExpr, int query, Map<string, bool> visiting) {
@@ -499,12 +499,12 @@ class OwnershipValidator {
 		if (self.state.typeParams.has(typeExpr.base)) {
 			return !typeExpr.isArray && (typeExpr.pointerDepth == 0 || (typeExpr.isNullable && typeExpr.pointerDepth == 1));
 		}
-		return !typeExpr.isArray && typeExpr.pointerDepth <= 1 && (SemanticTypeSystem.isString(typeExpr) || (typeExpr.base == "Mutex" && typeExpr.genericArgs.len == 1 && typeExpr.pointerDepth == 0) || self.state.analyzed.isClass(typeExpr.base) || self.state.analyzed.isGenericClass(typeExpr.base));
+		return !typeExpr.isArray && typeExpr.pointerDepth <= 1 && (SemanticTypeSystem.isString(typeExpr) || (typeExpr.base == "Mutex" && typeExpr.genericArgs.len == 1 && typeExpr.pointerDepth == 0) || self.state.analyzed.isClass(typeExpr.base) || self.state.analyzed.isGenericClass(typeExpr.base) || self.state.analyzed.isInterface(typeExpr.base));
 	}
 
 	public bool rawDeleteType(Node? typeExpr) {
 		if (typeExpr == null || typeExpr.isArray) { return false; }
-		if (self.state.analyzed.isClass(typeExpr.base) || self.state.analyzed.isGenericClass(typeExpr.base)) { return true; }
+		if (self.state.analyzed.isClass(typeExpr.base) || self.state.analyzed.isGenericClass(typeExpr.base) || self.state.analyzed.isInterface(typeExpr.base)) { return true; }
 		if (typeExpr.base == "Mutex" && typeExpr.pointerDepth == 0 && typeExpr.genericArgs.len == 1) { return true; }
 		return typeExpr.pointerDepth > 0 && typeExpr.base != "__fn_ptr" && typeExpr.base != "__realtime_fn_ptr";
 	}
@@ -639,7 +639,7 @@ class OwnershipValidator {
 			return false;
 		}
 		if (typeExpr.pointerDepth > 1) { return false; }
-		return SemanticTypeSystem.isString(typeExpr) || self.state.analyzed.isClass(typeExpr.base) || (typeExpr.genericArgs.len > 0 && self.state.analyzed.isGenericClass(typeExpr.base));
+		return SemanticTypeSystem.isString(typeExpr) || self.state.analyzed.isClass(typeExpr.base) || self.state.analyzed.isInterface(typeExpr.base) || (typeExpr.genericArgs.len > 0 && self.state.analyzed.isGenericClass(typeExpr.base));
 	}
 
 	public bool stringCallOwnsResult(Node call, Map<string, Node> vars) {
@@ -700,6 +700,7 @@ class OwnershipValidator {
 		}
 		Node? receiver = self.types.inferType(callee.obj,  vars);
 		if (receiver == null) { return false; }
+		if (self.state.analyzed.isInterface(receiver.base)) { return self.state.analyzed.interfaceMethod(receiver.base, callee.field) != null; }
 		if (self.state.analyzed.isClass(receiver.base)) {
 			Node? method = self.state.analyzed.classMethod(receiver.base, callee.field);
 			return method != null && method.kind == NK_METHOD_DECL;

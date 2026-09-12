@@ -6,6 +6,7 @@ import Library.GUI.MacOS.MacOSGPUSurface;
 import Library.GUI.MacOS.MacOSViewCapture;
 import Library.GUI.MacOS.MetalLayer;
 import Library.Image;
+import Library.EncodedImage;
 import Library.IO;
 import Library.Vector;
 import Library.MacOSEncodedImageDecoder;

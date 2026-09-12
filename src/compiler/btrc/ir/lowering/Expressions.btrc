@@ -1073,6 +1073,19 @@ class ExpressionLowerer {
 		}
 		if (node.kind == NK_CAST_EXPR) {
 			self.callableBoundaries.rejectNonportableCallableCast(node, self.resolvedExpressionType(node.expr, varTypes), callableFlow.boundaryContext(varTypes, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
+			Node? source = self.cTypes.resolveBodyType(self.resolvedExpressionType(node.expr, varTypes), self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+			Node target = self.cTypes.resolveBodyType(node.targetType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+			if (source != null && self.analyzed.isInterface(source.base) && self.analyzed.isInterface(target.base) && target.isNullable && self.context.unevaluatedDepth == 0) {
+				bool owned = self.ownershipSemantics.unconsumedOwnedResult(node.expr, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()), callableFlow);
+				OwnershipBoundary boundary = self.callOwnership.boundary();
+				boundary.addLoweredOperand(node.expr, source, self.lowerExpr(node.expr, varTypes, callableFlow), owned, false);
+				IRNode receiver = self.lowerExpr(node.expr, varTypes, callableFlow);
+				self.context.referenceHelper("__btrc_interface_try_methods");
+				IRNode lookup = IRNode.call("__btrc_interface_try_methods", [receiver, IRNode.literal("\"" + target.base + "\"")]);
+				IRNode result = IRNode.cast(self.cTypes.lower(target), IRNode.ternary(lookup, receiver, IRNode.literal("NULL")));
+				boundary.restore();
+				return boundary.finish(result, target, owned);
+			}
 			string targetC = self.cTypes.lower(self.cTypes.resolveBodyType(node.targetType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
 			if (self.context.genericBody || self.context.callDefaultTypeDepth > 0) {
 				targetC = self.cTypes.lowerGeneric(node.targetType, self.context.activeTypeMap);

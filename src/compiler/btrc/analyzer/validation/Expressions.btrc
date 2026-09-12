@@ -393,6 +393,10 @@ class ExpressionValidator {
 		}
 		Node? receiver = self.types.inferType(expression.obj,  vars);
 		if (receiver == null) { return; }
+		if (self.state.analyzed.isInterface(receiver.base)) {
+			if (self.state.analyzed.interfaceMethod(receiver.base, expression.field) == null) { TypeValidator.fail("Interface '" + receiver.base + "' has no method '" + expression.field + "'", expression); }
+			TypeValidator.fail("A bound interface method requires a closure capturing its receiver", expression);
+		}
 		if (receiver.base == "Atomic") {
 			string member = expression.field;
 			if (member != "init" && member != "load" && member != "store" && member != "exchange" && member != "fetchAdd" && member != "fetchSub" && member != "fetchAnd" && member != "fetchOr" && member != "fetchXor" && member != "compareExchangeStrong") {
@@ -898,6 +902,7 @@ class ExpressionValidator {
 	public void validateExprChildren(Node expression, Map<string, Node> vars) {
 		if (expression.kind == NK_IDENTIFIER) {
 			string name = expression.name;
+			if (self.state.analyzed.nativeLifetimeOperations.has(name)) { TypeValidator.fail("Native resource lifetime operations are reserved for managed cleanup", expression); }
 			self.calls.rejectConstructorDefaultInstanceMember(name, expression, false, vars);
 			if (self.state.inParameterDefault && self.sourceMacros.declared(name)) {
 				Map<string, bool> contextIdentifiers = {
@@ -945,7 +950,11 @@ class ExpressionValidator {
 			self.validatePointerIntegerCast(expression,  vars);
 			Node? source = self.types.resolveAliases(self.types.inferType(expression.expr, vars));
 			Node? target = self.types.resolveAliases(expression.targetType);
+			bool interfaceQuery = source != null && target != null && self.state.analyzed.isInterface(source.base) && self.state.analyzed.isInterface(target.base) && target.isNullable && source.pointerDepth <= 1 && target.pointerDepth == 1 && !source.isArray && !target.isArray;
+			if (source != null && target != null && self.state.analyzed.isInterface(target.base) && !interfaceQuery && !self.operators.isNullType(source) && !self.operators.specializationIsSubtype(source, target)) { TypeValidator.fail("Interface casts require a proven implementation upcast or a nullable interface query", expression); }
+			if (source != null && target != null && self.state.analyzed.isInterface(source.base) && (self.state.analyzed.isClass(target.base) || self.state.analyzed.isGenericClass(target.base))) { TypeValidator.fail("Interface downcasts require a runtime type proof", expression); }
 			if (source != null && target != null && self.state.analyzed.nativeClassLanguage(source.base) == "objective-c" && self.state.analyzed.nativeClassLanguage(target.base) == "objective-c" && !self.state.analyzed.isSubclass(source.base, target.base)) { TypeValidator.fail("Objective-C casts require a proven object upcast", expression); }
+			if (source != null && target != null && (self.state.analyzed.nativeClassLanguage(source.base) == "c" || self.state.analyzed.nativeClassLanguage(target.base) == "c") && (source.base != target.base || source.pointerDepth - (source.isNullable ? 1 : 0) != 0 || target.pointerDepth - (target.isNullable ? 1 : 0) != 0)) { TypeValidator.fail("Managed native resources cannot be cast to or from other value types", expression); }
 		} else if (expression.kind == NK_SIZEOF_EXPR) {
 			if (expression.operand != null && expression.operand.kind == NK_SIZEOF_EXPR_OP) {
 				self.validateExpr(expression.operand.expr,  vars);

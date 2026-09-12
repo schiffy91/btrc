@@ -1,4 +1,6 @@
 import Library.IO;
+import Library.Image;
+import Library.Vector;
 import Library.GUI.MacOS.MacOSApplication;
 import Library.GUI.MacOS.MacOSWindow;
 import Library.GUI.MacOS.MacOSPanel;

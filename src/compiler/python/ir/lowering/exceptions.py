@@ -1616,6 +1616,34 @@ class ExceptionLowerer:
             right=IRLiteral(text="0"),
         )
 
+    def native_callback_boundary(self, body: IRBlock) -> IRBlock:
+        """Contain BTRC failures before they can unwind a foreign stack frame."""
+        self._require_setjmp()
+        self._session.require_helper("__btrc_push_try")
+        return IRBlock(
+            stmts=[
+                IRExprStmt(expr=IRCall(callee="__btrc_push_try", args=[], helper_ref="__btrc_push_try")),
+                IRIf(
+                    condition=self.setjmp_success_condition(),
+                    then_block=body,
+                    else_block=IRBlock(
+                        stmts=[
+                            IRExprStmt(
+                                expr=IRCall(
+                                    callee="fputs",
+                                    args=[IRLiteral(text='"BTRC native callback failed: "'), IRVar(name="stderr")],
+                                )
+                            ),
+                            IRExprStmt(
+                                expr=IRCall(callee="fputs", args=[IRVar(name="__btrc_error_msg"), IRVar(name="stderr")])
+                            ),
+                            IRExprStmt(expr=IRCall(callee="abort", args=[], never_returns=True)),
+                        ]
+                    ),
+                ),
+            ]
+        )
+
     @staticmethod
     def pop_try_frames(depth: int) -> list[IRExprStmt]:
         """Discard ``depth`` active generated try frames."""

@@ -270,7 +270,7 @@ class ConcurrencyLowerer {
 				callback = IRNode.functionReference("__btrc_thread_string_dispose");
 			} else if (self.managedValues.isManaged(self.cTypes.resolveBodyType(resolved, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
 				context = self.managedLifetime.runtimeDescriptor(self.managedValues.runtimeType(self.cTypes.resolveBodyType(resolved, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)));
-				contextSize = IRNode.sizeofType("__btrc_arc_type");
+				contextSize = self.managedLifetime.runtimeDescriptorSize(self.managedValues.runtimeType(self.cTypes.resolveBodyType(resolved, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)));
 				self.context.referenceHelper("__btrc_thread_arc_dispose");
 				self.context.referenceHelper("__btrc_throw");
 				callback = IRNode.functionReference("__btrc_thread_arc_dispose");
@@ -447,7 +447,7 @@ class ConcurrencyLowerer {
 			access = IRNode.functionReference(self.cleanupSlots.ensureMutexValueAdapter(valueC));
 			slotAccess = IRNode.functionReference(self.cleanupSlots.ensureArcSlotAdapter(valueC));
 			descriptor = self.managedLifetime.runtimeDescriptor(self.managedValues.runtimeType(self.cTypes.resolveBodyType(concreteType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)));
-			descriptorSize = IRNode.sizeofType("__btrc_arc_type");
+			descriptorSize = self.managedLifetime.runtimeDescriptorSize(self.managedValues.runtimeType(self.cTypes.resolveBodyType(concreteType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)));
 			self.context.referenceHelper("__btrc_mutex_arc_retain");
 			self.context.referenceHelper("__btrc_mutex_arc_release");
 			self.context.referenceHelper("__btrc_mutex_arc_finalize");

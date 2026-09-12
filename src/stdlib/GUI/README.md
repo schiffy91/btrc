@@ -2,10 +2,54 @@
 
 The native-control API is being implemented for macOS. Portable controls and
 recursive layout belong at this package root; AppKit providers and SDK headers
-belong under `MacOS/`. `Library.GUI.MacOS.MacOSTextField` owns a real AppKit
+belong under `MacOS/`. `IWindow`, `IView`, `IContainer`, `IButton` and `ITextField` are portable interfaces
+implemented by the existing native window, view, button and text-field owners. They
+expose no SDK objects. Interface conversion preserves the same owner: closing
+through a detached `IView` invalidates its control aliases. `arrange(x, y, width, height)`
+uses logical points from the parent's top-left and requires attachment first;
+native parent flipping and bounds origins stay inside the provider. Fitting
+sizes are native minima, so a flexible text field may report zero minimum width.
+Visibility denotes the control's own flag, not actual on-screen exposure.
+
+The provider's `IMacOSView` interface lives with `MacOSView`. A checked
+`(IMacOSView?)view` query projects the existing native owner for composition;
+an incompatible implementation returns null. Portable signatures still expose
+no SDK objects. This is a provider integration boundary, not a product API or
+a substitute for the still-unfinished package exports and application lifecycle.
+
+`MacOSContainer` implements `IContainer` with real native children. `attach`
+transfers subtree lifecycle responsibility; `detach` returns the same open child.
+Closing an attached child is rejected before actions/editing are changed.
+Parent close and ordinary scope cleanup close descendants despite surviving
+aliases; detached children remain independent. Multiple parents, ancestor cycles
+and reentrant mutations are rejected. A failed close remains unavailable and
+reports its original error without retrying the child. Native attachment errors
+roll back; an unsuccessful rollback leaves the container failed and retaining
+the potentially attached child. Children do not strongly retain their parent.
+This grouping primitive does not yet implement recursive row/grid measurement,
+application shutdown or GPU composition.
+
+`IWindow.attachRoot(view)` transfers a detached root to the window; replace it
+explicitly with `detachRoot()` first. `root()` returns an alias, not another
+lifecycle owner. The root fills the content area and AppKit resizes it with the
+window. Detach restores the root's previous native autoresizing policy and
+returns it open. Explicit window close and ordinary owner scope cleanup close
+the root subtree, including controls held by aliases. Failed attachment rolls
+back frame and resize policy; indeterminate detach/shutdown failure remains
+unavailable without retrying native cleanup. Provider queries and attachment
+reject reentrant tree mutation. Dimensions exclude native window chrome.
+
+This proves programmatic window ownership, not native close-button or application-
+quit routing: those still need checked native delegates and application shutdown.
+
+Creation still uses the explicit macOS constructors. The target-selected `GUI`
+factory, application ownership and checked action subscriptions remain
+unfinished; these interfaces alone do not complete the portable GUI gate.
+
+`Library.GUI.MacOS.MacOSTextField` owns a real AppKit
 text field. `MacOSWindow` owns an AppKit window, title, content size and explicit
-close; `AppKitText` copies strings at the SDK boundary. These main-thread
-providers require explicit child-before-window close. `MacOSApplication` owns
+close; `AppKitText` copies strings at the SDK boundary. Raw native children outside
+the managed root still require explicit child-before-window close. `MacOSApplication` owns
 main-thread startup and bounded nonblocking event dispatch for a shared UI/GPU
 loop; application shutdown/delegates and actual GPU embedding remain unfinished.
 `MacOSScrollView` owns a native vertical viewport and document,

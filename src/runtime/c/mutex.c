@@ -229,7 +229,7 @@ static void __btrc_mutex_arc_destroy(void* object) {
 static const __btrc_arc_type __btrc_mutex_arc_descriptor = {
     __btrc_mutex_arc_visit,
     __btrc_mutex_arc_destroy,
-    NULL, NULL, __btrc_throw
+    NULL, NULL, __btrc_throw, NULL, 0
 };
 /* btrc-runtime-helper:end __btrc_mutex_arc_type */
 /* btrc-runtime-helper:begin __btrc_mutex_val_get */

@@ -61,6 +61,16 @@ class NativeRecordInput:
 
 
 @dataclass(frozen=True)
+class NativeCallbackProjection:
+    interface: str
+    parameter_index: int
+    context_index: int
+    callback_context_index: int
+    parameters: tuple[ast.TypeExpr, ...]
+    return_type: ast.TypeExpr
+
+
+@dataclass(frozen=True)
 class NativeCallContract:
     """Checks at a native call boundary, including calls through function values."""
 
@@ -70,11 +80,19 @@ class NativeCallContract:
     realtime_safe: bool = False
     record_inputs: tuple[NativeRecordInput | None, ...] = ()
     record_types: tuple[NativeRecordInput, ...] = ()
+    resource_parameters: tuple[str, ...] = ()
+    resource_result: str = ""
+    callbacks: tuple[NativeCallbackProjection, ...] = ()
 
     def adapter_symbol(self, name):
         return (
             f"__btrc_native_{name}"
-            if self.nonnull_return or any(self.nonnull_parameters) or any(self.record_inputs)
+            if self.nonnull_return
+            or any(self.nonnull_parameters)
+            or any(self.record_inputs)
+            or any(self.resource_parameters)
+            or self.resource_result
+            or self.callbacks
             else name
         )
 
@@ -95,6 +113,7 @@ class NativeHeaderSource(str):
         methods=None,
         native_ancestors=(),
         headers=None,
+        resource=None,
     ):
         value = super().__new__(cls, module)
         value.header = header
@@ -107,6 +126,7 @@ class NativeHeaderSource(str):
         value.methods = {} if methods is None else methods
         value.native_ancestors = native_ancestors
         value.headers = (header,) if headers is None else headers
+        value.resource = resource
         return value
 
     def __getnewargs__(self):
@@ -122,14 +142,15 @@ class NativeHeaderSource(str):
             self.methods,
             self.native_ancestors,
             self.headers,
+            self.resource,
         )
 
 
 class NativeDeclarationImporter:
     """Import selected C declarations into the normal typed compiler pipeline.
 
-    This first consumer supports only lossless source-type projections. Managed
-    ownership and richer native types must be implemented before broad migration.
+    Compatible C values retain their SDK spelling. Checked resources and
+    Objective-C objects use normal managed cleanup through generated adapters.
     """
 
     def __init__(self):
@@ -147,6 +168,12 @@ class NativeDeclarationImporter:
         self._binding_layouts = {}
         self._input_classes = []
         self._requires_selector = False
+        self._resources = {}
+        self._resource_types = {}
+        self._resource_operations = set()
+        self._owned_results = set()
+        self._resource_borrows = set()
+        self._callbacks = {}
 
     def resolve(self, plan: NativeLinkPlan) -> tuple:
         if not plan.bindings:
@@ -173,6 +200,7 @@ class NativeDeclarationImporter:
         for binding in plan.bindings:
             self._borrows = set(binding.read_only_borrows)
             self._realtime = set(binding.realtime_safe)
+            self._callbacks = {callback.parameter: callback for callback in binding.callbacks}
             self._origin = NativeHeaderSource(binding.module, binding.header, language=binding.language)
             if binding.language not in ("c", "objective-c"):
                 raise IncludeResolutionError(f"{binding.module}: Objective-C/C++ call adapters are not implemented")
@@ -220,6 +248,7 @@ class NativeDeclarationImporter:
                 if result.returncode:
                     raise NativeImportError(result.stderr.strip() or "native header reader failed")
                 header = NativeHeaderCodec().decode(result.stdout, expected_target=target)
+                self._prepare_resources(binding, header)
                 self._merge_interfaces(header.interfaces)
                 self._layouts = {record.identity: record for record in header.records}
                 self._binding_layouts.setdefault(binding.module, {}).update(self._layouts)
@@ -238,15 +267,182 @@ class NativeDeclarationImporter:
                     raise NativeImportError(
                         f"realtime-safe names a non-function declaration: {sorted(self._realtime)[0]}"
                     )
+                if self._owned_results or self._resource_borrows:
+                    raise NativeImportError("resource ownership names an unknown or non-resource result/parameter")
+                if self._callbacks:
+                    raise NativeImportError(
+                        f"callbacks names an unknown function parameter: {next(iter(self._callbacks))}"
+                    )
             except (OSError, subprocess.TimeoutExpired, NativeImportError) as error:
                 raise IncludeResolutionError(f"{binding.module}: {error}") from error
         try:
+            if any(name in self._resource_operations for _, name in self._declarations):
+                raise NativeImportError("resource lifetime operations are reserved across native bindings")
             self._project_record_inputs(plan)
             self._coalesce()
             self._validate_selector_storage()
         except NativeImportError as error:
             raise IncludeResolutionError(str(error)) from error
         return (*self._declarations.values(), *self._input_classes)
+
+    def _project_callbacks(self, declaration):
+        projections = []
+        names = [parameter.name for parameter in declaration.parameter_semantics]
+        for index, name in enumerate(names):
+            binding = self._callbacks.pop(f"{declaration.name}.{name}", None)
+            if binding is None:
+                continue
+            if names.count(binding.context) != 1:
+                raise NativeImportError(f"callback {binding.parameter}: context must identify one native parameter")
+            context_index = names.index(binding.context)
+            native = self._unqualified_native(declaration.signature.parameters[index])
+            signature = self._unqualified_native(native.pointee) if isinstance(native, NativePointer) else None
+            if not isinstance(signature, NativeFunctionType) or signature.variadic:
+                raise NativeImportError(f"callback {binding.parameter}: expected a nonvariadic function pointer")
+            if binding.context_index >= len(signature.parameters):
+                raise NativeImportError(f"callback {binding.parameter}: context-index is outside the native signature")
+            for context in (
+                declaration.signature.parameters[context_index],
+                signature.parameters[binding.context_index],
+            ):
+                pointer = self._unqualified_native(context)
+                pointee = self._unqualified_native(pointer.pointee) if isinstance(pointer, NativePointer) else None
+                if not isinstance(pointee, NativeBuiltin) or pointee.name != "void" or pointee.qualifiers.is_const:
+                    raise NativeImportError(
+                        f"callback {binding.parameter}: context must be an unqualified void pointer"
+                    )
+            projected = []
+            for position, parameter in enumerate(signature.parameters):
+                if position == binding.context_index:
+                    projected.append(ast.TypeExpr(base="void", pointer_depth=1))
+                    continue
+                scalar = self._unqualified_native(parameter)
+                if not isinstance(scalar, (NativeBuiltin, NativeEnumType)):
+                    raise NativeImportError(
+                        f"callback {binding.parameter}: non-scalar arguments require a borrow mapping"
+                    )
+                projected.append(self._call_type(parameter, parameter=True))
+            if not isinstance(self._unqualified_native(signature.return_type), (NativeBuiltin, NativeEnumType)):
+                raise NativeImportError(
+                    f"callback {binding.parameter}: non-scalar results require an ownership mapping"
+                )
+            result = self._call_type(signature.return_type)
+            method = ast.MethodSig(
+                name="invoke",
+                return_type=result,
+                params=[
+                    ast.Param(type=parameter, name=f"argument{position}")
+                    for position, parameter in enumerate(
+                        parameter for index, parameter in enumerate(projected) if index != binding.context_index
+                    )
+                ],
+            )
+            self._add(
+                binding.interface,
+                ast.InterfaceDecl(name=binding.interface, methods=[method]),
+                (
+                    "callback-interface",
+                    self._type_identity(signature.return_type),
+                    tuple(
+                        self._type_identity(parameter)
+                        for position, parameter in enumerate(signature.parameters)
+                        if position != binding.context_index
+                    ),
+                ),
+            )
+            projections.append(
+                NativeCallbackProjection(
+                    binding.interface, index, context_index, binding.context_index, tuple(projected), result
+                )
+            )
+        occupied = [
+            index for projection in projections for index in (projection.parameter_index, projection.context_index)
+        ]
+        if len(set(occupied)) != len(occupied):
+            raise NativeImportError(
+                f"{declaration.name}: callback and context parameters must be distinct and unshared"
+            )
+        return tuple(projections)
+
+    def _prepare_resources(self, binding, header):
+        self._resources = {resource.name: resource for resource in binding.resources}
+        self._resource_types = {}
+        self._owned_results = set(binding.owned_results)
+        self._resource_borrows = set(binding.borrowed_parameters)
+        exports = {declaration.name: declaration for declaration in header.exports}
+        for resource in binding.resources:
+            declaration = exports.get(resource.name)
+            if not isinstance(declaration, NativeTypedef):
+                raise NativeImportError(f"resource {resource.name}: expected a selected pointer typedef")
+            pointer = self._unqualified_native(declaration.underlying)
+            if not isinstance(pointer, NativePointer) or not isinstance(
+                self._unqualified_native(pointer.pointee), NativeRecordType
+            ):
+                raise NativeImportError(f"resource {resource.name}: expected a record-pointer typedef")
+            self._resource_types[resource.name] = declaration.underlying
+            for operation in (resource.retain, resource.release):
+                function = exports.get(operation)
+                if (
+                    not isinstance(function, NativeFunction)
+                    or function.signature.variadic
+                    or len(function.signature.parameters) != 1
+                ):
+                    raise NativeImportError(
+                        f"resource {resource.name}: lifetime operation {operation} requires one pointer parameter"
+                    )
+                if not self._resource_pointer_accepts(function.signature.parameters[0], pointer):
+                    raise NativeImportError(f"resource {resource.name}: incompatible lifetime parameter in {operation}")
+                result = self._unqualified_native(function.signature.return_type)
+                returns_void = isinstance(result, NativeBuiltin) and result.name == "void"
+                if not returns_void and (
+                    operation == resource.release or not self._resource_pointer_accepts(result, pointer)
+                ):
+                    raise NativeImportError(f"resource {resource.name}: unsupported lifetime result in {operation}")
+                if function.returned_ownership not in ("unspecified", "cf_retained") or any(
+                    parameter.cf_consumed or parameter.ns_consumed for parameter in function.parameter_semantics
+                ):
+                    raise NativeImportError(f"resource {resource.name}: conflicting lifetime ownership in {operation}")
+                self._resource_operations.add(operation)
+            self._add(
+                resource.name,
+                ast.ClassDecl(name=resource.name, is_abstract=True),
+                self._type_identity(declaration.underlying),
+                resource=resource,
+            )
+
+    def _resource_pointer_accepts(self, target, source):
+        target = self._unqualified_native(target)
+        source = self._unqualified_native(source)
+        if not isinstance(target, NativePointer) or not isinstance(source, NativePointer):
+            return False
+        target_value = self._unqualified_native(target.pointee)
+        source_value = self._unqualified_native(source.pointee)
+        if source_value.qualifiers.is_const and not target_value.qualifiers.is_const:
+            return False
+        return (isinstance(target_value, NativeBuiltin) and target_value.name == "void") or (
+            isinstance(target_value, NativeRecordType)
+            and isinstance(source_value, NativeRecordType)
+            and target_value.identity == source_value.identity
+        )
+
+    def _resource_name(self, native):
+        while isinstance(native, (NativeAlias, NativeQualifiedType)):
+            if isinstance(native, NativeAlias) and native.name in self._resources:
+                return native.name
+            native = native.underlying
+        return ""
+
+    def _resource_call_type(self, native):
+        name = self._resource_name(native)
+        if not name:
+            return self._call_type(native)
+        current = native
+        while isinstance(current, (NativeAlias, NativeQualifiedType, NativePointer)):
+            if current.qualifiers.is_volatile or current.qualifiers.is_restrict:
+                raise NativeImportError("resource qualifiers require managed native lowering")
+            current = current.pointee if isinstance(current, NativePointer) else current.underlying
+        nullable = self._call_nullability(native) != "nonnull"
+        return ast.TypeExpr(base=name, is_nullable=nullable, pointer_depth=int(nullable))
 
     def _validate_selector_storage(self):
         if not self._requires_selector:
@@ -470,6 +666,7 @@ class NativeDeclarationImporter:
                 or previous_origin.type_spelling != origin.type_spelling
                 or previous_origin.read_only != origin.read_only
                 or previous_origin.call_contract != origin.call_contract
+                or previous_origin.resource != origin.resource
                 or (previous_origin.language != origin.language and not shared_c_record)
                 or (
                     isinstance(declaration, ast.StructDecl)
@@ -517,7 +714,9 @@ class NativeDeclarationImporter:
         selected.methods.update(origin.methods)
         selected.headers = tuple(dict.fromkeys((*selected.headers, *origin.headers)))
 
-    def _add(self, name, declaration, native_type=None, type_spelling="", read_only=False, call_contract=None):
+    def _add(
+        self, name, declaration, native_type=None, type_spelling="", read_only=False, call_contract=None, resource=None
+    ):
         key = (str(self._origin), name)
         if key in self._declarations:
             previous = self._declarations[key]
@@ -527,6 +726,7 @@ class NativeDeclarationImporter:
                 or previous.source_file.type_spelling != type_spelling
                 or previous.source_file.read_only != read_only
                 or previous.source_file.call_contract != call_contract
+                or previous.source_file.resource != resource
             ):
                 raise NativeImportError(f"conflicting native declaration {name!r}")
             return
@@ -537,6 +737,7 @@ class NativeDeclarationImporter:
             read_only,
             call_contract,
             language=self._origin.language,
+            resource=resource,
         )
         self._declarations[key] = declaration
         self._native_types[key] = native_type
@@ -717,6 +918,11 @@ class NativeDeclarationImporter:
         return native
 
     def _type(self, native):
+        if self._resource_name(native) or any(
+            self._type_identity(native) == self._type_identity(resource_type)
+            for resource_type in self._resource_types.values()
+        ):
+            raise NativeImportError("resource storage requires a checked managed call boundary")
         native = self._without_spelling_wrappers(native)
         if isinstance(native, NativeBuiltin):
             if native.name not in {
@@ -796,18 +1002,33 @@ class NativeDeclarationImporter:
             raise NativeImportError("Objective-C header declarations require adapter lowering")
         contract = None
         if isinstance(declaration, NativeFunction):
+            if declaration.name in self._resource_operations:
+                return
             signature = declaration.signature
             if signature.variadic:
                 raise NativeImportError("variadic native calls require adapter lowering")
             # Emit calls through the included header's source spelling. The C
             # compiler owns SDK asm labels (including Darwin's pthread aliases);
             # redeclaring or calling the linker spelling would discard that ABI.
-            if declaration.returned_ownership != "unspecified" or any(
+            resource_result = self._resource_name(signature.return_type)
+            if (declaration.returned_ownership != "unspecified" and not resource_result) or any(
                 parameter.cf_consumed or parameter.ns_consumed for parameter in declaration.parameter_semantics
             ):
                 raise NativeImportError("annotated native ownership requires managed native lowering")
+            if resource_result:
+                if declaration.returned_ownership not in ("unspecified", "cf_retained"):
+                    raise NativeImportError(
+                        "resource result contradicts owned ownership; borrowed results require an owner"
+                    )
+                if declaration.name not in self._owned_results and declaration.returned_ownership != "cf_retained":
+                    raise NativeImportError("resource result requires owned-results or SDK retained ownership")
+                self._owned_results.discard(declaration.name)
             parameters = []
             borrows = []
+            resource_parameters = []
+            callbacks = self._project_callbacks(declaration)
+            callback_parameters = {projection.parameter_index: projection for projection in callbacks}
+            callback_contexts = {projection.context_index for projection in callbacks}
             names = {parameter.name for parameter in declaration.parameter_semantics if parameter.name}
             for index, (native, semantics) in enumerate(
                 zip(signature.parameters, declaration.parameter_semantics, strict=True)
@@ -818,8 +1039,23 @@ class NativeDeclarationImporter:
                     while name in names:
                         name += "_"
                     names.add(name)
-                parameters.append(ast.Param(type=self._call_type(native, parameter=True), name=name))
                 key = f"{declaration.name}.{semantics.name}"
+                resource_parameter = self._resource_name(native)
+                if resource_parameter:
+                    if key not in self._resource_borrows:
+                        raise NativeImportError(f"resource parameter {key} requires borrowed-parameters")
+                    self._resource_borrows.remove(key)
+                resource_parameters.append(resource_parameter)
+                parameters.append(
+                    ast.Param(
+                        type=ast.TypeExpr(base=callback_parameters[index].interface)
+                        if index in callback_parameters
+                        else self._resource_call_type(native)
+                        if resource_parameter
+                        else self._call_type(native, parameter=True),
+                        name=name,
+                    )
+                )
                 borrowed = key in self._borrows
                 if borrowed:
                     projected = parameters[-1].type
@@ -836,15 +1072,29 @@ class NativeDeclarationImporter:
                         raise NativeImportError("read-only-borrows requires a const scalar pointer parameter")
                     self._borrows.remove(key)
                 borrows.append(borrowed)
+            if any(borrows[index] or resource_parameters[index] for index in callback_contexts):
+                raise NativeImportError("callback context cannot also declare a borrow or resource mapping")
+            visible = [index for index in range(len(parameters)) if index not in callback_contexts]
             imported = ast.FunctionDecl(
-                name=declaration.name, return_type=self._call_type(signature.return_type), params=parameters, body=None
+                name=declaration.name,
+                return_type=self._resource_call_type(signature.return_type),
+                params=[parameters[index] for index in visible],
+                body=None,
             )
             contract = NativeCallContract(
-                tuple(self._call_nullability(value) == "nonnull" for value in signature.parameters),
+                tuple(
+                    index in callback_parameters or self._call_nullability(signature.parameters[index]) == "nonnull"
+                    for index in visible
+                ),
                 self._call_nullability(signature.return_type) == "nonnull",
-                tuple(borrows),
+                tuple(borrows[index] for index in visible),
                 declaration.name in self._realtime,
+                resource_parameters=tuple(resource_parameters[index] for index in visible),
+                resource_result=resource_result,
+                callbacks=callbacks,
             )
+            if contract.realtime_safe and (resource_result or any(resource_parameters) or callbacks):
+                raise NativeImportError("managed resource adapters are not realtime-safe")
             self._realtime.discard(declaration.name)
         elif isinstance(declaration, NativeGlobal):
             native = declaration.value_type
@@ -888,6 +1138,8 @@ class NativeDeclarationImporter:
                 initializer=ast.IntLiteral(value=int(declaration.decimal_value), raw=raw),
             )
         elif isinstance(declaration, NativeTypedef):
+            if declaration.name in self._resources:
+                return
             self._type(
                 NativeAlias(
                     name=declaration.name,

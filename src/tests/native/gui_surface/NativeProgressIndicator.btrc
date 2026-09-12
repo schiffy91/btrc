@@ -1,5 +1,6 @@
 import Library.Datetime;
 import Library.Image;
+import Library.EncodedImage;
 import Library.IO;
 import Library.MacOSEncodedImageDecoder;
 import Library.GUI.MacOS.MacOSApplication;

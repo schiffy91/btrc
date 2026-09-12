@@ -53,16 +53,14 @@ def test_sizeof_type_operand_analyzes():
     assert errors(src) == []
 
 
-def test_interface_value_fails_closed():
-    # Implementations are checked structurally, but interface-typed runtime
-    # values are unavailable in the static-dispatch object model.
+def test_interface_value_supports_method_calls():
     src = """
     interface Speaker { int speak(); }
     class Dog implements Speaker { public int speak() { return 1; } }
     int call(Speaker s) { return s.speak(); }
     int main() { Dog d = new Dog(); return call(d); }
     """
-    assert any("cannot be used as a runtime value" in error for error in errors(src))
+    assert errors(src) == []
 
 
 def test_subclass_accepted_where_base_expected():

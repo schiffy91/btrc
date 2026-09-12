@@ -121,7 +121,7 @@ def test_named_struct_is_accepted():
     assert not _has(errors(src), "anonymous struct")
 
 
-def test_interface_value_type_fails_before_c_emission():
+def test_interface_value_accepts_implementing_class():
     src = """
     interface Named { string name(); }
     class User implements Named {
@@ -132,5 +132,4 @@ def test_interface_value_type_fails_before_c_emission():
         return 0;
     }
     """
-    errs = errors(src)
-    assert _has(errs, "Interface type 'Named' cannot be used as a runtime value")
+    assert errors(src) == []

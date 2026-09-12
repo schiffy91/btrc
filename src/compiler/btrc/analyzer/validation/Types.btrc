@@ -190,8 +190,8 @@ class TypeValidator {
 		Node? resolvedType = self.resolveAliases(typeExpr);
 		if (resolvedType == null) { return; }
 		if (self.state.typeParams.has(resolvedType.base)) { return; }
-		if (self.state.interfaces.has(resolvedType.base)) {
-			TypeValidator.fail("Interface type '" + resolvedType.base + "' is compile-time-only and cannot be used as a runtime value type", site);
+		if (self.state.interfaces.has(resolvedType.base) && self.state.interfaces.get(resolvedType.base).genericParams.len > 0) {
+			TypeValidator.fail("Generic interface type '" + resolvedType.base + "' cannot be used as a runtime value yet", site);
 		}
 		int index = 0;
 		while (index < resolvedType.genericArgs.len) {
@@ -262,45 +262,6 @@ class TypeValidator {
 			return self.state.analyzed.classMethod(objectType.base, name);
 		}
 		return null;
-	}
-
-	public bool interfaceExtends(string child, string parent) {
-		string current = child;
-		Map<string, bool> seen = {};
-		while (current != "" && !seen.has(current)) {
-			if (current == parent) { return true; }
-			seen.put(current, true);
-			if (!self.state.interfaces.has(current)) { return false; }
-			Node declaration = self.state.interfaces.get(current);
-			if (declaration.parent == null) { return false; }
-			current = declaration.parent;
-		}
-		return false;
-	}
-
-	public bool classImplements(string className, string interfaceName) {
-		string current = className;
-		Map<string, bool> seen = {};
-		while (current != "" && !seen.has(current)) {
-			seen.put(current, true);
-			Node? declaration = null;
-			if (self.state.analyzed.classTable.has(current)) {
-				declaration = self.state.analyzed.classTable.get(current);
-			} else if (self.state.analyzed.genericClassTable.has(current)) {
-				declaration = self.state.analyzed.genericClassTable.get(current);
-			}
-			if (declaration == null) { return false; }
-			int index = 0;
-			while (index < declaration.interfaces.len) {
-				string implemented = declaration.interfaces.get(index);
-				if (implemented == interfaceName || self.interfaceExtends(implemented, interfaceName)) {
-					return true;
-				}
-				index = index + 1;
-			}
-			current = DeclarationRegistry.parentName(declaration);
-		}
-		return false;
 	}
 
 	public bool containsThreadStorage(Node? typeExpr) {
@@ -677,9 +638,11 @@ class TypeValidator {
 		Node? resolvedTarget = self.resolveAliases(valueTarget);
 		Node? resolvedSource = self.resolveAliases(valueSource);
 		if (resolvedTarget == null || resolvedSource == null) { return false; }
+		if (resolvedTarget.base == "null") { return self.operators.isNullType(resolvedSource); }
 		if (self.operators.isNullType(resolvedSource)) {
 			return self.operators.isReferenceType(resolvedTarget) || self.state.interfaces.has(resolvedTarget.base);
 		}
+		if (self.state.analyzed.isInterface(resolvedTarget.base) && !self.state.analyzed.isClass(resolvedSource.base) && !self.state.analyzed.isGenericClass(resolvedSource.base) && !self.state.analyzed.isInterface(resolvedSource.base)) { return false; }
 		/* A generic template cannot know whether T's eventual value already has
 		 * reference shape. T -> T? is the one deferred promotion: nullable adds
 		 * the optional boundary when needed and otherwise annotates that resolved
@@ -713,10 +676,10 @@ class TypeValidator {
 		bool targetNominal = self.state.analyzed.isClass(resolvedTarget.base) || self.state.analyzed.isGenericClass(resolvedTarget.base);
 		bool sourceNominal = self.state.analyzed.isClass(resolvedSource.base) || self.state.analyzed.isGenericClass(resolvedSource.base);
 		if (self.state.interfaces.has(resolvedTarget.base) && sourceNominal) {
-			return self.classImplements(resolvedSource.base, resolvedTarget.base);
+			return self.operators.specializationIsSubtype(resolvedSource, resolvedTarget);
 		}
 		if (self.state.interfaces.has(resolvedTarget.base) && self.state.interfaces.has(resolvedSource.base)) {
-			return self.interfaceExtends(resolvedSource.base, resolvedTarget.base);
+			return self.operators.specializationIsSubtype(resolvedSource, resolvedTarget);
 		}
 		if (targetNominal && sourceNominal) {
 			return self.operators.specializationIsSubtype(resolvedSource, resolvedTarget);
@@ -755,7 +718,7 @@ class TypeValidator {
 			return false;
 		}
 		if (canonical.pointerDepth > 0) {
-			return canonical.base != "string" && canonical.base != "Atomic" && canonical.base != "Span" && !self.state.analyzed.isClass(canonical.base) && !self.state.analyzed.isGenericClass(canonical.base);
+			return canonical.base != "string" && canonical.base != "Atomic" && canonical.base != "Span" && !self.state.analyzed.isClass(canonical.base) && !self.state.analyzed.isGenericClass(canonical.base) && !self.state.analyzed.isInterface(canonical.base);
 		}
 		if (canonical.isConst || canonical.isVolatile) { return false; }
 		return canonical.base == "bool" || canonical.base == "int" || canonical.base == "signed" || canonical.base == "signed int" || canonical.base == "uint" || canonical.base == "unsigned" || canonical.base == "unsigned int";
@@ -767,7 +730,7 @@ class TypeValidator {
 			return false;
 		}
 		if (canonical.pointerDepth > 0) {
-			return canonical.base != "string" && !self.state.analyzed.isClass(canonical.base) && !self.state.analyzed.isGenericClass(canonical.base);
+			return canonical.base != "string" && !self.state.analyzed.isClass(canonical.base) && !self.state.analyzed.isGenericClass(canonical.base) && !self.state.analyzed.isInterface(canonical.base);
 		}
 		if (canonical.base == "__realtime_fn_ptr") { return true; }
 		if (canonical.genericArgs.len > 0) { return false; }

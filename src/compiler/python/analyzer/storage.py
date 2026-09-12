@@ -270,7 +270,10 @@ class StorageModel:
             and canonical.pointer_depth <= 1
             and (
                 canonical.base in {"string", "Mutex"}
-                or (not active_type_param and canonical.base in self.index.class_table)
+                or (
+                    not active_type_param
+                    and (canonical.base in self.index.class_table or canonical.base in self.index.interface_table)
+                )
             )
         )
 

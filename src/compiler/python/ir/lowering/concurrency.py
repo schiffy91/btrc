@@ -203,7 +203,7 @@ class ConcurrencyLowerer:
                     value_type,
                 ),
                 self._lifetime.arc_type_descriptor(value_type),
-                IRSizeof(operand=CType(text="__btrc_arc_type")),
+                self._lifetime.arc_type_descriptor_size(value_type),
                 self._callback("__btrc_mutex_arc_retain"),
                 self._callback("__btrc_mutex_arc_release"),
                 self._callback("__btrc_mutex_arc_finalize"),
@@ -562,7 +562,7 @@ class ConcurrencyLowerer:
         if self._values.is_class(canonical):
             return [
                 self._lifetime.arc_type_descriptor(canonical),
-                IRSizeof(operand=CType(text="__btrc_arc_type")),
+                self._lifetime.arc_type_descriptor_size(canonical),
                 self._disposal_callback("__btrc_thread_arc_dispose"),
                 self._disposal_callback("__btrc_throw"),
             ]

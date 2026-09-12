@@ -1,11 +1,14 @@
 import Library.Math;
+import Library.GUI.ITextField;
 import Library.GUI.MacOS.AppKitText;
+import Library.GUI.MacOS.MacOSView;
 
 /* Main-thread owner of an actual AppKit text field, not a painted imitation.
  * The host attaches nativeControl() to its view tree and closes this owner
  * before releasing that tree. AppKit owns selection, IME and field editing. */
-class MacOSTextField {
+class MacOSTextField implements ITextField, IMacOSView {
 	private NSTextField? _control;
+	private bool _attached = false;
 
 	public MacOSTextField(string text = "", string placeholder = "") {
 		self._control = null;
@@ -23,6 +26,39 @@ class MacOSTextField {
 		if (self._control == null) { throw "Text field is closed"; }
 		return self._control;
 	}
+
+	public bool isOpen() { self.requireMainThread(); return self._control != null; }
+
+	public NSView nativeView() { return self.nativeControl(); }
+
+	public void attachTo(NSView parent) {
+		var control = self.nativeControl();
+		if (self._attached) { throw "View already belongs to a container"; }
+		MacOSView.validateAttachment(control, parent);
+		self._attached = true;
+		try { MacOSView.attachNative(control, parent); } catch (string error) {
+			NSView view = control;
+			self._attached = view.superview() == parent;
+			throw error;
+		}
+	}
+
+	public void detachFrom(NSView parent) {
+		var control = self.nativeControl();
+		if (!self._attached) { throw "View has no container attachment"; }
+		MacOSView.detachNative(control, parent);
+		self._attached = false;
+	}
+
+	public double fittingWidth() { NSView view = self.nativeControl(); return view.fittingSize().width; }
+
+	public double fittingHeight() { NSView view = self.nativeControl(); return view.fittingSize().height; }
+
+	public bool isVisible() { NSView view = self.nativeControl(); return !view.isHidden(); }
+
+	public void setVisible(bool visible) { NSView view = self.nativeControl(); view.setHidden(!visible); }
+
+	public void arrange(double x, double y, double width, double height) { MacOSView.arrangeNative(self.nativeControl(), x, y, width, height); }
 
 	public string text() {
 		var control = self.nativeControl();
@@ -65,6 +101,7 @@ class MacOSTextField {
 		self.requireMainThread();
 		var control = self._control;
 		if (control == null) { return; }
+		if (self._attached) { throw "Detach the view from its container before closing it"; }
 		control.abortEditing();
 		control.removeFromSuperview();
 		self._control = null;

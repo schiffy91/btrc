@@ -27,6 +27,69 @@ Names and dependency aliases use ASCII identifiers (`[A-Za-z_][A-Za-z0-9_]*`).
 A resolved graph may contain only one source for a package name.  Depending on
 two different sources with the same package identity is an error.
 
+### Public modules
+
+An optional `package.exports` array defines a package's public source modules:
+
+```toml
+[package]
+name = "widgets"
+exports = ["GUI", "IView", "IButton"]
+```
+
+Names resolve to `src/<module>.btrc`, falling back to `<module>.btrc` at the
+package root; dotted names select subdirectories. Entries must exist, remain
+inside the package after symlink resolution, and be distinct valid module names.
+An empty array makes every module private. Omitting `exports` preserves the
+existing unrestricted import behavior; it does **not** establish encapsulation.
+
+Code inside the same package can import its private implementations. Imports
+from outside can reach only exported files, regardless of dependency alias,
+relative/absolute spelling, directory glob, symlink, or BTRC `#include`. Checks
+run on every edge before import de-duplication: importing a public factory does
+not grant access to a private file that factory already loaded. Canonical paths
+and the nearest manifest define ownership, including nested packages and loose
+consumers without a manifest. Export-policy caches live for one resolution only.
+
+Exports control source-module access, not symbol re-export or native security.
+Ordinary strict per-file visibility still applies. Public factories must return
+portable public types; listing a module does not inspect its API for leaked
+platform types. Handwritten C and deliberate unsafe access are not sandboxed.
+
+### Target-selected source providers
+
+An ordinary BTRC module can declare one implementation dependency per target:
+
+```toml
+[[package.providers]]
+module = "GUI"
+implementation = "MacOS.Provider"
+os = ["macos"]
+arch = ["aarch64", "x86_64"]
+```
+
+Both names resolve to existing package modules using the same path and symlink
+checks as exports. The resolver adds the selected implementation as a normal
+import of `GUI` before composing its source. `GUI` contains ordinary BTRC code
+using that implementation; no runtime provider registry, virtual source file,
+generated import text or caller-side OS branch is introduced. This also applies
+when `GUI` is the compilation entrypoint. The compiler's normalized target—not
+the build host—selects the dependency.
+
+`os` and `arch` use the existing closed target sets below; omitted or empty
+selectors match all values. Declarations for the same canonical module must be
+disjoint, even on inactive targets. Self-selection, missing modules, escaping
+paths and unknown fields are errors. Importing a configured module without a
+matching provider is an error, not a fallback to another OS. Only selected
+implementation source is parsed; inactive files must exist but may be unfinished.
+
+Provider imports obey ordinary strict visibility and package privacy. Export the
+public module, not its implementation; loading it does not authorize consumers
+to import a private implementation directly. Provider selection is scoped to
+one resolution and indexed by canonical module identity. The existing manifest
+hash locks these declarations; selected implementations enter the ordinary
+source dependency graph. They do not create native link-plan records.
+
 Dependencies are local to their declaring package.  An import beginning with
 an alias is resolved against the manifest owning the importing source, not the
 root application's aliases.  Dependencies use one of these forms:
@@ -110,6 +173,75 @@ module. Both frontends validate, select and experimentally consume C requests.
 Unloaded modules and inactive targets do not
 activate their bindings. Existing `native.headers` and `#include` retain their
 untyped behavior.
+
+### Call-scoped native callbacks
+
+An explicit callback mapping projects a native function-pointer/context pair
+into an ordinary BTRC interface parameter. The header remains the signature
+authority; the manifest supplies only the context relationship, lifetime,
+failure policy and imported interface name:
+
+```toml
+[[native.bindings]]
+module = "Visits"
+header = "Visits.h"
+language = "c"
+standard = "c11"
+symbols = ["VisitNow"]
+
+[native.bindings.callbacks."VisitNow.callback"]
+context = "context"
+context-index = 1
+interface = "IVisitor"
+lifetime = "call"
+failure = "abort"
+executor = "caller"
+```
+
+For `int VisitNow(int value, int (*callback)(int, void*), void* context)`, this
+imports `IVisitor` with `int invoke(int argument0)` and exposes
+`VisitNow(int value, IVisitor callback)`. `context` names the enclosing native
+function's parameter; `context-index` is the zero-based context slot in the
+callback prototype, whose parameter names are not part of a C function type.
+
+```btrc
+class Visitor implements IVisitor {
+	public int invoke(int value) { return value * 2; }
+}
+var result = VisitNow(21, Visitor());
+```
+
+Generated strict-C11 adapters retain the ordinary managed receiver across the
+whole native call, pass a stack-scoped typed context, dispatch synchronously,
+and release the receiver afterward. Nested/reentrant calls use independent call frames.
+The stack context records caller-thread identity using the existing thread-local
+runtime state; a wrong-thread delivery terminates before entering the receiver.
+Receiver leases and owned native results use BTRC's normal exception-cleanup
+slots, including when a receiver destructor throws after the native call.
+No userdata, manual retain, trampoline, or second owner is exposed to provider
+code. An indirect function value uses the same checked adapter.
+
+`call` asserts that native code neither retains the context nor delivers a
+callback after the enclosing call returns. This is a trusted foreign lifetime
+fact, not a claim that arbitrary C behavior can be statically verified. Context
+slots must be distinct, unshared `void*` parameters. Callback arguments/results
+currently support scalar values (and void results); pointer/managed payloads
+require future borrow/ownership mappings and are rejected. The same interface
+name may be reused by mappings with identical native result/payload types,
+including across binding modules and different context positions. Context slots
+are omitted from interface identity; public arguments are numbered consecutively.
+Conflicting signatures or names colliding with other imported declarations fail
+compilation. SDK signature changes are checked when compiling.
+
+`abort` is currently the only supported failure policy: a BTRC exception runs
+its local cleanup and terminates at the callback boundary, without unwinding
+through native frames. `caller` is the only supported executor. This adapter is
+not realtime-safe. Stored registrations, one-shot completion, UI-executor
+ownership/destruction, Objective-C delegates/blocks and direct
+capturing-lambda conversion remain unfinished. Use table form as above for
+both compilers; self-hosted inline-table parsing remains limited.
+
+### Header selection
 
 ```toml
 [[native.bindings]]
@@ -270,6 +402,62 @@ retained object have separate lifetimes. This is not `read-only-borrows`, an
 output/writeback adapter, a callback registration, or permission for application
 code to cast managed objects to raw pointer storage. Verify the actual callee's
 lifetime behavior before selecting this mapping.
+
+### Managed reference-counted C resources
+
+Ownership facts belong to the existing binding, not copied C signatures. The
+canonical resource syntax is a named TOML subtable:
+
+```toml
+[[native.bindings]]
+module = "Widgets"
+header = "Widgets.h"
+language = "c"
+standard = "c11"
+symbols = ["WidgetRef", "WidgetCreate", "WidgetRead", "WidgetRetain", "WidgetRelease"]
+owned-results = ["WidgetCreate"]
+borrowed-parameters = ["WidgetRead.widget"]
+
+[native.bindings.resources.WidgetRef]
+ownership = "reference-counted"
+retain = "WidgetRetain"
+release = "WidgetRelease"
+```
+
+Both manifests validate selected names, distinct retain/release operations,
+closed fields and duplicate-free selections. Multiple resource types may share
+the same lifetime functions. Resources must be SDK record-pointer typedefs;
+hooks take one compatible pointer. Release returns void; retain returns void or
+a compatible pointer. The importer checks the actual header, not names alone.
+Contradictory SDK ownership is an error. SDK `cf_retained` results supply the
+owned-result fact without an additional manifest entry.
+
+The declared semantics are: each successful owned result supplies one native
+ownership claim; a borrowed parameter is valid only for the call and does not
+transfer ownership; aliases retain the same native object through its declared
+operation. Both native lifetime functions are reserved for generated cleanup,
+including when referenced as function values. Managed values preserve native
+identity; they never receive a BTRC ARC header. Generated strict-C11 adapters
+convert typed carriers and guard null before calling lifetime hooks. Ordinary
+BTRC fields, aliases, returns, `release` and exception cleanup use these hooks.
+Each borrowed resource argument holds a native retain claim until its call
+finishes, even if a reentrant callback clears the last application owner. This
+also applies when a callback was registered earlier rather than passed to the
+current function. Arguments unwind in reverse order through normal cleanup
+slots; a returned owned resource remains protected during that teardown.
+This protects object lifetime, not mutable interior storage or concurrent
+unsynchronized mutation of the application's owner slot.
+Unannotated resource parameters/results are not inferred safe. Nullability
+remains SDK-owned; unannotated results are nullable.
+
+**Limits:** raw casts, output slots, native callbacks carrying these resources,
+unowned resource globals/results and realtime resource adapters are rejected.
+Unique resources, transfers, borrowed results and executor-affine cleanup still
+need checked support through this mechanism. Reference counting alone does not
+prove a UI object's executor or a registration's cancellation contract; this is
+not permission to migrate those providers yet. Inactive bindings remain inactive.
+Use named subtables for portable manifests; the self-hosted parser does not yet
+support general inline TOML tables outside its existing dependency syntax.
 
 ### Realtime native functions
 

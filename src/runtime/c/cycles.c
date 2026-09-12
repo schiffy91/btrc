@@ -35,12 +35,18 @@ typedef void (*__btrc_hook_fn)(void*);
 typedef int (*__btrc_hook_guard_fn)(
     __btrc_hook_fn, void*, char*, size_t);
 typedef void (*__btrc_raise_fn)(const char*);
+typedef struct {
+    const char* name;
+    const void* methods;
+} __btrc_interface_entry;
 struct __btrc_arc_type {
     __btrc_visit_fn visit;
     __btrc_destroy_fn destroy;
     __btrc_hook_fn hook;
     __btrc_hook_guard_fn guard;
     __btrc_raise_fn raise;
+    const __btrc_interface_entry* interfaces;
+    size_t interface_count;
 };
 /* btrc-runtime-helper:end __btrc_arc_callback_types */
 /* btrc-runtime-helper:begin __btrc_arc_header_of */
@@ -56,6 +62,29 @@ static inline const __btrc_arc_type* __btrc_arc_type_of(
     return fallback;
 }
 /* btrc-runtime-helper:end __btrc_arc_type_of */
+/* btrc-runtime-helper:begin __btrc_interface_try_methods */
+static inline const void* __btrc_interface_try_methods(void* object, const char* name) {
+    const __btrc_arc_type* type = __btrc_arc_type_of(object, NULL);
+    size_t first = 0;
+    size_t last = type ? type->interface_count : 0;
+    while (first < last) {
+        size_t middle = first + (last - first) / 2;
+        int order = strcmp(type->interfaces[middle].name, name);
+        if (order == 0) return type->interfaces[middle].methods;
+        if (order < 0) first = middle + 1;
+        else last = middle;
+    }
+    return NULL;
+}
+/* btrc-runtime-helper:end __btrc_interface_try_methods */
+/* btrc-runtime-helper:begin __btrc_interface_methods */
+static inline const void* __btrc_interface_methods(void* object, const char* name) {
+    const void* methods = __btrc_interface_try_methods(object, name);
+    if (methods) return methods;
+    fprintf(stderr, "btrc: invalid interface receiver for %s\n", name);
+    abort();
+}
+/* btrc-runtime-helper:end __btrc_interface_methods */
 /* btrc-runtime-helper:begin __btrc_arc_validate */
 static inline void __btrc_arc_validate(void* object) {
     if (!object) return;

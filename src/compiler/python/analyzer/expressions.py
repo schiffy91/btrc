@@ -903,8 +903,52 @@ class ExpressionAnalyzer:
         source = self.types.canonical_type(self._infer_type(expression.expr))
         if target is None or source is None:
             return
+        interface_query = (
+            source.base in self.index.interface_table
+            and target.base in self.index.interface_table
+            and target.is_nullable
+            and source.pointer_depth <= 1
+            and target.pointer_depth == 1
+            and not source.is_array
+            and not target.is_array
+        )
+        if (
+            target.base in self.index.interface_table
+            and not interface_query
+            and (
+                (
+                    source.base not in self.index.class_table
+                    and source.base not in self.index.interface_table
+                    and source.base != "null"
+                )
+                or not self.types.types_compatible(target, source)
+            )
+        ):
+            self.session.error(
+                "Interface casts require a proven implementing reference or interface upcast",
+                expression.line,
+                expression.col,
+            )
+            return
+        if source.base in self.index.interface_table and target.base in self.index.class_table:
+            self.session.error(
+                "Interface downcasts require runtime type proof and are not supported", expression.line, expression.col
+            )
+            return
         native_source = self.index.class_table.get(source.base)
         native_target = self.index.class_table.get(target.base)
+        if (
+            (native_source is not None and native_source.native_language == "c")
+            or (native_target is not None and native_target.native_language == "c")
+        ) and (
+            source.base != target.base
+            or source.pointer_depth - int(source.is_nullable) != 0
+            or target.pointer_depth - int(target.is_nullable) != 0
+        ):
+            self.session.error(
+                "Managed native resources cannot be cast to or from other value types", expression.line, expression.col
+            )
+            return
         if (
             native_source is not None
             and native_target is not None
@@ -1152,8 +1196,8 @@ class ExpressionAnalyzer:
         false_type = self._infer_type(expression.false_expr)
         if true_type is None or false_type is None:
             return true_type or false_type
-        true_is_null = true_type.base == "void" and true_type.pointer_depth > 0 and true_type.is_nullable
-        false_is_null = false_type.base == "void" and false_type.pointer_depth > 0 and false_type.is_nullable
+        true_is_null = true_type.base == "null"
+        false_is_null = false_type.base == "null"
         if true_is_null and self.types.is_pointer_value(false_type):
             return replace(false_type, is_nullable=True)
         if false_is_null and self.types.is_pointer_value(true_type):
@@ -1199,10 +1243,10 @@ class ExpressionAnalyzer:
         elif isinstance(expr, SizeofExpr):
             return TypeExpr(base="size_t")
         elif isinstance(expr, NullLiteral):
-            return TypeExpr(base="void", pointer_depth=1, is_nullable=True)
+            return TypeExpr(base="null", pointer_depth=1, is_nullable=True)
         elif isinstance(expr, Identifier):
             if expr.name == "NULL":
-                return TypeExpr(base="void", pointer_depth=1, is_nullable=True)
+                return TypeExpr(base="null", pointer_depth=1, is_nullable=True)
             sym = self.session.scope.lookup(expr.name)
             if sym:
                 value_type = self.types.canonical_type(sym.type) or sym.type
@@ -1683,6 +1727,10 @@ class ExpressionAnalyzer:
             pass
         elif isinstance(expr, Identifier):
             self.calls.validate_default_macro_context(expr)
+            if expr.name in self.index.native_lifetime_operations:
+                self.session.error(
+                    "Native resource lifetime operations are reserved for managed cleanup", expr.line, expr.col
+                )
             self._analyze_identifier_value(expr)
         elif isinstance(expr, SelfExpr):
             self._record_lambda_self(expr)
@@ -2135,6 +2183,17 @@ class ExpressionAnalyzer:
         if obj_type and self.aggregates.validate_tuple_field_access(expr, obj_type):
             return
         if obj_type and self.aggregates.validate_struct_field_access(expr, obj_type):
+            return
+        if obj_type and obj_type.base in self.index.interface_table:
+            interface = self.index.interface_table[obj_type.base]
+            if expr.field not in interface.methods:
+                self.session.error(f"Interface '{interface.name}' has no method '{expr.field}'", expr.line, expr.col)
+            elif not call_target:
+                self.session.error(
+                    "Interface methods require a receiver-bound call; capture the receiver in a closure",
+                    expr.line,
+                    expr.col,
+                )
             return
         if obj_type and obj_type.base in self.index.class_table:
             cls = self.index.class_table[obj_type.base]

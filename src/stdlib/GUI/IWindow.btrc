@@ -1,0 +1,21 @@
+import Library.GUI.IView;
+
+/* A window owns its attached root and descendants. Detach returns the same
+ * open root; surviving aliases observe subtree shutdown when the window closes.
+ * Dimensions are content-area logical points, excluding native window chrome. */
+interface IWindow {
+	bool isOpen();
+	string title();
+	void setTitle(string title);
+	double contentWidth();
+	double contentHeight();
+	void setContentSize(double width, double height);
+	void setMinimumContentSize(double width, double height);
+	IView? root();
+	void attachRoot(IView view);
+	IView? detachRoot();
+	void show();
+	void hide();
+	bool isVisible();
+	void close();
+}

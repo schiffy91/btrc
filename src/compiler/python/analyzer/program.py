@@ -256,6 +256,7 @@ class DeclarationIndex:
     """Mutable declaration facts shared by semantic owners for one run."""
 
     class_table: dict[str, ClassInfo] = field(default_factory=dict)
+    native_lifetime_operations: set[str] = field(default_factory=set)
     function_table: dict[str, FunctionDecl] = field(default_factory=dict)
     typedef_table: dict[str, TypeExpr] = field(default_factory=dict)
     struct_table: dict[str, StructDecl] = field(default_factory=dict)

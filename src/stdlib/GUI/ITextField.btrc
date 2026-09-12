@@ -1,0 +1,11 @@
+import Library.GUI.IView;
+
+/* The platform owns text editing, selection, input composition and undo.
+ * Text is an owned BTRC string; no native editor or storage escapes this API. */
+interface ITextField extends IView {
+	string text();
+	void setText(string text);
+	void setPlaceholder(string text);
+	bool isEnabled();
+	void setEnabled(bool enabled);
+}

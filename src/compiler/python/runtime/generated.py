@@ -1782,49 +1782,49 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         c_source=(
             'static inline void __btrc_register_cleanup_kind(\n        void* slot, __b'
             'trc_cleanup_take_fn take,\n        __btrc_cleanup_fn fn, __btrc_visit_fn '
-            'visit, int direct) {\n    if (!slot || !take || !fn) return;\n    /* Look '
-            'for a superseded entry among the most recent registrations only.\n     *\n'
-            '     * Finding one is an optimization, not a correctness requirement:\n  '
-            '   * __btrc_run_cleanups takes every slot in the batch before running an'
-            'y\n     * cleanup, and a take clears the slot it reads, so a duplicate le'
-            'ft behind\n     * reads back NULL and is skipped. What the search prevent'
-            's is a slot that\n     * is assigned repeatedly -- a loop body, say -- pu'
-            'shing one entry per\n     * assignment, and the entry to reuse in that ca'
-            'se is the one this scope\n     * pushed most recently. Scanning the whole'
-            ' stack to find it made every\n     * managed assignment linear in the num'
-            'ber of live entries: over a single\n     * compile of a thirty-line input'
-            ', the self-hosted compiler ran 1.54 billion\n     * iterations of this lo'
-            'op to serve 41,267 matches, averaging 99.9 iterations\n     * per call fo'
-            'r a 0.27% hit rate. Entries are never moved, so a window\n     * measured'
-            ' down from the top is stable. */\n    /* Each _Thread_local read is an ou'
-            't-of-line call on some targets, so read\n     * the ones this path needs '
-            'once. The reallocating branch below refreshes\n     * `stack`, which is t'
-            'he only local a resize can invalidate. */\n    const int recent = 16;\n   '
-            ' const int try_level = __btrc_try_top;\n    int top = __btrc_cleanup_top;'
-            '\n    __btrc_cleanup_entry* stack = __btrc_cleanup_stack;\n    int oldest '
-            '= top - (recent - 1);\n    if (oldest < 0) oldest = 0;\n    for (int i = t'
-            'op; i >= oldest; i--) {\n        __btrc_cleanup_entry* existing = &stack['
-            'i];\n        if (existing->try_level == try_level && existing->slot == sl'
-            'ot) {\n            existing->take = take;\n            existing->fn = fn;\n'
-            '            existing->visit = visit;\n            existing->direct = dire'
-            'ct;\n            return;\n        }\n    }\n    if (__btrc_cleanup_cap < 1) '
-            '__btrc_cleanup_cap = 64;\n    if (!stack) {\n        if ((size_t)__btrc_cl'
-            'eanup_cap > SIZE_MAX / sizeof(__btrc_cleanup_entry)) { fprintf(stderr, "'
-            'btrc: cleanup stack size overflow\\n"); exit(1); }\n        stack = (__btr'
-            'c_cleanup_entry*)__btrc_safe_realloc(\n            NULL, sizeof(__btrc_cl'
-            'eanup_entry) * (size_t)__btrc_cleanup_cap);\n        __btrc_cleanup_stack'
-            ' = stack;\n    }\n    if (top == INT_MAX) { fprintf(stderr, "btrc: cleanup'
-            ' stack overflow\\n"); exit(1); }\n    if (top + 1 >= __btrc_cleanup_cap) {'
-            '\n        if (__btrc_cleanup_cap > INT_MAX / 2) { fprintf(stderr, "btrc: '
-            'cleanup stack capacity overflow\\n"); exit(1); }\n        int new_cap = __'
-            'btrc_cleanup_cap * 2;\n        if ((size_t)new_cap > SIZE_MAX / sizeof(__'
-            'btrc_cleanup_entry)) { fprintf(stderr, "btrc: cleanup stack size overflo'
-            'w\\n"); exit(1); }\n        stack = (__btrc_cleanup_entry*)__btrc_safe_rea'
-            'lloc(\n            stack, sizeof(__btrc_cleanup_entry) * (size_t)new_cap)'
-            ';\n        __btrc_cleanup_stack = stack;\n        __btrc_cleanup_cap = new'
-            '_cap;\n    }\n    top++;\n    __btrc_cleanup_top = top;\n    stack[top] = (_'
-            '_btrc_cleanup_entry){\n        slot, take, fn, visit, try_level, direct};'
-            '\n}'
+            'visit, int direct) {\n    if (!slot || !take || (direct && !fn)) return;\n'
+            '    /* Look for a superseded entry among the most recent registrations o'
+            'nly.\n     *\n     * Finding one is an optimization, not a correctness req'
+            'uirement:\n     * __btrc_run_cleanups takes every slot in the batch befor'
+            'e running any\n     * cleanup, and a take clears the slot it reads, so a '
+            'duplicate left behind\n     * reads back NULL and is skipped. What the se'
+            'arch prevents is a slot that\n     * is assigned repeatedly -- a loop bod'
+            'y, say -- pushing one entry per\n     * assignment, and the entry to reus'
+            'e in that case is the one this scope\n     * pushed most recently. Scanni'
+            'ng the whole stack to find it made every\n     * managed assignment linea'
+            'r in the number of live entries: over a single\n     * compile of a thirt'
+            'y-line input, the self-hosted compiler ran 1.54 billion\n     * iteration'
+            's of this loop to serve 41,267 matches, averaging 99.9 iterations\n     *'
+            ' per call for a 0.27% hit rate. Entries are never moved, so a window\n   '
+            '  * measured down from the top is stable. */\n    /* Each _Thread_local r'
+            'ead is an out-of-line call on some targets, so read\n     * the ones this'
+            ' path needs once. The reallocating branch below refreshes\n     * `stack`'
+            ', which is the only local a resize can invalidate. */\n    const int rece'
+            'nt = 16;\n    const int try_level = __btrc_try_top;\n    int top = __btrc_'
+            'cleanup_top;\n    __btrc_cleanup_entry* stack = __btrc_cleanup_stack;\n   '
+            ' int oldest = top - (recent - 1);\n    if (oldest < 0) oldest = 0;\n    fo'
+            'r (int i = top; i >= oldest; i--) {\n        __btrc_cleanup_entry* existi'
+            'ng = &stack[i];\n        if (existing->try_level == try_level && existing'
+            '->slot == slot) {\n            existing->take = take;\n            existin'
+            'g->fn = fn;\n            existing->visit = visit;\n            existing->d'
+            'irect = direct;\n            return;\n        }\n    }\n    if (__btrc_clean'
+            'up_cap < 1) __btrc_cleanup_cap = 64;\n    if (!stack) {\n        if ((size'
+            '_t)__btrc_cleanup_cap > SIZE_MAX / sizeof(__btrc_cleanup_entry)) { fprin'
+            'tf(stderr, "btrc: cleanup stack size overflow\\n"); exit(1); }\n        st'
+            'ack = (__btrc_cleanup_entry*)__btrc_safe_realloc(\n            NULL, size'
+            'of(__btrc_cleanup_entry) * (size_t)__btrc_cleanup_cap);\n        __btrc_c'
+            'leanup_stack = stack;\n    }\n    if (top == INT_MAX) { fprintf(stderr, "b'
+            'trc: cleanup stack overflow\\n"); exit(1); }\n    if (top + 1 >= __btrc_cl'
+            'eanup_cap) {\n        if (__btrc_cleanup_cap > INT_MAX / 2) { fprintf(std'
+            'err, "btrc: cleanup stack capacity overflow\\n"); exit(1); }\n        int '
+            'new_cap = __btrc_cleanup_cap * 2;\n        if ((size_t)new_cap > SIZE_MAX'
+            ' / sizeof(__btrc_cleanup_entry)) { fprintf(stderr, "btrc: cleanup stack '
+            'size overflow\\n"); exit(1); }\n        stack = (__btrc_cleanup_entry*)__b'
+            'trc_safe_realloc(\n            stack, sizeof(__btrc_cleanup_entry) * (siz'
+            'e_t)new_cap);\n        __btrc_cleanup_stack = stack;\n        __btrc_clean'
+            'up_cap = new_cap;\n    }\n    top++;\n    __btrc_cleanup_top = top;\n    sta'
+            'ck[top] = (__btrc_cleanup_entry){\n        slot, take, fn, visit, try_lev'
+            'el, direct};\n}'
         ),
         depends_on=('__btrc_cleanup_types', '__btrc_cleanup_capacity', '__btrc_safe_realloc'),
         required_headers=(),
@@ -1956,17 +1956,18 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'n"); exit(1); }\n    void** objects = (void**)__btrc_safe_realloc(\n      '
             '  NULL, sizeof(void*) * (size_t)count);\n    for (int i = count - 1; i >='
             ' 0; i--) {\n        __btrc_cleanup_entry entry = entries[i];\n        obje'
-            'cts[i] = (!entry.fn || !entry.slot || !entry.take)\n            ? NULL : '
-            'entry.take(entry.slot);\n    }\n    char primary_error[sizeof __btrc_error'
-            '_msg];\n    memcpy(primary_error, __btrc_error_msg, sizeof primary_error)'
-            ';\n    __btrc_destroyed_tracking_begin();\n    for (int i = count - 1; i >'
-            '= 0; i--) {\n        __btrc_cleanup_entry entry = entries[i];\n        voi'
-            'd* object = objects[i];\n        if (!object) continue;\n        if (!entr'
-            'y.direct && __btrc_is_destroyed(object)) continue;\n        __btrc_run_cl'
-            'eanup_guarded(entry, object);\n        memcpy(__btrc_error_msg, primary_e'
-            'rror, sizeof primary_error);\n    }\n    __btrc_flush_cycles_guarded();\n  '
-            '  memcpy(__btrc_error_msg, primary_error, sizeof primary_error);\n    __b'
-            'trc_destroyed_tracking_end();\n    free(objects);\n    free(entries);\n}'
+            'cts[i] = ((entry.direct && !entry.fn) || !entry.slot || !entry.take)\n   '
+            '         ? NULL : entry.take(entry.slot);\n    }\n    char primary_error[s'
+            'izeof __btrc_error_msg];\n    memcpy(primary_error, __btrc_error_msg, siz'
+            'eof primary_error);\n    __btrc_destroyed_tracking_begin();\n    for (int '
+            'i = count - 1; i >= 0; i--) {\n        __btrc_cleanup_entry entry = entri'
+            'es[i];\n        void* object = objects[i];\n        if (!object) continue;'
+            '\n        if (!entry.direct && __btrc_is_destroyed(object)) continue;\n   '
+            '     __btrc_run_cleanup_guarded(entry, object);\n        memcpy(__btrc_er'
+            'ror_msg, primary_error, sizeof primary_error);\n    }\n    __btrc_flush_cy'
+            'cles_guarded();\n    memcpy(__btrc_error_msg, primary_error, sizeof prima'
+            'ry_error);\n    __btrc_destroyed_tracking_end();\n    free(objects);\n    f'
+            'ree(entries);\n}'
         ),
         depends_on=('__btrc_cleanup_types', '__btrc_safe_realloc', '__btrc_destroyed_tracking_scope', '__btrc_is_destroyed', '__btrc_run_cleanup_guarded', '__btrc_flush_cycles_guarded'),
         required_headers=(),
@@ -2339,13 +2340,15 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'pedef void (*__btrc_visit_fn)(\n    void*, __btrc_field_visit_fn, void*);'
             '\ntypedef void (*__btrc_hook_fn)(void*);\ntypedef int (*__btrc_hook_guard_'
             'fn)(\n    __btrc_hook_fn, void*, char*, size_t);\ntypedef void (*__btrc_ra'
-            'ise_fn)(const char*);\nstruct __btrc_arc_type {\n    __btrc_visit_fn visit'
-            ';\n    __btrc_destroy_fn destroy;\n    __btrc_hook_fn hook;\n    __btrc_hoo'
-            'k_guard_fn guard;\n    __btrc_raise_fn raise;\n};'
+            'ise_fn)(const char*);\ntypedef struct {\n    const char* name;\n    const v'
+            'oid* methods;\n} __btrc_interface_entry;\nstruct __btrc_arc_type {\n    __b'
+            'trc_visit_fn visit;\n    __btrc_destroy_fn destroy;\n    __btrc_hook_fn ho'
+            'ok;\n    __btrc_hook_guard_fn guard;\n    __btrc_raise_fn raise;\n    const'
+            ' __btrc_interface_entry* interfaces;\n    size_t interface_count;\n};'
         ),
         depends_on=(),
         required_headers=(),
-        provided_types=('__btrc_arc_count', '__btrc_arc_type', '__btrc_arc_incoming', '__btrc_arc_state', '__btrc_arc_header', '__btrc_destroy_fn', '__btrc_arc_slot_access_fn', '__btrc_field_visit_fn', '__btrc_visit_fn', '__btrc_hook_fn', '__btrc_hook_guard_fn', '__btrc_raise_fn'),
+        provided_types=('__btrc_arc_count', '__btrc_arc_type', '__btrc_interface_entry', '__btrc_arc_incoming', '__btrc_arc_state', '__btrc_arc_header', '__btrc_destroy_fn', '__btrc_arc_slot_access_fn', '__btrc_field_visit_fn', '__btrc_visit_fn', '__btrc_hook_fn', '__btrc_hook_guard_fn', '__btrc_raise_fn'),
         provided_objects=(),
         source_visible=False,
         realtime_effect='unknown',
@@ -4891,8 +4894,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'logy)\n        (void)__btrc_arc_topology_leave(topology);\n    __btrc_mark'
             '_destroyed(m);\n    free(old);\n    free(m->context);\n    free(m);\n}\nstati'
             'c const __btrc_arc_type __btrc_mutex_arc_descriptor = {\n    __btrc_mutex'
-            '_arc_visit,\n    __btrc_mutex_arc_destroy,\n    NULL, NULL, __btrc_throw\n}'
-            ';'
+            '_arc_visit,\n    __btrc_mutex_arc_destroy,\n    NULL, NULL, __btrc_throw, '
+            'NULL, 0\n};'
         ),
         depends_on=('__btrc_mutex_val_types', '__btrc_arc_topology_begin', '__btrc_arc_topology_leave', '__btrc_mark_destroyed', '__btrc_throw'),
         required_headers=('stdio.h', 'stdlib.h'),
@@ -5080,6 +5083,42 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_interface_try_methods',
+        c_source=(
+            'static inline const void* __btrc_interface_try_methods(void* object, con'
+            'st char* name) {\n    const __btrc_arc_type* type = __btrc_arc_type_of(ob'
+            'ject, NULL);\n    size_t first = 0;\n    size_t last = type ? type->interf'
+            'ace_count : 0;\n    while (first < last) {\n        size_t middle = first '
+            '+ (last - first) / 2;\n        int order = strcmp(type->interfaces[middle'
+            '].name, name);\n        if (order == 0) return type->interfaces[middle].m'
+            'ethods;\n        if (order < 0) first = middle + 1;\n        else last = m'
+            'iddle;\n    }\n    return NULL;\n}'
+        ),
+        depends_on=('__btrc_arc_type_of',),
+        required_headers=('string.h',),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_interface_methods',
+        c_source=(
+            'static inline const void* __btrc_interface_methods(void* object, const c'
+            'har* name) {\n    const void* methods = __btrc_interface_try_methods(obje'
+            'ct, name);\n    if (methods) return methods;\n    fprintf(stderr, "btrc: i'
+            'nvalid interface receiver for %s\\n", name);\n    abort();\n}'
+        ),
+        depends_on=('__btrc_interface_try_methods',),
+        required_headers=('string.h', 'stdio.h', 'stdlib.h'),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
         realtime_effect='unknown',
     ),
 )

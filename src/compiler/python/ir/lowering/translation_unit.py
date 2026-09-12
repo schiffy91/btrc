@@ -201,7 +201,9 @@ class TranslationUnitLowerer:
         """Collect typed type and callable declarations."""
         function_decls: list[IRFunctionDecl] = []
         for decl in self._analyzed.program.declarations:
-            if isinstance(getattr(decl, "source_file", None), NativeHeaderSource):
+            if isinstance(getattr(decl, "source_file", None), NativeHeaderSource) and not isinstance(
+                decl, InterfaceDecl
+            ):
                 continue
             if isinstance(decl, EnumDecl) and decl.name:
                 function_decls.append(TranslationUnitLowerer._enum_to_string_decl(decl.name))
@@ -224,6 +226,8 @@ class TranslationUnitLowerer:
                             class_info,
                         )
                     )
+            elif isinstance(decl, InterfaceDecl) and not decl.generic_params:
+                self._session.module.struct_forwards.append(IRStructForward(name=decl.name))
             elif isinstance(decl, RichEnumDecl):
                 self._session.module.struct_forwards.append(IRStructForward(name=decl.name))
                 for variant in decl.variants:
@@ -272,6 +276,8 @@ class TranslationUnitLowerer:
         emitted_globals = set()
         native_adapters = set()
         declarations = self._analyzed.program.declarations
+        for name in self._analyzed.interface_table:
+            self._classes.emit_interface(name)
         for decl in declarations:
             if isinstance(getattr(decl, "source_file", None), NativeHeaderSource):
                 if (
@@ -285,7 +291,10 @@ class TranslationUnitLowerer:
                         self._emit_global_var(decl)
                     emitted_globals.add(decl.name)
                 if isinstance(decl, ClassDecl):
-                    self._functions.emit_objective_c_adapters(decl)
+                    if decl.source_file.resource is not None:
+                        self._functions.emit_resource_lifetime(decl)
+                    else:
+                        self._functions.emit_objective_c_adapters(decl)
                 if isinstance(decl, FunctionDecl) and decl.name not in native_adapters:
                     self._session.module.native_external_names.add(decl.name)
                     self._functions.emit_native_adapter(decl)

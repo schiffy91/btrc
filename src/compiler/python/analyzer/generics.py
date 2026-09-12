@@ -830,6 +830,10 @@ class GenericAnalyzer:
         ):
             instances.append(args)
         if cls and cls.generic_params:
+            for name, interface in self.index.interface_table.items():
+                if not interface.generic_params and self.types.is_subclass(cls.name, name):
+                    for method in interface.methods.values():
+                        self._select_class_callable(type_expr, ClassCallableIdentity.method(cls.name, method.name))
             substitutions = dict(zip(cls.generic_params, type_expr.generic_args))
             for method in cls.methods.values():
                 result = method.return_type

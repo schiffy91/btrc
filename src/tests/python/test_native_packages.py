@@ -100,6 +100,58 @@ _BINDING = (
     'language = "c"\nstandard = "c11"\nsymbols = ["measure"]\n'
 )
 
+_RESOURCE_BINDING = _BINDING.replace(
+    '["measure"]', '["WidgetRef", "WidgetCreate", "WidgetRead", "WidgetRetain", "WidgetRelease"]'
+) + (
+    'owned-results = ["WidgetCreate"]\nborrowed-parameters = ["WidgetRead.widget"]\n'
+    '[native.bindings.resources.WidgetRef]\nownership = "reference-counted"\n'
+    'retain = "WidgetRetain"\nrelease = "WidgetRelease"\n'
+)
+
+
+@pytest.mark.parametrize("shared_hooks", [False, True])
+def test_native_resource_binding_preserves_ownership_facts(tmp_path, shared_hooks):
+    declaration = _RESOURCE_BINDING
+    if shared_hooks:
+        declaration = declaration.replace('["WidgetRef",', '["OtherRef", "WidgetRef",')
+        declaration += (
+            '[native.bindings.resources.OtherRef]\nownership = "reference-counted"\n'
+            'retain = "WidgetRetain"\nrelease = "WidgetRelease"\n'
+        )
+    source = _binding_package(tmp_path, declaration)
+    resolved = PackageUniverse().resolve_for(str(source), target="macos-aarch64")
+    [binding] = resolved.native_plan.for_sources([str(tmp_path / "src/Api.btrc")]).bindings
+    resource = binding.resources[-1]
+    assert len(binding.resources) == (2 if shared_hooks else 1)
+    assert all(item.retain == "WidgetRetain" and item.release == "WidgetRelease" for item in binding.resources)
+    assert (resource.name, resource.ownership, resource.retain, resource.release) == (
+        "WidgetRef",
+        "reference-counted",
+        "WidgetRetain",
+        "WidgetRelease",
+    )
+    assert binding.owned_results == ("WidgetCreate",)
+    assert binding.borrowed_parameters == ("WidgetRead.widget",)
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "message"),
+    [
+        ('ownership = "reference-counted"', 'ownership = "unique"', "reference-counted"),
+        ('retain = "WidgetRetain"', 'retain = "Unknown"', "selected functions"),
+        ('release = "WidgetRelease"', 'release = "WidgetRetain"', "distinct"),
+        ('release = "WidgetRelease"', 'release = "WidgetRelease"\ncleanup = "code"', "unexpected field"),
+        ('owned-results = ["WidgetCreate"]', 'owned-results = ["WidgetRelease"]', "reserved"),
+        ('owned-results = ["WidgetCreate"]', 'owned-results = ["WidgetCreate", "WidgetCreate"]', "duplicate"),
+        ('borrowed-parameters = ["WidgetRead.widget"]', 'borrowed-parameters = ["WidgetRead"]', "function.parameter"),
+        ("resources.WidgetRef", "resources.Other", "selected typedefs"),
+    ],
+)
+def test_native_resource_binding_rejects_invalid_facts(tmp_path, before, after, message):
+    source = _binding_package(tmp_path, _RESOURCE_BINDING.replace(before, after))
+    with pytest.raises(IncludeResolutionError, match=message):
+        PackageUniverse().resolve_for(str(source), target="macos-aarch64")
+
 
 def test_native_binding_is_owned_by_loaded_module_and_target(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("BTRC_NATIVE_HEADER_READER", raising=False)

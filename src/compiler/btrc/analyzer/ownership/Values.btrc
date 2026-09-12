@@ -41,7 +41,7 @@ class ManagedValueSemantics {
          * field T* resolves to Item** for T = Item*. Raw backing storage is not
          * a managed Item value. */
 		if (resolved.isArray || depth > 1) { return false; }
-		return self.analyzed.isClass(resolved.base) || (resolved.genericArgs.len > 0 && self.analyzed.isGenericClass(resolved.base));
+		return self.analyzed.isClass(resolved.base) || self.analyzed.isInterface(resolved.base) || (resolved.genericArgs.len > 0 && self.analyzed.isGenericClass(resolved.base));
 	}
 
 	public bool isMutex(Node? typeExpr) {
@@ -54,7 +54,9 @@ class ManagedValueSemantics {
 		return !resolved.isArray && depth == 0 && resolved.base == "Mutex" && resolved.genericArgs.len == 1;
 	}
 
-	public bool isNativeName(string name) { return self.analyzed.nativeClassLanguage(name) == "objective-c"; }
+	public bool isNativeName(string name) { return !self.analyzed.nativeClassLanguage(name).isEmpty(); }
+
+	public string nativeLifetimeSymbol(string name, string operation) { return (self.analyzed.nativeClassLanguage(name) == "objective-c" ? "__btrc_objc_" : "__btrc_native_") + name + "_" + operation; }
 
 	public bool isNative(Node? typeExpr) { return self.isClass(typeExpr) && self.isNativeName(self.canonical(typeExpr).base); }
 
@@ -84,7 +86,7 @@ class ManagedValueSemantics {
 	}
 
 	public string cleanupSymbol(string runtimeType) {
-		if (self.isNativeName(runtimeType)) { return "__btrc_objc_" + runtimeType + "_release"; }
+		if (self.isNativeName(runtimeType)) { return self.nativeLifetimeSymbol(runtimeType, "release"); }
 		if (runtimeType == self.stringRuntimeType()) {
 			return "__btrc_string_release_cleanup";
 		}

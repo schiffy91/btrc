@@ -260,6 +260,7 @@ class IRLowerer:
             concurrency,
             gpu,
             calls,
+            lifetime,
         )
         classes = ClassLowerer(
             session,

@@ -171,13 +171,13 @@ class OperatorSemantics {
 	public OperatorSemantics(Analyzed analyzed) { self.analyzed = analyzed; }
 
 	public Node nullType() {
-		Node typeExpr = SemanticTypeSystem.primitive("void");
+		Node typeExpr = SemanticTypeSystem.primitive("null");
 		typeExpr.pointerDepth = 1;
 		typeExpr.isNullable = true;
 		return typeExpr;
 	}
 
-	public bool isNullType(Node? typeExpr) { return typeExpr != null && (typeExpr.base == "null" || typeExpr.base == "void") && typeExpr.pointerDepth > 0 && typeExpr.isNullable; }
+	public bool isNullType(Node? typeExpr) { return typeExpr != null && typeExpr.base == "null" && typeExpr.pointerDepth == 1 && typeExpr.isNullable; }
 
 	public int referenceDepth(Node typeExpr) {
 		int depth = typeExpr.pointerDepth;
@@ -195,7 +195,7 @@ class OperatorSemantics {
      * already carry it.  These spellings describe the same runtime value shape. */
 	public int valueDepth(Node typeExpr) {
 		int depth = self.referenceDepth(typeExpr);
-		if (depth == 0 && (self.analyzed.isClass(typeExpr.base) || (typeExpr.genericArgs.len > 0 && self.analyzed.isGenericClass(typeExpr.base)))) {
+		if (depth == 0 && (self.analyzed.isClass(typeExpr.base) || self.analyzed.isInterface(typeExpr.base) || (typeExpr.genericArgs.len > 0 && self.analyzed.isGenericClass(typeExpr.base)))) {
 			depth = 1;
 		}
 		return depth;
@@ -212,7 +212,7 @@ class OperatorSemantics {
 		if (self.isNullType(typeExpr) || TypeComposition.isSemanticScalarString(typeExpr)) {
 			return true;
 		}
-		return typeExpr.pointerDepth > 0 || typeExpr.isArray || self.analyzed.isClass(typeExpr.base) || self.analyzed.isGenericClass(typeExpr.base) || typeExpr.base == "Thread" || typeExpr.base == "Mutex" || typeExpr.base == "__fn_ptr" || typeExpr.base == "__realtime_fn_ptr";
+		return typeExpr.pointerDepth > 0 || typeExpr.isArray || self.analyzed.isClass(typeExpr.base) || self.analyzed.isGenericClass(typeExpr.base) || self.analyzed.isInterface(typeExpr.base) || typeExpr.base == "Thread" || typeExpr.base == "Mutex" || typeExpr.base == "__fn_ptr" || typeExpr.base == "__realtime_fn_ptr";
 	}
 
 	public bool genericArgsEqual(Vector<Node> left, Vector<Node> right) {
@@ -228,6 +228,9 @@ class OperatorSemantics {
 	}
 
 	public bool specializationIsSubtype(Node child, Node parent) {
+		if (self.analyzed.isInterface(parent.base)) {
+			return !child.isArray && !parent.isArray && parent.genericArgs.len == 0 && self.valueDepth(child) == 1 && self.valueDepth(parent) == 1 && self.analyzed.isSubclass(child.base, parent.base);
+		}
 		if (self.analyzed.nativeClassLanguage(child.base) == "objective-c") {
 			return !child.isArray && !parent.isArray && child.genericArgs.len == 0 && parent.genericArgs.len == 0 && self.valueDepth(child) == 1 && self.valueDepth(parent) == 1 && self.analyzed.isSubclass(child.base, parent.base);
 		}
@@ -267,8 +270,8 @@ class OperatorSemantics {
 	}
 
 	public bool nominallyRelated(Node left, Node right) {
-		bool nominalLeft = self.analyzed.isClass(left.base) || self.analyzed.isGenericClass(left.base);
-		bool nominalRight = self.analyzed.isClass(right.base) || self.analyzed.isGenericClass(right.base);
+		bool nominalLeft = self.analyzed.isClass(left.base) || self.analyzed.isGenericClass(left.base) || self.analyzed.isInterface(left.base);
+		bool nominalRight = self.analyzed.isClass(right.base) || self.analyzed.isGenericClass(right.base) || self.analyzed.isInterface(right.base);
 		if (!nominalLeft || !nominalRight) { return false; }
 		return self.specializationIsSubtype(left, right) || self.specializationIsSubtype(right, left);
 	}

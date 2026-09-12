@@ -20,7 +20,7 @@ from src.compiler.python.syntax.tokens import SourceSymbolDirective
 
 from ..abi.hosted import HOSTED_ABI
 from .native_imports import NativeHeaderSource
-from .packages import IncludeResolutionError, ResolvedPackages
+from .packages import IncludeResolutionError, PackageImportPolicy, ResolvedPackages
 from .sources import (
     CompilerStdlibSource,
     SourceDependencyGraph,
@@ -247,6 +247,7 @@ class ImportResolver:
         source_path: str,
         included: set[str],
         graph: SourceDependencyGraph,
+        access: PackageImportPolicy,
     ) -> ResolutionFrame | None:
         """Register one source in the graph and start traversing it once."""
 
@@ -263,6 +264,7 @@ class ImportResolver:
             lines=source.split("\n"),
             by_start={directive.start: directive for directive in directives},
             covered={line for directive in directives for line in range(directive.start, directive.end + 1)},
+            pending=[(path, 1, "import") for path in access.provider_for(absolute)],
         )
 
     def _splice_dependencies(
@@ -278,11 +280,9 @@ class ImportResolver:
         frame.pending.clear()
         frame.pending_cursor = 0
         if directive.kind == "btrc_include":
-            target = os.path.abspath(
-                self._resolve_include_path(
-                    directive.payload,
-                    frame.source_dir,
-                )
+            target = self._resolve_include_path(
+                directive.payload,
+                frame.source_dir,
             )
             graph.add_include(frame.absolute, target)
             frame.pending.append((target, line_number, "include"))
@@ -304,11 +304,13 @@ class ImportResolver:
         included: set[str],
         graph: SourceDependencyGraph,
         output: list[tuple[str, str, int]],
+        access: PackageImportPolicy,
     ) -> ResolutionFrame | None:
         """Inline one dependency, returning a child frame for btrc sources."""
 
         path, line_number, kind = dependency
         absolute = os.path.abspath(path)
+        access.check(frame.absolute, path)
         if kind == "import":
             graph.add_import(frame.absolute, absolute)
         if path.endswith(".c"):
@@ -323,6 +325,7 @@ class ImportResolver:
             path,
             included,
             graph,
+            access,
         )
 
     def _resolve_traced(
@@ -341,7 +344,8 @@ class ImportResolver:
         """
 
         output: list[tuple[str, str, int]] = []
-        root = self._open_frame(source, source_path, included, graph)
+        access = PackageImportPolicy(packages.native_plan.target)
+        root = self._open_frame(source, source_path, included, graph, access)
         stack: list[ResolutionFrame] = [] if root is None else [root]
         while stack:
             frame = stack[-1]
@@ -354,6 +358,7 @@ class ImportResolver:
                     included,
                     graph,
                     output,
+                    access,
                 )
                 if child is not None:
                     stack.append(child)

@@ -994,7 +994,7 @@ class RealtimeAnalyzer {
 	private bool managedType(Node? typeExpr, Map<string, bool> seen) {
 		if (typeExpr == null || seen.has(typeExpr.base)) { return false; }
 		string base = typeExpr.base;
-		if (base == "string" || self.collectionType(base) || self.analyzed.isClass(base) || self.analyzed.isGenericClass(base)) {
+		if (base == "string" || self.collectionType(base) || self.analyzed.isClass(base) || self.analyzed.isGenericClass(base) || self.analyzed.isInterface(base)) {
 			return true;
 		}
 		if (self.analyzed.typedefTable.has(base) && self.managedType(self.analyzed.typedefTable.get(base), self.nextSeen(seen, base))) {

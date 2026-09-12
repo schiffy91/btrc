@@ -15,6 +15,7 @@ from src.compiler.python.syntax.ast.generated import (
     FieldDecl,
     FunctionDecl,
     Identifier,
+    InterfaceDecl,
     PreprocessorDirective,
     PropertyDecl,
     RichEnumDecl,
@@ -394,6 +395,15 @@ class GeneratedSymbolRegistry:
                     self.claim_class_symbols(declaration, claims)
             elif isinstance(declaration, EnumDecl) and declaration.name:
                 self.claim_enum_symbols(declaration, claims)
+            elif isinstance(declaration, InterfaceDecl) and not declaration.generic_params:
+                for method in self.index.interface_table[declaration.name].methods.values():
+                    self._claim_generated_symbol(
+                        f"{declaration.name}_{method.name}",
+                        f"interface method '{declaration.name}.{method.name}'",
+                        method.line,
+                        method.col,
+                        claims,
+                    )
             elif isinstance(declaration, RichEnumDecl):
                 self.claim_rich_enum_symbols(declaration, claims)
         self.claim_generic_instance_symbols(generic_declarations, claims)
