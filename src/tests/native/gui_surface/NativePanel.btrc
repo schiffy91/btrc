@@ -1,6 +1,9 @@
 import Library.Image;
 import Library.EncodedImage;
 import Library.IO;
+import Library.Callback;
+import Library.GUI.IPanel;
+import Library.GUI.IImageView;
 import Library.MacOSEncodedImageDecoder;
 import Library.GUI.MacOS.MacOSApplication;
 import Library.GUI.MacOS.MacOSWindow;
@@ -21,6 +24,7 @@ int main() {
 	var app = MacOSApplication();
 	var window = MacOSWindow("Native rounded panel", 200.0, 200.0);
 	var panel = MacOSPanel(RGBA(20, 40, 80), 32.0);
+	IPanel portable = panel;
 	panel.setDarkAppearance(true);
 	var appearance = panel.nativeView().appearance();
 	assert(appearance != null && AppKitText.ownedValue(appearance.name()) == AppKitText.ownedValue(NSAppearanceNameDarkAqua));
@@ -34,9 +38,14 @@ int main() {
 	var artwork = Image(160, 80);
 	artwork.fill(RGBA(220, 30, 20));
 	var cover = MacOSImageView();
-	cover.setImage(artwork);
-	cover.setFrame(0.0, 80.0, 160.0, 80.0);
-	panel.addChild(cover.nativeView());
+	IImageView imageView = cover;
+	imageView.setImage(artwork);
+	portable.attach(imageView);
+	imageView.arrange(0.0, 0.0, 160.0, 80.0);
+	assert(portable.childCount() == 1 && portable.childAt(0) == imageView);
+	bool attachedClose = false;
+	try { imageView.close(); } catch (string error) { attachedClose = true; }
+	assert(attachedClose && imageView.isOpen());
 	app.pumpEvents();
 	var rounded = panelPixels(window, "RoundedPanel");
 	int scale = rounded.width / 200;
@@ -51,9 +60,9 @@ int main() {
 	bool invalid = false;
 	try { panel.setCornerRadius(-1.0); } catch (string error) { invalid = true; }
 	assert(invalid);
-	cover.close();
-	panel.close();
-	panel.close();
+	assert(portable.close() == CallbackCancellation.Complete);
+	assert(!imageView.isOpen());
+	assert(portable.close() == CallbackCancellation.Complete);
 	bool closed = false;
 	try { panel.setFill(RGBA(0, 0, 0)); } catch (string error) { closed = true; }
 	assert(closed);

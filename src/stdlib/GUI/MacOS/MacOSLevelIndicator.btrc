@@ -1,9 +1,11 @@
 import Library.Math;
+import Library.Callback;
+import Library.GUI.ILevelIndicator;
 import Library.GUI.MacOS.MacOSView;
 
 /* A read-only native level indicator. The caller supplies normalized values
  * and warning thresholds; the control owns no signal sampling or smoothing. */
-class MacOSLevelIndicator {
+class MacOSLevelIndicator implements ILevelIndicator, IMacOSView {
 	private NSLevelIndicator? _indicator;
 	private MacOSView _view;
 
@@ -31,6 +33,24 @@ class MacOSLevelIndicator {
 
 	public NSView nativeView() { return self._view.nativeView(); }
 
+	public void attachTo(NSView parent) { self._view.attachTo(parent); }
+
+	public void detachFrom(NSView parent) { self._view.detachFrom(parent); }
+
+	public bool isOpen() { return self._view.isOpen(); }
+
+	public double fittingWidth() { return self._view.fittingWidth(); }
+
+	public double fittingHeight() { return self._view.fittingHeight(); }
+
+	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public bool isVisible() { return self._view.isVisible(); }
+
+	public void setVisible(bool visible) { self._view.setVisible(visible); }
+
+	public CallbackCancellation pollClose() { return self._view.pollClose(); }
+
 	public void setValue(double value) {
 		if (!Math.isFinite(value) || value < 0.0 || value > 1.0) { throw "Native level must be between zero and one"; }
 		self.control().setDoubleValue(value);
@@ -40,5 +60,5 @@ class MacOSLevelIndicator {
 
 	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
 
-	public void close() { self._view.close(); self._indicator = null; }
+	public CallbackCancellation close() { self._view.close(); self._indicator = null; return CallbackCancellation.Complete; }
 }

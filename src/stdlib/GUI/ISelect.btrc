@@ -1,0 +1,17 @@
+import Library.GUI.IView;
+import Library.Vector;
+
+/* Selection uses an index so duplicate titles remain distinct. An empty list
+ * selects -1. Replacing items and publishing selection do not synthesize input. */
+interface ISelect extends IView {
+	void setItems(Vector<string> titles, int selectedIndex);
+	int itemCount();
+	int selectedIndex();
+	void setItemEnabled(int index, bool enabled);
+	bool isItemEnabled(int index);
+	void setSelectedIndex(int index);
+	string selectedTitle();
+	void setEnabled(bool enabled);
+	void setFont(double size);
+	bool isEnabled();
+}

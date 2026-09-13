@@ -1,11 +1,13 @@
 import Library.Vector;
+import Library.Callback;
+import Library.GUI.ISelect;
 import Library.Math;
 import Library.GUI.MacOS.AppKitText;
 import Library.GUI.MacOS.MacOSView;
 
 /* Selection is native state. Read it after event dispatch, like a text field;
  * programmatic replacement does not fabricate a user-action event. */
-class MacOSSelect {
+class MacOSSelect implements ISelect, IMacOSView {
 	private NSPopUpButton? _button;
 	private MacOSView _view;
 
@@ -31,6 +33,24 @@ class MacOSSelect {
 	}
 
 	public NSView nativeView() { return self._view.nativeView(); }
+
+	public void attachTo(NSView parent) { self._view.attachTo(parent); }
+
+	public void detachFrom(NSView parent) { self._view.detachFrom(parent); }
+
+	public bool isOpen() { return self._view.isOpen(); }
+
+	public double fittingWidth() { return self._view.fittingWidth(); }
+
+	public double fittingHeight() { return self._view.fittingHeight(); }
+
+	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public bool isVisible() { return self._view.isVisible(); }
+
+	public void setVisible(bool visible) { self._view.setVisible(visible); }
+
+	public CallbackCancellation pollClose() { return self._view.pollClose(); }
 
 	public void setItems(Vector<string> titles, int selectedIndex) {
 		var button = self.control();
@@ -86,5 +106,5 @@ class MacOSSelect {
 
 	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
 
-	public void close() { self._view.close(); self._button = null; }
+	public CallbackCancellation close() { self._view.close(); self._button = null; return CallbackCancellation.Complete; }
 }

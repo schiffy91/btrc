@@ -1,0 +1,19 @@
+import Library.GUI.IView;
+
+/* Cells own attached subtrees. Replacing or clearing a cell detaches its old
+ * child without closing it; closing the grid closes all occupied cells.
+ * A child must be detached before moving to another cell or container. */
+interface IGrid extends IView {
+	int columnCount();
+	int rowCount();
+	void setChild(int column, int row, IView? child);
+	IView? childAt(int column, int row);
+	void setSpacing(double columnSpacing, double rowSpacing);
+	void setColumnWidth(int column, double width);
+	void fitColumn(int column);
+	void setRowHeight(int row, double height);
+	void fitRow(int row);
+	void setRowHidden(int row, bool hidden);
+	void setColumnHidden(int column, bool hidden);
+	void layout();
+}

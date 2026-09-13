@@ -1,0 +1,10 @@
+import Library.GUI.IContainer;
+import Library.Image;
+
+interface IPanel extends IContainer {
+	void setFill(RGBA fill);
+	void setCornerRadius(double radius);
+	void setDarkAppearance(bool dark);
+	void inheritAppearance();
+}
+

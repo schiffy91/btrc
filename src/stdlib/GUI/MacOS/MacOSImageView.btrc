@@ -1,9 +1,11 @@
 import Library.Image;
+import Library.Callback;
+import Library.GUI.IImageView;
 import Library.GUI.MacOS.MacOSView;
 
 /* Native artwork presentation. Decode once when the source changes; resizing
  * does not re-encode it or create a new control. Aspect ratio is preserved. */
-class MacOSImageView {
+class MacOSImageView implements IImageView, IMacOSView {
 	private NSImageView? _imageView;
 	private MacOSView _view;
 
@@ -17,6 +19,24 @@ class MacOSImageView {
 	}
 
 	public NSView nativeView() { return self._view.nativeView(); }
+
+	public void attachTo(NSView parent) { self._view.attachTo(parent); }
+
+	public void detachFrom(NSView parent) { self._view.detachFrom(parent); }
+
+	public bool isOpen() { return self._view.isOpen(); }
+
+	public double fittingWidth() { return self._view.fittingWidth(); }
+
+	public double fittingHeight() { return self._view.fittingHeight(); }
+
+	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public bool isVisible() { return self._view.isVisible(); }
+
+	public void setVisible(bool visible) { self._view.setVisible(visible); }
+
+	public CallbackCancellation pollClose() { return self._view.pollClose(); }
 
 	public void setImage(Image? pixels, int maximumPixels = 16777216) {
 		self.nativeView();
@@ -39,5 +59,5 @@ class MacOSImageView {
 
 	public void setHidden(bool hidden) { self._view.setHidden(hidden); }
 
-	public void close() { self._view.close(); self._imageView = null; }
+	public CallbackCancellation close() { self._view.close(); self._imageView = null; return CallbackCancellation.Complete; }
 }

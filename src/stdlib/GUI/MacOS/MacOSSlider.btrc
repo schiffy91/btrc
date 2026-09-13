@@ -1,9 +1,11 @@
 import Library.Math;
+import Library.Callback;
+import Library.GUI.ISlider;
 import Library.GUI.MacOS.MacOSView;
 
 /* AppKit owns pointer/keyboard tracking. Read the value after dispatch; model
  * refreshes must not overwrite a pending edit before the binding consumes it. */
-class MacOSSlider {
+class MacOSSlider implements ISlider, IMacOSView {
 	private NSSlider? _slider;
 	private MacOSView _view;
 	private double _minimum;
@@ -36,6 +38,24 @@ class MacOSSlider {
 
 	public NSView nativeView() { return self._view.nativeView(); }
 
+	public void attachTo(NSView parent) { self._view.attachTo(parent); }
+
+	public void detachFrom(NSView parent) { self._view.detachFrom(parent); }
+
+	public bool isOpen() { return self._view.isOpen(); }
+
+	public double fittingWidth() { return self._view.fittingWidth(); }
+
+	public double fittingHeight() { return self._view.fittingHeight(); }
+
+	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public bool isVisible() { return self._view.isVisible(); }
+
+	public void setVisible(bool visible) { self._view.setVisible(visible); }
+
+	public CallbackCancellation pollClose() { return self._view.pollClose(); }
+
 	public double value() { return self.control().doubleValue(); }
 
 	public void setValue(double value) {
@@ -51,5 +71,5 @@ class MacOSSlider {
 
 	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
 
-	public void close() { self._view.close(); self._slider = null; }
+	public CallbackCancellation close() { self._view.close(); self._slider = null; return CallbackCancellation.Complete; }
 }

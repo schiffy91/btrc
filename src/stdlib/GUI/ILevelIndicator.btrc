@@ -1,0 +1,7 @@
+import Library.GUI.IView;
+
+interface ILevelIndicator extends IView {
+	void setValue(double value);
+	double value();
+}
+

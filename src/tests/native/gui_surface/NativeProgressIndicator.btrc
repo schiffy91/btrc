@@ -2,6 +2,7 @@ import Library.Datetime;
 import Library.Image;
 import Library.EncodedImage;
 import Library.IO;
+import Library.GUI.IProgressIndicator;
 import Library.MacOSEncodedImageDecoder;
 import Library.GUI.MacOS.MacOSApplication;
 import Library.GUI.MacOS.MacOSWindow;
@@ -25,15 +26,19 @@ int main() {
 	background.setFrame(0.0, 0.0, 240.0, 180.0);
 	window.contentView().addSubview(background.nativeView());
 	var indicator = MacOSProgressIndicator();
-	indicator.setFrame(104.0, 74.0, 32.0, 32.0);
-	background.addChild(indicator.nativeView());
+	IProgressIndicator portable = indicator;
+	background.attach(portable);
+	portable.arrange(104.0, 74.0, 32.0, 32.0);
 	assert(!window.isVisible());
 	window.show();
 	assert(window.isVisible());
 	assert(!indicator.isRunning());
 	var stopped = indicatorPixels(window, "StoppedIndicator");
-	indicator.setRunning(true);
-	indicator.setRunning(true);
+	portable.setRunning(true);
+	portable.setRunning(true);
+	bool attachedClose = false;
+	try { portable.close(); } catch (string error) { attachedClose = true; }
+	assert(attachedClose && portable.isRunning());
 	var timer = Timer();
 	timer.start();
 	while (timer.elapsedMillis() < 200.0f) { app.pumpEvents(); }
@@ -47,6 +52,7 @@ int main() {
 	indicator.setRunning(false);
 	assert(!indicator.isRunning());
 	indicator.setRunning(true);
+	background.detach(portable);
 	indicator.close();
 	indicator.close();
 	bool closed = false;

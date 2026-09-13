@@ -1,7 +1,9 @@
 import Library.GUI.MacOS.MacOSView;
+import Library.Callback;
+import Library.GUI.IProgressIndicator;
 
 /* AppKit owns animation timing and drawing; this owner controls its lifetime. */
-class MacOSProgressIndicator {
+class MacOSProgressIndicator implements IProgressIndicator, IMacOSView {
 	private NSProgressIndicator? _indicator;
 	private MacOSView _view;
 	private bool _running = false;
@@ -18,6 +20,24 @@ class MacOSProgressIndicator {
 	}
 
 	public NSView nativeView() { return self._view.nativeView(); }
+
+	public void attachTo(NSView parent) { self._view.attachTo(parent); }
+
+	public void detachFrom(NSView parent) { self._view.detachFrom(parent); }
+
+	public bool isOpen() { return self._view.isOpen(); }
+
+	public double fittingWidth() { return self._view.fittingWidth(); }
+
+	public double fittingHeight() { return self._view.fittingHeight(); }
+
+	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public bool isVisible() { return self._view.isVisible(); }
+
+	public void setVisible(bool visible) { self._view.setVisible(visible); }
+
+	public CallbackCancellation pollClose() { return self._view.pollClose(); }
 
 	private NSProgressIndicator control() {
 		self.nativeView();
@@ -37,11 +57,13 @@ class MacOSProgressIndicator {
 
 	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
 
-	public void close() {
+	public CallbackCancellation close() {
 		if (!NSThread.isMainThread()) { throw "Native progress indicators require the main thread"; }
-		if (self._indicator == null) { return; }
+		if (self._indicator == null) { return CallbackCancellation.Complete; }
+		self._view.requireDetached();
 		self.setRunning(false);
 		self._view.close();
 		self._indicator = null;
+		return CallbackCancellation.Complete;
 	}
 }

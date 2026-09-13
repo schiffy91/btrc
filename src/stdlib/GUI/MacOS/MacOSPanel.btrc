@@ -1,19 +1,22 @@
 import Library.Image;
 import Library.Math;
+import Library.Callback;
+import Library.Console;
+import Library.GUI.IPanel;
+import Library.GUI.IView;
+import Library.GUI.MacOS.MacOSContainer;
 import Library.GUI.MacOS.MacOSView;
 
 /* A native filled container. AppKit owns drawing; its backing layer clips
  * child views to the same rounded outline. Child owners outlive attachment. */
-class MacOSPanel {
+class MacOSPanelLayout implements IMacOSContainerLayout {
 	private NSBox? _box;
-	private MacOSView _view;
 
-	public MacOSPanel(RGBA fill, double radius = 0.0) {
+	public MacOSPanelLayout(RGBA fill, double radius) {
 		if (!NSThread.isMainThread()) { throw "Native panels require the main thread"; }
 		var box = NSBox.new();
 		if (box == null) { throw "Cannot create native panel"; }
 		self._box = box;
-		self._view = MacOSView(box);
 		box.setBoxType(NSBoxCustom);
 		box.setTitlePosition(NSNoTitle);
 		box.setBorderWidth(0.0);
@@ -21,18 +24,28 @@ class MacOSPanel {
 		margins.width = 0.0;
 		margins.height = 0.0;
 		box.setContentViewMargins(margins);
-		self._view.nativeView().setWantsLayer(true);
+		self.nativeView().setWantsLayer(true);
 		self.setFill(fill);
 		self.setCornerRadius(radius);
 	}
 
 	private NSBox control() {
-		self._view.nativeView();
+		if (!NSThread.isMainThread()) { throw "Native panels require the main thread"; }
 		if (self._box == null) { throw "Native panel is closed"; }
 		return self._box;
 	}
 
-	public NSView nativeView() { return self._view.nativeView(); }
+	public NSView nativeView() { return self.control(); }
+
+	public NSView childParent() {
+		var content = self.control().contentView();
+		if (content == null) { throw "Native panel has no content view"; }
+		return content;
+	}
+
+	public void arrangeChild(NSView child) {}
+
+	public void forgetChild(NSView child) {}
 
 	public void setFill(RGBA fill) {
 		if (fill == null) { throw "Native panel fill is missing"; }
@@ -42,22 +55,84 @@ class MacOSPanel {
 	public void setCornerRadius(double radius) {
 		if (!Math.isFinite(radius) || radius < 0.0 || radius > 4096.0) { throw "Invalid native panel corner radius"; }
 		var box = self.control();
-		var layer = self._view.nativeView().layer();
+		var layer = self.nativeView().layer();
 		if (layer == null) { throw "Native panel has no backing layer"; }
 		box.setCornerRadius(radius);
 		layer.setCornerRadius(radius);
 		layer.setMasksToBounds(true);
 	}
 
-	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
+	public void close() { self._box = null; }
+}
 
-	public void setHidden(bool hidden) { self._view.setHidden(hidden); }
+class MacOSPanel implements IPanel, IMacOSView {
+	private MacOSContainer _container;
+	private MacOSPanelLayout _layout;
 
-	public void setDarkAppearance(bool dark) { self._view.setDarkAppearance(dark); }
+	public MacOSPanel(RGBA fill, double radius = 0.0) { self._layout = MacOSPanelLayout(fill, radius); self._container = MacOSContainer(self._layout); }
 
-	public void inheritAppearance() { self._view.inheritAppearance(); }
+	public NSView nativeView() { return self._container.nativeView(); }
 
-	public void addChild(NSView child) { self._view.addChild(child); }
+	public void attachTo(NSView parent) { self._container.attachTo(parent); }
 
-	public void close() { self._view.close(); self._box = null; }
+	public void detachFrom(NSView parent) { self._container.detachFrom(parent); }
+
+	public bool isOpen() { return self._container.isOpen(); }
+
+	public void attach(IView child) { self._container.attach(child); }
+
+	public IView detach(IView child) { return self._container.detach(child); }
+
+	public int childCount() { return self._container.childCount(); }
+
+	public IView childAt(int index) { return self._container.childAt(index); }
+
+	public double fittingWidth() { return self._container.fittingWidth(); }
+
+	public double fittingHeight() { return self._container.fittingHeight(); }
+
+	public void arrange(double x, double y, double width, double height) { self._container.arrange(x, y, width, height); }
+
+	public bool isVisible() { return self._container.isVisible(); }
+
+	public void setVisible(bool visible) { self._container.setVisible(visible); }
+
+	public void setFill(RGBA fill) { self.nativeView(); self._layout.setFill(fill); }
+
+	public void setCornerRadius(double radius) { self.nativeView(); self._layout.setCornerRadius(radius); }
+
+	public void setDarkAppearance(bool dark) {
+		var view = self.nativeView();
+		var appearance = NSAppearance.appearanceNamed(dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua);
+		if (appearance == null) { throw "Native view appearance is unavailable"; }
+		view.setAppearance(appearance);
+	}
+
+	public void inheritAppearance() { self.nativeView().setAppearance(null); }
+
+	public void setFrame(double x, double y, double width, double height) {
+		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid native panel frame"; }
+		var view = self.nativeView();
+		var frame = view.frame();
+		frame.origin.x = x; frame.origin.y = y; frame.size.width = width; frame.size.height = height;
+		view.setFrame(frame);
+	}
+
+	public void setHidden(bool hidden) { self.setVisible(!hidden); }
+
+	public void addChild(NSView child) { MacOSView.attachNative(child, self.nativeView()); }
+
+	public CallbackCancellation close() {
+		var state = self._container == null ? CallbackCancellation.Complete : self._container.close();
+		if (state == CallbackCancellation.Complete && self._layout != null) { self._layout.close(); }
+		return state;
+	}
+
+	public CallbackCancellation pollClose() {
+		var state = self._container == null ? CallbackCancellation.Complete : self._container.pollClose();
+		if (state == CallbackCancellation.Complete && self._layout != null) { self._layout.close(); }
+		return state;
+	}
+
+	public void __del__() { if (self.close() != CallbackCancellation.Complete) { Console.fatal("Native panel destroyed before subtree cleanup completed"); } }
 }

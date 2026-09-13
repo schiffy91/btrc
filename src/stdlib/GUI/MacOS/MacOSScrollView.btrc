@@ -1,12 +1,18 @@
 import Library.Math;
+import Library.Callback;
+import Library.Console;
+import Library.GUI.IScrollView;
+import Library.GUI.IView;
+import Library.GUI.MacOS.MacOSContainer;
+import Library.GUI.MacOS.MacOSView;
 
 /* Native vertical viewport. AppKit owns clipping, wheel/momentum handling and
  * overlay scrollers. Public offsets count logical points down from the top;
  * native document children use AppKit's unflipped coordinates. */
-class MacOSScrollView {
+class MacOSScrollLayout implements IMacOSContainerLayout {
 	private NSScrollView? _scroll;
 
-	public MacOSScrollView() {
+	public MacOSScrollLayout() {
 		self._scroll = null;
 		self.requireMainThread();
 		var scroll = NSScrollView.new();
@@ -37,6 +43,14 @@ class MacOSScrollView {
 		if (document == null) { throw "Scroll view has no document"; }
 		return document;
 	}
+
+	public NSView nativeView() { return self.nativeControl(); }
+
+	public NSView childParent() { return self.documentView(); }
+
+	public void arrangeChild(NSView child) {}
+
+	public void forgetChild(NSView child) {}
 
 	public void setFrame(double x, double y, double width, double height) {
 		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid scroll view frame"; }
@@ -97,4 +111,68 @@ class MacOSScrollView {
 		scroll.removeFromSuperview();
 		self._scroll = null;
 	}
+}
+
+class MacOSScrollView implements IScrollView, IMacOSView {
+	private MacOSContainer _container;
+	private MacOSScrollLayout _layout;
+
+	public MacOSScrollView() { self._layout = MacOSScrollLayout(); self._container = MacOSContainer(self._layout); }
+
+	public NSView nativeView() { return self._container.nativeView(); }
+
+	public NSScrollView nativeControl() { self.nativeView(); return self._layout.nativeControl(); }
+
+	public NSView documentView() { self.nativeView(); return self._layout.documentView(); }
+
+	public void attachTo(NSView parent) { self._container.attachTo(parent); }
+
+	public void detachFrom(NSView parent) { self._container.detachFrom(parent); }
+
+	public bool isOpen() { return self._container.isOpen(); }
+
+	public void attach(IView child) { self._container.attach(child); }
+
+	public IView detach(IView child) { return self._container.detach(child); }
+
+	public int childCount() { return self._container.childCount(); }
+
+	public IView childAt(int index) { return self._container.childAt(index); }
+
+	public double fittingWidth() { return self._container.fittingWidth(); }
+
+	public double fittingHeight() { return self._container.fittingHeight(); }
+
+	public void arrange(double x, double y, double width, double height) {
+		double offset = self.scrollOffset();
+		self._container.arrange(x, y, width, height);
+		self.nativeControl().tile();
+		self.scrollTo(offset);
+	}
+
+	public bool isVisible() { return self._container.isVisible(); }
+
+	public void setVisible(bool visible) { self._container.setVisible(visible); }
+
+	public void setFrame(double x, double y, double width, double height) { self.nativeView(); self._layout.setFrame(x, y, width, height); }
+
+	public void setContentSize(double width, double height) { self.nativeView(); self._layout.setContentSize(width, height); }
+
+	public double scrollOffset() { self.nativeView(); return self._layout.scrollOffset(); }
+
+	public void scrollTo(double offset) { self.nativeView(); self._layout.scrollTo(offset); }
+
+	public CallbackCancellation close() {
+		var state = self._container == null ? CallbackCancellation.Complete : self._container.close();
+		if (state == CallbackCancellation.Complete && self._layout != null) { self._layout.close(); }
+		return state;
+	}
+
+	public CallbackCancellation pollClose() {
+		var state = self._container == null ? CallbackCancellation.Complete : self._container.pollClose();
+		if (state == CallbackCancellation.Complete && self._layout != null) { self._layout.close(); }
+		return state;
+	}
+
+	public void __del__() { if (self.close() != CallbackCancellation.Complete) { Console.fatal("Native scroll view destroyed before subtree cleanup completed"); } }
 }

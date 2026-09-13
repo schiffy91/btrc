@@ -1,0 +1,7 @@
+import Library.GUI.IView;
+
+interface IProgressIndicator extends IView {
+	bool isRunning();
+	void setRunning(bool running);
+}
+

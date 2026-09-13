@@ -1,5 +1,6 @@
 import Library.IO;
 import Library.Image;
+import Library.GUI.ISlider;
 import Library.GUI.MacOS.MacOSApplication;
 import Library.GUI.MacOS.MacOSWindow;
 import Library.GUI.MacOS.MacOSPanel;
@@ -30,17 +31,18 @@ int main() {
 	background.setFrame(0.0, 0.0, 360.0, 160.0);
 	window.contentView().addSubview(background.nativeView());
 	var slider = MacOSSlider(10.0, 100.0, 9);
+	ISlider portable = slider;
 	// Player model projection sets the initial value before the first layout.
 	slider.setValue(100.0);
 	assert(slider.value() == 100.0);
-	slider.setFrame(20.0, 65.0, 320.0, 30.0);
-	background.addChild(slider.nativeView());
+	background.attach(portable);
+	portable.arrange(20.0, 65.0, 320.0, 30.0);
 	assert(slider.value() == 100.0);
 	slider.setValue(10.0);
 	assert(slider.value() == 10.0);
 	for (int percent = 10; percent <= 100; percent += 10) { slider.setValue((double)percent); assert(slider.value() == (double)percent); }
-	slider.setValue(53.0);
-	assert(slider.value() == 50.0);
+	portable.setValue(53.0);
+	assert(portable.value() == 50.0);
 	bool rejected = false;
 	try { slider.setValue(101.0); } catch (string error) { rejected = true; }
 	assert(rejected && slider.value() == 50.0);
@@ -84,7 +86,8 @@ int main() {
 	assert(natural.ok() && natural.writeBytes(MacOSViewCapture.captureTiff(window.contentView())) && natural.close());
 	var file = File("NativeSlider.tiff", "wb");
 	assert(file.ok() && file.writeBytes(MacOSViewCapture.captureTiff(window.contentView())) && file.close());
-	slider.close();
+	background.detach(portable);
+	portable.close();
 	slider.close();
 	rejected = false;
 	try { slider.value(); } catch (string error) { rejected = true; }

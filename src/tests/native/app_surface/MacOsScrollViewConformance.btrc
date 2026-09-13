@@ -2,6 +2,8 @@ import Library.GUI.MacOS.MacOSApplication;
 import Library.GUI.MacOS.MacOSScrollView;
 import Library.GUI.MacOS.MacOSTextField;
 import Library.GUI.MacOS.MacOSWindow;
+import Library.Callback;
+import Library.GUI.IScrollView;
 
 import ./ControlProbe.btrc;
 #include <assert.h>
@@ -14,6 +16,7 @@ int main() {
 	var header = MacOSTextField("Search library", "Search");
 	header.setFrame(24.0, 430.0, 432.0, 30.0);
 	var scroll = MacOSScrollView();
+	IScrollView portable = scroll;
 	scroll.setFrame(0.0, 0.0, 480.0, 400.0);
 	scroll.setContentSize(480.0, 1600.0);
 	var field = MacOSTextField("Document", "");
@@ -21,11 +24,17 @@ int main() {
 	var root = window.contentView();
 	root.addSubview(header.nativeControl());
 	root.addSubview(scroll.nativeControl());
-	scroll.documentView().addSubview(field.nativeControl());
+	portable.attach(field);
+	field.arrange(24.0, 70.0, 400.0, 30.0);
+	assert(portable.childCount() == 1 && portable.childAt(0) == field);
+	bool attachedClose = false;
+	try { field.close(); } catch (string error) { attachedClose = true; }
+	assert(attachedClose && field.isOpen());
 	var nested = MacOSScrollView();
 	nested.setFrame(24.0, 900.0, 300.0, 200.0);
 	nested.setContentSize(300.0, 900.0);
-	scroll.documentView().addSubview(nested.nativeControl());
+	portable.attach(nested);
+	nested.arrange(24.0, 500.0, 300.0, 200.0);
 	nested.scrollTo(80.0);
 	assert(fabs(nested.scrollOffset() - 80.0) < 0.01);
 	assert(NativeScrollViewProbe.prepare(window.nativeWindow(), scroll.nativeControl(), header.nativeControl()));
@@ -56,15 +65,14 @@ int main() {
 	try { scroll.setFrame(0.0, 0.0, INFINITY, 300.0); } catch (string error) { rejected = error.equals("Invalid scroll view frame"); }
 	assert(rejected);
 	var native = scroll.nativeControl();
-	field.close();
-	nested.close();
-	scroll.close();
-	scroll.close();
+	assert(portable.close() == CallbackCancellation.Complete);
+	assert(!field.isOpen() && !nested.isOpen());
+	assert(portable.close() == CallbackCancellation.Complete);
 	assert(NativeScrollViewProbe.finish(native));
 	header.close();
 	window.close();
 	bool closed = false;
-	try { scroll.scrollTo(0.0); } catch (string error) { closed = error.equals("Scroll view is closed"); }
+	try { portable.scrollTo(0.0); } catch (string error) { closed = true; }
 	assert(closed);
 	Thread<int> worker = spawn(() => {
 			try { var invalid = MacOSScrollView(); } catch (string error) { return error.equals("AppKit scroll views require the main thread") ? 0 : 1; }

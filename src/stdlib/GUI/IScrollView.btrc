@@ -1,0 +1,10 @@
+import Library.GUI.IContainer;
+
+/* Child positions and scroll offsets count logical points from the document's
+ * top-left. Native scrolling owns wheel tracking and clips the document.
+ * Resizing preserves the offset, clamped to the new document extent. */
+interface IScrollView extends IContainer {
+	void setContentSize(double width, double height);
+	double scrollOffset();
+	void scrollTo(double offset);
+}

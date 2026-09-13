@@ -1,0 +1,11 @@
+import Library.GUI.IView;
+
+interface ILabel extends IView {
+	void setText(string text);
+	string text();
+	void setFont(double size, bool bold = false);
+	void setSecondary(bool secondary);
+	void setCentered(bool centered);
+	void setWrapping(bool wrapping);
+}
+

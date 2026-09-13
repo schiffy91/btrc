@@ -1,8 +1,10 @@
 import Library.Math;
+import Library.Callback;
+import Library.GUI.ILabel;
 import Library.GUI.MacOS.AppKitText;
 import Library.GUI.MacOS.MacOSView;
 
-class MacOSLabel {
+class MacOSLabel implements ILabel, IMacOSView {
 	private NSTextField? _label;
 	private MacOSView _view;
 
@@ -16,6 +18,24 @@ class MacOSLabel {
 	}
 
 	public NSView nativeView() { return self._view.nativeView(); }
+
+	public void attachTo(NSView parent) { self._view.attachTo(parent); }
+
+	public void detachFrom(NSView parent) { self._view.detachFrom(parent); }
+
+	public bool isOpen() { return self._view.isOpen(); }
+
+	public double fittingWidth() { return self._view.fittingWidth(); }
+
+	public double fittingHeight() { return self._view.fittingHeight(); }
+
+	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public bool isVisible() { return self._view.isVisible(); }
+
+	public void setVisible(bool visible) { self._view.setVisible(visible); }
+
+	public CallbackCancellation pollClose() { return self._view.pollClose(); }
 
 	private NSTextField control() {
 		self.nativeView();
@@ -48,5 +68,5 @@ class MacOSLabel {
 
 	public void setHidden(bool hidden) { self._view.setHidden(hidden); }
 
-	public void close() { self._view.close(); self._label = null; }
+	public CallbackCancellation close() { self._view.close(); self._label = null; return CallbackCancellation.Complete; }
 }

@@ -1,6 +1,8 @@
 import Library.IO;
 import Library.Image;
 import Library.Math;
+import Library.Callback;
+import Library.GUI.IGrid;
 import Library.GUI.MacOS.MacOSApplication;
 import Library.GUI.MacOS.MacOSWindow;
 import Library.GUI.MacOS.MacOSPanel;
@@ -18,6 +20,7 @@ int main() {
 	background.setFrame(0.0, 0.0, 660.0, 260.0);
 	window.contentView().addSubview(background.nativeView());
 	var form = MacOSGrid(2, 2, 20.0, 15.0);
+	IGrid portable = form;
 	form.setFrame(30.0, 45.0, 600.0, 130.0);
 	form.setColumnWidth(0, 160.0);
 	form.setColumnWidth(1, 420.0);
@@ -30,10 +33,14 @@ int main() {
 	input.setItems(["Quad Cortex", "System Default"], 0);
 	var monitor = MacOSSelect();
 	monitor.setItems(["Song Effects", "Raw Signal"], 0);
-	form.setChild(0, 0, inputLabel.nativeView());
-	form.setChild(1, 0, input.nativeView());
-	form.setChild(0, 1, monitorLabel.nativeView());
-	form.setChild(1, 1, monitor.nativeView());
+	portable.setChild(0, 0, inputLabel);
+	portable.setChild(1, 0, input);
+	portable.setChild(0, 1, monitorLabel);
+	portable.setChild(1, 1, monitor);
+	assert(portable.childAt(1, 0) == input);
+	bool attachedClose = false;
+	try { input.close(); } catch (string error) { attachedClose = true; }
+	assert(attachedClose && input.isOpen());
 	window.show();
 	app.pumpEvents();
 	form.layout();
@@ -59,21 +66,22 @@ int main() {
 	try { form.setChild(2, 0, null); } catch (string error) { rejected = true; }
 	assert(rejected);
 	rejected = false;
-	try { form.setChild(0, 0, background.nativeView()); } catch (string error) { rejected = true; }
+	try { portable.setChild(0, 0, background); } catch (string error) { rejected = true; }
 	assert(rejected);
 	rejected = false;
-	try { form.setChild(0, 0, monitor.nativeView()); } catch (string error) { rejected = true; }
+	try { portable.setChild(0, 0, monitor); } catch (string error) { rejected = true; }
 	assert(rejected);
 	form.setChild(1, 1, null);
+	assert(monitor.isOpen() && portable.childAt(1, 1) == null);
 	var nested = MacOSGrid(1, 1);
-	nested.setChild(0, 0, monitor.nativeView());
-	form.setChild(1, 1, nested.nativeView());
+	nested.setChild(0, 0, monitor);
+	form.setChild(1, 1, nested);
 	form.layout();
 	assert(monitor.nativeView().frame().size.width > 100.0);
-	form.close();
-	form.close();
+	assert(portable.close() == CallbackCancellation.Complete);
+	assert(portable.close() == CallbackCancellation.Complete);
 	nested.close();
-	assert(input.nativeView().superview() == null && monitor.nativeView().superview() == null);
+	assert(!input.isOpen() && !monitor.isOpen() && !nested.isOpen());
 	input.close();
 	monitor.close();
 	inputLabel.close();

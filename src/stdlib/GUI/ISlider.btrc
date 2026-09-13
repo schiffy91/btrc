@@ -1,0 +1,10 @@
+import Library.GUI.IView;
+
+/* Native tracking updates the value. Read after event dispatch before
+ * republishing model state; programmatic values do not synthesize input. */
+interface ISlider extends IView {
+	double value();
+	void setValue(double value);
+	void setEnabled(bool enabled);
+	bool isEnabled();
+}

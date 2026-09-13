@@ -68,7 +68,9 @@ def test_btrc_directory_picker_appkit(tmp_path, request, frontend, sanitized):
     assert "std_app_window_choose_directory" not in generated.read_text()
 
     def run(command, **kwargs):
-        options = ["-O2", *(["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if sanitized else [])]
+        options = ["-O2"] if Path(command[0]).name in {"clang", "clang++"} else []
+        if options and sanitized:
+            options += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
         return subprocess.run([command[0], *options, *command[1:]], env=environment, **kwargs)
 
     executable = tmp_path / "Picker"
@@ -166,7 +168,9 @@ def test_btrc_text_field_appkit(tmp_path, request, frontend, sanitized, consumer
     assert payload["generated-units"]
 
     def run(command, **kwargs):
-        options = ["-O2", *(["-fsanitize=address,undefined", "-fno-sanitize-recover=all"] if sanitized else [])]
+        options = ["-O2"] if Path(command[0]).name in {"clang", "clang++"} else []
+        if options and sanitized:
+            options += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
         return subprocess.run([command[0], *options, *command[1:]], env=environment, **kwargs)
 
     executable = tmp_path / control
