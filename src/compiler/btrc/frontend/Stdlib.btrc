@@ -117,6 +117,7 @@ class FeStdlibRepository {
 	public string findFileForCompilation(string includePath, FeStdlibRootSnapshot snapshot) {
 		string direct = self.sourcePaths.join(self.directoryPath, includePath);
 		if (self.snapshotContains(snapshot, direct)) { return direct; }
+		if (FileSystem.isFile(direct)) { return direct; }
 		string base = self.sourcePaths.baseName(includePath);
 		if (!FileSystem.isDir(self.directoryPath)) { return ""; }
 		return self.sourceDirectories.firstEntryWithChildFile(self.directoryPath, base);

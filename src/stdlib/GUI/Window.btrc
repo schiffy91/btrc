@@ -5,11 +5,11 @@
  * not be used in the same process as Library.App. Unified applications should use
  * Library.App/Library.GPU; Library.UI migration will replace this presenter.
  *
- * NOT auto-included. Use:  #include "GUI/GUI.btrc"   then   #include "GUI/Window.btrc"
+ * NOT auto-included. Use:  #include "GUI/Raster.btrc"   then   #include "GUI/Window.btrc"
  * Build:  make gui            (needs GLFW + a display to run)
  *
  *   var win = GUIWindow("Lorem", 640, 400);
- *   var ui = GUI(Surface(640, 400));
+ *   var ui = RasterGUI(Surface(640, 400));
  *   while (win.isOpen()) {
  *       Windows.poll(ui.input);
  *       ui.beginFrame();

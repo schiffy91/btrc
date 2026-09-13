@@ -31,8 +31,10 @@ from src.compiler.python.ir.nodes import IRCall, IRExprStmt, IRModule, IRStateme
 from src.compiler.python.syntax.ast.generated import (
     AssignExpr,
     BinaryExpr,
+    Block,
     CallExpr,
     FieldAccessExpr,
+    FunctionDecl,
     Identifier,
     Program,
     TypeExpr,
@@ -400,7 +402,7 @@ def test_generic_source_callback_return_keeps_owned_abi():
 
 def test_authenticated_hosted_call_precedes_generic_source_shadow():
     call = CallExpr(callee=Identifier(name="hostedString"), args=[])
-    declaration = SimpleNamespace(body=object())
+    declaration = FunctionDecl(name="hostedString", return_type=TypeExpr(base="string"), body=Block())
     owner = _callable_owner(
         function_table={"hostedString": declaration},
         hosted_call_ids={id(call)},
@@ -411,7 +413,7 @@ def test_authenticated_hosted_call_precedes_generic_source_shadow():
 
 def test_null_coalescing_joins_callable_return_abi():
     owner = _callable_owner(
-        function_table={"owned": SimpleNamespace(body=object())},
+        function_table={"owned": FunctionDecl(name="owned", return_type=TypeExpr(base="string"), body=Block())},
     )
 
     expression = BinaryExpr(
@@ -531,7 +533,7 @@ def test_exception_flow_through_inner_shadow_preserves_outer_callable_binding():
         generic_args=[TypeExpr(base="string")],
     )
     owner = _callable_owner(
-        function_table={"make": SimpleNamespace(body=object())},
+        function_table={"make": FunctionDecl(name="make", return_type=TypeExpr(base="string"), body=Block())},
     )
     owner.bind_with_abi("callback", callable_type, CallableReturnABI.OWNED)
     expected = owner.snapshot().bindings["callback"]
@@ -553,7 +555,7 @@ def test_loop_exit_through_inner_shadow_preserves_outer_callable_binding():
         generic_args=[TypeExpr(base="string")],
     )
     owner = _callable_owner(
-        function_table={"make": SimpleNamespace(body=object())},
+        function_table={"make": FunctionDecl(name="make", return_type=TypeExpr(base="string"), body=Block())},
     )
     owner.bind_with_abi("callback", callable_type, CallableReturnABI.OWNED)
     expected = owner.snapshot().bindings["callback"]
@@ -575,7 +577,7 @@ def test_switch_exit_through_inner_callable_shadow_preserves_outer_binding():
         generic_args=[TypeExpr(base="string")],
     )
     owner = _callable_owner(
-        function_table={"make": SimpleNamespace(body=object())},
+        function_table={"make": FunctionDecl(name="make", return_type=TypeExpr(base="string"), body=Block())},
     )
     owner.bind_local("callback", callable_type, Identifier(name="make"))
     expected = owner.snapshot().bindings["callback"]
@@ -596,7 +598,7 @@ def test_shadow_restores_outer_callable_mutation_made_before_declaration():
         generic_args=[TypeExpr(base="string")],
     )
     owner = _callable_owner(
-        function_table={"make": SimpleNamespace(body=object())},
+        function_table={"make": FunctionDecl(name="make", return_type=TypeExpr(base="string"), body=Block())},
     )
     owner.bind_borrowed("callback", callable_type)
     scope = owner.begin_scope()

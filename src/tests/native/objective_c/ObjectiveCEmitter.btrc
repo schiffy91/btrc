@@ -5,8 +5,149 @@ import ../../../compiler/btrc/ir/Emitter.btrc;
 import ../../../compiler/btrc/ir/lowering/ControlFlow.btrc;
 import ../../../compiler/btrc/ir/optimization/Realtime.btrc;
 import ../../../compiler/btrc/frontend/Packages.btrc;
+import ../../../compiler/btrc/analyzer/HostedAbi.btrc;
+import ../../../compiler/btrc/generated/hosted_abi/Tables.btrc;
+import ../../../compiler/btrc/generated/runtime/Catalog.btrc;
+import ../../../compiler/btrc/ir/optimization/Optimizer.btrc;
+import ../../../compiler/btrc/ir/optimization/Cleanup.btrc;
+import ../../../compiler/btrc/ir/optimization/setjmp/Analysis.btrc;
+import ../../../compiler/btrc/ir/optimization/setjmp/Safety.btrc;
+import ../../../compiler/btrc/ir/runtime/Catalog.btrc;
+
+void verifyContextRoots() {
+	var module = IRModule();
+	module.language = "objective-c";
+	Vector<IRParam> noParameters = [];
+	Vector<IRNode> noArguments = [];
+	var context = IRObjectiveCClass("RootedContext", "NSObject");
+	context.fields = [IRStructField("ContextState", "state")];
+	context.methods.push(IRObjectiveCMethod("dealloc", "void", noParameters, IRNode.block([
+		IRNode.expressionStatement(IRNode.call("releaseContext", noArguments)),
+		IRNode.expressionStatement(IRNode.variable("generation")),
+		IRNode.expressionStatement(IRNode.variable("nativeSurface_wgsl")),
+		IRNode.expressionStatement(IRNode.call("nativeCleanup", noArguments))
+	])));
+	module.objectiveCClasses.push(context);
+	module.gpuKernels = [IRGpuKernel("nativeSurface", null), IRGpuKernel("unusedSurface", null)];
+	var state = IRStructDef();
+	state.name = "ContextState";
+	state.fields = [IRStructField("int", "count")];
+	var deadState = IRStructDef();
+	deadState.name = "DeadState";
+	module.structDefs = [state, deadState];
+	module.globalDecls = [IRGlobalDecl("int", "generation"), IRGlobalDecl("int", "unused")];
+	var releaseFunction = IRFunction();
+	releaseFunction.name = "releaseContext";
+	releaseFunction.body = IRNode.block([IRNode.expressionStatement(IRNode.call("transitive", noArguments))]);
+	var transitive = IRFunction();
+	transitive.name = "transitive";
+	transitive.body = IRNode.block(noArguments);
+	var unused = IRFunction();
+	unused.name = "unused";
+	unused.body = IRNode.block(noArguments);
+	module.functions = [releaseFunction, transitive, unused];
+	Vector<string> empty = [];
+	var row = GeneratedRuntimeHelperRow("native", "nativeCleanup", ["static void nativeCleanup(void) {}"], empty, empty, empty, empty, false, "unknown");
+	var runtime = RuntimeHelperCatalog([row]);
+	var safety = SetjmpSafetyPlanner(SetjmpEffectAnalysis(HostedAbiRepository(GeneratedHostedAbiData())));
+	IROptimizer(safety, runtime).optimize(module, true);
+	if (module.functions.len != 2 || module.functions.get(0).name != "releaseContext" || module.functions.get(1).name != "transitive") { throw "Objective-C method lost reachable functions"; }
+	if (module.globalDecls.len != 1 || module.globalDecls.get(0).name != "generation") { throw "Objective-C method lost reachable global"; }
+	if (module.structDefs.len != 1 || module.structDefs.get(0).name != "ContextState") { throw "Objective-C field lost reachable type"; }
+	if (module.helpers.len != 1 || !module.helpers.get(0).contains("nativeCleanup")) { throw "Objective-C method lost runtime helper"; }
+	if (module.gpuKernels.len != 1 || module.gpuKernels.get(0).name != "nativeSurface") { throw "Objective-C method lost GPU dependency"; }
+	printf("roots-ok\n");
+}
+
+IRModule contextModule(string mode) {
+	var module = IRModule();
+	module.language = "objective-c";
+	var header = IRPreprocessorDecl();
+	header.kind = IR_PREPROCESSOR_INCLUDE;
+	header.header = "Probe.h";
+	header.isSystem = false;
+	module.preprocessorDecls.push(header);
+	var configure = IRObjectiveCMethod("configure:count:", "void", [IRParam("NativeProbe*", "marker"), IRParam("int", "count")], IRNode.block([
+		IRNode.assignment(IRNode.variable("_marker"), IRNode.variable("marker")),
+		IRNode.assignment(IRNode.variable("_count"), IRNode.variable("count"))
+	]));
+	var context = IRObjectiveCClass("GeneratedContext", "NSObject");
+	context.protocols = ["ContextValue"];
+	context.fields = [IRStructField("NativeProbe*", "_marker"), IRStructField("int", "_count")];
+	Vector<IRParam> noParameters = [];
+	Vector<IRNode> noArguments = [];
+	context.methods.push(configure);
+	context.methods.push(IRObjectiveCMethod("value", "int", noParameters, IRNode.block([IRNode.returnStatement(IRNode.binary(IRNode.variable("_count"), "+", IRNode.objectiveCMessage(IRNode.variable("_marker"), "value", noArguments)))])));
+	var kind = IRObjectiveCMethod("kind", "int", noParameters, IRNode.block([IRNode.returnStatement(IRNode.literal("7"))]));
+	kind.isClassMethod = true;
+	context.methods.push(kind);
+	context.methods.push(IRObjectiveCMethod("dealloc", "void", noParameters, IRNode.block([IRNode.expressionStatement(IRNode.call("contextDidClose", noArguments))])));
+	module.objectiveCClasses.push(context);
+	var releaseDeclaration = IRFunctionDecl("contextDidClose", "void", true);
+	module.functionDecls.push(releaseDeclaration);
+	var releaseDefinition = IRFunction();
+	releaseDefinition.name = "contextDidClose";
+	releaseDefinition.isStatic = true;
+	releaseDefinition.body = IRNode.block([IRNode.expressionStatement(IRNode.call("contextReleased", noArguments))]);
+	module.functions.push(releaseDefinition);
+	var block = IRNode();
+	block.kind = IRK_OBJECTIVE_C_BLOCK;
+	block.targetType = "int";
+	block.params = noParameters;
+	block.body = IRNode.block([IRNode.returnStatement(IRNode.objectiveCMessage(IRNode.variable("context"), "value", noArguments))]);
+	var install = IRFunction();
+	install.name = "installNativeContext";
+	install.body = IRNode.block([IRNode.objectiveCAutoreleasePool(IRNode.block([
+		IRNode.variableDeclaration("GeneratedContext*", "context", IRNode.objectiveCMessage(IRNode.variable("GeneratedContext"), "new", noArguments)),
+		IRNode.expressionStatement(IRNode.objectiveCMessage(IRNode.variable("context"), "configure:count:", [IRNode.objectiveCMessage(IRNode.variable("NativeProbe"), "makeMarker", noArguments), IRNode.objectiveCMessage(IRNode.variable("GeneratedContext"), "kind", noArguments)])),
+		IRNode.expressionStatement(IRNode.objectiveCMessage(IRNode.variable("NativeProbe"), "store:context:", [block, IRNode.variable("context")]))
+	]))]);
+	module.functions.push(install);
+	if (mode == "class-c") { module.language = "c"; }
+	else if (mode == "class-name") { context.name = "bad;name"; }
+	else if (mode == "class-super") { context.superclass = context.name; }
+	else if (mode == "class-duplicate") { module.objectiveCClasses.push(context); }
+	else if (mode == "class-order") { module.objectiveCClasses = [IRObjectiveCClass("Child", context.name), context]; }
+	else if (mode == "class-field") { context.fields.get(0).name = "isa"; }
+	else if (mode == "class-field-duplicate") { context.fields.push(context.fields.get(0)); }
+	else if (mode == "class-field-void") { context.fields.get(0).cType = "void"; }
+	else if (mode == "class-field-array") { context.fields.get(0).arraySize = IRNode.literal("2"); }
+	else if (mode == "class-method") { context.methods.push(configure); }
+	else if (mode == "class-arity") { configure.selector = "configure:"; }
+	else if (mode == "class-param") { configure.params.get(0).name = "self"; }
+	else if (mode == "class-param-duplicate") { configure.params.get(1).name = "marker"; }
+	else if (mode == "class-param-void") { configure.params.get(0).cType = "void"; }
+	else if (mode == "class-body") { configure.body = IRNode.literal("0"); }
+	else if (mode == "class-protocol-name") { context.protocols = ["Invalid;Protocol"]; }
+	else if (mode == "class-protocol-duplicate") { context.protocols = ["ContextValue", "ContextValue"]; }
+	else if (mode == "class-protocol-list") { context.protocols = null; }
+	else if (mode == "class-cleanup") {
+		var slot = IRNode.variableDeclaration("void*", "unregistered", null);
+		slot.isVolatile = true;
+		slot.cleanupSlot = IRCleanupSlot(1, "unregistered", "void*", "takeContext");
+		configure.body = IRNode.block([slot]);
+	}
+	return module;
+}
 
 int main(int argc, char** argv) {
+	if (argc == 4 && (string)argv[1] == "selector") {
+		var module = IRModule();
+		module.language = (string)argv[3];
+		var selectorFunction = IRFunction();
+		selectorFunction.name = "actionSelector";
+		selectorFunction.returnType = "SEL";
+		selectorFunction.body = IRNode.block([IRNode.returnStatement(IRNode.objectiveCSelector((string)argv[2]))]);
+		module.functions.push(selectorFunction);
+		printf("%s", CEmitter().emit(module));
+		return 0;
+	}
+	if (argc > 1 && (string)argv[1] == "class-roots") { verifyContextRoots(); return 0; }
+	if (argc > 1 && (string)argv[1] == "class-cleanup") { CleanupSlotValidator(contextModule("class-cleanup")).validate(); return 0; }
+	if (argc > 1 && ((string)argv[1]).startsWith("class")) {
+		printf("%s", CEmitter().emit(contextModule((string)argv[1])));
+		return 0;
+	}
 	var module = IRModule();
 	module.language = "objective-c";
 	var header = IRPreprocessorDecl();
@@ -20,19 +161,37 @@ int main(int argc, char** argv) {
 	definition.returnType = "unsigned long";
 	definition.params = [IRParam("int", "fail")];
 	Vector<IRNode> noArguments = [];
+	var block = IRNode();
+	block.kind = IRK_OBJECTIVE_C_BLOCK;
+	block.targetType = "int";
+	block.params = [IRParam("int", "delta")];
+	block.body = IRNode.block([
+		IRNode.ifStatement(IRNode.binary(IRNode.variable("fail"), "==", IRNode.variable("delta")), IRNode.block([
+		IRNode.expressionStatement(IRNode.objectiveCMessage(IRNode.variable("value"), "substringFromIndex:", [IRNode.literal("999")]))
+	]), null),
+		IRNode.expressionStatement(IRNode.objectiveCMessage(IRNode.variable("held"), "description", noArguments)),
+		IRNode.returnStatement(IRNode.binary(IRNode.variable("delta"), "+", IRNode.cast("int", IRNode.objectiveCMessage(IRNode.variable("value"), "length", noArguments))))
+	]);
+	Vector<IRParam> noParameters = [];
+	var notification = IRNode();
+	notification.kind = IRK_OBJECTIVE_C_BLOCK;
+	notification.targetType = "void";
+	notification.params = noParameters;
+	notification.body = IRNode.block([
+		IRNode.expressionStatement(IRNode.objectiveCMessage(IRNode.variable("held"), "recordDelivery", noArguments)),
+		IRNode.returnStatement(null)
+	]);
 	var pool = IRNode.objectiveCAutoreleasePool(IRNode.block([
 		IRNode.expressionStatement(IRNode.objectiveCMessage(IRNode.variable("NativeProbe"), "makeMarker", noArguments)),
 		IRNode.variableDeclaration("NativeProbe*", "held", IRNode.objectiveCMessage(IRNode.variable("NativeProbe"), "makeMarker", noArguments)),
 		IRNode.variableDeclaration("NSString*", "value", message),
-		IRNode.ifStatement(IRNode.variable("fail"), IRNode.block([
-		IRNode.expressionStatement(IRNode.objectiveCMessage(IRNode.variable("value"), "substringFromIndex:", [IRNode.literal("999")]))
-	]), null),
+		IRNode.variableDeclaration("int", "transformed", IRNode.objectiveCMessage(IRNode.variable("NativeProbe"), "apply:notify:", [block, notification])),
 		IRNode.expressionStatement(IRNode.objectiveCMessage(IRNode.variable("held"), "description", noArguments)),
 		IRNode.returnStatement(IRNode.binary(
-		IRNode.binary(
+		IRNode.binary(IRNode.binary(
 		IRNode.objectiveCMessage(IRNode.variable("value"), "length", noArguments), "+",
 		IRNode.objectiveCMessage(IRNode.objectiveCMessage(IRNode.variable("NSNumber"), "numberWithUnsignedLong:", [IRNode.literal("4294967296UL")]), "unsignedLongValue", noArguments)
-	), "+",
+	), "+", IRNode.variable("transformed")), "+",
 		IRNode.objectiveCMessage(IRNode.variable("value"), "compare:options:", [IRNode.variable("value"), IRNode.literal("0")])
 	))
 	]));
@@ -65,6 +224,18 @@ int main(int argc, char** argv) {
 		else if (mode == "pool") { pool.body = IRNode.literal("0"); }
 		else if (mode == "failure") { boundary.elseBlock = IRNode.literal("0"); }
 		else if (mode == "realtime") { definition.isRealtime = true; }
+		else if (mode.startsWith("block-")) {
+			block.body = IRNode.block([IRNode.returnStatement(IRNode.variable("delta"))]);
+			definition.body = IRNode.block([IRNode.expressionStatement(block)]);
+			if (mode == "block-c") { module.language = "c"; }
+			else if (mode == "block-realtime") { definition.isRealtime = true; }
+			else if (mode == "block-body") { block.body = IRNode.literal("0"); }
+			else if (mode == "block-name") { block.params.get(0).name = "delta);"; }
+			else if (mode == "block-duplicate") { block.params.push(IRParam("int", "delta")); }
+			else if (mode == "block-void") { block.params.get(0).cType = "void"; }
+			else if (mode == "block-result") { block.targetType = ""; }
+			else if (mode == "block-params") { block.params = null; }
+		}
 	}
 	RealtimeIRVerifier(module).validate(module);
 	string emitted = CEmitter().emit(module);

@@ -1,0 +1,42 @@
+import Library.Callback;
+import Library.GUI;
+import Library.GUI.IButton;
+import Library.GUI.ITextField;
+import Library.GUI.IWindow;
+
+class RenameWindow implements IButtonAction {
+	private IWindow _window;
+	private ITextField _title;
+
+	public RenameWindow(IWindow window, ITextField title) { self._window = window; self._title = title; }
+
+	public void invoke() { self._window.setTitle(self._title.text()); }
+}
+
+class QuitApplication implements IButtonAction {
+	public void invoke() { GUI.requestQuit(); }
+}
+
+int main() {
+	GUI.initialize();
+	var actions = CallbackScope();
+	try {
+		var window = GUI.createWindow("Native BTRC", 440.0, 180.0);
+		var content = GUI.createColumn(16.0);
+		content.setPadding(24.0, 24.0, 24.0, 24.0);
+		var buttons = GUI.createRow();
+		var title = GUI.createTextField("Native BTRC", "Window title");
+		var rename = GUI.createButton("Apply title");
+		var quit = GUI.createButton("Quit");
+		window.attachRoot(content);
+		content.attach(title);
+		content.attach(buttons);
+		buttons.attach(rename);
+		buttons.attach(quit);
+		rename.onAction(RenameWindow(window, title), actions);
+		quit.onAction(QuitApplication(), actions);
+		window.show();
+		GUI.run();
+	} finally { actions.cancel(); GUI.close(); }
+	return 0;
+}

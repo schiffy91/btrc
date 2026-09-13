@@ -48,7 +48,7 @@ class SemanticAnalyzer {
 		self.generics.discover(program);
 		SemanticValidator validator = SemanticValidator(program, self.analysis, hostedAbi, self.operators, self.gpu, self.cycles, self.sourceRuntimeSymbols, self.types, self.declarations, self.expressions);
 		validator.validate();
-		self.generics.closeExpressionGraph(program);
+		self.generics.closeExpressionGraph(program, hostedAbi);
 		RealtimeAnalyzer realtime = RealtimeAnalyzer(program, self.analysis, hostedAbi, self.sourceRuntimeSymbols, self.expressions);
 		realtime.validate();
 		validator.validateCompletedGeneratedSymbols();

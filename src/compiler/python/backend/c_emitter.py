@@ -41,8 +41,12 @@ from ..ir.nodes import (
     IRMacroDef,
     IRModule,
     IRObjectiveCAutoreleasePool,
+    IRObjectiveCBlock,
+    IRObjectiveCClass,
     IRObjectiveCExceptionBoundary,
     IRObjectiveCMessage,
+    IRObjectiveCMethod,
+    IRObjectiveCSelector,
     IRReturn,
     IRSizeof,
     IRStmt,
@@ -97,6 +101,11 @@ class CEmitter:
         # filled in at the end once the whole unit is known.
         preprocessor_slot = len(self._lines)
 
+        for declaration in module.objective_c_classes:
+            self._line(f"@class {declaration.name};")
+        if module.objective_c_classes:
+            self._line("")
+
         # Runtime helpers
         for helper in module.helper_decls:
             self._raw(helper.c_source)
@@ -123,6 +132,11 @@ class CEmitter:
         if module.global_decls:
             self._line("")
 
+        for declaration in module.objective_c_classes:
+            self._emit_objective_c_interface(declaration)
+        for declaration in module.objective_c_classes:
+            self._emit_objective_c_implementation(declaration)
+
         # GPU kernel WGSL string constants
         for kernel in module.gpu_kernels:
             self._emit_gpu_kernel(kernel)
@@ -141,6 +155,45 @@ class CEmitter:
 
         return "\n".join(self._lines) + "\n"
 
+    def _objective_c_method_signature(self, method: IRObjectiveCMethod) -> str:
+        prefix = "+" if method.is_class_method else "-"
+        signature = f"{prefix} ({method.return_type.text})"
+        if not method.params:
+            return signature + method.selector
+        return signature + " ".join(
+            f"{piece}:({parameter.c_type.text}){parameter.name}"
+            for piece, parameter in zip(method.selector.split(":")[:-1], method.params, strict=True)
+        )
+
+    def _emit_objective_c_interface(self, declaration: IRObjectiveCClass) -> None:
+        protocols = f" <{', '.join(declaration.protocols)}>" if declaration.protocols else ""
+        self._line(f"@interface {declaration.name} : {declaration.superclass}{protocols} {{")
+        self._line("@private")
+        self._indent += 1
+        for value in declaration.fields:
+            c_type = value.c_type.qualify_volatile_object(
+                value.c_type.text, value.is_volatile or value.effective_is_volatile
+            )
+            self._line(f"{c_type} {value.name};")
+        self._indent -= 1
+        self._line("}")
+        for method in declaration.methods:
+            self._line(self._objective_c_method_signature(method) + ";")
+        self._line("@end")
+        self._line("")
+
+    def _emit_objective_c_implementation(self, declaration: IRObjectiveCClass) -> None:
+        self._line(f"@implementation {declaration.name}")
+        for method in declaration.methods:
+            self._line(self._objective_c_method_signature(method) + " {")
+            self._indent += 1
+            for statement in method.body.stmts:
+                self._emit_stmt(statement)
+            self._indent -= 1
+            self._line("}")
+        self._line("@end")
+        self._line("")
+
     def emit_header(
         self,
         module: IRModule,
@@ -148,6 +201,8 @@ class CEmitter:
     ) -> str:
         """Emit the public header for a precompiled archive."""
 
+        if module.language != "c":
+            raise ValueError("native adapters require separate translation units, not a C archive header")
         self._prepare_module(module)
         shared_decls = shared_decls or {}
         self._lines = []
@@ -192,6 +247,8 @@ class CEmitter:
     ) -> str:
         """Emit the definition-only implementation for a precompiled archive."""
 
+        if module.language != "c":
+            raise ValueError("native adapters require separate translation units, not a C archive implementation")
         self._prepare_module(module)
         shared_names = shared_names or set()
         self._lines = []
@@ -452,6 +509,8 @@ class CEmitter:
             )
             callee = expression.callee if isinstance(expression.callee, str) else self._expr(expression.callee)
             return self._compound("", [callee, arguments], "")
+        if isinstance(expression, IRObjectiveCSelector):
+            return f"@selector({expression.selector})"
         if isinstance(expression, IRObjectiveCMessage):
             parts = [self._expr(expression.receiver)]
             if expression.args:
@@ -462,6 +521,19 @@ class CEmitter:
             else:
                 parts.append(expression.selector)
             return self._compound("[", parts, "]", inline_separator=" ")
+        if isinstance(expression, IRObjectiveCBlock):
+            body = CEmitter()
+            body._module = self._module
+            body._indent = 1
+            body._emit_block_contents(expression.body)
+            parameters = (
+                ", ".join(
+                    f"{CType.qualify_volatile_object(str(param.c_type), param.is_volatile)} {param.name}"
+                    for param in expression.params
+                )
+                or "void"
+            )
+            return f"^{expression.return_type}({parameters}) {{\n" + "\n".join(body._lines) + "\n}"
         if isinstance(expression, IRFieldAccess):
             operator = "->" if expression.arrow else "."
             return self._compound(

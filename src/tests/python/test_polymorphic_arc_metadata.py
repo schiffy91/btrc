@@ -2,6 +2,7 @@
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.analyzer.types import TypeIdentity
+from src.compiler.python.ir.lowering.generics import SpecializedDeclarationView, TypeSubstitution
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.lowering.ownership import (
     CycleMetadata,
@@ -26,13 +27,24 @@ def _generate(source: str):
     return IRLowerer(analyzed).lower()
 
 
-def _cycles(source: str) -> CycleMetadata:
+def _cycles(source: str, substitutions=None) -> CycleMetadata:
     program = Parser(Lexer(source, "<test>").tokenize()).parse()
     analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors, analyzed.errors
     session = LoweringSession(module=IRModule(), node_types=analyzed.node_types)
     types = CTypeLowerer(session, analyzed, IDENTITY)
     values = ManagedValueSemantics(analyzed, IDENTITY, types)
+    if substitutions:
+        session.active_specialization = SpecializedDeclarationView(
+            declaration=object(),
+            substitution=TypeSubstitution(substitutions, analyzed.typedef_table, IDENTITY),
+            symbol="Probe",
+            base_name="Probe",
+            type_arguments=tuple(substitutions.values()),
+            selected_callables=frozenset(),
+            owner_name="Probe",
+            owner_symbol="Probe",
+        )
     return CycleMetadata(analyzed, values, IDENTITY)
 
 
@@ -126,3 +138,17 @@ def test_generic_cycle_graph_expands_base_typed_edges():
             generic_args=[TypeExpr(base="Base", pointer_depth=1)],
         )
     )
+
+
+def test_cycle_graph_does_not_capture_runtime_class_names_as_outer_type_parameters():
+    cycles = _cycles(
+        """
+        interface IReceiver { int value(); }
+        class Receiver implements IReceiver {
+            public IReceiver peer;
+            public int value() { return 1; }
+        }
+        """,
+        {"Receiver": TypeExpr(base="IReceiver", pointer_depth=1)},
+    )
+    assert cycles.type_may_cycle(TypeExpr(base="Receiver"))

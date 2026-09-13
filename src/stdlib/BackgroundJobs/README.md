@@ -26,10 +26,18 @@ reclaim every unclaimed work item before returning. An action exception is
 normalized to `BACKGROUND_JOB_FAILED` before it can cross the C ABI; actions
 must eventually return after cancellation.
 
-When a source graph imports `Library.BackgroundJobs`, both compilers add the
-compiler-shipped `btrc_background_jobs.c` unit and include directory to the
-emitted native link plan. The canonical plan adapter therefore links the
-runtime and pthreads without a consumer-specific flag or ambient prebuilt
-archive. `make background-jobs` still builds
-`build/stdlib/BackgroundJobs/libbtrc_background_jobs.a` for direct native
-embedding and runtime conformance tests.
+Queueing, cancellation, completion publication and worker ownership live in
+`BackgroundJobs.btrc`. The package imports pthread declarations through
+`BackgroundJobs/NativeThreads.h`; it does not link a separate background-jobs C
+runtime. The worker entrypoint still uses an explicit native context and the
+runtime's foreign-thread boundary. That boundary has not yet migrated to the
+checked callback-binding contract.
+
+`close()` currently blocks while joining workers. It is not a nonblocking UI
+shutdown primitive: moving an uninterruptible native call onto a worker does
+not make joining that worker safe on the UI executor. A failed join or
+synchronization teardown retains the executor for an explicit same-mode retry;
+do not drop its owner or report completion on failure. A worker-disposal error
+is reported separately after resources have been reclaimed. Application owners
+must preserve that error rather than treating a later `ALREADY_CLOSED` result
+as successful shutdown.

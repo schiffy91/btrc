@@ -8,6 +8,7 @@ OSStatus hardwareSize(AudioObjectID, const AudioObjectPropertyAddress*, UInt32, 
 void hardwareRelease(CFTypeRef);
 void inventoryScenario(int);
 int inventoryRetainedValues(void);
+void inventoryVerifyForeignRelease(void);
 
 #ifndef BTRC_HARDWARE_FAULT_IMPLEMENTATION
 #define AudioObjectGetPropertyData hardwareRead

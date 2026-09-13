@@ -39,7 +39,7 @@ class MacOSDirectoryPicker implements AppDirectoryPicker {
 			panel.setDirectoryURL(directory);
 		}
 		var response = panel.runModal();
-		if (response == NSModalResponseCancel) { return AppDirectoryPickerOutcome.cancelled(); }
+		if (response == NSModalResponseCancel || response == NSModalResponseAbort) { return AppDirectoryPickerOutcome.cancelled(); }
 		if (response != NSModalResponseOK) { return AppDirectoryPickerOutcome.failed(AppError(APP_ERROR_INTERNAL, "directory picker returned an unknown response")); }
 		var selected = panel.URL();
 		if (selected == null) { return AppDirectoryPickerOutcome.failed(AppError(APP_ERROR_INTERNAL, "directory picker selected no directory")); }

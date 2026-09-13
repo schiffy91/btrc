@@ -574,6 +574,7 @@ class ImportVisibilityChecker:
         self.provenance = provenance
         self.graph = graph
         self.external_symbol_files = external_symbol_files or {}
+        self.package_access = PackageImportPolicy()
 
     @staticmethod
     def _decl_name(declaration: Any) -> str:
@@ -697,10 +698,13 @@ class ImportVisibilityChecker:
             canonical_file = SourceDependencyGraph.canonical_file(source_file)
             if canonical_active is not None and canonical_file != canonical_active:
                 continue
-            reachable = reachable_cache.setdefault(
-                canonical_file,
-                self.graph.visibility_reachable(canonical_file),
-            )
+            if canonical_file not in reachable_cache:
+                reachable_cache[canonical_file] = {
+                    owner
+                    for owner in self.graph.visibility_reachable(canonical_file)
+                    if self.package_access.permits_reference(canonical_file, owner)
+                }
+            reachable = reachable_cache[canonical_file]
 
             seen_refs: set[ImportReference] = set()
             for reference in self._references(declaration):

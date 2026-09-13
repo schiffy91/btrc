@@ -11,6 +11,7 @@ import ../parser/SourceMacros.btrc;
 import ../syntax/Grammar.btrc;
 import ../syntax/Tokens.btrc;
 import ./Models.btrc;
+import ./Packages.btrc;
 import ./SourceIo.btrc;
 import ./Stdlib.btrc;
 
@@ -349,6 +350,8 @@ class FeImportVisibilityChecker {
 	private Map<string, bool> compilerImplicitSymbols;
 	private GrammarInfo grammar;
 	private FeSourcePathPolicy sourcePaths;
+	private FePackageImportPolicy packageAccess;
+	private Map<string, Map<string, bool>> visibleFiles;
 
 	public FeImportVisibilityChecker(Node program, FeResolvedSource resolved, FeStdlibRepository stdlib, FeStdlibSymbolIndex stdlibSymbols, GrammarInfo grammar, Map<string, bool> compilerImplicitSymbols) {
 		self.program = program;
@@ -359,6 +362,8 @@ class FeImportVisibilityChecker {
 		self.compilerImplicitSymbols = compilerImplicitSymbols;
 		self.grammar = grammar;
 		self.sourcePaths = FeSourcePathPolicy();
+		self.packageAccess = FePackageImportPolicy();
+		self.visibleFiles = {};
 	}
 
 	private bool containsPath(Vector<string> paths, string path) {
@@ -425,7 +430,9 @@ class FeImportVisibilityChecker {
 
 	private Map<string, bool> visibilityReachable(string sourceFile) {
 		string start = self.sourcePaths.identity(sourceFile);
+		if (self.visibleFiles.has(start)) { return self.visibleFiles.get(start); }
 		Map<string, bool> seen = {};
+		Map<string, bool> visible = {};
 		Vector<string> pending = [start];
 		int index = 0;
 		while (index < pending.len) {
@@ -433,6 +440,7 @@ class FeImportVisibilityChecker {
 			index++;
 			if (seen.has(current)) { continue; }
 			seen.put(current, true);
+			if (self.packageAccess.permitsReference(start, current)) { visible.put(current, true); }
 			Vector<FeDependencyEdge> edges = self.resolved.dependencies.outgoingFrom(current);
 			int edgeIndex = 0;
 			while (edgeIndex < edges.len) {
@@ -446,7 +454,8 @@ class FeImportVisibilityChecker {
 				parentIndex++;
 			}
 		}
-		return seen;
+		self.visibleFiles.put(start, visible);
+		return visible;
 	}
 
 	private bool compilerStdlibSource(string sourceFile) { return !self.sourcePaths.identity(sourceFile).equals(self.sourcePaths.identity(self.resolved.rootSourcePath)) && self.stdlib.snapshotContainsSource(self.resolved.stdlibSnapshot, sourceFile); }

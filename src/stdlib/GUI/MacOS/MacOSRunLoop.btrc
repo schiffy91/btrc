@@ -1,0 +1,44 @@
+import Library.Callback;
+import Library.GUI.MacOS.AppKitText;
+
+/* A coalesced wakeup, not the work queue or its cancellation owner. The
+ * application keeps the subscription scope outside the receiver graph. */
+class MacOSRunLoopSignal {
+	private NSNotificationQueue? _queue;
+	private NSNotification? _notification;
+	private bool _subscribed = false;
+
+	public MacOSRunLoopSignal() {
+		self.requireMainThread();
+		var sender = NSObject.new();
+		if (sender == null) { throw "Cannot create native run-loop wake identity"; }
+		self._notification = NSNotification.notificationWithName(AppKitText.nativeValue("BTRC.GUI.RunLoopReady"), sender);
+		self._queue = NSNotificationQueue.defaultQueue();
+	}
+
+	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native run-loop signals require the main thread"; } }
+
+	public void subscribe(IAppKitRunLoopEvents receiver, CallbackScope scope) {
+		self.requireMainThread();
+		var notification = self._notification;
+		if (notification == null) { throw "Native run-loop signal is closed"; }
+		if (self._subscribed) { throw "Native run-loop signal already has a subscriber"; }
+		NSNotificationCenter.defaultCenter().addObserverForName(notification.name(), notification.object(), null, receiver, scope);
+		self._subscribed = true;
+	}
+
+	public void wake() {
+		self.requireMainThread();
+		if (self._queue != null) { self._queue.enqueueNotification(self._notification, NSPostASAP); }
+	}
+
+	public void close() {
+		self.requireMainThread();
+		if (self._queue == null) { return; }
+		self._queue.dequeueNotificationsMatching(self._notification, NSNotificationCoalescingOnName | NSNotificationCoalescingOnSender);
+		self._queue = null;
+		self._notification = null;
+	}
+
+	public void __del__() { self.close(); }
+}

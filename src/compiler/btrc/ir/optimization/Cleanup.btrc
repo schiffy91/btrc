@@ -118,42 +118,44 @@ class CleanupSlotValidator {
 
 	public void validate() {
 		self.attached = {};
-		int functionIndex = 0;
-		while (functionIndex < self.module.functions.len) {
-			IRFunction definition = self.module.functions.get(functionIndex);
-			CleanupValidationState state = CleanupValidationState(definition.name);
-			self.collect(definition.body, state);
-			Map<int, bool> used = {};
-			int registrationIndex = 0;
-			while (registrationIndex < state.registrations.len) {
-				IRCleanupSlot metadata = self.validateRegistration(state.registrations.get(registrationIndex));
-				if (!state.declarations.has(metadata.site)) {
-					self.fail("cleanup registration has no declaration " + "in function " + definition.name + ": " + metadata.name);
-				}
-				IRCleanupSlot declared = state.declarations.get(metadata.site);
-				if (metadata.name != declared.name || metadata.cType != declared.cType || metadata.takeFunction != declared.takeFunction) {
-					self.fail("cleanup registration metadata does not match " + "its declaration in function " + definition.name + ": " + metadata.name);
-				}
-				if (used.has(metadata.site)) {
-					self.fail("cleanup slot is registered more than once " + "in function " + definition.name + ": " + metadata.name);
-				}
-				IRFunction? adapter = self.adapterDefinition(metadata.takeFunction);
-				if (adapter == null || !adapter.isStatic) {
-					self.fail("missing static cleanup adapter: " + metadata.takeFunction);
-				}
-				used.put(metadata.site, true);
-				registrationIndex = registrationIndex + 1;
+		for definition in self.module.functions { self.validateBody(definition.name, definition.body); }
+		for declaration in self.module.objectiveCClasses {
+			for method in declaration.methods { self.validateBody(declaration.name + "::" + method.selector, method.body); }
+		}
+	}
+
+	private void validateBody(string name, IRNode body) {
+		CleanupValidationState state = CleanupValidationState(name);
+		self.collect(body, state);
+		Map<int, bool> used = {};
+		int registrationIndex = 0;
+		while (registrationIndex < state.registrations.len) {
+			IRCleanupSlot metadata = self.validateRegistration(state.registrations.get(registrationIndex));
+			if (!state.declarations.has(metadata.site)) {
+				self.fail("cleanup registration has no declaration " + "in function " + name + ": " + metadata.name);
 			}
-			Vector<int> sites = state.declarations.keys();
-			int siteIndex = 0;
-			while (siteIndex < sites.len) {
-				int site = sites.get(siteIndex);
-				if (!used.has(site)) {
-					self.fail("cleanup slot metadata has no registration: " + state.declarations.get(site).name);
-				}
-				siteIndex = siteIndex + 1;
+			IRCleanupSlot declared = state.declarations.get(metadata.site);
+			if (metadata.name != declared.name || metadata.cType != declared.cType || metadata.takeFunction != declared.takeFunction) {
+				self.fail("cleanup registration metadata does not match " + "its declaration in function " + name + ": " + metadata.name);
 			}
-			functionIndex = functionIndex + 1;
+			if (used.has(metadata.site)) {
+				self.fail("cleanup slot is registered more than once " + "in function " + name + ": " + metadata.name);
+			}
+			IRFunction? adapter = self.adapterDefinition(metadata.takeFunction);
+			if (adapter == null || !adapter.isStatic) {
+				self.fail("missing static cleanup adapter: " + metadata.takeFunction);
+			}
+			used.put(metadata.site, true);
+			registrationIndex = registrationIndex + 1;
+		}
+		Vector<int> sites = state.declarations.keys();
+		int siteIndex = 0;
+		while (siteIndex < sites.len) {
+			int site = sites.get(siteIndex);
+			if (!used.has(site)) {
+				self.fail("cleanup slot metadata has no registration: " + state.declarations.get(site).name);
+			}
+			siteIndex = siteIndex + 1;
 		}
 	}
 }

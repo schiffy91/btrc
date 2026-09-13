@@ -31,6 +31,8 @@ enum IRKind {
 	IRK_UNARYOP,
 	IRK_CALL,
 	IRK_OBJECTIVE_C_MESSAGE,
+	IRK_OBJECTIVE_C_SELECTOR,
+	IRK_OBJECTIVE_C_BLOCK,
 	IRK_CAST,
 	IRK_TERNARY,
 	IRK_INDEX,
@@ -83,6 +85,7 @@ class IRNode {
 	public IRNode trueExpr;
 	public IRNode falseExpr;
 	public Vector<IRNode> args;
+	public Vector<IRParam> params; /* IRObjectiveCBlock signature; body is separate. */
 	public Vector<string> fieldNames; /* IRCompoundLiteral designators */
 
 	/* IRCast / IRSizeof */
@@ -146,6 +149,7 @@ class IRNode {
 		self.trueExpr = null;
 		self.falseExpr = null;
 		self.args = [];
+		self.params = null;
 		self.fieldNames = [];
 		self.targetType = "";
 		self.bridge = "";
@@ -297,6 +301,13 @@ class IRNode {
 		node.obj = receiver;
 		node.name = selector;
 		node.args = args;
+		return node;
+	}
+
+	class IRNode objectiveCSelector(string selector) {
+		var node = IRNode();
+		node.kind = IRK_OBJECTIVE_C_SELECTOR;
+		node.name = selector;
 		return node;
 	}
 
@@ -575,6 +586,36 @@ class IRStructDef {
 	}
 }
 
+class IRObjectiveCMethod {
+	public string selector;
+	public string returnType;
+	public Vector<IRParam> params;
+	public IRNode body;
+	public bool isClassMethod;
+	public IRObjectiveCMethod(string selector, string returnType, Vector<IRParam> params, IRNode body) {
+		self.selector = selector;
+		self.returnType = returnType;
+		self.params = params;
+		self.body = body;
+		self.isClassMethod = false;
+	}
+}
+
+class IRObjectiveCClass {
+	public string name;
+	public string superclass;
+	public Vector<IRStructField> fields;
+	public Vector<IRObjectiveCMethod> methods;
+	public Vector<string> protocols;
+	public IRObjectiveCClass(string name, string superclass) {
+		self.name = name;
+		self.superclass = superclass;
+		self.fields = [];
+		self.methods = [];
+		self.protocols = [];
+	}
+}
+
 class IRTypedefDef {
 	public string targetType;
 	public string name;
@@ -820,6 +861,7 @@ class IRModule {
 	public Vector<IRTaggedUnionDef> taggedUnionDefs;
 	public Vector<IRStructDef> structDefs;
 	public Vector<IRGlobalDecl> globalDecls;
+	public Vector<IRObjectiveCClass> objectiveCClasses;
 	public Vector<IRFunction> functions;
 	public Vector<IRGpuKernel> gpuKernels;
 	public Map<string, bool> realtimeSafeExternals;
@@ -841,6 +883,7 @@ class IRModule {
 		self.taggedUnionDefs = [];
 		self.structDefs = [];
 		self.globalDecls = [];
+		self.objectiveCClasses = [];
 		self.functions = [];
 		self.gpuKernels = [];
 		self.realtimeSafeExternals = {};

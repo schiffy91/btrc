@@ -72,7 +72,9 @@ def assert_codec_parity(codec_probe, tmp_path, source):
         lines.extend(f"{field.name} {field.offset_bits} {field.width_bits}" for field in record.fields)
     for declaration in header.exports:
         if isinstance(declaration, NativeObjectiveCMethod):
-            lines.append(f"method {declaration.name} {declaration.identity} {declaration.receiver} {declaration.owner}")
+            lines.append(
+                f"method {declaration.name} {declaration.identity} {declaration.receiver} {declaration.owner} {int(declaration.protocol_owner)} {int(declaration.optional)}"
+            )
     assert result.stdout.splitlines() == lines
 
 
@@ -273,6 +275,64 @@ def test_objective_c_inherited_sdk_selectors(reader, codec_probe, tmp_path):
     assert interfaces["NativeMiddle"].superclass == interfaces["NativeBase"].identity
     assert interfaces["NSObject"].complete and not interfaces["NSObject"].superclass
     assert "NSButton" not in interfaces  # Import the selected closure, not all of AppKit.
+    assert_codec_parity(codec_probe, tmp_path, result.stdout)
+
+
+@pytest.mark.parametrize("corruption", [None, "optional_type", "owner_type", "class_optional"])
+def test_objective_c_protocol_methods_preserve_dispatch_contract(reader, codec_probe, tmp_path, corruption):
+    if sys.platform != "darwin":
+        pytest.skip("requires the Apple AppKit SDK")
+    selections = {
+        "-[NSWindowDelegate windowShouldClose:]": ("NSWindowDelegate", True, True),
+        "-[ChildDelegate shouldClose:]": ("RootDelegate", True, False),
+        "-[ChildDelegate didClose:]": ("RootDelegate", True, True),
+        "-[ChildDelegate didOpen]": ("ChildDelegate", True, False),
+        "-[NSWindow close]": ("NSWindow", False, False),
+        "-[NSView appearance]": ("NSAppearanceCustomization", True, False),
+        "-[NSView setAppearance:]": ("NSAppearanceCustomization", True, False),
+        "-[SharedName value]": ("SharedName", False, False),
+    }
+    result = read(
+        reader,
+        tmp_path,
+        "#import <AppKit/AppKit.h>\n"
+        "@protocol RootDelegate\n@required\n- (BOOL)shouldClose:(NSWindow*)window;\n"
+        "@optional\n- (void)didClose:(NSWindow*)window;\n@end\n"
+        "@protocol ChildDelegate <RootDelegate>\n- (void)didOpen;\n@end\n"
+        "@protocol SharedName\n- (double)value;\n@end\n"
+        "@interface SharedName : NSObject\n- (int)value;\n@end\n",
+        list(selections),
+        "-x",
+        "objective-c",
+        "-fblocks",
+        "-fobjc-arc",
+        "-isysroot",
+        os.environ["BTRC_NATIVE_SYSROOT"],
+        "-target",
+        os.environ["BTRC_NATIVE_TARGET"],
+    )
+    assert result.returncode == 0, result.stderr
+    if corruption is not None:
+        document = json.loads(result.stdout)
+        declarations = {entry["name"]: entry for entry in document["declarations"]}
+        if corruption == "optional_type":
+            declarations["-[NSWindowDelegate windowShouldClose:]"]["optional"] = "true"
+        elif corruption == "owner_type":
+            declarations["-[NSWindowDelegate windowShouldClose:]"]["protocol_owner"] = 1
+        else:
+            declarations["-[NSWindow close]"]["optional"] = True
+        encoded = json.dumps(document)
+        with pytest.raises(NativeImportError):
+            NativeHeaderCodec().decode(encoded)
+        assert probe_document(codec_probe, tmp_path, encoded).returncode != 0
+        return
+    declarations = {entry.name: entry for entry in NativeHeaderCodec().decode(result.stdout).exports}
+    for name, (owner, protocol_owner, optional) in selections.items():
+        declaration = declarations[name]
+        assert declaration.owner == owner
+        assert declaration.protocol_owner == protocol_owner
+        assert declaration.optional == optional
+    assert declarations["-[SharedName value]"].signature.return_type.bits == 32
     assert_codec_parity(codec_probe, tmp_path, result.stdout)
 
 

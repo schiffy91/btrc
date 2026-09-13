@@ -1,3 +1,4 @@
+import Library.Callback;
 import Library.Image;
 import Library.GPU.Device;
 import Library.GPU.SurfaceRenderer;
@@ -8,14 +9,28 @@ enum GPUReadbackState {
 	GPU_READBACK_MAPPING,
 	GPU_READBACK_READY,
 	GPU_READBACK_FAILED,
+	GPU_READBACK_CLOSING,
 	GPU_READBACK_CLOSED
 };
+
+class GPUReadbackCompletion implements IGPUReadbackCompletion {
+	public int status = 0;
+	public string message = "";
+	public bool delivered = false;
+	public void invoke(WGPUMapAsyncStatus status, string message) {
+		self.status = (int)status;
+		self.message = message;
+		self.delivered = true;
+	}
+}
 
 /* Finish an active frame, append its pixel copy, then submit through this owner
  * instead of calling present separately. Poll never waits. takeImage returns
  * independently owned RGBA pixels and closes the native readback resources.
- * Use on the device-owner thread; close before the surface/device/instance. */
-class GPUReadback {
+ * Use on the device-owner thread. Close abandons delivery and unmaps immediately,
+ * but retains the buffer/instance until native completion. Poll a pending close
+ * until CLOSED before releasing this owner or stopping the executor. */
+class GPUReadback implements ICallbackRegistration {
 	private GPUSurfaceRenderer _surface;
 	private GPUDevice _device;
 	private unsigned long long _frame;
@@ -25,15 +40,18 @@ class GPUReadback {
 	private unsigned long long _byteCount;
 	private bool _bgra;
 	private WGPUBuffer _buffer = null;
-	private BtrcGPUAsync* _request = null;
-	private WGPUFuture _future;
-	private bool _mapped = false;
+	private CallbackScope _scope;
+	private WGPUInstance? _instance;
+	private GPUReadbackCompletion? _completion;
+	private bool _mapping = false;
 	private GPUReadbackState _state = GPU_READBACK_ENCODED;
 	private string _error = "";
 
-	public GPUReadback(GPUSurfaceRenderer surface, int maximumPixels = 16777216) {
+	private GPUReadback(GPUSurfaceRenderer surface, int maximumPixels) {
 		self._surface = surface;
 		self._device = surface.device();
+		self._scope = CallbackScope();
+		self._instance = self._device.nativeInstance();
 		self._frame = surface.frameNumber();
 		self._width = surface.width();
 		self._height = surface.height();
@@ -41,7 +59,13 @@ class GPUReadback {
 		self._stride = (((uint32_t)self._width * 4u + 255u) / 256u) * 256u;
 		self._byteCount = (unsigned long long)self._stride * (unsigned long long)self._height;
 		self._bgra = surface.nativeFormat() == WGPUTextureFormat_BGRA8Unorm;
-		self.encode();
+	}
+
+	class GPUReadback create(GPUSurfaceRenderer surface, int maximumPixels = 16777216, CallbackScope? owner = null) {
+		var readback = GPUReadback(surface, maximumPixels);
+		if (owner != null) { owner.track(readback); }
+		try { readback.encode(); } catch (string error) { readback.close(); throw error; }
+		return readback;
 	}
 
 	private void encode() {
@@ -67,42 +91,61 @@ class GPUReadback {
 		wgpuCommandEncoderCopyTextureToBuffer(self._surface.nativeEncoder(), &source, &destination, &extent);
 	}
 
-	class void completed(WGPUMapAsyncStatus status, WGPUStringView message, void* context, void* unused) { btrc_gpu_async_complete((BtrcGPUAsync*)context, (int)status, null); }
+	private void requireExecutor() { self._scope.isOpen(); }
 
 	public bool submit() {
+		self.requireExecutor();
 		if (self._state != GPU_READBACK_ENCODED) { throw "GPU readback has already been submitted or closed"; }
 		if (!self._surface.frameActive(self._frame)) { self.fail("GPU readback frame was discarded or submitted elsewhere"); return false; }
 		if (!self._surface.present()) { self.fail(self._surface.error()); return false; }
-		self._request = btrc_gpu_async_create((BtrcGPUAsyncResultRelease)null);
-		if (self._request == null) { self.fail("Cannot allocate GPU mapping request"); return false; }
-		WGPUBufferMapCallbackInfo callback = {null};
+		self._completion = GPUReadbackCompletion();
+		var callback = WGPUBufferMapCallbackInfoInput();
 		callback.mode = WGPUCallbackMode_AllowProcessEvents;
-		callback.callback = GPUReadback.completed;
-		callback.userdata1 = self._request;
-		self._future = wgpuBufferMapAsync(self._buffer, WGPUMapMode_Read, (size_t)0, (size_t)self._byteCount, callback);
+		callback.callback = self._completion;
+		wgpuBufferMapAsync(self._buffer, WGPUMapMode_Read, (size_t)0, (size_t)self._byteCount, callback, self._scope);
+		self._mapping = true;
 		self._state = GPU_READBACK_MAPPING;
 		return true;
 	}
 
-	public GPUReadbackState state() { return self._state; }
+	public GPUReadbackState state() { self.requireExecutor(); return self._state; }
 
-	public string error() { return self._error; }
+	public bool isOpen() { self.requireExecutor(); return self._scope.isOpen(); }
+
+	public CallbackCancellation cancel() { return self.close(); }
+
+	public CallbackCancellation pollCompletion() {
+		if (self.isOpen()) { return CallbackCancellation.NotRequested; }
+		self.poll();
+		return self._scope.pendingCount() == 0 ? CallbackCancellation.Complete : CallbackCancellation.Pending;
+	}
+
+	public string error() { self.requireExecutor(); return self._error; }
 
 	public GPUReadbackState poll() {
-		if (self._state != GPU_READBACK_MAPPING) { return self._state; }
+		self.requireExecutor();
+		if (self._state == GPU_READBACK_CLOSED || self._state == GPU_READBACK_READY || self._state == GPU_READBACK_ENCODED) { return self._state; }
+		if (self._instance != null) { wgpuInstanceProcessEvents(self._instance); }
+		self._scope.pollCompletion();
+		if (self._state == GPU_READBACK_CLOSING || self._state == GPU_READBACK_FAILED) {
+			if (self._scope.pendingCount() == 0) {
+				self.releaseResources();
+				if (self._state == GPU_READBACK_CLOSING) { self._state = GPU_READBACK_CLOSED; }
+			}
+			return self._state;
+		}
 		if (self._device.state() != GPU_DEVICE_READY) { self.fail("GPU device closed during readback"); return self._state; }
-		int status = 0;
-		var result = btrc_gpu_async_wait(self._device.nativeInstance(), self._future, self._request, 0ULL, &status, null);
-		if (result == BTRC_GPU_ASYNC_TIMED_OUT) { return self._state; }
-		btrc_gpu_async_release(self._request);
-		self._request = null;
-		if (result != BTRC_GPU_ASYNC_COMPLETED || status != (int)WGPUMapAsyncStatus_Success) { self.fail(f"GPU readback mapping failed ({status})"); return self._state; }
-		self._mapped = true;
+		var completion = self._completion;
+		if (completion == null) { self.fail("Missing GPU readback completion"); return self._state; }
+		if (!completion.delivered) { return self._state; }
+		self._completion = null;
+		if (completion.status != (int)WGPUMapAsyncStatus_Success) { self.fail(f"GPU readback mapping failed ({completion.status}): {completion.message}"); return self._state; }
 		self._state = GPU_READBACK_READY;
 		return self._state;
 	}
 
 	public Image takeImage() {
+		self.requireExecutor();
 		if (self._state != GPU_READBACK_READY) { throw "GPU readback pixels are not ready"; }
 		Image? image = null;
 		try { image = self.copyPixels(); } finally { self.close(); }
@@ -129,15 +172,18 @@ class GPUReadback {
 
 	private void fail(string error) { self.close(); self._error = error; self._state = GPU_READBACK_FAILED; }
 
-	public void close() {
-		if (self._buffer != null) {
-			if (self._mapped || self._request != null) { wgpuBufferUnmap(self._buffer); }
-			wgpuBufferRelease(self._buffer);
-			self._buffer = null;
-		}
-		if (self._request != null) { btrc_gpu_async_release(self._request); self._request = null; }
-		self._mapped = false;
-		self._state = GPU_READBACK_CLOSED;
+	private void releaseResources() {
+		if (self._buffer != null) { wgpuBufferRelease(self._buffer); self._buffer = null; }
+		self._instance = null;
+	}
+
+	public CallbackCancellation close() {
+		var result = self._scope == null ? CallbackCancellation.Complete : self._scope.cancel();
+		self._completion = null;
+		if (self._mapping && self._buffer != null) { wgpuBufferUnmap(self._buffer); self._mapping = false; }
+		self._state = result == CallbackCancellation.Complete ? GPU_READBACK_CLOSED : GPU_READBACK_CLOSING;
+		if (result == CallbackCancellation.Complete) { self.releaseResources(); }
+		return result;
 	}
 
 	public void __del__() { self.close(); }

@@ -288,12 +288,30 @@ class NativeCallbackBinding:
     """Foreign lifetime and context facts for a typed receiver projection."""
 
     parameter: str
-    context: str
-    context_index: int
+    contexts: tuple[str, ...]
+    context_indices: tuple[int, ...]
     interface: str
     lifetime: str
     failure: str
     executor: str
+    unregister: str = ""
+    activation_failure: str = ""
+    methods: tuple[str, ...] = ()
+    slot_getter: str = ""
+    action_setter: str = ""
+    action_getter: str = ""
+    owned_arguments: tuple[int, ...] = ()
+    field: str = ""
+
+
+@dataclass(frozen=True)
+class NativeStringViewBinding:
+    """Borrowed byte-counted native text copied into an ordinary BTRC string."""
+
+    name: str
+    data: str
+    length: str
+    null_length: str
 
 
 @dataclass(frozen=True)
@@ -317,6 +335,11 @@ class NativeBinding:
     owned_results: tuple[str, ...] = ()
     borrowed_parameters: tuple[str, ...] = ()
     callbacks: tuple[NativeCallbackBinding, ...] = ()
+    main_thread_globals: tuple[str, ...] = ()
+    string_views: tuple[NativeStringViewBinding, ...] = ()
+    record_outputs: tuple[str, ...] = ()
+    owned_output_fields: tuple[str, ...] = ()
+    null_output_fields: tuple[str, ...] = ()
 
     def selected_for(self, target: PackageTarget) -> bool:
         return (not self.operating_systems or target.operating_system in self.operating_systems) and (
@@ -703,6 +726,19 @@ class PackageImportPolicy:
         self._check_owner(os.path.realpath(source), os.path.realpath(target))
 
     def _check_owner(self, source: str, target: str) -> None:
+        name = self._private_owner(source, target)
+        if name is not None:
+            raise IncludeResolutionError(f"module {target!r} is private to package {name!r}; import an exported module")
+
+    def permits_reference(self, source: str, target: str) -> bool:
+        """Transitive imports do not re-export private implementation names."""
+
+        return (
+            self._private_owner(source, target) is None
+            and self._private_owner(os.path.realpath(source), os.path.realpath(target)) is None
+        )
+
+    def _private_owner(self, source: str, target: str) -> str | None:
         manifest_path = self._manifest_for(target)
         if manifest_path is None or manifest_path == self._manifest_for(source):
             return
@@ -723,7 +759,8 @@ class PackageImportPolicy:
                 raise IncludeResolutionError(str(error)) from error
         name, exports = self._exports[manifest_path]
         if exports is not None and os.path.normcase(os.path.realpath(target)) not in exports:
-            raise IncludeResolutionError(f"module {target!r} is private to package {name!r}; import an exported module")
+            return name
+        return None
 
 
 class PackageManifestReader:
@@ -1026,7 +1063,7 @@ class PackageManifestValidator:
                 declarations.append(declaration)
         return tuple(sorted(declarations))
 
-    def _callback_bindings(self, values, symbols, context) -> tuple[NativeCallbackBinding, ...]:
+    def _callback_bindings(self, values, symbols, context, language) -> tuple[NativeCallbackBinding, ...]:
         if not isinstance(values, dict):
             raise ValueError(f"{context}.callbacks must map function.parameter names to callback facts")
         callbacks = []
@@ -1036,15 +1073,113 @@ class PackageManifestValidator:
             if not isinstance(value, dict):
                 raise ValueError(f"{location} must be a callback declaration")
             self._reject_unknown(
-                value, frozenset({"context", "context-index", "interface", "lifetime", "failure", "executor"}), location
+                value,
+                frozenset(
+                    {
+                        "context",
+                        "context-index",
+                        "interface",
+                        "lifetime",
+                        "failure",
+                        "executor",
+                        "unregister",
+                        "activation-failure",
+                        "cancellation",
+                        "methods",
+                        "slot-getter",
+                        "action-setter",
+                        "action-getter",
+                        "owned-arguments",
+                        "field",
+                    }
+                ),
+                location,
             )
-            context_name = self._identifier(value.get("context"), f"{location}.context")
+            has_context = "context" in value or "context-index" in value
+            context_names = value.get("context", [])
+            if not isinstance(context_names, list):
+                context_names = [context_names]
+            context_names = tuple(sorted(self._identifier(name, f"{location}.context") for name in context_names))
             interface = self._identifier(value.get("interface"), f"{location}.interface")
-            index = value.get("context-index")
-            if type(index) is not int or index < 0:
+            indices = value.get("context-index", [])
+            if not isinstance(indices, list):
+                indices = [indices]
+            if any(type(index) is not int or index < 0 or index > 999999999 for index in indices):
                 raise ValueError(f"{location}.context-index must be a nonnegative native parameter index")
-            if value.get("lifetime") != "call":
-                raise ValueError(f"{location}.lifetime currently requires call")
+            if (
+                len(context_names) != len(indices)
+                or len(set(context_names)) != len(context_names)
+                or len(set(indices)) != len(indices)
+                or ((has_context or language == "c") and not indices)
+            ):
+                raise ValueError(f"{location}: context/context-index require equally sized nonempty distinct slots")
+            lifetime = value.get("lifetime")
+            if lifetime not in {"call", "stored", "one-shot"}:
+                raise ValueError(f"{location}.lifetime requires call, stored or one-shot")
+            callback_field = self._identifier(value["field"], f"{location}.field") if "field" in value else ""
+            if callback_field and (language != "c" or lifetime != "one-shot"):
+                raise ValueError(f"{location}.field requires a C one-shot callback")
+            if len(indices) > 1 and not callback_field:
+                raise ValueError(f"{location}: multiple context slots require a callback field")
+            owned_arguments = value.get("owned-arguments", [])
+            if "owned-arguments" in value and (language != "c" or lifetime != "one-shot"):
+                raise ValueError(f"{location}.owned-arguments requires a C one-shot callback")
+            if (
+                not isinstance(owned_arguments, list)
+                or any(type(index) is not int or index < 0 or index > 999999999 for index in owned_arguments)
+                or len(set(owned_arguments)) != len(owned_arguments)
+            ):
+                raise ValueError(f"{location}.owned-arguments requires distinct nonnegative native parameter indices")
+            unregister = value.get("unregister", "")
+            activation_failure = value.get("activation-failure", "")
+            methods = value.get("methods", [])
+            slot_getter = value.get("slot-getter", "")
+            action_setter = value.get("action-setter", "")
+            action_getter = value.get("action-getter", "")
+            action = "action-setter" in value or "action-getter" in value
+            if "methods" in value or "slot-getter" in value or action:
+                if lifetime != "stored" or language != "objective-c" or has_context:
+                    raise ValueError(f"{location}: delegate methods require a stored Objective-C callback")
+                if action:
+                    if "methods" in value or any(
+                        not isinstance(operation, str) or operation not in symbols
+                        for operation in (action_setter, action_getter)
+                    ):
+                        raise ValueError(
+                            f"{location}: actions require selected action-setter/action-getter and no methods"
+                        )
+                elif (
+                    not isinstance(methods, list)
+                    or not methods
+                    or any(not isinstance(method, str) or method not in symbols for method in methods)
+                ):
+                    raise ValueError(f"{location}.methods must name selected native methods")
+                if len(set(methods)) != len(methods):
+                    raise ValueError(f"{location}.methods contains duplicate methods")
+                if not isinstance(slot_getter, str) or slot_getter not in symbols:
+                    raise ValueError(f"{location}.slot-getter must name a selected native method")
+                if unregister != parameter.rsplit(".", 1)[0] or activation_failure != "abort":
+                    raise ValueError(
+                        f"{location}: delegate cancellation requires its setter and activation-failure abort"
+                    )
+            if lifetime == "stored":
+                if language != "objective-c":
+                    raise ValueError(f"{location}: stored callbacks currently require Objective-C blocks")
+                if not isinstance(unregister, str) or unregister not in symbols:
+                    raise ValueError(f"{location}.unregister must name a selected native method")
+                if not isinstance(activation_failure, str) or activation_failure not in {"unpublished", "abort"}:
+                    raise ValueError(f"{location}.activation-failure requires unpublished or abort")
+                if value.get("cancellation") != "entry-barrier":
+                    raise ValueError(f"{location}.cancellation requires entry-barrier")
+            elif lifetime == "one-shot":
+                if "unregister" in value or (language == "objective-c" and has_context):
+                    raise ValueError(f"{location}: one-shot requires an Objective-C block without unregister/context")
+                if not isinstance(activation_failure, str) or activation_failure not in {"unpublished", "abort"}:
+                    raise ValueError(f"{location}.activation-failure requires unpublished or abort")
+                if value.get("cancellation") != "abandon":
+                    raise ValueError(f"{location}: one-shot cancellation requires abandon")
+            elif any(key in value for key in ("unregister", "activation-failure", "cancellation")):
+                raise ValueError(f"{location}: cancellation facts require a stored callback")
             if value.get("failure") != "abort":
                 raise ValueError(f"{location}.failure currently requires abort")
             if value.get("executor") != "caller":
@@ -1052,9 +1187,44 @@ class PackageManifestValidator:
             if interface in symbols:
                 raise ValueError(f"{location}.interface conflicts with another imported name")
             callbacks.append(
-                NativeCallbackBinding(parameter, context_name, index, interface, "call", "abort", "caller")
+                NativeCallbackBinding(
+                    parameter,
+                    context_names,
+                    tuple(sorted(indices)),
+                    interface,
+                    lifetime,
+                    "abort",
+                    "caller",
+                    unregister,
+                    activation_failure,
+                    tuple(sorted(methods)),
+                    slot_getter,
+                    action_setter,
+                    action_getter,
+                    tuple(sorted(owned_arguments)),
+                    callback_field,
+                )
             )
         return tuple(callbacks)
+
+    def _string_view_bindings(self, values, symbols, context, language):
+        if not isinstance(values, dict) or (values and language != "c"):
+            raise ValueError(f"{context}.string-views must map selected C records to text facts")
+        bindings = []
+        for name, value in sorted(values.items()):
+            self._identifier(name, f"{context}.string-views")
+            if name not in symbols or not isinstance(value, dict):
+                raise ValueError(f"{context}.string-views must map selected C records to text facts")
+            location = f"{context}.string-views.{name}"
+            self._reject_unknown(value, frozenset({"data", "length", "null-length"}), location)
+            data = self._identifier(value.get("data"), f"{location}.data")
+            length = self._identifier(value.get("length"), f"{location}.length")
+            if data == length or value.get("null-length") not in {"zero", "zero-or-max"}:
+                raise ValueError(
+                    f"{location}: string views require distinct fields and null-length zero or zero-or-max"
+                )
+            bindings.append(NativeStringViewBinding(name, data, length, value["null-length"]))
+        return tuple(bindings)
 
     def _resource_bindings(self, values, symbols, context) -> tuple[NativeResourceBinding, ...]:
         if not isinstance(values, dict):
@@ -1132,6 +1302,11 @@ class PackageManifestValidator:
                         "owned-results",
                         "borrowed-parameters",
                         "callbacks",
+                        "main-thread-globals",
+                        "string-views",
+                        "record-outputs",
+                        "owned-output-fields",
+                        "null-output-fields",
                     }
                 ),
                 context,
@@ -1225,9 +1400,34 @@ class PackageManifestValidator:
             borrowed_parameters = self._resource_functions(
                 entry.get("borrowed-parameters", []), symbols, context, "borrowed-parameters", parameters=True
             )
-            callbacks = self._callback_bindings(entry.get("callbacks", {}), symbols, context)
-            if callbacks and language != "c":
-                raise ValueError(f"{context}: callback mappings currently require C")
+            callbacks = self._callback_bindings(entry.get("callbacks", {}), symbols, context, language)
+            outputs = self._resource_functions(
+                entry.get("record-outputs", []), symbols, context, "record-outputs", parameters=True
+            )
+            if outputs and language != "c":
+                raise ValueError("record-outputs currently requires C")
+            if set(outputs) & set(inputs):
+                raise ValueError("record input/output parameters must be distinct")
+            output_fields = []
+            for field in ("owned-output-fields", "null-output-fields"):
+                values = entry.get(field, [])
+                if (
+                    not isinstance(values, list)
+                    or any(
+                        not isinstance(value, str)
+                        or value.count(".") != 2
+                        or value.rsplit(".", 1)[0] not in outputs
+                        or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value.rsplit(".", 1)[1]) is None
+                        for value in values
+                    )
+                    or len(set(values)) != len(values)
+                ):
+                    raise ValueError(f"{context}.{field} requires distinct declared function.parameter.field names")
+                output_fields.append(tuple(sorted(values)))
+            if set(output_fields[0]) & set(output_fields[1]):
+                raise ValueError("owned/null output fields must be distinct")
+            if callbacks and language not in {"c", "objective-c"}:
+                raise ValueError(f"{context}: callback mappings currently require C or Objective-C")
             if resources or owned_results or borrowed_parameters:
                 if language != "c":
                     raise ValueError(f"{context}: resource bindings currently require C")
@@ -1238,6 +1438,16 @@ class PackageManifestValidator:
                     value.split(".")[0] in operations for value in borrowed_parameters
                 ):
                     raise ValueError(f"{context}: resource lifetime operations are reserved")
+            main_thread_globals = entry.get("main-thread-globals", [])
+            if (
+                not isinstance(main_thread_globals, list)
+                or any(not isinstance(name, str) or name not in symbols for name in main_thread_globals)
+                or len(set(main_thread_globals)) != len(main_thread_globals)
+                or (main_thread_globals and language != "objective-c")
+            ):
+                raise ValueError(
+                    f"{context}.main-thread-globals must name distinct selected Objective-C object globals"
+                )
             binding = NativeBinding(
                 package,
                 module_path,
@@ -1256,6 +1466,10 @@ class PackageManifestValidator:
                 owned_results,
                 borrowed_parameters,
                 callbacks,
+                tuple(sorted(main_thread_globals)),
+                self._string_view_bindings(entry.get("string-views", {}), symbols, context, language),
+                outputs,
+                *output_fields,
             )
             if any(binding.overlaps(previous) for previous in bindings):
                 raise ValueError(f"{context} overlaps a native binding for the same module and target")

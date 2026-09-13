@@ -1,4 +1,5 @@
 import Library.Math;
+import Library.Callback;
 import Library.GUI.IButton;
 import Library.GUI.MacOS.AppKitText;
 import Library.GUI.MacOS.MacOSView;
@@ -7,10 +8,11 @@ import Library.GUI.MacOS.MacOSActionQueue;
 class MacOSButton implements IButton, IMacOSView {
 	private NSButton? _button;
 	private MacOSView _view;
-	private MacOSActionQueue _actions;
+	private MacOSActionQueue? _actions;
+	private IMacOSAction? _action;
 	private bool _selectable = false;
 
-	public MacOSButton(string title, MacOSActionQueue actions) {
+	public MacOSButton(string title, MacOSActionQueue? actions = null) {
 		if (!NSThread.isMainThread()) { throw "Native buttons require the main thread"; }
 		var button = NSButton.new();
 		if (button == null) { throw "Cannot create native button"; }
@@ -21,7 +23,7 @@ class MacOSButton implements IButton, IMacOSView {
 		button.setButtonType(NSButtonTypeMomentaryPushIn);
 		button.setBezelStyle(NSBezelStyleRounded);
 		button.setContinuous(false);
-		actions.bind(button);
+		if (actions != null) { self._action = actions.bind(button); }
 	}
 
 	private NSButton control() {
@@ -60,7 +62,7 @@ class MacOSButton implements IButton, IMacOSView {
 	 * custom content, such as an artwork card, rather than a second painted bezel. */
 	public void setTransparent(bool transparent) { self.control().setTransparent(transparent); }
 
-	public void cancelPendingActions() { self._actions.discard(self.control()); }
+	public void cancelPendingActions() { var control = self.control(); if (self._actions != null) { self._actions.discard(control); } }
 
 	public void setFont(double size) {
 		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native button font size"; }
@@ -90,7 +92,7 @@ class MacOSButton implements IButton, IMacOSView {
 
 	public bool isEnabled() { return self.control().isEnabled(); }
 
-	public bool matches(id sender) { id control = self.control(); return control == sender; }
+	public bool matches(IMacOSAction? action) { self.control(); return action != null && self._action == action; }
 
 	public bool activate() {
 		var control = self.control();
@@ -99,12 +101,21 @@ class MacOSButton implements IButton, IMacOSView {
 		return true;
 	}
 
-	public void close() {
+	public ICallbackRegistration onAction(IButtonAction action, CallbackScope scope) {
+		var control = self.control();
+		if (self._actions == null) { throw "Button actions require native application dispatch"; }
+		return self._actions.onAction(control, action, scope);
+	}
+
+	public CallbackCancellation pollClose() { return self.isOpen() ? CallbackCancellation.NotRequested : CallbackCancellation.Complete; }
+
+	public CallbackCancellation close() {
 		if (!NSThread.isMainThread()) { throw "Native buttons require the main thread"; }
-		if (self._button == null) { return; }
+		if (self._button == null) { return CallbackCancellation.Complete; }
 		self._view.requireDetached();
-		self._actions.unbind(self._button);
+		if (self._actions != null) { self._actions.unbind(self._button); }
 		self._view.close();
 		self._button = null;
+		return CallbackCancellation.Complete;
 	}
 }

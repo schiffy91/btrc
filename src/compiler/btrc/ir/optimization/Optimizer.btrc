@@ -49,7 +49,7 @@ class IROptimizer {
 
 	private bool globalInitializerHasEffects(IRNode? node) {
 		if (node == null) { return false; }
-		if (node.kind == IRK_CALL || node.kind == IRK_OBJECTIVE_C_MESSAGE || (node.kind == IRK_CAST && (node.bridge == "retain" || node.bridge == "transfer")) || node.kind == IRK_STMT_EXPR || node.kind == IRK_INVALID_EXPR || node.kind >= IRK_VAR_DECL) {
+		if (node.kind == IRK_CALL || node.kind == IRK_OBJECTIVE_C_MESSAGE || node.kind == IRK_OBJECTIVE_C_BLOCK || (node.kind == IRK_CAST && (node.bridge == "retain" || node.bridge == "transfer")) || node.kind == IRK_STMT_EXPR || node.kind == IRK_INVALID_EXPR || node.kind >= IRK_VAR_DECL) {
 			return true;
 		}
 		if (node.kind == IRK_UNARYOP && (node.op == "++" || node.op == "--")) {
@@ -177,6 +177,16 @@ class IROptimizer {
 			preprocessorIndex = preprocessorIndex + 1;
 		}
 
+		for declaration in module.objectiveCClasses {
+			Map<string, bool> functionRoots = {};
+			Map<string, bool> globalRoots = {};
+			for method in declaration.methods {
+				self.collectFuncRefs(method.body, knownFunctions, functionRoots);
+				self.collectGlobalRefs(method.body, knownGlobals, globalRoots);
+			}
+			self.enqueueGlobalFunctionRefs(functionRoots, liveFunctions, functionWorklist);
+			self.enqueueGlobalFunctionRefs(globalRoots, liveGlobals, globalWorklist);
+		}
 		while (functionWorklist.len > 0 || globalWorklist.len > 0) {
 			Map<string, bool> functionRefs = {};
 			Map<string, bool> globalRefs = {};
@@ -385,6 +395,12 @@ class IROptimizer {
 			}
 			globalIndex = globalIndex + 1;
 		}
+		for declaration in m.objectiveCClasses {
+			for method in declaration.methods {
+				self.collectFuncRefs(method.body, knownNames, rootRefs);
+				self.collectGlobalRefs(method.body, knownDescriptorNames, descriptorRootRefs);
+			}
+		}
 		Vector<string> rootNames = rootRefs.keys();
 		int rootIndex = 0;
 		while (rootIndex < rootNames.len) {
@@ -498,6 +514,9 @@ class IROptimizer {
 		if (node.targetType != "") {
 			self.scanTextForKnownNames(node.targetType, names, out);
 		}
+		if (node.params != null) {
+			for (int index = 0; index < node.params.len; index++) { self.scanTextForKnownNames(node.params.get(index).cType, names, out); }
+		}
 		self.collectStructRefsNode(node.left, names, out);
 		self.collectStructRefsNode(node.right, names, out);
 		self.collectStructRefsNode(node.operand, names, out);
@@ -535,6 +554,14 @@ class IROptimizer {
 			knownNames.put(m.structDefs.get(i).name, true);
 			byName.put(m.structDefs.get(i).name, i);
 			i = i + 1;
+		}
+		for declaration in m.objectiveCClasses {
+			for field in declaration.fields { self.scanTextForKnownNames(field.cType, knownNames, refs); }
+			for method in declaration.methods {
+				self.scanTextForKnownNames(method.returnType, knownNames, refs);
+				for parameter in method.params { self.scanTextForKnownNames(parameter.cType, knownNames, refs); }
+				self.collectStructRefsNode(method.body, knownNames, refs);
+			}
 		}
 		int f = 0;
 		while (f < m.functions.len) {

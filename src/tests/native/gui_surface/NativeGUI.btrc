@@ -1,0 +1,217 @@
+import Library.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IView;
+import Library.GUI.IButton;
+import Library.Callback;
+import Library.Vector;
+
+#include <assert.h>
+
+class QuitWork implements IApplicationWork {
+	private IView _view;
+	private bool _fail;
+
+	public QuitWork(IView view, bool fail) { self._view = view; self._fail = fail; }
+
+	public void run() {
+		assert(self._view.isOpen());
+		bool rejected = false;
+		try { GUI.run(); } catch (string error) { rejected = true; }
+		assert(rejected && self._view.isOpen());
+		if (self._fail) { throw "factory work failed"; }
+		GUI.requestQuit();
+		rejected = false;
+		try { GUI.createButton("Too late"); } catch (string error) { rejected = true; }
+		assert(rejected && self._view.isOpen());
+	}
+}
+
+int verifyFactory(bool fail) {
+	GUI.initialize(4);
+	bool rejected = false;
+	try { GUI.initialize(); } catch (string error) { rejected = true; }
+	assert(rejected);
+	var window = GUI.createWindow("Portable native controls", 480.0, 320.0);
+	var root = GUI.createContainer();
+	var nested = GUI.createContainer();
+	var button = GUI.createButton("Library");
+	var field = GUI.createTextField("音楽 🎸", "Search");
+	window.attachRoot(root);
+	root.attach(nested);
+	nested.arrange(16.0, 16.0, 440.0, 200.0);
+	nested.attach(button);
+	nested.attach(field);
+	assert(button.fittingWidth() > 0.0 && button.fittingHeight() > 0.0);
+	button.arrange(0.0, 0.0, button.fittingWidth(), button.fittingHeight());
+	field.arrange(0.0, 48.0, 300.0, field.fittingHeight());
+	assert(field.text().equals("音楽 🎸"));
+	field.setText("Owned value");
+	var text = field.text();
+	field.setText("Changed");
+	assert(text.equals("Owned value"));
+	button.setEnabled(false);
+	assert(!button.activate());
+	button.setEnabled(true);
+	assert(button.title().equals("Library"));
+	// Detached roots and children created before their parent are also owned.
+	var detachedChild = GUI.createButton("Detached");
+	var detachedRoot = GUI.createContainer();
+	detachedRoot.attach(detachedChild);
+	var loose = GUI.createTextField();
+	window.show();
+	assert(FactoryProbe.observeViews() == 4);
+	GUI.post(QuitWork(button, fail));
+	rejected = false;
+	try { GUI.close(); } catch (string error) { rejected = true; }
+	assert(rejected && window.isOpen());
+	bool failed = false;
+	try { GUI.run(); } catch (string error) { assert(error.equals("factory work failed")); failed = true; }
+	assert(failed == fail);
+	assert(!window.isOpen() && !root.isOpen() && !nested.isOpen());
+	assert(!button.isOpen() && !field.isOpen());
+	assert(!detachedRoot.isOpen() && !detachedChild.isOpen() && !loose.isOpen());
+	int remaining = (int)FactoryProbe.remainingViews();
+	FactoryProbe.reset();
+	GUI.close();
+	return remaining;
+}
+
+int verifyWrongThread() {
+	int rejected = 0;
+	try { GUI.initialize(); } catch (string error) { rejected++; }
+	try { GUI.createButton("Wrong thread"); } catch (string error) { rejected++; }
+	try { GUI.close(); } catch (string error) { rejected++; }
+	return rejected;
+}
+
+class ActionLog {
+	public Vector<int> values = [];
+	public bool activating = false;
+	public int limit = 3;
+	public bool fail = false;
+	public ICallbackRegistration? cancellation;
+	public IButton? closing;
+	public int destroyed = 0;
+}
+
+class ButtonAction implements IButtonAction {
+	private ActionLog _log;
+	private int _value;
+
+	public ButtonAction(ActionLog log, int value) { self._log = log; self._value = value; }
+
+	public void invoke() {
+		assert(!self._log.activating);
+		self._log.values.push(self._value);
+		if (self._log.cancellation != null) { assert(self._log.cancellation.cancel() == CallbackCancellation.Pending); }
+		if (self._log.closing != null) { self._log.closing.close(); }
+		if (self._log.fail) { throw "button work failed"; }
+		if (self._log.values.len == self._log.limit) { GUI.requestQuit(); }
+	}
+
+	public void __del__() { self._log.destroyed++; }
+}
+
+void activateButton(IButton button, ActionLog log) {
+	log.activating = true;
+	assert(button.activate());
+	log.activating = false;
+	assert(log.values.len == 0);
+}
+
+void abandonAction(IButton button, ActionLog log) {
+	var scope = CallbackScope();
+	button.onAction(ButtonAction(log, 99), scope);
+	activateButton(button, log);
+}
+
+void verifyActions() {
+	GUI.initialize(4);
+	var scope = CallbackScope();
+	var log = ActionLog();
+	var first = GUI.createButton("First");
+	var second = GUI.createButton("Second");
+	log.closing = first;
+	abandonAction(first, log);
+	assert(log.destroyed == 1);
+	log.closing = null;
+	activateButton(first, log);
+	var cancelled = first.onAction(ButtonAction(log, 99), scope);
+	activateButton(first, log);
+	assert(cancelled.cancel() == CallbackCancellation.Complete && log.destroyed == 2);
+	first.onAction(ButtonAction(log, 1), scope);
+	second.onAction(ButtonAction(log, 2), scope);
+	first.setTitle("Changed without an action");
+	first.setEnabled(false);
+	assert(!first.activate());
+	first.setEnabled(true);
+	activateButton(first, log);
+	activateButton(second, log);
+	activateButton(first, log);
+	GUI.run();
+	assert(log.values.len == 3 && log.values.get(0) == 1 && log.values.get(1) == 2 && log.values.get(2) == 1);
+	assert(!first.isOpen() && !second.isOpen());
+	assert(scope.cancel() == CallbackCancellation.Complete && log.destroyed == 4);
+
+	for (int mode = 0; mode < 3; mode++) {
+		GUI.initialize(4);
+		var actionScope = CallbackScope();
+		var state = ActionLog();
+		state.limit = 1;
+		state.fail = mode == 2;
+		var button = GUI.createButton("Cancel during queued delivery");
+		var registration = button.onAction(ButtonAction(state, mode), actionScope);
+		if (mode == 0) { state.cancellation = registration; }
+		if (mode == 1) { state.closing = button; }
+		activateButton(button, state);
+		activateButton(button, state);
+		bool failed = false;
+		try { GUI.run(); } catch (string error) { assert(error.equals("button work failed")); failed = true; }
+		assert(failed == state.fail && state.values.len == 1);
+		assert(registration.pollCompletion() == CallbackCancellation.Complete);
+		assert(actionScope.cancel() == CallbackCancellation.Complete && state.destroyed == 1);
+	}
+
+	for (int mode = 0; mode < 2; mode++) {
+		GUI.initialize(2);
+		var overflowScope = CallbackScope();
+		var state = ActionLog();
+		var button = GUI.createButton("Bounded ordered actions");
+		var registration = button.onAction(ButtonAction(state, 1), overflowScope);
+		for (int index = 0; index < 3; index++) { activateButton(button, state); }
+		// Pruning cancelled commands must not erase an observed overflow.
+		if (mode == 1) { registration.cancel(); }
+		bool rejected = false;
+		try { GUI.run(); } catch (string error) {
+			assert(error.equals("Native action capacity exceeded; close this action queue before continuing"));
+			rejected = true;
+		}
+		assert(rejected && state.values.len == 0 && !button.isOpen());
+		assert(overflowScope.cancel() == CallbackCancellation.Complete && state.destroyed == 1);
+	}
+}
+
+int main(int argc, char** argv) {
+	if (argc > 1) {
+		GUI.initialize();
+		print(f"Direct native retained fields: {FactoryProbe.directLifecycle()}");
+		GUI.close();
+		return 0;
+	}
+	bool rejected = false;
+	try { GUI.createButton("Before initialization"); } catch (string error) { rejected = true; }
+	assert(rejected);
+	GUI.close();
+	Thread<int> worker = spawn(() => verifyWrongThread());
+	assert(worker.join() == 3);
+	print(f"Factory retained fields: {verifyFactory(false)}");
+	assert(verifyFactory(true) == 0);
+	for (int iteration = 0; iteration < 4; iteration++) { assert(verifyFactory(false) == 0); }
+	GUI.initialize();
+	var button = GUI.createButton("No loop required");
+	GUI.close();
+	assert(!button.isOpen());
+	verifyActions();
+	print("PASS: portable native GUI factory, application ownership and teardown");
+	return 0;
+}

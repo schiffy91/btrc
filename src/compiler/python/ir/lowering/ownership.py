@@ -357,6 +357,7 @@ class CycleMetadata:
         self._analyzed = analyzed
         self._values = values
         self._type_identity = type_identity
+        self._graph_values = ManagedValueSemantics(analyzed, type_identity)
         self._visitor_types: set[str] = set()
         self._emitted_may_cycle: dict[str, bool] = {}
         self._may_cycle_cache: dict[str, bool] = {}
@@ -479,6 +480,7 @@ class CycleMetadata:
 
     def type_may_cycle(self, type_expr: TypeExpr) -> bool:
         """Return whether any runtime value of this type may join a cycle."""
+        type_expr = self._values.canonical(type_expr) or type_expr
         return any(self._concrete_type_may_cycle(candidate) for candidate in self._runtime_type_candidates(type_expr))
 
     def lookup_class_info(self, class_name: str):
@@ -492,8 +494,8 @@ class CycleMetadata:
         return None
 
     def _concrete_type_may_cycle(self, type_expr: TypeExpr) -> bool:
-        type_expr = self._values.canonical(type_expr) or type_expr
-        if not self._values.is_arc(type_expr):
+        type_expr = self._graph_values.canonical(type_expr) or type_expr
+        if not self._graph_values.is_arc(type_expr):
             return False
         info = self._analyzed.class_table.get(type_expr.base)
         if info is not None and info.generic_params and (not type_expr.generic_args):
@@ -518,12 +520,12 @@ class CycleMetadata:
         return False
 
     def _outgoing_managed_types(self, type_expr: TypeExpr) -> list[TypeExpr]:
-        type_expr = self._values.canonical(type_expr) or type_expr
-        if not self._values.is_arc(type_expr):
+        type_expr = self._graph_values.canonical(type_expr) or type_expr
+        if not self._graph_values.is_arc(type_expr):
             return []
-        if self._values.is_mutex(type_expr):
+        if self._graph_values.is_mutex(type_expr):
             payload = type_expr.generic_args[0]
-            if not self._values.is_arc(payload):
+            if not self._graph_values.is_arc(payload):
                 return []
             return self._runtime_type_candidates(payload)
         info = self._analyzed.class_table[type_expr.base]
@@ -535,7 +537,7 @@ class CycleMetadata:
             return [
                 runtime_type
                 for candidate in candidates
-                if self._values.is_arc(candidate)
+                if self._graph_values.is_arc(candidate)
                 for runtime_type in self._runtime_type_candidates(candidate)
             ]
         substitutions = dict(zip(info.generic_params, arguments))
@@ -550,11 +552,12 @@ class CycleMetadata:
         )
         outgoing = []
         for candidate in candidates:
-            if self._values.is_arc(candidate):
+            if self._graph_values.is_arc(candidate):
                 outgoing.extend(self._runtime_type_candidates(candidate))
         return outgoing
 
     def _runtime_type_candidates(self, static_type: TypeExpr) -> list[TypeExpr]:
+        static_type = self._graph_values.canonical(static_type) or static_type
         if static_type.base in self._analyzed.interface_table:
             return [
                 TypeExpr(base=name) for name in self._analyzed.class_table if self._is_subclass(name, static_type.base)
@@ -590,7 +593,9 @@ class CycleMetadata:
 
     def _substitute_type(self, type_expr: TypeExpr, substitutions: dict[str, TypeExpr]) -> TypeExpr:
         try:
-            result = self._type_identity.substitute(type_expr, substitutions, reference_resolver=self._values.canonical)
+            result = self._type_identity.substitute(
+                type_expr, substitutions, reference_resolver=self._graph_values.canonical
+            )
         except TypeShapeError as error:
             raise CodegenError(str(error)) from error
         if result is None:
@@ -630,14 +635,19 @@ class ManagedValueSemantics:
         self,
         analyzed: AnalyzedProgram,
         type_identity: TypeIdentity,
-        types: CTypeLowerer,
+        types: CTypeLowerer | None = None,
     ) -> None:
         self._analyzed = analyzed
         self._type_identity = type_identity
         self._types = types
 
     def canonical(self, type_expr: TypeExpr | None) -> TypeExpr | None:
-        return self._types.canonical_type(type_expr)
+        if self._types is not None:
+            return self._types.canonical_type(type_expr)
+        # Declaration graphs have their own substitutions. Applying the
+        # currently lowered method's type parameters here captures unrelated
+        # runtime class names (for example Receiver -> IReceiver).
+        return TypeSystem.canonical_declaration_type(type_expr, self._analyzed.typedef_table)
 
     def is_string(self, type_expr: TypeExpr | None) -> bool:
         return self._type_identity.is_scalar_string(self.canonical(type_expr))
@@ -1081,6 +1091,7 @@ class ManagedLifetimeLowerer:
 
     def arc_type_descriptor_size(self, type_expr):
         """Interfaces use the receiver's descriptor, not a copied static fallback."""
+        type_expr = self._values.canonical(type_expr) or type_expr
         return (
             IRLiteral(text="0")
             if type_expr.base in self._analyzed.interface_table
@@ -1089,6 +1100,7 @@ class ManagedLifetimeLowerer:
 
     def arc_type_descriptor(self, type_expr):
         """Build the copied runtime descriptor for one concrete managed type."""
+        type_expr = self._values.canonical(type_expr) or type_expr
         if type_expr.base in self._analyzed.interface_table:
             return IRLiteral(text="NULL")
         if self._values.is_native(type_expr):

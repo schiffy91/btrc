@@ -5,10 +5,12 @@ import Library.Strings;
 import Library.Vector;
 
 import ../generated/ast/Node.btrc;
+import ../frontend/Models.btrc;
 import ../syntax/Identity.btrc;
 import ../syntax/Types.btrc;
 import ./Declarations.btrc;
 import ./Expressions.btrc;
+import ./HostedAbi.btrc;
 import ./Models.btrc;
 import ./Operators.btrc;
 import ./Types.btrc;
@@ -46,7 +48,50 @@ class GenericSpecializer {
 		self.registerTransitiveGenericInstances(self.analyzed, self.operators);
 	}
 
-	public void closeExpressionGraph(Node program) { self.closeProgramGenericExpressionGraph(program, self.analyzed, self.operators); }
+	public void closeExpressionGraph(Node program, HostedAbiRepository hostedAbi) {
+		self.collectNativeCallbackInstances(hostedAbi);
+		self.closeProgramGenericExpressionGraph(program, self.analyzed, self.operators);
+	}
+
+	private void collectNativeCallbackInstances(HostedAbiRepository hostedAbi) {
+		for imported in self.analyzed.nativeDeclarations {
+			Vector<Node> members = imported.declaration.members;
+			if (imported.declaration.kind == NK_FUNCTION_DECL) { members = [imported.declaration]; }
+			for member in members {
+				FeNativeCallContract? contract = imported.callContract;
+				if (member.kind != NK_FUNCTION_DECL) { contract = imported.methods.has(member.name) ? imported.methods.get(member.name) : null; }
+				if (contract == null) { continue; }
+				for callback in contract.callbacks {
+					if (callback.unregister == null && !callback.oneShot) { continue; }
+					Node context = member.returnType;
+					if (callback.oneShot && context.base == "CallbackResult") {
+						if (!self.analyzed.genericClassTable.has(context.base) || !hostedAbi.compilerStdlibNode(self.analyzed.genericClassTable.get(context.base))) { throw "Stored native callbacks require import Library.Callback"; }
+						self.registerGenericInstanceWithUnresolved(context, self.analyzed, {});
+						context = context.genericArgs.get(1);
+					}
+					if (!self.analyzed.genericClassTable.has(context.base) || !hostedAbi.compilerStdlibNode(self.analyzed.genericClassTable.get(context.base))) { throw "Stored native callbacks require import Library.Callback"; }
+					Vector<string> methods = ["activate", "publish", "abortActivation", "enter", "leave", "close", "cancel", "pollCompletion"];
+					if (callback.oneShot) { methods.push("complete"); }
+					for name in methods {
+						Node? method = self.analyzed.genericClassMethod(context.base, name);
+						if (method == null || !hostedAbi.compilerStdlibNode(method)) { throw "Stored native callbacks require import Library.Callback"; }
+					}
+					if (!callback.oneShot && callback.unregister.signature.parameters.len > 0) {
+						Node token = context.genericArgs.get(1);
+						if (!self.analyzed.genericClassTable.has(token.base) || !hostedAbi.compilerStdlibNode(self.analyzed.genericClassTable.get(token.base))) { throw "Stored native callbacks require import Library.Callback"; }
+						for name in ["publish", "source", "value"] {
+							Node? method = self.analyzed.genericClassMethod(token.base, name);
+							if (method == null || !hostedAbi.compilerStdlibNode(method)) { throw "Stored native callbacks require import Library.Callback"; }
+						}
+						self.registerGenericInstanceWithUnresolved(token, self.analyzed, {});
+					}
+					/* Class closure scans the actual specialized methods, including
+					 * dependencies invoked only by generated native ingress. */
+					self.registerGenericInstanceWithUnresolved(context, self.analyzed, {});
+				}
+			}
+		}
+	}
 
 	/* --- Generic-method instance collection (varTypes-tracking body walk). ---
      * Walks each function/method body building a {var -> TypeExpr} map (the same

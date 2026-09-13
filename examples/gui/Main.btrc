@@ -1,11 +1,11 @@
 /* Headless GUI example/test: drives the immediate-mode widgets and asserts
  * their behavior + rendered pixels, then writes a showcase frame to PPM.
  * Runs without a display (offscreen surface). */
-#include "GUI/GUI.btrc"
+#include "GUI/Raster.btrc"
 
 int main() {
 	Surface surf = Surface(360, 240);
-	GUI ui = GUI(surf);
+	RasterGUI ui = RasterGUI(surf);
 	int checks = 0;
 	int fails = 0;
 
@@ -61,7 +61,7 @@ int main() {
 	}
 	if (lit > 0) { checks++; } else { fails++; print("FAIL: drawText renders glyph"); }
 
-	GUI sg = GUI(Surface(200, 40));
+	RasterGUI sg = RasterGUI(Surface(200, 40));
 	sg.input.mouseDown = false;
 	sg.beginFrame();
 	if (sg.slider(50, 100) == 50) { checks++; } else { fails++; print("FAIL: slider holds value"); }

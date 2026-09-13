@@ -14,7 +14,9 @@ from src.compiler.python.analyzer.program import (
     GenericTemplateDependency,
 )
 from src.compiler.python.analyzer.types import TypeShapeError
-from src.compiler.python.syntax.ast.generated import AssignExpr, Identifier, LambdaExpr, TypeExpr
+from src.compiler.python.frontend.native_imports import NativeHeaderSource
+from src.compiler.python.frontend.sources import CompilerStdlibSource
+from src.compiler.python.syntax.ast.generated import AssignExpr, FunctionDecl, Identifier, LambdaExpr, TypeExpr
 
 if TYPE_CHECKING:
     from src.compiler.python.analyzer.program import AnalysisSession
@@ -62,6 +64,61 @@ class GenericAnalyzer:
     def type_of(self, expression):
         """Read a type fact produced by ExpressionAnalyzer."""
         return self.session.node_types.get(id(expression))
+
+    def collect_native_callback_instances(self, program) -> None:
+        """Select the ordinary stdlib methods used by generated stored bindings."""
+        for declaration in self.session.declarations(program):
+            origin = getattr(declaration, "source_file", None)
+            if not isinstance(origin, NativeHeaderSource):
+                continue
+            for method in (
+                (declaration,) if isinstance(declaration, FunctionDecl) else getattr(declaration, "members", ())
+            ):
+                contract = (
+                    origin.call_contract if method is declaration else origin.methods.get(getattr(method, "name", ""))
+                )
+                if not contract or not any(callback.unregister or callback.one_shot for callback in contract.callbacks):
+                    continue
+                context = method.return_type
+                result = context if contract.callbacks[0].one_shot and context.base == "CallbackResult" else None
+                if result:
+                    context = context.generic_args[1]
+                required = (
+                    "activate",
+                    "publish",
+                    "abortActivation",
+                    "enter",
+                    "leave",
+                    "close",
+                    "cancel",
+                    "pollCompletion",
+                )
+                dependencies = [(context, required)]
+                if contract.callbacks[0].one_shot:
+                    dependencies = [(context, (*required, "complete"))]
+                elif contract.callbacks[0].unregister.signature.parameters:
+                    dependencies.append((context.generic_args[1], ("publish", "source", "value")))
+                if result:
+                    dependencies.append((result, ()))
+                for value_type, methods in dependencies:
+                    owner = self.index.class_table.get(value_type.base)
+                    if (
+                        owner is None
+                        or not CompilerStdlibSource.authenticated(getattr(owner.constructor, "source_file", None))
+                        or any(
+                            not CompilerStdlibSource.authenticated(
+                                getattr(owner.methods.get(name), "source_file", None)
+                            )
+                            for name in methods
+                        )
+                    ):
+                        self.session.error(
+                            "Stored native callbacks require import Library.Callback", method.line, method.col
+                        )
+                        continue
+                    self.collect_type_instances(value_type)
+                    for name in methods:
+                        self.record_class_method_use(value_type, name)
 
     def close_generic_instance_graph(self) -> None:
         """Discover concrete generic types used by instantiated templates.

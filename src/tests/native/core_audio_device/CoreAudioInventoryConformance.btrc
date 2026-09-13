@@ -5,9 +5,11 @@ import Library.Audio.AudioDevice;
 
 void inventoryScenario(int scenario);
 int inventoryRetainedValues();
+void inventoryVerifyForeignRelease();
 
 int main() {
 	inventoryScenario(0);
+	inventoryVerifyForeignRelease();
 	var hardware = CoreAudioHardwareInventory();
 	var first = hardware.refresh();
 	assert(first.succeeded());

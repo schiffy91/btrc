@@ -9,8 +9,8 @@ import Library.GUI.MacOS.WebGPUSurface;
 class MacOSGPUSurface {
 	private NSView? _view;
 	private CAMetalLayer? _layer;
-	private WGPUInstance _instance;
-	private WGPUSurface _surface;
+	private WGPUInstance? _instance;
+	private WGPUSurface? _surface;
 	private int _pixelWidth;
 	private int _pixelHeight;
 	private double _backingScale;
@@ -97,8 +97,8 @@ class MacOSGPUSurface {
 
 	public void close() {
 		self.requireMainThread();
-		if (self._surface != null) { wgpuSurfaceRelease(self._surface); self._surface = null; }
-		if (self._instance != null) { wgpuInstanceRelease(self._instance); self._instance = null; }
+		self._surface = null;
+		self._instance = null;
 		var view = self._view;
 		if (view != null) { view.setLayer(null); view.removeFromSuperview(); }
 		self._layer = null;

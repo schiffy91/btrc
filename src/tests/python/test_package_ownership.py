@@ -53,6 +53,30 @@ def _export_project(tmp_path, exports='["GUI"]'):
     return application / "src/Main.btrc", provider
 
 
+@pytest.mark.parametrize(
+    "body", ["return hiddenValue();", "HiddenState.value = 0; return 0;", "var value = HiddenState(); return 0;"]
+)
+def test_public_import_does_not_reexport_private_symbols(tmp_path, package_compile, body):
+    source, provider = _export_project(tmp_path)
+    (provider / "src/Internal.btrc").write_text(
+        "int hiddenValue() { return 42; }\nclass HiddenState { class int value = 1; public HiddenState() {} }\n"
+    )
+    source.write_text(f"import widgets.GUI;\nint main() {{ {body} }}\n")
+    successful, diagnostic, emitted = package_compile(source)
+    assert not successful
+    assert "does not import it" in diagnostic
+    assert emitted == ""
+
+
+def test_exported_module_stays_visible_through_private_dependency(tmp_path, package_compile):
+    source, provider = _export_project(tmp_path, '["GUI", "Value"]')
+    (provider / "src/Value.btrc").write_text("int exportedValue() { return 42; }\n")
+    (provider / "src/Internal.btrc").write_text("import ./Value.btrc;\nint hiddenValue() { return exportedValue(); }\n")
+    source.write_text("import widgets.GUI;\nint main() { return exportedValue() == 42 ? 0 : 1; }\n")
+    successful, diagnostic, _ = package_compile(source)
+    assert successful, diagnostic
+
+
 def test_exported_module_can_use_private_implementation(tmp_path, package_compile):
     source, _ = _export_project(tmp_path)
     source.write_text("import widgets.GUI;\nint main() { return publicValue() == 42 ? 0 : 1; }\n")
@@ -104,6 +128,16 @@ def test_source_provider_selection_uses_compilation_target(tmp_path, package_com
     source.write_text("import widgets.GUI;\nimport widgets.MacOS;\nint main() { return 0; }\n")
     successful, diagnostic, _ = package_compile(source, target=target)
     assert not successful and "private to package" in diagnostic
+
+
+@pytest.mark.parametrize("target", ["linux-x86_64", "windows-arm64"])
+def test_native_gui_has_no_fake_provider_for_unsupported_targets(tmp_path, package_compile, target):
+    source = tmp_path / "Main.btrc"
+    source.write_text("import Library.GUI;\nint main() { GUI.initialize(); return 0; }\n")
+    successful, diagnostic, emitted = package_compile(source, target=target)
+    assert not successful
+    assert "no provider" in diagnostic
+    assert emitted == ""
 
 
 def test_source_provider_applies_to_compilation_entrypoint(tmp_path, package_compile):

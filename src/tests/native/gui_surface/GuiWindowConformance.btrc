@@ -1,4 +1,4 @@
-#include "GUI/GUI.btrc"
+#include "GUI/Raster.btrc"
 #include "GUI/Window.btrc"
 #include <assert.h>
 

@@ -49,6 +49,8 @@ class NativeObjectiveCMethod:
     consumes_self: bool = False
     related_result: bool = False
     returns_inner_pointer: bool = False
+    protocol_owner: bool = False
+    optional: bool = False
     source_file: str = _dc_field(default=None, compare=False)
     line: int = _dc_field(default=0, compare=False)
     column: int = 0

@@ -138,6 +138,1789 @@ int main() {
     run_native_executable(compiled.c_source, source.parent.parent, sdk, triple, sanitized, frameworks=())
 
 
+@pytest.fixture
+def stored_objective_c_project(native_project):
+    source, _, _ = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").write_text(
+        "#import <Foundation/Foundation.h>\n"
+        "@interface NativeSubscription : NSObject { void (^stored)(int); }\n"
+        "+ (instancetype _Nullable)listen:(int)mode using:(void (^ _Nonnull)(int))callback;\n"
+        "+ (void)fire:(int)value;\n+ (void)fireOnWorker;\n+ (int)live;\n+ (int)cancelled;\n- (void)invalidate;\n@end\n"
+    )
+    (root / "Probe.m").write_text(
+        '#import "Foundation.h"\n#include <assert.h>\n#include <pthread.h>\n'
+        "static NativeSubscription *active;\nstatic int living, cancellations;\n"
+        "static void *worker(void *unused) { (void)unused; @autoreleasepool { [NativeSubscription fire:7]; } return NULL; }\n"
+        "@implementation NativeSubscription\n"
+        "+ (instancetype)listen:(int)mode using:(void (^)(int))callback {\n"
+        "  if (mode == 2) return nil;\n"
+        '  if (mode == 3) [NSException raise:@"Registration" format:@"unpublished"];\n'
+        "  if (mode >= 5) { callback(1); if (mode == 5) return nil;\n"
+        '    [NSException raise:@"Registration" format:@"unpublished after inline callback"]; }\n'
+        "  NativeSubscription *value = [[self alloc] init];\n"
+        "  value->stored = [callback copy]; active = value; living++;\n"
+        "  if (mode == 1) callback(1);\n"
+        "  return [value autorelease];\n}\n"
+        "+ (void)fire:(int)value { if (active) { void (^delivery)(int) = [[active->stored copy] autorelease]; delivery(value); } }\n"
+        "+ (void)fireOnWorker { pthread_t thread; assert(pthread_create(&thread, NULL, worker, NULL) == 0); assert(pthread_join(thread, NULL) == 0); }\n"
+        "+ (int)live { return living; }\n+ (int)cancelled { return cancellations; }\n"
+        "- (void)invalidate { assert(active == self); active = nil; cancellations++; [stored release]; stored = nil; }\n"
+        "- (void)dealloc { assert(stored == nil); living--; [super dealloc]; }\n@end\n"
+    )
+    (root / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "nativeConsumer"\n'
+        '[[native.bindings]]\nmodule = "Foundation"\nheader = "Foundation.h"\n'
+        'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+        'symbols = ["+[NativeSubscription listen:using:]", "+[NativeSubscription fire:]", '
+        '"+[NativeSubscription fireOnWorker]", "+[NativeSubscription live]", "+[NativeSubscription cancelled]", "-[NativeSubscription invalidate]"]\n'
+        '[native.bindings.callbacks."+[NativeSubscription listen:using:].callback"]\n'
+        'interface = "IVisitor"\nlifetime = "stored"\nfailure = "abort"\nexecutor = "caller"\n'
+        'unregister = "-[NativeSubscription invalidate]"\nactivation-failure = "unpublished"\ncancellation = "entry-barrier"\n'
+        '[[native.sources]]\npath = "Probe.m"\nlanguage = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+        '[[native.frameworks]]\nname = "Foundation"\nos = ["macos"]\n'
+    )
+    (source.parent / "Foundation.btrc").write_text("")
+    source.write_text("""import Library.Callback;
+import ./Foundation.btrc;
+#include <assert.h>
+int deliveries = 0;
+int destroyed = 0;
+class Visitor implements IVisitor {
+	private CallbackScope scope;
+	public Visitor(CallbackScope scope) { self.scope = scope; }
+	public void invoke(int value) {
+		deliveries += value;
+		if (value == 1) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+	}
+	public void __del__() { destroyed++; }
+}
+void exercise(int mode) {
+	var scope = CallbackScope();
+	int before = destroyed;
+	int cancelled = NativeSubscription.cancelled();
+	if (mode == 2 || mode == 3 || mode >= 5) {
+		bool failed = false;
+		try { var registration = NativeSubscription.listen(mode, Visitor(scope), scope); }
+		catch (string error) { failed = true; }
+		assert(failed && NativeSubscription.live() == 0);
+		assert(scope.cancel() == CallbackCancellation.Complete);
+		assert(destroyed == before + 1 && NativeSubscription.cancelled() == cancelled);
+		return;
+	}
+	ICallbackRegistration registration = NativeSubscription.listen(mode, Visitor(scope), scope);
+	if (mode == 0) {
+		assert(NativeSubscription.live() == 1 && destroyed == before);
+		NativeSubscription.fire(7);
+		assert(registration.isOpen());
+	}
+	if (mode == 4) {
+		assert(NativeSubscription.live() == 1 && destroyed == before);
+		NativeSubscription.fire(1);
+		assert(!registration.isOpen());
+	}
+	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(registration.pollCompletion() == CallbackCancellation.Complete);
+	assert(NativeSubscription.live() == 0 && destroyed == before + 1);
+	assert(NativeSubscription.cancelled() == cancelled + 1);
+	NativeSubscription.fire(1000);
+}
+int main() {
+	for (int index = 0; index < 100; index++) {
+		for (int mode = 0; mode < 7; mode++) { exercise(mode); }
+	}
+	assert(deliveries == 1100 && destroyed == 700);
+	return 0;
+}
+""")
+    return source
+
+
+@pytest.fixture
+def delegate_project(native_project):
+    source, _, _ = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").write_text("""#import <Foundation/Foundation.h>
+@class NativeOwner;
+@protocol NativeDelegate <NSObject>
+- (BOOL)shouldClose:(NativeOwner * _Nonnull)owner;
+- (void)didClose:(NativeOwner * _Nonnull)owner;
+@end
+@interface NativeOwner : NSObject { id<NativeDelegate> _delegate; int _mode; }
++ (instancetype _Nonnull)make:(int)mode;
++ (int)live;
+@property(nonatomic, assign, nullable) id<NativeDelegate> delegate;
+- (BOOL)requestClose;
+- (void)replaceDelegate;
+@end
+""")
+    (root / "Probe.m").write_text("""#import "Foundation.h"
+#include <assert.h>
+static int live;
+@implementation NativeOwner
++ (instancetype)make:(int)mode { NativeOwner *owner = [self new]; owner->_mode = mode; live++; return [owner autorelease]; }
++ (int)live { return live; }
+- (id<NativeDelegate>)delegate { return _delegate; }
+- (void)setDelegate:(id<NativeDelegate>)value {
+    _delegate = value;
+    if (value && _mode == 1) { assert([value shouldClose:self]); [value didClose:self]; }
+    if (value && _mode == 2) { [NSException raise:@"Publication" format:@"indeterminate"]; }
+}
+- (BOOL)requestClose {
+    if (!_delegate) return NO;
+    id<NativeDelegate> admitted = [[_delegate retain] autorelease];
+    BOOL answer = [admitted shouldClose:self];
+    if (answer) [admitted didClose:self];
+    return answer;
+}
+- (void)replaceDelegate { _delegate = nil; }
+- (void)dealloc { assert(_delegate == nil); live--; [super dealloc]; }
+@end
+""")
+    (root / "btrc.toml").write_text("""manifest-version = 1
+[package]
+name = "nativeDelegateConsumer"
+[[native.bindings]]
+module = "Foundation"
+header = "Foundation.h"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+symbols = ["+[NativeOwner make:]", "+[NativeOwner live]", "-[NativeOwner setDelegate:]", "-[NativeOwner delegate]", "-[NativeOwner requestClose]", "-[NativeOwner replaceDelegate]", "-[NativeDelegate shouldClose:]", "-[NativeDelegate didClose:]"]
+[native.bindings.callbacks."-[NativeOwner setDelegate:].delegate"]
+interface = "IDelegate"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NativeOwner setDelegate:]"
+slot-getter = "-[NativeOwner delegate]"
+methods = ["-[NativeDelegate shouldClose:]", "-[NativeDelegate didClose:]"]
+activation-failure = "abort"
+cancellation = "entry-barrier"
+[[native.sources]]
+path = "Probe.m"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+[[native.frameworks]]
+name = "Foundation"
+os = ["macos"]
+""")
+    (source.parent / "Foundation.btrc").write_text("")
+    return source
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize("scenario", ["lifecycle", "inline", "occupied", "replaced", "throw"])
+def test_stored_objective_c_delegate(delegate_project, native_compile, sanitize, scenario):
+    source = delegate_project
+    root = source.parent.parent
+    mode = 1 if scenario == "inline" else 2 if scenario == "throw" else 0
+    source.write_text(
+        """import Library.Callback;
+import ./Foundation.btrc;
+#include <assert.h>
+int queries = 0;
+int notifications = 0;
+int destroyed = 0;
+class Delegate implements IDelegate {
+	private CallbackScope scope;
+	public Delegate(CallbackScope scope) { self.scope = scope; }
+	public bool shouldClose(NativeOwner owner) { queries++; return true; }
+	public void didClose(NativeOwner owner) { notifications++; assert(self.scope.cancel() == CallbackCancellation.Pending); }
+	public void __del__() { destroyed++; }
+}
+void exercise() {
+	var scope = CallbackScope();
+"""
+        + f"\tvar owner = NativeOwner.make({mode});\n"
+        + """
+	ICallbackRegistration registration = owner.setDelegate(Delegate(scope), scope);
+"""
+        + {
+            "lifecycle": "\tassert(owner.requestClose());\n",
+            "inline": "",
+            "occupied": """\tvar otherScope = CallbackScope();
+	bool rejected = false;
+	try { var other = owner.setDelegate(Delegate(otherScope), otherScope); }
+	catch (string error) { rejected = true; }
+	assert(rejected && destroyed == 1 && registration.isOpen());
+	assert(otherScope.cancel() == CallbackCancellation.Complete);
+	assert(owner.requestClose());
+""",
+            "replaced": '\towner.replaceDelegate();\n\tscope.cancel();\n\tfprintf(stderr, "unexpected delegate cancellation success\\n");\n\tassert(false);\n',
+            "throw": '\tfprintf(stderr, "unexpected delegate publication success\\n");\n\tassert(false);\n',
+        }[scenario]
+        + f"""
+	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(registration.pollCompletion() == CallbackCancellation.Complete);
+	assert(queries == 1 && notifications == 1 && destroyed == {2 if scenario == "occupied" else 1});
+	assert(!owner.requestClose());
+}}
+int main() {{
+	exercise();
+	assert(NativeOwner.live() == 0);
+	return 0;
+}}
+"""
+    )
+    plan_path = root / "Program.link.json"
+    compiled = native_compile(source, plan_path=plan_path)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "Program.c"
+    generated.write_text(compiled.c_source)
+
+    def run(command, **kwargs):
+        flags = ["-O1", "-g", "-fsanitize=address,undefined"] if sanitize else ["-O2"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    executable = root / "Program"
+    NativePlanBuilder(runner=run).build(
+        plan_path=plan_path, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], env=apple_environment(), capture_output=True, text=True, timeout=30)
+    assert completed.returncode == (-6 if scenario in {"replaced", "throw"} else 0), completed.stderr
+    assert "unexpected delegate" not in completed.stderr
+    if scenario == "throw":
+        assert "publication state is unknown" in completed.stderr
+    assert "ERROR: AddressSanitizer" not in completed.stderr
+    assert "runtime error:" not in completed.stderr
+
+
+@pytest.mark.parametrize(
+    "file,old,new,message",
+    [
+        (
+            "btrc.toml",
+            'methods = ["-[NativeDelegate shouldClose:]", "-[NativeDelegate didClose:]"]',
+            "methods = []",
+            "methods",
+        ),
+        (
+            "Foundation.h",
+            "@property(nonatomic, assign, nullable) id<NativeDelegate> delegate;",
+            "- (BOOL)delegate;\n- (void)setDelegate:(id<NativeDelegate> _Nullable)delegate;",
+            "delegate slot",
+        ),
+        ("btrc.toml", 'activation-failure = "abort"', 'activation-failure = "unpublished"', "activation-failure abort"),
+        ("Foundation.h", "id<NativeDelegate>", "id<NSObject>", "delegate method"),
+        ("Foundation.h", "assign, nullable", "assign, nonnull", "nullable id<Protocol>"),
+        ("Foundation.h", "- (BOOL)shouldClose:", "- (NSObject*)shouldClose:", "managed native lowering"),
+    ],
+)
+def test_stored_objective_c_delegate_rejects_unchecked_mapping(
+    delegate_project, native_compile, file, old, new, message
+):
+    source = delegate_project
+    path = source.parent.parent / file
+    original = path.read_text()
+    assert old in original
+    path.write_text(original.replace(old, new))
+    source.write_text("import Library.Callback;\nimport ./Foundation.btrc;\nint main() { return 0; }\n")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert message in str(compiled.failure) + str(compiled.diagnostics)
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+def test_stored_objective_c_window_delegate(native_project, native_compile, sanitize):
+    source, _, _ = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").write_text("#import <AppKit/AppKit.h>\n")
+    (source.parent / "Foundation.btrc").write_text("")
+    (root / "btrc.toml").write_text("""manifest-version = 1
+[package]
+name = "windowDelegateConsumer"
+[[native.bindings]]
+module = "Foundation"
+header = "Foundation.h"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+symbols = ["+[NSApplication sharedApplication]", "+[NSWindow new]", "-[NSWindow setReleasedWhenClosed:]", "-[NSWindow setStyleMask:]", "NSWindowStyleMaskTitled", "NSWindowStyleMaskClosable", "-[NSWindow setDelegate:]", "-[NSWindow delegate]", "-[NSWindow performClose:]", "-[NSWindowDelegate windowShouldClose:]", "-[NSWindowDelegate windowWillClose:]"]
+[native.bindings.callbacks."-[NSWindow setDelegate:].delegate"]
+interface = "IWindowEvents"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NSWindow setDelegate:]"
+slot-getter = "-[NSWindow delegate]"
+methods = ["-[NSWindowDelegate windowShouldClose:]", "-[NSWindowDelegate windowWillClose:]"]
+activation-failure = "abort"
+cancellation = "entry-barrier"
+[[native.frameworks]]
+name = "AppKit"
+os = ["macos"]
+""")
+    source.write_text("""import Library.Callback;
+import ./Foundation.btrc;
+#include <assert.h>
+int destroyed = 0;
+class WindowEvents implements IWindowEvents {
+	public bool allowClose = false;
+	public int queries = 0;
+	public int closed = 0;
+	public bool windowShouldClose(NSWindow sender) { self.queries++; return self.allowClose; }
+	public void windowWillClose(NSNotification notification) { self.closed++; }
+	public void __del__() { destroyed++; }
+}
+void exercise() {
+	var app = NSApplication.sharedApplication();
+	var window = NSWindow.new();
+	window.setReleasedWhenClosed(false);
+	window.setStyleMask(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable);
+	var scope = CallbackScope();
+	var events = WindowEvents();
+	var registration = window.setDelegate(events, scope);
+	window.performClose(null);
+	assert(events.queries == 1 && events.closed == 0);
+	events.allowClose = true;
+	window.performClose(null);
+	assert(events.queries == 2 && events.closed == 1);
+	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(registration.pollCompletion() == CallbackCancellation.Complete);
+}
+int main() { exercise(); assert(destroyed == 1); return 0; }
+""")
+    plan_path = root / "Program.link.json"
+    compiled = native_compile(source, plan_path=plan_path)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "Program.c"
+    generated.write_text(compiled.c_source)
+
+    def run(command, **kwargs):
+        flags = ["-O1", "-g", "-fsanitize=address,undefined"] if sanitize else ["-O2"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    executable = root / "Program"
+    NativePlanBuilder(runner=run).build(
+        plan_path=plan_path, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], env=apple_environment(), capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, completed.stderr
+    assert "ERROR: AddressSanitizer" not in completed.stderr
+    assert "runtime error:" not in completed.stderr
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize(
+    "scenario,result_kind",
+    [
+        (scenario, "void")
+        for scenario in ("lifecycle", "throw", "wrong-thread", "unregister-throw", "activation-nil", "activation-throw")
+    ]
+    + [("lifecycle", result) for result in ("bool", "int", "double", "enum", "void-alias")]
+    + [(scenario, "bool") for scenario in ("throw", "wrong-thread", "late-query")],
+)
+@pytest.mark.parametrize("cancellation_owner", ["token", "source"])
+def test_stored_objective_c_callback_binding(
+    stored_objective_c_project, native_compile, sanitize, scenario, result_kind, cancellation_owner
+):
+    source = stored_objective_c_project
+    root = source.parent.parent
+    native_result = "void"
+    if result_kind == "void-alias":
+        native_result = "NativeVoid"
+        for path in (root / "Foundation.h", root / "Probe.m"):
+            path.write_text(path.read_text().replace("void (^", "NativeVoid (^"))
+        header = root / "Foundation.h"
+        header.write_text("typedef void NativeVoid;\n" + header.read_text())
+    elif result_kind != "void":
+        native_result, btrc_result, native_value, btrc_value = {
+            "bool": ("BOOL", "bool", "value != 1", "value != 1"),
+            "int": ("int", "int", "value * 3 - 2000000000", "value * 3 - 2000000000"),
+            "double": ("double", "double", "value + 0.125", "value + 0.125"),
+            "enum": ("NSComparisonResult", "long", "NSOrderedAscending", "NSOrderedAscending"),
+        }[result_kind]
+        for path in (root / "Foundation.h", root / "Probe.m"):
+            contents = path.read_text().replace("void (^", native_result + " (^")
+            contents = contents.replace(
+                "callback(1);", f"assert(callback(1) == ({native_value.replace('value', '1')}));"
+            )
+            contents = contents.replace("delivery(value);", f"assert(delivery(value) == ({native_value}));")
+            path.write_text(contents)
+        source.write_text(
+            source.read_text()
+            .replace("public void invoke(int value)", f"public {btrc_result} invoke(int value)")
+            .replace("\n\t}\n\tpublic void __del__", f"\n\t\treturn {btrc_value};\n\t}}\n\tpublic void __del__")
+        )
+        if result_kind == "enum":
+            manifest = root / "btrc.toml"
+            manifest.write_text(manifest.read_text().replace("symbols = [", 'symbols = ["NSOrderedAscending", '))
+    activation_failure = scenario.startswith("activation-")
+    if scenario != "lifecycle":
+        program = source.read_text().split("int main() {", 1)[0]
+        if scenario == "throw":
+            program = program.replace("deliveries += value;", 'if (value == 7) { throw "expected callback error"; }')
+        if scenario == "unregister-throw":
+            native = root / "Probe.m"
+            native.write_text(
+                native.read_text().replace(
+                    "assert(active == self);", '[NSException raise:@"Cancel" format:@"indeterminate"];'
+                )
+            )
+        if scenario == "late-query":
+            native = root / "Probe.m"
+            native.write_text(native.read_text().replace("cancellations++;", "cancellations++; (void)stored(7);"))
+        if activation_failure:
+            manifest = root / "btrc.toml"
+            manifest.write_text(
+                manifest.read_text().replace('activation-failure = "unpublished"', 'activation-failure = "abort"')
+            )
+            native = root / "Probe.m"
+            failure = (
+                "return nil;"
+                if scenario == "activation-nil"
+                else '[NSException raise:@"Registration" format:@"publication unknown"];'
+            )
+            native.write_text(
+                native.read_text().replace(
+                    "if (mode == 1) callback(1);",
+                    f"if (mode == 0) {{ callback(1); {failure} }}\n  if (mode == 1) callback(1);",
+                )
+            )
+            program = program.replace("#include <assert.h>", "#include <assert.h>\n#include <stdio.h>")
+            program = program.replace(
+                "deliveries += value;", 'deliveries += value; fprintf(stderr, "inline callback delivered\\n");'
+            )
+            program = program.replace("destroyed++;", 'destroyed++; fprintf(stderr, "unexpected receiver cleanup\\n");')
+        action = {
+            "throw": "NativeSubscription.fire(7);",
+            "wrong-thread": "NativeSubscription.fireOnWorker();",
+            "unregister-throw": "scope.cancel();",
+            "activation-nil": "assert(false);",
+            "activation-throw": "assert(false);",
+            "late-query": "scope.cancel();",
+        }[scenario]
+        source.write_text(
+            program + "int main() { var scope = CallbackScope();\n"
+            "var registration = NativeSubscription.listen(0, Visitor(scope), scope);\n" + action + "\nreturn 0; }\n"
+        )
+    if cancellation_owner == "source":
+        header = root / "Foundation.h"
+        header.write_text(
+            header.read_text()
+            + """
+@interface NativeSource : NSObject
++ (instancetype _Nonnull)make;
++ (int)live;
+- (NativeSubscription * _Nullable)listen:(int)mode using:(void (^ _Nonnull)(int))callback;
+- (void)remove:(NativeSubscription * _Nonnull)token;
+@end
+"""
+        )
+        native = root / "Probe.m"
+        native.write_text(
+            native.read_text()
+            + """
+static NativeSource *activeSource;
+static int sources;
+@implementation NativeSource
++ (instancetype)make { sources++; return [[[self alloc] init] autorelease]; }
++ (int)live { return sources; }
+- (NativeSubscription*)listen:(int)mode using:(void (^)(int))callback {
+    NativeSubscription *token = [NativeSubscription listen:mode using:callback];
+    if (token) activeSource = self;
+    return token;
+}
+- (void)remove:(NativeSubscription*)token {
+    assert(activeSource == self);
+    [token invalidate];
+    activeSource = nil;
+}
+- (void)dealloc { assert(activeSource != self); sources--; [super dealloc]; }
+@end
+"""
+        )
+        if result_kind != "void":
+            for path in (header, native):
+                path.write_text(path.read_text().replace("void (^", native_result + " (^"))
+        manifest = root / "btrc.toml"
+        manifest.write_text(
+            manifest.read_text()
+            .replace("+[NativeSubscription listen:using:]", "-[NativeSource listen:using:]")
+            .replace("-[NativeSubscription invalidate]", "-[NativeSource remove:]")
+            .replace("symbols = [", 'symbols = ["+[NativeSource make]", "+[NativeSource live]", ')
+        )
+        source.write_text(
+            source.read_text()
+            .replace("NativeSubscription.listen(", "NativeSource.make().listen(")
+            .replace("NativeSubscription.live() == 0", "NativeSubscription.live() == 0 && NativeSource.live() == 0")
+        )
+    plan_path = root / "Program.link.json"
+    compiled = native_compile(source, plan_path=plan_path)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "Program.c"
+    generated.write_text(compiled.c_source)
+
+    def run(command, **kwargs):
+        flags = ["-O1", "-g", "-fsanitize=address,undefined"] if sanitize else ["-O2"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    executable = root / "Program"
+    NativePlanBuilder(runner=run).build(
+        plan_path=plan_path, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run(
+        [str(executable)],
+        env={**apple_environment(), "UBSAN_OPTIONS": "halt_on_error=1"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if scenario == "lifecycle":
+        assert completed.returncode == 0, completed.stderr
+        assert not completed.stderr
+    else:
+        assert completed.returncode == -6, completed.stderr
+        if activation_failure:
+            assert "inline callback delivered" in completed.stderr
+            assert "publication state is unknown" in completed.stderr
+            assert "unexpected receiver cleanup" not in completed.stderr
+        elif scenario == "late-query":
+            assert "query after cancellation" in completed.stderr
+        elif scenario != "unregister-throw":
+            assert ("creating thread" if scenario == "wrong-thread" else "expected callback error") in completed.stderr
+        assert "ERROR: AddressSanitizer" not in completed.stderr
+        assert "runtime error:" not in completed.stderr
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_stored_objective_c_activation_policy_conflict(stored_objective_c_project, native_compile, reverse):
+    source = stored_objective_c_project
+    manifest = source.parent.parent / "btrc.toml"
+    binding = manifest.read_text().split("[[native.bindings]]", 1)[1].split("[[native.sources]]", 1)[0]
+    manifest.write_text(
+        manifest.read_text()
+        + "[[native.bindings]]"
+        + binding.replace('module = "Foundation"', 'module = "Other"').replace(
+            'activation-failure = "unpublished"', 'activation-failure = "abort"'
+        )
+    )
+    (source.parent / "Other.btrc").write_text("// Incompatible activation policy for the same native registration.\n")
+    imports = ["import ./Foundation.btrc;", "import ./Other.btrc;"]
+    source.write_text("\n".join(reversed(imports) if reverse else imports) + "\nint main() { return 0; }\n")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert "conflicting native declaration" in str(compiled.failure) + str(compiled.diagnostics)
+
+
+@pytest.mark.parametrize(
+    "file,old,new,message",
+    [
+        ("btrc.toml", 'activation-failure = "unpublished"', 'activation-failure = "published"', "activation-failure"),
+        ("btrc.toml", 'activation-failure = "unpublished"', "activation-failure = []", "activation-failure"),
+        ("btrc.toml", 'cancellation = "entry-barrier"', 'cancellation = "eventually"', "cancellation"),
+        ("btrc.toml", 'lifetime = "stored"', 'lifetime = "call"', "cancellation facts require a stored callback"),
+        ("btrc.toml", 'unregister = "-[NativeSubscription invalidate]"', 'unregister = "missing"', "unregister"),
+        ("btrc.toml", 'executor = "caller"', 'executor = "worker"', "executor currently requires caller"),
+        ("Foundation.h", "- (void)invalidate;", "- (int)invalidate;", "unregister"),
+        (
+            "Foundation.h",
+            "(void (^ _Nonnull)(int))callback",
+            "(void (__attribute__((noescape)) ^ _Nonnull)(int))callback",
+            "escaping Objective-C block",
+        ),
+        (
+            "Foundation.h",
+            "(void (^ _Nonnull)(int))callback",
+            "(NSObject* (^ _Nonnull)(int))callback",
+            "non-scalar results require an ownership mapping",
+        ),
+        ("Foundation.h", "instancetype _Nullable", "NSObject * _Nullable", "unregister receiver"),
+    ],
+)
+def test_stored_objective_c_binding_rejects_unproven_lifetime(
+    stored_objective_c_project, native_compile, file, old, new, message
+):
+    source = stored_objective_c_project
+    path = source.parent.parent / file
+    original = path.read_text()
+    assert old in original
+    path.write_text(original.replace(old, new))
+    source.write_text("import Library.Callback;\nimport ./Foundation.btrc;\nint main() { return 0; }\n")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert message in str(compiled.failure) + str(compiled.diagnostics)
+
+
+def test_stored_objective_c_unregister_is_not_a_public_method(stored_objective_c_project, native_compile):
+    source = stored_objective_c_project
+    source.write_text("""import Library.Callback;
+import ./Foundation.btrc;
+void bypass(NativeSubscription subscription) { subscription.invalidate(); }
+int main() { return 0; }
+""")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert "invalidate" in str(compiled.failure) + str(compiled.diagnostics)
+
+
+def test_stored_objective_c_rejects_replacement_lifecycle(stored_objective_c_project, native_compile):
+    source = stored_objective_c_project
+    source.write_text("""import ./Foundation.btrc;
+class CallbackScope {}
+class CallbackContext<TReceiver, TToken> {
+	private TReceiver receiver;
+	public CallbackContext(TReceiver receiver, CFunction<bool, TToken> unregister) { self.receiver = receiver; }
+	public void activate(CallbackScope scope) {}
+	public void publish(TToken token) {}
+	public void abortActivation() {}
+	public TReceiver? enter() { return self.receiver; }
+	public void leave() {}
+	public bool isOpen() { return true; }
+	public bool close() { return true; }
+	public int cancel() { return 0; }
+	public int pollCompletion() { return 0; }
+}
+int main() { return 0; }
+""")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert "require import Library.Callback" in str(compiled.failure) + str(compiled.diagnostics)
+
+
+@pytest.fixture
+def action_project(native_project):
+    source, _, _ = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").write_text("""#import <Foundation/Foundation.h>
+@interface NativeAction : NSObject { id _target; SEL _action; int _mode; int _targetWrites; int _actionWrites; }
++ (instancetype _Nonnull)make:(int)mode;
++ (int)live;
++ (void)fireSaved;
++ (void)clearSaved;
+@property(nonatomic, assign, nullable) id target;
+@property(nonatomic, assign, nullable) SEL action;
+- (void)fire;
+- (void)replaceTarget;
+- (void)replaceAction;
+- (BOOL)untouched;
+- (BOOL)slotsCleared;
+@end
+""")
+    (root / "Probe.m").write_text("""#import "Foundation.h"
+#import <objc/message.h>
+#include <pthread.h>
+static int live;
+static id savedTarget;
+static id savedSource;
+static SEL savedAction;
+static void deliver(id target, SEL action, id source) {
+    if (target && action) ((void (*)(id, SEL, id))objc_msgSend)(target, action, source);
+}
+static void *onWorker(void *source) { @autoreleasepool { [((NativeAction *)source) fire]; } return NULL; }
+@implementation NativeAction
++ (instancetype)make:(int)mode {
+    NativeAction *source = [self new]; source->_mode = mode; live++;
+    if (mode == 1) source->_target = source;
+    if (mode == 2) source->_action = @selector(description);
+    return [source autorelease];
+}
++ (int)live { return live; }
++ (void)fireSaved { deliver(savedTarget, savedAction, savedSource); }
++ (void)clearSaved { [savedTarget release]; savedTarget = nil; savedSource = nil; savedAction = NULL; }
+- (id)target { return _target; }
+- (SEL)action { return _action; }
+- (void)setTarget:(id)value {
+    _targetWrites++;
+    if ((value && _mode == 5) || (!value && _mode == 10)) return;
+    _target = value;
+    if (value && _mode == 3) [NSException raise:@"Publication" format:@"target stored"];
+}
+- (void)setAction:(SEL)value {
+    _actionWrites++;
+    if (!value && _mode == 17) deliver(_target, _action, self);
+    if ((value && _mode == 6) || (!value && _mode == 9)) return;
+    _action = value;
+    if (value && _mode == 4) [NSException raise:@"Publication" format:@"action stored"];
+    if (value && _mode == 11) deliver(_target, _action, self);
+    if (value && _mode == 12) { savedTarget = [_target retain]; savedSource = self; savedAction = _action; }
+}
+- (void)replaceTarget { _target = self; }
+- (void)replaceAction { _action = @selector(description); }
+- (BOOL)untouched {
+    return !_targetWrites && !_actionWrites &&
+        (_mode == 1 ? _target == self && _action == NULL : _target == nil && _action == @selector(description));
+}
+- (BOOL)slotsCleared { return _target == nil && _action == NULL; }
+- (void)fire {
+    if (_mode == 15 && [NSThread isMainThread]) {
+        pthread_t worker; if (pthread_create(&worker, NULL, onWorker, self)) abort();
+        pthread_join(worker, NULL); return;
+    }
+    deliver(_target, _action, _mode == 13 ? nil : self);
+}
+- (void)dealloc { live--; [super dealloc]; }
+@end
+""")
+    (root / "btrc.toml").write_text("""manifest-version = 1
+[package]
+name = "nativeActionConsumer"
+[[native.bindings]]
+module = "Foundation"
+header = "Foundation.h"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+symbols = ["+[NativeAction make:]", "+[NativeAction live]", "+[NativeAction fireSaved]", "+[NativeAction clearSaved]", "-[NativeAction setTarget:]", "-[NativeAction target]", "-[NativeAction setAction:]", "-[NativeAction action]", "-[NativeAction fire]", "-[NativeAction replaceTarget]", "-[NativeAction replaceAction]", "-[NativeAction untouched]", "-[NativeAction slotsCleared]"]
+[native.bindings.callbacks."-[NativeAction setTarget:].target"]
+interface = "IAction"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NativeAction setTarget:]"
+slot-getter = "-[NativeAction target]"
+action-setter = "-[NativeAction setAction:]"
+action-getter = "-[NativeAction action]"
+activation-failure = "abort"
+cancellation = "entry-barrier"
+[[native.sources]]
+path = "Probe.m"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+[[native.frameworks]]
+name = "Foundation"
+os = ["macos"]
+""")
+    (source.parent / "Foundation.btrc").write_text("")
+    return source
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+def test_stored_objective_c_action_lifecycle(action_project, native_compile, sanitize):
+    source = action_project
+    root = source.parent.parent
+    source.write_text("""import Library.Callback;
+import ./Foundation.btrc;
+#include <assert.h>
+#include <stdlib.h>
+int calls = 0;
+int destroyed = 0;
+class Action implements IAction {
+	private CallbackScope scope;
+	private int mode;
+	public Action(CallbackScope scope, int mode) { self.scope = scope; self.mode = mode; }
+	public void invoke() {
+		calls++;
+		if (self.mode == 14) { throw "Action callback failed"; }
+		if (self.mode == 11 || self.mode == 16) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+	}
+	public void __del__() { destroyed++; }
+}
+void exercise(int mode) {
+	var source = NativeAction.make(mode);
+	var scope = CallbackScope();
+	if (mode == 1 || mode == 2) {
+		bool rejected = false;
+		try { source.setTarget(Action(scope, mode), scope); }
+		catch (string error) { rejected = true; }
+		assert(rejected && destroyed == 1 && calls == 0 && source.untouched());
+		assert(scope.cancel() == CallbackCancellation.Complete);
+		return;
+	}
+	ICallbackRegistration registration = source.setTarget(Action(scope, mode), scope);
+	if (mode == 7) { source.replaceTarget(); }
+	else if (mode == 8) { source.replaceAction(); }
+	else if (mode != 11) { source.fire(); }
+	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(registration.pollCompletion() == CallbackCancellation.Complete);
+	assert(calls == 1 && destroyed == 1);
+	assert(source.slotsCleared());
+	source.fire();
+	if (mode == 12) { NativeAction.fireSaved(); }
+	assert(calls == 1 && destroyed == 1);
+}
+int main(int argc, char** argv) {
+	assert(argc == 2);
+	int mode = atoi(argv[1]);
+	exercise(mode);
+	if (mode == 12) {
+		assert(NativeAction.live() == 1);
+		NativeAction.fireSaved();
+		assert(calls == 1 && destroyed == 1);
+		NativeAction.clearSaved();
+	}
+	assert(NativeAction.live() == 0);
+	printf("action-ok\\n");
+	return 0;
+}
+""")
+    plan = root / "Program.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "Program.c"
+    generated.write_text(compiled.c_source)
+    executable = root / "Program"
+
+    def run(command, **kwargs):
+        flags = ["-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"] if sanitize else ["-O2"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    NativePlanBuilder(runner=run).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    aborts = {3, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15}
+    for mode in range(18):
+        completed = subprocess.run(
+            [str(executable), str(mode)], env=apple_environment(), capture_output=True, text=True, timeout=15
+        )
+        assert completed.returncode == (-6 if mode in aborts else 0), (mode, completed.stdout, completed.stderr)
+        assert completed.stdout == ("" if mode in aborts else "action-ok\n"), (mode, completed.stdout)
+        assert "Assertion failed" not in completed.stderr, (mode, completed.stderr)
+        assert "ERROR: AddressSanitizer" not in completed.stderr, (mode, completed.stderr)
+        assert "runtime error:" not in completed.stderr, (mode, completed.stderr)
+        if mode in {3, 4, 5, 6}:
+            assert "publication state is unknown" in completed.stderr, (mode, completed.stderr)
+
+
+@pytest.mark.parametrize(
+    "file,old,new,message",
+    [
+        ("btrc.toml", 'action-getter = "-[NativeAction action]"', "", "action"),
+        ("btrc.toml", 'action-setter = "-[NativeAction setAction:]"', "", "action"),
+        ("btrc.toml", 'slot-getter = "-[NativeAction target]"', "", "slot-getter"),
+        ("btrc.toml", 'lifetime = "stored"', 'lifetime = "call"', "stored"),
+        ("btrc.toml", 'activation-failure = "abort"', 'activation-failure = "unpublished"', "activation-failure abort"),
+        ("btrc.toml", 'interface = "IAction"', 'interface = "IAction"\nmethods = []', "methods"),
+        (
+            "btrc.toml",
+            'action-getter = "-[NativeAction action]"',
+            'action-getter = "-[NativeAction target]"',
+            "distinct",
+        ),
+        ("Foundation.h", "nullable) id target", "nonnull) id target", "nullable id"),
+        ("Foundation.h", "nullable) id target", "nullable) NSObject *target", "nullable id"),
+        ("Foundation.h", "nullable) SEL action", "nonnull) SEL action", "nullable SEL"),
+        ("Foundation.h", "nullable) SEL action", ") int action", "nullable SEL"),
+    ],
+)
+def test_stored_objective_c_action_rejects_unchecked_mapping(action_project, native_compile, file, old, new, message):
+    source = action_project
+    path = source.parent.parent / file
+    original = path.read_text()
+    assert old in original
+    path.write_text(original.replace(old, new))
+    source.write_text("import Library.Callback;\nimport ./Foundation.btrc;\nint main() { return 0; }\n")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert message in str(compiled.failure) + str(compiled.diagnostics)
+
+
+@pytest.mark.parametrize("operation", ["source.target()", "source.action()", "source.setAction(null)"])
+def test_stored_objective_c_action_reserves_native_slots(action_project, native_compile, operation):
+    source = action_project
+    source.write_text(
+        "import Library.Callback;\nimport ./Foundation.btrc;\n"
+        f"int main() {{ var source = NativeAction.make(0); {operation}; return 0; }}\n"
+    )
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert operation.split("(", 1)[0].split(".")[1] in str(compiled.failure) + str(compiled.diagnostics)
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+def test_stored_objective_c_button_action(native_project, native_compile, sanitize):
+    source, _, _ = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").write_text("#import <AppKit/AppKit.h>\n")
+    (source.parent / "Foundation.btrc").write_text("")
+    (root / "btrc.toml").write_text("""manifest-version = 1
+[package]
+name = "nativeActionConsumer"
+[[native.bindings]]
+module = "Foundation"
+header = "Foundation.h"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+symbols = ["+[NSApplication sharedApplication]", "+[NSButton new]", "-[NSButton setTarget:]", "-[NSButton target]", "-[NSButton setAction:]", "-[NSButton action]", "-[NSButton performClick:]"]
+[native.bindings.callbacks."-[NSButton setTarget:].target"]
+interface = "IButtonAction"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NSButton setTarget:]"
+slot-getter = "-[NSButton target]"
+action-setter = "-[NSButton setAction:]"
+action-getter = "-[NSButton action]"
+activation-failure = "abort"
+cancellation = "entry-barrier"
+[[native.frameworks]]
+name = "AppKit"
+os = ["macos"]
+""")
+    source.write_text("""import Library.Callback;
+import ./Foundation.btrc;
+#include <assert.h>
+int calls = 0;
+int destroyed = 0;
+class Action implements IButtonAction {
+	public void invoke() { calls++; }
+	public void __del__() { destroyed++; }
+}
+int main() {
+	var application = NSApplication.sharedApplication();
+	assert(application != null);
+	var button = NSButton.new();
+	if (button == null) { throw "Cannot create action test button"; }
+	var scope = CallbackScope();
+	button.setTarget(Action(), scope);
+	button.performClick(null);
+	button.performClick(null);
+	assert(calls == 2 && destroyed == 0);
+	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(destroyed == 1);
+	button.performClick(null);
+	assert(calls == 2);
+	return 0;
+}
+""")
+    plan = root / "Program.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "Program.c"
+    generated.write_text(compiled.c_source)
+    executable = root / "Program"
+
+    def run(command, **kwargs):
+        flags = ["-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"] if sanitize else ["-O2"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    NativePlanBuilder(runner=run).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], env=apple_environment(), capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, (completed.stdout, completed.stderr)
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+def test_stored_objective_c_foundation_timer(native_project, native_compile, sanitize):
+    source, _, _ = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").write_text("#import <Foundation/Foundation.h>\n")
+    (source.parent / "Foundation.btrc").write_text("")
+    (root / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "nativeConsumer"\n'
+        '[[native.bindings]]\nmodule = "Foundation"\nheader = "Foundation.h"\n'
+        'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+        'symbols = ["+[NSTimer scheduledTimerWithTimeInterval:repeats:block:]", "-[NSTimer invalidate]", '
+        '"-[NSTimer isValid]", "+[NSRunLoop currentRunLoop]", "-[NSRunLoop runUntilDate:]", '
+        '"+[NSDate dateWithTimeIntervalSinceNow:]"]\n'
+        '[native.bindings.callbacks."+[NSTimer scheduledTimerWithTimeInterval:repeats:block:].block"]\n'
+        'interface = "ITimerCallback"\nlifetime = "stored"\nfailure = "abort"\nexecutor = "caller"\n'
+        'unregister = "-[NSTimer invalidate]"\nactivation-failure = "abort"\ncancellation = "entry-barrier"\n'
+        '[[native.frameworks]]\nname = "Foundation"\nos = ["macos"]\n'
+    )
+    source.write_text("""import Library.Callback;
+import ./Foundation.btrc;
+#include <assert.h>
+NSTimer? observed = null;
+int deliveries = 0;
+int destroyed = 0;
+class TimerCallback implements ITimerCallback {
+	private CallbackScope scope;
+	public TimerCallback(CallbackScope scope) { self.scope = scope; }
+	public void invoke(NSTimer timer) {
+		assert(timer.isValid());
+		observed = timer;
+		deliveries++;
+		assert(self.scope.cancel() == CallbackCancellation.Pending);
+		assert(!timer.isValid());
+	}
+	public void __del__() { destroyed++; }
+}
+int main() {
+	for (int index = 0; index < 10; index++) {
+		var scope = CallbackScope();
+		ICallbackRegistration subscription = NSTimer.scheduledTimerWithTimeInterval(0.001, true, TimerCallback(scope), scope);
+		var loop = NSRunLoop.currentRunLoop();
+		for (int attempt = 0; attempt < 100 && observed == null; attempt++) { loop.runUntilDate(NSDate.dateWithTimeIntervalSinceNow(0.01)); }
+		assert(observed != null && !observed.isValid());
+		assert(!subscription.isOpen() && deliveries == index + 1);
+		assert(scope.pollCompletion() == CallbackCancellation.Complete);
+		assert(destroyed == index + 1);
+		observed = null;
+	}
+	return 0;
+}
+""")
+    plan_path = root / "Program.link.json"
+    compiled = native_compile(source, plan_path=plan_path)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "Program.c"
+    generated.write_text(compiled.c_source)
+
+    def run(command, **kwargs):
+        flags = ["-O1", "-g", "-fsanitize=address,undefined"] if sanitize else ["-O2"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    executable = root / "Program"
+    NativePlanBuilder(runner=run).build(
+        plan_path=plan_path, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run(
+        [str(executable)],
+        env={**apple_environment(), "UBSAN_OPTIONS": "halt_on_error=1"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert not completed.stderr
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+def test_stored_objective_c_foundation_notification(native_project, native_compile, sanitize):
+    source, _, _ = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").write_text("#import <Foundation/Foundation.h>\n")
+    (source.parent / "Foundation.btrc").write_text("")
+    (root / "btrc.toml").write_text("""manifest-version = 1
+[package]
+name = "nativeConsumer"
+[[native.bindings]]
+module = "Foundation"
+header = "Foundation.h"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+symbols = ["+[NSNotificationCenter defaultCenter]", "-[NSNotificationCenter addObserverForName:object:queue:usingBlock:]", "-[NSNotificationCenter removeObserver:]", "-[NSNotificationCenter postNotificationName:object:]", "+[NSString stringWithUTF8String:]", "-[NSNotification name]", "-[NSString length]"]
+[native.bindings.callbacks."-[NSNotificationCenter addObserverForName:object:queue:usingBlock:].block"]
+interface = "INotificationCallback"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NSNotificationCenter removeObserver:]"
+activation-failure = "abort"
+cancellation = "entry-barrier"
+[[native.frameworks]]
+name = "Foundation"
+os = ["macos"]
+""")
+    source.write_text("""import Library.Callback;
+import ./Foundation.btrc;
+#include <assert.h>
+NSNotification? observed = null;
+int deliveries = 0;
+int destroyed = 0;
+class NotificationCallback implements INotificationCallback {
+	private CallbackScope scope;
+	public NotificationCallback(CallbackScope scope) { self.scope = scope; }
+	public void invoke(NSNotification notification) {
+		observed = notification;
+		deliveries++;
+		assert(self.scope.cancel() == CallbackCancellation.Pending);
+	}
+	public void __del__() { destroyed++; }
+}
+int main() {
+	var name = NSString.stringWithUTF8String("BTRC.NativeNotification");
+	for (int index = 0; index < 100; index++) {
+		var scope = CallbackScope();
+		ICallbackRegistration subscription = NSNotificationCenter.defaultCenter().addObserverForName(name, null, null, NotificationCallback(scope), scope);
+		assert(subscription.isOpen() && observed == null);
+		NSNotificationCenter.defaultCenter().postNotificationName(name, null);
+		assert(observed != null && observed.name().length() == name.length());
+		assert(!subscription.isOpen() && deliveries == index + 1);
+		assert(scope.pollCompletion() == CallbackCancellation.Complete);
+		assert(destroyed == index + 1);
+		NSNotificationCenter.defaultCenter().postNotificationName(name, null);
+		assert(deliveries == index + 1);
+		observed = null;
+	}
+	return 0;
+}
+""")
+    plan_path = root / "Program.link.json"
+    compiled = native_compile(source, plan_path=plan_path)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "Program.c"
+    generated.write_text(compiled.c_source)
+
+    def run(command, **kwargs):
+        flags = ["-O1", "-g", "-fsanitize=address,undefined"] if sanitize else ["-O2"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    executable = root / "Program"
+    NativePlanBuilder(runner=run).build(
+        plan_path=plan_path, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run(
+        [str(executable)],
+        env={**apple_environment(), "UBSAN_OPTIONS": "halt_on_error=1"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert not completed.stderr
+
+
+@pytest.fixture
+def objective_c_block_project(native_project):
+    source, _, _ = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").write_text(
+        "#import <Foundation/Foundation.h>\n"
+        "typedef NS_ENUM(NSInteger, BlockNumber) { BlockNumberSeven = 7 };\n"
+        "@interface BlockProbe : NSObject\n"
+        "+ (instancetype)make;\n+ (NSInteger)live;\n"
+        "- (NSInteger)visit:(NSInteger)seed using:(NSInteger (^)(NSInteger))callback;\n"
+        "+ (NSInteger)pair:(NSInteger (^)(NSInteger))first with:(NSInteger (^)(NSInteger))second;\n"
+        "+ (BlockNumber)number:(BlockNumber (^)(BlockNumber))callback;\n"
+        "+ (instancetype)newResultUsing:(void (^)(void))callback;\n"
+        "+ (void)wrongThread:(void (^)(void))callback;\n@end\n"
+    )
+    (root / "Probe.m").write_text(
+        '#import "Foundation.h"\n#include <pthread.h>\n#include <assert.h>\n'
+        "static NSInteger live;\n"
+        "struct Delivery { __unsafe_unretained void (^callback)(void); };\n"
+        "static void *deliver(void *raw) { ((struct Delivery*)raw)->callback(); return NULL; }\n"
+        "@implementation BlockProbe\n"
+        "+ (instancetype)make { return [self new]; }\n"
+        "- (instancetype)init { self = [super init]; if (self) ++live; return self; }\n"
+        "- (void)dealloc { --live; }\n+ (NSInteger)live { return live; }\n"
+        "- (NSInteger)visit:(NSInteger)seed using:(NSInteger (^)(NSInteger))callback {\n"
+        "  NSInteger first = callback(seed); NSInteger second = callback(seed + 1);\n"
+        "  assert([self description] != nil); return first + second;\n}\n"
+        "+ (NSInteger)pair:(NSInteger (^)(NSInteger))first with:(NSInteger (^)(NSInteger))second {\n"
+        "  NSInteger result = first(3); return result + second(4);\n}\n"
+        "+ (BlockNumber)number:(BlockNumber (^)(BlockNumber))callback { return callback(BlockNumberSeven); }\n"
+        "+ (instancetype)newResultUsing:(void (^)(void))callback { callback(); return [self new]; }\n"
+        "+ (void)wrongThread:(void (^)(void))callback {\n"
+        "  struct Delivery delivery = { callback }; pthread_t thread;\n"
+        "  assert(pthread_create(&thread, NULL, deliver, &delivery) == 0);\n"
+        "  assert(pthread_join(thread, NULL) == 0);\n}\n@end\n"
+    )
+    symbols = [
+        "+[BlockProbe make]",
+        "+[BlockProbe live]",
+        "-[BlockProbe visit:using:]",
+        "+[BlockProbe pair:with:]",
+        "+[BlockProbe number:]",
+        "+[BlockProbe newResultUsing:]",
+        "+[BlockProbe wrongThread:]",
+        "+[NSProcessInfo processInfo]",
+        "-[NSProcessInfo performActivityWithOptions:reason:usingBlock:]",
+        "+[NSString stringWithUTF8String:]",
+        "NSActivityBackground",
+    ]
+    mappings = {
+        "-[BlockProbe visit:using:].callback": "ITransform",
+        "+[BlockProbe pair:with:].first": "ITransform",
+        "+[BlockProbe pair:with:].second": "ITransform",
+        "+[BlockProbe number:].callback": "INumber",
+        "+[BlockProbe newResultUsing:].callback": "INotification",
+        "+[BlockProbe wrongThread:].callback": "INotification",
+        "-[NSProcessInfo performActivityWithOptions:reason:usingBlock:].block": "INotification",
+    }
+    manifest = (
+        'manifest-version = 1\n[package]\nname = "nativeBlocks"\n'
+        '[[native.bindings]]\nmodule = "Foundation"\nheader = "Foundation.h"\n'
+        'language = "objective-c"\nstandard = "c11"\n'
+        f"symbols = {json.dumps(symbols)}\n"
+    )
+    for parameter, interface in mappings.items():
+        manifest += (
+            f'[native.bindings.callbacks."{parameter}"]\ninterface = "{interface}"\n'
+            'lifetime = "call"\nfailure = "abort"\nexecutor = "caller"\n'
+        )
+    manifest += (
+        '[[native.sources]]\npath = "Probe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+        '[[native.frameworks]]\nname = "Foundation"\n'
+    )
+    (root / "btrc.toml").write_text(manifest)
+    (source.parent / "Foundation.btrc").write_text("")
+    return source
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize("scenario", ["lifetime", "sdk", "reentry", "result-cleanup", "wrong-thread", "failure"])
+def test_objective_c_block_callback(objective_c_block_project, native_compile, sanitize, scenario):
+    source = objective_c_block_project
+    root = source.parent.parent
+    bodies = {
+        "lifetime": """
+int destroyed = 0;
+class Holder { public ITransform? visitor; public BlockProbe? probe; }
+class Visitor implements ITransform {
+	private Holder owner;
+	public Visitor(Holder owner) { self.owner = owner; }
+	public long invoke(long value) {
+		self.owner.visitor = null; self.owner.probe = null;
+		assert(destroyed == 0); assert(BlockProbe.live() == 1);
+		return value * 2;
+	}
+	public void __del__() { destroyed++; }
+}
+int main() {
+	var owner = Holder(); owner.probe = BlockProbe.make(); owner.visitor = Visitor(owner);
+	assert(owner.probe.visit(20, owner.visitor) == 82);
+	assert(destroyed == 1); assert(BlockProbe.live() == 0); return 0;
+}
+""",
+        "sdk": """
+int delivered = 0;
+int destroyed = 0;
+class Notification implements INotification {
+	public void invoke() { delivered++; }
+	public void __del__() { destroyed++; }
+}
+class Number implements INumber { public long invoke(long value) { return value; } }
+int main() {
+	char bytes[32]; strcpy(bytes, "BTRC native callback");
+	var reason = NSString.stringWithUTF8String(bytes);
+	var process = NSProcessInfo.processInfo();
+	for (int index = 0; index < 100; index++) {
+		process.performActivityWithOptions(NSActivityBackground, reason, Notification());
+		assert(delivered == index + 1); assert(destroyed == index + 1);
+	}
+	assert(BlockProbe.number(Number()) == 7); return 0;
+}
+""",
+        "reentry": """
+int delivered = 0;
+int destroyed = 0;
+class Visitor implements ITransform {
+	private int depth = 0;
+	public long invoke(long value) {
+		delivered++;
+		if (self.depth == 0) {
+			self.depth = 1; assert(BlockProbe.pair(self, self) == 7); self.depth = 0;
+		}
+		return value;
+	}
+	public void __del__() { destroyed++; }
+}
+int main() {
+	{ var visitor = Visitor(); assert(BlockProbe.pair(visitor, visitor) == 7); }
+	assert(delivered == 6); assert(destroyed == 1); return 0;
+}
+""",
+        "result-cleanup": """
+int destroyed = 0;
+class Notification implements INotification {
+	public void invoke() { }
+	public void __del__() { destroyed++; throw "destructor failure"; }
+}
+int main() {
+	bool caught = false;
+	try { var value = BlockProbe.newResultUsing(Notification()); }
+	catch (string message) { caught = message == "destructor failure"; }
+	assert(caught); assert(destroyed == 1); assert(BlockProbe.live() == 0); return 0;
+}
+""",
+        "wrong-thread": """
+class Notification implements INotification { public void invoke() { assert(false); } }
+int main() { BlockProbe.wrongThread(Notification()); return 0; }
+""",
+        "failure": """
+class Notification implements INotification { public void invoke() { throw "callback failure"; } }
+int main() { var value = BlockProbe.newResultUsing(Notification()); return 0; }
+""",
+    }
+    source.write_text("import ./Foundation.btrc;\n#include <assert.h>\n" + bodies[scenario])
+    plan = root / "Program.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    reference = compile_source(source)
+    assert reference.successful, reference.failure
+    assert json.loads(plan.read_text()) == reference.native_plan.as_dict()
+    generated = root / "Program.c"
+    generated.write_text(compiled.c_source)
+
+    def run(command, **kwargs):
+        flags = ["-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"] if sanitize else ["-O2"]
+        if "objective-c" in command:
+            flags.append("-fobjc-arc")
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    executable = root / "Program"
+    NativePlanBuilder(runner=run).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], env=apple_environment(), capture_output=True, text=True, timeout=30)
+    if scenario in {"wrong-thread", "failure"}:
+        assert completed.returncode != 0
+        assert ("wrong thread" if scenario == "wrong-thread" else "callback failure") in completed.stderr
+    else:
+        assert completed.returncode == 0, (completed.returncode, completed.stderr)
+        assert not completed.stderr
+
+
+@pytest.mark.parametrize(
+    "old,new,message",
+    [
+        (
+            'interface = "ITransform"',
+            'interface = "ITransform"\ncontext = "callback"\ncontext-index = 0',
+            "block context is compiler-owned",
+        ),
+        ('lifetime = "call"', 'lifetime = "stored"', "unregister"),
+        ('failure = "abort"', 'failure = "ignore"', "failure currently requires abort"),
+        ('executor = "caller"', 'executor = "worker"', "executor currently requires caller"),
+        ('interface = "INotification"', 'interface = "ITransform"', "conflicting native declaration"),
+        ("-[BlockProbe visit:using:].callback", "-[BlockProbe visit:using:].missing", "unknown function parameter"),
+    ],
+)
+def test_objective_c_block_invalid_mapping(objective_c_block_project, native_compile, old, new, message):
+    source = objective_c_block_project
+    manifest = source.parent.parent / "btrc.toml"
+    manifest.write_text(manifest.read_text().replace(old, new))
+    source.write_text("import ./Foundation.btrc;\nint main() { return 0; }\n")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert message in str(compiled.failure) + str(compiled.diagnostics)
+
+
+@pytest.mark.parametrize(
+    "signature,message",
+    [
+        ("NSInteger (^)(char*)", "non-scalar arguments require a borrow mapping"),
+        ("NSInteger (^)(Class)", "protocol/generic/dynamic objects require managed native lowering"),
+        ("NSInteger (^)(id<NSCopying>)", "protocol/generic/dynamic objects require managed native lowering"),
+        ("NSInteger (^)(NSArray<NSString*>*)", "protocol/generic/dynamic objects require managed native lowering"),
+        ("NSInteger (^)(NSString* volatile)", "unsupported Objective-C object qualifiers"),
+        ("NSString* (^)(NSInteger)", "non-scalar results require an ownership mapping"),
+        ("NSInteger (*)(NSInteger)", "Objective-C method callbacks require block parameters"),
+        ("NSInteger (^ volatile)(NSInteger)", "unsupported Objective-C block qualifiers"),
+    ],
+)
+def test_objective_c_block_rejects_unmapped_type(objective_c_block_project, native_compile, signature, message):
+    source = objective_c_block_project
+    header = source.parent.parent / "Foundation.h"
+    header.write_text(header.read_text().replace("NSInteger (^)(NSInteger)", signature))
+    source.write_text("import ./Foundation.btrc;\nint main() { return 0; }\n")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert message in str(compiled.failure) + str(compiled.diagnostics)
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+def test_c_completion_real_webgpu_device(native_project, native_compile, sanitize):
+    source, _sdk, _triple = native_project
+    root = source.parent.parent
+    (root / "src/NativeGPU.btrc").write_text("")
+    (root / "WebGPU.h").write_text("""#include <webgpu.h>
+static inline void ProbeTexture(WGPUDevice device, WGPUSurfaceTexture* output) {
+    WGPUTextureDescriptor descriptor = {0};
+    descriptor.usage = WGPUTextureUsage_CopyDst;
+    descriptor.dimension = WGPUTextureDimension_2D;
+    descriptor.size.width = 8; descriptor.size.height = 4; descriptor.size.depthOrArrayLayers = 1;
+    descriptor.format = WGPUTextureFormat_RGBA8Unorm;
+    descriptor.mipLevelCount = 1; descriptor.sampleCount = 1;
+    output->texture = wgpuDeviceCreateTexture(device, &descriptor);
+    output->status = WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal;
+}
+static inline WGPUShaderModule ProbeShader(WGPUDevice device) {
+    WGPUShaderSourceWGSL source = {0};
+    source.chain.sType = WGPUSType_ShaderSourceWGSL;
+    source.code.data = "@vertex fn main() -> @builtin(position) vec4f { return vec4f(0.0, 0.0, 0.0, 1.0); }";
+    source.code.length = WGPU_STRLEN;
+    WGPUShaderModuleDescriptor descriptor = {0};
+    descriptor.nextInChain = &source.chain;
+    return wgpuDeviceCreateShaderModule(device, &descriptor);
+}
+""")
+    (root / "btrc.toml").write_text("""manifest-version = 1
+[package]
+name = "nativeGPUCompletion"
+[[native.pkg-config]]
+name = "wgpu-native"
+modules = ["NativeGPU"]
+[[native.bindings]]
+module = "NativeGPU"
+header = "WebGPU.h"
+language = "c"
+standard = "c11"
+symbols = ["WGPUInstance", "WGPUAdapter", "WGPUDevice", "WGPUQueue", "WGPUStringView", "WGPUSurface", "WGPURequestAdapterOptions", "wgpuSurfaceAddRef", "wgpuSurfaceRelease",
+"WGPUTexture", "WGPUSurfaceTexture", "wgpuTextureAddRef", "wgpuTextureRelease", "wgpuTextureGetWidth", "wgpuSurfaceGetCurrentTexture", "ProbeTexture", "WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal",
+"WGPUShaderModule", "WGPURenderPipeline", "WGPUPipelineLayout", "WGPUVertexState", "WGPURenderPipelineDescriptor", "WGPUPrimitiveTopology_TriangleList",
+"WGPUDepthStencilState", "WGPUTextureFormat_Depth32Float", "WGPUOptionalBool_False", "WGPUCompareFunction_Always",
+"ProbeShader", "wgpuShaderModuleAddRef", "wgpuShaderModuleRelease", "wgpuDeviceCreateRenderPipeline", "wgpuRenderPipelineAddRef", "wgpuRenderPipelineRelease", "wgpuPipelineLayoutAddRef", "wgpuPipelineLayoutRelease",
+"WGPURequestAdapterCallbackInfo", "WGPURequestDeviceCallbackInfo",
+"wgpuCreateInstance", "wgpuInstanceAddRef", "wgpuInstanceRelease", "wgpuInstanceProcessEvents",
+"wgpuInstanceRequestAdapter", "wgpuAdapterAddRef", "wgpuAdapterRelease", "wgpuAdapterRequestDevice",
+"wgpuDeviceAddRef", "wgpuDeviceRelease", "wgpuDeviceGetQueue", "wgpuQueueAddRef", "wgpuQueueRelease",
+"WGPUCallbackMode_AllowProcessEvents", "WGPURequestAdapterStatus_Success", "WGPURequestDeviceStatus_Success"]
+owned-results = ["wgpuCreateInstance", "wgpuDeviceGetQueue", "ProbeShader", "wgpuDeviceCreateRenderPipeline"]
+borrowed-parameters = ["wgpuInstanceProcessEvents.instance", "wgpuInstanceRequestAdapter.instance", "wgpuAdapterRequestDevice.adapter", "wgpuDeviceGetQueue.device", "ProbeTexture.device", "wgpuTextureGetWidth.texture", "wgpuSurfaceGetCurrentTexture.surface", "ProbeShader.device", "wgpuDeviceCreateRenderPipeline.device"]
+owned-records = ["WGPURequestAdapterCallbackInfo", "WGPURequestDeviceCallbackInfo", "WGPURequestAdapterOptions", "WGPUSurfaceTexture", "WGPUVertexState", "WGPURenderPipelineDescriptor", "WGPUDepthStencilState"]
+record-inputs = ["wgpuInstanceRequestAdapter.callbackInfo", "wgpuAdapterRequestDevice.callbackInfo", "wgpuInstanceRequestAdapter.options", "wgpuDeviceCreateRenderPipeline.descriptor"]
+record-outputs = ["ProbeTexture.output", "wgpuSurfaceGetCurrentTexture.surfaceTexture"]
+owned-output-fields = ["ProbeTexture.output.texture", "wgpuSurfaceGetCurrentTexture.surfaceTexture.texture"]
+null-output-fields = ["ProbeTexture.output.nextInChain", "wgpuSurfaceGetCurrentTexture.surfaceTexture.nextInChain"]
+[native.bindings.object-fields]
+"WGPURenderPipelineDescriptor.depthStencil" = "WGPUDepthStencilState?"
+[native.bindings.resources.WGPUShaderModule]
+ownership = "reference-counted"
+retain = "wgpuShaderModuleAddRef"
+release = "wgpuShaderModuleRelease"
+[native.bindings.resources.WGPURenderPipeline]
+ownership = "reference-counted"
+retain = "wgpuRenderPipelineAddRef"
+release = "wgpuRenderPipelineRelease"
+[native.bindings.resources.WGPUPipelineLayout]
+ownership = "reference-counted"
+retain = "wgpuPipelineLayoutAddRef"
+release = "wgpuPipelineLayoutRelease"
+[native.bindings.resources.WGPUTexture]
+ownership = "reference-counted"
+retain = "wgpuTextureAddRef"
+release = "wgpuTextureRelease"
+[native.bindings.resources.WGPUSurface]
+ownership = "reference-counted"
+retain = "wgpuSurfaceAddRef"
+release = "wgpuSurfaceRelease"
+[native.bindings.resources.WGPUInstance]
+ownership = "reference-counted"
+retain = "wgpuInstanceAddRef"
+release = "wgpuInstanceRelease"
+[native.bindings.resources.WGPUAdapter]
+ownership = "reference-counted"
+retain = "wgpuAdapterAddRef"
+release = "wgpuAdapterRelease"
+[native.bindings.resources.WGPUDevice]
+ownership = "reference-counted"
+retain = "wgpuDeviceAddRef"
+release = "wgpuDeviceRelease"
+[native.bindings.resources.WGPUQueue]
+ownership = "reference-counted"
+retain = "wgpuQueueAddRef"
+release = "wgpuQueueRelease"
+[native.bindings.string-views.WGPUStringView]
+data = "data"
+length = "length"
+null-length = "zero-or-max"
+[native.bindings.callbacks."wgpuInstanceRequestAdapter.callbackInfo"]
+field = "callback"
+context = ["userdata1", "userdata2"]
+context-index = [3, 4]
+interface = "IAdapterCompletion"
+lifetime = "one-shot"
+executor = "caller"
+failure = "abort"
+activation-failure = "abort"
+cancellation = "abandon"
+owned-arguments = [1]
+[native.bindings.callbacks."wgpuAdapterRequestDevice.callbackInfo"]
+field = "callback"
+context = ["userdata1", "userdata2"]
+context-index = [3, 4]
+interface = "IDeviceCompletion"
+lifetime = "one-shot"
+executor = "caller"
+failure = "abort"
+activation-failure = "abort"
+cancellation = "abandon"
+owned-arguments = [1]
+""")
+    source.write_text("""import Library.Callback;
+import ./NativeGPU.btrc;
+class AdapterCompletion implements IAdapterCompletion {
+	public WGPUAdapter? value;
+	public bool delivered = false;
+	public void invoke(WGPURequestAdapterStatus status, WGPUAdapter? adapter, string message) {
+		assert(!self.delivered);
+		if (status != WGPURequestAdapterStatus_Success) { throw message; }
+		self.value = adapter; self.delivered = true;
+	}
+}
+class DeviceCompletion implements IDeviceCompletion {
+	public WGPUDevice? value;
+	public bool delivered = false;
+	public void invoke(WGPURequestDeviceStatus status, WGPUDevice? device, string message) {
+		assert(!self.delivered);
+		if (status != WGPURequestDeviceStatus_Success) { throw message; }
+		self.value = device; self.delivered = true;
+	}
+}
+int main() {
+	var instance = wgpuCreateInstance(null); assert(instance != null);
+	var scope = CallbackScope();
+	var adapter = AdapterCompletion();
+	var adapterInfo = WGPURequestAdapterCallbackInfoInput();
+	adapterInfo.mode = WGPUCallbackMode_AllowProcessEvents; adapterInfo.callback = adapter;
+	var options = WGPURequestAdapterOptionsInput();
+	options.compatibleSurface = null;
+	var adapterRequest = wgpuInstanceRequestAdapter(instance, options, adapterInfo, scope);
+	release adapterInfo;
+	for (int poll = 0; poll < 1000000 && !adapter.delivered; poll++) { wgpuInstanceProcessEvents(instance); }
+	assert(adapter.delivered && adapter.value != null);
+	assert(adapterRequest.request.pollCompletion() == CallbackCancellation.Complete);
+	var device = DeviceCompletion();
+	var deviceInfo = WGPURequestDeviceCallbackInfoInput();
+	deviceInfo.mode = WGPUCallbackMode_AllowProcessEvents; deviceInfo.callback = device;
+	var deviceRequest = wgpuAdapterRequestDevice(adapter.value, null, deviceInfo, scope);
+	release deviceInfo;
+	for (int poll = 0; poll < 1000000 && !device.delivered; poll++) { wgpuInstanceProcessEvents(instance); }
+	assert(device.delivered && device.value != null);
+	assert(deviceRequest.request.pollCompletion() == CallbackCancellation.Complete);
+	var queue = wgpuDeviceGetQueue(device.value); assert(queue != null);
+	var frame = ProbeTexture(device.value);
+	assert(frame.status == WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal && frame.texture != null);
+	var texture = frame.texture; release frame;
+	assert(wgpuTextureGetWidth(texture) == (uint32_t)8); release texture;
+	var vertex = WGPUVertexStateInput(); vertex.module = ProbeShader(device.value); assert(vertex.module != null);
+	vertex.entryPoint.length = (size_t)(-1); // SDK absent entry-point sentinel; select the only vertex entry.
+	var pipelineInfo = WGPURenderPipelineDescriptorInput(); pipelineInfo.vertex = vertex;
+	var depth = WGPUDepthStencilStateInput(); depth.format = WGPUTextureFormat_Depth32Float;
+	depth.depthWriteEnabled = WGPUOptionalBool_False; depth.depthCompare = WGPUCompareFunction_Always;
+	pipelineInfo.depthStencil = depth; release depth;
+	pipelineInfo.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+	pipelineInfo.multisample.count = (uint32_t)1; pipelineInfo.multisample.mask = (uint32_t)0xffffffff;
+	release vertex;
+	var pipeline = wgpuDeviceCreateRenderPipeline(device.value, pipelineInfo); assert(pipeline != null);
+	release pipelineInfo; release pipeline;
+	assert(scope.cancel() == CallbackCancellation.Complete);
+	release queue; device.value = null; adapter.value = null;
+	print("PASS: real WebGPU adapter/device completion through managed bindings");
+	return 0;
+}
+""")
+    plan = root / "Device.link.json"
+    result = native_compile(source, plan_path=plan)
+    assert result.successful, (result.failure, result.diagnostics)
+    assert "btrc_gpu_async" not in result.c_source
+    generated = root / "Device.c"
+    generated.write_text(result.c_source)
+
+    def runner(command, **kwargs):
+        flags = ["-O2"] if Path(command[0]).name in {"clang", "clang++"} else []
+        if flags and sanitize:
+            flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    executable = root / "Device"
+    NativePlanBuilder(runner=runner).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, (completed.stdout, completed.stderr)
+    assert "PASS: real WebGPU" in completed.stdout
+    assert "ERROR: AddressSanitizer" not in completed.stderr
+
+
+@pytest.mark.parametrize("conflict", [False, True])
+def test_objective_c_block_method_union(objective_c_block_project, native_compile, conflict):
+    source = objective_c_block_project
+    manifest = source.parent.parent / "btrc.toml"
+    text = manifest.read_text()
+    binding = text.split("[[native.bindings]]", 1)[1].split("[[native.sources]]", 1)[0]
+    binding = binding.replace('module = "Foundation"', 'module = "Other"')
+    if conflict:
+        binding = binding.replace('interface = "ITransform"', 'interface = "IOtherTransform"')
+    manifest.write_text(text + "\n[[native.bindings]]" + binding)
+    (source.parent / "Other.btrc").write_text("")
+    source.write_text(
+        "import ./Foundation.btrc;\nimport ./Other.btrc;\n"
+        "class Visitor implements ITransform { public long invoke(long value) { return value; } }\n"
+        "int main() { var visitor = Visitor(); return BlockProbe.pair(visitor, visitor) == 7 ? 0 : 1; }\n"
+    )
+    compiled = native_compile(source)
+    if conflict:
+        assert not compiled.successful
+        assert "conflicting native declaration" in str(compiled.failure) + str(compiled.diagnostics)
+    else:
+        assert compiled.successful, (compiled.failure, compiled.diagnostics)
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+def test_objective_c_block_native_failure_cleanup(objective_c_block_project, native_compile, sanitize):
+    source = objective_c_block_project
+    root = source.parent.parent
+    native = root / "Probe.m"
+    native.write_text(
+        native.read_text().replace(
+            "callback(); return [self new];",
+            'callback(); @throw [NSException exceptionWithName:@"ProbeFailure" reason:@"native failure" userInfo:nil];',
+        )
+    )
+    source.write_text("""import ./Foundation.btrc;
+#include <assert.h>
+int delivered = 0;
+int destroyed = 0;
+class Notification implements INotification {
+	public void invoke() { delivered++; }
+	public void __del__() { destroyed++; }
+}
+int main() {
+	bool caught = false;
+	try { var value = BlockProbe.newResultUsing(Notification()); }
+	catch (string message) { caught = message == "Objective-C exception in +[BlockProbe newResultUsing:]"; }
+	assert(caught); assert(delivered == 1); assert(destroyed == 1); assert(BlockProbe.live() == 0);
+	return 0;
+}
+""")
+    plan = root / "Program.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "Program.c"
+    generated.write_text(compiled.c_source)
+
+    def run(command, **kwargs):
+        flags = ["-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"] if sanitize else ["-O2"]
+        if "objective-c" in command:
+            flags.append("-fobjc-arc")
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    executable = root / "Program"
+    NativePlanBuilder(runner=run).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], env=apple_environment(), capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, completed.stderr
+    assert not completed.stderr
+
+
+@pytest.fixture
+def objective_c_object_block_project(native_project):
+    source, _, _ = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").write_text("""#import <Foundation/Foundation.h>
+@interface Payload : NSObject
++ (NSInteger)live;
++ (NSInteger)destroyed;
++ (void)discard;
++ (void)visit:(void (^ _Nonnull)(Payload* _Nonnull, Payload* _Nonnull, Payload* _Nullable))callback;
+- (NSInteger)number;
+@end
+""")
+    (root / "Probe.m").write_text("""#import "Foundation.h"
+static Payload* current;
+static NSInteger live, destroyed;
+@implementation Payload
+- (instancetype)init { self = [super init]; if (self) ++live; return self; }
+- (void)dealloc { --live; ++destroyed; }
++ (NSInteger)live { return live; }
++ (NSInteger)destroyed { return destroyed; }
++ (void)discard { current = nil; }
++ (void)visit:(void (^)(Payload*, Payload*, Payload*))callback {
+    current = [self new];
+    __unsafe_unretained Payload* borrowed = current;
+    callback(borrowed, borrowed, nil);
+}
+- (NSInteger)number { return 41; }
+@end
+""")
+    symbols = [
+        "+[Payload live]",
+        "+[Payload destroyed]",
+        "+[Payload discard]",
+        "+[Payload visit:]",
+        "-[Payload number]",
+        "+[NSMutableArray new]",
+        "-[NSMutableArray addObject:]",
+        "-[NSMutableArray objectAtIndex:]",
+        "-[NSMutableArray sortUsingComparator:]",
+        "+[NSString stringWithUTF8String:]",
+    ]
+    (root / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "objectBlocks"\n'
+        '[[native.bindings]]\nmodule = "Foundation"\nheader = "Foundation.h"\n'
+        'language = "objective-c"\nstandard = "c11"\n'
+        f"symbols = {json.dumps(symbols)}\n"
+        '[native.bindings.callbacks."+[Payload visit:].callback"]\n'
+        'interface = "IReceiver"\nlifetime = "call"\nfailure = "abort"\nexecutor = "caller"\n'
+        '[native.bindings.callbacks."-[NSMutableArray sortUsingComparator:].cmptr"]\n'
+        'interface = "IComparator"\nlifetime = "call"\nfailure = "abort"\nexecutor = "caller"\n'
+        '[[native.sources]]\npath = "Probe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+        '[[native.frameworks]]\nname = "Foundation"\n'
+    )
+    (source.parent / "Foundation.btrc").write_text("")
+    return source
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize("scenario", ["borrow", "retain", "sdk", "nonnull", "failure"])
+def test_objective_c_block_object_inputs(objective_c_object_block_project, native_compile, sanitize, scenario):
+    source = objective_c_object_block_project
+    root = source.parent.parent
+    body = """
+class Receiver implements IReceiver {
+	public Payload? saved;
+	private bool save;
+	public Receiver(bool save) { self.save = save; }
+	public void invoke(Payload value, Payload alias, Payload? optional) {
+		assert(value == alias); assert(optional == null);
+		Payload.discard(); assert(Payload.live() == 1); assert(Payload.destroyed() == 0);
+		assert(value.number() == 41); assert(alias.number() == 41);
+		if (self.save) { self.saved = value; }
+	}
+}
+int main() {
+	var receiver = Receiver(SAVE);
+	Payload.visit(receiver);
+	assert(Payload.live() == (SAVE ? 1 : 0));
+	if (SAVE) { assert(receiver.saved.number() == 41); receiver.saved = null; }
+	assert(Payload.live() == 0); assert(Payload.destroyed() == 1); return 0;
+}
+""".replace("SAVE", "true" if scenario == "retain" else "false")
+    if scenario == "nonnull":
+        native = root / "Probe.m"
+        native.write_text(
+            native.read_text().replace("callback(borrowed, borrowed, nil)", "callback(borrowed, nil, nil)")
+        )
+    if scenario == "failure":
+        body = body.replace("if (self.save) { self.saved = value; }", 'throw "object callback failure";')
+    if scenario == "sdk":
+        body = """
+int comparisons = 0;
+int destroyed = 0;
+class Comparator implements IComparator {
+	private id? low;
+	private id? high;
+	public Comparator(id? low, id? high) { self.low = low; self.high = high; }
+	public long invoke(id left, id right) {
+		comparisons++;
+		if (left == right) { return 0; }
+		return left == self.low || right == self.high ? -1 : 1;
+	}
+	public void __del__() { destroyed++; }
+}
+int main() {
+	char a[8]; strcpy(a, "a"); char b[8]; strcpy(b, "b"); char c[8]; strcpy(c, "c");
+	id? low = NSString.stringWithUTF8String(a); id? middle = NSString.stringWithUTF8String(b); id? high = NSString.stringWithUTF8String(c);
+	var array = NSMutableArray.new();
+	if (array == null || low == null || middle == null || high == null) { return 1; }
+	array.addObject(high); array.addObject(low); array.addObject(middle);
+	array.sortUsingComparator(Comparator(low, high));
+	assert(comparisons > 0); assert(destroyed == 1);
+	assert(array.objectAtIndex(0) == low); assert(array.objectAtIndex(1) == middle); assert(array.objectAtIndex(2) == high);
+	return 0;
+}
+"""
+    source.write_text("import ./Foundation.btrc;\n#include <assert.h>\n" + body)
+    plan = root / "Program.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    reference = compile_source(source)
+    assert reference.successful, reference.failure
+    assert json.loads(plan.read_text()) == reference.native_plan.as_dict()
+    generated = root / "Program.c"
+    generated.write_text(compiled.c_source)
+
+    def run(command, **kwargs):
+        flags = ["-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"] if sanitize else ["-O2"]
+        if "objective-c" in command:
+            flags.append("-fobjc-arc")
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    executable = root / "Program"
+    NativePlanBuilder(runner=run).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], env=apple_environment(), capture_output=True, text=True, timeout=30)
+    if scenario in {"nonnull", "failure"}:
+        assert completed.returncode != 0
+        assert ("null argument 1" if scenario == "nonnull" else "object callback failure") in completed.stderr
+    else:
+        assert completed.returncode == 0, (completed.returncode, completed.stderr)
+        assert not completed.stderr
+
+
 @pytest.mark.parametrize("sanitized", [False, True])
 def test_native_callback_reentrancy_and_indirect_call(callback_project, native_compile, sanitized):
     source, sdk, triple = callback_project
@@ -450,7 +2233,7 @@ int main() {
         ('context = "context"', 'context = "missing"', "context must identify one"),
         ("context-index = 1", "context-index = 9", "context-index is outside"),
         ("context-index = 1", "context-index = 0", "context must be an unqualified void pointer"),
-        ('lifetime = "call"', 'lifetime = "stored"', "lifetime currently requires call"),
+        ('lifetime = "call"', 'lifetime = "stored"', "stored callbacks currently require Objective-C blocks"),
         ('failure = "abort"', 'failure = "ignore"', "failure currently requires abort"),
         ('executor = "caller"', 'executor = "worker"', "executor currently requires caller"),
         ('interface = "IVisitor"', 'interface = "VisitNow"', "interface conflicts"),
@@ -498,6 +2281,402 @@ def resource_project(native_project):
     )
     (source.parent / "Foundation.btrc").write_text("// Checked native resource API.\n", encoding="utf-8")
     return source, sdk, triple
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize("returns_status", [False, True])
+@pytest.mark.parametrize("output_first", [False, True])
+def test_record_output_adopts_resource(resource_project, native_compile, sanitize, returns_status, output_first):
+    source, sdk, triple = resource_project
+    root = source.parent.parent
+    header = root / "Foundation.h"
+    parameters = "Frame* frame, int value" if output_first else "int value, Frame* frame"
+    header.write_text(
+        header.read_text()
+        + "typedef struct Frame { void* next; WidgetRef widget; WidgetRef auxiliary; int status; } Frame;\n"
+        + f"static {'int' if returns_status else 'void'} AcquireFrame({parameters}) {{\n"
+        + " assert(frame && !frame->next && !frame->widget && !frame->auxiliary);\n"
+        + " frame->widget = WidgetCreate(value); frame->auxiliary = WidgetCreate(42); frame->status = value;\n"
+        + (" return value;\n" if returns_status else "")
+        + "}\n"
+    )
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        .replace('symbols = ["WidgetRef"', 'symbols = ["Frame", "AcquireFrame", "WidgetRef"')
+        .replace(
+            "[native.bindings.resources.WidgetRef]",
+            'owned-records = ["Frame"]\nrecord-outputs = ["AcquireFrame.frame"]\n'
+            'owned-output-fields = ["AcquireFrame.frame.widget", "AcquireFrame.frame.auxiliary"]\n'
+            'null-output-fields = ["AcquireFrame.frame.next"]\n[native.bindings.resources.WidgetRef]',
+        )
+    )
+    source.write_text(
+        "import ./Foundation.btrc;\n"
+        + (
+            "FrameOutput acquireValue(int value) { var acquire = AcquireFrame; var result = acquire(value); assert(result._0 == value); return result._1; }\n"
+            if returns_status
+            else ""
+        )
+        + "int main() {\n"
+        + f"\tvar acquire = {'acquireValue' if returns_status else 'AcquireFrame'};\n"
+        + "\tfor (int index = 0; index < 40; index++) {\n"
+        + "\t\tint value = index % 2 == 0 ? 17 : -1;\n"
+        + "\t\tvar frame = acquire(value);\n"
+        + "\t\tassert(frame.status == value && WidgetRead(frame.auxiliary) == 42);\n"
+        + "\t\tif (value < 0) { assert(frame.widget == null && WidgetLive() == 1); }\n"
+        + "\t\telse { assert(WidgetRead(frame.widget) == 17 && WidgetLive() == 2); }\n"
+        + "\t\tvar retained = frame.auxiliary; release frame; assert(WidgetLive() == 1);\n"
+        + "\t\trelease retained; assert(WidgetLive() == 0);\n\t}\n"
+        + "\tassert(WidgetDestroyed() == 60); bool caught = false;\n"
+        + '\ttry { var extra = acquire(5); assert(extra.status == 5 && WidgetLive() == 2); throw "expected"; }\n'
+        + '\tcatch (string error) { caught = error == "expected"; }\n'
+        + "\tassert(caught && WidgetLive() == 0 && WidgetDestroyed() == 62);\n"
+        + "\tAcquireFrame(5); assert(WidgetLive() == 0 && WidgetDestroyed() == 64); return 0;\n}\n"
+    )
+    compiled = native_compile(source)
+    if returns_status:
+        assert not compiled.successful and not compiled.c_source
+        assert "managed tuple cleanup is not supported" in str(compiled.failure) + str(compiled.diagnostics)
+        return
+    assert compiled.successful, str(compiled.failure) + str(compiled.diagnostics)
+    run_native_executable(compiled.c_source, root, sdk, triple, sanitize, frameworks=())
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "missing-owned",
+        "unknown-owned",
+        "missing-null",
+        "unknown-null",
+        "null-scalar",
+        "duplicate",
+        "const-output",
+        "unknown-parameter",
+        "hidden-pointer",
+        "nonnull-chain",
+    ],
+)
+def test_record_output_requires_complete_mapping(resource_project, native_compile, scenario):
+    source, sdk, triple = resource_project
+    root = source.parent.parent
+    header = root / "Foundation.h"
+    function = (
+        "static void AcquireFrame(const Frame* frame) { (void)frame; }\n"
+        if scenario == "const-output"
+        else "static void AcquireFrame(Frame* frame) { frame->widget = WidgetCreate(17); frame->status = 1;"
+        + (" frame->next = frame;" if scenario == "nonnull-chain" else "")
+        + " }\n"
+    )
+    header.write_text(
+        header.read_text() + "typedef struct Frame { void* next; WidgetRef widget; int status; } Frame;\n" + function
+    )
+    mappings = 'owned-records = ["Frame"]\nrecord-outputs = ["AcquireFrame.frame"]\nowned-output-fields = ["AcquireFrame.frame.widget"]\nnull-output-fields = ["AcquireFrame.frame.next"]\n'
+    replacements = {
+        "missing-owned": ('owned-output-fields = ["AcquireFrame.frame.widget"]', "owned-output-fields = []"),
+        "unknown-owned": (
+            'owned-output-fields = ["AcquireFrame.frame.widget"]',
+            'owned-output-fields = ["AcquireFrame.frame.widget", "AcquireFrame.frame.status"]',
+        ),
+        "missing-null": ('null-output-fields = ["AcquireFrame.frame.next"]', "null-output-fields = []"),
+        "unknown-null": (
+            'null-output-fields = ["AcquireFrame.frame.next"]',
+            'null-output-fields = ["AcquireFrame.frame.next", "AcquireFrame.frame.missing"]',
+        ),
+        "null-scalar": (
+            'null-output-fields = ["AcquireFrame.frame.next"]',
+            'null-output-fields = ["AcquireFrame.frame.next", "AcquireFrame.frame.status"]',
+        ),
+        "duplicate": (
+            'record-outputs = ["AcquireFrame.frame"]',
+            'record-outputs = ["AcquireFrame.frame", "AcquireFrame.frame"]',
+        ),
+        "unknown-parameter": ("AcquireFrame.frame", "AcquireFrame.missing"),
+    }
+    if scenario in replacements:
+        mappings = mappings.replace(*replacements[scenario])
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        .replace('symbols = ["WidgetRef"', 'symbols = ["Frame", "AcquireFrame", "WidgetRef"')
+        .replace("[native.bindings.resources.WidgetRef]", mappings + "[native.bindings.resources.WidgetRef]")
+    )
+    source.write_text(
+        "import ./Foundation.btrc;\nint main() { var frame = AcquireFrame(); "
+        + ("assert(frame.next == null); " if scenario == "hidden-pointer" else "assert(frame.status == 1); ")
+        + "return 0; }\n"
+    )
+    plan = root / "Invalid.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    if scenario == "nonnull-chain":
+        assert compiled.successful, str(compiled.failure)
+        run_native_executable(
+            compiled.c_source, root, sdk, triple, True, frameworks=(), expected_failure="nonnull output next"
+        )
+        return
+    assert not compiled.successful and not compiled.c_source and not plan.exists()
+    message = {
+        "missing-owned": "owned-output-fields must declare every resource field exactly",
+        "unknown-owned": "owned-output-fields must declare every resource field exactly",
+        "missing-null": "record-outputs requires null-output-fields",
+        "unknown-null": "null-output-fields names an unknown field",
+        "null-scalar": "null-output-fields requires unmanaged pointer fields",
+        "duplicate": "record-outputs",
+        "const-output": "record-outputs requires a mutable pointer",
+        "unknown-parameter": "resource-bearing record parameters require record-inputs",
+        "hidden-pointer": "next",
+    }[scenario]
+    assert message in str(compiled.failure) + str(compiled.diagnostics)
+
+
+@pytest.mark.parametrize("by_value", [False, True])
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize("replace", [False, True])
+@pytest.mark.parametrize("nested", [False, True, "value", "mixed"])
+def test_record_input_preserves_managed_resource(resource_project, native_compile, by_value, sanitize, replace, nested):
+    source, sdk, triple = resource_project
+    root = source.parent.parent
+    header = root / "Foundation.h"
+    access = (
+        ("config." if by_value else "config->")
+        + ("inner.child->" if nested == "mixed" else "child." if nested == "value" else "child->" if nested else "")
+        + "widget"
+    )
+    record = "Packet" if nested == "mixed" else "Envelope" if nested else "Config"
+    parameter = f"{record} config" if by_value else f"const {record}* config"
+    header.write_text(
+        header.read_text()
+        + "typedef struct Config { WidgetRef widget; int expected; } Config;\n"
+        + (
+            f"typedef struct Envelope {{ {'Config' if nested == 'value' else 'const Config*'} child; }} Envelope;\n"
+            if nested
+            else ""
+        )
+        + ("typedef struct Packet { Envelope inner; } Packet;\n" if nested == "mixed" else "")
+        + f"static int ObserveConfig({parameter}, int (*callback)(void*), void* context) {{\n"
+        + f" WidgetRef value = {access}; assert(value && WidgetRead(value) == 17);\n"
+        + " callback(context); assert(WidgetRead(value) == 17); return 17;\n}\n"
+    )
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        .replace('symbols = ["WidgetRef"', 'symbols = ["Config", "ObserveConfig", "WidgetRef"')
+        .replace(
+            "[native.bindings.resources.WidgetRef]",
+            'owned-records = ["Config"]\nrecord-inputs = ["ObserveConfig.config"]\n[native.bindings.resources.WidgetRef]',
+        )
+        + '[native.bindings.callbacks."ObserveConfig.callback"]\ncontext = "context"\ncontext-index = 0\n'
+        + 'interface = "IObserver"\nlifetime = "call"\nfailure = "abort"\nexecutor = "caller"\n'
+    )
+    if nested:
+        manifest.write_text(
+            manifest.read_text()
+            .replace('symbols = ["Config",', 'symbols = ["Envelope", "Config",')
+            .replace('owned-records = ["Config"]', 'owned-records = ["Config", "Envelope"]')
+            + ('\n[native.bindings.object-fields]\n"Envelope.child" = "Config"\n' if nested != "value" else "")
+        )
+    if nested == "mixed":
+        manifest.write_text(
+            manifest.read_text()
+            .replace('symbols = ["Envelope",', 'symbols = ["Packet", "Envelope",')
+            .replace('owned-records = ["Config", "Envelope"]', 'owned-records = ["Packet", "Config", "Envelope"]')
+        )
+    source.write_text(
+        "import ./Foundation.btrc;\n"
+        "class Observer implements IObserver {\n"
+        "\tpublic ConfigInput config;\n\tpublic Observer(ConfigInput config) { self.config = config; }\n"
+        "\tpublic int invoke() {\n"
+        + f"\t\tself.config.widget = {'WidgetCreate(42)' if replace else 'null'};\n"
+        + f"\t\tassert(WidgetLive() == {2 if replace else 1} && WidgetDestroyed() == 0);\n"
+        + "\t\treturn 0;\n\t}\n}\n"
+        + "int main() {\n\tvar config = ConfigInput(); config.widget = WidgetCreate(17); config.expected = 17;\n"
+        + "\tassert(WidgetLive() == 1); var observe = ObserveConfig;\n"
+        + ("\tvar envelope = EnvelopeInput(); envelope.child = config;\n" if nested else "")
+        + ("\tvar packet = PacketInput(); packet.inner = envelope;\n" if nested == "mixed" else "")
+        + f"\tassert(observe({'packet' if nested == 'mixed' else 'envelope' if nested else 'config'}, Observer(config)) == 17);\n"
+        + f"\tassert(WidgetDestroyed() == 1 && WidgetLive() == {1 if replace else 0});\n"
+        + ("\trelease packet;\n" if nested == "mixed" else "")
+        + ("\trelease envelope;\n" if nested else "")
+        + "\trelease config;\n"
+        + f"\tassert(WidgetLive() == 0 && WidgetDestroyed() == {2 if replace else 1});\n"
+        + "\treturn 0;\n}\n"
+    )
+    compiled = native_compile(source)
+    assert compiled.successful, str(compiled.failure)
+    run_native_executable(compiled.c_source, root, sdk, triple, sanitize, frameworks=())
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    ["explicit", "missing-owner", "nullable", "wrong-record", "prefix-record", "const", "array", "missing-child"],
+)
+def test_record_input_embedded_mapping(resource_project, native_compile, scenario):
+    source, sdk, triple = resource_project
+    root = source.parent.parent
+    field = (
+        "const Config child" if scenario == "const" else "Config child[2]" if scenario == "array" else "Config child"
+    )
+    header = root / "Foundation.h"
+    header.write_text(
+        header.read_text()
+        + "#include <stdio.h>\n"
+        + "typedef struct Config { WidgetRef widget; } Config;\n"
+        + "typedef struct Other { Config prefix; int extra; } Other;\n"
+        + f"typedef struct Envelope {{ {field}; }} Envelope;\n"
+        + 'static void ObserveConfig(const Envelope* config) { (void)config; fprintf(stderr, "native body reached\\n"); }\n'
+    )
+    records = ["Envelope"] if scenario == "missing-owner" else ["Config", "Envelope", "Other"]
+    mappings = {
+        "explicit": "Config",
+        "nullable": "Config?",
+        "wrong-record": "Other",
+        "prefix-record": "Other",
+        "const": "Config",
+        "array": "Config",
+    }
+    if scenario == "wrong-record":
+        header.write_text(header.read_text().replace("Config prefix; int extra;", "int extra;"))
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        .replace('symbols = ["WidgetRef"', 'symbols = ["Config", "Other", "Envelope", "ObserveConfig", "WidgetRef"')
+        .replace(
+            "[native.bindings.resources.WidgetRef]",
+            f'owned-records = {json.dumps(records)}\nrecord-inputs = ["ObserveConfig.config"]\n[native.bindings.resources.WidgetRef]',
+        )
+        + (
+            f'\n[native.bindings.object-fields]\n"Envelope.child" = "{mappings[scenario]}"\n'
+            if scenario in mappings
+            else ""
+        )
+    )
+    source.write_text(
+        "import ./Foundation.btrc;\nint main() { var envelope = EnvelopeInput();\n"
+        + (
+            "var child = ConfigInput(); child.widget = WidgetCreate(17); envelope.child = child; release child;\n"
+            if scenario != "missing-child"
+            else ""
+        )
+        + "ObserveConfig(envelope); release envelope; assert(WidgetLive() == 0 && WidgetDestroyed() == 1); return 0; }\n"
+    )
+    compiled = native_compile(source)
+    if scenario in {"explicit", "missing-child"}:
+        assert compiled.successful, (compiled.failure, compiled.diagnostics)
+        run_native_executable(
+            compiled.c_source,
+            root,
+            sdk,
+            triple,
+            True,
+            frameworks=(),
+            expected_failure="null input config.child" if scenario == "missing-child" else None,
+        )
+        return
+    assert not compiled.successful and not compiled.c_source
+    diagnostic = {
+        "missing-owner": "resource storage requires a checked managed call boundary",
+        "nullable": "embedded record input cannot be nullable",
+        "wrong-record": "incompatible projected record value",
+        "prefix-record": "incompatible projected record value",
+        "const": "assignable non-array fields",
+        "array": "assignable non-array fields",
+    }[scenario]
+    assert diagnostic in str(compiled.failure) + str(compiled.diagnostics)
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    ["raw-read", "raw-write", "unmapped-input", "output-value", "output-pointer", "const", "volatile", "override"],
+)
+def test_record_input_rejects_unmanaged_resource_storage(resource_project, native_compile, scenario):
+    source, _sdk, _triple = resource_project
+    root = source.parent.parent
+    header = root / "Foundation.h"
+    field = (
+        "WidgetRef const widget"
+        if scenario == "const"
+        else "WidgetRef volatile widget"
+        if scenario == "volatile"
+        else "WidgetRef widget"
+    )
+    declaration = (
+        "Config Inspect(void);"
+        if scenario == "output-value"
+        else "const Config* Inspect(void);"
+        if scenario == "output-pointer"
+        else "int Inspect(const Config* config);"
+    )
+    header.write_text(header.read_text() + f"typedef struct Config {{ {field}; int marker; }} Config;\n{declaration}\n")
+    manifest = root / "btrc.toml"
+    text = manifest.read_text().replace('symbols = ["WidgetRef"', 'symbols = ["Config", "Inspect", "WidgetRef"')
+    mappings = 'owned-records = ["Config"]\n'
+    if scenario not in {"unmapped-input", "output-value", "output-pointer"}:
+        mappings += 'record-inputs = ["Inspect.config"]\n'
+    text = text.replace("[native.bindings.resources.WidgetRef]", mappings + "[native.bindings.resources.WidgetRef]")
+    if scenario == "override":
+        text += '\n[native.bindings.object-fields]\n"Config.widget" = "WidgetRef?"\n'
+    manifest.write_text(text)
+    body = (
+        "Config config = {0}; WidgetRef? widget = config.widget;"
+        if scenario == "raw-read"
+        else "Config config = {0}; config.widget = WidgetCreate(17);"
+        if scenario == "raw-write"
+        else ""
+    )
+    source.write_text(f"import ./Foundation.btrc;\nint main() {{ {body} return 0; }}\n")
+    plan = root / "Invalid.link.json"
+    result = native_compile(source, plan_path=plan)
+    assert not result.successful and not result.c_source
+    diagnostic = {
+        "raw-read": "'widget'",
+        "raw-write": "'widget'",
+        "unmapped-input": "resource-bearing record parameters require record-inputs",
+        "output-value": "resource-bearing record results require a checked output ownership mapping",
+        "output-pointer": "resource-bearing record results require a checked output ownership mapping",
+        "const": "owning resource fields require assignable storage",
+        "volatile": "resource qualifiers require managed native lowering",
+        "override": "resource field type/nullability comes from its SDK declaration",
+    }[scenario]
+    reported = str(result.failure) + " ".join(item.message for item in result.diagnostics)
+    assert diagnostic in reported, reported
+    assert not plan.exists()
+
+
+@pytest.mark.parametrize("required", [False, True])
+def test_record_input_resource_nullability(resource_project, native_compile, required):
+    source, sdk, triple = resource_project
+    root = source.parent.parent
+    header = root / "Foundation.h"
+    header.write_text(
+        '#pragma clang diagnostic ignored "-Wnullability-extension"\n'
+        + header.read_text()
+        .replace("WidgetRef WidgetCreate", "WidgetRef _Nullable WidgetCreate")
+        .replace("WidgetRef widget)", "WidgetRef _Nonnull widget)")
+        + f"typedef struct Config {{ WidgetRef {'_Nonnull' if required else '_Nullable'} widget; }} Config;\n"
+        + "static int Inspect(Config config) { return config.widget == NULL ? 0 : WidgetRead(config.widget); }\n"
+    )
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        .replace('symbols = ["WidgetRef"', 'symbols = ["Config", "Inspect", "WidgetRef"')
+        .replace(
+            "[native.bindings.resources.WidgetRef]",
+            'owned-records = ["Config"]\nrecord-inputs = ["Inspect.config"]\n[native.bindings.resources.WidgetRef]',
+        )
+    )
+    source.write_text("import ./Foundation.btrc;\nint main() { var config = ConfigInput(); return Inspect(config); }\n")
+    result = native_compile(source)
+    assert result.successful, str(result.failure)
+    run_native_executable(
+        result.c_source,
+        root,
+        sdk,
+        triple,
+        True,
+        frameworks=(),
+        expected_failure="null input config.widget" if required else None,
+    )
 
 
 @pytest.mark.parametrize("indirect", [False, True])
@@ -1117,7 +3296,9 @@ def test_native_gpu_child_renders_and_reads_pixels(native_project, native_compil
     plan = root / "Program.link.json"
     compiled = native_compile(root / "Main.btrc", plan_path=plan)
     assert compiled.successful, str(compiled.failure) + "\n" + "\n".join(str(item) for item in compiled.diagnostics)
+    assert not compiled.failure and not compiled.diagnostics, "native GPU consumer must compile without warnings"
     assert "btrc_gpu_compute_internal.h" not in compiled.c_source
+    assert "btrc_gpu_async" not in compiled.c_source
     generated = root / "Program.c"
     generated.write_text(compiled.c_source)
     executable = root / "Program"
@@ -1139,6 +3320,1619 @@ def test_native_gpu_child_renders_and_reads_pixels(native_project, native_compil
     assert completed.stdout.count("headerInk=") == 3
 
 
+@pytest.fixture(params=[False, True], ids=["context-last", "context-first"])
+def c_one_shot_project(native_project, request):
+    source, _sdk, _triple = native_project
+    root = source.parent.parent
+    (root / "Completion.h").write_text(
+        "#include <assert.h>\n#include <pthread.h>\n"
+        "typedef void (*Completion)(int, void*);\n"
+        "static Completion pending; static void *pendingContext;\n"
+        "static inline void FinishNow(int value, Completion completion, void *context) { completion(value, context); }\n"
+        "static inline void FinishLater(int value, Completion completion, void *context) { "
+        "assert(value == 7 && !pending); pending = completion; pendingContext = context; }\n"
+        "static inline void Drain(void) { assert(pending); Completion callback = pending; void *context = pendingContext; "
+        "pending = 0; pendingContext = 0; callback(7, context); }\n"
+        "static inline void *Worker(void *unused) { (void)unused; Drain(); return 0; }\n"
+        "static inline void DrainOnWorker(void) { pthread_t worker; assert(pthread_create(&worker, 0, Worker, 0) == 0); "
+        "assert(pthread_join(worker, 0) == 0); }\n"
+        "static inline void DrainTwice(void) { Completion callback = pending; void *context = pendingContext; "
+        "Drain(); callback(7, context); }\n"
+    )
+    (root / "src/Completion.btrc").write_text("")
+    (root / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "cCompletion"\n'
+        '[[native.bindings]]\nmodule = "Completion"\nheader = "Completion.h"\n'
+        'language = "c"\nstandard = "c11"\nsymbols = ["FinishNow", "FinishLater", "Drain", "DrainOnWorker", "DrainTwice"]\n'
+        + "".join(
+            f'[native.bindings.callbacks."{function}.completion"]\n'
+            'interface = "ICompletion"\ncontext = "context"\ncontext-index = 1\n'
+            'lifetime = "one-shot"\nfailure = "abort"\nexecutor = "caller"\n'
+            'activation-failure = "abort"\ncancellation = "abandon"\n'
+            for function in ("FinishNow", "FinishLater")
+        )
+    )
+    source.write_text("""import Library.Callback;
+import ./Completion.btrc;
+int delivered = 0;
+int destroyed = 0;
+class Receiver implements ICompletion {
+    public CallbackScope? scope;
+    public bool fail = false;
+    public void invoke(int value) {
+        assert(value == 7); delivered++;
+        if (self.fail) { throw "C completion receiver failed"; }
+        if (self.scope != null) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+    }
+    public void __del__() { destroyed++; }
+}
+void verify(bool inlineCall, bool cancel) {
+    int before = delivered;
+    int freed = destroyed;
+    var scope = CallbackScope();
+    var receiver = Receiver();
+    var request = inlineCall ? FinishNow(7, receiver, scope) : FinishLater(7, receiver, scope);
+    receiver = null;
+    if (!inlineCall) {
+        if (cancel) { assert(scope.cancel() == CallbackCancellation.Pending); }
+        assert(destroyed == freed);
+        Drain();
+    }
+    assert(request.pollCompletion() == CallbackCancellation.Complete);
+    assert(delivered == before + ((!inlineCall && cancel) ? 0 : 1));
+    assert(destroyed == freed + 1);
+    assert(scope.cancel() == CallbackCancellation.Complete);
+}
+int main() {
+    verify(true, false); verify(false, false); verify(false, true);
+    int freed = destroyed;
+    int before = delivered;
+    var abandoned = CallbackScope();
+    FinishLater(7, Receiver(), abandoned);
+    assert(abandoned.cancel() == CallbackCancellation.Pending);
+    assert(destroyed == freed);
+    Drain();
+    assert(destroyed == freed + 1 && delivered == before);
+    assert(abandoned.pollCompletion() == CallbackCancellation.Complete);
+    var scope = CallbackScope();
+    var receiver = Receiver();
+    receiver.scope = scope;
+    var request = FinishNow(7, receiver, scope);
+    receiver = null;
+    assert(request.pollCompletion() == CallbackCancellation.Complete);
+    assert(destroyed == freed + 2 && delivered == before + 1);
+    var cancelled = CallbackScope();
+    cancelled.cancel();
+    bool rejected = false;
+    try { FinishLater(7, Receiver(), cancelled); } catch (string error) { rejected = true; }
+    assert(rejected && destroyed == freed + 3);
+    print("PASS: C one-shot native completion and cancellation");
+    return 0;
+}
+""")
+    if request.param:
+        header = root / "Completion.h"
+        header.write_text(
+            header.read_text()
+            .replace("(*Completion)(int, void*)", "(*Completion)(void*, int)")
+            .replace(
+                "int value, Completion completion, void *context", "void *context, int value, Completion completion"
+            )
+            .replace("completion(value, context)", "completion(context, value)")
+            .replace("callback(7, context)", "callback(context, 7)")
+        )
+        manifest = root / "btrc.toml"
+        manifest.write_text(manifest.read_text().replace("context-index = 1", "context-index = 0"))
+    return source
+
+
+@pytest.fixture
+def c_record_completion_project(c_one_shot_project):
+    source = c_one_shot_project
+    root = source.parent.parent
+    header = root / "Completion.h"
+    content = header.read_text()
+    end = content.index(";", content.index("typedef void (*Completion)")) + 1
+    content = (
+        content[:end]
+        + "\ntypedef struct Info { int marker; Completion completion; void* context; } Info;"
+        + content[end:]
+    )
+    content = content.replace("int value, Completion completion, void *context", "int value, Info info")
+    content = content.replace("void *context, int value, Completion completion", "int value, Info info")
+    content = content.replace(
+        "completion(value, context);", "assert(info.marker == 42); info.completion(value, info.context);"
+    )
+    content = content.replace(
+        "completion(context, value);", "assert(info.marker == 42); info.completion(info.context, value);"
+    )
+    content = content.replace(
+        "pending = completion; pendingContext = context;",
+        "assert(info.marker == 42); pending = info.completion; pendingContext = info.context;",
+    )
+    header.write_text(content)
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        .replace('symbols = ["FinishNow"', 'symbols = ["Info", "FinishNow"')
+        .replace(
+            '[native.bindings.callbacks."FinishNow.completion"]',
+            'owned-records = ["Info"]\nrecord-inputs = ["FinishNow.info", "FinishLater.info"]\n[native.bindings.callbacks."FinishNow.info"]\nfield = "completion"',
+        )
+        .replace(
+            '[native.bindings.callbacks."FinishLater.completion"]',
+            '[native.bindings.callbacks."FinishLater.info"]\nfield = "completion"',
+        )
+    )
+    content = source.read_text()
+    for receiver in ("receiver", "Receiver()"):
+        for function in ("FinishNow", "FinishLater"):
+            content = content.replace(f"{function}(7, {receiver},", f"{function}(7, makeInfo({receiver}),")
+    source.write_text(
+        content
+        + "\nInfoInput makeInfo(ICompletion receiver) { var info = InfoInput(); info.marker = 42; info.completion = receiver; return info; }\n"
+    )
+    return source
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize("scenario", ["lifecycle", "worker", "failure", "duplicate", "abandoned-scope"])
+def test_c_record_completion_lifetime(c_record_completion_project, native_compile, sanitize, scenario):
+    test_c_one_shot_completion_lifetime(c_record_completion_project, native_compile, sanitize, scenario, record=True)
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "missing-records",
+        "missing-inputs",
+        "unknown-field",
+        "unknown-context",
+        "same-field",
+        "scalar-field",
+        "scalar-context",
+        "pointer-input",
+        "unmapped-call",
+        "const-callback",
+        "const-context",
+        "volatile-context",
+    ],
+)
+def test_c_record_completion_rejects_invalid_mapping(c_record_completion_project, native_compile, scenario):
+    source = c_record_completion_project
+    root = source.parent.parent
+    manifest = root / "btrc.toml"
+    text = manifest.read_text()
+    diagnostic = ""
+    if scenario == "missing-records":
+        text = text.replace('owned-records = ["Info"]\n', "").replace(
+            'record-inputs = ["FinishNow.info", "FinishLater.info"]\n', ""
+        )
+        diagnostic = "callback fields require owned-records and record-inputs"
+    elif scenario == "missing-inputs":
+        text = text.replace('record-inputs = ["FinishNow.info", "FinishLater.info"]\n', "")
+        diagnostic = "callback fields require owned-records and record-inputs"
+    elif scenario in {"unknown-field", "unknown-context"}:
+        text = text.replace(
+            'field = "completion"' if scenario == "unknown-field" else 'context = "context"',
+            'field = "absent"' if scenario == "unknown-field" else 'context = "absent"',
+        )
+        diagnostic = "callback field/context must identify fields"
+    elif scenario == "same-field":
+        text = text.replace('context = "context"', 'context = "completion"')
+        diagnostic = "callback field and context must be distinct"
+    elif scenario == "scalar-field":
+        text = text.replace('field = "completion"', 'field = "marker"')
+        diagnostic = "nonvariadic function pointer"
+    elif scenario == "scalar-context":
+        text = text.replace('context = "context"', 'context = "marker"')
+        diagnostic = "context must be an unqualified void pointer"
+    elif scenario == "pointer-input":
+        header = root / "Completion.h"
+        header.write_text(
+            header.read_text().replace("int value, Info info", "int value, const Info* info").replace("info.", "info->")
+        )
+        diagnostic = "complete by-value record parameter"
+    elif scenario in {"const-callback", "const-context", "volatile-context"}:
+        header = root / "Completion.h"
+        before = "Completion completion;" if scenario == "const-callback" else "void* context;"
+        after = (
+            "Completion const completion;"
+            if scenario == "const-callback"
+            else "void* volatile context;"
+            if scenario == "volatile-context"
+            else "void* const context;"
+        )
+        header.write_text(header.read_text().replace(before, after))
+        diagnostic = "callback fields require assignable unqualified storage"
+    else:
+        text = text.split('[native.bindings.callbacks."FinishLater.info"]')[0]
+        diagnostic = "record callback fields require a callback mapping on every input call"
+    manifest.write_text(text)
+    plan = root / "Invalid.link.json"
+    result = native_compile(source, plan_path=plan)
+    assert not result.successful and not result.c_source
+    assert diagnostic in str(result.failure)
+    assert not plan.exists()
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize("indirect", [False, True])
+@pytest.mark.parametrize("future", [False, True])
+def test_c_record_completion_snapshots_reused_input(
+    c_record_completion_project,
+    native_compile,
+    sanitize,
+    indirect,
+    future,
+    context_count=1,
+    cancel=False,
+    corrupt=False,
+):
+    source = c_record_completion_project
+    root = source.parent.parent
+    header = root / "Completion.h"
+    context_first = "(*Completion)(void*, int)" in header.read_text()
+    signature = "void*, int" if context_first else "int, void*"
+    arguments = "pending[index].context, 7" if context_first else "7, pending[index].context"
+    context_fields = ["context", *(f"context{index}" for index in range(1, context_count))]
+    extra_fields = "".join(f" void* {field};" for field in context_fields[1:])
+    for field in context_fields[1:]:
+        signature += ", void*"
+        arguments += f", pending[index].{field}" if not corrupt else ", NULL"
+    context_indices = [0 if context_first else 1, *range(2, context_count + 1)]
+    context_declaration = (
+        f'context = "context"\ncontext-index = {context_indices[0]}\n'
+        if context_count == 1
+        else f"context = {json.dumps(context_fields[::-1])}\ncontext-index = {context_indices[::-1]}\n"
+    )
+    matching_contexts = " && ".join(f"info.{field} == info.context" for field in context_fields)
+    result_type = "uint64_t" if future else "void"
+    result_value = "return UINT64_C(4294967296) + (uint64_t)count;" if future else ""
+    header.write_text(
+        "#include <assert.h>\n#include <stdint.h>\n#include <stddef.h>\n"
+        f"typedef void (*Completion)({signature});\n"
+        f"typedef struct Info {{ int marker; Completion completion; void* context;{extra_fields} }} Info;\n"
+        "static Info pending[2]; static int count;\n"
+        f"static inline {result_type} FinishLater(int value, Info info) {{ assert(value == 7 && info.marker == 42 && count < 2 && info.context && {matching_contexts}); pending[count++] = info; {result_value} }}\n"
+        "static inline void Drain(void) { assert(count == 2);\n"
+        f"    for (int index = 0; index < count; ++index) {{ pending[index].completion({arguments}); pending[index] = (Info){{0}}; }}\n"
+        "    count = 0;\n}\n"
+    )
+    (root / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "recordRequests"\n'
+        '[[native.bindings]]\nmodule = "Completion"\nheader = "Completion.h"\nlanguage = "c"\nstandard = "c11"\n'
+        'symbols = ["Info", "FinishLater", "Drain"]\nowned-records = ["Info"]\nrecord-inputs = ["FinishLater.info"]\n'
+        '[native.bindings.callbacks."FinishLater.info"]\nfield = "completion"\ninterface = "ICompletion"\n'
+        f'{context_declaration}lifetime = "one-shot"\nexecutor = "caller"\nfailure = "abort"\n'
+        'activation-failure = "abort"\ncancellation = "abandon"\n'
+    )
+    call = "start" if indirect else "FinishLater"
+    alias = "var start = FinishLater;" if indirect else ""
+    request = ".request" if future else ""
+    check_future = "assert(first.value == 4294967297ULL && second.value == 4294967298ULL);" if future else ""
+    cancellation = "scope.cancel();" if cancel else ""
+    source.write_text(
+        "import Library.Callback;\nimport ./Completion.btrc;\n"
+        "int mask = 0; int freed = 0;\n"
+        "class Receiver implements ICompletion {\n\tprivate int bit;\n"
+        "\tpublic Receiver(int bit) { self.bit = bit; }\n"
+        "\tpublic void invoke(int value) { assert(value == 7 && (mask & self.bit) == 0); mask |= self.bit; }\n"
+        "\tpublic void __del__() { freed++; }\n}\n"
+        "int main() {\n\tvar scope = CallbackScope(); var info = InfoInput(); info.marker = 42;\n"
+        f"\t{alias} info.completion = Receiver(1); var first = {call}(7, info, scope);\n"
+        f"\tinfo.completion = Receiver(2); var second = {call}(7, info, scope);\n"
+        f"\trelease info; assert(freed == 0 && mask == 0); {cancellation} Drain();\n"
+        f"\tassert(freed == 2 && mask == {0 if cancel else 3});\n"
+        f"\t{check_future}\n"
+        f"\tassert(first{request}.pollCompletion() == CallbackCancellation.Complete);\n"
+        f"\tassert(second{request}.pollCompletion() == CallbackCancellation.Complete);\n"
+        "\tassert(scope.cancel() == CallbackCancellation.Complete); return 0;\n}\n"
+    )
+    plan = root / "Program.link.json"
+    result = native_compile(source, plan_path=plan)
+    assert result.successful, (result.failure, result.diagnostics)
+    generated = root / "Program.c"
+    generated.write_text(result.c_source)
+
+    def runner(command, **kwargs):
+        flags = ["-O2", *(["-fsanitize=address,undefined", "-fno-sanitize-recover=all"] if sanitize else [])]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    executable = root / "Program"
+    NativePlanBuilder(runner=runner).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+    if corrupt:
+        assert completed.returncode != 0
+        assert "inconsistent context slots" in completed.stderr
+        assert "ERROR: AddressSanitizer" not in completed.stderr
+    else:
+        assert completed.returncode == 0, (completed.stdout, completed.stderr)
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize("context_count", [2, 3])
+@pytest.mark.parametrize("scenario", ["complete", "cancel", "corrupt"])
+def test_c_record_completion_multiple_contexts(
+    c_record_completion_project, native_compile, sanitize, context_count, scenario
+):
+    test_c_record_completion_snapshots_reused_input(
+        c_record_completion_project,
+        native_compile,
+        sanitize,
+        indirect=True,
+        future=True,
+        context_count=context_count,
+        cancel=scenario == "cancel",
+        corrupt=scenario == "corrupt",
+    )
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "empty",
+        "count",
+        "duplicate-field",
+        "duplicate-index",
+        "boolean-index",
+        "negative-index",
+        "huge-index",
+        "unknown-field",
+        "scalar-field",
+        "const-field",
+        "unknown-index",
+        "scalar-index",
+        "owned-context",
+        "flat",
+    ],
+)
+def test_c_record_completion_multiple_contexts_rejects_invalid_mapping(
+    c_record_completion_project, native_compile, scenario
+):
+    source = c_record_completion_project
+    root = source.parent.parent
+    header = root / "Completion.h"
+    header.write_text(
+        "typedef void (*Completion)(void*, int, void*);\n"
+        "typedef struct Info { int marker; Completion completion; void* context; void* second; } Info;\n"
+        "void FinishNow(int value, Info info); void FinishLater(int value, Info info);\n"
+        "void Drain(void); void DrainOnWorker(void); void DrainTwice(void);\n"
+    )
+    manifest = root / "btrc.toml"
+    text = manifest.read_text().replace('context = "context"', 'context = ["context", "second"]')
+    text = text.replace("context-index = 0", "context-index = [0, 2]").replace(
+        "context-index = 1", "context-index = [0, 2]"
+    )
+    replacements = {
+        "empty": ('context = ["context", "second"]', "context = []"),
+        "count": ("context-index = [0, 2]", "context-index = [0]"),
+        "duplicate-field": ('"context", "second"', '"context", "context"'),
+        "duplicate-index": ("[0, 2]", "[0, 0]"),
+        "boolean-index": ("[0, 2]", "[0, true]"),
+        "negative-index": ("[0, 2]", "[0, -1]"),
+        "huge-index": ("[0, 2]", "[0, 1000000000]"),
+        "unknown-field": ('"context", "second"', '"context", "absent"'),
+        "scalar-field": ('"context", "second"', '"context", "marker"'),
+        "unknown-index": ("[0, 2]", "[0, 4]"),
+        "scalar-index": ("[0, 2]", "[0, 1]"),
+        "owned-context": ('cancellation = "abandon"', 'cancellation = "abandon"\nowned-arguments = [2]'),
+        "flat": ('field = "completion"\n', ""),
+    }
+    if scenario == "const-field":
+        header.write_text(header.read_text().replace("void* second", "void* const second"))
+    else:
+        before, after = replacements[scenario]
+        text = text.replace(before, after)
+    manifest.write_text(text)
+    plan = root / "Invalid.link.json"
+    result = native_compile(source, plan_path=plan)
+    assert not result.successful and not result.c_source
+    assert "context" in str(result.failure) or "callback" in str(result.failure)
+    assert not plan.exists()
+
+
+@pytest.mark.parametrize(
+    "operation", ["read-callback", "write-callback", "read-context", "write-context", "owning-context"]
+)
+def test_c_record_completion_reserves_native_storage(c_record_completion_project, native_compile, operation):
+    source = c_record_completion_project
+    statements = {
+        "read-callback": "Info raw = {0}; var escaped = raw.completion;",
+        "write-callback": "Info raw = {0}; raw.completion = null;",
+        "read-context": "Info raw = {0}; var escaped = raw.context;",
+        "write-context": "Info raw = {0}; raw.context = null;",
+        "owning-context": "var input = InfoInput(); var escaped = input.context;",
+    }
+    source.write_text(
+        "import Library.Callback;\nimport ./Completion.btrc;\nint main() { " + statements[operation] + " return 0; }\n"
+    )
+    plan = source.parent.parent / "Invalid.link.json"
+    result = native_compile(source, plan_path=plan)
+    assert not result.successful and not result.c_source
+    diagnostics = str(result.failure) + "\n".join(diagnostic.message for diagnostic in result.diagnostics)
+    member = "completion" if "callback" in operation else "context"
+    assert f"'{member}'" in diagnostics, diagnostics
+    assert not plan.exists()
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize("scenario", ["lifecycle", "worker", "failure", "duplicate", "abandoned-scope"])
+def test_c_one_shot_completion_lifetime(c_one_shot_project, native_compile, sanitize, scenario, record=False):
+    source = c_one_shot_project
+    if scenario == "abandoned-scope":
+        prefix = source.read_text().split("int main()", 1)[0]
+        source.write_text(
+            prefix
+            + "int main() { { var scope = CallbackScope(); FinishLater(7, Receiver(), scope); } Drain(); return 0; }\n"
+        )
+    elif scenario != "lifecycle":
+        prefix = source.read_text().split("int main()", 1)[0]
+        source.write_text(
+            prefix
+            + "int main() { var scope = CallbackScope(); var receiver = Receiver(); "
+            + ("receiver.fail = true; " if scenario == "failure" else "")
+            + "var request = FinishLater(7, receiver, scope); "
+            + {"worker": "DrainOnWorker();", "failure": "Drain();", "duplicate": "DrainTwice();"}[scenario]
+            + " request.pollCompletion(); return 0; }\n"
+        )
+    if record:
+        content = source.read_text()
+        for receiver in ("receiver", "Receiver()"):
+            for function in ("FinishNow", "FinishLater"):
+                content = content.replace(f"{function}(7, {receiver},", f"{function}(7, makeInfo({receiver}),")
+        if "InfoInput makeInfo(" not in content:
+            content += "\nInfoInput makeInfo(ICompletion receiver) { var info = InfoInput(); info.marker = 42; info.completion = receiver; return info; }\n"
+        source.write_text(content)
+    root = source.parent.parent
+    plan = root / "Completion.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "Completion.c"
+    generated.write_text(compiled.c_source)
+    executable = root / "Completion"
+
+    def runner(command, **kwargs):
+        flags = ["-O2"] if Path(command[0]).name in {"clang", "clang++"} else []
+        if flags and sanitize:
+            flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    NativePlanBuilder(runner=runner).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+    if scenario == "lifecycle":
+        assert completed.returncode == 0, (completed.stdout, completed.stderr)
+        assert "PASS: C one-shot native completion" in completed.stdout
+    else:
+        assert completed.returncode != 0, (completed.stdout, completed.stderr)
+        assert {
+            "worker": "creating thread",
+            "failure": "C completion receiver failed",
+            "duplicate": "deliver twice",
+            "abandoned-scope": "Callback scope released before cancellation completed",
+        }[scenario] in completed.stderr
+
+
+@pytest.fixture
+def c_owned_completion_project(c_one_shot_project):
+    source = c_one_shot_project
+    root = source.parent.parent
+    manifest = root / "btrc.toml"
+    context_first = "context-index = 0" in manifest.read_text()
+    argument = 1 if context_first else 0
+    manifest.write_text(
+        manifest.read_text()
+        .replace(
+            '"DrainTwice"]', '"DrainTwice", "WidgetRef", "WidgetRetain", "WidgetRelease", "WidgetRead", "LiveWidgets"]'
+        )
+        .replace(
+            "[native.bindings.callbacks.", 'borrowed-parameters = ["WidgetRead.widget"]\n[native.bindings.callbacks.', 1
+        )
+        .replace('cancellation = "abandon"', f'cancellation = "abandon"\nowned-arguments = [{argument}]')
+        + '\n[native.bindings.resources.WidgetRef]\nownership = "reference-counted"\n'
+        'retain = "WidgetRetain"\nrelease = "WidgetRelease"\n'
+    )
+    header = root / "Completion.h"
+    header.write_text(
+        "#include <stdlib.h>\n#include <assert.h>\n"
+        "typedef struct Widget { int refs; int value; } *WidgetRef;\n"
+        "static int liveWidgets;\n"
+        "static inline WidgetRef MakeWidget(int value) { if (!value) return NULL; "
+        "WidgetRef widget = malloc(sizeof(*widget)); assert(widget); *widget = (struct Widget){1, value}; "
+        "liveWidgets++; return widget; }\n"
+        "static inline void WidgetRetain(WidgetRef widget) { assert(widget->refs > 0); widget->refs++; }\n"
+        "static inline void WidgetRelease(WidgetRef widget) { assert(widget->refs > 0); "
+        "if (--widget->refs == 0) { liveWidgets--; free(widget); } }\n"
+        "static inline int WidgetRead(WidgetRef widget) { return widget->value; }\n"
+        "static inline int LiveWidgets(void) { return liveWidgets; }\n"
+        + header.read_text()
+        .replace("(*Completion)(int, void*)", "(*Completion)(WidgetRef, void*)")
+        .replace("(*Completion)(void*, int)", "(*Completion)(void*, WidgetRef)")
+        .replace("completion(value, context)", "completion(MakeWidget(value), context)")
+        .replace("completion(context, value)", "completion(context, MakeWidget(value))")
+        .replace("callback(7, context)", "callback(MakeWidget(7), context)")
+        .replace("callback(context, 7)", "callback(context, MakeWidget(7))")
+    )
+    source.write_text("""import Library.Callback;
+import ./Completion.btrc;
+int delivered = 0;
+class Receiver implements ICompletion {
+    public WidgetRef? saved;
+    public CallbackScope? scope;
+    public void invoke(WidgetRef? value) {
+        delivered++;
+        if (value != null) { assert(WidgetRead(value) == 7); }
+        self.saved = value;
+        if (self.scope != null) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+    }
+}
+void verify(bool inlineCall, bool abandon, bool selfCancel) {
+    var scope = CallbackScope();
+    var receiver = Receiver();
+    if (selfCancel) { receiver.scope = scope; }
+    int before = delivered;
+    var request = inlineCall ? FinishNow(7, receiver, scope) : FinishLater(7, receiver, scope);
+    if (!inlineCall) {
+        assert(LiveWidgets() == 0);
+        if (abandon) { assert(scope.cancel() == CallbackCancellation.Pending); }
+        Drain();
+    }
+    assert(request.pollCompletion() == CallbackCancellation.Complete);
+    assert(delivered == before + (abandon ? 0 : 1));
+    assert(LiveWidgets() == (abandon ? 0 : 1));
+    if (!abandon) { assert(receiver.saved != null && WidgetRead(receiver.saved) == 7); }
+    receiver.saved = null;
+    assert(LiveWidgets() == 0);
+    assert(scope.cancel() == CallbackCancellation.Complete);
+}
+int main() {
+    verify(true, false, false); verify(false, false, false);
+    verify(false, true, false); verify(true, false, true); verify(false, false, true);
+    var scope = CallbackScope();
+    var receiver = Receiver();
+    var request = FinishNow(0, receiver, scope);
+    assert(receiver.saved == null && LiveWidgets() == 0);
+    assert(request.pollCompletion() == CallbackCancellation.Complete);
+    FinishLater(7, Receiver(), scope);
+    Drain();
+    assert(LiveWidgets() == 0);
+    assert(scope.cancel() == CallbackCancellation.Complete);
+    print("PASS: claimed and abandoned native resource completions");
+    return 0;
+}
+""")
+    return source
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize("payloads", [1, 2])
+@pytest.mark.parametrize("fails", [False, True], ids=["lifecycle", "receiver-failure"])
+def test_c_completion_owned_resource(
+    c_owned_completion_project, native_compile, sanitize, payloads, fails, record_contexts=False
+):
+    source = c_owned_completion_project
+    root = source.parent.parent
+    if payloads == 2:
+        manifest = root / "btrc.toml"
+        text = manifest.read_text()
+        context_first = "context-index = 0" in text
+        text = (
+            text.replace("owned-arguments = [1]", "owned-arguments = [1, 2]")
+            if context_first
+            else text.replace("owned-arguments = [0]", "owned-arguments = [0, 1]").replace(
+                "context-index = 1", "context-index = 2"
+            )
+        )
+        manifest.write_text(text)
+        header = root / "Completion.h"
+        header.write_text(
+            header.read_text()
+            .replace("(*Completion)(WidgetRef, void*)", "(*Completion)(WidgetRef, WidgetRef, void*)")
+            .replace("(*Completion)(void*, WidgetRef)", "(*Completion)(void*, WidgetRef, WidgetRef)")
+            .replace("MakeWidget(value)", "MakeWidget(value), MakeWidget(value ? 8 : 0)")
+            .replace("MakeWidget(7)", "MakeWidget(7), MakeWidget(8)")
+        )
+        source.write_text(
+            source.read_text()
+            .replace("public WidgetRef? saved;", "public WidgetRef? saved; public WidgetRef? second;")
+            .replace("invoke(WidgetRef? value)", "invoke(WidgetRef? value, WidgetRef? second)")
+            .replace(
+                "self.saved = value;",
+                "self.saved = value; self.second = second; if (second != null) { assert(WidgetRead(second) == 8); }",
+            )
+            .replace("LiveWidgets() == (abandon ? 0 : 1)", "LiveWidgets() == (abandon ? 0 : 2)")
+            .replace("receiver.saved = null;", "receiver.saved = null; receiver.second = null;")
+        )
+    if fails:
+        header = root / "Completion.h"
+        header.write_text(
+            "#include <stdio.h>\n"
+            + header.read_text().replace(
+                "liveWidgets--; free(widget);", 'liveWidgets--; free(widget); fprintf(stderr, "RESOURCE_FREED\\n");'
+            )
+        )
+        source.write_text(
+            source.read_text().replace(
+                "delivered++;", 'delivered++; if (value != null) { throw "owned completion failed"; }'
+            )
+        )
+    if record_contexts:
+        manifest = root / "btrc.toml"
+        text = manifest.read_text()
+        context_first = "context-index = 0" in text
+        text = text.replace('symbols = ["FinishNow"', 'symbols = ["Info", "FinishNow"')
+        text = text.replace(
+            '[native.bindings.callbacks."FinishNow.completion"]',
+            'owned-records = ["Info"]\nrecord-inputs = ["FinishNow.info", "FinishLater.info"]\n[native.bindings.callbacks."FinishNow.info"]\nfield = "completion"',
+        ).replace(
+            '[native.bindings.callbacks."FinishLater.completion"]',
+            '[native.bindings.callbacks."FinishLater.info"]\nfield = "completion"',
+        )
+        text = text.replace('context = "context"', 'context = ["context", "second"]')
+        native_context = 0 if context_first else payloads
+        text = text.replace(f"context-index = {native_context}", f"context-index = [{native_context}, {payloads + 1}]")
+        manifest.write_text(text)
+        header = root / "Completion.h"
+        content = header.read_text()
+        end = content.index(";", content.index("typedef void (*Completion)"))
+        content = content[: end - 1] + ", void*)" + content[end:]
+        end = content.index(";", content.index("typedef void (*Completion)")) + 1
+        content = (
+            content[:end]
+            + "\ntypedef struct Info { Completion completion; void* context; void* second; } Info;\nstatic void* pendingSecond;\n"
+            + content[end:]
+        )
+        content = content.replace("int value, Completion completion, void *context", "int value, Info info")
+        content = content.replace("void *context, int value, Completion completion", "int value, Info info")
+        content = content.replace(
+            "int value, Info info) {",
+            "int value, Info info) { Completion completion = info.completion; void* context = info.context;",
+        )
+        content = content.replace(
+            "pending = completion; pendingContext = context;",
+            "pending = completion; pendingContext = context; pendingSecond = info.second;",
+        )
+        content = content.replace(
+            "void *context = pendingContext;", "void *context = pendingContext; void* second = pendingSecond;"
+        )
+        for function, expression, extra in (("completion", "value", "info.second"), ("callback", "7", "second")):
+            values = f"MakeWidget({expression})"
+            if payloads == 2:
+                values += ", MakeWidget(value ? 8 : 0)" if expression == "value" else ", MakeWidget(8)"
+            arguments = f"context, {values}" if context_first else f"{values}, context"
+            content = content.replace(f"{function}({arguments});", f"{function}({arguments}, {extra});")
+        header.write_text(content)
+        source.write_text(
+            source.read_text()
+            .replace(", receiver, scope)", ", makeInfo(receiver), scope)")
+            .replace(", Receiver(), scope)", ", makeInfo(Receiver()), scope)")
+            + "\nInfoInput makeInfo(ICompletion receiver) { var info = InfoInput(); info.completion = receiver; return info; }\n"
+        )
+    plan = root / "Resource.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "Resource.c"
+    generated.write_text(compiled.c_source)
+    executable = root / "Resource"
+
+    def runner(command, **kwargs):
+        flags = ["-O2"] if Path(command[0]).name in {"clang", "clang++"} else []
+        if flags and sanitize:
+            flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    NativePlanBuilder(runner=runner).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+    if fails:
+        assert completed.returncode != 0
+        assert "owned completion failed" in completed.stderr
+        assert completed.stderr.count("RESOURCE_FREED") == payloads
+    else:
+        assert completed.returncode == 0, (completed.stdout, completed.stderr)
+        assert "PASS: claimed and abandoned" in completed.stdout
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize("payloads", [1, 2])
+@pytest.mark.parametrize("fails", [False, True], ids=["lifecycle", "receiver-failure"])
+def test_c_record_completion_multiple_contexts_owned_resources(
+    c_owned_completion_project, native_compile, sanitize, payloads, fails
+):
+    test_c_completion_owned_resource(
+        c_owned_completion_project, native_compile, sanitize, payloads, fails, record_contexts=True
+    )
+
+
+@pytest.fixture
+def c_string_completion_project(native_project):
+    source, _sdk, _triple = native_project
+    root = source.parent.parent
+    (root / "src/Text.btrc").write_text("")
+    (root / "Text.h").write_text("""#include <assert.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+typedef struct Text { const char* data; size_t length; } Text;
+typedef void (*Completion)(int, Text, void*, void*);
+typedef struct Info { Completion callback; void* first; void* second; } Info;
+static Info pending;
+static inline void Schedule(Info info) { assert(!pending.callback && info.first && info.first == info.second); pending = info; }
+static inline void Complete(int mode) {
+    static const unsigned char bytes[] = {'c', 'a', 'f', 0xc3, 0xa9, 0xf0, 0x9f, 0x8e, 0xb8};
+    char* storage = malloc(sizeof(bytes)); assert(storage); memcpy(storage, bytes, sizeof(bytes));
+    Text text = {storage, sizeof(bytes)};
+    if (mode == 1) text = (Text){NULL, 0};
+    if (mode == 2) text = (Text){NULL, SIZE_MAX};
+    if (mode == 3) text = (Text){(const char*)1, 0};
+    if (mode == 4) text = (Text){NULL, 1};
+    if (mode == 5) text = (Text){(const char*)1, (size_t)INT32_MAX + 1};
+    if (mode == 6) storage[2] = 0;
+    if (mode == 7) text = (Text){(const char*)1, SIZE_MAX};
+    assert(pending.callback);
+    Info info = pending; pending = (Info){0};
+    info.callback(7, text, info.first, info.second);
+    memset(storage, '?', sizeof(bytes)); free(storage);
+}
+""")
+    (root / "btrc.toml").write_text("""manifest-version = 1
+[package]
+name = "callbackText"
+[[native.bindings]]
+module = "Text"
+header = "Text.h"
+language = "c"
+standard = "c11"
+symbols = ["Text", "Info", "Schedule", "Complete"]
+owned-records = ["Info"]
+record-inputs = ["Schedule.info"]
+[native.bindings.string-views.Text]
+data = "data"
+length = "length"
+null-length = "zero-or-max"
+[native.bindings.callbacks."Schedule.info"]
+field = "callback"
+context = ["first", "second"]
+context-index = [2, 3]
+interface = "ICompletion"
+lifetime = "one-shot"
+executor = "caller"
+failure = "abort"
+activation-failure = "abort"
+cancellation = "abandon"
+""")
+    return source
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "copy",
+        "empty",
+        "null-max",
+        "empty-pointer",
+        "cancel",
+        "cancel-invalid",
+        "zero-null",
+        "zero-null-max",
+        "null-bad",
+        "oversize",
+        "embedded-nul",
+        "nonnull-max",
+        "receiver-failure",
+    ],
+)
+def test_c_completion_copies_borrowed_string(
+    c_string_completion_project, native_compile, sanitize, scenario, sdk=False
+):
+    source = c_string_completion_project
+    root = source.parent.parent
+    if scenario in {"zero-null", "zero-null-max"}:
+        manifest = root / "btrc.toml"
+        manifest.write_text(manifest.read_text().replace('null-length = "zero-or-max"', 'null-length = "zero"'))
+    if sdk:
+        header = root / "Text.h"
+        header.write_text(
+            header.read_text().replace(
+                "typedef struct Text { const char* data; size_t length; } Text;",
+                "#include <webgpu.h>\ntypedef WGPUStringView Text;",
+            )
+        )
+        manifest = root / "btrc.toml"
+        manifest.write_text(
+            manifest.read_text() + '\n[[native.pkg-config]]\nname = "wgpu-native"\nmodules = ["Text"]\n'
+        )
+    mode = {
+        "empty": 1,
+        "null-max": 2,
+        "empty-pointer": 3,
+        "null-bad": 4,
+        "oversize": 5,
+        "embedded-nul": 6,
+        "nonnull-max": 7,
+        "cancel-invalid": 7,
+        "zero-null": 1,
+        "zero-null-max": 2,
+    }.get(scenario, 0)
+    canceled = scenario in {"cancel", "cancel-invalid"}
+    cancel = "scope.cancel();" if canceled else ""
+    throws = 'if (status == 7) { throw "text receiver failed"; }' if scenario == "receiver-failure" else ""
+    expected = "" if canceled or scenario in {"empty", "null-max", "empty-pointer", "zero-null"} else "café🎸"
+    source.write_text(
+        "import Library.Callback;\nimport ./Text.btrc;\n"
+        'int delivered = 0;\nclass Receiver implements ICompletion {\n\tpublic string saved = "";\n'
+        f"\tpublic void invoke(int status, string message) {{ assert(status == 7); {throws} self.saved = message; delivered++; }}\n}}\n"
+        "int main() {\n\tvar receiver = Receiver();\n\tvar baseline = __btrc_string_live_count();\n"
+        "\tfor (int index = 0; index < 30; index++) {\n\t\tvar scope = CallbackScope(); var info = InfoInput(); info.callback = receiver;\n"
+        f"\t\tvar schedule = Schedule; var request = schedule(info, scope); release info; {cancel} Complete({mode});\n"
+        f"\t\tassert(receiver.saved == {json.dumps(expected, ensure_ascii=False)});\n"
+        f"\t\tassert(delivered == {'0' if canceled else 'index + 1'});\n"
+        "\t\tassert(request.pollCompletion() == CallbackCancellation.Complete);\n"
+        '\t\tassert(scope.cancel() == CallbackCancellation.Complete); receiver.saved = "";\n'
+        "\t\tassert(__btrc_string_live_count() == baseline);\n\t}\n\treturn 0;\n}\n"
+    )
+    plan = root / "Text.link.json"
+    result = native_compile(source, plan_path=plan)
+    assert result.successful, (result.failure, result.diagnostics)
+    generated = root / "Text.c"
+    generated.write_text(result.c_source)
+
+    def runner(command, **kwargs):
+        flags = ["-O2"] if Path(command[0]).name in {"clang", "clang++"} else []
+        if flags and sanitize:
+            flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    executable = root / "Text"
+    NativePlanBuilder(runner=runner).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+    if scenario in {"null-bad", "oversize", "embedded-nul", "nonnull-max", "zero-null-max", "receiver-failure"}:
+        assert completed.returncode != 0
+        assert ("text receiver failed" if scenario == "receiver-failure" else "Native string view:") in completed.stderr
+        assert "ERROR: AddressSanitizer" not in completed.stderr
+    else:
+        assert completed.returncode == 0, (completed.stdout, completed.stderr)
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize("scenario", ["copy", "null-max", "cancel", "nonnull-max"])
+def test_c_completion_copies_webgpu_string(c_string_completion_project, native_compile, sanitize, scenario):
+    test_c_completion_copies_borrowed_string(c_string_completion_project, native_compile, sanitize, scenario, sdk=True)
+
+
+@pytest.mark.parametrize("conflict", [False, True])
+def test_c_completion_string_view_alias_identity(c_string_completion_project, native_compile, conflict):
+    source = c_string_completion_project
+    root = source.parent.parent
+    header = root / "Text.h"
+    header.write_text(
+        header.read_text().replace("typedef void (*Completion)", "typedef Text Alias;\ntypedef void (*Completion)")
+    )
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text().replace('symbols = ["Text",', 'symbols = ["Text", "Alias",')
+        + '\n[native.bindings.string-views.Alias]\ndata = "data"\nlength = "length"\n'
+        + f'null-length = "{"zero" if conflict else "zero-or-max"}"\n'
+    )
+    if conflict:
+        source.write_text("import Library.Callback;\nimport ./Text.btrc;\nint main() { return 0; }\n")
+        result = native_compile(source)
+        assert not result.successful and not result.c_source
+        assert "conflicting string-view mappings" in str(result.failure), result.failure
+    else:
+        test_c_completion_copies_borrowed_string(source, native_compile, True, "copy")
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "missing-field",
+        "same-field",
+        "unknown-field",
+        "unknown-fact",
+        "empty",
+        "extra-field",
+        "not-pointer",
+        "not-char",
+        "signed-length",
+        "float-length",
+        "volatile-data",
+        "volatile-length",
+        "null-policy",
+        "call-scoped",
+        "unused",
+    ],
+)
+def test_c_completion_rejects_invalid_string_view(c_string_completion_project, native_compile, scenario):
+    source = c_string_completion_project
+    root = source.parent.parent
+    source.write_text("import Library.Callback;\nimport ./Text.btrc;\nint main() { return 0; }\n")
+    header = root / "Text.h"
+    manifest = root / "btrc.toml"
+    text = manifest.read_text()
+    replacements = {
+        "missing-field": ('length = "length"\n', ""),
+        "same-field": ('length = "length"', 'length = "data"'),
+        "unknown-field": ('data = "data"', 'data = "absent"'),
+        "unknown-fact": ('data = "data"', 'unknown = "data"'),
+        "null-policy": ('null-length = "zero-or-max"', 'null-length = "guess"'),
+        "empty": ('data = "data"\nlength = "length"\nnull-length = "zero-or-max"\n', ""),
+    }
+    native_replacements = {
+        "extra-field": ("size_t length;", "size_t length; int extra;"),
+        "not-pointer": ("const char* data", "size_t data"),
+        "not-char": ("const char* data", "const int* data"),
+        "signed-length": ("size_t length", "long length"),
+        "float-length": ("size_t length", "double length"),
+        "volatile-data": ("const char* data", "const volatile char* data"),
+        "volatile-length": ("size_t length", "volatile size_t length"),
+    }
+    if scenario in native_replacements:
+        # Import declarations only: deliberately invalid shapes must be rejected
+        # by the BTRC binding validator, not by a malformed C test implementation.
+        native = header.read_text().split("static Info pending;", 1)[0]
+        before, after = native_replacements[scenario]
+        header.write_text(native.replace(before, after) + "void Schedule(Info info); void Complete(int mode);\n")
+    elif scenario == "unused":
+        text = text.split('[native.bindings.callbacks."Schedule.info"]')[0]
+        text = text.replace('symbols = ["Text", "Info", "Schedule", "Complete"]', 'symbols = ["Text"]')
+        text = text.replace('owned-records = ["Info"]\nrecord-inputs = ["Schedule.info"]\n', "")
+    elif scenario == "call-scoped":
+        text = text.replace('lifetime = "one-shot"', 'lifetime = "call"').replace('field = "callback"\n', "")
+        text = text.replace('activation-failure = "abort"\ncancellation = "abandon"\n', "")
+        text = text.replace('context = ["first", "second"]', 'context = "second"').replace(
+            "context-index = [2, 3]", "context-index = 2"
+        )
+        text = text.replace('owned-records = ["Info"]\nrecord-inputs = ["Schedule.info"]\n', "")
+        text = text.replace('"Schedule.info"', '"Schedule.callback"')
+        header.write_text(
+            "#include <stddef.h>\ntypedef struct Text { const char* data; size_t length; } Text;\n"
+            "typedef void (*Completion)(int, Text, void*); typedef struct Info { int unused; } Info;\n"
+            "void Schedule(Completion callback, void* second); void Complete(int mode);\n"
+        )
+    else:
+        before, after = replacements[scenario]
+        text = text.replace(before, after)
+    manifest.write_text(text)
+    plan = root / "Invalid.link.json"
+    result = native_compile(source, plan_path=plan)
+    assert not result.successful and not result.c_source
+    assert "string" in str(result.failure), (result.failure, result.diagnostics)
+    assert not plan.exists()
+
+
+@pytest.fixture
+def c_future_project(c_owned_completion_project):
+    source = c_owned_completion_project
+    root = source.parent.parent
+    header = root / "Completion.h"
+    text = header.read_text()
+    text = "#include <stdint.h>\ntypedef struct RequestTicket { uint64_t id; } RequestTicket;\n" + text
+    text = text.replace("static inline void Finish", "static inline RequestTicket Finish")
+    text = text.replace(
+        "completion(MakeWidget(value), context); }",
+        "completion(MakeWidget(value), context); return (RequestTicket){UINT64_C(4294967296) + value}; }",
+    )
+    text = text.replace(
+        "completion(context, MakeWidget(value)); }",
+        "completion(context, MakeWidget(value)); return (RequestTicket){UINT64_C(4294967296) + value}; }",
+    )
+    text = text.replace(
+        "pendingContext = context; }",
+        "pendingContext = context; return (RequestTicket){UINT64_C(4294967296) + value}; }",
+    )
+    header.write_text(text)
+    text = source.read_text()
+    text = text.replace(
+        "var request = inlineCall ? FinishNow(7, receiver, scope) : FinishLater(7, receiver, scope);",
+        "var started = inlineCall ? FinishNow(7, receiver, scope) : FinishLater(7, receiver, scope); "
+        "var request = started.request; assert(started.value.id == 4294967303ULL);",
+    )
+    text = text.replace(
+        "var request = FinishNow(0, receiver, scope);",
+        "var started = FinishNow(0, receiver, scope); var request = started.request; assert(started.value.id == 4294967296ULL);",
+    )
+    source.write_text(text)
+    return source
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize("indirect", [False, True])
+@pytest.mark.parametrize("result_kind", ["record", "scalar", "nested", "zero", "webgpu"])
+def test_c_completion_preserves_native_future(c_future_project, native_compile, sanitize, indirect, result_kind):
+    source = c_future_project
+    root = source.parent.parent
+    text = source.read_text()
+    if indirect:
+        text = text.replace(
+            "int before = delivered;", "int before = delivered; var beginNow = FinishNow; var beginLater = FinishLater;"
+        )
+        text = text.replace(
+            "inlineCall ? FinishNow(7, receiver, scope) : FinishLater(7, receiver, scope)",
+            "inlineCall ? beginNow(7, receiver, scope) : beginLater(7, receiver, scope)",
+        )
+    header = root / "Completion.h"
+    native = header.read_text()
+    if result_kind == "scalar":
+        native = native.replace(
+            "typedef struct RequestTicket { uint64_t id; } RequestTicket;", "typedef uint64_t RequestTicket;"
+        )
+        text = text.replace("started.value.id", "started.value")
+    elif result_kind == "nested":
+        native = native.replace(
+            "typedef struct RequestTicket { uint64_t id; } RequestTicket;",
+            "typedef struct TicketIdentity { uint64_t id; } TicketIdentity; typedef struct RequestTicket { TicketIdentity identity; } RequestTicket;",
+        )
+        native = native.replace(
+            "(RequestTicket){UINT64_C(4294967296) + value}", "(RequestTicket){{UINT64_C(4294967296) + value}}"
+        )
+        text = text.replace("started.value.id", "started.value.identity.id")
+    elif result_kind == "zero":
+        native = native.replace("(RequestTicket){UINT64_C(4294967296) + value}", "(RequestTicket){0}")
+        text = text.replace("4294967303ULL", "0ULL").replace("4294967296ULL", "0ULL")
+    elif result_kind == "webgpu":
+        native = native.replace(
+            "typedef struct RequestTicket { uint64_t id; } RequestTicket;",
+            "#include <webgpu.h>\ntypedef WGPUFuture RequestTicket;",
+        )
+        manifest = root / "btrc.toml"
+        manifest.write_text(
+            manifest.read_text() + '\n[[native.pkg-config]]\nname = "wgpu-native"\nmodules = ["Completion"]\n'
+        )
+    header.write_text(native)
+    source.write_text(text)
+    plan = root / "Future.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "Future.c"
+    generated.write_text(compiled.c_source)
+    executable = root / "Future"
+
+    def runner(command, **kwargs):
+        flags = ["-O2"] if Path(command[0]).name in {"clang", "clang++"} else []
+        if flags and sanitize:
+            flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    NativePlanBuilder(runner=runner).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, (completed.stdout, completed.stderr)
+    assert "PASS: claimed and abandoned" in completed.stdout
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize("indirect", [False, True])
+@pytest.mark.parametrize("future", [False, True])
+def test_c_completion_future_releases_all_allocations(c_future_project, native_compile, sanitize, indirect, future):
+    source = c_future_project
+    root = source.parent.parent
+    program = source.read_text().replace("int main() {", "int exercise() {")
+    if not future:
+        header = root / "Completion.h"
+        header.write_text(
+            header.read_text()
+            .replace("static inline RequestTicket Finish", "static inline void Finish")
+            .replace("return (RequestTicket){UINT64_C(4294967296) + value};", "return;")
+        )
+        program = program.replace(
+            "var request = started.request; assert(started.value.id == 4294967303ULL);", "var request = started;"
+        )
+        program = program.replace(
+            "var request = started.request; assert(started.value.id == 4294967296ULL);", "var request = started;"
+        )
+    if indirect:
+        program = program.replace(
+            "int before = delivered;", "int before = delivered; var beginNow = FinishNow; var beginLater = FinishLater;"
+        )
+        program = program.replace(
+            "inlineCall ? FinishNow(7, receiver, scope) : FinishLater(7, receiver, scope)",
+            "inlineCall ? beginNow(7, receiver, scope) : beginLater(7, receiver, scope)",
+        )
+    source.write_text(
+        program
+        + """
+extern void arc_test_allocation_checkpoint();
+extern long arc_test_allocation_delta();
+void throwAfterCompletion() {
+	var scope = CallbackScope(); var receiver = Receiver();
+	var started = FinishNow(7, receiver, scope);
+	assert(started.value.id == 4294967303ULL);
+	assert(started.request.pollCompletion() == CallbackCancellation.Complete);
+	throw "expected";
+}
+void exerciseExceptions() {
+	bool caught = false;
+	try { throwAfterCompletion(); } catch (string error) { caught = error == "expected"; }
+	assert(caught && LiveWidgets() == 0);
+}
+int main() {
+	for (int index = 0; index < 10; index++) { assert(exercise() == 0); exerciseExceptions(); }
+	arc_test_allocation_checkpoint();
+	for (int index = 0; index < 20; index++) { assert(exercise() == 0); exerciseExceptions(); }
+	long remaining = arc_test_allocation_delta();
+	print(f"Remaining allocations: {remaining}");
+	assert(remaining == 0L); return 0;
+}
+"""
+    )
+    if not future:
+        source.write_text(
+            source.read_text()
+            .replace("assert(started.value.id == 4294967303ULL);", "")
+            .replace("started.request.pollCompletion()", "started.pollCompletion()")
+        )
+    plan = root / "Tracked.link.json"
+    result = native_compile(source, plan_path=plan)
+    assert result.successful, (result.failure, result.diagnostics)
+    generated = root / "Tracked.c"
+    generated.write_text(result.c_source)
+    tracker = REPO / "src/tests/btrc/fixtures/arc_boundary_alloc_tracker.c"
+    tracker_object = root / "Tracker.o"
+    flags = ["-O2", *(["-fsanitize=address,undefined", "-fno-sanitize-recover=all"] if sanitize else [])]
+    built = subprocess.run(
+        ["/usr/bin/clang", *flags, "-c", str(tracker), "-o", str(tracker_object)],
+        env=apple_environment(),
+        capture_output=True,
+        text=True,
+    )
+    assert built.returncode == 0, built.stderr
+
+    def runner(command, **kwargs):
+        if Path(command[0]).name not in {"clang", "clang++"}:
+            return subprocess.run(command, env=apple_environment(), **kwargs)
+        redirects = [f"-D{name}=btrc_test_{name}" for name in ("malloc", "calloc", "realloc", "free")]
+        objects = [] if "-c" in command else [str(tracker_object)]
+        return subprocess.run(
+            [command[0], *flags, *redirects, *command[1:], *objects], env=apple_environment(), **kwargs
+        )
+
+    executable = root / "Tracked"
+    NativePlanBuilder(runner=runner).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], env=apple_environment(), capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, (completed.stdout, completed.stderr)
+
+
+@pytest.mark.parametrize("shape", ["pointer", "record-pointer", "nested-pointer", "union"])
+def test_c_completion_rejects_unowned_future_storage(c_future_project, native_compile, shape):
+    source = c_future_project
+    root = source.parent.parent
+    header = root / "Completion.h"
+    declaration, initializer = {
+        "pointer": ("typedef void* RequestTicket;", "NULL"),
+        "record-pointer": ("typedef struct RequestTicket { void* hidden; } RequestTicket;", "(RequestTicket){NULL}"),
+        "nested-pointer": (
+            "typedef struct TicketStorage { void* hidden; } TicketStorage; typedef struct RequestTicket { TicketStorage storage; } RequestTicket;",
+            "(RequestTicket){{NULL}}",
+        ),
+        "union": (
+            "typedef union RequestTicket { uint64_t id; double number; } RequestTicket;",
+            "(RequestTicket){UINT64_C(4294967296) + value}",
+        ),
+    }[shape]
+    header.write_text(
+        header.read_text()
+        .replace("typedef struct RequestTicket { uint64_t id; } RequestTicket;", declaration)
+        .replace("(RequestTicket){UINT64_C(4294967296) + value}", initializer)
+    )
+    source.write_text("import Library.Callback;\nimport ./Completion.btrc;\nint main() { return 0; }\n")
+    plan = root / "Rejected.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert not compiled.successful
+    assert "pointer-free scalar or record value" in (str(compiled.failure) + str(compiled.diagnostics))
+    assert not plan.exists()
+
+
+@pytest.mark.parametrize("scenario", ["missing", "context", "outside", "duplicate", "boolean", "string", "call"])
+def test_c_completion_resource_rejects_invalid_ownership(c_owned_completion_project, native_compile, scenario):
+    source = c_owned_completion_project
+    manifest = source.parent.parent / "btrc.toml"
+    text = manifest.read_text()
+    context = 0 if "context-index = 0" in text else 1
+    argument = 1 - context
+    replacement = {
+        "missing": "",
+        "context": f"owned-arguments = [{context}]",
+        "outside": "owned-arguments = [2]",
+        "duplicate": f"owned-arguments = [{argument}, {argument}]",
+        "boolean": "owned-arguments = [true]",
+        "string": 'owned-arguments = ["0"]',
+        "call": f"owned-arguments = [{argument}]",
+    }[scenario]
+    text = text.replace(f"owned-arguments = [{argument}]", replacement)
+    if scenario == "call":
+        text = text.replace('lifetime = "one-shot"', 'lifetime = "call"')
+        text = text.replace('activation-failure = "abort"\n', "").replace('cancellation = "abandon"\n', "")
+    manifest.write_text(text)
+    result = native_compile(source)
+    assert not result.successful
+    expected = {
+        "missing": "non-scalar arguments",
+        "context": "resource payload parameters",
+        "outside": "resource payload parameters",
+        "duplicate": "distinct nonnegative native parameter indices",
+        "boolean": "distinct nonnegative native parameter indices",
+        "string": "distinct nonnegative native parameter indices",
+        "call": "requires a C one-shot callback",
+    }[scenario]
+    assert expected in (str(result.failure) + str(result.diagnostics))
+
+
+def test_c_completion_rejects_scalar_ownership(c_one_shot_project, native_compile):
+    source = c_one_shot_project
+    manifest = source.parent.parent / "btrc.toml"
+    text = manifest.read_text()
+    argument = 1 if "context-index = 0" in text else 0
+    manifest.write_text(
+        text.replace('cancellation = "abandon"', f'cancellation = "abandon"\nowned-arguments = [{argument}]')
+    )
+    result = native_compile(source)
+    assert not result.successful
+    assert "requires a declared native resource" in (str(result.failure) + str(result.diagnostics))
+
+
+@pytest.fixture
+def one_shot_project(native_project):
+    source, _sdk, _triple = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").write_text(
+        "#import <Foundation/Foundation.h>\n"
+        "@interface OneShotProbe : NSObject\n"
+        "+ (void)inlineWork:(void (^)(void))work;\n"
+        "+ (void)drain;\n@end\n"
+    )
+    (root / "Probe.m").write_text(
+        '#import "Foundation.h"\n@implementation OneShotProbe\n'
+        "+ (void)inlineWork:(void (^)(void))work { work(); }\n"
+        "+ (void)drain { [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]]; }\n"
+        "@end\n"
+    )
+    (root / "src/Foundation.btrc").write_text("")
+    (root / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "oneShotConsumer"\n'
+        '[[native.bindings]]\nmodule = "Foundation"\nheader = "Foundation.h"\n'
+        'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+        'symbols = ["+[NSRunLoop currentRunLoop]", "-[NSRunLoop performBlock:]", '
+        '"+[OneShotProbe inlineWork:]", "+[OneShotProbe drain]"]\n'
+        + "".join(
+            f'[native.bindings.callbacks."{method}.{parameter}"]\n'
+            'interface = "IWork"\nlifetime = "one-shot"\nfailure = "abort"\nexecutor = "caller"\n'
+            'activation-failure = "abort"\ncancellation = "abandon"\n'
+            for method, parameter in (("-[NSRunLoop performBlock:]", "block"), ("+[OneShotProbe inlineWork:]", "work"))
+        )
+        + '[[native.sources]]\npath = "Probe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+        '[[native.frameworks]]\nname = "Foundation"\nos = ["macos"]\n'
+    )
+    source.write_text("""import Library.Callback;
+import ./Foundation.btrc;
+int delivered = 0;
+int destroyed = 0;
+class Work implements IWork {
+	public CallbackScope? scope;
+	public void invoke() {
+		delivered++;
+		if (self.scope != null) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+	}
+	public void __del__() { destroyed++; }
+}
+void run(bool inlineWork, bool cancelled) {
+	int before = delivered;
+	int beforeDestroyed = destroyed;
+	var scope = CallbackScope();
+	var work = Work();
+	if (inlineWork && cancelled) { work.scope = scope; }
+	var request = inlineWork ? OneShotProbe.inlineWork(work, scope) : NSRunLoop.currentRunLoop().performBlock(work, scope);
+	work = null;
+	if (inlineWork) {
+		assert(request.pollCompletion() == CallbackCancellation.Complete);
+		assert(delivered == before + 1);
+	} else {
+		assert(delivered == before && destroyed == beforeDestroyed);
+		if (cancelled) { assert(scope.cancel() == CallbackCancellation.Pending); }
+		OneShotProbe.drain();
+		assert(request.pollCompletion() == CallbackCancellation.Complete);
+		assert(delivered == before + (cancelled ? 0 : 1));
+	}
+	assert(destroyed == beforeDestroyed + 1);
+	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(scope.pendingCount() == 0);
+}
+int main() {
+	run(true, false); run(true, true); run(false, false); run(false, true);
+	assert(delivered == 3 && destroyed == 4);
+	return 0;
+}
+""")
+    return source
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+def test_one_shot_native_blocks_complete_inline_and_on_run_loop(one_shot_project, native_compile, sanitize):
+    source = one_shot_project
+    root = source.parent.parent
+    plan = root / "OneShot.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "OneShot.c"
+    generated.write_text(compiled.c_source)
+    executable = root / "OneShot"
+
+    def runner(command, **kwargs):
+        flags = ["-O2"] if Path(command[0]).name in {"clang", "clang++"} else []
+        if flags and sanitize:
+            flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    NativePlanBuilder(runner=runner).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], env=apple_environment(), capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize(
+    "file, old, new, diagnostic",
+    [
+        (
+            "btrc.toml",
+            'cancellation = "abandon"',
+            'cancellation = "entry-barrier"',
+            "one-shot cancellation requires abandon",
+        ),
+        (
+            "btrc.toml",
+            'activation-failure = "abort"',
+            'activation-failure = "guess"',
+            "activation-failure requires unpublished or abort",
+        ),
+        (
+            "btrc.toml",
+            'cancellation = "abandon"',
+            'cancellation = "abandon"\nunregister = ""',
+            "without unregister/context",
+        ),
+        ("btrc.toml", 'executor = "caller"', 'executor = "any"', "executor currently requires caller"),
+        ("Foundation.h", "+ (void)inlineWork:", "+ (id)inlineWork:", "requires void native and callback results"),
+        ("Foundation.h", "(void (^)(void))work", "(int (^)(void))work", "requires void native and callback results"),
+        ("Foundation.h", "(void (^)(void))work", "(void (NS_NOESCAPE ^)(void))work", "escaping Objective-C block"),
+    ],
+)
+def test_one_shot_native_blocks_reject_unproven_mapping(one_shot_project, native_compile, file, old, new, diagnostic):
+    root = one_shot_project.parent.parent
+    path = root / file
+    original = path.read_text()
+    assert old in original
+    path.write_text(original.replace(old, new))
+    compiled = native_compile(one_shot_project)
+    assert not compiled.successful
+    assert diagnostic in str(compiled.failure) + str(compiled.diagnostics)
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize(
+    "scenario",
+    ["duplicate", "callback-throw", "wrong-thread", "published-throw", "unpublished-throw", "inline-unpublished-throw"],
+)
+def test_one_shot_native_failure_boundaries(one_shot_project, native_compile, sanitize, scenario):
+    source = one_shot_project
+    root = source.parent.parent
+    recoverable = scenario in {"unpublished-throw", "inline-unpublished-throw"}
+    if recoverable:
+        manifest = root / "btrc.toml"
+        manifest.write_text(
+            manifest.read_text().replace('activation-failure = "abort"', 'activation-failure = "unpublished"')
+        )
+    failure = '[NSException raise:NSInternalInconsistencyException format:@"native failure"];'
+    bodies = {
+        "duplicate": "work(); work();",
+        "callback-throw": "work();",
+        "wrong-thread": "pthread_t thread; assert(pthread_create(&thread, NULL, invokeWork, (void*)work) == 0); assert(pthread_join(thread, NULL) == 0);",
+        "published-throw": "[[NSRunLoop currentRunLoop] performBlock:work]; " + failure,
+        "unpublished-throw": "(void)work; " + failure,
+        "inline-unpublished-throw": "work(); " + failure,
+    }
+    driver = root / "Probe.m"
+    driver.write_text(
+        "#include <assert.h>\n#include <pthread.h>\n"
+        + (
+            "static void* invokeWork(void* context) { ((void (^)(void))context)(); return NULL; }\n"
+            if scenario == "wrong-thread"
+            else ""
+        )
+        + driver.read_text().replace("{ work(); }", "{ " + bodies[scenario] + " }")
+    )
+    callback = 'throw "expected one-shot error";' if scenario == "callback-throw" else "delivered++;"
+    verification = (
+        f"assert(caught && destroyed == 1 && delivered == {int(scenario == 'inline-unpublished-throw')}); "
+        "assert(scope.cancel() == CallbackCancellation.Complete); return 0;"
+        if recoverable
+        else "return 99;"
+    )
+    source.write_text(f"""import Library.Callback;
+import ./Foundation.btrc;
+int delivered = 0;
+int destroyed = 0;
+class Work implements IWork {{
+	public void invoke() {{ {callback} }}
+	public void __del__() {{ destroyed++; fprintf(stderr, "receiver destroyed\\n"); }}
+}}
+int main() {{
+	var scope = CallbackScope();
+	bool caught = false;
+	try {{ OneShotProbe.inlineWork(Work(), scope); }} catch (string error) {{ caught = true; }}
+	{verification}
+}}
+""")
+    plan = root / "OneShot.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "OneShot.c"
+    generated.write_text(compiled.c_source)
+    executable = root / "OneShot"
+
+    def runner(command, **kwargs):
+        flags = ["-O2"] if Path(command[0]).name in {"clang", "clang++"} else []
+        if flags and sanitize:
+            flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    NativePlanBuilder(runner=runner).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], env=apple_environment(), capture_output=True, text=True, timeout=30)
+    assert completed.returncode == (0 if recoverable else -6), completed.stderr
+    if not recoverable:
+        diagnostic = {
+            "duplicate": "cannot deliver twice",
+            "callback-throw": "expected one-shot error",
+            "wrong-thread": "creating thread",
+            "published-throw": "publication state is unknown",
+        }[scenario]
+        assert diagnostic in completed.stderr
+        assert "receiver destroyed" not in completed.stderr
+    assert "ERROR: AddressSanitizer" not in completed.stderr
+    assert "runtime error:" not in completed.stderr
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_one_shot_native_lifetime_conflict(one_shot_project, native_compile, reverse):
+    source = one_shot_project
+    manifest = source.parent.parent / "btrc.toml"
+    binding = manifest.read_text().split("[[native.bindings]]", 1)[1].split("[[native.sources]]", 1)[0]
+    binding = binding.replace('module = "Foundation"', 'module = "Other"').replace(
+        'lifetime = "one-shot"', 'lifetime = "call"'
+    )
+    binding = binding.replace('activation-failure = "abort"\n', "").replace('cancellation = "abandon"\n', "")
+    manifest.write_text(manifest.read_text() + "[[native.bindings]]" + binding)
+    (source.parent / "Other.btrc").write_text("")
+    imports = ["import ./Foundation.btrc;", "import ./Other.btrc;"]
+    source.write_text("\n".join(reversed(imports) if reverse else imports) + "\nint main() { return 0; }\n")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert "conflicting native declaration" in str(compiled.failure) + str(compiled.diagnostics)
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+def test_one_shot_native_late_object_claims(one_shot_project, native_compile, sanitize):
+    source = one_shot_project
+    root = source.parent.parent
+    header = root / "Foundation.h"
+    header.write_text(
+        header.read_text()
+        .replace("@interface OneShotProbe", "NS_ASSUME_NONNULL_BEGIN\n@interface OneShotProbe")
+        .replace(
+            "@end",
+            "+ (void)objectWork:(void (^)(NSObject* _Nonnull))work;\n+ (int)liveObjects;\n@end\nNS_ASSUME_NONNULL_END",
+        )
+    )
+    driver = root / "Probe.m"
+    driver.write_text(
+        driver.read_text()
+        .replace(
+            "@implementation OneShotProbe",
+            "static int liveObjects;\n@interface WorkObject : NSObject\n@end\n@implementation WorkObject\n"
+            "- (id)init { self = [super init]; if (self) liveObjects++; return self; }\n"
+            "- (void)dealloc { liveObjects--; [super dealloc]; }\n@end\n@implementation OneShotProbe",
+        )
+        .replace(
+            "+ (void)drain",
+            "+ (int)liveObjects { return liveObjects; }\n"
+            "+ (void)objectWork:(void (^)(NSObject*))work { NSObject* object = [WorkObject new]; "
+            "[[NSRunLoop currentRunLoop] performBlock:^{ work(object); }]; [object release]; }\n"
+            "+ (void)drain",
+        )
+    )
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        .replace(
+            '"+[OneShotProbe drain]"]',
+            '"+[OneShotProbe drain]", "+[OneShotProbe objectWork:]", "+[OneShotProbe liveObjects]"]',
+        )
+        .replace(
+            "[[native.sources]]",
+            '[native.bindings.callbacks."+[OneShotProbe objectWork:].work"]\n'
+            'interface = "IObjectWork"\nlifetime = "one-shot"\nfailure = "abort"\nexecutor = "caller"\n'
+            'activation-failure = "abort"\ncancellation = "abandon"\n[[native.sources]]',
+        )
+    )
+    source.write_text("""import Library.Callback;
+import ./Foundation.btrc;
+class Work implements IObjectWork {
+	public NSObject? value;
+	public void invoke(NSObject value) { assert(OneShotProbe.liveObjects() == 1); self.value = value; }
+}
+void run(bool cancelled) {
+	var scope = CallbackScope();
+	var receiver = Work();
+	var request = OneShotProbe.objectWork(receiver, scope);
+	assert(OneShotProbe.liveObjects() == 1);
+	if (cancelled) { assert(scope.cancel() == CallbackCancellation.Pending); }
+	OneShotProbe.drain();
+	assert(request.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert((receiver.value == null) == cancelled);
+	assert(OneShotProbe.liveObjects() == (cancelled ? 0 : 1));
+	receiver.value = null;
+	assert(OneShotProbe.liveObjects() == 0);
+}
+int main() { run(false); run(true); return 0; }
+""")
+    plan = root / "OneShot.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "OneShot.c"
+    generated.write_text(compiled.c_source)
+    executable = root / "OneShot"
+
+    def runner(command, **kwargs):
+        flags = ["-O2"] if Path(command[0]).name in {"clang", "clang++"} else []
+        if flags and sanitize:
+            flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    NativePlanBuilder(runner=runner).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], env=apple_environment(), capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_one_shot_native_rejects_replacement_lifecycle(one_shot_project, native_compile):
+    one_shot_project.write_text("""import ./Foundation.btrc;
+class CallbackScope {}
+class CallbackRequest<TReceiver> {
+	private TReceiver receiver;
+	public CallbackRequest(TReceiver receiver) { self.receiver = receiver; }
+	public void activate(CallbackScope scope) {}
+	public void publish() {}
+	public void abortActivation() {}
+	public TReceiver? enter() { return self.receiver; }
+	public void leave() {}
+	public bool isOpen() { return true; }
+	public bool close() { return true; }
+	public int cancel() { return 0; }
+	public int complete() { return 0; }
+	public int pollCompletion() { return 0; }
+}
+int main() { return 0; }
+""")
+    compiled = native_compile(one_shot_project)
+    assert not compiled.successful
+    assert "require import Library.Callback" in str(compiled.failure) + str(compiled.diagnostics)
+
+
 @pytest.mark.parametrize(
     "declaration, diagnostic",
     [
@@ -1154,6 +4948,31 @@ def test_native_import_does_not_authorize_source_runtime_names(native_project, n
     assert diagnostic in str(compiled.failure) + str(compiled.diagnostics)
 
 
+@pytest.mark.parametrize(
+    "declaration, body, diagnostic",
+    [
+        ("import Library.GUI.MacOS.GUIProvider;", "return 0;", "private to package"),
+        ('#include "GUI/MacOS/GUIProvider.btrc"', "return 0;", "private to package"),
+        ("import Library.GUI;", "GUIProvider.active = null; return 0;", "GUIProvider"),
+        ("import Library.GUI.MacOS.MacOSRunLoop;", "return 0;", "private to package"),
+        ('#include "GUI/MacOS/MacOSRunLoop.btrc"', "return 0;", "private to package"),
+        ("import Library.GUI;", "var signal = MacOSRunLoopSignal(); return 0;", "MacOSRunLoopSignal"),
+        ("import Library.GUI.MacOS.MacOSStack;", "return 0;", "private to package"),
+        ('#include "GUI/MacOS/MacOSStack.btrc"', "return 0;", "private to package"),
+        ("import Library.GUI;", "var stack = MacOSStack(false, 8.0); return 0;", "MacOSStack"),
+    ],
+)
+def test_native_gui_factory_keeps_application_owner_private(
+    native_project, native_compile, declaration, body, diagnostic
+):
+    source, _sdk, _triple = native_project
+    source.write_text(f"{declaration}\nint main() {{ {body} }}\n")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert not compiled.c_source
+    assert diagnostic in str(compiled.failure) + str(compiled.diagnostics)
+
+
 @pytest.mark.parametrize("sanitize", [False, True])
 @pytest.mark.parametrize(
     "fixture_name, expected",
@@ -1162,6 +4981,11 @@ def test_native_import_does_not_authorize_source_runtime_names(native_project, n
         ("NativeProgressIndicator", "native progress appearance"),
         ("NativeButtons", "ordered native button actions"),
         ("NativeContainers", "portable container ownership"),
+        ("NativeStacks", "recursive native layout preserves editing and undo across resize"),
+        ("NativeApplication", "native application loop, deferred quit and owned subtree shutdown"),
+        ("NativeDelayedWork", "native delayed work cancellation, bounded capacity and orderly shutdown"),
+        ("NativeWindowLoop", "native window close drains independently of application quit"),
+        ("NativeGUI", "portable native GUI factory, application ownership and teardown"),
         ("NativeLabels", "native label ellipsis"),
         ("NativeSelect", "native selection, duplicate titles"),
         ("NativeSlider", "native slider, stepped tracking"),
@@ -1173,16 +4997,98 @@ def test_macos_panel_and_progress_controls(native_project, native_compile, sanit
     source, _sdk, _triple = native_project
     root = source.parent.parent
     source.write_text((REPO / f"src/tests/native/gui_surface/{fixture_name}.btrc").read_text())
+    if fixture_name == "NativeStacks":
+        for name in ("StackProbe.h", "StackProbe.m"):
+            (root / name).write_text((REPO / "src/tests/native/gui_surface" / name).read_text())
+        manifest = root / "btrc.toml"
+        manifest.write_text(
+            manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "StackProbe.h"\n'
+            'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+            'symbols = ["+[StackProbe verifyLayout:]", "+[StackProbe beginEditing]", "+[StackProbe verifyEditing]", '
+            '"+[StackProbe undoEditing]", "+[StackProbe observeViews]", "+[StackProbe remainingViews]", "+[StackProbe reset]", '
+            '"+[StackProbe contentView]", "+[StackProbe verifyDetachedButton]", "+[StackProbe verifyHiddenButton]"]\n'
+            '[[native.sources]]\npath = "StackProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+        )
+    if fixture_name == "NativeGUI":
+        (root / "FactoryProbe.h").write_text(
+            "#import <AppKit/AppKit.h>\n@interface FactoryProbe : NSObject\n"
+            "+ (NSInteger)observeViews;\n+ (NSInteger)remainingViews;\n+ (void)reset;\n+ (NSInteger)directLifecycle;\n@end\n"
+        )
+        (root / "FactoryProbe.m").write_text(
+            '#import "FactoryProbe.h"\nstatic NSHashTable *views;\n@implementation FactoryProbe\n'
+            # The fixture owns two containers and their button/text field, not
+            # AppKit's shared field editor or its private descendants.
+            "+ (void)observe:(NSView*)root { [views addObject:root]; for (NSView *container in root.subviews) { "
+            "[views addObject:container]; for (NSView *child in container.subviews) "
+            "if ([child isKindOfClass:NSButton.class] || [child isKindOfClass:NSTextField.class]) [views addObject:child]; } }\n"
+            "+ (NSInteger)observeViews { [self reset]; views = [[NSHashTable weakObjectsHashTable] retain]; "
+            'for (NSWindow *window in NSApp.windows) if ([window.title isEqualToString:@"Portable native controls"]) '
+            "for (NSView *root in window.contentView.subviews) [self observe:root]; return views.allObjects.count; }\n"
+            "+ (NSInteger)remainingViews { for (NSView *view in views.allObjects) if (![view isKindOfClass:NSTextField.class]) return -1; return views.allObjects.count; }\n"
+            "+ (void)reset { [views release]; views = nil; }\n"
+            "+ (NSInteger)directLifecycle { "
+            "NSHashTable *weak = [[NSHashTable weakObjectsHashTable] retain]; @autoreleasepool { "
+            "NSWindow *window = [NSWindow new]; window.releasedWhenClosed = NO; window.styleMask = NSWindowStyleMaskTitled; "
+            '[window setContentSize:NSMakeSize(480,320)]; NSTextField *field = [[NSTextField textFieldWithString:@"Test"] retain]; '
+            "[weak addObject:field]; [window.contentView addSubview:field]; field.frame = NSMakeRect(10,10,300,24); "
+            "[window makeKeyAndOrderFront:nil]; [window endEditingFor:nil]; [field abortEditing]; [field removeFromSuperview]; "
+            "[field release]; [window close]; [window release]; } NSInteger count = weak.allObjects.count; "
+            "[weak release]; return count; }\n@end\n"
+        )
+        manifest = root / "btrc.toml"
+        manifest.write_text(
+            manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "FactoryProbe.h"\n'
+            'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+            'symbols = ["+[FactoryProbe observeViews]", "+[FactoryProbe remainingViews]", "+[FactoryProbe reset]", "+[FactoryProbe directLifecycle]"]\n'
+            '[[native.sources]]\npath = "FactoryProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+        )
+    if fixture_name in {"NativeApplication", "NativeWindowLoop"}:
+        (root / "ApplicationProbe.h").write_text(
+            "#import <AppKit/AppKit.h>\nNS_ASSUME_NONNULL_BEGIN\n@interface ApplicationProbe : NSObject\n"
+            "+ (NSView*)newView;\n+ (NSInteger)liveViews;\n+ (BOOL)hasDelegate;\n+ (void)closeWindowNamed:(NSString*)title;\n"
+            "+ (NSTimer*)modalTimer:(void (^)(NSTimer*))block;\n+ (NSModalResponse)runAlert;\n@end\nNS_ASSUME_NONNULL_END\n"
+        )
+        (root / "ApplicationProbe.m").write_text(
+            '#import "ApplicationProbe.h"\nstatic NSInteger liveViews;\n'
+            "@interface ApplicationView : NSView\n@end\n@implementation ApplicationView\n"
+            "- (id)init { self = [super init]; if (self) liveViews++; return self; }\n"
+            "- (void)dealloc { liveViews--; [super dealloc]; }\n@end\n"
+            "@implementation ApplicationProbe\n+ (NSView*)newView { return [[ApplicationView alloc] init]; }\n"
+            "+ (NSInteger)liveViews { return liveViews; }\n+ (BOOL)hasDelegate { return NSApp.delegate != nil; }\n"
+            "+ (void)closeWindowNamed:(NSString*)title { for (NSWindow *window in NSApp.windows) { "
+            "if ([window.title isEqualToString:title]) { [window performClose:nil]; return; } } "
+            '[NSException raise:NSInternalInconsistencyException format:@"missing test window"]; }\n'
+            "+ (NSTimer*)modalTimer:(void (^)(NSTimer*))block { NSTimer* timer = [NSTimer timerWithTimeInterval:0.02 repeats:NO block:block]; "
+            "[[NSRunLoop currentRunLoop] addTimer:timer forMode:NSModalPanelRunLoopMode]; return timer; }\n"
+            '+ (NSModalResponse)runAlert { NSAlert* alert = [NSAlert new]; alert.messageText = @"Native modal shutdown test"; '
+            'alert.informativeText = @"This test must cancel itself without closing its parent early."; '
+            "NSModalResponse response = [NSApp runModalForWindow:alert.window]; [alert.window orderOut:nil]; [alert release]; return response; }\n@end\n"
+        )
+        manifest = root / "btrc.toml"
+        manifest.write_text(
+            manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "ApplicationProbe.h"\n'
+            'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+            'symbols = ["+[ApplicationProbe newView]", "+[ApplicationProbe liveViews]", "+[ApplicationProbe hasDelegate]", "+[ApplicationProbe closeWindowNamed:]", '
+            '"+[ApplicationProbe modalTimer:]", "+[ApplicationProbe runAlert]", "NSModalResponseAbort", '
+            '"-[NSTimer invalidate]", "-[NSApplication terminate:]"]\n'
+            '[native.bindings.callbacks."+[ApplicationProbe modalTimer:].block"]\n'
+            'interface = "IAppKitDelayedWork"\nlifetime = "stored"\nfailure = "abort"\nexecutor = "caller"\n'
+            'unregister = "-[NSTimer invalidate]"\nactivation-failure = "abort"\ncancellation = "entry-barrier"\n'
+            '[[native.sources]]\npath = "ApplicationProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+        )
     if fixture_name == "NativeContainers":
         (root / "ContainerProbe.h").write_text(
             "#import <AppKit/AppKit.h>\n@interface OwnedViewProbe : NSView\n"
-            "+ (NSInteger)liveCount;\n+ (void)failNextAttachment;\n@end\n"
+            "+ (NSInteger)liveCount;\n+ (void)failNextAttachment;\n+ (void)closeWindowNamed:(NSString*)title;\n@end\n"
         )
         (root / "ContainerProbe.m").write_text(
             '#import "ContainerProbe.h"\nstatic NSInteger liveViews;\nstatic BOOL failAttachment;\n@implementation OwnedViewProbe\n'
             "- (id)init { self = [super init]; if (self) liveViews++; return self; }\n"
             "+ (NSInteger)liveCount { return liveViews; }\n"
             "+ (void)failNextAttachment { failAttachment = YES; }\n"
+            "+ (void)closeWindowNamed:(NSString*)title { for (NSWindow *window in NSApp.windows) { "
+            "if ([window.title isEqualToString:title]) { [window performClose:nil]; return; } } "
+            '[NSException raise:NSInternalInconsistencyException format:@"missing test window"]; }\n'
             "- (void)viewDidMoveToSuperview { [super viewDidMoveToSuperview]; "
             "if (failAttachment && self.superview) { failAttachment = NO; "
             '[NSException raise:NSInternalInconsistencyException format:@"injected attachment failure"]; } }\n'
@@ -1192,7 +5098,7 @@ def test_macos_panel_and_progress_controls(native_project, native_compile, sanit
         manifest.write_text(
             manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "ContainerProbe.h"\n'
             'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
-            'symbols = ["+[OwnedViewProbe new]", "+[OwnedViewProbe liveCount]", "+[OwnedViewProbe failNextAttachment]"]\n'
+            'symbols = ["+[OwnedViewProbe new]", "+[OwnedViewProbe liveCount]", "+[OwnedViewProbe failNextAttachment]", "+[OwnedViewProbe closeWindowNamed:]"]\n'
             '[[native.sources]]\npath = "ContainerProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
         )
     if fixture_name in {"NativeButtons", "NativeSlider"}:
@@ -1200,9 +5106,17 @@ def test_macos_panel_and_progress_controls(native_project, native_compile, sanit
         if fixture_name == "NativeButtons":
             (root / "PointerInput.h").write_text(
                 "#include <AppKit/AppKit.h>\n@interface FlippedTestView : NSView\n@end\n"
+                "@interface ActionButtonProbe : NSButton\n"
+                "+ (NSInteger)liveCount;\n- (BOOL)hasAction;\n- (void)fire;\n@end\n"
             )
             (root / "PointerInput.m").write_text(
                 '#import "PointerInput.h"\n@implementation FlippedTestView\n- (BOOL)isFlipped { return YES; }\n@end\n'
+                "static NSInteger liveButtons;\n@implementation ActionButtonProbe\n"
+                "- (id)init { self = [super init]; if (self) liveButtons++; return self; }\n"
+                "+ (NSInteger)liveCount { return liveButtons; }\n"
+                "- (BOOL)hasAction { return self.target != nil || self.action != NULL; }\n"
+                "- (void)fire { [self sendAction:self.action to:self.target]; }\n"
+                "- (void)dealloc { liveButtons--; [super dealloc]; }\n@end\n"
             )
         manifest = root / "btrc.toml"
         manifest.write_text(
@@ -1211,7 +5125,12 @@ def test_macos_panel_and_progress_controls(native_project, native_compile, sanit
             'symbols = ["-[NSApplication postEvent:atStart:]", "-[NSWindow windowNumber]", "-[NSWindow sendEvent:]", "-[NSView hitTest:]", '
             '"+[NSEvent mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:]", '
             '"NSEventTypeLeftMouseDown", "NSEventTypeLeftMouseUp"'
-            + (', "+[FlippedTestView new]", "-[NSView setBoundsOrigin:]"' if fixture_name == "NativeButtons" else "")
+            + (
+                ', "+[FlippedTestView new]", "-[NSView setBoundsOrigin:]", "+[ActionButtonProbe new]", '
+                '"+[ActionButtonProbe liveCount]", "-[ActionButtonProbe hasAction]", "-[ActionButtonProbe fire]"'
+                if fixture_name == "NativeButtons"
+                else ""
+            )
             + "]\n"
             + (
                 '[[native.sources]]\npath = "PointerInput.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
@@ -1222,6 +5141,15 @@ def test_macos_panel_and_progress_controls(native_project, native_compile, sanit
     plan = root / "Panel.link.json"
     compiled = native_compile(source, plan_path=plan)
     assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    if fixture_name == "NativeButtons":
+        adapter = json.loads(plan.read_text())["generated-units"][0]["source"]
+        # Slot reads can execute native code. Both frontends must use the same
+        # target-before-action preflight and cancellation ordering.
+        for operation, receiver in (("setTarget(", "self"), ("setTarget_unregister_adapter(", "source")):
+            body = adapter.split("__btrc_objc_NSButton_" + operation, 1)[1].split("\n}\n", 1)[0]
+            assert body.index(f"[((__bridge NSButton*){receiver}) target]") < body.index(
+                f"[((__bridge NSButton*){receiver}) action]"
+            )
     if fixture_name == "NativeGrid":
         adapter = json.loads(plan.read_text())["generated-units"][0]["source"]
         # Match the self-hosted dependency order, including forward declarations.
@@ -1242,11 +5170,98 @@ def test_macos_panel_and_progress_controls(native_project, native_compile, sanit
     NativePlanBuilder(runner=runner).build(
         plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
     )
+    if fixture_name == "NativeGUI":
+        baseline = subprocess.run(
+            [str(executable), "native-baseline"], env=apple_environment(), capture_output=True, text=True, timeout=30
+        )
+        assert baseline.returncode == 0, (baseline.stdout, baseline.stderr)
+        native_retained_fields = int(baseline.stdout.strip().rsplit(": ", 1)[1])
+        assert 0 <= native_retained_fields <= 1
+    scenarios = (
+        [
+            [name]
+            for name in (
+                "native",
+                "portable",
+                "before-run",
+                "scheduled",
+                "cancelled-work",
+                "failed-work",
+                "native-pending",
+                "empty-failure",
+                "modal-native",
+                "modal-portable",
+                "scope-exit",
+            )
+        ]
+        if fixture_name == "NativeApplication"
+        else [[]]
+    )
+    if fixture_name == "NativeDelayedWork":
+        scenarios = [
+            [name] for name in ("recursive", "cancel", "capacity", "invalid", "quit", "close-before-run", "failure")
+        ]
+    for arguments in scenarios:
+        completed = subprocess.run(
+            [str(executable), *arguments], cwd=root, env=apple_environment(), capture_output=True, text=True, timeout=30
+        )
+        assert completed.returncode == 0, (arguments, completed.stdout, completed.stderr)
+        assert expected in completed.stdout
+        if fixture_name == "NativeGUI":
+            assert f"Factory retained fields: {native_retained_fields}\n" in completed.stdout
+    if fixture_name == "NativeContainers":
+        failed_shutdown = subprocess.run(
+            [str(executable), "--shutdown-failure"],
+            cwd=root,
+            env=apple_environment(),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert failed_shutdown.returncode == 0, (failed_shutdown.stdout, failed_shutdown.stderr)
+        assert "application shutdown failure closes siblings without retry" in failed_shutdown.stdout
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+def test_portable_native_example_edit_apply_and_quit(native_project, native_compile, sanitize):
+    source, _sdk, _triple = native_project
+    root = source.parent.parent
+    example = (REPO / "examples/gui/Native.btrc").read_text()
+    assert example.count("int main()") == 1
+    source.write_text(
+        example.replace("int main()", "int exampleMain()")
+        + "\nint main() { ExampleProbe.schedule(); int result = exampleMain(); ExampleProbe.verify(); return result; }\n"
+    )
+    for name in ("ExampleProbe.h", "ExampleProbe.m"):
+        (root / name).write_text((REPO / "src/tests/native/gui_surface" / name).read_text())
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "ExampleProbe.h"\n'
+        'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+        'symbols = ["+[ExampleProbe schedule]", "+[ExampleProbe verify]"]\n'
+        '[[native.sources]]\npath = "ExampleProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+    )
+    plan = root / "NativeExample.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "NativeExample.c"
+    generated.write_text(compiled.c_source)
+    executable = root / "NativeExample"
+
+    def runner(command, **kwargs):
+        flags = ["-O2"] if Path(command[0]).name in {"clang", "clang++"} else []
+        if flags and sanitize:
+            flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    NativePlanBuilder(runner=runner).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
     completed = subprocess.run(
         [str(executable)], cwd=root, env=apple_environment(), capture_output=True, text=True, timeout=30
     )
     assert completed.returncode == 0, (completed.stdout, completed.stderr)
-    assert expected in completed.stdout
+    assert (root / "NativeExample.tiff").stat().st_size > 1000
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
@@ -1854,6 +5869,166 @@ def test_native_record_input_nullable_and_indirect_calls(
     )
 
 
+@pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.parametrize("indirect", [False, True])
+@pytest.mark.parametrize("missing_child", [False, True])
+def test_native_record_input_by_value(native_project, native_compile, sanitized, indirect, missing_child):
+    source, sdk, triple = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").write_text(
+        "#include <stdint.h>\n"
+        "typedef struct Inner { uint64_t number; } Inner;\n"
+        "typedef struct Outer { const Inner* child; uint64_t count; double scale; uint64_t marker; } Outer;\n"
+        "static inline uint64_t readPointer(const Outer* value) { return value->child->number + value->count; }\n"
+        "static inline uint64_t readValue(Outer value) {\n"
+        "    if (value.scale != 1.5 || value.marker != UINT64_C(8589934592)) { return 0; }\n"
+        "    value.count += 5; return readPointer(&value);\n}\n",
+        encoding="utf-8",
+    )
+    (source.parent / "Foundation.btrc").write_text("// Imported record API.\n", encoding="utf-8")
+    (root / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "recordValues"\n'
+        '[[native.bindings]]\nmodule = "Foundation"\nheader = "Foundation.h"\nlanguage = "c"\nstandard = "c11"\n'
+        'symbols = ["Outer", "Inner", "readValue", "readPointer"]\nowned-records = ["Outer", "Inner"]\n'
+        'record-inputs = ["readValue.value", "readPointer.value"]\n'
+        '[native.bindings.object-fields]\n"Outer.child" = "Inner"\n',
+        encoding="utf-8",
+    )
+    initialize = (
+        "" if missing_child else "{ var child = InnerInput(); child.number = 4294967296; input.child = child; }"
+    )
+    call = "var action = readValue; var result = action(input);" if indirect else "var result = readValue(input);"
+    source.write_text(
+        "import ./Foundation.btrc;\nint main() {\n"
+        "\tvar input = OuterInput(); input.count = 37; input.scale = 1.5; input.marker = 8589934592;\n"
+        f"\t{initialize}\n\t{call}\n"
+        "\tif (result != 4294967338 || input.count != 37) { return 1; }\n"
+        "\tif (readPointer(input) != 4294967333) { return 2; }\n"
+        "\tvar pointerAction = readPointer; return pointerAction(input) == 4294967333 ? 0 : 3;\n}\n",
+        encoding="utf-8",
+    )
+    result = native_compile(source)
+    assert result.successful, (result.failure, [diagnostic.message for diagnostic in result.diagnostics])
+    run_native_executable(
+        result.c_source,
+        root,
+        sdk,
+        triple,
+        sanitized,
+        frameworks=(),
+        expected_failure="null input value.child" if missing_child else None,
+    )
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.parametrize("by_value", [False, True])
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("one_shot", [False, True])
+def test_native_record_input_object_survives_reentrant_mutation(
+    native_project, native_compile, sanitized, by_value, nested, one_shot
+):
+    source, _sdk, _triple = native_project
+    root = source.parent.parent
+    parameter = "Record value" if by_value else "const Record* value"
+    member = "value.object" if by_value else "value->object"
+    records = "typedef struct Record { void* object; } Record;\n"
+    if nested:
+        records = (
+            "typedef struct Child { void* object; } Child;\ntypedef struct Record { const Child* child; } Record;\n"
+        )
+        member = "value.child->object" if by_value else "value->child->object"
+    (root / "Record.h").write_text(
+        records + f"int Read({parameter}, void (*change)(void*), void* context);\n",
+        encoding="utf-8",
+    )
+    (root / "Object.h").write_text(
+        "#import <Foundation/Foundation.h>\n@interface TrackedObject : NSObject\n"
+        "+ (instancetype _Nonnull)make;\n+ (int)destroyed;\n@end\n",
+        encoding="utf-8",
+    )
+    (root / "Record.m").write_text(
+        '#import "Object.h"\n#include "Record.h"\n'
+        "static int destructions;\n@implementation TrackedObject\n"
+        "+ (instancetype)make { return [[self alloc] init]; }\n"
+        "+ (int)destroyed { return destructions; }\n- (void)dealloc { ++destructions; }\n@end\n"
+        f"int Read({parameter}, void (*change)(void*), void* context) {{\n"
+        f"    int valid = {member} != 0 && destructions == 0;\n"
+        "    change(context); return !valid ? 1 : destructions == 0 ? 0 : 2;\n}\n",
+        encoding="utf-8",
+    )
+    (source.parent / "Object.btrc").write_text("// Native test object.\n", encoding="utf-8")
+    (source.parent / "Record.btrc").write_text("import ./Object.btrc;\n", encoding="utf-8")
+    selection = '"Record", "Child"' if nested else '"Record"'
+    fields = (
+        '"Record.child" = "Child?"\n"Child.object" = "TrackedObject?"\n'
+        if nested
+        else '"Record.object" = "TrackedObject?"\n'
+    )
+    lifetime = (
+        'lifetime = "one-shot"\ncancellation = "abandon"\nactivation-failure = "abort"\n'
+        if one_shot
+        else 'lifetime = "call"\n'
+    )
+    (root / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "recordObjectLease"\n'
+        '[[native.bindings]]\nmodule = "Object"\nheader = "Object.h"\nlanguage = "objective-c"\nstandard = "c11"\n'
+        'symbols = ["+[TrackedObject make]", "+[TrackedObject destroyed]"]\n'
+        '[[native.bindings]]\nmodule = "Record"\nheader = "Record.h"\nlanguage = "c"\nstandard = "c11"\n'
+        f'symbols = [{selection}, "Read"]\nowned-records = [{selection}]\nrecord-inputs = ["Read.value"]\n'
+        f"[native.bindings.object-fields]\n{fields}"
+        '[native.bindings.callbacks."Read.change"]\ninterface = "IChange"\ncontext = "context"\n'
+        f'context-index = 0\n{lifetime}executor = "caller"\nfailure = "abort"\n'
+        '[[native.sources]]\npath = "Record.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+        '[[native.frameworks]]\nname = "Foundation"\n',
+        encoding="utf-8",
+    )
+    clear = "self.input.child.object = null; self.input.child = null;" if nested else "self.input.object = null;"
+    initialize = (
+        "{ var child = ChildInput(); child.object = TrackedObject.make(); input.child = child; }"
+        if nested
+        else "{ var object = TrackedObject.make(); input.object = object; }"
+    )
+    invoke = (
+        "var scope = CallbackScope(); var started = action(input, change, scope); var result = started.value; "
+        "if (started.request.pollCompletion() != CallbackCancellation.Complete) { return 5; } "
+        "if (scope.cancel() != CallbackCancellation.Complete) { return 6; }"
+        if one_shot
+        else "var result = action(input, change);"
+    )
+    source.write_text(
+        ("import Library.Callback;\n" if one_shot else "") + "import ./Object.btrc;\nimport ./Record.btrc;\n"
+        "class Change implements IChange {\n\tpublic RecordInput input;\n"
+        "\tpublic Change(RecordInput input) { self.input = input; }\n"
+        f"\tpublic void invoke() {{ {clear} }}\n}}\n"
+        "int main() {\n\tvar input = RecordInput();\n"
+        f"\t{initialize}\n"
+        "\tif (TrackedObject.destroyed() != 0) { return 3; }\n"
+        "\tvar change = Change(input); var action = Read;\n"
+        f"\t{invoke} if (result != 0) {{ return result; }}\n"
+        "\treturn TrackedObject.destroyed() == 1 ? 0 : 4;\n}\n",
+        encoding="utf-8",
+    )
+    plan = root / "Program.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "Program.c"
+    generated.write_text(compiled.c_source, encoding="utf-8")
+
+    def run(command, **kwargs):
+        flags = ["-O2", *(["-fsanitize=address,undefined", "-fno-sanitize-recover=all"] if sanitized else [])]
+        if "objective-c" in command:
+            flags.append("-fobjc-arc")
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    executable = root / "Program"
+    NativePlanBuilder(runner=run).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], env=apple_environment(), capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, (completed.returncode, completed.stderr)
+    assert not completed.stderr
+
+
 @pytest.mark.parametrize("failure", ["missing-executable", "invalid-header"])
 def test_native_reader_failures_keep_the_binding_context_and_emit_no_c(
     native_project, native_compile, monkeypatch, failure
@@ -2386,6 +6561,48 @@ def test_objective_c_sdk_object_global_reads(objective_c_object_globals_project,
     assert not completed.stderr
 
 
+def test_objective_c_protocol_method_requires_delegate_binding(native_project, native_compile):
+    source, _, _ = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").write_text("#import <AppKit/AppKit.h>\n")
+    (root / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "nativeProtocol"\n'
+        '[[native.bindings]]\nmodule = "Foundation"\nheader = "Foundation.h"\n'
+        'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+        'symbols = ["-[NSWindowDelegate windowShouldClose:]"]\n'
+    )
+    (source.parent / "Foundation.btrc").write_text("// A protocol method is not an Objective-C class.\n")
+    source.write_text("import ./Foundation.btrc;\nint main() { return 0; }\n")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert "protocol methods require a delegate binding" in str(compiled.failure) + str(compiled.diagnostics)
+
+
+def test_objective_c_optional_protocol_method_on_class_requires_availability(native_project, native_compile):
+    source, _, _ = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").write_text(
+        "#import <Foundation/Foundation.h>\n"
+        "@protocol NativeQuery\n@optional\n- (int)value;\n@end\n"
+        "@interface ConcreteQuery : NSObject <NativeQuery>\n@end\n"
+    )
+    (root / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "nativeOptionalQuery"\n'
+        '[[native.bindings]]\nmodule = "Foundation"\nheader = "Foundation.h"\n'
+        'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+        'symbols = ["-[ConcreteQuery value]"]\n'
+    )
+    (source.parent / "Foundation.btrc").write_text(
+        "// Optional protocol conformance does not prove method availability.\n"
+    )
+    source.write_text("import ./Foundation.btrc;\nint main() { return 0; }\n")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert "Optional Objective-C calls require an availability check" in str(compiled.failure) + str(
+        compiled.diagnostics
+    )
+
+
 @pytest.mark.parametrize(
     "body, diagnostic",
     [
@@ -2415,6 +6632,180 @@ def test_objective_c_mutable_object_global_rejected(objective_c_object_globals_p
     compiled = native_compile(source)
     assert not compiled.successful
     assert "Mutable Objective-C object globals" in str(compiled.failure) + str(compiled.diagnostics)
+
+
+@pytest.fixture
+def objective_c_main_thread_global_project(native_project):
+    source, _, _ = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").write_text("""#import <Foundation/Foundation.h>
+@interface GlobalProbe : NSObject { int number; }
++ (void)replace:(int)value;
++ (int)live;
+- (int)number;
+@end
+extern GlobalProbe * _Nullable currentProbe;
+static int globalCounter = 0;
+""")
+    (root / "Probe.m").write_text("""#import "Foundation.h"
+#include <assert.h>
+GlobalProbe *currentProbe;
+static int live;
+@implementation GlobalProbe
++ (void)replace:(int)value {
+    assert([NSThread isMainThread]);
+    [currentProbe release]; currentProbe = nil;
+    if (value) { currentProbe = [[GlobalProbe alloc] init]; currentProbe->number = value; live++; }
+}
++ (int)live { return live; }
+- (int)number { return number; }
+- (void)dealloc { live--; [super dealloc]; }
+@end
+""")
+    (root / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "nativeGlobalSnapshot"\n'
+        '[[native.bindings]]\nmodule = "Foundation"\nheader = "Foundation.h"\n'
+        'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+        'symbols = ["currentProbe", "globalCounter", "+[GlobalProbe replace:]", "+[GlobalProbe live]", "-[GlobalProbe number]"]\n'
+        'main-thread-globals = ["currentProbe"]\n'
+        '[[native.sources]]\npath = "Probe.m"\nlanguage = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+        '[[native.frameworks]]\nname = "Foundation"\nos = ["macos"]\n'
+    )
+    (source.parent / "Foundation.btrc").write_text("// Main-thread native object snapshots.\n")
+    return source
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+def test_objective_c_main_thread_global_snapshots(objective_c_main_thread_global_project, native_compile, sanitize):
+    source = objective_c_main_thread_global_project
+    root = source.parent.parent
+    source.write_text("""import ./Foundation.btrc;
+#include <assert.h>
+int readOnWorker() {
+	try { var value = currentProbe; } catch (string error) { return error.equals("Native global currentProbe requires the main thread") ? 0 : 1; }
+	return 2;
+}
+int main() {
+	assert(currentProbe == null && GlobalProbe.live() == 0);
+	for (int index = 0; index < 100; index++) {
+		GlobalProbe.replace(7);
+		var first = currentProbe;
+		assert(first != null && first.number() == 7 && GlobalProbe.live() == 1);
+		GlobalProbe.replace(9);
+		var second = currentProbe;
+		assert(second != null && second != first && first.number() == 7 && second.number() == 9);
+		assert(GlobalProbe.live() == 2);
+		GlobalProbe.replace(0);
+		assert(currentProbe == null && first.number() == 7 && second.number() == 9);
+		release first;
+		assert(GlobalProbe.live() == 1 && second.number() == 9);
+		release second;
+		assert(GlobalProbe.live() == 0);
+	}
+	GlobalProbe.replace(11);
+	Thread<int> worker = spawn(() => readOnWorker());
+	assert(worker.join() == 0 && GlobalProbe.live() == 1);
+	GlobalProbe.replace(0);
+	assert(GlobalProbe.live() == 0);
+	return 0;
+}
+""")
+    plan = root / "Program.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "Program.c"
+    generated.write_text(compiled.c_source)
+
+    def run(command, **kwargs):
+        flags = ["-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"] if sanitize else ["-O2"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    executable = root / "Program"
+    NativePlanBuilder(runner=run).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], env=apple_environment(), capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, completed.stderr
+    assert not completed.stderr
+
+
+@pytest.mark.parametrize(
+    "body,diagnostic",
+    [
+        ("currentProbe = null;", "read-only native global"),
+        ("var address = &currentProbe;", "read-only native pointer slot"),
+        ("release currentProbe;", "read-only native global"),
+    ],
+)
+def test_objective_c_main_thread_global_storage_rules(
+    objective_c_main_thread_global_project, native_compile, body, diagnostic
+):
+    source = objective_c_main_thread_global_project
+    source.write_text("import ./Foundation.btrc;\nint main() { " + body + " return 0; }\n")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert diagnostic in str(compiled.failure) + str(compiled.diagnostics)
+
+
+@pytest.mark.parametrize(
+    "mapping",
+    [
+        '"currentProbe"',
+        '["currentProbe", "currentProbe"]',
+        "[1]",
+        '["unknown"]',
+        '["currentProbe", "+[GlobalProbe live]"]',
+        '["currentProbe", "globalCounter"]',
+    ],
+)
+def test_objective_c_main_thread_global_invalid_mapping(
+    objective_c_main_thread_global_project, native_compile, mapping
+):
+    source = objective_c_main_thread_global_project
+    manifest = source.parent.parent / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text().replace('main-thread-globals = ["currentProbe"]', f"main-thread-globals = {mapping}")
+    )
+    source.write_text("import ./Foundation.btrc;\nint main() { return 0; }\n")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert "main-thread-globals" in str(compiled.failure) + str(compiled.diagnostics)
+
+
+def test_objective_c_main_thread_global_rejects_c_binding(objective_c_main_thread_global_project, native_compile):
+    source = objective_c_main_thread_global_project
+    manifest = source.parent.parent / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        .replace('language = "objective-c"', 'language = "c"', 1)
+        .replace(
+            'symbols = ["currentProbe", "globalCounter", "+[GlobalProbe replace:]", "+[GlobalProbe live]", "-[GlobalProbe number]"]',
+            'symbols = ["currentProbe"]',
+        )
+    )
+    source.write_text("import ./Foundation.btrc;\nint main() { return 0; }\n")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert "main-thread-globals" in str(compiled.failure) + str(compiled.diagnostics)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_objective_c_global_executor_conflict(objective_c_object_globals_project, native_compile, reverse):
+    source = objective_c_object_globals_project
+    manifest = source.parent.parent / "btrc.toml"
+    binding = manifest.read_text().split("[[native.bindings]]", 1)[1].split("[[native.frameworks]]", 1)[0]
+    manifest.write_text(
+        manifest.read_text()
+        + "[[native.bindings]]"
+        + binding.replace('module = "Foundation"', 'module = "Other"')
+        + 'main-thread-globals = ["NSDefaultRunLoopMode"]\n'
+    )
+    (source.parent / "Other.btrc").write_text("// Incompatible executor contract for the same native storage.\n")
+    imports = ["import ./Foundation.btrc;", "import ./Other.btrc;"]
+    source.write_text("\n".join(reversed(imports) if reverse else imports) + "\nint main() { return 0; }\n")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert "conflicting native declaration" in str(compiled.failure) + str(compiled.diagnostics)
 
 
 @pytest.mark.parametrize(
@@ -2546,17 +6937,17 @@ def test_objective_c_protocol_method_on_concrete_receiver(native_project, native
         env=apple_environment(),
     )
     compiled = native_compile(source)
+    assert reader.returncode == 0, reader.stderr
+    method = json.loads(reader.stdout)["declarations"][0]
+    assert method["receiver"] == "NativeReceiver"
+    assert method["owner"] == "NativeValue"
+    assert method["identity"] == "c:objc(pl)NativeValue(im)value"
+    assert method["protocol_owner"] is True
+    assert method["optional"] is optional
     if optional:
-        assert reader.returncode > 0, (reader.returncode, reader.stderr)
-        assert not reader.stdout
-        assert "Optional Objective-C protocol method requires a runtime availability check" in reader.stderr
         assert not compiled.successful and not compiled.c_source
+        assert "Optional Objective-C calls require an availability check" in str(compiled.failure)
     else:
-        assert reader.returncode == 0, reader.stderr
-        method = json.loads(reader.stdout)["declarations"][0]
-        assert method["receiver"] == "NativeReceiver"
-        assert method["owner"] == "NativeValue"
-        assert method["identity"] == "c:objc(pl)NativeValue(im)value"
         assert compiled.successful, (compiled.failure, compiled.diagnostics)
 
 
@@ -2618,6 +7009,94 @@ def test_objective_c_inherited_factory_and_instance_methods(native_project, nati
         timeout=30,
     )
     assert completed.returncode == 0, (completed.returncode, completed.stderr)
+    assert not completed.stderr
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+def test_managed_callback_context_releases_real_objective_c_token(objective_c_project, native_compile, sanitize):
+    source = objective_c_project
+    root = source.parent.parent
+    header = root / "Foundation.h"
+    header.write_text(
+        header.read_text() + "\n@interface NativeToken : NSObject\n"
+        "+ (instancetype _Nonnull)make;\n+ (int)live;\n+ (int)cancelled;\n"
+        "- (void)invalidate;\n@end\n"
+    )
+    implementation = root / "Probe.m"
+    implementation.write_text(
+        implementation.read_text() + "\nstatic int liveTokens, cancelledTokens;\n@implementation NativeToken\n"
+        "+ (instancetype)make { liveTokens++; return [[[self alloc] init] autorelease]; }\n"
+        "+ (int)live { return liveTokens; }\n+ (int)cancelled { return cancelledTokens; }\n"
+        "- (void)invalidate { cancelledTokens++; }\n"
+        "- (void)dealloc { liveTokens--; [super dealloc]; }\n@end\n"
+    )
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text().replace(
+            '"+[NativeProbe live]"',
+            '"+[NativeProbe live]", "+[NativeToken make]", "+[NativeToken live]", '
+            '"+[NativeToken cancelled]", "-[NativeToken invalidate]"',
+        )
+    )
+    source.write_text("""import Library.Callback;
+import ./Foundation.btrc;
+#include <assert.h>
+int destroyed = 0;
+interface IReceiver { int invoke(); }
+class Receiver implements IReceiver {
+	public int invoke() { return 42; }
+	public void __del__() { destroyed++; }
+}
+bool unregisterToken(NativeToken token) { token.invalidate(); return true; }
+void exercise(bool inlineCancel) {
+	var scope = CallbackScope();
+	var context = new CallbackContext<IReceiver, NativeToken>(Receiver(), unregisterToken);
+	context.activate(scope);
+	int before = NativeToken.cancelled();
+	IReceiver? receiver = context.enter();
+	assert(receiver != null && receiver.invoke() == 42);
+	if (inlineCancel) { assert(context.cancel() == CallbackCancellation.Pending); }
+	context.publish(NativeToken.make());
+	assert(NativeToken.live() == 1);
+	assert(scope.cancel() == CallbackCancellation.Pending);
+	assert(NativeToken.cancelled() == before + 1);
+	assert(NativeToken.live() == 1);
+	context.leave(); receiver = null;
+	assert(scope.pollCompletion() == CallbackCancellation.Complete);
+	assert(NativeToken.live() == 0);
+	assert(context.cancel() == CallbackCancellation.Complete);
+	assert(NativeToken.cancelled() == before + 1);
+}
+int main() {
+	for (int index = 0; index < 1000; index++) {
+		exercise(index % 2 == 0);
+		assert(destroyed == index + 1 && NativeToken.live() == 0);
+	}
+	return 0;
+}
+""")
+    plan_path = root / "Program.link.json"
+    compiled = native_compile(source, plan_path=plan_path)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "Program.c"
+    generated.write_text(compiled.c_source)
+
+    def run(command, **kwargs):
+        flags = ["-O1", "-g", "-fsanitize=address,undefined"] if sanitize else ["-O2"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    executable = root / "Program"
+    NativePlanBuilder(runner=run).build(
+        plan_path=plan_path, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run(
+        [str(executable)],
+        env={**apple_environment(), "UBSAN_OPTIONS": "halt_on_error=1"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
     assert not completed.stderr
 
 

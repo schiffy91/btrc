@@ -1,19 +1,303 @@
 import Library.Math;
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.IButton;
+import Library.GUI.ITextField;
+import Library.GUI.IContainer;
+import Library.GUI.IView;
+import Library.GUI.MacOS.MacOSButton;
+import Library.GUI.MacOS.MacOSTextField;
+import Library.GUI.MacOS.MacOSContainer;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSActionQueue;
+import Library.GUI.MacOS.MacOSRunLoop;
+import Library.GUI.IStack;
+import Library.GUI.MacOS.MacOSStack;
 
-/* One application owner on the main thread. Dispatch is bounded so an embedded
- * GPU renderer can share the loop without blocking on an absent native event. */
-class MacOSApplication {
+/* Query callbacks only request loop exit. Returning Cancel prevents AppKit
+ * from exiting the process before ordinary BTRC shutdown has run. */
+class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitRunLoopEvents {
+	public bool quitRequested = false;
+	private int _pendingWork = 0;
+	private int _workCapacity;
+	private string _workFailure = "";
+	private bool _workFailed = false;
+	private MacOSActionQueue _actions;
+	private Vector<MacOSWindow> _windows;
+	private Vector<IView> _views;
+	private Vector<IView> _closingRoots = [];
+	private bool _viewsClosing = false;
+	private string _viewCloseFailure = "";
+	private CallbackScope _shutdown;
+	private ICallbackRegistration? _shutdownTick;
+	private bool _dispatchingEvents = false;
+
+	public MacOSApplicationEvents(int workCapacity, MacOSActionQueue actions, Vector<MacOSWindow> windows, Vector<IView> views, CallbackScope shutdown) {
+		if (workCapacity <= 0 || workCapacity > 65536) { throw "Application work capacity must be between 1 and 65536"; }
+		self._workCapacity = workCapacity;
+		self._actions = actions;
+		self._windows = windows;
+		self._views = views;
+		self._shutdown = shutdown;
+	}
+
+	public void invoke(NSNotification notification) {
+		if (self.quitRequested || self._dispatchingEvents) { return; }
+		self._dispatchingEvents = true;
+		try {
+			self.dispatchWindowEvents();
+			int count = self._actions.pendingCount();
+			for (int index = 0; index < count && !self.quitRequested; index++) { self._actions.dispatchOne(); }
+			self.dispatchWindowEvents();
+		} catch (string error) { self.failWork(error); }
+		finally {
+			self._dispatchingEvents = false;
+			if (self.quitRequested && self._pendingWork == 0) { self.stop(NSApplication.sharedApplication()); }
+			else if (!self.quitRequested) { self._actions.wake(); }
+		}
+	}
+
+	public bool eventsActive() { return self._dispatchingEvents; }
+
+	public void dispatchWindowEvents() {
+		bool pending = false;
+		for (int index = self._windows.len - 1; index >= 0; index--) {
+			var window = self._windows.get(index);
+			window.dispatchPendingEvents();
+			if (!window.isOpen()) {
+				if (window.pollClose() == CallbackCancellation.Complete) { self._windows.remove(index); }
+				else { pending = true; }
+			}
+		}
+		if (pending && NSApplication.sharedApplication().isRunning()) { self.armShutdown(); }
+	}
+
+	public int pendingWork() { return self._pendingWork; }
+
+	public string workFailure() { return self._workFailure; }
+
+	public bool workFailed() { return self._workFailed; }
+
+	public void requireWorkCapacity(int delayed) {
+		if (self.quitRequested) { throw "Application quit has been requested"; }
+		if (delayed >= self._workCapacity - self._pendingWork) { throw "Application work capacity exceeded"; }
+	}
+
+	public void admitWork() {
+		if (self.quitRequested) { throw "Application quit has been requested"; }
+		if (self._pendingWork == self._workCapacity) { throw "Application work capacity exceeded"; }
+		self._pendingWork++;
+	}
+
+	public void finishWork() {
+		if (self._pendingWork <= 0) { throw "Application work completed without admission"; }
+		self._pendingWork--;
+		if (self.quitRequested && self._pendingWork == 0 && !self._dispatchingEvents) { self.stop(NSApplication.sharedApplication()); }
+	}
+
+	public void failWork(string error) {
+		if (!self._workFailed) { self._workFailure = error; self._workFailed = true; }
+		self.requestQuit(NSApplication.sharedApplication());
+	}
+
+	public void requestQuit(NSApplication application) {
+		if (self.quitRequested) { return; }
+		self.quitRequested = true;
+		// A modal caller may itself be admitted work. Unwind its native loop
+		// before waiting for that work to return; keep owned views alive.
+		if (application.modalWindow() != null) { application.stopModalWithCode(NSModalResponseAbort); }
+		if (self._pendingWork == 0 && !self._dispatchingEvents) { self.stop(application); }
+	}
+
+	private void stop(NSApplication application) {
+		if (application.isRunning()) { self.armShutdown(); }
+	}
+
+	public void armShutdown() {
+		if (self._shutdownTick != null) { return; }
+		self._shutdown.pollCompletion();
+		self._shutdownTick = NSTimer.scheduledTimerWithTimeInterval(0.01, false, MacOSShutdownWork(self), self._shutdown);
+	}
+
+	public void advanceShutdown() {
+		var tick = self._shutdownTick;
+		self._shutdownTick = null;
+		if (tick != null) { tick.cancel(); }
+		try {
+			if (!self.quitRequested) { self.dispatchWindowEvents(); return; }
+			if (self._pendingWork > 0 || self._dispatchingEvents) { self.armShutdown(); return; }
+			var result = self.closeViews();
+			if (result == CallbackCancellation.Pending) { self.armShutdown(); }
+			else if (result == CallbackCancellation.Complete) { self.stopNative(NSApplication.sharedApplication()); }
+			else { throw "Native subtree shutdown failed without completion"; }
+		} catch (string error) {
+			if (!self._workFailed) { self._workFailure = error; self._workFailed = true; }
+			self.quitRequested = true;
+			self.stopNative(NSApplication.sharedApplication());
+		}
+	}
+
+	private CallbackCancellation combineClose(CallbackCancellation result, CallbackCancellation state) {
+		if (result == CallbackCancellation.Failed || state == CallbackCancellation.Failed) { return CallbackCancellation.Failed; }
+		if (result == CallbackCancellation.RetryableFailure || state == CallbackCancellation.RetryableFailure) { return CallbackCancellation.RetryableFailure; }
+		return result == CallbackCancellation.Complete && state == CallbackCancellation.Complete ? CallbackCancellation.Complete : CallbackCancellation.Pending;
+	}
+
+	public CallbackCancellation closeViews() {
+		CallbackCancellation result = CallbackCancellation.Complete;
+		for (int index = self._windows.len - 1; index >= 0; index--) {
+			try {
+				var state = self._windows.get(index).close();
+				if (state == CallbackCancellation.Complete) { self._windows.remove(index); }
+				else { result = self.combineClose(result, state); }
+			} catch (string error) { if (self._viewCloseFailure.isEmpty()) { self._viewCloseFailure = error; } }
+		}
+		if (!self._viewsClosing) {
+			self._viewsClosing = true;
+			for view in self._views {
+				try {
+					if (!view.isOpen()) {
+						if (view.pollClose() != CallbackCancellation.Complete) { self._closingRoots.push(view); }
+						continue;
+					}
+					var native = (IMacOSView?)view;
+					if (native == null) { throw "GUI view belongs to another provider"; }
+					if (native.nativeView().superview() == null) { self._closingRoots.push(view); }
+				} catch (string error) { if (self._viewCloseFailure.isEmpty()) { self._viewCloseFailure = error; } }
+			}
+		}
+		for (int index = self._closingRoots.len - 1; index >= 0; index--) {
+			try {
+				var view = self._closingRoots.get(index);
+				var state = view.isOpen() ? view.close() : view.pollClose();
+				if (state == CallbackCancellation.Complete) { self._closingRoots.remove(index); }
+				else { result = self.combineClose(result, state); }
+			} catch (string error) {
+				// _views still owns this root. Remove only its progress entry:
+				// an unknown close result must not trigger another native attempt.
+				self._closingRoots.remove(index);
+				if (self._viewCloseFailure.isEmpty()) { self._viewCloseFailure = error; }
+			}
+		}
+		if (!self._viewCloseFailure.isEmpty()) { throw self._viewCloseFailure; }
+		if (result == CallbackCancellation.Complete) {
+			for view in self._views { if (view.isOpen()) { throw "GUI view remains attached outside application ownership"; } }
+			self._views.clear();
+		}
+		return result;
+	}
+
+	private void stopNative(NSApplication application) {
+		if (application.isRunning()) {
+			// stop: is observed after an NSEvent, not after a timer callback.
+			CGPoint location;
+			location.x = 0.0;
+			location.y = 0.0;
+			var wake = NSEvent.otherEventWithType(NSEventTypeApplicationDefined, location, 0UL, 0.0, 0L, null, (short)0, 0L, 0L);
+			if (wake == null) { throw "Cannot wake the native application for shutdown"; }
+			application.stop(null);
+			application.postEvent(wake, false);
+		}
+	}
+
+	public unsigned long applicationShouldTerminate(NSApplication sender) {
+		self.requestQuit(sender);
+		return NSTerminateCancel;
+	}
+}
+
+/* Shutdown polling is native, bounded and separate from cancelable domain work.
+ * Its application-owned scope outlives pending subtrees and the timer receiver. */
+class MacOSShutdownWork implements IAppKitDelayedWork {
+	private MacOSApplicationEvents _events;
+
+	public MacOSShutdownWork(MacOSApplicationEvents events) { self._events = events; }
+
+	public void invoke(NSTimer timer) { self._events.advanceShutdown(); }
+}
+
+/* Native completion remains admitted during quit so it can retire queued work.
+ * Only domain delivery is abandoned. Scheduling state has no scope backreference;
+ * user work may retain the application until the generated adapter completes. */
+class MacOSApplicationWork implements IAppKitApplicationWork {
+	private IApplicationWork _work;
+	private MacOSApplicationEvents _events;
+
+	public MacOSApplicationWork(IApplicationWork work, MacOSApplicationEvents events) { self._work = work; self._events = events; }
+
+	public void invoke() {
+		try { if (!self._events.quitRequested) { self._work.run(); } }
+		catch (string error) { self._events.failWork(error); }
+		finally { self._events.finishWork(); }
+	}
+}
+
+/* A cancellable native timer uses the same generated stored-block lifetime as
+ * other subscriptions. The independent application scope owns cancellation;
+ * this receiver owns no application or scope. A fired timer cancels itself
+ * while admitted, and the generated adapter completes cleanup after return. */
+class MacOSDelayedWork implements IAppKitDelayedWork {
+	private IApplicationWork _work;
+	private MacOSApplicationEvents _events;
+	private ICallbackRegistration? _registration;
+
+	public MacOSDelayedWork(IApplicationWork work, MacOSApplicationEvents events) { self._work = work; self._events = events; }
+
+	public void bind(ICallbackRegistration registration) { self._registration = registration; }
+
+	public void invoke(NSTimer timer) {
+		var registration = self._registration;
+		if (registration == null) { throw "Delayed work was delivered before timer publication"; }
+		try {
+			if (!self._events.quitRequested) {
+				self._events.admitWork();
+				try { self._work.run(); } finally { self._events.finishWork(); }
+			}
+		} catch (string error) { self._events.failWork(error); }
+		finally { registration.cancel(); self._registration = null; }
+	}
+}
+
+/* One application owner on the main thread. The native run loop is the
+ * standalone entrypoint; bounded dispatch remains for existing embedded hosts. */
+class MacOSApplication implements IApplication {
 	private NSApplication _application;
 	private bool _dispatching;
+	private bool _running = false;
+	private MacOSApplicationEvents _events;
+	private CallbackScope _callbacks;
+	private CallbackScope _work;
+	private CallbackScope _delayed;
+	private CallbackScope _shutdown;
+	private MacOSActionQueue _actions;
+	private MacOSRunLoopSignal _signal;
+	private Vector<MacOSWindow> _windows = [];
+	private Vector<IView> _views = [];
+	private bool _closing = false;
+	private bool _closed = false;
+	private string _closeFailure = "";
 
-	public MacOSApplication() {
+	public MacOSApplication(int workCapacity = 256) {
 		self.requireMainThread();
 		self._application = NSApplication.sharedApplication();
 		self._dispatching = false;
-		// An unbundled executable defaults to prohibited activation, which leaves
-		// visible windows unable to become key and receive Player shortcuts.
-		if (!self._application.setActivationPolicy(NSApplicationActivationPolicyRegular)) { throw "Cannot enable native application activation"; }
-		self._application.finishLaunching();
+		self._signal = MacOSRunLoopSignal();
+		self._actions = MacOSActionQueue(workCapacity, self._signal);
+		self._shutdown = CallbackScope();
+		self._events = MacOSApplicationEvents(workCapacity, self._actions, self._windows, self._views, self._shutdown);
+		self._callbacks = CallbackScope();
+		self._work = CallbackScope();
+		self._delayed = CallbackScope();
+		try {
+			self._application.setDelegate(self._events, self._callbacks);
+			self._signal.subscribe(self._events, self._callbacks);
+			// Unbundled executables otherwise cannot receive keyboard focus.
+			if (self._application.activationPolicy() != NSApplicationActivationPolicyRegular && !self._application.setActivationPolicy(NSApplicationActivationPolicyRegular)) { throw "Cannot enable native application activation"; }
+			self._application.finishLaunching();
+		} catch (string error) { self.close(); throw error; }
 	}
 
 	private void requireMainThread() {
@@ -23,17 +307,112 @@ class MacOSApplication {
 	private void requireIdle() {
 		self.requireMainThread();
 		if (self._dispatching) { throw "Native event dispatch is already active"; }
+		if (self._closing || self._closed) { throw "Application shutdown has started"; }
 	}
+
+	private void requireEmbeddedDispatch() {
+		self.requireIdle();
+		if (self._running) { throw "AppKit owns native event dispatch while run is active"; }
+	}
+
+	public bool isRunning() { self.requireMainThread(); return self._running; }
+
+	public void run() {
+		self.requireMainThread();
+		if (self._running || self._dispatching) { throw "Native application loop is already active"; }
+		if (self._closed) { throw "Application shutdown has completed"; }
+		while (true) {
+			if (self._events.quitRequested && self._events.pendingWork() == 0) {
+				var result = self.close();
+				if (result == CallbackCancellation.Complete) { break; }
+				if (result != CallbackCancellation.Pending) { throw "Native subtree shutdown failed without completion"; }
+			}
+			if (self._events.quitRequested) { self._events.armShutdown(); }
+			self._running = true;
+			try { self._application.run(); } catch (string error) {
+				self._running = false;
+				self.close();
+				throw error;
+			}
+			self._running = false;
+			self._events.requestQuit(self._application);
+		}
+		if (self._events.workFailed()) { throw self._events.workFailure(); }
+	}
+
+	public void post(IApplicationWork work) {
+		self.requireMainThread();
+		if (self._closing || self._closed) { throw "Application shutdown has started"; }
+		if (work == null) { throw "Application work is required"; }
+		self._work.pollCompletion();
+		self._delayed.pollCompletion();
+		self._events.requireWorkCapacity(self._delayed.pendingCount());
+		self._events.admitWork();
+		try { NSRunLoop.currentRunLoop().performBlock(MacOSApplicationWork(work, self._events), self._work); }
+		catch (string error) { self._events.finishWork(); throw error; }
+	}
+
+	public ICallbackRegistration postAfter(double delaySeconds, IApplicationWork work) {
+		self.requireMainThread();
+		if (self._closing || self._closed) { throw "Application shutdown has started"; }
+		if (work == null || !Math.isFinite(delaySeconds) || delaySeconds < 0.0) { throw "Delayed work requires a finite nonnegative delay and a receiver"; }
+		self._delayed.pollCompletion();
+		self._events.requireWorkCapacity(self._delayed.pendingCount());
+		var receiver = MacOSDelayedWork(work, self._events);
+		var registration = NSTimer.scheduledTimerWithTimeInterval(delaySeconds, false, receiver, self._delayed);
+		// NSTimer delivers on a later run-loop turn, never inside its factory.
+		receiver.bind(registration);
+		return registration;
+	}
+
+	public void requestQuit() {
+		self.requireMainThread();
+		if (self._closed) { return; }
+		self.requireIdle();
+		self._events.requestQuit(self._application);
+	}
+
+	public IWindow createWindow(string title, double width, double height) {
+		self.requireCreation();
+		var window = MacOSWindow(title, width, height, self._signal);
+		self._windows.push(window);
+		return window;
+	}
+
+	private void requireCreation() {
+		self.requireIdle();
+		if (self._events.quitRequested) { throw "Application quit has been requested"; }
+	}
+
+	private void rememberView(IView view) {
+		for (int index = self._views.len - 1; index >= 0; index--) {
+			var previous = self._views.get(index);
+			if (!previous.isOpen() && previous.pollClose() == CallbackCancellation.Complete) { self._views.remove(index); }
+		}
+		self._views.push(view);
+	}
+
+	public IButton createButton(string title) { self.requireCreation(); var button = MacOSButton(title, self._actions); self.rememberView(button); return button; }
+
+	public ITextField createTextField(string text, string placeholder) { self.requireCreation(); var field = MacOSTextField(text, placeholder); self.rememberView(field); return field; }
+
+	public IContainer createContainer() { self.requireCreation(); var container = MacOSContainer(); self.rememberView(container); return container; }
+
+	public IStack createRow(double spacing) { self.requireCreation(); var row = MacOSStack(false, spacing); self.rememberView(row); return row; }
+
+	public IStack createColumn(double spacing) { self.requireCreation(); var column = MacOSStack(true, spacing); self.rememberView(column); return column; }
+
+	private void dispatchWindowEvents() { self._events.dispatchWindowEvents(); }
 
 	/* A host can consume its own shortcuts before dispatching the remaining
 	 * event to AppKit. Native tracking is never replaced by a painted widget. */
 	public NSEvent? nextEvent() {
-		self.requireIdle();
+		self.requireEmbeddedDispatch();
 		return self._application.nextEventMatchingMask(NSEventMaskAny, NSDate.distantPast(), NSDefaultRunLoopMode, true);
 	}
 
 	public void dispatchEvent(NSEvent event) {
-		self.requireIdle();
+		self.requireEmbeddedDispatch();
 		if (event == null) { throw "Cannot dispatch a missing native event"; }
 		self._dispatching = true;
 		try {
@@ -43,9 +422,10 @@ class MacOSApplication {
 			throw error;
 		}
 		self._dispatching = false;
+		self.dispatchWindowEvents();
 	}
 
-	public void updateWindows() { self.requireIdle(); self._application.updateWindows(); }
+	public void updateWindows() { self.requireIdle(); self._application.updateWindows(); self.dispatchWindowEvents(); }
 
 	/* Activation is a request, not a focus guarantee. AppKit may defer or deny it. */
 	public void requestActivation() { self.requireIdle(); self._application.activate(); }
@@ -53,14 +433,14 @@ class MacOSApplication {
 	/* Wait without consuming the event: the host still owns shortcut routing.
 	 * A deadline keeps non-AppKit work (audio snapshots, jobs, IPC) progressing. */
 	public bool waitForEvents(double seconds) {
-		self.requireIdle();
+		self.requireEmbeddedDispatch();
 		if (!Math.isFinite(seconds) || seconds < 0.0) { throw "Native event wait must be finite and nonnegative"; }
 		var deadline = NSDate.dateWithTimeIntervalSinceNow(seconds);
 		return self._application.nextEventMatchingMask(NSEventMaskAny, deadline, NSDefaultRunLoopMode, false) != null;
 	}
 
 	public int pumpEvents(int maximum = 64) {
-		self.requireIdle();
+		self.requireEmbeddedDispatch();
 		if (maximum <= 0) { throw "Event dispatch limit must be positive"; }
 		int dispatched = 0;
 		while (dispatched < maximum) {
@@ -72,4 +452,36 @@ class MacOSApplication {
 		self.updateWindows();
 		return dispatched;
 	}
+
+	public CallbackCancellation pollClose() {
+		self.requireMainThread();
+		return self._closed ? CallbackCancellation.Complete : (self._closing ? self.close() : CallbackCancellation.NotRequested);
+	}
+
+	public CallbackCancellation close() {
+		self.requireMainThread();
+		if (self._closed) { return CallbackCancellation.Complete; }
+		if (self._closeFailure != "") { throw self._closeFailure; }
+		if (self._dispatching) { throw "Native event dispatch is already active"; }
+		if (self._running) { throw "Request application quit before closing a running application"; }
+		if (self._events.eventsActive()) { throw "Application events must return before closing"; }
+		if (self._events.pendingWork() > 0) { throw "Run the application to drain pending work before closing"; }
+		self._events.requestQuit(self._application);
+		self._closing = true;
+		var views = self._events.closeViews();
+		if (views != CallbackCancellation.Complete) { return views; }
+		try {
+			if (self._shutdown.cancel() != CallbackCancellation.Complete) { throw "Native subtree completions must drain before shutdown"; }
+			if (self._delayed.cancel() != CallbackCancellation.Complete) { throw "Delayed application work must drain before shutdown"; }
+			if (self._work.cancel() != CallbackCancellation.Complete) { throw "Application work must drain before shutdown"; }
+			if (self._callbacks.cancel() != CallbackCancellation.Complete) { throw "Application callbacks must drain before shutdown"; }
+		} catch (string error) { self._closeFailure = error; throw error; }
+		release self._views;
+		self._actions.close();
+		self._signal.close();
+		self._closed = true;
+		return CallbackCancellation.Complete;
+	}
+
+	public void __del__() { if (self.close() != CallbackCancellation.Complete) { Console.fatal("Native application destroyed before subtree cleanup completed"); } }
 }

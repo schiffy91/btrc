@@ -1476,6 +1476,9 @@ class GpuPipeline {
 			kernelIndex = kernelIndex + 1;
 		}
 		Map<string, bool> used = {};
+		for declaration in module.objectiveCClasses {
+			for method in declaration.methods { GpuPipeline.collectGpuRefs(method.body, names, used); }
+		}
 		int functionIndex = 0;
 		while (functionIndex < module.functions.len) {
 			GpuPipeline.collectGpuRefs(module.functions.get(functionIndex).body, names, used);

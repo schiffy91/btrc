@@ -24,6 +24,9 @@ class RuntimeReferenceCollector {
 			functionIndex = functionIndex + 1;
 		}
 
+		for declaration in module.objectiveCClasses {
+			for method in declaration.methods { self.collectNode(method.body, used); }
+		}
 		int globalIndex = 0;
 		while (globalIndex < module.globalDecls.len) {
 			self.collectNode(module.globalDecls.get(globalIndex).init, used);
@@ -132,6 +135,9 @@ class RuntimeReferenceCollector {
 		}
 		self.collectTypeProviderReferences(node.cType, used);
 		self.collectTypeProviderReferences(node.targetType, used);
+		if (node.params != null) {
+			for (int index = 0; index < node.params.len; index++) { self.collectTypeProviderReferences(node.params.get(index).cType, used); }
+		}
 		if (node.cleanupSlot != null) {
 			self.collectTypeProviderReferences(node.cleanupSlot.cType, used);
 		}
@@ -206,6 +212,13 @@ class RuntimeReferenceCollector {
 	}
 
 	private void collectStructuredRoots(IRModule module, Map<string, bool> used) {
+		for declaration in module.objectiveCClasses {
+			for field in declaration.fields { self.collectTypeProviderReferences(field.cType, used); }
+			for method in declaration.methods {
+				self.collectTypeProviderReferences(method.returnType, used);
+				for parameter in method.params { self.collectTypeProviderReferences(parameter.cType, used); }
+			}
+		}
 		int functionIndex = 0;
 		while (functionIndex < module.functions.len) {
 			IRFunction definition = module.functions.get(functionIndex);

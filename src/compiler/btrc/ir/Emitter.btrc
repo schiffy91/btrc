@@ -57,6 +57,15 @@ class CEmitter {
 
 		/* Reserve the typed preprocessor slot (filled after body is known). */
 		int preprocessorSlot = self.lines.len;
+		Map<string, bool> nativeNames = {};
+		for declaration in m.objectiveCClasses {
+			self.requireObjectiveC();
+			self.validateSelectorIdentifier(declaration.name);
+			if (nativeNames.has(declaration.name)) { throw "Objective-C class declarations require distinct names"; }
+			nativeNames.put(declaration.name, true);
+			self.line("@class " + declaration.name + ";");
+		}
+		if (m.objectiveCClasses.len > 0) { self.line(""); }
 
 		/* Runtime helpers (raw C source, blank line after each). */
 		int h = 0;
@@ -110,6 +119,13 @@ class CEmitter {
 		}
 		if (m.globalDecls.len > 0) { self.line(""); }
 
+		Map<string, bool> definedNativeNames = {};
+		for declaration in m.objectiveCClasses {
+			if (nativeNames.has(declaration.superclass) && !definedNativeNames.has(declaration.superclass)) { throw "Objective-C superclass must be declared before its subclass"; }
+			self.emitObjectiveCInterface(declaration);
+			definedNativeNames.put(declaration.name, true);
+		}
+		for declaration in m.objectiveCClasses { self.emitObjectiveCImplementation(declaration); }
 		self.emitGpuKernels(m);
 
 		/* Function definitions. */
@@ -124,6 +140,83 @@ class CEmitter {
 		self.spliceLines(preprocessorSlot, preprocessorLines);
 
 		return self.joinLines();
+	}
+
+	private string objectiveCMethodSignature(IRObjectiveCMethod method) {
+		if (method.body == null || method.body.kind != IRK_BLOCK || method.returnType.isEmpty() || method.params == null) { throw "Objective-C method requires a return type, parameters and IRBlock body"; }
+		var pieces = Strings.split(method.selector, ":");
+		int count = pieces.len;
+		if (method.params.len > 0) {
+			if (count != method.params.len + 1 || pieces.get(count - 1) != "") { throw "Objective-C selector does not match argument count"; }
+			count--;
+		} else if (count != 1) { throw "Objective-C selector does not match argument count"; }
+		string signature = (method.isClassMethod ? "+" : "-") + " (" + method.returnType + ")";
+		Map<string, bool> names = {};
+		for (int index = 0; index < count; index++) {
+			var piece = pieces.get(index);
+			self.validateSelectorIdentifier(piece);
+			if (method.params.len == 0) { signature = signature + piece; }
+			else {
+				var parameter = method.params.get(index);
+				self.validateSelectorIdentifier(parameter.name);
+				if (parameter.cType.isEmpty() || parameter.cType == "void") { throw "Objective-C method parameter requires a non-void type"; }
+				if (names.has(parameter.name) || parameter.name == "self" || parameter.name == "_cmd") { throw "Objective-C method parameters require distinct non-reserved names"; }
+				names.put(parameter.name, true);
+				if (index > 0) { signature = signature + " "; }
+				signature = signature + piece + ":(" + parameter.cType + ")" + parameter.name;
+			}
+		}
+		return signature;
+	}
+
+	private void emitObjectiveCInterface(IRObjectiveCClass declaration) {
+		self.requireObjectiveC();
+		self.validateSelectorIdentifier(declaration.superclass);
+		if (declaration.name == declaration.superclass) { throw "Objective-C class cannot inherit itself"; }
+		if (declaration.protocols == null) { throw "Objective-C class requires a protocol list"; }
+		Map<string, bool> protocolNames = {};
+		for protocol in declaration.protocols {
+			self.validateSelectorIdentifier(protocol);
+			if (protocolNames.has(protocol)) { throw "Objective-C protocols require distinct names"; }
+			protocolNames.put(protocol, true);
+		}
+		string protocols = declaration.protocols.len > 0 ? " <" + Strings.join(declaration.protocols, ", ") + ">" : "";
+		self.line("@interface " + declaration.name + " : " + declaration.superclass + protocols + " {");
+		self.line("@private");
+		self.indent++;
+		Map<string, bool> fields = {};
+		for field in declaration.fields {
+			self.validateSelectorIdentifier(field.name);
+			if (field.cType.isEmpty() || field.cType == "void") { throw "Objective-C field requires a non-void type"; }
+			if (fields.has(field.name) || field.name == "self" || field.name == "_cmd" || field.name == "isa") { throw "Objective-C fields require distinct non-reserved names"; }
+			if (field.arraySize != null) { throw "Objective-C adapter array fields require a fixed native layout"; }
+			fields.put(field.name, true);
+			self.line(self.qualifyVolatileObjectType(field.cType, field.isVolatile || field.effectiveIsVolatile) + " " + field.name + ";");
+		}
+		self.indent--;
+		self.line("}");
+		Map<string, bool> selectors = {};
+		for method in declaration.methods {
+			string key = (method.isClassMethod ? "+" : "-") + method.selector;
+			if (selectors.has(key)) { throw "Objective-C class contains a duplicate method"; }
+			selectors.put(key, true);
+			self.line(self.objectiveCMethodSignature(method) + ";");
+		}
+		self.line("@end");
+		self.line("");
+	}
+
+	private void emitObjectiveCImplementation(IRObjectiveCClass declaration) {
+		self.line("@implementation " + declaration.name);
+		for method in declaration.methods {
+			self.line(self.objectiveCMethodSignature(method) + " {");
+			self.indent++;
+			self.emitBlockContents(method.body);
+			self.indent--;
+			self.line("}");
+		}
+		self.line("@end");
+		self.line("");
 	}
 
 	private string escapedGpuShader(string source) {
@@ -778,6 +871,17 @@ class CEmitter {
 			Vector<string> call = [callee, self.delimited("(", args, ")")];
 			return self.compound("", call, "", "", "\n");
 		}
+		if (e.kind == IRK_OBJECTIVE_C_SELECTOR) {
+			self.requireObjectiveC();
+			Vector<string> pieces = Strings.split(e.name, ":");
+			int count = pieces.len;
+			if (count > 1) {
+				if (pieces.get(count - 1) != "") { throw "Objective-C selector does not match argument count"; }
+				count--;
+			}
+			for index in range(count) { self.validateSelectorIdentifier(pieces.get(index)); }
+			return "@selector(" + e.name + ")";
+		}
 		if (e.kind == IRK_OBJECTIVE_C_MESSAGE) {
 			self.requireObjectiveC();
 			if (e.obj == null) { throw "Objective-C message requires a receiver"; }
@@ -797,6 +901,23 @@ class CEmitter {
 				index = index + 1;
 			}
 			return self.compound("[", parts, "]", " ", "\n");
+		}
+		if (e.kind == IRK_OBJECTIVE_C_BLOCK) {
+			self.requireObjectiveC();
+			if (e.body == null || e.body.kind != IRK_BLOCK || e.targetType.isEmpty() || e.params == null) { throw "Objective-C block requires a return type, parameters and IRBlock body"; }
+			Map<string, bool> names = {};
+			for (int index = 0; index < e.params.len; index++) {
+				var param = e.params.get(index);
+				self.validateSelectorIdentifier(param.name);
+				if (param.cType.isEmpty() || param.cType == "void") { throw "Objective-C block parameter requires a non-void type"; }
+				if (names.has(param.name)) { throw "Objective-C block parameters require distinct names"; }
+				names.put(param.name, true);
+			}
+			var body = CEmitter();
+			body.language = self.language;
+			body.indent = 1;
+			body.emitBlockContents(e.body);
+			return "^" + e.targetType + "(" + self.paramList(e.params) + ") {\n" + Strings.join(body.lines, "\n") + "\n}";
 		}
 		if (e.kind == IRK_FIELD_ACCESS) {
 			string op = ".";

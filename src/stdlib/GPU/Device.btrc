@@ -1,3 +1,4 @@
+import Library.Callback;
 import Library.GPU.WebGPU;
 
 enum GPUDeviceState {
@@ -5,98 +6,114 @@ enum GPUDeviceState {
 	GPU_DEVICE_REQUESTING_DEVICE,
 	GPU_DEVICE_READY,
 	GPU_DEVICE_FAILED,
+	GPU_DEVICE_CLOSING,
 	GPU_DEVICE_CLOSED
 };
 
-/* Device/queue ownership, independent of windows and legacy registry IDs.
- * The host lends an instance/surface and calls poll on their owner thread.
- * Close this owner before the surface/instance. Poll never waits for a driver;
- * pending callbacks keep their own native request reference after close.
- *
- * The existing C async primitive is temporary migration debt: it supplies
- * atomic publication and releases unclaimed late results. All device setup,
- * state transitions and resource ownership below belong to BTRC. */
+/* Native completions never retain the domain owner or perform another SDK call.
+ * Generated bindings own the callback context and adopt its resource claim. */
+class GPUAdapterCompletion implements IGPUAdapterCompletion {
+	public WGPUAdapter? value;
+	public int status = 0;
+	public string message = "";
+	public bool delivered = false;
+	public void invoke(WGPURequestAdapterStatus status, WGPUAdapter? adapter, string message) {
+		self.status = (int)status;
+		self.message = message;
+		self.value = adapter;
+		self.delivered = true;
+	}
+}
+
+class GPUDeviceCompletion implements IGPUDeviceCompletion {
+	public WGPUDevice? value;
+	public int status = 0;
+	public string message = "";
+	public bool delivered = false;
+	public void invoke(WGPURequestDeviceStatus status, WGPUDevice? device, string message) {
+		self.status = (int)status;
+		self.message = message;
+		self.value = device;
+		self.delivered = true;
+	}
+}
+
+/* The creating thread owns setup and nonblocking shutdown. A pending close
+ * keeps the instance alive: continue poll() until CLOSED before releasing this
+ * owner or stopping its executor. Cancellation abandons delivery, not native work. */
 class GPUDevice {
-	private WGPUInstance _instance;
-	private WGPUAdapter _adapter = null;
-	private WGPUDevice _device = null;
-	private WGPUQueue _queue = null;
-	private BtrcGPUAsync* _request = null;
-	private WGPUFuture _future;
+	private WGPUInstance? _instance;
+	private WGPUAdapter? _adapter;
+	private WGPUDevice? _device;
+	private WGPUQueue? _queue;
+	private CallbackScope _scope;
+	private GPUAdapterCompletion? _adapterCompletion;
+	private GPUDeviceCompletion? _deviceCompletion;
 	private GPUDeviceState _state = GPU_DEVICE_REQUESTING_ADAPTER;
 	private string _error = "";
-
 	public GPUDevice(WGPUInstance instance, WGPUSurface surface) {
 		if (instance == null || surface == null) { throw "GPU device requires an open instance and surface"; }
+		self._scope = CallbackScope();
 		self._instance = instance;
-		self._request = btrc_gpu_async_create(GPUDevice.releaseAdapter);
-		if (self._request == null) { self.fail("Cannot allocate GPU adapter request"); return; }
-		WGPURequestAdapterOptions options = {null};
+		self._adapterCompletion = GPUAdapterCompletion();
+		var options = WGPURequestAdapterOptionsInput();
 		options.compatibleSurface = surface;
-		WGPURequestAdapterCallbackInfo callback = {null};
+		var callback = WGPURequestAdapterCallbackInfoInput();
 		callback.mode = WGPUCallbackMode_AllowProcessEvents;
-		callback.callback = GPUDevice.adapterReady;
-		callback.userdata1 = self._request;
-		self._future = wgpuInstanceRequestAdapter(instance, &options, callback);
+		callback.callback = self._adapterCompletion;
+		wgpuInstanceRequestAdapter(instance, options, callback, self._scope);
 	}
 
-	class void releaseAdapter(void* result) { if (result != null) { wgpuAdapterRelease((WGPUAdapter)result); } }
+	private void requireExecutor() { self._scope.isOpen(); }
 
-	class void releaseDevice(void* result) { if (result != null) { wgpuDeviceRelease((WGPUDevice)result); } }
+	public GPUDeviceState state() { self.requireExecutor(); return self._state; }
 
-	class void adapterReady(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void* context, void* unused) { btrc_gpu_async_complete((BtrcGPUAsync*)context, (int)status, (void*)adapter); }
+	public string error() { self.requireExecutor(); return self._error; }
 
-	class void deviceReady(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void* context, void* unused) { btrc_gpu_async_complete((BtrcGPUAsync*)context, (int)status, (void*)device); }
+	private void requireReady() { self.requireExecutor(); if (self._state != GPU_DEVICE_READY) { throw "GPU device is not ready"; } }
 
-	public GPUDeviceState state() { return self._state; }
+	public WGPUInstance nativeInstance() { self.requireReady(); return self._instance; }
 
-	public string error() { return self._error; }
+	public WGPUDevice nativeDevice() { self.requireReady(); return self._device; }
 
-	public WGPUInstance nativeInstance() { if (self._state != GPU_DEVICE_READY) { throw "GPU device is not ready"; } return self._instance; }
+	public WGPUAdapter nativeAdapter() { self.requireReady(); return self._adapter; }
 
-	public WGPUDevice nativeDevice() {
-		if (self._state != GPU_DEVICE_READY) { throw "GPU device is not ready"; }
-		return self._device;
-	}
-
-	public WGPUAdapter nativeAdapter() {
-		if (self._state != GPU_DEVICE_READY) { throw "GPU device is not ready"; }
-		return self._adapter;
-	}
-
-	public WGPUQueue nativeQueue() {
-		if (self._state != GPU_DEVICE_READY) { throw "GPU device is not ready"; }
-		return self._queue;
-	}
-
-	private void releaseRequest() {
-		if (self._request != null) { btrc_gpu_async_release(self._request); self._request = null; }
-	}
+	public WGPUQueue nativeQueue() { self.requireReady(); return self._queue; }
 
 	private void fail(string error) { self.close(); self._error = error; self._state = GPU_DEVICE_FAILED; }
 
 	public GPUDeviceState poll() {
-		if (self._state != GPU_DEVICE_REQUESTING_ADAPTER && self._state != GPU_DEVICE_REQUESTING_DEVICE) { return self._state; }
-		int status = 0;
-		void* result = null;
-		var outcome = btrc_gpu_async_wait(self._instance, self._future, self._request, 0ULL, &status, &result);
-		if (outcome == BTRC_GPU_ASYNC_TIMED_OUT) { return self._state; }
-		if (outcome != BTRC_GPU_ASYNC_COMPLETED) { self.fail("Cannot poll GPU device request"); return self._state; }
-		self.releaseRequest();
+		self.requireExecutor();
+		if (self._state == GPU_DEVICE_CLOSED || self._state == GPU_DEVICE_READY) { return self._state; }
+		if (self._instance != null) { wgpuInstanceProcessEvents(self._instance); }
+		self._scope.pollCompletion();
+		if (self._state == GPU_DEVICE_CLOSING || self._state == GPU_DEVICE_FAILED) {
+			if (self._scope.pendingCount() == 0) {
+				self._instance = null;
+				if (self._state == GPU_DEVICE_CLOSING) { self._state = GPU_DEVICE_CLOSED; }
+			}
+			return self._state;
+		}
 		if (self._state == GPU_DEVICE_REQUESTING_ADAPTER) {
-			self._adapter = (WGPUAdapter)result;
-			if (status != (int)WGPURequestAdapterStatus_Success || self._adapter == null) { self.fail(f"GPU adapter request failed ({status})"); return self._state; }
-			self._request = btrc_gpu_async_create(GPUDevice.releaseDevice);
-			if (self._request == null) { self.fail("Cannot allocate GPU device request"); return self._state; }
+			var completion = self._adapterCompletion;
+			if (completion == null) { self.fail("Missing GPU adapter completion"); return self._state; }
+			if (!completion.delivered) { return self._state; }
+			self._adapter = completion.value;
+			self._adapterCompletion = null;
+			if (completion.status != (int)WGPURequestAdapterStatus_Success || self._adapter == null) { self.fail(f"GPU adapter request failed ({completion.status}): {completion.message}"); return self._state; }
 			self._state = GPU_DEVICE_REQUESTING_DEVICE;
-			WGPURequestDeviceCallbackInfo callback = {null};
+			self._deviceCompletion = GPUDeviceCompletion();
+			var callback = WGPURequestDeviceCallbackInfoInput();
 			callback.mode = WGPUCallbackMode_AllowProcessEvents;
-			callback.callback = GPUDevice.deviceReady;
-			callback.userdata1 = self._request;
-			self._future = wgpuAdapterRequestDevice(self._adapter, null, callback);
+			callback.callback = self._deviceCompletion;
+			wgpuAdapterRequestDevice(self._adapter, null, callback, self._scope);
 		} else {
-			self._device = (WGPUDevice)result;
-			if (status != (int)WGPURequestDeviceStatus_Success || self._device == null) { self.fail(f"GPU device request failed ({status})"); return self._state; }
+			var completion = self._deviceCompletion;
+			if (completion == null) { self.fail("Missing GPU device completion"); return self._state; }
+			if (!completion.delivered) { return self._state; }
+			self._device = completion.value;
+			self._deviceCompletion = null;
+			if (completion.status != (int)WGPURequestDeviceStatus_Success || self._device == null) { self.fail(f"GPU device request failed ({completion.status}): {completion.message}"); return self._state; }
 			self._queue = wgpuDeviceGetQueue(self._device);
 			if (self._queue == null) { self.fail("Cannot obtain GPU device queue"); return self._state; }
 			self._state = GPU_DEVICE_READY;
@@ -104,12 +121,16 @@ class GPUDevice {
 		return self._state;
 	}
 
-	public void close() {
-		self.releaseRequest();
-		if (self._queue != null) { wgpuQueueRelease(self._queue); self._queue = null; }
-		if (self._device != null) { wgpuDeviceRelease(self._device); self._device = null; }
-		if (self._adapter != null) { wgpuAdapterRelease(self._adapter); self._adapter = null; }
-		self._state = GPU_DEVICE_CLOSED;
+	public CallbackCancellation close() {
+		var result = self._scope == null ? CallbackCancellation.Complete : self._scope.cancel();
+		self._adapterCompletion = null;
+		self._deviceCompletion = null;
+		self._queue = null;
+		self._device = null;
+		self._adapter = null;
+		self._state = result == CallbackCancellation.Complete ? GPU_DEVICE_CLOSED : GPU_DEVICE_CLOSING;
+		if (result == CallbackCancellation.Complete) { self._instance = null; }
+		return result;
 	}
 
 	public void __del__() { self.close(); }

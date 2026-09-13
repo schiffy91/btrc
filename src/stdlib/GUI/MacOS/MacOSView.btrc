@@ -134,11 +134,14 @@ class MacOSView implements IMacOSView {
 		view.addSubview(child);
 	}
 
-	public void close() {
+	public CallbackCancellation pollClose() { return self.isOpen() ? CallbackCancellation.NotRequested : CallbackCancellation.Complete; }
+
+	public CallbackCancellation close() {
 		self.requireDetached();
 		var view = self._view;
-		if (view == null) { return; }
+		if (view == null) { return CallbackCancellation.Complete; }
 		view.removeFromSuperview();
 		self._view = null;
+		return CallbackCancellation.Complete;
 	}
 }

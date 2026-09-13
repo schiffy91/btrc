@@ -138,6 +138,7 @@ class SemanticAnalyzer:
                 self.statements.analyze_rich_enum_defaults(declaration)
         for declaration in state.declarations(program):
             self.statements.analyze_declaration(declaration)
+        self.generics.collect_native_callback_instances(program)
         self.generics.close_generic_instance_graph()
         realtime_safe_callables = self.realtime.analyze(program)
         self.ownership.validate_generic_type_facts()

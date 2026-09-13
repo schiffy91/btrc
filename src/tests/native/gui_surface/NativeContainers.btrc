@@ -1,3 +1,6 @@
+import Library.Callback;
+import Library.GUI.IApplication;
+import Library.GUI.IView;
 import Library.GUI.IContainer;
 import Library.GUI.IWindow;
 import Library.GUI.ITextField;
@@ -8,10 +11,43 @@ import Library.GUI.MacOS.MacOSView;
 import Library.GUI.MacOS.MacOSContainer;
 import Library.GUI.MacOS.MacOSButton;
 import Library.GUI.MacOS.MacOSTextField;
+import Library.GUI.MacOS.AppKitText;
 
 #include <assert.h>
 
 int closeAttempts = 0;
+
+class FailingLayout implements IMacOSContainerLayout {
+	private NSView _view;
+	public int forgets = 0;
+
+	public FailingLayout() { self._view = NSView.new(); }
+
+	public NSView nativeView() { return self._view; }
+
+	public void arrangeChild(NSView child) { child.setTranslatesAutoresizingMaskIntoConstraints(false); throw "Injected native layout failure"; }
+
+	public void forgetChild(NSView child) { self.forgets++; }
+}
+
+void verifyLayoutRollback() {
+	var layout = FailingLayout();
+	var container = MacOSContainer(layout);
+	var child = MacOSView(OwnedViewProbe.new());
+	for (int index = 0; index < 2; index++) {
+		bool original = index == 0;
+		child.nativeView().setTranslatesAutoresizingMaskIntoConstraints(original);
+		bool rejected = false;
+		try { container.attach(child); } catch (string error) { rejected = error.equals("Injected native layout failure"); }
+		assert(rejected && container.isOpen() && container.childCount() == 0 && child.isOpen());
+		assert(child.nativeView().superview() == null);
+		assert(child.nativeView().translatesAutoresizingMaskIntoConstraints() == original);
+		assert(layout.forgets == index + 1);
+	}
+	container.close();
+	child.close();
+	assert(OwnedViewProbe.liveCount() == 0L);
+}
 
 /* Failure injection around a real native view, not a production adapter. */
 class FailingView implements IMacOSView {
@@ -21,6 +57,8 @@ class FailingView implements IMacOSView {
 	private bool _failClose;
 	private bool _failArrange = false;
 	private bool _observeQuery = false;
+	public int remainingPolls = 0;
+	private bool _closing = false;
 
 	public FailingView(IContainer? observer = null, bool failClose = true) {
 		self._view = MacOSView(OwnedViewProbe.new());
@@ -69,7 +107,7 @@ class FailingView implements IMacOSView {
 
 	public void detachFrom(NSView parent) { self._view.detachFrom(parent); }
 
-	public bool isOpen() { return self._view.isOpen(); }
+	public bool isOpen() { return !self._closing && self._view.isOpen(); }
 
 	public double fittingWidth() { return self._view.fittingWidth(); }
 
@@ -84,11 +122,133 @@ class FailingView implements IMacOSView {
 
 	public void setVisible(bool visible) { self._view.setVisible(visible); }
 
-	public void close() {
-		closeAttempts++;
+	private CallbackCancellation finishClose() {
 		self._view.close();
 		if (self._failClose) { throw "Injected container child close failure"; }
+		return CallbackCancellation.Complete;
 	}
+
+	public CallbackCancellation close() {
+		closeAttempts++;
+		self._closing = true;
+		return self.remainingPolls > 0 ? CallbackCancellation.Pending : self.finishClose();
+	}
+
+	public CallbackCancellation pollClose() {
+		if (!self._closing) { return CallbackCancellation.NotRequested; }
+		if (self.remainingPolls > 0) { self.remainingPolls--; }
+		return self.remainingPolls > 0 ? CallbackCancellation.Pending : self.finishClose();
+	}
+}
+
+void verifyPendingSubtree() {
+	var window = MacOSWindow("Pending subtree", 480.0, 240.0);
+	var root = MacOSContainer();
+	var immediate = MacOSView(OwnedViewProbe.new());
+	var pending = FailingView(null, false);
+	pending.remainingPolls = 3;
+	root.attach(immediate);
+	root.attach(pending);
+	window.attachRoot(root);
+	int previous = closeAttempts;
+	assert(window.pollClose() == CallbackCancellation.NotRequested);
+	assert(window.close() == CallbackCancellation.Pending);
+	assert(!root.isOpen() && !pending.isOpen() && !immediate.isOpen());
+	assert(root.childCount() == 1 && window.root() == root && OwnedViewProbe.liveCount() == 1L);
+	assert(window.close() == CallbackCancellation.Pending && closeAttempts == previous + 1);
+	assert(window.pollClose() == CallbackCancellation.Pending && OwnedViewProbe.liveCount() == 1L);
+	assert(window.pollClose() == CallbackCancellation.Complete);
+	assert(root.childCount() == 0 && window.root() == null && OwnedViewProbe.liveCount() == 0L);
+	assert(window.close() == CallbackCancellation.Complete && closeAttempts == previous + 1);
+}
+
+class QuitWithPendingView implements IApplicationWork {
+	private IApplication _application;
+	private IView _view;
+
+	public QuitWithPendingView(IApplication application, IView view) { self._application = application; self._view = view; }
+
+	public void run() {
+		assert(self._application.isRunning() && self._view.isOpen());
+		self._application.requestQuit();
+		assert(self._view.isOpen());
+	}
+}
+
+void verifyPendingApplication(bool quitBeforeRun) {
+	var app = MacOSApplication();
+	var window = app.createWindow("Pending native application", 480.0, 240.0);
+	var root = MacOSContainer();
+	var pending = FailingView(null, false);
+	pending.remainingPolls = 10;
+	root.attach(pending);
+	window.attachRoot(root);
+	int previous = closeAttempts;
+	if (quitBeforeRun) { app.requestQuit(); }
+	else { app.post(QuitWithPendingView(app, pending)); }
+	app.run();
+	assert(!app.isRunning() && app.pollClose() == CallbackCancellation.Complete);
+	assert(window.root() == null && pending.remainingPolls == 0);
+	assert(closeAttempts == previous + 1 && OwnedViewProbe.liveCount() == 0L);
+}
+
+class ObservePendingWindow implements IApplicationWork {
+	private IApplication _application;
+	private IWindow _first;
+	private IWindow _second;
+	private bool _nativeClose;
+	private int _observations = 0;
+
+	public ObservePendingWindow(IApplication application, IWindow first, IWindow second, bool nativeClose) { self._application = application; self._first = first; self._second = second; self._nativeClose = nativeClose; }
+
+	public void run() {
+		if (self._observations == 0) {
+			if (self._nativeClose) { OwnedViewProbe.closeWindowNamed(AppKitText.nativeValue("Pending first window")); }
+			else { assert(self._first.close() == CallbackCancellation.Pending); }
+		}
+		self._observations++;
+		if (self._first.root() != null) {
+			assert(self._observations < 200);
+			self._application.postAfter(0.01, self);
+			return;
+		}
+		// Observation does not poll the first window: the application alone
+		// must have advanced its closure without quitting or losing its peer.
+		assert(!self._first.isOpen() && self._second.isOpen() && OwnedViewProbe.liveCount() == 1L);
+		self._application.requestQuit();
+	}
+}
+
+void verifyPendingWindow(bool nativeClose) {
+	var app = MacOSApplication();
+	var first = app.createWindow("Pending first window", 480.0, 240.0);
+	var second = app.createWindow("Surviving window", 480.0, 240.0);
+	var pending = FailingView(null, false);
+	pending.remainingPolls = 10;
+	first.attachRoot(pending);
+	second.attachRoot(MacOSView(OwnedViewProbe.new()));
+	first.show(); second.show();
+	app.post(ObservePendingWindow(app, first, second, nativeClose));
+	app.run();
+	assert(app.pollClose() == CallbackCancellation.Complete && OwnedViewProbe.liveCount() == 0L);
+}
+
+void prepareDetachedRoot(MacOSApplication app) {
+	var root = app.createContainer();
+	var pending = FailingView(null, false);
+	pending.remainingPolls = 10;
+	root.attach(pending);
+	assert(root.close() == CallbackCancellation.Pending);
+	app.createButton("Creation retains unfinished roots");
+}
+
+void verifyPendingDetachedRoot() {
+	var app = MacOSApplication();
+	prepareDetachedRoot(app);
+	assert(OwnedViewProbe.liveCount() == 1L);
+	assert(app.close() == CallbackCancellation.Pending);
+	app.run();
+	assert(app.pollClose() == CallbackCancellation.Complete && OwnedViewProbe.liveCount() == 0L);
 }
 
 bool rejectsClose(IView view) {
@@ -234,8 +394,54 @@ void verifyWindowCloseFailure() {
 	assert(rejected);
 }
 
-int main() {
+void verifyApplicationWindows(MacOSApplication app) {
+	IWindow first = app.createWindow("Native close delivery", 480.0, 240.0);
+	IWindow second = app.createWindow("Application shutdown", 480.0, 240.0);
+	var root = MacOSContainer();
+	var child = MacOSView(OwnedViewProbe.new());
+	root.attach(child);
+	first.attachRoot(root);
+	first.show();
+	OwnedViewProbe.closeWindowNamed(AppKitText.nativeValue("Native close delivery"));
+	assert(!first.isOpen() && root.isOpen() && child.isOpen());
+	app.updateWindows();
+	assert(first.root() == null && !root.isOpen() && !child.isOpen());
+	assert(OwnedViewProbe.liveCount() == 0L && second.isOpen());
+	var secondRoot = MacOSContainer();
+	var secondChild = MacOSView(OwnedViewProbe.new());
+	secondRoot.attach(secondChild);
+	second.attachRoot(secondRoot);
+	app.close();
+	assert(!second.isOpen() && !secondRoot.isOpen() && !secondChild.isOpen());
+	assert(OwnedViewProbe.liveCount() == 0L);
+	app.close();
+	bool rejected = false;
+	try { app.createWindow("After shutdown", 100.0, 100.0); } catch (string error) { rejected = true; }
+	assert(rejected);
+}
+
+void verifyApplicationCloseFailure() {
 	var app = MacOSApplication();
+	IWindow healthy = app.createWindow("Healthy sibling", 480.0, 240.0);
+	var healthyRoot = MacOSView(OwnedViewProbe.new());
+	healthy.attachRoot(healthyRoot);
+	IWindow failing = app.createWindow("Failing sibling", 480.0, 240.0);
+	failing.attachRoot(FailingView());
+	for (int attempt = 0; attempt < 2; attempt++) {
+		bool rejected = false;
+		try { app.close(); } catch (string error) { rejected = error.equals("Injected container child close failure"); }
+		assert(rejected && closeAttempts == 1);
+		assert(!healthy.isOpen() && !healthyRoot.isOpen() && healthy.root() == null);
+		assert(!failing.isOpen() && failing.root() != null && OwnedViewProbe.liveCount() == 0L);
+	}
+	bool rejected = false;
+	try { app.createWindow("After failed shutdown", 100.0, 100.0); } catch (string error) { rejected = true; }
+	assert(rejected);
+}
+
+int verifyContainers() {
+	var app = MacOSApplication();
+	verifyLayoutRollback();
 	var window = MacOSWindow("Portable container ownership", 480.0, 240.0);
 	var rootOwner = MacOSContainer();
 	IContainer root = rootOwner;
@@ -344,6 +550,22 @@ int main() {
 	rejected = false;
 	try { verifyWindowCloseFailure(); } catch (string error) { rejected = error.equals("Injected container child close failure"); }
 	assert(rejected && closeAttempts == 1 && OwnedViewProbe.liveCount() == 0L);
+	verifyApplicationWindows(app);
+	verifyPendingSubtree();
+	verifyPendingApplication(false);
+	verifyPendingApplication(true);
+	verifyPendingWindow(true);
+	verifyPendingWindow(false);
+	verifyPendingDetachedRoot();
 	print("PASS: portable container ownership, detach, aliases and native destruction");
+	return 0;
+}
+
+int main(int argc, char** argv) {
+	if (argc == 1) { return verifyContainers(); }
+	bool rejected = false;
+	try { verifyApplicationCloseFailure(); } catch (string error) { rejected = error.equals("Injected container child close failure"); }
+	assert(rejected && closeAttempts == 1 && OwnedViewProbe.liveCount() == 0L);
+	print("PASS: application shutdown failure closes siblings without retry");
 	return 0;
 }

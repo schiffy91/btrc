@@ -102,7 +102,9 @@ class FeNativeDeclaration {
 }
 
 class FeNativeBinding {
+	public Map<string, FeNativeStringView> stringViews = {};
 	public Map<string, FeNativeCallbackBinding> callbacks = {};
+	public Vector<string> mainThreadGlobals = [];
 	public string packageName;
 	public string module;
 	public string header;
@@ -115,6 +117,9 @@ class FeNativeBinding {
 	public Vector<string> realtimeSafe;
 	public Vector<string> ownedRecords;
 	public Vector<string> recordInputs;
+	public Vector<string> recordOutputs = [];
+	public Vector<string> ownedOutputFields = [];
+	public Vector<string> nullOutputFields = [];
 	public Map<string, string> objectFields;
 	public Map<string, FeNativeResourceBinding> resources;
 	public Vector<string> ownedResults;
@@ -250,6 +255,7 @@ class FeManifestBlock {
 	private Map<string, string> fields;
 	private Map<string, bool> resourceNames;
 	private Map<string, bool> callbackNames = {};
+	private Map<string, bool> stringViewNames = {};
 
 	public FeManifestBlock(string tableName, string manifestPath) {
 		self.tableName = tableName;
@@ -268,6 +274,11 @@ class FeManifestBlock {
 		self.callbackNames.put(name, true);
 	}
 
+	public void declareStringView(string name) {
+		if (self.stringViewNames.has(name)) { FePackageFailure.fail(f"duplicate string-view table '{name}'"); }
+		self.stringViewNames.put(name, true);
+	}
+
 	public void set(string key, string raw) {
 		if (self.fields.has(key)) {
 			FePackageFailure.fail(f"package manifest '{self.manifestPath}' {self.tableName} " + f"duplicates field '{key}'");
@@ -280,9 +291,11 @@ class FeManifestBlock {
 	private bool allowedField(string key) {
 		if (self.isProvider()) { return key == "module" || key == "implementation" || key == "os" || key == "arch"; }
 		if (self.isBinding()) {
+			if (key.startsWith("string-views.")) { return true; }
+			if (key == "main-thread-globals") { return true; }
 			if (key.startsWith("callbacks.")) { return true; }
 			if (key.startsWith("resources.") || key == "owned-results" || key == "borrowed-parameters") { return true; }
-			return key.equals("module") || key.equals("header") || key.equals("symbols") || key.equals("language") || key.equals("standard") || key.equals("os") || key.equals("arch") || key.equals("read-only-borrows") || key.equals("realtime-safe") || key.equals("owned-records") || key.equals("record-inputs") || key.startsWith("object-fields.");
+			return key.equals("module") || key.equals("header") || key.equals("symbols") || key.equals("language") || key.equals("standard") || key.equals("os") || key.equals("arch") || key.equals("read-only-borrows") || key.equals("realtime-safe") || key.equals("owned-records") || key.equals("record-inputs") || key.equals("record-outputs") || key.equals("owned-output-fields") || key.equals("null-output-fields") || key.startsWith("object-fields.");
 		}
 		if (key.equals("os") || key.equals("arch") || key.equals("modules")) { return true; }
 		if (self.tableName.equals("native.sources")) {
@@ -374,6 +387,27 @@ class FeManifestBlock {
 			index++;
 		}
 		values.sortBy((string left, string right) => Strings.lessThan(left, right));
+		return values;
+	}
+
+	private Vector<int> indexArray(string key) {
+		Vector<int> values = [];
+		if (!self.fields.has(key)) { return values; }
+		string raw = self.fields.get(key).trim();
+		if (raw.length() < 2 || raw[0] != '[' || raw[raw.length() - 1] != ']') { FePackageFailure.fail(f"{key} requires distinct nonnegative native parameter indices"); }
+		string body = raw.substring(1, raw.length() - 2).trim();
+		if (body.isEmpty()) { return values; }
+		var parts = Strings.split(body, ",");
+		for position in range(parts.len) {
+			string part = parts.get(position).trim();
+			if (part.isEmpty() && position == parts.len - 1) { continue; }
+			if (part.isEmpty() || part.length() > 9) { FePackageFailure.fail(f"{key} requires distinct nonnegative native parameter indices"); }
+			for character in part { if (character < '0' || character > '9') { FePackageFailure.fail(f"{key} requires distinct nonnegative native parameter indices"); } }
+			int value = Strings.toInt(part);
+			if (values.contains(value)) { FePackageFailure.fail(f"{key} requires distinct nonnegative native parameter indices"); }
+			values.push(value);
+		}
+		values.sortBy((int left, int right) => left < right);
 		return values;
 	}
 
@@ -525,26 +559,101 @@ class FeManifestBlock {
 			var parts = Strings.split(key, ".");
 			if (parts.len != 4 || !binding.symbols.contains(parts.get(1)) || !self.identifier(parts.get(2))) { FePackageFailure.fail("callbacks must name selected function.parameter pairs"); }
 			string field = parts.get(3);
-			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
+			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor" && field != "unregister" && field != "activation-failure" && field != "cancellation" && field != "methods" && field != "slot-getter" && field != "action-setter" && field != "action-getter" && field != "owned-arguments" && field != "field") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
 			self.callbackNames.put(parts.get(1) + "." + parts.get(2), true);
 		}
 		for name in self.callbackNames.keys() {
 			var parts = Strings.split(name, ".");
 			if (parts.len != 2 || !binding.symbols.contains(parts.get(0)) || !self.identifier(parts.get(1))) { FePackageFailure.fail("callbacks must name selected function.parameter pairs"); }
 			string prefix = "callbacks." + name + ".";
-			string context = self.requiredText(prefix + "context");
+			bool hasContext = self.fields.has(prefix + "context") || self.fields.has(prefix + "context-index") || binding.language == "c";
+			Vector<string> contexts = [];
+			if (hasContext) {
+				if (self.fields.getOrDefault(prefix + "context", "").trim().startsWith("[")) { contexts = self.stringArray(prefix + "context"); }
+				else { contexts.push(self.requiredText(prefix + "context")); }
+				for context in contexts { if (!self.identifier(context)) { FePackageFailure.fail("callback context must be an identifier"); } }
+			}
 			string interfaceName = self.requiredText(prefix + "interface");
-			if (!self.identifier(context) || !self.identifier(interfaceName)) { FePackageFailure.fail("callback context/interface must be identifiers"); }
+			if (!self.identifier(interfaceName)) { FePackageFailure.fail("callback interface must be an identifier"); }
 			if (binding.symbols.contains(interfaceName)) { FePackageFailure.fail("callback interface conflicts with another imported name"); }
-			if (self.requiredText(prefix + "lifetime") != "call") { FePackageFailure.fail("callback lifetime currently requires call"); }
+			string lifetime = self.requiredText(prefix + "lifetime");
+			if (lifetime != "call" && lifetime != "stored" && lifetime != "one-shot") { FePackageFailure.fail("callback lifetime requires call, stored or one-shot"); }
+			string unregister = "";
+			string activationFailure = "";
+			if (lifetime == "stored") {
+				if (binding.language != "objective-c") { FePackageFailure.fail("stored callbacks currently require Objective-C blocks"); }
+				unregister = self.requiredText(prefix + "unregister");
+				if (!binding.symbols.contains(unregister)) { FePackageFailure.fail("callback unregister must name a selected native method"); }
+				activationFailure = self.requiredText(prefix + "activation-failure");
+				if (activationFailure != "unpublished" && activationFailure != "abort") { FePackageFailure.fail("callback activation-failure requires unpublished or abort"); }
+				if (self.requiredText(prefix + "cancellation") != "entry-barrier") { FePackageFailure.fail("callback cancellation requires entry-barrier"); }
+			} else if (lifetime == "one-shot") {
+				if (self.fields.has(prefix + "unregister") || (binding.language == "objective-c" && hasContext)) { FePackageFailure.fail("one-shot requires an Objective-C block without unregister/context"); }
+				activationFailure = self.requiredText(prefix + "activation-failure");
+				if (activationFailure != "unpublished" && activationFailure != "abort") { FePackageFailure.fail("callback activation-failure requires unpublished or abort"); }
+				if (self.requiredText(prefix + "cancellation") != "abandon") { FePackageFailure.fail("one-shot cancellation requires abandon"); }
+			} else if (self.fields.has(prefix + "unregister") || self.fields.has(prefix + "activation-failure") || self.fields.has(prefix + "cancellation")) { FePackageFailure.fail("cancellation facts require a stored callback"); }
 			if (self.requiredText(prefix + "failure") != "abort") { FePackageFailure.fail("callback failure currently requires abort"); }
 			if (self.requiredText(prefix + "executor") != "caller") { FePackageFailure.fail("callback executor currently requires caller"); }
 			string raw = self.fields.getOrDefault(prefix + "context-index", "").trim();
-			if (raw.isEmpty() || raw.length() > 9) { FePackageFailure.fail("callback context-index must be a nonnegative native parameter index"); }
-			for character in raw { if (character < '0' || character > '9') { FePackageFailure.fail("callback context-index must be a nonnegative native parameter index"); } }
-			binding.callbacks.put(name, FeNativeCallbackBinding(name, context, Strings.toInt(raw), interfaceName));
+			Vector<int> contextIndices = [];
+			if (hasContext) {
+				if (raw.startsWith("[")) { contextIndices = self.indexArray(prefix + "context-index"); }
+				else {
+					if (raw.isEmpty() || raw.length() > 9) { FePackageFailure.fail("callback context-index must be a nonnegative native parameter index"); }
+					for character in raw { if (character < '0' || character > '9') { FePackageFailure.fail("callback context-index must be a nonnegative native parameter index"); } }
+					contextIndices.push(Strings.toInt(raw));
+				}
+				if (contexts.len == 0 || contexts.len != contextIndices.len) { FePackageFailure.fail("context/context-index require equally sized nonempty distinct slots"); }
+			}
+			var callback = FeNativeCallbackBinding(name, contexts, contextIndices, interfaceName, lifetime, unregister, activationFailure);
+			if (self.fields.has(prefix + "field")) {
+				callback.field = self.requiredText(prefix + "field");
+				if (!self.identifier(callback.field) || binding.language != "c" || lifetime != "one-shot") { FePackageFailure.fail("callback field requires a C one-shot callback and a field identifier"); }
+			}
+			if (contextIndices.len > 1 && callback.field.isEmpty()) { FePackageFailure.fail("multiple context slots require a callback field"); }
+			if (self.fields.has(prefix + "owned-arguments") && (binding.language != "c" || lifetime != "one-shot")) { FePackageFailure.fail("owned-arguments requires a C one-shot callback"); }
+			callback.ownedArguments = self.indexArray(prefix + "owned-arguments");
+			bool action = self.fields.has(prefix + "action-setter") || self.fields.has(prefix + "action-getter");
+			if (self.fields.has(prefix + "methods") || self.fields.has(prefix + "slot-getter") || action) {
+				if (lifetime != "stored" || binding.language != "objective-c" || hasContext) { FePackageFailure.fail("delegate methods require a stored Objective-C callback"); }
+				if (action) {
+					callback.actionSetter = self.requiredText(prefix + "action-setter");
+					callback.actionGetter = self.requiredText(prefix + "action-getter");
+					if (self.fields.has(prefix + "methods") || !binding.symbols.contains(callback.actionSetter) || !binding.symbols.contains(callback.actionGetter)) { FePackageFailure.fail("actions require selected action-setter/action-getter and no methods"); }
+				} else {
+					callback.methods = self.stringArray(prefix + "methods");
+					if (callback.methods.len == 0) { FePackageFailure.fail("delegate methods must name selected native methods"); }
+					for method in callback.methods { if (!binding.symbols.contains(method)) { FePackageFailure.fail("delegate methods must name selected native methods"); } }
+				}
+				callback.slotGetter = self.requiredText(prefix + "slot-getter");
+				if (!binding.symbols.contains(callback.slotGetter)) { FePackageFailure.fail("slot-getter must name a selected native method"); }
+				if (unregister != parts.get(0) || activationFailure != "abort") { FePackageFailure.fail("delegate cancellation requires its setter and activation-failure abort"); }
+			}
+			binding.callbacks.put(name, callback);
 		}
-		if (binding.callbacks.len > 0 && binding.language != "c") { FePackageFailure.fail("callback mappings currently require C"); }
+		if (binding.callbacks.len > 0 && binding.language != "c" && binding.language != "objective-c") { FePackageFailure.fail("callback mappings currently require C or Objective-C"); }
+	}
+
+	private void finishStringViews(FeNativeBinding binding) {
+		Map<string, bool> names = self.stringViewNames;
+		for key in self.fields.keys() {
+			if (!key.startsWith("string-views.")) { continue; }
+			var parts = Strings.split(key, ".");
+			if (parts.len != 3 || !self.identifier(parts.get(1)) || !binding.symbols.contains(parts.get(1)) || binding.language != "c") { FePackageFailure.fail("string-views must map selected C records to text facts"); }
+			string field = parts.get(2);
+			if (field != "data" && field != "length" && field != "null-length") { FePackageFailure.fail("unexpected string-view field"); }
+			names.put(parts.get(1), true);
+		}
+		for name in names.keys() {
+			if (!binding.symbols.contains(name) || binding.language != "c") { FePackageFailure.fail("string-views must map selected C records to text facts"); }
+			string prefix = "string-views." + name + ".";
+			string data = self.requiredText(prefix + "data");
+			string length = self.requiredText(prefix + "length");
+			string nullLength = self.requiredText(prefix + "null-length");
+			if (!self.identifier(data) || !self.identifier(length) || data == length || (nullLength != "zero" && nullLength != "zero-or-max")) { FePackageFailure.fail("string views require distinct fields and null-length zero or zero-or-max"); }
+			binding.stringViews.put(name, FeNativeStringView(name, data, length, nullLength == "zero-or-max"));
+		}
 	}
 
 	private void finishResources(FeNativeBinding binding) {
@@ -606,10 +715,30 @@ class FeManifestBlock {
 		var binding = FeNativeBinding(packageName, modules.get(0), header, language, standard, symbols, self.targetArray("os", operatingSystemValues), self.targetArray("arch", architectureValues));
 		self.finishResources(binding);
 		self.finishCallbacks(binding);
+		self.finishStringViews(binding);
+		binding.mainThreadGlobals = self.stringArray("main-thread-globals");
+		if (binding.mainThreadGlobals.len > 0 && language != "objective-c") { FePackageFailure.fail("main-thread-globals requires Objective-C object globals"); }
+		for name in binding.mainThreadGlobals { if (!symbols.contains(name)) { FePackageFailure.fail("main-thread-globals must name selected globals"); } }
 		binding.readOnlyBorrows = self.stringArray("read-only-borrows");
 		binding.realtimeSafe = self.stringArray("realtime-safe");
 		binding.ownedRecords = self.stringArray("owned-records");
 		binding.recordInputs = self.stringArray("record-inputs");
+		binding.recordOutputs = self.stringArray("record-outputs");
+		binding.ownedOutputFields = self.stringArray("owned-output-fields");
+		binding.nullOutputFields = self.stringArray("null-output-fields");
+		if (binding.recordOutputs.len > 0 && language != "c") { FePackageFailure.fail("record-outputs currently requires C"); }
+		for output in binding.recordOutputs {
+			var parts = Strings.split(output, ".");
+			if (parts.len != 2 || !symbols.contains(parts.get(0)) || !self.identifier(parts.get(1))) { FePackageFailure.fail("record-outputs must name selected function.parameter pairs"); }
+			if (binding.recordInputs.contains(output)) { FePackageFailure.fail("record input/output parameters must be distinct"); }
+		}
+		for field in ["owned-output-fields", "null-output-fields"] {
+			for value in self.stringArray(field) {
+				var parts = Strings.split(value, ".");
+				if (parts.len != 3 || !binding.recordOutputs.contains(parts.get(0) + "." + parts.get(1)) || !self.identifier(parts.get(2))) { FePackageFailure.fail(f"{field} requires distinct declared function.parameter.field names"); }
+			}
+		}
+		for field in binding.ownedOutputFields { if (binding.nullOutputFields.contains(field)) { FePackageFailure.fail("owned/null output fields must be distinct"); } }
 		for name in binding.ownedRecords {
 			if (!self.identifier(name) || !symbols.contains(name)) { FePackageFailure.fail(f"{self.context()}.owned-records must name selected records"); }
 		}
@@ -789,6 +918,14 @@ class FePackageManifestParser {
 			}
 			string table = TOML.sectionName(line);
 			if (!table.isEmpty()) {
+				string stringPrefix = "native.bindings.string-views.";
+				if (table.startsWith(stringPrefix)) {
+					string name = table.substring(stringPrefix.length(), table.length() - stringPrefix.length());
+					if (block == null || !block.isBinding() || !self.identifier(name)) { FePackageFailure.fail("string-views requires a preceding native binding and a record name"); }
+					block.declareStringView(name);
+					section = table;
+					continue;
+				}
 				string callbackPrefix = "native.bindings.callbacks.";
 				if (table.startsWith(callbackPrefix)) {
 					string name = TOML.unquote(table.substring(callbackPrefix.length(), table.length() - callbackPrefix.length()));
@@ -850,7 +987,7 @@ class FePackageManifestParser {
 			} else if (section.equals("dependencies")) {
 				dependencies.push(self.dependency(key, raw));
 			} else {
-				string prefix = section.startsWith("native.bindings.resources.") || section.startsWith("native.bindings.callbacks.") ? section.substring(16, section.length() - 16) + "." : section.equals("native.bindings.object-fields") ? "object-fields." : "";
+				string prefix = section.startsWith("native.bindings.resources.") || section.startsWith("native.bindings.callbacks.") || section.startsWith("native.bindings.string-views.") ? section.substring(16, section.length() - 16) + "." : section.equals("native.bindings.object-fields") ? "object-fields." : "";
 				block.set(prefix + TOML.unquote(key), raw);
 			}
 		}
@@ -982,13 +1119,20 @@ class FePackageImportPolicy {
 	}
 
 	private void checkOwner(string source, string target) {
+		string owner = self.privateOwner(source, target);
+		if (!owner.isEmpty()) { FePackageFailure.fail(f"module '{target}' is private to package '{owner}'; import an exported module"); }
+	}
+
+	public bool permitsReference(string source, string target) { return self.privateOwner(source, target).isEmpty() && self.privateOwner(self.paths.identity(source), self.paths.identity(target)).isEmpty(); }
+
+	private string privateOwner(string source, string target) {
 		string manifestPath = self.manifestFor(target);
-		if (manifestPath.isEmpty() || manifestPath == self.manifestFor(source)) { return; }
+		if (manifestPath.isEmpty() || manifestPath == self.manifestFor(source)) { return ""; }
 		var manifest = self.loadManifest(manifestPath);
-		if (manifest == null || !manifest.restrictedExports) { return; }
+		if (manifest == null || !manifest.restrictedExports) { return ""; }
 		string identity = self.paths.identity(target);
-		for exported in manifest.exportedModules { if (self.paths.identity(exported) == identity) { return; } }
-		FePackageFailure.fail(f"module '{target}' is private to package '{manifest.name}'; import an exported module");
+		for exported in manifest.exportedModules { if (self.paths.identity(exported) == identity) { return ""; } }
+		return manifest.name;
 	}
 }
 

@@ -23,13 +23,14 @@ static void check(int condition, const char* message) {
 }
 
 static void blocking_font_draw(BtrcGuiPixels* surface, void* font, int x, int y,
-                               const char* text, uint32_t rgba) {
+                               const char* text, uint32_t rgba, GuiBlendPixel blend) {
     (void)surface;
     (void)font;
     (void)x;
     (void)y;
     (void)text;
     (void)rgba;
+    (void)blend;
     atomic_store_explicit(&draw_started, true, memory_order_release);
     while (!atomic_load_explicit(
             &allow_draw_to_finish, memory_order_acquire)) {
@@ -37,8 +38,12 @@ static void blocking_font_draw(BtrcGuiPixels* surface, void* font, int x, int y,
     }
 }
 
+static void unused_blend(BtrcGuiPixels* surface, int x, int y, uint32_t rgba) {
+    (void)surface; (void)x; (void)y; (void)rgba;
+}
+
 static void* draw_on_worker(void* surface) {
-    gui_draw_text(surface, 0, 0, "x", 0xFFFFFFFFu, 1);
+    gui_draw_font(surface, 0, 0, "x", 0xFFFFFFFFu, unused_blend);
     return NULL;
 }
 
@@ -54,13 +59,8 @@ int main(void) {
     uint32_t pixels[9] = {0};
     BtrcGuiPixels view = {3, 3, pixels};
     BtrcGuiPixels* surface = &view;
-    gui_blend_rect(surface, 0, 0, 1, 1, 0xFF000080u);
-    check(pixels[0] == 0xFF000080u,
-          "source-over preserves transparency on a transparent destination");
-    for (int i = 0; i < 9; i++) { pixels[i] = 0x0000FF80u; }
-    gui_blend_rect(surface, 0, 0, 1, 1, 0xFF000080u);
-    check(pixels[0] == 0xAA0055C0u,
-          "source-over combines source and destination alpha");
+    /* Blending/bitmap metrics are verified through the real BTRC owner in
+     * GuiSurfaceConformance. This driver tests only the native font boundary. */
     check(gui_color_apply_coverage(0xAABBCC80u, 128u) == 0xAABBCC40u,
           "glyph coverage multiplies the caller alpha");
     check(gui_color_apply_coverage(0xAABBCC80u, 255u) == 0xAABBCC80u,
@@ -68,16 +68,8 @@ int main(void) {
     check(gui_color_apply_coverage(0xAABBCC00u, 255u) == 0xAABBCC00u,
           "transparent glyph colors remain transparent");
 
-    char truncated_two[] = {(char)0xC2, '\0'};
-    char truncated_four[] = {(char)0xF0, (char)0x9F, '\0'};
-    check(gui_text_width(truncated_two, 1) == 8,
-          "truncated two-byte UTF-8 consumes one replacement glyph");
-    check(gui_text_width(truncated_four, 1) == 16,
-          "truncated four-byte UTF-8 advances safely");
-    check(gui_text_width("a\nbb", 1) == 16,
-          "multiline text width is the widest line");
-    check(gui_text_height(INT_MAX) == INT_MAX,
-          "text height saturates instead of overflowing");
+    check(!gui_draw_font(surface, 0, 0, "x", 0xFFFFFFFFu, unused_blend), "no native font reports unavailable");
+    check(gui_font_width("text") == -1 && gui_font_height() == -1, "no native metrics reports unavailable");
 
     btrc_gui_install_font_backend(blocking_font_draw, NULL, NULL);
     btrc_gui_set_font(&mock_font);

@@ -1,12 +1,18 @@
 import Library.GUI.IView;
+import Library.Callback;
+
+interface IButtonAction { void invoke(); }
 
 /* Setters publish model state without synthesizing user actions. activate()
  * uses native control tracking and returns false when the control is disabled.
- * Typed action subscription belongs to the checked callback binding. */
+ * onAction registers one queued receiver in an independently owned scope.
+ * Cancel before replacement; cancellation/close discards queued old actions.
+ * Delivery happens after native dispatch, on the application UI executor. */
 interface IButton extends IView {
 	string title();
 	void setTitle(string title);
 	bool isEnabled();
 	void setEnabled(bool enabled);
 	bool activate();
+	ICallbackRegistration onAction(IButtonAction action, CallbackScope scope);
 }

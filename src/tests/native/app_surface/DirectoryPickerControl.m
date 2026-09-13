@@ -5,7 +5,7 @@
 
 static int mode, calls;
 
-/* Modes 6/7 run AppKit's actual modal loop. Mode 7 completes it programmatically
+/* Modes 6/7/8 run AppKit's actual modal loop. Mode 7 completes it programmatically
  * with its real selected directory; this is not a native-button click test.
  * Other modes inject responses and SDK failures. */
 @interface NSSavePanel (BtrcDirectoryPickerControl)
@@ -23,10 +23,11 @@ static int mode, calls;
     assert(panel.canChooseDirectories && !panel.canChooseFiles);
     assert(!panel.allowsMultipleSelection && panel.canCreateDirectories && panel.resolvesAliases);
     assert([panel.directoryURL.path isEqualToString:@"/tmp"]);
-    if (mode == 6 || mode == 7) {
+    if (mode == 6 || mode == 7 || mode == 8) {
         NSTimer *timer = [NSTimer timerWithTimeInterval:0.2 repeats:YES block:^(NSTimer *tick) {
             if ([NSApp modalWindow] == panel) {
                 if (mode == 6) { [panel cancel:nil]; }
+                else if (mode == 8) { [NSApp stopModalWithCode:NSModalResponseAbort]; }
                 else {
                     if (panel.URLs.count != 1 || !panel.URL.hasDirectoryPath) { return; }
                     NSString *selectedPath = panel.URL.path;

@@ -107,8 +107,74 @@ bool hasButtonText(Image image, int left) {
 	return maximum - minimum > 60;
 }
 
+void verifyBoundedActions() {
+	bool rejected = false;
+	try { var invalid = MacOSActionQueue(0); } catch (string error) { rejected = true; }
+	assert(rejected);
+	var actions = MacOSActionQueue(2);
+	var first = MacOSButton("First", actions);
+	var second = MacOSButton("Second", actions);
+	for (int index = 0; index < 4; index++) {
+		assert(first.activate() && second.activate());
+		first.cancelPendingActions();
+		assert(first.activate());
+		assert(takesButton(actions, second) && takesButton(actions, first));
+		assert(actions.take() == null);
+	}
+	assert(first.activate() && takesButton(actions, first));
+	assert(first.activate() && second.activate());
+	first.cancelPendingActions();
+	assert(first.activate());
+	assert(takesButton(actions, second) && takesButton(actions, first));
+	assert(first.activate() && second.activate() && first.activate());
+	for (int attempt = 0; attempt < 2; attempt++) {
+		rejected = false;
+		try { actions.take(); } catch (string error) { rejected = error.contains("capacity"); }
+		assert(rejected);
+	}
+	first.close();
+	second.close();
+	actions.close();
+}
+
+void abandonActionQueue(NSButton control) {
+	var actions = MacOSActionQueue(2);
+	var action = actions.bind(control);
+	control.performClick(null);
+	assert(actions.take() == action);
+	control.performClick(null);
+}
+
+void verifyActionLifetime() {
+	assert(ActionButtonProbe.liveCount() == 0L);
+	IMacOSAction? retired = null;
+	{
+		var control = ActionButtonProbe.new();
+		assert(control != null && ActionButtonProbe.liveCount() == 1L);
+		abandonActionQueue(control);
+		assert(!control.hasAction());
+		var actions = MacOSActionQueue(3);
+		var action = actions.bind(control);
+		retired = action;
+		for (int index = 0; index < 1000; index++) {
+			control.fire();
+			control.fire();
+			assert(actions.take() == action);
+			control.fire();
+			assert(actions.take() == action && actions.take() == action);
+		}
+		control.fire();
+		actions.unbind(control);
+		assert(actions.take() == null && !control.hasAction());
+		actions.close();
+	}
+	assert(retired != null && ActionButtonProbe.liveCount() == 0L);
+}
+
 int main() {
 	var app = MacOSApplication();
+	verifyBoundedActions();
+	verifyActionLifetime();
 	verifyCoordinates(NSView.new(), false);
 	verifyCoordinates(FlippedTestView.new(), true);
 	bool invalidWait = false;
@@ -160,17 +226,17 @@ int main() {
 	var otherActions = MacOSActionQueue();
 	var unowned = NSButton.new();
 	assert(unowned != null);
-	actions.bind(unowned);
+	var expectedAction = actions.bind(unowned);
 	bool duplicateRejected = false;
 	try { otherActions.bind(unowned); } catch (string error) { duplicateRejected = true; }
 	assert(duplicateRejected);
 	unowned.performClick(null);
-	id expectedSender = unowned;
-	assert(actions.take() == expectedSender && otherActions.take() == null);
+	assert(actions.take() == expectedAction && otherActions.take() == null);
 	actions.unbind(unowned);
-	otherActions.bind(unowned);
+	var reboundAction = otherActions.bind(unowned);
+	assert(reboundAction != expectedAction);
 	unowned.performClick(null);
-	assert(otherActions.take() == expectedSender && actions.take() == null);
+	assert(otherActions.take() == reboundAction && actions.take() == null);
 	otherActions.unbind(unowned);
 	otherActions.close();
 	assert(first.activate() && second.activate() && first.activate());

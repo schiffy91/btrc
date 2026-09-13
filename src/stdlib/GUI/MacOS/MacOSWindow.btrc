@@ -1,8 +1,29 @@
 import Library.Math;
+import Library.Callback;
+import Library.Console;
 import Library.GUI.IWindow;
 import Library.GUI.IView;
 import Library.GUI.MacOS.AppKitText;
 import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+/* Native dispatch records state only. It must not retain the window owner or
+ * destroy the view tree while AppKit is still closing the native window. */
+class MacOSWindowEvents implements IAppKitWindowEvents {
+	public bool closed = false;
+	private MacOSRunLoopSignal? _signal;
+
+	public MacOSWindowEvents(MacOSRunLoopSignal? signal) { self._signal = signal; }
+
+	public bool windowShouldClose(NSWindow sender) { return true; }
+
+	public void wake() { if (self._signal != null) { self._signal.wake(); } }
+
+	public void windowWillClose(NSNotification notification) {
+		self.closed = true;
+		self.wake();
+	}
+}
 
 /* Main-thread native window owner. Managed roots transfer subtree lifecycle;
  * raw native children remain a legacy provider-only mounting path. */
@@ -12,12 +33,17 @@ class MacOSWindow implements IWindow {
 	private unsigned long _rootMask = 0UL;
 	private bool _closing = false;
 	private bool _mutating = false;
+	private bool _rootClosing = false;
 	private string _closeFailure = "";
+	private MacOSWindowEvents _events;
+	private CallbackScope _callbacks;
 
-	public MacOSWindow(string title, double width, double height) {
+	public MacOSWindow(string title, double width, double height, MacOSRunLoopSignal? signal = null) {
 		self._window = null;
 		self.requireMainThread();
 		self.requireSize(width, height);
+		self._events = MacOSWindowEvents(signal);
+		self._callbacks = CallbackScope();
 		var nativeTitle = AppKitText.nativeValue(title);
 		var window = NSWindow.new();
 		if (window == null) { throw "Cannot create native window"; }
@@ -27,6 +53,7 @@ class MacOSWindow implements IWindow {
 			window.setStyleMask(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable);
 			window.setTitle(nativeTitle);
 			self.setContentSize(width, height);
+			window.setDelegate(self._events, self._callbacks);
 		} catch (string error) {
 			self.close();
 			throw error;
@@ -44,7 +71,7 @@ class MacOSWindow implements IWindow {
 	public NSWindow nativeWindow() {
 		self.requireMainThread();
 		if (self._window == null) { throw "Window is closed"; }
-		if (self._closing) { throw "Window shutdown has started"; }
+		if (self._closing || self._events.closed) { throw "Window shutdown has started"; }
 		return self._window;
 	}
 
@@ -61,7 +88,12 @@ class MacOSWindow implements IWindow {
 		return native;
 	}
 
-	public bool isOpen() { self.requireMainThread(); return self._window != null && !self._closing; }
+	public bool isOpen() { self.requireMainThread(); return self._window != null && !self._closing && !self._events.closed; }
+
+	public void dispatchPendingEvents() {
+		self.requireMainThread();
+		if (self._window != null && self._events.closed) { self.close(); }
+	}
 
 	public IView? root() { self.requireMainThread(); return self._root; }
 
@@ -153,9 +185,9 @@ class MacOSWindow implements IWindow {
 
 	public void hide() { self.nativeWindow().orderOut(null); }
 
-	public bool isVisible() { return self.nativeWindow().isVisible(); }
+	public bool isVisible() { return self.isOpen() && self.nativeWindow().isVisible(); }
 
-	public bool isPresented() { return self.isVisible() || self.nativeWindow().isMiniaturized(); }
+	public bool isPresented() { return self.isOpen() && (self.isVisible() || self.nativeWindow().isMiniaturized()); }
 
 	public void setMinimumContentSize(double width, double height) {
 		self.requireSize(width, height);
@@ -175,30 +207,55 @@ class MacOSWindow implements IWindow {
 		alert.runModal();
 	}
 
-	public void close() {
+	public CallbackCancellation close() {
 		self.requireMainThread();
 		var window = self._window;
-		if (window == null) { return; }
+		if (window == null) { return CallbackCancellation.Complete; }
 		if (self._closeFailure != "") { throw self._closeFailure; }
-		if (self._closing) { throw "Window shutdown is already active"; }
 		if (self._mutating) { throw "Window root mutation is already active"; }
-		self._closing = true;
+		if (!self._closing) {
+			self._closing = true;
+			// Programmatic close may precede native close by an asynchronous
+			// subtree drain. Wake its owner even without an NSWindow event.
+			self._events.wake();
+		}
+		return self.pollClose();
+	}
+
+	public CallbackCancellation pollClose() {
+		self.requireMainThread();
+		var window = self._window;
+		if (window == null) { return CallbackCancellation.Complete; }
+		if (!self._closing) { return CallbackCancellation.NotRequested; }
+		if (self._closeFailure != "") { throw self._closeFailure; }
+		if (self._mutating) { throw "Window root mutation is already active"; }
+		self._mutating = true;
+		CallbackCancellation result = CallbackCancellation.Complete;
 		try {
+			if (self._callbacks.cancel() != CallbackCancellation.Complete) { throw "Window callbacks must drain before shutdown"; }
 			var root = self._root;
 			if (root != null) {
-				var parent = window.contentView();
-				if (parent == null) { throw "Window has no content view"; }
-				self.projection(root).detachFrom(parent);
-				root.close();
-				self._root = null;
+				if (!self._rootClosing) {
+					// End native editing while controls still belong to this window.
+					window.endEditingFor(null);
+					var parent = window.contentView();
+					if (parent == null) { throw "Window has no content view"; }
+					self.projection(root).detachFrom(parent);
+					self._rootClosing = true;
+					result = root.close();
+				} else { result = root.pollClose(); }
+				if (result == CallbackCancellation.Complete) { self._root = null; }
 			}
-			window.close();
-			self._window = null;
+			if (result == CallbackCancellation.Complete) {
+				if (!self._events.closed) { window.close(); }
+				self._window = null;
+			}
 		} catch (string error) {
 			self._closeFailure = error;
 			throw error;
-		}
+		} finally { self._mutating = false; }
+		return result;
 	}
 
-	public void __del__() { self.close(); }
+	public void __del__() { if (self.close() != CallbackCancellation.Complete) { Console.fatal("Native window destroyed before subtree cleanup completed"); } }
 }

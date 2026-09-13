@@ -1,0 +1,38 @@
+import Library.GUI.MacOS.MacOSApplication;
+
+/* Private package implementation. The static slot is the application owner,
+ * not a widget registry or a second native lifetime mechanism. */
+class GUIProvider {
+	class MacOSApplication? active = null;
+
+	class void requireMainThread() { if (!NSThread.isMainThread()) { throw "GUI requires the main thread"; } }
+
+	class void initialize(int workCapacity) {
+		GUIProvider.requireMainThread();
+		if (GUIProvider.active != null) { throw "GUI is already initialized"; }
+		if (workCapacity <= 0 || workCapacity > 65536) { throw "Application work capacity must be between 1 and 65536"; }
+		GUIProvider.active = MacOSApplication(workCapacity);
+	}
+
+	class MacOSApplication application() {
+		GUIProvider.requireMainThread();
+		var application = GUIProvider.active;
+		if (application == null) { throw "Initialize GUI before creating views or running work"; }
+		return application;
+	}
+
+	class void run() {
+		var application = GUIProvider.application();
+		if (application.isRunning()) { throw "GUI is already running"; }
+		try { application.run(); } finally { GUIProvider.close(); }
+	}
+
+	class CallbackCancellation close() {
+		GUIProvider.requireMainThread();
+		var application = GUIProvider.active;
+		if (application == null) { return CallbackCancellation.Complete; }
+		var result = application.close();
+		if (result == CallbackCancellation.Complete) { GUIProvider.active = null; }
+		return result;
+	}
+}

@@ -905,36 +905,41 @@ class CoreAudioSessionResources {
 		self._program = program;
 		var stream = request.stream();
 		bool separate = input != null && input.nativeId() != output.nativeId();
-		if (separate) {
-			self._input = CoreAudioDeviceConfiguration(input, request.inputDeviceId());
-			var configured = self._input.configure(stream.sampleRate(), stream.bufferFrames());
+		if (input != null && separate) {
+			var configuration = CoreAudioDeviceConfiguration(input, request.inputDeviceId());
+			self._input = configuration;
+			var configured = configuration.configure(stream.sampleRate(), stream.bufferFrames());
 			if (configured != AUDIO_DEVICE_OK) { return configured; }
 		}
-		self._output = CoreAudioDeviceConfiguration(output, request.outputDeviceId());
-		var configured = self._output.configure(stream.sampleRate(), stream.bufferFrames());
+		var configuration = CoreAudioDeviceConfiguration(output, request.outputDeviceId());
+		self._output = configuration;
+		var configured = configuration.configure(stream.sampleRate(), stream.bufferFrames());
 		if (configured != AUDIO_DEVICE_OK) { return configured; }
 		var device = output;
+		keep device;
 		int outputOffset = 0;
-		if (separate) {
+		if (input != null && separate) {
 			outputOffset = input.channels(kAudioDevicePropertyScopeOutput);
 			if (outputOffset < 0) { return AUDIO_DEVICE_UNAVAILABLE; }
-			self._aggregate = CoreAudioAggregateDevice();
-			var created = self._aggregate.create(request.inputDeviceId(), request.outputDeviceId());
+			var aggregate = CoreAudioAggregateDevice();
+			self._aggregate = aggregate;
+			var created = aggregate.create(request.inputDeviceId(), request.outputDeviceId());
 			if (created != AUDIO_DEVICE_OK) { return created; }
-			device = self._aggregate.device();
+			device = aggregate.device();
 			string uid = device.text(kAudioDevicePropertyDeviceUID);
 			if (uid.isEmpty()) { return AUDIO_DEVICE_UNAVAILABLE; }
-			self._aggregateConfiguration = CoreAudioDeviceConfiguration(device, uid);
-			configured = self._aggregateConfiguration.configure(stream.sampleRate(), stream.bufferFrames());
+			configuration = CoreAudioDeviceConfiguration(device, uid);
+			self._aggregateConfiguration = configuration;
+			configured = configuration.configure(stream.sampleRate(), stream.bufferFrames());
 			if (configured != AUDIO_DEVICE_OK) { return configured; }
 		}
 		int physicalInput = request.hasInput() ? device.channels(kAudioDevicePropertyScopeInput, 512) : 0;
 		int physicalOutput = device.channels(kAudioDevicePropertyScopeOutput, 512);
 		if (physicalInput < 0 || (request.hasInput() && physicalInput == 0) || physicalOutput <= 0) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
-		self._unit = CoreAudioUnit();
-		var status = self._unit.prepare(device.nativeId(), physicalInput, physicalOutput, outputOffset, request, program);
+		var unit = CoreAudioUnit();
+		self._unit = unit;
+		var status = unit.prepare(device.nativeId(), physicalInput, physicalOutput, outputOffset, request, program);
 		if (status != AUDIO_DEVICE_OK) { return status; }
-		var configuration = separate ? self._aggregateConfiguration : self._output;
 		return configuration.matches(stream.sampleRate(), stream.bufferFrames()) ? AUDIO_DEVICE_OK : AUDIO_DEVICE_UNSUPPORTED_FORMAT;
 	}
 
@@ -1043,8 +1048,9 @@ class CoreAudioDeviceProvider implements AudioDeviceProvider {
 		var output = self._inventory.find(request.outputDeviceId());
 		var input = request.hasInput() ? self._inventory.find(request.inputDeviceId()) : null;
 		if (output == null || (request.hasInput() && input == null)) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_NOT_FOUND); }
-		self._pending = CoreAudioSessionResources();
-		var status = self._pending.prepare(input, output, request, program);
+		var resources = CoreAudioSessionResources();
+		self._pending = resources;
+		var status = resources.prepare(input, output, request, program);
 		if (status != AUDIO_DEVICE_OK) { return self.failedSetup(status); }
 		var refreshed = self.inventory();
 		if (!refreshed.succeeded()) { return self.failedSetup(refreshed.status(), refreshed.message()); }
@@ -1077,7 +1083,9 @@ class CoreAudioDeviceProvider implements AudioDeviceProvider {
 	}
 
 	private DuplexAudioSessionOpenOutcome failedSetup(AudioDeviceStatus status, string message = "") {
-		var cleanup = self._pending.close();
+		var resources = self._pending;
+		if (resources == null) { throw "Audio setup has no resource owner"; }
+		var cleanup = resources.close();
 		if (cleanup != AUDIO_DEVICE_OK) { return DuplexAudioSessionOpenOutcome.failed(cleanup, "Audio setup failed; native cleanup remains pending: " + audioDeviceStatusMessage(status)); }
 		self._pending = null;
 		return DuplexAudioSessionOpenOutcome.failed(status, message);

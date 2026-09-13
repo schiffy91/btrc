@@ -206,17 +206,57 @@ class IRObjectiveCMessage(IRExpr):
             or any(not isinstance(argument, IRExpr) for argument in self.args)
         ):
             raise TypeError("Objective-C message requires an expression receiver and arguments")
-        if not isinstance(self.selector, str):
+        self.validate_selector(self.selector, len(self.args))
+
+    @staticmethod
+    def validate_selector(selector: str, arity: int) -> None:
+        if not isinstance(selector, str):
             raise TypeError("Objective-C selector requires str")
-        pieces = self.selector.split(":")
-        if self.args:
-            if pieces[-1] or len(pieces) != len(self.args) + 1:
+        pieces = selector.split(":")
+        if arity:
+            if pieces[-1] or len(pieces) != arity + 1:
                 raise ValueError("Objective-C selector does not match argument count")
             pieces.pop()
         elif len(pieces) != 1:
             raise ValueError("Objective-C selector does not match argument count")
         if any(not piece.isascii() or not piece.isidentifier() for piece in pieces):
             raise ValueError("Objective-C selector requires identifier components")
+
+
+@dataclass
+class IRObjectiveCSelector(IRExpr):
+    """A checked native selector value, never a provider-owned runtime string."""
+
+    selector: str
+
+    def validate(self) -> None:
+        if not isinstance(self.selector, str):
+            raise TypeError("Objective-C selector requires str")
+        IRObjectiveCMessage.validate_selector(self.selector, self.selector.count(":"))
+
+
+@dataclass
+class IRObjectiveCBlock(IRExpr):
+    """A typed native block literal; capture/lifetime policy belongs to lowering."""
+
+    return_type: CType
+    params: list[IRParam]
+    body: IRBlock
+
+    def validate(self) -> None:
+        if not isinstance(self.return_type, CType) or not isinstance(self.body, IRBlock):
+            raise TypeError("Objective-C block requires a return CType and IRBlock body")
+        if not isinstance(self.params, list) or any(not isinstance(param, IRParam) for param in self.params):
+            raise TypeError("Objective-C block requires IRParam parameters")
+        names = set()
+        for param in self.params:
+            if not isinstance(param.c_type, CType) or param.c_type.text == "void":
+                raise TypeError("Objective-C block parameter requires a non-void CType")
+            if not isinstance(param.name, str) or not param.name.isascii() or not param.name.isidentifier():
+                raise ValueError("Objective-C block parameter requires an identifier")
+            if param.name in names:
+                raise ValueError("Objective-C block parameters require distinct names")
+            names.add(param.name)
 
 
 @dataclass
@@ -437,6 +477,86 @@ class IRStructDef(IRNode):
     name: str
     fields: list[IRStructField] = field(default_factory=list)
     pack_alignment: int | None = None
+
+
+@dataclass
+class IRObjectiveCMethod(IRNode):
+    """Native method ABI and body, never a free C function declaration."""
+
+    selector: str
+    return_type: CType
+    params: list[IRParam]
+    body: IRBlock
+    is_class_method: bool = False
+
+    def validate(self) -> None:
+        if not isinstance(self.return_type, CType) or not isinstance(self.body, IRBlock):
+            raise TypeError("Objective-C method requires a return CType and IRBlock body")
+        if not isinstance(self.is_class_method, bool):
+            raise TypeError("Objective-C class-method flag requires bool")
+        if not isinstance(self.params, list) or any(not isinstance(param, IRParam) for param in self.params):
+            raise TypeError("Objective-C method requires IRParam parameters")
+        names = set()
+        for param in self.params:
+            if not isinstance(param.c_type, CType) or param.c_type.text == "void":
+                raise TypeError("Objective-C method parameter requires a non-void CType")
+            if not isinstance(param.name, str) or not param.name.isascii() or not param.name.isidentifier():
+                raise ValueError("Objective-C method parameter requires an identifier")
+            if param.name in names or param.name in {"self", "_cmd"}:
+                raise ValueError("Objective-C method parameters require distinct non-reserved names")
+            names.add(param.name)
+        IRObjectiveCMessage.validate_selector(self.selector, len(self.params))
+
+
+@dataclass
+class IRObjectiveCClass(IRNode):
+    """A compiler-generated native implementation with SDK-owned superclass ABI."""
+
+    name: str
+    superclass: str
+    fields: list[IRStructField] = field(default_factory=list)
+    methods: list[IRObjectiveCMethod] = field(default_factory=list)
+    protocols: list[str] = field(default_factory=list)
+
+    def validate(self) -> None:
+        for name in (self.name, self.superclass):
+            if not isinstance(name, str) or not name.isascii() or not name.isidentifier():
+                raise ValueError("Objective-C class requires identifier names")
+        if self.name == self.superclass:
+            raise ValueError("Objective-C class cannot inherit itself")
+        if not isinstance(self.protocols, list):
+            raise TypeError("Objective-C class requires a protocol list")
+        protocols = set()
+        for protocol in self.protocols:
+            if not isinstance(protocol, str) or not protocol.isascii() or not protocol.isidentifier():
+                raise ValueError("Objective-C protocol requires an identifier")
+            if protocol in protocols:
+                raise ValueError("Objective-C protocols require distinct names")
+            protocols.add(protocol)
+        if not isinstance(self.fields, list) or any(not isinstance(value, IRStructField) for value in self.fields):
+            raise TypeError("Objective-C class requires typed fields")
+        names = set()
+        for value in self.fields:
+            if not isinstance(value.c_type, CType) or value.c_type.text == "void":
+                raise TypeError("Objective-C field requires a non-void CType")
+            if not isinstance(value.name, str) or not value.name.isascii() or not value.name.isidentifier():
+                raise ValueError("Objective-C field requires an identifier")
+            if value.name in names or value.name in {"self", "_cmd", "isa"}:
+                raise ValueError("Objective-C fields require distinct non-reserved names")
+            if value.array_size is not None:
+                raise ValueError("Objective-C adapter array fields require a fixed native layout")
+            names.add(value.name)
+        if not isinstance(self.methods, list) or any(
+            not isinstance(value, IRObjectiveCMethod) for value in self.methods
+        ):
+            raise TypeError("Objective-C class requires typed methods")
+        selectors = set()
+        for method in self.methods:
+            method.validate()
+            key = (method.is_class_method, method.selector)
+            if key in selectors:
+                raise ValueError("Objective-C class contains a duplicate method")
+            selectors.add(key)
 
 
 @dataclass
@@ -889,6 +1009,7 @@ class IRModule(IRNode):
         metadata={"ir_traverse": False},
     )
     global_decls: list[IRGlobalDecl] = field(default_factory=list)
+    objective_c_classes: list[IRObjectiveCClass] = field(default_factory=list)
     function_defs: list[IRFunctionDef] = field(default_factory=list)
     gpu_kernels: list[IRGpuKernel] = field(default_factory=list)
     _generated_runtime_preprocessor: list[IRInclude | IRMacroDef] = field(
@@ -1210,8 +1331,11 @@ __all__ = (
     "IRModule",
     "IRNode",
     "IRObjectiveCAutoreleasePool",
+    "IRObjectiveCBlock",
+    "IRObjectiveCClass",
     "IRObjectiveCExceptionBoundary",
     "IRObjectiveCMessage",
+    "IRObjectiveCMethod",
     "IRParam",
     "IRReturn",
     "IRSizeof",

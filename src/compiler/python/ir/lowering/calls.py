@@ -1218,7 +1218,7 @@ class CallableProvenance:
                 or (
                     isinstance(origin, NativeHeaderSource)
                     and origin.call_contract is not None
-                    and origin.call_contract.resource_result
+                    and origin.call_contract.returns_owned
                 )
             ):
                 return CallableReturnABI.OWNED

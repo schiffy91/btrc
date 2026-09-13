@@ -1,0 +1,131 @@
+import Library.Math;
+import Library.GUI.IStack;
+import Library.GUI.IView;
+import Library.GUI.MacOS.MacOSContainer;
+import Library.GUI.MacOS.MacOSView;
+
+class MacOSStackLayout implements IMacOSContainerLayout {
+	private NSStackView? _stack;
+	private bool _vertical;
+	private StackAlignment _alignment = StackAlignment.Start;
+
+	public MacOSStackLayout(bool vertical, double spacing) {
+		if (!NSThread.isMainThread()) { throw "Native stacks require the main thread"; }
+		self.validateLength(spacing);
+		self._vertical = vertical;
+		self._stack = NSStackView.new();
+		if (self._stack == null) { throw "Cannot create native stack"; }
+		var stack = self.control();
+		stack.setOrientation(vertical ? NSUserInterfaceLayoutOrientationVertical : NSUserInterfaceLayoutOrientationHorizontal);
+		stack.setDetachesHiddenViews(false);
+		stack.setSpacing(spacing);
+		self.setAlignment(StackAlignment.Start);
+	}
+
+	private NSStackView control() {
+		if (!NSThread.isMainThread()) { throw "Native stacks require the main thread"; }
+		if (self._stack == null) { throw "Native stack is closed"; }
+		return self._stack;
+	}
+
+	private void validateLength(double value) { if (!Math.isFinite(value) || value < 0.0) { throw "Stack spacing and padding must be finite and nonnegative"; } }
+
+	public NSView nativeView() { return self.control(); }
+
+	public void arrangeChild(NSView child) { self.control().addArrangedSubview(child); }
+
+	public void forgetChild(NSView child) { self.control().removeArrangedSubview(child); }
+
+	public double spacing() { return self.control().spacing(); }
+
+	public void setSpacing(double spacing) { self.validateLength(spacing); self.control().setSpacing(spacing); }
+
+	public StackAlignment alignment() { self.control(); return self._alignment; }
+
+	public void setAlignment(StackAlignment alignment) {
+		var stack = self.control();
+		if (alignment == StackAlignment.Start) { stack.setAlignment(self._vertical ? NSLayoutAttributeLeading : NSLayoutAttributeTop); }
+		else if (alignment == StackAlignment.Center) { stack.setAlignment(self._vertical ? NSLayoutAttributeCenterX : NSLayoutAttributeCenterY); }
+		else if (alignment == StackAlignment.End) { stack.setAlignment(self._vertical ? NSLayoutAttributeTrailing : NSLayoutAttributeBottom); }
+		else { throw "Unknown stack alignment"; }
+		self._alignment = alignment;
+	}
+
+	public void setPadding(double top, double right, double bottom, double left) {
+		self.validateLength(top); self.validateLength(right); self.validateLength(bottom); self.validateLength(left);
+		self.validateLength(top + bottom); self.validateLength(left + right);
+		var stack = self.control();
+		var insets = stack.edgeInsets();
+		insets.top = top; insets.right = right; insets.bottom = bottom; insets.left = left;
+		stack.setEdgeInsets(insets);
+	}
+
+	public void layout() { self.nativeView().layoutSubtreeIfNeeded(); }
+
+	public void close() {
+		if (!NSThread.isMainThread()) { throw "Native stacks require the main thread"; }
+		self._stack = null;
+	}
+}
+
+/* The existing container owns attachment transactions and descendants; the
+ * layout policy owns only native arrangement. Neither has a backreference. */
+class MacOSStack implements IStack, IMacOSView {
+	private MacOSContainer _container;
+	private MacOSStackLayout _layout;
+
+	public MacOSStack(bool vertical, double spacing) { self._layout = MacOSStackLayout(vertical, spacing); self._container = MacOSContainer(self._layout); }
+
+	public NSView nativeView() { return self._container.nativeView(); }
+
+	public void attachTo(NSView parent) { self._container.attachTo(parent); }
+
+	public void detachFrom(NSView parent) { self._container.detachFrom(parent); }
+
+	public bool isOpen() { return self._container.isOpen(); }
+
+	public void attach(IView child) { self._container.attach(child); }
+
+	public IView detach(IView child) { return self._container.detach(child); }
+
+	public int childCount() { return self._container.childCount(); }
+
+	public IView childAt(int index) { return self._container.childAt(index); }
+
+	public double fittingWidth() { return self._container.fittingWidth(); }
+
+	public double fittingHeight() { return self._container.fittingHeight(); }
+
+	public void arrange(double x, double y, double width, double height) { self._container.arrange(x, y, width, height); }
+
+	public bool isVisible() { return self._container.isVisible(); }
+
+	public void setVisible(bool visible) { self._container.setVisible(visible); }
+
+	public double spacing() { self.nativeView(); return self._layout.spacing(); }
+
+	public void setSpacing(double spacing) { self.nativeView(); self._layout.setSpacing(spacing); }
+
+	public StackAlignment alignment() { self.nativeView(); return self._layout.alignment(); }
+
+	public void setAlignment(StackAlignment alignment) { self.nativeView(); self._layout.setAlignment(alignment); }
+
+	public void setPadding(double top, double right, double bottom, double left) { self.nativeView(); self._layout.setPadding(top, right, bottom, left); }
+
+	public void layout() { self.nativeView(); self._layout.layout(); }
+
+	public CallbackCancellation close() {
+		// A constructor can fail before either managed field is initialized.
+		var state = self._container == null ? CallbackCancellation.Complete : self._container.close();
+		if (state == CallbackCancellation.Complete && self._layout != null) { self._layout.close(); }
+		return state;
+	}
+
+	public CallbackCancellation pollClose() {
+		var state = self._container == null ? CallbackCancellation.Complete : self._container.pollClose();
+		if (state == CallbackCancellation.Complete && self._layout != null) { self._layout.close(); }
+		return state;
+	}
+
+	public void __del__() { if (self.close() != CallbackCancellation.Complete) { Console.fatal("Native stack destroyed before subtree cleanup completed"); } }
+}

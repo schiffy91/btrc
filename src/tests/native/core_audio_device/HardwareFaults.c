@@ -12,11 +12,38 @@
 
 static int scenario;
 static int retained;
+static CFTypeRef retained_values[256];
 static int list_reads;
 
 void inventoryScenario(int value) { assert(retained == 0); scenario = value; list_reads = 0; }
 int inventoryRetainedValues(void) { return retained; }
-void hardwareRelease(CFTypeRef value) { assert(value != NULL && retained > 0); retained--; CFRelease(value); }
+void hardwareRelease(CFTypeRef value) {
+    assert(value != NULL);
+    /* The composed application also releases images and other CF values.
+     * Count only claims produced by this SDK simulator, not foreign owners. */
+    for (int index = 0; index < retained; index++) {
+        if (retained_values[index] != value) continue;
+        retained_values[index] = retained_values[--retained];
+        retained_values[retained] = NULL;
+        break;
+    }
+    CFRelease(value);
+}
+
+void inventoryVerifyForeignRelease(void) {
+    int previous = retained;
+    AudioObjectPropertyAddress address = {kAudioDevicePropertyDeviceUID, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+    CFTypeRef inventory_value = NULL;
+    UInt32 size = (UInt32)sizeof(inventory_value);
+    assert(hardwareRead(11, &address, 0, NULL, &size, &inventory_value) == noErr);
+    assert(retained == previous + 1);
+    CFDataRef value = CFDataCreate(NULL, (const UInt8*)"foreign", 7);
+    assert(value != NULL);
+    hardwareRelease(value);
+    assert(retained == previous + 1);
+    hardwareRelease(inventory_value);
+    assert(retained == previous);
+}
 
 OSStatus hardwareSize(AudioObjectID object, const AudioObjectPropertyAddress* address, UInt32 qualifier_size, const void* qualifier, UInt32* size) {
     (void)object; (void)qualifier_size; (void)qualifier;
@@ -77,7 +104,8 @@ OSStatus hardwareRead(AudioObjectID object, const AudioObjectPropertyAddress* ad
             value = CFStringCreateWithCString(NULL, text, kCFStringEncodingUTF8);
         }
         assert(value != NULL);
-        retained++;
+        assert(retained < (int)(sizeof(retained_values) / sizeof(retained_values[0])));
+        retained_values[retained++] = value;
         return copy_property(&value, (UInt32)sizeof(value), size, output);
     }
     if (selector == kAudioDevicePropertyNominalSampleRate) {

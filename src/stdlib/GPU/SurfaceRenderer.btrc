@@ -98,7 +98,7 @@ class GPUSurfaceRenderer {
 	}
 
 	private void configure() {
-		WGPUSurfaceConfiguration configuration = {null};
+		var configuration = WGPUSurfaceConfigurationInput();
 		configuration.device = self._device.nativeDevice();
 		configuration.format = self._format;
 		configuration.usage = WGPUTextureUsage_RenderAttachment;
@@ -107,7 +107,7 @@ class GPUSurfaceRenderer {
 		configuration.height = (uint32_t)self._height;
 		configuration.presentMode = WGPUPresentMode_Fifo;
 		configuration.alphaMode = self._alphaMode;
-		wgpuSurfaceConfigure(self._surface, &configuration);
+		wgpuSurfaceConfigure(self._surface, configuration);
 		self._configured = true;
 		self._needsConfigure = false;
 	}

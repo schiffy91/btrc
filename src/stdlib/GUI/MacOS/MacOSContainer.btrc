@@ -1,20 +1,41 @@
 import Library.Vector;
+import Library.Console;
 import Library.GUI.IContainer;
 import Library.GUI.MacOS.MacOSView;
+
+/* Layout metadata is separate from physical parentage and subtree ownership.
+ * forgetChild is idempotent; it removes layout participation, not the view.
+ * Neither policy nor child may retain this container owner. */
+interface IMacOSContainerLayout {
+	NSView nativeView();
+	void arrangeChild(NSView child);
+	void forgetChild(NSView child);
+}
+
+class MacOSContainerChild {
+	public IView view;
+	public bool translatesAutoresizing;
+	public bool closing = false;
+	public bool failed = false;
+
+	public MacOSContainerChild(IView view, bool translatesAutoresizing) { self.view = view; self.translatesAutoresizing = translatesAutoresizing; }
+}
 
 /* A native grouping view with BTRC-owned children, not an OS-handle registry.
  * Native parents are queried when needed; children never retain BTRC parents. */
 class MacOSContainer implements IContainer, IMacOSView {
 	private NSView? _view;
-	private Vector<IView> _children = [];
+	private Vector<MacOSContainerChild> _children = [];
+	private IMacOSContainerLayout? _layout;
 	private bool _attached = false;
 	private bool _closing = false;
 	private bool _mutating = false;
 	private string _closeFailure = "";
 
-	public MacOSContainer() {
+	public MacOSContainer(IMacOSContainerLayout? layout = null) {
 		self.requireMainThread();
-		self._view = NSView.new();
+		self._layout = layout;
+		self._view = layout == null ? NSView.new() : layout.nativeView();
 		if (self._view == null) { throw "Cannot create native container"; }
 	}
 
@@ -44,7 +65,7 @@ class MacOSContainer implements IContainer, IMacOSView {
 
 	private int childIndex(IView child) {
 		for (int index = 0; index < self._children.len; index++) {
-			if (self._children.get(index) == child) { return index; }
+			if (self._children.get(index).view == child) { return index; }
 		}
 		throw "View does not belong to this container";
 	}
@@ -56,7 +77,7 @@ class MacOSContainer implements IContainer, IMacOSView {
 	public IView childAt(int index) {
 		self.requireMainThread();
 		if (index < 0 || index >= self._children.len) { throw "Container child index is out of bounds"; }
-		return self._children.get(index);
+		return self._children.get(index).view;
 	}
 
 	public void attach(IView child) {
@@ -72,11 +93,20 @@ class MacOSContainer implements IContainer, IMacOSView {
 		MacOSView.validateAttachment(childView, parent);
 		// Retain before publishing to AppKit, so allocation cannot fail after
 		// native attachment has transferred the child's lifecycle to this tree.
-		self._children.push(child);
+		var entry = MacOSContainerChild(child, childView.translatesAutoresizingMaskIntoConstraints());
+		self._children.push(entry);
+		bool attached = false;
 		try {
 			native.attachTo(parent);
+			attached = true;
+			if (self._layout != null) { self._layout.arrangeChild(childView); }
 		} catch (string error) {
+			if (attached) {
+				try { self.detachChild(entry, parent); }
+				catch (string rollback) { entry.failed = true; self._closing = true; self._closeFailure = rollback; throw rollback; }
+			}
 			if (childView.superview() == parent) {
+				entry.failed = true;
 				self._closeFailure = error;
 				self._closing = true;
 			} else {
@@ -86,15 +116,24 @@ class MacOSContainer implements IContainer, IMacOSView {
 		}
 	}
 
+	private void detachChild(MacOSContainerChild entry, NSView parent) {
+		var native = self.projection(entry.view);
+		var child = native.nativeView();
+		if (self._layout != null) { self._layout.forgetChild(child); }
+		native.detachFrom(parent);
+		child.setTranslatesAutoresizingMaskIntoConstraints(entry.translatesAutoresizing);
+	}
+
 	public IView detach(IView child) {
 		var parent = self.mutationView();
 		int index = self.childIndex(child);
 		self._mutating = true;
 		try {
-			self.projection(child).detachFrom(parent);
+			self.detachChild(self._children.get(index), parent);
 			self._children.remove(index);
 		} catch (string error) {
 			self._mutating = false;
+			self._children.get(index).failed = true;
 			self._closeFailure = error;
 			self._closing = true;
 			throw error;
@@ -139,31 +178,53 @@ class MacOSContainer implements IContainer, IMacOSView {
 
 	public void setVisible(bool visible) { self.nativeView().setHidden(!visible); }
 
-	public void close() {
+	public CallbackCancellation close() {
 		self.requireMainThread();
-		if (self._view == null) { return; }
-		if (self._closeFailure != "") { throw self._closeFailure; }
-		if (self._closing) { throw "Native container shutdown is already active"; }
+		if (self._view == null) { return CallbackCancellation.Complete; }
 		if (self._mutating) { throw "Native container mutation is already active"; }
 		if (self._attached) { throw "Detach the view from its container before closing it"; }
-		var view = self._view;
 		self._closing = true;
-		try {
-			while (self._children.len > 0) {
-				var child = self._children.get(self._children.len - 1);
-				self.projection(child).detachFrom(view);
-				child.close();
-				self._children.pop();
-			}
-			view.removeFromSuperview();
-			self._view = null;
-		} catch (string error) {
-			// Do not retry an indeterminate native close or restore a partially
-			// dismantled container to its usable state.
-			self._closeFailure = error;
-			throw error;
-		}
+		return self.pollClose();
 	}
 
-	public void __del__() { self.close(); }
+	public CallbackCancellation pollClose() {
+		self.requireMainThread();
+		if (self._mutating) { throw "Native container mutation is already active"; }
+		var view = self._view;
+		if (view == null) { return CallbackCancellation.Complete; }
+		if (!self._closing) { return CallbackCancellation.NotRequested; }
+		self._mutating = true;
+		CallbackCancellation result = CallbackCancellation.Complete;
+		try {
+			for (int index = self._children.len - 1; index >= 0; index--) {
+				var child = self._children.get(index);
+				if (child.failed) { continue; }
+				try {
+					CallbackCancellation state = CallbackCancellation.Pending;
+					if (!child.closing) {
+						self.detachChild(child, view);
+						child.closing = true;
+						state = child.view.close();
+					} else { state = child.view.pollClose(); }
+					if (state == CallbackCancellation.Complete) { self._children.remove(index); }
+					else if (state == CallbackCancellation.Failed) { result = state; }
+					else if (result != CallbackCancellation.Failed) {
+						if (state == CallbackCancellation.RetryableFailure) { result = state; }
+						else if (result != CallbackCancellation.RetryableFailure) { result = CallbackCancellation.Pending; }
+					}
+				} catch (string error) {
+					child.failed = true;
+					if (self._closeFailure.isEmpty()) { self._closeFailure = error; }
+				}
+			}
+			if (self._closeFailure.isEmpty() && self._children.len == 0) {
+				try { view.removeFromSuperview(); self._view = null; }
+				catch (string error) { self._closeFailure = error; }
+			}
+		} finally { self._mutating = false; }
+		if (!self._closeFailure.isEmpty()) { throw self._closeFailure; }
+		return result;
+	}
+
+	public void __del__() { if (self.close() != CallbackCancellation.Complete) { Console.fatal("Native container destroyed before subtree cleanup completed"); } }
 }

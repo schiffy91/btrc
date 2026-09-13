@@ -174,6 +174,9 @@ class FeStdlibRootSnapshot {
 }
 
 class FeNativeRecordInputField {
+	public bool callback = false;
+	public bool byValue = false;
+	public string resourceType = "";
 	public string name;
 	public Node valueType;
 	public string record;
@@ -186,24 +189,28 @@ class FeNativeRecordInputField {
 		self.prefix = prefix;
 		self.objectType = objectType;
 	}
+
+	public bool managed() { return !self.objectType.isEmpty() || !self.resourceType.isEmpty(); }
 }
 
 class FeNativeRecordInput {
 	public string name;
 	public string nativeSpelling;
 	public Vector<FeNativeRecordInputField> fields;
-	public FeNativeRecordInput(string name, string nativeSpelling) {
+	public bool byValue;
+	public FeNativeRecordInput(string name, string nativeSpelling, bool byValue = false) {
 		self.name = name;
 		self.nativeSpelling = nativeSpelling;
 		self.fields = [];
+		self.byValue = byValue;
 	}
 
 	public string inputName() { return self.name + "Input"; }
 
 	public string identity() {
-		string result = self.nativeSpelling;
+		string result = f"{self.nativeSpelling}:{self.byValue}";
 		for field in self.fields {
-			result = result + f"|{field.name}:{field.valueType.base}:{field.valueType.isNullable}:{field.prefix}:{field.objectType}:{field.record}";
+			result = result + f"|{field.name}:{field.valueType.base}:{field.valueType.isNullable}:{field.prefix}:{field.objectType}:{field.record}:{field.callback}:{field.resourceType}:{field.byValue}";
 		}
 		return result;
 	}
@@ -226,19 +233,72 @@ class FeNativeResourceBinding {
 }
 
 class FeNativeCallbackBinding {
+	public string field = "";
+	public Vector<int> ownedArguments = [];
+	public Vector<string> methods = [];
+	public string slotGetter = "";
+	public string actionSetter = "";
+	public string actionGetter = "";
 	public string parameter;
-	public string context;
-	public int contextIndex;
+	public Vector<string> contexts;
+	public Vector<int> contextIndices;
 	public string interfaceName;
-	public FeNativeCallbackBinding(string parameter, string context, int contextIndex, string interfaceName) {
+	public string lifetime;
+	public string unregister;
+	public string activationFailure;
+	public FeNativeCallbackBinding(string parameter, Vector<string> contexts, Vector<int> contextIndices, string interfaceName, string lifetime = "call", string unregister = "", string activationFailure = "") {
 		self.parameter = parameter;
-		self.context = context;
-		self.contextIndex = contextIndex;
+		self.contexts = contexts;
+		self.contextIndices = contextIndices;
 		self.interfaceName = interfaceName;
+		self.lifetime = lifetime;
+		self.unregister = unregister;
+		self.activationFailure = activationFailure;
 	}
 }
 
+class FeNativeRecordOutput {
+	public int parameterIndex;
+	public FeNativeRecordInput record;
+	public Vector<string> nullFields;
+	public FeNativeRecordOutput(int parameterIndex, FeNativeRecordInput record, Vector<string> nullFields) { self.parameterIndex = parameterIndex; self.record = record; self.nullFields = nullFields; }
+
+	public string outputName() { return self.record.name + "Output"; }
+
+	public string identity() { return f"{self.parameterIndex}:{self.record.identity()}:" + Strings.join(self.nullFields, ","); }
+}
+
+class FeNativeStringView {
+	public string name;
+	public string data;
+	public string length;
+	public bool nullMaximum;
+	public string nativeSpelling = "";
+	public string lengthSpelling = "";
+	public FeNativeStringView(string name, string data, string length, bool nullMaximum) { self.name = name; self.data = data; self.length = length; self.nullMaximum = nullMaximum; }
+
+	public string identity() { return f"{self.data}:{self.length}:{self.nullMaximum}:{self.nativeSpelling}:{self.lengthSpelling}"; }
+}
+
 class FeNativeCallbackProjection {
+	public string field = "";
+	public string record = "";
+	public Vector<string> contextFields = [];
+	public Vector<int> callbackContextIndices = [];
+	public Map<int, FeNativeStringView> stringArguments = {};
+	public Vector<int> ownedArguments = [];
+	public bool oneShot = false;
+	public string methodName = "invoke";
+	public NativeNode? nativeMethod = null;
+	public NativeNode? slotGetter = null;
+	public NativeNode? actionSetter = null;
+	public NativeNode? actionGetter = null;
+	public string delegateProtocol = "";
+	public Vector<FeNativeCallbackProjection> delegateMethods = [];
+	public NativeNode? unregister = null;
+	public string activationFailure = "";
+	public Vector<string> nativeParameters = [];
+	public string nativeReturn = "";
 	public string interfaceName;
 	public int parameterIndex;
 	public int contextIndex;
@@ -252,9 +312,14 @@ class FeNativeCallbackProjection {
 		self.callbackContextIndex = callbackContextIndex;
 		self.returnType = returnType;
 	}
+
+	public bool isContext(int index) { return index == self.callbackContextIndex || self.callbackContextIndices.contains(index); }
 }
 
 class FeNativeCallContract {
+	public FeNativeRecordOutput? recordOutput = null;
+	public string executor = "";
+	public NativeNode? objectiveCMethod = null;
 	public Vector<FeNativeCallbackProjection> callbacks = [];
 	public Vector<string> resourceParameters = [];
 	public string resourceResult = "";
@@ -273,7 +338,14 @@ class FeNativeCallContract {
 		self.recordTypes = {};
 	}
 
+	public bool returnsOwned() {
+		if (!self.resourceResult.isEmpty() || self.recordOutput != null) { return true; }
+		for callback in self.callbacks { if (callback.oneShot) { return true; } }
+		return false;
+	}
+
 	public string adapterSymbol(string name) {
+		if (self.recordOutput != null) { return "__btrc_native_" + name; }
 		if (self.callbacks.len > 0) { return "__btrc_native_" + name; }
 		if (!self.resourceResult.isEmpty()) { return "__btrc_native_" + name; }
 		for resource in self.resourceParameters { if (!resource.isEmpty()) { return "__btrc_native_" + name; } }
@@ -301,7 +373,7 @@ class FeNativeImportedDeclaration {
 	public bool coalesced;
 	public bool generatedInput;
 	public string language;
-	public Map<string, NativeNode> methods;
+	public Map<string, FeNativeCallContract> methods;
 	public Vector<string> nativeAncestors;
 	public FeNativeImportedDeclaration(Node declaration, string module, string header, string typeSpelling = "", bool readOnly = false, FeNativeCallContract? callContract = null) {
 		self.declaration = declaration;

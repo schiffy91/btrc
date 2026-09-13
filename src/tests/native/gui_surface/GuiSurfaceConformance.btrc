@@ -1,4 +1,4 @@
-import Library.GUI;
+import Library.GUI.Raster;
 
 #include <assert.h>
 #include <limits.h>
@@ -16,6 +16,12 @@ class SurfaceProbe {
 
 int main(int argc, char** argv) {
 	assert(argc == 2);
+	char truncatedTwo[2] = {(char)0xC2, '\0'};
+	char truncatedFour[3] = {(char)0xF0, (char)0x9F, '\0'};
+	assert(GUIRaster.textWidth((string)truncatedTwo, 1) == 8);
+	assert(GUIRaster.textWidth((string)truncatedFour, 1) == 16);
+	assert(GUIRaster.textWidth("a\nbb", 1) == 16);
+	assert(GUIRaster.textHeight(INT_MAX) == INT_MAX);
 	var invalid = Surface(0, 1);
 	assert(!invalid.opened() && invalid.width() == 0 && invalid.height() == 0);
 	invalid.clear(Color.rgb(255, 255, 255));
@@ -70,7 +76,7 @@ int main(int argc, char** argv) {
 	var glyph = Surface(8, 8);
 	glyph.text(0, 0, "A", Color.rgb(255, 255, 255), 1);
 	assert(glyph.pixel(1, 0) == 0xFFFFFFFFU && glyph.pixel(0, 0) == 0U);
-	var ui = GUI(Surface(80, 80));
+	var ui = RasterGUI(Surface(80, 80));
 	ui.beginFrame();
 	ui.label("Hello");
 	assert(!ui.button("OK"));

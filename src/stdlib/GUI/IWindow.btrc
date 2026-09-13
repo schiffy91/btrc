@@ -16,6 +16,8 @@ interface IWindow {
 	IView? detachRoot();
 	void show();
 	void hide();
+	// Closed windows remain queryable and are never visible.
 	bool isVisible();
-	void close();
+	CallbackCancellation close();
+	CallbackCancellation pollClose();
 }

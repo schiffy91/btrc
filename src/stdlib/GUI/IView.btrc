@@ -1,10 +1,14 @@
+import Library.Callback;
+
 /* Native view contract. Layout uses logical points from the parent's top-left.
  * Fitting sizes are native minima: an unconstrained dimension may be zero.
  * Measure before arranging; attachment and subtree ownership belong to the
  * container. Visibility is the view's own flag, not a promise of on-screen
  * exposure. Interface aliases refer to the same view and observe its close.
  * An attached view must be detached before an alias can close it; its owning
- * container closes it during subtree shutdown. */
+ * container closes it during subtree shutdown. close() starts shutdown once;
+ * Pending retains ownership and requires pollClose() on the UI executor.
+ * Polling never starts shutdown or retries a failed native operation. */
 interface IView {
 	bool isOpen();
 	double fittingWidth();
@@ -12,5 +16,6 @@ interface IView {
 	void arrange(double x, double y, double width, double height);
 	bool isVisible();
 	void setVisible(bool visible);
-	void close();
+	CallbackCancellation close();
+	CallbackCancellation pollClose();
 }

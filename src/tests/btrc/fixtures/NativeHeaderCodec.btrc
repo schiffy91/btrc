@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
 			for field in record.fields { printf("%s %s %s\n", field.name, field.offsetBits, field.widthBits); }
 		}
 		for declaration in header.exports {
-			if (declaration.kind == NNK_NATIVE_OBJECTIVE_C_METHOD) { printf("method %s %s %s %s\n", declaration.name, declaration.identity, declaration.receiver, declaration.owner); }
+			if (declaration.kind == NNK_NATIVE_OBJECTIVE_C_METHOD) { printf("method %s %s %s %s %d %d\n", declaration.name, declaration.identity, declaration.receiver, declaration.owner, (int)declaration.protocolOwner, (int)declaration.optional); }
 		}
 		return 0;
 	} catch (string error) {

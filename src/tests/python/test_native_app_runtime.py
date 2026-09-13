@@ -75,7 +75,7 @@ def test_btrc_directory_picker_appkit(tmp_path, request, frontend, sanitized):
     NativePlanBuilder(runner=run).build(
         plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
     )
-    for mode in range(8):
+    for mode in range(9):
         try:
             completed = subprocess.run(
                 [str(executable), str(mode)],

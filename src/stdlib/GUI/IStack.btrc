@@ -1,0 +1,16 @@
+import Library.GUI.IContainer;
+
+enum StackAlignment { Start, Center, End };
+
+/* Rows/columns preserve child identity and use native intrinsic sizing.
+ * Alignment is across the stacking axis; Start follows native reading order
+ * for a column and means top for a row. Hidden children retain their space.
+ * layout() flushes pending recursive layout without replacing controls. */
+interface IStack extends IContainer {
+	double spacing();
+	void setSpacing(double spacing);
+	StackAlignment alignment();
+	void setAlignment(StackAlignment alignment);
+	void setPadding(double top, double right, double bottom, double left);
+	void layout();
+}

@@ -1,3 +1,4 @@
+import Library.Callback;
 import Library.GPU.Device;
 import Library.GPU.SurfaceRenderer;
 import Library.GPU.UniformBuffer;
@@ -10,13 +11,28 @@ enum GPUProgramState {
 	GPU_PROGRAM_PIPELINE,
 	GPU_PROGRAM_READY,
 	GPU_PROGRAM_FAILED,
+	GPU_PROGRAM_CLOSING,
 	GPU_PROGRAM_CLOSED
 };
 
+class GPUValidationCompletion implements IGPUValidationCompletion {
+	public int status = 0;
+	public int errorType = 0;
+	public string message = "";
+	public bool delivered = false;
+	public void invoke(WGPUPopErrorScopeStatus status, WGPUErrorType type, string message) {
+		self.status = (int)status;
+		self.errorType = (int)type;
+		self.message = message;
+		self.delivered = true;
+	}
+}
+
 /* A validated triangle program with uniform binding0 and optional image/sampler
  * bindings1/2. Creation progresses without blocking the application's event loop.
- * The explicit layout catches shader/parameter mismatches before any draw. */
-class GPUProgram {
+ * The explicit layout catches shader/parameter mismatches before any draw.
+ * A pending close retains its instance; poll until CLOSED before releasing. */
+class GPUProgram implements ICallbackRegistration {
 	private GPUDevice _device;
 	private WGPUTextureFormat _format;
 	private unsigned long long _uniformBytes;
@@ -28,49 +44,49 @@ class GPUProgram {
 	private WGPUBindGroupLayout _layout = null;
 	private WGPUPipelineLayout _pipelineLayout = null;
 	private WGPURenderPipeline _pipeline = null;
-	private BtrcGPUAsync* _request = null;
-	private WGPUFuture _future;
+	private CallbackScope _scope;
+	private WGPUInstance? _instance;
+	private GPUValidationCompletion? _completion;
 	private GPUProgramState _state = GPU_PROGRAM_SHADER;
 	private string _error = "";
 
-	public GPUProgram(GPUDevice device, WGPUTextureFormat format, string source, int uniformFloatCount, bool textured = true, bool sourceOver = true, string vertexEntry = "vs_main", string fragmentEntry = "fs_main") {
+	private GPUProgram(GPUDevice device, WGPUTextureFormat format, string source, int uniformFloatCount, bool textured, bool sourceOver, string vertexEntry, string fragmentEntry) {
 		if (source.isEmpty() || vertexEntry.isEmpty() || fragmentEntry.isEmpty() || uniformFloatCount <= 0) { throw "GPU program requires shader source, entry points and uniform size"; }
 		self._device = device;
+		self._scope = CallbackScope();
+		self._instance = device.nativeInstance();
 		self._format = format;
 		self._uniformBytes = ((unsigned long long)uniformFloatCount + 3ULL) / 4ULL * 16ULL;
 		self._textured = textured;
 		self._sourceOver = sourceOver;
 		self._vertexEntry = vertexEntry;
 		self._fragmentEntry = fragmentEntry;
-		self.createShader(source);
 	}
 
-	class void validated(WGPUPopErrorScopeStatus status, WGPUErrorType type, WGPUStringView message, void* context, void* unused) {
-		int result = status == WGPUPopErrorScopeStatus_Success ? (int)type : -(int)status;
-		btrc_gpu_async_complete((BtrcGPUAsync*)context, result, null);
+	class GPUProgram create(GPUDevice device, WGPUTextureFormat format, string source, int uniformFloatCount, bool textured = true, bool sourceOver = true, string vertexEntry = "vs_main", string fragmentEntry = "fs_main", CallbackScope? owner = null) {
+		var program = GPUProgram(device, format, source, uniformFloatCount, textured, sourceOver, vertexEntry, fragmentEntry);
+		if (owner != null) { owner.track(program); }
+		try { program.createShader(source); } catch (string error) { program.close(); throw error; }
+		return program;
 	}
 
-	private bool beginValidation() {
-		self._request = btrc_gpu_async_create((BtrcGPUAsyncResultRelease)null);
-		if (self._request == null) { self.fail("Cannot allocate GPU validation request"); return false; }
-		wgpuDevicePushErrorScope(self._device.nativeDevice(), WGPUErrorFilter_Validation);
-		return true;
-	}
-
-	private void endValidation() {
-		WGPUPopErrorScopeCallbackInfo callback = {null};
+	private WGPUPopErrorScopeCallbackInfoInput beginValidation() {
+		self._completion = GPUValidationCompletion();
+		var callback = WGPUPopErrorScopeCallbackInfoInput();
 		callback.mode = WGPUCallbackMode_AllowProcessEvents;
-		callback.callback = GPUProgram.validated;
-		callback.userdata1 = self._request;
-		self._future = wgpuDevicePopErrorScope(self._device.nativeDevice(), callback);
+		callback.callback = self._completion;
+		wgpuDevicePushErrorScope(self._device.nativeDevice(), WGPUErrorFilter_Validation);
+		return callback;
 	}
+
+	private void endValidation(WGPUPopErrorScopeCallbackInfoInput callback) { wgpuDevicePopErrorScope(self._device.nativeDevice(), callback, self._scope); }
 
 	private void createShader(string source) {
 		var device = self._device.nativeDevice();
 		var sourceBytes = GPUProgram.nativeText(source);
 		WGPULimits limits = {null};
 		if (wgpuDeviceGetLimits(device, &limits) != WGPUStatus_Success || self._uniformBytes > limits.maxUniformBufferBindingSize) { self.fail("GPU program uniforms exceed device limits"); return; }
-		if (!self.beginValidation()) { return; }
+		var callback = self.beginValidation();
 		WGPUShaderSourceWGSL wgsl;
 		memset(&wgsl, 0, sizeof(WGPUShaderSourceWGSL));
 		wgsl.chain.sType = WGPUSType_ShaderSourceWGSL;
@@ -79,14 +95,14 @@ class GPUProgram {
 		WGPUShaderModuleDescriptor descriptor = {null};
 		descriptor.nextInChain = &wgsl.chain;
 		self._shader = wgpuDeviceCreateShaderModule(device, &descriptor);
-		self.endValidation();
+		self.endValidation(callback);
 	}
 
 	private void createPipeline() {
 		var device = self._device.nativeDevice();
 		var vertexBytes = GPUProgram.nativeText(self._vertexEntry);
 		var fragmentBytes = GPUProgram.nativeText(self._fragmentEntry);
-		if (!self.beginValidation()) { return; }
+		var callback = self.beginValidation();
 		WGPUBindGroupLayoutEntry entries[3];
 		memset(entries, 0, sizeof(entries));
 		entries[0].binding = 0u;
@@ -112,7 +128,7 @@ class GPUProgram {
 			self._pipelineLayout = wgpuDeviceCreatePipelineLayout(device, &descriptor);
 		}
 		if (self._pipelineLayout != null) { self.createRenderPipeline(device, vertexBytes, fragmentBytes); }
-		self.endValidation();
+		self.endValidation(callback);
 	}
 
 	private void createRenderPipeline(WGPUDevice device, OwnedBuffer<char> vertexBytes, OwnedBuffer<char> fragmentBytes) {
@@ -148,7 +164,19 @@ class GPUProgram {
 		self._pipeline = wgpuDeviceCreateRenderPipeline(device, &descriptor);
 	}
 
-	public GPUProgramState state() { return self._state; }
+	private void requireExecutor() { self._scope.isOpen(); }
+
+	public GPUProgramState state() { self.requireExecutor(); return self._state; }
+
+	public bool isOpen() { self.requireExecutor(); return self._scope.isOpen(); }
+
+	public CallbackCancellation cancel() { return self.close(); }
+
+	public CallbackCancellation pollCompletion() {
+		if (self.isOpen()) { return CallbackCancellation.NotRequested; }
+		self.poll();
+		return self._scope.pendingCount() == 0 ? CallbackCancellation.Complete : CallbackCancellation.Pending;
+	}
 
 	class OwnedBuffer<char> nativeText(string value) {
 		var bytes = new OwnedBuffer<char>((size_t)value.len() + (size_t)1);
@@ -157,16 +185,26 @@ class GPUProgram {
 		return bytes;
 	}
 
-	public string error() { return self._error; }
+	public string error() { self.requireExecutor(); return self._error; }
 
 	public GPUProgramState poll() {
-		if (self._state != GPU_PROGRAM_SHADER && self._state != GPU_PROGRAM_PIPELINE) { return self._state; }
-		int status = 0;
-		var result = btrc_gpu_async_wait(self._device.nativeInstance(), self._future, self._request, 0ULL, &status, null);
-		if (result == BTRC_GPU_ASYNC_TIMED_OUT) { return self._state; }
-		btrc_gpu_async_release(self._request);
-		self._request = null;
-		if (result != BTRC_GPU_ASYNC_COMPLETED || status != (int)WGPUErrorType_NoError) { self.fail(f"GPU program validation failed ({status})"); return self._state; }
+		self.requireExecutor();
+		if (self._state == GPU_PROGRAM_CLOSED || self._state == GPU_PROGRAM_READY) { return self._state; }
+		if (self._instance != null) { wgpuInstanceProcessEvents(self._instance); }
+		self._scope.pollCompletion();
+		if (self._state == GPU_PROGRAM_CLOSING || self._state == GPU_PROGRAM_FAILED) {
+			if (self._scope.pendingCount() == 0) {
+				self._instance = null;
+				if (self._state == GPU_PROGRAM_CLOSING) { self._state = GPU_PROGRAM_CLOSED; }
+			}
+			return self._state;
+		}
+		if (self._device.state() != GPU_DEVICE_READY) { self.fail("GPU device closed during validation"); return self._state; }
+		var completion = self._completion;
+		if (completion == null) { self.fail("Missing GPU validation completion"); return self._state; }
+		if (!completion.delivered) { return self._state; }
+		self._completion = null;
+		if (completion.status != (int)WGPUPopErrorScopeStatus_Success || completion.errorType != (int)WGPUErrorType_NoError) { self.fail(f"GPU program validation failed ({completion.status}, {completion.errorType}): {completion.message}"); return self._state; }
 		if (self._state == GPU_PROGRAM_SHADER) {
 			if (self._shader == null) { self.fail("Cannot create GPU shader"); return self._state; }
 			self._state = GPU_PROGRAM_PIPELINE;
@@ -181,6 +219,7 @@ class GPUProgram {
 	}
 
 	public void draw(GPUSurfaceRenderer surface, GPUUniformBuffer uniform, int vertexCount, GPUImageTexture? texture = null) {
+		self.requireExecutor();
 		if (self._state != GPU_PROGRAM_READY) { throw "GPU program is not ready"; }
 		if (vertexCount <= 0 || surface.device() != self._device || uniform.device() != self._device || uniform.byteCount() != self._uniformBytes || surface.nativeFormat() != self._format || self._textured != (texture != null)) { throw "GPU draw resources do not match the program"; }
 		var pass = surface.nativePass();
@@ -210,13 +249,16 @@ class GPUProgram {
 
 	private void fail(string error) { self.close(); self._error = error; self._state = GPU_PROGRAM_FAILED; }
 
-	public void close() {
-		if (self._request != null) { btrc_gpu_async_release(self._request); self._request = null; }
+	public CallbackCancellation close() {
+		var result = self._scope == null ? CallbackCancellation.Complete : self._scope.cancel();
+		self._completion = null;
 		if (self._pipeline != null) { wgpuRenderPipelineRelease(self._pipeline); self._pipeline = null; }
 		if (self._pipelineLayout != null) { wgpuPipelineLayoutRelease(self._pipelineLayout); self._pipelineLayout = null; }
 		if (self._layout != null) { wgpuBindGroupLayoutRelease(self._layout); self._layout = null; }
 		if (self._shader != null) { wgpuShaderModuleRelease(self._shader); self._shader = null; }
-		self._state = GPU_PROGRAM_CLOSED;
+		self._state = result == CallbackCancellation.Complete ? GPU_PROGRAM_CLOSED : GPU_PROGRAM_CLOSING;
+		if (result == CallbackCancellation.Complete) { self._instance = null; }
+		return result;
 	}
 
 	public void __del__() { self.close(); }

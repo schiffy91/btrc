@@ -1,77 +1,247 @@
-import Library.GUI.MacOS.ObjectiveCRuntime;
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IButton;
+import Library.GUI.MacOS.MacOSRunLoop;
 
-/* Ordered momentary-control activations, consumed after AppKit dispatch.
- * Native targets only retain the sender; no BTRC callback or exception crosses
- * an AppKit tracking frame. This does not snapshot slider/toggle values. */
-class MacOSActionQueue {
-	private NSMutableArray? _pending;
-	private NSMutableArray? _controls;
+interface IMacOSAction {}
 
-	public MacOSActionQueue() {
-		if (!NSThread.isMainThread()) { throw "Native actions require the main thread"; }
-		self._pending = NSMutableArray.new();
-		self._controls = NSMutableArray.new();
-		if (self._pending == null || self._controls == null) { throw "Cannot create native action queue"; }
+/* Stable BTRC identity, not a native sender. It has no path back to the scope
+ * that owns its subscription. Each queued entry snapshots its generation. */
+class MacOSAction implements IMacOSAction, IAppKitButtonAction {
+	private MacOSActionMailbox _mailbox;
+	private int _generation = 0;
+	private bool _open = true;
+	private CallbackContext<IButtonAction, MacOSAction>? _handler;
+
+	public MacOSAction(MacOSActionMailbox mailbox) { mailbox.requireMainThread(); self._mailbox = mailbox; }
+
+	public bool accepts(int generation) { self._mailbox.requireMainThread(); return self._open && self._generation == generation; }
+
+	public void invoke() { self._mailbox.requireMainThread(); if (self._open) { self._mailbox.enqueue(self, self._generation); } }
+
+	public ICallbackRegistration onAction(IButtonAction receiver, CallbackScope scope) {
+		self._mailbox.requireMainThread();
+		if (!self._open) { throw "Native action is closed"; }
+		if (self._handler != null) { throw "Cancel the existing button action before replacing it"; }
+		self.discard();
+		var handler = new CallbackContext<IButtonAction, MacOSAction>(receiver, MacOSAction.unregisterHandler);
+		handler.activate(scope);
+		self._handler = handler;
+		handler.publish(self);
+		return handler;
 	}
 
-	private NSMutableArray pending() {
-		if (!NSThread.isMainThread()) { throw "Native actions require the main thread"; }
-		if (self._pending == null) { throw "Native action queue is closed"; }
-		return self._pending;
+	class bool unregisterHandler(MacOSAction action) {
+		action.discard();
+		action._handler = null;
+		return true;
 	}
 
-	private NSMutableArray controls() {
-		self.pending();
-		if (self._controls == null) { throw "Native action queue is closed"; }
-		return self._controls;
+	public void deliver() {
+		self._mailbox.requireMainThread();
+		var handler = self._handler;
+		if (handler == null) { return; }
+		var receiver = handler.enter();
+		if (receiver == null) { return; }
+		try { receiver.invoke(); }
+		finally { handler.leave(); handler.pollCompletion(); }
 	}
 
-	public void bind(NSButton control) {
-		var pending = self.pending();
-		var controls = self.controls();
-		if (controls.indexOfObjectIdenticalTo(control) < controls.count()) { throw "Native control is already bound"; }
-		if (control.target() != null || control.action() != null) { throw "Native control already has an action target"; }
-		controls.addObject(control);
-		try {
-			control.setAction(sel_registerName("addObject:"));
-			control.setTarget(pending);
-		} catch (string error) {
-			control.setAction(null);
-			control.setTarget(null);
-			controls.removeObjectIdenticalTo(control);
-			throw error;
-		}
-	}
-
-	public void unbind(NSButton control) {
-		var pending = self.pending();
-		var controls = self.controls();
-		if (controls.indexOfObjectIdenticalTo(control) >= controls.count()) { throw "Native control is not bound"; }
-		control.setAction(null);
-		control.setTarget(null);
-		pending.removeObjectIdenticalTo(control);
-		controls.removeObjectIdenticalTo(control);
-	}
-
-	public id? take() {
-		var pending = self.pending();
-		if (pending.count() == 0UL) { return null; }
-		var sender = pending.objectAtIndex(0UL);
-		pending.removeObjectAtIndex(0UL);
-		return sender;
-	}
-
-	public void discard(NSButton control) {
-		var controls = self.controls();
-		if (controls.indexOfObjectIdenticalTo(control) >= controls.count()) { throw "Native control is not bound"; }
-		self.pending().removeObjectIdenticalTo(control);
+	public void discard() {
+		self._mailbox.requireMainThread();
+		if (self._generation == 2147483647) { throw "Native action generation is exhausted"; }
+		self._generation++;
+		self._mailbox.prune();
 	}
 
 	public void close() {
-		if (!NSThread.isMainThread()) { throw "Native actions require the main thread"; }
-		if (self._pending == null) { return; }
-		if (self.controls().count() != 0UL) { throw "Close native controls before their action queue"; }
-		self._pending = null;
-		self._controls = null;
+		self._mailbox.requireMainThread();
+		self._open = false;
+		self._mailbox.prune();
+		if (self._handler != null) { self._handler.cancel(); }
+	}
+}
+
+/* Preallocated ordered storage. Overflow is latched for the consumer to report
+ * after native dispatch; throwing from an AppKit callback would terminate it. */
+class MacOSActionMailbox {
+	private Vector<MacOSAction?> _pending = [];
+	private Vector<int> _generations = [];
+	private int _capacity;
+	private int _head = 0;
+	private int _count = 0;
+	private bool _overflow = false;
+	private MacOSRunLoopSignal? _signal;
+
+	public MacOSActionMailbox(int capacity, MacOSRunLoopSignal? signal) {
+		self.requireMainThread();
+		if (capacity <= 0 || capacity > 65536) { throw "Native action capacity must be between 1 and 65536"; }
+		self._capacity = capacity;
+		self._signal = signal;
+		for (int index = 0; index < capacity; index++) { self._pending.push(null); self._generations.push(0); }
+	}
+
+	public void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native actions require the main thread"; } }
+
+	public bool automaticDispatch() { self.requireMainThread(); return self._signal != null; }
+
+	public void stopDispatch() { self.requireMainThread(); self._signal = null; }
+
+	public int pendingCount() { self.requireMainThread(); self.requireCapacity(); return self._count; }
+
+	private void requireCapacity() { if (self._overflow) { throw "Native action capacity exceeded; close this action queue before continuing"; } }
+
+	public void wake() {
+		self.requireMainThread();
+		if (self._signal != null && self._count > 0) { self._signal.wake(); }
+	}
+
+	public void prune() {
+		self.requireMainThread();
+		int retained = 0;
+		for (int offset = 0; offset < self._count; offset++) {
+			int index = (self._head + offset) % self._capacity;
+			var action = self._pending.get(index);
+			int generation = self._generations.get(index);
+			self._pending.set(index, null);
+			if (action != null && action.accepts(generation)) {
+				int destination = (self._head + retained) % self._capacity;
+				self._pending.set(destination, action);
+				self._generations.set(destination, generation);
+				retained++;
+			}
+		}
+		self._count = retained;
+	}
+
+	public void enqueue(MacOSAction action, int generation) {
+		self.requireMainThread();
+		if (self._overflow) { return; }
+		if (self._count == self._capacity) { self.prune(); }
+		if (self._count == self._capacity) { self._overflow = true; return; }
+		int index = (self._head + self._count) % self._capacity;
+		self._pending.set(index, action);
+		self._generations.set(index, generation);
+		self._count++;
+		// Only the wakeup coalesces. Every ordered click stays in the ring.
+		self.wake();
+	}
+
+	public MacOSAction? take() {
+		self.requireMainThread();
+		self.requireCapacity();
+		while (self._count > 0) {
+			var action = self._pending.get(self._head);
+			int generation = self._generations.get(self._head);
+			self._pending.set(self._head, null);
+			self._head = (self._head + 1) % self._capacity;
+			self._count--;
+			if (action != null && action.accepts(generation)) { return action; }
+		}
+		return null;
+	}
+}
+
+/* Cancellation is owned independently of the callback receiver. Native holders
+ * retain the action/mailbox, never this binding or its scope. */
+class MacOSActionBinding {
+	private NSButton _control;
+	private MacOSAction _action;
+	private CallbackScope _scope;
+	private bool _closed = false;
+
+	public MacOSActionBinding(NSButton control, MacOSActionMailbox mailbox) {
+		self._control = control;
+		self._action = MacOSAction(mailbox);
+		self._scope = CallbackScope();
+		try { control.setTarget(self._action, self._scope); }
+		catch (string error) { self.close(); throw error; }
+	}
+
+	public bool matches(NSButton control) { return self._control == control; }
+
+	public MacOSAction action() { return self._action; }
+
+	public void close() {
+		if (self._closed) { return; }
+		if (self._scope.cancel() != CallbackCancellation.Complete) { throw "Native actions must drain before closing their binding"; }
+		self._action.close();
+		self._closed = true;
+	}
+
+	public void __del__() { self.close(); }
+}
+
+class MacOSActionQueue {
+	private MacOSActionMailbox _mailbox;
+	private Vector<MacOSActionBinding> _bindings = [];
+	private bool _closed = false;
+
+	public MacOSActionQueue(int capacity = 256, MacOSRunLoopSignal? signal = null) {
+		self.requireMainThread();
+		self._mailbox = MacOSActionMailbox(capacity, signal);
+	}
+
+	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native actions require the main thread"; } }
+
+	private void requireOpen() {
+		self.requireMainThread();
+		if (self._closed) { throw "Native action queue is closed"; }
+	}
+
+	private int indexOf(NSButton control) {
+		for (int index = 0; index < self._bindings.len; index++) { if (self._bindings.get(index).matches(control)) { return index; } }
+		return -1;
+	}
+
+	public IMacOSAction bind(NSButton control) {
+		self.requireOpen();
+		if (self.indexOf(control) >= 0) { throw "Native control is already bound"; }
+		var binding = MacOSActionBinding(control, self._mailbox);
+		self._bindings.push(binding);
+		return binding.action();
+	}
+
+	public ICallbackRegistration onAction(NSButton control, IButtonAction receiver, CallbackScope scope) {
+		self.requireOpen();
+		if (!self._mailbox.automaticDispatch()) { throw "Button actions require native application dispatch"; }
+		int index = self.indexOf(control);
+		if (index < 0) { throw "Native control is not bound"; }
+		return self._bindings.get(index).action().onAction(receiver, scope);
+	}
+
+	public int pendingCount() { self.requireOpen(); return self._mailbox.pendingCount(); }
+
+	public void wake() { self.requireOpen(); self._mailbox.wake(); }
+
+	public void dispatchOne() {
+		self.requireOpen();
+		var action = self._mailbox.take();
+		if (action != null) { action.deliver(); }
+	}
+
+	public void unbind(NSButton control) {
+		self.requireOpen();
+		int index = self.indexOf(control);
+		if (index < 0) { throw "Native control is not bound"; }
+		self._bindings.get(index).close();
+		self._bindings.remove(index);
+	}
+
+	public IMacOSAction? take() { self.requireOpen(); return self._mailbox.take(); }
+
+	public void discard(NSButton control) {
+		self.requireOpen();
+		int index = self.indexOf(control);
+		if (index < 0) { throw "Native control is not bound"; }
+		self._bindings.get(index).action().discard();
+	}
+
+	public void close() {
+		self.requireMainThread();
+		if (self._closed) { return; }
+		if (self._bindings.len != 0) { throw "Close native controls before their action queue"; }
+		self._mailbox.stopDispatch();
+		self._closed = true;
 	}
 }

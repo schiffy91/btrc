@@ -27,6 +27,7 @@ from .nodes import (
     IRMacroDef,
     IRModule,
     IRNode,
+    IRObjectiveCBlock,
     IRObjectiveCMessage,
     IRReturn,
     IRStatementSequence,
@@ -394,6 +395,8 @@ class IROptimizer:
             self._module.preprocessor_decls,
             live_globals,
         )
+        for declaration in self._module.objective_c_classes:
+            self._collect_program_references(declaration, live_functions, live_globals)
         worklist = [("function", name) for name in live_functions]
         worklist.extend(("global", name) for name in live_globals)
         while worklist:
@@ -441,7 +444,7 @@ class IROptimizer:
     @staticmethod
     def _initializer_has_side_effects(value: object) -> bool:
         for node in IRNode.walk_value(value):
-            if isinstance(node, (IRCall, IRStmtExpr, IRObjectiveCMessage)) or (
+            if isinstance(node, (IRCall, IRStmtExpr, IRObjectiveCMessage, IRObjectiveCBlock)) or (
                 isinstance(node, IRCast) and node.bridge in ("retain", "transfer")
             ):
                 return True
@@ -470,8 +473,8 @@ class IROptimizer:
         kernels_by_symbol = {f"{kernel.name}_wgsl": kernel for kernel in self._module.gpu_kernels}
         live_symbols = {
             node.name
-            for function in self._module.function_defs
-            for node in IRNode.walk_value(function.body)
+            for root in (*self._module.function_defs, *self._module.objective_c_classes)
+            for node in IRNode.walk_value(root)
             if isinstance(node, IRVar) and node.name in kernels_by_symbol
         }
         self._module.gpu_kernels = [
@@ -485,7 +488,7 @@ class IROptimizer:
         names = set(helpers_by_name)
         pattern = self._identifier_pattern(names)
         used = set(self._module.runtime_roots) & names
-        for root in (*self._module.function_defs, *self._module.global_decls):
+        for root in (*self._module.function_defs, *self._module.global_decls, *self._module.objective_c_classes):
             self._collect_helper_references(root, names, used)
         provider_helpers: set[str] = set()
         self._collect_runtime_provider_references(self._module, provider_helpers)
@@ -548,7 +551,7 @@ class IROptimizer:
         names = set(declarations_by_name)
         pattern = self._identifier_pattern(names)
         referenced: set[str] = set()
-        for root in (*self._module.function_defs, *self._module.global_decls):
+        for root in (*self._module.function_defs, *self._module.global_decls, *self._module.objective_c_classes):
             self._collect_callable_references(root, names, referenced)
         self._scan_macro_replacements(pattern, self._module.preprocessor_decls, referenced)
         for helper in self._module.helper_decls:
@@ -575,7 +578,12 @@ class IROptimizer:
         value_pattern = self._identifier_pattern(value_names)
         referenced_types: set[str] = set()
         referenced_values: set[str] = set()
-        for root in (*self._module.function_defs, *self._module.global_decls, *self._module.function_decls):
+        for root in (
+            *self._module.function_defs,
+            *self._module.global_decls,
+            *self._module.function_decls,
+            *self._module.objective_c_classes,
+        ):
             self._collect_c_type_references(root, type_pattern, referenced_types)
             self._collect_value_references(root, value_names, referenced_values)
         for helper in self._module.helper_decls:
@@ -931,7 +939,7 @@ class IROptimizer:
         known_names = {definition.name for definition in self._runtime_catalog.definitions}
         roots = {helper.name for helper in self._module.helper_decls if helper.name in known_names}
         roots.update(self._module.runtime_roots & known_names)
-        for root in (*self._module.function_defs, *self._module.global_decls):
+        for root in (*self._module.function_defs, *self._module.global_decls, *self._module.objective_c_classes):
             self._collect_helper_references(root, known_names, roots)
         self._collect_runtime_provider_references(self._module, roots)
         self._scan_macro_replacements(

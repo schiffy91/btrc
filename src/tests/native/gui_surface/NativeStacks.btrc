@@ -1,0 +1,73 @@
+import Library.GUI.GUI;
+import Library.GUI.IStack;
+import Library.GUI.IView;
+import Library.GUI.MacOS.MacOSViewCapture;
+import Library.IO;
+
+#include <assert.h>
+
+int main() {
+	GUI.initialize();
+	bool rejected = false;
+	try { GUI.createRow(-1.0); } catch (string error) { rejected = true; }
+	assert(rejected);
+	var window = GUI.createWindow("Recursive native layout", 480.0, 280.0);
+	var column = GUI.createColumn(12.0);
+	var row = GUI.createRow(8.0);
+	var field = GUI.createTextField("Original title");
+	var apply = GUI.createButton("Apply");
+	var cancel = GUI.createButton("Cancel");
+	column.setPadding(20.0, 20.0, 20.0, 20.0);
+	column.attach(field);
+	column.attach(row);
+	row.attach(apply);
+	row.attach(cancel);
+	window.attachRoot(column);
+	window.show();
+	column.layout();
+	StackProbe.verifyLayout(480.0);
+	StackProbe.observeViews();
+	StackProbe.beginEditing();
+	for (int iteration = 0; iteration < 20; iteration++) {
+		double width = iteration % 2 == 0 ? 720.0 : 480.0;
+		window.setContentSize(width, 320.0);
+		column.setSpacing(12.0 + (double)iteration);
+		row.setSpacing(8.0 + (double)iteration);
+		column.layout();
+		StackProbe.verifyLayout(width);
+		StackProbe.verifyEditing();
+		assert(column.childAt(0) == field && row.childAt(0) == apply);
+	}
+	StackProbe.undoEditing();
+	var capture = File("NativeStacks.tiff", "wb");
+	assert(capture.ok() && capture.writeBytes(MacOSViewCapture.captureTiff(StackProbe.contentView())) && capture.close());
+	row.setAlignment(StackAlignment.Center);
+	assert(row.alignment() == StackAlignment.Center);
+	row.setAlignment(StackAlignment.End);
+	assert(row.alignment() == StackAlignment.End);
+	row.setAlignment(StackAlignment.Start);
+	cancel.setVisible(false);
+	column.layout();
+	StackProbe.verifyHiddenButton();
+	cancel.setVisible(true);
+	var detached = row.detach(cancel);
+	assert(detached == cancel && detached.isOpen() && row.childCount() == 1);
+	StackProbe.verifyDetachedButton();
+	row.attach(detached);
+	column.layout();
+	StackProbe.verifyLayout(480.0);
+	rejected = false;
+	try { row.attach(column); } catch (string error) { rejected = true; }
+	assert(rejected && row.childCount() == 2);
+	rejected = false;
+	try { column.setPadding(0.0, -1.0, 0.0, 0.0); } catch (string error) { rejected = true; }
+	assert(rejected && column.isOpen());
+	window.close();
+	assert(!column.isOpen() && !row.isOpen() && !field.isOpen() && !apply.isOpen());
+	assert(column.childCount() == 0 && row.childCount() == 0);
+	assert(StackProbe.remainingViews() == 0L);
+	GUI.close();
+	StackProbe.reset();
+	print("PASS: recursive native layout preserves editing and undo across resize");
+	return 0;
+}

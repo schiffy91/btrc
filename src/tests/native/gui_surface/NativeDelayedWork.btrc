@@ -1,0 +1,105 @@
+import Library.Callback;
+import Library.Datetime;
+import Library.GUI;
+import Library.Math;
+import Library.Vector;
+
+#include <assert.h>
+#include <string.h>
+
+int delivered = 0;
+int destroyed = 0;
+
+class DelayedWork implements IApplicationWork {
+	private IWindow _window;
+	private int _remaining;
+	private double _minimumDelay;
+	private Timer _elapsed = Timer();
+	public DelayedWork(IWindow window, int remaining, double minimumDelay = 0.0) { self._window = window; self._remaining = remaining; self._minimumDelay = minimumDelay; self._elapsed.start(); }
+
+	public void run() {
+		assert(self._window.isOpen());
+		assert((double)self._elapsed.elapsedMillis() >= self._minimumDelay * 1000.0);
+		delivered++;
+		if (self._remaining < 0) { throw "Expected delayed work failure"; }
+		if (self._remaining > 1) { GUI.postAfter(0.001, DelayedWork(self._window, self._remaining - 1)); }
+		else {
+			GUI.requestQuit();
+			bool rejected = false;
+			try { GUI.postAfter(0.0, self); } catch (string error) { rejected = true; }
+			assert(rejected);
+		}
+		assert(self._window.isOpen());
+	}
+
+	public void __del__() { destroyed++; }
+}
+
+int main(int argc, char** argv) {
+	assert(argc == 2);
+	GUI.initialize(4);
+	var window = GUI.createWindow("Delayed native work", 320.0, 180.0);
+	var root = GUI.createColumn();
+	var button = GUI.createButton("Owned through native work");
+	root.attach(button);
+	window.attachRoot(root);
+	ICallbackRegistration? observed = null;
+	bool closeBeforeRun = strcmp(argv[1], "close-before-run") == 0;
+	bool failure = strcmp(argv[1], "failure") == 0;
+	int expectedDelivered = 1;
+	int expectedDestroyed = 1;
+	if (strcmp(argv[1], "recursive") == 0) {
+		observed = GUI.postAfter(0.05, DelayedWork(window, 64, 0.04));
+		expectedDelivered = 64; expectedDestroyed = 64;
+	} else if (strcmp(argv[1], "cancel") == 0) {
+		for (int index = 0; index < 128; index++) {
+			var pending = GUI.postAfter(3600.0, DelayedWork(window, 0));
+			assert(pending.isOpen() && pending.cancel() == CallbackCancellation.Complete);
+			assert(!pending.isOpen() && pending.pollCompletion() == CallbackCancellation.Complete);
+			assert(destroyed == index + 1 && delivered == 0);
+		}
+		GUI.postAfter(0.0, DelayedWork(window, 0));
+		expectedDestroyed = 129;
+	} else if (strcmp(argv[1], "capacity") == 0) {
+		Vector<ICallbackRegistration> pending = [];
+		for (int index = 0; index < 4; index++) { pending.push(GUI.postAfter(3600.0, DelayedWork(window, 0))); }
+		bool rejected = false;
+		try { GUI.postAfter(0.0, DelayedWork(window, 0)); } catch (string error) { rejected = error.equals("Application work capacity exceeded"); }
+		assert(rejected && destroyed == 1);
+		rejected = false;
+		try { GUI.post(DelayedWork(window, 0)); } catch (string error) { rejected = error.equals("Application work capacity exceeded"); }
+		assert(rejected && destroyed == 2);
+		assert(pending.get(0).cancel() == CallbackCancellation.Complete);
+		GUI.post(DelayedWork(window, 0));
+		expectedDestroyed = 7;
+	} else if (strcmp(argv[1], "invalid") == 0) {
+		for delay in [-0.1, (double)Math.sqrt(-1.0f)] {
+			bool rejected = false;
+			try { GUI.postAfter(delay, DelayedWork(window, 0)); } catch (string error) { rejected = true; }
+			assert(rejected);
+		}
+		assert(destroyed == 2);
+		GUI.postAfter(0.0, DelayedWork(window, 0));
+		expectedDestroyed = 3;
+	} else if (strcmp(argv[1], "quit") == 0 || closeBeforeRun) {
+		observed = GUI.postAfter(3600.0, DelayedWork(window, 0));
+		if (closeBeforeRun) { expectedDelivered = 0; }
+		else { GUI.post(DelayedWork(window, 0)); expectedDestroyed = 2; }
+	} else {
+		assert(failure);
+		GUI.postAfter(0.0, DelayedWork(window, -1));
+		GUI.postAfter(3600.0, DelayedWork(window, 0));
+		expectedDestroyed = 2;
+	}
+	assert(delivered == 0);
+	bool failed = false;
+	try { if (closeBeforeRun) { GUI.close(); } else { GUI.run(); } }
+	catch (string error) { assert(failure && error.equals("Expected delayed work failure")); failed = true; }
+	assert(failed == failure);
+	assert(delivered == expectedDelivered && destroyed == expectedDestroyed);
+	assert(!window.isOpen() && !root.isOpen() && !button.isOpen());
+	if (observed != null) { assert(!observed.isOpen() && observed.pollCompletion() == CallbackCancellation.Complete && observed.cancel() == CallbackCancellation.Complete); }
+	GUI.close();
+	print("native delayed work cancellation, bounded capacity and orderly shutdown");
+	return 0;
+}

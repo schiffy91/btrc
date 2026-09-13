@@ -56,6 +56,8 @@ class NativeNode {
 	public bool consumesSelf;
 	public bool relatedResult;
 	public bool returnsInnerPointer;
+	public bool protocolOwner;
+	public bool optional;
 	public NativeNode underlying;
 	public NativeNode valueType;
 	public string decimalValue;
@@ -122,6 +124,8 @@ class NativeNode {
 		self.consumesSelf = false;
 		self.relatedResult = false;
 		self.returnsInnerPointer = false;
+		self.protocolOwner = false;
+		self.optional = false;
 		self.underlying = null;
 		self.valueType = null;
 		self.decimalValue = "";

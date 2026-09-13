@@ -26,8 +26,12 @@ from .nodes import (
     IRModule,
     IRNode,
     IRObjectiveCAutoreleasePool,
+    IRObjectiveCBlock,
+    IRObjectiveCClass,
     IRObjectiveCExceptionBoundary,
     IRObjectiveCMessage,
+    IRObjectiveCMethod,
+    IRObjectiveCSelector,
     IRStructDef,
     IRStructForward,
     IRTaggedUnionDef,
@@ -83,10 +87,30 @@ class IRVerifier:
             if isinstance(node, IRCast) and node.bridge:
                 if self.module.language != "objective-c" or node.bridge not in ("borrow", "retain", "transfer"):
                     raise ValueError("Objective-C bridge requires an Objective-C adapter unit and valid ownership")
-            if isinstance(node, (IRObjectiveCMessage, IRObjectiveCAutoreleasePool, IRObjectiveCExceptionBoundary)):
+            if isinstance(
+                node,
+                (
+                    IRObjectiveCMessage,
+                    IRObjectiveCSelector,
+                    IRObjectiveCBlock,
+                    IRObjectiveCClass,
+                    IRObjectiveCMethod,
+                    IRObjectiveCAutoreleasePool,
+                    IRObjectiveCExceptionBoundary,
+                ),
+            ):
                 if self.module.language != "objective-c":
                     raise ValueError("Objective-C IR requires an Objective-C adapter unit")
-                if isinstance(node, IRObjectiveCMessage):
+                if isinstance(
+                    node,
+                    (
+                        IRObjectiveCMessage,
+                        IRObjectiveCSelector,
+                        IRObjectiveCBlock,
+                        IRObjectiveCClass,
+                        IRObjectiveCMethod,
+                    ),
+                ):
                     node.validate()
                 elif not isinstance(node.body, IRBlock):
                     raise TypeError("Objective-C scope requires an IRBlock")
@@ -121,6 +145,7 @@ class IRVerifier:
             ("tagged_union_defs", IRTaggedUnionDef),
             ("struct_defs", IRStructDef),
             ("global_decls", IRGlobalDecl),
+            ("objective_c_classes", IRObjectiveCClass),
             ("function_defs", IRFunctionDef),
             ("gpu_kernels", IRGpuKernel),
         )
@@ -133,6 +158,15 @@ class IRVerifier:
                     raise TypeError(
                         f"IRModule.{field_name} requires {expected_type.__name__}, got {type(declaration).__name__}"
                     )
+
+        classes = {declaration.name for declaration in self.module.objective_c_classes}
+        if len(classes) != len(self.module.objective_c_classes):
+            raise ValueError("Objective-C class declarations require distinct names")
+        defined = set()
+        for declaration in self.module.objective_c_classes:
+            if declaration.superclass in classes and declaration.superclass not in defined:
+                raise ValueError("Objective-C superclass must be declared before its subclass")
+            defined.add(declaration.name)
 
         for function in self.module.function_defs:
             if not isinstance(function.is_realtime, bool):
@@ -168,17 +202,23 @@ class IRVerifier:
 
     def _validate_cleanup_slots(self) -> None:
         self._attached_cleanup_sites.clear()
-        for function in self.module.function_defs:
+        bodies = [(function.name, function.body) for function in self.module.function_defs]
+        bodies.extend(
+            (f"{declaration.name}::{method.selector}", method.body)
+            for declaration in self.module.objective_c_classes
+            for method in declaration.methods
+        )
+        for name, body in bodies:
             declarations: dict[int, IRCleanupSlot] = {}
             registrations: list[IRCall] = []
-            for node in IRNode.walk_value(function.body):
+            for node in IRNode.walk_value(body):
                 if isinstance(node, IRVarDecl) and node.cleanup_slot is not None:
                     metadata = node.cleanup_slot
                     self._validate_cleanup_declaration(node, metadata)
                     site = id(metadata)
                     if site in self._attached_cleanup_sites:
                         raise ValueError(f"cleanup metadata for {metadata.name!r} is attached more than once")
-                    self._attached_cleanup_sites[site] = function.name
+                    self._attached_cleanup_sites[site] = name
                     declarations[site] = metadata
                 if isinstance(node, IRCall):
                     if isinstance(node.callee, str) and node.callee in self._REGISTER_ARITY:
@@ -186,7 +226,7 @@ class IRVerifier:
                     elif node.cleanup_slot is not None:
                         raise ValueError("cleanup metadata is attached to a non-registration call")
             self._validate_function_registrations(
-                function.name,
+                name,
                 declarations,
                 registrations,
             )
@@ -207,7 +247,10 @@ class IRVerifier:
         for node in IRNode.walk_value(function.body):
             if isinstance(node, IRCast) and node.bridge:
                 raise ValueError(f"IR realtime backstop rejected Objective-C ownership via {' -> '.join(path)}")
-            if isinstance(node, (IRObjectiveCMessage, IRObjectiveCAutoreleasePool, IRObjectiveCExceptionBoundary)):
+            if isinstance(
+                node,
+                (IRObjectiveCMessage, IRObjectiveCBlock, IRObjectiveCAutoreleasePool, IRObjectiveCExceptionBoundary),
+            ):
                 raise ValueError(f"IR realtime backstop rejected Objective-C operation via {' -> '.join(path)}")
             if isinstance(node, (IRWhile, IRDoWhile)):
                 raise ValueError(f"IR realtime backstop rejected unbounded loop via {' -> '.join(path)}")

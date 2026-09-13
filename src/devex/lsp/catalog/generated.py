@@ -127,6 +127,42 @@ OWNEDCLOSURE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("close", "bool", "method", (), "close"),
 )
 
+# Generated from src/stdlib/callbacktoken.btrc
+CALLBACKTOKEN_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("publish", "void", "method", (("TValue", "value"),), "publish"),
+    BuiltinMemberSpec("source", "TSource", "method", (), "source"),
+    BuiltinMemberSpec("value", "TValue", "method", (), "value"),
+)
+
+# Generated from src/stdlib/callbackcontext.btrc
+CALLBACKCONTEXT_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("activate", "void", "method", (("CallbackScope", "scope"),), "activate"),
+    BuiltinMemberSpec("publish", "void", "method", (("TToken", "token"),), "publish"),
+    BuiltinMemberSpec("abortActivation", "void", "method", (), "abortActivation"),
+    BuiltinMemberSpec("enter", "TReceiver*", "method", (), "enter"),
+    BuiltinMemberSpec("leave", "void", "method", (), "leave"),
+    BuiltinMemberSpec("isOpen", "bool", "method", (), "isOpen"),
+    BuiltinMemberSpec("cancel", "CallbackCancellation", "method", (), "cancel"),
+    BuiltinMemberSpec("pollCompletion", "CallbackCancellation", "method", (), "pollCompletion"),
+    BuiltinMemberSpec("unregister", "bool", "method", (), "unregister"),
+    BuiltinMemberSpec("close", "bool", "method", (), "close"),
+)
+
+# Generated from src/stdlib/callbackrequest.btrc
+CALLBACKREQUEST_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("activate", "void", "method", (("CallbackScope", "scope"),), "activate"),
+    BuiltinMemberSpec("publish", "void", "method", (), "publish"),
+    BuiltinMemberSpec("abortActivation", "void", "method", (), "abortActivation"),
+    BuiltinMemberSpec("enter", "TReceiver*", "method", (), "enter"),
+    BuiltinMemberSpec("leave", "void", "method", (), "leave"),
+    BuiltinMemberSpec("complete", "CallbackCancellation", "method", (), "complete"),
+    BuiltinMemberSpec("isOpen", "bool", "method", (), "isOpen"),
+    BuiltinMemberSpec("cancel", "CallbackCancellation", "method", (), "cancel"),
+    BuiltinMemberSpec("pollCompletion", "CallbackCancellation", "method", (), "pollCompletion"),
+    BuiltinMemberSpec("unregister", "bool", "method", (), "unregister"),
+    BuiltinMemberSpec("close", "bool", "method", (), "close"),
+)
+
 # Generated from src/stdlib/callbackregistration.btrc
 CALLBACKREGISTRATION_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("isOpen", "bool", "method", (), "isOpen"),
@@ -332,6 +368,9 @@ MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("Array", ARRAY_MEMBERS),
     ("BorrowedClosure", BORROWEDCLOSURE_MEMBERS),
     ("OwnedClosure", OWNEDCLOSURE_MEMBERS),
+    ("CallbackToken", CALLBACKTOKEN_MEMBERS),
+    ("CallbackContext", CALLBACKCONTEXT_MEMBERS),
+    ("CallbackRequest", CALLBACKREQUEST_MEMBERS),
     ("CallbackRegistration", CALLBACKREGISTRATION_MEMBERS),
     ("ListNode", LISTNODE_MEMBERS),
     ("List", LIST_MEMBERS),

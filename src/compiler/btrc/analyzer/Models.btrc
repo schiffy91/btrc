@@ -57,7 +57,7 @@ class Analyzed {
 		self.nativeOwnedFunctions = {};
 		for imported in declarations {
 			var contract = imported.callContract;
-			if (imported.declaration.kind == NK_FUNCTION_DECL && contract != null && !contract.resourceResult.isEmpty() && !imported.coalesced) { self.nativeOwnedFunctions.put(imported.declaration.name, imported.declaration); }
+			if (imported.declaration.kind == NK_FUNCTION_DECL && contract != null && contract.returnsOwned() && !imported.coalesced) { self.nativeOwnedFunctions.put(imported.declaration.name, imported.declaration); }
 			var resource = imported.resource;
 			if (resource != null) { self.nativeLifetimeOperations.put(resource.retainFunction, true); self.nativeLifetimeOperations.put(resource.releaseFunction, true); }
 			if (imported.declaration.kind == NK_CLASS_DECL && !self.nativeClassIndex.has(imported.declaration.name)) { self.nativeClassIndex.put(imported.declaration.name, imported); }

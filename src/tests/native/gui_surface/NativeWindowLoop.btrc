@@ -1,0 +1,99 @@
+import Library.Callback;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.IView;
+import Library.GUI.IButton;
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.AppKitText;
+
+#include <assert.h>
+
+class ActionAudit {
+	public int calls = 0;
+	public int destroyed = 0;
+}
+
+class CancelledClick implements IButtonAction {
+	private ActionAudit _audit;
+
+	public CancelledClick(ActionAudit audit) { self._audit = audit; }
+
+	public void invoke() { self._audit.calls++; }
+
+	public void __del__() { self._audit.destroyed++; }
+}
+
+class CloseWindows implements IAppKitDelayedWork {
+	private IApplication _application;
+	private IWindow _first;
+	private IWindow _second;
+	private IView _firstChild;
+	private IView _secondChild;
+	private IButton _button;
+	private ActionAudit _audit;
+	private int _step = 0;
+
+	public CloseWindows(IApplication application, IWindow first, IWindow second, IView firstChild, IView secondChild, IButton button, ActionAudit audit) {
+		self._application = application;
+		self._first = first;
+		self._second = second;
+		self._firstChild = firstChild;
+		self._secondChild = secondChild;
+		self._button = button;
+		self._audit = audit;
+	}
+
+	public void invoke(NSTimer timer) {
+		assert(self._application.isRunning() && timer.isValid());
+		if (self._step == 0) {
+			assert(self._button.activate() && self._audit.calls == 0);
+			ApplicationProbe.closeWindowNamed(AppKitText.nativeValue("First native window"));
+			assert(!self._first.isOpen() && self._firstChild.isOpen());
+			assert(!self._first.isVisible());
+			assert(ApplicationProbe.liveViews() == 2L);
+		} else if (self._step == 1) {
+			assert(!self._firstChild.isOpen() && self._first.root() == null);
+			assert(!self._button.isOpen() && self._audit.calls == 0 && self._audit.destroyed == 1);
+			assert(self._second.isOpen() && ApplicationProbe.liveViews() == 1L);
+			self._second.setTitle("Surviving native window");
+			ApplicationProbe.closeWindowNamed(AppKitText.nativeValue("Surviving native window"));
+			assert(!self._second.isOpen() && self._secondChild.isOpen());
+			assert(!self._second.isVisible());
+		} else {
+			assert(!self._secondChild.isOpen() && self._second.root() == null);
+			assert(ApplicationProbe.liveViews() == 0L);
+			self._application.requestQuit();
+		}
+		self._step++;
+	}
+}
+
+int main() {
+	var application = MacOSApplication();
+	var first = application.createWindow("First native window", 300.0, 180.0);
+	var second = application.createWindow("Second native window", 300.0, 180.0);
+	var firstChild = MacOSView(ApplicationProbe.newView());
+	var secondChild = MacOSView(ApplicationProbe.newView());
+	var firstRoot = application.createContainer();
+	var button = application.createButton("Discard when closing");
+	firstRoot.attach(firstChild);
+	firstRoot.attach(button);
+	first.attachRoot(firstRoot);
+	second.attachRoot(secondChild);
+	button.arrange(12.0, 12.0, button.fittingWidth(), button.fittingHeight());
+	first.show();
+	second.show();
+	var timers = CallbackScope();
+	var actions = CallbackScope();
+	var audit = ActionAudit();
+	button.onAction(CancelledClick(audit), actions);
+	NSTimer.scheduledTimerWithTimeInterval(0.02, true, CloseWindows(application, first, second, firstChild, secondChild, button, audit), timers);
+	application.run();
+	assert(timers.cancel() == CallbackCancellation.Complete);
+	assert(actions.cancel() == CallbackCancellation.Complete);
+	assert(!ApplicationProbe.hasDelegate() && ApplicationProbe.liveViews() == 0L);
+	assert(!first.isVisible() && !second.isVisible());
+	print("native window close drains independently of application quit");
+	return 0;
+}

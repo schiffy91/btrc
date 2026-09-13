@@ -5,7 +5,7 @@
  * renders it, and hands back events keyed by widget id — no stored callbacks
  * (Elm-style messages), which keeps it simple and btrc-flavored.
  *
- * Requires GUI.btrc. Not auto-included.
+ * Requires Raster.btrc. Not auto-included.
  *
  *   View ui = View.column().pad(16).withGap(8).kids([
  *       View.text("Count: " + Strings.fromInt(state.count)),
@@ -132,16 +132,16 @@ class UI {
 	class void measure(View v) {
 		if (v.kind.equals("text")) {
 			int inset = GUIInt.multiply(2, v.padding);
-			v.mW = GUIInt.add(gui_text_width(v.text, v.scale), inset);
-			v.mH = GUIInt.add(gui_text_height(v.scale), inset);
+			v.mW = GUIInt.add(GUIRaster.textWidth(v.text, v.scale), inset);
+			v.mH = GUIInt.add(GUIRaster.textHeight(v.scale), inset);
 		} else if (v.kind.equals("button")) {
 			int inset = GUIInt.multiply(2, v.padding);
-			v.mW = GUIInt.add(GUIInt.add(gui_text_width(v.text, v.scale), inset), 20);
-			v.mH = GUIInt.add(GUIInt.add(gui_text_height(v.scale), inset), 12);
+			v.mW = GUIInt.add(GUIInt.add(GUIRaster.textWidth(v.text, v.scale), inset), 20);
+			v.mH = GUIInt.add(GUIInt.add(GUIRaster.textHeight(v.scale), inset), 12);
 		} else if (v.kind.equals("checkbox")) {
-			int box = gui_text_height(v.scale);
+			int box = GUIRaster.textHeight(v.scale);
 			int inset = GUIInt.multiply(2, v.padding);
-			v.mW = GUIInt.add(GUIInt.add(GUIInt.add(box, 8), gui_text_width(v.text, v.scale)), inset);
+			v.mW = GUIInt.add(GUIInt.add(GUIInt.add(box, 8), GUIRaster.textWidth(v.text, v.scale)), inset);
 			v.mH = GUIInt.add(box, inset);
 		} else if (v.kind.equals("spacer")) {
 			v.mW = 0; v.mH = 0;
@@ -219,12 +219,12 @@ class UI {
 			Color fill = hovered ? theme.accent : theme.panel;
 			Color fg = hovered ? theme.accentText : theme.text;
 			s.fillRect(v.x, v.y, v.w, v.h, fill);
-			int tw = gui_text_width(v.text, v.scale);
-			int th = gui_text_height(v.scale);
+			int tw = GUIRaster.textWidth(v.text, v.scale);
+			int th = GUIRaster.textHeight(v.scale);
 			s.text(GUIInt.add(v.x, GUIInt.subtract(v.w, tw) / 2), GUIInt.add(v.y, GUIInt.subtract(v.h, th) / 2), v.text, fg, v.scale);
 			if (hovered && input.mousePressed && !v.id.isEmpty()) { ev.clicked = v.id; }
 		} else if (v.kind.equals("checkbox")) {
-			int box = gui_text_height(v.scale);
+			int box = GUIRaster.textHeight(v.scale);
 			bool hovered = UI.hit(input, v.x, v.y, v.w, v.h);
 			s.fillRect(v.x, v.y, box, box, theme.border);
 			if (v.checked) {

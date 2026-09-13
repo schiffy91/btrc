@@ -36,6 +36,7 @@ class MacOSComposedCapture {
 			if (totalPixels > (long long)maximumPixels || totalPixels * 4LL + (long long)layers.len * 70LL > (long long)maximumBytes) { throw "GPU readbacks exceed capture limits"; }
 		}
 		Vector<NSImageView> proxies = [];
+		Bytes captured = null;
 		try {
 			for layer in layers {
 				var encoded = ImageIO.encodeBmp(layer.pixels);
@@ -55,9 +56,10 @@ class MacOSComposedCapture {
 				proxies.push(proxy);
 				view.addSubview(proxy);
 			}
-			return MacOSViewCapture.captureTiff(root, maximumPixels, maximumBytes);
+			captured = MacOSViewCapture.captureTiff(root, maximumPixels, maximumBytes);
 		} finally {
 			for proxy in proxies { proxy.removeFromSuperview(); }
 		}
+		return captured;
 	}
 }

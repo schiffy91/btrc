@@ -1,0 +1,25 @@
+import Library.GUI.IWindow;
+import Library.Callback;
+
+/* UI-executor work, never inline. Worker-thread publication is a separate
+ * capability; post() requires the application's creating UI thread. Accepted
+ * work requires running the loop, even when quit abandons its domain delivery.
+ * Capacity includes admitted calls; overflow rejects the new submission. */
+interface IApplicationWork { void run(); }
+
+/* The application owns windows and its UI executor. run() enters the native
+ * loop and returns only after shutdown. requestQuit() is nonblocking: native
+ * callbacks finish before owned windows are torn down. */
+interface IApplication {
+	IWindow createWindow(string title, double width, double height);
+	void post(IApplicationWork work);
+	/* UI-thread, never inline. Delayed work shares the application capacity,
+	 * may run later than its delay, and is canceled by application shutdown.
+	 * Canceling the returned alias releases work without waiting for the delay. */
+	ICallbackRegistration postAfter(double delaySeconds, IApplicationWork work);
+	bool isRunning();
+	void run();
+	void requestQuit();
+	CallbackCancellation close();
+	CallbackCancellation pollClose();
+}

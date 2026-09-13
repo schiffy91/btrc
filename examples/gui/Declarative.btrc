@@ -1,6 +1,6 @@
 /* Headless test of the declarative GUI: build a View tree, frame it, and assert
  * layout, events-by-id, resize reflow, and UTF-8 text metrics. */
-#include "GUI/GUI.btrc"
+#include "GUI/Raster.btrc"
 #include "GUI/View.btrc"
 
 int fails = 0;

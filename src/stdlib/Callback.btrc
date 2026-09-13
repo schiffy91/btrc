@@ -12,6 +12,7 @@
  */
 
 import Library.OwnedBuffer;
+import Library.Vector;
 
 #include <pthread.h>
 
@@ -227,9 +228,16 @@ class CallbackState implements ICallbackRegistration {
 			if ((self._gateState.borrow()->load(MemoryOrder.ACQUIRE) & 1u) != 0u) { self.cancel(); }
 			return;
 		}
+		callbackGateCloseAdmission(self._gateState.borrow());
+		if (self._gateState.borrow()->load(MemoryOrder.ACQUIRE) != 1u) {
+			throw "Unpublished callback activation still has admitted calls";
+		}
 		self._state.store(1u, MemoryOrder.RELEASE);
 		bool destroyed = false;
-		try { destroyed = self._context.close(); }
+		try {
+			destroyed = self._context.close();
+			if (destroyed) { self._context = null; }
+		}
 		finally { self.endOperation(destroyed ? 2u : 4u); }
 	}
 
@@ -292,6 +300,9 @@ class CallbackState implements ICallbackRegistration {
 		bool destroyed = false;
 		try {
 			destroyed = self._context.close();
+			// Break the terminal context/backreference cycle on the cleanup
+			// executor, not during a later collection on an unrelated worker.
+			if (destroyed) { self._context = null; }
 		} finally {
 			self.endOperation(destroyed ? 2u : 4u);
 		}
@@ -318,6 +329,396 @@ class CallbackState implements ICallbackRegistration {
 			abort();
 		}
 		pthread_mutex_destroy(&self._closingThreadMutex);
+	}
+}
+
+/* Application/component cancellation owner. Create here before native
+ * publication. track() retains an existing cancellation owner without copying
+ * its state or changing its native identity. Aliases join the same cancellation.
+ * The application keeps this owner alive until pendingCount reaches zero.
+ * cancel/pollCompletion never call the blocking CallbackState.close path.
+ * An independent application/component must own cancellation; a captured
+ * receiver cannot be its sole lifecycle owner. Generated bindings still need
+ * to enforce that boundary. */
+class CallbackScope implements ICallbackRegistration {
+	private Vector<ICallbackRegistration> _registrations = [];
+	private pthread_t _executor;
+	private bool _closing = false;
+	private bool _dispatching = false;
+	private int _retained = 0;
+
+	public CallbackScope() { self._executor = pthread_self(); }
+
+	private void requireExecutor() {
+		if (pthread_equal(self._executor, pthread_self()) == 0) { throw "Callback scope requires its creating thread"; }
+	}
+
+	private void requireAdmission() {
+		self.requireExecutor();
+		if (self._closing) { throw "Callback scope is closing"; }
+		if (self._dispatching) { throw "Callback scope is dispatching cancellation"; }
+	}
+
+	public void track(ICallbackRegistration registration) {
+		self.requireAdmission();
+		ICallbackRegistration owner = self;
+		if (registration == null || registration == owner) { throw "Callback scope requires an independent cancellation owner"; }
+		for entry in self._registrations { if (entry == registration) { throw "Callback owner is already tracked"; } }
+		self._registrations.push(registration);
+		self._retained++;
+	}
+
+	public CallbackState create(ICallbackContext context) {
+		self.requireAdmission();
+		if (context == null) { throw "Callback scope requires a context"; }
+		var registration = CallbackState(context);
+		self._registrations.push(registration);
+		self._retained++;
+		return registration;
+	}
+
+	public bool isOpen() { self.requireExecutor(); return !self._closing; }
+
+	public int pendingCount() { self.requireExecutor(); return self._retained; }
+
+	private CallbackCancellation advance(bool cancel) {
+		self.requireExecutor();
+		if (cancel) { self._closing = true; }
+		if (self._dispatching) { return CallbackCancellation.Pending; }
+		self._dispatching = true;
+		CallbackCancellation result = CallbackCancellation.Complete;
+		string firstError = "";
+		bool raised = false;
+		try {
+			int index = 0;
+			while (index < self._registrations.len) {
+				var registration = self._registrations.get(index);
+				CallbackCancellation status = CallbackCancellation.Pending;
+				try {
+					status = cancel ? registration.cancel() : registration.pollCompletion();
+					if (self._closing && status == CallbackCancellation.NotRequested) { status = registration.cancel(); }
+				}
+				catch (string error) {
+					if (!raised) { firstError = error; raised = true; }
+					try { status = registration.pollCompletion(); }
+					catch (string unavailable) { status = CallbackCancellation.Pending; }
+				}
+				if (status == CallbackCancellation.Complete) {
+					self._registrations.remove(index);
+					self._retained--;
+					continue;
+				}
+				if (status == CallbackCancellation.Failed) { result = status; }
+				else if (result != CallbackCancellation.Failed) {
+					if (status == CallbackCancellation.RetryableFailure) { result = status; }
+					else if (result != CallbackCancellation.RetryableFailure) { result = CallbackCancellation.Pending; }
+				}
+				index++;
+			}
+		} finally { self._dispatching = false; }
+		if (raised) { throw firstError; }
+		return self._closing ? result : CallbackCancellation.NotRequested;
+	}
+
+	public CallbackCancellation cancel() { return self.advance(true); }
+
+	public CallbackCancellation pollCompletion() { return self.advance(false); }
+
+	public void __del__() {
+		if (pthread_equal(self._executor, pthread_self()) == 0) {
+			fprintf(stderr, "Callback scope destruction requires its creating thread\n");
+			abort();
+		}
+		if (self._retained == 0) { return; }
+		/* The scalar count survives cycle-edge detachment; an abandoned owning
+		 * cycle must not masquerade as an empty, successfully drained scope. */
+		if (self._registrations == null || self._registrations.len != self._retained) {
+			fprintf(stderr, "Callback scope collected before independent cancellation\n");
+			abort();
+		}
+		CallbackCancellation result = CallbackCancellation.Failed;
+		try { result = self.cancel(); }
+		catch (string error) { fprintf(stderr, "Callback scope cancellation failed: %s\n", error); }
+		if (result != CallbackCancellation.Complete) {
+			fprintf(stderr, "Callback scope released before cancellation completed\n");
+			abort();
+		}
+	}
+}
+
+/* Internal cancellation identity for APIs that unregister through their source
+ * object rather than through the returned token. Both claims use ordinary ARC. */
+class CallbackToken<TSource, TValue> {
+	private TSource _source;
+	private TValue _value;
+	public CallbackToken(TSource source) { self._source = source; }
+
+	public void publish(TValue value) {
+		if (self._value != (TValue)null || value == (TValue)null) { throw "Callback cancellation token cannot publish"; }
+		self._value = value;
+	}
+
+	public TSource source() { return self._source; }
+
+	public TValue value() { return self._value; }
+}
+
+/* Managed storage for generated caller-executor registrations. Receiver and
+ * token remain ordinary ARC fields; only generated ABI thunks expose the
+ * context to native code. Construction does not publish self. The binding
+ * activates in an independent scope before calling the native factory, then
+ * installs its token before completing activation (which may cancel inline).
+ * This is not a realtime context and does not establish native retention by
+ * itself: the adapter must hold a normal external ARC claim until release. */
+class CallbackContext<TReceiver, TToken> implements ICallbackContext, ICallbackRegistration {
+	private TReceiver? _receiver;
+	private TToken _token;
+	private CFunction<bool, TToken> _unregister;
+	private CallbackState _registration;
+	private pthread_t _executor;
+	private bool _activated = false;
+	private bool _published = false;
+	private bool _barrier = false;
+	private bool _closed = false;
+	private bool _cleaned = false;
+
+	public CallbackContext(TReceiver receiver, CFunction<bool, TToken> unregister) {
+		self._executor = pthread_self();
+		if (receiver == (TReceiver)null || unregister == null) { throw "Callback context requires a receiver and unregister operation"; }
+		self._receiver = receiver;
+		self._unregister = unregister;
+	}
+
+	private void requireExecutor() {
+		if (pthread_equal(self._executor, pthread_self()) == 0) { throw "Callback context requires its creating thread"; }
+	}
+
+	public void activate(CallbackScope scope) {
+		self.requireExecutor();
+		if (self._activated || self._closed) { throw "Callback context activation already started"; }
+		self._registration = scope.create(self);
+		self._activated = true;
+	}
+
+	public void publish(TToken token) {
+		self.requireExecutor();
+		if (!self._activated || self._published || self._closed || self._barrier) { throw "Callback context cannot publish"; }
+		if (token == (TToken)null) { throw "Callback context requires a cancellation token"; }
+		self._token = token;
+		self._published = true;
+		self._registration.finishActivation(true);
+	}
+
+	public void abortActivation() {
+		self.requireExecutor();
+		if (!self._activated || self._published || self._closed) { throw "Callback context cannot abort activation"; }
+		self._barrier = true;
+		self._registration.finishActivation(false);
+	}
+
+	public TReceiver? enter() {
+		self.requireExecutor();
+		if (!self._activated || self._closed || !callbackGateTryEnter(self._registration.activationGate())) { return null; }
+		return self._receiver;
+	}
+
+	public void leave() {
+		self.requireExecutor();
+		if (!self._activated || self._closed || self._registration.activationGate()->load(MemoryOrder.ACQUIRE) < 2u) {
+			throw "Callback context has no admitted call";
+		}
+		callbackGateLeave(self._registration.activationGate());
+	}
+
+	public bool isOpen() { self.requireExecutor(); return self._activated && self._registration.isOpen(); }
+
+	public CallbackCancellation cancel() {
+		self.requireExecutor();
+		if (!self._activated) { throw "Callback context is not activated"; }
+		return self._registration.cancel();
+	}
+
+	public CallbackCancellation pollCompletion() {
+		self.requireExecutor();
+		if (!self._activated) { throw "Callback context is not activated"; }
+		return self._registration.pollCompletion();
+	}
+
+	public bool unregister() {
+		self.requireExecutor();
+		if (self._barrier) { return true; }
+		if (!self._published || self._closed || (self._registration.activationGate()->load(MemoryOrder.ACQUIRE) & 1u) == 0u) {
+			throw "Callback context must cancel before unregistering";
+		}
+		self._barrier = self._unregister(self._token);
+		return self._barrier;
+	}
+
+	public bool close() {
+		self.requireExecutor();
+		if (self._closed) { return self._cleaned; }
+		if (self._activated && (!self._barrier || self._registration.activationGate()->load(MemoryOrder.ACQUIRE) != 1u)) {
+			throw "Callback context must unregister and drain before closing";
+		}
+		self._closed = true;
+		try { self._receiver = null; }
+		finally { self._token = (TToken)null; }
+		self._cleaned = true;
+		return true;
+	}
+
+	public void __del__() {
+		if (pthread_equal(self._executor, pthread_self()) == 0) {
+			fprintf(stderr, "Callback context destruction requires its creating thread\n");
+			abort();
+		}
+		if (self._activated && !self._cleaned) {
+			fprintf(stderr, "Callback context released before cancellation completed\n");
+			abort();
+		}
+	}
+}
+
+/* One-shot caller-executor context for generated adapters. The native request
+ * owns one gate admission from activation through terminal completion. Consumer
+ * cancellation closes admission but cannot revoke that outstanding native lease.
+ * There is no synthetic native token or unregister operation. The copied native
+ * holder must additionally retain this ordinary managed object until release.
+ * A callback-completion binding promises exactly one terminal callback; a timeout
+ * or native block disposal is not completion. */
+/* A native value and its request need owning storage; language tuples are
+ * shallow borrowed aggregates. All ownership here is ordinary class-field ARC. */
+class CallbackResult<TValue, TRequest> {
+	public TValue value;
+	public TRequest request;
+	public CallbackResult(TRequest request) { self.request = request; }
+}
+
+class CallbackRequest<TReceiver> implements ICallbackContext, ICallbackRegistration {
+	private TReceiver? _receiver;
+	private CallbackState _registration;
+	private pthread_t _executor;
+	private bool _activated = false;
+	private bool _published = false;
+	private bool _nativePending = false;
+	private bool _delivered = false;
+	private bool _entered = false;
+	private bool _barrier = false;
+	private bool _closed = false;
+	private bool _cleaned = false;
+
+	public CallbackRequest(TReceiver receiver) {
+		self._executor = pthread_self();
+		if (receiver == (TReceiver)null) { throw "Callback request requires a receiver"; }
+		self._receiver = receiver;
+	}
+
+	private void requireExecutor() {
+		if (pthread_equal(self._executor, pthread_self()) == 0) { throw "Callback request requires its creating thread"; }
+	}
+
+	public void activate(CallbackScope scope) {
+		self.requireExecutor();
+		if (self._activated || self._closed) { throw "Callback request activation already started"; }
+		self._registration = scope.create(self);
+		self._activated = true;
+		self._nativePending = callbackGateTryEnter(self._registration.activationGate());
+		if (!self._nativePending) {
+			self.abortActivation();
+			throw "Callback request cannot acquire its native lease";
+		}
+	}
+
+	public void publish() {
+		self.requireExecutor();
+		if (!self._activated || self._published || self._closed || self._barrier) { throw "Callback request cannot publish"; }
+		self._published = true;
+		self._registration.finishActivation(true);
+	}
+
+	private void finishNative() {
+		self._nativePending = false;
+		callbackGateLeave(self._registration.activationGate());
+	}
+
+	public void abortActivation() {
+		self.requireExecutor();
+		if (!self._activated || self._published || self._closed) { throw "Callback request cannot abort activation"; }
+		self._barrier = true;
+		if (self._nativePending) { self.finishNative(); }
+		self._registration.finishActivation(false);
+	}
+
+	public TReceiver? enter() {
+		self.requireExecutor();
+		if (self._delivered) { throw "Callback request cannot deliver twice"; }
+		if (!self._nativePending || self._closed) { return null; }
+		self._delivered = true;
+		self._entered = callbackGateTryEnter(self._registration.activationGate());
+		return self._entered ? self._receiver : null;
+	}
+
+	public void leave() {
+		self.requireExecutor();
+		if (!self._entered) { throw "Callback request has no admitted call"; }
+		self._entered = false;
+		callbackGateLeave(self._registration.activationGate());
+	}
+
+	public CallbackCancellation complete() {
+		self.requireExecutor();
+		if (!self._nativePending || self._closed) { throw "Callback request has no outstanding native work"; }
+		self.finishNative();
+		return self._registration.cancel();
+	}
+
+	public bool isOpen() { self.requireExecutor(); return self._activated && self._registration.isOpen(); }
+
+	public CallbackCancellation cancel() {
+		self.requireExecutor();
+		if (!self._activated) { throw "Callback request is not activated"; }
+		return self._registration.cancel();
+	}
+
+	public CallbackCancellation pollCompletion() {
+		self.requireExecutor();
+		if (!self._activated) { throw "Callback request is not activated"; }
+		return self._registration.pollCompletion();
+	}
+
+	public bool unregister() {
+		self.requireExecutor();
+		if (self._barrier) { return true; }
+		if (!self._published || self._closed || (self._registration.activationGate()->load(MemoryOrder.ACQUIRE) & 1u) == 0u) {
+			throw "Callback request must cancel before abandoning delivery";
+		}
+		/* Native entry is already protected by the outstanding admission, even
+		 * before delivery begins. Shared drain cannot finish until complete(). */
+		self._barrier = true;
+		return true;
+	}
+
+	public bool close() {
+		self.requireExecutor();
+		if (self._closed) { return self._cleaned; }
+		if (self._activated && (!self._barrier || self._nativePending || self._entered || self._registration.activationGate()->load(MemoryOrder.ACQUIRE) != 1u)) {
+			throw "Callback request must complete and drain before closing";
+		}
+		self._closed = true;
+		self._receiver = null;
+		self._cleaned = true;
+		return true;
+	}
+
+	public void __del__() {
+		if (pthread_equal(self._executor, pthread_self()) == 0) {
+			fprintf(stderr, "Callback request destruction requires its creating thread\n");
+			abort();
+		}
+		if (self._activated && !self._cleaned) {
+			fprintf(stderr, "Callback request released before native completion\n");
+			abort();
+		}
 	}
 }
 

@@ -5,16 +5,92 @@ not `id`, `void*` or a fabricated integer token. Both frontends require that
 storage and reject incompatible definitions. `GUI.MacOS.ObjectiveCRuntime`
 owns its header selection and Foundation linkage, including standalone use.
 
-`MacOSButton` and `MacOSActionQueue` provide ordered momentary activations.
-AppKit targets an SDK mutable array; BTRC consumes retained sender identities
-after dispatch, preserving repeated clicks without unwinding through AppKit.
-Unbinding purges that control's pending actions; controls close before the
-queue. The host must drain regularly. This is not value-event snapshots,
-arbitrary delegate export, or a bounded-allocation realtime queue.
-Both compilers pass actual SDK calls, invalid storage, order, disabled state,
-rebinding, teardown and sanitizer tests. Capture native button drawing over an
+`MacOSButton` and `MacOSActionQueue` now use checked stored target/action bindings.
+The generated adapter owns native target/selector publication and cancellation;
+the BTRC provider only supplies a typed receiver and independent scope.
+`take()` returns an opaque `IMacOSAction` identity, not an Objective-C sender.
+The preallocated ring preserves order, cancels queued generations on rebinding,
+and latches capacity exhaustion for the caller to report after native dispatch.
+Native receivers retain only action/mailbox state, not cancellation owners.
+Dropping a queue cancels bindings even when a native action is pending.
+
+The new queue passes reference and fresh self-hosted native/sanitizer checks,
+including repeated delivery, overflow, wraparound, abandoned queues and native
+destruction while opaque action aliases survive. Both BTRSmith frontends pass the
+real SQLite Library/Settings journey and queued-action rebinding. A differing
+target/action getter order found by product plan comparison is corrected in
+reference lowering; the rebuilt product link plans now match. This does not complete native
+application scheduling, portable factories, value-event snapshots or realtime
+audio delivery. Capture native button drawing over an
 opaque native background: transparent dark-mode captures lose destination-
 dependent title rendering. The native regression checks visible title contrast.
+
+Value-returning C one-shot calls expose an ordinary owning
+`CallbackResult<NativeValue, CallbackRequest<IReceiver>>`: `.value` preserves the
+native future/status and `.request` owns the completion handle. It is allocated
+before native publication and uses normal class-field ARC. This replaces the
+incorrect shallow-tuple projection; allocation tracking, not payload release
+counts alone, must prove ignored-result, cancellation and exception cleanup.
+
+Production `GPUDevice`, `GPUProgram` and `GPUReadback` use these checked one-shot
+bindings with typed receivers and copied SDK messages. `GPU.WebGPU` imports the
+SDK directly and no longer depends on the handwritten C async runtime. Their
+`close()` returns `CallbackCancellation`: keep the owner and call `poll()` until
+its closing state becomes closed. Readback unmaps on cancellation but retains
+its buffer and instance until native completion. Validation preserves native
+status, error type and text. Remaining raw GPU resource families and portable
+GUI subtree shutdown are not yet migrated.
+
+`CallbackScope.track(ICallbackRegistration)` retains an existing cancellation
+owner through ordinary interface ARC; it does not copy state or native identity.
+The scope must outlive cancellation and drain. `GPUProgram.create` and
+`GPUReadback.create` accept an optional owner, register the fully constructed
+object, then begin native work. Never publish partial `self` from a fallible
+constructor: BTRC correctly rejects that escape. Factory failure cancels the
+registered object; the scope retains it until completion. Callers that omit the
+owner must retain and drain the object themselves. Duplicate/self registration
+is rejected, but arbitrary owning cycles are not statically proven safe.
+
+Successful `CallbackState` cleanup releases its context on the cleanup executor,
+including unpublished activation. A surviving cancellation alias retains terminal
+status, not the context. Pending or failed cleanup retains the context. This
+breaks the completed context/registration cycle before an unrelated worker can
+collect it; it does not make abandoned active cycles safe or relax thread checks.
+
+BTRSmith's player uses this scope for shader programs and readbacks, including
+timed-out captures. Its host keeps native views alive through pending shutdown.
+Twenty scope checks and four real GPU checks pass across both frontends,
+including sanitizers; full product and portable-subtree qualification remain open.
+
+`CallbackRequest<TReceiver>` is the one-shot caller-executor runtime owner for
+generated Objective-C block bindings in both compilers. It reuses `CallbackState`
+and `CallbackScope`: an outstanding gate admission begins before publication and
+ends only at actual native completion. Cancelling suppresses consumer delivery
+without releasing the receiver early. There is no native token or invented
+unregister call. Inline completion waits for publication; admitted delivery must
+drain before cleanup. The native holder must retain its ordinary ARC claim until
+release. Wrong-thread calls, duplicate completion and premature destruction are
+errors. The focused callback run passes 72 cases across both compilers, including
+native inline/run-loop completion, publication failures and sanitizers. Four
+additional native-object cases observe destruction after claimed/abandoned late
+delivery, rather than inferring lifetime from a successful exit.
+
+`IApplication.post(IApplicationWork)` uses this binding for bounded UI-thread
+work on the real AppKit loop. Quit rejects new submissions and abandons queued
+domain delivery without suppressing the native callbacks needed to drain it.
+Work errors, including empty messages, surface from `run()` after teardown.
+The application/button/container parity run passes 12 cases with fresh self-host
+compilation, native lifetimes and sanitizers. Recursive scheduling exercises
+2,048 tasks; capacity rejection, pre-run quit and native quit with pending work
+preserve owned views until callback return.
+
+Quit cancels an active native modal loop before awaiting admitted work that may
+be blocked inside it. A real AppKit modal watchdog failed before this repair;
+reference optimized/sanitizer runs now pass native and portable Quit. The directory
+picker treats the SDK abort response as cancellation while rejecting unknown
+responses. Fresh self-host qualification of these additions is in progress.
+Asynchronous sheets/nested-dialog stacks, worker publication and automatic
+native-control action draining remain open.
 
 Unqualified `id` in Objective-C method signatures projects as a managed native object, not
 `void*` or a presumed `NSObject` subclass. It retains actual object identity and

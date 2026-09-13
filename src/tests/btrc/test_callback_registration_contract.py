@@ -1127,6 +1127,830 @@ void abandonScopedCycle() {
     assert run.returncode == 0, (frontend, scenario, run.stderr)
 
 
+@pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_managed_callback_context_owns_receiver_token_and_inline_cancellation(
+    request, tmp_path: Path, sanitized: bool, frontend: str
+) -> None:
+    program = """import Library.Callback;
+int receiversDestroyed = 0;
+int tokensDestroyed = 0;
+int unregisters = 0;
+bool refuse = false;
+bool raiseError = false;
+interface IReceiver { int invoke(); }
+class Receiver implements IReceiver {
+	public ICallbackRegistration? registration;
+	public int invoke() { return 42; }
+	public void __del__() { receiversDestroyed++; }
+}
+class Token {
+	public int identity = 7;
+	public void __del__() { tokensDestroyed++; }
+}
+bool unregisterToken(Token token) {
+	assert(token.identity == 7);
+	unregisters++;
+	if (raiseError) { throw "unregister probe"; }
+	return !refuse;
+}
+void inlineCancel() {
+	var scope = CallbackScope();
+	var context = new CallbackContext<IReceiver, Token>(Receiver(), unregisterToken);
+	context.activate(scope);
+	IReceiver? receiver = context.enter();
+	assert(receiver != null && receiver.invoke() == 42);
+	assert(context.cancel() == CallbackCancellation.Pending);
+	assert(context.enter() == null);
+	assert(unregisters == 0);
+	context.leave(); receiver = null;
+	context.publish(Token());
+	assert(context.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.pollCompletion() == CallbackCancellation.NotRequested);
+	assert(scope.pendingCount() == 0);
+	assert(receiversDestroyed == 1 && tokensDestroyed == 1 && unregisters == 1);
+}
+void draining() {
+	var scope = CallbackScope();
+	var context = new CallbackContext<IReceiver, Token>(Receiver(), unregisterToken);
+	context.activate(scope); context.publish(Token());
+	bool rejected = false;
+	try { context.close(); } catch (string error) { rejected = error == "Callback context must unregister and drain before closing"; }
+	assert(rejected);
+	IReceiver? receiver = context.enter();
+	assert(receiver != null);
+	assert(scope.cancel() == CallbackCancellation.Pending);
+	assert(context.pollCompletion() == CallbackCancellation.Pending);
+	assert(receiversDestroyed == 1 && tokensDestroyed == 1);
+	context.leave(); receiver = null;
+	assert(scope.pollCompletion() == CallbackCancellation.Complete);
+	assert(context.pollCompletion() == CallbackCancellation.Complete);
+	assert(context.enter() == null);
+	assert(receiversDestroyed == 2 && tokensDestroyed == 2);
+}
+void retry(bool raises) {
+	var scope = CallbackScope();
+	var context = new CallbackContext<IReceiver, Token>(Receiver(), unregisterToken);
+	context.activate(scope); context.publish(Token());
+	refuse = true; raiseError = raises;
+	int before = unregisters;
+	bool caught = false;
+	try { assert(context.cancel() == CallbackCancellation.RetryableFailure); }
+	catch (string error) { caught = error == "unregister probe"; }
+	assert(caught == raises);
+	assert(context.pollCompletion() == CallbackCancellation.RetryableFailure);
+	assert(unregisters == before + 1);
+	assert(context.enter() == null);
+	refuse = false; raiseError = false;
+	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(unregisters == before + 2);
+}
+void unpublished() {
+	var scope = CallbackScope();
+	var context = new CallbackContext<IReceiver, Token>(Receiver(), unregisterToken);
+	context.activate(scope);
+	IReceiver? receiver = context.enter();
+	assert(receiver != null);
+	bool rejected = false;
+	try { context.abortActivation(); } catch (string error) { rejected = error == "Unpublished callback activation still has admitted calls"; }
+	assert(rejected);
+	assert(context.enter() == null);
+	context.leave(); receiver = null;
+	context.abortActivation();
+	assert(context.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CallbackCancellation.Complete);
+}
+void wrongExecutor() {
+	var scope = CallbackScope();
+	var context = new CallbackContext<IReceiver, Token>(Receiver(), unregisterToken);
+	context.activate(scope); context.publish(Token());
+	Thread<int> worker = spawn(() => {
+		int rejected = 0;
+		try { context.cancel(); } catch (string error) { if (error == "Callback context requires its creating thread") { rejected++; } }
+		try { context.enter(); } catch (string error) { if (error == "Callback context requires its creating thread") { rejected++; } }
+		try { context.close(); } catch (string error) { if (error == "Callback context requires its creating thread") { rejected++; } }
+		try { context.leave(); } catch (string error) { if (error == "Callback context requires its creating thread") { rejected++; } }
+		return rejected;
+	});
+	assert(worker.join() == 4);
+	assert(context.isOpen());
+	assert(context.enter() != null); context.leave();
+	assert(scope.cancel() == CallbackCancellation.Complete);
+}
+void abandonScopedReceiverCycle() {
+	var scope = CallbackScope();
+	var receiver = Receiver();
+	var context = new CallbackContext<IReceiver, Token>(receiver, unregisterToken);
+	receiver.registration = context;
+	context.activate(scope); context.publish(Token());
+}
+int main() {
+	inlineCancel(); draining(); retry(false); retry(true); unpublished(); wrongExecutor(); abandonScopedReceiverCycle();
+	assert(receiversDestroyed == 7 && tokensDestroyed == 6 && unregisters == 8);
+	return 0;
+}
+"""
+    compile_result, source = (
+        _compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
+        if frontend == "selfhost"
+        else _compile_reference_source(tmp_path, program)
+    )
+    assert compile_result.returncode == 0, (frontend, compile_result.stderr)
+    fake = tmp_path / "empty.c"
+    fake.write_text("typedef int EmptyNativeDriver;\n")
+    toolchain = require_sanitizers(tmp_path) if sanitized else None
+    executable = tmp_path / f"{frontend}-managed-context"
+    _build(
+        toolchain.command if toolchain else COMPILERS[0],
+        source,
+        fake,
+        executable,
+        extra_flags=SANITIZER_FLAGS if toolchain else (),
+        environment=toolchain.environment if toolchain else None,
+    )
+    run = subprocess.run(
+        [str(executable)],
+        cwd=REPO,
+        env=sanitizer_environment(toolchain) if toolchain else None,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert run.returncode == 0, (frontend, run.stderr)
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_one_shot_request_retains_context_until_native_completion(
+    request, tmp_path: Path, sanitized: bool, frontend: str
+) -> None:
+    program = """import Library.Callback;
+int destroyed = 0;
+interface IReceiver { int invoke(); }
+class Receiver implements IReceiver {
+	public ICallbackRegistration? registration;
+	public int invoke() { return 42; }
+	public void __del__() { destroyed++; }
+}
+void delayed(bool cancelled) {
+	int before = destroyed;
+	var scope = CallbackScope();
+	var context = new CallbackRequest<IReceiver>(Receiver());
+	context.activate(scope); context.publish();
+	if (cancelled) {
+		assert(scope.cancel() == CallbackCancellation.Pending);
+		assert(context.enter() == null);
+		assert(context.pollCompletion() == CallbackCancellation.Pending);
+		assert(destroyed == before && scope.pendingCount() == 1);
+	} else {
+		IReceiver? receiver = context.enter();
+		assert(receiver != null && receiver.invoke() == 42);
+		context.leave(); receiver = null;
+	}
+	assert(context.complete() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(scope.pendingCount() == 0 && destroyed == before + 1);
+	bool rejected = false;
+	try { context.complete(); } catch (string error) { rejected = true; }
+	assert(rejected);
+}
+void inlineCompletion(bool selfCancel) {
+	int before = destroyed;
+	var scope = CallbackScope();
+	var context = new CallbackRequest<IReceiver>(Receiver());
+	context.activate(scope);
+	IReceiver? receiver = context.enter();
+	assert(receiver != null);
+	if (selfCancel) { assert(context.cancel() == CallbackCancellation.Pending); }
+	assert(context.complete() == CallbackCancellation.Pending);
+	context.leave(); receiver = null;
+	assert(destroyed == before);
+	context.publish();
+	assert(context.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(destroyed == before + 1);
+}
+void admittedCall() {
+	int before = destroyed;
+	var scope = CallbackScope();
+	var context = new CallbackRequest<IReceiver>(Receiver());
+	context.activate(scope); context.publish();
+	IReceiver? receiver = context.enter();
+	assert(receiver != null);
+	assert(context.complete() == CallbackCancellation.Pending);
+	assert(scope.cancel() == CallbackCancellation.Pending);
+	assert(destroyed == before);
+	context.leave(); receiver = null;
+	assert(scope.pollCompletion() == CallbackCancellation.Complete);
+	assert(destroyed == before + 1);
+}
+void unpublished() {
+	int before = destroyed;
+	var scope = CallbackScope();
+	var context = new CallbackRequest<IReceiver>(Receiver());
+	context.activate(scope);
+	context.abortActivation();
+	assert(context.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(destroyed == before + 1);
+}
+void abortWhileAdmitted() {
+	var scope = CallbackScope();
+	var context = new CallbackRequest<IReceiver>(Receiver());
+	context.activate(scope);
+	IReceiver? receiver = context.enter();
+	assert(receiver != null);
+	bool rejected = false;
+	try { context.abortActivation(); } catch (string error) { rejected = error == "Unpublished callback activation still has admitted calls"; }
+	assert(rejected);
+	context.leave(); receiver = null;
+	context.abortActivation();
+	assert(scope.cancel() == CallbackCancellation.Complete);
+}
+void guards() {
+	var scope = CallbackScope();
+	var context = new CallbackRequest<IReceiver>(Receiver());
+	context.activate(scope); context.publish();
+	int rejected = 0;
+	try { context.leave(); } catch (string error) { rejected++; }
+	try { context.publish(); } catch (string error) { rejected++; }
+	try { context.abortActivation(); } catch (string error) { rejected++; }
+	try { context.close(); } catch (string error) { rejected++; }
+	assert(rejected == 4);
+	Thread<int> worker = spawn(() => {
+		int failures = 0;
+		try { context.enter(); } catch (string error) { failures++; }
+		try { context.complete(); } catch (string error) { failures++; }
+		try { context.cancel(); } catch (string error) { failures++; }
+		try { context.close(); } catch (string error) { failures++; }
+		return failures;
+	});
+	assert(worker.join() == 4);
+	IReceiver? receiver = context.enter();
+	assert(receiver != null); context.leave(); receiver = null;
+	bool duplicate = false;
+	try { context.enter(); } catch (string error) { duplicate = true; }
+	assert(duplicate);
+	assert(context.complete() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CallbackCancellation.Complete);
+}
+void receiverCycle() {
+	var scope = CallbackScope();
+	var receiver = Receiver();
+	var context = new CallbackRequest<IReceiver>(receiver);
+	receiver.registration = context;
+	context.activate(scope); context.publish();
+	assert(scope.cancel() == CallbackCancellation.Pending);
+	assert(context.complete() == CallbackCancellation.Complete);
+	assert(scope.pollCompletion() == CallbackCancellation.Complete);
+}
+class TerminalContext implements ICallbackContext {
+	public CallbackState? registration;
+	private pthread_t _executor = pthread_self();
+	public bool unregister() { return true; }
+	public bool close() { return true; }
+	public void __del__() { assert(pthread_equal(self._executor, pthread_self()) != 0); destroyed++; }
+}
+void terminalContext(bool published) {
+	int before = destroyed;
+	var scope = CallbackScope();
+	var context = TerminalContext();
+	var state = scope.create(context);
+	context.registration = state;
+	context = null;
+	state.finishActivation(published);
+	assert(state.cancel() == CallbackCancellation.Complete);
+	// Keep both cancellation aliases alive: terminal state must no longer own
+	// the context, or cycle collection may later destroy it on a worker.
+	assert(destroyed == before + 1);
+	Thread<int> worker = spawn(() => { return 7; });
+	assert(worker.join() == 7);
+	assert(state.cancel() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CallbackCancellation.Complete);
+}
+int main() {
+	delayed(false); delayed(true); inlineCompletion(false); inlineCompletion(true);
+	admittedCall(); unpublished(); abortWhileAdmitted(); guards(); receiverCycle();
+	assert(destroyed == 9);
+	terminalContext(true); terminalContext(false);
+	assert(destroyed == 11);
+	return 0;
+}
+"""
+    compile_result, source = (
+        _compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
+        if frontend == "selfhost"
+        else _compile_reference_source(tmp_path, program)
+    )
+    assert compile_result.returncode == 0, (frontend, compile_result.stderr)
+    fake = tmp_path / "empty.c"
+    fake.write_text("typedef int EmptyNativeDriver;\n")
+    toolchain = require_sanitizers(tmp_path) if sanitized else None
+    executable = tmp_path / f"{frontend}-one-shot"
+    _build(
+        toolchain.command if toolchain else COMPILERS[0],
+        source,
+        fake,
+        executable,
+        extra_flags=SANITIZER_FLAGS if toolchain else (),
+        environment=toolchain.environment if toolchain else None,
+    )
+    run = subprocess.run(
+        [str(executable)],
+        cwd=REPO,
+        env=sanitizer_environment(toolchain) if toolchain else None,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert run.returncode == 0, (frontend, run.stderr)
+
+
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+@pytest.mark.parametrize("scenario", ["pending", "wrongExecutor"])
+def test_one_shot_request_rejects_unsafe_destruction(request, tmp_path: Path, frontend: str, scenario: str) -> None:
+    program = (
+        """import Library.Callback;
+interface IReceiver { void invoke(); }
+class Receiver implements IReceiver {
+	public void invoke() {}
+	public void __del__() { fprintf(stderr, "receiver destroyed\\n"); }
+}
+void pending() {
+	var scope = CallbackScope();
+	var context = new CallbackRequest<IReceiver>(Receiver());
+	context.activate(scope); context.publish();
+	assert(scope.cancel() == CallbackCancellation.Pending);
+}
+void wrongExecutor() {
+	Thread<CallbackRequest<IReceiver>> worker = spawn(() => {
+		return new CallbackRequest<IReceiver>(Receiver());
+	});
+	var context = worker.join();
+}
+"""
+        + f"int main() {{ {scenario}(); return 0; }}\n"
+    )
+    compile_result, source = (
+        _compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
+        if frontend == "selfhost"
+        else _compile_reference_source(tmp_path, program)
+    )
+    assert compile_result.returncode == 0, (frontend, compile_result.stderr)
+    fake = tmp_path / "empty.c"
+    fake.write_text("typedef int EmptyNativeDriver;\n")
+    executable = tmp_path / f"{frontend}-request-misuse"
+    _build(COMPILERS[0], source, fake, executable)
+    run = subprocess.run([str(executable)], cwd=REPO, capture_output=True, text=True, timeout=30)
+    assert run.returncode != 0, (frontend, run.stderr)
+    diagnostic = (
+        "Callback scope released before cancellation completed"
+        if scenario == "pending"
+        else "Callback request destruction requires its creating thread"
+    )
+    assert diagnostic in run.stderr
+    assert "receiver destroyed" not in run.stderr
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_callback_scope_owns_activation_cancellation_and_drain(
+    request, tmp_path: Path, sanitized: bool, frontend: str
+) -> None:
+    program = """import Library.Callback;
+int unregistered = 0;
+int closed = 0;
+int destroyed = 0;
+class Receiver { public void __del__() { destroyed++; } }
+class Context implements ICallbackContext {
+	public Receiver? receiver = Receiver();
+	public CallbackState? registration;
+	public CallbackScope? scope;
+	public bool fail = false;
+	public bool raiseError = false;
+	public bool unregister() {
+		unregistered++;
+		if (self.scope != null) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+		if (self.raiseError) { throw "unregister probe"; }
+		return !self.fail;
+	}
+	public bool close() {
+		closed++;
+		if (self.scope != null) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+		self.receiver = null; self.registration = null; self.scope = null;
+		return true;
+	}
+}
+void scopedCycle() {
+	var scope = CallbackScope();
+	var context = Context();
+	var state = scope.create(context);
+	context.registration = state;
+	state.finishActivation(true);
+	assert(scope.pendingCount() == 1);
+}
+void inlineCancel() {
+	var scope = CallbackScope();
+	var context = Context();
+	context.scope = scope;
+	var state = scope.create(context);
+	context.registration = state;
+	assert(callbackGateTryEnter(state.activationGate()));
+	assert(scope.cancel() == CallbackCancellation.Pending);
+	assert(!callbackGateTryEnter(state.activationGate()));
+	callbackGateLeave(state.activationGate());
+	state.finishActivation(true);
+	assert(scope.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.pendingCount() == 0);
+	bool rejected = false;
+	try { scope.create(context); } catch (string error) { rejected = error == "Callback scope is closing"; }
+	assert(rejected);
+}
+void drain() {
+	var scope = CallbackScope();
+	var context = Context();
+	var state = scope.create(context);
+	state.finishActivation(true);
+	assert(callbackGateTryEnter(state.activationGate()));
+	int before = closed;
+	assert(scope.cancel() == CallbackCancellation.Pending);
+	assert(scope.pollCompletion() == CallbackCancellation.Pending);
+	assert(scope.pendingCount() == 1 && closed == before);
+	callbackGateLeave(state.activationGate());
+	assert(scope.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.pendingCount() == 0 && closed == before + 1);
+}
+void failure(bool raises) {
+	var scope = CallbackScope();
+	var first = Context(); first.fail = true; first.raiseError = raises;
+	var second = Context();
+	scope.create(first).finishActivation(true); scope.create(second).finishActivation(true);
+	int before = closed;
+	bool caught = false;
+	try { assert(scope.cancel() == CallbackCancellation.RetryableFailure); }
+	catch (string error) { caught = error == "unregister probe"; }
+	assert(caught == raises);
+	assert(scope.pendingCount() == 1 && closed == before + 1);
+	assert(scope.pollCompletion() == CallbackCancellation.RetryableFailure);
+	first.fail = false; first.raiseError = false;
+	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(scope.pendingCount() == 0 && closed == before + 2);
+}
+void neverPublished() {
+	var scope = CallbackScope();
+	var context = Context();
+	var state = scope.create(context);
+	int before = unregistered;
+	state.finishActivation(false);
+	assert(scope.pollCompletion() == CallbackCancellation.NotRequested);
+	assert(scope.pendingCount() == 0 && unregistered == before);
+}
+void cancelWhilePolling() {
+	var scope = CallbackScope();
+	var first = Context(); first.scope = scope;
+	var second = Context();
+	var state = scope.create(first);
+	scope.create(second).finishActivation(true); state.finishActivation(true);
+	assert(callbackGateTryEnter(state.activationGate()));
+	/* Avoid cancelling the whole scope until the first context's close runs. */
+	first.scope = null;
+	assert(state.cancel() == CallbackCancellation.Pending);
+	first.scope = scope;
+	callbackGateLeave(state.activationGate());
+	assert(scope.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.pendingCount() == 0);
+}
+void wrongExecutor() {
+	var scope = CallbackScope();
+	var context = Context();
+	scope.create(context).finishActivation(true);
+	Thread<int> worker = spawn(() => {
+		try { scope.cancel(); } catch (string error) { return error == "Callback scope requires its creating thread" ? 1 : 0; }
+		return 0;
+	});
+	assert(worker.join() == 1);
+	assert(scope.isOpen());
+	assert(scope.cancel() == CallbackCancellation.Complete);
+}
+int main() {
+	scopedCycle(); inlineCancel(); drain(); failure(false); failure(true); neverPublished(); cancelWhilePolling(); wrongExecutor();
+	assert(unregistered == 12 && closed == 11 && destroyed == 11);
+	return 0;
+}
+"""
+    compile_result, source = (
+        _compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
+        if frontend == "selfhost"
+        else _compile_reference_source(tmp_path, program)
+    )
+    assert compile_result.returncode == 0, (frontend, compile_result.stderr)
+    fake = tmp_path / "empty.c"
+    fake.write_text("typedef int EmptyNativeDriver;\n")
+    toolchain = require_sanitizers(tmp_path) if sanitized else None
+    executable = tmp_path / f"{frontend}-scope"
+    _build(
+        toolchain.command if toolchain else COMPILERS[0],
+        source,
+        fake,
+        executable,
+        extra_flags=SANITIZER_FLAGS if toolchain else (),
+        environment=toolchain.environment if toolchain else None,
+    )
+    run = subprocess.run(
+        [str(executable)],
+        cwd=REPO,
+        env=sanitizer_environment(toolchain) if toolchain else None,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert run.returncode == 0, (frontend, run.stderr)
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_callback_scope_tracks_pending_owners_and_preserves_sibling_cleanup(
+    request, tmp_path: Path, sanitized: bool, frontend: str
+) -> None:
+    program = """import Library.Callback;
+int destroyed = 0;
+bool completed = false;
+class Work implements ICallbackRegistration {
+	public bool closing = false;
+	public bool failCancel = false;
+	public bool failPoll = false;
+	public bool immediate = false;
+	public CallbackScope? reentrant;
+	public bool isOpen() { return !self.closing; }
+	public CallbackCancellation cancel() {
+		self.closing = true;
+		if (self.failCancel) { throw "cancel failed"; }
+		return self.pollCompletion();
+	}
+	public CallbackCancellation pollCompletion() {
+		if (self.failPoll) { throw "poll failed"; }
+		if (self.reentrant != null) { assert(self.reentrant.cancel() == CallbackCancellation.Pending); self.reentrant = null; }
+		return self.closing ? (completed || self.immediate ? CallbackCancellation.Complete : CallbackCancellation.Pending) : CallbackCancellation.NotRequested;
+	}
+	public void __del__() { destroyed++; }
+}
+void retainUntilComplete() {
+	var scope = CallbackScope();
+	Work? work = Work();
+	scope.track(work);
+	bool rejected = false;
+	try { scope.track(work); } catch (string error) { rejected = true; }
+	assert(rejected && scope.pendingCount() == 1);
+	rejected = false;
+	try { scope.track(scope); } catch (string error) { rejected = true; }
+	assert(rejected && scope.pendingCount() == 1);
+	work = null;
+	assert(scope.pollCompletion() == CallbackCancellation.NotRequested && destroyed == 0);
+	assert(scope.cancel() == CallbackCancellation.Pending && destroyed == 0);
+	rejected = false;
+	try { scope.track(Work()); } catch (string error) { rejected = true; }
+	assert(rejected && destroyed == 1 && scope.pendingCount() == 1);
+	completed = true;
+	assert(scope.pollCompletion() == CallbackCancellation.Complete && destroyed == 2);
+	assert(scope.pendingCount() == 0);
+	completed = false;
+}
+void failuresAndReentrancy() {
+	var scope = CallbackScope();
+	var first = Work(); first.failCancel = true; first.failPoll = true;
+	var second = Work(); second.immediate = true; second.reentrant = scope;
+	scope.track(first); scope.track(second);
+	bool rejected = false;
+	try { scope.cancel(); } catch (string error) { rejected = error == "cancel failed"; }
+	assert(rejected && first.closing && second.closing && scope.pendingCount() == 1);
+	rejected = false;
+	try { scope.pollCompletion(); } catch (string error) { rejected = error == "poll failed"; }
+	assert(rejected && scope.pendingCount() == 1);
+	first.failPoll = false; first.failCancel = false; first.immediate = true;
+	assert(scope.pollCompletion() == CallbackCancellation.Complete);
+}
+class Construction implements ICallbackRegistration {
+	private bool closing = false;
+	private Construction() {}
+	class Construction create(CallbackScope owner) {
+		var value = Construction();
+		owner.track(value);
+		try { throw "construction failed after registration"; }
+		catch (string error) { value.cancel(); throw error; }
+		return value;
+	}
+	public bool isOpen() { return !self.closing; }
+	public CallbackCancellation cancel() { self.closing = true; return CallbackCancellation.Complete; }
+	public CallbackCancellation pollCompletion() { return self.closing ? CallbackCancellation.Complete : CallbackCancellation.NotRequested; }
+	public void __del__() { destroyed++; }
+}
+void failedConstruction() {
+	var scope = CallbackScope();
+	int before = destroyed;
+	bool rejected = false;
+	try { Construction.create(scope); } catch (string error) { rejected = error == "construction failed after registration"; }
+	assert(rejected && scope.pendingCount() == 1 && destroyed == before);
+	assert(scope.pollCompletion() == CallbackCancellation.NotRequested);
+	assert(scope.pendingCount() == 0 && destroyed == before + 1);
+}
+int main() {
+	retainUntilComplete(); failuresAndReentrancy(); failedConstruction();
+	assert(destroyed == 5);
+	return 0;
+}
+"""
+    compile_result, source = (
+        _compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
+        if frontend == "selfhost"
+        else _compile_reference_source(tmp_path, program)
+    )
+    assert compile_result.returncode == 0, (frontend, compile_result.stderr)
+    fake = tmp_path / "empty.c"
+    fake.write_text("typedef int EmptyNativeDriver;\n")
+    toolchain = require_sanitizers(tmp_path) if sanitized else None
+    executable = tmp_path / f"{frontend}-scope-owners"
+    _build(
+        toolchain.command if toolchain else COMPILERS[0],
+        source,
+        fake,
+        executable,
+        extra_flags=SANITIZER_FLAGS if toolchain else (),
+        environment=toolchain.environment if toolchain else None,
+    )
+    run = subprocess.run(
+        [str(executable)],
+        cwd=REPO,
+        env=sanitizer_environment(toolchain) if toolchain else None,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert run.returncode == 0, (frontend, run.stderr)
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_callback_scope_retains_a_real_native_worker_until_drain(
+    request, tmp_path: Path, sanitized: bool, frontend: str
+) -> None:
+    program = (
+        _POSITIVE_PROGRAM.replace("int main() {", "int existingRegistrationChecks() {", 1)
+        + r"""
+int main() {
+	resetScenario();
+	activeSamples[0] = 3.0;
+	var scope = CallbackScope();
+	StoredContext* context = makeStoredContext(activeSamples, 1u);
+	var closure = new OwnedClosure<CFunction<void, void*>>(storedTrampoline, context, destroyContext, fake_unregister, null);
+	var state = scope.create(closure);
+	state.finishActivation(activateStored(closure.invokePointer(), closure.context(), state.activationGate(), null));
+	fake_start(0);
+	while (entered.load(MemoryOrder.ACQUIRE) == 0u) {}
+	assert(scope.cancel() == CallbackCancellation.Pending);
+	assert(scope.pollCompletion() == CallbackCancellation.Pending);
+	assert(scope.pendingCount() == 1 && fake_unregister_count() == 1);
+	assert(destroyed.load(MemoryOrder.ACQUIRE) == 0u);
+	assert(!fake_invoke_now());
+	releaseCallback.store(1u, MemoryOrder.RELEASE);
+	fake_join();
+	assert(scope.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.pendingCount() == 0 && destroyed.load(MemoryOrder.ACQUIRE) == 1u);
+	assert(calls.load(MemoryOrder.ACQUIRE) == 1u && activeSamples[0] == 6.0);
+	assert(scope.cancel() == CallbackCancellation.Complete);
+	return 0;
+}
+"""
+    )
+    compile_result, source = (
+        _compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
+        if frontend == "selfhost"
+        else _compile_reference_source(tmp_path, program)
+    )
+    assert compile_result.returncode == 0, (frontend, compile_result.stderr)
+    fake = tmp_path / "StoredCallback.c"
+    fake.write_text(_FAKE_STORED_CALLBACK)
+    toolchain = require_sanitizers(tmp_path) if sanitized else None
+    executable = tmp_path / f"{frontend}-scope-worker"
+    _build(
+        toolchain.command if toolchain else COMPILERS[0],
+        source,
+        fake,
+        executable,
+        extra_flags=SANITIZER_FLAGS if toolchain else (),
+        environment=toolchain.environment if toolchain else None,
+    )
+    run = subprocess.run(
+        [str(executable)],
+        cwd=REPO,
+        env=sanitizer_environment(toolchain) if toolchain else None,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert run.returncode == 0, (frontend, run.stderr)
+
+
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+@pytest.mark.parametrize("scenario", ["pending", "wrongExecutor"])
+def test_callback_scope_rejects_premature_or_wrong_executor_destruction(
+    request, tmp_path: Path, frontend: str, scenario: str
+) -> None:
+    program = (
+        """import Library.Callback;
+class Context implements ICallbackContext {
+	public bool unregister() { return true; }
+	public bool close() { fprintf(stderr, "context closed\\n"); return true; }
+}
+void pending() {
+	var scope = CallbackScope();
+	var state = scope.create(Context()); state.finishActivation(true);
+	assert(callbackGateTryEnter(state.activationGate()));
+}
+void wrongExecutor() {
+	Thread<CallbackScope> worker = spawn(() => {
+		var scope = CallbackScope(); scope.create(Context()).finishActivation(true); return scope;
+	});
+	var scope = worker.join();
+}
+"""
+        + f"int main() {{ {scenario}(); return 0; }}\n"
+    )
+    compile_result, source = (
+        _compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
+        if frontend == "selfhost"
+        else _compile_reference_source(tmp_path, program)
+    )
+    assert compile_result.returncode == 0, (frontend, compile_result.stderr)
+    fake = tmp_path / "empty.c"
+    fake.write_text("typedef int EmptyNativeDriver;\n")
+    executable = tmp_path / f"{frontend}-scope-misuse"
+    _build(COMPILERS[0], source, fake, executable)
+    run = subprocess.run([str(executable)], cwd=REPO, capture_output=True, text=True, timeout=30)
+    assert run.returncode != 0, (frontend, run.stderr)
+    diagnostic = (
+        "Callback scope released before cancellation completed"
+        if scenario == "pending"
+        else "Callback scope destruction requires its creating thread"
+    )
+    assert diagnostic in run.stderr
+    assert "context closed" not in run.stderr
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_callback_scope_cannot_silently_collect_its_owning_cycle(
+    request, tmp_path: Path, sanitized: bool, frontend: str
+) -> None:
+    program = """import Library.Callback;
+class Context implements ICallbackContext {
+	public CallbackScope? owner;
+	public bool unregister() { fprintf(stderr, "unsafe unregister\\n"); return true; }
+	public bool close() { fprintf(stderr, "unsafe close\\n"); return true; }
+}
+void abandon() {
+	var scope = CallbackScope();
+	var context = Context(); context.owner = scope;
+	scope.create(context).finishActivation(true);
+}
+int main() { abandon(); return 0; }
+"""
+    compile_result, source = (
+        _compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
+        if frontend == "selfhost"
+        else _compile_reference_source(tmp_path, program)
+    )
+    assert compile_result.returncode == 0, (frontend, compile_result.stderr)
+    fake = tmp_path / "empty.c"
+    fake.write_text("typedef int EmptyNativeDriver;\n")
+    toolchain = require_sanitizers(tmp_path) if sanitized else None
+    executable = tmp_path / f"{frontend}-scope-cycle"
+    _build(
+        toolchain.command if toolchain else COMPILERS[0],
+        source,
+        fake,
+        executable,
+        extra_flags=SANITIZER_FLAGS if toolchain else (),
+        environment=toolchain.environment if toolchain else None,
+    )
+    run = subprocess.run(
+        [str(executable)],
+        cwd=REPO,
+        env=sanitizer_environment(toolchain) if toolchain else None,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert run.returncode != 0, (frontend, run.stderr)
+    assert any(
+        message in run.stderr
+        for message in (
+            "Callback scope collected before independent cancellation",
+            "CallbackRegistration collected before its owning scope cancelled it",
+        )
+    )
+    assert "unsafe unregister" not in run.stderr and "unsafe close" not in run.stderr
+
+
 def test_activation_failure_releases_native_operation_guard(semantic_btrcc: Path, tmp_path: Path) -> None:
     probe = tmp_path / "OperationGuard.h"
     probe.write_text(

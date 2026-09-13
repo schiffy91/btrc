@@ -51,10 +51,15 @@ not grant access to a private file that factory already loaded. Canonical paths
 and the nearest manifest define ownership, including nested packages and loose
 consumers without a manifest. Export-policy caches live for one resolution only.
 
-Exports control source-module access, not symbol re-export or native security.
-Ordinary strict per-file visibility still applies. Public factories must return
-portable public types; listing a module does not inspect its API for leaked
-platform types. Handwritten C and deliberate unsafe access are not sandboxed.
+Exports control source-module access and named references through transitive
+imports. Importing a public module does not authorize calling a private helper,
+constructing a private class, or reading/writing its static fields. Code inside
+the owning package can still use those names. Exported dependencies reached
+through private modules retain normal transitive visibility.
+
+Public factories must return portable public types; listing a module does not
+inspect its API for leaked platform types. Handwritten C and deliberate unsafe
+access are not sandboxed.
 
 ### Target-selected source providers
 
@@ -224,9 +229,9 @@ code. An indirect function value uses the same checked adapter.
 `call` asserts that native code neither retains the context nor delivers a
 callback after the enclosing call returns. This is a trusted foreign lifetime
 fact, not a claim that arbitrary C behavior can be statically verified. Context
-slots must be distinct, unshared `void*` parameters. Callback arguments/results
+slots must be distinct, unshared `void*` parameters. C callback arguments/results
 currently support scalar values (and void results); pointer/managed payloads
-require future borrow/ownership mappings and are rejected. The same interface
+require borrow/ownership mappings and are rejected. The same interface
 name may be reused by mappings with identical native result/payload types,
 including across binding modules and different context positions. Context slots
 are omitted from interface identity; public arguments are numbered consecutively.
@@ -236,10 +241,470 @@ compilation. SDK signature changes are checked when compiling.
 `abort` is currently the only supported failure policy: a BTRC exception runs
 its local cleanup and terminates at the callback boundary, without unwinding
 through native frames. `caller` is the only supported executor. This adapter is
-not realtime-safe. Stored registrations, one-shot completion, UI-executor
-ownership/destruction, Objective-C delegates/blocks and direct
-capturing-lambda conversion remain unfinished. Use table form as above for
+not realtime-safe. C stored registrations, broader executor ownership/destruction
+and direct capturing-lambda conversion remain unfinished. One-shot requests and
+Objective-C delegates use the mappings below. Use table form as above for
 both compilers; self-hosted inline-table parsing remains limited.
+
+`Library.Callback` provides the shared cancellation owner for stored
+bindings: `CallbackScope.create(context)` creates and owns a `CallbackState`
+before native publication. There is no operation to adopt another scope's state.
+Scope cancellation closes new registration admission, visits all registrations
+even when an unregister operation throws, retains unfinished states, and prunes
+completed states. `cancel()` and `pollCompletion()` use the existing nonblocking
+state transitions; they do not wait for active callbacks or implicitly retry a
+failed unregister. Scope operations and destruction belong to its creating
+thread. The application must retain an independent cancellation owner and drive
+pending completion before shutdown; premature destruction is diagnosed, not
+treated as a successful drain. The generated stored-block path below uses this
+owner; a captured receiver must not be its only lifecycle authority.
+
+Objective-C method block parameters use the same callback declaration and
+ordinary interface. Omit `context` and `context-index`: the compiler generates
+the internal C thunk/context pair and a typed block in the separate native
+adapter. Never supply native context plumbing in BTRC provider code.
+
+```toml
+[[native.bindings]]
+module = "Process"
+header = "Foundation/NSProcessInfo.h"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+symbols = ["+[NSProcessInfo processInfo]", "-[NSProcessInfo performActivityWithOptions:reason:usingBlock:]"]
+
+[native.bindings.callbacks."-[NSProcessInfo performActivityWithOptions:reason:usingBlock:].block"]
+interface = "IActivity"
+lifetime = "call"
+failure = "abort"
+executor = "caller"
+
+[[native.frameworks]]
+name = "Foundation"
+os = ["macos"]
+```
+
+This imports `IActivity` with `void invoke()`. An ordinary class implements it
+and is passed to `process.performActivityWithOptions(options, reason, activity)`.
+The key uses the full SDK selector and the SDK parameter name, not the generated
+BTRC method name. SDK scalar aliases and enums keep their native spelling inside
+the block while the shared C ABI and interface use their underlying scalar types.
+Block receivers are required even when the SDK permits a null block. Object
+arguments use the same managed native type and nullability projection as outbound
+Objective-C methods. The generated callback holds each object through synchronous
+dispatch using ordinary ARC cleanup, including when the receiver releases the
+object's original owner reentrantly. Identity and aliasing are preserved; assigning
+an argument to a managed field retains it normally beyond the callback. Required
+object arguments are checked before dispatch; nullable arguments admit nil.
+
+For example, Foundation's `sortUsingComparator:` block becomes an interface with
+`long invoke(id left, id right)`: the SDK supplies its nonnull object parameters
+and scalar comparison result. No additional payload-lifetime manifest or provider
+retain/release code is needed. This does not authorize retaining raw call-scoped
+buffers or mutating invalidatable interior storage.
+
+Both compilers reject raw-pointer payloads, object-valued results without an
+ownership mapping, protocol/generic/class-object payloads, unsupported qualifiers,
+conflicting interfaces and unsupported lifetimes. The same
+receiver lease, caller-thread guard and terminal failure boundary apply to C and
+Objective-C callbacks; this does not support storing or copying a block beyond
+the call. The binding author must establish synchronous lifetime from the API's
+documented contract; absence of `noescape` is not proof of either lifetime.
+
+### Stored Objective-C blocks (foundation in progress)
+
+The first supported shape is a class factory with one escaping block returning
+void, a scalar or an enum. It returns a native object with a selected, non-consuming, zero-argument
+instance method that unregisters the callback. For example, Foundation timers:
+
+```toml
+[[native.bindings]]
+module = "Foundation"
+header = "Foundation.h"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+symbols = ["+[NSTimer scheduledTimerWithTimeInterval:repeats:block:]", "-[NSTimer invalidate]"]
+
+[native.bindings.callbacks."+[NSTimer scheduledTimerWithTimeInterval:repeats:block:].block"]
+interface = "ITimerCallback"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NSTimer invalidate]"
+activation-failure = "abort"
+cancellation = "entry-barrier"
+
+[[native.frameworks]]
+name = "Foundation"
+os = ["macos"]
+```
+
+`Foundation.h` includes the public Foundation header. The block projects to
+`ITimerCallback.invoke(NSTimer argument0)`. Import `Library.Callback`; the factory
+appends a `CallbackScope` argument and returns a managed registration, not the raw
+native token:
+
+```btrc
+ICallbackRegistration subscription = NSTimer.scheduledTimerWithTimeInterval(0.1, true, receiver, scope);
+```
+
+An instance registration may instead return a token removed through its original
+source: `source.register(receiver, scope)` paired with `source.remove(token)`.
+Select the one-argument, non-consuming, void unregister method on the same native
+receiver. Its argument must accept the returned token type or unqualified `id`.
+The compiler retains source and token in ordinary
+`CallbackToken<TSource, TValue>` fields inside the same `CallbackContext`; it
+allocates that pair before native publication. Consumers still receive only an
+`ICallbackRegistration`, and may release their source reference immediately.
+A protocol-qualified opaque result such as Foundation's `id<NSObject>` may be
+stored as managed `id` only when unregister accepts unqualified `id`. This does
+not expose protocol methods or erase qualifications on general native calls.
+
+The existing generic `CallbackContext<ITimerCallback, NSTimer>` holds receiver and
+token in normal managed fields. A generated ARC-captured Objective-C holder owns
+an ordinary external BTRC ARC claim. No provider context pointer, retain/release
+code, handwritten trampoline or separate root registry is needed. Native object
+payloads use the same managed leases as call-scoped blocks.
+Scalar/enum queries return their answer synchronously after admitted-call cleanup,
+including when the receiver cancels its own scope. A query delivered after
+cancellation terminates through `failure = "abort"`: the compiler cannot invent
+a valid default answer for the native caller. Void notifications may be ignored
+after cancellation. Object-valued results still require an ownership mapping and
+are rejected. These return rules also apply to source/token registrations.
+The analyzers authenticate these runtime declarations through compiler-owned
+stdlib provenance; application classes with matching names cannot replace them.
+
+The activation-failure policy and cancellation guarantee are mandatory, not inferred:
+
+- `activation-failure = "abort"`: nil or a native exception terminates with a
+  diagnostic before BTRC context cleanup. Publication is indeterminate; neither
+  unregister nor a speculative release of the callback receiver is attempted.
+  This also applies when inline delivery requested cancellation before failure.
+- `activation-failure = "unpublished"`: a nil result or native exception leaves no retained callback or
+  future delivery. Inline callbacks before such a failure are allowed, but must
+  have returned before the factory does. This stronger native guarantee permits
+  cleanup and a recoverable BTRC exception; it must be established by the binding
+  author, not guessed from a successful SDK test.
+- `cancellation = "entry-barrier"`: unregister is nonblocking and, on return, prevents new callback
+  entry. Already admitted calls must return before completion. Unregister returns
+  void; an Objective-C exception terminates at the native boundary, without a
+  speculative retry or a claim that cancellation succeeded.
+
+The compiler roots and activates context before calling the factory, publishes
+the cancellation token before resolving inline cancellation, and reserves the
+unregister method for generated lifecycle code across bindings. A `noescape`
+parameter, incompatible token/cancellation signature, missing facts, stored C
+callback or unsupported executor fails compilation. Callback exceptions and
+wrong-thread native delivery terminate before unwinding a foreign frame.
+
+The independent application/component owner must cancel its scope and observe
+completion before shutdown, including when receivers retain their scope. Polling
+does not block; self-cancellation remains pending until dispatch returns. This
+path passes real copied-block and Foundation run-loop tests in both compilers,
+including sanitizers. It does **not** yet qualify automatic application shutdown,
+abandoned foreign ownership cycles or GUI migration. One-shot bindings follow below.
+
+### One-shot completion (foundation in progress)
+
+An escaping block that runs exactly once to signal terminal completion uses the
+same callback declaration, ordinary BTRC receiver and independent scope:
+
+```toml
+[native.bindings.callbacks."-[NSRunLoop performBlock:].block"]
+interface = "IRunLoopWork"
+lifetime = "one-shot"
+failure = "abort"
+executor = "caller"
+activation-failure = "abort"
+cancellation = "abandon"
+```
+
+The surrounding binding selects the actual header and methods as usual. A caller
+uses `runLoop.performBlock(receiver, scope)` and observes `cancel()` /
+`pollCompletion()` on its returned registration. The generated implementation
+uses the authenticated `CallbackRequest<IRunLoopWork>` runtime owner, not a native
+token. Its activation/ingress/completion methods are adapter machinery, not
+provider customization points.
+
+- The native method and block must return `void`; exactly one block is mapped.
+  Scalar/enum and managed object block inputs reuse the existing callback leases.
+  Owned result/out-slot completion mappings remain unsupported.
+- `one-shot` asserts exactly one terminal callback on the calling executor, even
+  after consumer cancellation. SDK `noescape` contradicts this escaping mapping.
+  A native API that may silently discard its callback needs another proven
+  completion contract; do not use this declaration for it.
+- `cancel()` abandons delivery, not native execution. An admission acquired before
+  publication protects the outstanding native request. Completion is pending
+  until its terminal callback and every admitted receiver call have finished.
+  Native holders retain ordinary external ARC claims; no extra root registry.
+- Inline completion is valid: context is activated before the native call and
+  its final cleanup waits for publication to finish. Duplicate completion and
+  wrong-thread delivery terminate at the existing callback exception boundary.
+- Activation failure uses the existing `abort` / `unpublished` policies. The
+  latter requires a native guarantee of no retained callback or future delivery
+  after failure; it is not inferred from `void` or an exception.
+- `unregister`, delegate slots and action-selector facts are invalid for this
+  mode; Objective-C blocks also reject explicit context pointers. Application shutdown must continue its native executor
+  until outstanding work drains. Timeouts and block disposal are not completion.
+
+Both compilers execute inline and real `NSRunLoop` completion with sanitizers.
+Expanded failure qualification and native application scheduling remain in progress.
+
+For a C function-pointer/context pair, add the same `context` and `context-index`
+facts as a call-scoped binding. For example, a header declaring
+`void FinishLater(void (*completion)(WidgetRef, void*), void* context)` maps as:
+
+```toml
+[native.bindings.callbacks."FinishLater.completion"]
+interface = "ICompletion"
+context = "context"
+context-index = 1
+lifetime = "one-shot"
+failure = "abort"
+executor = "caller"
+activation-failure = "abort"
+cancellation = "abandon"
+owned-arguments = [0]
+```
+
+`FinishLater(receiver, scope)` returns `CallbackRequest<ICompletion>` when the
+C function returns `void`. Exactly one callback is mapped, and the callback
+itself must return `void`.
+
+A C function returning a scalar, enum or complete pointer-free struct instead
+returns `CallbackResult<NativeValue, CallbackRequest<ICompletion>>`:
+
+```btrc
+var started = FinishLater(receiver, scope);
+var future = started.value;
+var request = started.request;
+```
+
+The native value's type/layout comes from the header. Struct fields may be
+scalars, enums or recursively supported structs; pointer fields, unions and
+array-bearing results are not supported by this mapping. `CallbackResult` is an
+ordinary owning class in `Library.Callback`, not another lifecycle runtime. The
+adapter allocates it before native publication and stores the request through
+normal class-field ARC. Ignoring/releasing the result, retaining its request, or
+leaving via a BTRC exception uses ordinary managed cleanup. Native completion may
+already have happened inline before the value is returned.
+A zero value or failure status never implies completion or releases the callback
+context: the binding still promises one terminal callback on every returned path.
+This value projection is not an owned native-resource result or a cancellation
+token mapping. The provider interprets the future/status through its native API.
+
+Do not project this result as a language tuple: tuples are intentionally shallow
+borrowed aggregates and cannot own the request. Native value-returning and void
+one-shot function adapters both return owned managed values, including through
+function variables; call-result classification must not add a second claim.
+
+Native code owns one ordinary ARC context claim until terminal delivery, including
+after cancellation. Keep the scope alive and pump the native completion executor
+until completion; releasing a pending scope fails closed. Discarding a request
+alias does not release native code's outstanding claim. Duplicate-delivery checks
+do not make an arbitrary native use-after-free safe after terminal completion.
+
+`owned-arguments` is optional and currently applies only to C one-shot payloads.
+Its distinct zero-based indices refer to the **native callback prototype**, not
+the projected interface; userdata cannot be selected. Each selected parameter
+must be a resource declared in the binding's `resources` table. This is a trusted
+foreign assertion that each non-null delivered value carries one independent
+owned claim. SDK nullability determines the BTRC parameter type. The adapter
+adopts that claim into normal exception cleanup without retaining it again,
+including when cancellation suppresses delivery. A receiver can keep a value in
+an ordinary managed field; unclaimed values are released on callback return.
+No raw handle, separate wrapper or manual release reaches provider code.
+
+Other non-resource pointers and borrowed object payloads still require checked
+support. Multiple userdata slots and copied string views use the declarations
+below; these mechanisms alone do not migrate WebGPU's device owner.
+
+#### Callback fields in by-value descriptors
+
+Use the same callback declaration with `field` when the native parameter is a
+by-value struct carrying its callback and context. Combine it with the existing
+owning record input projection; do not expose the native userdata to BTRC:
+
+```toml
+# Inside the C binding selecting Info and FinishLater:
+owned-records = ["Info"]
+record-inputs = ["FinishLater.info"]
+
+[native.bindings.callbacks."FinishLater.info"]
+field = "completion"
+context = "context"
+context-index = 1
+interface = "ICompletion"
+lifetime = "one-shot"
+executor = "caller"
+failure = "abort"
+activation-failure = "abort"
+cancellation = "abandon"
+```
+
+`field` and `context` name actual mutable fields of the selected SDK struct;
+`context-index` still refers to the callback prototype. `InfoInput.completion`
+is an ordinary owning `ICompletion` field. The native context field is omitted
+from `InfoInput`. Other fields keep their existing record-input conversions.
+Mapped callback and context fields are reserved from raw SDK record access; only
+the owning input's typed receiver is writable. This also permits callbacks with
+`owned-arguments` resource payloads without exposing an unchecked function pointer.
+Both callback and receiver are required at invocation. Missing record projections,
+pointer/nested callback descriptors, conflicting field mappings, and const/volatile
+callback storage are rejected. Every function accepting this input projection
+must declare the mapped callback, not silently discard it.
+
+Each invocation snapshots its receiver into a fresh ordinary `CallbackRequest`.
+Reusing, changing or releasing the input descriptor does not change an outstanding
+request. The generated adapter fills the native callback/context fields and owns
+one external ARC claim until terminal delivery; cancellation, inline completion,
+late cleanup and native value returns use the same one-shot machinery above.
+Descriptor bytes and nested borrowed data still cannot escape the call. Only the
+declared callback/context slots have the separate completion lifetime.
+
+For descriptors with multiple opaque userdata slots, use arrays in the same facts:
+
+```toml
+context = ["userdata1", "userdata2"]
+context-index = [3, 4]
+```
+
+The first array identifies native record fields; the second identifies callback
+parameter indices. Both sets must be distinct, nonempty and equally sized. Order
+is immaterial: every slot carries the same request context, with **one** external
+ARC claim, not one claim per slot. Ingress verifies that the returned contexts
+agree before accessing the receiver. All slots disappear from the BTRC interface
+and owning input. This requires a C one-shot callback field; arbitrary user payload
+pointers, flat multi-context calls and silently ignored userdata are not supported.
+
+#### Borrowed callback text
+
+A native byte span can enter a C one-shot callback as an ordinary owned BTRC
+`string`. Select its actual record or typedef and declare only its field semantics:
+
+```toml
+[native.bindings.string-views.WGPUStringView]
+data = "data"
+length = "length"
+null-length = "zero-or-max"
+```
+
+The SDK record must contain exactly these two ordinary fields: a `char*` or
+`const char*` and an unsigned integer byte count. Reject other fields, bitfields,
+volatile/restrict qualifiers, signed lengths and contradictory mappings of the
+same native record. `null-length` is required: `"zero"` permits null data only
+with zero length; `"zero-or-max"` additionally permits that length type's maximum
+unsigned value as a null sentinel. Both become the ordinary empty string.
+
+At admitted callback entry, generated structured IR validates the length and
+copies exactly that many bytes into existing managed string storage. Non-null
+data with zero length is not read. Non-null lengths above BTRC's signed 32-bit
+string range, invalid null spans and embedded NUL bytes terminate with a native
+string-view diagnostic before delivery. No `strlen` or implicit transcoding;
+source storage must be readable for its declared byte count during the callback.
+
+Normal ARC/exception cleanup owns the copy. A receiver can save it in an ordinary
+field after native storage expires. Canceled delivery does not inspect or copy
+the span; owned resource payloads still receive their required cleanup. This is
+not a zero-copy borrow or a general record/input/result conversion. Unused
+string-view declarations and callback modes other than C one-shot are rejected.
+
+### Stored Objective-C target/action (foundation in progress)
+
+Use the same stored callback binding for native momentary-control actions. Select
+the actual target and action accessors; the two extra keys declare Objective-C's
+`void action(id sender)` convention, not an invented SDK protocol:
+
+```toml
+[native.bindings.callbacks."-[NSButton setTarget:].target"]
+interface = "IButtonAction"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NSButton setTarget:]"
+slot-getter = "-[NSButton target]"
+action-setter = "-[NSButton setAction:]"
+action-getter = "-[NSButton action]"
+activation-failure = "abort"
+cancellation = "entry-barrier"
+```
+
+This generates `IButtonAction { void invoke(); }`. Call
+`button.setTarget(handler, scope)`; the returned registration uses the existing
+`CallbackContext`/`CallbackScope` ownership, admission and nonblocking cancellation.
+The handler knows its source; native sender and selector values do not enter its
+API. The generated native method verifies sender identity before dispatch.
+
+All four accessors must be distinct non-consuming instance methods of the same
+receiver. The target setter/getter require explicitly nullable `id`; the action
+setter/getter require explicitly nullable `SEL`. Setters return void. `methods`
+is not allowed alongside action accessors. Reserved slot getters and the selector
+setter cannot be called directly by consumers.
+
+Both slots must be vacant before publication. The adapter roots its context,
+sets and verifies the target, then sets and verifies the action and target again.
+Indeterminate or partially successful publication terminates under the declared
+policy. Cancellation verifies both identities, clears the action before the
+target, and verifies both empty; it never overwrites another registration.
+Inline self-cancellation is resolved after publication. A retained native target
+may outlive cancellation: late notifications are ignored by shared admission,
+and its source remains alive until the native holder is released.
+
+Action callbacks must only enqueue bounded typed work; execute application
+commands after native dispatch, not within AppKit tracking. This binding supplies
+safe native delivery, not a queue, event loop, or completed portable GUI factory.
+
+### Stored Objective-C delegates (foundation in progress)
+
+A callback binding may project a nullable `id<Protocol>` property to one ordinary
+BTRC interface. Select its setter, getter and protocol methods from the real SDK:
+
+```toml
+[native.bindings.callbacks."-[NSWindow setDelegate:].delegate"]
+interface = "IWindowEvents"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NSWindow setDelegate:]"
+slot-getter = "-[NSWindow delegate]"
+methods = ["-[NSWindowDelegate windowShouldClose:]", "-[NSWindowDelegate windowWillClose:]"]
+activation-failure = "abort"
+cancellation = "entry-barrier"
+```
+
+The interface methods use the selected selectors' first segments and their SDK
+signatures. Colliding names fail; signatures are never supplied in the manifest.
+Optional protocol methods are valid implementations, not unchecked outbound
+calls. Required inherited methods and native signature mismatches must also pass
+strict native compilation. Unsupported object results and consuming arguments
+remain rejected.
+
+`window.setDelegate(events, scope)` returns the same managed registration used by
+stored blocks. Generated protocol methods call contained C thunks into ordinary
+BTRC methods. They share `CallbackContext` admission, synchronous return, argument
+leases and exception/thread checks; there is no provider selector or userdata code.
+
+The slot must be vacant. An occupied slot is rejected without replacing its
+delegate. A `CallbackToken<Source, id>` retains the native source and generated
+holder, including for a weak native delegate property. Cancellation verifies slot
+identity, clears it with the selected setter and verifies the result. Replacement
+outside the registration, a failed setter or indeterminate publication terminates
+instead of clearing another owner's delegate or guessing at cleanup. Consumers
+cannot call the getter or bypass registration with a raw delegate object.
+
+The setter must be a non-consuming instance method taking one nullable protocol
+object and returning void; the getter must return that same nullable protocol
+object. An independent scope owns cancellation and observes drain before teardown.
+Both compiler paths pass real NSWindow close queries/notifications and injected
+delegate lifecycle tests with sanitizers. The macOS application now uses the same
+binding for its native quit delegate. Fresh self-hosted verification of the
+integrated providers and generated protocol conformance passes; full qualification,
+native action scheduling and modal shutdown remain unfinished.
+Do not rely on receiver/scope destructors alone to break a foreign-held cycle.
+Normal SDK delivery tests do not prove the `unpublished` guarantee for every
+native exception. Use terminal `abort` unless the stronger guarantee is known.
+Terminal behavior is a safety boundary, not successful recovery or cancellation.
 
 ### Header selection
 
@@ -257,7 +722,19 @@ os = ["macos"]
 `module` uses existing package-relative dotted module lookup; `header` must be a
 file inside the package, including after symlink resolution. An umbrella header
 may include SDK headers; do not copy SDK signatures into the manifest. `symbols`
-is a non-empty, duplicate-free array of exact names (`name` or `namespace::name`).
+may select protocol methods such as `-[NSWindowDelegate windowShouldClose:]` for
+delegate-contract extraction. The shared semantic model preserves the declaring
+protocol, requested receiver, full selector, signature, and required/optional
+status, including inherited methods. A class of the same name takes precedence
+for an ordinary method selection. Protocol methods are not imported as classes
+or callable instance methods: a protocol receiver requires a checked delegate
+binding. Required methods adopted by a concrete class remain ordinary native
+calls (for example, `NSView.appearance` from `NSAppearanceCustomization`).
+Optional calls through a concrete class still require an availability check.
+Optional-method metadata alone does not establish runtime method
+availability. Delegate binding and lifecycle generation remain in progress.
+
+`symbols` is a non-empty, duplicate-free array of exact names (`name` or `namespace::name`).
 Objective-C/Objective-C++ bindings also accept exact `+[Class selector:]` and
 `-[Class selector:]` spellings, with one or more named selector components.
 `Class` is the requested receiver, not necessarily the declaring class: selecting
@@ -272,6 +749,20 @@ are imported as typed values. Scalar globals use generated address accessors tha
 preserve SDK storage identity and const protection; initialize references to them
 at runtime, not in static storage. Required arguments and non-null object results
 are checked at the BTRC boundary.
+
+Objective-C object globals expose independent owned snapshots, never their native
+pointer slots. Constant slots may be read normally. A mutable SDK declaration
+requires `main-thread-globals = ["SelectedObjectGlobal"]` on the same binding:
+the binding author guarantees that native writes are confined to the main thread
+(or never occur). Each generated read checks the main thread **before** reading
+and retaining the object; a wrong-thread read throws. The check does not make
+arbitrary concurrent foreign writes safe. The original SDK declaration remains
+unchanged. Consumers cannot assign, address or release the slot, but may store,
+alias and release the returned snapshot through ordinary ARC. Unknown, duplicate,
+non-object or non-Objective-C mappings are rejected. This supports actual AppKit
+notification-name declarations without inventing const qualifiers or copying
+their string values.
+
 It generates a separate ARC unit in the link plan, translates exceptions back
 to BTRC after native cleanup, and never includes Objective-C headers in the
 main C11 unit. Blocks, consumed receivers/arguments, protocol/generic/dynamic
@@ -385,23 +876,102 @@ Their mapped fields retain ordinary BTRC or selected Objective-C objects. Import
 the module owning `CAMetalLayer` in the binding's BTRC module. Other fields retain
 their SDK-derived types; no header signatures or byte offsets are duplicated.
 
-`record-inputs` changes only the named const-record-pointer parameters. At each
-call, including indirect calls, a generated adapter materializes temporary SDK
-records, converts mapped object fields and passes the record addresses. Nullable
-parameters/fields accept null; required mapped fields are checked before calling
+`record-inputs` changes only the named record-value or const-record-pointer
+parameters. At each call, including indirect calls, a generated adapter materializes
+temporary SDK records and converts mapped object fields. The header determines
+whether it passes the record by value or its address; this is not another binding
+flag. Both forms use the same owning input class. Native changes to a by-value
+record do not write back to that class. Nullable pointer parameters/fields accept
+null; value parameters and required mapped fields are checked before calling
 native code. Unannotated root parameters are required. A nested record pointer
 must match the SDK record identity, or its first embedded record at offset zero
 (for typed extension chains). Cycles, unknown fields, incompatible pointers,
 direct array/const-value fields, and realtime declarations are rejected.
+
+Mapped Objective-C fields are retained in the adapter's existing cleanup scope
+until the native call returns, including fields in nested descriptors. An inline
+callback may clear or replace the owning input's fields without invalidating the
+native snapshot. These call leases do not extend the descriptor bytes past the
+call or make invalidatable interior storage safe.
 
 This is a **trusted package lifetime declaration**: native code borrows the
 temporary descriptor bytes and chain only during the call; it cannot store or
 return those addresses. It may independently retain a mapped Objective-C object
 through that object's native ownership API. The owning input and the callee's
 retained object have separate lifetimes. This is not `read-only-borrows`, an
-output/writeback adapter, a callback registration, or permission for application
-code to cast managed objects to raw pointer storage. Verify the actual callee's
-lifetime behavior before selecting this mapping.
+output/writeback adapter, or permission for application code to cast managed
+objects to raw pointer storage. A record input alone grants no callback lifetime;
+the explicit callback-field declaration above supplies that separate contract.
+Verify the actual callee's lifetime behavior before selecting this mapping.
+
+Fields whose exact SDK type has a managed C `resources` declaration also project
+into owning record inputs. No extra field map is needed: `Config.widget` of type
+`WidgetRef` becomes an ordinary managed `ConfigInput.widget`, with SDK nullability.
+The input retains assigned resources; generated call adapters snapshot and retain
+each resource until the call returns, even if a reentrant callback clears or
+replaces that field. Nested pointer descriptors use the existing `object-fields`
+composition. Embedded by-value fields whose SDK record type is also in
+`owned-records` automatically become non-null owning input fields. For example,
+selecting `WGPUVertexState` and `WGPURenderPipelineDescriptor` makes
+`WGPURenderPipelineDescriptorInput.vertex` a `WGPUVertexStateInput`; its `module`
+owns the declared shader resource. Assign a child input before calling native
+code. The adapter copies its SDK value and leases its managed fields through
+the call, recursively through mixed pointer/value descriptors.
+
+An explicit `object-fields` entry may name that same embedded record, but cannot
+make it nullable or substitute a different layout, including a prefix-compatible
+record. Value fields have no null representation. Undeclared resource-bearing
+embedded records, uninitialized required children, and array/const-value fields
+are rejected rather than exposing raw managed storage. Native casts and release
+hooks stay in structured adapter lowering.
+
+Those resource fields are unavailable on the raw SDK record. Const/volatile
+resource slots and `object-fields` overrides of their type/nullability are rejected.
+Every resource-bearing descriptor parameter requires `record-inputs` or a checked
+`record-outputs` mapping. Resource-bearing record returns remain rejected. This support does not
+infer transfer, zero-copy interior borrows or permission to retain descriptor bytes.
+
+### Owning C output records
+
+Declare missing ownership facts in the same binding; SDK headers supply the
+record layout, resource types, nullability and scalar/status fields:
+
+```toml
+# Include these functions/records and their resource retain/release operations
+# in symbols, and declare WGPUSurface/WGPUTexture under resources as usual.
+owned-records = ["WGPUSurfaceTexture"]
+borrowed-parameters = ["wgpuSurfaceGetCurrentTexture.surface"]
+record-outputs = ["wgpuSurfaceGetCurrentTexture.surfaceTexture"]
+owned-output-fields = ["wgpuSurfaceGetCurrentTexture.surfaceTexture.texture"]
+null-output-fields = ["wgpuSurfaceGetCurrentTexture.surfaceTexture.nextInChain"]
+```
+
+`wgpuSurfaceGetCurrentTexture(surface)` then returns an ordinary managed
+`WGPUSurfaceTextureOutput` with `texture` and `status` fields. The native out
+parameter disappears; `nextInChain` is not exposed. Every declared resource field
+must be listed in `owned-output-fields`. Each returned non-null field supplies
+one owned native claim, including on error statuses. Provider code interprets
+status; the compiler never guesses that zero or another value means success.
+
+The adapter allocates the empty BTRC owner before the native call, zero-initializes
+the SDK record, leases managed inputs, and adopts all returned resource claims
+without an extra retain. Ordinary ARC releases fields on scope exit, explicit
+release or BTRC exception cleanup. Saving a field uses ordinary managed retention.
+Required resource fields are checked after adoption. `null-output-fields` is an
+explicit no-extension-storage contract: the native pointer starts null and must
+remain null. A violated native promise aborts; it is not a recoverable status.
+
+Current support is one mutable record-pointer output on a C function returning
+`void`. Scalar fields and declared C resources are supported; other pointers need
+`null-output-fields`. Nested aggregates, callbacks, realtime functions and
+resource-bearing native return values are rejected. Native code must return
+normally; this is not an exception adapter or asynchronous output buffer.
+
+Non-void native results remain rejected until this mapping has an owning result
+projection. Language tuples are intentionally shallow borrowed aggregates;
+`(status, Output)` would leak its output owner. Do not enable that projection by
+requiring consumers to manually balance fields or changing tuple semantics. Use
+ordinary owning classes, as with `CallbackResult`, when extending this mapping.
 
 ### Managed reference-counted C resources
 
@@ -450,8 +1020,9 @@ unsynchronized mutation of the application's owner slot.
 Unannotated resource parameters/results are not inferred safe. Nullability
 remains SDK-owned; unannotated results are nullable.
 
-**Limits:** raw casts, output slots, native callbacks carrying these resources,
-unowned resource globals/results and realtime resource adapters are rejected.
+**Limits:** raw casts, output slots, unowned resource globals/results and realtime
+resource adapters are rejected. C one-shot callbacks can deliver resource claims
+using `owned-arguments` above; other resource callback modes remain unsupported.
 Unique resources, transfers, borrowed results and executor-affine cleanup still
 need checked support through this mechanism. Reference counting alone does not
 prove a UI object's executor or a registration's cancellation contract; this is

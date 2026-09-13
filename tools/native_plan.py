@@ -477,7 +477,12 @@ class NativePlanBuilder:
                     source_path = temporary / f"adapter-{index}.source"
                     source_path.write_text(unit.source, encoding="utf-8")
                     if unit.memory_management == "arc":
-                        policy = ["-fobjc-arc", "-fobjc-exceptions", "-fobjc-arc-exceptions"]
+                        policy = [
+                            "-fobjc-arc",
+                            "-fobjc-exceptions",
+                            "-fobjc-arc-exceptions",
+                            "-Werror=overriding-method-mismatch",
+                        ]
                     elif unit.memory_management == "raii":
                         policy = ["-fexceptions"]
                 else:

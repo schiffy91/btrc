@@ -13,7 +13,8 @@ module NativeAbi {
                                                 string selector, bool class_method,
                                                 native_type signature, native_parameter* parameter_semantics,
                                                 string returned_ownership, string method_family,
-                                                bool consumes_self, bool related_result, bool returns_inner_pointer)
+                                                bool consumes_self, bool related_result, bool returns_inner_pointer,
+                                                bool protocol_owner, bool optional)
                        | NativeTypedef(identifier name, native_type underlying)
                        | NativeConstant(identifier name, native_type value_type, string decimal_value)
                        | NativeGlobal(identifier name, native_type value_type, bool read_only)

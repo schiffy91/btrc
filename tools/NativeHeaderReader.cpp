@@ -35,6 +35,7 @@ class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader>
 	std::set<std::string> requested;
 	std::map<std::string, const clang::NamedDecl*> declarations;
 	std::map<std::string, const clang::ObjCInterfaceDecl*> interfaces;
+	std::map<std::string, const clang::ObjCProtocolDecl*> protocols;
 	std::map<std::string, llvm::json::Object> selectedInterfaces;
 	std::map<std::string, clang::Selector> selectors;
 	std::vector<std::string> errors;
@@ -58,6 +59,9 @@ class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader>
 			if (const auto* owner = method->getClassInterface()) {
 				return std::string(method->isClassMethod() ? "+[" : "-[") + owner->getNameAsString() + " " + method->getSelector().getAsString() + "]";
 			}
+			if (const auto* owner = llvm::dyn_cast<clang::ObjCProtocolDecl>(method->getDeclContext())) {
+				return std::string(method->isClassMethod() ? "+[" : "-[") + owner->getNameAsString() + " " + method->getSelector().getAsString() + "]";
+			}
 		}
 		return declaration->getQualifiedNameAsString();
 	}
@@ -70,10 +74,16 @@ class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader>
 
 	const clang::ObjCMethodDecl* lookupObjectiveCMethod(const std::string& name) const {
 		auto receiver = objectiveCReceiver(name);
-		auto interface = interfaces.find(receiver);
-		if (interface == interfaces.end()) { return nullptr; }
+		if (receiver.empty()) { return nullptr; }
 		auto selector = selectors.find(name.substr(receiver.size() + 3, name.size() - receiver.size() - 4));
 		if (selector == selectors.end()) { return nullptr; }
+		auto interface = interfaces.find(receiver);
+		if (interface == interfaces.end()) {
+			auto protocol = protocols.find(receiver);
+			if (protocol == protocols.end()) { return nullptr; }
+			const auto* definition = protocol->second->getDefinition();
+			return definition ? definition->lookupMethod(selector->second, name[0] == '-') : nullptr;
+		}
 		const auto* definition = interface->second->getDefinition();
 		if (!definition) { return nullptr; }
 		// Clang owns superclass/category/protocol lookup and the declaration's ABI.
@@ -262,8 +272,9 @@ class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader>
 			const auto* owner = method->getClassInterface();
 			const auto* protocol = llvm::dyn_cast<clang::ObjCProtocolDecl>(method->getDeclContext());
 			if (!owner && !protocol) { errors.push_back("Unsupported Objective-C method owner: " + declarationName(value)); return result; }
-			if (method->isOptional()) { errors.push_back("Optional Objective-C protocol method requires a runtime availability check: " + declarationName(value)); return result; }
 			result["kind"] = "objc_method";
+			result["protocol_owner"] = protocol != nullptr;
+			result["optional"] = method->isOptional();
 			result["identity"] = declarationIdentity(method);
 			result["owner"] = owner ? owner->getNameAsString() : protocol->getNameAsString();
 			result["selector"] = method->getSelector().getAsString();
@@ -333,6 +344,11 @@ public:
 		return true;
 	}
 
+	bool VisitObjCProtocolDecl(clang::ObjCProtocolDecl* value) {
+		protocols[value->getNameAsString()] = value->getCanonicalDecl();
+		return true;
+	}
+
 	bool VisitObjCPropertyDecl(clang::ObjCPropertyDecl* property) {
 		// Implicit accessors are public SDK methods even though the general
 		// AST traversal intentionally skips implicit implementation details.
@@ -342,7 +358,12 @@ public:
 	}
 
 	bool VisitNamedDecl(clang::NamedDecl* value) {
-		if (const auto* method = llvm::dyn_cast<clang::ObjCMethodDecl>(value)) { selectors[method->getSelector().getAsString()] = method->getSelector(); }
+		if (const auto* method = llvm::dyn_cast<clang::ObjCMethodDecl>(value)) {
+			selectors[method->getSelector().getAsString()] = method->getSelector();
+			// Class and protocol names occupy separate Objective-C namespaces.
+			// Resolve protocol selections after traversal, through Clang lookup.
+			if (llvm::isa<clang::ObjCProtocolDecl>(method->getDeclContext())) { return true; }
+		}
 		auto name = declarationName(value);
 		if (!requested.count(name)) { return true; }
 		auto found = declarations.find(name);
@@ -376,7 +397,8 @@ public:
 				if (llvm::isa<clang::ObjCMethodDecl>(selected)) {
 					exported["name"] = name;
 					exported["receiver"] = objectiveCReceiver(name);
-					requestInterface(interfaces.at(objectiveCReceiver(name)));
+					auto receiver = interfaces.find(objectiveCReceiver(name));
+					if (receiver != interfaces.end()) { requestInterface(receiver->second); }
 					if (const auto* owner = llvm::cast<clang::ObjCMethodDecl>(selected)->getClassInterface()) { requestInterface(owner); }
 				}
 				exports.push_back(std::move(exported));
@@ -386,6 +408,7 @@ public:
 		pendingRecords.clear();
 		declarations.clear();
 		interfaces.clear();
+		protocols.clear();
 		selectors.clear();
 		context = nullptr;
 	}

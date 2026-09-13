@@ -10,11 +10,17 @@ from src.compiler.python.ir.nodes import (
     IRFunctionDef,
     IRFunctionRef,
     IRGlobalDecl,
+    IRGpuKernel,
     IRHelperDecl,
     IRInclude,
     IRLiteral,
     IRMacroDef,
     IRModule,
+    IRObjectiveCBlock,
+    IRObjectiveCClass,
+    IRObjectiveCMethod,
+    IRParam,
+    IRReturn,
     IRStructDef,
     IRStructField,
     IRTaggedUnionDef,
@@ -64,12 +70,88 @@ def test_removes_unreferenced_function():
     assert "used_fn" in {decl.name for decl in m.function_decls}
 
 
+def test_native_methods_root_c_dependencies_without_c_entrypoints():
+    context = IRObjectiveCClass(
+        "NativeContext",
+        "NSObject",
+        [IRStructField(CType("ContextState"), "state")],
+        [
+            IRObjectiveCMethod(
+                "dealloc",
+                CType("void"),
+                [],
+                IRBlock(
+                    [
+                        IRExprStmt(IRCall("releaseContext", [IRVar("generation")])),
+                        IRExprStmt(IRCall("nativeReleased")),
+                        IRExprStmt(IRCall("__btrc_try_state_cleanup")),
+                        IRExprStmt(IRVar("nativeSurface_wgsl")),
+                    ]
+                ),
+            ),
+        ],
+    )
+    module = IRModule(
+        language="objective-c",
+        gpu_kernels=[IRGpuKernel(name="nativeSurface"), IRGpuKernel(name="unusedSurface")],
+        objective_c_classes=[context],
+        typedef_defs=[IRTypedefDef(CType("int"), "ContextState"), IRTypedefDef(CType("int"), "DeadState")],
+        global_decls=[IRGlobalDecl(CType("int"), "generation"), IRGlobalDecl(CType("int"), "dead")],
+        function_decls=[_decl("releaseContext"), _decl("nativeReleased"), _decl("unusedExternal")],
+        function_defs=[
+            _fn("releaseContext", [IRExprStmt(IRCall("transitive"))]),
+            _fn("transitive"),
+            _fn("unreachable"),
+        ],
+    )
+    IROptimizer(module).optimize()
+    assert {value.name for value in module.function_defs} == {"releaseContext", "transitive"}
+    assert {value.name for value in module.function_decls} == {"releaseContext", "nativeReleased"}
+    assert [value.name for value in module.global_decls] == ["generation"]
+    assert [value.name for value in module.typedef_defs] == ["ContextState"]
+    assert "__btrc_try_state_cleanup" in {value.name for value in module.helper_decls}
+    assert module.objective_c_classes == [context]
+    assert [value.name for value in module.gpu_kernels] == ["nativeSurface"]
+
+
 def test_sole_entry_point_survives_normal_reachability():
     module = IRModule(function_defs=[_fn("main")])
 
     IROptimizer(module).optimize()
 
     assert [function.name for function in module.function_defs] == ["main"]
+
+
+def test_native_block_keeps_signature_types_and_captured_dependencies():
+    block = IRObjectiveCBlock(
+        CType("int"),
+        [IRParam(CType("Payload*"), "value")],
+        IRBlock([IRExprStmt(IRVar("value")), IRReturn(IRCall("transform", [IRVar("capture")]))]),
+    )
+    module = IRModule(
+        language="objective-c",
+        function_defs=[
+            _fn("main", [IRExprStmt(block)]),
+            IRFunctionDef(
+                "transform", CType("int"), [IRParam(CType("int"), "bias")], IRBlock([IRReturn(IRVar("bias"))])
+            ),
+            _fn("unused"),
+        ],
+        global_decls=[
+            IRGlobalDecl(CType("int"), "capture", IRLiteral("7")),
+            IRGlobalDecl(CType("int"), "unused", IRLiteral("9")),
+        ],
+        struct_defs=[
+            IRStructDef("Payload", [IRStructField(CType("int"), "number")]),
+            IRStructDef("Unused", [IRStructField(CType("int"), "number")]),
+        ],
+    )
+
+    IROptimizer(module).optimize()
+
+    assert {function.name for function in module.function_defs} == {"main", "transform"}
+    assert {declaration.name for declaration in module.global_decls} == {"capture"}
+    assert {declaration.name for declaration in module.struct_defs} == {"Payload"}
 
 
 def test_native_ownership_casts_keep_effectful_global_initializers():
