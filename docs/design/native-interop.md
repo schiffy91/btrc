@@ -1,5 +1,17 @@
 # Native interoperability
 
+## Handoff checkpoint (2026-09-13)
+
+This document records the implemented native contract and its open edges; it
+is not a completion claim. BTRC owns typed C/Objective-C/C++ imports, explicit
+ownership/borrowing/nullability, generated ABI adapters, callback lifetimes,
+native GUI/GPU and realtime primitives. macOS providers are the active target.
+The immediate qualification order is CoreAudio and YAML on the next self-host
+compiler, then vgmstream's memory-stream callback table and pugixml's checked
+load-once owner. Remove each old bridge after real consumer parity. Keep
+BTRSmith product behavior in its repository's PRD/plan; do not create another
+wrapper or contract system here.
+
 Objective-C `SEL` arguments/results use the SDK's imported opaque C typedef,
 not `id`, `void*` or a fabricated integer token. Both frontends require that
 storage and reject incompatible definitions. `GUI.MacOS.ObjectiveCRuntime`
@@ -183,12 +195,13 @@ Objective-C methods now accept/return complete nested mutable scalar records, en
 
 Platform packages expose neutral APIs and isolate concrete SDK providers. Audio contracts live under `Audio`, with the CoreAudio implementation/header under `Audio/MacOS`; native control providers live under `GUI/MacOS`. Nested imports such as `Library.Audio.AudioDevice` resolve exact package paths. macOS is the only platform implementation currently in scope; Windows/Linux are future provider boundaries, not working stubs. BTRSmith's approved `docs/NativePlatformPlan.md` owns the consolidated UI/API delivery plan.
 
-The legacy GUI `Surface` now owns packed pixels through `OwnedBuffer<unsigned int>`, resize rollback, fills and readback in BTRC. The window presenter borrows pixels synchronously; no native surface owner or destructor remains. Remaining text/blending functions import their real header declarations, with explicit read-only string borrows. FreeType, text dispatch and the standalone GLFW/OpenGL presenter still require migration. This is not BTRSmith's GPU UI implementation or visual acceptance.
+The legacy GUI `Surface` owns packed pixels through `OwnedBuffer<unsigned int>`, resize rollback, fills and readback in BTRC. Remaining font functions import their real header declarations, with explicit read-only string borrows. FreeType and font dispatch still require migration. The unused standalone GLFW/OpenGL presenter and its build wiring have been removed; native application windows and GPU views use the portable GUI interfaces and typed SDK providers. This is not BTRSmith visual acceptance.
 
-`build/GuiOwnerIntegration.xml` verifies that ownership through both compilers,
+`build/GuiOwnerIntegration.xml` recorded that ownership through both compilers,
 sanitizers, allocation failures, existing GUI examples, actual FreeType rendering
-and a real window presenter (74 checks). `build/GuiSurfaceMigration.md` records
-artifact identity and the remaining migration boundaries.
+and the then-existing window presenter (74 checks). Those historical artifacts
+are not a current presenter regression gate. Retained raster/FreeType tests and
+the native-plan GUI window, subtree, and GPU tests cover the current boundaries.
 
 ## Compiler boundary
 

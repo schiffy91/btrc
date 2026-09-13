@@ -9,11 +9,19 @@ Read this ENTIRE file before writing any code.
 
 This project is too large for a single context window. You WILL run out of memory.
 
-### Current state (2026-08-21)
+### Current state (2026-09-13 handoff)
 
 Work happens directly on `main`; every prior campaign branch was merged and
-deleted. The architecture migration is finished; what follows records the state
-a change has to preserve.
+deleted. The core architecture is established, but native-provider migration
+and final self-host qualification are still in flight; what follows records
+the state a change has to preserve.
+
+For a cross-repository handoff, read BTRSmith's `GOAL.md`, `docs/HWW.md`,
+`docs/DD.md`, and `docs/NativePlatformPlan.md` after this file. The next
+load-bearing order is CoreAudio/YAML self-host qualification, then the
+vgmstream callback-table and pugixml load-once owners, then deletion of their
+superseded bridges. Consumers may continue against approved interfaces while
+compiler repairs land; do not invent a second wrapper or ownership model.
 
 The architecture destination and frozen-boundary infrastructure are complete.
 The frontend resource-ceiling removal, the Python VLA bound single-evaluation
@@ -486,7 +494,8 @@ host, not for the target of an arbitrary program it later compiles.
 
 ## Verification
 
-The architecture migration is finished, so every gate applies. Structural checks
+The architecture destination is established, so every gate applies to claimed
+behavior. Structural checks
 still matter — exact-tree and stale-path audits, generated-source checks,
 AST/parse/import checks, dependency/SCC and loose-behavior audits, and
 `git diff --check` — but they are a first pass, not a substitute for behavior,
@@ -563,7 +572,7 @@ make compiler-codegen-generate
 make extension            Package VSCode extension (.vsix)
 make extension-install    Install VSCode extension (dev)
 make examples             Build and run examples
-make gpu                  Install WebGPU + GLFW and build GPU runtime
+make gpu                  Install WebGPU and build the compute runtime
 make examples-game        Build the 3D engine game
 make examples-triangle    Build the GPU triangle example
 make examples-sgd         Build the GPU SGD example

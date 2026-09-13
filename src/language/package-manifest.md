@@ -145,7 +145,7 @@ os = ["linux"]
 
 Every native declaration may have a non-empty `modules` array of dotted module
 names relative to its declaring package. `AudioDevice` resolves as
-`src/AudioDevice.btrc` and `GUI.Window` as `src/GUI/Window.btrc`, with the
+`src/AudioDevice.btrc` and `GUI.IWindow` as `src/GUI/IWindow.btrc`, with the
 package root as the fallback module directory. Missing, malformed, duplicate,
 or escaping module names are errors. A scoped declaration is emitted when any
 named module is loaded. An entry without `modules` is package-wide and is
@@ -313,8 +313,8 @@ documented contract; absence of `noescape` is not proof of either lifetime.
 
 ### Stored Objective-C blocks (foundation in progress)
 
-The first supported shape is a class factory with one escaping block returning
-void, a scalar or an enum. It returns a native object with a selected, non-consuming, zero-argument
+The supported shape is a class factory with one escaping block returning
+void, a scalar, an enum or a managed Objective-C object. It returns a native object with a selected, non-consuming, zero-argument
 instance method that unregisters the callback. For example, Foundation timers:
 
 ```toml
@@ -360,6 +360,10 @@ allocates that pair before native publication. Consumers still receive only an
 A protocol-qualified opaque result such as Foundation's `id<NSObject>` may be
 stored as managed `id` only when unregister accepts unqualified `id`. This does
 not expose protocol methods or erase qualifications on general native calls.
+A class registration may instead pair with a class unregister method accepting
+its token, as with `NSEvent.addLocalMonitorForEventsMatchingMask` and
+`NSEvent.removeMonitor`. The context owns only the token; there is no instance
+source or fabricated receiver pair.
 
 The existing generic `CallbackContext<ITimerCallback, NSTimer>` holds receiver and
 token in normal managed fields. A generated ARC-captured Objective-C holder owns
@@ -370,8 +374,13 @@ Scalar/enum queries return their answer synchronously after admitted-call cleanu
 including when the receiver cancels its own scope. A query delivered after
 cancellation terminates through `failure = "abort"`: the compiler cannot invent
 a valid default answer for the native caller. Void notifications may be ignored
-after cancellation. Object-valued results still require an ownership mapping and
-are rejected. These return rules also apply to source/token registrations.
+after cancellation. Managed Objective-C results use the existing return-ownership
+lowering: the BTRC callback transfers an owned result claim to the generated ARC
+block, which returns according to the SDK block signature. Nullability is
+preserved. This permits returning the same event or nullable consumption from a
+native event monitor without raw pointers or manual retain/release code. Other
+callback forms still reject object results without their own checked mapping.
+These return rules also apply to source/token registrations.
 The analyzers authenticate these runtime declarations through compiler-owned
 stdlib provenance; application classes with matching names cannot replace them.
 
@@ -750,6 +759,18 @@ preserve SDK storage identity and const protection; initialize references to the
 at runtime, not in static storage. Required arguments and non-null object results
 are checked at the BTRC boundary.
 
+Selected instance initializers in the SDK's `init` family with `instancetype`
+results project as class factories: `NSTrackingArea.initWithRect(...)` generates
+`[[NSTrackingArea alloc] initWithRect:...]` inside the ARC adapter. No existing
+BTRC alias is consumed. Native nil, replacement objects and throwing initializers
+follow normal ARC cleanup and the existing BTRC exception boundary. Initializers
+with callbacks require a separate checked publication contract and are rejected.
+
+Lightweight generic arguments consisting solely of unqualified `id` (for example
+`NSDictionary<id, id>`) preserve the nominal managed class. Concrete type bounds,
+protocol qualifications, nested generics and class-object payloads are not erased
+to make an unsupported signature callable.
+
 Objective-C object globals expose independent owned snapshots, never their native
 pointer slots. Constant slots may be read normally. A mutable SDK declaration
 requires `main-thread-globals = ["SelectedObjectGlobal"]` on the same binding:
@@ -765,9 +786,10 @@ their string values.
 
 It generates a separate ARC unit in the link plan, translates exceptions back
 to BTRC after native cleanup, and never includes Objective-C headers in the
-main C11 unit. Blocks, consumed receivers/arguments, protocol/generic/dynamic
-objects, native subclass conversions and borrowed interior results remain unsupported. This is scoped
-interop support, not completed App/C++ provider migration.
+main C11 unit. Blocks require the explicit callback mappings above. Consuming
+existing receivers/arguments, unsupported protocol/generic/class-object shapes
+and borrowed interior results remain rejected. Checked native subclass conversion
+uses SDK inheritance; unrelated casts cannot manufacture ownership or type safety.
 Language/standard and `os`/`arch` use the existing closed sets. There is no
 package-wide binding. Duplicate exports into the same module are rejected when
 their target predicates overlap, including inactive targets; disjoint providers
@@ -973,6 +995,89 @@ projection. Language tuples are intentionally shallow borrowed aggregates;
 requiring consumers to manually balance fields or changing tuple semantics. Use
 ordinary owning classes, as with `CallbackResult`, when extending this mapping.
 
+### Owner-admitted record snapshots
+
+`record-snapshots` copies selected SDK record paths from an existing unique or
+reference-counted C resource into an ordinary owning BTRC class. It is distinct
+from `owned-records`: the result is a generated snapshot, not a projected SDK
+record supplied to a native function.
+
+```toml
+[native.bindings.record-snapshots.FreeTypeGlyphSnapshot]
+owner = "FT_Face"
+name = "copyFreeTypeGlyph"
+fields = { advanceX = "glyph.advance.x", pitch = "glyph.bitmap.pitch" }
+
+[native.bindings.record-snapshots.FreeTypeGlyphSnapshot.byte-plane]
+field = "bitmap"
+pointer = "glyph.bitmap.buffer"
+width = "glyph.bitmap.width"
+rows = "glyph.bitmap.rows"
+pitch = "glyph.bitmap.pitch"
+```
+
+The owner must already be a selected resource. Class/function names and copied
+field aliases must be distinct. The header reader and importer validate every
+dotted path against complete, noncyclic SDK structs; unavailable, anonymous,
+bit-field, volatile and restrict-qualified traversal is rejected. Scalar leaves
+copy their native scalar types, never resource pointers. An empty scalar table
+is allowed with a byte plane, byte span or copied strings.
+
+Without a byte plane, the generated function takes just the authenticated owner.
+With copied bytes or strings, its second argument is `int maximumBytes`.
+Copied bytes require `Library.Bytes` from the authenticated standard library. The result is nullable:
+invalid bounds, a null intermediate pointer or invalid plane metadata returns
+null after unwinding owner leases. Allocation uses ordinary class/Bytes
+fail-fast behavior. A live owner lease covers all reads and the complete copy.
+
+Byte-plane width and rows are integral pixel extents; pitch must be signed and
+the data field must be a byte pointer. Negative width/rows/bounds are rejected.
+Zero width or rows returns owned empty bytes without reading the data pointer.
+Otherwise a nonzero pitch and nonnull data pointer are required. The adapter
+checks arithmetic, the explicit allocation bound, the Bytes length limit and
+address ranges before reading `rows * abs(pitch)` bytes. Width does not imply a
+pixel format or byte count; providers validate format-specific row coverage.
+
+Tagged SDK unions use the same snapshot projection with a checked guard:
+
+```toml
+[native.bindings.record-snapshots.YAMLScalarSnapshot]
+owner = "yaml_event_t"
+name = "yamlScalarSnapshot"
+fields = { style = "data.scalar.style" }
+guard = { field = "type", equals = "YAML_SCALAR_EVENT" }
+strings = { anchor = "data.scalar.anchor", tag = "data.scalar.tag" }
+byte-span = { field = "value", pointer = "data.scalar.value", length = "data.scalar.length" }
+```
+
+The guard path cannot traverse a union. Its leaf must be an SDK enum and the
+selected enumerator must have exactly that owning enum identity; equal numeric
+values from other enums do not qualify. C enum constants preserve their actual
+integer ABI type separately from this identity. The declared tag/arm association
+is an SDK semantic promise: the compiler checks equality before reading any
+projected union arm, returning null on mismatch. Unguarded union traversal is
+rejected. No arbitrary expression or raw union field access is exposed.
+
+`strings` copies nullable, NUL-terminated SDK byte pointers to owning nullable
+BTRC strings. Null remains null, and an empty string remains a nonnull empty
+string. Scanning and allocation are bounded by `maximumBytes`; a longer string
+returns null. `byte-span` is mutually exclusive with `byte-plane` and preserves
+an explicit integral length, including embedded NUL bytes. Negative/too-wide
+lengths, null pointers with nonzero length and overflowing address ranges return
+null. Zero length produces valid empty Bytes. The same owner admission covers
+the guard, every read and every copy; result cleanup owns any allocated strings
+or bytes if subsequent handling throws. Class/string/Bytes allocation retains
+ordinary fail-fast semantics, not an invented SDK status.
+
+For negative pitch, the SDK pointer must name the logical first row. The
+adapter normalizes the copy start to the lowest-address row and preserves the
+signed pitch copied by an explicit scalar field. The foreign SDK promises that
+the entire resulting span is valid storage during the operation. An owner
+lease alone does not prevent SDK mutation: the provider must serialize every
+invalidation operation, such as FT_Load_Char, through snapshot completion.
+This contract adds no raw pointer accessor, foreign allocation registry or
+independent owner runtime.
+
 ### Managed reference-counted C resources
 
 Ownership facts belong to the existing binding, not copied C signatures. The
@@ -1001,6 +1106,8 @@ hooks take one compatible pointer. Release returns void; retain returns void or
 a compatible pointer. The importer checks the actual header, not names alone.
 Contradictory SDK ownership is an error. SDK `cf_retained` results supply the
 owned-result fact without an additional manifest entry.
+SDK `cf_consumed` agrees with declared release but is rejected on retain;
+`ns_consumed` remains invalid for C resources.
 
 The declared semantics are: each successful owned result supplies one native
 ownership claim; a borrowed parameter is valid only for the call and does not
@@ -1023,12 +1130,365 @@ remains SDK-owned; unannotated results are nullable.
 **Limits:** raw casts, output slots, unowned resource globals/results and realtime
 resource adapters are rejected. C one-shot callbacks can deliver resource claims
 using `owned-arguments` above; other resource callback modes remain unsupported.
-Unique resources, transfers, borrowed results and executor-affine cleanup still
-need checked support through this mechanism. Reference counting alone does not
+Transfers and executor-affine cleanup still need checked
+support through this mechanism. Reference counting alone does not
 prove a UI object's executor or a registration's cancellation contract; this is
 not permission to migrate those providers yet. Inactive bindings remain inactive.
 Use named subtables for portable manifests; the self-hosted parser does not yet
 support general inline TOML tables outside its existing dependency syntax.
+
+A reference-counted getter can declare its borrowed result's owner:
+
+```toml
+# In the binding above, select WidgetGet and borrow WidgetGet.owner as well.
+[native.bindings.borrowed-results]
+WidgetGet = "owner"
+```
+
+The named owner must be an explicitly borrowed reference-counted parameter and
+the result must also be a declared reference-counted resource. This is a trusted
+foreign lifetime promise: the returned pointer remains valid and retainable
+through the native return and immediate retain while the owner's call lease is
+held. It is not inferred from `cf_not_retained`, and does not cover interior
+storage invalidated by mutation. The adapter retains a non-null result before
+ending **any** argument lease, then transfers an ordinary owned native claim to
+the caller. Normal aliases, release, and exception cleanup apply thereafter.
+Null results remain null and never invoke the retain hook. `cf_not_retained` or
+unspecified SDK ownership is compatible; `cf_retained`, an `owned-results`
+entry, unique resources, and one-shot callback registration are rejected.
+This mapping alone does not enable unmanaged globals, erased pointer casts,
+or borrowing a unique resource result.
+
+For immutable native constants, `static-globals = ["kCTFontAttributeName"]` in
+the binding declares a trusted process-lifetime promise. Each selected name
+must be actual read-only SDK global storage with a declared reference-counted
+resource type. A generated accessor reads that storage once and acquires an
+ordinary native retain claim; consumers never receive raw storage or a second
+owner allocation. Constant identity is unchanged. Fields, aliases, returns,
+discarded reads and exception cleanup use the same owned-value rules as native
+object global reads. Nullable constants return null without retaining; an SDK
+nonnull constant containing null fails the native boundary check. The manifest
+does not override SDK nullability. Writable globals, unique resources, raw
+pointer globals, writes, `release` of the constant storage, and taking its
+address are rejected. Mutation through unrelated native aliases would violate
+the declared lifetime promise; this mapping is not synchronized global storage.
+
+Reference-counted resources with identical retain/release operations permit only
+SDK-compatible pointer widening, including a mutable record pointer to its const
+record pointer and a typed pointer to a selected erased resource typedef. The
+reverse conversion is not inferred. Selecting `CFTypeRef` does not classify all
+`const void*` positions as managed resources: scalar buffers stay ordinary pointers.
+Erased SDK positions require explicit mappings in the existing binding:
+
+```toml
+[native.bindings.resource-parameters]
+"CFDictionarySetValue.key" = "CFTypeRef"
+"CFDictionarySetValue.value" = "CFTypeRef"
+"CFDictionaryGetValue.key" = "CFTypeRef"
+[native.bindings.resource-results]
+CFDictionaryGetValue = "CFTypeRef"
+[native.bindings.borrowed-results]
+CFDictionaryGetValue = "theDict"
+```
+
+The corresponding parameter borrows and result ownership remain required. These
+erased positions are trusted foreign object/type promises, checked for SDK pointer
+compatibility; the header does not prove an arbitrary void pointer is a CF object.
+Already typed positions, unknown positions and unique resources are rejected.
+
+A target RC resource can additionally name `type-query = "CFGetTypeID"` and
+`type-tag = "CFNumberGetTypeID"`. Both functions must be selected; the query has
+one explicitly borrowed, lifecycle-compatible resource parameter, the tag has
+no parameters, and both return the same integral SDK type. The existing nullable
+cast `(CFNumberRef?)value` then checks this discriminator. Null input skips the
+query; a mismatching kind returns null. A matching result gains an ordinary native
+retain claim before the source lease ends. Reentrant release and exceptions use
+the same cleanup slots as native calls. A nonnullable downcast or raw-pointer cast
+is not enabled. Callers that distinguish missing data from wrong kinds check the
+input for null before casting.
+
+SDK record callback fields whose signatures expose managed resources without a
+checked callable contract are private. The included SDK still owns their full
+layout, alignment and size; no shortened replacement record is emitted. Borrowing
+a read-only SDK callback-table constant's address preserves its exact const record
+type. Hidden members cannot be read, written or called, and nonempty positional
+initialization of records with hidden fields is rejected. Existing checked owned
+record callback projections are unchanged.
+
+### Unique C resources
+
+A selected SDK record-pointer typedef, record typedef, or struct tag with a void destructor can instead declare
+`ownership = "unique"` and `release = "WidgetDestroy"`. A `retain` declaration is
+forbidden. `owned-results` and `borrowed-parameters` remain explicit and checked
+against the actual header. The native destructor is reserved, including function
+references; callers cannot extract the raw pointer, construct the resource, or
+inherit from its imported type.
+
+Unnamed SDK parameters use their zero-based generated name `argumentN` in both
+the projected signature and binding mappings. Underscores are appended if that
+name collides with another SDK parameter's explicit name.
+
+For a selected record typedef or tag, the managed class represents a pointer to
+that actual SDK record, not a by-value copy. By-value uses of that record are
+rejected. Const-qualified borrows are allowed when the SDK parameter accepts
+the owner's pointer; an owned result cannot discard the record's const qualifier.
+
+Each owned result receives one compiler-generated ordinary BTRC ARC owner,
+allocated before calling the factory. Aliases retain that owner, never the SDK
+resource. Null factories discard the empty owner. Fields, returns, discarded
+results and exception cleanup use the existing ARC and cleanup machinery.
+The generated `close()` consumes the native resource once and makes `isOpen()`
+false for every alias; repeated close is harmless. Final owner cleanup closes
+any still-open resource. A native borrow retains the owner and admits a borrow
+under the owner mutex. Closing through any alias during an admitted borrow
+aborts before native destruction. Borrowing a closed owner also aborts before
+the SDK call. Per-owner synchronization serializes close: a second thread waits
+for the destructor to finish, while same-thread reentrant close aborts.
+`isOpen()` is a nonblocking usable-state query and returns false during closing,
+including from a destructor's synchronous callback. Public close retains its
+owner through callbacks and waits. No global ARC lock is held across the SDK
+destructor. This protects lifetime, not SDK mutable-state thread safety.
+
+An integral or enum status-returning destructor additionally requires both
+`release-consumption = "always"` and `cleanup-status = "discard"`. Its generated
+`close()` returns the exact SDK status type without narrowing. The owner caches
+the result only after the destructor completes; repeated and concurrent closes
+return that same result without retrying native destruction. Calling this
+status-returning close on a null owner aborts rather than inventing a success
+status. Automatic cleanup explicitly discards the status; this is not evidence
+that the preceding operation succeeded. Use this policy only when the SDK
+always consumes the resource and nonzero reports a prior operation, as with
+SQLite statement finalization. Missing or conflicting policies, policies on
+void destructors, and still-live/on-success consumption are rejected.
+
+For an SDK that guarantees consumption on zero but leaves nonzero consumption
+indeterminate, use `release-consumption = "success-or-indeterminate"` with
+`cleanup-status = "abort"`. Close poisons the native handle before entering the
+destructor, caches the exact returned status, and never retries or admits another
+native operation, including after failure. Nonzero does **not** prove that the
+native resource remains live. The final ordinary owner release aborts on the
+cached nonzero status before freeing its storage. This is a conservative terminal
+boundary, not recovery or permission to drop dependent callback storage. The
+provider must retain those dependencies until a separately proven stop/drain
+barrier; neither SDK consumption nor that barrier can be inferred from status
+alone. Successful zero-result cleanup follows the ordinary unique-owner path.
+
+For caller-owned SDK records, `storage = "inline"` on a unique resource selects
+private, zeroed, nonmoving pointee storage. It does not expose record fields,
+copying, raw pointer extraction, or a public constructor. Exactly one checked
+initializer must supply its actual SDK record pointer:
+
+```toml
+[native.bindings.resources.mz_zip_archive]
+ownership = "unique"
+storage = "inline"
+release = "mz_zip_reader_end"
+release-consumption = "always"
+cleanup-status = "discard"
+
+[native.bindings.initializers.mz_zip_reader_init_mem]
+resource = "mz_zip_archive"
+parameter = "pZip"
+result = "MinizOpenResult"
+success = "minizTrue"
+failure = "rolled-back"
+
+[native.bindings.initializers.mz_zip_reader_init_mem.copied-inputs.pMem]
+length = "size"
+```
+
+`success` selects an actual read-only SDK integral constant of the status type;
+the header may project an SDK macro without mirroring its numeric value.
+Alternatively, `success-nonzero = true` declares the SDK's nonzero success
+predicate (for example, libyaml initialize/parse), without fabricating a named
+header constant. Exactly one predicate is required; false, missing or both are
+rejected. The status remains its exact integral SDK value.
+`failure = "rolled-back"` asserts that every other status leaves no initialized
+native claim requiring the destructor. This fact must come from the SDK; partially
+initialized failures are not supported. The storage parameter disappears from
+the BTRC call, which returns an ordinary class with `called`, exact SDK `status`,
+and nullable resource `value`. **Status is meaningful only when `called` is true.**
+`called = false` reports fallible backing allocation failure without fabricating
+an SDK error. Ordinary result/owner allocation retains the language's existing
+fail-fast behavior. Result and owner are allocated before backing/native work.
+
+An optional single `copied-inputs` byte pointer plus unsigned length retains a
+private immutable copy through SDK destruction. The parameter must also declare
+`read-only-borrows`; caller storage is only borrowed while making that copy.
+Null with nonzero size, sizes exceeding `SIZE_MAX`, mutable/volatile/restrict
+input pointers, and additional unmodeled non-scalar parameters are rejected or fail before
+the SDK call. Null with zero size remains null at the native call. Successful
+initialization publishes the resource; rolled-back failure frees private backing
+without calling the native destructor. Close destroys the SDK claim before
+freeing its input copy and inline storage, then publishes completion to waiting
+aliases. Indeterminate destruction is not supported for inline storage.
+Other native resource parameters may use existing `borrowed-parameters`; their
+admission spans initialization, but the returned inline owner is independent and
+does not retain them. SDK initializers that store a dependency require a separate
+explicit retained dependency contract and cannot claim this call-scoped borrow.
+
+An inline owner initialized without copied input may attach one retained input
+span through a selected void SDK setter:
+
+```toml
+[native.bindings.copied-inputs."yaml_parser_set_input_string.input"]
+owner = "parser"
+length = "size"
+assignment = "once"
+```
+
+The owner parameter must declare `borrowed-parameters`, and the immutable byte
+pointer must declare `read-only-borrows`. The generated BTRC call returns bool:
+true means the SDK setter was called, false means private backing allocation
+failed. False leaves the owner unattached and retryable. Success is write-once,
+including an empty span; empty input receives stable nonnull private storage.
+The SDK must retain the bytes without modifying them until its destructor.
+One attachment is supported per resource, not multiple independently named
+buffers. The existing unique owner's exclusive phase rejects attachment during
+borrow and use/attachment during attachment; same-thread reentrant close is
+rejected, while another thread's close joins attachment completion. `isOpen()`
+is false during this exclusive operation. The SDK destructor runs before the
+retained input and inline storage are freed.
+
+An integral/enum-status function that writes one unique resource through a
+mutable SDK output slot may declare a named owning result:
+
+```toml
+[native.bindings.owned-outputs."sqlite3_open_v2.ppDb"]
+result = "SQLiteOpenResult"
+```
+
+The selected header must declare that parameter as a mutable pointer to the
+selected resource pointer. It is removed from the BTRC parameter list. The
+generated ordinary owning class exposes `status` with the exact SDK result type
+and `value` with the nullable managed resource type. Both that class and the
+empty resource owner are allocated and linked before the SDK call, and the
+native output slot is zero-initialized. Every nonnull output claim is adopted,
+including when status reports an error. Cleanup protects it through later
+argument cleanup, discarded results, aliases, and exception unwinding.
+
+This is an unconditional transfer contract; conditional adoption, multiple owned
+outputs in one function, floating-point status, const output slots, conflicting
+borrow mappings, and result-name collisions are rejected. The binding author
+must establish that every nonnull returned claim is owned on every status; the
+compiler does not infer transfer from success codes. No shallow managed tuple
+or publicly extractable SDK output pointer is emitted. Other resource-bearing
+record/output shapes and stored/completion callback combinations remain rejected.
+
+An owning output may also project a bounded tail pointer into an integer offset:
+
+```toml
+[native.bindings.output-offsets."sqlite3_prepare_v3.pzTail"]
+input = "zSql"
+length = "nByte"
+field = "tailOffset"
+```
+
+The mutable `const char**` output is hidden. The input must be a declared
+read-only `const char*` borrow, with a signed `int` byte length. A negative length
+aborts before native entry. The result starts at `-1`; only a nonnull tail whose
+address is at or above the nonnull input and whose unsigned address difference
+is within the length becomes an offset. Address addition and subtraction of
+unrelated C pointers are never used. Invalid tails do not discard any owned
+resource claim. One fresh result field is allowed; volatile/restrict storage,
+colliding parameters, and wider lengths are rejected by this bounded mapping.
+
+Borrowed SDK pointer results can instead be copied into ordinary owned values:
+
+```toml
+[native.bindings.copied-results.sqlite3_errmsg]
+kind = "string"
+owner = "argument0"
+
+[native.bindings.copied-results.sqlite3_errstr]
+kind = "string"
+lifetime = "static"
+
+[native.bindings.copied-results.sqlite3_column_blob]
+kind = "bytes"
+owner = "argument0"
+length-function = "sqlite3_column_bytes"
+length-arguments = ["argument0", "iCol"]
+length-preserves-result = true
+```
+
+Strings require a const character pointer to NUL-terminated storage and either
+a declared borrowed resource owner or explicit static lifetime. Bytes require a
+borrowed resource owner, a selected non-consuming length function returning
+signed `int`, and type-identical original arguments including that owner.
+`length-preserves-result = true` is a trusted SDK no-invalidation promise for
+that particular secondary call, not permission to call arbitrary functions on
+the borrowed buffer. Pointer acquisition, length acquisition, and copying occur
+under the original owner lease. Providers must also serialize any SDK operations
+that could invalidate interior storage; a lifetime lease is not mutation exclusion.
+
+The projections return nullable `string` or authenticated `Library.Bytes`.
+Negative or too-wide byte counts and null pointers with nonzero length return
+null; zero bytes yield a valid owned empty buffer, including a null SDK pointer.
+Embedded NUL bytes are preserved. Bytes use the existing `Bytes.fromRaw` copy
+and its fail-fast allocation policy. Copied values survive owner destruction.
+Unknown owners, contradictory pointer qualifiers, missing length promises,
+spoofed Bytes declarations, and combinations with other owning output mappings,
+callbacks, selected variadic calls, or realtime calls are rejected. No raw SDK
+result pointer is exposed by a copied projection.
+
+For an SDK property API whose owned resource is written through mutable `void*`
+storage and whose byte count uses an unsigned integral in/out pointer, the same
+mapping can preserve the raw scalar API and expose a separate managed alias:
+
+```toml
+[native.bindings.owned-outputs."AudioObjectGetPropertyData.outData"]
+result = "CoreAudioPropertyResult"
+resource = "CFTypeRef"
+size = "ioDataSize"
+name = "copyCoreAudioProperty"
+```
+
+The resource must be explicitly selected and reference-counted. The alias omits
+both storage parameters and returns an ordinary managed class with `status`,
+`size`, `sizeValid`, and nullable `value`. The adapter zeroes the resource slot
+and initializes the size to the actual SDK `sizeof(CFTypeRef)`, not the size of
+the language's managed representation. `sizeValid` compares the returned size
+against that same SDK size. The native slot is protected before entry, including
+exceptions after a write, and every nonnull claim is adopted regardless of
+status or size. The original SDK function remains available for ordinary scalar
+properties; neither API exposes managed storage as a raw pointer.
+
+This is a trusted foreign ownership/type promise: every nonnull output must be
+a valid owned claim of the selected resource even on error or size mismatch.
+The binding does not prove a selector denotes an object. Providers must restrict
+the alias to their known owned-object selectors before native entry; a returned
+size never grants permission to release arbitrary bytes from another property.
+Aliases, result names and size/output positions must be distinct. Unsupported
+size/output types, multiple outputs, callback or record projections, realtime
+calls and output-offset mappings cannot be combined with this form.
+
+### Selected C variadic calls
+
+An SDK variadic function may expose one fixed, typed call shape. Bind its actual
+integral selector parameter to a selected read-only SDK constant and declare the
+otherwise-untyped tail:
+
+```toml
+[native.bindings.variadic-calls."sqlite3_db_config.op"]
+value = "sqliteNativeDefensiveOption"
+arguments = ["int", "int*"]
+```
+
+Here BTRC calls `sqlite3_db_config(database, enabled, &current)`. The generated
+adapter inserts the SDK constant and holds ordinary resource leases across the
+call. Function values expose the same fixed signature. The included header
+remains authoritative for the fixed parameters, result, calling convention and
+actual symbol; no replacement declaration is generated.
+
+The selector and constant must have the same promoted integral SDK type. Tail
+arguments allow promoted scalar values and single-level scalar pointers only;
+unpromoted `float`/small integers, managed values, arbitrary pointers and open
+varargs forwarding are rejected. A binding explicitly promises that this opcode
+uses precisely that tail signature; headers cannot prove a varargs convention.
+Only C and one shape per selected function are supported. Callback, realtime,
+owned-result/output and record-output combinations are rejected. An unselected
+variadic function remains an error, not an unchecked escape hatch.
 
 ### Realtime native functions
 
@@ -1047,6 +1507,64 @@ transitive effect analysis; known forbidden effects cannot be overridden. The st
 adapters too. Nullability guards on a certified call trap without logging or
 unwinding; non-realtime adapters retain their diagnostic. No callback, allocation
 or resource lifetime promise is implied by this setting.
+
+### Registration-owned realtime C callbacks
+
+The existing callback table can project a selected SDK callback record into a
+stored realtime registration. Its owner is a declared unique native resource;
+the record layout, callback signature, owner parameter and size parameter are
+checked against the selected header. For example:
+
+```toml
+[native.bindings.callbacks."AudioUnitSetProperty.inData"]
+name = "installCoreAudioRender"
+record = "AURenderCallbackStruct"
+field = "inputProc"
+context = "inputProcRefCon"
+context-index = 0
+size = "inDataSize"
+interface = "ICoreAudioRender"
+invocation = "CoreAudioRenderInvocation"
+lifetime = "stored"
+executor = "realtime"
+failure = "abort"
+owner = "inUnit"
+unregister = "AudioOutputUnitStop"
+cancellation = "entry-barrier"
+activation-failure = "abort"
+[native.bindings.callbacks."AudioUnitSetProperty.inData".operations]
+input = "AudioUnitRender.inUnit"
+```
+
+The alias keeps the original scalar arguments and owner, replacing the record
+and size with a typed receiver, an exact stateless `RealtimeFunction` fallback,
+and a `CallbackScope`. It returns `CallbackState`. The original scalar SDK
+function remains available for other properties. The selected unregister and
+operation functions are reserved to this projection, not exported as raw owner
+operations. Callback and context fields are private in the imported record.
+
+The receiver's `@realtime invoke` method receives an invocation-local capability
+followed by the real SDK POD arguments, excluding the context argument. This
+capability has only the declared operations: no constructor, handle field,
+address, cast, owned alias, return, capture or storage. Exact capability
+parameters may forward only through statically proven realtime helpers; their
+bodies must preserve the same non-escape rule. Operations require explicit
+`realtime-safe` declarations and ABI-compatible borrowed owner parameters.
+
+Registration acquires one stable unique-owner lease and retains the receiver
+off the realtime thread. It resolves interface dispatch before publication.
+Admitted callbacks use the existing atomic gate and a stack capability, with
+no allocation, retain/release, locks or interface lookup. Denied entries call
+only the stateless POD fallback, without the receiver, context or capability.
+
+`entry-barrier` is a trusted foreign lifetime promise: successful unregister
+prevents every new native entry; already admitted calls may still be running.
+The registration releases its receiver and owner lease only after those calls
+drain. The header cannot prove that promise, nor that the selected operations
+are realtime-safe. Failed unregister is terminal and never retried: admission
+stays closed, the fallback remains valid for late entry, and dependent storage
+is retained. Final owner cleanup fails closed. Nonzero installation status
+aborts because possible publication cannot safely be inferred from an error.
 
 ### Native callback fields
 

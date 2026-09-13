@@ -13,6 +13,34 @@ The control thread owns provider/session lifecycle. Processors retain their
 preallocated context until the provider's drain barrier; native callbacks must
 not allocate, block, mutate UI or reclaim callback-owned state.
 
+`AUDIO_DEVICE_INDETERMINATE` is terminal, not a request to retry. CoreAudio
+returns it when `AudioComponentInstanceDispose` reports failure: the provider
+does not use or dispose that handle again and retains its render/program
+dependencies. It never reports successful close. Releasing the unfinished
+provider/session remains a fatal lifetime error. Stop and uninitialize failures
+retain their separate retry paths; disposal failure must not be folded into
+those paths merely because its numeric status resembles a busy error.
+
+Apple's [disposal contract](https://developer.apple.com/documentation/audiotoolbox/audiocomponentinstancedispose(_:)?language=objc)
+does not establish whether a nonzero result consumed the instance. Apple's
+[component implementation](https://github.com/apple/AudioUnitSDK/blob/main/src/AudioUnitSDK/ComponentBase.cpp)
+can catch failures during destruction; it is not evidence that AUHAL is safely
+retryable. The native tests cover both still-live and already-consumed failure
+outcomes, late silent callbacks through retained storage, and no repeated SDK
+entry. Ordinary unique-owner conversion and a registration-owned realtime
+native lease remain separate work; managed CF property/aggregate ownership
+does not qualify that AudioUnit lifetime boundary.
+
+Preparation initializes the audio unit without publishing a render callback.
+Start installs the callback immediately before starting output, so failed
+initialization cannot leave a published callback. The actual HAL ordering test
+(`src/tests/native/core_audio_device/CallbackInstallation.c`) exercises silent
+output across repeated installation/start/stop cycles, including stop before
+the first start and repeated stop. This qualifies the ordering on the tested
+native backend; it does not infer an asynchronous entry barrier from a status
+code. The fault suite separately proves no callback publication on preparation
+failure and recovery after callback-installation failure.
+
 macOS is the only current device implementation in scope. Future Linux/Windows
 providers belong under sibling `Linux/` and `Windows/` packages and implement
 the same negotiated-format and drain contracts. Do not add fake-success stubs.

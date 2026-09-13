@@ -26,9 +26,14 @@ in a normal `CallbackScope` and returns an `ICallbackRegistration`. Keep that
 scope with the independent component/application owner. Cancel before replacing
 the receiver; scope cancellation and button close discard queued old clicks.
 Model setters never synthesize actions. Native delivery is queued automatically
-on the UI executor; callers do not poll an action queue. GPU composition and the
-remaining core qualification are unfinished. Legacy provider modules stay public until their
-consumers migrate.
+on the UI executor; callers do not poll an action queue. Legacy provider modules
+stay public until their remaining direct consumers migrate.
+
+Native bordered buttons and selects use macOS regular/large control metrics;
+fonts above 20pt are explicitly unsupported instead of overflowing a fixed-height
+bezel. Borderless buttons support larger text, but cannot be re-bordered until
+their font is supported. `setBordered(false)` hides only the bezel;
+`setTransparent(true)` hides all button drawing and is for hit targets, not labels.
 
 [Native.btrc](../../../examples/gui/Native.btrc) is a portable application example:
 edit a native text field, apply the window title through a queued button action,
@@ -44,7 +49,23 @@ keep their space and parent; detach removes them from layout and restores their
 previous Auto Layout policy. `layout()` flushes pending native layout without
 rebuilding controls, reading active editors, or replacing their undo state.
 `GUI.createContainer()` remains the plain grouping primitive for explicit placement.
-Grid/overlay and GPU layout integration are still pending.
+`GUI.createGrid` and `GUI.createPanel` support explicit grid and layered composition.
+
+`GUI.createGPUView(capture = true)` returns `IGPUView`, an ordinary native child
+for `IContainer`/`IWindow`. Its private macOS provider owns the surface, device,
+frame renderer and callback scope. Call `poll()` from scheduled UI work until
+ready, then `beginFrame(...)` refreshes backing-pixel dimensions after layout and
+skips hidden/empty views. `frameRenderer()` supplies the existing portable GPU
+drawing API. Create programs with `view.createProgram(...)` and captures with
+`view.readback(...)` so their pending native callbacks belong to this subtree.
+Shutdown closes renderer aliases immediately, drains asynchronous work, then
+releases the device and native surface. The existing application shutdown loop
+continues polling pending views; product code must not spin on the UI thread.
+`IView.onPointer` and `onScroll` register synchronous, scoped native handlers;
+return true to consume an event. A consumed press captures drag/release until
+release, focus loss, detach, cancellation or close. Coordinates are view-local,
+top-left logical points. `GUI.capture` composes native controls with completed GPU
+readback images; it does not depend on capturing an unlocked desktop.
 
 The native-control API is being implemented for macOS. Portable controls and
 recursive layout belong at this package root; AppKit providers and SDK headers
@@ -75,7 +96,7 @@ reports its original error without retrying the child. Native attachment errors
 roll back; an unsuccessful rollback leaves the container failed and retaining
 the potentially attached child. Children do not strongly retain their parent.
 This primitive only groups explicitly placed children; use `IStack` for recursive
-row/column layout. Grid layout and GPU composition remain pending migrations.
+row/column layout, `IGrid` for grids and `IGPUView` for GPU composition.
 
 `IView.close()` starts shutdown once and reports completion. `pollClose()` advances
 already-started cleanup without retrying failed native operations; it reports
@@ -221,26 +242,25 @@ attached children and hierarchy cycles are rejected before calling AppKit.
 `close()` clears cells but does not close borrowed child owners. This provider
 does not yet constitute the portable declarative layout API.
 
-The APIs documented below are the **legacy custom-painted GUI**, not native OS
-widgets. Existing `View.btrc` and `Window.btrc` are legacy implementations, not
-the proposed native API. `Surface` owns its pixel buffer, resizing, fills and
-readback in BTRC. Raster text/blending, FreeType and the legacy window provider
-remain migration work. Do not build new product controls on this toolkit.
+The APIs documented below are the legacy custom-painted raster toolkit.
+`Surface` owns its pixel buffer, resizing, fills, bitmap text, blending and
+readback in BTRC. Optional FreeType loading uses checked SDK owners and copied
+glyph snapshots. Native windows and product controls use `Library.GUI.GUI`; the obsolete
+standalone GLFW/OpenGL presenter has been removed.
 
 ## Layout
 
 | File | Role |
 |------|------|
-| `btrc_gui.h` / `btrc_gui.c` | Remaining optional font dispatch, borrowing a typed `BtrcGuiPixels` view and synchronous BTRC blend callback. Bitmap text, metrics and blending belong to `Raster.btrc`; no native pixel ownership API. |
+| `btrc_gui.h` | Only the borrowed `BtrcGuiPixels` record; no native font dispatch or raster owner. |
 | `Geometry.btrc` | Saturating integer geometry shared by immediate and declarative layout. |
 | `Raster.btrc` | BTRC-owned `Surface` storage, resize, clear/fill, readback/PPM and legacy immediate-mode widgets (`Color`, `GUIInput`, `Theme`, `RasterGUI`, `GUIApp`). |
 | `View.btrc` | Declarative UI: a `View` tree with flexbox-style layout, events-as-data (`GUIEvents`), and a one-call `UI.frame(...)`. |
-| `btrc_gui_window.h` / `.c` | Legacy standalone native window backend (resizable GLFW/OpenGL window, GPU-texture present). It is retained for GUI compatibility tests and is not composable with `Library.App`. |
-| `Window.btrc` | Legacy btrc bindings for that standalone backend (`GUIWindow`, incl. `width`/`height`/`fit`). |
-| `btrc_gui_font.h` / `.c`, `Font.btrc` | Optional FreeType backend (`Font`) for scalable, anti-aliased, full-Unicode text. |
+| `Font.btrc` / `FontFace.btrc` | Managed per-surface selection and owned glyph/metric snapshots; scalable rasterization lives in `Raster.btrc`. |
+| `FreeType.btrc` / `FreeType/FreeTypeFace.btrc` | Optional factory, private unique SDK owners and serialized copied glyph snapshots. |
 
-Not auto-included. Opt in with `import Library.GUI.Raster;` and build the remaining
-native backend with `make gui`. `Surface.opened()` reports invalid dimensions
+Not auto-included. Opt in with `import Library.GUI.Raster;`; no native raster
+archive is needed. `Surface.opened()` reports invalid dimensions
 or backing-allocation failure. Failed resize preserves the old image; successful
 resize preserves overlapping pixels and clears newly exposed pixels.
 `pixels()` is a synchronous borrow, invalidated by resize or owner destruction;
@@ -248,30 +268,7 @@ there is no opaque `Surface.handle` or native surface destructor.
 
 ## Quick start (immediate-mode)
 
-`GUIWindow` below is the legacy standalone presenter. New application code
-should own its window through `Library.App`; `Library.UI` has not yet been migrated to
-consume the unified `Library.App`/`Library.GPU` surface.
-
-```btrc
-#include "GUI/Raster.btrc"
-#include "GUI/Window.btrc"
-
-int main() {
-    var win = GUIWindow("Hello", 480, 320);
-    var ui = RasterGUI(Surface(480, 320));
-    while (win.isOpen()) {
-        Windows.poll(ui.input);
-        ui.beginFrame();
-        ui.heading("btrc GUI");
-        if (ui.button("Click me")) { print("clicked"); }
-        Windows.present(ui.surface);
-    }
-    Windows.close();
-    return 0;
-}
-```
-
-Headless (no window — render to a buffer, inspect pixels or save a PPM):
+Render to an offscreen buffer, inspect pixels or save a PPM:
 
 ```btrc
 var ui = RasterGUI(Surface(320, 200));
@@ -339,72 +336,73 @@ t.join();
 
 ## Fonts (UTF-8 + scalable)
 
-Text is **UTF-8 throughout** — `draw_text` and `text_width` decode codepoints,
-so multi-byte characters measure and render as single glyphs.
+Raster text is UTF-8 throughout: `Surface.text` and `Surface.textWidth` decode
+codepoints, including replacement characters for malformed input. Bitmap text
+uses the bundled 8×8 cells; scalable text uses owned glyph snapshots.
 
 Two backends:
 
 - **Bitmap (default, zero-dependency).** A bundled 8×8 font (5×7 glyphs in an
   8×8 cell) covering digits, A–Z and common punctuation; lowercase maps to
   uppercase and non-ASCII codepoints render as a box.
-- **FreeType (optional, scalable).** `Font.btrc` adds a `Font` that loads a
-  TTF/OTF and renders anti-aliased, full-Unicode glyphs at any pixel size.
-  Loading a font installs it as the active backend, so **all** text — both
-  immediate-mode and declarative — switches over with no other code changes:
+- **Scalable (explicit, owned).** `Font(face)` accepts an `IFontFace` whose
+  metrics and glyphs are immutable owned snapshots. Select the font separately
+  on each surface; immediate and declarative layout use that surface's metrics:
 
   ```btrc
-  #include "GUI/Raster.btrc"
-  #include "GUI/Font.btrc"
+  import Library.GUI.Raster;
+  import Library.GUI.Font;
 
-  Font f = Font("/path/DejaVuSans.ttf", 18);
-  if (f.ok()) { f.use(); }     // every subsequent draw uses it
-  // Font.useBitmap();         // restore the built-in font
+  // face is an IFontFace supplied by the font provider.
+  var font = new Font(face);
+  surface.setFont(font);
+  surface.text(10, 10, "Música", Color.rgb(255, 255, 255), 1);
+  surface.setFont(null); // explicitly restore this surface's bitmap font
   ```
 
-  The core renderer stays dependency-free: the FreeType module plugs in through
-  a function-pointer hook (`btrc_gui_install_font_backend`), and `make gui`
-  builds it only when FreeType headers are present.
+  The surface retains its selection after the caller's local font goes out of
+  scope. Draw and measurement retain their own local snapshot. Selection and
+  pixel mutation belong to the surface's synchronous owner; this is not a
+  concurrent drawing API. Missing glyphs are skipped, never silently replaced
+  by another font. `Font.use()` and global `Font.useBitmap()` are removed:
+  selection is explicit, independent between surfaces, and unaffected by
+  loading or destroying another font. Native GUI controls use system fonts and
+  are not affected by raster font selection.
+
+Optional loading is separate from the SDK-free raster domain:
+
+```btrc
+import Library.GUI.FreeType;
+
+surface.setFont(FreeType.load("/path/to/font.ttf", 18));
+```
+
+Loading reports invalid paths/sizes instead of silently selecting a bitmap
+fallback. The private provider serializes glyph loading through the complete
+owned snapshot copy; each bitmap has an explicit 64 MiB allocation limit.
+Both compilers pass native optimized and sanitizer tests. The old C loader,
+global font dispatch and archive registrations have been removed; qualification
+details are recorded in [FontNativeMigration.md](FontNativeMigration.md).
 
 ## Dynamic resizing
 
-The window is resizable. `Surface.resize(w, h)` reallocates the pixel buffer in
-place, and `GUIWindow` exposes the live framebuffer size (`width()`, `height()`)
-plus `fit(surface)` to match a surface to the window each frame — the
-declarative layout then reflows to the new bounds automatically:
+`Surface.resize(w, h)` changes the owned pixel buffer dimensions. The
+declarative layout reflows to those dimensions on the next frame:
 
 ```btrc
-while (win.isOpen()) {
-    Windows.poll(input);
-    Windows.fit(surface);                          // track window size
-    GUIEvents e = UI.frame(surface, input, theme, ui());
-    Windows.present(surface);
-}
+surface.resize(640, 480);
+GUIEvents events = UI.frame(surface, input, theme, view);
 ```
 
 ## Build
 
 ```
-make gui            # software renderer (always) + window backend (if GLFW)
-                    #   + FreeType font backend (if FreeType present)
 make examples-gui   # build + run the headless examples/tests (demo, declarative, font)
 ```
 
 ## Caveats
 
-- Rendering split: widgets are rasterized on the CPU into the `Surface`; the
-  window backend then **uploads that surface to a GPU texture and composites it
-  with hardware** (textured quad, bilinear-filtered) — so present/scale is
-  GPU-accelerated. (Per-primitive GPU rendering could later build on the `gpu`
-  module.)
-- The window backend needs GLFW + an OpenGL context and a **display** to run
-  (the software renderer and `GUIApp` thread test run anywhere, headless).
-- GLFW requires window creation + event polling on the **main thread on macOS**,
-  so drive the windowed loop from `main()` there; the threaded runner is for the
-  offscreen surface or Linux.
-- The legacy `GUIWindow` backend owns GLFW and an OpenGL window independently.
-  Its header and `Library.App` now reject a mixed translation unit at compile time;
-  `Library.App` is the sole GLFW owner for the unified application/GPU path. The
-  headless software `Surface` remains safe and deliberately separate until
-  `Library.UI` consumes that path.
+- Raster widgets draw into CPU-owned offscreen pixels. Native window/control
+  presentation belongs to the portable GUI factory and its selected provider.
 - Drawing is opaque-rect + bitmap text; it's intentionally minimal, not a
   full retained-mode toolkit.

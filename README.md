@@ -4,6 +4,18 @@
 
 btrc is a statically-typed language that transpiles to C. It adds classes, generics, type inference, lambdas, f-strings, imports, collections, threads, GPU compute, automatic reference counting, exception handling, and a growing standard library -- all while staying compatible with C. The generated C is strict C11: no compiler extensions, no garbage collector, and no virtual machine. Core CPU programs embed the small helpers they use; optional GPU, GUI, tray, and other native backends link their platform runtimes explicitly. You can inspect, debug, and link the output with a C11 toolchain. It comes with a VS Code extension, a language server, and hundreds of compiler/language tests.
 
+## Current handoff status
+
+The typed native boundary and portable `GUI`, `Audio`, GPU, callback and
+ownership primitives are implemented incrementally on `main`, but native
+provider migration is not complete. The next work is CoreAudio/YAML self-host
+qualification, then vgmstream's memory-stream callback table and pugixml's
+checked load-once owner; superseded bridges are deleted only after consumer
+parity. Read [AGENTS.md](AGENTS.md), [`docs/Handoff.md`](docs/Handoff.md), and BTRSmith's
+[`docs/NativePlatformPlan.md`](../btrsmith/docs/NativePlatformPlan.md) for the
+authoritative cross-repository order. Linux and Windows providers are future
+boundaries, not current implementation targets.
+
 And no – it's not actually better than C, but I like the name, which I ripped off from [btrfs](https://en.wikipedia.org/wiki/Btrfs).
 
 Here's an example:
@@ -925,7 +937,7 @@ int main() {
 The engine is modular: `GameObject` with physics, `Camera` with follow behavior, `Light` and `Material` for shading, `Ground` checkerboard and `Sky` gradient, `Scene` compositing with a WGSL raymarching shader, `Input` for keyboard, `Time` for frame timing, and `Renderer` tying it all together. See [`examples/game/`](examples/game/).
 
 ```bash
-make gpu && make examples-game
+make examples-game
 ./examples/game/game
 ```
 
@@ -1282,12 +1294,12 @@ src/
     Console.btrc               # Console output
     Error.btrc                 # Error class hierarchy
     Result.btrc                # Result<T,E> type
-    gpu/                       # GPU runtime (WebGPU/wgpu-native)
-      GPU.btrc                 # GPU btrc types
-      btrc_gpu.h               # C header for GPU compute functions
-      btrc_gpu.c               # Strict-C11 implementation (wgpu-native backend)
+    GPU/                       # Typed WebGPU rendering and compiler compute support
+      Program.btrc             # Scoped native render programs
+      SurfaceRenderer.btrc     # Typed native surface rendering
+      btrc_gpu_compute_internal.h # Compiler-only @gpu compute ABI
+      btrc_gpu.c               # Headless compute implementation (wgpu-native backend)
       btrc_gpu_compute_singleton.h # Atomic compute-context publication
-      btrc_gpu_surface_macos.m # macOS Cocoa/Metal surface bridge
 
   tests/                       # Test suite — one framework for both compilers
     runner.py                  # Unified runner: each .btrc test through BOTH the
@@ -1369,9 +1381,8 @@ make compiler-codegen-generate # Regenerate compiler/devex data from shared spec
 make extension              # Package VS Code extension (.vsix)
 make extension-install      # Install VS Code extension (dev)
 make examples               # Build and run examples
-make gpu                    # Install WebGPU + GLFW and build GPU runtime
-make gpu-required           # Build GPU runtime and fail if production deps are absent
-make gui                    # Build the GUI runtime
+make gpu                    # Build compiler-only WebGPU compute runtime
+make gpu-required           # Require WebGPU compute dependencies and build runtime
 make examples-game          # Build the 3D engine game
 make examples-triangle      # Build the GPU triangle example
 make examples-sgd           # Build the GPU SGD example
@@ -1463,7 +1474,7 @@ Manual install requires:
 - ruff (for linting)
 - pygls + lsprotocol (for a source-tree LSP server; vendored in the VSIX)
 - Node.js + npm (for VS Code extension)
-- wgpu-native + GLFW (optional for compiler use; required by `make test`/`make test-c11` so GPU cases cannot be skipped)
+- wgpu-native (optional for compiler use; required by `make test`/`make test-c11` so compute cases cannot be skipped). Native windows and rendering use the portable GUI interfaces and typed platform SDK providers, without GLFW.
 
 ### CI
 
