@@ -1242,6 +1242,13 @@ class StatementAnalyzer:
     def _reject_bodyless_realtime_function_signature(self, callable_, label: str) -> None:
         if getattr(callable_, "body", None) is not None:
             return
+        origin = getattr(callable_, "source_file", None)
+        if (
+            isinstance(origin, NativeHeaderSource)
+            and origin.call_contract is not None
+            and any(getattr(callback, "realtime", None) is not None for callback in origin.call_contract.callbacks)
+        ):
+            return
         if self.types.contains_realtime_function_storage(callable_.return_type) or any(
             self.types.contains_realtime_function_storage(parameter.type) for parameter in callable_.params
         ):

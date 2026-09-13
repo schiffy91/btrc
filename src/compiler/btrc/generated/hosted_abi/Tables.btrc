@@ -153,7 +153,6 @@ class GeneratedHostedAbiData {
 		self.pushOwnedNames14();
 		self.pushOwnedNames15();
 		self.nativeNames = [];
-		self.pushNativeNames0();
 		self.nativeInternalNames = [];
 		self.pushNativeInternalNames0();
 		self.runtimeAdoptingHelpers = [];
@@ -181,7 +180,7 @@ class GeneratedHostedAbiData {
 		self.pushPlatformTypedefNames0();
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
-		self.fingerprint = "3cb7af5c4b19bdbdc6370a6718bbfb8461c1ae44f1220607cf9bff04f606e9ba";
+		self.fingerprint = "4532bf0606ebc661949beff48b63e964ce2acfa14e35e820c1b981879ad90506";
 	}
 
 	private void pushFunctions0() {
@@ -1611,70 +1610,6 @@ class GeneratedHostedAbiData {
 			"",
 			"unknown"));
 		self.functions.push(GeneratedHostedFunctionRow(
-			"btrc_gui_font_destroy",
-			"native_gui",
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "consume", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			true,
-			"",
-			"",
-			"btrc_gui_font_destroy",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"btrc_gui_font_load",
-			"native_gui",
-			GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()), "read", ""),
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()),
-			"independent",
-			-1,
-			"",
-			false,
-			"btrc_gui_font_destroy",
-			"",
-			"",
-			"",
-			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow(
-			"btrc_gui_set_font",
-			"native_gui",
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			true,
-			[
-			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "unknown", ""),
-		],
-			false,
-			false,
-			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-			"value",
-			-1,
-			"",
-			false,
-			"",
-			"",
-			"",
-			"",
-			"unknown"));
-	}
-
-	private void pushFunctions2() {
-		self.functions.push(GeneratedHostedFunctionRow(
 			"calloc",
 			"stdlib",
 			GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()),
@@ -1735,6 +1670,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions2() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"cbrtl",
 			"math",
@@ -2464,9 +2402,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions3() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"expm1f",
 			"math",
@@ -2527,6 +2462,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions3() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"fabsf",
 			"math",
@@ -3278,9 +3216,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions4() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"fputc",
 			"stdio",
@@ -3346,6 +3281,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions4() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"free",
 			"stdlib",
@@ -4051,9 +3989,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions5() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"lgammaf",
 			"math",
@@ -4115,6 +4050,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions5() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"llabs",
 			"stdlib",
@@ -4878,9 +4816,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions6() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"openat",
 			"posix",
@@ -4943,6 +4878,9 @@ class GeneratedHostedAbiData {
 			"pclose",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions6() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"perror",
 			"stdio",
@@ -5700,9 +5638,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions7() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"rint",
 			"math",
@@ -5763,6 +5698,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions7() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"rmdir",
 			"posix",
@@ -6533,9 +6471,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions8() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"strerror",
 			"string",
@@ -6598,6 +6533,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions8() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"strncmp",
 			"string",
@@ -7346,9 +7284,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions9() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"ungetc",
 			"stdio",
@@ -7412,6 +7347,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions9() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"unsetenv",
 			"posix_process",
@@ -7590,11 +7528,6 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("btrc_gpu_read_buffer_checked");
 		self.functionNames.push("btrc_gpu_shader_destroy");
 		self.functionNames.push("btrc_gpu_write_buffer");
-		self.functionNames.push("btrc_gui_clear_font_if_active");
-		self.functionNames.push("btrc_gui_font_destroy");
-		self.functionNames.push("btrc_gui_font_load");
-		self.functionNames.push("btrc_gui_install_font_backend");
-		self.functionNames.push("btrc_gui_set_font");
 		self.functionNames.push("calloc");
 		self.functionNames.push("cbrt");
 		self.functionNames.push("cbrtf");
@@ -7729,14 +7662,14 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("fflagstostr");
 		self.functionNames.push("fflush");
 		self.functionNames.push("ffs");
-	}
-
-	private void pushFunctionNames1() {
 		self.functionNames.push("ffsctl");
 		self.functionNames.push("ffsl");
 		self.functionNames.push("ffsll");
 		self.functionNames.push("fgetattrlist");
 		self.functionNames.push("fgetc");
+	}
+
+	private void pushFunctionNames1() {
 		self.functionNames.push("fgetpos");
 		self.functionNames.push("fgetpwent");
 		self.functionNames.push("fgetpwent_r");
@@ -7982,14 +7915,14 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("lldiv");
 		self.functionNames.push("llrint");
 		self.functionNames.push("llrintf");
-	}
-
-	private void pushFunctionNames2() {
 		self.functionNames.push("llrintl");
 		self.functionNames.push("llround");
 		self.functionNames.push("llroundf");
 		self.functionNames.push("llroundl");
 		self.functionNames.push("localtime");
+	}
+
+	private void pushFunctionNames2() {
 		self.functionNames.push("localtime_r");
 		self.functionNames.push("lockf");
 		self.functionNames.push("log");
@@ -8235,14 +8168,14 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("ptsname_r");
 		self.functionNames.push("putc");
 		self.functionNames.push("putchar");
-	}
-
-	private void pushFunctionNames3() {
 		self.functionNames.push("putenv");
 		self.functionNames.push("putpwent");
 		self.functionNames.push("puts");
 		self.functionNames.push("pwrite");
 		self.functionNames.push("qecvt");
+	}
+
+	private void pushFunctionNames3() {
 		self.functionNames.push("qecvt_r");
 		self.functionNames.push("qfcvt");
 		self.functionNames.push("qfcvt_r");
@@ -8488,14 +8421,14 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("system");
 		self.functionNames.push("tan");
 		self.functionNames.push("tanf");
-	}
-
-	private void pushFunctionNames4() {
 		self.functionNames.push("tanh");
 		self.functionNames.push("tanhf");
 		self.functionNames.push("tanhl");
 		self.functionNames.push("tanl");
 		self.functionNames.push("tcdrain");
+	}
+
+	private void pushFunctionNames4() {
 		self.functionNames.push("tcflow");
 		self.functionNames.push("tcflush");
 		self.functionNames.push("tcgetattr");
@@ -11230,9 +11163,6 @@ class GeneratedHostedAbiData {
 		self.typeNames.push("atomic_wchar_t");
 		self.typeNames.push("blkcnt_t");
 		self.typeNames.push("blksize_t");
-		self.typeNames.push("btrc_font_draw_fn");
-		self.typeNames.push("btrc_font_height_fn");
-		self.typeNames.push("btrc_font_width_fn");
 		self.typeNames.push("btrc_gpu_destroy_compute_candidate_fn");
 		self.typeNames.push("caddr_t");
 		self.typeNames.push("cc_t");
@@ -11433,12 +11363,12 @@ class GeneratedHostedAbiData {
 		self.typeNames.push("timeval64");
 		self.typeNames.push("timezone");
 		self.typeNames.push("tm");
-	}
-
-	private void pushTypeNames1() {
 		self.typeNames.push("u_char");
 		self.typeNames.push("u_int");
 		self.typeNames.push("u_int16_t");
+	}
+
+	private void pushTypeNames1() {
 		self.typeNames.push("u_int32_t");
 		self.typeNames.push("u_int64_t");
 		self.typeNames.push("u_int8_t");
@@ -11527,9 +11457,6 @@ class GeneratedHostedAbiData {
 		self.typedefNames.push("atomic_wchar_t");
 		self.typedefNames.push("blkcnt_t");
 		self.typedefNames.push("blksize_t");
-		self.typedefNames.push("btrc_font_draw_fn");
-		self.typedefNames.push("btrc_font_height_fn");
-		self.typedefNames.push("btrc_font_width_fn");
 		self.typedefNames.push("btrc_gpu_destroy_compute_candidate_fn");
 		self.typedefNames.push("caddr_t");
 		self.typedefNames.push("cc_t");
@@ -14260,9 +14187,6 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("bsd_signal");
 		self.ownedNames.push("bsearch");
 		self.ownedNames.push("bsearch_b");
-		self.ownedNames.push("btrc_font_draw_fn");
-		self.ownedNames.push("btrc_font_height_fn");
-		self.ownedNames.push("btrc_font_width_fn");
 		self.ownedNames.push("btrc_gpu_acquire_compute");
 		self.ownedNames.push("btrc_gpu_async_complete");
 		self.ownedNames.push("btrc_gpu_async_create");
@@ -14285,11 +14209,6 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("btrc_gpu_read_buffer_checked");
 		self.ownedNames.push("btrc_gpu_shader_destroy");
 		self.ownedNames.push("btrc_gpu_write_buffer");
-		self.ownedNames.push("btrc_gui_clear_font_if_active");
-		self.ownedNames.push("btrc_gui_font_destroy");
-		self.ownedNames.push("btrc_gui_font_load");
-		self.ownedNames.push("btrc_gui_install_font_backend");
-		self.ownedNames.push("btrc_gui_set_font");
 		self.ownedNames.push("bzero");
 		self.ownedNames.push("caddr_t");
 		self.ownedNames.push("calloc");
@@ -14473,9 +14392,6 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("filesec_t");
 		self.ownedNames.push("filesec_unset_property");
 		self.ownedNames.push("finite");
-	}
-
-	private void pushOwnedNames11() {
 		self.ownedNames.push("finitef");
 		self.ownedNames.push("finitel");
 		self.ownedNames.push("fixpt_t");
@@ -14484,6 +14400,9 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("flockfile");
 		self.ownedNames.push("flocktimeout");
 		self.ownedNames.push("floor");
+	}
+
+	private void pushOwnedNames11() {
 		self.ownedNames.push("floorf");
 		self.ownedNames.push("floorl");
 		self.ownedNames.push("fls");
@@ -14726,9 +14645,6 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("ip_mreq_source");
 		self.ownedNames.push("ip_mreqn");
 		self.ownedNames.push("ip_msfilter");
-	}
-
-	private void pushOwnedNames12() {
 		self.ownedNames.push("ip_opts");
 		self.ownedNames.push("ipv6_mreq");
 		self.ownedNames.push("iruserok");
@@ -14737,6 +14653,9 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("isalpha");
 		self.ownedNames.push("isatty");
 		self.ownedNames.push("isblank");
+	}
+
+	private void pushOwnedNames12() {
 		self.ownedNames.push("iscntrl");
 		self.ownedNames.push("isdigit");
 		self.ownedNames.push("isfdtype");
@@ -14979,9 +14898,6 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("pow");
 		self.ownedNames.push("powf");
 		self.ownedNames.push("powl");
-	}
-
-	private void pushOwnedNames13() {
 		self.ownedNames.push("pread");
 		self.ownedNames.push("printf");
 		self.ownedNames.push("proc_rlimit_control_wakeupmon");
@@ -14990,6 +14906,9 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("pseudo_AF_HDRCMPLT");
 		self.ownedNames.push("pseudo_AF_KEY");
 		self.ownedNames.push("pseudo_AF_PIP");
+	}
+
+	private void pushOwnedNames13() {
 		self.ownedNames.push("pseudo_AF_RTIP");
 		self.ownedNames.push("pseudo_AF_XTP");
 		self.ownedNames.push("psiginfo");
@@ -15232,9 +15151,6 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("sae_connid_t");
 		self.ownedNames.push("sbrk");
 		self.ownedNames.push("scalb");
-	}
-
-	private void pushOwnedNames14() {
 		self.ownedNames.push("scalbf");
 		self.ownedNames.push("scalbl");
 		self.ownedNames.push("scalbln");
@@ -15243,6 +15159,9 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("scalbn");
 		self.ownedNames.push("scalbnf");
 		self.ownedNames.push("scalbnl");
+	}
+
+	private void pushOwnedNames14() {
 		self.ownedNames.push("scandir");
 		self.ownedNames.push("scandir_b");
 		self.ownedNames.push("scandirat");
@@ -15485,9 +15404,6 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("sysconf");
 		self.ownedNames.push("system");
 		self.ownedNames.push("tan");
-	}
-
-	private void pushOwnedNames15() {
 		self.ownedNames.push("tanf");
 		self.ownedNames.push("tanh");
 		self.ownedNames.push("tanhf");
@@ -15496,6 +15412,9 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("tcdrain");
 		self.ownedNames.push("tcflag_t");
 		self.ownedNames.push("tcflow");
+	}
+
+	private void pushOwnedNames15() {
 		self.ownedNames.push("tcflush");
 		self.ownedNames.push("tcgetattr");
 		self.ownedNames.push("tcgetpgrp");
@@ -15651,12 +15570,6 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("ynl");
 	}
 
-	private void pushNativeNames0() {
-		self.nativeNames.push("btrc_gui_font_destroy");
-		self.nativeNames.push("btrc_gui_font_load");
-		self.nativeNames.push("btrc_gui_set_font");
-	}
-
 	private void pushNativeInternalNames0() {
 		self.nativeInternalNames.push("btrc_gpu_acquire_compute");
 		self.nativeInternalNames.push("btrc_gpu_async_complete");
@@ -15686,8 +15599,6 @@ class GeneratedHostedAbiData {
 		self.nativeInternalNames.push("btrc_gpu_read_buffer_checked");
 		self.nativeInternalNames.push("btrc_gpu_shader_destroy");
 		self.nativeInternalNames.push("btrc_gpu_write_buffer");
-		self.nativeInternalNames.push("btrc_gui_clear_font_if_active");
-		self.nativeInternalNames.push("btrc_gui_install_font_backend");
 	}
 
 	private void pushRuntimeAdoptingHelpers0() {
@@ -15746,11 +15657,6 @@ class GeneratedHostedAbiData {
 		self.platformFunctionNames.push("btrc_gpu_read_buffer_checked");
 		self.platformFunctionNames.push("btrc_gpu_shader_destroy");
 		self.platformFunctionNames.push("btrc_gpu_write_buffer");
-		self.platformFunctionNames.push("btrc_gui_clear_font_if_active");
-		self.platformFunctionNames.push("btrc_gui_font_destroy");
-		self.platformFunctionNames.push("btrc_gui_font_load");
-		self.platformFunctionNames.push("btrc_gui_install_font_backend");
-		self.platformFunctionNames.push("btrc_gui_set_font");
 		self.platformFunctionNames.push("cfgetispeed");
 		self.platformFunctionNames.push("cfgetospeed");
 		self.platformFunctionNames.push("cfmakeraw");
@@ -15946,14 +15852,14 @@ class GeneratedHostedAbiData {
 		self.platformFunctionNames.push("index");
 		self.platformFunctionNames.push("inet6_opt_append");
 		self.platformFunctionNames.push("inet6_opt_find");
-	}
-
-	private void pushPlatformFunctionNames1() {
 		self.platformFunctionNames.push("inet6_opt_finish");
 		self.platformFunctionNames.push("inet6_opt_get_val");
 		self.platformFunctionNames.push("inet6_opt_init");
 		self.platformFunctionNames.push("inet6_opt_next");
 		self.platformFunctionNames.push("inet6_opt_set_val");
+	}
+
+	private void pushPlatformFunctionNames1() {
 		self.platformFunctionNames.push("inet6_option_alloc");
 		self.platformFunctionNames.push("inet6_option_append");
 		self.platformFunctionNames.push("inet6_option_find");
@@ -16199,14 +16105,14 @@ class GeneratedHostedAbiData {
 		self.platformFunctionNames.push("setrgid");
 		self.platformFunctionNames.push("setrlimit");
 		self.platformFunctionNames.push("setruid");
-	}
-
-	private void pushPlatformFunctionNames2() {
 		self.platformFunctionNames.push("setsgroups_np");
 		self.platformFunctionNames.push("setsid");
 		self.platformFunctionNames.push("setsockopt");
 		self.platformFunctionNames.push("setsourcefilter");
 		self.platformFunctionNames.push("setstate");
+	}
+
+	private void pushPlatformFunctionNames2() {
 		self.platformFunctionNames.push("setstate_r");
 		self.platformFunctionNames.push("settimeofday");
 		self.platformFunctionNames.push("setuid");
@@ -18722,9 +18628,6 @@ class GeneratedHostedAbiData {
 		self.platformTypeNames.push("active_reg_t");
 		self.platformTypeNames.push("blkcnt_t");
 		self.platformTypeNames.push("blksize_t");
-		self.platformTypeNames.push("btrc_font_draw_fn");
-		self.platformTypeNames.push("btrc_font_height_fn");
-		self.platformTypeNames.push("btrc_font_width_fn");
 		self.platformTypeNames.push("btrc_gpu_destroy_compute_candidate_fn");
 		self.platformTypeNames.push("caddr_t");
 		self.platformTypeNames.push("cc_t");
@@ -18923,9 +18826,6 @@ class GeneratedHostedAbiData {
 		self.platformTypedefNames.push("active_reg_t");
 		self.platformTypedefNames.push("blkcnt_t");
 		self.platformTypedefNames.push("blksize_t");
-		self.platformTypedefNames.push("btrc_font_draw_fn");
-		self.platformTypedefNames.push("btrc_font_height_fn");
-		self.platformTypedefNames.push("btrc_font_width_fn");
 		self.platformTypedefNames.push("btrc_gpu_destroy_compute_candidate_fn");
 		self.platformTypedefNames.push("caddr_t");
 		self.platformTypedefNames.push("cc_t");

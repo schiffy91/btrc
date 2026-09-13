@@ -1,5 +1,5 @@
 .PHONY: all help build package wheel btrcc btrcc-release-c btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
-        btrcc-windows-x64 btrcc-dist test-windows gpu gpu-required gui ast-generate ast-generate-btrc \
+        btrcc-windows-x64 btrcc-dist test-windows gpu gpu-required ast-generate ast-generate-btrc \
         test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
         generated-check compiler-codegen-generate compiler-codegen-check lint format format-check format-btrc format-btrc-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
@@ -33,7 +33,7 @@ LINUX_CI_TARGETS ?= gpu-required test
 # Keep exclusions exact: btrc-format rejects missing or undiscovered paths.
 BTRC_FORMAT_EXCLUDES := --exclude src/tests/formatter/fixtures/ImportGroups.btrc
 
-all: generated-check build gpu gui test lint examples extension ## Build and verify everything
+all: generated-check build gpu test lint examples extension ## Build and verify everything
 
 build: generated-check ## Create bin/btrcpy wrapper script
 	@mkdir -p bin
@@ -197,29 +197,6 @@ gpu-required: gpu ## Require the compiler's WebGPU compute runtime
 		}; \
 		$(HOST_AR) t "$$archive" | grep -q "btrc_gpu_async\\.o$$"'
 
-
-gui: ## Build raster font dispatch and optional FreeType backend
-	@$(NIX) bash -c '\
-		D=src/stdlib/GUI && O=build/stdlib/GUI && mkdir -p "$$O" && \
-		archive="$$O/libbtrc_gui.a" && object="$$O/btrc_gui.o" && \
-		rm -f "$$archive" "$$object" && \
-		trap "rm -f \"$$archive\" \"$$object\"" EXIT && \
-		$(CC) $(NATIVE_CFLAGS) -O2 -c "$$D/btrc_gui.c" -o "$$object" && \
-		$(HOST_AR) rcs "$$archive" "$$object" && \
-		trap - EXIT && \
-		echo "Built: $$archive (software renderer)"'
-	@$(NIX) bash -c '\
-		D=src/stdlib/GUI && O=build/stdlib/GUI && mkdir -p "$$O" && \
-		archive="$$O/libbtrc_gui_font.a" && object="$$O/btrc_gui_font.o" && \
-		rm -f "$$archive" "$$object" && \
-		trap "rm -f \"$$archive\" \"$$object\"" EXIT && \
-		if ! $(CC) $$FONT_CFLAGS -std=c11 -I"$$D" -E "$$D/btrc_gui_font.c" -o /dev/null 2>/dev/null; then \
-			echo "GUI font backend skipped (missing FreeType headers)"; exit 0; \
-		fi && \
-		$(CC) $$FONT_CFLAGS $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gui_font.c" -o "$$object" && \
-		$(HOST_AR) rcs "$$archive" "$$object" && \
-		trap - EXIT && \
-		echo "Built: $$archive (FreeType scalable fonts)"'
 
 ast-generate: compiler-codegen-generate ## Regenerate both AST catalogs through the unified owner
 

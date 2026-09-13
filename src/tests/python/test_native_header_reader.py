@@ -10,7 +10,13 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.abi.native_generated import NativeCxxClass, NativeCxxMethod, NativeObjectiveCMethod
-from src.compiler.python.frontend.native_imports import NativeHeaderCodec, NativeImportError
+from src.compiler.python.frontend.native_imports import (
+    NativeDeclarationImporter,
+    NativeHeaderCodec,
+    NativeHeaderSource,
+    NativeImportError,
+)
+from src.compiler.python.frontend.packages import NativeBinding, NativeInitializerBinding, NativeResourceBinding
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -771,7 +777,13 @@ def test_cpp_pugixml_sdk_resource_metadata(reader, codec_probe, tmp_path):
         pytest.skip("pugixml SDK is not installed")
     import shlex
 
-    symbols = ["pugi::xml_document", "pugi::xml_node", "pugi::xml_attribute", "pugi::xml_parse_result"]
+    symbols = [
+        "pugi::xml_document",
+        "pugi::xml_node",
+        "pugi::xml_attribute",
+        "pugi::xml_parse_result",
+        "pugi::status_ok",
+    ]
     symbols += ["pugi::xml_document::" + name for name in ("load_buffer", "document_element", "first_child")]
     symbols += [
         "pugi::xml_node::" + name
@@ -805,6 +817,77 @@ def test_cpp_pugixml_sdk_resource_metadata(reader, codec_probe, tmp_path):
     assert record["name"] == "pugi::xml_parse_result"
     assert [field["name"] for field in record["fields"]] == ["status", "offset", "encoding"]
     assert_codec_parity(codec_probe, tmp_path, result.stdout)
+    resources = tuple(
+        NativeResourceBinding(
+            name="pugi::" + sdk,
+            ownership="unique" if alias == "PugiDocument" else "owner-bound-value",
+            retain="",
+            release="delete" if alias == "PugiDocument" else "",
+            alias=alias,
+            constructor="default" if alias == "PugiDocument" else "",
+            owner="" if alias == "PugiDocument" else "pugi::xml_document",
+            methods=tuple(
+                name.removeprefix("pugi::" + sdk + "::")
+                for name in symbols
+                if name.startswith("pugi::" + sdk + "::") and not name.endswith("::load_buffer")
+            ),
+        )
+        for sdk, alias in (
+            ("xml_document", "PugiDocument"),
+            ("xml_node", "PugiNode"),
+            ("xml_attribute", "PugiAttribute"),
+        )
+    )
+    copies = tuple(
+        (name.removesuffix("()"), "string", "self", "", ())
+        for name in symbols
+        if name.endswith(("::name", "::value", "::child_value()"))
+    )
+    binding = NativeBinding(
+        "pugi",
+        "Api",
+        "pugixml.hpp",
+        "c++",
+        "c++17",
+        tuple(symbols),
+        resources=resources,
+        owned_records=("pugi::xml_parse_result",),
+        copied_results=copies,
+        read_only_borrows=("pugi::xml_document::load_buffer.contents",),
+        initializers=(
+            NativeInitializerBinding(
+                "pugi::xml_document::load_buffer",
+                "pugi::xml_document",
+                "",
+                "PugiParseOutcome",
+                "pugi::status_ok",
+                status_field="status",
+            ),
+        ),
+    )
+    importer = NativeDeclarationImporter()
+    importer._origin = NativeHeaderSource("Api", "pugixml.hpp", language="c++")
+    importer._prepare_cxx_resources(binding, NativeHeaderCodec().decode(result.stdout))
+    document = importer._declarations[("Api", "PugiDocument")]
+    factory = next(method for method in document.members if method.name == "load_buffer")
+    assert factory.access == "class" and factory.return_type.base == "PugiParseOutcome"
+    assert all(method.name != "create" for method in document.members)
+    assert document.source_file.methods["load_buffer"].cxx_method.status_field == "status"
+    for alias in ("PugiDocument", "PugiNode", "PugiAttribute"):
+        owner = importer._declarations[("Api", alias)]
+        assert owner.source_file.type_spelling == "void*"
+        assert all(method.cxx_method.root_owner == "PugiDocument" for method in owner.source_file.methods.values())
+    [status, outcome] = importer._input_classes
+    assert status.name == "PugiParseOutcomeStatus" and [field.name for field in status.members] == [
+        "status",
+        "offset",
+        "encoding",
+    ]
+    assert outcome.name == "PugiParseOutcome" and [field.name for field in outcome.members] == [
+        "called",
+        "status",
+        "value",
+    ]
 
 
 @pytest.mark.parametrize(

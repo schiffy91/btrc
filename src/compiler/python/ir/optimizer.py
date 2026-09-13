@@ -12,6 +12,7 @@ from .nodes import (
     IRBlock,
     IRCall,
     IRCast,
+    IRCxxNew,
     IRDoWhile,
     IREnumDef,
     IRExprStmt,
@@ -444,7 +445,7 @@ class IROptimizer:
     @staticmethod
     def _initializer_has_side_effects(value: object) -> bool:
         for node in IRNode.walk_value(value):
-            if isinstance(node, (IRCall, IRStmtExpr, IRObjectiveCMessage, IRObjectiveCBlock)) or (
+            if isinstance(node, (IRCall, IRStmtExpr, IRObjectiveCMessage, IRObjectiveCBlock, IRCxxNew)) or (
                 isinstance(node, IRCast) and node.bridge in ("retain", "transfer")
             ):
                 return True

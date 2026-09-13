@@ -319,8 +319,8 @@ class MacOSWindow implements IWindow {
 			}
 		} catch (string error) {
 			self._closeFailure = error;
-			throw error;
 		} finally { self._mutating = false; }
+		if (self._closeFailure != "") { throw self._closeFailure; }
 		return result;
 	}
 

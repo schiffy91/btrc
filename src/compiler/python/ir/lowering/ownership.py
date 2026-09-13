@@ -697,6 +697,10 @@ class ManagedValueSemantics:
         return canonical is not None and self.is_class(canonical) and self.is_native_name(canonical.base)
 
     def is_managed(self, type_expr: TypeExpr | None) -> bool:
+        canonical = self.canonical(type_expr)
+        info = self._analyzed.class_table.get(canonical.base) if canonical else None
+        if info is not None and info.native_invocation:
+            return False
         return self.is_string(type_expr) or self.is_class(type_expr) or self.is_mutex(type_expr)
 
     def runtime_name(self, type_expr: TypeExpr) -> str:

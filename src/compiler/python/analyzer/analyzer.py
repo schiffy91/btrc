@@ -140,6 +140,7 @@ class SemanticAnalyzer:
             self.statements.analyze_declaration(declaration)
         self.generics.collect_native_callback_instances(program)
         self.generics.close_generic_instance_graph()
+        self.ownership.validate_native_invocations(program)
         realtime_safe_callables = self.realtime.analyze(program)
         self.ownership.validate_generic_type_facts()
         self.generated_symbols.validate_program_symbols(program)

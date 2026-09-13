@@ -8,7 +8,7 @@ exports = [
 	"BackgroundJobs", "BitPattern", "Bytes", "CLI", "Callback", "Console", "DDSEncodedImageDecoder", "Daemon", "DaemonControl", "DaemonControlFiles", "DaemonControlProtocol", "Datetime", "Digest",
 	"EncodedImage", "Error", "FileSystem", "FileSystemHandles", "FileTree",
 	"GPU.Device", "GPU.ImageTexture", "GPU.Program", "GPU.Readback", "GPU.SurfaceRenderer", "GPU.UniformBuffer", "GPU.WebGPU",
-	"GUI.Font", "GUI.FontFace", "GUI.GUI", "GUI.Geometry", "GUI.IApplication", "GUI.IButton", "GUI.IContainer", "GUI.IGPUView", "GUI.IStack", "GUI.ITextField", "GUI.IView", "GUI.IWindow",
+	"GUI.Font", "GUI.FontFace", "GUI.FreeType", "GUI.GUI", "GUI.Geometry", "GUI.IApplication", "GUI.IButton", "GUI.IContainer", "GUI.IGPUView", "GUI.IStack", "GUI.ITextField", "GUI.IView", "GUI.IWindow",
 	"GUI.Capture", "GUI.ILabel", "GUI.IImageView", "GUI.IPanel", "GUI.IProgressIndicator", "GUI.ILevelIndicator", "GUI.ISlider", "GUI.ISelect", "GUI.IScrollView", "GUI.IGrid",
 	"GUI.MacOS.AppKitEvents", "GUI.MacOS.AppKitText", "GUI.MacOS.MacOSActionQueue", "GUI.MacOS.MacOSApplication", "GUI.MacOS.MacOSButton", "GUI.MacOS.MacOSComposedCapture", "GUI.MacOS.MacOSContainer",
 	"GUI.MacOS.MacOSGPUSurface", "GUI.MacOS.MacOSGrid", "GUI.MacOS.MacOSImageView", "GUI.MacOS.MacOSLabel", "GUI.MacOS.MacOSLevelIndicator", "GUI.MacOS.MacOSPanel", "GUI.MacOS.MacOSProgressIndicator",
@@ -123,8 +123,64 @@ module = "GUI.Raster"
 header = "GUI/btrc_gui.h"
 language = "c"
 standard = "c11"
-symbols = ["BtrcGuiPixels", "GuiBlendPixel", "gui_draw_font", "gui_font_width", "gui_font_height"]
-read-only-borrows = ["gui_draw_font.text", "gui_font_width.text"]
+symbols = ["BtrcGuiPixels"]
+
+[[native.bindings]]
+module = "GUI.FreeType.FreeTypeFace"
+header = "GUI/FreeType/FreeType.h"
+language = "c"
+standard = "c11"
+symbols = ["FT_Library", "FT_Face", "FT_Init_FreeType", "FT_Done_FreeType", "FT_New_Face", "FT_Done_Face", "FT_Set_Pixel_Sizes", "FT_Load_Char", "BTRC_FT_LOAD_DEFAULT", "BTRC_FT_LOAD_RENDER", "FT_PIXEL_MODE_MONO", "FT_PIXEL_MODE_GRAY"]
+borrowed-parameters = ["FT_New_Face.library", "FT_Set_Pixel_Sizes.face", "FT_Load_Char.face"]
+read-only-borrows = ["FT_New_Face.filepathname"]
+
+# FreeType 2.14.3's valid freshly created claims have reference count one.
+# This private provider does not import FT_Reference_* or expose raw handles.
+# FT_Done_Face consumes that valid claim; FT_Done_FreeType consumes the library
+# and memory manager. Invalid handles are outside this provider's contract.
+[native.bindings.resources.FT_Library]
+ownership = "unique"
+release = "FT_Done_FreeType"
+release-consumption = "always"
+cleanup-status = "discard"
+
+[native.bindings.resources.FT_Face]
+ownership = "unique"
+release = "FT_Done_Face"
+release-consumption = "always"
+cleanup-status = "discard"
+
+[native.bindings.owned-outputs."FT_Init_FreeType.alibrary"]
+result = "FreeTypeLibraryResult"
+
+[native.bindings.owned-outputs."FT_New_Face.aface"]
+result = "FreeTypeFaceResult"
+
+[native.bindings.record-snapshots.FreeTypeMetricsSnapshot]
+owner = "FT_Face"
+name = "copyFreeTypeMetrics"
+fields = {ascender = "size.metrics.ascender", height = "size.metrics.height"}
+
+[native.bindings.record-snapshots.FreeTypeAdvanceSnapshot]
+owner = "FT_Face"
+name = "copyFreeTypeAdvance"
+fields = {advanceX = "glyph.advance.x"}
+
+[native.bindings.record-snapshots.FreeTypeGlyphSnapshot]
+owner = "FT_Face"
+name = "copyFreeTypeGlyph"
+fields = {advanceX = "glyph.advance.x", left = "glyph.bitmap_left", top = "glyph.bitmap_top", width = "glyph.bitmap.width", rows = "glyph.bitmap.rows", pitch = "glyph.bitmap.pitch", pixelMode = "glyph.bitmap.pixel_mode", numGrays = "glyph.bitmap.num_grays"}
+
+[native.bindings.record-snapshots.FreeTypeGlyphSnapshot.byte-plane]
+field = "bitmap"
+pointer = "glyph.bitmap.buffer"
+width = "glyph.bitmap.width"
+rows = "glyph.bitmap.rows"
+pitch = "glyph.bitmap.pitch"
+
+[[native.pkg-config]]
+name = "freetype2"
+modules = ["GUI.FreeType.FreeTypeFace"]
 
 [[native.bindings]]
 module = "MacOSDirectoryPicker"

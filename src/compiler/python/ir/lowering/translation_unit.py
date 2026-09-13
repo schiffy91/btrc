@@ -291,7 +291,9 @@ class TranslationUnitLowerer:
                         self._emit_global_var(decl)
                     emitted_globals.add(decl.name)
                 if isinstance(decl, ClassDecl):
-                    if decl.source_file.resource is not None:
+                    if decl.source_file.invocation:
+                        continue
+                    elif decl.source_file.resource is not None:
                         self._functions.emit_resource_lifetime(decl)
                     else:
                         self._functions.emit_objective_c_adapters(decl)

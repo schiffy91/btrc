@@ -53,16 +53,6 @@
 #endif
 #include BTRC_RT_GPU_HEADER
 #endif
-#ifdef BTRC_RT_NEEDS_GUI
-#ifndef BTRC_RT_GUI_HEADER
-#define BTRC_RT_GUI_HEADER <btrc_gui.h>
-#endif
-#ifndef BTRC_RT_GUI_FONT_HEADER
-#define BTRC_RT_GUI_FONT_HEADER <btrc_gui_font.h>
-#endif
-#include BTRC_RT_GUI_HEADER
-#include BTRC_RT_GUI_FONT_HEADER
-#endif
 
 #else
 /* ========================================================================= *
@@ -161,19 +151,13 @@ double fabs(double);
 #endif
 
 /* -- Optional native runtimes -------------------------------------------- *
- *  Native GPU/GUI/tray APIs are target-owned. Name one shim header for each
+ *  Native compute APIs are target-owned. Name a shim header for each
  *  feature reached by the program; the shim declares the complete C ABI.    */
 #ifdef BTRC_RT_NEEDS_GPU
 #ifndef BTRC_RT_GPU_HEADER
 #error "GPU freestanding builds require BTRC_RT_GPU_HEADER"
 #endif
 #include BTRC_RT_GPU_HEADER
-#endif
-#ifdef BTRC_RT_NEEDS_GUI
-#ifndef BTRC_RT_GUI_HEADER
-#error "GUI freestanding builds require BTRC_RT_GUI_HEADER"
-#endif
-#include BTRC_RT_GUI_HEADER
 #endif
 
 #ifdef BTRC_FREESTANDING_IMPL

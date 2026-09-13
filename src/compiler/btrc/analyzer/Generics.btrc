@@ -61,8 +61,18 @@ class GenericSpecializer {
 				FeNativeCallContract? contract = imported.callContract;
 				if (member.kind != NK_FUNCTION_DECL) { contract = imported.methods.has(member.name) ? imported.methods.get(member.name) : null; }
 				if (contract == null) { continue; }
+				if ((contract.copiedResult != null && contract.copiedResult.kind == "bytes") || (contract.recordSnapshot != null && !contract.recordSnapshot.byteField.isEmpty())) {
+					Node? constructor = self.analyzed.classConstructor("Bytes");
+					Node? fromRaw = self.analyzed.classMethod("Bytes", "fromRaw");
+					if (constructor == null || fromRaw == null || !hostedAbi.compilerStdlibNode(constructor) || !hostedAbi.compilerStdlibNode(fromRaw)) { throw "Copied native bytes require authenticated import Library.Bytes"; }
+				}
 				for callback in contract.callbacks {
 					if (callback.unregister == null && !callback.oneShot) { continue; }
+					if (callback.realtime != null) {
+						Node? constructor = self.analyzed.classConstructor("CallbackState");
+						if (constructor == null || !hostedAbi.compilerStdlibNode(constructor)) { throw "Stored native callbacks require import Library.Callback"; }
+						continue;
+					}
 					Node context = member.returnType;
 					if (callback.oneShot && context.base == "CallbackResult") {
 						if (!self.analyzed.genericClassTable.has(context.base) || !hostedAbi.compilerStdlibNode(self.analyzed.genericClassTable.get(context.base))) { throw "Stored native callbacks require import Library.Callback"; }

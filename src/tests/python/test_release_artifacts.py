@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import sys
@@ -10,8 +9,6 @@ import tarfile
 import tomllib
 import zipfile
 from pathlib import Path
-
-import pytest
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -82,77 +79,3 @@ def test_production_test_targets_require_gpu_and_cover_both_compilers() -> None:
     assert "--compilers=python,btrc" in c11_recipe
     assert ("PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 gpu-required test") in ci
     assert ".#checks.x86_64-linux.gpu-runtime-package" in ci
-
-
-def _write_fake_native_tools(directory: Path) -> tuple[Path, Path]:
-    compiler = directory / "fake-cc"
-    compiler.write_text(
-        """#!/bin/sh
-phase=compile
-source=
-output=
-while [ "$#" -gt 0 ]; do
-    case "$1" in
-        -E) phase=probe ;;
-        *.c) source=$(basename "$1") ;;
-        -o) shift; output=$1 ;;
-    esac
-    shift
-done
-if [ "$source" = "$FAIL_SOURCE" ] && [ "$phase" = "$FAIL_PHASE" ]; then
-    exit 17
-fi
-if [ -n "$output" ] && [ "$output" != /dev/null ]; then
-    : > "$output"
-fi
-""",
-        encoding="utf-8",
-    )
-    archiver = directory / "fake-ar"
-    archiver.write_text(
-        """#!/bin/sh
-if [ "$1" = rcs ]; then
-    : > "$2"
-fi
-""",
-        encoding="utf-8",
-    )
-    compiler.chmod(0o755)
-    archiver.chmod(0o755)
-    return compiler, archiver
-
-
-@pytest.mark.parametrize(
-    ("source_name", "phase", "stem", "succeeds"),
-    (
-        ("btrc_gui.c", "compile", "btrc_gui", False),
-        ("btrc_gui_font.c", "probe", "btrc_gui_font", True),
-        ("btrc_gui_font.c", "compile", "btrc_gui_font", False),
-    ),
-)
-def test_gui_rule_removes_stale_outputs_on_probe_or_compile_failure(
-    tmp_path: Path,
-    source_name: str,
-    phase: str,
-    stem: str,
-    succeeds: bool,
-) -> None:
-    build = tmp_path / "build/stdlib/GUI"
-    build.mkdir(parents=True)
-    archive = build / f"lib{stem}.a"
-    object_file = build / f"{stem}.o"
-    archive.write_text("stale archive", encoding="utf-8")
-    object_file.write_text("stale object", encoding="utf-8")
-    compiler, archiver = _write_fake_native_tools(tmp_path)
-    result = subprocess.run(
-        ["make", "-f", str(REPO / "Makefile"), "gui", "NIX=", f"CC={compiler}", f"HOST_AR={archiver}"],
-        cwd=tmp_path,
-        env={**os.environ, "FAIL_SOURCE": source_name, "FAIL_PHASE": phase},
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-
-    assert (result.returncode == 0) is succeeds, result.stderr
-    assert not archive.exists()
-    assert not object_file.exists()

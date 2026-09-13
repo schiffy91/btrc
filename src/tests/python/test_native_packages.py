@@ -108,6 +108,141 @@ _RESOURCE_BINDING = _BINDING.replace(
     'retain = "WidgetRetain"\nrelease = "WidgetRelease"\n'
 )
 
+_CPP_RESOURCE_BINDING = """
+[[native.bindings]]
+module = "Api"
+header = "Native.h"
+language = "c++"
+standard = "c++17"
+symbols = ["pugi::xml_document", "pugi::xml_node", "pugi::xml_document::load_buffer", "pugi::status_ok"]
+[native.bindings.resources."pugi::xml_document"]
+name = "PugiDocument"
+ownership = "unique"
+constructor = "default"
+release = "delete"
+methods = ["document_element"]
+[native.bindings.resources."pugi::xml_node"]
+name = "PugiNode"
+ownership = "owner-bound-value"
+owner = "pugi::xml_document"
+methods = ["name", "first_child", "empty"]
+[native.bindings.initializers."pugi::xml_document::load_buffer"]
+resource = "pugi::xml_document"
+result = "PugiParseOutcome"
+success = "pugi::status_ok"
+status-field = "status"
+failure = "destroy"
+"""
+
+
+@pytest.mark.parametrize("explicit_zero", [False, True])
+def test_cpp_resource_binding_preserves_sdk_identity_and_root_owner(tmp_path, explicit_zero):
+    source = _binding_package(
+        tmp_path, _CPP_RESOURCE_BINDING.replace('"empty"', '"empty()"') if explicit_zero else _CPP_RESOURCE_BINDING
+    )
+    resolved = PackageUniverse().resolve_for(str(source), target="macos-aarch64")
+    [binding] = resolved.native_plan.for_sources([str(tmp_path / "src/Api.btrc")]).bindings
+    document, node = binding.resources
+    assert (document.name, document.alias, document.ownership) == ("pugi::xml_document", "PugiDocument", "unique")
+    assert (document.constructor, document.release, document.methods) == (
+        "default",
+        "delete",
+        ("document_element",),
+    )
+    assert (node.name, node.alias, node.ownership, node.owner) == (
+        "pugi::xml_node",
+        "PugiNode",
+        "owner-bound-value",
+        document.name,
+    )
+    assert node.methods == ("empty()" if explicit_zero else "empty", "first_child", "name")
+    [factory] = binding.initializers
+    assert (
+        factory.function,
+        factory.resource,
+        factory.parameter,
+        factory.result,
+        factory.success,
+        factory.status_field,
+    ) == ("pugi::xml_document::load_buffer", document.name, "", "PugiParseOutcome", "pugi::status_ok", "status")
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "message"),
+    [
+        ('methods = ["document_element"]', 'methods = ["document_element", "load_buffer"]', "instance mutation"),
+        ('methods = ["document_element"]', 'methods = ["load_buffer()"]', "instance mutation"),
+        ('status-field = "status"', 'status-field = "status.value"', "identifier"),
+        ('failure = "destroy"', 'failure = "keep"', "failure = destroy"),
+        ('result = "PugiParseOutcome"', 'result = "PugiNode"', "distinct result"),
+        ('success = "pugi::status_ok"', 'success = "missing"', "selected success constant"),
+        ('resource = "pugi::xml_document"', 'resource = "pugi::xml_node"', "unique SDK receiver"),
+    ],
+)
+def test_cpp_initializer_rejects_unpublished_owner_ambiguity(tmp_path, before, after, message):
+    source = _binding_package(tmp_path, _CPP_RESOURCE_BINDING.replace(before, after))
+    with pytest.raises(IncludeResolutionError, match=message):
+        PackageUniverse().resolve_for(str(source), target="macos-aarch64")
+
+
+def test_cpp_unique_owner_requires_checked_initialization(tmp_path):
+    source = _binding_package(tmp_path, _CPP_RESOURCE_BINDING.split("[native.bindings.initializers.")[0])
+    with pytest.raises(IncludeResolutionError, match="checked initialization factory"):
+        PackageUniverse().resolve_for(str(source), target="macos-aarch64")
+
+
+@pytest.mark.parametrize("owner", ["self", "other"])
+def test_cpp_copied_strings_admit_selected_method_receiver(tmp_path, owner):
+    source = _binding_package(
+        tmp_path,
+        _CPP_RESOURCE_BINDING
+        + '\n[native.bindings.copied-results."pugi::xml_node::name"]\nkind = "string"\nowner = "'
+        + owner
+        + '"\n',
+    )
+    if owner != "self":
+        with pytest.raises(IncludeResolutionError, match="owner = self"):
+            PackageUniverse().resolve_for(str(source), target="macos-aarch64")
+        return
+    resolved = PackageUniverse().resolve_for(str(source), target="macos-aarch64")
+    [binding] = resolved.native_plan.for_sources([str(tmp_path / "src/Api.btrc")]).bindings
+    assert binding.copied_results == (("pugi::xml_node::name", "string", "self", "", ()),)
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "message"),
+    [
+        ('name = "PugiNode"', 'name = "PugiDocument"', "aliases must be distinct"),
+        ('name = "PugiNode"', 'name = "not::alias"', "identifier"),
+        ('constructor = "default"', 'constructor = "copy"', "default/delete"),
+        ('release = "delete"', 'release = "release"', "default/delete"),
+        ('owner = "pugi::xml_document"', 'owner = "pugi::xml_node"', "unique originating"),
+        ('owner = "pugi::xml_document"', 'owner = "Other"', "unique originating"),
+        ('methods = ["name", "first_child", "empty"]', 'methods = ["create"]', "public method names"),
+        ('methods = ["name", "first_child", "empty"]', 'methods = ["empty", "empty"]', "public method names"),
+        ('methods = ["name", "first_child", "empty"]', 'methods = ["empty", "empty()"]', "public method names"),
+        ('methods = ["name", "first_child", "empty"]', 'methods = ["empty(int)"]', "public method names"),
+        ('release = "delete"', 'release = "delete"\nretain = "retain"', "default/delete"),
+        ('language = "c++"\nstandard = "c++17"', 'language = "c"\nstandard = "c11"', "selected typedefs"),
+    ],
+)
+def test_cpp_resource_binding_rejects_ambiguous_lifetime_facts(tmp_path, before, after, message):
+    source = _binding_package(tmp_path, _CPP_RESOURCE_BINDING.replace(before, after))
+    with pytest.raises(IncludeResolutionError, match=message):
+        PackageUniverse().resolve_for(str(source), target="macos-aarch64")
+
+
+def test_cpp_owned_records_select_sdk_scalar_result_without_resource_alias(tmp_path):
+    declaration = _CPP_RESOURCE_BINDING.replace(
+        '"pugi::status_ok"]',
+        '"pugi::status_ok", "pugi::xml_parse_result"]\nowned-records = ["pugi::xml_parse_result"]',
+    )
+    source = _binding_package(tmp_path, declaration)
+    resolved = PackageUniverse().resolve_for(str(source), target="macos-aarch64")
+    [binding] = resolved.native_plan.for_sources([str(tmp_path / "src/Api.btrc")]).bindings
+    assert binding.owned_records == ("pugi::xml_parse_result",)
+    assert all(resource.name != "pugi::xml_parse_result" for resource in binding.resources)
+
 
 @pytest.mark.parametrize("shared_hooks", [False, True])
 def test_native_resource_binding_preserves_ownership_facts(tmp_path, shared_hooks):

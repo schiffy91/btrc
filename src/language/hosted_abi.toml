@@ -120,11 +120,6 @@ functions = [
   "btrc_gpu_read_buffer_checked",
   "btrc_gpu_shader_destroy",
   "btrc_gpu_write_buffer",
-  "btrc_gui_clear_font_if_active",
-  "btrc_gui_font_destroy",
-  "btrc_gui_font_load",
-  "btrc_gui_install_font_backend",
-  "btrc_gui_set_font",
   "calloc",
   "cbrt",
   "cbrtf",
@@ -3717,9 +3712,6 @@ types = [
   "atomic_wchar_t",
   "blkcnt_t",
   "blksize_t",
-  "btrc_font_draw_fn",
-  "btrc_font_height_fn",
-  "btrc_font_width_fn",
   "btrc_gpu_destroy_compute_candidate_fn",
   "caddr_t",
   "cc_t",
@@ -4010,9 +4002,6 @@ typedefs = [
   "atomic_wchar_t",
   "blkcnt_t",
   "blksize_t",
-  "btrc_font_draw_fn",
-  "btrc_font_height_fn",
-  "btrc_font_width_fn",
   "btrc_gpu_destroy_compute_candidate_fn",
   "caddr_t",
   "cc_t",
@@ -6712,9 +6701,6 @@ owned = [
   "bsd_signal",
   "bsearch",
   "bsearch_b",
-  "btrc_font_draw_fn",
-  "btrc_font_height_fn",
-  "btrc_font_width_fn",
   "btrc_gpu_acquire_compute",
   "btrc_gpu_async_complete",
   "btrc_gpu_async_create",
@@ -6737,11 +6723,6 @@ owned = [
   "btrc_gpu_read_buffer_checked",
   "btrc_gpu_shader_destroy",
   "btrc_gpu_write_buffer",
-  "btrc_gui_clear_font_if_active",
-  "btrc_gui_font_destroy",
-  "btrc_gui_font_load",
-  "btrc_gui_install_font_backend",
-  "btrc_gui_set_font",
   "bzero",
   "caddr_t",
   "calloc",
@@ -8088,9 +8069,6 @@ owned = [
   "ynl",
 ]
 native = [
-  "btrc_gui_font_destroy",
-  "btrc_gui_font_load",
-  "btrc_gui_set_font",
 ]
 native_internal = [
   "btrc_gpu_acquire_compute",
@@ -8121,8 +8099,6 @@ native_internal = [
   "btrc_gpu_read_buffer_checked",
   "btrc_gpu_shader_destroy",
   "btrc_gpu_write_buffer",
-  "btrc_gui_clear_font_if_active",
-  "btrc_gui_install_font_backend",
 ]
 runtime_adopting_helpers = [
   "__btrc_str_track",
@@ -8181,11 +8157,6 @@ functions = [
   "btrc_gpu_read_buffer_checked",
   "btrc_gpu_shader_destroy",
   "btrc_gpu_write_buffer",
-  "btrc_gui_clear_font_if_active",
-  "btrc_gui_font_destroy",
-  "btrc_gui_font_load",
-  "btrc_gui_install_font_backend",
-  "btrc_gui_set_font",
   "cfgetispeed",
   "cfgetospeed",
   "cfmakeraw",
@@ -11121,9 +11092,6 @@ types = [
   "active_reg_t",
   "blkcnt_t",
   "blksize_t",
-  "btrc_font_draw_fn",
-  "btrc_font_height_fn",
-  "btrc_font_width_fn",
   "btrc_gpu_destroy_compute_candidate_fn",
   "caddr_t",
   "cc_t",
@@ -11321,9 +11289,6 @@ typedefs = [
   "active_reg_t",
   "blkcnt_t",
   "blksize_t",
-  "btrc_font_draw_fn",
-  "btrc_font_height_fn",
-  "btrc_font_width_fn",
   "btrc_gpu_destroy_compute_candidate_fn",
   "caddr_t",
   "cc_t",
@@ -12418,45 +12383,6 @@ parameters = [
   { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
   { base = "void", pointer_depth = 1, is_const = false, effect = "read" },
   { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "btrc_gui_font_destroy"
-origin = "native_gui"
-result = { base = "void", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "consume" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = true
-consume_deallocator = "btrc_gui_font_destroy"
-
-[[functions]]
-name = "btrc_gui_font_load"
-origin = "native_gui"
-result = { base = "void", pointer_depth = 1, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-]
-variadic = false
-return_effect = "independent"
-raw_lifetime = false
-return_deallocator = "btrc_gui_font_destroy"
-
-[[functions]]
-name = "btrc_gui_set_font"
-origin = "native_gui"
-result = { base = "void", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "unknown" },
 ]
 variadic = false
 return_effect = "value"

@@ -719,7 +719,7 @@ C11_RESERVED_NAMES = frozenset(
         "_Thread_local",
     }
 )
-_PUBLIC_NATIVE_BINDINGS = frozenset({"btrc_gpu_available", "btrc_gui_font_load"})
+_PUBLIC_NATIVE_BINDINGS = frozenset({"btrc_gpu_available"})
 _COMPILER_RESERVED_PREFIXES = ("__btrc_", "__BTRC_", "__gpu_", "btrc_")
 MAGIC_METHOD_SIGNATURES = {
     "__add__": (1, None),
@@ -1329,11 +1329,17 @@ class DeclarationRegistry:
         inheritance: InheritanceResolver,
     ) -> None:
         policy = self
+        origin = declaration.source_file
         top_level.claim_name(
             declaration.name,
             "class",
             declaration.name_line or declaration.line,
             declaration.name_col or declaration.col,
+            trusted_hosted=isinstance(origin, NativeHeaderSource)
+            and origin.language == "c"
+            and origin.resource is not None
+            and origin.resource.name == declaration.name
+            and origin.resource.ownership == "unique",
         )
         policy.validate_generic_parameter_names(
             declaration.generic_params, f"class '{declaration.name}'", declaration.line, declaration.col
@@ -1347,6 +1353,9 @@ class DeclarationRegistry:
             if isinstance(declaration.source_file, NativeHeaderSource)
             else (),
             native_query_type=declaration.source_file.resource_query_type
+            if isinstance(declaration.source_file, NativeHeaderSource)
+            else "",
+            native_invocation=declaration.source_file.invocation
             if isinstance(declaration.source_file, NativeHeaderSource)
             else "",
             generic_params=declaration.generic_params,

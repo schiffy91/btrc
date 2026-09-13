@@ -77,7 +77,40 @@ class GenericAnalyzer:
                 contract = (
                     origin.call_contract if method is declaration else origin.methods.get(getattr(method, "name", ""))
                 )
+                if contract and (
+                    (contract.copied_result and contract.copied_result.kind == "bytes")
+                    or (contract.record_snapshot and contract.record_snapshot.byte_field)
+                ):
+                    owner = self.index.class_table.get("Bytes")
+                    if (
+                        owner is None
+                        or not CompilerStdlibSource.authenticated(getattr(owner.constructor, "source_file", None))
+                        or not CompilerStdlibSource.authenticated(
+                            getattr(owner.methods.get("fromRaw"), "source_file", None)
+                        )
+                    ):
+                        self.session.error(
+                            "Copied native bytes require authenticated import Library.Bytes", method.line, method.col
+                        )
+                    else:
+                        self.record_class_method_use(TypeExpr(base="Bytes"), "fromRaw")
                 if not contract or not any(callback.unregister or callback.one_shot for callback in contract.callbacks):
+                    continue
+                if getattr(contract.callbacks[0], "realtime", None) is not None:
+                    state = self.index.class_table.get("CallbackState")
+                    if state is None or not CompilerStdlibSource.authenticated(
+                        getattr(state.constructor, "source_file", None)
+                    ):
+                        self.session.error(
+                            "Stored native callbacks require import Library.Callback", method.line, method.col
+                        )
+                    else:
+                        for owner_name, names in (
+                            ("CallbackScope", ("createNative",)),
+                            ("CallbackState", ("activationGate", "finishActivation")),
+                        ):
+                            for name in names:
+                                self.record_class_method_use(TypeExpr(base=owner_name), name)
                     continue
                 context = method.return_type
                 result = context if contract.callbacks[0].one_shot and context.base == "CallbackResult" else None

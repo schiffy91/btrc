@@ -70,6 +70,7 @@ class NativeNode {
 	public NativeNode underlying;
 	public NativeNode valueType;
 	public string decimalValue;
+	public string enumIdentity;
 	public bool readOnly;
 	public int bits;
 	public int alignmentBitsInt;
@@ -144,6 +145,7 @@ class NativeNode {
 		self.underlying = null;
 		self.valueType = null;
 		self.decimalValue = "";
+		self.enumIdentity = "";
 		self.readOnly = false;
 		self.bits = 0;
 		self.alignmentBitsInt = 0;

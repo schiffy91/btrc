@@ -722,6 +722,9 @@ class RealtimeAnalyzer:
         base = getattr(type_expr, "base", "")
         if base in seen:
             return False
+        info = self.index.class_table.get(base)
+        if info is not None and info.native_invocation:
+            return False
         if (
             base == "string"
             or base in self._COLLECTION_TYPES

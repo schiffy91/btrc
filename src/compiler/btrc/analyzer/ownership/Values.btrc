@@ -62,7 +62,11 @@ class ManagedValueSemantics {
 
 	public bool isArc(Node? typeExpr) { return (self.isClass(typeExpr) && !self.isNative(typeExpr)) || self.isMutex(typeExpr); }
 
-	public bool isManaged(Node? typeExpr) { return self.isString(typeExpr) || self.isClass(typeExpr) || self.isMutex(typeExpr); }
+	public bool isManaged(Node? typeExpr) {
+		Node? canonical = self.canonical(typeExpr);
+		if (canonical != null && self.analyzed.nativeInvocation(canonical.base)) { return false; }
+		return self.isString(typeExpr) || self.isClass(typeExpr) || self.isMutex(typeExpr);
+	}
 
 	public string runtimeType(Node typeExpr) {
 		Node resolved = self.canonical(typeExpr);

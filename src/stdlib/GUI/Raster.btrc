@@ -7,7 +7,7 @@
  * independent offscreen image buffers.
  *
  * NOT auto-included. Use: import Library.GUI.Raster;
- * Build:  make gui
+ * No native raster archive is needed. Optional FreeType uses its package plan.
  *
  *   var ui = RasterGUI(Surface(480, 320));
  *   ui.beginFrame();

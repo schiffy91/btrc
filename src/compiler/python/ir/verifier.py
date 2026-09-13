@@ -5,13 +5,18 @@ from __future__ import annotations
 from typing import ClassVar
 
 from .nodes import (
+    CType,
     IRAddressOf,
     IRBlock,
     IRCall,
     IRCast,
     IRCleanupSlot,
+    IRCxxDelete,
+    IRCxxExceptionBoundary,
+    IRCxxNew,
     IRDoWhile,
     IREnumDef,
+    IRExpr,
     IRFor,
     IRFunctionDecl,
     IRFunctionDef,
@@ -68,7 +73,7 @@ class IRVerifier:
     def validate_schema(self) -> None:
         """Reject raw strings and values in the wrong declaration category."""
 
-        if self.module.language not in ("c", "objective-c"):
+        if self.module.language not in ("c", "objective-c", "c++"):
             raise ValueError("unsupported IR translation-unit language")
         if not isinstance(self.module.native_units, dict):
             raise TypeError("IRModule.native_units requires named translation units")
@@ -80,10 +85,30 @@ class IRVerifier:
                 or not isinstance(unit, IRModule)
             ):
                 raise TypeError("native adapter requires an identifier and IRModule")
-            if unit.language != "objective-c" or unit.native_units:
-                raise ValueError("native adapter must be a standalone Objective-C unit")
+            if unit.language not in ("objective-c", "c++") or unit.native_units:
+                raise ValueError("native adapter must be a standalone Objective-C or C++ unit")
             IRVerifier(unit).validate_schema()
         for node in self.module.walk():
+            if isinstance(node, (IRFunctionDecl, IRFunctionDef)) and node.c_linkage:
+                if self.module.language != "c++" or node.is_static:
+                    raise ValueError("C language linkage requires a nonstatic C++ adapter function")
+            if isinstance(node, (IRCxxNew, IRCxxDelete, IRCxxExceptionBoundary)):
+                if self.module.language != "c++":
+                    raise ValueError("C++ IR requires a C++ adapter unit")
+                if isinstance(node, IRCxxNew) and (
+                    not isinstance(node.value_type, CType)
+                    or not isinstance(node.args, list)
+                    or any(not isinstance(argument, IRExpr) for argument in node.args)
+                ):
+                    raise TypeError("C++ construction requires structured arguments")
+                if isinstance(node, IRCxxDelete) and not isinstance(node.value, IRExpr):
+                    raise TypeError("C++ deletion requires a structured value")
+                if isinstance(node, IRCxxExceptionBoundary) and (
+                    not isinstance(node.body, IRBlock)
+                    or not isinstance(node.failure, IRBlock)
+                    or (node.allocation_failure is not None and not isinstance(node.allocation_failure, IRBlock))
+                ):
+                    raise TypeError("C++ exception boundary requires structured body and failure blocks")
             if isinstance(node, IRCast) and node.bridge:
                 if self.module.language != "objective-c" or node.bridge not in ("borrow", "retain", "transfer"):
                     raise ValueError("Objective-C bridge requires an Objective-C adapter unit and valid ownership")
@@ -245,6 +270,8 @@ class IRVerifier:
         visiting = visiting | {function.name}
         path = (*path, function.name)
         for node in IRNode.walk_value(function.body):
+            if isinstance(node, (IRCxxNew, IRCxxDelete, IRCxxExceptionBoundary)):
+                raise ValueError(f"IR realtime backstop rejected C++ lifetime operation via {' -> '.join(path)}")
             if isinstance(node, IRCast) and node.bridge:
                 raise ValueError(f"IR realtime backstop rejected Objective-C ownership via {' -> '.join(path)}")
             if isinstance(

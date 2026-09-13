@@ -192,6 +192,14 @@ class IRCall(IRExpr):
 
 
 @dataclass
+class IRCxxNew(IRExpr):
+    """Construct a native C++ value; the surrounding adapter owns exception policy."""
+
+    value_type: CType
+    args: list[IRExpr] = field(default_factory=list)
+
+
+@dataclass
 class IRObjectiveCMessage(IRExpr):
     """A receiver and selector dispatched by the Objective-C compiler."""
 
@@ -386,6 +394,7 @@ class IRFunctionDecl(IRNode):
     return_type: CType
     params: list[IRParam] = field(default_factory=list)
     is_static: bool = False
+    c_linkage: bool = False
 
 
 @dataclass(frozen=True)
@@ -670,6 +679,7 @@ class IRFunctionDef(IRNode):
     is_static: bool = False
     archive_export: bool = False
     is_realtime: bool = False
+    c_linkage: bool = False
 
 
 @dataclass
@@ -692,6 +702,20 @@ class IRObjectiveCExceptionBoundary(IRStmt):
 
     body: IRBlock
     failure: IRBlock
+
+
+@dataclass
+class IRCxxDelete(IRStmt):
+    value: IRExpr
+
+
+@dataclass
+class IRCxxExceptionBoundary(IRStmt):
+    """No native C++ exception may cross the generated C ABI boundary."""
+
+    body: IRBlock
+    failure: IRBlock
+    allocation_failure: IRBlock | None = None
 
 
 @dataclass

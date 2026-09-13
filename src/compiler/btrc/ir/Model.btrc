@@ -30,6 +30,7 @@ enum IRKind {
 	IRK_COMMA_EXPR,
 	IRK_UNARYOP,
 	IRK_CALL,
+	IRK_CXX_NEW,
 	IRK_OBJECTIVE_C_MESSAGE,
 	IRK_OBJECTIVE_C_SELECTOR,
 	IRK_OBJECTIVE_C_BLOCK,
@@ -60,6 +61,8 @@ enum IRKind {
 	IRK_CASE,
 	IRK_OBJECTIVE_C_AUTORELEASE_POOL,
 	IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY,
+	IRK_CXX_DELETE,
+	IRK_CXX_EXCEPTION_BOUNDARY,
 };
 
 class IRNode {
@@ -324,6 +327,20 @@ class IRNode {
 		node.body = body;
 		node.elseBlock = failure;
 		return node;
+	}
+
+	class IRNode cxxNew(string valueType, Vector<IRNode> args) {
+		var node = IRNode(); node.kind = IRK_CXX_NEW;
+		node.targetType = valueType; node.args = args; return node;
+	}
+
+	class IRNode cxxDelete(IRNode value) {
+		var node = IRNode(); node.kind = IRK_CXX_DELETE; node.value = value; return node;
+	}
+
+	class IRNode cxxExceptionBoundary(IRNode body, IRNode failure, IRNode? allocationFailure = null) {
+		var node = IRNode(); node.kind = IRK_CXX_EXCEPTION_BOUNDARY;
+		node.body = body; node.elseBlock = failure; node.thenBlock = allocationFailure; return node;
 	}
 
 	class IRNode cast(string targetType, IRNode expr, string bridge = "") {
@@ -678,6 +695,7 @@ class IRFunction {
 	public bool isStatic;
 	public bool archiveExport;
 	public bool isRealtime;
+	public bool cLinkage = false;
 
 	public IRFunction() {
 		self.name = "";
@@ -764,6 +782,7 @@ class IRFunctionDecl {
 	public string returnType;
 	public Vector<IRParam> params;
 	public bool isStatic;
+	public bool cLinkage = false;
 	public IRFunctionDecl(string name, string returnType, bool isStatic) {
 		self.name = name;
 		self.returnType = returnType;

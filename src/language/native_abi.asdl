@@ -22,7 +22,7 @@ module NativeAbi {
                                          identifier method_name, native_type signature,
                                          native_parameter* parameter_semantics, bool const_method)
                        | NativeTypedef(identifier name, native_type underlying)
-                       | NativeConstant(identifier name, native_type value_type, string decimal_value)
+                       | NativeConstant(identifier name, native_type value_type, string decimal_value, string enum_identity)
                        | NativeGlobal(identifier name, native_type value_type, bool read_only)
                        | NativeRecordDeclaration(identifier name, native_type record_type)
                        attributes(string source_file, int line, int column)

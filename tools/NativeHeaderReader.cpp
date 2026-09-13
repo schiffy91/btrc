@@ -34,9 +34,11 @@ class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader>
 	clang::ASTContext* context = nullptr;
 	std::set<std::string> requested;
 	std::vector<std::string> recordPaths;
+	std::set<std::string> recordValues;
 	std::map<std::string, const clang::NamedDecl*> declarations;
 	std::map<std::string, const clang::ObjCInterfaceDecl*> interfaces;
 	std::map<std::string, const clang::ObjCProtocolDecl*> protocols;
+	std::map<std::string, const clang::CXXRecordDecl*> cppClasses;
 	std::map<std::string, llvm::json::Object> selectedInterfaces;
 	std::map<std::string, clang::Selector> selectors;
 	std::vector<std::string> errors;
@@ -94,11 +96,67 @@ class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader>
 	std::string requestRecord(const clang::RecordDecl* record, bool opaque) {
 		auto identity = declarationIdentity(record);
 		if (!opaque) {
-			if (llvm::isa<clang::CXXRecordDecl>(record)) { errors.push_back("C++ record adapters are not implemented: " + record->getQualifiedNameAsString()); }
+			if (llvm::isa<clang::CXXRecordDecl>(record)) {
+				if (!requested.count(record->getQualifiedNameAsString())) { errors.push_back("C++ record adapters require a selected SDK class: " + record->getQualifiedNameAsString()); }
+				return identity;
+			}
 			else if (const auto* definition = record->getDefinition()) { pendingRecords.emplace(identity, definition); }
 			else { errors.push_back("Incomplete by-value native record: " + record->getQualifiedNameAsString()); }
 		}
 		return identity;
+	}
+
+	const clang::CXXMethodDecl* lookupCppMethod(const clang::CXXRecordDecl* record, const std::string& name, bool zeroParameters) {
+		const auto* definition = record->getDefinition();
+		if (!definition) { return nullptr; }
+		auto matches = definition->lookup(&context->Idents.get(name));
+		if (!matches.empty()) {
+			const clang::CXXMethodDecl* selected = nullptr;
+			for (const auto* candidate : matches) {
+				const auto* method = llvm::dyn_cast<clang::CXXMethodDecl>(candidate);
+				if (!method) { errors.push_back("C++ selection is not a public non-template method: " + name); return nullptr; }
+				if (zeroParameters && method->getNumParams() != 0) { continue; }
+				if (selected) { errors.push_back("Ambiguous C++ method: " + record->getQualifiedNameAsString() + "::" + name); return nullptr; }
+				selected = method;
+			}
+			return selected;
+		}
+		const clang::CXXMethodDecl* selected = nullptr;
+		for (const auto& base : definition->bases()) {
+			if (base.getAccessSpecifier() != clang::AS_public || base.isVirtual()) { continue; }
+			const auto* baseRecord = base.getType()->getAsCXXRecordDecl();
+			if (!baseRecord) { continue; }
+			if (const auto* method = lookupCppMethod(baseRecord, name, zeroParameters)) {
+				if (selected) { errors.push_back("Ambiguous inherited C++ method: " + name); return nullptr; }
+				selected = method;
+			}
+		}
+		return selected;
+	}
+
+	const clang::CXXMethodDecl* lookupCppMethod(const std::string& name) {
+		auto separator = name.rfind("::");
+		if (separator == std::string::npos) { return nullptr; }
+		auto receiver = cppClasses.find(name.substr(0, separator));
+		std::string method = name.substr(separator + 2);
+		bool zeroParameters = method.size() > 2 && method.compare(method.size() - 2, 2, "()") == 0;
+		if (zeroParameters) { method.resize(method.size() - 2); }
+		return receiver == cppClasses.end() ? nullptr : lookupCppMethod(receiver->second, method, zeroParameters);
+	}
+
+	void requestCppRecordValue(const std::string& name) {
+		auto found = cppClasses.find(name);
+		const auto* record = found == cppClasses.end() ? nullptr : found->second->getDefinition();
+		if (!requested.count(name) || !record || record->isUnion() || !record->isStandardLayout() || !record->isTriviallyCopyable() || !record->hasTrivialDestructor() || record->getNumBases() != 0 || record->field_empty()) {
+			errors.push_back("C++ record values require selected complete public scalar-only trivial records: " + name); return;
+		}
+		for (const auto* field : record->fields()) {
+			auto value = field->getType();
+			if (field->getAccess() != clang::AS_public || field->isAnonymousStructOrUnion() || field->isBitField() || field->getName().empty() || value.isVolatileQualified() || value.isRestrictQualified() || !(value->isIntegerType() || value->isEnumeralType() || value->isRealFloatingType())) {
+				errors.push_back("C++ record values require accessible scalar fields: " + name + "::" + field->getNameAsString()); return;
+			}
+		}
+		pendingRecords.emplace(declarationIdentity(record), record);
 	}
 
 	std::string requestInterface(const clang::ObjCInterfaceDecl* interface) {
@@ -165,7 +223,7 @@ class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader>
 			result["record_kind"] = record->getDecl()->isUnion() ? "union" : "struct";
 			result["tag_name"] = record->getDecl()->getNameAsString();
 			result["complete"] = record->getDecl()->getDefinition() != nullptr;
-			result["opaque"] = indirect;
+			result["opaque"] = recordValues.count(record->getDecl()->getQualifiedNameAsString()) ? false : indirect || llvm::isa<clang::CXXRecordDecl>(record->getDecl());
 		} else if (const auto* array = llvm::dyn_cast<clang::ConstantArrayType>(node)) {
 			result["kind"] = "array";
 			result["element"] = type(array->getElementType());
@@ -291,6 +349,18 @@ class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader>
 			result["consumes_self"] = method->hasAttr<clang::NSConsumesSelfAttr>();
 			result["related_result"] = method->hasRelatedResultType();
 			result["returns_inner_pointer"] = method->hasAttr<clang::ObjCReturnsInnerPointerAttr>();
+		} else if (const auto* method = llvm::dyn_cast<clang::CXXMethodDecl>(value)) {
+			if (method->getAccess() != clang::AS_public || method->isDeleted() || method->isStatic() || method->isVariadic() || method->isVolatile() || method->getRefQualifier() != clang::RQ_None || method->isOverloadedOperator() || llvm::isa<clang::CXXConstructorDecl>(method) || llvm::isa<clang::CXXDestructorDecl>(method) || llvm::isa<clang::CXXConversionDecl>(method) || method->getTemplatedKind() != clang::FunctionDecl::TK_NonTemplate) {
+				errors.push_back("C++ methods require unambiguous public non-template instance methods: " + declarationName(method));
+			}
+			result["kind"] = "cxx_method";
+			result["identity"] = declarationIdentity(method);
+			result["owner"] = method->getParent()->getQualifiedNameAsString();
+			result["receiver"] = method->getParent()->getQualifiedNameAsString();
+			result["method_name"] = method->getNameAsString();
+			result["const_method"] = method->isConst();
+			result["type"] = type(method->getType());
+			result["parameter_semantics"] = parameters(method->parameters());
 		} else if (const auto* function = llvm::dyn_cast<clang::FunctionDecl>(value)) {
 			if (function->hasAttr<clang::OverloadableAttr>()) { errors.push_back("Overloadable C adapters are not implemented: " + value->getQualifiedNameAsString()); }
 			if (llvm::isa<clang::CXXMethodDecl>(function) || (context->getLangOpts().CPlusPlus && !function->isExternC())) {
@@ -325,9 +395,28 @@ class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader>
 		} else if (const auto* constant = llvm::dyn_cast<clang::EnumConstantDecl>(value)) {
 			result["kind"] = "enum_constant";
 			result["type"] = type(constant->getType());
+			result["enum_identity"] = declarationIdentity(llvm::cast<clang::EnumDecl>(constant->getDeclContext()));
 			llvm::SmallString<32> decimal;
 			constant->getInitVal().toString(decimal);
 			result["value"] = decimal.str().str();
+		} else if (const auto* record = llvm::dyn_cast<clang::CXXRecordDecl>(value)) {
+			const auto* definition = record->getDefinition();
+			if (!definition || definition->getDescribedClassTemplate() || llvm::isa<clang::ClassTemplateSpecializationDecl>(record)) {
+				errors.push_back("C++ resources require complete non-template SDK classes: " + declarationName(record));
+			}
+			bool constructor = false;
+			if (definition && !definition->isAbstract()) {
+				for (const auto* candidate : definition->ctors()) {
+					if (candidate->getNumParams() == 0 && candidate->getAccess() == clang::AS_public && !candidate->isDeleted() && candidate->getTemplatedKind() == clang::FunctionDecl::TK_NonTemplate) { constructor = true; }
+				}
+			}
+			const auto* destructor = definition ? definition->getDestructor() : nullptr;
+			result["kind"] = "cxx_class";
+			result["type"] = type(context->getRecordType(record), true);
+			result["default_constructor"] = constructor;
+			result["public_destructor"] = definition && (destructor ? destructor->getAccess() == clang::AS_public && !destructor->isDeleted() : definition->hasTrivialDestructor());
+			result["trivially_copyable"] = definition && definition->isTriviallyCopyable();
+			result["trivially_destructible"] = definition && definition->hasTrivialDestructor();
 		} else if (const auto* record = llvm::dyn_cast<clang::RecordDecl>(value)) {
 			result["kind"] = "record";
 			result["type"] = type(context->getRecordType(record), record->getDefinition() == nullptr);
@@ -338,16 +427,20 @@ class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader>
 	}
 
 public:
-	explicit NativeHeaderReader(const std::vector<std::string>& symbols, const std::vector<std::string>& paths) : requested(symbols.begin(), symbols.end()), recordPaths(paths) {}
+	explicit NativeHeaderReader(const std::vector<std::string>& symbols, const std::vector<std::string>& paths, const std::vector<std::string>& values) : requested(symbols.begin(), symbols.end()), recordPaths(paths), recordValues(values.begin(), values.end()) {}
 
 	void requestRecordPath(const std::string& path) {
 		auto separator = path.find('.');
 		if (separator == std::string::npos) { errors.push_back("Record path requires an owner and field: " + path); return; }
 		auto owner = declarations.find(path.substr(0, separator));
-		const auto* type = owner == declarations.end() ? nullptr : llvm::dyn_cast<clang::TypedefNameDecl>(owner->second);
-		if (!type) { errors.push_back("Record path requires a selected SDK owner typedef: " + path); return; }
-		clang::QualType current = type->getUnderlyingType();
-		if (!current->isPointerType()) { errors.push_back("Record path requires a pointer owner: " + path); return; }
+		const auto* declaration = owner == declarations.end() ? nullptr : owner->second;
+		clang::QualType current;
+		if (const auto* type = llvm::dyn_cast_or_null<clang::TypedefNameDecl>(declaration)) {
+			current = type->getUnderlyingType();
+		} else if (const auto* record = llvm::dyn_cast_or_null<clang::RecordDecl>(declaration)) {
+			current = context->getRecordType(record);
+		} else { errors.push_back("Record path requires a selected SDK record owner: " + path); return; }
+		if (!current->isPointerType() && !current->isRecordType()) { errors.push_back("Record path requires a record or pointer owner: " + path); return; }
 		std::set<const clang::TagDecl*> visited;
 		while (separator != std::string::npos) {
 			auto begin = separator + 1;
@@ -358,7 +451,7 @@ public:
 			if (current.isVolatileQualified() || current.isRestrictQualified()) { errors.push_back("Record path cannot traverse qualified mutation: " + path); return; }
 			const auto* recordType = current->getAs<clang::RecordType>();
 			const auto* record = recordType ? recordType->getDecl()->getDefinition() : nullptr;
-			if (!record || !record->isStruct() || !visited.insert(record->getCanonicalDecl()).second) { errors.push_back("Record path requires noncyclic complete SDK structs: " + path); return; }
+			if (!record || (!record->isStruct() && !record->isUnion()) || !visited.insert(record->getCanonicalDecl()).second) { errors.push_back("Record path requires noncyclic complete SDK records: " + path); return; }
 			const clang::FieldDecl* selected = nullptr;
 			for (const auto* field : record->fields()) { if (field->getNameAsString() == name) { selected = field; break; } }
 			if (!selected || selected->isAnonymousStructOrUnion() || selected->isBitField()) { errors.push_back("Record path names an unavailable SDK field: " + path); return; }
@@ -386,6 +479,10 @@ public:
 	}
 
 	bool VisitNamedDecl(clang::NamedDecl* value) {
+		if (const auto* record = llvm::dyn_cast<clang::CXXRecordDecl>(value)) {
+			if (record->isInjectedClassName()) { return true; }
+			cppClasses[record->getQualifiedNameAsString()] = record->getCanonicalDecl();
+		}
 		if (const auto* method = llvm::dyn_cast<clang::ObjCMethodDecl>(value)) {
 			selectors[method->getSelector().getAsString()] = method->getSelector();
 			// Class and protocol names occupy separate Objective-C namespaces.
@@ -416,12 +513,18 @@ public:
 		bigEndian = value.getTargetInfo().isBigEndian();
 		characterBits = value.getTargetInfo().getCharWidth();
 		TraverseDecl(value.getTranslationUnitDecl());
+		for (const auto& name : recordValues) { requestCppRecordValue(name); }
 		for (const auto& name : requested) {
 			auto found = declarations.find(name);
 			const clang::NamedDecl* selected = found == declarations.end() ? lookupObjectiveCMethod(name) : found->second;
+			if (!selected && value.getLangOpts().CPlusPlus) { selected = lookupCppMethod(name); }
 			if (!selected) { errors.push_back("Native declaration not found: " + name); }
 			else {
 				auto exported = declaration(selected);
+				if (llvm::isa<clang::CXXMethodDecl>(selected)) {
+					exported["name"] = name;
+					exported["receiver"] = name.substr(0, name.rfind("::"));
+				}
 				if (llvm::isa<clang::ObjCMethodDecl>(selected)) {
 					exported["name"] = name;
 					exported["receiver"] = objectiveCReceiver(name);
@@ -438,6 +541,7 @@ public:
 		declarations.clear();
 		interfaces.clear();
 		protocols.clear();
+		cppClasses.clear();
 		selectors.clear();
 		context = nullptr;
 	}
@@ -521,13 +625,14 @@ int main(int argc, const char** argv) {
 	llvm::cl::OptionCategory category("BTRC native header reader");
 	llvm::cl::list<std::string> symbols("symbol", llvm::cl::desc("Exact qualified declaration to read"), llvm::cl::OneOrMore, llvm::cl::cat(category));
 	llvm::cl::list<std::string> recordPaths("record-path", llvm::cl::desc("Selected owner and checked dotted SDK field path"), llvm::cl::ZeroOrMore, llvm::cl::cat(category));
+	llvm::cl::list<std::string> recordValues("record-value", llvm::cl::desc("Selected C++ public scalar record copied by value"), llvm::cl::ZeroOrMore, llvm::cl::cat(category));
 	llvm::cl::list<std::string> packages("pkg-config", llvm::cl::desc("Selected native dependency supplying compile flags"), llvm::cl::ZeroOrMore, llvm::cl::cat(category));
 	auto options = clang::tooling::CommonOptionsParser::create(argc, argv, category, llvm::cl::OneOrMore);
 	if (!options) { llvm::errs() << options.takeError(); return 1; }
 	if (options->getSourcePathList().size() != 1) { llvm::errs() << "error: expected exactly one native translation unit\n"; return 1; }
 	std::vector<std::string> flags;
 	if (!NativeHeaderDependencies().resolve(std::vector<std::string>(packages.begin(), packages.end()), flags)) { return 1; }
-	NativeHeaderReader reader(std::vector<std::string>(symbols.begin(), symbols.end()), std::vector<std::string>(recordPaths.begin(), recordPaths.end()));
+	NativeHeaderReader reader(std::vector<std::string>(symbols.begin(), symbols.end()), std::vector<std::string>(recordPaths.begin(), recordPaths.end()), std::vector<std::string>(recordValues.begin(), recordValues.end()));
 	NativeHeaderActionFactory factory(reader);
 	clang::tooling::ClangTool tool(options->getCompilations(), options->getSourcePathList());
 	tool.appendArgumentsAdjuster(clang::tooling::getInsertArgumentAdjuster(flags, clang::tooling::ArgumentInsertPosition::BEGIN));

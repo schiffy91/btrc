@@ -83,6 +83,7 @@ class ClassInfo:
     native_language: str = ""
     native_ancestors: tuple[str, ...] = ()
     native_query_type: str = ""
+    native_invocation: str = ""
     generic_params: list[str] = field(default_factory=list)
     fields: dict[str, FieldDecl] = field(default_factory=dict)
     static_fields: dict[str, FieldDecl] = field(default_factory=dict)

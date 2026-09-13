@@ -289,7 +289,7 @@ class NameValidator {
 		}
 	}
 
-	public bool publicNativeBinding(string name) { return name == "btrc_gpu_available" || name == "btrc_gui_font_load"; }
+	public bool publicNativeBinding(string name) { return name == "btrc_gpu_available"; }
 
 	public bool trustedNativeBinding(string name, Node site) { return self.publicNativeBinding(name) || self.hostedAbi.compilerStdlibNode(site) || (self.state.analyzed.isNativeDeclaration(site) && self.hostedAbi.functionOwnedName(name)); }
 
@@ -315,6 +315,11 @@ class NameValidator {
 	public void validateHostedTopLevelName(Node declaration) {
 		if (!self.namedTopLevel(declaration)) { return; }
 		if ((declaration.kind == NK_TYPEDEF_DECL || declaration.kind == NK_STRUCT_DECL || declaration.kind == NK_VAR_DECL_STMT) && self.state.analyzed.isNativeDeclaration(declaration)) { return; }
+		if (declaration.kind == NK_CLASS_DECL) {
+			for imported in self.state.analyzed.nativeDeclarations {
+				if (imported.declaration == declaration && imported.language == "c" && imported.resource != null && imported.resource.name == declaration.name && imported.resource.ownership == "unique") { return; }
+			}
+		}
 		string name = self.topLevelName(declaration);
 		if (!self.hostedAbi.ownedName(name) || declaration.kind == NK_FUNCTION_DECL || self.hostedTrustedEnviron(declaration) || self.hostedTrustedWinsize(declaration)) {
 			return;

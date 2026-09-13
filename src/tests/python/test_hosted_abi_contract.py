@@ -390,11 +390,11 @@ def test_resolved_stdlib_import_receives_authenticated_provenance(tmp_path: Path
 
 
 def test_exact_public_native_abi_has_one_authoritative_diagnostic() -> None:
-    errors = _analyze("extern bool btrc_gui_font_load(); int main() { return 0; }").errors
-    matching = [error for error in errors if "btrc_gui_font_load" in error]
+    errors = _analyze("extern int btrc_gpu_available(); int main() { return 0; }").errors
+    matching = [error for error in errors if "btrc_gpu_available" in error]
     assert len(matching) == 1
     assert "does not match compiler-owned C ABI" in matching[0]
-    assert not _analyze("extern void* btrc_gui_font_load(string path, int pixelSize); int main() { return 0; }").errors
+    assert not _analyze("extern bool btrc_gpu_available(); int main() { return 0; }").errors
 
 
 def test_hosted_function_definitions_are_mangled_source_shadows() -> None:

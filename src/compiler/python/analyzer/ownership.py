@@ -540,6 +540,119 @@ class OwnershipAnalyzer:
         for type_expr, line, col in self.session.generic_resolved_type_facts:
             self._validate_mutex_payloads_in_type(type_expr, line=line, col=col)
 
+    def validate_native_invocations(self, program) -> None:
+        """A callback capability is a borrowed invocation, never a storable value."""
+        capabilities = {name: info for name, info in self.index.class_table.items() if info.native_invocation}
+        if not capabilities:
+            return
+        allowed_types = set()
+        for declaration in self.session.declarations(program):
+            origin = getattr(declaration, "source_file", None)
+            if isinstance(origin, NativeHeaderSource):
+                continue
+            if getattr(declaration, "parent", None) in capabilities:
+                self.session.error(
+                    "Native invocation capabilities cannot be inherited", declaration.line, declaration.col
+                )
+            callables = [declaration] if hasattr(declaration, "params") else getattr(declaration, "members", ())
+            for callable_ in callables:
+                for parameter in getattr(callable_, "params", ()):
+                    canonical = self.types.canonical_type(parameter.type)
+                    capability = capabilities.get(canonical.base) if canonical else None
+                    if capability is None:
+                        continue
+                    if (
+                        canonical.pointer_depth != 1
+                        or canonical.is_nullable
+                        or canonical.is_array
+                        or canonical.generic_args
+                    ):
+                        continue
+                    allowed_types.add(id(parameter.type))
+                    if not getattr(callable_, "is_realtime", False):
+                        self.session.error(
+                            "Native invocation parameters require @realtime", parameter.line, parameter.col
+                        )
+                    if not self._invocation_uses_are_local(
+                        getattr(callable_, "body", None), parameter.name, capability
+                    ):
+                        self.session.error(
+                            "Native invocation capability may only call its declared operations; it cannot escape or be reinterpreted",
+                            parameter.line,
+                            parameter.col,
+                        )
+            self._validate_invocation_types(declaration, capabilities, allowed_types)
+
+    def _validate_invocation_types(self, node, capabilities, allowed_types) -> None:
+        if node is None or isinstance(node, (str, int, float, bool)):
+            return
+        if isinstance(node, (list, tuple)):
+            for item in node:
+                self._validate_invocation_types(item, capabilities, allowed_types)
+            return
+        if not is_dataclass(node):
+            return
+        if hasattr(node, "base") and id(node) not in allowed_types:
+            canonical = self.types.canonical_type(node)
+            if canonical is not None and canonical.base in capabilities:
+                self.session.error(
+                    "Native invocation capability is only valid as a callback-local parameter", node.line, node.col
+                )
+        for field in fields(node):
+            if field.name not in _LOCATION_FIELDS:
+                self._validate_invocation_types(getattr(node, field.name), capabilities, allowed_types)
+
+    def _invocation_uses_are_local(self, node, name, capability, visiting=()) -> bool:
+        if node is None or isinstance(node, (str, int, float, bool)):
+            return True
+        if isinstance(node, Identifier):
+            return node.name != name
+        if isinstance(node, CallExpr):
+            callee = node.callee
+            if isinstance(callee, FieldAccessExpr) and isinstance(callee.obj, Identifier) and callee.obj.name == name:
+                return callee.field in capability.methods and not self.raw_expression_mentions_parameter(
+                    node.args, name
+                )
+            carried = [
+                index for index, value in enumerate(node.args) if self.raw_expression_mentions_parameter(value, name)
+            ]
+            if carried:
+                target, unresolved = self._raw_borrow_call_target(node, None, frozenset({name}))
+                if unresolved or target is None or not getattr(target, "is_realtime", False) or target.body is None:
+                    return False
+                for index in carried:
+                    value = node.args[index]
+                    slot = self._raw_bound_parameter_index(target, node, index)
+                    key = (id(target), slot)
+                    if (
+                        not isinstance(value, Identifier)
+                        or value.name != name
+                        or slot < 0
+                        or slot >= len(target.params)
+                        or key in visiting
+                    ):
+                        return False
+                    parameter = target.params[slot]
+                    canonical = self.types.canonical_type(parameter.type)
+                    if canonical.base != capability.name or canonical.pointer_depth != 1 or canonical.is_nullable:
+                        return False
+                    if not self._invocation_uses_are_local(target.body, parameter.name, capability, (*visiting, key)):
+                        return False
+                return True
+        if isinstance(node, LambdaExpr) and any(capture.name == name for capture in node.captures):
+            return False
+        if isinstance(node, (LambdaExpr, SpawnExpr)) and self.raw_expression_mentions_parameter(node, name):
+            return False
+        if isinstance(node, (list, tuple)):
+            return all(self._invocation_uses_are_local(item, name, capability, visiting) for item in node)
+        if not is_dataclass(node):
+            return True
+        return all(
+            self._invocation_uses_are_local(getattr(node, field.name), name, capability, visiting)
+            for field in fields(node)
+            if field.name not in _LOCATION_FIELDS
+        )
+
     def expression_produces_owned_result(self, expression) -> bool:
         result = self.types.canonical_type(self.type_of(expression))
         managed = self.is_managed_result_type(result)
@@ -1351,6 +1464,16 @@ class OwnershipAnalyzer:
     def validate_opaque_call_argument(
         self, declaration, parameter_index, expected, argument, label, *, bodyless_ffi=False
     ) -> None:
+        canonical = self.types.canonical_type(expected)
+        info = self.index.class_table.get(canonical.base) if canonical else None
+        if info is not None and info.native_invocation:
+            actual = self.types.canonical_type(self.type_of(argument))
+            if not isinstance(argument, Identifier) or actual is None or actual.base != canonical.base:
+                self.session.error(
+                    "Native invocation arguments require an existing callback-local capability",
+                    argument.line,
+                    argument.col,
+                )
         if not self._opaque_raw_carrier_type(expected):
             return
         if not self.expression_is_opaque_borrow(argument):

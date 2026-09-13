@@ -115,14 +115,7 @@ def test_explicit_string_adoption_is_owned_and_materializes_its_helpers():
 
 @pytest.mark.parametrize(
     ("declaration", "call", "feature"),
-    (
-        ("extern bool btrc_gpu_available();", "btrc_gpu_available()", "BTRC_RT_NEEDS_GPU"),
-        (
-            "extern void* btrc_gui_font_load(string path, int pixelSize);",
-            'btrc_gui_font_load("missing.ttf", 12)',
-            "BTRC_RT_NEEDS_GUI",
-        ),
-    ),
+    (("extern bool btrc_gpu_available();", "btrc_gpu_available()", "BTRC_RT_NEEDS_GPU"),),
 )
 def test_native_runtime_calls_select_explicit_header_features(declaration, call, feature):
     module = _generate(f"{declaration} int main() {{ {call}; return 0; }}")
@@ -178,12 +171,12 @@ def test_try_runtime_selects_target_owned_setjmp_type():
     ("source", "header_macro", "include_dir"),
     (
         (
-            'extern void* btrc_gui_font_load(string path, int pixelSize); int main() { return btrc_gui_font_load("missing.ttf", 12) == null ? 0 : 1; }',
-            "BTRC_RT_GUI_HEADER=<btrc_gui_font.h>",
-            STDLIB / "GUI",
+            "extern bool btrc_gpu_available(); int main() { return btrc_gpu_available() ? 0 : 1; }",
+            "BTRC_RT_GPU_HEADER=<btrc_gpu_compute_internal.h>",
+            STDLIB / "GPU",
         ),
     ),
-    ids=("gui",),
+    ids=("compute",),
 )
 def test_native_target_header_hooks_compile_strict_c11(
     tmp_path,

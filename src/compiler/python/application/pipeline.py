@@ -676,7 +676,13 @@ class CompilationPipeline:
             native_plan = replace(
                 native_plan,
                 generated_units=tuple(
-                    NativeGeneratedUnit(name, unit.language, "c11", "arc", CEmitter().emit(unit))
+                    NativeGeneratedUnit(
+                        name,
+                        unit.language,
+                        "c++17" if unit.language == "c++" else "c11",
+                        "raii" if unit.language == "c++" else "arc",
+                        CEmitter().emit(unit),
+                    )
                     for name, unit in sorted(module.native_units.items())
                 ),
             )

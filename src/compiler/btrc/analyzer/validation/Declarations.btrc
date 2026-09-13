@@ -714,7 +714,10 @@ class DeclarationValidator {
 				exposesRealtimeFunction = exposesRealtimeFunction || self.types.containsRealtimeFunctionStorage(callable.params.get(realtimeParameter).type);
 				realtimeParameter = realtimeParameter + 1;
 			}
-			if (exposesRealtimeFunction) {
+			var nativeContract = self.state.analyzed.nativeCallContract(callable);
+			bool nativeRealtime = false;
+			if (nativeContract != null) { for callback in nativeContract.callbacks { if (callback.realtime != null) { nativeRealtime = true; } } }
+			if (exposesRealtimeFunction && !nativeRealtime) {
 				string callableLabel = classDeclaration == null ? "Native function declaration '" + callable.name + "'" : "Bodyless method '" + classDeclaration.name + "." + callable.name + "'";
 				TypeValidator.fail(callableLabel + " cannot expose RealtimeFunction; downgrade to CFunction at the boundary", callable);
 			}

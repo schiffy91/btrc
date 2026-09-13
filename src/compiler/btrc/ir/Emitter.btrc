@@ -36,6 +36,10 @@ class CEmitter {
 		if (self.language != "objective-c") { throw "Objective-C IR requires an Objective-C adapter unit"; }
 	}
 
+	private void requireCpp() {
+		if (self.language != "c++") { throw "C++ IR requires a C++ adapter unit"; }
+	}
+
 	private void validateSelectorIdentifier(string identifier) {
 		if (identifier.isEmpty()) { throw "Objective-C selector requires identifier components"; }
 		int index = 0;
@@ -48,7 +52,7 @@ class CEmitter {
 	}
 
 	public string emit(IRModule m) {
-		if (m.language != "c" && m.language != "objective-c") { throw "unsupported IR translation-unit language"; }
+		if (m.language != "c" && m.language != "objective-c" && m.language != "c++") { throw "unsupported IR translation-unit language"; }
 		self.language = m.language;
 		self.lines = [];
 		self.indent = 0;
@@ -427,6 +431,7 @@ class CEmitter {
 	private void emitFunctionDecl(IRFunctionDecl declaration) {
 		string storage = "";
 		if (declaration.isStatic) { storage = "static "; }
+		if (declaration.cLinkage) { self.requireCpp(); if (declaration.isStatic) { throw "C language linkage requires a nonstatic C++ adapter function"; } storage = "extern \"C\" "; }
 		self.line(storage + declaration.returnType + " " + declaration.name + "(" + self.paramList(declaration.params) + ");");
 	}
 
@@ -532,6 +537,7 @@ class CEmitter {
 	private void emitFunction(IRFunction fn) {
 		string prefix = "";
 		if (fn.isStatic) { prefix = "static "; }
+		if (fn.cLinkage) { self.requireCpp(); if (fn.isStatic) { throw "C language linkage requires a nonstatic C++ adapter function"; } prefix = "extern \"C\" "; }
 		self.line(prefix + fn.returnType + " " + fn.name + "(" + self.paramList(fn.params) + ") {");
 		if (fn.body != null) {
 			self.indent = self.indent + 1;
@@ -570,6 +576,14 @@ class CEmitter {
 	/* --- statement emission --- */
 
 	private void emitStmt(IRNode s) {
+		if (s.kind == IRK_CXX_DELETE) { self.requireCpp(); self.line("delete " + self.expr(s.value) + ";"); return; }
+		if (s.kind == IRK_CXX_EXCEPTION_BOUNDARY) {
+			self.requireCpp();
+			if (s.body == null || s.elseBlock == null || s.body.kind != IRK_BLOCK || s.elseBlock.kind != IRK_BLOCK || (s.thenBlock != null && s.thenBlock.kind != IRK_BLOCK)) { throw "C++ exception boundary requires structured body and failure blocks"; }
+			self.line("try {"); self.indent++; self.emitBlockContents(s.body); self.indent--;
+			if (s.thenBlock != null) { self.line("} catch (const std::bad_alloc&) {"); self.indent++; self.emitBlockContents(s.thenBlock); self.indent--; }
+			self.line("} catch (...) {"); self.indent++; self.emitBlockContents(s.elseBlock); self.indent--; self.line("}"); return;
+		}
 		if (s.kind == IRK_OBJECTIVE_C_AUTORELEASE_POOL || s.kind == IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY) {
 			self.requireObjectiveC();
 			if (s.body == null || s.body.kind != IRK_BLOCK) { throw "Objective-C scope requires an IRBlock"; }
@@ -881,6 +895,12 @@ class CEmitter {
 			}
 			for index in range(count) { self.validateSelectorIdentifier(pieces.get(index)); }
 			return "@selector(" + e.name + ")";
+		}
+		if (e.kind == IRK_CXX_NEW) {
+			self.requireCpp();
+			string arguments = "";
+			for index in range(e.args.len) { if (index > 0) { arguments += ", "; } arguments += self.expr(e.args.get(index)); }
+			return "new " + e.targetType + "(" + arguments + ")";
 		}
 		if (e.kind == IRK_OBJECTIVE_C_MESSAGE) {
 			self.requireObjectiveC();

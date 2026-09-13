@@ -19,6 +19,9 @@ from ..ir.nodes import (
     IRCommaExpr,
     IRCompoundLiteral,
     IRContinue,
+    IRCxxDelete,
+    IRCxxExceptionBoundary,
+    IRCxxNew,
     IRDeref,
     IRDoWhile,
     IREnumDef,
@@ -511,6 +514,8 @@ class CEmitter:
             return self._compound("", [callee, arguments], "")
         if isinstance(expression, IRObjectiveCSelector):
             return f"@selector({expression.selector})"
+        if isinstance(expression, IRCxxNew):
+            return f"new {expression.value_type}({', '.join(self._expr(argument) for argument in expression.args)})"
         if isinstance(expression, IRObjectiveCMessage):
             parts = [self._expr(expression.receiver)]
             if expression.args:
@@ -670,6 +675,23 @@ class CEmitter:
             self._emit_block_contents(statement)
             self._indent -= 1
             self._line("}")
+        elif isinstance(statement, IRCxxDelete):
+            self._line(f"delete {self._expr(statement.value)};")
+        elif isinstance(statement, IRCxxExceptionBoundary):
+            self._line("try {")
+            self._indent += 1
+            self._emit_block_contents(statement.body)
+            self._indent -= 1
+            if statement.allocation_failure is not None:
+                self._line("} catch (const std::bad_alloc&) {")
+                self._indent += 1
+                self._emit_block_contents(statement.allocation_failure)
+                self._indent -= 1
+            self._line("} catch (...) {")
+            self._indent += 1
+            self._emit_block_contents(statement.failure)
+            self._indent -= 1
+            self._line("}")
         elif isinstance(statement, (IRObjectiveCAutoreleasePool, IRObjectiveCExceptionBoundary)):
             self._line("@autoreleasepool {" if isinstance(statement, IRObjectiveCAutoreleasePool) else "@try {")
             self._indent += 1
@@ -817,7 +839,7 @@ class CEmitter:
             )
             or "void"
         )
-        storage = "static " if declaration.is_static else ""
+        storage = 'extern "C" ' if declaration.c_linkage else "static " if declaration.is_static else ""
         return f"{storage}{declaration.return_type} {declaration.name}({parameters})"
 
     def _emit_function_decl(self, declaration: IRFunctionDecl):

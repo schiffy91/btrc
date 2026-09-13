@@ -1,5 +1,4 @@
 import os
-import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -10,33 +9,6 @@ from src.compiler.python.frontend.packages import PackageTarget
 
 ROOT = Path(__file__).resolve().parents[3]
 GUI = ROOT / "src" / "stdlib" / "GUI"
-HARNESS = ROOT / "src" / "tests" / "native" / "gui_runtime.c"
-
-
-def test_headless_gui_runtime_is_strict_c11_and_safe(tmp_path: Path) -> None:
-    font_source = (GUI / "btrc_gui_font.c").read_text()
-    assert "gui_color_apply_coverage(rgba, cov)" in font_source
-    assert "| (uint32_t)cov" not in font_source
-
-    executable = tmp_path / "gui-runtime"
-    subprocess.run(
-        [
-            "cc",
-            "-std=c11",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-pedantic",
-            "-pthread",
-            f"-I{GUI}",
-            str(HARNESS),
-            str(GUI / "btrc_gui.c"),
-            "-o",
-            str(executable),
-        ],
-        check=True,
-    )
-    subprocess.run([str(executable)], check=True, timeout=30)
 
 
 def _transpile_gui(source, tmp_path, request, frontend):
@@ -162,7 +134,6 @@ def test_btrc_owns_gui_surface(tmp_path: Path, request, frontend, sanitized) -> 
             *flags,
             f"-I{GUI}",
             str(generated_object),
-            str(GUI / "btrc_gui.c"),
             str(faults / "AllocationFaults.c"),
             "-o",
             str(executable),
@@ -182,24 +153,9 @@ def test_btrc_owns_gui_surface(tmp_path: Path, request, frontend, sanitized) -> 
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
-@pytest.mark.parametrize("consumer", ["Main", "Declarative", "GuiFontConformance"])
+@pytest.mark.parametrize("consumer", ["Main", "Declarative"])
 def test_gui_consumers_use_btrc_pixels(tmp_path, request, frontend, consumer):
-    uses_font = consumer == "GuiFontConformance"
-    font = next(
-        (
-            path
-            for path in [
-                Path(os.environ.get("BTRC_TEST_FONT", "/nonexistent")),
-                Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
-                Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
-            ]
-            if path.is_file()
-        ),
-        None,
-    )
-    if uses_font and (font is None or not os.environ.get("FONT_CFLAGS")):
-        pytest.skip("requires FreeType headers/link flags and a real font")
-    original = (ROOT / "src/tests/native/gui_surface" if uses_font else ROOT / "examples/gui") / f"{consumer}.btrc"
+    original = ROOT / "examples/gui" / f"{consumer}.btrc"
     source = tmp_path / f"{consumer}.btrc"
     # Keep the existing examples' output inside this isolated test directory.
     source.write_text(
@@ -210,11 +166,6 @@ def test_gui_consumers_use_btrc_pixels(tmp_path, request, frontend, consumer):
     generated, environment = _transpile_gui(source, tmp_path, request, frontend)
     compiler = "/usr/bin/clang" if sys.platform == "darwin" else "cc"
     executable = tmp_path / "consumer"
-    native = [str(GUI / "btrc_gui.c")]
-    flags = []
-    if uses_font:
-        native.append(str(GUI / "btrc_gui_font.c"))
-        flags = [*shlex.split(os.environ["FONT_CFLAGS"]), *shlex.split(os.environ["FONT_LDFLAGS"])]
     compiled = subprocess.run(
         [
             compiler,
@@ -230,8 +181,6 @@ def test_gui_consumers_use_btrc_pixels(tmp_path, request, frontend, consumer):
             f"-I{GUI}",
             f"-I{ROOT / 'src/runtime/c'}",
             str(generated),
-            *native,
-            *flags,
             "-lm",
             "-o",
             str(executable),
@@ -243,7 +192,7 @@ def test_gui_consumers_use_btrc_pixels(tmp_path, request, frontend, consumer):
     )
     assert compiled.returncode == 0, compiled.stderr
     completed = subprocess.run(
-        [str(executable), *([str(font)] if uses_font else [])],
+        [str(executable)],
         cwd=tmp_path,
         env=environment,
         capture_output=True,
@@ -251,7 +200,4 @@ def test_gui_consumers_use_btrc_pixels(tmp_path, request, frontend, consumer):
         timeout=30,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    expected = "GUI TESTS PASSED"
-    if uses_font:
-        expected = "PASS: FreeType draws into BTRC-owned pixels"
-    assert expected in completed.stdout
+    assert "GUI TESTS PASSED" in completed.stdout

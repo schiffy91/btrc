@@ -72,6 +72,7 @@ class SemanticValidator {
 		self.names.validateDeclarationNames(self.program);
 		self.names.validateDeclarationDuplicates(self.program);
 		self.names.publishKnownGeneratedSymbols(self.program);
+		self.borrows.validateNativeInvocations(self.program);
 		self.declarations.validateCallableShapes(self.program);
 
 		index = 0;

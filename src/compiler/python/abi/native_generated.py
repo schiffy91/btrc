@@ -98,6 +98,7 @@ class NativeConstant:
     name: str = ""
     value_type: native_type
     decimal_value: str = ""
+    enum_identity: str = ""
     source_file: str = _dc_field(default=None, compare=False)
     line: int = _dc_field(default=0, compare=False)
     column: int = 0
