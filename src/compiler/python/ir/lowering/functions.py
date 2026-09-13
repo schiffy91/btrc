@@ -6,6 +6,7 @@ import json
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
+from src.compiler.python.abi.native_generated import NativeAlias, NativeEnumType, NativeQualifiedType
 from src.compiler.python.analyzer.storage import StorageModel
 from src.compiler.python.frontend.native_imports import (
     NativeActionProjection,
@@ -21,6 +22,9 @@ from src.compiler.python.ir.nodes import (
     IRCall,
     IRCast,
     IRCompoundLiteral,
+    IRCxxDelete,
+    IRCxxExceptionBoundary,
+    IRCxxNew,
     IRDeref,
     IRExprStmt,
     IRFieldAccess,
@@ -1707,7 +1711,7 @@ class FunctionLowerer:
         guard.condition = IRBinOp(IRCall(function, arguments), "!=", IRLiteral("0"))
         return guard
 
-    def _emit_unique_resource(self, declaration):
+    def _emit_unique_resource(self, declaration, symbol=None, release_symbol=None):
         resource = declaration.source_file.resource
         native_type = declaration.source_file.type_spelling or resource.name
         status_release = bool(resource.release_consumption)
@@ -1717,8 +1721,12 @@ class FunctionLowerer:
         include = IRInclude(header="pthread.h")
         if include not in self._session.module.preprocessor_decls:
             self._session.module.preprocessor_decls.append(include)
-        native_prefix = f"__btrc_native_{resource.name}"
-        prefix = f"__btrc_unique_{resource.name}"
+        # C++ owners are published under their BTRC alias and released through a
+        # generated extern "C" adapter rather than a selected C function.
+        symbol = symbol or resource.name
+        release_symbol = release_symbol or resource.release
+        native_prefix = f"__btrc_native_{symbol}"
+        prefix = f"__btrc_unique_{symbol}"
         forward = IRStructForward(name=native_prefix)
         if forward not in self._session.module.struct_forwards:
             self._session.module.struct_forwards.append(forward)
@@ -1759,7 +1767,8 @@ class FunctionLowerer:
         )
         for helper in ("__btrc_arc_retain", "__btrc_arc_release", "__btrc_safe_calloc"):
             self._session.require_helper(helper)
-        self._session.module.native_external_names.add(resource.release)
+        if release_symbol == resource.release:
+            self._session.module.native_external_names.add(resource.release)
         lock = self._native_unique_checked("pthread_mutex_lock", [mutex])
         unlock = self._native_unique_checked("pthread_mutex_unlock", [mutex])
         reentrant = self._native_null_guard(IRLiteral("NULL"), f"Native resource {resource.name}: reentrant close")
@@ -1803,9 +1812,9 @@ class FunctionLowerer:
                 IRAssign(closing, IRLiteral("true")),
                 IRAssign(closing_thread, IRCall("pthread_self", [])),
                 unlock,
-                IRVarDecl(CType(close_type), "result", init=IRCall(resource.release, [IRVar("native")]))
+                IRVarDecl(CType(close_type), "result", init=IRCall(release_symbol, [IRVar("native")]))
                 if status_release
-                else IRIf(IRVar("native"), IRBlock([IRExprStmt(IRCall(resource.release, [IRVar("native")]))])),
+                else IRIf(IRVar("native"), IRBlock([IRExprStmt(IRCall(release_symbol, [IRVar("native")]))])),
                 *(
                     [
                         IRExprStmt(IRCall("free", [IRFieldAccess(owner, "input", arrow=True)])),
@@ -1996,6 +2005,343 @@ class FunctionLowerer:
                     IRExprStmt(IRCall(native_prefix + "_release", [owner])),
                 ],
             )
+
+    def _cxx_unit(self, declaration):
+        module = self._session.module
+        native = module.native_units.setdefault("CxxAdapters", IRModule(language="c++"))
+        includes = [IRInclude(header="stdlib.h")]
+        includes.extend(IRInclude(header=header, is_system=False) for header in declaration.source_file.headers)
+        for include in includes:
+            if include not in native.preprocessor_decls:
+                native.preprocessor_decls.append(include)
+        return native
+
+    def _cxx_extern(self, native, name, result, parameters, body):
+        """One extern "C" adapter: defined in the C++ unit, declared to the strict C module."""
+        native.function_defs.append(
+            IRFunctionDef(name=name, return_type=result, params=parameters, body=IRBlock(body), c_linkage=True)
+        )
+        self._session.module.function_decls.append(IRFunctionDecl(name=name, return_type=result, params=parameters))
+
+    def emit_cxx_class(self, declaration):
+        """Opaque C++ owners and owner-bound views never expose the SDK object to generated C."""
+        resource = declaration.source_file.resource
+        native = self._cxx_unit(declaration)
+        alias, sdk = declaration.name, resource.name
+        abort = IRBlock([IRExprStmt(IRCall("abort", [], never_returns=True))])
+        delete = f"__btrc_cxx_{alias}_delete"
+        self._cxx_extern(
+            native,
+            delete,
+            CType("void"),
+            [IRParam(CType("void*"), "value")],
+            [
+                IRCxxExceptionBoundary(
+                    body=IRBlock([IRCxxDelete(IRCast(CType(f"{sdk}*"), IRVar("value")))]), failure=abort
+                )
+            ],
+        )
+        if resource.ownership == "unique":
+            self._emit_unique_resource(declaration, symbol=alias, release_symbol=delete)
+            root = alias
+        elif resource.ownership == "owner-bound-value":
+            root = next(name for name, owner in self._native_resources.items() if owner.name == resource.owner)
+            self._emit_cxx_view(declaration, root, delete)
+        else:
+            raise ValueError(f"unsupported C++ ownership {resource.ownership!r}")
+        for method in declaration.members:
+            if method.name in {"close", "isOpen"}:
+                continue
+            self._emit_cxx_method(declaration, method, declaration.source_file.methods[method.name], native, root)
+
+    def _emit_cxx_view(self, declaration, root, delete):
+        """A view is an ordinary ARC object: one copied SDK value plus a claim on its root owner."""
+        alias = declaration.name
+        module = self._session.module
+        struct_name = f"__btrc_native_{alias}"
+        prefix = f"__btrc_view_{alias}"
+        owner_c = CType(f"struct __btrc_native_{root}*")
+        pointer = CType(f"struct {struct_name}*")
+        forward = IRStructForward(name=struct_name)
+        if forward not in module.struct_forwards:
+            module.struct_forwards.append(forward)
+        module.struct_defs.append(
+            IRStructDef(
+                struct_name,
+                [
+                    IRStructField(CType("__btrc_arc_header"), "__arc"),
+                    IRStructField(owner_c, "owner"),
+                    IRStructField(CType("void*"), "value"),
+                ],
+            )
+        )
+        for helper in ("__btrc_arc_retain", "__btrc_arc_release", "__btrc_safe_calloc"):
+            self._session.require_helper(helper)
+        self_value = IRVar("self")
+        owner = IRFieldAccess(self_value, "owner", arrow=True)
+        value = IRFieldAccess(self_value, "value", arrow=True)
+        raw = IRParam(CType("void*"), "raw")
+        self._native_unique_function(
+            prefix + "_destroy",
+            "void",
+            [raw],
+            [
+                IRVarDecl(pointer, "self", init=IRCast(pointer, IRVar("raw"))),
+                IRIf(IRBinOp(value, "!=", IRLiteral("NULL")), IRBlock([IRExprStmt(IRCall(delete, [value]))])),
+                IRIf(
+                    IRBinOp(owner, "!=", IRLiteral("NULL")),
+                    IRBlock([IRExprStmt(IRCall(f"__btrc_native_{root}_release", [owner]))]),
+                ),
+                IRExprStmt(IRCall("free", [self_value])),
+            ],
+        )
+        self._ownership.emit_arc_descriptor(prefix, None)
+        self._native_unique_function(
+            struct_name + "_retain", "void", [raw], [IRExprStmt(IRCall("__btrc_arc_retain", [IRVar("raw")]))]
+        )
+        self._native_unique_function(
+            struct_name + "_release",
+            "void",
+            [raw],
+            [IRExprStmt(IRCall("__btrc_arc_release", [IRVar("raw"), self._ownership.descriptor_pointer(prefix)]))],
+        )
+        self._native_unique_function(
+            prefix + "_new",
+            pointer.text,
+            [IRParam(owner_c, "owner"), IRParam(CType("void*"), "value")],
+            [
+                IRVarDecl(
+                    pointer,
+                    "self",
+                    init=IRCast(
+                        pointer,
+                        IRCall("__btrc_safe_calloc", [IRLiteral("1"), IRSizeof(CType(f"struct {struct_name}"))]),
+                    ),
+                ),
+                *self._ownership.arc_header_initialization(prefix, "self"),
+                IRExprStmt(IRCall(f"__btrc_native_{root}_retain", [IRVar("owner")])),
+                IRAssign(owner, IRVar("owner")),
+                IRAssign(value, IRVar("value")),
+                IRReturn(self_value),
+            ],
+        )
+
+    def _emit_cxx_method(self, declaration, method, contract, native, root):
+        """The C++ unit catches every exception; the C wrapper borrows the root owner and throws afterwards."""
+        resource = declaration.source_file.resource
+        projection = contract.cxx_method
+        sdk_method = projection.method
+        alias, sdk = declaration.name, resource.name
+        # Calls on a unique owner route through its public symbol family; views
+        # are ordinary native classes.
+        name = (
+            f"__btrc_unique_{alias}_{method.name}_public"
+            if resource.ownership == "unique"
+            else f"{alias}_{method.name}"
+        )
+        adapter = f"__btrc_cxx_{alias}_{method.name}"
+        module = self._session.module
+        factory = bool(projection.factory_result)
+        view_result = contract.resource_result
+        string_result = contract.copied_result is not None
+        result_type = CType(self._types.render(method.return_type))
+        returns_scalar = not factory and not view_result and not string_result and result_type.text != "void"
+        parameters = [self._signatures.lower_source_param(parameter) for parameter in method.params]
+        cxx_parameters = [] if factory else [IRParam(CType("void*"), "receiver")]
+        cxx_parameters.extend(IRParam(parameter.c_type, parameter.name) for parameter in parameters)
+        record = projection.result_record
+        outputs = []
+        if factory:
+            outputs.append(IRParam(CType("void**"), "outValue"))
+            outputs.extend(
+                IRParam(CType(self._types.render(field.value_type) + "*"), f"out_{field.name}")
+                for field in record.fields
+            )
+        elif view_result:
+            outputs.append(IRParam(CType("void**"), "outValue"))
+        elif string_result:
+            outputs.append(IRParam(CType("const char**"), "outValue"))
+        elif returns_scalar:
+            outputs.append(IRParam(CType(result_type.text + "*"), "outValue"))
+        cxx_parameters.extend(outputs)
+        native_arguments = []
+        for parameter, native_type in zip(parameters, sdk_method.signature.parameters, strict=True):
+            unqualified = native_type
+            while isinstance(unqualified, (NativeAlias, NativeQualifiedType)):
+                unqualified = unqualified.underlying
+            value = IRVar(parameter.name)
+            if isinstance(unqualified, NativeEnumType):
+                value = IRCast(CType(unqualified.name), value)
+            native_arguments.append(value)
+        out = IRDeref(IRVar("outValue"))
+        if factory:
+            target = IRVar("object")
+            sdk_result = IRVar("sdkResult")
+            attempt = [
+                IRAssign(target, IRCxxNew(CType(sdk), [])),
+                IRVarDecl(
+                    CType(record.native_spelling),
+                    "sdkResult",
+                    init=IRCall(IRFieldAccess(target, sdk_method.method_name, arrow=True), native_arguments),
+                ),
+                *[
+                    IRAssign(IRDeref(IRVar(f"out_{field.name}")), IRFieldAccess(sdk_result, field.name))
+                    for field in record.fields
+                ],
+                IRIf(
+                    condition=IRBinOp(
+                        IRFieldAccess(sdk_result, projection.status_field), "!=", IRVar(projection.success)
+                    ),
+                    then_block=IRBlock([IRCxxDelete(target), IRAssign(out, IRLiteral("NULL"))]),
+                    else_block=IRBlock([IRAssign(out, target)]),
+                ),
+                IRReturn(IRLiteral("0")),
+            ]
+            body = [
+                IRVarDecl(CType(f"{sdk}*"), "object", init=IRLiteral("NULL")),
+                IRCxxExceptionBoundary(
+                    body=IRBlock(attempt), failure=IRBlock([IRCxxDelete(target), IRReturn(IRLiteral("1"))])
+                ),
+            ]
+        else:
+            receiver = IRCast(CType(f"{sdk}*"), IRVar("receiver"))
+            call = IRCall(IRFieldAccess(receiver, sdk_method.method_name, arrow=True), native_arguments)
+            if view_result:
+                attempt = [IRAssign(out, IRCxxNew(CType(self._native_resources[view_result].name), [call]))]
+            elif string_result or returns_scalar:
+                attempt = [IRAssign(out, call)]
+            else:
+                attempt = [IRExprStmt(call)]
+            attempt.append(IRReturn(IRLiteral("0")))
+            body = [IRCxxExceptionBoundary(body=IRBlock(attempt), failure=IRBlock([IRReturn(IRLiteral("1"))]))]
+        self._cxx_extern(native, adapter, CType("int"), cxx_parameters, body)
+        self._session.require_helper("__btrc_throw")
+        c_parameters = list(parameters)
+        statements = []
+        call_arguments = [IRVar(parameter.name) for parameter in parameters]
+        owner = None
+        if not factory:
+            self_value = IRVar("self")
+            c_parameters.insert(0, IRParam(CType(f"struct __btrc_native_{alias}*"), "self"))
+            statements.append(self._native_null_guard(self_value, f"C++ call {sdk_method.name}: null receiver"))
+            owner = self_value if resource.ownership == "unique" else IRFieldAccess(self_value, "owner", arrow=True)
+            statements.extend(
+                [
+                    IRExprStmt(IRCall(f"__btrc_native_{root}_retain", [owner])),
+                    IRExprStmt(IRCall(f"__btrc_unique_{root}_begin_borrow", [owner])),
+                ]
+            )
+            call_arguments.insert(0, IRFieldAccess(self_value, "value", arrow=True))
+        if factory:
+            statements.append(IRVarDecl(CType("void*"), "outValue", init=IRLiteral("NULL")))
+            call_arguments.append(IRAddressOf(IRVar("outValue")))
+            for field in record.fields:
+                statements.append(
+                    IRVarDecl(CType(self._types.render(field.value_type)), f"out_{field.name}", init=IRLiteral("0"))
+                )
+                call_arguments.append(IRAddressOf(IRVar(f"out_{field.name}")))
+        elif view_result:
+            statements.append(IRVarDecl(CType("void*"), "outValue", init=IRLiteral("NULL")))
+            call_arguments.append(IRAddressOf(IRVar("outValue")))
+        elif string_result:
+            statements.append(IRVarDecl(CType("const char*"), "outValue", init=IRLiteral("NULL")))
+            call_arguments.append(IRAddressOf(IRVar("outValue")))
+        elif returns_scalar:
+            statements.append(IRVarDecl(result_type, "outValue", init=IRLiteral("0")))
+            call_arguments.append(IRAddressOf(IRVar("outValue")))
+        statements.append(IRVarDecl(CType("int"), "status", init=IRCall(adapter, call_arguments)))
+        if owner is not None:
+            statements.append(IRExprStmt(IRCall(f"__btrc_unique_{root}_end_borrow", [owner])))
+        statements.append(
+            IRIf(
+                IRBinOp(IRVar("status"), "!=", IRLiteral("0")),
+                IRBlock(
+                    [
+                        IRExprStmt(
+                            IRCall(
+                                "__btrc_throw",
+                                helper_ref="__btrc_throw",
+                                never_returns=True,
+                                args=[IRLiteral(json.dumps(f"C++ exception in {sdk_method.name}"))],
+                            )
+                        )
+                    ]
+                ),
+            )
+        )
+        if factory:
+            status_field_type = TypeExpr(base=record.name, pointer_depth=1)
+            status_type = CType(self._types.render(status_field_type))
+            outcome_type = CType(self._types.render(TypeExpr(base=projection.factory_result, pointer_depth=1)))
+            owner_type = CType(f"struct __btrc_native_{alias}*")
+            status_value, outcome = IRVar("statusValue"), IRVar("outcome")
+            statements.extend(
+                [
+                    IRVarDecl(status_type, "statusValue", init=IRCall(f"{record.name}_new", [])),
+                    *[
+                        IRAssign(IRFieldAccess(status_value, field.name, arrow=True), IRVar(f"out_{field.name}"))
+                        for field in record.fields
+                    ],
+                    IRVarDecl(outcome_type, "outcome", init=IRCall(f"{projection.factory_result}_new", [])),
+                    IRAssign(IRFieldAccess(outcome, "called", arrow=True), IRLiteral("true")),
+                    # The outcome's field holds the status record through an ordinary
+                    # managed edge; the constructing local drops its own claim.
+                    IRAssign(IRFieldAccess(outcome, "status", arrow=True), status_value),
+                    IRExprStmt(self._lifetime.retain_edge_value(status_value, status_field_type, outcome)),
+                    IRExprStmt(self._lifetime.release_value(status_value, status_field_type)),
+                    IRIf(
+                        IRBinOp(IRVar("outValue"), "!=", IRLiteral("NULL")),
+                        IRBlock(
+                            [
+                                IRVarDecl(owner_type, "owner", init=IRCall(f"__btrc_unique_{alias}_new", [])),
+                                IRAssign(IRFieldAccess(IRVar("owner"), "value", arrow=True), IRVar("outValue")),
+                                IRAssign(IRFieldAccess(outcome, "value", arrow=True), IRVar("owner")),
+                            ]
+                        ),
+                    ),
+                    IRReturn(outcome),
+                ]
+            )
+        elif view_result:
+            statements.append(IRReturn(IRCall(f"__btrc_view_{view_result}_new", [owner, IRVar("outValue")])))
+        elif string_result:
+            self._session.require_helper("__btrc_string_alloc")
+            pointer, length, result = IRVar("outValue"), IRVar("length"), IRVar("result")
+            statements.extend(
+                [
+                    IRVarDecl(result_type, "result", init=IRLiteral("NULL")),
+                    IRIf(
+                        IRBinOp(pointer, "!=", IRLiteral("NULL")),
+                        IRBlock(
+                            [
+                                IRVarDecl(CType("size_t"), "length", init=IRCall("strlen", [pointer])),
+                                IRIf(
+                                    IRBinOp(length, "<=", IRLiteral("2147483647U")),
+                                    IRBlock(
+                                        [
+                                            IRAssign(
+                                                result, IRCall("__btrc_string_alloc", [IRCast(CType("int"), length)])
+                                            ),
+                                            IRExprStmt(IRCall("memcpy", [result, pointer, length])),
+                                        ]
+                                    ),
+                                ),
+                            ]
+                        ),
+                    ),
+                    IRReturn(result),
+                ]
+            )
+        elif returns_scalar:
+            statements.append(IRReturn(IRVar("outValue")))
+        module.function_decls.append(
+            IRFunctionDecl(name=name, return_type=result_type, params=c_parameters, is_static=True)
+        )
+        module.function_defs.append(
+            IRFunctionDef(
+                name=name, return_type=result_type, params=c_parameters, is_static=True, body=IRBlock(statements)
+            )
+        )
 
     def _native_unique_result(self, declaration, call, parameters, statements, releases, cleanup):
         # Allocate and register the ordinary ARC owner before native publication.

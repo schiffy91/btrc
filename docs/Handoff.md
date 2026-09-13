@@ -24,12 +24,14 @@ Linux/Windows are future provider boundaries.
    handwritten adapter is deleted. Evidence is listed in
    `design/native-interop.md` and BTRSmith's
    `build/evidence/VgmstreamCallbackTable.md`.
-2. Implement pugixml's checked load-once document factory: the frontend
-   projection and header metadata exist (`test_cpp_*`), but no C++ adapter
-   unit is lowered in either compiler and the self-host frontend still rejects
-   C++ bindings.
-3. Re-run real consumers, then delete each superseded bridge and its build
-   wiring. Keep no silent legacy fallback.
+2. Done 2026-09-13: pugixml's checked load-once owner. `language = "c++"`
+   bindings project opaque unique owners, owner-bound views and copied
+   strings through one generated `extern "C"` adapter unit in both compilers
+   (`src/tests/python/test_native_cxx_owners.py`, 9 cases per frontend on
+   fresh self-host compiler `8b49c232195c7d1caa6c5360751c4781`); BTRSmith's
+   handwritten pugixml adapter is deleted.
+3. Re-run real consumers on the final tree, then delete any superseded bridge
+   and its build wiring. Keep no silent legacy fallback.
 4. Hand the resulting provider revisions to BTRSmith for product integration
    and its visual/physical-audio gates.
 

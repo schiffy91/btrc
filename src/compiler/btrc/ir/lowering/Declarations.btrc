@@ -656,6 +656,255 @@ class DeclarationLowerer {
 		self.nativeUniqueFunction(module, contract.adapterSymbol(declaration.name), self.cTypes.lower(declaration.returnType), adapterParameters, statements);
 	}
 
+	private IRModule cxxUnit(FeNativeImportedDeclaration imported, IRModule module) {
+		if (!module.nativeUnits.has("CxxAdapters")) { var unit = IRModule(); unit.language = "c++"; module.nativeUnits.put("CxxAdapters", unit); }
+		IRModule native = module.nativeUnits.get("CxxAdapters");
+		self.appendPreprocessorDecl(native, IRPreprocessorDecl.include("stdlib.h", true));
+		for header in imported.headers { self.appendPreprocessorDecl(native, IRPreprocessorDecl.include(header, false)); }
+		return native;
+	}
+
+	/* One extern "C" adapter: defined in the C++ unit, declared to the strict C module. */
+	private void cxxExtern(IRModule native, IRModule module, string name, string result, Vector<IRParam> parameters, Vector<IRNode> body) {
+		var adapter = IRFunction();
+		adapter.name = name; adapter.returnType = result; adapter.params = parameters;
+		adapter.isStatic = false; adapter.cLinkage = true; adapter.body = IRNode.block(body);
+		native.functions.push(adapter);
+		var declaration = IRFunctionDecl(name, result, false);
+		declaration.params = parameters;
+		module.functionDecls.push(declaration);
+	}
+
+	private Node cxxTypeReference(string base) {
+		Node type = Node();
+		type.kind = NK_TYPE_EXPR;
+		type.base = base;
+		type.pointerDepth = 1;
+		return type;
+	}
+
+	private string cxxResourceAlias(string sdkName) {
+		for imported in self.analyzed.nativeDeclarations {
+			if (imported.resource != null && imported.resource.name == sdkName && imported.declaration.kind == NK_CLASS_DECL) { return imported.declaration.name; }
+		}
+		throw "Missing C++ owner declaration";
+	}
+
+	private string cxxSdkName(string alias) {
+		for imported in self.analyzed.nativeDeclarations {
+			if (imported.resource != null && imported.declaration.kind == NK_CLASS_DECL && imported.declaration.name == alias) { return imported.resource.name; }
+		}
+		throw "Missing C++ view declaration";
+	}
+
+	/* Opaque C++ owners and owner-bound views never expose the SDK object to generated C. */
+	private void emitCxxClass(FeNativeImportedDeclaration imported, IRModule module) {
+		var resource = imported.resource;
+		if (resource == null) { return; }
+		IRModule native = self.cxxUnit(imported, module);
+		string alias = imported.declaration.name;
+		string sdk = resource.name;
+		Vector<IRNode> noArguments = [];
+		IRNode abortCall = IRNode.call("abort", noArguments);
+		abortCall.neverReturns = true;
+		IRNode abortBlock = IRNode.block([IRNode.expressionStatement(abortCall)]);
+		string deleteAdapter = "__btrc_cxx_" + alias + "_delete";
+		self.cxxExtern(native, module, deleteAdapter, "void", [IRParam("void*", "value")], [
+			IRNode.cxxExceptionBoundary(IRNode.block([IRNode.cxxDelete(IRNode.cast(sdk + "*", IRNode.variable("value")))]), abortBlock)
+		]);
+		string root = alias;
+		if (resource.ownership == "unique") { self.emitUniqueResource(imported, module, alias, deleteAdapter); }
+		else if (resource.ownership == "owner-bound-value") {
+			root = self.cxxResourceAlias(resource.owner);
+			self.emitCxxView(imported, module, root, deleteAdapter);
+		} else { throw "unsupported C++ ownership"; }
+		for method in imported.declaration.members {
+			if (method.name == "close" || method.name == "isOpen") { continue; }
+			self.emitCxxMethod(imported, method, imported.methods.get(method.name), native, module, root);
+		}
+	}
+
+	/* A view is an ordinary ARC object: one copied SDK value plus a claim on its root owner. */
+	private void emitCxxView(FeNativeImportedDeclaration imported, IRModule module, string root, string deleteAdapter) {
+		string alias = imported.declaration.name;
+		string structName = "__btrc_native_" + alias;
+		string prefix = "__btrc_view_" + alias;
+		string ownerType = "struct __btrc_native_" + root + "*";
+		string pointerType = "struct " + structName + "*";
+		module.structForwards.push(IRStructForward(structName));
+		var definition = IRStructDef();
+		definition.name = structName;
+		self.managedTypes.appendHeaderField(definition);
+		definition.fields.push(IRStructField(ownerType, "owner"));
+		definition.fields.push(IRStructField("void*", "value"));
+		module.structDefs.push(definition);
+		for helper in ["__btrc_arc_retain", "__btrc_arc_release", "__btrc_safe_calloc"] { self.context.referenceHelper(helper); }
+		IRNode selfValue = IRNode.variable("self");
+		IRNode owner = IRNode.fieldAccess(selfValue, "owner", true);
+		IRNode value = IRNode.fieldAccess(selfValue, "value", true);
+		IRParam raw = IRParam("void*", "raw");
+		self.nativeUniqueFunction(module, prefix + "_destroy", "void", [raw], [
+			IRNode.variableDeclaration(pointerType, "self", IRNode.cast(pointerType, IRNode.variable("raw"))),
+			IRNode.ifStatement(IRNode.binary(value, "!=", IRNode.literal("NULL")), IRNode.block([IRNode.expressionStatement(IRNode.call(deleteAdapter, [value]))]), null),
+			IRNode.ifStatement(IRNode.binary(owner, "!=", IRNode.literal("NULL")), IRNode.block([IRNode.expressionStatement(IRNode.call("__btrc_native_" + root + "_release", [owner]))]), null),
+			IRNode.expressionStatement(IRNode.call("free", [selfValue]))
+		]);
+		self.managedTypes.emitDescriptor(module, prefix, false, false);
+		self.nativeUniqueFunction(module, structName + "_retain", "void", [raw], [IRNode.expressionStatement(IRNode.call("__btrc_arc_retain", [IRNode.variable("raw")]))]);
+		self.nativeUniqueFunction(module, structName + "_release", "void", [raw], [IRNode.expressionStatement(IRNode.call("__btrc_arc_release", [IRNode.variable("raw"), IRNode.addressOf(IRNode.variable(self.managedTypes.descriptorSymbol(prefix)))]))]);
+		Vector<IRNode> create = [IRNode.variableDeclaration(pointerType, "self", IRNode.cast(pointerType, IRNode.call("__btrc_safe_calloc", [IRNode.literal("1"), IRNode.sizeofType("struct " + structName)])))];
+		self.managedTypes.appendHeaderInitialization(prefix, create);
+		create.push(IRNode.expressionStatement(IRNode.call("__btrc_native_" + root + "_retain", [IRNode.variable("owner")])));
+		create.push(IRNode.assignment(owner, IRNode.variable("owner")));
+		create.push(IRNode.assignment(value, IRNode.variable("value")));
+		create.push(IRNode.returnStatement(selfValue));
+		self.nativeUniqueFunction(module, prefix + "_new", pointerType, [IRParam(ownerType, "owner"), IRParam("void*", "value")], create);
+	}
+
+	/* The C++ unit catches every exception; the C wrapper borrows the root owner and throws afterwards. */
+	private void emitCxxMethod(FeNativeImportedDeclaration imported, Node method, FeNativeCallContract contract, IRModule native, IRModule module, string root) {
+		var resource = imported.resource;
+		var projection = contract.cxxMethod;
+		if (projection == null) { throw "C++ method requires its projection"; }
+		NativeNode sdkMethod = projection.method;
+		Vector<IRNode> noArguments = [];
+		string alias = imported.declaration.name;
+		string sdk = resource.name;
+		/* Calls on a unique owner route through its public symbol family; views are ordinary native classes. */
+		string name = resource.ownership == "unique" ? "__btrc_unique_" + alias + "_" + method.name + "_public" : alias + "_" + method.name;
+		string adapter = "__btrc_cxx_" + alias + "_" + method.name;
+		bool factory = !projection.factoryResult.isEmpty();
+		string viewResult = contract.resourceResult;
+		bool stringResult = contract.copiedResult != null;
+		string resultType = self.cTypes.lower(method.returnType);
+		bool returnsScalar = !factory && viewResult.isEmpty() && !stringResult && resultType != "void";
+		Vector<IRParam> parameters = [];
+		for parameter in method.params { parameters.push(self.cTypes.lowerParameter(parameter)); }
+		Vector<IRParam> cxxParameters = [];
+		if (!factory) { cxxParameters.push(IRParam("void*", "receiver")); }
+		for parameter in parameters { cxxParameters.push(IRParam(parameter.cType, parameter.name)); }
+		FeNativeRecordInput? maybeRecord = projection.resultRecord;
+		if (factory && maybeRecord == null) { throw "C++ factory requires its status record"; }
+		FeNativeRecordInput record = maybeRecord == null ? FeNativeRecordInput("", "", true) : maybeRecord;
+		Vector<IRParam> outputs = [];
+		if (factory) {
+			outputs.push(IRParam("void**", "outValue"));
+			for field in record.fields { outputs.push(IRParam(self.cTypes.lower(field.valueType) + "*", "out_" + field.name)); }
+		} else if (!viewResult.isEmpty()) { outputs.push(IRParam("void**", "outValue")); }
+		else if (stringResult) { outputs.push(IRParam("const char**", "outValue")); }
+		else if (returnsScalar) { outputs.push(IRParam(resultType + "*", "outValue")); }
+		cxxParameters.extend(outputs);
+		Vector<IRNode> nativeArguments = [];
+		for index in range(parameters.len) {
+			NativeNode unqualified = sdkMethod.signature.parameters.get(index);
+			while (unqualified.kind == NNK_NATIVE_ALIAS || unqualified.kind == NNK_NATIVE_QUALIFIED_TYPE) { unqualified = unqualified.underlying; }
+			IRNode value = IRNode.variable(parameters.get(index).name);
+			if (unqualified.kind == NNK_NATIVE_ENUM_TYPE) { value = IRNode.cast(unqualified.name, value); }
+			nativeArguments.push(value);
+		}
+		IRNode out = IRNode.dereference(IRNode.variable("outValue"));
+		Vector<IRNode> body = [];
+		if (factory) {
+			IRNode target = IRNode.variable("object");
+			IRNode sdkResult = IRNode.variable("sdkResult");
+			Vector<IRNode> attempt = [
+				IRNode.assignment(target, IRNode.cxxNew(sdk, noArguments)),
+				IRNode.variableDeclaration(record.nativeSpelling, "sdkResult", IRNode.indirectCall(IRNode.fieldAccess(target, sdkMethod.methodName, true), nativeArguments))
+			];
+			for field in record.fields { attempt.push(IRNode.assignment(IRNode.dereference(IRNode.variable("out_" + field.name)), IRNode.fieldAccess(sdkResult, field.name, false))); }
+			attempt.push(IRNode.ifStatement(IRNode.binary(IRNode.fieldAccess(sdkResult, projection.statusField, false), "!=", IRNode.variable(projection.success)), IRNode.block([IRNode.cxxDelete(target), IRNode.assignment(out, IRNode.literal("NULL"))]), IRNode.block([IRNode.assignment(out, target)])));
+			attempt.push(IRNode.returnStatement(IRNode.literal("0")));
+			body.push(IRNode.variableDeclaration(sdk + "*", "object", IRNode.literal("NULL")));
+			body.push(IRNode.cxxExceptionBoundary(IRNode.block(attempt), IRNode.block([IRNode.cxxDelete(target), IRNode.returnStatement(IRNode.literal("1"))])));
+		} else {
+			IRNode receiver = IRNode.cast(sdk + "*", IRNode.variable("receiver"));
+			IRNode call = IRNode.indirectCall(IRNode.fieldAccess(receiver, sdkMethod.methodName, true), nativeArguments);
+			Vector<IRNode> attempt = [];
+			if (!viewResult.isEmpty()) { attempt.push(IRNode.assignment(out, IRNode.cxxNew(self.cxxSdkName(viewResult), [call]))); }
+			else if (stringResult || returnsScalar) { attempt.push(IRNode.assignment(out, call)); }
+			else { attempt.push(IRNode.expressionStatement(call)); }
+			attempt.push(IRNode.returnStatement(IRNode.literal("0")));
+			body.push(IRNode.cxxExceptionBoundary(IRNode.block(attempt), IRNode.block([IRNode.returnStatement(IRNode.literal("1"))])));
+		}
+		self.cxxExtern(native, module, adapter, "int", cxxParameters, body);
+		self.context.referenceHelper("__btrc_throw");
+		Vector<IRParam> cParameters = [];
+		Vector<IRNode> statements = [];
+		Vector<IRNode> callArguments = [];
+		for parameter in parameters { callArguments.push(IRNode.variable(parameter.name)); }
+		IRNode selfValue = IRNode.variable("self");
+		IRNode owner = resource.ownership == "unique" ? selfValue : IRNode.fieldAccess(selfValue, "owner", true);
+		if (!factory) {
+			cParameters.push(IRParam("struct __btrc_native_" + alias + "*", "self"));
+			statements.push(self.nativeNullGuard(selfValue, f"C++ call {sdkMethod.name}: null receiver"));
+			statements.push(IRNode.expressionStatement(IRNode.call("__btrc_native_" + root + "_retain", [owner])));
+			statements.push(IRNode.expressionStatement(IRNode.call("__btrc_unique_" + root + "_begin_borrow", [owner])));
+			callArguments.insert(0, IRNode.fieldAccess(selfValue, "value", true));
+		}
+		cParameters.extend(parameters);
+		if (factory) {
+			statements.push(IRNode.variableDeclaration("void*", "outValue", IRNode.literal("NULL")));
+			callArguments.push(IRNode.addressOf(IRNode.variable("outValue")));
+			for field in record.fields {
+				statements.push(IRNode.variableDeclaration(self.cTypes.lower(field.valueType), "out_" + field.name, IRNode.literal("0")));
+				callArguments.push(IRNode.addressOf(IRNode.variable("out_" + field.name)));
+			}
+		} else if (!viewResult.isEmpty()) {
+			statements.push(IRNode.variableDeclaration("void*", "outValue", IRNode.literal("NULL")));
+			callArguments.push(IRNode.addressOf(IRNode.variable("outValue")));
+		} else if (stringResult) {
+			statements.push(IRNode.variableDeclaration("const char*", "outValue", IRNode.literal("NULL")));
+			callArguments.push(IRNode.addressOf(IRNode.variable("outValue")));
+		} else if (returnsScalar) {
+			statements.push(IRNode.variableDeclaration(resultType, "outValue", IRNode.literal("0")));
+			callArguments.push(IRNode.addressOf(IRNode.variable("outValue")));
+		}
+		statements.push(IRNode.variableDeclaration("int", "status", IRNode.call(adapter, callArguments)));
+		if (!factory) { statements.push(IRNode.expressionStatement(IRNode.call("__btrc_unique_" + root + "_end_borrow", [owner]))); }
+		IRNode failure = IRNode.call("__btrc_throw", [IRNode.literal("\"C++ exception in " + sdkMethod.name + "\"")]);
+		failure.neverReturns = true;
+		statements.push(IRNode.ifStatement(IRNode.binary(IRNode.variable("status"), "!=", IRNode.literal("0")), IRNode.block([IRNode.expressionStatement(failure)]), null));
+		if (factory) {
+			Node statusFieldType = self.cxxTypeReference(record.name);
+			string statusType = self.cTypes.lower(statusFieldType);
+			string outcomeType = self.cTypes.lower(self.cxxTypeReference(projection.factoryResult));
+			string ownerType = "struct __btrc_native_" + alias + "*";
+			IRNode statusValue = IRNode.variable("statusValue");
+			IRNode outcome = IRNode.variable("outcome");
+			statements.push(IRNode.variableDeclaration(statusType, "statusValue", IRNode.call(record.name + "_new", noArguments)));
+			for field in record.fields { statements.push(IRNode.assignment(IRNode.fieldAccess(statusValue, field.name, true), IRNode.variable("out_" + field.name))); }
+			statements.push(IRNode.variableDeclaration(outcomeType, "outcome", IRNode.call(projection.factoryResult + "_new", noArguments)));
+			statements.push(IRNode.assignment(IRNode.fieldAccess(outcome, "called", true), IRNode.literal("true")));
+			/* The outcome's field holds the status record through an ordinary managed edge; the constructing local drops its own claim. */
+			statements.push(IRNode.assignment(IRNode.fieldAccess(outcome, "status", true), statusValue));
+			statements.push(IRNode.expressionStatement(self.managedLifetime.retainEdge(statusValue, statusFieldType, outcome)));
+			statements.push(IRNode.expressionStatement(self.managedLifetime.releaseValue(statusValue, statusFieldType)));
+			statements.push(IRNode.ifStatement(IRNode.binary(IRNode.variable("outValue"), "!=", IRNode.literal("NULL")), IRNode.block([
+				IRNode.variableDeclaration(ownerType, "owner", IRNode.call("__btrc_unique_" + alias + "_new", noArguments)),
+				IRNode.assignment(IRNode.fieldAccess(IRNode.variable("owner"), "value", true), IRNode.variable("outValue")),
+				IRNode.assignment(IRNode.fieldAccess(outcome, "value", true), IRNode.variable("owner"))
+			]), null));
+			statements.push(IRNode.returnStatement(outcome));
+		} else if (!viewResult.isEmpty()) {
+			statements.push(IRNode.returnStatement(IRNode.call("__btrc_view_" + viewResult + "_new", [owner, IRNode.variable("outValue")])));
+		} else if (stringResult) {
+			self.context.referenceHelper("__btrc_string_alloc");
+			IRNode pointer = IRNode.variable("outValue");
+			IRNode length = IRNode.variable("length");
+			IRNode result = IRNode.variable("result");
+			statements.push(IRNode.variableDeclaration(resultType, "result", IRNode.literal("NULL")));
+			statements.push(IRNode.ifStatement(IRNode.binary(pointer, "!=", IRNode.literal("NULL")), IRNode.block([
+				IRNode.variableDeclaration("size_t", "length", IRNode.call("strlen", [pointer])),
+				IRNode.ifStatement(IRNode.binary(length, "<=", IRNode.literal("2147483647U")), IRNode.block([
+				IRNode.assignment(result, IRNode.call("__btrc_string_alloc", [IRNode.cast("int", length)])),
+				IRNode.expressionStatement(IRNode.call("memcpy", [result, pointer, length]))
+			]), null)
+			]), null));
+			statements.push(IRNode.returnStatement(result));
+		} else if (returnsScalar) { statements.push(IRNode.returnStatement(IRNode.variable("outValue"))); }
+		self.nativeUniqueFunction(module, name, resultType, cParameters, statements);
+	}
+
 	private void nativeUniqueFunction(IRModule module, string name, string result, Vector<IRParam> parameters, Vector<IRNode> statements) {
 		var declaration = IRFunctionDecl(name, result, true);
 		declaration.params = parameters;
@@ -672,15 +921,19 @@ class DeclarationLowerer {
 		return guard;
 	}
 
-	private void emitUniqueResource(FeNativeImportedDeclaration imported, IRModule module) {
+	/* C++ owners are published under their BTRC alias and released through a generated
+	 * extern "C" adapter rather than a selected C function. */
+	private void emitUniqueResource(FeNativeImportedDeclaration imported, IRModule module, string symbol = "", string releaseSymbol = "") {
 		var resource = imported.resource;
 		string nativeType = imported.typeSpelling.isEmpty() ? resource.name : imported.typeSpelling;
 		bool statusRelease = !resource.releaseConsumption.isEmpty();
 		string closeType = "void";
 		for member in imported.declaration.members { if (member.name == "close") { closeType = self.cTypes.lower(member.returnType); } }
 		self.appendPreprocessorDecl(module, IRPreprocessorDecl.include("pthread.h", true));
-		string nativePrefix = "__btrc_native_" + resource.name;
-		string prefix = "__btrc_unique_" + resource.name;
+		string owningSymbol = symbol.isEmpty() ? resource.name : symbol;
+		string destroySymbol = releaseSymbol.isEmpty() ? resource.releaseFunction : releaseSymbol;
+		string nativePrefix = "__btrc_native_" + owningSymbol;
+		string prefix = "__btrc_unique_" + owningSymbol;
 		module.structForwards.push(IRStructForward(nativePrefix));
 		string pointerType = "struct " + nativePrefix + "*";
 		IRNode owner = IRNode.variable("self");
@@ -723,7 +976,7 @@ class DeclarationLowerer {
 			IRNode.assignment(value, IRNode.literal("NULL")), IRNode.assignment(closing, IRNode.literal("true")),
 			IRNode.assignment(closingThread, IRNode.call("pthread_self", noArguments)), unlock
 		]);
-		IRNode destroyCall = IRNode.call(resource.releaseFunction, [IRNode.variable("native")]);
+		IRNode destroyCall = IRNode.call(destroySymbol, [IRNode.variable("native")]);
 		if (statusRelease) { close.push(IRNode.variableDeclaration(closeType, "result", destroyCall)); }
 		else { close.push(IRNode.ifStatement(IRNode.variable("native"), IRNode.block([IRNode.expressionStatement(destroyCall)]), null)); }
 		if (!resource.storage.isEmpty()) {
@@ -2162,10 +2415,11 @@ class DeclarationLowerer {
 			if (imported.language == "c") { self.appendPreprocessorDecl(m, IRPreprocessorDecl.include(imported.header, false)); }
 			if (imported.declaration.kind == NK_CLASS_DECL && !imported.coalesced) {
 				if (!imported.invocation.isEmpty()) { continue; }
+				else if (imported.language == "c++") { self.emitCxxClass(imported, m); }
 				else if (imported.resource != null) { self.emitResourceLifetime(imported, m); }
 				else { self.emitObjectiveCAdapters(imported, m); }
 			}
-			if ((imported.language == "objective-c" || self.analyzed.nativeGlobalReturnsOwned(imported.declaration.name)) && imported.declaration.kind == NK_VAR_DECL_STMT && !nativeConstants.has(imported.declaration.name)) {
+			if ((imported.language == "objective-c" || imported.language == "c++" || self.analyzed.nativeGlobalReturnsOwned(imported.declaration.name)) && imported.declaration.kind == NK_VAR_DECL_STMT && !nativeConstants.has(imported.declaration.name)) {
 				if (imported.declaration.initializer == null) { self.emitNativeGlobal(imported, m); }
 				else { self.emitGlobalVar(imported.declaration, m, false); }
 				nativeConstants.put(imported.declaration.name, true);

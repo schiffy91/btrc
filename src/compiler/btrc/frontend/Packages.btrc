@@ -1063,7 +1063,11 @@ class FeManifestBlock {
 			} else if (field != "ownership" && field != "retain" && field != "release" && field != "release-consumption" && field != "cleanup-status" && field != "type-query" && field != "type-tag" && field != "storage") { FePackageFailure.fail(f"unexpected resource field '{field}'"); }
 			names.put(parts.get(1), true);
 		}
-		for name in names.keys() {
+		/* Resources finish in name order so both compilers publish the same declaration order. */
+		Vector<string> orderedNames = [];
+		for name in names.keys() { orderedNames.push(name); }
+		orderedNames.sortBy((string left, string right) => Strings.lessThan(left, right));
+		for name in orderedNames {
 			if (binding.language == "c++") {
 				self.finishCppResource(binding, name, aliases);
 				continue;
@@ -1549,12 +1553,13 @@ class FePackageManifestParser {
 				}
 				string initializerPrefix = "native.bindings.initializers.";
 				if (table.startsWith(initializerPrefix)) {
-					string name = table.substring(initializerPrefix.length(), table.length() - initializerPrefix.length());
+					/* C++ factories are selected by their quoted scoped method name. */
+					string name = TOML.unquote(table.substring(initializerPrefix.length(), table.length() - initializerPrefix.length()));
 					var parts = Strings.split(name, ".");
 					bool selectedName = !parts.get(0).isEmpty();
 					for component in Strings.split(parts.get(0), "::") { if (!self.identifier(component)) { selectedName = false; } }
 					if (block == null || !block.isBinding() || !selectedName || (parts.len != 1 && !(parts.len == 3 && parts.get(1) == "copied-inputs" && self.identifier(parts.get(2))))) { FePackageFailure.fail("initializers requires a preceding native binding and selected function table"); }
-					block.declareInitializer(name); section = table; continue;
+					block.declareInitializer(name); section = initializerPrefix + name; continue;
 				}
 				string snapshotPrefix = "native.bindings.record-snapshots.";
 				if (table.startsWith(snapshotPrefix)) {
@@ -1617,9 +1622,13 @@ class FePackageManifestParser {
 					bool subTable = name.endsWith(".table") || name.endsWith(".table.methods");
 					if (name.endsWith(".table.methods")) { name = name.substring(0, name.length() - 14); }
 					else if (name.endsWith(".table")) { name = name.substring(0, name.length() - 6); }
-					if (block == null || !block.isBinding() || !self.identifier(name)) { FePackageFailure.fail("resources requires a preceding native binding and a typedef name"); }
+					/* C++ classes are selected by their quoted scoped name. */
+					name = TOML.unquote(name);
+					bool selectedName = !name.isEmpty();
+					for component in Strings.split(name, "::") { if (!self.identifier(component)) { selectedName = false; } }
+					if (block == null || !block.isBinding() || !selectedName) { FePackageFailure.fail("resources requires a preceding native binding and a typedef name"); }
 					if (!subTable) { block.declareResource(name); }
-					section = table;
+					section = "native.bindings.resources." + name + (table.endsWith(".table.methods") ? ".table.methods" : table.endsWith(".table") ? ".table" : "");
 					continue;
 				}
 				if (table.equals("native.bindings.object-fields") || table.equals("native.bindings.borrowed-results") || table.equals("native.bindings.resource-parameters") || table.equals("native.bindings.resource-results")) {

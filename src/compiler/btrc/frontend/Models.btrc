@@ -15,6 +15,8 @@ class FeNativeHeaderRead {
 	private string executable;
 	private Vector<string> arguments;
 	private Result<string, string> outcome;
+	/* Toolchain probes read the driver's diagnostic listing rather than its output. */
+	public bool captureStderr = false;
 
 	public FeNativeHeaderRead(string executable, Vector<string> arguments) {
 		self.executable = executable;
@@ -449,6 +451,26 @@ class FeNativeInitializer {
 	public FeNativeInitializer(string success, int copiedInput, int length) { self.success = success; self.copiedInput = copiedInput; self.length = length; }
 }
 
+/* One selected C++ method projected through a generated extern "C" adapter. */
+class FeNativeCxxProjection {
+	public NativeNode method;
+	public string receiver;
+	public string rootOwner;
+	public FeNativeRecordInput? resultRecord = null;
+	public string factoryResult = "";
+	public string success = "";
+	public string statusField = "";
+	public FeNativeCxxProjection(NativeNode method, string receiver, string rootOwner) {
+		self.method = method; self.receiver = receiver; self.rootOwner = rootOwner;
+	}
+
+	public string identity() {
+		FeNativeRecordInput? record = self.resultRecord;
+		string recordIdentity = record == null ? "" : record.identity();
+		return f"{self.method.name}:{self.method.constMethod}:{self.receiver}:{self.rootOwner}:{self.factoryResult}:{self.success}:{self.statusField}:" + recordIdentity;
+	}
+}
+
 class FeNativeCopiedInput {
 	public int ownerIndex;
 	public int inputIndex;
@@ -527,6 +549,7 @@ class FeNativeCallbackTableProjection {
 
 class FeNativeCallContract {
 	public FeNativeCallbackTableProjection? callbackTable = null;
+	public FeNativeCxxProjection? cxxMethod = null;
 	public FeNativeCopiedInput? copiedInput = null;
 	public FeNativeRecordSnapshot? recordSnapshot = null;
 	public FeNativeCopiedResult? copiedResult = null;
@@ -559,6 +582,8 @@ class FeNativeCallContract {
 	public bool returnsOwned() {
 		if (self.recordSnapshot != null) { return true; }
 		if (!self.resourceResult.isEmpty() || self.recordOutput != null || self.ownedOutput != null || self.copiedResult != null) { return true; }
+		FeNativeCxxProjection? cxxMethod = self.cxxMethod;
+		if (cxxMethod != null && !cxxMethod.factoryResult.isEmpty()) { return true; }
 		for callback in self.callbacks { if (callback.oneShot || callback.realtime != null) { return true; } }
 		return false;
 	}

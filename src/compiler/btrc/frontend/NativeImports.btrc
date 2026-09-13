@@ -34,6 +34,7 @@ class FeNativeDeclarationImporter {
 	private Vector<FeNativeImportedDeclaration> inputClasses;
 	private bool requiresSelector = false;
 	private Map<string, FeNativeResourceBinding> resources = {};
+	private Map<string, Vector<string>> cxxToolchainIncludeCache = {};
 	private Map<string, NativeNode> resourceTypes = {};
 	private Map<string, string> resourceRecords = {};
 	private Map<string, string> ownedOutputs = {};
@@ -850,6 +851,296 @@ class FeNativeDeclarationImporter {
 		if (native.kind == NNK_NATIVE_ENUM_TYPE && !native.name.isEmpty()) { return "enum " + native.name; }
 		self.fail("anonymous native block scalar requires a named SDK type");
 		return "";
+	}
+
+	/* The C++ standard library belongs to the adapter toolchain, not the SDK sysroot. The same
+	 * Clang driver that later builds the generated C++ unit reports the directories it searches;
+	 * the header reader must see identical headers. BTRC_NATIVE_CXX names that driver. */
+	private Vector<string> cxxToolchainIncludes(string standard, string target, string sysroot) {
+		Vector<string> compiler = [];
+		for part in Strings.split(Environment.get("BTRC_NATIVE_CXX", ""), " ") { if (!part.isEmpty()) { compiler.push(part); } }
+		if (compiler.len == 0) { compiler.push("clang++"); }
+		string spelled = Strings.join(compiler, " ");
+		string key = spelled + "\x1f" + standard + "\x1f" + target + "\x1f" + sysroot;
+		if (self.cxxToolchainIncludeCache.has(key)) { return self.cxxToolchainIncludeCache.get(key); }
+		Vector<string> arguments = [];
+		for index in range(1, compiler.len) { arguments.push(compiler.get(index)); }
+		arguments.extend(["-x", "c++", "-std=" + standard, "--target=" + target, "-isysroot", sysroot, "-E", "-v", "/dev/null"]);
+		var request = FeNativeHeaderRead(compiler.get(0), arguments);
+		request.captureStderr = true;
+		self.headerReader(request);
+		var result = request.result();
+		Vector<string> directories = [];
+		bool listing = false;
+		if (result.isOk()) {
+			for line in Strings.split(result.unwrap(), "\n") {
+				if (line.startsWith("#include <...> search starts here:")) { listing = true; continue; }
+				if (line.startsWith("End of search list.")) { break; }
+				if (listing && line.startsWith(" ") && !line.contains("(framework directory)")) { directories.push(line.trim()); }
+			}
+		}
+		if (result.isErr() || directories.len == 0) { self.fail(f"C++ bindings require a Clang C++ driver reporting its include search list (BTRC_NATIVE_CXX={spelled})"); }
+		self.cxxToolchainIncludeCache.put(key, directories);
+		return directories;
+	}
+
+	/* C++ bindings publish opaque owners, owner-bound views and scoped constants only. */
+	private void importCxxBinding(FeNativeBinding binding, NativeNode header) {
+		if (binding.callbacks.len > 0 || binding.recordSnapshots.len > 0 || binding.stringViews.len > 0 || binding.variadicCalls.len > 0) { self.fail("C++ bindings support resources, initializers, copied strings and constants"); }
+		self.prepareCxxResources(binding, header);
+		for declaration in header.exports {
+			if (declaration.kind == NNK_NATIVE_CONSTANT) { self.importCxxConstant(declaration); }
+			else if (declaration.kind != NNK_NATIVE_CXX_CLASS && declaration.kind != NNK_NATIVE_CXX_METHOD && declaration.kind != NNK_NATIVE_RECORD_DECLARATION) { self.fail("C++ header declarations require opaque class, method or constant lowering"); }
+		}
+		if (self.borrows.len > 0) {
+			Vector<string> paths = [];
+			for path in self.borrows.keys() { paths.push(path); }
+			paths.sortBy((string left, string right) => Strings.lessThan(left, right));
+			self.fail(f"read-only-borrows names unknown method parameter: {paths.get(0)}");
+		}
+	}
+
+	/* A scoped C++ constant is visible under its `::`-joined identifier with its underlying scalar type. */
+	private void importCxxConstant(NativeNode declaration) {
+		string name = Strings.replace(declaration.name, "::", "_");
+		for existing in self.declarations {
+			Node prior = existing.declaration;
+			string priorName = prior.kind == NK_TYPEDEF_DECL ? prior.alias : prior.name;
+			if (priorName == name) { self.fail(f"C++ constant {declaration.name} projects to an occupied name '{name}'"); }
+		}
+		for existing in self.inputClasses { if (existing.declaration.name == name) { self.fail(f"C++ constant {declaration.name} projects to an occupied name '{name}'"); } }
+		Node imported = self.node(NK_VAR_DECL_STMT);
+		imported.name = name;
+		imported.type = self.objectiveCScalar(declaration.valueType);
+		imported.type.isConst = true;
+		NativeNode native = declaration.valueType;
+		while (native.kind == NNK_NATIVE_ALIAS || native.kind == NNK_NATIVE_QUALIFIED_TYPE || native.kind == NNK_NATIVE_ENUM_TYPE) { native = native.underlying; }
+		imported.initializer = self.integer(declaration.decimalValue, native.kind == NNK_NATIVE_BUILTIN && native.signedness == "unsigned" ? "U" : "");
+		self.add(name, imported, "c++-constant:" + declaration.name + ":" + declaration.decimalValue, "", true);
+	}
+
+	/* Authenticate opaque C++ owners before projecting any callable surface. Published document
+	 * owners have no mutation entry point. Value views carry their originating owner, rather than
+	 * acquiring a new native lifetime or deriving ownership from the immediately preceding view. */
+	private void prepareCxxResources(FeNativeBinding binding, NativeNode header) {
+		Map<string, NativeNode> exports = {};
+		for declaration in header.exports { exports.put(declaration.name, declaration); }
+		Map<string, FeNativeResourceBinding> classes = {};
+		self.layouts = {};
+		for layout in header.records { self.layouts.put(layout.identity, layout); }
+		/* Map iteration is unordered; both compilers publish resources, factories and copies by name. */
+		Vector<string> resourceNames = [];
+		for name in binding.resources.keys() { resourceNames.push(name); }
+		resourceNames.sortBy((string left, string right) => Strings.lessThan(left, right));
+		Vector<string> factoryNames = [];
+		for key in binding.initializers.keys() { factoryNames.push(key); }
+		factoryNames.sortBy((string left, string right) => Strings.lessThan(left, right));
+		for name in resourceNames {
+			var resource = binding.resources.get(name);
+			if (!exports.has(name)) { self.fail(f"C++ resource {name}: expected a complete selected SDK class"); }
+			NativeNode declaration = exports.get(name);
+			if (declaration.kind != NNK_NATIVE_CXX_CLASS || !declaration.recordType.complete) { self.fail(f"C++ resource {name}: expected a complete selected SDK class"); }
+			if (!declaration.publicDestructor) { self.fail(f"C++ resource {name}: a public nondeleted destructor is required"); }
+			if (resource.ownership == "unique") {
+				if (!declaration.defaultConstructor) { self.fail("C++ unique resource requires an available public default constructor"); }
+				if (resource.constructor != "default" || resource.releaseFunction != "delete") { self.fail("C++ unique resource requires checked default/delete lifetime"); }
+			} else if (resource.ownership == "owner-bound-value") {
+				if (!declaration.triviallyCopyable || !declaration.triviallyDestructible) { self.fail("C++ owner-bound values require trivial copy and destruction"); }
+				if (!binding.resources.has(resource.owner) || binding.resources.get(resource.owner).ownership != "unique") { self.fail("C++ value requires a selected unique originating owner"); }
+			} else { self.fail("unsupported C++ resource lifetime"); }
+			if (classes.has(declaration.recordType.identity)) { self.fail("one SDK C++ class cannot declare multiple managed resources"); }
+			classes.put(declaration.recordType.identity, resource);
+			Node imported = self.node(NK_CLASS_DECL);
+			imported.name = resource.alias;
+			imported.isAbstract = true;
+			if (resource.ownership == "unique") {
+				for methodName in ["close", "isOpen"] {
+					Node method = self.node(NK_METHOD_DECL);
+					method.name = methodName;
+					method.access = "public";
+					method.returnType = self.node(NK_TYPE_EXPR);
+					method.returnType.base = methodName == "close" ? "void" : "bool";
+					imported.members.push(method);
+				}
+			}
+			self.add(resource.alias, imported, "c++-resource:" + name + ":" + resource.identity(), "void*", false, null, resource);
+		}
+		Vector<string> selectedNames = [];
+		Map<string, FeNativeResourceBinding> selected = {};
+		for name in resourceNames {
+			for method in binding.resources.get(name).methods {
+				string key = name + "::" + method;
+				if (!selected.has(key)) { selectedNames.push(key); }
+				selected.put(key, binding.resources.get(name));
+			}
+		}
+		for key in factoryNames {
+			if (!selected.has(key)) { selectedNames.push(key); }
+			selected.put(key, binding.resources.get(binding.initializers.get(key).resource));
+		}
+		Map<string, FeNativeCopiedResultBinding> copies = {};
+		for key in binding.copiedResults.keys() { copies.put(key, binding.copiedResults.get(key)); }
+		for name in selectedNames {
+			var resource = selected.get(name);
+			if (!exports.has(name)) { self.fail(f"C++ method {name}: expected its selected SDK receiver"); }
+			NativeNode method = exports.get(name);
+			if (method.kind != NNK_NATIVE_CXX_METHOD || method.receiver != resource.name) { self.fail(f"C++ method {name}: expected its selected SDK receiver"); }
+			FeNativeInitializerBinding? factory = binding.initializers.has(name) ? binding.initializers.get(name) : null;
+			bool consuming = false;
+			for item in method.parameterSemantics { if (item.cfConsumed || item.nsConsumed) { consuming = true; } }
+			if (method.signature.variadic || consuming) { self.fail("C++ methods require fixed, non-consuming SDK parameters"); }
+			if (factory == null && !method.constMethod) { self.fail("published C++ owners and views expose only const traversal methods"); }
+			var root = resource.ownership == "unique" ? resource : binding.resources.get(resource.owner);
+			Vector<Node> parameters = [];
+			Vector<bool> borrows = [];
+			Vector<string> names = self.parameterNames(method);
+			string bareName = name.endsWith("()") ? name.substring(0, name.length() - 2) : name;
+			for index in range(method.signature.parameters.len) {
+				NativeNode native = method.signature.parameters.get(index);
+				string path = bareName + "." + names.get(index);
+				NativeNode pointer = self.unqualifiedNative(native);
+				Node projected = self.node(NK_TYPE_EXPR);
+				if (pointer.kind == NNK_NATIVE_POINTER) {
+					NativeNode pointee = self.unqualifiedNative(pointer.pointee);
+					if (!self.nativeIsConst(pointer.pointee) || pointee.kind != NNK_NATIVE_BUILTIN || !["void", "char", "unsigned char"].contains(pointee.name) || !binding.readOnlyBorrows.contains(path)) { self.fail("C++ pointer inputs require explicit read-only byte borrows"); }
+					projected.base = pointee.name;
+					projected.pointerDepth = 1;
+					projected.isConst = true;
+					self.borrows.remove(path);
+					borrows.push(true);
+				} else {
+					projected = self.objectiveCScalar(native);
+					projected.isConst = false;
+					borrows.push(false);
+				}
+				Node parameter = self.node(NK_PARAM);
+				parameter.name = names.get(index);
+				parameter.type = projected;
+				parameters.push(parameter);
+			}
+			NativeNode nativeResult = self.unqualifiedNative(method.signature.returnType);
+			FeNativeRecordInput? record = null;
+			string resultResource = "";
+			FeNativeCopiedResult? copied = null;
+			Node returnType = self.node(NK_TYPE_EXPR);
+			if (factory != null) {
+				if (resource.ownership != "unique" || method.constMethod) { self.fail("C++ factory requires its private mutable document receiver"); }
+				FeNativeRecordInput resultRecord = self.cxxResultRecord(nativeResult, binding, exports, factory.result + "Status");
+				record = resultRecord;
+				NativeNode statusNative = method.signature.returnType;
+				bool statusFound = false;
+				for field in self.layouts.get(nativeResult.identity).fields { if (!statusFound && field.name == factory.statusField) { statusNative = field.fieldType; statusFound = true; } }
+				if (!statusFound || !exports.has(factory.success)) { self.fail("C++ initializer success must belong to exactly the SDK status field enum"); }
+				NativeNode statusEnum = self.unqualifiedNative(statusNative);
+				NativeNode success = exports.get(factory.success);
+				if (statusEnum.kind != NNK_NATIVE_ENUM_TYPE || success.kind != NNK_NATIVE_CONSTANT || success.enumIdentity != statusEnum.identity) { self.fail("C++ initializer success must belong to exactly the SDK status field enum"); }
+				returnType.base = factory.result;
+				Vector<FeNativeRecordInputField> fields = [];
+				Node calledType = self.node(NK_TYPE_EXPR);
+				calledType.base = "bool";
+				fields.push(FeNativeRecordInputField("called", calledType));
+				Node statusType = self.node(NK_TYPE_EXPR);
+				statusType.base = resultRecord.name;
+				fields.push(FeNativeRecordInputField("status", statusType));
+				Node valueType = self.node(NK_TYPE_EXPR);
+				valueType.base = resource.alias;
+				valueType.isNullable = true;
+				valueType.pointerDepth = 1;
+				fields.push(FeNativeRecordInputField("value", valueType));
+				self.cxxValueClass(factory.result, fields);
+			} else if (nativeResult.kind == NNK_NATIVE_RECORD_TYPE) {
+				if (!classes.has(nativeResult.identity)) { self.fail("C++ returned views must retain exactly the same originating owner"); }
+				var target = classes.get(nativeResult.identity);
+				if (target.ownership != "owner-bound-value" || target.owner != root.name) { self.fail("C++ returned views must retain exactly the same originating owner"); }
+				resultResource = target.alias;
+				returnType.base = target.alias;
+			} else if (nativeResult.kind == NNK_NATIVE_POINTER) {
+				NativeNode pointee = self.unqualifiedNative(nativeResult.pointee);
+				bool copyable = false;
+				if (copies.has(bareName)) {
+					var copy = copies.get(bareName);
+					copyable = copy.kind == "string" && copy.owner == "self";
+					copies.remove(bareName);
+				}
+				if (!copyable || !self.nativeIsConst(nativeResult.pointee) || pointee.kind != NNK_NATIVE_BUILTIN || pointee.name != "char") { self.fail("C++ pointer results require checked receiver-owned string copying"); }
+				Vector<int> noLengthArguments = [];
+				copied = FeNativeCopiedResult("string", -1, "", noLengthArguments);
+				returnType.base = "string";
+				returnType.isNullable = true;
+				returnType.pointerDepth = 1;
+			} else {
+				returnType = self.objectiveCScalar(method.signature.returnType);
+				returnType.isConst = false;
+			}
+			var projection = FeNativeCxxProjection(method, resource.alias, root.alias);
+			projection.resultRecord = record;
+			if (factory != null) {
+				projection.factoryResult = factory.result;
+				projection.success = factory.success;
+				projection.statusField = factory.statusField;
+			}
+			var contract = FeNativeCallContract();
+			contract.readOnlyBorrows = borrows;
+			contract.resourceResult = resultResource;
+			contract.copiedResult = copied;
+			contract.cxxMethod = projection;
+			var owner = self.resourceDeclaration(resource.alias);
+			if (owner.methods.has(method.methodName)) { self.fail("ambiguous C++ method source projection"); }
+			owner.methods.put(method.methodName, contract);
+			Node member = self.node(NK_METHOD_DECL);
+			member.access = factory != null ? "class" : "public";
+			member.name = method.methodName;
+			member.returnType = returnType;
+			member.params = parameters;
+			owner.declaration.members.push(member);
+		}
+		if (copies.len > 0) { self.fail("C++ copied-results names a method without a copied pointer result"); }
+	}
+
+	private void cxxValueClass(string name, Vector<FeNativeRecordInputField> fields) {
+		for existing in self.declarations {
+			Node prior = existing.declaration;
+			string priorName = prior.kind == NK_TYPEDEF_DECL ? prior.alias : prior.name;
+			if (priorName == name) { self.fail(f"conflicting C++ copied result class '{name}'"); }
+		}
+		for existing in self.inputClasses { if (existing.declaration.name == name) { self.fail(f"conflicting C++ copied result class '{name}'"); } }
+		Node owner = self.node(NK_CLASS_DECL);
+		owner.name = name;
+		owner.sourceFile = self.module;
+		for field in fields {
+			Node member = self.node(NK_FIELD_DECL);
+			member.access = "public";
+			member.name = field.name;
+			member.type = field.valueType;
+			owner.members.push(member);
+		}
+		var generated = FeNativeImportedDeclaration(owner, self.module, self.header);
+		generated.generatedInput = true;
+		self.inputClasses.push(generated);
+	}
+
+	private FeNativeRecordInput cxxResultRecord(NativeNode native, FeNativeBinding binding, Map<string, NativeNode> exports, string name) {
+		if (native.kind != NNK_NATIVE_RECORD_TYPE || native.opaque || !self.layouts.has(native.identity)) { self.fail("C++ factory result requires an explicitly selected scalar SDK record"); }
+		NativeNode selected = native;
+		bool selectedFound = false;
+		for item in binding.ownedRecords {
+			if (selectedFound || !exports.has(item)) { continue; }
+			NativeNode candidate = exports.get(item);
+			if (candidate.kind == NNK_NATIVE_CXX_CLASS && candidate.recordType.identity == native.identity) { selected = candidate; selectedFound = true; }
+		}
+		if (!selectedFound || !selected.triviallyCopyable || !selected.triviallyDestructible) { self.fail("C++ factory result requires a trivial selected scalar SDK record"); }
+		NativeNode layout = self.layouts.get(native.identity);
+		if (layout.fields.len == 0) { self.fail("C++ factory result requires nonempty public scalar fields"); }
+		Vector<FeNativeRecordInputField> fields = [];
+		for field in layout.fields {
+			Node valueType = self.objectiveCScalar(field.fieldType);
+			valueType.isConst = false;
+			fields.push(FeNativeRecordInputField(field.name, valueType));
+		}
+		self.cxxValueClass(name, fields);
+		var result = FeNativeRecordInput(name, selected.name, true);
+		result.fields = fields;
+		return result;
 	}
 
 	private void prepareResources(FeNativeBinding binding, NativeNode header) {
@@ -1963,6 +2254,8 @@ class FeNativeDeclarationImporter {
 		if (left.boundParameter != right.boundParameter || left.boundConstant != right.boundConstant) { return false; }
 		if (left.callbackTable == null || right.callbackTable == null) { if (left.callbackTable != right.callbackTable) { return false; } }
 		else if (left.callbackTable.identity() != right.callbackTable.identity()) { return false; }
+		if (left.cxxMethod == null || right.cxxMethod == null) { if (left.cxxMethod != right.cxxMethod) { return false; } }
+		else if (left.cxxMethod.identity() != right.cxxMethod.identity()) { return false; }
 		if (left.variadicArguments.len != right.variadicArguments.len) { return false; }
 		for index in range(left.variadicArguments.len) { if (left.variadicArguments.get(index) != right.variadicArguments.get(index)) { return false; } }
 		if (left.executor != right.executor || left.borrowedResultOwner != right.borrowedResultOwner) { return false; }
@@ -2412,6 +2705,8 @@ class FeNativeDeclarationImporter {
 		Map<string, FeNativeRecordOutput> outputs = {};
 		for binding in bindings {
 			if (binding.ownedRecords.len == 0 && binding.recordInputs.len == 0 && binding.recordOutputs.len == 0) { continue; }
+			/* C++ owned records are scalar factory results, already copied by the opaque-owner projection; they never become record inputs. */
+			if (binding.language == "c++") { continue; }
 			self.module = binding.module;
 			Map<string, FeNativeRecordInput> projections = {};
 			Map<string, string> objectFields = {};
@@ -2622,10 +2917,15 @@ class FeNativeDeclarationImporter {
 			self.module = binding.module;
 			self.header = binding.header;
 			self.language = binding.language;
-			if (self.language != "c" && self.language != "objective-c") { self.fail("Objective-C/C++ call adapters are not implemented"); }
+			if (self.language != "c" && self.language != "objective-c" && self.language != "c++") { self.fail("Objective-C++ call adapters are not implemented"); }
 			if (self.headerReader == null) { self.fail("SDK header scanning is unavailable in this compiler host build"); }
 			Vector<string> arguments = [];
 			for name in binding.symbols { arguments.push("--symbol=" + name); }
+			if (self.language == "c++") {
+				/* C++ resources select their methods (including explicit zero-argument selectors) beside the class; by-value records are read as scalar layouts. */
+				for name in binding.resources.keys() { for method in binding.resources.get(name).methods { arguments.push("--symbol=" + name + "::" + method); } }
+				for name in binding.ownedRecords { arguments.push("--record-value=" + name); }
+			}
 			Vector<string> snapshotPaths = [];
 			for snapshot in binding.recordSnapshots {
 				for name in snapshot.fields.keys() { string path = snapshot.owner + "." + snapshot.fields.get(name); if (!snapshotPaths.contains(path)) { snapshotPaths.push(path); } }
@@ -2648,6 +2948,7 @@ class FeNativeDeclarationImporter {
 				arguments.extend(["-fblocks", "-fobjc-arc"]);
 			}
 			if (plan.target.operatingSystem.equals("linux")) { arguments.extend(["-isystem", PathTools.join(sysroot, "usr/include")]); }
+			if (self.language == "c++") { for directory in self.cxxToolchainIncludes(binding.standard, target, sysroot) { arguments.extend(["-isystem", directory]); } }
 			for declaration in plan.declarations {
 				if (!declaration.selectedFor(plan.target)) { continue; }
 				if (declaration.kind.equals("include-directory")) { arguments.extend(["-I", declaration.value]); }
@@ -2660,6 +2961,7 @@ class FeNativeDeclarationImporter {
 			NativeNode decoded = FeNativeHeaderCodec().decode(result.unwrap(), target);
 			self.callbackExports = {};
 			for declaration in decoded.exports { self.callbackExports.put(declaration.name, declaration); }
+			if (self.language == "c++") { self.importCxxBinding(binding, decoded); continue; }
 			self.prepareResources(binding, decoded);
 			self.prepareResourceConversions(binding, decoded);
 			self.callbacks = {};

@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 from dataclasses import dataclass, replace
+from typing import ClassVar
 
 from ..abi.native_generated import (
     NativeAlias,
@@ -502,11 +504,19 @@ class NativeDeclarationImporter:
             self._variadic_calls = {shape.parameter: shape for shape in binding.variadic_calls}
             self._output_offsets = {key: (input, length, field) for key, input, length, field in binding.output_offsets}
             self._origin = NativeHeaderSource(binding.module, binding.header, language=binding.language)
-            if binding.language not in ("c", "objective-c"):
-                raise IncludeResolutionError(f"{binding.module}: Objective-C/C++ call adapters are not implemented")
+            if binding.language not in ("c", "objective-c", "c++"):
+                raise IncludeResolutionError(f"{binding.module}: Objective-C++ call adapters are not implemented")
+            # C++ resources select their methods (including explicit zero-argument
+            # selectors) beside the class; by-value records are read as scalar layouts.
+            cxx_symbols = (
+                [f"{resource.name}::{method}" for resource in binding.resources for method in resource.methods]
+                if binding.language == "c++"
+                else []
+            )
             arguments = [
                 reader,
-                *(f"--symbol={name}" for name in binding.symbols),
+                *(f"--symbol={name}" for name in (*binding.symbols, *cxx_symbols)),
+                *(f"--record-value={name}" for name in (binding.owned_records if binding.language == "c++" else ())),
                 *(
                     f"--record-path={path}"
                     for path in sorted(
@@ -548,6 +558,9 @@ class NativeDeclarationImporter:
                 arguments.extend(("-fblocks", "-fobjc-arc"))
             if plan.target.operating_system == "linux":
                 arguments.extend(("-isystem", os.path.join(sysroot, "usr", "include")))
+            if binding.language == "c++":
+                for directory in self._cxx_toolchain_includes(binding.standard, target, sysroot):
+                    arguments.extend(("-isystem", directory))
             for declaration in plan.declarations:
                 if not declaration.selected_for(plan.target):
                     continue
@@ -565,6 +578,9 @@ class NativeDeclarationImporter:
                     raise NativeImportError(result.stderr.strip() or "native header reader failed")
                 header = NativeHeaderCodec().decode(result.stdout, expected_target=target)
                 self._callback_exports = {declaration.name: declaration for declaration in header.exports}
+                if binding.language == "c++":
+                    self._import_cxx_binding(binding, header)
+                    continue
                 self._prepare_resources(binding, header)
                 self._prepare_resource_conversions(binding, header)
                 self._merge_interfaces(header.interfaces)
@@ -1677,6 +1693,89 @@ class NativeDeclarationImporter:
             return f"enum {native.name}"
         raise NativeImportError("anonymous native block scalar requires a named SDK type")
 
+    _CXX_TOOLCHAIN_INCLUDES: ClassVar[dict] = {}
+
+    @classmethod
+    def _cxx_toolchain_includes(cls, standard, target, sysroot):
+        """The C++ standard library belongs to the adapter toolchain, not the SDK sysroot.
+
+        The same compiler that later builds the generated C++ unit reports the
+        directories it searches; the header reader must see identical headers.
+        """
+        # The reader is Clang-based; the C++ adapter toolchain must be a Clang
+        # driver too so both see one standard library. BTRC_NATIVE_CXX names it.
+        compiler = shlex.split(os.environ.get("BTRC_NATIVE_CXX", "") or "clang++")
+        key = (tuple(compiler), standard, target, sysroot)
+        if key in cls._CXX_TOOLCHAIN_INCLUDES:
+            return cls._CXX_TOOLCHAIN_INCLUDES[key]
+        probe = subprocess.run(
+            [
+                *compiler,
+                "-x",
+                "c++",
+                f"-std={standard}",
+                f"--target={target}",
+                "-isysroot",
+                sysroot,
+                "-E",
+                "-v",
+                os.devnull,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        directories = []
+        listing = False
+        for line in probe.stderr.splitlines():
+            if line.startswith("#include <...> search starts here:"):
+                listing = True
+                continue
+            if line.startswith("End of search list."):
+                break
+            if listing and line.startswith(" ") and "(framework directory)" not in line:
+                directories.append(line.strip())
+        if probe.returncode or not directories:
+            raise NativeImportError(
+                f"C++ bindings require a Clang C++ driver reporting its include search list (BTRC_NATIVE_CXX={' '.join(compiler)})"
+            )
+        cls._CXX_TOOLCHAIN_INCLUDES[key] = tuple(directories)
+        return cls._CXX_TOOLCHAIN_INCLUDES[key]
+
+    def _import_cxx_binding(self, binding, header):
+        """C++ bindings publish opaque owners, owner-bound views and scoped constants only."""
+        if binding.callbacks or binding.record_snapshots or binding.string_views or binding.variadic_calls:
+            raise NativeImportError("C++ bindings support resources, initializers, copied strings and constants")
+        self._prepare_cxx_resources(binding, header)
+        for declaration in header.exports:
+            if isinstance(declaration, NativeConstant):
+                self._import_cxx_constant(declaration)
+            elif not isinstance(declaration, (NativeCxxClass, NativeCxxMethod, NativeRecordDeclaration)):
+                raise NativeImportError("C++ header declarations require opaque class, method or constant lowering")
+        if self._borrows:
+            raise NativeImportError(f"read-only-borrows names unknown method parameter: {sorted(self._borrows)[0]}")
+
+    def _import_cxx_constant(self, declaration):
+        """A scoped C++ constant is visible under its `::`-joined identifier with its underlying scalar type."""
+        name = declaration.name.replace("::", "_")
+        if any(existing == name for _, existing in self._declarations) or any(
+            value.name == name for value in self._input_classes
+        ):
+            raise NativeImportError(f"C++ constant {declaration.name} projects to an occupied name {name!r}")
+        native = declaration.value_type
+        while isinstance(native, (NativeAlias, NativeQualifiedType, NativeEnumType)):
+            native = native.underlying
+        raw = declaration.decimal_value + (
+            "U" if isinstance(native, NativeBuiltin) and native.signedness == "unsigned" else ""
+        )
+        imported = ast.VarDeclStmt(
+            type=replace(self._objective_c_scalar(declaration.value_type), is_const=True),
+            name=name,
+            initializer=ast.IntLiteral(value=int(declaration.decimal_value), raw=raw),
+        )
+        self._add(name, imported, ("c++-constant", declaration.name, declaration.decimal_value), read_only=True)
+
     def _prepare_cxx_resources(self, binding, header):
         """Authenticate opaque C++ owners before projecting any callable surface.
 
@@ -2320,6 +2419,10 @@ class NativeDeclarationImporter:
         outputs = {}
         for binding in plan.bindings:
             if not binding.owned_records and not binding.record_inputs and not binding.record_outputs:
+                continue
+            if binding.language == "c++":
+                # C++ owned records are scalar factory results, already copied by
+                # the opaque-owner projection; they never become record inputs.
                 continue
             projections = {}
             object_fields = dict(binding.object_fields)

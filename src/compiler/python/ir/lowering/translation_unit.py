@@ -282,7 +282,10 @@ class TranslationUnitLowerer:
             if isinstance(getattr(decl, "source_file", None), NativeHeaderSource):
                 if (
                     isinstance(decl, VarDeclStmt)
-                    and (decl.source_file.language == "objective-c" or decl.name in self._analyzed.native_owned_globals)
+                    and (
+                        decl.source_file.language in {"objective-c", "c++"}
+                        or decl.name in self._analyzed.native_owned_globals
+                    )
                     and decl.name not in emitted_globals
                 ):
                     if decl.initializer is None:
@@ -293,6 +296,8 @@ class TranslationUnitLowerer:
                 if isinstance(decl, ClassDecl):
                     if decl.source_file.invocation:
                         continue
+                    elif decl.source_file.language == "c++":
+                        self._functions.emit_cxx_class(decl)
                     elif decl.source_file.resource is not None:
                         self._functions.emit_resource_lifetime(decl)
                     else:

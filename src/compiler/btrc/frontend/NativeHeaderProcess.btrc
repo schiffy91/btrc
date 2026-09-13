@@ -10,6 +10,6 @@ import ./Models.btrc;
 class FeNativeHeaderProcess {
 	class void read(FeNativeHeaderRead request) {
 		var result = ChildProcess.run(request.command(), request.argv(), timeoutMilliseconds = 60000);
-		request.complete(new Result<string, string>(result.ok(), result.out, result.err.isEmpty() ? "native header reader failed" : result.err.trim()));
+		request.complete(new Result<string, string>(result.ok(), request.captureStderr ? result.err : result.out, result.err.isEmpty() ? "native header reader failed" : result.err.trim()));
 	}
 }

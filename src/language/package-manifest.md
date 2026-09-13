@@ -1521,6 +1521,87 @@ shadow `close`/`isOpen`, the factory and interface names must not collide with
 selected symbols, and inline-storage or reference-counted resources are
 rejected. No userdata, function pointer or table layout reaches provider code.
 
+### Opaque C++ owners
+
+A `language = "c++"` binding publishes SDK classes as opaque owners and
+owner-bound views; no C++ object, exception or standard-library type reaches
+generated C. Select the classes, the by-value result record, the constants and
+the factory method, then describe each lifetime:
+
+```toml
+[[native.bindings]]
+module = "PugiLibrary"
+header = "native/PugiImports.h"
+language = "c++"
+standard = "c++17"
+symbols = ["pugi::xml_document", "pugi::xml_node", "pugi::xml_parse_result", "pugi::status_ok", "pugi::parse_default", "pugi::encoding_utf8", "pugi::node_element", "pugi::xml_document::load_buffer"]
+owned-records = ["pugi::xml_parse_result"]
+read-only-borrows = ["pugi::xml_document::load_buffer.contents"]
+
+[native.bindings.resources."pugi::xml_document"]
+name = "PugiDocument"
+ownership = "unique"
+constructor = "default"
+release = "delete"
+methods = ["document_element"]
+
+[native.bindings.resources."pugi::xml_node"]
+name = "PugiNode"
+ownership = "owner-bound-value"
+owner = "pugi::xml_document"
+methods = ["empty", "type", "name", "child_value()", "first_child", "next_sibling()"]
+
+[native.bindings.initializers."pugi::xml_document::load_buffer"]
+resource = "pugi::xml_document"
+result = "PugiParseOutcome"
+success = "pugi::status_ok"
+status-field = "status"
+failure = "destroy"
+
+[native.bindings.copied-results."pugi::xml_node::name"]
+kind = "string"
+owner = "self"
+```
+
+A `unique` class requires an accessible public default constructor and a
+public destructor; `constructor = "default"` and `release = "delete"` are the
+only lifetimes. It is published under `name` as the ordinary unique owner
+(`close()`, `isOpen()`, aliases, borrows, final cleanup) and every unique class
+needs exactly one checked factory. The factory (`initializers`) is a non-const
+method whose by-value result is a selected trivially copyable `owned-records`
+record with public scalar fields; it becomes a class factory
+`PugiParseOutcome PugiDocument.load_buffer(const void* contents, size_t size,
+unsigned int options, xml_encoding encoding)`. The outcome carries `called`,
+the copied `status` record (`PugiParseOutcomeStatus`, one field per SDK field)
+and the nullable `value` owner, which is present only when the record's
+`status-field` equals the selected `success` constant of exactly that field's
+enum; `failure = "destroy"` deletes the object otherwise. Pointer parameters
+must be `const void*`/`const char*`/`const unsigned char*` and listed in
+`read-only-borrows`; other parameters are SDK scalars.
+
+An `owner-bound-value` class must be trivially copyable and destructible and
+names its unique `owner`. It is published as an ordinary managed class whose
+instances copy one SDK value and hold one claim on the root owner; a method
+returning the SDK class returns such a view of the same owner. Every selected
+method other than the factory must be `const` and non-variadic with
+non-consuming parameters. Zero-argument overloads are selected with the
+explicit `()` suffix. `const char*` results require a `copied-results` entry
+with `kind = "string"` and `owner = "self"`: the string is copied while the
+owner is borrowed, so a view never lends SDK memory. Scalar results and
+parameters project like Objective-C scalars, and selected scoped constants are
+visible with `::` replaced by `_` (`pugi_status_ok`).
+
+Each method crosses one generated `extern "C"` adapter in a C++ unit of the link
+plan (`generated-units`, `raii`), compiled with `-fexceptions`; the strict C
+wrapper borrows the root owner around the call, so use after `close()` through
+any view aborts before the SDK sees the object, and a C++ exception becomes an
+ordinary BTRC exception after the borrow ends. The delete adapter aborts on a
+throwing destructor. The header reader sees the same C++ standard library as
+the adapter toolchain: it probes the Clang driver named by `BTRC_NATIVE_CXX`
+(default `clang++`) for its include search list, so that driver must pair with
+`BTRC_NATIVE_SYSROOT`. Callbacks, record snapshots, string views, variadic
+calls and template instantiations are not available for C++ bindings.
+
 ### Selected C variadic calls
 
 An SDK variadic function may expose one fixed, typed call shape. Bind its actual

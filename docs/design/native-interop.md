@@ -6,12 +6,33 @@ This document records the implemented native contract and its open edges; it
 is not a completion claim. BTRC owns typed C/Objective-C/C++ imports, explicit
 ownership/borrowing/nullability, generated ABI adapters, callback lifetimes,
 native GUI/GPU and realtime primitives. macOS providers are the active target.
-The switched CoreAudio realtime provider and vgmstream's memory-stream callback
-table are now qualified on a fresh self-host compiler (below); the remaining
-order is pugixml's checked load-once owner, then the final self-host product
-matrix. Remove each old bridge after real consumer parity. Keep BTRSmith
-product behavior in its repository's PRD/plan; do not create another wrapper
-or contract system here.
+The switched CoreAudio realtime provider, vgmstream's memory-stream callback
+table and pugixml's opaque C++ owner are now qualified on fresh self-host
+compilers (below); the remaining order is the final self-host product matrix.
+Remove each old bridge after real consumer parity. Keep BTRSmith product
+behavior in its repository's PRD/plan; do not create another wrapper or
+contract system here.
+
+Opaque C++ owners (2026-09-13): a `language = "c++"` binding projects selected
+classes as a unique owner (`constructor = "default"`, `release = "delete"`)
+with one checked factory whose by-value status record and `status-field`
+decide publication, plus trivially copyable owner-bound views and copied
+`const char*` strings. Both compilers lower one generated `extern "C"` C++
+adapter unit (`generated-units`, `raii`, `-fexceptions`) per method: the C
+wrapper borrows the root owner around the call, so a view used after
+`close()` aborts before the SDK sees the object, and any C++ exception
+becomes a BTRC exception after the borrow ends. Scoped constants project as
+`pugi_status_ok`. The header reader probes the `BTRC_NATIVE_CXX` driver
+(default `clang++`) for its include search list so it parses exactly one C++
+standard library; that driver must pair with `BTRC_NATIVE_SYSROOT`. The real
+pugixml suite (`src/tests/python/test_native_cxx_owners.py`, 9 cases: traversal
+optimized and sanitized, two use-after-close aborts, five rejected manifests)
+passes on the reference compiler and on fresh self-host compiler
+`8b49c232195c7d1caa6c5360751c4781`, after three self-host manifest repairs
+(quoted scoped resource and initializer section names, and resources finished
+in sorted name order so generated adapter units match byte for byte). Callbacks, record
+snapshots, string views, variadic calls and template instantiations remain
+unavailable for C++ bindings.
 
 Unique C callback tables (2026-09-13): `resources.<record>.table` projects an
 SDK record of function pointers into one ordinary BTRC interface plus a factory

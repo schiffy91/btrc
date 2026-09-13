@@ -18,10 +18,10 @@ the state a change has to preserve.
 
 For a cross-repository handoff, read BTRSmith's `GOAL.md`, `docs/HWW.md`,
 `docs/DD.md`, and `docs/NativePlatformPlan.md` after this file. CoreAudio realtime
-registration and the vgmstream callback-table owner are qualified on a fresh
-self-host compiler (2026-09-13); the next load-bearing order is the pugixml
-load-once owner (C++ adapter lowering in both compilers), then deletion of its
-superseded bridge. Consumers may continue against approved interfaces while
+registration, the vgmstream callback-table owner and pugixml's opaque C++
+owner (generated `extern "C"` adapter units in both compilers) are qualified on
+fresh self-host compilers (2026-09-13); the next load-bearing order is the
+final self-host product matrix and BTRSmith's visual/physical gates. Consumers may continue against approved interfaces while
 compiler repairs land; do not invent a second wrapper or ownership model.
 
 The architecture destination and frozen-boundary infrastructure are complete.

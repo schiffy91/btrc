@@ -137,7 +137,7 @@ class CompilerPipeline {
 		CEmitter emitter = CEmitter();
 		for name in module.nativeUnits.keys() {
 			IRModule unit = module.nativeUnits.get(name);
-			if (unit.language != "objective-c" || unit.nativeUnits.len > 0) { throw "native adapter must be a standalone Objective-C unit"; }
+			if ((unit.language != "objective-c" && unit.language != "c++") || unit.nativeUnits.len > 0) { throw "native adapter must be a standalone Objective-C or C++ unit"; }
 			packages.linkPlan.generatedUnits.push(FeNativeGeneratedUnit(name, unit.language, unit.language == "c++" ? "c++17" : "c11", unit.language == "c++" ? "raii" : "arc", CEmitter().emit(unit)));
 		}
 		return BtrccCompilationResult(true, emitter.emit(module), "", packages.linkPlan.canonicalJson());

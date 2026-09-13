@@ -376,6 +376,19 @@ class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader>
 			if (!variable->isFileVarDecl() || variable->getTLSKind() != clang::VarDecl::TLS_None) {
 				errors.push_back("Native thread-local/local storage is not implemented: " + value->getQualifiedNameAsString());
 			}
+			// A C++ const integral variable with a constant initializer is an SDK
+			// constant like an enumerator: its evaluated value is the contract, not
+			// the C++-linkage storage BTRC cannot address from strict C.
+			clang::Expr::EvalResult evaluated;
+			if (context->getLangOpts().CPlusPlus && !variable->isExternC() && !variable->hasAttr<clang::AsmLabelAttr>() && variable->getType().isConstQualified() && variable->getType()->isIntegralOrEnumerationType() && variable->getInit() != nullptr && variable->getInit()->EvaluateAsInt(evaluated, *context)) {
+				result["kind"] = "enum_constant";
+				result["type"] = type(variable->getType().getUnqualifiedType());
+				result["enum_identity"] = "";
+				llvm::SmallString<32> decimal;
+				evaluated.Val.getInt().toString(decimal);
+				result["value"] = decimal.str().str();
+				return result;
+			}
 			if (variable->hasAttr<clang::AsmLabelAttr>() || (context->getLangOpts().CPlusPlus && !variable->isExternC())) {
 				errors.push_back("Renamed/C++ native globals require adapter lowering: " + value->getQualifiedNameAsString());
 			}
