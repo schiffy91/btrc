@@ -167,14 +167,19 @@ class SemanticAnalyzer:
                 and isinstance(declaration.source_file, NativeHeaderSource)
                 and declaration.source_file.type_spelling
             },
-            native_object_globals=frozenset(
+            native_owned_globals=frozenset(
                 name
                 for name, declaration in self.index.global_declarations.items()
                 if isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
-                and declaration.source_file.language == "objective-c"
                 and declaration.type is not None
                 and declaration.type.base in self.index.class_table
-                and self.index.class_table[declaration.type.base].native_language == "objective-c"
+                and (
+                    self.index.class_table[declaration.type.base].native_language == "objective-c"
+                    or (
+                        declaration.source_file.call_contract is not None
+                        and declaration.source_file.call_contract.resource_result
+                    )
+                )
             ),
             hosted_call_ids=set(state.hosted_call_ids),
             realtime_safe_callables=realtime_safe_callables,

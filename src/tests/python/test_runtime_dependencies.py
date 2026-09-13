@@ -118,14 +118,9 @@ def test_explicit_string_adoption_is_owned_and_materializes_its_helpers():
     (
         ("extern bool btrc_gpu_available();", "btrc_gpu_available()", "BTRC_RT_NEEDS_GPU"),
         (
-            "extern int btrc_gui_window_fb_width(void* window);",
-            "btrc_gui_window_fb_width(null)",
+            "extern void* btrc_gui_font_load(string path, int pixelSize);",
+            'btrc_gui_font_load("missing.ttf", 12)',
             "BTRC_RT_NEEDS_GUI",
-        ),
-        (
-            "extern bool btrc_tray_show(void* tray);",
-            "btrc_tray_show(null)",
-            "BTRC_RT_NEEDS_TRAY",
         ),
     ),
 )
@@ -183,17 +178,12 @@ def test_try_runtime_selects_target_owned_setjmp_type():
     ("source", "header_macro", "include_dir"),
     (
         (
-            "extern int btrc_gui_window_fb_width(void* window); int main() { return btrc_gui_window_fb_width(null); }",
-            "BTRC_RT_GUI_HEADER=<btrc_gui_window.h>",
+            'extern void* btrc_gui_font_load(string path, int pixelSize); int main() { return btrc_gui_font_load("missing.ttf", 12) == null ? 0 : 1; }',
+            "BTRC_RT_GUI_HEADER=<btrc_gui_font.h>",
             STDLIB / "GUI",
         ),
-        (
-            "extern bool btrc_tray_show(void* tray); int main() { return btrc_tray_show(null) ? 0 : 1; }",
-            "BTRC_RT_TRAY_HEADER=<btrc_tray.h>",
-            STDLIB / "Tray",
-        ),
     ),
-    ids=("gui", "tray"),
+    ids=("gui",),
 )
 def test_native_target_header_hooks_compile_strict_c11(
     tmp_path,

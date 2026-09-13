@@ -18,10 +18,16 @@ Linux/Windows are future provider boundaries.
 
 ## Next sequence
 
-1. Rebuild the next self-host compiler and qualify the switched CoreAudio
-   provider and YAML guarded snapshots with optimized and sanitizer matrices.
-2. Implement the vgmstream memory-stream callback-table owner and pugixml's
-   checked load-once document factory using the existing contracts.
+1. Done 2026-09-13: fresh self-host compiler qualifies the switched CoreAudio
+   realtime registration (28 cases) and the new unique C callback table
+   (`resources.<record>.table`, 18 cases per frontend); vgmstream's
+   handwritten adapter is deleted. Evidence is listed in
+   `design/native-interop.md` and BTRSmith's
+   `build/evidence/VgmstreamCallbackTable.md`.
+2. Implement pugixml's checked load-once document factory: the frontend
+   projection and header metadata exist (`test_cpp_*`), but no C++ adapter
+   unit is lowered in either compiler and the self-host frontend still rejects
+   C++ bindings.
 3. Re-run real consumers, then delete each superseded bridge and its build
    wiring. Keep no silent legacy fallback.
 4. Hand the resulting provider revisions to BTRSmith for product integration

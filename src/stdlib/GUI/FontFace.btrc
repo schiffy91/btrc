@@ -1,0 +1,94 @@
+import Library.Bytes;
+
+/* Immutable values copied from the native face while its owner admits the
+ * operation. Fixed-point metrics retain their signed 26.6 representation. */
+class FontMetrics {
+	private long long ascenderValue;
+	private long long heightValue;
+
+	public FontMetrics(long long ascender26_6, long long height26_6) {
+		self.ascenderValue = ascender26_6;
+		self.heightValue = height26_6;
+	}
+
+	public long long ascender26_6() { return self.ascenderValue; }
+
+	public long long height26_6() { return self.heightValue; }
+}
+
+enum FontPixelMode {
+	FONT_PIXEL_UNSUPPORTED,
+	FONT_PIXEL_MONO,
+	FONT_PIXEL_GRAY
+};
+
+/* The bitmap is an owned copy, never a borrowed FreeType glyph-slot buffer.
+ * Rows retain native signed pitch, including padding. Mutation of the Bytes
+ * supplied to the constructor cannot mutate this snapshot. */
+class FontGlyph {
+	private long long advanceValue;
+	private int leftValue;
+	private int topValue;
+	private int widthValue;
+	private int rowsValue;
+	private int pitchValue;
+	private FontPixelMode modeValue;
+	private int grayCount;
+	private Bytes pixels;
+
+	public FontGlyph(long long advanceX26_6, int bitmapLeft, int bitmapTop, int width, int rows, int pitch, FontPixelMode pixelMode, int numGrays, Bytes bitmap) {
+		if (width < 0 || rows < 0 || numGrays < 0 || numGrays > 65535) { throw "Invalid font glyph dimensions or gray count"; }
+		if (pixelMode != FONT_PIXEL_UNSUPPORTED && pixelMode != FONT_PIXEL_MONO && pixelMode != FONT_PIXEL_GRAY) { throw "Invalid font glyph pixel mode"; }
+		long long stride = pitch < 0 ? -(long long)pitch : (long long)pitch;
+		long long span = stride * (long long)rows;
+		long long rowBytes = pixelMode == FONT_PIXEL_MONO ? ((long long)width + 7LL) / 8LL : (long long)width;
+		bool readable = width > 0 && rows > 0 && pixelMode != FONT_PIXEL_UNSUPPORTED;
+		if (readable && (stride < rowBytes || span > (long long)bitmap.length())) { throw "Font glyph bitmap does not cover its signed-pitch rows"; }
+		self.advanceValue = advanceX26_6;
+		self.leftValue = bitmapLeft;
+		self.topValue = bitmapTop;
+		self.widthValue = width;
+		self.rowsValue = rows;
+		self.pitchValue = pitch;
+		self.modeValue = pixelMode;
+		self.grayCount = numGrays;
+		self.pixels = readable ? bitmap.slice(0, (int)span) : new Bytes();
+	}
+
+	public long long advanceX26_6() { return self.advanceValue; }
+
+	public int bitmapLeft() { return self.leftValue; }
+
+	public int bitmapTop() { return self.topValue; }
+
+	public int width() { return self.widthValue; }
+
+	public int rows() { return self.rowsValue; }
+
+	public int pitch() { return self.pitchValue; }
+
+	public FontPixelMode pixelMode() { return self.modeValue; }
+
+	public int numGrays() { return self.grayCount; }
+
+	public int coverage(int row, int column) {
+		if (row < 0 || column < 0 || row >= self.rowsValue || column >= self.widthValue || self.modeValue == FONT_PIXEL_UNSUPPORTED) { return 0; }
+		long long stride = self.pitchValue < 0 ? -(long long)self.pitchValue : (long long)self.pitchValue;
+		int storageRow = self.pitchValue < 0 ? self.rowsValue - row - 1 : row;
+		long long offset = (long long)storageRow * stride;
+		if (self.modeValue == FONT_PIXEL_MONO) { return (self.pixels.get((int)(offset + (long long)(column / 8))) & (128 >> (column % 8))) != 0 ? 255 : 0; }
+		int value = self.pixels.get((int)(offset + (long long)column));
+		if (self.grayCount > 1 && self.grayCount != 256) { value = (value * 255 / (self.grayCount - 1)) & 255; }
+		return value;
+	}
+}
+
+/* Each glyph operation serializes native face mutation and copies all fields
+ * and bitmap bytes before admitting another FT_Load_Char. Null means the load
+ * failed, not a request to substitute another font. render=false measures via
+ * FT_LOAD_DEFAULT; render=true uses FT_LOAD_RENDER. The native owner retains
+ * the library and face and destroys the face before its library. */
+interface IFontFace {
+	FontMetrics metrics();
+	FontGlyph? glyph(int codepoint, bool render);
+}

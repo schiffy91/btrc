@@ -1,0 +1,21 @@
+import Library.GUI.IView;
+import Library.GPU.SurfaceRenderer;
+import Library.GPU.Program;
+import Library.GPU.Readback;
+
+/* A native child owning its WebGPU device, frame renderer and asynchronous
+ * programs/readbacks. UI-thread poll() advances preparation without blocking.
+ * beginFrame refreshes backing dimensions and skips hidden/empty views.
+ * Renderer aliases are borrowed capabilities: the view closes them on shutdown.
+ * Create asynchronous work here so subtree teardown retains it until drained. */
+interface IGPUView extends IView {
+	bool poll();
+	string error();
+	double backingScale();
+	int pixelWidth();
+	int pixelHeight();
+	GPUSurfaceRenderer frameRenderer();
+	GPUFrameAvailability beginFrame(double red, double green, double blue, double alpha = 1.0);
+	GPUProgram createProgram(string source, int uniformFloatCount, bool textured = true, bool sourceOver = true, string vertexEntry = "vs_main", string fragmentEntry = "fs_main");
+	GPUReadback readback(int maximumPixels = 16777216);
+}

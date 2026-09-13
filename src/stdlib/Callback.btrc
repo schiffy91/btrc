@@ -189,20 +189,23 @@ interface ICallbackRegistration {
  * bounded; these methods cannot make a blocking foreign operation asynchronous.
  * Keep the registration in its component scope until completion, polling on
  * the required cleanup executor. close/destruction remain blocking worker APIs.
- * A false/throwing unregister promises that retry is safe, with context intact.
- * APIs with indeterminate failure or asynchronous unregister need a different
- * checked mapping, not an adapter that reports a premature successful barrier.
+ * By default a false/throwing unregister promises that retry is safe, with
+ * context intact. A checked binding for indeterminate cancellation passes
+ * retryableUnregister=false: failure becomes terminal and keeps the context.
+ * Neither policy may report success before the foreign entry barrier.
  */
 class CallbackState implements ICallbackRegistration {
 	private ICallbackContext _context;
+	private bool _retryableUnregister;
 	private AtomicBuffer<uint> _gateState;
 	private Atomic<uint> _state;
 	private pthread_mutex_t _closingThreadMutex;
 	private bool _closingThreadReady;
 	private pthread_t _closingThread;
 
-	public CallbackState(ICallbackContext context) {
+	public CallbackState(ICallbackContext context, bool retryableUnregister = true) {
 		self._context = context;
+		self._retryableUnregister = retryableUnregister;
 		self._gateState = new AtomicBuffer<uint>((size_t)1);
 		if (!self._gateState.opened()) { throw "CallbackRegistration cannot allocate its gate"; }
 		self._gateState.borrow()->init(0u);
@@ -282,9 +285,9 @@ class CallbackState implements ICallbackRegistration {
 		try {
 			barrier = self._context.unregister();
 		} finally {
-			self.endOperation(barrier ? 5u : 3u);
+			self.endOperation(barrier ? 5u : (self._retryableUnregister ? 3u : 4u));
 		}
-		if (!barrier) { return CallbackCancellation.RetryableFailure; }
+		if (!barrier) { return self._retryableUnregister ? CallbackCancellation.RetryableFailure : CallbackCancellation.Failed; }
 		return self.pollCompletion();
 	}
 
@@ -368,13 +371,20 @@ class CallbackScope implements ICallbackRegistration {
 		self._retained++;
 	}
 
-	public CallbackState create(ICallbackContext context) {
+	public CallbackState create(ICallbackContext context, bool retryableUnregister = true) {
 		self.requireAdmission();
 		if (context == null) { throw "Callback scope requires a context"; }
-		var registration = CallbackState(context);
+		var registration = CallbackState(context, retryableUnregister);
 		self._registrations.push(registration);
 		self._retained++;
 		return registration;
+	}
+
+	/* Only checked native registration adapters enter here. The closure owns
+	 * its already acquired foreign lease; failed scope admission releases it. */
+	private CallbackState createNative(void* context, CFunction<void, void*> destroy, CFunction<bool, void*> unregister) {
+		var owner = new OwnedClosure<CFunction<void, void*>>(destroy, context, destroy, unregister, context);
+		return self.create(owner, false);
 	}
 
 	public bool isOpen() { self.requireExecutor(); return !self._closing; }

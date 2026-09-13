@@ -176,6 +176,8 @@ class InitializerAnalyzer:
         struct_name = canonical.base.removeprefix("struct ")
         declaration = self.index.struct_table.get(struct_name)
         if declaration is not None and (not declaration.is_forward):
+            if initializer.elements and getattr(declaration.source_file, "private_fields", False):
+                self.context.error("Native records with private fields cannot use positional initialization", line, col)
             for field, element in zip(declaration.fields, initializer.elements):
                 steps.append(
                     InitializerArrayFieldCheck(

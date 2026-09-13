@@ -1947,6 +1947,18 @@ class CallLowerer:
         self._operand_order = operand_order
         self._mutex_constructor = mutex_constructor
         self._default_argument_helpers: set[str] = set()
+        self._native_unique_methods = {
+            (declaration.name, method.name): f"__btrc_unique_{declaration.name}_{method.name}_public"
+            for declaration in analyzed.program.declarations
+            if isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
+            and declaration.source_file.resource is not None
+            and declaration.source_file.resource.ownership == "unique"
+            for method in declaration.members
+            if isinstance(method, MethodDecl)
+        }
+
+    def _method_symbol(self, owner: str, method: str, prefix: str) -> str:
+        return self._native_unique_methods.get((owner, method), f"{prefix}_{method}")
 
     def _temporary(self, prefix: str, c_type: str, init=None) -> IRVarDecl:
         declaration = IRVarDecl(c_type=CType(text=c_type), name=self._session.fresh_temp(prefix), init=init)
@@ -2388,7 +2400,7 @@ class CallLowerer:
                 method = class_info.methods.get(callee.field)
                 if method is None:
                     return None
-                return (f"{receiver.name}_{callee.field}", method, None)
+                return (self._method_symbol(receiver.name, callee.field, receiver.name), method, None)
         if receiver_type is None:
             receiver_type = self._resolved_receiver_type(receiver)
         class_info = self._analyzed.class_table.get(receiver_type.base) if receiver_type is not None else None
@@ -2420,7 +2432,11 @@ class CallLowerer:
                     method_args,
                 )
                 return (prefix, method, receiver if method.access != "class" else None)
-        return (f"{prefix}_{method.name}", method, receiver if method.access != "class" else None)
+        return (
+            self._method_symbol(receiver_type.base, method.name, prefix),
+            method,
+            receiver if method.access != "class" else None,
+        )
 
     def _resolved_receiver_type(self, receiver) -> TypeExpr | None:
         """Recover the concrete type of a call-valued receiver in a generic body."""
@@ -2921,6 +2937,18 @@ class CallLowerer:
                 return DefaultTarget(
                     declaration=declaration, c_name=f"{enum_name}_{declaration.name}", substitutions=substitutions
                 )
+            receiver_type = self._types.canonical_type(self._session.type_of(callee.obj))
+            interface = self._analyzed.interface_table.get(receiver_type.base) if receiver_type else None
+            if interface is not None and callee.field in interface.methods:
+                method = interface.methods[callee.field]
+                return DefaultTarget(
+                    declaration=method,
+                    c_name=f"{interface.name}_{method.name}",
+                    owner_name=interface.name,
+                    class_prefix=interface.name,
+                    self_type=TypeExpr(base=interface.name, pointer_depth=1),
+                    substitutions=substitutions,
+                )
             class_info = self._receiver_class(callee)
             method = class_info.methods.get(callee.field) if class_info else None
             if method is not None:
@@ -2930,7 +2958,7 @@ class CallLowerer:
                 class_prefix = (
                     self._type_identity.specialization_symbol(owner_name, class_args) if class_args else owner_name
                 )
-                c_name = f"{class_prefix}_{method.name}"
+                c_name = self._method_symbol(owner_name, method.name, class_prefix)
                 if method.generic_params:
                     method_args = tuple(substitutions[name] for name in method.generic_params)
                     c_name = self._type_identity.method_instance_symbol(

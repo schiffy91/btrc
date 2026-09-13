@@ -1,5 +1,5 @@
 .PHONY: all help build package wheel btrcc btrcc-release-c btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
-        btrcc-windows-x64 btrcc-dist test-windows app app-required gpu gpu-required gui ast-generate ast-generate-btrc \
+        btrcc-windows-x64 btrcc-dist test-windows gpu gpu-required gui ast-generate ast-generate-btrc \
         test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
         generated-check compiler-codegen-generate compiler-codegen-check lint format format-check format-btrc format-btrc-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
@@ -9,8 +9,6 @@
 SHELL       := /bin/bash
 NIX         := nix develop --command
 HOST_AR     := $(if $(filter Darwin,$(shell uname -s)),/usr/bin/ar,ar)
-APP_OBJC    ?= clang
-GPU_OBJC    ?= clang
 # The repository links wgpu-native, whose WaitAny entry point aborts. Override
 # this only when linking a conforming webgpu.h implementation such as Dawn.
 GPU_BACKEND_CFLAGS ?= -DBTRC_GPU_WGPU_NATIVE
@@ -174,90 +172,33 @@ test-windows: btrcc-windows-x64 ## Build Windows btrcc bundle + sample; run samp
 	  echo "SKIP: test-windows execution (install wine, or run on Windows/CI to execute)"; \
 	fi
 
-app: ## Build the sole application/window runtime (skips if GLFW is missing)
+gpu: ## Build the compiler's headless @gpu compute runtime (skips if WebGPU is missing)
 	@$(NIX) bash -c '\
-		D=src/stdlib/App && O=build/stdlib/App && mkdir -p "$$O" && \
-		archive="$$O/libbtrc_app.a" && object="$$O/btrc_app.o" && window="$$O/btrc_app_window.o" && \
-		rm -f "$$archive" "$$object" "$$window" && \
-		trap "rm -f \"$$archive\" \"$$object\" \"$$window\"" EXIT && \
-		if ! $(CC) $$APP_CFLAGS -std=c11 -I"$$D" -E "$$D/btrc_app.c" -o /dev/null 2>/dev/null; then \
-			echo "Application runtime skipped (missing GLFW headers)"; exit 0; \
-		fi && \
-		$(CC) $$APP_CFLAGS $(GPU_THREAD_FLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 \
-			-c "$$D/btrc_app.c" -o "$$object" && \
-		if [ "$$(uname -s)" = Darwin ]; then \
-			$(APP_OBJC) $$APP_CFLAGS $(NATIVE_CFLAGS) -x objective-c -I"$$D" -O2 \
-				-c "$$D/btrc_app_window_macos.m" -o "$$window"; \
-		else \
-			$(CC) $$APP_CFLAGS $(NATIVE_CFLAGS) -I"$$D" -O2 \
-				-c "$$D/btrc_app_window_stub.c" -o "$$window"; \
-		fi && \
-		$(HOST_AR) rcs "$$archive" "$$object" "$$window" && \
-		trap - EXIT && \
-		echo "Built: $$archive"'
-
-app-required: app ## Build application runtime; fail when GLFW is unavailable
-	@$(NIX) bash -c 'archive=build/stdlib/App/libbtrc_app.a; \
-		test -f "$$archive" || { \
-			echo "Application runtime is required; install GLFW development dependencies." >&2; \
-			exit 1; \
-		}'
-
-gpu: app ## Build GPU runtime library (skips if deps missing)
-	@$(NIX) bash -c '\
-		D=src/stdlib/GPU && O=build/stdlib/GPU && \
-		mkdir -p "$$O" && \
-		rm -f "$$O/libbtrc_gpu.a" && \
-		probe_ok=1 && \
-		for source in btrc_gpu.c btrc_gpu_async.c btrc_gpu_surface.c btrc_gpu_native_ui.c; do \
-			$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) -std=c11 -Isrc/stdlib/App -I"$$D" \
-				-E "$$D/$$source" -o /dev/null 2>/dev/null || probe_ok=0; \
+		D=src/stdlib/GPU && O=build/stdlib/GPU && mkdir -p "$$O" && \
+		archive="$$O/libbtrc_gpu.a" && rm -f "$$archive" && \
+		trap "rm -f \"$$archive\"" EXIT && \
+		for source in btrc_gpu.c btrc_gpu_async.c; do \
+			if ! $(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) -std=c11 -I"$$D" \
+				-E "$$D/$$source" -o /dev/null 2>/dev/null; then \
+				echo "Compute runtime skipped (missing WebGPU headers)"; exit 0; \
+			fi; \
 		done && \
-		if [ "$$(uname -s)" = Darwin ]; then \
-			$(GPU_OBJC) $$GPU_CFLAGS -x c -I"$$D" \
-				-E "$$D/btrc_gpu_native_ui_text.c" -o /dev/null 2>/dev/null || probe_ok=0; \
-			$(GPU_OBJC) $$GPU_CFLAGS -x objective-c -I"$$D" \
-				-E "$$D/btrc_gpu_surface_macos.m" -o /dev/null 2>/dev/null || probe_ok=0; \
-		else \
-			$(CC) $$GPU_CFLAGS -std=c11 -I"$$D" \
-				-E "$$D/btrc_gpu_native_ui_text.c" -o /dev/null 2>/dev/null || probe_ok=0; \
-		fi && \
-		if [ "$$probe_ok" -ne 1 ]; then \
-			echo "GPU runtime skipped (missing windowing/WebGPU headers)"; exit 0; \
-		fi && \
-		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(GPU_THREAD_FLAGS) $(NATIVE_CFLAGS) -Isrc/stdlib/App -I"$$D" -O2 -c "$$D/btrc_gpu.c" -o "$$O/btrc_gpu.o" && \
-		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_native_ui.c" -o "$$O/btrc_gpu_native_ui.o" && \
-		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_async.c" -o "$$O/btrc_gpu_async.o" && \
-		$(CC) $$GPU_CFLAGS $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_surface.c" -o "$$O/btrc_gpu_surface.o" && \
-		objects="$$O/btrc_gpu.o $$O/btrc_gpu_native_ui.o $$O/btrc_gpu_native_ui_text.o $$O/btrc_gpu_async.o $$O/btrc_gpu_surface.o" && \
-		if [ "$$(uname -s)" = Darwin ]; then \
-			$(GPU_OBJC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(NATIVE_CFLAGS) -x c -I"$$D" -O2 \
-				-c "$$D/btrc_gpu_native_ui_text.c" -o "$$O/btrc_gpu_native_ui_text.o" && \
-			$(GPU_OBJC) $$GPU_CFLAGS $(NATIVE_CFLAGS) -x objective-c -I"$$D" -O2 \
-				-c "$$D/btrc_gpu_surface_macos.m" -o "$$O/btrc_gpu_surface_macos.o" && \
-			objects="$$objects $$O/btrc_gpu_surface_macos.o"; \
-		else \
-			$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 \
-				-c "$$D/btrc_gpu_native_ui_text.c" -o "$$O/btrc_gpu_native_ui_text.o"; \
-		fi && \
-		$(HOST_AR) rcs "$$O/libbtrc_gpu.a" $$objects && \
-		$(HOST_AR) t "$$O/libbtrc_gpu.a" | grep -q "btrc_gpu_async\\.o$$" && \
-		$(HOST_AR) t "$$O/libbtrc_gpu.a" | grep -q "btrc_gpu_native_ui_text\\.o$$" && \
-		$(HOST_AR) t "$$O/libbtrc_gpu.a" | grep -q "btrc_gpu_surface\\.o$$" && \
-		echo "Built: $$O/libbtrc_gpu.a"'
+		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(GPU_THREAD_FLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu.c" -o "$$O/btrc_gpu.o" && \
+		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(GPU_THREAD_FLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_async.c" -o "$$O/btrc_gpu_async.o" && \
+		$(HOST_AR) rcs "$$archive" "$$O/btrc_gpu.o" "$$O/btrc_gpu_async.o" && \
+		$(HOST_AR) t "$$archive" | grep -q "btrc_gpu_async\\.o$$" && \
+		trap - EXIT && echo "Built: $$archive"'
 
-gpu-required: app-required gpu ## Build GPU runtime library; fail when production dependencies are missing
+gpu-required: gpu ## Require the compiler's WebGPU compute runtime
 	@$(NIX) bash -c 'archive=build/stdlib/GPU/libbtrc_gpu.a; \
 		test -f "$$archive" || { \
-			echo "GPU runtime is required for production tests; install the WebGPU and GLFW development dependencies." >&2; \
+			echo "Compute runtime is required; install WebGPU development dependencies." >&2; \
 			exit 1; \
 		}; \
-		$(HOST_AR) t "$$archive" | grep -q "btrc_gpu_async\\.o$$" && \
-		$(HOST_AR) t "$$archive" | grep -q "btrc_gpu_native_ui_text\\.o$$" && \
-		$(HOST_AR) t "$$archive" | grep -q "btrc_gpu_surface\\.o$$"'
+		$(HOST_AR) t "$$archive" | grep -q "btrc_gpu_async\\.o$$"'
 
 
-gui: ## Build GUI runtime (software renderer always; window backend needs GLFW)
+gui: ## Build raster font dispatch and optional FreeType backend
 	@$(NIX) bash -c '\
 		D=src/stdlib/GUI && O=build/stdlib/GUI && mkdir -p "$$O" && \
 		archive="$$O/libbtrc_gui.a" && object="$$O/btrc_gui.o" && \
@@ -267,18 +208,6 @@ gui: ## Build GUI runtime (software renderer always; window backend needs GLFW)
 		$(HOST_AR) rcs "$$archive" "$$object" && \
 		trap - EXIT && \
 		echo "Built: $$archive (software renderer)"'
-	@$(NIX) bash -c '\
-		D=src/stdlib/GUI && O=build/stdlib/GUI && mkdir -p "$$O" && \
-		archive="$$O/libbtrc_gui_window.a" && object="$$O/btrc_gui_window.o" && \
-		rm -f "$$archive" "$$object" && \
-		trap "rm -f \"$$archive\" \"$$object\"" EXIT && \
-		if ! $(CC) $$GPU_CFLAGS -std=c11 -DGL_SILENCE_DEPRECATION -I"$$D" -E "$$D/btrc_gui_window.c" -o /dev/null 2>/dev/null; then \
-			echo "GUI window backend skipped (missing GLFW/GL headers)"; exit 0; \
-		fi && \
-		$(CC) $$GPU_CFLAGS $(NATIVE_CFLAGS) -DGL_SILENCE_DEPRECATION -I"$$D" -O2 -c "$$D/btrc_gui_window.c" -o "$$object" && \
-		$(HOST_AR) rcs "$$archive" "$$object" && \
-		trap - EXIT && \
-		echo "Built: $$archive (GLFW window backend)"'
 	@$(NIX) bash -c '\
 		D=src/stdlib/GUI && O=build/stdlib/GUI && mkdir -p "$$O" && \
 		archive="$$O/libbtrc_gui_font.a" && object="$$O/btrc_gui_font.o" && \
@@ -377,10 +306,10 @@ examples: generated-check gpu-required ## Build and run all examples
 examples-todo: generated-check ## Build the todo example
 	$(NIX) $(MAKE) -C examples todo
 
-examples-game: generated-check gpu-required ## Build the 3D engine game
+examples-game: generated-check ## Build the 3D engine game
 	$(NIX) $(MAKE) -C examples game
 
-examples-triangle: generated-check gpu-required ## Build the GPU triangle example
+examples-triangle: generated-check ## Build the GPU triangle example
 	$(NIX) $(MAKE) -C examples triangle
 
 examples-sgd: generated-check gpu-required ## Build the GPU SGD example

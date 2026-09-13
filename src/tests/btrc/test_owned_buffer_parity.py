@@ -123,6 +123,18 @@ def test_fixture_runs_from_both_frontends_with_gcc_and_clang(
             "OwnedBuffer<T> payload must be realtime POD without managed or atomic ownership",
         ),
         (
+            "import Library.OwnedBuffer;\nstruct Payload { string values[2]; };\n"
+            "int main() { OwnedBuffer<struct Payload> values; return 0; }",
+            "OwnedBuffer<T> payload must be realtime POD without managed or atomic ownership",
+            "OwnedBuffer<T> payload must be realtime POD without managed or atomic ownership",
+        ),
+        (
+            "import Library.OwnedBuffer;\nstruct Payload { Atomic<uint> values[2]; };\n"
+            "int main() { OwnedBuffer<struct Payload> values; return 0; }",
+            "OwnedBuffer<T> payload must be realtime POD without managed or atomic ownership",
+            "Atomic<T> owner type must be direct mutable stable storage",
+        ),
+        (
             "import Library.OwnedBuffer;\n"
             "int main() { AtomicBuffer<uint> values = AtomicBuffer((size_t)1); "
             "values.tryGet((size_t)0, null); return 0; }",

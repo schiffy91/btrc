@@ -101,7 +101,49 @@ class FeNativeDeclaration {
 	public string sortKey() { return self.packageName + "\x1f" + self.kind + "\x1f" + self.value + "\x1f" + self.detail + "\x1f" + self.language; }
 }
 
+class FeNativeCopiedResultBinding {
+	public string kind;
+	public string owner;
+	public string lengthFunction;
+	public Vector<string> lengthArguments;
+	public FeNativeCopiedResultBinding(string kind, string owner, string lengthFunction, Vector<string> lengthArguments) {
+		self.kind = kind; self.owner = owner; self.lengthFunction = lengthFunction; self.lengthArguments = lengthArguments;
+	}
+}
+
+class FeNativeOutputOffsetBinding {
+	public string input;
+	public string length;
+	public string field;
+	public FeNativeOutputOffsetBinding(string input, string length, string field) {
+		self.input = input; self.length = length; self.field = field;
+	}
+}
+
+class FeNativeVariadicBinding {
+	public string value;
+	public Vector<string> arguments;
+	public FeNativeVariadicBinding(string value, Vector<string> arguments) { self.value = value; self.arguments = arguments; }
+}
+
+class FeNativeRecordSnapshotBinding {
+	public string result;
+	public string owner;
+	public string name;
+	public Map<string, string> fields = {};
+	public Vector<string> bytePlane = [];
+	public Vector<string> guard = [];
+	public Map<string, string> strings = {};
+	public Vector<string> byteSpan = [];
+}
+
 class FeNativeBinding {
+	public Map<string, FeNativeCopiedInputBinding> copiedInputs = {};
+	public Map<string, FeNativeInitializerBinding> initializers = {};
+	public Vector<FeNativeRecordSnapshotBinding> recordSnapshots = [];
+	public Map<string, FeNativeCopiedResultBinding> copiedResults = {};
+	public Map<string, FeNativeVariadicBinding> variadicCalls = {};
+	public Map<string, FeNativeOutputOffsetBinding> outputOffsets = {};
 	public Map<string, FeNativeStringView> stringViews = {};
 	public Map<string, FeNativeCallbackBinding> callbacks = {};
 	public Vector<string> mainThreadGlobals = [];
@@ -123,6 +165,12 @@ class FeNativeBinding {
 	public Map<string, string> objectFields;
 	public Map<string, FeNativeResourceBinding> resources;
 	public Vector<string> ownedResults;
+	public Map<string, string> borrowedResults = {};
+	public Vector<string> staticGlobals = [];
+	public Map<string, string> resourceParameters = {};
+	public Map<string, string> resourceResults = {};
+	public Map<string, string> ownedOutputs = {};
+	public Map<string, FeNativeResourceOutputBinding> ownedOutputResources = {};
 	public Vector<string> borrowedParameters;
 
 	public FeNativeBinding(string packageName, string module, string header, string language, string standard, Vector<string> symbols, Vector<string> operatingSystems, Vector<string> architectures) {
@@ -164,6 +212,22 @@ class FeNativeBinding {
 	public bool overlaps(FeNativeBinding other) { return self.module.equals(other.module) && self.intersects(self.symbols, other.symbols) && self.targetsOverlap(self.operatingSystems, other.operatingSystems) && self.targetsOverlap(self.architectures, other.architectures); }
 
 	public string sortKey() { return self.packageName + "\x1f" + self.module + "\x1f" + self.header + "\x1f" + Strings.join(self.symbols, ",") + "\x1f" + Strings.join(self.operatingSystems, ",") + "\x1f" + Strings.join(self.architectures, ","); }
+}
+
+class FeNativeInitializerBinding {
+	public string resource;
+	public string parameter;
+	public string result;
+	public string success;
+	public string copiedInput = "";
+	public string length = "";
+	public string statusField = "";
+}
+
+class FeNativeCopiedInputBinding {
+	public string owner;
+	public string length;
+	public FeNativeCopiedInputBinding(string owner, string length) { self.owner = owner; self.length = length; }
 }
 
 class FeModuleProvider {
@@ -255,7 +319,15 @@ class FeManifestBlock {
 	private Map<string, string> fields;
 	private Map<string, bool> resourceNames;
 	private Map<string, bool> callbackNames = {};
+	private Map<string, bool> callbackOperationNames = {};
 	private Map<string, bool> stringViewNames = {};
+	private Map<string, bool> ownedOutputNames = {};
+	private Map<string, bool> outputOffsetNames = {};
+	private Map<string, bool> copiedResultNames = {};
+	private Map<string, bool> initializerTables = {};
+	private Map<string, bool> copiedInputNames = {};
+	private Map<string, bool> recordSnapshotNames = {};
+	private Map<string, bool> variadicCallNames = {};
 
 	public FeManifestBlock(string tableName, string manifestPath) {
 		self.tableName = tableName;
@@ -269,9 +341,49 @@ class FeManifestBlock {
 		self.resourceNames.put(name, true);
 	}
 
+	public void declareInitializer(string name) {
+		if (self.initializerTables.has(name)) { FePackageFailure.fail("duplicate initializer table"); }
+		self.initializerTables.put(name, true);
+	}
+
+	public void declareCopiedInput(string name) {
+		if (self.copiedInputNames.has(name)) { FePackageFailure.fail("duplicate copied-inputs table"); }
+		self.copiedInputNames.put(name, true);
+	}
+
 	public void declareCallback(string name) {
 		if (self.callbackNames.has(name)) { FePackageFailure.fail(f"duplicate callback table '{name}'"); }
 		self.callbackNames.put(name, true);
+	}
+
+	public void declareCallbackOperations(string name) {
+		if (!self.callbackNames.has(name) || self.callbackOperationNames.has(name)) { FePackageFailure.fail("callback operations requires one preceding callback table"); }
+		self.callbackOperationNames.put(name, true);
+	}
+
+	public void declareOwnedOutput(string name) {
+		if (self.ownedOutputNames.has(name)) { FePackageFailure.fail(f"duplicate owned-output table '{name}'"); }
+		self.ownedOutputNames.put(name, true);
+	}
+
+	public void declareOutputOffset(string name) {
+		if (self.outputOffsetNames.has(name)) { FePackageFailure.fail(f"duplicate output-offset table '{name}'"); }
+		self.outputOffsetNames.put(name, true);
+	}
+
+	public void declareCopiedResult(string name) {
+		if (self.copiedResultNames.has(name)) { FePackageFailure.fail(f"duplicate copied-results table '{name}'"); }
+		self.copiedResultNames.put(name, true);
+	}
+
+	public void declareRecordSnapshot(string name) {
+		if (self.recordSnapshotNames.has(name)) { FePackageFailure.fail(f"duplicate record-snapshots table '{name}'"); }
+		self.recordSnapshotNames.put(name, true);
+	}
+
+	public void declareVariadicCall(string name) {
+		if (self.variadicCallNames.has(name)) { FePackageFailure.fail(f"duplicate variadic-call table '{name}'"); }
+		self.variadicCallNames.put(name, true);
 	}
 
 	public void declareStringView(string name) {
@@ -291,10 +403,15 @@ class FeManifestBlock {
 	private bool allowedField(string key) {
 		if (self.isProvider()) { return key == "module" || key == "implementation" || key == "os" || key == "arch"; }
 		if (self.isBinding()) {
+			if (key.startsWith("record-snapshots.")) { return true; }
+			if (key.startsWith("owned-outputs.")) { return true; }
+			if (key.startsWith("output-offsets.")) { return true; }
+			if (key.startsWith("copied-results.") || key.startsWith("initializers.") || key.startsWith("copied-inputs.")) { return true; }
+			if (key.startsWith("variadic-calls.")) { return true; }
 			if (key.startsWith("string-views.")) { return true; }
 			if (key == "main-thread-globals") { return true; }
 			if (key.startsWith("callbacks.")) { return true; }
-			if (key.startsWith("resources.") || key == "owned-results" || key == "borrowed-parameters") { return true; }
+			if (key.startsWith("resources.") || key.startsWith("borrowed-results.") || key.startsWith("resource-parameters.") || key.startsWith("resource-results.") || key == "owned-results" || key == "borrowed-parameters" || key == "static-globals") { return true; }
 			return key.equals("module") || key.equals("header") || key.equals("symbols") || key.equals("language") || key.equals("standard") || key.equals("os") || key.equals("arch") || key.equals("read-only-borrows") || key.equals("realtime-safe") || key.equals("owned-records") || key.equals("record-inputs") || key.equals("record-outputs") || key.equals("owned-output-fields") || key.equals("null-output-fields") || key.startsWith("object-fields.");
 		}
 		if (key.equals("os") || key.equals("arch") || key.equals("modules")) { return true; }
@@ -353,7 +470,7 @@ class FeManifestBlock {
 		return true;
 	}
 
-	private Vector<string> stringArray(string key) {
+	private Vector<string> stringArray(string key, bool ordered = false) {
 		Vector<string> values = [];
 		if (!self.fields.has(key)) { return values; }
 		string raw = self.fields.get(key).trim();
@@ -377,7 +494,7 @@ class FeManifestBlock {
 			}
 			string value = TOML.unquote(part);
 			int prior = 0;
-			while (prior < values.len) {
+			while (!ordered && prior < values.len) {
 				if (values.get(prior).equals(value)) {
 					FePackageFailure.fail(f"{self.context()}.{key} contains a duplicate value");
 				}
@@ -386,7 +503,7 @@ class FeManifestBlock {
 			values.push(value);
 			index++;
 		}
-		values.sortBy((string left, string right) => Strings.lessThan(left, right));
+		if (!ordered) { values.sortBy((string left, string right) => Strings.lessThan(left, right)); }
 		return values;
 	}
 
@@ -557,9 +674,10 @@ class FeManifestBlock {
 		for key in self.fields.keys() {
 			if (!key.startsWith("callbacks.")) { continue; }
 			var parts = Strings.split(key, ".");
+			if (parts.len == 5 && parts.get(3) == "operations" && self.identifier(parts.get(4)) && binding.symbols.contains(parts.get(1)) && self.identifier(parts.get(2))) { continue; }
 			if (parts.len != 4 || !binding.symbols.contains(parts.get(1)) || !self.identifier(parts.get(2))) { FePackageFailure.fail("callbacks must name selected function.parameter pairs"); }
 			string field = parts.get(3);
-			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor" && field != "unregister" && field != "activation-failure" && field != "cancellation" && field != "methods" && field != "slot-getter" && field != "action-setter" && field != "action-getter" && field != "owned-arguments" && field != "field") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
+			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor" && field != "unregister" && field != "activation-failure" && field != "cancellation" && field != "methods" && field != "slot-getter" && field != "action-setter" && field != "action-getter" && field != "owned-arguments" && field != "field" && field != "name" && field != "record" && field != "size" && field != "owner" && field != "invocation") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
 			self.callbackNames.put(parts.get(1) + "." + parts.get(2), true);
 		}
 		for name in self.callbackNames.keys() {
@@ -578,10 +696,11 @@ class FeManifestBlock {
 			if (binding.symbols.contains(interfaceName)) { FePackageFailure.fail("callback interface conflicts with another imported name"); }
 			string lifetime = self.requiredText(prefix + "lifetime");
 			if (lifetime != "call" && lifetime != "stored" && lifetime != "one-shot") { FePackageFailure.fail("callback lifetime requires call, stored or one-shot"); }
+			var realtime = self.realtimeCallback(binding, prefix, lifetime, interfaceName);
 			string unregister = "";
 			string activationFailure = "";
 			if (lifetime == "stored") {
-				if (binding.language != "objective-c") { FePackageFailure.fail("stored callbacks currently require Objective-C blocks"); }
+				if (binding.language != "objective-c" && realtime == null) { FePackageFailure.fail("stored callbacks currently require Objective-C blocks"); }
 				unregister = self.requiredText(prefix + "unregister");
 				if (!binding.symbols.contains(unregister)) { FePackageFailure.fail("callback unregister must name a selected native method"); }
 				activationFailure = self.requiredText(prefix + "activation-failure");
@@ -594,7 +713,7 @@ class FeManifestBlock {
 				if (self.requiredText(prefix + "cancellation") != "abandon") { FePackageFailure.fail("one-shot cancellation requires abandon"); }
 			} else if (self.fields.has(prefix + "unregister") || self.fields.has(prefix + "activation-failure") || self.fields.has(prefix + "cancellation")) { FePackageFailure.fail("cancellation facts require a stored callback"); }
 			if (self.requiredText(prefix + "failure") != "abort") { FePackageFailure.fail("callback failure currently requires abort"); }
-			if (self.requiredText(prefix + "executor") != "caller") { FePackageFailure.fail("callback executor currently requires caller"); }
+			if (self.requiredText(prefix + "executor") != "caller" && realtime == null) { FePackageFailure.fail("callback executor currently requires caller"); }
 			string raw = self.fields.getOrDefault(prefix + "context-index", "").trim();
 			Vector<int> contextIndices = [];
 			if (hasContext) {
@@ -607,9 +726,10 @@ class FeManifestBlock {
 				if (contexts.len == 0 || contexts.len != contextIndices.len) { FePackageFailure.fail("context/context-index require equally sized nonempty distinct slots"); }
 			}
 			var callback = FeNativeCallbackBinding(name, contexts, contextIndices, interfaceName, lifetime, unregister, activationFailure);
+			callback.realtime = realtime;
 			if (self.fields.has(prefix + "field")) {
 				callback.field = self.requiredText(prefix + "field");
-				if (!self.identifier(callback.field) || binding.language != "c" || lifetime != "one-shot") { FePackageFailure.fail("callback field requires a C one-shot callback and a field identifier"); }
+				if (!self.identifier(callback.field) || binding.language != "c" || (lifetime != "one-shot" && realtime == null)) { FePackageFailure.fail("callback field requires a C one-shot callback and a field identifier"); }
 			}
 			if (contextIndices.len > 1 && callback.field.isEmpty()) { FePackageFailure.fail("multiple context slots require a callback field"); }
 			if (self.fields.has(prefix + "owned-arguments") && (binding.language != "c" || lifetime != "one-shot")) { FePackageFailure.fail("owned-arguments requires a C one-shot callback"); }
@@ -635,6 +755,31 @@ class FeManifestBlock {
 		if (binding.callbacks.len > 0 && binding.language != "c" && binding.language != "objective-c") { FePackageFailure.fail("callback mappings currently require C or Objective-C"); }
 	}
 
+	private FeNativeRealtimeCallbackBinding? realtimeCallback(FeNativeBinding binding, string prefix, string lifetime, string interfaceName) {
+		Vector<string> names = ["name", "record", "size", "owner", "invocation"];
+		if (self.requiredText(prefix + "executor") != "realtime") {
+			for name in names { if (self.fields.has(prefix + name)) { FePackageFailure.fail("callback operation facts require executor realtime"); } }
+			for key in self.fields.keys() { if (key.startsWith(prefix + "operations.")) { FePackageFailure.fail("callback operation facts require executor realtime"); } }
+			return null;
+		}
+		if (binding.language != "c" || lifetime != "stored" || !self.fields.has(prefix + "field") || self.requiredText(prefix + "activation-failure") != "abort") { FePackageFailure.fail("realtime requires a stored C callback record, owner, invocation and operations"); }
+		for field in ["methods", "slot-getter", "action-setter", "action-getter", "owned-arguments"] { if (self.fields.has(prefix + field)) { FePackageFailure.fail("realtime callback cannot combine other callback projections"); } }
+		for name in names { if (!self.identifier(self.requiredText(prefix + name))) { FePackageFailure.fail("realtime callback fields require identifiers"); } }
+		var result = FeNativeRealtimeCallbackBinding(self.requiredText(prefix + "name"), self.requiredText(prefix + "record"), self.requiredText(prefix + "size"), self.requiredText(prefix + "owner"), self.requiredText(prefix + "invocation"));
+		if (!binding.symbols.contains(result.record) || binding.symbols.contains(result.name) || binding.symbols.contains(result.invocation) || result.name == result.invocation || result.name == interfaceName || result.invocation == interfaceName || result.size == result.owner) { FePackageFailure.fail("realtime callback names or selected record conflict"); }
+		string operations = prefix + "operations.";
+		for key in self.fields.keys() {
+			if (!key.startsWith(operations)) { continue; }
+			string method = key.substring(operations.length(), key.length() - operations.length());
+			string parameter = self.requiredText(key);
+			var parts = Strings.split(parameter, ".");
+			if (!self.identifier(method) || parts.len != 2 || !binding.symbols.contains(parts.get(0)) || !self.identifier(parts.get(1))) { FePackageFailure.fail("callback operations requires named selected function.parameter pairs"); }
+			result.operations.put(method, parameter);
+		}
+		if (result.operations.len == 0) { FePackageFailure.fail("callback operations requires named selected function.parameter pairs"); }
+		return result;
+	}
+
 	private void finishStringViews(FeNativeBinding binding) {
 		Map<string, bool> names = self.stringViewNames;
 		for key in self.fields.keys() {
@@ -656,34 +801,314 @@ class FeManifestBlock {
 		}
 	}
 
-	private void finishResources(FeNativeBinding binding) {
-		Map<string, bool> names = self.resourceNames;
-		Map<string, bool> operations = {};
+	private void finishVariadicCalls(FeNativeBinding binding) {
+		Map<string, bool> names = self.variadicCallNames;
 		for key in self.fields.keys() {
-			if (!key.startsWith("resources.")) { continue; }
+			if (!key.startsWith("variadic-calls.")) { continue; }
 			var parts = Strings.split(key, ".");
-			if (parts.len != 3 || !self.identifier(parts.get(1)) || !binding.symbols.contains(parts.get(1))) { FePackageFailure.fail("resources must name selected typedefs"); }
-			string field = parts.get(2);
-			if (field != "ownership" && field != "retain" && field != "release") { FePackageFailure.fail(f"unexpected resource field '{field}'"); }
+			if (parts.len != 4 || !["value", "arguments"].contains(parts.get(3))) { FePackageFailure.fail("variadic-calls requires value and arguments"); }
+			names.put(parts.get(1) + "." + parts.get(2), true);
+		}
+		Map<string, bool> functions = {};
+		Vector<string> promoted = ["int", "unsigned int", "long", "unsigned long", "long long", "unsigned long long", "double"];
+		Vector<string> pointees = ["int", "unsigned int", "long", "unsigned long", "long long", "unsigned long long", "double", "char", "signed char", "unsigned char", "short", "unsigned short", "float"];
+		for name in names.keys() {
+			var parts = Strings.split(name, ".");
+			if (binding.language != "c" || parts.len != 2 || !binding.symbols.contains(parts.get(0)) || !self.identifier(parts.get(1))) { FePackageFailure.fail("variadic-calls requires selected C function.parameter paths"); }
+			string prefix = "variadic-calls." + name + ".";
+			string value = self.requiredText(prefix + "value");
+			Vector<string> arguments = self.stringArray(prefix + "arguments", true);
+			if (!binding.symbols.contains(value)) { FePackageFailure.fail("variadic-calls value must name a selected SDK constant"); }
+			if (arguments.len == 0) { FePackageFailure.fail("variadic-calls arguments must be a nonempty native scalar type list"); }
+			for argument in arguments {
+				string pointee = argument.endsWith("*") ? argument.substring(0, argument.length() - 1) : "";
+				if (pointee.startsWith("const ")) { pointee = pointee.substring(6, pointee.length() - 6); }
+				if (!promoted.contains(argument) && !pointees.contains(pointee)) { FePackageFailure.fail("variadic-calls requires promoted scalars or scalar pointers"); }
+			}
+			if (functions.has(parts.get(0))) { FePackageFailure.fail("variadic-calls selects exactly one shape per function"); }
+			functions.put(parts.get(0), true);
+			binding.variadicCalls.put(name, FeNativeVariadicBinding(value, arguments));
+		}
+	}
+
+	private void finishOwnedOutputs(FeNativeBinding binding) {
+		Map<string, bool> names = self.ownedOutputNames;
+		for key in self.fields.keys() {
+			if (!key.startsWith("owned-outputs.")) { continue; }
+			var parts = Strings.split(key, ".");
+			if (parts.len != 4 || !["result", "resource", "size", "name"].contains(parts.get(3))) { FePackageFailure.fail("owned-outputs requires only a result class; adoption is unconditional"); }
+			names.put(parts.get(1) + "." + parts.get(2), true);
+		}
+		Map<string, bool> functions = {};
+		Map<string, bool> results = {};
+		for name in names.keys() {
+			var parts = Strings.split(name, ".");
+			if (parts.len != 2 || !binding.symbols.contains(parts.get(0)) || !self.identifier(parts.get(1))) { FePackageFailure.fail("owned-outputs must name selected function.parameter paths"); }
+			string result = self.requiredText("owned-outputs." + name + ".result");
+			if (!self.identifier(result)) { FePackageFailure.fail("owned-outputs result must be an identifier"); }
+			if (functions.has(parts.get(0)) || results.has(result) || binding.symbols.contains(result)) { FePackageFailure.fail("owned-outputs requires one output per function and distinct result classes"); }
+			functions.put(parts.get(0), true); results.put(result, true);
+			binding.ownedOutputs.put(name, result);
+		}
+		Map<string, bool> aliases = {};
+		for name in names.keys() {
+			string prefix = "owned-outputs." + name + ".";
+			if (!self.fields.has(prefix + "resource") && !self.fields.has(prefix + "size") && !self.fields.has(prefix + "name")) { continue; }
+			string resource = self.requiredText(prefix + "resource"); string size = self.requiredText(prefix + "size"); string alias = self.requiredText(prefix + "name");
+			if (!self.identifier(resource) || !self.identifier(size) || !self.identifier(alias)) { FePackageFailure.fail("erased owned-outputs fields must be identifiers"); }
+			if (!binding.resources.has(resource) || binding.resources.get(resource).ownership != "reference-counted") { FePackageFailure.fail("erased owned-outputs requires a declared reference-counted resource"); }
+			if (binding.symbols.contains(alias) || results.has(alias) || aliases.has(alias) || size == Strings.split(name, ".").get(1)) { FePackageFailure.fail("erased owned-outputs requires distinct alias, result and output parameters"); }
+			aliases.put(alias, true); binding.ownedOutputResources.put(name, FeNativeResourceOutputBinding(resource, size, alias));
+		}
+		if (names.len > 0 && (binding.language != "c" || binding.resources.len == 0)) { FePackageFailure.fail("owned-outputs requires declared C resources"); }
+	}
+
+	private void finishRecordSnapshots(FeNativeBinding binding) {
+		Map<string, bool> results = {};
+		Map<string, bool> names = {};
+		for name in binding.symbols { names.put(name, true); }
+		for table in self.recordSnapshotNames.keys() {
+			var parts = Strings.split(table, ".");
+			if (parts.len > 2 || (parts.len == 2 && !["fields", "byte-plane", "guard", "strings", "byte-span"].contains(parts.get(1)))) { FePackageFailure.fail("invalid record-snapshots table"); }
+			results.put(parts.get(0), true);
+		}
+		for key in self.fields.keys() {
+			if (!key.startsWith("record-snapshots.")) { continue; }
+			var parts = Strings.split(key, ".");
+			bool scalar = parts.len == 3 && ["owner", "name", "fields", "strings", "guard", "byte-span"].contains(parts.get(2));
+			bool field = parts.len == 4 && ["fields", "strings"].contains(parts.get(2)) && self.identifier(parts.get(3));
+			bool plane = parts.len == 4 && parts.get(2) == "byte-plane" && ["field", "pointer", "width", "rows", "pitch"].contains(parts.get(3));
+			bool guard = parts.len == 4 && parts.get(2) == "guard" && ["field", "equals"].contains(parts.get(3));
+			bool span = parts.len == 4 && parts.get(2) == "byte-span" && ["field", "pointer", "length"].contains(parts.get(3));
+			if ((!scalar && !field && !plane && !guard && !span) || !self.identifier(parts.get(1))) { FePackageFailure.fail("invalid record-snapshots field"); }
+			results.put(parts.get(1), true);
+		}
+		var ordered = results.keys();
+		ordered.sortBy((string left, string right) => Strings.lessThan(left, right));
+		for result in ordered {
+			if (binding.language != "c" || names.has(result) || !self.identifier(result)) { FePackageFailure.fail("record-snapshots requires distinct C result class names"); }
+			string prefix = "record-snapshots." + result + ".";
+			var snapshot = FeNativeRecordSnapshotBinding();
+			snapshot.result = result;
+			snapshot.owner = self.requiredText(prefix + "owner");
+			snapshot.name = self.requiredText(prefix + "name");
+			if (!binding.resources.has(snapshot.owner) || !self.identifier(snapshot.name) || names.has(snapshot.name) || snapshot.name == result) { FePackageFailure.fail("record-snapshots requires a selected resource and distinct function name"); }
+			bool declaredFields = self.recordSnapshotNames.has(result + ".fields");
+			if (self.fields.has(prefix + "fields")) {
+				if (declaredFields) { FePackageFailure.fail("record-snapshots fields table is duplicated"); }
+				declaredFields = true;
+				string raw = self.fields.get(prefix + "fields").trim();
+				if (!raw.startsWith("{") || !raw.endsWith("}")) { FePackageFailure.fail("record-snapshots fields requires a table"); }
+				string body = raw.substring(1, raw.length() - 2).trim();
+				if (!body.isEmpty()) {
+					for part in Strings.split(body, ",") {
+						string alias = TOML.key(part);
+						int separator = part.indexOf("=");
+						string value = separator < 0 ? "" : part.substring(separator + 1, part.length() - separator - 1).trim();
+						int length = value.length();
+						if (length < 2 || !((value[0] == '"' && value[length - 1] == '"') || (value[0] == '\'' && value[length - 1] == '\''))) { FePackageFailure.fail("record-snapshots field paths must be TOML strings"); }
+						string path = TOML.value(part);
+						if (!self.identifier(alias) || snapshot.fields.has(alias) || !self.moduleName(path)) { FePackageFailure.fail("record-snapshots requires distinct scalar aliases and dotted SDK paths"); }
+						snapshot.fields.put(alias, path);
+					}
+				}
+			}
+			for key in self.fields.keys() {
+				if (!key.startsWith(prefix + "fields.")) { continue; }
+				declaredFields = true;
+				string alias = key.substring(prefix.length() + 7, key.length() - prefix.length() - 7);
+				string path = self.requiredText(key);
+				if (!self.identifier(alias) || snapshot.fields.has(alias) || !self.moduleName(path)) { FePackageFailure.fail("record-snapshots requires distinct scalar aliases and dotted SDK paths"); }
+				snapshot.fields.put(alias, path);
+			}
+			if (!declaredFields) { FePackageFailure.fail("record-snapshots requires a fields table"); }
+			snapshot.strings = self.snapshotTable(result, "strings");
+			for alias in snapshot.strings.keys() { if (!self.identifier(alias) || snapshot.fields.has(alias) || !self.moduleName(snapshot.strings.get(alias))) { FePackageFailure.fail("record-snapshots strings requires distinct aliases and SDK paths"); } }
+			var guard = self.snapshotTable(result, "guard");
+			if (guard.len > 0 || self.recordSnapshotNames.has(result + ".guard") || self.fields.has(prefix + "guard")) {
+				if (guard.len != 2 || !guard.has("field") || !guard.has("equals")) { FePackageFailure.fail("record-snapshots guard requires field and equals"); }
+				if (!self.moduleName(guard.get("field")) || !binding.symbols.contains(guard.get("equals"))) { FePackageFailure.fail("record-snapshots guard requires an SDK path and selected constant"); }
+				snapshot.guard.push(guard.get("field")); snapshot.guard.push(guard.get("equals"));
+			}
+			var span = self.snapshotTable(result, "byte-span");
+			if (span.len > 0 || self.recordSnapshotNames.has(result + ".byte-span") || self.fields.has(prefix + "byte-span")) {
+				if (span.len != 3 || !span.has("field") || !span.has("pointer") || !span.has("length")) { FePackageFailure.fail("record-snapshots byte-span requires field, pointer and length"); }
+				if (!self.identifier(span.get("field")) || snapshot.fields.has(span.get("field")) || snapshot.strings.has(span.get("field")) || !self.moduleName(span.get("pointer")) || !self.moduleName(span.get("length"))) { FePackageFailure.fail("record-snapshots byte-span requires a distinct byte field and SDK paths"); }
+				for field in ["field", "pointer", "length"] { snapshot.byteSpan.push(span.get(field)); }
+			}
+			bool plane = self.recordSnapshotNames.has(result + ".byte-plane");
+			for key in self.fields.keys() { if (key.startsWith(prefix + "byte-plane.")) { plane = true; } }
+			if (plane) {
+				if (snapshot.byteSpan.len > 0) { FePackageFailure.fail("record-snapshots cannot combine byte-span and byte-plane"); }
+				for field in ["field", "pointer", "width", "rows", "pitch"] {
+					string value = self.requiredText(prefix + "byte-plane." + field);
+					if ((field == "field" && (!self.identifier(value) || snapshot.fields.has(value) || snapshot.strings.has(value))) || (field != "field" && !self.moduleName(value))) { FePackageFailure.fail("record-snapshots requires a distinct byte field and dotted SDK paths"); }
+					snapshot.bytePlane.push(value);
+				}
+			}
+			if (snapshot.fields.len == 0 && !plane && snapshot.strings.len == 0 && snapshot.byteSpan.len == 0) { FePackageFailure.fail("record-snapshots requires copied fields"); }
+			names.put(result, true); names.put(snapshot.name, true);
+			binding.recordSnapshots.push(snapshot);
+		}
+	}
+
+	private Map<string, string> snapshotTable(string result, string table) {
+		string prefix = "record-snapshots." + result + "." + table;
+		Map<string, string> values = {};
+		if (self.fields.has(prefix)) {
+			if (self.recordSnapshotNames.has(result + "." + table)) { FePackageFailure.fail("record-snapshots table is duplicated"); }
+			string raw = self.fields.get(prefix).trim();
+			if (!raw.startsWith("{") || !raw.endsWith("}")) { FePackageFailure.fail("record-snapshots requires TOML tables"); }
+			string body = raw.substring(1, raw.length() - 2).trim();
+			if (!body.isEmpty()) {
+				for part in Strings.split(body, ",") {
+					string alias = TOML.key(part); int separator = part.indexOf("=");
+					string value = separator < 0 ? "" : part.substring(separator + 1, part.length() - separator - 1).trim();
+					int length = value.length();
+					if (length < 2 || !((value[0] == '"' && value[length - 1] == '"') || (value[0] == '\'' && value[length - 1] == '\'')) || values.has(alias)) { FePackageFailure.fail("record-snapshots values must be distinct TOML strings"); }
+					values.put(alias, TOML.value(part));
+				}
+			}
+		}
+		for key in self.fields.keys() {
+			if (!key.startsWith(prefix + ".")) { continue; }
+			string alias = key.substring(prefix.length() + 1, key.length() - prefix.length() - 1);
+			if (values.has(alias)) { FePackageFailure.fail("record-snapshots values are duplicated"); }
+			values.put(alias, self.requiredText(key));
+		}
+		return values;
+	}
+
+	private void finishCopiedResults(FeNativeBinding binding) {
+		Map<string, bool> names = self.copiedResultNames;
+		for key in self.fields.keys() {
+			if (!key.startsWith("copied-results.")) { continue; }
+			var parts = Strings.split(key, ".");
+			if (parts.len != 3 || !["kind", "owner", "lifetime", "length-function", "length-arguments", "length-preserves-result"].contains(parts.get(2))) { FePackageFailure.fail("invalid copied-results field"); }
 			names.put(parts.get(1), true);
 		}
 		for name in names.keys() {
+			bool cppMethod = false;
+			if (binding.language == "c++") {
+				for resource in binding.resources.keys() {
+					for selected in binding.resources.get(resource).methods {
+						string method = selected.endsWith("()") ? selected.substring(0, selected.length() - 2) : selected;
+						if (name == resource + "::" + method) { cppMethod = true; }
+					}
+				}
+			}
+			if (!cppMethod && (binding.language != "c" || !binding.symbols.contains(name))) { FePackageFailure.fail("copied-results requires selected C functions or C++ methods"); }
+			string prefix = "copied-results." + name + ".";
+			string kind = self.requiredText(prefix + "kind");
+			string owner = self.fields.has(prefix + "owner") ? self.requiredText(prefix + "owner") : "";
+			bool lifetime = self.fields.has(prefix + "lifetime");
+			if (kind != "string" && kind != "bytes") { FePackageFailure.fail("copied-results kind must be string or bytes"); }
+			if (cppMethod && (kind != "string" || owner != "self" || lifetime)) { FePackageFailure.fail("C++ copied-results requires selected instance strings with owner = self"); }
+			if ((!owner.isEmpty() && (!self.identifier(owner) || lifetime)) || (owner.isEmpty() && (!lifetime || self.requiredText(prefix + "lifetime") != "static"))) { FePackageFailure.fail("copied-results requires one owner or static lifetime"); }
+			string lengthFunction = ""; Vector<string> arguments = [];
+			if (kind == "bytes") {
+				if (owner.isEmpty()) { FePackageFailure.fail("copied bytes require a resource owner"); }
+				lengthFunction = self.requiredText(prefix + "length-function");
+				arguments = self.stringArray(prefix + "length-arguments", true);
+				if (!binding.symbols.contains(lengthFunction) || !self.fields.has(prefix + "length-preserves-result") || self.fields.get(prefix + "length-preserves-result") != "true") { FePackageFailure.fail("copied bytes require a selected length-function and explicit no-invalidation promise"); }
+				for argument in arguments { if (!self.identifier(argument)) { FePackageFailure.fail("copied bytes length-arguments must name parameters"); } }
+			} else if (self.fields.has(prefix + "length-function") || self.fields.has(prefix + "length-arguments") || self.fields.has(prefix + "length-preserves-result")) { FePackageFailure.fail("copied strings do not accept byte length fields"); }
+			binding.copiedResults.put(name, FeNativeCopiedResultBinding(kind, owner, lengthFunction, arguments));
+		}
+	}
+
+	private void finishOutputOffsets(FeNativeBinding binding) {
+		Map<string, bool> names = self.outputOffsetNames;
+		for key in self.fields.keys() {
+			if (!key.startsWith("output-offsets.")) { continue; }
+			var parts = Strings.split(key, ".");
+			if (parts.len != 4 || !["input", "length", "field"].contains(parts.get(3))) { FePackageFailure.fail("output-offsets requires input, length, and field"); }
+			names.put(parts.get(1) + "." + parts.get(2), true);
+		}
+		Map<string, bool> functions = {};
+		for name in names.keys() {
+			var parts = Strings.split(name, ".");
+			if (parts.len != 2 || !binding.symbols.contains(parts.get(0)) || !self.identifier(parts.get(1))) { FePackageFailure.fail("output-offsets must name selected function.parameter paths"); }
+			string prefix = "output-offsets." + name + ".";
+			if (!self.fields.has(prefix + "input") || !self.fields.has(prefix + "length") || !self.fields.has(prefix + "field")) { FePackageFailure.fail("output-offsets requires input, length, and field"); }
+			string input = self.requiredText(prefix + "input");
+			string length = self.requiredText(prefix + "length");
+			string field = self.requiredText(prefix + "field");
+			if (!self.identifier(input) || !self.identifier(length) || !self.identifier(field)) { FePackageFailure.fail("output-offsets fields must be identifiers"); }
+			bool hasOwner = false;
+			for owned in binding.ownedOutputs.keys() { if (owned.startsWith(parts.get(0) + ".")) { hasOwner = true; } }
+			if (!hasOwner || functions.has(parts.get(0))) { FePackageFailure.fail("output-offsets requires one offset alongside an owned output"); }
+			if (parts.get(1) == input || parts.get(1) == length || input == length || field == "status" || field == "value") { FePackageFailure.fail("output-offsets requires distinct parameters and a fresh result field"); }
+			functions.put(parts.get(0), true);
+			binding.outputOffsets.put(name, FeNativeOutputOffsetBinding(input, length, field));
+		}
+	}
+
+	private void finishResources(FeNativeBinding binding) {
+		Map<string, bool> names = self.resourceNames;
+		Map<string, bool> operations = {};
+		Map<string, bool> aliases = {};
+		for key in self.fields.keys() {
+			if (!key.startsWith("resources.")) { continue; }
+			var parts = Strings.split(key, ".");
+			if (parts.len >= 4 && parts.get(2) == "table") {
+				if (binding.language == "c++" || !self.identifier(parts.get(1)) || !binding.symbols.contains(parts.get(1))) { FePackageFailure.fail("callback tables require a selected C resource"); }
+				names.put(parts.get(1), true);
+				continue;
+			}
+			if (parts.len != 3 || !(binding.language == "c++" ? self.nativeSymbol(parts.get(1), binding.language) : self.identifier(parts.get(1))) || !binding.symbols.contains(parts.get(1))) { FePackageFailure.fail("resources must name selected SDK types"); }
+			string field = parts.get(2);
+			if (binding.language == "c++") {
+				if (!["name", "ownership", "methods", "constructor", "release", "owner"].contains(field)) { FePackageFailure.fail(f"unexpected C++ resource field '{field}'"); }
+			} else if (field != "ownership" && field != "retain" && field != "release" && field != "release-consumption" && field != "cleanup-status" && field != "type-query" && field != "type-tag" && field != "storage") { FePackageFailure.fail(f"unexpected resource field '{field}'"); }
+			names.put(parts.get(1), true);
+		}
+		for name in names.keys() {
+			if (binding.language == "c++") {
+				self.finishCppResource(binding, name, aliases);
+				continue;
+			}
 			if (!self.identifier(name) || !binding.symbols.contains(name)) { FePackageFailure.fail("resources must name selected typedefs"); }
 			string prefix = "resources." + name + ".";
 			string ownership = self.requiredText(prefix + "ownership");
-			if (ownership != "reference-counted") { FePackageFailure.fail("resource ownership currently requires reference-counted"); }
-			string retainFunction = self.requiredText(prefix + "retain");
+			if (ownership != "reference-counted" && ownership != "unique") { FePackageFailure.fail("resource ownership requires reference-counted or unique"); }
+			if (ownership == "unique" && self.fields.has(prefix + "retain")) { FePackageFailure.fail("unique resources must not declare retain"); }
+			string consumption = self.fields.has(prefix + "release-consumption") ? self.requiredText(prefix + "release-consumption") : "";
+			string cleanup = self.fields.has(prefix + "cleanup-status") ? self.requiredText(prefix + "cleanup-status") : "";
+			string storage = self.fields.has(prefix + "storage") ? self.requiredText(prefix + "storage") : "";
+			if (self.fields.has(prefix + "storage") && (storage != "inline" || ownership != "unique")) { FePackageFailure.fail("storage requires inline unique ownership"); }
+			if (!storage.isEmpty() && consumption == "success-or-indeterminate") { FePackageFailure.fail("inline storage does not support indeterminate destruction"); }
+			if (self.fields.has(prefix + "release-consumption") || self.fields.has(prefix + "cleanup-status")) {
+				if (ownership != "unique" || !((consumption == "always" && cleanup == "discard") || (consumption == "success-or-indeterminate" && cleanup == "abort"))) { FePackageFailure.fail("status release requires unique and matching release-consumption/cleanup-status: always/discard or success-or-indeterminate/abort"); }
+			}
+			string retainFunction = ownership == "unique" ? "" : self.requiredText(prefix + "retain");
 			string releaseFunction = self.requiredText(prefix + "release");
 			if (retainFunction == releaseFunction) { FePackageFailure.fail("resource lifetime operations must be distinct"); }
 			for operation in [retainFunction, releaseFunction] {
+				if (ownership == "unique" && operation.isEmpty()) { continue; }
 				if (!self.identifier(operation) || !binding.symbols.contains(operation)) { FePackageFailure.fail("resource retain/release must name selected functions"); }
 				if (names.has(operation)) { FePackageFailure.fail("resource lifetime operations must be distinct from resource types"); }
 				operations.put(operation, true);
 			}
-			binding.resources.put(name, FeNativeResourceBinding(name, ownership, retainFunction, releaseFunction));
+			string query = self.fields.has(prefix + "type-query") ? self.requiredText(prefix + "type-query") : "";
+			string tag = self.fields.has(prefix + "type-tag") ? self.requiredText(prefix + "type-tag") : "";
+			if (self.fields.has(prefix + "type-query") || self.fields.has(prefix + "type-tag")) {
+				if (ownership != "reference-counted" || !binding.symbols.contains(query) || !binding.symbols.contains(tag) || query == tag) { FePackageFailure.fail("type-query/type-tag require distinct selected functions on a reference-counted resource"); }
+			}
+			var resource = FeNativeResourceBinding(name, ownership, retainFunction, releaseFunction, consumption, cleanup, query, tag, storage);
+			if (self.hasKeyPrefix(prefix + "table.")) { resource.table = self.callbackTable(binding, prefix + "table.", ownership, storage); }
+			binding.resources.put(name, resource);
 		}
 		binding.ownedResults = self.stringArray("owned-results");
 		binding.borrowedParameters = self.stringArray("borrowed-parameters");
+		for key in self.fields.keys() {
+			if (!key.startsWith("borrowed-results.")) { continue; }
+			string symbol = key.substring(17, key.length() - 17);
+			string owner = self.requiredText(key);
+			if (!binding.symbols.contains(symbol) || !self.identifier(owner) || !binding.borrowedParameters.contains(symbol + "." + owner)) { FePackageFailure.fail("borrowed-results must map selected functions to declared borrowed owner parameters"); }
+			if (binding.ownedResults.contains(symbol)) { FePackageFailure.fail("owned-results and borrowed-results must be distinct"); }
+			binding.borrowedResults.put(symbol, owner);
+		}
 		for name in binding.ownedResults {
 			if (!binding.symbols.contains(name)) { FePackageFailure.fail("owned-results must name selected functions"); }
 			if (operations.has(name)) { FePackageFailure.fail("resource lifetime operations are reserved"); }
@@ -693,10 +1118,184 @@ class FeManifestBlock {
 			if (parts.len != 2 || !binding.symbols.contains(parts.get(0)) || !self.identifier(parts.get(1))) { FePackageFailure.fail("borrowed-parameters must name selected function.parameter pairs"); }
 			if (operations.has(parts.get(0))) { FePackageFailure.fail("resource lifetime operations are reserved"); }
 		}
-		if (binding.resources.len > 0 || binding.ownedResults.len > 0 || binding.borrowedParameters.len > 0) {
-			if (binding.language != "c") { FePackageFailure.fail("resource bindings currently require C"); }
+		if (binding.resources.len > 0 || binding.ownedResults.len > 0 || binding.borrowedParameters.len > 0 || binding.borrowedResults.len > 0) {
+			if (binding.language != "c" && binding.language != "c++") { FePackageFailure.fail("resource bindings require C or C++"); }
+			if (binding.language == "c++" && (binding.ownedResults.len > 0 || binding.borrowedParameters.len > 0 || binding.borrowedResults.len > 0)) { FePackageFailure.fail("C++ resource methods carry ownership through their receiver"); }
 			if (binding.resources.len == 0) { FePackageFailure.fail("resource ownership requires declared resources"); }
 		}
+	}
+
+	private bool hasKeyPrefix(string prefix) {
+		for key in self.fields.keys() { if (key.startsWith(prefix)) { return true; } }
+		return false;
+	}
+
+	private FeNativeCallbackTable callbackTable(FeNativeBinding binding, string prefix, string ownership, string storage) {
+		if (ownership != "unique" || !storage.isEmpty()) { FePackageFailure.fail("callback table requires a unique pointer resource and a table declaration"); }
+		Vector<string> known = ["name", "interface", "context", "context-index", "executor", "failure", "label", "reopen", "release"];
+		Map<string, string> methods = {};
+		for key in self.fields.keys() {
+			if (!key.startsWith(prefix)) { continue; }
+			string field = key.substring(prefix.length(), key.length() - prefix.length());
+			if (field.startsWith("methods.")) {
+				string method = field.substring(8, field.length() - 8);
+				if (!self.identifier(method)) { FePackageFailure.fail("callback table methods must map BTRC method names to callback fields"); }
+				methods.put(method, self.requiredText(key));
+				continue;
+			}
+			if (!known.contains(field)) { FePackageFailure.fail(f"unexpected callback table field '{field}'"); }
+		}
+		for required in ["name", "interface", "context", "executor", "failure"] { if (!self.fields.has(prefix + required)) { FePackageFailure.fail("callback table requires name, interface, context, methods, executor and failure"); } }
+		if (methods.len == 0) { FePackageFailure.fail("callback table methods must map BTRC method names to callback fields"); }
+		string name = self.requiredText(prefix + "name");
+		string interfaceName = self.requiredText(prefix + "interface");
+		string context = self.requiredText(prefix + "context");
+		if (!self.identifier(name) || !self.identifier(interfaceName) || !self.identifier(context)) { FePackageFailure.fail("callback table fields require identifiers"); }
+		int contextIndex = 0;
+		if (self.fields.has(prefix + "context-index")) {
+			string raw = self.fields.get(prefix + "context-index").trim();
+			if (raw.isEmpty() || raw.length() > 9) { FePackageFailure.fail("callback table context-index must be a nonnegative native parameter index"); }
+			for character in raw { if (character < '0' || character > '9') { FePackageFailure.fail("callback table context-index must be a nonnegative native parameter index"); } }
+			contextIndex = Strings.toInt(raw);
+		}
+		if (self.requiredText(prefix + "executor") != "caller") { FePackageFailure.fail("callback table executor currently requires caller"); }
+		if (self.requiredText(prefix + "failure") != "abort") { FePackageFailure.fail("callback table failure currently requires abort"); }
+		var table = FeNativeCallbackTable(name, interfaceName, context, contextIndex);
+		Vector<string> fields = [context];
+		Vector<string> methodNames = methods.keys();
+		methodNames.sortBy((string left, string right) => Strings.lessThan(left, right));
+		for method in methodNames {
+			string field = methods.get(method);
+			if (!self.identifier(field)) { FePackageFailure.fail("callback table methods must map BTRC method names to callback fields"); }
+			if (method == "close" || method == "isOpen") { FePackageFailure.fail("callback table methods cannot shadow resource operations"); }
+			table.methodNames.push(method); table.methodFields.push(field); fields.push(field);
+		}
+		for optional in ["label", "reopen", "release"] {
+			if (!self.fields.has(prefix + optional)) { continue; }
+			string value = self.requiredText(prefix + optional);
+			if (!self.identifier(value)) { FePackageFailure.fail("callback table fields require identifiers"); }
+			if (optional == "label") { table.label = value; } else if (optional == "reopen") { table.reopen = value; } else { table.releaseField = value; }
+			fields.push(value);
+		}
+		Map<string, bool> seen = {};
+		for field in fields {
+			if (seen.has(field)) { FePackageFailure.fail("callback table context, method, label, reopen and release fields must be distinct"); }
+			seen.put(field, true);
+		}
+		if (!table.reopen.isEmpty() && table.label.isEmpty()) { FePackageFailure.fail("callback table reopen requires a label field to answer"); }
+		if (binding.symbols.contains(name) || binding.symbols.contains(interfaceName) || name == interfaceName) { FePackageFailure.fail("callback table name and interface must be distinct from selected symbols"); }
+		return table;
+	}
+
+	private void finishCppResource(FeNativeBinding binding, string name, Map<string, bool> aliases) {
+		if (!self.nativeSymbol(name, binding.language) || !binding.symbols.contains(name)) { FePackageFailure.fail("C++ resources require selected SDK classes"); }
+		string prefix = "resources." + name + ".";
+		string ownership = self.requiredText(prefix + "ownership");
+		if (ownership != "unique" && ownership != "owner-bound-value") { FePackageFailure.fail("C++ resources require unique/default/delete or owner-bound-value facts"); }
+		string alias = self.requiredText(prefix + "name");
+		if (!self.identifier(alias) || aliases.has(alias) || binding.symbols.contains(alias)) { FePackageFailure.fail("C++ resource aliases must be distinct"); }
+		if (!self.fields.has(prefix + "methods")) { FePackageFailure.fail("C++ resources require selected methods"); }
+		Vector<string> methods = self.stringArray(prefix + "methods");
+		Map<string, bool> methodNames = {};
+		for method in methods {
+			string selected = method.endsWith("()") ? method.substring(0, method.length() - 2) : method;
+			if (!self.identifier(selected) || selected == "create" || selected == "close" || methodNames.has(selected)) { FePackageFailure.fail("C++ methods require distinct unambiguous public method names"); }
+			methodNames.put(selected, true);
+		}
+		string constructor = ""; string releaseFunction = ""; string owner = "";
+		if (ownership == "unique") {
+			constructor = self.requiredText(prefix + "constructor"); releaseFunction = self.requiredText(prefix + "release");
+			if (constructor != "default" || releaseFunction != "delete" || self.fields.has(prefix + "owner")) { FePackageFailure.fail("C++ unique construction/destruction requires default/delete"); }
+		} else {
+			owner = self.requiredText(prefix + "owner");
+			if (owner == name || !binding.symbols.contains(owner) || self.fields.has(prefix + "constructor") || self.fields.has(prefix + "release") || self.requiredText("resources." + owner + ".ownership") != "unique") { FePackageFailure.fail("owner-bound values require a selected unique originating document"); }
+		}
+		var resource = FeNativeResourceBinding(name, ownership, "", releaseFunction);
+		resource.alias = alias; resource.constructor = constructor; resource.owner = owner; resource.methods = methods;
+		aliases.put(alias, true); binding.resources.put(name, resource);
+	}
+
+	private void finishCopiedInputs(FeNativeBinding binding) {
+		Map<string, bool> names = self.copiedInputNames;
+		for key in self.fields.keys() {
+			if (!key.startsWith("copied-inputs.")) { continue; }
+			var parts = Strings.split(key, ".");
+			if (parts.len != 4 || !binding.symbols.contains(parts.get(1)) || !self.identifier(parts.get(2)) || !["owner", "length", "assignment"].contains(parts.get(3))) { FePackageFailure.fail("copied-inputs requires selected function.parameter tables"); }
+			names.put(parts.get(1) + "." + parts.get(2), true);
+		}
+		Map<string, bool> functions = {};
+		for name in names.keys() {
+			var parts = Strings.split(name, ".");
+			if (parts.len != 2 || !binding.symbols.contains(parts.get(0)) || !self.identifier(parts.get(1))) { FePackageFailure.fail("copied-inputs requires selected function.parameter tables"); }
+			string prefix = "copied-inputs." + name + ".";
+			string owner = self.requiredText(prefix + "owner"); string length = self.requiredText(prefix + "length");
+			if (!self.identifier(owner) || !self.identifier(length) || self.requiredText(prefix + "assignment") != "once") { FePackageFailure.fail("copied-inputs requires owner, length and assignment = once"); }
+			if (owner == length || owner == parts.get(1) || length == parts.get(1) || !binding.borrowedParameters.contains(parts.get(0) + "." + owner) || !binding.readOnlyBorrows.contains(name)) { FePackageFailure.fail("copied-inputs requires distinct declared resource-owner and read-only byte parameters"); }
+			if (functions.has(parts.get(0))) { FePackageFailure.fail("copied-inputs requires one copied span per SDK setter"); }
+			functions.put(parts.get(0), true); binding.copiedInputs.put(name, FeNativeCopiedInputBinding(owner, length));
+		}
+	}
+
+	private void finishInitializers(FeNativeBinding binding) {
+		Map<string, bool> names = {};
+		Vector<string> scalarFields = ["resource", "parameter", "result", "success", "success-nonzero", "failure"];
+		if (binding.language == "c++") { scalarFields = ["resource", "result", "success", "status-field", "failure"]; }
+		for table in self.initializerTables.keys() { names.put(Strings.split(table, ".").get(0), true); }
+		for key in self.fields.keys() {
+			if (!key.startsWith("initializers.")) { continue; }
+			var parts = Strings.split(key, ".");
+			bool scalar = parts.len == 3 && scalarFields.contains(parts.get(2));
+			bool copy = binding.language == "c" && parts.len == 5 && parts.get(2) == "copied-inputs" && self.identifier(parts.get(3)) && parts.get(4) == "length";
+			if ((!scalar && !copy) || !(binding.language == "c++" ? self.nativeSymbol(parts.get(1), "c++") : self.identifier(parts.get(1))) || !binding.symbols.contains(parts.get(1))) { FePackageFailure.fail("initializers requires selected function tables"); }
+			names.put(parts.get(1), true);
+		}
+		Map<string, bool> results = {}; Map<string, bool> owners = {};
+		for name in names.keys() {
+			if (binding.language == "c++") {
+				self.finishCppInitializer(binding, name, results, owners);
+				continue;
+			}
+			string prefix = "initializers." + name + ".";
+			var shape = FeNativeInitializerBinding();
+			shape.resource = self.requiredText(prefix + "resource"); shape.parameter = self.requiredText(prefix + "parameter");
+			shape.result = self.requiredText(prefix + "result"); shape.success = self.fields.has(prefix + "success") ? self.requiredText(prefix + "success") : "";
+			if (self.fields.has(prefix + "success") == self.fields.has(prefix + "success-nonzero")) { FePackageFailure.fail("initializer requires exactly one success or success-nonzero predicate"); }
+			if (self.fields.has(prefix + "success-nonzero") && self.fields.get(prefix + "success-nonzero") != "true") { FePackageFailure.fail("initializer success-nonzero requires true"); }
+			for value in [shape.resource, shape.parameter, shape.result] { if (!self.identifier(value)) { FePackageFailure.fail("initializer names require identifiers"); } }
+			if (self.fields.has(prefix + "success") && !self.identifier(shape.success)) { FePackageFailure.fail("initializer success requires an identifier"); }
+			if (binding.language != "c" || !binding.resources.has(shape.resource) || binding.resources.get(shape.resource).storage != "inline") { FePackageFailure.fail("initializers requires a declared inline C resource"); }
+			if (self.requiredText(prefix + "failure") != "rolled-back") { FePackageFailure.fail("initializers requires fully rolled-back SDK failure"); }
+			if (results.has(shape.result) || binding.symbols.contains(shape.result) || owners.has(shape.resource) || (!shape.success.isEmpty() && !binding.symbols.contains(shape.success))) { FePackageFailure.fail("initializers requires one initializer per resource, a distinct result and selected success constant"); }
+			if (binding.ownedResults.contains(name)) { FePackageFailure.fail("initializers cannot combine other owned outputs/results"); }
+			for output in binding.ownedOutputs.keys() { if (output.startsWith(name + ".")) { FePackageFailure.fail("initializers cannot combine other owned outputs/results"); } }
+			for key in self.fields.keys() {
+				if (!key.startsWith(prefix + "copied-inputs.")) { continue; }
+				if (!shape.copiedInput.isEmpty()) { FePackageFailure.fail("initializers currently supports at most one immutable copied input"); }
+				shape.copiedInput = Strings.split(key, ".").get(3); shape.length = self.requiredText(key);
+				if (!self.identifier(shape.length) || shape.copiedInput == shape.length || shape.copiedInput == shape.parameter || shape.length == shape.parameter) { FePackageFailure.fail("initializer storage, copied input and length must be distinct"); }
+			}
+			results.put(shape.result, true); owners.put(shape.resource, true); binding.initializers.put(name, shape);
+		}
+		for name in binding.resources.keys() {
+			if (binding.language == "c++") {
+				if (binding.resources.get(name).ownership == "unique" && !owners.has(name)) { FePackageFailure.fail("every C++ unique resource requires one checked initialization factory"); }
+			} else if (!binding.resources.get(name).storage.isEmpty() && !owners.has(name)) { FePackageFailure.fail("every inline resource requires one checked initializer"); }
+		}
+	}
+
+	private void finishCppInitializer(FeNativeBinding binding, string name, Map<string, bool> results, Map<string, bool> owners) {
+		string prefix = "initializers." + name + ".";
+		var shape = FeNativeInitializerBinding();
+		shape.resource = self.requiredText(prefix + "resource"); shape.result = self.requiredText(prefix + "result");
+		shape.success = self.requiredText(prefix + "success"); shape.statusField = self.requiredText(prefix + "status-field");
+		shape.parameter = "";
+		if (!self.identifier(shape.result) || !self.identifier(shape.statusField)) { FePackageFailure.fail("C++ initializer result and status-field require identifiers"); }
+		if (!binding.resources.has(shape.resource) || binding.resources.get(shape.resource).ownership != "unique" || !name.startsWith(shape.resource + "::") || self.requiredText(prefix + "failure") != "destroy") { FePackageFailure.fail("C++ initializer requires its unique SDK receiver and failure = destroy"); }
+		if (!binding.symbols.contains(shape.success) || owners.has(shape.resource) || results.has(shape.result) || binding.symbols.contains(shape.result)) { FePackageFailure.fail("C++ initializer requires one factory per owner, a distinct result and selected success constant"); }
+		for resource in binding.resources.keys() { if (binding.resources.get(resource).alias == shape.result) { FePackageFailure.fail("C++ initializer result must not shadow a resource alias"); } }
+		string method = name.substring(shape.resource.length() + 2, name.length() - shape.resource.length() - 2);
+		if (binding.resources.get(shape.resource).methods.contains(method) || binding.resources.get(shape.resource).methods.contains(method + "()")) { FePackageFailure.fail("C++ initialization cannot also expose an instance mutation method"); }
+		results.put(shape.result, true); owners.put(shape.resource, true); binding.initializers.put(name, shape);
 	}
 
 	public FeNativeBinding finishBinding(string root, string packageName) {
@@ -714,12 +1313,36 @@ class FeManifestBlock {
 		Vector<string> architectureValues = ["x86_64", "aarch64"];
 		var binding = FeNativeBinding(packageName, modules.get(0), header, language, standard, symbols, self.targetArray("os", operatingSystemValues), self.targetArray("arch", architectureValues));
 		self.finishResources(binding);
+		self.finishOwnedOutputs(binding);
+		self.finishInitializers(binding);
+		self.finishCopiedResults(binding);
+		self.finishOutputOffsets(binding);
+		for output in binding.ownedOutputResources.keys() {
+			for offset in binding.outputOffsets.keys() { if (Strings.split(output, ".").get(0) == Strings.split(offset, ".").get(0)) { FePackageFailure.fail("erased owned-outputs cannot combine output-offsets"); } }
+		}
+		self.finishVariadicCalls(binding);
 		self.finishCallbacks(binding);
 		self.finishStringViews(binding);
+		self.finishRecordSnapshots(binding);
 		binding.mainThreadGlobals = self.stringArray("main-thread-globals");
+		binding.staticGlobals = self.stringArray("static-globals");
+		for key in self.fields.keys() {
+			bool parameter = key.startsWith("resource-parameters.");
+			if (!parameter && !key.startsWith("resource-results.")) { continue; }
+			string prefix = parameter ? "resource-parameters." : "resource-results.";
+			string position = key.substring(prefix.length(), key.length() - prefix.length());
+			string resource = self.requiredText(key);
+			var parts = Strings.split(position, ".");
+			if (language != "c" || !binding.resources.has(resource) || parts.len != (parameter ? 2 : 1) || !symbols.contains(parts.get(0)) || (parameter && !self.identifier(parts.get(1)))) { FePackageFailure.fail("resource projections must map selected native positions to declared C resources"); }
+			if (parameter) { binding.resourceParameters.put(position, resource); }
+			else { binding.resourceResults.put(position, resource); }
+		}
+		if (binding.staticGlobals.len > 0 && (language != "c" || binding.resources.len == 0)) { FePackageFailure.fail("static-globals requires declared C resources"); }
+		for name in binding.staticGlobals { if (!symbols.contains(name)) { FePackageFailure.fail("static-globals must name selected globals"); } }
 		if (binding.mainThreadGlobals.len > 0 && language != "objective-c") { FePackageFailure.fail("main-thread-globals requires Objective-C object globals"); }
 		for name in binding.mainThreadGlobals { if (!symbols.contains(name)) { FePackageFailure.fail("main-thread-globals must name selected globals"); } }
 		binding.readOnlyBorrows = self.stringArray("read-only-borrows");
+		self.finishCopiedInputs(binding);
 		binding.realtimeSafe = self.stringArray("realtime-safe");
 		binding.ownedRecords = self.stringArray("owned-records");
 		binding.recordInputs = self.stringArray("record-inputs");
@@ -740,7 +1363,7 @@ class FeManifestBlock {
 		}
 		for field in binding.ownedOutputFields { if (binding.nullOutputFields.contains(field)) { FePackageFailure.fail("owned/null output fields must be distinct"); } }
 		for name in binding.ownedRecords {
-			if (!self.identifier(name) || !symbols.contains(name)) { FePackageFailure.fail(f"{self.context()}.owned-records must name selected records"); }
+			if (!(language == "c++" ? self.nativeSymbol(name, language) : self.identifier(name)) || !symbols.contains(name)) { FePackageFailure.fail(f"{self.context()}.owned-records must name selected records"); }
 		}
 		for input in binding.recordInputs {
 			var parts = Strings.split(input, ".");
@@ -755,7 +1378,7 @@ class FeManifestBlock {
 			if (parts.len != 2 || !binding.ownedRecords.contains(parts.get(0)) || !self.identifier(parts.get(1)) || !self.identifier(typeName)) { FePackageFailure.fail(f"{self.context()}.object-fields requires owned record.field and object type names"); }
 			binding.objectFields.put(field, target);
 		}
-		if (language != "c" && (binding.ownedRecords.len > 0 || binding.recordInputs.len > 0 || binding.objectFields.len > 0)) { FePackageFailure.fail("owning record inputs currently require a C binding"); }
+		if ((language != "c" && language != "c++" && binding.ownedRecords.len > 0) || (language != "c" && (binding.recordInputs.len > 0 || binding.objectFields.len > 0))) { FePackageFailure.fail("owning record inputs currently require a C binding"); }
 		for name in binding.realtimeSafe {
 			if (!symbols.contains(name)) { FePackageFailure.fail(f"{self.context()}.realtime-safe must name selected functions"); }
 		}
@@ -918,7 +1541,37 @@ class FePackageManifestParser {
 			}
 			string table = TOML.sectionName(line);
 			if (!table.isEmpty()) {
+				string copiedInputPrefix = "native.bindings.copied-inputs.";
+				if (table.startsWith(copiedInputPrefix)) {
+					string name = TOML.unquote(table.substring(copiedInputPrefix.length(), table.length() - copiedInputPrefix.length()));
+					if (block == null || !block.isBinding()) { FePackageFailure.fail("copied-inputs requires a preceding native binding"); }
+					block.declareCopiedInput(name); section = copiedInputPrefix + name; continue;
+				}
+				string initializerPrefix = "native.bindings.initializers.";
+				if (table.startsWith(initializerPrefix)) {
+					string name = table.substring(initializerPrefix.length(), table.length() - initializerPrefix.length());
+					var parts = Strings.split(name, ".");
+					bool selectedName = !parts.get(0).isEmpty();
+					for component in Strings.split(parts.get(0), "::") { if (!self.identifier(component)) { selectedName = false; } }
+					if (block == null || !block.isBinding() || !selectedName || (parts.len != 1 && !(parts.len == 3 && parts.get(1) == "copied-inputs" && self.identifier(parts.get(2))))) { FePackageFailure.fail("initializers requires a preceding native binding and selected function table"); }
+					block.declareInitializer(name); section = table; continue;
+				}
+				string snapshotPrefix = "native.bindings.record-snapshots.";
+				if (table.startsWith(snapshotPrefix)) {
+					string name = table.substring(snapshotPrefix.length(), table.length() - snapshotPrefix.length());
+					var parts = Strings.split(name, ".");
+					if (block == null || !block.isBinding() || parts.len > 2 || !self.identifier(parts.get(0)) || (parts.len == 2 && !["fields", "byte-plane"].contains(parts.get(1)))) { FePackageFailure.fail("record-snapshots requires a preceding binding and a named snapshot table"); }
+					block.declareRecordSnapshot(name); section = snapshotPrefix + name; continue;
+				}
 				string stringPrefix = "native.bindings.string-views.";
+				string copiedPrefix = "native.bindings.copied-results.";
+				if (table.startsWith(copiedPrefix)) {
+					string name = TOML.unquote(table.substring(copiedPrefix.length(), table.length() - copiedPrefix.length()));
+					bool selectedName = !name.isEmpty();
+					for component in Strings.split(name, "::") { if (!self.identifier(component)) { selectedName = false; } }
+					if (block == null || !block.isBinding() || !selectedName) { FePackageFailure.fail("copied-results requires a preceding native binding and function name"); }
+					block.declareCopiedResult(name); section = copiedPrefix + name; continue;
+				}
 				if (table.startsWith(stringPrefix)) {
 					string name = table.substring(stringPrefix.length(), table.length() - stringPrefix.length());
 					if (block == null || !block.isBinding() || !self.identifier(name)) { FePackageFailure.fail("string-views requires a preceding native binding and a record name"); }
@@ -927,21 +1580,49 @@ class FePackageManifestParser {
 					continue;
 				}
 				string callbackPrefix = "native.bindings.callbacks.";
+				string outputPrefix = "native.bindings.owned-outputs.";
+				string offsetPrefix = "native.bindings.output-offsets.";
+				string variadicPrefix = "native.bindings.variadic-calls.";
+				if (table.startsWith(variadicPrefix)) {
+					string name = TOML.unquote(table.substring(variadicPrefix.length(), table.length() - variadicPrefix.length()));
+					if (block == null || !block.isBinding()) { FePackageFailure.fail("variadic-calls requires a preceding native binding"); }
+					block.declareVariadicCall(name); section = variadicPrefix + name; continue;
+				}
+				if (table.startsWith(offsetPrefix)) {
+					string name = TOML.unquote(table.substring(offsetPrefix.length(), table.length() - offsetPrefix.length()));
+					if (block == null || !block.isBinding()) { FePackageFailure.fail("output-offsets requires a preceding native binding"); }
+					block.declareOutputOffset(name); section = offsetPrefix + name; continue;
+				}
+				if (table.startsWith(outputPrefix)) {
+					string name = TOML.unquote(table.substring(outputPrefix.length(), table.length() - outputPrefix.length()));
+					if (block == null || !block.isBinding()) { FePackageFailure.fail("owned-outputs requires a preceding native binding"); }
+					block.declareOwnedOutput(name); section = outputPrefix + name; continue;
+				}
 				if (table.startsWith(callbackPrefix)) {
-					string name = TOML.unquote(table.substring(callbackPrefix.length(), table.length() - callbackPrefix.length()));
 					if (block == null || !block.isBinding()) { FePackageFailure.fail("callbacks requires a preceding native binding"); }
+					string suffix = table.substring(callbackPrefix.length(), table.length() - callbackPrefix.length());
+					if (suffix.endsWith(".operations")) {
+						string name = TOML.unquote(suffix.substring(0, suffix.length() - 11));
+						block.declareCallbackOperations(name); section = callbackPrefix + name + ".operations"; continue;
+					}
+					string name = TOML.unquote(suffix);
 					block.declareCallback(name);
 					section = callbackPrefix + name;
 					continue;
 				}
 				if (table.startsWith("native.bindings.resources.")) {
 					string name = table.substring(26, table.length() - 26);
+					/* A unique resource may carry its callback table and that table's
+					 * method map as sub-tables of the same resource declaration. */
+					bool subTable = name.endsWith(".table") || name.endsWith(".table.methods");
+					if (name.endsWith(".table.methods")) { name = name.substring(0, name.length() - 14); }
+					else if (name.endsWith(".table")) { name = name.substring(0, name.length() - 6); }
 					if (block == null || !block.isBinding() || !self.identifier(name)) { FePackageFailure.fail("resources requires a preceding native binding and a typedef name"); }
-					block.declareResource(name);
+					if (!subTable) { block.declareResource(name); }
 					section = table;
 					continue;
 				}
-				if (table.equals("native.bindings.object-fields")) {
+				if (table.equals("native.bindings.object-fields") || table.equals("native.bindings.borrowed-results") || table.equals("native.bindings.resource-parameters") || table.equals("native.bindings.resource-results")) {
 					if (block == null || !block.isBinding() || section.equals(table)) { FePackageFailure.fail("object-fields requires a preceding native binding"); }
 					section = table;
 					continue;
@@ -987,7 +1668,10 @@ class FePackageManifestParser {
 			} else if (section.equals("dependencies")) {
 				dependencies.push(self.dependency(key, raw));
 			} else {
-				string prefix = section.startsWith("native.bindings.resources.") || section.startsWith("native.bindings.callbacks.") || section.startsWith("native.bindings.string-views.") ? section.substring(16, section.length() - 16) + "." : section.equals("native.bindings.object-fields") ? "object-fields." : "";
+				string prefix = section.startsWith("native.bindings.copied-results.") || section.startsWith("native.bindings.resources.") || section.startsWith("native.bindings.callbacks.") || section.startsWith("native.bindings.string-views.") || section.startsWith("native.bindings.owned-outputs.") || section.startsWith("native.bindings.output-offsets.") || section.startsWith("native.bindings.variadic-calls.") ? section.substring(16, section.length() - 16) + "." : section.equals("native.bindings.object-fields") ? "object-fields." : section.equals("native.bindings.borrowed-results") ? "borrowed-results." : section.equals("native.bindings.resource-parameters") ? "resource-parameters." : section.equals("native.bindings.resource-results") ? "resource-results." : "";
+				if (section.startsWith("native.bindings.record-snapshots.")) { prefix = section.substring(16, section.length() - 16) + "."; }
+				if (section.startsWith("native.bindings.initializers.")) { prefix = section.substring(16, section.length() - 16) + "."; }
+				if (section.startsWith("native.bindings.copied-inputs.")) { prefix = section.substring(16, section.length() - 16) + "."; }
 				block.set(prefix + TOML.unquote(key), raw);
 			}
 		}

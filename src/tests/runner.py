@@ -31,7 +31,6 @@ from src.compiler.python import Compiler, CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.tests.corpus_files import language_test_files
 from src.tests.runner_capabilities import (
-    darwin_app_flags,
     darwin_gpu_flags,
     darwin_tray_backend_error,
     declared_capabilities,
@@ -40,10 +39,8 @@ from src.tests.runner_capabilities import (
 
 BTRC_TEST_DIR = os.path.dirname(__file__)
 _REPO_ROOT = os.path.dirname(os.path.dirname(BTRC_TEST_DIR))
-_APP_DIR = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "app")
-_GPU_DIR = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "gpu")
-_APP_BUILD = os.path.join(_REPO_ROOT, "build", "stdlib", "app")
-_GPU_BUILD = os.path.join(_REPO_ROOT, "build", "stdlib", "gpu")
+_GPU_DIR = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "GPU")
+_GPU_BUILD = os.path.join(_REPO_ROOT, "build", "stdlib", "GPU")
 
 # Compiler and flags configurable via environment.
 # Default to "cc" (the system C compiler), which resolves to the nix
@@ -150,51 +147,30 @@ def _transpile_btrc(btrcc, btrc_path):
 
 
 def _gcc_flags(c_source, c_path, bin_path):
-    """Build the C-compiler command for emitted btrc output (shared by both
-    compilers): base flags + the tray / app / GPU / pthread extras the program
-    needs."""
+    """Build the emitted-C command, including the compiler-only compute runtime."""
     gcc_flags = [*BTRC_CC, *BTRC_CFLAGS, c_path, "-o", bin_path, "-lm"]
-    needs_gpu = any(header in c_source for header in ("btrc_gpu.h", "btrc_gpu_compute_internal.h"))
-    needs_app = "btrc_app.h" in c_source or needs_gpu
     if "pthread.h" in c_source:
         gcc_flags.append("-lpthread")
-    if needs_gpu:
+    if "btrc_gpu_compute_internal.h" in c_source:
         if not os.path.isfile(os.path.join(_GPU_BUILD, "libbtrc_gpu.a")):
-            pytest.skip("GPU runtime not built (run make gpu)")
+            pytest.skip("Compute runtime not built (run make gpu)")
         gcc_flags.extend([f"-I{_GPU_DIR}", f"-L{_GPU_BUILD}", "-lbtrc_gpu"])
-    if needs_app:
-        if not os.path.isfile(os.path.join(_APP_BUILD, "libbtrc_app.a")):
-            pytest.skip("application runtime not built (run make app)")
-        gcc_flags.extend(
-            [
-                f"-I{_APP_DIR}",
-                f"-L{_APP_BUILD}",
-                "-lbtrc_app",
-            ]
-        )
-        dependency = "WebGPU/GLFW" if needs_gpu else "GLFW"
-        cflags_name = "GPU_CFLAGS" if needs_gpu else "APP_CFLAGS"
-        ldflags_name = "GPU_LDFLAGS" if needs_gpu else "APP_LDFLAGS"
-        dependency_cflags = os.environ.get(cflags_name)
-        dependency_ldflags = os.environ.get(ldflags_name)
+        dependency_cflags = os.environ.get("GPU_CFLAGS")
+        dependency_ldflags = os.environ.get("GPU_LDFLAGS")
         if bool(dependency_cflags) != bool(dependency_ldflags):
-            pytest.skip(f"{dependency} toolchain is unavailable: {cflags_name} and {ldflags_name} must be set together")
+            pytest.skip("WebGPU toolchain is unavailable: GPU_CFLAGS and GPU_LDFLAGS must be set together")
         if dependency_cflags and dependency_ldflags:
             gcc_flags.extend(shlex.split(dependency_cflags))
             gcc_flags.extend(shlex.split(dependency_ldflags))
         elif platform.system() == "Darwin":
-            platform_flags, error = darwin_gpu_flags() if needs_gpu else darwin_app_flags()
+            platform_flags, error = darwin_gpu_flags()
             if error:
                 pytest.skip(error)
             gcc_flags.extend(platform_flags)
         elif platform.system() == "Linux":
-            if needs_gpu:
-                gcc_flags.append("-lwgpu_native")
-            gcc_flags.extend(["-lglfw", "-lpthread"])
+            gcc_flags.extend(["-lwgpu_native", "-lpthread"])
         else:
-            pytest.skip(
-                f"{dependency} toolchain is unavailable on {platform.system()}: set {cflags_name} and {ldflags_name}"
-            )
+            pytest.skip(f"WebGPU toolchain is unavailable on {platform.system()}: set GPU_CFLAGS and GPU_LDFLAGS")
     return gcc_flags
 
 

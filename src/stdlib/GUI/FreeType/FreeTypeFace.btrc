@@ -1,0 +1,68 @@
+import Library.Bytes;
+import Library.GUI.FontFace;
+import Library.OwnedBuffer;
+
+/* Private face ownership and mutation admission. The generated snapshots
+ * retain the native owner through copying; this gate additionally prevents
+ * FT_Load_Char from invalidating the glyph slot during that copy. */
+class FreeTypeFace implements IFontFace {
+	private FT_Library? library = null;
+	private FT_Face? face = null;
+	private FontMetrics faceMetrics;
+	private Atomic<uint> gate;
+
+	public FreeTypeFace(string path, int pixelSize) {
+		self.gate.init(0u);
+		if (path == null || path.isEmpty() || pixelSize < 1) { throw "FreeType requires a font path and positive pixel size"; }
+		var initialized = FT_Init_FreeType();
+		self.library = initialized.value;
+		if (initialized.status != 0 || self.library == null) { throw "Cannot initialize FreeType library"; }
+		var loaded = FT_New_Face(self.library, path, 0L);
+		self.face = loaded.value;
+		if (loaded.status != 0 || self.face == null) { throw "Cannot load FreeType face"; }
+		if (FT_Set_Pixel_Sizes(self.face, 0U, (unsigned int)pixelSize) != 0) { throw "Cannot set FreeType pixel size"; }
+		var metrics = copyFreeTypeMetrics(self.face);
+		if (metrics == null) { throw "Cannot copy FreeType face metrics"; }
+		self.faceMetrics = new FontMetrics((long long)metrics.ascender, (long long)metrics.height);
+	}
+
+	public FontMetrics metrics() { return self.faceMetrics; }
+
+	private bool claimGlyph() {
+		uint expected = 0u;
+		return self.gate.compareExchangeStrong(&expected, 1u, MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE);
+	}
+
+	public FontGlyph? glyph(int codepoint, bool render) {
+		if (codepoint < 0 || codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff)) { throw "Invalid font Unicode scalar"; }
+		if (!self.claimGlyph()) { throw "FreeType face is already loading a glyph"; }
+		FontGlyph? result = null;
+		try { result = self.loadGlyph(codepoint, render); }
+		finally { self.gate.store(0u, MemoryOrder.RELEASE); }
+		return result;
+	}
+
+	private FontGlyph? loadGlyph(int codepoint, bool render) {
+		if (FT_Load_Char(self.face, (unsigned long)codepoint, render ? BTRC_FT_LOAD_RENDER : BTRC_FT_LOAD_DEFAULT) != 0) { return null; }
+		if (!render) {
+			var advance = copyFreeTypeAdvance(self.face);
+			if (advance == null) { throw "Cannot copy FreeType glyph advance"; }
+			return new FontGlyph((long long)advance.advanceX, 0, 0, 0, 0, 0, FONT_PIXEL_UNSUPPORTED, 0, new Bytes());
+		}
+		/* Explicit allocation limit for one raster glyph, not an unchecked
+			 * native length. Null reports invalid metadata/oversized storage. */
+		var snapshot = copyFreeTypeGlyph(self.face, 64 * 1024 * 1024);
+		if (snapshot == null || snapshot.width > 2147483647U || snapshot.rows > 2147483647U) { throw "Cannot copy bounded FreeType glyph bitmap"; }
+		FontPixelMode mode = FONT_PIXEL_UNSUPPORTED;
+		if (snapshot.pixelMode == FT_PIXEL_MODE_MONO) { mode = FONT_PIXEL_MONO; }
+		else if (snapshot.pixelMode == FT_PIXEL_MODE_GRAY) { mode = FONT_PIXEL_GRAY; }
+		return new FontGlyph((long long)snapshot.advanceX, snapshot.left, snapshot.top, (int)snapshot.width, (int)snapshot.rows, snapshot.pitch, mode, (int)snapshot.numGrays, snapshot.bitmap);
+	}
+
+	/* Valid library and face claims are private, so no consumer can reference,
+	 * close or mutate their native handles independently of this dependency. */
+	public void __del__() {
+		if (self.face != null) { self.face.close(); }
+		if (self.library != null) { self.library.close(); }
+	}
+}

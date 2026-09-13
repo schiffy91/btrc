@@ -137,7 +137,7 @@ def test_native_resource_binding_preserves_ownership_facts(tmp_path, shared_hook
 @pytest.mark.parametrize(
     ("before", "after", "message"),
     [
-        ('ownership = "reference-counted"', 'ownership = "unique"', "reference-counted"),
+        ('ownership = "reference-counted"', 'ownership = "unique"', "must not declare retain"),
         ('retain = "WidgetRetain"', 'retain = "Unknown"', "selected functions"),
         ('release = "WidgetRelease"', 'release = "WidgetRetain"', "distinct"),
         ('release = "WidgetRelease"', 'release = "WidgetRelease"\ncleanup = "code"', "unexpected field"),

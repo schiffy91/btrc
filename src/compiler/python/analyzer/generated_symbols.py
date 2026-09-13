@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from src.compiler.python.abi.hosted import HOSTED_ABI
 from src.compiler.python.analyzer.program import DeclarationIndex
 from src.compiler.python.analyzer.types import GENERIC_INTRINSICS
+from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 from src.compiler.python.syntax.ast.generated import (
     ClassDecl,
@@ -254,11 +255,21 @@ class GeneratedSymbolRegistry:
 
     def _claim_class_members(self, declaration, info, claims) -> None:
         name = declaration.name
+        origin = declaration.source_file
+        unique = (
+            isinstance(origin, NativeHeaderSource)
+            and origin.resource is not None
+            and origin.resource.ownership == "unique"
+        )
         for method_name, method in info.methods.items():
             if method.is_constructor or method_name == "__del__" or method.generic_params:
                 continue
             self._claim_generated_symbol(
-                f"{name}_{method_name}", f"method '{name}.{method_name}'", method.line, method.col, claims
+                f"__btrc_unique_{name}_{method_name}_public" if unique else f"{name}_{method_name}",
+                f"method '{name}.{method_name}'",
+                method.line,
+                method.col,
+                claims,
             )
         for property_name, prop in info.properties.items():
             for enabled, prefix, role in ((prop.has_getter, "get", "getter"), (prop.has_setter, "set", "setter")):

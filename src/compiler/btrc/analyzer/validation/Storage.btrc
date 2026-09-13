@@ -488,7 +488,7 @@ class StorageValidator {
 	public void validateNativeGlobalAddress(Node target, Map<string, Node> vars, Node site) {
 		if (!self.readOnlyNativeGlobal(target)) { return; }
 		Node? type = self.types.resolveAliases(self.types.inferType(target, vars));
-		if (type != null && (self.rawLvaluePointer(type) || type.base == "__fn_ptr" || self.state.analyzed.isObjectiveCObjectGlobal(target.name))) {
+		if (type != null && (self.rawLvaluePointer(type) || type.base == "__fn_ptr" || self.state.analyzed.nativeGlobalReturnsOwned(target.name))) {
 			TypeValidator.fail("Addressing a read-only native pointer slot requires qualified-pointer lowering", site);
 		}
 	}

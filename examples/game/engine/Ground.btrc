@@ -1,3 +1,5 @@
+import Library.GPU.UniformBuffer;
+
 /* btrc 3D Engine -- Ground
  *
  * Ground plane with checkerboard pattern.
@@ -13,7 +15,7 @@ class Ground {
 		self.checkerLight = 0.55;
 	}
 
-	public void writeUniforms(GPUUniform u, int offset) {
+	public void writeUniforms(GPUUniformBuffer u, int offset) {
 		u.set(offset + 0, self.checkerDark);
 		u.set(offset + 1, self.checkerLight);
 	}

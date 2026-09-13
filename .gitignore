@@ -58,6 +58,7 @@ bench/strings
 examples/gui/gui_demo
 examples/gui/gui_declarative
 examples/gui/gui_font
+examples/gui/font_smoke.link.json
 
 # Local build artifacts. The tracked `build/*.nix` files are authored policy,
 # so ignore only generated children; a new policy file must remain visible.

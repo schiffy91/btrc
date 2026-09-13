@@ -6,11 +6,27 @@ This document records the implemented native contract and its open edges; it
 is not a completion claim. BTRC owns typed C/Objective-C/C++ imports, explicit
 ownership/borrowing/nullability, generated ABI adapters, callback lifetimes,
 native GUI/GPU and realtime primitives. macOS providers are the active target.
-The immediate qualification order is CoreAudio and YAML on the next self-host
-compiler, then vgmstream's memory-stream callback table and pugixml's checked
-load-once owner. Remove each old bridge after real consumer parity. Keep
-BTRSmith product behavior in its repository's PRD/plan; do not create another
-wrapper or contract system here.
+The switched CoreAudio realtime provider and vgmstream's memory-stream callback
+table are now qualified on a fresh self-host compiler (below); the remaining
+order is pugixml's checked load-once owner, then the final self-host product
+matrix. Remove each old bridge after real consumer parity. Keep BTRSmith
+product behavior in its repository's PRD/plan; do not create another wrapper
+or contract system here.
+
+Unique C callback tables (2026-09-13): `resources.<record>.table` projects an
+SDK record of function pointers into one ordinary BTRC interface plus a factory
+returning the ordinary unique owner. Generated holders keep one ARC claim per
+live native table, including SDK reopen clones answered by label, so a receiver
+outlives the BTRC-side close until the SDK releases its last table. Callbacks
+and releases check the creating thread; receiver exceptions terminate at the
+boundary. Both compilers pass the 18-case suite (`build/CallbackTableBoth1.xml`,
+`build/CallbackTableSelfhost2.xml`), and vgmstream's last handwritten C++
+adapter is deleted on the strength of real WEM/Ogg/WAV/AIFF decoding through
+it. The fresh self-host compiler also passes the realtime registration suite
+(28 cases, `build/RealtimeRegistrationSelfhost4.xml`) after three self-host
+repairs: the invocation-capability validator expected Python's auto-upgraded
+pointer depth, the pipeline replaced lowering's realtime-safe externals with
+the hosted allowlist, and the manifest parser rejected resource sub-tables.
 
 Objective-C `SEL` arguments/results use the SDK's imported opaque C typedef,
 not `id`, `void*` or a fabricated integer token. Both frontends require that

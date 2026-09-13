@@ -1,0 +1,11 @@
+import Library.GUI.IGPUView;
+import Library.Image;
+
+/* Completed readback pixels for one GPU child. The GUI provider composes native
+ * siblings/clipping synchronously; it never waits for GPU work on the UI thread. */
+class GUICaptureLayer {
+	public IGPUView view;
+	public Image pixels;
+
+	public GUICaptureLayer(IGPUView view, Image pixels) { self.view = view; self.pixels = pixels; }
+}

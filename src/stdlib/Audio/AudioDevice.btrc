@@ -21,7 +21,8 @@ enum AudioDeviceStatus {
 	AUDIO_DEVICE_UNAVAILABLE,
 	AUDIO_DEVICE_WRONG_STATE,
 	AUDIO_DEVICE_BUSY,
-	AUDIO_DEVICE_FAILED
+	AUDIO_DEVICE_FAILED,
+	AUDIO_DEVICE_INDETERMINATE
 };
 
 string audioDeviceStatusMessage(AudioDeviceStatus status) {
@@ -34,6 +35,7 @@ string audioDeviceStatusMessage(AudioDeviceStatus status) {
 	if (status == AUDIO_DEVICE_UNAVAILABLE) { return "audio device is unavailable"; }
 	if (status == AUDIO_DEVICE_WRONG_STATE) { return "audio session is in the wrong state"; }
 	if (status == AUDIO_DEVICE_BUSY) { return "audio device is busy"; }
+	if (status == AUDIO_DEVICE_INDETERMINATE) { return "audio device cleanup is indeterminate; native operations cannot be retried"; }
 	return "audio device operation failed";
 }
 
@@ -42,7 +44,7 @@ class AudioDeviceOperationOutcome {
 	private string _message;
 
 	public AudioDeviceOperationOutcome(AudioDeviceStatus status, string message = "") {
-		if ((int)status < (int)AUDIO_DEVICE_OK || (int)status > (int)AUDIO_DEVICE_FAILED) { throw "invalid audio device status"; }
+		if ((int)status < (int)AUDIO_DEVICE_OK || (int)status > (int)AUDIO_DEVICE_INDETERMINATE) { throw "invalid audio device status"; }
 		if (status == AUDIO_DEVICE_OK && !message.isEmpty()) { throw "successful audio device operation cannot carry an error"; }
 		if (message.len() > 1024 || !Bytes.fromString(message).isNulFreeUtf8()) { throw "audio device error is invalid or overbound"; }
 		self._status = status;
@@ -237,7 +239,7 @@ class AudioDeviceInventoryOutcome {
 	private string _message;
 
 	private AudioDeviceInventoryOutcome(AudioDeviceStatus status, AudioDeviceInventory? inventory, string message) {
-		if ((int)status < (int)AUDIO_DEVICE_OK || (int)status > (int)AUDIO_DEVICE_FAILED || message.len() > 1024 || !Bytes.fromString(message).isNulFreeUtf8()) { throw "invalid audio device inventory status"; }
+		if ((int)status < (int)AUDIO_DEVICE_OK || (int)status > (int)AUDIO_DEVICE_INDETERMINATE || message.len() > 1024 || !Bytes.fromString(message).isNulFreeUtf8()) { throw "invalid audio device inventory status"; }
 		if ((status == AUDIO_DEVICE_OK) != (inventory != null && message.isEmpty())) { throw "invalid audio device inventory outcome"; }
 		self._status = status;
 		self._inventory = inventory;
@@ -412,9 +414,16 @@ enum DuplexAudioSessionState {
 	DUPLEX_AUDIO_SESSION_CLOSED
 };
 
-typedef CFunction<AudioDeviceStatus, void*> AudioDeviceSessionOperation;
-typedef CFunction<unsigned long long, void*> AudioDeviceSessionEpoch;
-typedef CFunction<void, void*> AudioDeviceSessionDispose;
+/* Control-thread backend, retained by the session through native cleanup.
+ * A failed close keeps ownership; a successful close leaves no native borrower.
+ * Realtime processing remains a separate callback ABI, not interface dispatch. */
+interface AudioSessionBackend {
+	AudioDeviceStatus start();
+	AudioDeviceStatus suspend();
+	AudioDeviceStatus drain();
+	AudioDeviceStatus close();
+	unsigned long long epoch();
+}
 
 /* Sessions are deliberately one-shot. suspend() closes callback admission;
  * drain() waits for every admitted callback and is the reclamation barrier;
@@ -422,27 +431,15 @@ typedef CFunction<void, void*> AudioDeviceSessionDispose;
 class DuplexAudioSession {
 	private DuplexAudioNegotiatedFormat _format;
 	private RealtimeAudioProgram _program;
-	private void* _backend;
-	private AudioDeviceSessionOperation _start;
-	private AudioDeviceSessionOperation _suspend;
-	private AudioDeviceSessionOperation _drain;
-	private AudioDeviceSessionOperation _close;
-	private AudioDeviceSessionEpoch _epoch;
-	private AudioDeviceSessionDispose _dispose;
+	private AudioSessionBackend? _backend;
 	private DuplexAudioSessionState _state;
 	private unsigned long long _streamEpoch;
 
-	public DuplexAudioSession(DuplexAudioNegotiatedFormat format, RealtimeAudioProgram program, void* backend, AudioDeviceSessionOperation start, AudioDeviceSessionOperation suspend, AudioDeviceSessionOperation drain, AudioDeviceSessionOperation close, AudioDeviceSessionEpoch epoch, AudioDeviceSessionDispose dispose) {
-		if (format == null || program == null || backend == null || start == null || suspend == null || drain == null || close == null || epoch == null || dispose == null) { throw "duplex audio session backend is incomplete"; }
+	public DuplexAudioSession(DuplexAudioNegotiatedFormat format, RealtimeAudioProgram program, AudioSessionBackend backend) {
+		if (format == null || program == null || backend == null) { throw "duplex audio session backend is incomplete"; }
 		self._format = format;
 		self._program = program;
 		self._backend = backend;
-		self._start = start;
-		self._suspend = suspend;
-		self._drain = drain;
-		self._close = close;
-		self._epoch = epoch;
-		self._dispose = dispose;
 		self._state = DUPLEX_AUDIO_SESSION_READY;
 		self._streamEpoch = 0ULL;
 	}
@@ -455,11 +452,16 @@ class DuplexAudioSession {
 
 	public bool isOpen() { return self._state != DUPLEX_AUDIO_SESSION_CLOSED; }
 
+	private AudioSessionBackend backend() {
+		if (self._backend == null) { throw "duplex audio session backend is closed"; }
+		return self._backend;
+	}
+
 	public AudioDeviceOperationOutcome start() {
 		if (self._state != DUPLEX_AUDIO_SESSION_READY) { return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_WRONG_STATE); }
-		AudioDeviceStatus status = self._start(self._backend);
+		AudioDeviceStatus status = self.backend().start();
 		if (status != AUDIO_DEVICE_OK) { return AudioDeviceOperationOutcome.fromStatus(status); }
-		unsigned long long epoch = self._epoch(self._backend);
+		unsigned long long epoch = self.backend().epoch();
 		if (epoch == 0ULL) { Console.fatal("audio backend started without a stream epoch"); }
 		self._streamEpoch = epoch;
 		self._state = DUPLEX_AUDIO_SESSION_RUNNING;
@@ -468,14 +470,14 @@ class DuplexAudioSession {
 
 	public AudioDeviceOperationOutcome suspend() {
 		if (self._state != DUPLEX_AUDIO_SESSION_RUNNING) { return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_WRONG_STATE); }
-		AudioDeviceStatus status = self._suspend(self._backend);
+		AudioDeviceStatus status = self.backend().suspend();
 		if (status == AUDIO_DEVICE_OK) { self._state = DUPLEX_AUDIO_SESSION_SUSPENDED; }
 		return AudioDeviceOperationOutcome.fromStatus(status);
 	}
 
 	public AudioDeviceOperationOutcome drain() {
 		if (self._state != DUPLEX_AUDIO_SESSION_SUSPENDED) { return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_WRONG_STATE); }
-		AudioDeviceStatus status = self._drain(self._backend);
+		AudioDeviceStatus status = self.backend().drain();
 		if (status == AUDIO_DEVICE_OK) { self._state = DUPLEX_AUDIO_SESSION_DRAINED; }
 		return AudioDeviceOperationOutcome.fromStatus(status);
 	}
@@ -483,11 +485,10 @@ class DuplexAudioSession {
 	public AudioDeviceOperationOutcome close() {
 		if (self._state == DUPLEX_AUDIO_SESSION_CLOSED) { return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_OK); }
 		if (self._state != DUPLEX_AUDIO_SESSION_READY && self._state != DUPLEX_AUDIO_SESSION_DRAINED) { return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_WRONG_STATE); }
-		AudioDeviceStatus status = self._close(self._backend);
+		AudioDeviceStatus status = self.backend().close();
 		if (status != AUDIO_DEVICE_OK) { return AudioDeviceOperationOutcome.fromStatus(status); }
-		self._dispose(self._backend);
-		self._backend = null;
 		self._state = DUPLEX_AUDIO_SESSION_CLOSED;
+		self._backend = null;
 		return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_OK);
 	}
 
@@ -504,7 +505,7 @@ class DuplexAudioSessionOpenOutcome {
 	private string _message;
 
 	private DuplexAudioSessionOpenOutcome(AudioDeviceStatus status, DuplexAudioSession? session, string message) {
-		if ((int)status < (int)AUDIO_DEVICE_OK || (int)status > (int)AUDIO_DEVICE_FAILED || message.len() > 1024 || !Bytes.fromString(message).isNulFreeUtf8()) { throw "invalid duplex audio session status"; }
+		if ((int)status < (int)AUDIO_DEVICE_OK || (int)status > (int)AUDIO_DEVICE_INDETERMINATE || message.len() > 1024 || !Bytes.fromString(message).isNulFreeUtf8()) { throw "invalid duplex audio session status"; }
 		if ((status == AUDIO_DEVICE_OK) != (session != null && message.isEmpty())) { throw "invalid duplex audio session outcome"; }
 		self._status = status;
 		self._session = session;
@@ -530,9 +531,7 @@ class DuplexAudioSessionOpenOutcome {
 	public string message() { return self._message; }
 }
 
-/* Interfaces are compile-time conformance contracts in BTRC. Consumers keep
- * the concrete provider type; they do not erase it into this interface.
- * inventory() is a fresh immutable snapshot. openDuplex() rejects a stale
+/* inventory() is a fresh immutable snapshot. openDuplex() rejects a stale
  * generation and returns authoritative callback-facing formats before start. */
 interface AudioDeviceProvider {
 	bool isOpen();

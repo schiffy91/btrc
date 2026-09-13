@@ -78,6 +78,11 @@ class Analyzed {
 		return false;
 	}
 
+	public bool nativeRecordHasPrivateFields(Node declaration) {
+		for imported in self.nativeDeclarations { if (imported.declaration == declaration && imported.privateFields) { return true; } }
+		return false;
+	}
+
 	public string nativeClassLanguage(string name) { return self.nativeClassIndex.has(name) ? self.nativeClassIndex.get(name).language : ""; }
 
 	public bool nativeFunctionReturnsOwned(Node declaration) { return self.nativeOwnedFunctions.has(declaration.name) && self.nativeOwnedFunctions.get(declaration.name) == declaration; }
@@ -96,10 +101,12 @@ class Analyzed {
 		return false;
 	}
 
-	public bool isObjectiveCObjectGlobal(string name) {
+	public bool nativeGlobalReturnsOwned(string name) {
 		for imported in self.nativeDeclarations {
 			Node declaration = imported.declaration;
-			if (imported.language == "objective-c" && declaration.kind == NK_VAR_DECL_STMT && declaration.initializer == null && declaration.name == name && declaration.type != null) { return self.nativeClassLanguage(declaration.type.base) == "objective-c"; }
+			if (declaration.kind == NK_VAR_DECL_STMT && declaration.initializer == null && declaration.name == name && declaration.type != null) {
+				return self.nativeClassLanguage(declaration.type.base) == "objective-c" || (imported.callContract != null && !imported.callContract.resourceResult.isEmpty());
+			}
 		}
 		return false;
 	}
@@ -413,8 +420,8 @@ class Analyzed {
 
 	/* Nominal ancestry includes class inheritance and implemented interfaces. */
 	public bool isSubclass(string sub, string base) {
-		if (self.nativeClassLanguage(sub) == "objective-c") {
-			if (self.nativeClassLanguage(base) != "objective-c") { return false; }
+		if (self.nativeClassLanguage(sub) == "objective-c" || self.nativeClassLanguage(sub) == "c") {
+			if (self.nativeClassLanguage(base) != self.nativeClassLanguage(sub)) { return false; }
 			return sub == base || self.nativeClassIndex.get(sub).nativeAncestors.contains(base);
 		}
 		Vector<string> pending = [sub];
@@ -433,6 +440,13 @@ class Analyzed {
 			for implemented in declaration.interfaces { pending.push(implemented); }
 		}
 		return false;
+	}
+
+	public string nativeResourceQueryType(Node? target, Node? source) {
+		if (source == null || target == null || !target.isNullable || target.isArray || source.isArray || source.base == target.base || self.nativeClassLanguage(source.base) != "c" || self.nativeClassLanguage(target.base) != "c") { return ""; }
+		if (source.pointerDepth - (source.isNullable ? 1 : 0) != 0 || target.pointerDepth - 1 != 0 || self.isSubclass(source.base, target.base)) { return ""; }
+		string query = self.nativeClassIndex.get(target.base).resourceQueryType;
+		return query != "" && self.isSubclass(source.base, query) ? query : "";
 	}
 
 	/* Look up an ordinary class member by name, walking the inheritance chain.

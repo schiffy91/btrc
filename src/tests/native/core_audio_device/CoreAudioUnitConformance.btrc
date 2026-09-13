@@ -15,6 +15,9 @@ unsigned long long unitHost();
 unsigned int unitFlags();
 int unitUninitializations();
 int unitDisposals();
+int unitRegistrations();
+int unitStops();
+int unitRenders();
 
 struct UnitProbe {
 	int calls;
@@ -64,7 +67,9 @@ void checkUnit(int frames, int limit, bool timestamps, bool input, bool inputFai
 	var unit = CoreAudioUnit();
 	var program = RealtimeAudioProgram(unitProcess, &probe);
 	assert(unit.prepare(22u, input ? 3 : 0, 3, 0, unitRequest(input, limit), program) == AUDIO_DEVICE_OK);
+	assert(unitRegistrations() == 0);
 	assert(unit.start() == AUDIO_DEVICE_OK && unit.epoch() != 0ULL);
+	assert(unitRegistrations() == 1);
 	unitDeliver(frames, timestamps ? 1 : 0, inputFailure ? 1 : 0);
 	assert(!probe.failed && probe.frames == frames && probe.calls == (frames + limit - 1) / limit && probe.host == unitHost());
 	assert((unitFlags() & (uint)kAudioUnitRenderAction_OutputIsSilence) == 0u);
@@ -74,10 +79,8 @@ void checkUnit(int frames, int limit, bool timestamps, bool input, bool inputFai
 		assert(unitOutput(frame * 3 + 2) == -(float)(frame + 1));
 	}
 	assert(unit.close() == AUDIO_DEVICE_WRONG_STATE);
-	unitFail(11);
-	assert(unit.suspend() == AUDIO_DEVICE_BUSY);
-	unitFail(0);
 	assert(unit.suspend() == AUDIO_DEVICE_OK && unit.drain() == AUDIO_DEVICE_OK);
+	assert(unitStops() == 1);
 	int calls = probe.calls;
 	unitDeliver(1, 1, 0);
 	assert(probe.calls == calls && unitOutput(0) == 0.0f);
@@ -85,13 +88,39 @@ void checkUnit(int frames, int limit, bool timestamps, bool input, bool inputFai
 	assert(unit.close() == AUDIO_DEVICE_BUSY && unitUninitializations() == 1 && unitDisposals() == 0);
 	unitDeliver(1, 1, 0);
 	assert(probe.calls == calls);
-	unitFail(10);
-	assert(unit.close() == AUDIO_DEVICE_BUSY && unitUninitializations() == 2 && unitDisposals() == 1);
 	unitFail(0);
 	assert(unit.close() == AUDIO_DEVICE_OK && unit.close() == AUDIO_DEVICE_OK && pendingSessions() == 0);
+	assert(unitUninitializations() == 2 && unitDisposals() == 1);
 }
 
-int main() {
+void checkTerminal(int phase) {
+	unitReset(phase == 1 ? 107 : 0);
+	UnitProbe probe = {0, 0, 128, true, false, true, false, 0ULL, 0ULL, null};
+	var unit = CoreAudioUnit();
+	assert(unit.prepare(22u, 3, 3, 0, unitRequest(true, 128), RealtimeAudioProgram(unitProcess, &probe)) == AUDIO_DEVICE_OK);
+	assert(unitRegistrations() == 0);
+	if (phase == 1) {
+		fprintf(stderr, "PASS: install attempted only after successful initialization\n");
+		fflush(stderr);
+		unit.start();
+		assert(false);
+		return;
+	}
+	assert(unit.start() == AUDIO_DEVICE_OK && unitRegistrations() == 1);
+	unitFail(11);
+	assert(unit.suspend() == AUDIO_DEVICE_INDETERMINATE);
+	unitFail(0);
+	assert(unit.close() == AUDIO_DEVICE_INDETERMINATE && unit.close() == AUDIO_DEVICE_INDETERMINATE);
+	unitDeliver(1, 1, 0);
+	assert(probe.calls == 0 && unitOutput(0) == 0.0f && unitOutput(1) == 0.0f && unitOutput(2) == 0.0f);
+	assert(unitRenders() == 0 && unitStops() == 1 && unitUninitializations() == 0 && unitDisposals() == 0);
+	assert((unitFlags() & (uint)kAudioUnitRenderAction_OutputIsSilence) != 0u);
+	fprintf(stderr, "PASS: failed stop retains lease and silences late entry without retry\n");
+	fflush(stderr);
+}
+
+int main(int argc, char** argv) {
+	if (argc > 1) { checkTerminal(atoi(argv[1])); return 1; }
 	int sizes[8] = {1, 127, 128, 129, 139, 256, 8193, 65536};
 	for (int index = 0; index < 8; index++) {
 		checkUnit(sizes[index], 128, true, false, false);
@@ -102,15 +131,26 @@ int main() {
 	checkUnit(65536, 16, true, true, false);
 	checkUnit(65536, 8192, true, true, false);
 	checkUnit(139, 128, true, true, true);
-	int failures[15] = {1, 2, 3, 4, 5, 6, 7, 10, 101, 102, 103, 104, 105, 106, 107};
-	for (int index = 0; index < 15; index++) {
+	int failures[14] = {1, 2, 3, 4, 5, 6, 7, 10, 101, 102, 103, 104, 105, 106};
+	for (int index = 0; index < 14; index++) {
 		unitReset(failures[index]);
 		UnitProbe probe = {0, 0, 128, true, false, true, false, 0ULL, 0ULL, null};
 		var unit = CoreAudioUnit();
 		assert(unit.prepare(22u, 3, 3, 0, unitRequest(true, 128), RealtimeAudioProgram(unitProcess, &probe)) != AUDIO_DEVICE_OK);
+		assert(unitRegistrations() == 0);
 		unitFail(0);
 		assert(unit.close() == AUDIO_DEVICE_OK && pendingSessions() == 0);
 	}
+	unitReset(0);
+	UnitProbe probe = {0, 0, 128, true, false, true, false, 0ULL, 0ULL, null};
+	var unit = CoreAudioUnit();
+	assert(unit.prepare(22u, 3, 3, 0, unitRequest(true, 128), RealtimeAudioProgram(unitProcess, &probe)) == AUDIO_DEVICE_OK);
+	unitFail(8);
+	assert(unit.start() != AUDIO_DEVICE_OK && unitRegistrations() == 1);
+	unitFail(0);
+	assert(unit.start() == AUDIO_DEVICE_OK && unitRegistrations() == 1);
+	assert(unit.suspend() == AUDIO_DEVICE_OK && unit.drain() == AUDIO_DEVICE_OK);
+	assert(unit.close() == AUDIO_DEVICE_OK && pendingSessions() == 0);
 	print("PASS: BTRC CoreAudio unit preserves samples, clocks and retryable ownership");
 	return 0;
 }

@@ -1842,7 +1842,6 @@ class StatementAnalyzer:
             if stmt.type.base in self.index.class_table and stmt.type.pointer_depth == 0:
                 stmt.type = self.types.upgrade_class_type(stmt.type)
             self.aggregates.validate_thread_handle_copy(stmt.type, stmt.initializer, stmt.line, stmt.col)
-            self._check_alias_warning(stmt)
             self.generics.collect_type_instances(stmt.type)
             self.expressions.validate_value(
                 ExpressionValuePlan(
@@ -1957,22 +1956,6 @@ class StatementAnalyzer:
         symbol = self.session.local_symbol(stmt.name, self.aggregates.array_value_type(stmt.type), "variable", nl, nc)
         symbol.captures_environment = self.expressions.value_requires_environment(stmt.initializer)
         return symbol
-
-    def _check_alias_warning(self, stmt: VarDeclStmt):
-        """Warn when a variable aliases a managed class-typed variable."""
-        if not isinstance(stmt.initializer, Identifier):
-            return
-        if self.ownership.expression_produces_owned_result(stmt.initializer):
-            return
-        src_name = stmt.initializer.name
-        src_sym = self.session.scope.lookup(src_name)
-        if not src_sym or not src_sym.type or src_sym.type.base not in self.index.class_table:
-            return
-        self.session.warning(
-            f"Aliasing managed variable '{src_name}' — '{stmt.name}' shares the same reference without incrementing refcount. Use 'keep {stmt.name};' if both variables should own the object",
-            stmt.line,
-            stmt.col,
-        )
 
 
 __all__ = ["StatementAnalyzer"]

@@ -42,12 +42,14 @@ from src.compiler.python.ir.nodes import (
     IRObjectiveCSelector,
     IRParam,
     IRReturn,
+    IRSizeof,
     IRStructDef,
     IRStructField,
     IRStructForward,
     IRTernary,
     IRVar,
     IRVarDecl,
+    IRWhile,
 )
 from src.compiler.python.syntax.ast.generated import (
     Block,
@@ -118,6 +120,16 @@ class FunctionLowerer:
         self._emitted_gpu_functions: set[str] = set()
         self._last_lambda_id = 0
         self._normalizing_void_main = False
+        self._native_resources = {
+            declaration.name: declaration.source_file.resource
+            for declaration in analyzed.program.declarations
+            if isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
+            and declaration.source_file.resource is not None
+        }
+
+    def _unique_resource(self, name):
+        resource = self._native_resources.get(name)
+        return resource if resource is not None and resource.ownership == "unique" else None
 
     def lower_declaration(self, declaration):
         return self.emit_function_decl(
@@ -154,8 +166,14 @@ class FunctionLowerer:
         name = contract.adapter_symbol(declaration.name)
         if name == declaration.name:
             return
+        if any(getattr(callback, "realtime", None) is not None for callback in contract.callbacks):
+            self._emit_realtime_c_adapter(declaration, contract)
+            return
         if any(callback.one_shot for callback in contract.callbacks):
             self._emit_one_shot_c_adapter(declaration, contract)
+            return
+        if contract.callback_table is not None:
+            self._emit_callback_table_adapter(declaration, contract)
             return
         parameters = [self._signatures.lower_source_param(parameter) for parameter in declaration.params]
         return_type = CType(text=self._types.render(declaration.return_type))
@@ -178,13 +196,22 @@ class FunctionLowerer:
         leases.update(visible.index(callback.parameter_index) for callback in contract.callbacks)
         if (
             contract.record_output
+            or contract.record_snapshot
+            or contract.owned_output
+            or contract.copied_result
             or leases
             or any(field.managed for record in contract.record_types for field in record.fields)
         ):
             cleanup = self._native_cleanup_scope(parameters, statements)
             for index in sorted(leases):
                 arguments[index] = self._native_lease(
-                    index, declaration.params[index].type, arguments[index], parameters, statements, releases
+                    index,
+                    declaration.params[index].type,
+                    arguments[index],
+                    parameters,
+                    statements,
+                    releases,
+                    attachment=bool(contract.copied_input and index == contract.copied_input.owner_index),
                 )
             flush = self._lifetime.flush_release_batch(
                 type_exprs=[declaration.params[index].type for index in sorted(leases)]
@@ -208,7 +235,13 @@ class FunctionLowerer:
         statements = [*locals, *statements]
         for index, resource in enumerate(contract.resource_parameters):
             if resource:
-                arguments[index] = IRCast(target_type=CType(text=resource), expr=arguments[index])
+                if contract.copied_input and index == contract.copied_input.owner_index:
+                    continue
+                arguments[index] = (
+                    IRTernary(arguments[index], IRFieldAccess(arguments[index], "value", arrow=True), IRLiteral("NULL"))
+                    if self._unique_resource(resource)
+                    else IRCast(target_type=CType(text=resource), expr=arguments[index])
+                )
         if contract.callbacks:
             native_arguments = dict(zip(visible, arguments, strict=True))
             for callback in contract.callbacks:
@@ -219,10 +252,35 @@ class FunctionLowerer:
                 native_arguments[callback.context_index] = context
                 native_arguments[callback.parameter_index] = thunk
             arguments = [native_arguments[index] for index in range(len(native_arguments))]
+        if contract.bound_parameter >= 0:
+            arguments.insert(contract.bound_parameter, IRVar(name=contract.bound_constant))
         call = IRCall(callee=declaration.name, args=arguments)
+        if contract.copied_input:
+            self._native_copied_input(
+                declaration, contract.copied_input, arguments, parameters, statements, releases, cleanup
+            )
+            call = None
+        elif contract.record_snapshot:
+            self._native_record_snapshot(
+                declaration, contract.record_snapshot, arguments, parameters, statements, releases, cleanup
+            )
+            call = None
+        elif contract.copied_result:
+            self._native_copied_result(declaration, contract, arguments, parameters, statements, releases, cleanup)
+            call = None
+        elif contract.owned_output:
+            self._native_owned_output(
+                declaration, contract.owned_output, arguments, parameters, statements, releases, cleanup
+            )
+            call = None
+        elif self._unique_resource(contract.resource_result):
+            self._native_unique_result(declaration, call, parameters, statements, releases, cleanup)
+            call = None
         if contract.resource_result:
-            call = IRCast(target_type=return_type, expr=call)
-        if contract.record_output:
+            call = IRCast(target_type=return_type, expr=call) if call is not None else None
+        if call is None:
+            pass
+        elif contract.record_output:
             self._native_record_output(
                 declaration, contract.record_output, arguments, parameters, statements, releases, cleanup
             )
@@ -236,6 +294,12 @@ class FunctionLowerer:
                 result += "_"
             result_slot = IRVarDecl(c_type=return_type, name=result, init=call)
             statements.append(result_slot)
+            if contract.borrowed_result_owner >= 0:
+                # The declared foreign lifetime promise extends through this
+                # retain. No argument lease may end before the claim is owned.
+                statements.append(
+                    IRExprStmt(expr=self._lifetime.retain_value(IRVar(name=result), declaration.return_type))
+                )
             if cleanup and contract.resource_result:
                 statements.append(
                     IRExprStmt(expr=self._lifetime.register_cleanup_slot(result_slot, declaration.return_type))
@@ -259,6 +323,620 @@ class FunctionLowerer:
                 name=name, return_type=return_type, params=parameters, body=IRBlock(stmts=statements), is_static=True
             )
         )
+
+    def _native_copied_result(self, declaration, contract, arguments, parameters, statements, releases, cleanup):
+        projection = contract.copied_result
+        names = {parameter.name for parameter in parameters}
+        locals = []
+        for stem in ("copied_result", "copied_pointer", "copied_length"):
+            name = "__btrc_native_" + stem
+            while name in names:
+                name += "_"
+            names.add(name)
+            locals.append(name)
+        result, pointer, length = (IRVar(name) for name in locals)
+        result_type = declaration.return_type
+        slot = IRVarDecl(CType(self._types.render(result_type)), locals[0], init=IRLiteral("NULL"))
+        statements.extend(
+            [
+                slot,
+                IRExprStmt(self._lifetime.register_cleanup_slot(slot, result_type)),
+                IRVarDecl(
+                    CType("const char*" if projection.kind == "string" else "const void*"),
+                    locals[1],
+                    init=IRCall(declaration.name, arguments),
+                ),
+            ]
+        )
+        if contract.nonnull_return:
+            statements.append(self._native_null_guard(pointer, f"Native call {declaration.name}: null result"))
+        if projection.kind == "string":
+            self._session.require_helper("__btrc_string_alloc")
+            statements.append(
+                IRIf(
+                    IRBinOp(pointer, "!=", IRLiteral("NULL")),
+                    IRBlock(
+                        [
+                            IRVarDecl(CType("size_t"), locals[2], init=IRCall("strlen", [pointer])),
+                            IRIf(
+                                IRBinOp(length, "<=", IRLiteral("2147483647U")),
+                                IRBlock(
+                                    [
+                                        IRAssign(result, IRCall("__btrc_string_alloc", [IRCast(CType("int"), length)])),
+                                        IRExprStmt(IRCall("memcpy", [result, pointer, length])),
+                                    ]
+                                ),
+                            ),
+                        ]
+                    ),
+                )
+            )
+        else:
+            statements.extend(
+                [
+                    IRVarDecl(
+                        CType("int"),
+                        locals[2],
+                        init=IRCall(
+                            projection.length_function, [arguments[index] for index in projection.length_arguments]
+                        ),
+                    ),
+                    IRIf(
+                        IRBinOp(
+                            IRBinOp(
+                                IRBinOp(length, ">=", IRLiteral("0")),
+                                "&&",
+                                IRBinOp(length, "<=", IRLiteral("2147483646")),
+                            ),
+                            "&&",
+                            IRBinOp(
+                                IRBinOp(pointer, "!=", IRLiteral("NULL")), "||", IRBinOp(length, "==", IRLiteral("0"))
+                            ),
+                        ),
+                        IRBlock([IRAssign(result, IRCall("Bytes_fromRaw", [IRCast(CType("char*"), pointer), length]))]),
+                    ),
+                ]
+            )
+        statements.extend([*releases, *cleanup, IRReturn(result)])
+
+    def _native_owned_output(self, declaration, output, arguments, parameters, statements, releases, cleanup):
+        if output.initializer:
+            self._native_initializer(declaration, output, arguments, parameters, statements, releases, cleanup)
+            return
+        if output.sized_resource:
+            self._native_resource_output(declaration, output, arguments, parameters, statements, releases, cleanup)
+            return
+        name = "__btrc_native_owned_output"
+        while any(parameter.name == name for parameter in parameters):
+            name += "_"
+        owner_type = declaration.return_type
+        owner_c = CType(self._types.render(owner_type))
+        slot = IRVarDecl(owner_c, name, init=IRCall(f"{output.result_name}_new", []))
+        owner = IRVar(name)
+        child = IRFieldAccess(owner, "value", arrow=True)
+        native = IRFieldAccess(child, "value", arrow=True)
+        statements.extend(
+            [
+                slot,
+                IRExprStmt(self._lifetime.register_cleanup_slot(slot, owner_type)),
+                IRAssign(child, IRCall(f"__btrc_unique_{output.resource}_new", [])),
+            ]
+        )
+        offset = output.offset
+        if offset:
+            visible = [index for index in range(len(arguments) + 2) if not output.hides(index)]
+            native_arguments = dict(zip(visible, arguments, strict=True))
+            reserved = {parameter.name for parameter in parameters} | {name}
+            offset_names = []
+            for stem in ("tail", "tail_base", "tail_address"):
+                local = f"__btrc_native_{stem}"
+                while local in reserved:
+                    local += "_"
+                reserved.add(local)
+                offset_names.append(local)
+            tail, base, address = (IRVar(local) for local in offset_names)
+            source, length = native_arguments[offset.input_index], native_arguments[offset.length_index]
+            statements.extend(
+                [
+                    IRVarDecl(CType("const char*"), offset_names[0], init=IRLiteral("NULL")),
+                    IRIf(
+                        IRBinOp(length, "<", IRLiteral("0")),
+                        self._native_null_guard(
+                            IRLiteral("NULL"), f"Native call {declaration.name}: negative bounded input length"
+                        ).then_block,
+                    ),
+                ]
+            )
+            native_arguments[output.parameter_index] = IRAddressOf(native)
+            native_arguments[offset.parameter_index] = IRAddressOf(tail)
+            arguments = [native_arguments[index] for index in range(len(native_arguments))]
+        else:
+            arguments.insert(output.parameter_index, IRAddressOf(native))
+        statements.append(IRAssign(IRFieldAccess(owner, "status", arrow=True), IRCall(declaration.name, arguments)))
+        if offset:
+            difference = IRBinOp(address, "-", base)
+            valid = IRBinOp(
+                IRBinOp(IRBinOp(tail, "!=", IRLiteral("NULL")), "&&", IRBinOp(source, "!=", IRLiteral("NULL"))),
+                "&&",
+                IRBinOp(
+                    IRBinOp(address, ">=", base), "&&", IRBinOp(difference, "<=", IRCast(CType("uintptr_t"), length))
+                ),
+            )
+            statements.extend(
+                [
+                    IRVarDecl(CType("uintptr_t"), offset_names[1], init=IRCast(CType("uintptr_t"), source)),
+                    IRVarDecl(CType("uintptr_t"), offset_names[2], init=IRCast(CType("uintptr_t"), tail)),
+                    IRAssign(IRFieldAccess(owner, offset.field, arrow=True), IRLiteral("-1")),
+                    IRIf(
+                        valid,
+                        IRBlock(
+                            [IRAssign(IRFieldAccess(owner, offset.field, arrow=True), IRCast(CType("int"), difference))]
+                        ),
+                    ),
+                ]
+            )
+        statements.append(
+            IRIf(
+                IRBinOp(native, "==", IRLiteral("NULL")),
+                IRBlock(
+                    [
+                        IRExprStmt(IRCall(f"__btrc_native_{output.resource}_release", [child])),
+                        IRAssign(child, IRLiteral("NULL")),
+                    ]
+                ),
+            )
+        )
+        statements.extend([*releases, *cleanup, IRReturn(owner)])
+
+    def _native_copied_input(self, declaration, shape, arguments, parameters, statements, releases, cleanup):
+        owner = arguments[shape.owner_index]
+        source, length = arguments[shape.input_index], arguments[shape.length_index]
+        backing = IRFieldAccess(owner, "input", arrow=True)
+        called_name = "__btrc_native_input_called"
+        while any(parameter.name == called_name for parameter in parameters):
+            called_name += "_"
+        called = IRVar(called_name)
+        invalid = self._native_null_guard(
+            IRLiteral("NULL"), f"Native call {declaration.name}: invalid copied input span"
+        )
+        invalid.condition = IRBinOp(
+            IRBinOp(IRCast(CType("uintmax_t"), length), ">", IRCast(CType("uintmax_t"), IRVar("SIZE_MAX"))),
+            "||",
+            IRBinOp(IRBinOp(length, "!=", IRLiteral("0")), "&&", IRBinOp(source, "==", IRLiteral("NULL"))),
+        )
+        native_arguments = list(arguments)
+        native_arguments[shape.owner_index] = IRFieldAccess(owner, "value", arrow=True)
+        native_arguments[shape.input_index] = backing
+        statements.extend(
+            [
+                IRVarDecl(CType("bool"), called_name, init=IRLiteral("false")),
+                invalid,
+                IRAssign(
+                    backing,
+                    IRCall(
+                        "calloc",
+                        [IRLiteral("1"), IRTernary(IRBinOp(length, "==", IRLiteral("0")), IRLiteral("1"), length)],
+                    ),
+                ),
+                IRIf(
+                    IRBinOp(backing, "!=", IRLiteral("NULL")),
+                    IRBlock(
+                        [
+                            IRIf(
+                                IRBinOp(length, "!=", IRLiteral("0")),
+                                IRBlock([IRExprStmt(IRCall("memcpy", [backing, source, length]))]),
+                            ),
+                            IRExprStmt(IRCall(declaration.name, native_arguments)),
+                            IRAssign(IRFieldAccess(owner, "inputAttached", arrow=True), IRLiteral("true")),
+                            IRAssign(called, IRLiteral("true")),
+                        ]
+                    ),
+                ),
+                *releases,
+                *cleanup,
+                IRReturn(called),
+            ]
+        )
+
+    def _native_initializer(self, declaration, output, arguments, parameters, statements, releases, cleanup):
+        name = "__btrc_native_initializer"
+        while any(parameter.name == name for parameter in parameters):
+            name += "_"
+        owner_type = declaration.return_type
+        owner = IRVar(name)
+        child = IRFieldAccess(owner, "value", arrow=True)
+        storage = IRFieldAccess(child, "storage", arrow=True)
+        backing = IRFieldAccess(child, "input", arrow=True)
+        native = IRFieldAccess(child, "value", arrow=True)
+        called = IRFieldAccess(owner, "called", arrow=True)
+        status = IRFieldAccess(owner, "status", arrow=True)
+        slot = IRVarDecl(CType(self._types.render(owner_type)), name, init=IRCall(f"{output.result_name}_new", []))
+        statements.extend(
+            [
+                slot,
+                IRExprStmt(self._lifetime.register_cleanup_slot(slot, owner_type)),
+                IRAssign(child, IRCall(f"__btrc_unique_{output.resource}_new", [])),
+                IRAssign(storage, IRCall("calloc", [IRLiteral("1"), IRSizeof(operand=IRDeref(storage))])),
+            ]
+        )
+        shape = output.initializer
+        arguments = list(arguments)
+        arguments.insert(output.parameter_index, storage)
+        ready = IRBinOp(storage, "!=", IRLiteral("NULL"))
+        if shape.copied_input >= 0:
+            source, length = arguments[shape.copied_input], arguments[shape.length]
+            self._session.require_helper("__btrc_safe_calloc")
+            invalid = self._native_null_guard(
+                IRLiteral("NULL"), f"Native call {declaration.name}: invalid copied input span"
+            )
+            invalid.condition = IRBinOp(
+                IRBinOp(IRCast(CType("uintmax_t"), length), ">", IRCast(CType("uintmax_t"), IRVar("SIZE_MAX"))),
+                "||",
+                IRBinOp(IRBinOp(length, "!=", IRLiteral("0")), "&&", IRBinOp(source, "==", IRLiteral("NULL"))),
+            )
+            statements.extend(
+                [
+                    invalid,
+                    IRIf(
+                        ready,
+                        IRBlock(
+                            [
+                                IRAssign(
+                                    backing,
+                                    IRCall(
+                                        "calloc",
+                                        [
+                                            IRLiteral("1"),
+                                            IRTernary(IRBinOp(length, "==", IRLiteral("0")), IRLiteral("1"), length),
+                                        ],
+                                    ),
+                                ),
+                                IRIf(
+                                    IRBinOp(
+                                        IRBinOp(backing, "!=", IRLiteral("NULL")),
+                                        "&&",
+                                        IRBinOp(length, "!=", IRLiteral("0")),
+                                    ),
+                                    IRBlock([IRExprStmt(IRCall("memcpy", [backing, source, length]))]),
+                                ),
+                            ]
+                        ),
+                    ),
+                ]
+            )
+            ready = IRBinOp(ready, "&&", IRBinOp(backing, "!=", IRLiteral("NULL")))
+            arguments[shape.copied_input] = IRTernary(source, backing, IRLiteral("NULL"))
+        statements.append(
+            IRIf(
+                ready,
+                IRBlock(
+                    [
+                        IRAssign(status, IRCall(declaration.name, arguments)),
+                        IRAssign(called, IRLiteral("true")),
+                        IRIf(
+                            IRBinOp(
+                                status,
+                                "==" if shape.success else "!=",
+                                IRVar(shape.success) if shape.success else IRLiteral("0"),
+                            ),
+                            IRBlock([IRAssign(native, storage)]),
+                        ),
+                    ]
+                ),
+            )
+        )
+        statements.append(
+            IRIf(
+                IRBinOp(native, "==", IRLiteral("NULL")),
+                IRBlock(
+                    [
+                        IRExprStmt(IRCall(f"__btrc_native_{output.resource}_release", [child])),
+                        IRAssign(child, IRLiteral("NULL")),
+                    ]
+                ),
+            )
+        )
+        statements.extend([*releases, *cleanup, IRReturn(owner)])
+
+    def _native_resource_output(self, declaration, output, arguments, parameters, statements, releases, cleanup):
+        names = {parameter.name for parameter in parameters}
+        slots = []
+        for stem in ("owner", "value", "size"):
+            name = "__btrc_native_output_" + stem
+            while name in names:
+                name += "_"
+            names.add(name)
+            slots.append(name)
+        owner_name, value_name, size_name = slots
+        owner_type = declaration.return_type
+        value_type = TypeExpr(base=output.resource, is_nullable=True, pointer_depth=1)
+        owner_slot = IRVarDecl(
+            CType(self._types.render(owner_type)), owner_name, init=IRCall(output.result_name + "_new", [])
+        )
+        value_slot = IRVarDecl(CType(output.resource), value_name, init=IRLiteral("NULL"), is_volatile=True)
+        size_slot = IRVarDecl(
+            CType(self._types.render(output.sized_resource.size_type)),
+            size_name,
+            init=IRSizeof(operand=CType(output.resource)),
+            is_volatile=True,
+        )
+        owner, value, size = IRVar(owner_name), IRVar(value_name), IRVar(size_name)
+        statements.extend(
+            [
+                owner_slot,
+                IRExprStmt(self._lifetime.register_cleanup_slot(owner_slot, owner_type)),
+                value_slot,
+                IRExprStmt(self._lifetime.register_cleanup_slot(value_slot, value_type)),
+                size_slot,
+            ]
+        )
+        native_arguments = []
+        cursor = 0
+        for index in range(len(arguments) + 2):
+            if index == output.parameter_index:
+                native_arguments.append(IRCast(CType("void*"), IRAddressOf(value)))
+            elif index == output.sized_resource.size_index:
+                native_arguments.append(
+                    IRCast(CType(self._types.render(output.sized_resource.size_type) + "*"), IRAddressOf(size))
+                )
+            else:
+                native_arguments.append(arguments[cursor])
+                cursor += 1
+        statements.extend(
+            [
+                IRAssign(
+                    IRFieldAccess(owner, "status", arrow=True),
+                    IRCall(output.sized_resource.native_function, native_arguments),
+                ),
+                IRAssign(IRFieldAccess(owner, "size", arrow=True), size),
+                IRAssign(
+                    IRFieldAccess(owner, "sizeValid", arrow=True),
+                    IRBinOp(size, "==", IRSizeof(operand=CType(output.resource))),
+                ),
+                IRAssign(
+                    IRFieldAccess(owner, "value", arrow=True), IRCast(CType(self._types.render(value_type)), value)
+                ),
+                IRAssign(value, IRLiteral("NULL")),
+                *releases,
+                *cleanup,
+                IRReturn(owner),
+            ]
+        )
+
+    def _native_record_snapshot(self, declaration, snapshot, arguments, parameters, statements, releases, cleanup):
+        failure = [*releases, *cleanup, IRReturn(IRLiteral("NULL"))]
+        if snapshot.byte_field or snapshot.strings:
+            statements.append(IRIf(IRBinOp(arguments[1], "<", IRLiteral("0")), IRBlock(list(failure))))
+        if snapshot.guard_path:
+            guard = self._native_snapshot_path(snapshot.guard_path, arguments[0], statements, failure)
+            statements.append(IRIf(IRBinOp(guard, "!=", IRVar(snapshot.guard_constant)), IRBlock(list(failure))))
+            self._session.module.native_external_names.add(snapshot.guard_constant)
+        values = []
+        for index, path in enumerate(snapshot.paths):
+            value = self._native_snapshot_path(path, arguments[0], statements, failure)
+            name = f"__btrc_snapshot_field_{index}"
+            statements.append(IRVarDecl(CType(self._types.render(path.value_type)), name, init=value))
+            values.append(IRVar(name))
+        plane = None
+        if snapshot.byte_field:
+            plane = (self._native_snapshot_span if snapshot.byte_span else self._native_snapshot_plane)(
+                snapshot.byte_paths, arguments, statements, failure
+            )
+        strings = []
+        for index, (name, path) in enumerate(snapshot.strings):
+            value = self._native_snapshot_path(path, arguments[0], statements, failure)
+            pointer, length = IRVar(f"__btrc_snapshot_string_{index}"), IRVar(f"__btrc_snapshot_length_{index}")
+            statements.extend(
+                [
+                    IRVarDecl(CType("const char*"), pointer.name, init=IRCast(CType("const char*"), value)),
+                    IRVarDecl(CType("size_t"), length.name, init=IRLiteral("0")),
+                    IRIf(
+                        IRBinOp(pointer, "!=", IRLiteral("NULL")),
+                        IRBlock(
+                            [
+                                IRWhile(
+                                    IRBinOp(
+                                        IRBinOp(length, "<=", IRCast(CType("size_t"), arguments[1])),
+                                        "&&",
+                                        IRBinOp(IRDeref(IRBinOp(pointer, "+", length)), "!=", IRLiteral("0")),
+                                    ),
+                                    IRBlock([IRAssign(length, IRBinOp(length, "+", IRLiteral("1")))]),
+                                ),
+                                IRIf(
+                                    IRBinOp(
+                                        IRBinOp(length, ">", IRCast(CType("size_t"), arguments[1])),
+                                        "||",
+                                        IRBinOp(length, ">", IRLiteral("2147483646U")),
+                                    ),
+                                    IRBlock(list(failure)),
+                                ),
+                            ]
+                        ),
+                    ),
+                ]
+            )
+            strings.append((name, pointer, length))
+        owner_name = "__btrc_snapshot_result"
+        owner = IRVar(owner_name)
+        owner_slot = IRVarDecl(
+            CType(self._types.render(declaration.return_type)),
+            owner_name,
+            init=IRCall(snapshot.result_name + "_new", []),
+        )
+        statements.extend(
+            [owner_slot, IRExprStmt(self._lifetime.register_cleanup_slot(owner_slot, declaration.return_type))]
+        )
+        for field, value in zip(snapshot.fields, values, strict=True):
+            statements.append(IRAssign(IRFieldAccess(owner, field.name, arrow=True), value))
+        if strings:
+            self._session.require_helper("__btrc_string_alloc")
+        for name, pointer, length in strings:
+            field = IRFieldAccess(owner, name, arrow=True)
+            statements.append(
+                IRIf(
+                    IRBinOp(pointer, "!=", IRLiteral("NULL")),
+                    IRBlock(
+                        [
+                            IRAssign(field, IRCall("__btrc_string_alloc", [IRCast(CType("int"), length)])),
+                            IRExprStmt(IRCall("memcpy", [field, pointer, length])),
+                        ]
+                    ),
+                )
+            )
+        if snapshot.byte_field:
+            statements.append(
+                IRExprStmt(
+                    self._lifetime.replace_edge_value(
+                        IRFieldAccess(owner, snapshot.byte_field, arrow=True),
+                        IRCall("Bytes_fromRaw", [IRCast(CType("char*"), plane[0]), IRCast(CType("int"), plane[1])]),
+                        TypeExpr(base="Bytes", pointer_depth=1),
+                        owner,
+                        adopt=True,
+                    )
+                )
+            )
+        statements.extend([*releases, *cleanup, IRReturn(owner)])
+
+    def _native_snapshot_span(self, paths, arguments, statements, failure):
+        length_path = paths[1]
+        length = IRVar("__btrc_snapshot_length")
+        pointer = IRVar("__btrc_snapshot_pointer")
+        value = self._native_snapshot_path(length_path, arguments[0], statements, failure)
+        statements.append(IRVarDecl(CType(self._types.render(length_path.value_type)), length.name, init=value))
+        if not length_path.value_type.base.startswith("unsigned"):
+            statements.append(IRIf(IRBinOp(length, "<", IRLiteral("0")), IRBlock(list(failure))))
+        wide = IRCast(CType("uintmax_t"), length)
+        statements.append(
+            IRIf(
+                IRBinOp(
+                    IRBinOp(wide, ">", IRCast(CType("uintmax_t"), arguments[1])),
+                    "||",
+                    IRBinOp(wide, ">", IRLiteral("2147483646U")),
+                ),
+                IRBlock(list(failure)),
+            )
+        )
+        value = self._native_snapshot_path(paths[0], arguments[0], statements, failure)
+        statements.extend(
+            [
+                IRVarDecl(
+                    CType("const unsigned char*"), pointer.name, init=IRCast(CType("const unsigned char*"), value)
+                ),
+                IRIf(
+                    IRBinOp(IRBinOp(length, "!=", IRLiteral("0")), "&&", IRBinOp(pointer, "==", IRLiteral("NULL"))),
+                    IRBlock(list(failure)),
+                ),
+                IRIf(
+                    IRBinOp(
+                        wide,
+                        ">",
+                        IRBinOp(
+                            IRCast(CType("uintmax_t"), IRVar("UINTPTR_MAX")),
+                            "-",
+                            IRCast(CType("uintmax_t"), IRCast(CType("uintptr_t"), pointer)),
+                        ),
+                    ),
+                    IRBlock(list(failure)),
+                ),
+            ]
+        )
+        return pointer, length
+
+    def _native_snapshot_plane(self, paths, arguments, statements, failure):
+        width, rows, pitch, pointer, span, stride, offset, address = (
+            IRVar("__btrc_snapshot_" + name)
+            for name in ("width", "rows", "pitch", "pointer", "span", "stride", "offset", "address")
+        )
+        for name, path in ((width.name, paths[1]), (rows.name, paths[2])):
+            value = self._native_snapshot_path(path, arguments[0], statements, failure)
+            statements.append(IRVarDecl(CType(self._types.render(path.value_type)), name, init=value))
+            if not path.value_type.base.startswith("unsigned"):
+                statements.append(IRIf(IRBinOp(IRVar(name), "<", IRLiteral("0")), IRBlock(list(failure))))
+        statements.extend(
+            [
+                IRVarDecl(CType("const unsigned char*"), pointer.name, init=IRLiteral("NULL")),
+                IRVarDecl(CType("unsigned long long"), span.name, init=IRLiteral("0ULL")),
+            ]
+        )
+        nonempty = []
+        value = self._native_snapshot_path(paths[3], arguments[0], nonempty, failure)
+        nonempty.extend(
+            [
+                IRVarDecl(CType("long long"), pitch.name, init=IRCast(CType("long long"), value)),
+                IRVarDecl(
+                    CType("unsigned long long"),
+                    stride.name,
+                    init=IRTernary(
+                        IRBinOp(pitch, "<", IRLiteral("0LL")),
+                        IRBinOp(IRLiteral("0ULL"), "-", IRCast(CType("unsigned long long"), pitch)),
+                        IRCast(CType("unsigned long long"), pitch),
+                    ),
+                ),
+                IRIf(IRBinOp(stride, "==", IRLiteral("0ULL")), IRBlock(list(failure))),
+                IRIf(
+                    IRBinOp(
+                        IRCast(CType("unsigned long long"), rows),
+                        ">",
+                        IRBinOp(IRCast(CType("unsigned long long"), arguments[1]), "/", stride),
+                    ),
+                    IRBlock(list(failure)),
+                ),
+                IRAssign(span, IRBinOp(IRCast(CType("unsigned long long"), rows), "*", stride)),
+                IRIf(IRBinOp(span, ">", IRLiteral("2147483646ULL")), IRBlock(list(failure))),
+            ]
+        )
+        data = self._native_snapshot_path(paths[0], arguments[0], nonempty, failure)
+        nonempty.extend(
+            [
+                IRAssign(pointer, IRCast(CType("const unsigned char*"), data)),
+                IRIf(IRBinOp(pointer, "==", IRLiteral("NULL")), IRBlock(list(failure))),
+                IRVarDecl(CType("uintptr_t"), address.name, init=IRCast(CType("uintptr_t"), pointer)),
+                IRVarDecl(CType("unsigned long long"), offset.name, init=IRBinOp(span, "-", stride)),
+                IRIf(
+                    IRBinOp(pitch, "<", IRLiteral("0LL")),
+                    IRBlock(
+                        [
+                            IRIf(
+                                IRBinOp(IRCast(CType("unsigned long long"), address), "<=", offset),
+                                IRBlock(list(failure)),
+                            ),
+                            IRAssign(address, IRBinOp(address, "-", IRCast(CType("uintptr_t"), offset))),
+                        ]
+                    ),
+                ),
+                IRIf(
+                    IRBinOp(
+                        span,
+                        ">",
+                        IRBinOp(
+                            IRCast(CType("unsigned long long"), IRVar("UINTPTR_MAX")),
+                            "-",
+                            IRCast(CType("unsigned long long"), address),
+                        ),
+                    ),
+                    IRBlock(list(failure)),
+                ),
+                IRIf(
+                    IRBinOp(pitch, "<", IRLiteral("0LL")),
+                    IRBlock([IRAssign(pointer, IRBinOp(pointer, "-", IRCast(CType("size_t"), offset)))]),
+                ),
+            ]
+        )
+        statements.append(
+            IRIf(
+                IRBinOp(IRBinOp(width, "!=", IRLiteral("0")), "&&", IRBinOp(rows, "!=", IRLiteral("0"))),
+                IRBlock(nonempty),
+            )
+        )
+        return pointer, span
+
+    def _native_snapshot_path(self, path, root, statements, failure):
+        value = root
+        for field, pointer in path.steps:
+            if pointer:
+                statements.append(IRIf(IRBinOp(value, "==", IRLiteral("NULL")), IRBlock(list(failure))))
+            value = IRFieldAccess(value, field, arrow=pointer)
+        return value
 
     def _native_record_output(self, declaration, output, arguments, parameters, statements, releases, cleanup):
         names = {parameter.name for parameter in parameters}
@@ -304,6 +982,453 @@ class FunctionLowerer:
             statements.append(guard)
         statements.extend([*releases, *cleanup, IRReturn(IRVar(owner_name))])
 
+    def _emit_realtime_c_adapter(self, declaration, contract):
+        """Publish one pre-owned receiver and stable native lease, never ARC on ingress."""
+        callback = contract.callbacks[0]
+        shape = callback.realtime
+        prefix = contract.adapter_symbol(declaration.name)
+        context_name = prefix + "_context"
+        context_type = CType("struct " + context_name + "*")
+        receiver_type = TypeExpr(base=callback.interface, pointer_depth=1)
+        owner_type = TypeExpr(base=shape.resource, pointer_depth=1)
+        unique_prefix = "__btrc_unique_" + shape.resource
+        context = IRVar("context")
+        owner = IRFieldAccess(context, "owner", arrow=True)
+        receiver = IRFieldAccess(context, "receiver", arrow=True)
+        gate = IRFieldAccess(context, "gate", arrow=True)
+        unit = IRFieldAccess(owner, "value", arrow=True)
+        payload = [
+            IRParam(CType(self._types.render(value)), f"argument{index}")
+            for index, value in enumerate(callback.parameters)
+            if not callback.is_context(index)
+        ]
+        result_type = CType(self._types.render(callback.return_type))
+        fallback_name = prefix + "_fallback"
+        interface_table = f"__btrc_interface_{len(callback.interface)}_{callback.interface}"
+        self._session.module.function_pointer_typedefs.append(
+            IRFunctionPointerTypedef(fallback_name, result_type, [value.c_type for value in payload])
+        )
+        self._session.module.struct_defs.append(
+            IRStructDef(
+                context_name,
+                [
+                    IRStructField(CType(self._types.render(receiver_type)), "receiver"),
+                    IRStructField(CType(self._types.render(owner_type)), "owner"),
+                    IRStructField(
+                        CType(
+                            self._types.render(
+                                TypeExpr(base="Atomic", generic_args=[TypeExpr(base="uint")], pointer_depth=1)
+                            )
+                        ),
+                        "gate",
+                    ),
+                    IRStructField(CType(fallback_name), "denied"),
+                    IRStructField(CType(interface_table + "_invoke_fn"), "invoke"),
+                ],
+            )
+        )
+        self._session.module.struct_defs.append(
+            IRStructDef(shape.invocation, [IRStructField(CType("void*"), "_context")])
+        )
+        self._session.module.struct_forwards.append(IRStructForward(shape.invocation))
+        self._session.module.struct_forwards.append(IRStructForward(context_name))
+        raw = IRVar("raw")
+        load_context = IRVarDecl(context_type, "context", init=IRCast(context_type, raw))
+        self._session.module.function_defs.append(
+            IRFunctionDef(
+                name=prefix + "_destroy",
+                return_type=CType("void"),
+                params=[IRParam(CType("void*"), "raw")],
+                is_static=True,
+                body=IRBlock(
+                    [
+                        load_context,
+                        IRExprStmt(IRCall(unique_prefix + "_end_borrow", [owner])),
+                        IRExprStmt(self._lifetime.release_value(receiver, receiver_type)),
+                        IRExprStmt(IRCall("free", [context])),
+                    ]
+                ),
+            )
+        )
+        self._session.module.function_defs.append(
+            IRFunctionDef(
+                name=prefix + "_unregister",
+                return_type=CType("bool"),
+                params=[IRParam(CType("void*"), "raw")],
+                is_static=True,
+                body=IRBlock(
+                    [
+                        load_context,
+                        IRReturn(IRBinOp(IRCall(callback.unregister.name, [unit]), "==", IRLiteral("0"))),
+                    ]
+                ),
+            )
+        )
+        capability_type = CType("struct " + shape.invocation)
+        parameters = [
+            IRParam(CType(self._types.render(value)), f"argument{index}")
+            for index, value in enumerate(callback.parameters)
+        ]
+        payload_values = [IRVar(value.name) for value in payload]
+        body = [
+            IRVarDecl(
+                context_type,
+                "context",
+                init=IRCast(context_type, IRVar(parameters[callback.callback_context_index].name)),
+            ),
+            IRIf(
+                IRBinOp(IRCall("callbackGateTryEnter", [gate]), "==", IRLiteral("false")),
+                IRBlock(
+                    [
+                        IRReturn(
+                            IRCall(
+                                IRFieldAccess(context, "denied", arrow=True),
+                                payload_values,
+                                realtime_provenance="typed-realtime-function",
+                            )
+                        ),
+                    ]
+                ),
+            ),
+            IRVarDecl(capability_type, "invocation", init=IRInitializerList([IRLiteral("0")])),
+            IRAssign(IRFieldAccess(IRVar("invocation"), "_context"), context),
+            IRVarDecl(
+                result_type,
+                "result",
+                init=IRCall(
+                    IRFieldAccess(context, "invoke", arrow=True),
+                    [receiver, IRAddressOf(IRVar("invocation")), *payload_values],
+                    realtime_provenance="typed-realtime-function",
+                ),
+            ),
+            IRExprStmt(IRCall("callbackGateLeave", [gate])),
+            IRReturn(IRVar("result")),
+        ]
+        self._session.module.function_defs.append(
+            IRFunctionDef(
+                name=prefix + "_invoke",
+                return_type=result_type,
+                params=parameters,
+                is_static=True,
+                body=IRBlock(body),
+                is_realtime=True,
+            )
+        )
+        for operation in shape.operations:
+            operation_parameters = [
+                IRParam(CType("struct " + shape.invocation + "*"), "self"),
+                *[self._signatures.lower_source_param(value) for value in operation.parameters],
+            ]
+            arguments = [IRVar(value.name) for value in operation_parameters[1:]]
+            arguments.insert(operation.owner_index, unit)
+            self._session.module.native_external_names.add(operation.function)
+            self._session.module.realtime_safe_externals.add(operation.function)
+            self._session.module.function_defs.append(
+                IRFunctionDef(
+                    name=shape.invocation + "_" + operation.name,
+                    return_type=CType(self._types.render(operation.return_type)),
+                    params=operation_parameters,
+                    body=IRBlock(
+                        [
+                            IRVarDecl(
+                                context_type,
+                                "context",
+                                init=IRCast(context_type, IRFieldAccess(IRVar("self"), "_context", arrow=True)),
+                            ),
+                            IRReturn(IRCall(operation.function, arguments)),
+                        ]
+                    ),
+                    is_realtime=True,
+                )
+            )
+        parameters = [self._signatures.lower_source_param(value) for value in declaration.params]
+        visible = [
+            index
+            for index in range(len(shape.native_parameters))
+            if index not in {callback.parameter_index, shape.size_index}
+        ]
+        owner_argument = IRVar(parameters[visible.index(shape.owner_index)].name)
+        receiver_argument, denied_argument, scope_argument = [IRVar(value.name) for value in parameters[-3:]]
+        self._session.require_helper("__btrc_safe_calloc")
+        statements = [
+            self._native_null_guard(owner_argument, "Realtime registration requires an owner"),
+            self._native_null_guard(receiver_argument, "Realtime registration requires a receiver"),
+            self._native_null_guard(denied_argument, "Realtime registration requires a denied-admission fallback"),
+            self._native_null_guard(scope_argument, "Realtime registration requires a scope"),
+            IRVarDecl(
+                context_type,
+                "context",
+                init=IRCast(
+                    context_type,
+                    IRCall("__btrc_safe_calloc", [IRLiteral("1"), IRSizeof(CType("struct " + context_name))]),
+                ),
+            ),
+            IRAssign(owner, owner_argument),
+            IRExprStmt(self._lifetime.retain_value(owner, owner_type)),
+            IRExprStmt(IRCall(unique_prefix + "_begin_borrow", [owner])),
+            IRAssign(receiver, receiver_argument),
+            IRExprStmt(self._lifetime.retain_value(receiver, receiver_type)),
+            IRAssign(IRFieldAccess(context, "denied", arrow=True), denied_argument),
+            IRAssign(
+                IRFieldAccess(context, "invoke", arrow=True),
+                IRFieldAccess(
+                    IRCast(
+                        CType("const struct " + interface_table + "*"),
+                        IRCall(
+                            "__btrc_interface_methods",
+                            [receiver, IRLiteral(json.dumps(callback.interface))],
+                            helper_ref="__btrc_interface_methods",
+                        ),
+                    ),
+                    "invoke",
+                    arrow=True,
+                ),
+            ),
+            IRVarDecl(
+                CType("struct CallbackState*"),
+                "registration",
+                init=IRCall(
+                    "CallbackScope_createNative",
+                    [
+                        scope_argument,
+                        context,
+                        IRFunctionRef(prefix + "_destroy"),
+                        IRFunctionRef(prefix + "_unregister"),
+                    ],
+                ),
+            ),
+            IRAssign(gate, IRCall("CallbackState_activationGate", [IRVar("registration")])),
+            IRVarDecl(CType(callback.record), "record", init=IRInitializerList([IRLiteral("0")])),
+            IRAssign(IRFieldAccess(IRVar("record"), callback.field), IRFunctionRef(prefix + "_invoke")),
+            IRAssign(IRFieldAccess(IRVar("record"), callback.context_fields[0]), context),
+        ]
+        native_arguments = dict(zip(visible, [IRVar(value.name) for value in parameters[:-3]], strict=True))
+        native_arguments[shape.owner_index] = unit
+        native_arguments[callback.parameter_index] = IRAddressOf(IRVar("record"))
+        native_arguments[shape.size_index] = IRSizeof(CType(callback.record))
+        failure = self._native_null_guard(
+            IRLiteral("NULL"), "Realtime callback activation failed with indeterminate publication"
+        )
+        failure.condition = IRBinOp(IRVar("status"), "!=", IRLiteral("0"))
+        statements.extend(
+            [
+                IRVarDecl(
+                    CType(self._types.render(shape.status_type)),
+                    "status",
+                    init=IRCall(shape.function, [native_arguments[index] for index in range(len(native_arguments))]),
+                ),
+                failure,
+                IRExprStmt(IRCall("CallbackState_finishActivation", [IRVar("registration"), IRLiteral("true")])),
+                IRReturn(IRVar("registration")),
+            ]
+        )
+        self._session.module.native_external_names.update((shape.function, callback.unregister.name))
+        self._session.module.function_defs.append(
+            IRFunctionDef(
+                name=prefix,
+                return_type=CType(self._types.render(declaration.return_type)),
+                params=parameters,
+                body=IRBlock(statements),
+            )
+        )
+
+    def _emit_callback_table_adapter(self, declaration, contract):
+        """One holder claim per live SDK table: the original and every SDK reopen."""
+        table = contract.callback_table
+        prefix = f"__btrc_native_table_{table.resource}"
+        holder_name = prefix + "_holder"
+        holder_type = CType(f"struct {holder_name}*")
+        receiver_type = TypeExpr(base=table.interface, pointer_depth=1)
+        receiver_c = CType(self._types.render(receiver_type))
+        table_type = CType(table.native_type + "*")
+        self._session.module.struct_forwards.append(IRStructForward(holder_name))
+        self._session.module.struct_defs.append(
+            IRStructDef(
+                holder_name,
+                [
+                    IRStructField(receiver_c, "receiver"),
+                    IRStructField(CType("char*"), "label"),
+                    IRStructField(CType("long"), "claims"),
+                    IRStructField(CType("volatile int*"), "thread"),
+                ],
+            )
+        )
+        self._session.require_helper("__btrc_safe_calloc")
+        holder = IRVar("holder")
+        claims = IRFieldAccess(holder, "claims", arrow=True)
+        receiver = IRFieldAccess(holder, "receiver", arrow=True)
+        label = IRFieldAccess(holder, "label", arrow=True)
+
+        def load(context):
+            return IRVarDecl(holder_type, "holder", init=IRCast(holder_type, context))
+
+        def thread_guard():
+            return IRIf(
+                IRBinOp(IRFieldAccess(holder, "thread", arrow=True), "!=", IRAddressOf(IRVar("__btrc_try_top"))),
+                IRBlock(
+                    [
+                        IRExprStmt(
+                            IRCall(
+                                "fputs",
+                                [IRLiteral('"BTRC native callback delivered on the wrong thread\\n"'), IRVar("stderr")],
+                            )
+                        ),
+                        IRExprStmt(IRCall("abort", [], never_returns=True)),
+                    ]
+                ),
+            )
+
+        def define(name, result, params, body):
+            self._session.module.function_decls.append(IRFunctionDecl(name, result, params, is_static=True))
+            self._session.module.function_defs.append(
+                IRFunctionDef(name=name, return_type=result, params=params, is_static=True, body=IRBlock(body))
+            )
+
+        assignments = []
+        for method in table.methods:
+            params = [
+                IRParam(CType(spelling), f"argument{index}") for index, spelling in enumerate(method.native_parameters)
+            ]
+            result = CType(method.native_return)
+            arguments = [IRVar(param.name) for index, param in enumerate(params) if index != table.context_index]
+            call = IRCall(f"{table.interface}_{method.name}", [receiver, *arguments])
+            inner = [IRExprStmt(call)] if result.text == "void" else [IRVarDecl(result, "result", init=call)]
+            inner.extend(self._exceptions.pop_try_frames(1))
+            inner.append(IRReturn(None if result.text == "void" else IRVar("result")))
+            define(
+                f"{prefix}_{method.name}",
+                result,
+                params,
+                [
+                    load(IRVar(params[table.context_index].name)),
+                    thread_guard(),
+                    self._exceptions.native_callback_boundary(IRBlock(inner)),
+                ],
+            )
+            assignments.append((method.field, f"{prefix}_{method.name}"))
+        if table.label:
+            define(
+                f"{prefix}_label",
+                CType("const char*"),
+                [IRParam(CType("void*"), "argument0")],
+                [load(IRVar("argument0")), thread_guard(), IRReturn(label)],
+            )
+            assignments.append((table.label, f"{prefix}_label"))
+        if table.reopen:
+            assignments.append((table.reopen, f"{prefix}_reopen"))
+        if table.release:
+            assignments.append((table.release, f"{prefix}_release"))
+        native_table = IRVar("table")
+        body = [
+            IRVarDecl(
+                table_type,
+                "table",
+                init=IRCast(
+                    table_type, IRCall("__btrc_safe_calloc", [IRLiteral("1"), IRSizeof(CType(table.native_type))])
+                ),
+            ),
+            IRAssign(IRFieldAccess(native_table, table.context, arrow=True), IRCast(CType("void*"), holder)),
+            *(
+                IRAssign(IRFieldAccess(native_table, field, arrow=True), IRFunctionRef(function))
+                for field, function in assignments
+            ),
+            IRAssign(claims, IRBinOp(claims, "+", IRLiteral("1"))),
+            IRReturn(native_table),
+        ]
+        define(f"{prefix}_table", table_type, [IRParam(holder_type, "holder")], body)
+        if table.reopen:
+            name = IRVar("argument1")
+            mismatch = IRBinOp(
+                IRBinOp(name, "==", IRLiteral("NULL")),
+                "||",
+                IRBinOp(IRCall("strcmp", [name, label]), "!=", IRLiteral("0")),
+            )
+            define(
+                f"{prefix}_reopen",
+                table_type,
+                [IRParam(CType("void*"), "argument0"), IRParam(CType("const char*"), "argument1")],
+                [
+                    load(IRVar("argument0")),
+                    thread_guard(),
+                    IRIf(mismatch, IRBlock([IRReturn(IRLiteral("NULL"))])),
+                    IRReturn(IRCall(f"{prefix}_table", [holder])),
+                ],
+            )
+        if table.release:
+            argument = IRVar("argument0")
+            final = [
+                IRExprStmt(self._lifetime.release_value(receiver, receiver_type)),
+                IRExprStmt(IRCall("free", [label])),
+                IRExprStmt(IRCall("free", [holder])),
+                *self._exceptions.pop_try_frames(1),
+            ]
+            define(
+                f"{prefix}_release",
+                CType("void"),
+                [IRParam(table_type, "argument0")],
+                [
+                    IRIf(IRBinOp(argument, "==", IRLiteral("NULL")), IRBlock([IRReturn(None)])),
+                    load(IRFieldAccess(argument, table.context, arrow=True)),
+                    thread_guard(),
+                    IRExprStmt(IRCall("free", [argument])),
+                    IRAssign(claims, IRBinOp(claims, "-", IRLiteral("1"))),
+                    IRIf(
+                        IRBinOp(claims, "==", IRLiteral("0")), self._exceptions.native_callback_boundary(IRBlock(final))
+                    ),
+                ],
+            )
+        create_params = [IRParam(receiver_c, "receiver")]
+        body = [
+            IRVarDecl(
+                holder_type,
+                "holder",
+                init=IRCast(
+                    holder_type,
+                    IRCall("__btrc_safe_calloc", [IRLiteral("1"), IRSizeof(CType(f"struct {holder_name}"))]),
+                ),
+            ),
+            IRAssign(receiver, IRVar("receiver")),
+            IRExprStmt(self._lifetime.retain_value(IRVar("receiver"), receiver_type)),
+            IRAssign(IRFieldAccess(holder, "thread", arrow=True), IRAddressOf(IRVar("__btrc_try_top"))),
+        ]
+        if table.label:
+            create_params.append(IRParam(CType("char*"), "label"))
+            body.extend(
+                [
+                    IRVarDecl(CType("size_t"), "length", init=IRCall("strlen", [IRVar("label")])),
+                    IRAssign(
+                        label,
+                        IRCast(
+                            CType("char*"),
+                            IRCall(
+                                "__btrc_safe_calloc", [IRLiteral("1"), IRBinOp(IRVar("length"), "+", IRLiteral("1"))]
+                            ),
+                        ),
+                    ),
+                    IRExprStmt(IRCall("memcpy", [label, IRVar("label"), IRVar("length")])),
+                ]
+            )
+        body.append(IRReturn(IRCall(f"{prefix}_table", [holder])))
+        define(f"{prefix}_create", table_type, create_params, body)
+        name = contract.adapter_symbol(declaration.name)
+        parameters = [self._signatures.lower_source_param(parameter) for parameter in declaration.params]
+        statements = [
+            self._native_null_guard(
+                IRVar(parameter.name), f"Native call {declaration.name}: null argument {parameter.name}"
+            )
+            for parameter in parameters
+        ]
+        call = IRCall(f"{prefix}_create", [IRVar(parameter.name) for parameter in parameters])
+        releases, cleanup = [], []
+        self._native_unique_result(declaration, call, parameters, statements, releases, cleanup)
+        return_type = CType(self._types.render(declaration.return_type))
+        self._session.module.function_decls.append(IRFunctionDecl(name, return_type, parameters, is_static=True))
+        self._session.module.function_defs.append(
+            IRFunctionDef(
+                name=name, return_type=return_type, params=parameters, is_static=True, body=IRBlock(statements)
+            )
+        )
+
     def _native_cleanup_scope(self, parameters, statements):
         marker = "__btrc_native_cleanup_mark"
         while any(parameter.name == marker for parameter in parameters):
@@ -327,7 +1452,9 @@ class FunctionLowerer:
             )
         ]
 
-    def _native_lease(self, index, value_type, argument, parameters, statements, releases, owned=False, locals=None):
+    def _native_lease(
+        self, index, value_type, argument, parameters, statements, releases, owned=False, locals=None, attachment=False
+    ):
         name = f"__btrc_native_argument_{index}"
         while any(parameter.name == name for parameter in parameters):
             name += "_"
@@ -344,7 +1471,21 @@ class FunctionLowerer:
             statements.append(IRAssign(value, argument))
         if not owned:
             statements.append(IRExprStmt(expr=self._lifetime.retain_value(value, value_type)))
-        statements.append(IRExprStmt(expr=self._lifetime.register_cleanup_slot(slot, value_type)))
+        registration = self._lifetime.register_cleanup_slot(slot, value_type)
+        if self._unique_resource(value_type.base):
+            prefix = f"__btrc_unique_{value_type.base}"
+            operation = "attachment" if attachment else "borrow"
+            statements.append(IRExprStmt(IRCall(prefix + "_begin_" + operation, [value])))
+            registration.args[2] = IRFunctionRef(prefix + "_end_" + operation)
+            statements.append(IRExprStmt(registration))
+            released = name + "_released"
+            releases[:0] = [
+                IRVarDecl(slot.c_type, released, init=value),
+                IRAssign(value, IRLiteral("NULL")),
+                IRExprStmt(IRCall(prefix + "_end_" + operation, [IRVar(released)])),
+            ]
+            return value
+        statements.append(IRExprStmt(expr=registration))
         release_statements = []
         release_expressions = self._lifetime.release_and_clear(
             value, value_type, release_statements, self._types.render(value_type)
@@ -380,6 +1521,9 @@ class FunctionLowerer:
             for index, value in enumerate(callback.parameters)
         )
 
+    def _native_callback_result(self, callback):
+        return self._analyzed.interface_table[callback.interface].methods[callback.method_name].return_type
+
     def _native_callback(self, function, callback):
         value_types = self._native_callback_types(callback)
         name = f"__btrc_native_callback_{function}_{callback.parameter_index}"
@@ -396,7 +1540,7 @@ class FunctionLowerer:
             IRParam(c_type=CType(text=self._types.render(value)), name=f"argument{index}")
             for index, value in enumerate(value_types)
         ]
-        result_type = CType(text=self._types.render(callback.return_type))
+        result_type = CType(text=self._types.render(self._native_callback_result(callback)))
         context_type = CType(text=f"const struct {name}_context*")
         context = IRVar(name="__btrc_context")
         context_declaration = IRVarDecl(
@@ -483,6 +1627,9 @@ class FunctionLowerer:
 
     def emit_resource_lifetime(self, declaration):
         resource = declaration.source_file.resource
+        if resource.ownership == "unique":
+            self._emit_unique_resource(declaration)
+            return
         module = self._session.module
         forward = IRStructForward(name=f"__btrc_native_{declaration.name}")
         if forward not in module.struct_forwards:
@@ -507,6 +1654,386 @@ class FunctionLowerer:
             module.function_defs.append(
                 IRFunctionDef(name=name, return_type=CType(text="void"), params=parameters, body=body, is_static=True)
             )
+        if declaration.source_file.resource_query_type:
+            self._emit_resource_query(declaration)
+
+    def _emit_resource_query(self, declaration):
+        resource = declaration.source_file.resource
+        source_name = declaration.source_file.resource_query_type
+        source_type = TypeExpr(base=source_name, is_nullable=True, pointer_depth=1)
+        target_type = TypeExpr(base=resource.name, is_nullable=True, pointer_depth=1)
+        result_type = CType(self._types.render(target_type))
+        parameters = [IRParam(CType(self._types.render(source_type)), "source")]
+        statements, releases = [], []
+        cleanup = self._native_cleanup_scope(parameters, statements)
+        source = self._native_lease(0, source_type, IRVar("source"), parameters, statements, releases)
+        matches = IRBinOp(
+            source,
+            "&&",
+            IRBinOp(
+                IRCall(resource.type_query, [IRCast(CType(source_name), source)]), "==", IRCall(resource.type_tag, [])
+            ),
+        )
+        result = IRVarDecl(
+            result_type,
+            "__btrc_native_projection",
+            init=IRTernary(matches, IRCast(result_type, source), IRLiteral("NULL")),
+        )
+        value = IRVar(result.name)
+        statements.extend(
+            [
+                result,
+                IRExprStmt(self._lifetime.retain_value(value, target_type)),
+                IRExprStmt(self._lifetime.register_cleanup_slot(result, target_type)),
+                *releases,
+                *cleanup,
+                IRReturn(value),
+            ]
+        )
+        name = f"__btrc_native_{resource.name}_try_cast"
+        self._session.module.function_decls.append(IRFunctionDecl(name, result_type, parameters, is_static=True))
+        self._session.module.function_defs.append(
+            IRFunctionDef(name, result_type, parameters, IRBlock(statements), is_static=True)
+        )
+
+    def _native_unique_function(self, name, result, parameters, statements):
+        self._session.module.function_decls.append(IRFunctionDecl(name, CType(result), parameters, is_static=True))
+        self._session.module.function_defs.append(
+            IRFunctionDef(name, CType(result), parameters, IRBlock(statements), is_static=True)
+        )
+
+    def _native_unique_checked(self, function, arguments):
+        guard = self._native_null_guard(IRLiteral("NULL"), f"Native resource synchronization: {function} failed")
+        guard.condition = IRBinOp(IRCall(function, arguments), "!=", IRLiteral("0"))
+        return guard
+
+    def _emit_unique_resource(self, declaration):
+        resource = declaration.source_file.resource
+        native_type = declaration.source_file.type_spelling or resource.name
+        status_release = bool(resource.release_consumption)
+        close_type = self._types.render(
+            next(member.return_type for member in declaration.members if member.name == "close")
+        )
+        include = IRInclude(header="pthread.h")
+        if include not in self._session.module.preprocessor_decls:
+            self._session.module.preprocessor_decls.append(include)
+        native_prefix = f"__btrc_native_{resource.name}"
+        prefix = f"__btrc_unique_{resource.name}"
+        forward = IRStructForward(name=native_prefix)
+        if forward not in self._session.module.struct_forwards:
+            self._session.module.struct_forwards.append(forward)
+        pointer_type = f"struct {native_prefix}*"
+        pointer = CType(pointer_type)
+        owner = IRVar("owner")
+        value = IRFieldAccess(owner, "value", arrow=True)
+        borrows = IRFieldAccess(owner, "borrows", arrow=True)
+        closing = IRFieldAccess(owner, "closing", arrow=True)
+        status = IRFieldAccess(owner, "status", arrow=True)
+        closing_thread = IRFieldAccess(owner, "closingThread", arrow=True)
+        mutex = IRAddressOf(IRFieldAccess(owner, "lock", arrow=True))
+        completed = IRAddressOf(IRFieldAccess(owner, "completed", arrow=True))
+        parameters = [IRParam(pointer, "owner")]
+        self._session.module.struct_defs.append(
+            IRStructDef(
+                native_prefix,
+                [
+                    IRStructField(CType("__btrc_arc_header"), "__arc"),
+                    IRStructField(CType(native_type), "value"),
+                    IRStructField(CType("unsigned int"), "borrows"),
+                    IRStructField(CType("bool"), "closing"),
+                    IRStructField(CType("pthread_t"), "closingThread"),
+                    IRStructField(CType("pthread_mutex_t"), "lock"),
+                    IRStructField(CType("pthread_cond_t"), "completed"),
+                    *([IRStructField(CType(close_type), "status")] if status_release else []),
+                    *(
+                        [
+                            IRStructField(CType(native_type), "storage"),
+                            IRStructField(CType("void*"), "input"),
+                            IRStructField(CType("bool"), "inputAttached"),
+                        ]
+                        if resource.storage
+                        else []
+                    ),
+                ],
+            )
+        )
+        for helper in ("__btrc_arc_retain", "__btrc_arc_release", "__btrc_safe_calloc"):
+            self._session.require_helper(helper)
+        self._session.module.native_external_names.add(resource.release)
+        lock = self._native_unique_checked("pthread_mutex_lock", [mutex])
+        unlock = self._native_unique_checked("pthread_mutex_unlock", [mutex])
+        reentrant = self._native_null_guard(IRLiteral("NULL"), f"Native resource {resource.name}: reentrant close")
+        reentrant.condition = IRCall("pthread_equal", [closing_thread, IRCall("pthread_self", [])])
+        wait = IRWhile(
+            closing,
+            IRBlock(
+                [
+                    reentrant,
+                    self._native_unique_checked("pthread_cond_wait", [completed, mutex]),
+                ]
+            ),
+        )
+        borrowed = self._native_null_guard(IRLiteral("NULL"), f"Native resource {resource.name}: close during borrow")
+        borrowed.condition = IRBinOp(borrows, "!=", IRLiteral("0"))
+        close = [
+            IRIf(
+                IRBinOp(owner, "==", IRLiteral("NULL")), IRBlock([IRReturn(IRLiteral("0") if status_release else None)])
+            ),
+            lock,
+            wait,
+        ]
+        if status_release:
+            close.append(
+                IRIf(
+                    IRBinOp(value, "==", IRLiteral("NULL")),
+                    IRBlock(
+                        [
+                            IRVarDecl(CType(close_type), "result", init=status),
+                            unlock,
+                            IRReturn(IRVar("result")),
+                        ]
+                    ),
+                )
+            )
+        close.extend(
+            [
+                borrowed,
+                IRVarDecl(CType(native_type), "native", init=value),
+                IRAssign(value, IRLiteral("NULL")),
+                IRAssign(closing, IRLiteral("true")),
+                IRAssign(closing_thread, IRCall("pthread_self", [])),
+                unlock,
+                IRVarDecl(CType(close_type), "result", init=IRCall(resource.release, [IRVar("native")]))
+                if status_release
+                else IRIf(IRVar("native"), IRBlock([IRExprStmt(IRCall(resource.release, [IRVar("native")]))])),
+                *(
+                    [
+                        IRExprStmt(IRCall("free", [IRFieldAccess(owner, "input", arrow=True)])),
+                        IRAssign(IRFieldAccess(owner, "input", arrow=True), IRLiteral("NULL")),
+                        IRExprStmt(IRCall("free", [IRFieldAccess(owner, "storage", arrow=True)])),
+                        IRAssign(IRFieldAccess(owner, "storage", arrow=True), IRLiteral("NULL")),
+                    ]
+                    if resource.storage
+                    else []
+                ),
+                lock,
+                *([IRAssign(status, IRVar("result"))] if status_release else []),
+                IRAssign(closing, IRLiteral("false")),
+                self._native_unique_checked("pthread_cond_broadcast", [completed]),
+                unlock,
+                *([IRReturn(IRVar("result"))] if status_release else []),
+            ]
+        )
+        self._native_unique_function(prefix + "_close", close_type, parameters, close)
+        self._native_unique_function(
+            prefix + "_isOpen_public",
+            "bool",
+            parameters,
+            [
+                IRIf(IRBinOp(owner, "==", IRLiteral("NULL")), IRBlock([IRReturn(IRLiteral("false"))])),
+                lock,
+                IRVarDecl(
+                    CType("bool"),
+                    "opened",
+                    init=IRBinOp(
+                        IRBinOp(value, "!=", IRLiteral("NULL")), "&&", IRBinOp(closing, "==", IRLiteral("false"))
+                    ),
+                ),
+                unlock,
+                IRReturn(IRVar("opened")),
+            ],
+        )
+        destroy_close = IRCall(prefix + "_close", [owner])
+        destroy_check = self._native_null_guard(
+            IRLiteral("NULL"), f"Native resource {resource.name}: destruction outcome is indeterminate"
+        )
+        destroy_check.condition = IRBinOp(destroy_close, "!=", IRLiteral("0"))
+        self._native_unique_function(
+            prefix + "_destroy",
+            "void",
+            [IRParam(CType("void*"), "raw")],
+            [
+                IRVarDecl(pointer, "owner", init=IRCast(pointer, IRVar("raw"))),
+                destroy_check if resource.cleanup_status == "abort" else IRExprStmt(destroy_close),
+                *(
+                    [
+                        IRExprStmt(IRCall("free", [IRFieldAccess(owner, "input", arrow=True)])),
+                        IRExprStmt(IRCall("free", [IRFieldAccess(owner, "storage", arrow=True)])),
+                    ]
+                    if resource.storage
+                    else []
+                ),
+                self._native_unique_checked("pthread_cond_destroy", [completed]),
+                self._native_unique_checked("pthread_mutex_destroy", [mutex]),
+                IRExprStmt(IRCall("free", [owner])),
+            ],
+        )
+        self._ownership.emit_arc_descriptor(prefix, None)
+        self._native_unique_function(
+            prefix + "_new",
+            pointer_type,
+            [],
+            [
+                IRVarDecl(
+                    pointer,
+                    "owner",
+                    init=IRCast(
+                        pointer,
+                        IRCall(
+                            "__btrc_safe_calloc", [IRLiteral("1"), IRSizeof(operand=CType(f"struct {native_prefix}"))]
+                        ),
+                    ),
+                ),
+                self._native_unique_checked("pthread_mutex_init", [mutex, IRLiteral("NULL")]),
+                self._native_unique_checked("pthread_cond_init", [completed, IRLiteral("NULL")]),
+                *self._ownership.arc_header_initialization(prefix, "owner"),
+                IRReturn(owner),
+            ],
+        )
+        self._native_unique_function(
+            native_prefix + "_retain",
+            "void",
+            [IRParam(CType("void*"), "raw")],
+            [
+                IRExprStmt(IRCall("__btrc_arc_retain", [IRVar("raw")])),
+            ],
+        )
+        self._native_unique_function(
+            native_prefix + "_release",
+            "void",
+            [IRParam(CType("void*"), "raw")],
+            [
+                IRExprStmt(IRCall("__btrc_arc_release", [IRVar("raw"), self._ownership.descriptor_pointer(prefix)])),
+            ],
+        )
+        self._native_unique_function(
+            prefix + "_close_public",
+            close_type,
+            parameters,
+            [
+                *(
+                    [self._native_null_guard(owner, f"Native resource {resource.name}: close on null owner")]
+                    if status_release
+                    else []
+                ),
+                IRExprStmt(IRCall(native_prefix + "_retain", [owner])),
+                IRVarDecl(CType(close_type), "result", init=IRCall(prefix + "_close", [owner]))
+                if status_release
+                else IRExprStmt(IRCall(prefix + "_close", [owner])),
+                IRExprStmt(IRCall(native_prefix + "_release", [owner])),
+                *([IRReturn(IRVar("result"))] if status_release else []),
+            ],
+        )
+        overflow = self._native_null_guard(IRLiteral("NULL"), f"Native resource {resource.name}: borrow overflow")
+        overflow.condition = IRBinOp(borrows, "==", IRVar("UINT_MAX"))
+        exclusive = self._native_null_guard(
+            IRLiteral("NULL"), f"Native resource {resource.name}: exclusive operation in progress"
+        )
+        exclusive.condition = closing
+        self._native_unique_function(
+            prefix + "_begin_borrow",
+            "void",
+            parameters,
+            [
+                IRIf(IRBinOp(owner, "==", IRLiteral("NULL")), IRBlock([IRReturn()])),
+                lock,
+                self._native_null_guard(value, f"Native resource {resource.name}: use after close"),
+                exclusive,
+                overflow,
+                IRAssign(borrows, IRBinOp(borrows, "+", IRLiteral("1"))),
+                unlock,
+            ],
+        )
+        self._native_unique_function(
+            prefix + "_end_borrow",
+            "void",
+            [IRParam(CType("void*"), "raw")],
+            [
+                IRIf(IRBinOp(IRVar("raw"), "==", IRLiteral("NULL")), IRBlock([IRReturn()])),
+                IRVarDecl(pointer, "owner", init=IRCast(pointer, IRVar("raw"))),
+                lock,
+                IRAssign(borrows, IRBinOp(borrows, "-", IRLiteral("1"))),
+                unlock,
+                IRExprStmt(IRCall(native_prefix + "_release", [owner])),
+            ],
+        )
+        if resource.storage:
+            attachment_borrowed = self._native_null_guard(
+                IRLiteral("NULL"), f"Native resource {resource.name}: attachment during borrow"
+            )
+            attachment_borrowed.condition = IRBinOp(borrows, "!=", IRLiteral("0"))
+            attached = self._native_null_guard(
+                IRLiteral("NULL"), f"Native resource {resource.name}: input already attached"
+            )
+            attached.condition = IRFieldAccess(owner, "inputAttached", arrow=True)
+            self._native_unique_function(
+                prefix + "_begin_attachment",
+                "void",
+                parameters,
+                [
+                    self._native_null_guard(owner, f"Native resource {resource.name}: attachment on null owner"),
+                    lock,
+                    exclusive,
+                    self._native_null_guard(value, f"Native resource {resource.name}: use after close"),
+                    attachment_borrowed,
+                    attached,
+                    IRAssign(closing, IRLiteral("true")),
+                    IRAssign(closing_thread, IRCall("pthread_self", [])),
+                    unlock,
+                ],
+            )
+            self._native_unique_function(
+                prefix + "_end_attachment",
+                "void",
+                [IRParam(CType("void*"), "raw")],
+                [
+                    IRIf(IRBinOp(IRVar("raw"), "==", IRLiteral("NULL")), IRBlock([IRReturn()])),
+                    IRVarDecl(pointer, "owner", init=IRCast(pointer, IRVar("raw"))),
+                    lock,
+                    IRAssign(closing, IRLiteral("false")),
+                    self._native_unique_checked("pthread_cond_broadcast", [completed]),
+                    unlock,
+                    IRExprStmt(IRCall(native_prefix + "_release", [owner])),
+                ],
+            )
+
+    def _native_unique_result(self, declaration, call, parameters, statements, releases, cleanup):
+        # Allocate and register the ordinary ARC owner before native publication.
+        # Null factory results discard that empty owner; no native claim can leak
+        # if allocating the owner fails.
+        resource = declaration.source_file.call_contract.resource_result
+        prefix = f"__btrc_unique_{resource}"
+        name = "__btrc_unique_result"
+        while any(parameter.name == name for parameter in parameters):
+            name += "_"
+        result_type = CType(self._types.render(declaration.return_type))
+        if not cleanup:
+            cleanup.extend(self._native_cleanup_scope(parameters, statements))
+        slot = IRVarDecl(result_type, name, init=IRCall(prefix + "_new", []))
+        result = IRVar(name)
+        value = IRFieldAccess(result, "value", arrow=True)
+        statements.extend(
+            [
+                slot,
+                IRExprStmt(self._lifetime.register_cleanup_slot(slot, declaration.return_type)),
+                IRAssign(value, call),
+            ]
+        )
+        statements.append(
+            IRIf(
+                IRBinOp(value, "==", IRLiteral("NULL")),
+                IRBlock(
+                    [
+                        IRExprStmt(IRCall(f"__btrc_native_{resource}_release", [result])),
+                        IRAssign(result, IRLiteral("NULL")),
+                    ]
+                ),
+            )
+        )
+        statements.extend(releases)
+        if declaration.source_file.call_contract.nonnull_return:
+            statements.append(self._native_null_guard(result, f"Native call {declaration.name}: null result"))
+        statements.extend([*cleanup, IRReturn(result)])
 
     def _native_record_input(
         self,
@@ -649,10 +2176,37 @@ class FunctionLowerer:
             ],
         )
 
-    def emit_objective_c_global(self, declaration):
+    def emit_native_global(self, declaration):
         """Expose scalar storage; object reads cross ARC as independent owned values."""
+        if declaration.source_file.language == "c":
+            name = f"__btrc_native_read_{declaration.name}"
+            result_type = CType(text=self._types.render(declaration.type))
+            result_name = "__btrc_native_global_result"
+            while result_name == declaration.name:
+                result_name += "_"
+            result = IRVar(name=result_name)
+            statements = [
+                IRVarDecl(
+                    c_type=result_type,
+                    name=result.name,
+                    init=IRCast(target_type=result_type, expr=IRVar(name=declaration.name)),
+                )
+            ]
+            if not declaration.type.is_nullable:
+                statements.append(self._native_null_guard(result, f"Native global {declaration.name}: null result"))
+            statements.append(IRExprStmt(expr=self._lifetime.retain_value(result, declaration.type)))
+            statements.append(IRReturn(value=result))
+            self._session.module.function_decls.append(
+                IRFunctionDecl(name=name, return_type=result_type, params=[], is_static=True)
+            )
+            self._session.module.function_defs.append(
+                IRFunctionDef(
+                    name=name, return_type=result_type, params=[], is_static=True, body=IRBlock(stmts=statements)
+                )
+            )
+            return
         native = self._objective_c_unit(declaration)
-        if declaration.name in self._analyzed.native_object_globals:
+        if declaration.name in self._analyzed.native_owned_globals:
             self._emit_objective_c_object_global(declaration, native)
             return
         name = f"__btrc_objc_address_{declaration.name}"
@@ -749,7 +2303,7 @@ class FunctionLowerer:
         module = self._session.module
         native = self._objective_c_unit(declaration)
         for info in self._analyzed.class_table.values():
-            if not info.native_language:
+            if info.native_language != "objective-c":
                 continue
             forward = IRStructForward(name=f"__btrc_native_{info.name}")
             if forward not in native.struct_forwards:
@@ -765,6 +2319,10 @@ class FunctionLowerer:
                 self._emit_stored_objective_c_adapter(declaration, method, contract, native)
                 continue
             descriptor = contract.objective_c_method
+            initializer = (
+                descriptor.method_family == "init" and not descriptor.class_method and descriptor.related_result
+            )
+            class_factory = descriptor.class_method or initializer
             callbacks = {callback.parameter_index: callback for callback in contract.callbacks}
             name = f"{declaration.name}_{method.name}"
             adapter = f"__btrc_objc_{name}"
@@ -784,7 +2342,9 @@ class FunctionLowerer:
                 else:
                     native_arguments.append(self._objective_c_value(parameter.type, argument, to_native=True))
             receiver = IRVar(name=declaration.name)
-            if not descriptor.class_method:
+            if initializer:
+                receiver = IRObjectiveCMessage(receiver, "alloc", [])
+            if not class_factory:
                 parameters.insert(
                     0, IRParam(c_type=CType(text=f"struct __btrc_native_{declaration.name}*"), name="self")
                 )
@@ -796,7 +2356,7 @@ class FunctionLowerer:
                 )
             result = IRVar(name="nativeResult")
             returns_value = result_type.text != "void"
-            offset = int(not descriptor.class_method)
+            offset = int(not class_factory)
             adapter_parameters = []
             for index, parameter in enumerate(parameters):
                 callback = callbacks.get(index - offset)
@@ -901,7 +2461,7 @@ class FunctionLowerer:
                 for index, parameter in enumerate(method.params)
                 if index in callbacks or (parameter.type.pointer_depth > 0 and not parameter.type.is_nullable)
             ]
-            if not descriptor.class_method:
+            if not class_factory:
                 required.insert(0, "self")
             for parameter in required:
                 statements.append(
@@ -910,7 +2470,7 @@ class FunctionLowerer:
                     )
                 )
             argument_types = [parameter.type for parameter in method.params]
-            if not descriptor.class_method:
+            if not class_factory:
                 argument_types.insert(0, TypeExpr(base=declaration.name, pointer_depth=1))
             leases = [
                 index
@@ -1101,7 +2661,8 @@ class FunctionLowerer:
     def _stored_context_invoker(self, prefix, callback, context_type, context_symbol, consume_native_claim=False):
         value_types = self._native_callback_types(callback)
         string_arguments = dict(callback.string_arguments)
-        result_type = CType(self._types.render(callback.return_type))
+        result_value_type = self._native_callback_result(callback)
+        result_type = CType(self._types.render(result_value_type))
         returns_value = result_type.text != "void"
         parameters = [
             IRParam(
@@ -1137,7 +2698,13 @@ class FunctionLowerer:
             # A cancelled query has no valid default answer. Use the binding's
             # terminal failure boundary, rather than silently returning zero.
             body.append(self._objective_c_null_guard(receiver, f"Stored callback {prefix}: query after cancellation"))
-            body.append(IRVarDecl(result_type, "result", init=IRLiteral("0")))
+            result_slot = IRVarDecl(result_type, "result", init=IRLiteral("0"))
+            body.append(result_slot)
+            info = self._analyzed.class_table.get(callback.return_type.base)
+            if info is not None and info.native_language:
+                # The callback returns one ordinary managed claim. Unwinding
+                # releases it; normal return transfers it to the native block.
+                body.append(IRExprStmt(self._lifetime.register_cleanup_slot(result_slot, result_value_type)))
         payload_indices = [index for index in range(len(value_types)) if not callback.is_context(index)]
         argument_types = [value_types[index] for index in payload_indices]
         arguments = [IRVar(parameters[index].name) for index in payload_indices]
@@ -1585,7 +3152,7 @@ class FunctionLowerer:
         context_type = method.return_type
         context_symbol = self._types.render(context_type).removesuffix("*").strip()
         token_type = context_type.generic_args[1]
-        paired = bool(callback.unregister.signature.parameters)
+        paired = bool(callback.unregister.signature.parameters) and not callback.unregister.class_method
         native_token_type = token_type.generic_args[1] if paired else token_type
         native_token_c = CType(self._types.render(native_token_type))
         token_symbol = self._types.render(token_type).removesuffix("*").strip()
@@ -1608,7 +3175,7 @@ class FunctionLowerer:
             typedefs.append(
                 IRFunctionPointerTypedef(
                     invocation_type,
-                    CType(self._types.render(projection.return_type)),
+                    CType(self._types.render(self._native_callback_result(projection))),
                     [CType(self._types.render(value)) for value in value_types],
                 )
             )
@@ -1628,6 +3195,9 @@ class FunctionLowerer:
         unregister_parameters = [IRParam(native_token_c, token.name)]
         unregister_receiver = IRCast(self._objective_c_object_type(native_token_type.base), token, bridge="borrow")
         unregister_arguments = []
+        if callback.unregister.class_method:
+            unregister_arguments.append(unregister_receiver)
+            unregister_receiver = IRVar(callback.unregister.receiver)
         if paired:
             source_type = token_type.generic_args[0]
             unregister_parameters.insert(0, IRParam(CType(self._types.render(source_type)), "source"))
@@ -1764,7 +3334,15 @@ class FunctionLowerer:
                             [
                                 IRExprStmt(invocation)
                                 if self._types.render(callback.return_type) == "void"
-                                else IRReturn(IRCast(CType(callback.native_return), invocation)),
+                                else IRReturn(
+                                    IRCast(
+                                        CType(callback.native_return),
+                                        invocation,
+                                        bridge="transfer"
+                                        if self._analyzed.class_table.get(callback.return_type.base) is not None
+                                        else "",
+                                    )
+                                ),
                             ]
                         ),
                     )

@@ -282,11 +282,11 @@ class TranslationUnitLowerer:
             if isinstance(getattr(decl, "source_file", None), NativeHeaderSource):
                 if (
                     isinstance(decl, VarDeclStmt)
-                    and decl.source_file.language == "objective-c"
+                    and (decl.source_file.language == "objective-c" or decl.name in self._analyzed.native_owned_globals)
                     and decl.name not in emitted_globals
                 ):
                     if decl.initializer is None:
-                        self._functions.emit_objective_c_global(decl)
+                        self._functions.emit_native_global(decl)
                     else:
                         self._emit_global_var(decl)
                     emitted_globals.add(decl.name)

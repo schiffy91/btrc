@@ -47,6 +47,12 @@ class MacOSLevelIndicator implements ILevelIndicator, IMacOSView {
 
 	public bool isVisible() { return self._view.isVisible(); }
 
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._view.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._view.onScroll(handler, owner); }
+
+	public void cancelPointerCapture() { self._view.cancelPointerCapture(); }
+
 	public void setVisible(bool visible) { self._view.setVisible(visible); }
 
 	public CallbackCancellation pollClose() { return self._view.pollClose(); }
@@ -60,5 +66,5 @@ class MacOSLevelIndicator implements ILevelIndicator, IMacOSView {
 
 	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
 
-	public CallbackCancellation close() { self._view.close(); self._indicator = null; return CallbackCancellation.Complete; }
+	public CallbackCancellation close() { var state = self._view.close(); self._indicator = null; return state; }
 }

@@ -2,9 +2,9 @@
  *
  * A simple, dependency-light UI: build a frame of widgets each tick and read
  * back interactions. Surface owns pixels, resizing, fills and readback in
- * BTRC. The remaining C text/blending backend borrows a typed pixel view.
- * The optional GUI/Window.btrc presenter is a legacy standalone GLFW backend;
- * it must not be composed in one process with Library.App.
+ * BTRC, including scalable text drawn from owned font glyph snapshots.
+ * Native windows and controls use Library.GUI.GUI. Raster surfaces remain
+ * independent offscreen image buffers.
  *
  * NOT auto-included. Use: import Library.GUI.Raster;
  * Build:  make gui
@@ -16,6 +16,8 @@
  */
 
 import Library.OwnedBuffer;
+import Library.GUI.Font;
+import Library.GUI.FontFace;
 
 #include "GUI/Geometry.btrc"
 
@@ -137,8 +139,7 @@ class GUIRaster {
 		return (numerator + alphaNumerator / 2U) / alphaNumerator;
 	}
 
-	/* This static callback borrows only the caller's pixel view; no ARC,
-	 * allocation, retained context or asynchronous work crosses the C call. */
+	/* The pixel view is borrowed only for this synchronous raster operation. */
 	class void blendPixel(BtrcGuiPixels* pixels, int x, int y, unsigned int rgba) {
 		if (pixels == null || pixels->px == null || x < 0 || y < 0 || x >= pixels->w || y >= pixels->h) { return; }
 		size_t index = (size_t)y * (size_t)pixels->w + (size_t)x;
@@ -194,8 +195,6 @@ class GUIRaster {
 
 	class int textWidth(string text, int scale) {
 		if (text == null) { return 0; }
-		int nativeWidth = gui_font_width(text);
-		if (nativeWidth >= 0) { return nativeWidth; }
 		if (scale < 1) { scale = 1; }
 		int offset = 0;
 		int length = text.len();
@@ -209,9 +208,60 @@ class GUIRaster {
 		return current > maximum ? current : maximum;
 	}
 
-	class int textHeight(int scale) {
-		int nativeHeight = gui_font_height();
-		return nativeHeight >= 0 ? nativeHeight : GUIInt.clamp(8LL * (long long)(scale < 1 ? 1 : scale));
+	class int textHeight(int scale) { return GUIInt.clamp(8LL * (long long)(scale < 1 ? 1 : scale)); }
+
+	class long long signedAdvance(long long position, long long distance) {
+		if (distance > 0LL && position > 9223372036854775807LL - distance) { return 9223372036854775807LL; }
+		if (distance < 0LL && position < (-9223372036854775807LL - 1LL) - distance) { return -9223372036854775807LL - 1LL; }
+		return position + distance;
+	}
+
+	class int fontPixels(long long fixed26_6) { return GUIInt.clamp(fixed26_6 / 64LL); }
+
+	class int fontWidth(Font font, string text) {
+		if (text == null) { return 0; }
+		int offset = 0;
+		int length = text.len();
+		int current = 0;
+		int maximum = 0;
+		while (offset < length) {
+			int codepoint = GUIRaster.nextCodepoint(text, length, &offset);
+			if (codepoint == 10) { if (current > maximum) { maximum = current; } current = 0; continue; }
+			var glyph = font.glyph(codepoint, false);
+			if (glyph == null) { continue; }
+			int advance = GUIRaster.fontPixels(glyph.advanceX26_6());
+			if (advance > 0) { current = GUIInt.clamp((long long)current + (long long)advance); }
+		}
+		return current > maximum ? current : maximum;
+	}
+
+	class void fontText(BtrcGuiPixels* pixels, Font font, int x, int y, string text, unsigned int rgba) {
+		var metrics = font.metrics();
+		long long penX = (long long)x;
+		long long baseline = GUIRaster.signedAdvance((long long)y, (long long)GUIRaster.fontPixels(metrics.ascender26_6()));
+		int lineHeight = GUIRaster.fontPixels(metrics.height26_6());
+		int offset = 0;
+		int length = text.len();
+		while (offset < length) {
+			int codepoint = GUIRaster.nextCodepoint(text, length, &offset);
+			if (codepoint == 10) { penX = (long long)x; baseline = GUIRaster.signedAdvance(baseline, (long long)lineHeight); continue; }
+			var glyph = font.glyph(codepoint, true);
+			if (glyph == null) { continue; }
+			if (glyph.pixelMode() != FONT_PIXEL_UNSUPPORTED) {
+				for (int row = 0; row < glyph.rows(); row++) {
+					for (int column = 0; column < glyph.width(); column++) {
+						int coverage = glyph.coverage(row, column);
+						if (coverage == 0) { continue; }
+						long long px = GUIRaster.signedAdvance(GUIRaster.signedAdvance(penX, (long long)glyph.bitmapLeft()), (long long)column);
+						long long py = GUIRaster.signedAdvance(GUIRaster.signedAdvance(baseline, -(long long)glyph.bitmapTop()), (long long)row);
+						if (px < -2147483648LL || px > 2147483647LL || py < -2147483648LL || py > 2147483647LL) { continue; }
+						unsigned int alpha = ((rgba & 255U) * (unsigned int)coverage + 127U) / 255U;
+						GUIRaster.blendPixel(pixels, (int)px, (int)py, (rgba & 4294967040U) | alpha);
+					}
+				}
+			}
+			penX = GUIRaster.signedAdvance(penX, (long long)GUIRaster.fontPixels(glyph.advanceX26_6()));
+		}
 	}
 }
 
@@ -219,11 +269,13 @@ class Surface {
 	private OwnedBuffer<unsigned int>? storage;
 	private int pixelWidth;
 	private int pixelHeight;
+	private Font? selectedFont;
 
 	public Surface(int width, int height) {
 		self.storage = null;
 		self.pixelWidth = 0;
 		self.pixelHeight = 0;
+		self.selectedFont = null;
 		self.resize(width, height);
 	}
 
@@ -232,6 +284,22 @@ class Surface {
 	public int width() { return self.pixelWidth; }
 
 	public int height() { return self.pixelHeight; }
+
+	/* Null explicitly selects the built-in bitmap font. Like pixel mutation,
+	 * selection changes belong to this surface's synchronous owner. */
+	public void setFont(Font? font) { self.selectedFont = font; }
+
+	public int textWidth(string text, int scale = 1) {
+		var font = self.selectedFont;
+		return font == null ? GUIRaster.textWidth(text, scale) : GUIRaster.fontWidth(font, text);
+	}
+
+	public int textHeight(int scale = 1) {
+		var font = self.selectedFont;
+		if (font == null) { return GUIRaster.textHeight(scale); }
+		int height = GUIRaster.fontPixels(font.metrics().height26_6());
+		return height > 0 ? height : 0;
+	}
 
 	/* Synchronous native consumers borrow pixels only until their call returns.
 	 * Resizing replaces storage; callers must never retain this address. */
@@ -292,7 +360,9 @@ class Surface {
 		view.px = self.pixels();
 		if (text == null) { return; }
 		unsigned int rgba = color.packed();
-		if (!gui_draw_font(&view, x, y, text, rgba, GUIRaster.blendPixel)) { GUIRaster.bitmapText(&view, x, y, text, rgba, scale); }
+		var font = self.selectedFont;
+		if (font == null) { GUIRaster.bitmapText(&view, x, y, text, rgba, scale); }
+		else { GUIRaster.fontText(&view, font, x, y, text, rgba); }
 	}
 
 	public unsigned int pixel(int x, int y) {
@@ -412,21 +482,21 @@ class RasterGUI {
 
 	public void label(string text) {
 		self.surface.text(self.cursorX, GUIInt.add(self.cursorY, 4), text, self.theme.text, self.scale);
-		self.cursorY = GUIInt.add(GUIInt.add(self.cursorY, GUIRaster.textHeight(self.scale)), self.gap);
+		self.cursorY = GUIInt.add(GUIInt.add(self.cursorY, self.surface.textHeight(self.scale)), self.gap);
 	}
 
 	public void heading(string text) {
 		int headingScale = GUIInt.add(self.scale, 1);
 		self.surface.text(self.cursorX, self.cursorY, text, self.theme.accent, headingScale);
-		self.cursorY = GUIInt.add(GUIInt.add(self.cursorY, GUIRaster.textHeight(headingScale)), self.gap);
+		self.cursorY = GUIInt.add(GUIInt.add(self.cursorY, self.surface.textHeight(headingScale)), self.gap);
 	}
 
 	public void spacer(int px) { self.cursorY = GUIInt.add(self.cursorY, px); }
 
 	/* A clickable button. Returns true on the frame it is clicked. */
 	public bool button(string text) {
-		int th = GUIRaster.textHeight(self.scale);
-		int tw = GUIRaster.textWidth(text, self.scale);
+		int th = self.surface.textHeight(self.scale);
+		int tw = self.surface.textWidth(text, self.scale);
 		int w = GUIInt.add(tw, 20);
 		int h = GUIInt.add(th, 12);
 		int x = self.cursorX;
@@ -449,10 +519,10 @@ class RasterGUI {
 
 	/* A checkbox. Returns the (possibly toggled) value for this frame. */
 	public bool checkbox(string text, bool value) {
-		int box = GUIRaster.textHeight(self.scale);
+		int box = self.surface.textHeight(self.scale);
 		int x = self.cursorX;
 		int y = self.cursorY;
-		int w = GUIInt.add(GUIInt.add(box, 8), GUIRaster.textWidth(text, self.scale));
+		int w = GUIInt.add(GUIInt.add(box, 8), self.surface.textWidth(text, self.scale));
 		bool hovered = self.hit(x, y, w, box);
 		bool nv = value;
 		if (hovered && self.input.mousePressed) { nv = !value; }

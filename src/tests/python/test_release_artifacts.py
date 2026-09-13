@@ -126,8 +126,6 @@ fi
     ("source_name", "phase", "stem", "succeeds"),
     (
         ("btrc_gui.c", "compile", "btrc_gui", False),
-        ("btrc_gui_window.c", "probe", "btrc_gui_window", True),
-        ("btrc_gui_window.c", "compile", "btrc_gui_window", False),
         ("btrc_gui_font.c", "probe", "btrc_gui_font", True),
         ("btrc_gui_font.c", "compile", "btrc_gui_font", False),
     ),

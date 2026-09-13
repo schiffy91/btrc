@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -18,11 +19,13 @@ STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.wh
 
 
 def _compile(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=120)
+    environment = {key: value for key, value in os.environ.items() if key not in {"SDKROOT", "DEVELOPER_DIR"}}
+    return subprocess.run(command, cwd=cwd, env=environment, capture_output=True, text=True, timeout=120)
 
 
 @pytest.mark.skipif(not STRICT_COMPILERS, reason="requires GCC or Clang")
-def test_audio_device_contract_runs_with_both_frontends(semantic_btrcc: Path, tmp_path: Path) -> None:
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_audio_device_contract_runs_with_both_frontends(semantic_btrcc: Path, tmp_path: Path, sanitized: bool) -> None:
     generated = {
         "reference": tmp_path / "AudioDeviceReference.c",
         "selfhost": tmp_path / "AudioDeviceSelfhost.c",
@@ -45,8 +48,9 @@ def test_audio_device_contract_runs_with_both_frontends(semantic_btrcc: Path, tm
     assert selfhost.returncode == 0, selfhost.stderr
     generated["selfhost"].write_text(selfhost.stdout)
 
+    compilers = ("/usr/bin/clang",) if sanitized and sys.platform == "darwin" else STRICT_COMPILERS
     for frontend, source in generated.items():
-        for compiler in STRICT_COMPILERS:
+        for compiler in compilers:
             executable = tmp_path / f"AudioDevice-{frontend}-{Path(compiler).name}"
             built = _compile(
                 [
@@ -57,6 +61,11 @@ def test_audio_device_contract_runs_with_both_frontends(semantic_btrcc: Path, tm
                     "-Wextra",
                     "-Werror",
                     "-O2",
+                    *(
+                        ["-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-fno-sanitize-recover=all"]
+                        if sanitized
+                        else []
+                    ),
                     str(source),
                     "-pthread",
                     "-lm",
@@ -86,4 +95,7 @@ def test_audio_device_contract_keeps_negotiation_and_barrier_explicit() -> None:
     assert "RealtimeAudioFormat _outputFormat" in source
     assert "public AudioDeviceOperationOutcome suspend()" in source
     assert "public AudioDeviceOperationOutcome drain()" in source
-    assert source.index("self._state = DUPLEX_AUDIO_SESSION_DRAINED") < source.index("self._dispose(self._backend)")
+    assert "interface AudioSessionBackend" in source
+    assert "private AudioSessionBackend? _backend;" in source
+    assert "AudioDeviceSessionDispose" not in source
+    assert source.index("self._state = DUPLEX_AUDIO_SESSION_DRAINED") < source.index("self._backend = null")

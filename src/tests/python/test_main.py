@@ -545,7 +545,7 @@ def test_native_adapters_remain_explicit_stdlib_modules():
         "BackgroundJobs.btrc",
         "LocalApplicationChannel.btrc",
         "NativeUI.btrc",
-        "NativeUIApp.btrc",
+        "SystemImageDecoder.btrc",
     )
     discovered = STDLIB.discover_files()
     relaxed = STDLIB.relaxed_composition_files()
@@ -559,6 +559,8 @@ def test_native_adapters_remain_explicit_stdlib_modules():
     assert "class BackgroundJobExecutor" not in source
     assert "class NativeUIElement" not in source
     assert "class NativeUIAppSession" not in source
+    assert "class SystemImageDecoder" not in source
+    assert "SystemImageProvider" not in source
 
 
 def test_get_stdlib_source_skips_redefined():

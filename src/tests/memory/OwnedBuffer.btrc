@@ -9,6 +9,11 @@ struct OwnedBufferCallbackContext {
 	Atomic<uint>* counters;
 };
 
+struct OwnedBufferFixedArray {
+	struct OwnedBufferPoint points[2];
+	unsigned char bytes[3];
+};
+
 @realtime uint ownedBufferReadCounter(void* opaque) {
 	struct OwnedBufferCallbackContext* context = (struct OwnedBufferCallbackContext*)opaque;
 	return context->counters[0].load(MemoryOrder.ACQUIRE);
@@ -71,6 +76,15 @@ int main() {
 	if (readPoint.x != 11 || readPoint.y != 2.5f) {
 		return 13;
 	}
+	var fixedArrays = new OwnedBuffer<struct OwnedBufferFixedArray>((size_t)2);
+	if (!fixedArrays.opened()) { return 20; }
+	var fixedBorrow = fixedArrays.borrow();
+	fixedBorrow[0].points[1].x = 37;
+	fixedBorrow[0].bytes[2] = 129;
+	if (!fixedArrays.tryCopyFromBuffer((size_t)1, fixedArrays, (size_t)0, (size_t)1)) { return 21; }
+	var fixedCopy = fixedArrays.get((size_t)1);
+	if (fixedCopy.points[1].x != 37 || fixedCopy.points[0].x != 0 || fixedCopy.bytes[2] != 129) { return 22; }
+	fixedArrays.close();
 
 	OwnedBuffer<float> copiedSamples = OwnedBuffer((size_t)3);
 	if (!copiedSamples.opened() || !copiedSamples.tryCopyFromBuffer((size_t)0, samples, (size_t)1, (size_t)3) || copiedSamples.get((size_t)0) != 1.0f || copiedSamples.get((size_t)1) != 7.0f || copiedSamples.get((size_t)2) != 3.0f) {

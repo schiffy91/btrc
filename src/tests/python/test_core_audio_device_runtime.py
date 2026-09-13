@@ -124,7 +124,7 @@ def test_core_audio_provider_on_both_frontends(compiler: str, tmp_path: Path, re
         (
             "CoreAudioPendingSession.btrc",
             "HardwareFaults",
-            "PASS: CoreAudio provider retains partial sessions until cleanup succeeds",
+            "PASS: CoreAudio provider retains sessions until retryable cleanup succeeds",
         ),
     ],
 )
@@ -177,3 +177,36 @@ def test_core_audio_inventory_sdk_failures(
     ran = subprocess.run([str(executable)], env=environment, capture_output=True, text=True, timeout=RUN_TIMEOUT)
     assert ran.returncode == 0, ran.stderr
     assert ran.stdout == expected + "\n"
+    if fixture_name == "CoreAudioUnitConformance.btrc":
+        for phase, marker, failure in (
+            (
+                1,
+                "install attempted only after successful initialization",
+                "Realtime callback activation failed with indeterminate publication",
+            ),
+            (
+                2,
+                "failed stop retains lease and silences late entry without retry",
+                "CoreAudio teardown is indeterminate",
+            ),
+        ):
+            terminal = subprocess.run(
+                [str(executable), str(phase)], env=environment, capture_output=True, text=True, timeout=RUN_TIMEOUT
+            )
+            assert terminal.returncode != 0
+            assert marker in terminal.stderr and failure in terminal.stderr, terminal.stderr
+            assert "Assertion failed" not in terminal.stderr and "ERROR: AddressSanitizer" not in terminal.stderr
+    if fixture_name == "CoreAudioPendingSession.btrc":
+        # SDK failure can leave the instance alive or already consumed. Neither
+        # permits another disposal attempt without a documented lifetime claim.
+        for phase in (1, 2, 3):
+            terminal = subprocess.run(
+                [str(executable), str(phase)], env=environment, capture_output=True, text=True, timeout=RUN_TIMEOUT
+            )
+            assert terminal.returncode != 0, terminal.stdout
+            assert "retains dependencies without retry" in terminal.stderr, terminal.stderr
+            assert "Assertion failed" not in terminal.stderr and "ERROR: AddressSanitizer" not in terminal.stderr
+            assert (
+                "CoreAudio provider destroyed before its sessions closed" in terminal.stderr
+                or "audio session could not close during destruction" in terminal.stderr
+            ), terminal.stderr

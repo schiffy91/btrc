@@ -502,7 +502,7 @@ def test_array_kernel_may_write_inferred_global_and_static_backing(
     frontend: str,
 ) -> None:
     source = (
-        "#include <btrc_gpu.h>\n"
+        "#include <btrc_gpu_compute_internal.h>\n"
         "class Outputs { class int[] values = {0, 0}; } "
         "int global_values[] = {0, 0}; "
         "@gpu int[] doubled(int[] values) { int i = gpu_id(); "
@@ -565,7 +565,7 @@ def test_gpu_fixed_struct_and_static_array_inputs_keep_physical_capacity(
     frontend: str,
 ) -> None:
     source = (
-        "#include <btrc_gpu.h>\n"
+        "#include <btrc_gpu_compute_internal.h>\n"
         "class StaticInput { class int[] values = {1, 2}; } "
         "struct StructInput { int values[2]; }; "
         "@gpu int[] doubled(int[] values) { int i = gpu_id(); "
@@ -593,7 +593,7 @@ def test_array_kernel_may_write_complete_global_and_block_extern_arrays(
     frontend: str,
 ) -> None:
     source = (
-        "#include <btrc_gpu.h>\n"
+        "#include <btrc_gpu_compute_internal.h>\n"
         "extern int global_output[2]; "
         "@gpu int[] doubled(int[] values) { int i = gpu_id(); "
         "return values[i] * 2; } int main() { "
@@ -626,7 +626,7 @@ def test_gpu_heap_collection_input_is_evaluated_once_and_passes_data_length(
     frontend: str,
 ) -> None:
     source = (
-        "#include <btrc_gpu.h>\n"
+        "#include <btrc_gpu_compute_internal.h>\n"
         "class Vector<T> { public T* data; public int len; "
         "public Vector(T* data, int len) { self.data = data; self.len = len; } } "
         "int calls = 0; Vector<int> acquire(Vector<int> value) { "
@@ -886,7 +886,7 @@ def test_type_named_parameters_cross_gpu_host_and_cpu_paths(
     frontend: str,
 ) -> None:
     source = """
-        #include <btrc_gpu.h>
+        #include <btrc_gpu_compute_internal.h>
 
         class values {}
         class scale {}

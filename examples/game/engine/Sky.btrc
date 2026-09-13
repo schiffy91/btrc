@@ -1,3 +1,5 @@
+import Library.GPU.UniformBuffer;
+
 /* btrc 3D Engine -- Sky
  *
  * Sky gradient and fog atmosphere.
@@ -23,7 +25,7 @@ class Sky {
 		self.fogDensity = 0.06;
 	}
 
-	public void writeUniforms(GPUUniform u, int offset) {
+	public void writeUniforms(GPUUniformBuffer u, int offset) {
 		u.set(offset + 0, self.topR);
 		u.set(offset + 1, self.topG);
 		u.set(offset + 2, self.topB);

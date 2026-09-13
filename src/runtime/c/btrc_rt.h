@@ -49,7 +49,7 @@
 #endif
 #ifdef BTRC_RT_NEEDS_GPU
 #ifndef BTRC_RT_GPU_HEADER
-#define BTRC_RT_GPU_HEADER <btrc_gpu.h>
+#define BTRC_RT_GPU_HEADER <btrc_gpu_compute_internal.h>
 #endif
 #include BTRC_RT_GPU_HEADER
 #endif
@@ -60,18 +60,8 @@
 #ifndef BTRC_RT_GUI_FONT_HEADER
 #define BTRC_RT_GUI_FONT_HEADER <btrc_gui_font.h>
 #endif
-#ifndef BTRC_RT_GUI_WINDOW_HEADER
-#define BTRC_RT_GUI_WINDOW_HEADER <btrc_gui_window.h>
-#endif
 #include BTRC_RT_GUI_HEADER
 #include BTRC_RT_GUI_FONT_HEADER
-#include BTRC_RT_GUI_WINDOW_HEADER
-#endif
-#ifdef BTRC_RT_NEEDS_TRAY
-#ifndef BTRC_RT_TRAY_HEADER
-#define BTRC_RT_TRAY_HEADER <btrc_tray.h>
-#endif
-#include BTRC_RT_TRAY_HEADER
 #endif
 
 #else
@@ -184,12 +174,6 @@ double fabs(double);
 #error "GUI freestanding builds require BTRC_RT_GUI_HEADER"
 #endif
 #include BTRC_RT_GUI_HEADER
-#endif
-#ifdef BTRC_RT_NEEDS_TRAY
-#ifndef BTRC_RT_TRAY_HEADER
-#error "tray freestanding builds require BTRC_RT_TRAY_HEADER"
-#endif
-#include BTRC_RT_TRAY_HEADER
 #endif
 
 #ifdef BTRC_FREESTANDING_IMPL

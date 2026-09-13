@@ -25,7 +25,7 @@
             ps.build ps.setuptools
             ps.pytest ps.pytest-xdist ps.pytest-cov ps.pygls ps.lsprotocol
           ]))
-            ruff gcc clang zig gnumake git jq gh nodejs_22 nixd wgpu-native glfw freetype
+            ruff gcc clang zig gnumake git jq gh nodejs_22 nixd wgpu-native freetype
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
             wayland.dev pkg-config dbus.dev   # native windowing and system-tray shims
@@ -96,23 +96,16 @@
             self.packages.${system}.btrc-format
             self.packages.${system}.btrc-lsp
           ];
-          APP_CFLAGS = "-DGLFW_INCLUDE_NONE -I${pkgs.glfw.dev}/include";
-          APP_LDFLAGS = "-L${pkgs.glfw}/lib -lglfw"
+          GPU_CFLAGS = "-I${pkgs.wgpu-native.dev}/include/webgpu";
+          GPU_LDFLAGS = "-L${pkgs.wgpu-native}/lib -lwgpu_native -pthread"
             + lib.optionalString isDarwin
-              " -framework Cocoa -framework IOKit -framework CoreVideo";
-          GPU_CFLAGS = "-DGLFW_INCLUDE_NONE -I${pkgs.wgpu-native.dev}/include/webgpu -I${pkgs.glfw.dev}/include"
-            + lib.optionalString pkgs.stdenv.hostPlatform.isLinux
-              " -I${pkgs.wayland.dev}/include";
-          GPU_LDFLAGS = "-L${pkgs.wgpu-native}/lib -lwgpu_native -L${pkgs.glfw}/lib -lglfw"
-            + lib.optionalString isDarwin
-              " -framework Metal -framework QuartzCore -framework Cocoa -framework IOKit -framework CoreVideo -framework CoreText -framework CoreGraphics -framework CoreFoundation";
+              " -framework Metal -framework QuartzCore -framework Foundation";
           FONT_CFLAGS = "-I${pkgs.freetype.dev}/include/freetype2";
           FONT_LDFLAGS = "-L${pkgs.freetype}/lib -lfreetype";
         } // nativeHeaderEnvironment pkgs);
       });
       packages = eachSystem (pkgs: let
         isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
-        isLinux = pkgs.stdenv.hostPlatform.isLinux;
         runtimePrefixes = [
           "src/compiler/python/"
           "src/devex/lsp/"
@@ -164,13 +157,8 @@
           files = [ "LICENSE" ];
           excludedPrefixes = [ ];
         };
-        appRuntimeSource = sourceSubset {
-          prefixes = [ "src/stdlib/App/" ];
-          excludedPrefixes = [ ];
-        };
         gpuRuntimeSource = sourceSubset {
           prefixes = [
-            "src/stdlib/App/"
             "src/stdlib/GPU/"
           ];
           excludedPrefixes = [ ];
@@ -256,114 +244,37 @@
             runHook postInstall
           '';
         };
-        appFrameworks = lib.optionalString isDarwin
-          " -framework Cocoa -framework IOKit -framework CoreVideo";
         gpuFrameworks = lib.optionalString isDarwin
-          " -framework Metal -framework QuartzCore -framework Cocoa -framework IOKit -framework CoreVideo -framework CoreText -framework CoreGraphics -framework CoreFoundation";
-        appCompileFlags = "-DGLFW_INCLUDE_NONE -I${pkgs.glfw.dev}/include";
-        gpuCompileFlags = appCompileFlags
-          + " -DBTRC_GPU_WGPU_NATIVE -I${pkgs.wgpu-native.dev}/include/webgpu"
-          + lib.optionalString isLinux
-            " -I${pkgs.libx11.dev}/include -I${pkgs.wayland.dev}/include";
-        appPkgConfig = pkgs.writeText "btrc-app.pc.in" ''
-          prefix=@out@
-          libdir=''${prefix}/lib
-          includedir=''${prefix}/include
-
-          Name: btrc-app
-          Description: BTRC application and window runtime
-          Version: 0
-          Cflags: -I''${includedir}
-          Libs: -L''${libdir} -lbtrc_app -L${pkgs.glfw}/lib -lglfw${appFrameworks}
-        '';
+          " -framework Metal -framework QuartzCore -framework Foundation";
+        gpuCompileFlags = "-DBTRC_GPU_WGPU_NATIVE -I${pkgs.wgpu-native.dev}/include/webgpu";
         gpuPkgConfig = pkgs.writeText "btrc-gpu.pc.in" ''
           prefix=@out@
           libdir=''${prefix}/lib
           includedir=''${prefix}/include
 
           Name: btrc-gpu
-          Description: BTRC application and WebGPU runtime
+          Description: BTRC compiler-only WebGPU compute runtime
           Version: 0
           Cflags: -I''${includedir}
-          Libs: -L''${libdir} -lbtrc_gpu -lbtrc_app -L${pkgs.wgpu-native}/lib -lwgpu_native -L${pkgs.glfw}/lib -lglfw${gpuFrameworks}
+          Libs: -L''${libdir} -lbtrc_gpu -L${pkgs.wgpu-native}/lib -lwgpu_native -pthread${gpuFrameworks}
         '';
-        btrcApp = pkgs.stdenv.mkDerivation {
-          pname = "btrc-app";
-          version = "0";
-          src = appRuntimeSource;
-          strictDeps = true;
-          propagatedBuildInputs = [ pkgs.glfw ];
-          buildPhase = ''
-            runHook preBuild
-            $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
-              -pthread ${appCompileFlags} -Isrc/stdlib/App \
-              -c src/stdlib/App/btrc_app.c -o btrc_app.o
-            ${if isDarwin then ''
-              $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
-                -x objective-c ${appCompileFlags} -Isrc/stdlib/App \
-                -c src/stdlib/App/btrc_app_window_macos.m -o btrc_app_window.o
-            '' else ''
-              $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
-                ${appCompileFlags} -Isrc/stdlib/App \
-                -c src/stdlib/App/btrc_app_window_stub.c -o btrc_app_window.o
-            ''}
-            $AR rcs libbtrc_app.a btrc_app.o btrc_app_window.o
-            runHook postBuild
-          '';
-          installPhase = ''
-            runHook preInstall
-            licenseRoot="$out/share/licenses/btrc"
-            mkdir -p \
-              "$out/include" \
-              "$out/lib/pkgconfig" \
-              "$licenseRoot/third-party/glfw"
-            install -m 0644 src/stdlib/App/btrc_app.h "$out/include/"
-            install -m 0644 libbtrc_app.a "$out/lib/"
-            install -m 0644 ${./LICENSE} "$licenseRoot/LICENSE"
-            install -m 0644 ${pkgs.glfw.src}/LICENSE.md \
-              "$licenseRoot/third-party/glfw/LICENSE.md"
-            substitute ${appPkgConfig} "$out/lib/pkgconfig/btrc-app.pc" \
-              --replace-fail @out@ "$out"
-            runHook postInstall
-          '';
-        };
         btrcGpu = pkgs.stdenv.mkDerivation {
           pname = "btrc-gpu";
           version = "0";
           src = gpuRuntimeSource;
           strictDeps = true;
-          buildInputs = [ btrcApp ];
-          propagatedBuildInputs = [
-            pkgs.glfw
-            pkgs.wgpu-native
-          ] ++ lib.optionals isLinux [
-            pkgs.libx11.dev
-            pkgs.libxrandr.dev
-            pkgs.wayland.dev
-          ];
+          propagatedBuildInputs = [ pkgs.wgpu-native ];
           buildPhase = ''
             runHook preBuild
             for source in \
               btrc_gpu.c \
-              btrc_gpu_async.c \
-              btrc_gpu_native_ui.c \
-              btrc_gpu_native_ui_text.c \
-              btrc_gpu_surface.c; do
+              btrc_gpu_async.c; do
               $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
                 -pthread ${gpuCompileFlags} \
-                -Isrc/stdlib/App -Isrc/stdlib/GPU \
+                -Isrc/stdlib/GPU \
                 -c "src/stdlib/GPU/$source" -o "''${source%.c}.o"
             done
-            objects="btrc_gpu.o btrc_gpu_async.o btrc_gpu_native_ui.o btrc_gpu_native_ui_text.o btrc_gpu_surface.o"
-            ${lib.optionalString isDarwin ''
-              $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
-                -x objective-c ${gpuCompileFlags} \
-                -Isrc/stdlib/App -Isrc/stdlib/GPU \
-                -c src/stdlib/GPU/btrc_gpu_surface_macos.m \
-                -o btrc_gpu_surface_macos.o
-              objects="$objects btrc_gpu_surface_macos.o"
-            ''}
-            $AR rcs libbtrc_gpu.a $objects
+            $AR rcs libbtrc_gpu.a btrc_gpu.o btrc_gpu_async.o
             runHook postBuild
           '';
           installPhase = ''
@@ -372,16 +283,11 @@
             mkdir -p \
               "$out/include" \
               "$out/lib/pkgconfig" \
-              "$licenseRoot/third-party/glfw" \
               "$licenseRoot/third-party/wgpu-native" \
               "$licenseRoot/third-party/webgpu-headers"
-            install -m 0644 src/stdlib/App/btrc_app.h "$out/include/"
-            install -m 0644 src/stdlib/GPU/btrc_gpu.h "$out/include/"
-            install -m 0644 ${btrcApp}/lib/libbtrc_app.a "$out/lib/"
+            install -m 0644 src/stdlib/GPU/btrc_gpu_compute_internal.h "$out/include/"
             install -m 0644 libbtrc_gpu.a "$out/lib/"
             install -m 0644 ${./LICENSE} "$licenseRoot/LICENSE"
-            install -m 0644 ${pkgs.glfw.src}/LICENSE.md \
-              "$licenseRoot/third-party/glfw/LICENSE.md"
             install -m 0644 ${pkgs.wgpu-native.src}/LICENSE.APACHE \
               "$licenseRoot/third-party/wgpu-native/LICENSE.APACHE"
             install -m 0644 ${pkgs.wgpu-native.src}/LICENSE.MIT \
@@ -491,7 +397,6 @@
         };
       in {
         inherit btrcpy btrcc btrc-format btrc-lsp btrc-vscode;
-        btrc-app = btrcApp;
         btrc-gpu = btrcGpu;
         btrc-native-plan = nativePlan;
         btrc-native-header = nativeHeaderReader;
@@ -526,14 +431,8 @@
           buildInputs = [ self.packages.${system}.btrc-gpu ];
         } ''
           pkg-config --validate btrc-gpu
-          appLicenseRoot=${self.packages.${system}.btrc-app}/share/licenses/btrc
           gpuLicenseRoot=${self.packages.${system}.btrc-gpu}/share/licenses/btrc
-          cmp ${./LICENSE} "$appLicenseRoot/LICENSE"
-          cmp ${pkgs.glfw.src}/LICENSE.md \
-            "$appLicenseRoot/third-party/glfw/LICENSE.md"
           cmp ${./LICENSE} "$gpuLicenseRoot/LICENSE"
-          cmp ${pkgs.glfw.src}/LICENSE.md \
-            "$gpuLicenseRoot/third-party/glfw/LICENSE.md"
           cmp ${pkgs.wgpu-native.src}/LICENSE.APACHE \
             "$gpuLicenseRoot/third-party/wgpu-native/LICENSE.APACHE"
           cmp ${pkgs.wgpu-native.src}/LICENSE.MIT \
@@ -541,18 +440,15 @@
           cmp ${pkgs.wgpu-native.src}/ffi/webgpu-headers/LICENSE \
             "$gpuLicenseRoot/third-party/webgpu-headers/LICENSE"
           printf '%s\n' \
-            '#include <btrc_app.h>' \
-            '#include <btrc_gpu.h>' \
-            '#include <string.h>' \
+            '#include <btrc_gpu_compute_internal.h>' \
             'int main(void) {' \
-            '  if (std_app_error_code(0) != BTRC_APP_ERROR_NONE) { return 1; }' \
-            '  return strcmp(std_gpu_status_message(BTRC_GPU_ATTACH_INVALID_SURFACE),' \
-            '    "invalid or stale application surface") != 0;' \
+            '  btrc_gpu_destroy(0);' \
+            '  return btrc_gpu_available() ? 1 : 0;' \
             '}' > smoke.c
           cc -std=c11 -pedantic-errors -Wall -Wextra -Werror \
             $(pkg-config --cflags btrc-gpu) smoke.c \
             $(pkg-config --libs btrc-gpu) -lm -pthread -o smoke
-          ./smoke
+          BTRC_NO_GPU=1 ./smoke
           mkdir -p "$out"
           cp smoke "$out/"
         '';

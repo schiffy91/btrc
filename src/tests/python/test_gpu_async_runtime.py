@@ -8,11 +8,10 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
-APP = ROOT / "src" / "stdlib" / "App"
 GPU = ROOT / "src" / "stdlib" / "GPU"
 ASYNC_FIXTURE = ROOT / "src" / "tests" / "native" / "gpu_async"
 PENDING_HARNESS = ROOT / "src" / "tests" / "native" / "gpu_pending_list.c"
-RUNTIME_SOURCES = ["btrc_gpu.c", "btrc_gpu_async.c", "btrc_gpu_surface.c"]
+RUNTIME_SOURCES = ["btrc_gpu.c", "btrc_gpu_async.c"]
 _COMPILE_TIMEOUT_SECONDS = 120
 _RUN_TIMEOUT_SECONDS = 90
 _TSAN_PROBE = """\
@@ -209,20 +208,19 @@ def test_gpu_archive_rule_asserts_runtime_membership() -> None:
     assert "GPU_BACKEND_CFLAGS ?= -DBTRC_GPU_WGPU_NATIVE" in makefile
     assert "GPU_THREAD_FLAGS ?= $(if $(filter Windows_NT,$(OS)),,-pthread)" in makefile
     assert "$(GPU_BACKEND_CFLAGS) $(GPU_THREAD_FLAGS) $(NATIVE_CFLAGS)" in makefile
-    assert "pthreads on POSIX hosts" in runtime
-    archive_cleanup = makefile.index('rm -f "$$O/libbtrc_gpu.a"')
-    dependency_probe = makefile.index("for source in btrc_gpu.c btrc_gpu_async.c btrc_gpu_surface.c")
+    assert "pthreads on POSIX" in runtime
+    archive_cleanup = makefile.index('rm -f "$$archive"')
+    dependency_probe = makefile.index("for source in btrc_gpu.c btrc_gpu_async.c")
     assert archive_cleanup < dependency_probe
     assert '-E "$$D/$$source" -o /dev/null' in makefile
-    assert '-E "$$D/btrc_gpu_surface_macos.m" -o /dev/null' in makefile
-    assert "btrc_gpu_native_ui.o $$O/btrc_gpu_native_ui_text.o" in makefile
-    assert "btrc_gpu_async.o $$O/btrc_gpu_surface.o" in makefile
+    assert '"$$O/btrc_gpu.o" "$$O/btrc_gpu_async.o"' in makefile
     assert r'grep -q "btrc_gpu_async\\.o$$"' in makefile
-    assert r'grep -q "btrc_gpu_native_ui_text\\.o$$"' in makefile
-    assert r'grep -q "btrc_gpu_surface\\.o$$"' in makefile
+    assert "GLFW" not in makefile
+    assert "btrc_gpu_surface" not in makefile
+    assert "btrc_gpu_native_ui" not in makefile
 
 
-@pytest.mark.parametrize("example", ["game", "triangle", "sgd"])
+@pytest.mark.parametrize("example", ["sgd"])
 def test_gpu_example_link_commands_include_platform_thread_flags(example: str) -> None:
     makefile = (ROOT / "examples" / example / "Makefile").read_text()
     assert "GPU_THREAD_FLAGS ?= $(if $(filter Windows_NT,$(OS)),,-pthread)" in makefile
@@ -230,16 +228,12 @@ def test_gpu_example_link_commands_include_platform_thread_flags(example: str) -
     assert "$(GPU_THREAD_FLAGS)" in link_flags
 
 
-def test_surface_bridge_has_windows_and_linux_implementations() -> None:
-    surface = (GPU / "btrc_gpu_surface.c").read_text()
-    assert "WGPUSType_SurfaceSourceWindowsHWND" in surface
-    assert "glfwGetWin32Window(window)" in surface
-    assert "WGPUSType_SurfaceSourceXlibWindow" in surface
-    assert "WGPUSType_SurfaceSourceWaylandSurface" in surface
-    assert "glfwGetWaylandDisplay()" in surface
-    assert "glfwGetWaylandWindow(window)" in surface
-    assert "platform == GLFW_PLATFORM_WAYLAND" in surface
-    assert "#error" not in surface
+def test_compute_runtime_has_no_window_or_rendering_dependency() -> None:
+    runtime = (GPU / "btrc_gpu.c").read_text()
+    for obsolete in ("GLFW/", "btrc_app", "std_gpu_", "WGPUSurface", "WGPURenderPipeline"):
+        assert obsolete not in runtime
+    for removed in ("btrc_gpu.h", "btrc_gpu_surface.c", "btrc_gpu_native_ui.c"):
+        assert not (GPU / removed).exists()
 
 
 @pytest.mark.parametrize("c_compiler", ["gcc", "clang"])
@@ -255,7 +249,7 @@ def test_gpu_runtime_core_compiles_strict_c11(
 ) -> None:
     cflags = os.environ.get("GPU_CFLAGS")
     if not cflags:
-        pytest.skip("WebGPU/GLFW build flags are unavailable")
+        pytest.skip("WebGPU build flags are unavailable")
     if not shutil.which(c_compiler):
         pytest.skip(f"{c_compiler} is unavailable")
     for source in RUNTIME_SOURCES:
@@ -267,7 +261,6 @@ def test_gpu_runtime_core_compiles_strict_c11(
                 *shlex.split(cflags),
                 *backend_flags,
                 f"-I{GPU}",
-                f"-I{APP}",
                 "-O2",
                 "-c",
             ],
@@ -282,7 +275,7 @@ def test_gpu_runtime_cross_compiles_for_windows(tmp_path: Path, backend: str, ba
     cflags = os.environ.get("GPU_CFLAGS")
     zig = shutil.which("zig")
     if not cflags or not zig:
-        pytest.skip("Zig or WebGPU/GLFW build flags are unavailable")
+        pytest.skip("Zig or WebGPU build flags are unavailable")
     for source in RUNTIME_SOURCES:
         _compile_strict_c11(
             zig,
@@ -295,7 +288,6 @@ def test_gpu_runtime_cross_compiles_for_windows(tmp_path: Path, backend: str, ba
                 *shlex.split(cflags),
                 *backend_flags,
                 f"-I{GPU}",
-                f"-I{APP}",
                 "-c",
             ],
         )

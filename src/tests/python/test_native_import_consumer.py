@@ -509,7 +509,7 @@ int main() { exercise(); assert(destroyed == 1); return 0; }
         (scenario, "void")
         for scenario in ("lifecycle", "throw", "wrong-thread", "unregister-throw", "activation-nil", "activation-throw")
     ]
-    + [("lifecycle", result) for result in ("bool", "int", "double", "enum", "void-alias")]
+    + [("lifecycle", result) for result in ("bool", "int", "double", "enum", "void-alias", "object")]
     + [(scenario, "bool") for scenario in ("throw", "wrong-thread", "late-query")],
 )
 @pytest.mark.parametrize("cancellation_owner", ["token", "source"])
@@ -519,7 +519,49 @@ def test_stored_objective_c_callback_binding(
     source = stored_objective_c_project
     root = source.parent.parent
     native_result = "void"
-    if result_kind == "void-alias":
+    if result_kind == "object":
+        native_result = "NativeReturn* _Nonnull"
+        for path in (root / "Foundation.h", root / "Probe.m"):
+            contents = path.read_text().replace("void (^", native_result + " (^")
+            contents = contents.replace(
+                "callback(1);",
+                "@autoreleasepool { NativeReturn *returned = callback(1); assert(returned && [returned value] == 1); } assert([NativeReturn live] == 0);",
+            )
+            contents = contents.replace(
+                "delivery(value);",
+                "@autoreleasepool { NativeReturn *returned = delivery(value); assert(returned && [returned value] == value); } assert([NativeReturn live] == 0);",
+            )
+            path.write_text(contents)
+        header = root / "Foundation.h"
+        header.write_text(
+            header.read_text().replace(
+                "@interface NativeSubscription",
+                "@interface NativeReturn : NSObject { int number; }\n"
+                "+ (instancetype _Nonnull)newValue:(int)value;\n+ (int)live;\n- (int)value;\n@end\n"
+                "@interface NativeSubscription",
+            )
+        )
+        native = root / "Probe.m"
+        native.write_text(
+            native.read_text().replace(
+                "@implementation NativeSubscription",
+                "static int returnedObjects;\n@implementation NativeReturn\n"
+                "+ (instancetype)newValue:(int)value { NativeReturn *result = [self new]; result->number = value; returnedObjects++; return result; }\n"
+                "+ (int)live { return returnedObjects; }\n- (int)value { return number; }\n"
+                "- (void)dealloc { returnedObjects--; [super dealloc]; }\n@end\n"
+                "@implementation NativeSubscription",
+            )
+        )
+        manifest = root / "btrc.toml"
+        manifest.write_text(manifest.read_text().replace("symbols = [", 'symbols = ["+[NativeReturn newValue:]", '))
+        source.write_text(
+            source.read_text()
+            .replace("public void invoke(int value)", "public NativeReturn invoke(int value)")
+            .replace(
+                "\n\t}\n\tpublic void __del__", "\n\t\treturn NativeReturn.newValue(value);\n\t}\n\tpublic void __del__"
+            )
+        )
+    elif result_kind == "void-alias":
         native_result = "NativeVoid"
         for path in (root / "Foundation.h", root / "Probe.m"):
             path.write_text(path.read_text().replace("void (^", "NativeVoid (^"))
@@ -724,7 +766,7 @@ def test_stored_objective_c_activation_policy_conflict(stored_objective_c_projec
         (
             "Foundation.h",
             "(void (^ _Nonnull)(int))callback",
-            "(NSObject* (^ _Nonnull)(int))callback",
+            "(char* (^ _Nonnull)(int))callback",
             "non-scalar results require an ownership mapping",
         ),
         ("Foundation.h", "instancetype _Nullable", "NSObject * _Nullable", "unregister receiver"),
@@ -1483,7 +1525,7 @@ def test_objective_c_block_invalid_mapping(objective_c_block_project, native_com
         ("NSInteger (^)(id<NSCopying>)", "protocol/generic/dynamic objects require managed native lowering"),
         ("NSInteger (^)(NSArray<NSString*>*)", "protocol/generic/dynamic objects require managed native lowering"),
         ("NSInteger (^)(NSString* volatile)", "unsupported Objective-C object qualifiers"),
-        ("NSString* (^)(NSInteger)", "non-scalar results require an ownership mapping"),
+        ("NSString* (^)(NSInteger)", "object callback results require a stored Objective-C block"),
         ("NSInteger (*)(NSInteger)", "Objective-C method callbacks require block parameters"),
         ("NSInteger (^ volatile)(NSInteger)", "unsupported Objective-C block qualifiers"),
     ],
@@ -2618,9 +2660,9 @@ def test_record_input_rejects_unmanaged_resource_storage(resource_project, nativ
         text += '\n[native.bindings.object-fields]\n"Config.widget" = "WidgetRef?"\n'
     manifest.write_text(text)
     body = (
-        "Config config = {0}; WidgetRef? widget = config.widget;"
+        "Config config = {}; WidgetRef? widget = config.widget;"
         if scenario == "raw-read"
-        else "Config config = {0}; config.widget = WidgetCreate(17);"
+        else "Config config = {}; config.widget = WidgetCreate(17);"
         if scenario == "raw-write"
         else ""
     )
@@ -2843,8 +2885,16 @@ SOURCE_INITIALIZATION
 
 
 @pytest.mark.parametrize("sanitized", [False, True])
-def test_managed_c_resource_lifetime(resource_project, native_compile, sanitized):
+@pytest.mark.parametrize("consumed_release", [False, True])
+def test_managed_c_resource_lifetime(resource_project, native_compile, sanitized, consumed_release):
     source, sdk, triple = resource_project
+    if consumed_release:
+        header = source.parent.parent / "Foundation.h"
+        header.write_text(
+            header.read_text().replace(
+                "WidgetRelease(WidgetRef widget)", "WidgetRelease(WidgetRef __attribute__((cf_consumed)) widget)"
+            )
+        )
     source.write_text(
         """import ./Foundation.btrc;
 #include <assert.h>
@@ -2925,6 +2975,7 @@ def test_managed_c_resource_rejects_unchecked_ownership(resource_project, native
         ("non-resource-result", "non-resource"),
         ("wrong-retain", "incompatible lifetime parameter"),
         ("wrong-release", "unsupported lifetime result"),
+        ("consuming-retain", "conflicting lifetime ownership"),
         ("contradictory-result", "contradicts owned ownership"),
         ("out-parameter", "checked managed call boundary"),
         ("callback", "checked managed call boundary"),
@@ -2955,6 +3006,10 @@ def test_managed_c_resource_validates_sdk_contract(resource_project, native_comp
     elif mutation == "wrong-release":
         header += "static inline int WrongRelease(WidgetRef value) { (void)value; return 0; }\n"
         manifest = manifest.replace('"WidgetRelease"', '"WrongRelease"')
+    elif mutation == "consuming-retain":
+        header = header.replace(
+            "WidgetRetain(WidgetRef widget)", "WidgetRetain(WidgetRef __attribute__((cf_consumed)) widget)"
+        )
     elif mutation == "contradictory-result":
         header = header.replace(
             "static inline WidgetRef WidgetCreate(int value)",
@@ -2999,6 +3054,772 @@ def test_core_foundation_managed_resource(native_project, native_compile, saniti
     compiled = native_compile(source)
     assert compiled.successful, (compiled.failure, compiled.diagnostics)
     run_native_executable(compiled.c_source, root, sdk, triple, sanitized)
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.parametrize("indirect", [False, True])
+def test_borrowed_resource_result_lifetime(resource_project, native_compile, sanitized, indirect):
+    source, sdk, triple = resource_project
+    root = source.parent.parent
+    header = root / "Foundation.h"
+    header.write_text(
+        header.read_text()
+        + """
+static void (*borrowedHook)(void);
+static void InstallHook(void (*hook)(void)) { borrowedHook = hook; }
+__attribute__((cf_returns_not_retained)) static WidgetRef WidgetGet(WidgetRef owner, int mode) {
+    borrowedHook(); assert(owner->references > 0); return mode == 0 ? NULL : owner;
+}
+"""
+    )
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        .replace("symbols = [", 'symbols = ["WidgetGet", "InstallHook", ')
+        .replace("borrowed-parameters = [", 'borrowed-parameters = ["WidgetGet.owner", ')
+        + '[native.bindings.borrowed-results]\nWidgetGet = "owner"\n'
+    )
+    source.write_text(
+        """import ./Foundation.btrc;
+#include <assert.h>
+class Roots { class WidgetRef? owner = null; class int mode = 0; }
+void clearOwner() {
+    Roots.owner = null;
+    assert(WidgetLive() == 1);
+    if (Roots.mode == 2) { throw "native invocation unwind"; }
+}
+int main() {
+    InstallHook(clearOwner);
+    GETTER
+    for (int iteration = 0; iteration < 32; iteration++) {
+        for (int mode = 0; mode < 4; mode++) {
+            Roots.mode = mode;
+            Roots.owner = WidgetCreate(37);
+            bool caught = false;
+            try {
+                var result = CALL(Roots.owner, mode);
+                assert(Roots.owner == null);
+                if (mode == 0) { assert(result == null && WidgetLive() == 0); }
+                else {
+                    assert(result != null && WidgetRead(result) == 37 && WidgetLive() == 1);
+                    var alias = result; release result;
+                    assert(WidgetRead(alias) == 37);
+                    if (mode == 3) { throw "caller unwind"; }
+                }
+            } catch (string error) { caught = true; }
+            assert(caught == (mode >= 2));
+            assert(WidgetLive() == 0 && WidgetDestroyed() == iteration * 4 + mode + 1);
+        }
+    }
+    return 0;
+}
+""".replace("GETTER", "var getter = WidgetGet;" if indirect else "").replace(
+            "CALL", "getter" if indirect else "WidgetGet"
+        )
+    )
+    compiled = native_compile(source)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    run_native_executable(compiled.c_source, root, sdk, triple, sanitized, frameworks=())
+
+
+def test_borrowed_resource_result_unnamed_owner(resource_project, native_compile):
+    source, sdk, triple = resource_project
+    root = source.parent.parent
+    header = root / "Foundation.h"
+    header.write_text("#pragma once\n" + header.read_text() + "static WidgetRef WidgetGet(WidgetRef);\n")
+    (root / "GetterBody.h").write_text(
+        '#include "Foundation.h"\nstatic WidgetRef WidgetGet(WidgetRef owner) { return owner; }\n'
+    )
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        .replace("symbols = [", 'symbols = ["WidgetGet", ')
+        .replace("borrowed-parameters = [", 'borrowed-parameters = ["WidgetGet.argument0", ')
+        + '[native.bindings.borrowed-results]\nWidgetGet = "argument0"\n'
+    )
+    source.write_text("""import ./Foundation.btrc;
+#include "GetterBody.h"
+int main() {
+    var owner = WidgetCreate(29); var result = WidgetGet(owner); release owner;
+    assert(WidgetRead(result) == 29); release result;
+    assert(WidgetLive() == 0 && WidgetDestroyed() == 1);
+    return 0;
+}
+""")
+    compiled = native_compile(source)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    for sanitized in (False, True):
+        run_native_executable(compiled.c_source, root, sdk, triple, sanitized, frameworks=())
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_borrowed_resource_result_precedes_throwing_argument_cleanup(resource_project, native_compile, sanitized):
+    source, sdk, triple = resource_project
+    root = source.parent.parent
+    header = root / "Foundation.h"
+    header.write_text(
+        header.read_text()
+        + """
+static WidgetRef WidgetGet(WidgetRef owner, int (*callback)(void*), void* context) {
+    callback(context); return owner;
+}
+"""
+    )
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        .replace("symbols = [", 'symbols = ["WidgetGet", ')
+        .replace("borrowed-parameters = [", 'borrowed-parameters = ["WidgetGet.owner", ')
+        + '[native.bindings.borrowed-results]\nWidgetGet = "owner"\n'
+        '[native.bindings.callbacks."WidgetGet.callback"]\ncontext = "context"\ncontext-index = 0\n'
+        'interface = "IVisitor"\nlifetime = "call"\nfailure = "abort"\nexecutor = "caller"\n'
+    )
+    source.write_text("""import ./Foundation.btrc;
+#include <assert.h>
+class Holder { public WidgetRef? owner; public IVisitor? visitor; }
+class Visitor implements IVisitor {
+    private Holder holder;
+    public Visitor(Holder holder) { self.holder = holder; }
+    public int invoke() { self.holder.owner = null; self.holder.visitor = null; return 0; }
+    public void __del__() { throw "receiver destruction"; }
+}
+int main() {
+    for (int index = 0; index < 32; index++) {
+        var holder = Holder(); holder.owner = WidgetCreate(19); holder.visitor = Visitor(holder);
+        bool caught = false;
+        try { var result = WidgetGet(holder.owner, holder.visitor); }
+        catch (string error) { caught = true; }
+        assert(caught && WidgetLive() == 0 && WidgetDestroyed() == index + 1);
+    }
+    return 0;
+}
+""")
+    compiled = native_compile(source)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    run_native_executable(compiled.c_source, root, sdk, triple, sanitized, frameworks=())
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_imageio_borrowed_result_owned_after_source_release(native_project, native_compile, sanitized):
+    source, sdk, triple = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").write_text("#include <ImageIO/ImageIO.h>\n")
+    (source.parent / "Foundation.btrc").write_text("// Actual ImageIO and Core Foundation declarations.\n")
+    (root / "btrc.toml").write_text("""manifest-version = 1
+[package]
+name = "borrowedImageIO"
+[[native.bindings]]
+module = "Foundation"
+header = "Foundation.h"
+language = "c"
+standard = "c11"
+symbols = ["CGImageSourceRef", "CFDataRef", "CFStringRef", "CGImageSourceCreateWithData", "CGImageSourceCreateIncremental", "CGImageSourceGetType", "CFDataCreate", "CFStringGetLength", "CFStringGetCString", "CFRetain", "CFRelease", "kCFStringEncodingUTF8"]
+owned-results = ["CFDataCreate", "CGImageSourceCreateWithData", "CGImageSourceCreateIncremental"]
+borrowed-parameters = ["CGImageSourceCreateWithData.data", "CGImageSourceGetType.isrc", "CFStringGetLength.theString", "CFStringGetCString.theString"]
+[native.bindings.borrowed-results]
+CGImageSourceGetType = "isrc"
+[native.bindings.resources.CGImageSourceRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+[native.bindings.resources.CFDataRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+[native.bindings.resources.CFStringRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+""")
+    source.write_text(r"""import ./Foundation.btrc;
+#include <assert.h>
+#include <string.h>
+int main() {
+    unsigned char pixels[34] = {0x47,0x49,0x46,0x38,0x39,0x61,1,0,1,0,0x80,0,0,0,0,0,0xff,0xff,0xff,0x2c,0,0,0,0,1,0,1,0,0,2,1,0x4c,0,0x3b};
+    for (int index = 0; index < 128; index++) {
+        var empty = CGImageSourceCreateIncremental(null); assert(empty != null);
+        assert(CGImageSourceGetType(empty) == null); release empty;
+        var data = CFDataCreate(null, pixels, 34L); assert(data != null);
+        var source = CGImageSourceCreateWithData(data, null); assert(source != null);
+        var type = CGImageSourceGetType(source); assert(type != null);
+        release data; release source;
+        var alias = type; release type;
+        assert(CFStringGetLength(alias) == 18L);
+        char name[64];
+        assert(CFStringGetCString(alias, name, 64L, kCFStringEncodingUTF8));
+        assert(strcmp(name, "com.compuserve.gif") == 0);
+    }
+    return 0;
+}
+""")
+    compiled = native_compile(source)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    run_native_executable(compiled.c_source, root, sdk, triple, sanitized, frameworks=("CoreFoundation", "ImageIO"))
+
+
+@pytest.fixture
+def core_foundation_resource_project(native_project):
+    source, sdk, triple = native_project
+    root = source.parent.parent
+    (source.parent / "Foundation.btrc").write_text("// Managed SDK dictionary values.\n")
+    manifest = """manifest-version = 1
+[package]
+name = "managedDictionary"
+[[native.bindings]]
+module = "Foundation"
+header = "Foundation.h"
+language = "c"
+standard = "c11"
+symbols = ["CFTypeRef", "CFMutableDictionaryRef", "CFDictionaryRef", "CFStringRef", "CFNumberRef", "CFRetain", "CFRelease", "CFDictionaryCreateMutable", "CFDictionarySetValue", "CFDictionaryGetValue", "CFDictionaryRemoveAllValues", "CFStringCreateWithCString", "CFNumberCreate", "CFNumberGetValue", "CFGetTypeID", "CFNumberGetTypeID", "kCFStringEncodingUTF8", "kCFNumberIntType", "kCFTypeDictionaryKeyCallBacks", "kCFTypeDictionaryValueCallBacks"]
+owned-results = ["CFDictionaryCreateMutable", "CFStringCreateWithCString", "CFNumberCreate"]
+borrowed-parameters = ["CFDictionarySetValue.theDict", "CFDictionarySetValue.key", "CFDictionarySetValue.value", "CFDictionaryGetValue.theDict", "CFDictionaryGetValue.key", "CFDictionaryRemoveAllValues.theDict", "CFNumberGetValue.number", "CFGetTypeID.cf"]
+[native.bindings.resource-parameters]
+"CFDictionarySetValue.key" = "CFTypeRef"
+"CFDictionarySetValue.value" = "CFTypeRef"
+"CFDictionaryGetValue.key" = "CFTypeRef"
+[native.bindings.resource-results]
+CFDictionaryGetValue = "CFTypeRef"
+[native.bindings.borrowed-results]
+CFDictionaryGetValue = "theDict"
+"""
+    for name in ("CFTypeRef", "CFMutableDictionaryRef", "CFDictionaryRef", "CFStringRef", "CFNumberRef"):
+        manifest += f'[native.bindings.resources.{name}]\nownership = "reference-counted"\nretain = "CFRetain"\nrelease = "CFRelease"\n'
+        if name == "CFNumberRef":
+            manifest += 'type-query = "CFGetTypeID"\ntype-tag = "CFNumberGetTypeID"\n'
+    (root / "btrc.toml").write_text(manifest)
+    return source, sdk, triple
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_core_foundation_checked_resource_projection(core_foundation_resource_project, native_compile, sanitized):
+    source, sdk, triple = core_foundation_resource_project
+    root = source.parent.parent
+    source.write_text(r"""import ./Foundation.btrc;
+#include <assert.h>
+int main() {
+    assert(sizeof(CFDictionaryKeyCallBacks) == sizeof(kCFTypeDictionaryKeyCallBacks));
+    for (int iteration = 0; iteration < 128; iteration++) {
+        var dictionary = CFDictionaryCreateMutable(null, 1L, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        var key = CFStringCreateWithCString(null, "number", kCFStringEncodingUTF8);
+        int expected = 42;
+        var number = CFNumberCreate(null, kCFNumberIntType, &expected);
+        assert(dictionary != null && key != null && number != null);
+        CFDictionarySetValue(dictionary, key, number);
+        CFDictionaryRef view = dictionary;
+        var erased = CFDictionaryGetValue(view, key);
+        assert(erased != null);
+        CFDictionaryRemoveAllValues(dictionary);
+        assert(CFDictionaryGetValue(view, key) == null);
+        release number; release dictionary; release view;
+        var checked = (CFNumberRef?)erased;
+        release erased;
+        assert(checked != null);
+        int actual = 0;
+        assert(CFNumberGetValue(checked, kCFNumberIntType, &actual) != 0 && actual == 42);
+        CFTypeRef? absent = null;
+        assert((CFNumberRef?)absent == null);
+        assert((CFNumberRef?)key == null);
+        assert((CFNumberRef?)CFStringCreateWithCString(null, "wrong kind", kCFStringEncodingUTF8) == null);
+    }
+    return 0;
+}
+""")
+    compiled = native_compile(source)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    run_native_executable(compiled.c_source, root, sdk, triple, sanitized, frameworks=("CoreFoundation",))
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "var callback = kCFTypeDictionaryKeyCallBacks.copyDescription;",
+        "kCFTypeDictionaryKeyCallBacks.copyDescription = null;",
+        "kCFTypeDictionaryKeyCallBacks.copyDescription(null);",
+        "CFDictionaryKeyCallBacks callbacks = {0};",
+        "kCFTypeDictionaryKeyCallBacks.version = 1;",
+        "CFDictionaryRef view = null; CFMutableDictionaryRef mutableView = view;",
+        "CFDictionaryRef view = null; var mutableView = (CFMutableDictionaryRef)view;",
+        "CFTypeRef value = null; var typed = (CFNumberRef)value;",
+        "CFTypeRef value = null; var raw = (const void*)value;",
+        "const void* raw = null; var value = (CFNumberRef?)raw;",
+    ],
+)
+def test_core_foundation_resource_projection_rejects_unsafe_use(core_foundation_resource_project, native_compile, body):
+    source, _sdk, _triple = core_foundation_resource_project
+    source.write_text(f"import ./Foundation.btrc;\nint main() {{ {body} return 0; }}\n")
+    plan = source.parent.parent / "Invalid.link.json"
+    result = native_compile(source, plan_path=plan)
+    assert not result.successful and not result.c_source and not plan.exists()
+
+
+@pytest.mark.parametrize(
+    "mutation", ["unknown-parameter", "missing-borrow", "non-erased-position", "unknown-result", "missing-result-owner"]
+)
+def test_core_foundation_resource_projection_rejects_invalid_mapping(
+    core_foundation_resource_project, native_compile, mutation
+):
+    source, _sdk, _triple = core_foundation_resource_project
+    manifest = source.parent.parent / "btrc.toml"
+    content = manifest.read_text()
+    if mutation == "unknown-parameter":
+        content = content.replace('"CFDictionaryGetValue.key" =', '"CFDictionaryGetValue.missing" =')
+    elif mutation == "missing-borrow":
+        content = content.replace('"CFDictionarySetValue.key", ', "")
+    elif mutation == "non-erased-position":
+        content = content.replace('"CFDictionaryGetValue.key" =', '"CFDictionaryGetValue.theDict" =')
+    elif mutation == "unknown-result":
+        content = content.replace('CFDictionaryGetValue = "CFTypeRef"', 'RootMissing = "CFTypeRef"')
+    else:
+        content = content.replace('CFDictionaryGetValue = "theDict"', "")
+    manifest.write_text(content)
+    source.write_text("import ./Foundation.btrc;\nint main() { return 0; }\n")
+    plan = source.parent.parent / "Invalid.link.json"
+    result = native_compile(source, plan_path=plan)
+    assert not result.successful and not result.c_source and not plan.exists()
+
+
+@pytest.fixture
+def checked_resource_project(native_project):
+    source, sdk, triple = native_project
+    root = source.parent.parent
+    (source.parent / "Foundation.btrc").write_text("// Checked erased native resource projection.\n")
+    (root / "Foundation.h").write_text(r"""#include <assert.h>
+#include <stdlib.h>
+typedef const void* RootRef;
+typedef const struct Item { int references; int kind; }* ItemRef;
+static int created, destroyed, retained, released, armed;
+void projectionReenter(void);
+static RootRef RootCreate(int kind) { struct Item* v = malloc(sizeof(*v)); assert(v); *v = (struct Item){1, kind}; created++; return v; }
+static RootRef RootRetain(RootRef v) { assert(v && ((const struct Item*)v)->references > 0); ((struct Item*)v)->references++; retained++; return v; }
+static void RootRelease(RootRef v) { struct Item* p = (struct Item*)v; assert(p && p->references > 0); released++; if (--p->references == 0) { destroyed++; free(p); } }
+static int RootKind(RootRef value) { if (armed) { armed = 0; projectionReenter(); } assert(value && ((const struct Item*)value)->references > 0); return ((const struct Item*)value)->kind; }
+static inline int ItemKind(void) { return 1; }
+static inline void RootArm(void) { armed = 1; }
+static _Bool RootBalanced(void) { return created == destroyed && released == retained + created; }
+""")
+    manifest = """manifest-version = 1
+[package]
+name = "checkedResources"
+[[native.bindings]]
+module = "Foundation"
+header = "Foundation.h"
+language = "c"
+standard = "c11"
+symbols = ["RootRef", "ItemRef", "RootCreate", "RootRetain", "RootRelease", "RootKind", "ItemKind", "RootArm", "RootBalanced"]
+owned-results = ["RootCreate"]
+borrowed-parameters = ["RootKind.value"]
+[native.bindings.resources.RootRef]
+ownership = "reference-counted"
+retain = "RootRetain"
+release = "RootRelease"
+[native.bindings.resources.ItemRef]
+ownership = "reference-counted"
+retain = "RootRetain"
+release = "RootRelease"
+type-query = "RootKind"
+type-tag = "ItemKind"
+"""
+    (root / "btrc.toml").write_text(manifest)
+    return source, sdk, triple
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_checked_resource_projection_lifetime(checked_resource_project, native_compile, sanitized):
+    source, sdk, triple = checked_resource_project
+    source.write_text(r"""import ./Foundation.btrc;
+#include <assert.h>
+class Holder { public RootRef? value; }
+Holder active = null;
+bool failProjection = false;
+void projectionReenter() { active.value = null; if (failProjection) { throw "query failed"; } }
+int main() {
+    active = Holder();
+    if (!RootBalanced()) { projectionReenter(); }
+    for (int iteration = 0; iteration < 32; iteration++) {
+        active.value = RootCreate(1);
+        RootArm();
+        RootRef? absent = null;
+        assert((ItemRef?)absent == null && active.value != null);
+        var projected = (ItemRef?)active.value;
+        assert(active.value == null && projected != null);
+        release projected;
+        assert(RootBalanced());
+        active.value = RootCreate(2);
+        RootArm();
+        assert((ItemRef?)active.value == null);
+        assert(RootBalanced());
+        assert((ItemRef?)RootCreate(2) == null);
+        assert(RootBalanced());
+        active.value = RootCreate(1);
+        RootArm(); failProjection = true;
+        bool caught = false;
+        try { var result = (ItemRef?)active.value; }
+        catch (string error) { caught = true; }
+        assert(caught && active.value == null && RootBalanced());
+        failProjection = false;
+        try { var result = (ItemRef?)RootCreate(1); throw "caller failed"; }
+        catch (string error) { }
+        assert(RootBalanced());
+    }
+    release active;
+    return 0;
+}
+""")
+    compiled = native_compile(source)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    run_native_executable(compiled.c_source, source.parent.parent, sdk, triple, sanitized, frameworks=())
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_sized_erased_resource_output_lifetime(checked_resource_project, native_compile, sanitized):
+    source, sdk, triple = checked_resource_project
+    root = source.parent.parent
+    header = root / "Foundation.h"
+    header.write_text(
+        header.read_text()
+        + r"""
+static int ReadValue(int mode, unsigned int* size, void* output) {
+    if (mode == 99) { assert(*size == sizeof(int)); *(int*)output = 81; return 0; }
+    assert(*size == sizeof(RootRef));
+    if (mode != 3) { *(RootRef*)output = RootCreate(1); }
+    if (mode == 2) { *size = 1; }
+    if (mode == 4) { projectionReenter(); }
+    return mode == 1 ? -7 : 0;
+}
+"""
+    )
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text().replace("symbols = [", 'symbols = ["ReadValue", ')
+        + """
+[native.bindings.owned-outputs."ReadValue.output"]
+result = "PropertyResult"
+resource = "RootRef"
+size = "size"
+name = "CopyValue"
+"""
+    )
+    source.write_text(r"""import ./Foundation.btrc;
+#include <assert.h>
+void projectionReenter() { throw "native output failed"; }
+void verifyRawProperty() {
+    int scalar = 0; unsigned int size = (unsigned int)sizeof(int);
+    assert(ReadValue(99, &size, &scalar) == 0 && scalar == 81);
+}
+int main() {
+    if (!RootBalanced()) { projectionReenter(); }
+    for (int iteration = 0; iteration < 32; iteration++) {
+        verifyRawProperty();
+        for (int mode = 0; mode < 4; mode++) {
+            var result = CopyValue(mode);
+            assert(result.status == (mode == 1 ? -7 : 0));
+            assert(result.sizeValid == (mode != 2));
+            assert(result.size > 0u && (mode != 2 || result.size == 1u));
+            assert((result.value == null) == (mode == 3));
+            if (result.value != null) { assert(RootKind(result.value) == 1); }
+            release result;
+            assert(RootBalanced());
+        }
+        CopyValue(1);
+        assert(RootBalanced());
+        bool caught = false;
+        try { var result = CopyValue(4); }
+        catch (string error) { caught = true; }
+        assert(caught && RootBalanced());
+        try { var result = CopyValue(0); throw "caller failed"; }
+        catch (string error) { }
+        assert(RootBalanced());
+    }
+    return 0;
+}
+""")
+    compiled = native_compile(source)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    run_native_executable(compiled.c_source, root, sdk, triple, sanitized, frameworks=())
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing-name",
+        "unknown-field",
+        "unknown-resource",
+        "unknown-size",
+        "same-output-size",
+        "alias-symbol",
+        "alias-result",
+        "const-output",
+        "typed-output",
+        "const-size",
+        "signed-size",
+        "scalar-size",
+        "floating-status",
+        "unknown-output",
+    ],
+)
+def test_sized_erased_resource_output_rejects_invalid_mapping(checked_resource_project, native_compile, mutation):
+    source, _sdk, _triple = checked_resource_project
+    root = source.parent.parent
+    signature = "int ReadValue(unsigned int* size, void* output);"
+    mapping = 'result = "PropertyResult"\nresource = "RootRef"\nsize = "size"\nname = "CopyValue"\n'
+    if mutation == "missing-name":
+        mapping = mapping.replace('name = "CopyValue"\n', "")
+    elif mutation == "unknown-field":
+        mapping += 'success = "zero"\n'
+    elif mutation == "unknown-resource":
+        mapping = mapping.replace('resource = "RootRef"', 'resource = "Missing"')
+    elif mutation == "unknown-size":
+        mapping = mapping.replace('size = "size"', 'size = "absent"')
+    elif mutation == "same-output-size":
+        mapping = mapping.replace('size = "size"', 'size = "output"')
+    elif mutation == "alias-symbol":
+        mapping = mapping.replace('name = "CopyValue"', 'name = "ReadValue"')
+    elif mutation == "alias-result":
+        mapping = mapping.replace('name = "CopyValue"', 'name = "PropertyResult"')
+    elif mutation == "const-output":
+        signature = signature.replace("void* output", "const void* output")
+    elif mutation == "typed-output":
+        signature = signature.replace("void* output", "int* output")
+    elif mutation == "const-size":
+        signature = signature.replace("unsigned int* size", "const unsigned int* size")
+    elif mutation == "signed-size":
+        signature = signature.replace("unsigned int* size", "int* size")
+    elif mutation == "scalar-size":
+        signature = signature.replace("unsigned int* size", "unsigned int size")
+    elif mutation == "floating-status":
+        signature = signature.replace("int ReadValue", "double ReadValue")
+    header = root / "Foundation.h"
+    header.write_text(header.read_text() + "\n" + signature + "\n")
+    manifest = root / "btrc.toml"
+    output = "absent" if mutation == "unknown-output" else "output"
+    manifest.write_text(
+        manifest.read_text().replace("symbols = [", 'symbols = ["ReadValue", ')
+        + f'\n[native.bindings.owned-outputs."ReadValue.{output}"]\n'
+        + mapping
+    )
+    source.write_text("import ./Foundation.btrc;\nint main() { return 0; }\n")
+    plan = root / "Invalid.link.json"
+    result = native_compile(source, plan_path=plan)
+    assert not result.successful and not result.c_source and not plan.exists()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "query-arity",
+        "tag-arity",
+        "different-result",
+        "floating-result",
+        "missing-borrow",
+        "different-lifecycle",
+        "missing-tag",
+        "unknown-query",
+    ],
+)
+def test_checked_resource_projection_rejects_invalid_discriminator(checked_resource_project, native_compile, mutation):
+    source, _sdk, _triple = checked_resource_project
+    root = source.parent.parent
+    header = (root / "Foundation.h").read_text()
+    manifest = (root / "btrc.toml").read_text()
+    if mutation == "query-arity":
+        header = header.replace("RootKind(RootRef value)", "RootKind(RootRef value, int extra)")
+    elif mutation == "tag-arity":
+        header = header.replace("ItemKind(void)", "ItemKind(int extra)")
+    elif mutation == "different-result":
+        header = header.replace("int ItemKind", "long ItemKind")
+    elif mutation == "floating-result":
+        header = header.replace("int ItemKind", "double ItemKind").replace("int RootKind", "double RootKind")
+    elif mutation == "missing-borrow":
+        manifest = manifest.replace('borrowed-parameters = ["RootKind.value"]', "")
+    elif mutation == "different-lifecycle":
+        header += "static RootRef OtherRetain(RootRef v) { return RootRetain(v); }\n"
+        manifest = manifest.replace("symbols = [", 'symbols = ["OtherRetain", ')
+        marker = "[native.bindings.resources.ItemRef]"
+        before, after = manifest.split(marker)
+        manifest = before + marker + after.replace('retain = "RootRetain"', 'retain = "OtherRetain"')
+    elif mutation == "missing-tag":
+        manifest = manifest.replace('type-tag = "ItemKind"', "")
+    else:
+        manifest = manifest.replace('type-query = "RootKind"', 'type-query = "Missing"')
+    (root / "Foundation.h").write_text(header)
+    (root / "btrc.toml").write_text(manifest)
+    source.write_text("import ./Foundation.btrc;\nint main() { return 0; }\n")
+    plan = root / "Invalid.link.json"
+    result = native_compile(source, plan_path=plan)
+    assert not result.successful and not result.c_source and not plan.exists()
+
+
+@pytest.mark.parametrize(
+    "mutation, message",
+    [
+        ("unknown-owner", "unknown owner parameter"),
+        ("raw-owner", "owner must be a borrowed reference-counted parameter"),
+        ("raw-result", "requires a reference-counted result"),
+        ("retained", "contradicts SDK retained ownership"),
+        ("owned-overlap", "owned-results and borrowed-results must be distinct"),
+        ("missing-borrow", "declared borrowed owner parameters"),
+        ("unique-result", "requires a reference-counted result"),
+        ("unique-owner", "owner must be a borrowed reference-counted parameter"),
+    ],
+)
+def test_borrowed_resource_result_rejects_invalid_contract(resource_project, native_compile, mutation, message):
+    source, _sdk, _triple = resource_project
+    root = source.parent.parent
+    header = (root / "Foundation.h").read_text()
+    result_type = "int" if mutation == "raw-result" else "WidgetRef"
+    owner_type = "int" if mutation == "raw-owner" else "OwnerRef" if mutation == "unique-owner" else "WidgetRef"
+    if mutation == "unique-owner":
+        header += "typedef struct OwnerStorage* OwnerRef;\nvoid OwnerDestroy(OwnerRef owner);\n"
+    annotation = "__attribute__((cf_returns_retained)) " if mutation == "retained" else ""
+    header += f"{annotation}{result_type} WidgetGet({owner_type} owner);\n"
+    manifest = (root / "btrc.toml").read_text().replace("symbols = [", 'symbols = ["WidgetGet", ')
+    owner = "missing" if mutation == "unknown-owner" else "owner"
+    if mutation != "missing-borrow":
+        manifest = manifest.replace("borrowed-parameters = [", f'borrowed-parameters = ["WidgetGet.{owner}", ')
+    if mutation == "owned-overlap":
+        manifest = manifest.replace("owned-results = [", 'owned-results = ["WidgetGet", ')
+    if mutation == "unique-result":
+        manifest = manifest.replace('ownership = "reference-counted"\nretain = "WidgetRetain"', 'ownership = "unique"')
+    if mutation == "unique-owner":
+        manifest = manifest.replace("symbols = [", 'symbols = ["OwnerRef", "OwnerDestroy", ')
+        manifest += '[native.bindings.resources.OwnerRef]\nownership = "unique"\nrelease = "OwnerDestroy"\n'
+    manifest += f'[native.bindings.borrowed-results]\nWidgetGet = "{owner}"\n'
+    (root / "Foundation.h").write_text(header)
+    (root / "btrc.toml").write_text(manifest)
+    source.write_text("import ./Foundation.btrc;\nint main() { return 0; }\n")
+    plan = root / "Rejected.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert not compiled.successful and not compiled.c_source and not plan.exists()
+    assert message in str(compiled.failure), (compiled.failure, compiled.diagnostics)
+
+
+@pytest.fixture
+def static_resource_project(resource_project):
+    source, sdk, triple = resource_project
+    root = source.parent.parent
+    header = root / "Foundation.h"
+    header.write_text(
+        '#pragma clang diagnostic ignored "-Wnullability-completeness"\n'
+        + header.read_text()
+        + """
+#pragma clang diagnostic ignored "-Wnullability-extension"
+static struct WidgetStorage staticWidget = {1, 73};
+static WidgetRef _Nonnull const WidgetStatic = &staticWidget;
+static WidgetRef _Nullable const WidgetAbsent = NULL;
+static WidgetRef _Nonnull const WidgetInvalid = NULL;
+static inline int WidgetStaticClaims(void) { return staticWidget.references; }
+"""
+    )
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        .replace("symbols = [", 'symbols = ["WidgetStatic", "WidgetAbsent", "WidgetInvalid", "WidgetStaticClaims", ')
+        .replace(
+            "owned-results = [", 'static-globals = ["WidgetStatic", "WidgetAbsent", "WidgetInvalid"]\nowned-results = ['
+        )
+    )
+    return source, sdk, triple
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_static_resource_global_reads(static_resource_project, native_compile, sanitized):
+    source, sdk, triple = static_resource_project
+    root = source.parent.parent
+    source.write_text("""import ./Foundation.btrc;
+#include <assert.h>
+class Holder { public WidgetRef? value; }
+WidgetRef? readStatic() { return WidgetStatic; }
+int main() {
+    assert(WidgetStaticClaims() == 1);
+    for (int index = 0; index < 64; index++) {
+        WidgetStatic;
+        assert(WidgetStatic == WidgetStatic);
+        assert(WidgetStaticClaims() == 1);
+        var holder = Holder(); holder.value = WidgetStatic;
+        assert(WidgetStaticClaims() == 2);
+        var first = readStatic(); var second = first;
+        assert(first == holder.value && WidgetStaticClaims() == 4);
+        release first; release second;
+        assert(WidgetStaticClaims() == 2 && WidgetRead(holder.value) == 73);
+        assert(WidgetAbsent == null);
+        bool caught = false;
+        try { var owned = WidgetStatic; throw "unwind owned static"; }
+        catch (string error) { caught = true; }
+        assert(caught && WidgetStaticClaims() == 2);
+        release holder;
+        assert(WidgetStaticClaims() == 1);
+        { var WidgetStatic = WidgetCreate(42); assert(WidgetRead(WidgetStatic) == 42); }
+        assert(WidgetLive() == 0 && WidgetDestroyed() == index + 1 && WidgetStaticClaims() == 1);
+    }
+    return 0;
+}
+""")
+    compiled = native_compile(source)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    assert "__btrc_native_read_WidgetStatic" in compiled.c_source
+    run_native_executable(compiled.c_source, root, sdk, triple, sanitized, frameworks=())
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_static_resource_global_nonnull_contract(static_resource_project, native_compile, sanitized):
+    source, sdk, triple = static_resource_project
+    source.write_text("import ./Foundation.btrc;\nint main() { var value = WidgetInvalid; return 0; }\n")
+    compiled = native_compile(source)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    run_native_executable(
+        compiled.c_source,
+        source.parent.parent,
+        sdk,
+        triple,
+        sanitized,
+        frameworks=(),
+        expected_failure="Native global WidgetInvalid: null result",
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation,message",
+    [
+        ("writable", "requires read-only SDK storage"),
+        ("unique", "requires reference-counted resource globals"),
+        ("raw", "requires reference-counted resource globals"),
+        ("function", "names a non-resource-global declaration"),
+        ("unselected", "static-globals"),
+        ("write", "Cannot modify read-only native global"),
+        ("release", "Cannot modify read-only native global"),
+        ("address", "Addressing a read-only native pointer slot"),
+        ("unmapped", "resource storage requires a checked managed call boundary"),
+    ],
+)
+def test_static_resource_global_rejects_invalid_storage(static_resource_project, native_compile, mutation, message):
+    source, _sdk, _triple = static_resource_project
+    root = source.parent.parent
+    header = (root / "Foundation.h").read_text()
+    manifest = (root / "btrc.toml").read_text()
+    if mutation == "writable":
+        header = header.replace("const WidgetStatic", "WidgetStatic")
+    elif mutation == "unique":
+        manifest = manifest.replace('ownership = "reference-counted"\nretain = "WidgetRetain"', 'ownership = "unique"')
+    elif mutation == "raw":
+        header = header.replace("WidgetRef _Nonnull const WidgetStatic = &staticWidget", "int const WidgetStatic = 1")
+    elif mutation == "function":
+        manifest = manifest.replace("static-globals = [", 'static-globals = ["WidgetCreate", ')
+    elif mutation == "unselected":
+        manifest = manifest.replace("static-globals = [", 'static-globals = ["NotSelected", ')
+    elif mutation == "unmapped":
+        manifest = manifest.replace('static-globals = ["WidgetStatic", "WidgetAbsent", "WidgetInvalid"]', "")
+    body = {
+        "write": "WidgetStatic = null;",
+        "release": "release WidgetStatic;",
+        "address": "var address = &WidgetStatic;",
+    }.get(mutation, "")
+    (root / "Foundation.h").write_text(header)
+    (root / "btrc.toml").write_text(manifest)
+    source.write_text(f"import ./Foundation.btrc;\nint main() {{ {body} return 0; }}\n")
+    plan = root / "Rejected.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert not compiled.successful and not compiled.c_source and not plan.exists()
+    assert message in str(compiled.failure) + str(compiled.diagnostics)
 
 
 def test_managed_c_resources_share_lifetime_operations(resource_project, native_compile):
@@ -3289,12 +4110,13 @@ int main() {
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
-def test_native_gpu_child_renders_and_reads_pixels(native_project, native_compile, sanitize):
+@pytest.mark.parametrize("consumer", ["Main", "Portable"])
+def test_native_gpu_child_renders_and_reads_pixels(native_project, native_compile, sanitize, consumer):
     source, _sdk, _triple = native_project
     root = source.parent.parent / "render"
     shutil.copytree(REPO / "src/tests/native/gui_surface/webgpu_child", root)
     plan = root / "Program.link.json"
-    compiled = native_compile(root / "Main.btrc", plan_path=plan)
+    compiled = native_compile(root / f"{consumer}.btrc", plan_path=plan)
     assert compiled.successful, str(compiled.failure) + "\n" + "\n".join(str(item) for item in compiled.diagnostics)
     assert not compiled.failure and not compiled.diagnostics, "native GPU consumer must compile without warnings"
     assert "btrc_gpu_compute_internal.h" not in compiled.c_source
@@ -3316,8 +4138,125 @@ def test_native_gpu_child_renders_and_reads_pixels(native_project, native_compil
         [str(executable)], cwd=root, env=apple_environment(), capture_output=True, text=True, timeout=30
     )
     assert completed.returncode == 0, completed.stderr
-    assert "clear, present and pixel readback" in completed.stdout
-    assert completed.stdout.count("headerInk=") == 3
+    if consumer == "Main":
+        assert "clear, present and pixel readback" in completed.stdout
+        assert completed.stdout.count("headerInk=") == 3
+    else:
+        assert "portable GPU view renders, resizes and drains through native application shutdown" in completed.stdout
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+def test_objective_c_initializer_factory_lifetime(native_project, native_compile, sanitize):
+    source, _, _ = native_project
+    root = source.parent.parent
+    (root / "Factory.h").write_text("""#import <Foundation/Foundation.h>
+@interface FactoryProbe : NSObject
+- (instancetype _Nullable)initWithMode:(long)mode;
++ (long)liveCount;
+@end
+""")
+    (root / "Factory.m").write_text("""#import "Factory.h"
+static long live;
+@implementation FactoryProbe
+- (instancetype)initWithMode:(long)mode {
+    self = [super init];
+    if (!self) { return nil; }
+    ++live;
+    if (mode == 1) { return nil; }
+    if (mode == 2) { @throw [NSException exceptionWithName:@"FactoryFailure" reason:@"injected" userInfo:nil]; }
+    if (mode == 3) { return [[FactoryProbe alloc] initWithMode:0]; }
+    return self;
+}
+- (void)dealloc { --live; }
++ (long)liveCount { return live; }
+@end
+""")
+    (source.parent / "Factory.btrc").write_text("")
+    (root / "btrc.toml").write_text("""manifest-version = 1
+[package]
+name = "initializerFactory"
+[[native.bindings]]
+module = "Factory"
+header = "Factory.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["-[FactoryProbe initWithMode:]", "+[FactoryProbe liveCount]"]
+[[native.sources]]
+path = "Factory.m"
+language = "objective-c"
+standard = "c11"
+[[native.frameworks]]
+name = "Foundation"
+""")
+    source.write_text("""import ./Factory.btrc;
+#include <assert.h>
+void exercise(long mode) {
+	var value = FactoryProbe.initWithMode(mode);
+	if (mode == 1L) { assert(value == null && FactoryProbe.liveCount() == 0L); }
+	else {
+		assert(value != null && FactoryProbe.liveCount() == 1L);
+		var alias = value;
+		value = null;
+		assert(alias != null && FactoryProbe.liveCount() == 1L);
+	}
+}
+int main() {
+	for (long mode = 0L; mode < 4L; mode++) {
+		bool failed = false;
+		try { exercise(mode); } catch (string error) { failed = true; }
+		assert(failed == (mode == 2L));
+		assert(FactoryProbe.liveCount() == 0L);
+	}
+	return 0;
+}
+""")
+    plan = root / "Factory.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert compiled.successful, str(compiled.failure) + "\n" + "\n".join(str(item) for item in compiled.diagnostics)
+    generated = root / "Factory.c"
+    generated.write_text(compiled.c_source)
+    executable = root / "Factory"
+
+    def runner(command, **kwargs):
+        flags = ["-O2"] if Path(command[0]).name in {"clang", "clang++"} else []
+        if flags and "objective-c" in command:
+            flags += ["-fobjc-arc", "-fobjc-arc-exceptions"]
+        if flags and sanitize:
+            flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    NativePlanBuilder(runner=runner).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], env=apple_environment(), capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+def test_native_window_keyboard_monitor(native_project, native_compile, sanitize):
+    source, _, _ = native_project
+    source.write_text((REPO / "src/tests/native/gui_surface/NativeKeyboard.btrc").read_text())
+    plan = source.parent / "Keyboard.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert compiled.successful, str(compiled.failure) + "\n" + "\n".join(str(item) for item in compiled.diagnostics)
+    assert not compiled.diagnostics
+    generated = source.with_suffix(".c")
+    generated.write_text(compiled.c_source)
+    executable = source.parent / "Keyboard"
+
+    def runner(command, **kwargs):
+        flags = ["-O2"] if Path(command[0]).name in {"clang", "clang++"} else []
+        if flags and sanitize:
+            flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    NativePlanBuilder(runner=runner).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], env=apple_environment(), capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, completed.stderr
+    assert "ERROR: AddressSanitizer" not in completed.stderr
+    assert "runtime error:" not in completed.stderr
 
 
 @pytest.fixture(params=[False, True], ids=["context-last", "context-first"])
@@ -4960,6 +5899,9 @@ def test_native_import_does_not_authorize_source_runtime_names(native_project, n
         ("import Library.GUI.MacOS.MacOSStack;", "return 0;", "private to package"),
         ('#include "GUI/MacOS/MacOSStack.btrc"', "return 0;", "private to package"),
         ("import Library.GUI;", "var stack = MacOSStack(false, 8.0); return 0;", "MacOSStack"),
+        ("import Library.GUI.MacOS.MacOSGPUView;", "return 0;", "private to package"),
+        ('#include "GUI/MacOS/MacOSGPUView.btrc"', "return 0;", "private to package"),
+        ("import Library.GUI;", "var view = MacOSGPUView(true); return 0;", "MacOSGPUView"),
     ],
 )
 def test_native_gui_factory_keeps_application_owner_private(
@@ -6341,7 +7283,8 @@ def test_objective_c_record_projection_rejects_unproven_fields(native_project, n
     assert "lowering" in str(result.failure) or "anonymous" in str(result.failure)
 
 
-def test_objective_c_class_message_source_to_foundation(native_project, native_compile):
+@pytest.mark.parametrize("mixed_resource", [False, True])
+def test_objective_c_class_message_source_to_foundation(native_project, native_compile, mixed_resource):
     source, _sdk, _triple = native_project
     root = source.parent.parent
     (root / "btrc.toml").write_text(
@@ -6354,8 +7297,33 @@ def test_objective_c_class_message_source_to_foundation(native_project, native_c
     )
     (root / "Foundation.h").write_text("#import <Foundation/Foundation.h>\n", encoding="utf-8")
     (source.parent / "Foundation.btrc").write_text("// Selected SDK declarations.\n", encoding="utf-8")
+    extra_import = ""
+    extra_body = ""
+    if mixed_resource:
+        # C resource carriers belong to the C unit, not the Objective-C unit.
+        # This combination previously produced different plans in the compilers.
+        manifest = root / "btrc.toml"
+        manifest.write_text(
+            manifest.read_text()
+            + '[[native.bindings]]\nmodule = "Managed"\nheader = "Managed.h"\nlanguage = "c"\nstandard = "c11"\n'
+            + 'symbols = ["CFStringRef", "CFStringCreateWithCString", "CFStringGetLength", "CFRetain", "CFRelease", "kCFStringEncodingUTF8"]\n'
+            + 'owned-results = ["CFStringCreateWithCString"]\nborrowed-parameters = ["CFStringGetLength.theString"]\n'
+            + '[native.bindings.resources.CFStringRef]\nownership = "reference-counted"\nretain = "CFRetain"\nrelease = "CFRelease"\n'
+        )
+        (root / "Managed.h").write_text("#include <CoreFoundation/CoreFoundation.h>\n")
+        (source.parent / "Managed.btrc").write_text("// Selected managed C SDK declarations.\n")
+        extra_import = "import ./Managed.btrc;\n"
+        extra_body = (
+            'var text = CFStringCreateWithCString(null, "Native", kCFStringEncodingUTF8);\n'
+            "if (text == null || CFStringGetLength(text) != 6L) { return 2; }\n"
+        )
     source.write_text(
-        "import ./Foundation.btrc;\nint main() { return NSThread.isMainThread() ? 0 : 1; }\n", encoding="utf-8"
+        "import ./Foundation.btrc;\n"
+        + extra_import
+        + "int main() { "
+        + extra_body
+        + "return NSThread.isMainThread() ? 0 : 1; }\n",
+        encoding="utf-8",
     )
     plan_path = root / "Program.link.json"
     result = native_compile(source, plan_path=plan_path)
@@ -6516,16 +7484,41 @@ def objective_c_object_globals_project(native_project):
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
-def test_objective_c_sdk_object_global_reads(objective_c_object_globals_project, native_compile, sanitize):
+@pytest.mark.parametrize("mixed", [False, True])
+def test_objective_c_sdk_object_global_reads(objective_c_object_globals_project, native_compile, sanitize, mixed):
     source = objective_c_object_globals_project
     root = source.parent.parent
+    if mixed:
+        (source.parent / "CoreText.btrc").write_text("// Managed Core Foundation globals beside Objective-C globals.\n")
+        (root / "CoreText.h").write_text("#include <CoreText/CoreText.h>\n")
+        manifest = root / "btrc.toml"
+        manifest.write_text(
+            manifest.read_text()
+            + """
+[[native.bindings]]
+module = "CoreText"
+header = "CoreText.h"
+language = "c"
+standard = "c11"
+symbols = ["CFStringRef", "kCTFontAttributeName", "CFStringGetLength", "CFRetain", "CFRelease"]
+borrowed-parameters = ["CFStringGetLength.theString"]
+static-globals = ["kCTFontAttributeName"]
+[native.bindings.resources.CFStringRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+[[native.frameworks]]
+name = "CoreText"
+os = ["macos"]
+"""
+        )
     source.write_text(
         "import ./Foundation.btrc;\n"
         "NSString? readMode() { return NSDefaultRunLoopMode; }\n"
         "unsigned long count(NSString value) { return value.length(); }\n"
-        "long shadow(long NSDefaultRunLoopMode) { return NSDefaultRunLoopMode; }\n"
+        "long shadowMode(long NSDefaultRunLoopMode) { return NSDefaultRunLoopMode; }\n"
         "int main() {\n"
-        "\tif (NSEventMaskAny != 18446744073709551615UL || shadow(17L) != 17L) { return 1; }\n"
+        "\tif (NSEventMaskAny != 18446744073709551615UL || shadowMode(17L) != 17L) { return 1; }\n"
         "\t{ long NSDefaultRunLoopMode = 9L; NSDefaultRunLoopMode++; if (NSDefaultRunLoopMode != 10L) { return 2; } }\n"
         "\tfor (int index = 0; index < 1000; index++) {\n"
         "\t\tNSDefaultRunLoopMode;\n"
@@ -6539,6 +7532,16 @@ def test_objective_c_sdk_object_global_reads(objective_c_object_globals_project,
         "\t}\n\treturn 0;\n}\n",
         encoding="utf-8",
     )
+    if mixed:
+        source.write_text(
+            "import ./CoreText.btrc;\n"
+            + source.read_text().replace(
+                "\t\tNSDefaultRunLoopMode;",
+                "\t\tvar attribute = kCTFontAttributeName; var retained = kCTFontAttributeName; release attribute;\n"
+                "\t\tif (CFStringGetLength(retained) <= 0L || retained != kCTFontAttributeName) { return 7; }\n"
+                "\t\trelease retained;\n\t\tNSDefaultRunLoopMode;",
+            )
+        )
     plan = root / "Program.link.json"
     compiled = native_compile(source, plan_path=plan)
     assert compiled.successful, (compiled.failure, compiled.diagnostics)

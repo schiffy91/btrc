@@ -1,4 +1,14 @@
 import Library.Callback;
+import Library.App;
+
+/* Synchronous native input. True consumes the event; false leaves normal
+ * platform dispatch intact. Coordinates are view-local top-left logical points.
+ * A consumed press captures its matching drag/release, including outside the
+ * view. Subscribe after attaching to a window. Detaching cancels current capture
+ * but preserves the subscription for reattachment. Capture also ends on release,
+ * focus loss, registration cancellation or close. */
+interface IViewPointerHandler { bool pointer(AppPointerEvent event); }
+interface IViewScrollHandler { bool scroll(AppScrollEvent event); }
 
 /* Native view contract. Layout uses logical points from the parent's top-left.
  * Fitting sizes are native minima: an unconstrained dimension may be zero.
@@ -16,6 +26,8 @@ interface IView {
 	void arrange(double x, double y, double width, double height);
 	bool isVisible();
 	void setVisible(bool visible);
+	ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner);
+	ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner);
 	CallbackCancellation close();
 	CallbackCancellation pollClose();
 }

@@ -1862,7 +1862,15 @@ class TypeSystem:
         declaration = self.index.struct_table.get(name)
         if declaration is None or declaration.is_forward:
             return False
-        return all(self.is_realtime_pod(field.type, visiting | {name}) for field in declaration.fields)
+        for field in declaration.fields:
+            payload = self.canonical_type(field.type)
+            if payload is not None and payload.is_array:
+                if payload.array_size is None or payload.is_nullable:
+                    return False
+                payload = self.strip_outer_storage(payload, array=True)
+            if not self.is_realtime_pod(payload, visiting | {name}):
+                return False
+        return True
 
     def is_nonpointer_void_object(self, type_expr) -> bool:
         return self._type_identity.is_scalar_void(type_expr)
@@ -2399,6 +2407,25 @@ class TypeSystem:
             current = info.parent if info else None
         return False
 
+    @staticmethod
+    def native_resource_query_type(classes, target, source) -> str:
+        if target is None or source is None or not target.is_nullable or target.is_array or source.is_array:
+            return ""
+        target_info, source_info = classes.get(target.base), classes.get(source.base)
+        if (
+            target_info is None
+            or source_info is None
+            or target_info.native_language != "c"
+            or source_info.native_language != "c"
+            or target.base == source.base
+            or target.base in source_info.native_ancestors
+            or target.pointer_depth - int(target.is_nullable) != 0
+            or source.pointer_depth - int(source.is_nullable) != 0
+        ):
+            return ""
+        query = target_info.native_query_type
+        return query if query and (query == source.base or query in source_info.native_ancestors) else ""
+
     def is_subclass(self, child: str, parent: str) -> bool:
         """Check if child class extends parent (directly or transitively)."""
         if child == parent:
@@ -2406,9 +2433,9 @@ class TypeSystem:
         info = self.index.class_table.get(child)
         if not info:
             return False
-        if info.native_language == "objective-c":
+        if info.native_language in ("objective-c", "c"):
             base = self.index.class_table.get(parent)
-            return bool(base and base.native_language == "objective-c" and parent in info.native_ancestors)
+            return bool(base and base.native_language == info.native_language and parent in info.native_ancestors)
         if parent in self.index.interface_table:
             cur = info
             visited = set()

@@ -1,5 +1,5 @@
 #include <assert.h>
-#include <btrc_gpu.h>
+#include <btrc_gpu_compute_internal.h>
 
 @gpu float[] clamp(float[] a, float low, float high) {
 	int i = gpu_id();

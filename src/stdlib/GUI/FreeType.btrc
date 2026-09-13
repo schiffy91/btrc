@@ -1,0 +1,8 @@
+import Library.GUI.Font;
+import Library.GUI.FreeType.FreeTypeFace;
+
+/* Optional SDK-backed loading. Importing Raster/Font alone does not require
+ * FreeType; this factory either creates the requested face or reports failure. */
+class FreeType {
+	class Font load(string path, int pixelSize) { return new Font(new FreeTypeFace(path, pixelSize)); }
+}

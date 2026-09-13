@@ -7,10 +7,46 @@ import Library.Audio.RealtimeAudio;
 int pendingSessions();
 void allowSessionCleanup();
 void unitReset(int failure);
+void unitFail(int failure);
+int unitDisposals();
+int unitRegistrations();
+void unitDeliver(int frames, int timestamps, int inputFailure);
+float unitOutput(int sample);
 
 @realtime void pendingProcess(void* context, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {}
 
-int main() {
+void verifyPublishedSession(int terminal) {
+	unitReset(0);
+	var provider = CoreAudioDeviceProvider.open().provider();
+	var inventory = provider.inventory().inventory();
+	var request = DuplexAudioOpenRequest.outputOnly(inventory.generation(), "device-b", AudioChannelSelection.leading(1), AudioStreamRequest(48000, 128));
+	var opened = provider.openDuplex(request, RealtimeAudioProgram(pendingProcess, null));
+	assert(opened.succeeded() && pendingSessions() == 1);
+	var session = opened.session();
+	assert(provider.close().status() == AUDIO_DEVICE_BUSY);
+	assert(session.start().succeeded() && session.streamEpoch() != 0ULL);
+	assert(session.suspend().succeeded());
+	assert(session.drain().succeeded());
+	unitFail(terminal == 0 ? 9 : terminal == 3 ? 12 : 10);
+	assert(session.close().status() == (terminal == 0 ? AUDIO_DEVICE_BUSY : AUDIO_DEVICE_INDETERMINATE) && pendingSessions() == (terminal == 3 ? 0 : 1));
+	assert(provider.close().status() == AUDIO_DEVICE_BUSY);
+	assert(provider.openDuplex(request, RealtimeAudioProgram(pendingProcess, null)).status() == AUDIO_DEVICE_BUSY);
+	allowSessionCleanup();
+	if (terminal != 0) {
+		assert(session.close().status() == AUDIO_DEVICE_INDETERMINATE);
+		assert(session.close().status() == AUDIO_DEVICE_INDETERMINATE && unitDisposals() == 1);
+		assert(provider.close().status() == AUDIO_DEVICE_BUSY);
+		if (terminal == 2) { unitDeliver(1, 1, 0); assert(unitOutput(0) == 0.0f); }
+		fprintf(stderr, "PASS: indeterminate published disposal retains dependencies without retry\n");
+		fflush(stderr);
+		return;
+	}
+	assert(session.close().succeeded() && pendingSessions() == 0);
+	assert(session.close().succeeded());
+	assert(provider.close().succeeded());
+}
+
+void verifyPartialIndeterminate() {
 	unitReset(10);
 	var opened = CoreAudioDeviceProvider.open();
 	assert(opened.succeeded());
@@ -19,12 +55,22 @@ int main() {
 	var request = DuplexAudioOpenRequest.outputOnly(inventory.generation(), "device-b", AudioChannelSelection.leading(1), AudioStreamRequest(48000, 128));
 	var program = RealtimeAudioProgram(pendingProcess, null);
 	var failed = provider.openDuplex(request, program);
-	assert(failed.status() == AUDIO_DEVICE_BUSY && pendingSessions() == 1);
-	assert(provider.openDuplex(request, program).status() == AUDIO_DEVICE_BUSY && pendingSessions() == 1);
-	assert(provider.close().status() == AUDIO_DEVICE_BUSY && provider.isOpen());
+	assert(failed.status() == AUDIO_DEVICE_INDETERMINATE && pendingSessions() == 1);
+	assert(provider.openDuplex(request, program).status() == AUDIO_DEVICE_INDETERMINATE && pendingSessions() == 1);
+	assert(provider.close().status() == AUDIO_DEVICE_INDETERMINATE && provider.isOpen());
 	allowSessionCleanup();
-	assert(provider.close().succeeded() && !provider.isOpen() && pendingSessions() == 0);
-	assert(provider.close().succeeded());
-	print("PASS: CoreAudio provider retains partial sessions until cleanup succeeds");
+	assert(provider.close().status() == AUDIO_DEVICE_INDETERMINATE && provider.isOpen() && pendingSessions() == 1);
+	assert(provider.openDuplex(request, program).status() == AUDIO_DEVICE_INDETERMINATE);
+	assert(unitDisposals() == 1);
+	assert(unitRegistrations() == 0);
+	fprintf(stderr, "PASS: indeterminate partial disposal retains dependencies without retry\n");
+	fflush(stderr);
+}
+
+int main(int argc, char** argv) {
+	int terminal = argc > 1 ? atoi(argv[1]) : 0;
+	if (terminal == 1) { verifyPartialIndeterminate(); return 1; }
+	verifyPublishedSession(terminal);
+	print("PASS: CoreAudio provider retains sessions until retryable cleanup succeeds");
 	return 0;
 }

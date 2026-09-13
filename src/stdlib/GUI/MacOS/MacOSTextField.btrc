@@ -2,6 +2,7 @@ import Library.Math;
 import Library.GUI.ITextField;
 import Library.GUI.MacOS.AppKitText;
 import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSViewInput;
 
 /* Main-thread owner of an actual AppKit text field, not a painted imitation.
  * The host attaches nativeControl() to its view tree and closes this owner
@@ -9,6 +10,9 @@ import Library.GUI.MacOS.MacOSView;
 class MacOSTextField implements ITextField, IMacOSView {
 	private NSTextField? _control;
 	private bool _attached = false;
+	private bool _closing = false;
+	private CallbackScope _input = CallbackScope();
+	private Vector<MacOSViewInput> _inputs = [];
 
 	public MacOSTextField(string text = "", string placeholder = "") {
 		self._control = null;
@@ -23,11 +27,11 @@ class MacOSTextField implements ITextField, IMacOSView {
 
 	public NSTextField nativeControl() {
 		self.requireMainThread();
-		if (self._control == null) { throw "Text field is closed"; }
+		if (self._control == null || self._closing) { throw "Text field is closed"; }
 		return self._control;
 	}
 
-	public bool isOpen() { self.requireMainThread(); return self._control != null; }
+	public bool isOpen() { self.requireMainThread(); return self._control != null && !self._closing; }
 
 	public NSView nativeView() { return self.nativeControl(); }
 
@@ -46,6 +50,7 @@ class MacOSTextField implements ITextField, IMacOSView {
 	public void detachFrom(NSView parent) {
 		var control = self.nativeControl();
 		if (!self._attached) { throw "View has no container attachment"; }
+		self.cancelPointerCapture();
 		MacOSView.detachNative(control, parent);
 		self._attached = false;
 	}
@@ -55,6 +60,12 @@ class MacOSTextField implements ITextField, IMacOSView {
 	public double fittingHeight() { NSView view = self.nativeControl(); return view.fittingSize().height; }
 
 	public bool isVisible() { NSView view = self.nativeControl(); return !view.isHidden(); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), handler, null, self._input, owner, self._inputs); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), null, handler, self._input, owner, self._inputs); }
+
+	public void cancelPointerCapture() { MacOSViewInput.detached(self._inputs); }
 
 	public void setVisible(bool visible) { NSView view = self.nativeControl(); view.setHidden(!visible); }
 
@@ -97,16 +108,25 @@ class MacOSTextField implements ITextField, IMacOSView {
 		control.setFrame(frame);
 	}
 
-	public CallbackCancellation pollClose() { return self.isOpen() ? CallbackCancellation.NotRequested : CallbackCancellation.Complete; }
+	public CallbackCancellation pollClose() {
+		self.requireMainThread();
+		var control = self._control;
+		if (control == null) { return CallbackCancellation.Complete; }
+		if (!self._closing) { return CallbackCancellation.NotRequested; }
+		var state = self._input.pollCompletion();
+		if (state != CallbackCancellation.Complete) { return state; }
+		control.abortEditing();
+		control.removeFromSuperview();
+		self._control = null;
+		return CallbackCancellation.Complete;
+	}
 
 	public CallbackCancellation close() {
 		self.requireMainThread();
 		var control = self._control;
 		if (control == null) { return CallbackCancellation.Complete; }
 		if (self._attached) { throw "Detach the view from its container before closing it"; }
-		control.abortEditing();
-		control.removeFromSuperview();
-		self._control = null;
-		return CallbackCancellation.Complete;
+		if (!self._closing) { self._closing = true; self._input.cancel(); }
+		return self.pollClose();
 	}
 }

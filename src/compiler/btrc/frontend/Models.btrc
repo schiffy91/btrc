@@ -217,22 +217,71 @@ class FeNativeRecordInput {
 }
 
 /* Checked call boundaries also apply when a native function is used as a value. */
+class FeNativeCallbackTable {
+	public string name;
+	public string interfaceName;
+	public string context;
+	public int contextIndex;
+	public Vector<string> methodNames = [];
+	public Vector<string> methodFields = [];
+	public string label = "";
+	public string reopen = "";
+	public string releaseField = "";
+	public FeNativeCallbackTable(string name, string interfaceName, string context, int contextIndex) {
+		self.name = name; self.interfaceName = interfaceName; self.context = context; self.contextIndex = contextIndex;
+	}
+
+	public string identity() { return f"{self.name}:{self.interfaceName}:{self.context}:{self.contextIndex}:{self.label}:{self.reopen}:{self.releaseField}:" + Strings.join(self.methodNames, ",") + ":" + Strings.join(self.methodFields, ","); }
+}
+
 class FeNativeResourceBinding {
+	public FeNativeCallbackTable? table = null;
+	public string alias = "";
+	public string constructor = "";
+	public string owner = "";
+	public Vector<string> methods = [];
+	public string storage;
 	public string name;
 	public string ownership;
 	public string retainFunction;
 	public string releaseFunction;
-	public FeNativeResourceBinding(string name, string ownership, string retainFunction, string releaseFunction) {
+	public string releaseConsumption;
+	public string cleanupStatus;
+	public string typeQuery;
+	public string typeTag;
+	public FeNativeResourceBinding(string name, string ownership, string retainFunction, string releaseFunction, string releaseConsumption = "", string cleanupStatus = "", string typeQuery = "", string typeTag = "", string storage = "") {
+		self.storage = storage;
 		self.name = name;
 		self.ownership = ownership;
 		self.retainFunction = retainFunction;
 		self.releaseFunction = releaseFunction;
+		self.releaseConsumption = releaseConsumption;
+		self.cleanupStatus = cleanupStatus;
+		self.typeQuery = typeQuery; self.typeTag = typeTag;
 	}
 
-	public string identity() { return f"{self.name}:{self.ownership}:{self.retainFunction}:{self.releaseFunction}"; }
+	public string identity() {
+		FeNativeCallbackTable? table = self.table;
+		string tableIdentity = "";
+		if (table != null) { tableIdentity = table.identity(); }
+		return f"{self.name}:{self.ownership}:{self.retainFunction}:{self.releaseFunction}:{self.releaseConsumption}:{self.cleanupStatus}:{self.typeQuery}:{self.typeTag}:{self.storage}:{self.alias}:{self.constructor}:{self.owner}:" + Strings.join(self.methods, ",") + ":" + tableIdentity;
+	}
+}
+
+class FeNativeRealtimeCallbackBinding {
+	public string name;
+	public string record;
+	public string size;
+	public string owner;
+	public string invocation;
+	public Map<string, string> operations = {};
+	public FeNativeRealtimeCallbackBinding(string name, string record, string size, string owner, string invocation) {
+		self.name = name; self.record = record; self.size = size; self.owner = owner; self.invocation = invocation;
+	}
 }
 
 class FeNativeCallbackBinding {
+	public FeNativeRealtimeCallbackBinding? realtime = null;
 	public string field = "";
 	public Vector<int> ownedArguments = [];
 	public Vector<string> methods = [];
@@ -280,7 +329,35 @@ class FeNativeStringView {
 	public string identity() { return f"{self.data}:{self.length}:{self.nullMaximum}:{self.nativeSpelling}:{self.lengthSpelling}"; }
 }
 
+class FeNativeRealtimeOperation {
+	public string name;
+	public string nativeFunction;
+	public int ownerIndex;
+	public Vector<Node> parameters = [];
+	public Node returnType;
+	public FeNativeRealtimeOperation(string name, string nativeFunction, int ownerIndex, Node returnType) {
+		self.name = name; self.nativeFunction = nativeFunction; self.ownerIndex = ownerIndex; self.returnType = returnType;
+	}
+}
+
+class FeNativeRealtimeRegistration {
+	public string name;
+	public string invocation;
+	public string resource;
+	public string nativeFunction;
+	public int ownerIndex;
+	public int sizeIndex;
+	public Vector<string> nativeParameters = [];
+	public Vector<FeNativeRealtimeOperation> operations = [];
+	public Node statusType;
+	public FeNativeRealtimeRegistration(string name, string invocation, string resource, string nativeFunction, int ownerIndex, int sizeIndex, Node statusType) {
+		self.name = name; self.invocation = invocation; self.resource = resource; self.nativeFunction = nativeFunction;
+		self.ownerIndex = ownerIndex; self.sizeIndex = sizeIndex; self.statusType = statusType;
+	}
+}
+
 class FeNativeCallbackProjection {
+	public FeNativeRealtimeRegistration? realtime = null;
 	public string field = "";
 	public string record = "";
 	public Vector<string> contextFields = [];
@@ -316,13 +393,154 @@ class FeNativeCallbackProjection {
 	public bool isContext(int index) { return index == self.callbackContextIndex || self.callbackContextIndices.contains(index); }
 }
 
+class FeNativeCopiedResult {
+	public string kind;
+	public int ownerIndex;
+	public string lengthFunction;
+	public Vector<int> lengthArguments;
+	public FeNativeCopiedResult(string kind, int ownerIndex, string lengthFunction, Vector<int> lengthArguments) {
+		self.kind = kind; self.ownerIndex = ownerIndex; self.lengthFunction = lengthFunction; self.lengthArguments = lengthArguments;
+	}
+}
+
+class FeNativeOutputOffset {
+	public int parameterIndex;
+	public int inputIndex;
+	public int lengthIndex;
+	public string field;
+	public FeNativeOutputOffset(int parameterIndex, int inputIndex, int lengthIndex, string field) {
+		self.parameterIndex = parameterIndex; self.inputIndex = inputIndex; self.lengthIndex = lengthIndex; self.field = field;
+	}
+}
+
+class FeNativeResourceOutputBinding {
+	public string resource;
+	public string sizeParameter;
+	public string alias;
+	public FeNativeResourceOutputBinding(string resource, string sizeParameter, string alias) { self.resource = resource; self.sizeParameter = sizeParameter; self.alias = alias; }
+}
+
+class FeNativeSizedResourceOutput {
+	public int sizeIndex;
+	public Node sizeType;
+	public string nativeFunction;
+	public FeNativeSizedResourceOutput(int sizeIndex, Node sizeType, string nativeFunction) { self.sizeIndex = sizeIndex; self.sizeType = sizeType; self.nativeFunction = nativeFunction; }
+}
+
+class FeNativeOwnedOutput {
+	public FeNativeInitializer? initializer = null;
+	public FeNativeSizedResourceOutput? sizedResource = null;
+	public FeNativeOutputOffset? offset = null;
+	public int parameterIndex;
+	public string resultName;
+	public string resource;
+	public Node statusType;
+	public FeNativeOwnedOutput(int parameterIndex, string resultName, string resource, Node statusType) {
+		self.parameterIndex = parameterIndex; self.resultName = resultName; self.resource = resource; self.statusType = statusType;
+	}
+
+	public bool hides(int index) { return index == self.parameterIndex || (self.offset != null && index == self.offset.parameterIndex) || (self.sizedResource != null && index == self.sizedResource.sizeIndex); }
+}
+
+class FeNativeInitializer {
+	public string success;
+	public int copiedInput = -1;
+	public int length = -1;
+	public FeNativeInitializer(string success, int copiedInput, int length) { self.success = success; self.copiedInput = copiedInput; self.length = length; }
+}
+
+class FeNativeCopiedInput {
+	public int ownerIndex;
+	public int inputIndex;
+	public int lengthIndex;
+	public string resource;
+	public FeNativeCopiedInput(int ownerIndex, int inputIndex, int lengthIndex, string resource) { self.ownerIndex = ownerIndex; self.inputIndex = inputIndex; self.lengthIndex = lengthIndex; self.resource = resource; }
+}
+
+class FeNativeRecordPath {
+	public string enumIdentity = "";
+	public Vector<string> fields = [];
+	public Vector<bool> pointers = [];
+	public Node valueType;
+	public string identity() {
+		string result = self.valueType.base + ":" + self.enumIdentity;
+		for index in range(self.fields.len) { result = result + f"|{self.fields.get(index)}:{self.pointers.get(index)}"; }
+		return result;
+	}
+}
+
+class FeNativeRecordSnapshot {
+	public FeNativeRecordPath? guardPath = null;
+	public string guardConstant = "";
+	public Map<string, FeNativeRecordPath> strings = {};
+	public bool byteSpan = false;
+	public string resultName;
+	public Vector<FeNativeRecordInputField> fields = [];
+	public Vector<FeNativeRecordPath> paths = [];
+	public string byteField = "";
+	public Vector<FeNativeRecordPath> bytePaths = [];
+	public string identity() {
+		string result = self.resultName + ":" + self.byteField + f":{self.byteSpan}:" + self.guardConstant;
+		if (self.guardPath != null) { result = result + ":" + self.guardPath.identity(); }
+		var names = self.strings.keys(); names.sortBy((string left, string right) => Strings.lessThan(left, right));
+		for name in names { result = result + ":" + name + ":" + self.strings.get(name).identity(); }
+		for index in range(self.fields.len) { result = result + ":" + self.fields.get(index).name + ":" + self.paths.get(index).identity(); }
+		for path in self.bytePaths { result = result + ":" + path.identity(); }
+		return result;
+	}
+}
+
+class FeNativeCallbackTableMethod {
+	public string name;
+	public string field;
+	public Vector<Node> parameters = [];
+	public Node returnType;
+	public Vector<string> nativeParameters = [];
+	public string nativeReturn;
+	public FeNativeCallbackTableMethod(string name, string field, Node returnType, string nativeReturn) {
+		self.name = name; self.field = field; self.returnType = returnType; self.nativeReturn = nativeReturn;
+	}
+}
+
+/* A unique SDK callback record implemented by one BTRC receiver: every live
+ * native table, including SDK reopen clones, holds one ordinary ARC claim. */
+class FeNativeCallbackTableProjection {
+	public string resource;
+	public string interfaceName;
+	public string nativeType;
+	public string context;
+	public int contextIndex;
+	public Vector<FeNativeCallbackTableMethod> methods = [];
+	public string label = "";
+	public string reopen = "";
+	public string releaseField = "";
+	public FeNativeCallbackTableProjection(string resource, string interfaceName, string nativeType, string context, int contextIndex) {
+		self.resource = resource; self.interfaceName = interfaceName; self.nativeType = nativeType; self.context = context; self.contextIndex = contextIndex;
+	}
+
+	public string identity() {
+		string identity = f"{self.resource}:{self.interfaceName}:{self.nativeType}:{self.context}:{self.contextIndex}:{self.label}:{self.reopen}:{self.releaseField}";
+		for method in self.methods { identity = identity + ":" + method.name + "=" + method.field + "(" + Strings.join(method.nativeParameters, ",") + ")" + method.nativeReturn; }
+		return identity;
+	}
+}
+
 class FeNativeCallContract {
+	public FeNativeCallbackTableProjection? callbackTable = null;
+	public FeNativeCopiedInput? copiedInput = null;
+	public FeNativeRecordSnapshot? recordSnapshot = null;
+	public FeNativeCopiedResult? copiedResult = null;
+	public int boundParameter = -1;
+	public string boundConstant = "";
+	public Vector<string> variadicArguments = [];
+	public FeNativeOwnedOutput? ownedOutput = null;
 	public FeNativeRecordOutput? recordOutput = null;
 	public string executor = "";
 	public NativeNode? objectiveCMethod = null;
 	public Vector<FeNativeCallbackProjection> callbacks = [];
 	public Vector<string> resourceParameters = [];
 	public string resourceResult = "";
+	public int borrowedResultOwner = -1;
 	public Vector<bool> nonnullParameters;
 	public Vector<bool> readOnlyBorrows;
 	public bool nonnullReturn;
@@ -339,13 +557,16 @@ class FeNativeCallContract {
 	}
 
 	public bool returnsOwned() {
-		if (!self.resourceResult.isEmpty() || self.recordOutput != null) { return true; }
-		for callback in self.callbacks { if (callback.oneShot) { return true; } }
+		if (self.recordSnapshot != null) { return true; }
+		if (!self.resourceResult.isEmpty() || self.recordOutput != null || self.ownedOutput != null || self.copiedResult != null) { return true; }
+		for callback in self.callbacks { if (callback.oneShot || callback.realtime != null) { return true; } }
 		return false;
 	}
 
 	public string adapterSymbol(string name) {
-		if (self.recordOutput != null) { return "__btrc_native_" + name; }
+		if (self.recordSnapshot != null) { return "__btrc_native_" + name; }
+		if (self.boundParameter >= 0) { return "__btrc_native_" + name; }
+		if (self.recordOutput != null || self.ownedOutput != null || self.copiedResult != null || self.copiedInput != null) { return "__btrc_native_" + name; }
 		if (self.callbacks.len > 0) { return "__btrc_native_" + name; }
 		if (!self.resourceResult.isEmpty()) { return "__btrc_native_" + name; }
 		for resource in self.resourceParameters { if (!resource.isEmpty()) { return "__btrc_native_" + name; } }
@@ -361,6 +582,9 @@ class FeNativeCallContract {
 /* SDK provenance is attached to the actual imported node, never inferred from
  * its spelling, line number, or a user-controlled source marker. */
 class FeNativeImportedDeclaration {
+	public string invocation = "";
+	public string resourceQueryType = "";
+	public bool privateFields = false;
 	public FeNativeResourceBinding? resource = null;
 	public Node declaration;
 	public string module;

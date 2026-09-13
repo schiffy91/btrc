@@ -3,6 +3,7 @@
 #define BTRC_HARDWARE_FAULT_IMPLEMENTATION
 #include "HardwareFaults.h"
 #undef CFRelease
+#undef CFRetain
 #undef AudioObjectGetPropertyData
 #undef AudioObjectGetPropertyDataSize
 #include <assert.h>
@@ -14,9 +15,21 @@ static int scenario;
 static int retained;
 static CFTypeRef retained_values[256];
 static int list_reads;
+static int property_reads;
 
-void inventoryScenario(int value) { assert(retained == 0); scenario = value; list_reads = 0; }
+void inventoryScenario(int value) { assert(retained == 0); scenario = value; list_reads = 0; property_reads = 0; }
 int inventoryRetainedValues(void) { return retained; }
+int inventoryPropertyReads(void) { return property_reads; }
+CFTypeRef hardwareRetain(CFTypeRef value) {
+    assert(value != NULL);
+    for (int index = 0; index < retained; index++) {
+        if (retained_values[index] != value) continue;
+        assert(retained < (int)(sizeof(retained_values) / sizeof(retained_values[0])));
+        retained_values[retained++] = value;
+        break;
+    }
+    return CFRetain(value);
+}
 void hardwareRelease(CFTypeRef value) {
     assert(value != NULL);
     /* The composed application also releases images and other CF values.
@@ -63,6 +76,7 @@ static OSStatus copy_property(const void* source, UInt32 length, UInt32* capacit
 }
 
 OSStatus hardwareRead(AudioObjectID object, const AudioObjectPropertyAddress* address, UInt32 qualifier_size, const void* qualifier, UInt32* size, void* output) {
+    property_reads++;
     (void)qualifier_size; (void)qualifier;
     AudioObjectPropertySelector selector = address->mSelector;
     if (selector == kAudioHardwarePropertyDevices) {
@@ -90,7 +104,9 @@ OSStatus hardwareRead(AudioObjectID object, const AudioObjectPropertyAddress* ad
         return noErr;
     }
     if (selector == kAudioDevicePropertyDeviceUID || selector == kAudioObjectPropertyName) {
+        assert(*size == sizeof(CFTypeRef));
         if (scenario == 13 && object == 22 && selector == kAudioDevicePropertyDeviceUID) { return kAudioHardwareUnknownPropertyError; }
+        if (scenario == 20 && object == 22) { CFTypeRef empty = NULL; return copy_property(&empty, (UInt32)sizeof(empty), size, output); }
         const char* text = object == 11 || (scenario == 8 && object == 22) ? "device-a" : object == 33 ? "org.btrc.private.coreaudio.hidden" : "device-b";
         if (selector == kAudioObjectPropertyName && object == 22 && scenario == 3) { text = "Renamed output"; }
         CFTypeRef value;
@@ -106,7 +122,10 @@ OSStatus hardwareRead(AudioObjectID object, const AudioObjectPropertyAddress* ad
         assert(value != NULL);
         assert(retained < (int)(sizeof(retained_values) / sizeof(retained_values[0])));
         retained_values[retained++] = value;
-        return copy_property(&value, (UInt32)sizeof(value), size, output);
+        OSStatus status = copy_property(&value, (UInt32)sizeof(value), size, output);
+        if (scenario == 18 && object == 22) { return kAudioHardwareBadDeviceError; }
+        if (scenario == 19 && object == 22) { *size = 1u; }
+        return status;
     }
     if (selector == kAudioDevicePropertyNominalSampleRate) {
         Float64 rate = 48000.0;

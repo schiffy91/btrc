@@ -1,13 +1,11 @@
-/* Headless smoke test for the FreeType font binding. We can't ship a TTF here,
- * so we load a bogus path (yields a non-ok font) to exercise load → ok →
- * destroy and confirm the Font class links against the FreeType backend. */
-#include "GUI/Raster.btrc"
-#include "GUI/Font.btrc"
+/* Headless smoke test for explicit optional FreeType loading failures. */
+import Library.GUI.FreeType;
 
 int main() {
-	Font missing = Font("/no/such/font.ttf", 16);
-	if (missing.ok()) { print("FAIL: bogus font reported ok"); return 1; }
-	Font.useBitmap();   /* exercises the set-font symbol */
+	bool failed = false;
+	try { var missing = FreeType.load("/no/such/font.ttf", 16); }
+	catch (string error) { failed = true; }
+	if (!failed) { print("FAIL: bogus font was loaded"); return 1; }
 	print("FONT SMOKE TEST PASSED");
 	return 0;
 }

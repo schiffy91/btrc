@@ -1,0 +1,30 @@
+import Library.Vector;
+
+import ../../../compiler/btrc/ir/Model.btrc;
+import ../../../compiler/btrc/ir/Emitter.btrc;
+
+int main() {
+	var module = IRModule();
+	module.language = "c++";
+	var header = IRPreprocessorDecl();
+	header.kind = IR_PREPROCESSOR_INCLUDE; header.header = "Probe.hpp"; header.isSystem = false;
+	module.preprocessorDecls.push(header);
+	Vector<IRNode> none = [];
+	var failure = IRNode.block([IRNode.expressionStatement(IRNode.call("abort", none))]);
+	var create = IRFunction(); create.name = "createProbe"; create.returnType = "void*"; create.cLinkage = true;
+	create.params = [IRParam("int", "mode")];
+	create.body = IRNode.block([IRNode.cxxExceptionBoundary(
+		IRNode.block([IRNode.returnStatement(IRNode.cxxNew("sdk::Probe", [IRNode.variable("mode")]))]),
+		failure, IRNode.block([IRNode.returnStatement(IRNode.literal("NULL"))])
+	)]);
+	var destroy = IRFunction(); destroy.name = "deleteProbe"; destroy.returnType = "void"; destroy.cLinkage = true;
+	destroy.params = [IRParam("void*", "value")];
+	destroy.body = IRNode.block([IRNode.cxxExceptionBoundary(
+		IRNode.block([IRNode.cxxDelete(IRNode.cast("sdk::Probe*", IRNode.variable("value")))]), failure
+	)]);
+	var living = IRFunction(); living.name = "livingProbes"; living.returnType = "int"; living.cLinkage = true;
+	living.body = IRNode.block([IRNode.returnStatement(IRNode.variable("sdk::living"))]);
+	module.functions = [create, destroy, living];
+	print(CEmitter().emit(module));
+	return 0;
+}

@@ -1,0 +1,54 @@
+import Library.GUI.GUI;
+import Library.GUI.IWindow;
+import Library.GUI.ITextField;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.AppKitEvents;
+import Library.GUI.MacOS.AppKitText;
+import Library.Callback;
+import Library.App;
+
+#include <assert.h>
+
+class KeyboardReceiver implements IWindowKeyHandler {
+	public int calls = 0;
+	public bool consume = true;
+	public AppKeyCode last = APP_KEY_UNKNOWN;
+	public bool key(AppKeyboardEvent event) { self.calls++; self.last = event.key; return self.consume; }
+}
+
+void sendKey(MacOSWindow window, unsigned short code, string characters) {
+	var location = window.nativeWindow().frame().origin;
+	location.x = 0.0; location.y = 0.0;
+	var text = AppKitText.nativeValue(characters);
+	var event = NSEvent.keyEventWithType(NSEventTypeKeyDown, location, 0UL, 0.0, window.nativeWindow().windowNumber(), null, text, text, false, code);
+	assert(event != null);
+	NSApplication.sharedApplication().sendEvent(event);
+}
+
+int main() {
+	GUI.initialize();
+	var native = MacOSWindow("Keyboard routing", 360.0, 220.0);
+	var otherNative = MacOSWindow("Other window", 240.0, 120.0);
+	IWindow window = native;
+	IWindow other = otherNative;
+	var receiver = KeyboardReceiver();
+	var scope = CallbackScope();
+	var registration = window.onKey(receiver, scope);
+	sendKey(native, kVK_ANSI_A, "a");
+	assert(receiver.calls == 1 && receiver.last == APP_KEY_A);
+	sendKey(otherNative, kVK_ANSI_A, "a");
+	assert(receiver.calls == 1);
+	receiver.consume = false;
+	sendKey(native, kVK_ANSI_D, "d");
+	assert(receiver.calls == 2 && receiver.last == APP_KEY_D);
+	assert(scope.cancel() == CallbackCancellation.Complete);
+	sendKey(native, kVK_ANSI_A, "a");
+	assert(receiver.calls == 2);
+	var next = CallbackScope();
+	window.onKey(receiver, next);
+	assert(window.close() == CallbackCancellation.Complete);
+	assert(next.cancel() == CallbackCancellation.Complete);
+	other.close();
+	assert(GUI.close() == CallbackCancellation.Complete);
+	return 0;
+}

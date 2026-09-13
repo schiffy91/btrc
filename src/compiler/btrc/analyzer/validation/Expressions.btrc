@@ -175,6 +175,7 @@ class ExpressionValidator {
 		if (initializer.elements.len > declaration.fields.len) {
 			TypeValidator.fail(subject + " has " + Strings.fromInt(initializer.elements.len) + " initializer elements but struct '" + name + "' has " + Strings.fromInt(declaration.fields.len) + " fields", initializer);
 		}
+		if (initializer.elements.len > 0 && self.state.analyzed.nativeRecordHasPrivateFields(declaration)) { TypeValidator.fail("Native records with private fields cannot use positional initialization", initializer); }
 		int index = 0;
 		while (index < initializer.elements.len) {
 			Node field = declaration.fields.get(index);
@@ -361,6 +362,7 @@ class ExpressionValidator {
 		Node? receiver = self.types.inferType(expression.obj, vars);
 		if (receiver == null) { return; }
 		string owner = SemanticTypeSystem.resolvedStructName(receiver, self.state.analyzed);
+		if (!owner.isEmpty() && SemanticTypeSystem.structFieldFor(receiver, expression.field, self.state.analyzed) == null) { TypeValidator.fail("Struct '" + owner + "' has no field '" + expression.field + "'", expression); }
 		if (!owner.isEmpty() && self.state.analyzed.nativeFieldCallContract(owner, expression.field) != null) { TypeValidator.fail("Reading a native callback field with non-null parameters requires a checked callback adapter", expression); }
 	}
 
@@ -954,7 +956,7 @@ class ExpressionValidator {
 			if (source != null && target != null && self.state.analyzed.isInterface(target.base) && !interfaceQuery && !self.operators.isNullType(source) && !self.operators.specializationIsSubtype(source, target)) { TypeValidator.fail("Interface casts require a proven implementation upcast or a nullable interface query", expression); }
 			if (source != null && target != null && self.state.analyzed.isInterface(source.base) && (self.state.analyzed.isClass(target.base) || self.state.analyzed.isGenericClass(target.base))) { TypeValidator.fail("Interface downcasts require a runtime type proof", expression); }
 			if (source != null && target != null && self.state.analyzed.nativeClassLanguage(source.base) == "objective-c" && self.state.analyzed.nativeClassLanguage(target.base) == "objective-c" && !self.state.analyzed.isSubclass(source.base, target.base)) { TypeValidator.fail("Objective-C casts require a proven object upcast", expression); }
-			if (source != null && target != null && (self.state.analyzed.nativeClassLanguage(source.base) == "c" || self.state.analyzed.nativeClassLanguage(target.base) == "c") && (source.base != target.base || source.pointerDepth - (source.isNullable ? 1 : 0) != 0 || target.pointerDepth - (target.isNullable ? 1 : 0) != 0)) { TypeValidator.fail("Managed native resources cannot be cast to or from other value types", expression); }
+			if (source != null && target != null && (self.state.analyzed.nativeClassLanguage(source.base) == "c" || self.state.analyzed.nativeClassLanguage(target.base) == "c") && ((!self.state.analyzed.isSubclass(source.base, target.base) && self.state.analyzed.nativeResourceQueryType(target, source) == "") || source.pointerDepth - (source.isNullable ? 1 : 0) != 0 || target.pointerDepth - (target.isNullable ? 1 : 0) != 0)) { TypeValidator.fail("Managed native resources cannot be cast to or from other value types", expression); }
 		} else if (expression.kind == NK_SIZEOF_EXPR) {
 			if (expression.operand != null && expression.operand.kind == NK_SIZEOF_EXPR_OP) {
 				self.validateExpr(expression.operand.expr,  vars);

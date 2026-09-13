@@ -76,7 +76,7 @@ class GenericSpecializer {
 						Node? method = self.analyzed.genericClassMethod(context.base, name);
 						if (method == null || !hostedAbi.compilerStdlibNode(method)) { throw "Stored native callbacks require import Library.Callback"; }
 					}
-					if (!callback.oneShot && callback.unregister.signature.parameters.len > 0) {
+					if (!callback.oneShot && callback.unregister.signature.parameters.len > 0 && !callback.unregister.classMethod) {
 						Node token = context.genericArgs.get(1);
 						if (!self.analyzed.genericClassTable.has(token.base) || !hostedAbi.compilerStdlibNode(self.analyzed.genericClassTable.get(token.base))) { throw "Stored native callbacks require import Library.Callback"; }
 						for name in ["publish", "source", "value"] {

@@ -48,6 +48,12 @@ class MacOSSelect implements ISelect, IMacOSView {
 
 	public bool isVisible() { return self._view.isVisible(); }
 
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._view.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._view.onScroll(handler, owner); }
+
+	public void cancelPointerCapture() { self._view.cancelPointerCapture(); }
+
 	public void setVisible(bool visible) { self._view.setVisible(visible); }
 
 	public CallbackCancellation pollClose() { return self._view.pollClose(); }
@@ -99,12 +105,16 @@ class MacOSSelect implements ISelect, IMacOSView {
 
 	public void setFont(double size) {
 		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native selection font size"; }
-		self.control().setFont(NSFont.systemFontOfSize(size));
+		var button = self.control();
+		/* A larger outer frame does not grow AppKit's popup bezel. */
+		if (size > 20.0) { throw "Native selections support font sizes up to 20 points"; }
+		button.setControlSize(size > 13.0 ? NSControlSizeLarge : NSControlSizeRegular);
+		button.setFont(NSFont.systemFontOfSize(size));
 	}
 
 	public bool isEnabled() { return self.control().isEnabled(); }
 
 	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
 
-	public CallbackCancellation close() { self._view.close(); self._button = null; return CallbackCancellation.Complete; }
+	public CallbackCancellation close() { var state = self._view.close(); self._button = null; return state; }
 }

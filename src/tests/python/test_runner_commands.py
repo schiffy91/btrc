@@ -30,23 +30,9 @@ def test_corpus_command_preserves_configured_cflags_once(
         assert command.count(flag) == 1
 
 
-def _mock_built_app_runtime(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    app_build = tmp_path / "app-build"
-    app_build.mkdir()
-    (app_build / "libbtrc_app.a").write_bytes(b"")
-    app_source = tmp_path / "app-source"
-    app_source.mkdir()
-    monkeypatch.setattr(runner, "_APP_BUILD", str(app_build))
-    monkeypatch.setattr(runner, "_APP_DIR", str(app_source))
-    monkeypatch.setattr(runner, "_GPU_BUILD", str(tmp_path / "missing-gpu-build"))
-    monkeypatch.delenv("APP_CFLAGS", raising=False)
-    monkeypatch.delenv("APP_LDFLAGS", raising=False)
+def _mock_built_gpu_runtime(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.delenv("GPU_CFLAGS", raising=False)
     monkeypatch.delenv("GPU_LDFLAGS", raising=False)
-
-
-def _mock_built_gpu_runtime(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    _mock_built_app_runtime(monkeypatch, tmp_path)
     gpu_build = tmp_path / "gpu-build"
     gpu_build.mkdir()
     (gpu_build / "libbtrc_gpu.a").write_bytes(b"")
@@ -56,49 +42,20 @@ def _mock_built_gpu_runtime(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.setattr(runner, "_GPU_DIR", str(gpu_source))
 
 
-def test_app_only_runtime_links_app_and_glfw_exactly_once(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _mock_built_app_runtime(monkeypatch, tmp_path)
-    monkeypatch.setenv("APP_CFLAGS", "-I/glfw/include")
-    monkeypatch.setenv("APP_LDFLAGS", "-L/glfw/lib -lglfw")
-    monkeypatch.setenv("GPU_CFLAGS", "-I/wgpu/include")
-    monkeypatch.setenv("GPU_LDFLAGS", "-L/wgpu/lib -lwgpu_native -lglfw")
-
-    command = runner._gcc_flags("/* btrc_app.h */", "/tmp/program.c", "/tmp/program")
-
-    assert "-lbtrc_gpu" not in command
-    assert command.count(f"-I{tmp_path / 'app-source'}") == 1
-    assert command.count("-lbtrc_app") == 1
-    assert command.count("-lglfw") == 1
-    assert not any("wgpu" in argument.lower() for argument in command)
-
-
-@pytest.mark.parametrize(
-    "generated_headers",
-    (
-        "/* btrc_gpu.h */",
-        "/* btrc_gpu_compute_internal.h */",
-        "/* btrc_app.h */\n/* btrc_gpu.h */",
-    ),
-)
-def test_gpu_runtime_links_its_application_owner_after_gpu_exactly_once(
-    generated_headers: str,
+def test_compute_runtime_links_without_application_or_glfw(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _mock_built_gpu_runtime(monkeypatch, tmp_path)
     monkeypatch.setenv("GPU_CFLAGS", "-I/toolchain/include")
-    monkeypatch.setenv("GPU_LDFLAGS", "-lwgpu_native -lglfw")
+    monkeypatch.setenv("GPU_LDFLAGS", "-lwgpu_native")
 
-    command = runner._gcc_flags(generated_headers, "/tmp/program.c", "/tmp/program")
+    command = runner._gcc_flags("/* btrc_gpu_compute_internal.h */", "/tmp/program.c", "/tmp/program")
 
-    assert command.index("-lbtrc_gpu") < command.index("-lbtrc_app")
-    assert command.count(f"-I{tmp_path / 'app-source'}") == 1
     assert command.count("-lbtrc_gpu") == 1
-    assert command.count("-lbtrc_app") == 1
-    assert command.count("-lglfw") == 1
+    assert command.count("-lwgpu_native") == 1
+    assert "-lbtrc_app" not in command
+    assert "-lglfw" not in command
 
 
 def test_darwin_gpu_without_homebrew_is_a_precise_skip(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -107,7 +64,7 @@ def test_darwin_gpu_without_homebrew_is_a_precise_skip(tmp_path, monkeypatch: py
     monkeypatch.setattr(capabilities.shutil, "which", lambda _command: None)
 
     with pytest.raises(pytest.skip.Exception, match="Homebrew is not on PATH"):
-        runner._gcc_flags("/* btrc_gpu.h */", "/tmp/program.c", "/tmp/program")
+        runner._gcc_flags("/* btrc_gpu_compute_internal.h */", "/tmp/program.c", "/tmp/program")
 
 
 def test_darwin_gpu_missing_formula_is_a_precise_skip(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -121,58 +78,27 @@ def test_darwin_gpu_missing_formula_is_a_precise_skip(tmp_path, monkeypatch: pyt
     )
 
     with pytest.raises(pytest.skip.Exception, match="Homebrew wgpu-native: not installed"):
-        runner._gcc_flags("/* btrc_gpu.h */", "/tmp/program.c", "/tmp/program")
+        runner._gcc_flags("/* btrc_gpu_compute_internal.h */", "/tmp/program.c", "/tmp/program")
 
 
-def test_darwin_app_without_homebrew_is_a_precise_skip(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _mock_built_app_runtime(monkeypatch, tmp_path)
-    monkeypatch.setattr(platform, "system", lambda: "Darwin")
-    monkeypatch.setattr(capabilities.shutil, "which", lambda _command: None)
-
-    with pytest.raises(pytest.skip.Exception, match="APP_CFLAGS/APP_LDFLAGS are unset and Homebrew is not on PATH"):
-        runner._gcc_flags("/* btrc_app.h */", "/tmp/program.c", "/tmp/program")
-
-
-def test_darwin_app_missing_glfw_is_a_precise_skip(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _mock_built_app_runtime(monkeypatch, tmp_path)
-    monkeypatch.setattr(platform, "system", lambda: "Darwin")
-    monkeypatch.setattr(capabilities.shutil, "which", lambda _command: "/opt/homebrew/bin/brew")
-    monkeypatch.setattr(
-        capabilities.subprocess,
-        "run",
-        lambda *_args, **_kwargs: SimpleNamespace(returncode=1, stdout="", stderr="not installed"),
-    )
-
-    with pytest.raises(pytest.skip.Exception, match="Homebrew glfw: not installed"):
-        runner._gcc_flags("/* btrc_app.h */", "/tmp/program.c", "/tmp/program")
-
-
-def test_darwin_app_resolves_only_glfw(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_darwin_gpu_resolves_only_webgpu(monkeypatch: pytest.MonkeyPatch) -> None:
     commands = []
     monkeypatch.setattr(capabilities.shutil, "which", lambda _command: "/opt/homebrew/bin/brew")
 
     def run(command, **_kwargs):
         commands.append(command)
-        return SimpleNamespace(returncode=0, stdout="/opt/homebrew/opt/glfw\n", stderr="")
+        return SimpleNamespace(returncode=0, stdout="/opt/homebrew/opt/wgpu-native\n", stderr="")
 
     monkeypatch.setattr(capabilities.subprocess, "run", run)
 
-    flags, error = capabilities.darwin_app_flags()
+    flags, error = capabilities.darwin_gpu_flags()
 
     assert error is None
-    assert commands == [["/opt/homebrew/bin/brew", "--prefix", "glfw"]]
-    assert "-lglfw" in flags
-    assert not any("wgpu" in argument.lower() for argument in flags)
-    assert "Metal" not in flags
-    assert "QuartzCore" not in flags
-
-
-def test_app_environment_flags_must_be_configured_as_a_pair(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _mock_built_app_runtime(monkeypatch, tmp_path)
-    monkeypatch.setenv("APP_CFLAGS", "-I/glfw/include")
-
-    with pytest.raises(pytest.skip.Exception, match="APP_CFLAGS and APP_LDFLAGS must be set together"):
-        runner._gcc_flags("/* btrc_app.h */", "/tmp/program.c", "/tmp/program")
+    assert commands == [["/opt/homebrew/bin/brew", "--prefix", "wgpu-native"]]
+    assert "-lglfw" not in flags
+    assert "-lwgpu_native" in flags
+    assert "Metal" in flags
+    assert "QuartzCore" in flags
 
 
 def test_gpu_environment_flags_must_be_configured_as_a_pair(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -180,7 +106,7 @@ def test_gpu_environment_flags_must_be_configured_as_a_pair(tmp_path, monkeypatc
     monkeypatch.setenv("GPU_CFLAGS", "-I/toolchain/include")
 
     with pytest.raises(pytest.skip.Exception, match="GPU_CFLAGS and GPU_LDFLAGS must be set together"):
-        runner._gcc_flags("/* btrc_gpu.h */", "/tmp/program.c", "/tmp/program")
+        runner._gcc_flags("/* btrc_gpu_compute_internal.h */", "/tmp/program.c", "/tmp/program")
 
 
 def test_linux_tray_is_an_explicit_unsupported_provider(monkeypatch: pytest.MonkeyPatch) -> None:

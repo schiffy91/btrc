@@ -72,6 +72,32 @@ def test_generic_interface_runtime_values_remain_explicitly_unsupported(source: 
 
 
 @pytest.mark.parametrize("sanitized", [False, True])
+def test_inferred_nullable_alias_is_an_automatic_owner(tmp_path, sanitized, interface_compile):
+    source = """
+        int destroyed = 0;
+        class Claim {
+            public int value = 7;
+            public void __del__() { destroyed++; }
+        }
+        Claim? acquire() { return Claim(); }
+        void run() {
+            var admitted = acquire();
+            assert(admitted != null);
+            var retainedAdmission = admitted;
+            release admitted;
+            assert(destroyed == 0 && retainedAdmission.value == 7);
+            release retainedAdmission;
+            assert(destroyed == 1);
+        }
+        int main() { run(); assert(destroyed == 1); return 0; }
+    """
+    analyzed = _analyze(source)
+    assert not analyzed.errors
+    assert not any("Aliasing managed variable" in message for message in analyzed.warnings)
+    _run_interface_program(tmp_path, interface_compile(source), sanitized)
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
 def test_runtime_interface_dispatch_preserves_receiver_and_lifetime(tmp_path, sanitized, interface_compile):
     source = """
         int destroyed = 0;

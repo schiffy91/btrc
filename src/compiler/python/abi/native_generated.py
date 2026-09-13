@@ -57,6 +57,34 @@ class NativeObjectiveCMethod:
 
 
 @dataclass(kw_only=True)
+class NativeCxxClass:
+    name: str = ""
+    record_type: native_type
+    default_constructor: bool = False
+    public_destructor: bool = False
+    trivially_copyable: bool = False
+    trivially_destructible: bool = False
+    source_file: str = _dc_field(default=None, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    column: int = 0
+
+
+@dataclass(kw_only=True)
+class NativeCxxMethod:
+    name: str = ""
+    identity: str = ""
+    owner: str = ""
+    receiver: str = ""
+    method_name: str = ""
+    signature: native_type
+    parameter_semantics: list[NativeParameterSemantics] = _dc_field(default_factory=list)
+    const_method: bool = False
+    source_file: str = _dc_field(default=None, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    column: int = 0
+
+
+@dataclass(kw_only=True)
 class NativeTypedef:
     name: str = ""
     underlying: native_type
@@ -219,7 +247,7 @@ class NativeField:
 
 # --- Union type aliases for sum types ---
 
-native_declaration = Union[NativeFunction, NativeObjectiveCMethod, NativeTypedef, NativeConstant, NativeGlobal, NativeRecordDeclaration]
+native_declaration = Union[NativeFunction, NativeObjectiveCMethod, NativeCxxClass, NativeCxxMethod, NativeTypedef, NativeConstant, NativeGlobal, NativeRecordDeclaration]
 native_type = Union[NativeBuiltin, NativePointer, NativeAlias, NativeRecordType, NativeEnumType, NativeFunctionType, NativeArrayType, NativeQualifiedType, NativeObjectiveCObject, NativeObjectiveCBlock]
 
 

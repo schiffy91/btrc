@@ -1463,6 +1463,64 @@ Aliases, result names and size/output positions must be distinct. Unsupported
 size/output types, multiple outputs, callback or record projections, realtime
 calls and output-offset mappings cannot be combined with this form.
 
+### Unique C callback tables
+
+A unique record resource whose fields are a context slot plus function
+pointers can be implemented by one ordinary BTRC receiver. Declare the table
+under the resource; the header remains the signature authority:
+
+```toml
+[native.bindings.resources.libstreamfile_t]
+ownership = "unique"
+release = "libstreamfile_close"
+
+[native.bindings.resources.libstreamfile_t.table]
+name = "openVgmstreamMemorySource"
+interface = "IVgmstreamMemorySource"
+context = "user_data"
+context-index = 0
+executor = "caller"
+failure = "abort"
+label = "get_name"
+reopen = "open"
+release = "close"
+
+[native.bindings.resources.libstreamfile_t.table.methods]
+read = "read"
+size = "get_size"
+```
+
+`methods` maps BTRC method names to callback fields whose parameter at
+`context-index` is the unqualified `void*` context; the remaining arguments
+must be SDK scalars or POD data pointers and the result a scalar or void. The
+imported interface exposes those methods without the context (`int read(uint8_t*
+argument0, int64_t argument1, int argument2)`, `int64_t size()`), and the
+generated factory `libstreamfile_t name(IVgmstreamMemorySource receiver, string
+label)` returns the ordinary unique owner: `close()`, `isOpen()`, aliases,
+borrows and final cleanup behave exactly as for any other unique resource, and
+the SDK release function still runs the table's own `release` callback.
+
+Every field of the SDK record must be mapped exactly once. `label` names a
+`const char* (*)(void*)` field answered with the factory's copied `label`
+string; it is borrowed from the table holder, never from the BTRC string.
+`reopen` names a `struct T* (*)(void*, const char*)` field: the generated
+adapter returns a fresh table sharing the same receiver when the requested name
+equals the label and null for any other name, so an SDK may reopen its own
+input without provider code. `release` names the `void (*)(struct T*)` field
+that frees one table. `reopen` requires `label`.
+
+The receiver is retained by a generated holder with one claim per live table:
+the original returned to BTRC and every SDK reopen clone. Closing the BTRC
+owner releases only its table; the receiver is released after the last table
+closes, so an SDK that keeps its reopened stream alive keeps the BTRC receiver
+alive until the SDK itself releases it. Callbacks and releases are checked
+against the creating thread and abort otherwise; a BTRC exception inside a
+method runs its local cleanup and terminates at the boundary. `executor`
+currently requires `caller` and `failure` requires `abort`. Method names cannot
+shadow `close`/`isOpen`, the factory and interface names must not collide with
+selected symbols, and inline-storage or reference-counted resources are
+rejected. No userdata, function pointer or table layout reaches provider code.
+
 ### Selected C variadic calls
 
 An SDK variadic function may expose one fixed, typed call shape. Bind its actual

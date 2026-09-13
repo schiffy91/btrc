@@ -66,12 +66,12 @@ int main() {
 	background.close();
 	window.close();
 	window.close();
-	for (int operation = 0; operation < 3; operation++) {
+	assert(!window.isVisible());
+	for (int operation = 0; operation < 2; operation++) {
 		bool rejected = false;
 		try {
 			if (operation == 0) { window.show(); }
-			else if (operation == 1) { window.hide(); }
-			else { window.isVisible(); }
+			else { window.hide(); }
 		} catch (string error) { rejected = true; }
 		assert(rejected);
 	}

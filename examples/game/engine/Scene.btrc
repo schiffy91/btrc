@@ -1,3 +1,16 @@
+import Library.GUI.IGPUView;
+import Library.GPU.Program;
+import Library.GPU.Readback;
+import Library.GPU.SurfaceRenderer;
+import Library.GPU.UniformBuffer;
+
+import ./Camera.btrc;
+import ./Light.btrc;
+import ./Material.btrc;
+import ./Ground.btrc;
+import ./Sky.btrc;
+import ./Gameobject.btrc;
+
 /* btrc 3D Engine -- Scene
  *
  * Composes Camera, Light, Material, Ground, Sky into a renderable scene.
@@ -14,28 +27,18 @@ int U_TIME     = 23;
 int U_SKY      = 24;
 int U_COUNT    = 32;
 
-enum SceneAcquisitionStage {
-	SCENE_ACQUIRED_NOTHING,
-	SCENE_ACQUIRED_SHADER,
-	SCENE_ACQUIRED_PIPELINE,
-	SCENE_ACQUIRED_UNIFORM
-};
-
 class Scene {
 	public Camera camera;
 	public Light light;
 	public Material ballMaterial;
 	public Ground ground;
 	public Sky sky;
-	public GPUShader _shader;
-	public GPURenderPipeline _pipeline;
-	public GPUUniform _uniform;
+	private GPUProgram _program;
+	private GPUUniformBuffer _uniform;
 	public int width;
 	public int height;
-	private SceneAcquisitionStage acquisitionStage;
 
-	public Scene(GPU gpu, int w, int h) {
-		self.acquisitionStage = SCENE_ACQUIRED_NOTHING;
+	public Scene(IGPUView view, int w, int h) {
 		self.width = w;
 		self.height = h;
 		self.camera = new Camera();
@@ -165,32 +168,19 @@ class Scene {
                 return vec4f(col, 1.0);
             }
         """;
-		GPUShaderOutcome shaderCreated = gpu.createShader(shaderSource);
-		if (shaderCreated.kind != GPU_RESOURCE_READY || shaderCreated.shader == null) {
-			throw shaderCreated.error;
-		}
-		GPUShader shader = shaderCreated.shader;
-		self._shader = shader;
-		self.acquisitionStage = SCENE_ACQUIRED_SHADER;
-
-		GPUPipelineOutcome pipelineCreated = gpu.createPipeline(shader);
-		if (pipelineCreated.kind != GPU_RESOURCE_READY || pipelineCreated.pipeline == null) {
-			throw pipelineCreated.error;
-		}
-		self._pipeline = pipelineCreated.pipeline;
-		self.acquisitionStage = SCENE_ACQUIRED_PIPELINE;
-
-		GPUUniformOutcome uniformCreated = gpu.createUniform(U_COUNT);
-		if (uniformCreated.kind != GPU_RESOURCE_READY || uniformCreated.uniform == null) {
-			throw uniformCreated.error;
-		}
-		self._uniform = uniformCreated.uniform;
-		self.acquisitionStage = SCENE_ACQUIRED_UNIFORM;
+		self._program = view.createProgram(shaderSource, U_COUNT, false, false);
+		self._uniform = GPUUniformBuffer(view.frameRenderer().device(), U_COUNT);
 	}
 
-	public GPUFrameKind render(GPU gpu, GameObject player, float time) {
+	public bool poll() {
+		var state = self._program.poll();
+		if (state == GPU_PROGRAM_FAILED) { throw self._program.error(); }
+		return state == GPU_PROGRAM_READY;
+	}
+
+	public GPUReadback? render(IGPUView view, GameObject player, float time, bool capture = false) {
 		if (self.width <= 0 || self.height <= 0) {
-			return GPU_FRAME_OUTDATED;
+			return null;
 		}
 		float aspect = 1.0 * self.width / self.height;
 
@@ -216,14 +206,20 @@ class Scene {
 		/* Sky */
 		self.sky.writeUniforms(self._uniform, U_SKY);
 
-		GPUFrameOutcome frame = gpu.beginFrame(0.0f, 0.0f, 0.0f);
-		if (frame.kind != GPU_FRAME_READY) {
-			return frame.kind;
-		}
-		if (gpu.drawWithUniform(self._pipeline, 3, self._uniform).kind != GPU_DRAW_RECORDED) {
-			return GPU_FRAME_REJECTED;
-		}
-		return gpu.endFrame().kind;
+		var frame = view.beginFrame(0.0, 0.0, 0.0);
+		if (frame == GPU_SURFACE_FRAME_UNAVAILABLE) { throw view.frameRenderer().error(); }
+		if (frame != GPU_SURFACE_FRAME_READY) { return null; }
+		var surface = view.frameRenderer();
+		GPUReadback? readback = null;
+		try {
+			self._program.draw(surface, self._uniform, 3);
+			if (capture) {
+				var captured = view.readback();
+				if (!captured.submit()) { throw captured.error(); }
+				readback = captured;
+			} else if (!surface.present()) { throw surface.error(); }
+		} catch (string error) { surface.discardFrame(); throw error; }
+		return readback;
 	}
 
 	public void resize(int w, int h) {
@@ -231,20 +227,7 @@ class Scene {
 		self.height = h;
 	}
 
-	public void close() {
-		if (self.acquisitionStage >= SCENE_ACQUIRED_UNIFORM) {
-			self._uniform.close();
-			self.acquisitionStage = SCENE_ACQUIRED_PIPELINE;
-		}
-		if (self.acquisitionStage >= SCENE_ACQUIRED_PIPELINE) {
-			self._pipeline.close();
-			self.acquisitionStage = SCENE_ACQUIRED_SHADER;
-		}
-		if (self.acquisitionStage >= SCENE_ACQUIRED_SHADER) {
-			self._shader.close();
-			self.acquisitionStage = SCENE_ACQUIRED_NOTHING;
-		}
-	}
+	public void close() { if (self._uniform != null) { self._uniform.close(); } }
 
 	public void __del__() { self.close(); }
 }

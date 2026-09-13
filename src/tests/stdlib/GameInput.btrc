@@ -1,0 +1,48 @@
+import Library.App;
+import Library.GUI.IWindow;
+import Library.Vector;
+
+import ../../../examples/game/engine/Input.btrc;
+import ../../../examples/game/engine/Gameobject.btrc;
+#include <assert.h>
+
+int main() {
+	var input = Input();
+	IWindowKeyHandler handler = input;
+	var modifiers = AppKeyModifiers(false, false, false, false);
+	Vector<AppKeyCode> keys = [APP_KEY_W, APP_KEY_A, APP_KEY_S, APP_KEY_D, APP_KEY_SPACE, APP_KEY_ESCAPE, APP_KEY_UP, APP_KEY_DOWN, APP_KEY_LEFT, APP_KEY_RIGHT, APP_KEY_LEFT_SHIFT, APP_KEY_RIGHT_SHIFT];
+	for key in keys {
+		assert(!input.pressed(key));
+		assert(handler.key(AppKeyboardEvent(APP_KEY_PRESSED, key, modifiers)));
+		assert(input.pressed(key));
+		assert(handler.key(AppKeyboardEvent(APP_KEY_REPEATED, key, modifiers)));
+		assert(input.pressed(key));
+		assert(handler.key(AppKeyboardEvent(APP_KEY_RELEASED, key, modifiers)));
+		assert(!input.pressed(key));
+	}
+	assert(!handler.key(AppKeyboardEvent(APP_KEY_PRESSED, APP_KEY_ENTER, modifiers)));
+	var command = AppKeyModifiers(false, false, false, true);
+	assert(!handler.key(AppKeyboardEvent(APP_KEY_PRESSED, APP_KEY_W, command)));
+	assert(!input.pressed(APP_KEY_W));
+	handler.key(AppKeyboardEvent(APP_KEY_PRESSED, APP_KEY_W, modifiers));
+	assert(!handler.key(AppKeyboardEvent(APP_KEY_RELEASED, APP_KEY_W, command)));
+	assert(!input.pressed(APP_KEY_W));
+	handler.key(AppKeyboardEvent(APP_KEY_PRESSED, APP_KEY_SPACE, modifiers));
+	input.reset();
+	assert(!input.pressed(APP_KEY_SPACE));
+
+	var player = GameObject();
+	assert(player.isGrounded() && player.position.y == BALL_RADIUS);
+	player.move(1.0f, 0.0f, -2.0f);
+	player.jump(4.0f);
+	player.applyPhysics(0.05f);
+	assert(!player.isGrounded() && player.position.y > BALL_RADIUS);
+	float velocity = player.velocity.y;
+	player.jump(4.0f);
+	assert(player.velocity.y == velocity);
+	for (int tick = 0; tick < 120; tick++) { player.applyPhysics(1.0f / 60.0f); }
+	assert(player.isGrounded() && player.position.y == BALL_RADIUS && player.velocity.y == 0.0f);
+	assert(player.position.x == 1.0f && player.position.z == -2.0f);
+	print("PASS: game keyboard state and ball physics");
+	return 0;
+}

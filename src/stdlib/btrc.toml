@@ -3,23 +3,35 @@ manifest-version = 1
 [package]
 name = "btrc_stdlib_runtime"
 exports = [
+	"Audio.Audio", "SystemImageDecoder",
 	"App.App", "ApplicationDirectories", "Array", "Audio.AudioDevice", "Audio.MacOS.CoreAudioDevice", "Audio.RealtimeAudio", "Audio.RealtimeAudioRouter",
 	"BackgroundJobs", "BitPattern", "Bytes", "CLI", "Callback", "Console", "DDSEncodedImageDecoder", "Daemon", "DaemonControl", "DaemonControlFiles", "DaemonControlProtocol", "Datetime", "Digest",
 	"EncodedImage", "Error", "FileSystem", "FileSystemHandles", "FileTree",
-	"GPU.Device", "GPU.GPU", "GPU.ImageTexture", "GPU.Program", "GPU.Readback", "GPU.SurfaceRenderer", "GPU.UniformBuffer", "GPU.WebGPU",
-	"GUI.Font", "GUI.GUI", "GUI.Geometry", "GUI.IApplication", "GUI.IButton", "GUI.IContainer", "GUI.IStack", "GUI.ITextField", "GUI.IView", "GUI.IWindow",
+	"GPU.Device", "GPU.ImageTexture", "GPU.Program", "GPU.Readback", "GPU.SurfaceRenderer", "GPU.UniformBuffer", "GPU.WebGPU",
+	"GUI.Font", "GUI.FontFace", "GUI.GUI", "GUI.Geometry", "GUI.IApplication", "GUI.IButton", "GUI.IContainer", "GUI.IGPUView", "GUI.IStack", "GUI.ITextField", "GUI.IView", "GUI.IWindow",
+	"GUI.Capture", "GUI.ILabel", "GUI.IImageView", "GUI.IPanel", "GUI.IProgressIndicator", "GUI.ILevelIndicator", "GUI.ISlider", "GUI.ISelect", "GUI.IScrollView", "GUI.IGrid",
 	"GUI.MacOS.AppKitEvents", "GUI.MacOS.AppKitText", "GUI.MacOS.MacOSActionQueue", "GUI.MacOS.MacOSApplication", "GUI.MacOS.MacOSButton", "GUI.MacOS.MacOSComposedCapture", "GUI.MacOS.MacOSContainer",
 	"GUI.MacOS.MacOSGPUSurface", "GUI.MacOS.MacOSGrid", "GUI.MacOS.MacOSImageView", "GUI.MacOS.MacOSLabel", "GUI.MacOS.MacOSLevelIndicator", "GUI.MacOS.MacOSPanel", "GUI.MacOS.MacOSProgressIndicator",
 	"GUI.MacOS.MacOSScrollView", "GUI.MacOS.MacOSSelect", "GUI.MacOS.MacOSSlider", "GUI.MacOS.MacOSSystemText", "GUI.MacOS.MacOSTextField", "GUI.MacOS.MacOSView", "GUI.MacOS.MacOSViewCapture", "GUI.MacOS.MacOSWindow",
-	"GUI.MacOS.MetalLayer", "GUI.MacOS.ObjectiveCRuntime", "GUI.MacOS.WebGPUSurface", "GUI.Raster", "GUI.TextRun", "GUI.View", "GUI.Window",
+	"GUI.MacOS.MetalLayer", "GUI.MacOS.ObjectiveCRuntime", "GUI.MacOS.WebGPUSurface", "GUI.Raster", "GUI.TextRun", "GUI.View",
 	"Graph", "HTTP", "HTTPClient", "HTTPFraming", "HTTPProtocol", "HTTPResponseHeaders", "HTTPServer", "HTTPSocket", "HTTPTypes", "IO", "Image", "Iterable", "JSON", "JSONX", "List", "LocalApplicationChannel",
-	"MacOSDirectoryPicker", "MacOSEncodedImageDecoder", "Map", "Math", "NativeUI", "NativeUI.Render", "NativeUI.Semantics", "NativeUI.TextRaster", "NativeUI.Typography", "NativeUIApp",
+	"MacOSDirectoryPicker", "MacOSEncodedImageDecoder", "Map", "Math", "NativeUI", "NativeUI.Render", "NativeUI.Semantics", "NativeUI.TextRaster", "NativeUI.Typography",
 	"OwnedBuffer", "Pattern", "Platform", "Process", "Random", "RealtimeClipPractice", "RealtimeClipTransport", "RealtimeClipTransport.PracticeRuntime", "RealtimeClipTransport.Runtime", "RealtimeClock", "Regex", "Result",
 	"SHA256", "SPSC", "Set", "Strings", "TOML", "Terminal", "TerminalCStringArray", "TerminalClock", "TerminalPassword", "TerminalPasswordExchange", "TerminalPasswordPrompts", "Tray.Tray", "UI", "Vector"
 ]
 
 # Existing platform modules remain public only until their consumer migration.
 # The factory's application owner is private from its introduction.
+[[package.providers]]
+module = "Audio.Audio"
+implementation = "Audio.MacOS.AudioProvider"
+os = ["macos"]
+
+[[package.providers]]
+module = "SystemImageDecoder"
+implementation = "Image.MacOS.SystemImageProvider"
+os = ["macos"]
+
 [[package.providers]]
 module = "GUI.GUI"
 implementation = "GUI.MacOS.GUIProvider"
@@ -32,6 +44,79 @@ language = "objective-c"
 standard = "c11"
 symbols = ["+[NSThread isMainThread]"]
 os = ["macos"]
+
+[[package.providers]]
+module = "Tray.Tray"
+implementation = "Tray.MacOS.TrayProvider"
+os = ["macos"]
+
+[[native.bindings]]
+module = "Tray.MacOS.TrayProvider"
+header = "GUI/MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+	"+[NSThread isMainThread]",
+	"+[NSApplication sharedApplication]",
+	"-[NSApplication setActivationPolicy:]",
+	"-[NSApplication activationPolicy]",
+	"NSApplicationActivationPolicyAccessory",
+	"NSApplicationActivationPolicyProhibited",
+	"+[NSStatusBar systemStatusBar]",
+	"-[NSStatusBar statusItemWithLength:]",
+	"-[NSStatusBar removeStatusItem:]",
+	"NSVariableStatusItemLength",
+	"-[NSStatusItem button]",
+	"-[NSStatusItem setMenu:]",
+	"-[NSStatusItem setVisible:]",
+	"-[NSStatusBarButton setTitle:]",
+	"-[NSStatusBarButton setImage:]",
+	"-[NSStatusBarButton setToolTip:]",
+	"+[NSMenu new]",
+	"-[NSMenu setAutoenablesItems:]",
+	"-[NSMenu addItem:]",
+	"+[NSMenuItem new]",
+	"-[NSMenuItem setTitle:]",
+	"-[NSMenuItem setEnabled:]",
+	"-[NSMenuItem setState:]",
+	"-[NSMenuItem setTarget:]",
+	"-[NSMenuItem target]",
+	"-[NSMenuItem setAction:]",
+	"-[NSMenuItem action]",
+	"NSControlStateValueOn",
+	"NSControlStateValueOff",
+	"+[NSImage new]",
+	"+[NSImageRep imageRepWithContentsOfFile:]",
+	"-[NSImage addRepresentation:]",
+	"-[NSImage setTemplate:]",
+	"-[NSImage setSize:]",
+	"+[NSDate distantFuture]",
+	"+[NSDate dateWithTimeIntervalSinceNow:]",
+	"-[NSApplication nextEventMatchingMask:untilDate:inMode:dequeue:]",
+	"-[NSApplication sendEvent:]",
+	"NSEventMaskAny",
+	"NSDefaultRunLoopMode",
+	"-[NSApplication run]",
+	"-[NSApplication stop:]",
+	"-[NSApplication isRunning]",
+	"-[NSApplication finishLaunching]",
+	"-[NSApplication postEvent:atStart:]",
+	"+[NSEvent otherEventWithType:location:modifierFlags:timestamp:windowNumber:context:subtype:data1:data2:]",
+	"NSEventTypeApplicationDefined"
+]
+os = ["macos"]
+
+[native.bindings.callbacks."-[NSMenuItem setTarget:].target"]
+interface = "IAppKitTrayAction"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NSMenuItem setTarget:]"
+slot-getter = "-[NSMenuItem target]"
+action-setter = "-[NSMenuItem setAction:]"
+action-getter = "-[NSMenuItem action]"
+activation-failure = "abort"
+cancellation = "entry-barrier"
 
 [[native.bindings]]
 module = "GUI.Raster"
@@ -72,7 +157,7 @@ os = ["macos"]
 
 [[native.frameworks]]
 name = "AppKit"
-modules = ["GUI.MacOS.MacOSSlider", "GUI.MacOS.AppKitEvents", "MacOSDirectoryPicker", "GUI.MacOS.MacOSTextField", "GUI.MacOS.MacOSWindow", "GUI.MacOS.AppKitText", "GUI.MacOS.MacOSScrollView", "GUI.MacOS.MacOSApplication", "GUI.MacOS.MetalLayer", "GUI.MacOS.MacOSViewCapture", "GUI.MacOS.MacOSComposedCapture", "GUI.MacOS.MacOSView", "GUI.MacOS.MacOSLabel", "GUI.MacOS.MacOSImageView", "GUI.MacOS.MacOSPanel", "GUI.MacOS.MacOSProgressIndicator", "GUI.MacOS.MacOSActionQueue", "GUI.MacOS.MacOSButton", "GUI.MacOS.MacOSSelect", "GUI.MacOS.MacOSGrid", "GUI.MacOS.MacOSLevelIndicator", "GUI.MacOS.MacOSRunLoop", "GUI.MacOS.MacOSStack", "GUI.MacOS.MacOSContainer"]
+modules = ["GUI.MacOS.MacOSViewInput", "Tray.MacOS.TrayProvider", "GUI.MacOS.MacOSSlider", "GUI.MacOS.AppKitEvents", "MacOSDirectoryPicker", "GUI.MacOS.MacOSTextField", "GUI.MacOS.MacOSWindow", "GUI.MacOS.AppKitText", "GUI.MacOS.MacOSScrollView", "GUI.MacOS.MacOSApplication", "GUI.MacOS.MetalLayer", "GUI.MacOS.MacOSViewCapture", "GUI.MacOS.MacOSComposedCapture", "GUI.MacOS.MacOSView", "GUI.MacOS.MacOSLabel", "GUI.MacOS.MacOSImageView", "GUI.MacOS.MacOSPanel", "GUI.MacOS.MacOSProgressIndicator", "GUI.MacOS.MacOSActionQueue", "GUI.MacOS.MacOSButton", "GUI.MacOS.MacOSSelect", "GUI.MacOS.MacOSGrid", "GUI.MacOS.MacOSLevelIndicator", "GUI.MacOS.MacOSRunLoop", "GUI.MacOS.MacOSStack", "GUI.MacOS.MacOSContainer"]
 os = ["macos"]
 
 [[native.bindings]]
@@ -140,7 +225,8 @@ symbols = [
 	"NSButtonTypeMomentaryPushIn", "NSButtonTypePushOnPushOff", "NSBezelStyleRounded", "-[NSButton setEnabled:]", "-[NSButton isEnabled]", "-[NSButton performClick:]",
 	"-[NSButton setFont:]", "+[NSFont systemFontOfSize:]", "-[NSButton setState:]", "-[NSButton state]", "NSControlStateValueOn", "NSControlStateValueOff",
 	"+[NSImage imageWithSystemSymbolName:accessibilityDescription:]", "-[NSButton setImage:]", "-[NSButton setImagePosition:]", "NSImageLeading",
-	"-[NSButton setImageHugsTitle:]", "-[NSButton setAlignment:]", "NSTextAlignmentLeft", "-[NSButton setTransparent:]"
+	"-[NSButton setImageHugsTitle:]", "-[NSButton setAlignment:]", "NSTextAlignmentLeft", "NSTextAlignmentCenter", "-[NSButton setTransparent:]", "-[NSButton setBordered:]",
+	"-[NSButton setControlSize:]", "NSControlSizeRegular", "NSControlSizeLarge"
 ]
 os = ["macos"]
 
@@ -186,6 +272,14 @@ symbols = ["+[NSThread isMainThread]", "+[NSView new]", "-[NSView frame]", "-[NS
 os = ["macos"]
 
 [[native.bindings]]
+module = "GUI.MacOS.MacOSGPUView"
+header = "GUI/MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["-[NSView isHiddenOrHasHiddenAncestor]"]
+os = ["macos"]
+
+[[native.bindings]]
 module = "GUI.MacOS.MacOSContainer"
 header = "GUI/MacOS/AppKit.h"
 language = "objective-c"
@@ -214,7 +308,7 @@ module = "GUI.MacOS.MacOSPanel"
 header = "GUI/MacOS/MetalLayer.h"
 language = "objective-c"
 standard = "c11"
-symbols = ["+[NSThread isMainThread]", "+[NSBox new]", "-[NSBox setBoxType:]", "NSBoxCustom", "-[NSBox setTitlePosition:]", "NSNoTitle", "-[NSBox setBorderWidth:]", "-[NSBox contentViewMargins]", "-[NSBox setContentViewMargins:]", "-[NSBox setFillColor:]", "-[NSBox setCornerRadius:]", "+[NSColor colorWithSRGBRed:green:blue:alpha:]", "-[NSView setWantsLayer:]", "-[NSView layer]", "-[CALayer setCornerRadius:]", "-[CALayer setMasksToBounds:]"]
+symbols = ["+[NSThread isMainThread]", "+[NSBox new]", "-[NSBox setBoxType:]", "NSBoxCustom", "-[NSBox setTitlePosition:]", "NSNoTitle", "-[NSBox setBorderWidth:]", "-[NSBox contentView]", "-[NSBox contentViewMargins]", "-[NSBox setContentViewMargins:]", "-[NSBox setFillColor:]", "-[NSBox setCornerRadius:]", "+[NSColor colorWithSRGBRed:green:blue:alpha:]", "-[NSView setWantsLayer:]", "-[NSView layer]", "-[CALayer setCornerRadius:]", "-[CALayer setMasksToBounds:]"]
 os = ["macos"]
 
 [[native.bindings]]
@@ -273,7 +367,7 @@ symbols = [
 	"+[NSThread isMainThread]", "+[NSPopUpButton new]", "-[NSPopUpButton setPullsDown:]", "-[NSPopUpButton setAutoenablesItems:]",
 	"-[NSPopUpButton setMenu:]", "-[NSPopUpButton selectItemAtIndex:]", "-[NSPopUpButton indexOfSelectedItem]", "-[NSPopUpButton titleOfSelectedItem]",
 	"-[NSPopUpButton numberOfItems]", "-[NSPopUpButton setEnabled:]", "-[NSPopUpButton isEnabled]",
-	"-[NSPopUpButton setFont:]", "+[NSFont systemFontOfSize:]",
+	"-[NSPopUpButton setFont:]", "+[NSFont systemFontOfSize:]", "-[NSPopUpButton setControlSize:]", "NSControlSizeRegular", "NSControlSizeLarge",
 	"+[NSMenu new]", "-[NSMenu setAutoenablesItems:]", "-[NSMenu addItem:]", "+[NSMenuItem new]", "-[NSMenuItem setTitle:]",
 	"-[NSPopUpButton itemAtIndex:]", "-[NSMenuItem setEnabled:]", "-[NSMenuItem isEnabled]"
 ]
@@ -290,7 +384,7 @@ symbols = [
 	"-[NSWindow setStyleMask:]", "NSWindowStyleMaskTitled", "NSWindowStyleMaskClosable", "NSWindowStyleMaskMiniaturizable", "NSWindowStyleMaskResizable",
 	"-[NSWindow title]", "-[NSWindow setTitle:]", "-[NSWindow contentView]", "-[NSView bounds]", "-[NSWindow frame]", "-[NSWindow setContentSize:]", "-[NSWindow close]",
 	"-[NSView autoresizingMask]", "-[NSView setAutoresizingMask:]", "NSViewWidthSizable", "NSViewHeightSizable",
-	"-[NSWindow makeKeyAndOrderFront:]", "-[NSWindow orderOut:]", "-[NSWindow isVisible]", "-[NSWindow isMiniaturized]", "-[NSWindow setContentMinSize:]",
+	"-[NSWindow makeKeyAndOrderFront:]", "-[NSWindow orderOut:]", "-[NSWindow isVisible]", "-[NSWindow isKeyWindow]", "-[NSWindow isMiniaturized]", "-[NSWindow setContentMinSize:]",
 	"+[NSAlert new]", "-[NSAlert setMessageText:]", "-[NSAlert setInformativeText:]", "-[NSAlert addButtonWithTitle:]", "-[NSAlert runModal]"
 ]
 os = ["macos"]
@@ -427,7 +521,7 @@ os = ["macos"]
 
 [[native.bindings]]
 module = "GPU.WebGPU"
-header = "GPU/WebGPU.h"
+header = "GPU/WebGPUImports.h"
 language = "c"
 standard = "c11"
 symbols = [
@@ -571,7 +665,7 @@ read-only-borrows = ["CFStringCreateWithCString.cStr"]
 # Reviewed for the configured Apple AUHAL only, not arbitrary AudioUnit plugins.
 realtime-safe = ["AudioUnitRender", "AudioConvertHostTimeToNanos", "AudioGetCurrentHostTime"]
 symbols = [
-	"AudioComponentDescription", "AudioComponentFindNext", "AudioComponentInstanceNew", "AudioComponentInstanceDispose",
+	"AudioComponentInstance", "AudioComponentDescription", "AudioComponentFindNext", "AudioComponentInstanceNew", "AudioComponentInstanceDispose",
 	"AudioStreamBasicDescription", "AURenderCallbackStruct", "AudioTimeStamp", "AudioUnitRender",
 	"AudioUnitSetProperty", "AudioUnitGetProperty", "AudioUnitInitialize", "AudioUnitUninitialize", "AudioOutputUnitStart", "AudioOutputUnitStop",
 	"AudioConvertHostTimeToNanos", "AudioGetCurrentHostTime", "kAudioUnitType_Output", "kAudioUnitSubType_HALOutput", "kAudioUnitManufacturer_Apple",
@@ -595,9 +689,92 @@ symbols = [
 	"kAudioDevicePropertyStreamConfiguration", "kAudioDevicePropertyScopeInput", "kAudioDevicePropertyScopeOutput",
 	"kAudioDevicePropertyDeviceUID", "kAudioObjectPropertyName", "kAudioDevicePropertyNominalSampleRate",
 	"kAudioDevicePropertyBufferFrameSizeRange", "kAudioDevicePropertyBufferFrameSize", "kAudioDevicePropertyAvailableNominalSampleRates",
-	"CFRelease", "CFGetTypeID", "CFStringGetTypeID", "CFStringGetCString", "kCFStringEncodingUTF8"
+	"CFRelease", "CFGetTypeID", "CFStringGetTypeID", "CFStringGetCString", "kCFStringEncodingUTF8",
+	"CFTypeRef", "CFStringRef", "CFNumberRef", "CFUUIDRef", "CFMutableDictionaryRef", "CFDictionaryRef", "CFMutableArrayRef", "CFRetain", "CFNumberGetTypeID"
 ]
+owned-results = ["CFStringCreateWithCString", "CFUUIDCreate", "CFUUIDCreateString", "CFNumberCreate", "CFDictionaryCreateMutable", "CFArrayCreateMutable"]
+borrowed-parameters = ["CFStringGetCString.theString", "CFUUIDCreateString.uuid", "CFDictionarySetValue.theDict", "CFDictionarySetValue.key", "CFDictionarySetValue.value", "CFArrayAppendValue.theArray", "CFArrayAppendValue.value", "AudioHardwareCreateAggregateDevice.inDescription", "CFGetTypeID.cf", "AudioUnitSetProperty.inUnit", "AudioUnitGetProperty.inUnit", "AudioUnitInitialize.inUnit", "AudioUnitUninitialize.inUnit", "AudioOutputUnitStart.ci", "AudioOutputUnitStop.ci", "AudioUnitRender.inUnit"]
 os = ["macos"]
+
+[native.bindings.resources.AudioComponentInstance]
+ownership = "unique"
+release = "AudioComponentInstanceDispose"
+release-consumption = "success-or-indeterminate"
+cleanup-status = "abort"
+
+[native.bindings.owned-outputs."AudioComponentInstanceNew.outInstance"]
+result = "CoreAudioUnitOpenResult"
+
+# AUHAL Stop success is the reviewed entry barrier. Failed Stop is terminal;
+# retain the registration and silence late entries without touching its owner.
+[native.bindings.callbacks."AudioUnitSetProperty.inData"]
+name = "installCoreAudioRender"
+record = "AURenderCallbackStruct"
+field = "inputProc"
+context = "inputProcRefCon"
+context-index = 0
+size = "inDataSize"
+interface = "ICoreAudioRender"
+invocation = "CoreAudioRenderInvocation"
+lifetime = "stored"
+executor = "realtime"
+failure = "abort"
+owner = "inUnit"
+unregister = "AudioOutputUnitStop"
+cancellation = "entry-barrier"
+activation-failure = "abort"
+[native.bindings.callbacks."AudioUnitSetProperty.inData".operations]
+input = "AudioUnitRender.inUnit"
+
+[native.bindings.owned-outputs."AudioObjectGetPropertyData.outData"]
+result = "CoreAudioPropertyResult"
+resource = "CFTypeRef"
+size = "ioDataSize"
+name = "copyCoreAudioProperty"
+
+[native.bindings.resource-parameters]
+"CFDictionarySetValue.key" = "CFTypeRef"
+"CFDictionarySetValue.value" = "CFTypeRef"
+"CFArrayAppendValue.value" = "CFTypeRef"
+
+[native.bindings.resources.CFTypeRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFStringRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+type-query = "CFGetTypeID"
+type-tag = "CFStringGetTypeID"
+
+[native.bindings.resources.CFNumberRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+type-query = "CFGetTypeID"
+type-tag = "CFNumberGetTypeID"
+
+[native.bindings.resources.CFUUIDRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFMutableDictionaryRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFDictionaryRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFMutableArrayRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
 
 [[native.bindings]]
 module = "MacOSEncodedImageDecoder"
@@ -605,7 +782,9 @@ header = "MacOSEncodedImageDecoder/ImageIO.h"
 language = "c"
 standard = "c11"
 symbols = [
+	"CGContextRef", "CGContextRetain", "CGImageRef", "CGImageRetain", "CGImageRelease", "CGColorSpaceRef", "CGColorSpaceRetain", "CGColorSpaceRelease",
 	"CFDataCreateWithBytesNoCopy", "kCFAllocatorDefault", "kCFAllocatorNull", "CFRelease",
+	"CFTypeRef", "CFDataRef", "CFStringRef", "CFNumberRef", "CFBooleanRef", "CFMutableDictionaryRef", "CFDictionaryRef", "CGImageSourceRef", "CFRetain", "CFStringGetTypeID",
 	"CFDictionaryCreateMutable", "CFDictionarySetValue", "CFDictionaryGetValue",
 	"kCFTypeDictionaryKeyCallBacks", "kCFTypeDictionaryValueCallBacks", "kCFBooleanFalse",
 	"CFStringGetCString", "kCFStringEncodingUTF8", "CFGetTypeID", "CFNumberGetTypeID", "CFNumberGetValue", "kCFNumberLongLongType",
@@ -615,7 +794,81 @@ symbols = [
 	"CGBitmapContextCreate", "CGContextRelease", "CGContextSetBlendMode", "CGContextDrawImage", "CGRectMake",
 	"kCGImageAlphaPremultipliedLast", "kCGBitmapByteOrder32Big", "kCGBlendModeCopy"
 ]
+owned-results = ["CGBitmapContextCreate", "CGImageSourceCreateImageAtIndex", "CGColorSpaceCreateWithName", "CFDataCreateWithBytesNoCopy", "CFDictionaryCreateMutable", "CGImageSourceCreateWithData", "CGImageSourceCopyPropertiesAtIndex"]
+borrowed-parameters = ["CGBitmapContextCreate.space", "CGImageGetWidth.image", "CGImageGetHeight.image", "CGContextSetBlendMode.c", "CGContextDrawImage.c", "CGContextDrawImage.image", "CFDictionarySetValue.theDict", "CFDictionarySetValue.key", "CFDictionarySetValue.value", "CFDictionaryGetValue.theDict", "CFDictionaryGetValue.key", "CFStringGetCString.theString", "CFGetTypeID.cf", "CFNumberGetValue.number", "CGImageSourceCreateWithData.data", "CGImageSourceCreateWithData.options", "CGImageSourceGetType.isrc", "CGImageSourceGetCount.isrc", "CGImageSourceCopyPropertiesAtIndex.isrc", "CGImageSourceCopyPropertiesAtIndex.options", "CGImageSourceCreateImageAtIndex.isrc", "CGImageSourceCreateImageAtIndex.options", "CGColorSpaceCreateWithName.name"]
+static-globals = ["kCFBooleanFalse", "kCGImageSourceShouldCache", "kCGImagePropertyPixelWidth", "kCGImagePropertyPixelHeight", "kCGColorSpaceSRGB"]
 os = ["macos"]
+
+[native.bindings.resource-parameters]
+"CFDictionarySetValue.key" = "CFTypeRef"
+"CFDictionarySetValue.value" = "CFTypeRef"
+"CFDictionaryGetValue.key" = "CFTypeRef"
+
+[native.bindings.resource-results]
+CFDictionaryGetValue = "CFTypeRef"
+
+[native.bindings.borrowed-results]
+CFDictionaryGetValue = "theDict"
+CGImageSourceGetType = "isrc"
+
+[native.bindings.resources.CFTypeRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFDataRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFStringRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+type-query = "CFGetTypeID"
+type-tag = "CFStringGetTypeID"
+
+[native.bindings.resources.CFNumberRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+type-query = "CFGetTypeID"
+type-tag = "CFNumberGetTypeID"
+
+[native.bindings.resources.CFBooleanRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFMutableDictionaryRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFDictionaryRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CGImageSourceRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CGContextRef]
+ownership = "reference-counted"
+retain = "CGContextRetain"
+release = "CGContextRelease"
+
+[native.bindings.resources.CGImageRef]
+ownership = "reference-counted"
+retain = "CGImageRetain"
+release = "CGImageRelease"
+
+[native.bindings.resources.CGColorSpaceRef]
+ownership = "reference-counted"
+retain = "CGColorSpaceRetain"
+release = "CGColorSpaceRelease"
 
 [[native.frameworks]]
 name = "CoreFoundation"
@@ -648,7 +901,9 @@ header = "GUI/MacOS/CoreText.h"
 language = "c"
 standard = "c11"
 symbols = [
+	"CGContextRef", "CGContextRetain", "CGColorSpaceRef", "CGColorSpaceRetain", "CGColorSpaceRelease",
 	"CTFontCreateUIFontForLanguage", "kCTFontUIFontSystem", "CTFontCreateCopyWithAttributes", "CTFontDescriptorCreateWithAttributes",
+	"CFTypeRef", "CFStringRef", "CFNumberRef", "CFMutableDictionaryRef", "CFDictionaryRef", "CFAttributedStringRef", "CTFontRef", "CTFontDescriptorRef", "CTLineRef", "CFRetain", "CFGetTypeID", "CFNumberGetTypeID", "CFStringGetTypeID",
 	"CFDictionaryCreateMutable", "CFDictionarySetValue", "CFDictionaryRemoveAllValues", "kCFAllocatorDefault",
 	"kCFTypeDictionaryKeyCallBacks", "kCFTypeDictionaryValueCallBacks", "CFNumberCreate", "kCFNumberDoubleType",
 	"kCTFontWeightTrait", "kCTFontTraitsAttribute", "kCTFontAttributeName", "CFRelease",
@@ -657,7 +912,73 @@ symbols = [
 	"CGBitmapContextCreate", "kCGImageAlphaOnly", "CGContextSetShouldAntialias", "CGContextSetShouldSmoothFonts",
 	"CGContextSetTextMatrix", "CGAffineTransformMake", "CGContextSetTextPosition", "CTLineDraw", "CGContextRelease"
 ]
+owned-results = ["CGBitmapContextCreate", "CTFontCreateUIFontForLanguage", "CTFontCreateCopyWithAttributes", "CTFontDescriptorCreateWithAttributes", "CFDictionaryCreateMutable", "CFNumberCreate", "CFStringCreateWithBytes", "CFAttributedStringCreate", "CTLineCreateWithAttributedString"]
+borrowed-parameters = ["CGBitmapContextCreate.space", "CGContextSetShouldAntialias.c", "CGContextSetShouldSmoothFonts.c", "CGContextSetTextMatrix.c", "CGContextSetTextPosition.c", "CTLineDraw.context", "CTFontCreateUIFontForLanguage.language", "CTFontCreateCopyWithAttributes.font", "CTFontCreateCopyWithAttributes.attributes", "CTFontDescriptorCreateWithAttributes.attributes", "CFDictionarySetValue.theDict", "CFDictionarySetValue.key", "CFDictionarySetValue.value", "CFDictionaryRemoveAllValues.theDict", "CFAttributedStringCreate.str", "CFAttributedStringCreate.attributes", "CTLineCreateWithAttributedString.attrString", "CTLineGetTypographicBounds.line", "CTLineGetBoundsWithOptions.line", "CTLineDraw.line", "CFGetTypeID.cf"]
+static-globals = ["kCTFontWeightTrait", "kCTFontTraitsAttribute", "kCTFontAttributeName"]
 os = ["macos"]
+
+[native.bindings.resource-parameters]
+"CFDictionarySetValue.key" = "CFTypeRef"
+"CFDictionarySetValue.value" = "CFTypeRef"
+
+[native.bindings.resources.CFTypeRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFStringRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+type-query = "CFGetTypeID"
+type-tag = "CFStringGetTypeID"
+
+[native.bindings.resources.CFNumberRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+type-query = "CFGetTypeID"
+type-tag = "CFNumberGetTypeID"
+
+[native.bindings.resources.CFMutableDictionaryRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFDictionaryRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFAttributedStringRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CTFontRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CTFontDescriptorRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CTLineRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CGContextRef]
+ownership = "reference-counted"
+retain = "CGContextRetain"
+release = "CGContextRelease"
+
+[native.bindings.resources.CGColorSpaceRef]
+ownership = "reference-counted"
+retain = "CGColorSpaceRetain"
+release = "CGColorSpaceRelease"
 
 [[native.frameworks]]
 name = "CoreText"
@@ -674,11 +995,42 @@ symbols = [
 	"-[NSWindow isKeyWindow]", "-[NSWindow canBecomeKeyWindow]", "-[NSWindow windowNumber]",
 	"-[NSWindow makeFirstResponder:]", "-[NSWindow resignKeyWindow]", "-[NSWindow makeKeyWindow]", "-[NSApplication postEvent:atStart:]",
 	"+[NSEvent keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:]",
+	"+[NSEvent mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:]",
 	"NSEventTypeKeyDown", "NSEventTypeKeyUp", "NSEventTypeFlagsChanged", "NSEventModifierFlagOption",
 	"NSEventModifierFlagShift", "NSEventModifierFlagControl", "NSEventModifierFlagCommand", "kVK_Space", "kVK_Option", "kVK_RightOption",
-	"MacOSLeftOptionFlag", "MacOSRightOptionFlag"
+	"MacOSLeftOptionFlag", "MacOSRightOptionFlag", "MacOSLeftShiftFlag", "MacOSRightShiftFlag",
+	"kVK_Escape", "kVK_Return", "kVK_LeftArrow", "kVK_RightArrow", "kVK_UpArrow", "kVK_DownArrow", "kVK_Tab", "kVK_Delete", "kVK_ForwardDelete", "kVK_Home", "kVK_End",
+	"kVK_ANSI_A", "kVK_ANSI_D", "kVK_ANSI_S", "kVK_ANSI_W", "kVK_ANSI_C", "kVK_ANSI_V", "kVK_ANSI_X", "kVK_ANSI_Z", "kVK_Shift", "kVK_RightShift",
+	"+[NSEvent addLocalMonitorForEventsMatchingMask:handler:]", "+[NSEvent removeMonitor:]", "NSEventMaskKeyDown", "NSEventMaskKeyUp", "NSEventMaskFlagsChanged"
 ]
 os = ["macos"]
+
+[native.bindings.callbacks."+[NSEvent addLocalMonitorForEventsMatchingMask:handler:].block"]
+interface = "IAppKitKeyMonitor"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "+[NSEvent removeMonitor:]"
+activation-failure = "abort"
+cancellation = "entry-barrier"
+
+[[native.bindings]]
+module = "GUI.MacOS.MacOSViewInput"
+header = "GUI/MacOS/AppKitEvents.h"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+symbols = [
+	"+[NSThread isMainThread]", "-[NSView convertPoint:fromView:]", "-[NSView hitTest:]", "-[NSView visibleRect]", "-[NSView isHiddenOrHasHiddenAncestor]", "-[NSView window]", "-[NSView bounds]", "-[NSView isFlipped]", "-[NSView isDescendantOf:]",
+	"-[NSWindow setAcceptsMouseMovedEvents:]", "-[NSWindow contentView]",
+	"-[NSEvent locationInWindow]", "-[NSEvent buttonNumber]", "-[NSEvent clickCount]", "-[NSEvent scrollingDeltaX]", "-[NSEvent scrollingDeltaY]", "-[NSEvent hasPreciseScrollingDeltas]", "-[NSEvent phase]", "-[NSEvent momentumPhase]", "-[NSEvent trackingArea]",
+	"NSEventTypeMouseMoved", "NSEventTypeMouseEntered", "NSEventTypeMouseExited", "NSEventTypeLeftMouseDown", "NSEventTypeLeftMouseUp", "NSEventTypeLeftMouseDragged", "NSEventTypeRightMouseDown", "NSEventTypeRightMouseUp", "NSEventTypeRightMouseDragged", "NSEventTypeOtherMouseDown", "NSEventTypeOtherMouseUp", "NSEventTypeOtherMouseDragged", "NSEventTypeScrollWheel",
+	"NSEventMaskMouseMoved", "NSEventMaskMouseEntered", "NSEventMaskMouseExited", "NSEventMaskLeftMouseDown", "NSEventMaskLeftMouseUp", "NSEventMaskLeftMouseDragged", "NSEventMaskRightMouseDown", "NSEventMaskRightMouseUp", "NSEventMaskRightMouseDragged", "NSEventMaskOtherMouseDown", "NSEventMaskOtherMouseUp", "NSEventMaskOtherMouseDragged", "NSEventMaskScrollWheel",
+	"NSEventPhaseNone", "NSEventPhaseBegan", "NSEventPhaseChanged", "NSEventPhaseEnded", "NSEventPhaseCancelled", "NSEventPhaseMayBegin", "NSEventPhaseStationary",
+	"-[NSTrackingArea initWithRect:options:owner:userInfo:]", "-[NSView addTrackingArea:]", "-[NSView removeTrackingArea:]", "NSTrackingMouseEnteredAndExited", "NSTrackingMouseMoved", "NSTrackingActiveInKeyWindow", "NSTrackingInVisibleRect",
+	"NSWindowDidResignKeyNotification", "NSApplicationDidResignActiveNotification"
+]
+main-thread-globals = ["NSWindowDidResignKeyNotification", "NSApplicationDidResignActiveNotification"]
 
 [[native.bindings]]
 module = "GUI.MacOS.MacOSSlider"

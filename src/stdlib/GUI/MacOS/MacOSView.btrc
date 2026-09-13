@@ -1,5 +1,6 @@
 import Library.Math;
 import Library.GUI.IView;
+import Library.GUI.MacOS.MacOSViewInput;
 
 /* Provider-only projection for composition. Querying it aliases the existing
  * receiver, without exposing native handles on the portable IView contract. */
@@ -7,6 +8,7 @@ interface IMacOSView extends IView {
 	NSView nativeView();
 	void attachTo(NSView parent);
 	void detachFrom(NSView parent);
+	void cancelPointerCapture();
 }
 
 /* Main-thread view ownership shared by native leaf controls and containers.
@@ -15,6 +17,9 @@ interface IMacOSView extends IView {
 class MacOSView implements IMacOSView {
 	private NSView? _view;
 	private bool _attached = false;
+	private bool _closing = false;
+	private CallbackScope _input = CallbackScope();
+	private Vector<MacOSViewInput> _inputs = [];
 
 	public MacOSView(NSView? view = null) {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
@@ -24,13 +29,13 @@ class MacOSView implements IMacOSView {
 
 	public NSView nativeView() {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
-		if (self._view == null) { throw "Native view is closed"; }
+		if (self._view == null || self._closing) { throw "Native view is closed"; }
 		return self._view;
 	}
 
 	public bool isOpen() {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
-		return self._view != null;
+		return self._view != null && !self._closing;
 	}
 
 	public void requireDetached() {
@@ -47,6 +52,8 @@ class MacOSView implements IMacOSView {
 		MacOSView.validateAttachment(child, parent);
 		try {
 			parent.addSubview(child);
+			var window = child.window();
+			if (window != null) { window.setAcceptsMouseMovedEvents(true); }
 		} catch (string error) {
 			if (child.superview() == parent) { child.removeFromSuperview(); }
 			throw error;
@@ -73,6 +80,7 @@ class MacOSView implements IMacOSView {
 	public void detachFrom(NSView parent) {
 		var view = self.nativeView();
 		if (!self._attached) { throw "View has no container attachment"; }
+		self.cancelPointerCapture();
 		MacOSView.detachNative(view, parent);
 		self._attached = false;
 	}
@@ -82,6 +90,16 @@ class MacOSView implements IMacOSView {
 	public double fittingHeight() { return self.nativeView().fittingSize().height; }
 
 	public bool isVisible() { return !self.nativeView().isHidden(); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), handler, null, self._input, owner, self._inputs); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), null, handler, self._input, owner, self._inputs); }
+
+	public void cancelPointerCapture() { MacOSViewInput.detached(self._inputs); }
+
+	/* GPU owners close admission before draining native work, while retaining
+	 * their view/layer until the existing native teardown barrier completes. */
+	public CallbackCancellation cancelInput() { return self._input.cancel(); }
 
 	public void setVisible(bool visible) { self.setHidden(!visible); }
 
@@ -134,14 +152,23 @@ class MacOSView implements IMacOSView {
 		view.addSubview(child);
 	}
 
-	public CallbackCancellation pollClose() { return self.isOpen() ? CallbackCancellation.NotRequested : CallbackCancellation.Complete; }
+	public CallbackCancellation pollClose() {
+		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
+		var view = self._view;
+		if (view == null) { return CallbackCancellation.Complete; }
+		if (!self._closing) { return CallbackCancellation.NotRequested; }
+		var state = self._input.pollCompletion();
+		if (state != CallbackCancellation.Complete) { return state; }
+		view.removeFromSuperview();
+		self._view = null;
+		return CallbackCancellation.Complete;
+	}
 
 	public CallbackCancellation close() {
 		self.requireDetached();
 		var view = self._view;
 		if (view == null) { return CallbackCancellation.Complete; }
-		view.removeFromSuperview();
-		self._view = null;
-		return CallbackCancellation.Complete;
+		if (!self._closing) { self._closing = true; self._input.cancel(); }
+		return self.pollClose();
 	}
 }

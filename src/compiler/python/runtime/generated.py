@@ -3076,13 +3076,25 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'c_reverse_capacity_bytes(\n                __btrc_reverse_key_cap, sizeof'
             '(unsigned int),\n                "reverse ARC hash size overflow");\n     '
             '       memset(__btrc_reverse_marks, 0, bytes);\n        }\n        __btrc_'
-            'reverse_epoch = 1;\n    }\n    __btrc_reverse_add(object);\n    for (int he'
-            'ad = 0; head < __btrc_reverse_count; head++) {\n        void* current = _'
-            '_btrc_reverse_queue[head];\n        __btrc_arc_validate(current);\n       '
-            ' __btrc_arc_header* header = __btrc_arc_header_of(current);\n        if ('
-            'header->rc > header->edge_rc) return 1;\n        for (__btrc_arc_incoming'
-            '* edge = header->incoming;\n                edge; edge = edge->next)\n    '
-            '        __btrc_reverse_add(edge->owner);\n    }\n    return 0;\n}'
+            'reverse_epoch = 1;\n    }\n    /* Prefer the current concrete incoming-own'
+            'er chain before expanding fan-in.\n     * Repeated temporary releases of '
+            'a shared child otherwise enqueue every\n     * owner, even when its newes'
+            't owner leads directly to an external root.\n     * The mutation lock kee'
+            'ps these owner edges valid. A witness is only a\n     * route: never trea'
+            't a snapshot sentinel or a previously live owner as\n     * proof. Rechec'
+            'k each reference count and fall back to the exact worklist\n     * when t'
+            'he preferred chain ends or cycles. */\n    void* preferred = object;\n    '
+            'while (preferred && __btrc_reverse_add(preferred)) {\n        __btrc_arc_'
+            'validate(preferred);\n        __btrc_arc_header* header = __btrc_arc_head'
+            'er_of(preferred);\n        if (header->rc > header->edge_rc) return 1;\n  '
+            '      if (header->live_witness == preferred) break;\n        preferred = '
+            'header->live_witness;\n    }\n    for (int head = 0; head < __btrc_reverse'
+            '_count; head++) {\n        void* current = __btrc_reverse_queue[head];\n  '
+            '      __btrc_arc_validate(current);\n        __btrc_arc_header* header = '
+            '__btrc_arc_header_of(current);\n        if (header->rc > header->edge_rc)'
+            ' return 1;\n        for (__btrc_arc_incoming* edge = header->incoming;\n  '
+            '              edge; edge = edge->next)\n            __btrc_reverse_add(ed'
+            'ge->owner);\n    }\n    return 0;\n}'
         ),
         depends_on=('__btrc_arc_reverse_state', '__btrc_arc_validate', '__btrc_ptr_hash', '__btrc_safe_calloc', '__btrc_safe_realloc'),
         required_headers=(),
@@ -5237,7 +5249,6 @@ C_RUNTIME_LITERALS: tuple[str, ...] = (
 RUNTIME_CALL_FEATURES: tuple[tuple[str, str], ...] = (
     ('btrc_gpu_', 'BTRC_RT_NEEDS_GPU'),
     ('btrc_gui_', 'BTRC_RT_NEEDS_GUI'),
-    ('btrc_tray_', 'BTRC_RT_NEEDS_TRAY'),
     ('pthread_', 'BTRC_RT_NEEDS_PTHREAD'),
 )
 
@@ -5282,391 +5293,385 @@ RUNTIME_HEADER = (
     'h>   /* setjmp, longjmp  (btrc try/catch)            */\n#ifdef BTRC_RT_N'
     'EEDS_PTHREAD\n#include <pthread.h>  /* Thread<T>, Mutex<T>, spawn        '
     '            */\n#endif\n#ifdef BTRC_RT_NEEDS_GPU\n#ifndef BTRC_RT_GPU_HEADE'
-    'R\n#define BTRC_RT_GPU_HEADER <btrc_gpu.h>\n#endif\n#include BTRC_RT_GPU_HE'
-    'ADER\n#endif\n#ifdef BTRC_RT_NEEDS_GUI\n#ifndef BTRC_RT_GUI_HEADER\n#define '
-    'BTRC_RT_GUI_HEADER <btrc_gui.h>\n#endif\n#ifndef BTRC_RT_GUI_FONT_HEADER\n#'
-    'define BTRC_RT_GUI_FONT_HEADER <btrc_gui_font.h>\n#endif\n#ifndef BTRC_RT_'
-    'GUI_WINDOW_HEADER\n#define BTRC_RT_GUI_WINDOW_HEADER <btrc_gui_window.h>\n'
-    '#endif\n#include BTRC_RT_GUI_HEADER\n#include BTRC_RT_GUI_FONT_HEADER\n#inc'
-    'lude BTRC_RT_GUI_WINDOW_HEADER\n#endif\n#ifdef BTRC_RT_NEEDS_TRAY\n#ifndef '
-    'BTRC_RT_TRAY_HEADER\n#define BTRC_RT_TRAY_HEADER <btrc_tray.h>\n#endif\n#in'
-    'clude BTRC_RT_TRAY_HEADER\n#endif\n\n#else\n/* ============================='
-    '============================================ *\n *  FREESTANDING TARGET —'
-    ' you provide every symbol below.                    *\n *                '
-    '                                                           *\n *  This is'
-    ' the core external surface of the btrc runtime. Optional stdlib    *\n * '
-    ' modules (filesystem, sockets, native UI, etc.) come through the platfor'
-    'm *\n *  header hook below. Anything unreachable can remain unimplemented'
-    '.        *\n * =========================================================='
-    '=============== */\n\n/* One target-owned umbrella header may provide POSI'
-    'X/native types, constants,\n * macros, and declarations used by the selec'
-    'ted stdlib modules. */\n#ifdef BTRC_RT_PLATFORM_HEADER\n#include BTRC_RT_P'
-    'LATFORM_HEADER\n#endif\n\n/* -- Memory ------------------------------------'
-    '-------------------------- *\n *  malloc / calloc / realloc / free\n *  ke'
-    'rnel:  kmalloc(n, GFP_KERNEL) / kcalloc / krealloc / kfree\n *  Note: mal'
-    'loc must provide max-align storage; calloc must zero it.         */\nvoid'
-    ' *malloc(size_t);\nvoid *calloc(size_t, size_t);\nvoid *realloc(void *, si'
-    'ze_t);\nvoid  free(void *);\n\n/* -- Formatted output ---------------------'
-    '------------------------------- *\n *  print/println -> printf; f-strings'
-    ' & number->string -> snprintf;\n *  uncaught-error & assert messages -> f'
-    'printf(stderr, ...).\n *  kernel:  printf->printk; fprintf(stderr,...)->p'
-    'r_err(...);\n *           snprintf is provided by the kernel as-is.      '
-    '                 */\nint printf(const char *, ...);\nint snprintf(char *, '
-    'size_t, const char *, ...);\nint fprintf(void *, const char *, ...);   /*'
-    ' stream arg is opaque here */\nextern void *stderr;                      '
-    ' /* unused if you remap fprintf */\n\n/* -- Memory & string ops (kernel pr'
-    'ovides all of these by the same name) - */\nvoid  *memcpy(void *, const v'
-    'oid *, size_t);\nvoid  *memmove(void *, const void *, size_t);\nvoid  *mem'
-    'set(void *, int, size_t);\nint    memcmp(const void *, const void *, size'
-    '_t);\nsize_t strlen(const char *);\nint    strcmp(const char *, const char'
-    ' *);\nint    strncmp(const char *, const char *, size_t);\nchar  *strcpy(c'
-    'har *, const char *);\nchar  *strncpy(char *, const char *, size_t);\nchar'
-    '  *strstr(const char *, const char *);\nchar  *strchr(const char *, int);'
-    '\nfloat  strtof(const char *, char **);\ndouble strtod(const char *, char '
-    '**);\n\n/* -- Character classification (kernel: linux/ctype.h) -----------'
-    '--------- */\nint isspace(int);\nint isdigit(int);\nint isalpha(int);\nint t'
-    'olower(int);\nint toupper(int);\n\n/* -- Abnormal termination -------------'
-    '----------------------------------- *\n *  Uncaught btrc errors call exit'
-    '()/abort().\n *  kernel:  route to BUG()/panic() or a controlled module-u'
-    'nload path.      */\n_Noreturn void abort(void);\n_Noreturn void exit(int)'
-    ';\n\n/* -- Floating-point math (only if the program uses the Math module) '
-    '------ *\n *  kernel: no libm — supply your own or avoid floating point i'
-    'n-kernel.     */\ndouble sqrt(double);\ndouble pow(double, double);\ndouble'
-    ' sin(double);\ndouble cos(double);\ndouble floor(double);\ndouble ceil(doub'
-    'le);\ndouble round(double);\ndouble fmod(double, double);\ndouble fabs(doub'
-    'le);\n\n/* -- Non-local control flow (only if the program uses try/catch) '
-    '--------- *\n *  jmp_buf is target-specific and cannot be guessed portabl'
-    'y. Name a shim\n *  that owns its type plus setjmp/longjmp declarations a'
-    'nd implementation.  */\n#ifdef BTRC_RT_NEEDS_SETJMP\n#ifndef BTRC_RT_SETJM'
-    'P_HEADER\n#error "try/catch freestanding builds require BTRC_RT_SETJMP_HE'
-    'ADER"\n#endif\n#include BTRC_RT_SETJMP_HEADER\n#endif\n\n/* -- Threads (Threa'
-    'd<T>/Mutex<T>) ---------------------------------------- *\n *  Backed by '
-    'pthreads. A freestanding program using threads must name a\n *  compatibl'
-    'e shim header, for example:\n *    -DBTRC_RT_PTHREAD_HEADER=\'"my_pthread_'
-    'shim.h"\'\n *  The shim owns pthread_t/pthread_mutex_t and every pthread_*'
-    ' declaration.  */\n#ifdef BTRC_RT_NEEDS_PTHREAD\n#ifndef BTRC_RT_PTHREAD_H'
-    'EADER\n#error "threaded freestanding builds require BTRC_RT_PTHREAD_HEADE'
-    'R"\n#endif\n#include BTRC_RT_PTHREAD_HEADER\n#endif\n\n/* -- Optional native '
-    'runtimes -------------------------------------------- *\n *  Native GPU/G'
-    'UI/tray APIs are target-owned. Name one shim header for each\n *  feature'
-    ' reached by the program; the shim declares the complete C ABI.    */\n#if'
-    'def BTRC_RT_NEEDS_GPU\n#ifndef BTRC_RT_GPU_HEADER\n#error "GPU freestandin'
-    'g builds require BTRC_RT_GPU_HEADER"\n#endif\n#include BTRC_RT_GPU_HEADER\n'
-    '#endif\n#ifdef BTRC_RT_NEEDS_GUI\n#ifndef BTRC_RT_GUI_HEADER\n#error "GUI f'
-    'reestanding builds require BTRC_RT_GUI_HEADER"\n#endif\n#include BTRC_RT_G'
-    'UI_HEADER\n#endif\n#ifdef BTRC_RT_NEEDS_TRAY\n#ifndef BTRC_RT_TRAY_HEADER\n#'
-    'error "tray freestanding builds require BTRC_RT_TRAY_HEADER"\n#endif\n#inc'
-    'lude BTRC_RT_TRAY_HEADER\n#endif\n\n#ifdef BTRC_FREESTANDING_IMPL\n/* ======'
-    '================================================== *\n * REFERENCE RUNTIM'
-    'E — a self-contained core implementation with no libc.   *\n * Define BTR'
-    'C_FREESTANDING_IMPL in exactly one translation unit.            *\n * Rep'
-    'lace BTRC_RT_PUTS/BTRC_RT_TRAP and the bump allocator for real targets. '
-    '*\n * Floating formatted-output precision is intentionally bounded to 18 '
-    'digits. *\n * Try/catch and threads intentionally require target-provided'
-    ' shims.         *\n * ==================================================='
-    '====================== */\n#include <stdarg.h>   /* freestanding-conformi'
-    'ng per C11 7.16 */\n\nvoid *memset(void *dest, int value, size_t count) {\n'
-    '    unsigned char *out = dest;\n    while (count-- > 0U) *out++ = (unsign'
-    'ed char)value;\n    return dest;\n}\n\nvoid *memcpy(void *dest, const void *'
-    'source, size_t count) {\n    unsigned char *out = dest;\n    const unsigne'
-    'd char *in = source;\n    while (count-- > 0U) *out++ = *in++;\n    return'
-    ' dest;\n}\n\nvoid *memmove(void *dest, const void *source, size_t count) {\n'
-    '    unsigned char *out = dest;\n    const unsigned char *in = source;\n   '
-    ' uintptr_t out_address = (uintptr_t)dest;\n    uintptr_t in_address = (ui'
-    'ntptr_t)source;\n    if (out_address <= in_address || out_address - in_ad'
-    'dress >= count) {\n        while (count-- > 0U) *out++ = *in++;\n    } els'
-    'e {\n        out += count;\n        in += count;\n        while (count-- > '
-    '0U) *--out = *--in;\n    }\n    return dest;\n}\n\nint memcmp(const void *lef'
-    't, const void *right, size_t count) {\n    const unsigned char *a = left;'
-    '\n    const unsigned char *b = right;\n    while (count-- > 0U) {\n        '
-    'if (*a != *b) return (int)*a - (int)*b;\n        a++;\n        b++;\n    }\n'
-    '    return 0;\n}\n\n#ifndef BTRC_RT_ARENA_BYTES\n#define BTRC_RT_ARENA_BYTES'
-    ' (1u << 22)\n#endif\n#define BTRC_RT_ALIGNMENT ((size_t)_Alignof(max_align'
-    '_t))\n#define BTRC_RT_HEADER_BYTES \\\n    ((sizeof(size_t) + BTRC_RT_ALIGN'
-    'MENT - 1U) / BTRC_RT_ALIGNMENT * BTRC_RT_ALIGNMENT)\nstatic union {\n    m'
-    'ax_align_t alignment;\n    unsigned char bytes[BTRC_RT_ARENA_BYTES];\n} __'
-    'btrc_arena;\nstatic size_t __btrc_arena_offset = 0U;\n\nvoid *malloc(size_t'
-    ' size) {\n    if (size > SIZE_MAX - (BTRC_RT_ALIGNMENT - 1U)) return (voi'
-    'd *)0;\n    size_t aligned = (size + BTRC_RT_ALIGNMENT - 1U)\n        / BT'
-    'RC_RT_ALIGNMENT * BTRC_RT_ALIGNMENT;\n    if (aligned > SIZE_MAX - BTRC_R'
-    'T_HEADER_BYTES) return (void *)0;\n    size_t total = BTRC_RT_HEADER_BYTE'
-    'S + aligned;\n    if (total > sizeof __btrc_arena.bytes - __btrc_arena_of'
-    'fset) return (void *)0;\n    unsigned char *block = __btrc_arena.bytes + '
-    '__btrc_arena_offset;\n    __btrc_arena_offset += total;\n    memcpy(block,'
-    ' &size, sizeof size);\n    return block + BTRC_RT_HEADER_BYTES;\n}\n\nvoid f'
-    'ree(void *pointer) { (void)pointer; }\n\nvoid *calloc(size_t count, size_t'
-    ' size) {\n    if (size != 0U && count > SIZE_MAX / size) return (void *)0'
-    ';\n    size_t total = count * size;\n    void *result = malloc(total);\n   '
-    ' if (result) memset(result, 0, total);\n    return result;\n}\n\nvoid *reall'
-    'oc(void *pointer, size_t size) {\n    if (!pointer) return malloc(size);\n'
-    '    size_t old_size = 0U;\n    memcpy(&old_size, (unsigned char *)pointer'
-    ' - BTRC_RT_HEADER_BYTES, sizeof old_size);\n    void *result = malloc(siz'
-    'e);\n    if (result) memcpy(result, pointer, old_size < size ? old_size :'
-    ' size);\n    return result;\n}\n\nsize_t strlen(const char *value) {\n    con'
-    'st char *end = value;\n    while (*end) end++;\n    return (size_t)(end - '
-    'value);\n}\n\nint strcmp(const char *left, const char *right) {\n    while ('
-    '*left && *left == *right) { left++; right++; }\n    return (int)(unsigned'
-    ' char)*left - (int)(unsigned char)*right;\n}\n\nint strncmp(const char *lef'
-    't, const char *right, size_t count) {\n    while (count > 0U && *left && '
-    '*left == *right) { left++; right++; count--; }\n    return count ? (int)('
-    'unsigned char)*left - (int)(unsigned char)*right : 0;\n}\n\nchar *strcpy(ch'
-    'ar *dest, const char *source) {\n    char *result = dest;\n    while ((*de'
-    "st++ = *source++) != '\\0') {}\n    return result;\n}\n\nchar *strncpy(char *"
-    'dest, const char *source, size_t count) {\n    size_t index = 0U;\n    whi'
-    "le (index < count && source[index] != '\\0') {\n        dest[index] = sour"
-    'ce[index];\n        index++;\n    }\n    while (index < count) dest[index++'
-    "] = '\\0';\n    return dest;\n}\n\nchar *strchr(const char *value, int needle"
-    ') {\n    do {\n        if (*value == (char)needle) return (char *)value;\n '
-    "   } while (*value++ != '\\0');\n    return (char *)0;\n}\n\nchar *strstr(con"
-    'st char *haystack, const char *needle) {\n    if (!*needle) return (char '
-    '*)haystack;\n    for (; *haystack; haystack++) {\n        const char *left'
-    ' = haystack;\n        const char *right = needle;\n        while (*left &&'
-    ' *right && *left == *right) { left++; right++; }\n        if (!*right) re'
-    'turn (char *)haystack;\n    }\n    return (char *)0;\n}\n\nint isspace(int va'
-    "lue) {\n    return value == ' ' || value == '\\t' || value == '\\n'\n       "
-    " || value == '\\r' || value == '\\v' || value == '\\f';\n}\nint isdigit(int v"
-    "alue) { return value >= '0' && value <= '9'; }\nint isalpha(int value) {\n"
-    "    return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= '"
-    "Z');\n}\nint tolower(int value) { return value >= 'A' && value <= 'Z' ? va"
-    "lue + 32 : value; }\nint toupper(int value) { return value >= 'a' && valu"
-    "e <= 'z' ? value - 32 : value; }\n\nstatic long double __btrc_rt_parse_rea"
-    'l(const char *text, char **end_pointer) {\n    const char *start = text;\n'
-    '    while (isspace((unsigned char)*text)) text++;\n    bool negative = fa'
-    "lse;\n    if (*text == '-' || *text == '+') { negative = *text == '-'; te"
-    'xt++; }\n    long double value = 0.0L;\n    bool any = false;\n    while (i'
-    'sdigit((unsigned char)*text)) {\n        unsigned int digit = (unsigned i'
-    "nt)(*text++ - '0');\n        any = true;\n        value = value > (LDBL_MA"
-    'X - (long double)digit) / 10.0L\n            ? LDBL_MAX : value * 10.0L +'
-    " (long double)digit;\n    }\n    if (*text == '.') {\n        const char *f"
-    'raction_start = text++;\n        long double scale = 0.1L;\n        while '
-    '(isdigit((unsigned char)*text)) {\n            unsigned int digit = (unsi'
-    "gned int)(*text++ - '0');\n            any = true;\n            if (value "
-    '< LDBL_MAX) value += (long double)digit * scale;\n            scale /= 10'
-    '.0L;\n        }\n        if (!any) text = fraction_start;\n    }\n    if (an'
-    "y && (*text == 'e' || *text == 'E')) {\n        const char *exponent_star"
-    't = text++;\n        bool exponent_negative = false;\n        if (*text =='
-    " '-' || *text == '+') {\n            exponent_negative = *text == '-';\n  "
-    '          text++;\n        }\n        int exponent = 0;\n        bool expon'
-    'ent_any = false;\n        while (isdigit((unsigned char)*text)) {\n       '
-    '     exponent_any = true;\n            if (exponent <= 999) exponent = ex'
-    "ponent * 10 + (*text - '0');\n            else exponent = 10000;\n        "
-    '    text++;\n        }\n        if (!exponent_any) text = exponent_start;\n'
-    '        else if (exponent_negative) while (exponent-- > 0 && value != 0.'
-    '0L) value /= 10.0L;\n        else while (exponent-- > 0 && value < LDBL_M'
-    'AX) {\n            value = value > LDBL_MAX / 10.0L ? LDBL_MAX : value * '
-    '10.0L;\n        }\n    }\n    if (end_pointer) *end_pointer = (char *)(any '
-    '? text : start);\n    if (!any) return 0.0L;\n    return negative ? -value'
-    ' : value;\n}\n\nfloat strtof(const char *text, char **end_pointer) {\n    re'
-    'turn (float)__btrc_rt_parse_real(text, end_pointer);\n}\ndouble strtod(con'
-    'st char *text, char **end_pointer) {\n    return (double)__btrc_rt_parse_'
-    'real(text, end_pointer);\n}\n\n#ifndef BTRC_RT_PUTS\nvoid __btrc_rt_puts(con'
-    'st char *text, size_t length) { (void)text; (void)length; }\n#define BTRC'
-    '_RT_PUTS __btrc_rt_puts\n#endif\n#ifndef BTRC_RT_TRAP\n_Noreturn void __btr'
-    'c_rt_trap(void) { for (;;) {} }\n#define BTRC_RT_TRAP __btrc_rt_trap\n#end'
-    'if\n_Noreturn void abort(void) { BTRC_RT_TRAP(); for (;;) {} }\n_Noreturn '
-    'void exit(int code) { (void)code; BTRC_RT_TRAP(); for (;;) {} }\nvoid *st'
-    'derr = (void *)0;\n\ntypedef struct {\n    char *out;\n    size_t cap;\n    s'
-    'ize_t pos;\n} __btrc_rt_sink;\n\nstatic void __btrc_rt_put(__btrc_rt_sink *'
-    'sink, char value) {\n    if (sink->out && sink->pos + 1U < sink->cap) sin'
-    'k->out[sink->pos] = value;\n    sink->pos++;\n}\n\nstatic void __btrc_rt_pad'
-    '(__btrc_rt_sink *sink, char value, int count) {\n    while (count-- > 0) '
-    '__btrc_rt_put(sink, value);\n}\n\nstatic int __btrc_rt_digits(\n        char'
-    ' *reversed, uintmax_t value, unsigned int base, bool upper) {\n    const '
-    'char *alphabet = upper\n        ? "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"\n'
-    '        : "0123456789abcdefghijklmnopqrstuvwxyz";\n    int length = 0;\n  '
-    '  do {\n        reversed[length++] = alphabet[value % base];\n        valu'
-    'e /= base;\n    } while (value != 0U);\n    return length;\n}\n\nstatic void '
-    '__btrc_rt_emit_integer(\n        __btrc_rt_sink *sink, uintmax_t value, b'
-    'ool negative,\n        unsigned int base, bool upper, bool alternate, int'
-    ' width,\n        int precision, bool zero, bool left, bool plus, bool spa'
-    'ce) {\n    char reversed[sizeof(uintmax_t) * CHAR_BIT + 1U];\n    int digi'
-    'ts = value == 0U && precision == 0\n        ? 0 : __btrc_rt_digits(revers'
-    "ed, value, base, upper);\n    char sign = negative ? '-' : plus ? '+' : s"
-    'pace ? \' \' : \'\\0\';\n    const char *prefix = "";\n    int prefix_length = '
-    'sign ? 1 : 0;\n    if (alternate && value != 0U && base == 16U) {\n       '
-    ' prefix = upper ? "0X" : "0x";\n        prefix_length += 2;\n    } else if'
-    " (alternate && base == 8U && (digits == 0 || reversed[digits - 1] != '0'"
-    ')) {\n        prefix = "0";\n        prefix_length += 1;\n    }\n    int lea'
-    'ding_zeroes = precision > digits ? precision - digits : 0;\n    int paddi'
-    'ng = width - prefix_length - leading_zeroes - digits;\n    if (!left && ('
-    "!zero || precision >= 0)) __btrc_rt_pad(sink, ' ', padding);\n    if (sig"
-    'n) __btrc_rt_put(sink, sign);\n    while (*prefix) __btrc_rt_put(sink, *p'
-    "refix++);\n    if (!left && zero && precision < 0) __btrc_rt_pad(sink, '0"
-    "', padding);\n    __btrc_rt_pad(sink, '0', leading_zeroes);\n    while (di"
-    'gits-- > 0) __btrc_rt_put(sink, reversed[digits]);\n    if (left) __btrc_'
-    "rt_pad(sink, ' ', padding);\n}\n\n\nstatic int __btrc_rt_normalize(long doub"
-    'le *value) {\n    int exponent = 0;\n    if (*value == 0.0L) return 0;\n   '
-    ' while (*value >= 10.0L) { *value /= 10.0L; exponent++; }\n    while (*va'
-    'lue < 1.0L) { *value *= 10.0L; exponent--; }\n    return exponent;\n}\n\nsta'
-    'tic int __btrc_rt_next_digit(long double *value) {\n    int digit = (int)'
-    '*value;\n    if (digit < 0) digit = 0;\n    if (digit > 9) digit = 9;\n    '
-    '*value = (*value - (long double)digit) * 10.0L;\n    if (*value < 0.0L) *'
-    'value = 0.0L;\n    return digit;\n}\n\nstatic void __btrc_rt_emit_exponent(\n'
-    '        __btrc_rt_sink *sink, int exponent, bool upper) {\n    char rever'
-    "sed[16];\n    int length;\n    __btrc_rt_put(sink, upper ? 'E' : 'e');\n   "
-    " if (exponent < 0) { __btrc_rt_put(sink, '-'); exponent = -exponent; }\n "
-    "   else __btrc_rt_put(sink, '+');\n    length = __btrc_rt_digits(reversed"
-    ', (uintmax_t)exponent, 10U, false);\n    if (length < 2) __btrc_rt_put(si'
-    "nk, '0');\n    while (length-- > 0) __btrc_rt_put(sink, reversed[length])"
-    ';\n}\n\nstatic void __btrc_rt_emit_fixed_body(\n        __btrc_rt_sink *sink'
-    ', long double value, int precision) {\n    long double rounding = 0.5L;\n '
-    '   for (int i = 0; i < precision; ++i) rounding /= 10.0L;\n    long doubl'
-    'e rounded = value + rounding;\n    if (rounded != 0.0L && rounded + round'
-    'ed == rounded) rounded = value;\n    value = rounded;\n    int exponent = '
-    '__btrc_rt_normalize(&value);\n    if (rounded == 0.0L || exponent < 0) {\n'
-    "        __btrc_rt_put(sink, '0');\n    } else {\n        for (int place = "
-    "exponent; place >= 0; --place)\n            __btrc_rt_put(sink, (char)('0"
-    "' + __btrc_rt_next_digit(&value)));\n    }\n    if (precision <= 0) return"
-    ";\n    __btrc_rt_put(sink, '.');\n    for (int place = -1; place >= -preci"
-    'sion; --place) {\n        int digit = place > exponent || rounded == 0.0L'
-    '\n            ? 0 : __btrc_rt_next_digit(&value);\n        __btrc_rt_put(s'
-    "ink, (char)('0' + digit));\n    }\n}\n\nstatic int __btrc_rt_significant_dig"
-    'its(\n        long double *value, int count, unsigned char *digits) {\n   '
-    ' if (*value == 0.0L) {\n        for (int i = 0; i < count; ++i) digits[i]'
-    ' = 0U;\n        return 0;\n    }\n    int exponent = __btrc_rt_normalize(va'
-    'lue);\n    long double rounding = 0.5L;\n    for (int i = 1; i < count; ++'
-    'i) rounding /= 10.0L;\n    *value += rounding;\n    if (*value >= 10.0L) {'
-    ' *value /= 10.0L; exponent++; }\n    for (int i = 0; i < count; ++i)\n    '
-    '    digits[i] = (unsigned char)__btrc_rt_next_digit(value);\n    return e'
-    'xponent;\n}\n\nstatic void __btrc_rt_emit_scientific_body(\n        __btrc_r'
-    't_sink *sink, long double value, int precision, bool upper) {\n    unsign'
-    'ed char digits[20];\n    int count = precision + 1;\n    int exponent = __'
-    'btrc_rt_significant_digits(&value, count, digits);\n    __btrc_rt_put(sin'
-    "k, (char)('0' + digits[0]));\n    if (precision > 0) {\n        __btrc_rt_"
-    "put(sink, '.');\n        for (int i = 1; i < count; ++i)\n            __bt"
-    "rc_rt_put(sink, (char)('0' + digits[i]));\n    }\n    __btrc_rt_emit_expon"
-    'ent(sink, exponent, upper);\n}\n\nstatic void __btrc_rt_emit_general_body(\n'
-    '        __btrc_rt_sink *sink, long double value, int precision,\n        '
-    'bool upper, bool alternate) {\n    unsigned char digits[18];\n    int expo'
-    'nent = __btrc_rt_significant_digits(&value, precision, digits);\n    int '
-    'last = precision - 1;\n    if (!alternate) while (last >= 0 && digits[las'
-    "t] == 0) last--;\n    if (last < 0) { __btrc_rt_put(sink, '0'); return; }"
-    '\n    if (exponent < -4 || exponent >= precision) {\n        __btrc_rt_put'
-    "(sink, (char)('0' + digits[0]));\n        if (last > 0 || alternate) {\n  "
-    "          __btrc_rt_put(sink, '.');\n            for (int i = 1; i <= las"
-    "t; ++i)\n                __btrc_rt_put(sink, (char)('0' + digits[i]));\n  "
-    '      }\n        __btrc_rt_emit_exponent(sink, exponent, upper);\n        '
-    "return;\n    }\n    if (exponent < 0) {\n        __btrc_rt_put(sink, '0');\n"
-    "        __btrc_rt_put(sink, '.');\n        for (int place = -1; place > e"
-    "xponent; --place) __btrc_rt_put(sink, '0');\n        for (int i = 0; i <="
-    " last; ++i)\n            __btrc_rt_put(sink, (char)('0' + digits[i]));\n  "
-    '      return;\n    }\n    for (int place = 0; place <= exponent; ++place) '
-    '{\n        int digit = place < precision ? digits[place] : 0;\n        __b'
-    "trc_rt_put(sink, (char)('0' + digit));\n    }\n    if (last > exponent || "
-    "alternate) {\n        __btrc_rt_put(sink, '.');\n        for (int i = expo"
-    "nent + 1; i <= last; ++i)\n            __btrc_rt_put(sink, (char)('0' + d"
-    'igits[i]));\n    }\n}\n\nstatic void __btrc_rt_emit_real_body(\n        __btr'
-    'c_rt_sink *sink, long double value, char spec,\n        int precision, bo'
-    "ol alternate) {\n    bool upper = spec == 'F' || spec == 'E' || spec == '"
-    "G';\n    char lower = upper ? (char)(spec + ('a' - 'A')) : spec;\n    if ("
-    'value != value) {\n        const char *word = upper ? "NAN" : "nan";\n    '
-    '    while (*word) __btrc_rt_put(sink, *word++);\n    } else if (value != '
-    '0.0L && value + value == value) {\n        const char *word = upper ? "IN'
-    'F" : "inf";\n        while (*word) __btrc_rt_put(sink, *word++);\n    } el'
-    "se if (lower == 'f') {\n        __btrc_rt_emit_fixed_body(sink, value, pr"
-    "ecision);\n    } else if (lower == 'e') {\n        __btrc_rt_emit_scientif"
-    'ic_body(sink, value, precision, upper);\n    } else {\n        __btrc_rt_e'
-    'mit_general_body(sink, value, precision, upper, alternate);\n    }\n}\n\nsta'
-    'tic void __btrc_rt_emit_real(\n        __btrc_rt_sink *sink, long double '
-    'value, char spec, int width,\n        int precision, bool zero, bool left'
-    ', bool plus, bool space,\n        bool alternate) {\n    bool negative = v'
-    'alue < 0.0L;\n    if (negative) value = -value;\n    char sign = negative '
-    "? '-' : plus ? '+' : space ? ' ' : '\\0';\n    __btrc_rt_sink count = {0};"
-    '\n    __btrc_rt_emit_real_body(&count, value, spec, precision, alternate)'
-    ';\n    int padding = width - (int)count.pos - (sign ? 1 : 0);\n    if (!le'
-    "ft && !zero) __btrc_rt_pad(sink, ' ', padding);\n    if (sign) __btrc_rt_"
-    "put(sink, sign);\n    if (!left && zero) __btrc_rt_pad(sink, '0', padding"
-    ');\n    __btrc_rt_emit_real_body(sink, value, spec, precision, alternate)'
-    ";\n    if (left) __btrc_rt_pad(sink, ' ', padding);\n}\n\nstatic size_t __bt"
-    'rc_fmt(char *out, size_t cap, const char *fmt, va_list ap) {\n    __btrc_'
-    "rt_sink sink = {out, cap, 0U};\n    while (*fmt) {\n        if (*fmt != '%"
-    "') { __btrc_rt_put(&sink, *fmt++); continue; }\n        fmt++;\n        bo"
-    'ol left = false, plus = false, space = false, alternate = false, zero = '
-    'false;\n        bool flags = true;\n        while (flags) {\n            sw'
-    "itch (*fmt) {\n            case '-': left = true; fmt++; break;\n         "
-    "   case '+': plus = true; fmt++; break;\n            case ' ': space = tr"
-    "ue; fmt++; break;\n            case '#': alternate = true; fmt++; break;\n"
-    "            case '0': zero = true; fmt++; break;\n            default: fl"
-    'ags = false; break;\n            }\n        }\n        int width = 0;\n     '
-    "   if (*fmt == '*') {\n            width = va_arg(ap, int);\n            f"
-    'mt++;\n            if (width < 0) {\n                left = true;\n        '
-    '        width = width == INT_MIN ? INT_MAX : -width;\n            }\n     '
-    "   }\n        else while (*fmt >= '0' && *fmt <= '9') {\n            if (w"
-    "idth <= (INT_MAX - 9) / 10) width = width * 10 + (*fmt - '0');\n         "
-    "   fmt++;\n        }\n        int precision = -1;\n        if (*fmt == '.')"
-    " {\n            fmt++; precision = 0;\n            if (*fmt == '*') { prec"
-    "ision = va_arg(ap, int); fmt++; }\n            else while (*fmt >= '0' &&"
-    " *fmt <= '9') {\n                if (precision <= (INT_MAX - 9) / 10) pre"
-    "cision = precision * 10 + (*fmt - '0');\n                fmt++;\n         "
-    '   }\n            if (precision < 0) precision = -1;\n        }\n        in'
-    "t length = 0;\n        if (*fmt == 'h') { fmt++; length = *fmt == 'h' ? ("
-    "fmt++, -2) : -1; }\n        else if (*fmt == 'l') { fmt++; length = *fmt "
-    "== 'l' ? (fmt++, 2) : 1; }\n        else if (*fmt == 'j') { fmt++; length"
-    " = 3; }\n        else if (*fmt == 'z') { fmt++; length = 4; }\n        els"
-    "e if (*fmt == 't') { fmt++; length = 5; }\n        else if (*fmt == 'L') "
-    '{ fmt++; length = 6; }\n        char spec = *fmt;\n        if (!spec) brea'
-    "k;\n        fmt++;\n        if (spec == 'd' || spec == 'i') {\n            "
-    'intmax_t signed_value = length == 1 ? (intmax_t)va_arg(ap, long)\n       '
-    '         : length == 2 ? (intmax_t)va_arg(ap, long long)\n               '
-    ' : length == 3 ? va_arg(ap, intmax_t)\n                : length == 4 || l'
-    'ength == 5 ? (intmax_t)va_arg(ap, ptrdiff_t)\n                : (intmax_t'
-    ')va_arg(ap, int);\n            bool negative = signed_value < 0;\n        '
-    '    uintmax_t magnitude = negative\n                ? (uintmax_t)(-(signe'
-    'd_value + 1)) + 1U : (uintmax_t)signed_value;\n            __btrc_rt_emit'
-    '_integer(&sink, magnitude, negative, 10U, false,\n                false, '
-    "width, precision, zero, left, plus, space);\n        } else if (spec == '"
-    "u' || spec == 'o' || spec == 'x' || spec == 'X') {\n            uintmax_t"
-    ' value = length == 1 ? (uintmax_t)va_arg(ap, unsigned long)\n            '
-    '    : length == 2 ? (uintmax_t)va_arg(ap, unsigned long long)\n          '
-    '      : length == 3 ? va_arg(ap, uintmax_t)\n                : length == '
-    '4 ? (uintmax_t)va_arg(ap, size_t)\n                : length == 5 ? (uintm'
-    'ax_t)va_arg(ap, uintptr_t)\n                : (uintmax_t)va_arg(ap, unsig'
-    "ned int);\n            unsigned int base = spec == 'o' ? 8U : (spec == 'x"
-    "' || spec == 'X' ? 16U : 10U);\n            __btrc_rt_emit_integer(&sink,"
-    " value, false, base, spec == 'X',\n                alternate, width, prec"
-    "ision, zero, left, false, false);\n        } else if (spec == 'f' || spec"
-    " == 'F' || spec == 'e' || spec == 'E'\n                || spec == 'g' || "
-    "spec == 'G') {\n            long double value = length == 6 ? va_arg(ap, "
-    'long double)\n                                            : (long double)'
-    'va_arg(ap, double);\n            int real_precision = precision < 0 ? 6 :'
-    " precision;\n            if ((spec == 'g' || spec == 'G') && real_precisi"
-    'on == 0) real_precision = 1;\n            if (real_precision > 18) real_p'
-    'recision = 18;\n            __btrc_rt_emit_real(&sink, value, spec, width'
-    ', real_precision,\n                zero, left, plus, space, alternate);\n '
-    "       } else if (spec == 'c') {\n            int padding = width - 1;\n  "
-    "          if (!left) __btrc_rt_pad(&sink, ' ', padding);\n            __b"
-    'trc_rt_put(&sink, (char)va_arg(ap, int));\n            if (left) __btrc_r'
-    "t_pad(&sink, ' ', padding);\n        } else if (spec == 's') {\n          "
-    '  const char *value = va_arg(ap, const char *);\n            if (!value) '
-    'value = "(null)";\n            size_t length_value = strlen(value);\n     '
-    '       if (precision >= 0 && length_value > (size_t)precision) length_va'
-    'lue = (size_t)precision;\n            int padding = length_value < (size_'
-    't)width ? width - (int)length_value : 0;\n            if (!left) __btrc_r'
-    "t_pad(&sink, ' ', padding);\n            for (size_t i = 0; i < length_va"
-    'lue; ++i) __btrc_rt_put(&sink, value[i]);\n            if (left) __btrc_r'
-    "t_pad(&sink, ' ', padding);\n        } else if (spec == 'p') {\n          "
-    '  uintptr_t value = (uintptr_t)va_arg(ap, void *);\n            __btrc_rt'
-    '_emit_integer(&sink, (uintmax_t)value, false, 16U, false,\n              '
-    '  true, width, precision, zero, left, false, false);\n        } else if ('
-    "spec == '%') {\n            __btrc_rt_put(&sink, '%');\n        } else {\n "
-    "           __btrc_rt_put(&sink, '%');\n            __btrc_rt_put(&sink, s"
-    'pec);\n        }\n    }\n    if (out && cap) out[sink.pos < cap ? sink.pos '
-    ": cap - 1U] = '\\0';\n    return sink.pos;\n}\n\nint snprintf(char *out, size"
-    '_t cap, const char *format, ...) {\n    va_list args;\n    va_start(args, '
-    'format);\n    size_t length = __btrc_fmt(out, cap, format, args);\n    va_'
-    'end(args);\n    return length > (size_t)INT_MAX ? -1 : (int)length;\n}\nsta'
-    'tic int __btrc_rt_vprint(const char *format, va_list args) {\n    va_list'
-    ' count_args;\n    va_copy(count_args, args);\n    size_t length = __btrc_f'
-    'mt((char *)0, 0U, format, count_args);\n    va_end(count_args);\n    if (l'
-    'ength > (size_t)INT_MAX || length == SIZE_MAX) return -1;\n    char *buff'
-    'er = malloc(length + 1U);\n    if (!buffer) return -1;\n    (void)__btrc_f'
-    'mt(buffer, length + 1U, format, args);\n    BTRC_RT_PUTS(buffer, length);'
-    '\n    free(buffer);\n    return (int)length;\n}\nint printf(const char *form'
-    'at, ...) {\n    va_list args;\n    va_start(args, format);\n    int result '
-    '= __btrc_rt_vprint(format, args);\n    va_end(args);\n    return result;\n}'
-    '\nint fprintf(void *stream, const char *format, ...) {\n    (void)stream;\n'
-    '    va_list args;\n    va_start(args, format);\n    int result = __btrc_rt'
-    '_vprint(format, args);\n    va_end(args);\n    return result;\n}\n\n#endif /*'
-    ' BTRC_FREESTANDING_IMPL */\n\n#endif /* BTRC_FREESTANDING */\n\n#endif /* BT'
-    'RC_RT_H */\n'
+    'R\n#define BTRC_RT_GPU_HEADER <btrc_gpu_compute_internal.h>\n#endif\n#inclu'
+    'de BTRC_RT_GPU_HEADER\n#endif\n#ifdef BTRC_RT_NEEDS_GUI\n#ifndef BTRC_RT_GU'
+    'I_HEADER\n#define BTRC_RT_GUI_HEADER <btrc_gui.h>\n#endif\n#ifndef BTRC_RT_'
+    'GUI_FONT_HEADER\n#define BTRC_RT_GUI_FONT_HEADER <btrc_gui_font.h>\n#endif'
+    '\n#include BTRC_RT_GUI_HEADER\n#include BTRC_RT_GUI_FONT_HEADER\n#endif\n\n#e'
+    'lse\n/* ================================================================='
+    '======== *\n *  FREESTANDING TARGET — you provide every symbol below.    '
+    '                *\n *                                                    '
+    '                       *\n *  This is the core external surface of the bt'
+    'rc runtime. Optional stdlib    *\n *  modules (filesystem, sockets, nativ'
+    'e UI, etc.) come through the platform *\n *  header hook below. Anything '
+    'unreachable can remain unimplemented.        *\n * ======================'
+    '=================================================== */\n\n/* One target-ow'
+    'ned umbrella header may provide POSIX/native types, constants,\n * macros'
+    ', and declarations used by the selected stdlib modules. */\n#ifdef BTRC_R'
+    'T_PLATFORM_HEADER\n#include BTRC_RT_PLATFORM_HEADER\n#endif\n\n/* -- Memory '
+    '-------------------------------------------------------------- *\n *  mal'
+    'loc / calloc / realloc / free\n *  kernel:  kmalloc(n, GFP_KERNEL) / kcal'
+    'loc / krealloc / kfree\n *  Note: malloc must provide max-align storage; '
+    'calloc must zero it.         */\nvoid *malloc(size_t);\nvoid *calloc(size_'
+    't, size_t);\nvoid *realloc(void *, size_t);\nvoid  free(void *);\n\n/* -- Fo'
+    'rmatted output ---------------------------------------------------- *\n *'
+    '  print/println -> printf; f-strings & number->string -> snprintf;\n *  u'
+    'ncaught-error & assert messages -> fprintf(stderr, ...).\n *  kernel:  pr'
+    'intf->printk; fprintf(stderr,...)->pr_err(...);\n *           snprintf is'
+    ' provided by the kernel as-is.                       */\nint printf(const'
+    ' char *, ...);\nint snprintf(char *, size_t, const char *, ...);\nint fpri'
+    'ntf(void *, const char *, ...);   /* stream arg is opaque here */\nextern'
+    ' void *stderr;                       /* unused if you remap fprintf */\n\n'
+    '/* -- Memory & string ops (kernel provides all of these by the same name'
+    ') - */\nvoid  *memcpy(void *, const void *, size_t);\nvoid  *memmove(void '
+    '*, const void *, size_t);\nvoid  *memset(void *, int, size_t);\nint    mem'
+    'cmp(const void *, const void *, size_t);\nsize_t strlen(const char *);\nin'
+    't    strcmp(const char *, const char *);\nint    strncmp(const char *, co'
+    'nst char *, size_t);\nchar  *strcpy(char *, const char *);\nchar  *strncpy'
+    '(char *, const char *, size_t);\nchar  *strstr(const char *, const char *'
+    ');\nchar  *strchr(const char *, int);\nfloat  strtof(const char *, char **'
+    ');\ndouble strtod(const char *, char **);\n\n/* -- Character classification'
+    ' (kernel: linux/ctype.h) -------------------- */\nint isspace(int);\nint i'
+    'sdigit(int);\nint isalpha(int);\nint tolower(int);\nint toupper(int);\n\n/* -'
+    '- Abnormal termination ------------------------------------------------ '
+    '*\n *  Uncaught btrc errors call exit()/abort().\n *  kernel:  route to BU'
+    'G()/panic() or a controlled module-unload path.      */\n_Noreturn void a'
+    'bort(void);\n_Noreturn void exit(int);\n\n/* -- Floating-point math (only i'
+    'f the program uses the Math module) ------ *\n *  kernel: no libm — suppl'
+    'y your own or avoid floating point in-kernel.     */\ndouble sqrt(double)'
+    ';\ndouble pow(double, double);\ndouble sin(double);\ndouble cos(double);\ndo'
+    'uble floor(double);\ndouble ceil(double);\ndouble round(double);\ndouble fm'
+    'od(double, double);\ndouble fabs(double);\n\n/* -- Non-local control flow ('
+    'only if the program uses try/catch) --------- *\n *  jmp_buf is target-sp'
+    'ecific and cannot be guessed portably. Name a shim\n *  that owns its typ'
+    'e plus setjmp/longjmp declarations and implementation.  */\n#ifdef BTRC_R'
+    'T_NEEDS_SETJMP\n#ifndef BTRC_RT_SETJMP_HEADER\n#error "try/catch freestand'
+    'ing builds require BTRC_RT_SETJMP_HEADER"\n#endif\n#include BTRC_RT_SETJMP'
+    '_HEADER\n#endif\n\n/* -- Threads (Thread<T>/Mutex<T>) ---------------------'
+    '------------------- *\n *  Backed by pthreads. A freestanding program usi'
+    'ng threads must name a\n *  compatible shim header, for example:\n *    -D'
+    'BTRC_RT_PTHREAD_HEADER=\'"my_pthread_shim.h"\'\n *  The shim owns pthread_t'
+    '/pthread_mutex_t and every pthread_* declaration.  */\n#ifdef BTRC_RT_NEE'
+    'DS_PTHREAD\n#ifndef BTRC_RT_PTHREAD_HEADER\n#error "threaded freestanding '
+    'builds require BTRC_RT_PTHREAD_HEADER"\n#endif\n#include BTRC_RT_PTHREAD_H'
+    'EADER\n#endif\n\n/* -- Optional native runtimes ---------------------------'
+    '----------------- *\n *  Native GPU/GUI/tray APIs are target-owned. Name '
+    'one shim header for each\n *  feature reached by the program; the shim de'
+    'clares the complete C ABI.    */\n#ifdef BTRC_RT_NEEDS_GPU\n#ifndef BTRC_R'
+    'T_GPU_HEADER\n#error "GPU freestanding builds require BTRC_RT_GPU_HEADER"'
+    '\n#endif\n#include BTRC_RT_GPU_HEADER\n#endif\n#ifdef BTRC_RT_NEEDS_GUI\n#ifn'
+    'def BTRC_RT_GUI_HEADER\n#error "GUI freestanding builds require BTRC_RT_G'
+    'UI_HEADER"\n#endif\n#include BTRC_RT_GUI_HEADER\n#endif\n\n#ifdef BTRC_FREEST'
+    'ANDING_IMPL\n/* ======================================================== '
+    '*\n * REFERENCE RUNTIME — a self-contained core implementation with no li'
+    'bc.   *\n * Define BTRC_FREESTANDING_IMPL in exactly one translation unit'
+    '.            *\n * Replace BTRC_RT_PUTS/BTRC_RT_TRAP and the bump allocat'
+    'or for real targets. *\n * Floating formatted-output precision is intenti'
+    'onally bounded to 18 digits. *\n * Try/catch and threads intentionally re'
+    'quire target-provided shims.         *\n * =============================='
+    '=========================================== */\n#include <stdarg.h>   /* '
+    'freestanding-conforming per C11 7.16 */\n\nvoid *memset(void *dest, int va'
+    'lue, size_t count) {\n    unsigned char *out = dest;\n    while (count-- >'
+    ' 0U) *out++ = (unsigned char)value;\n    return dest;\n}\n\nvoid *memcpy(voi'
+    'd *dest, const void *source, size_t count) {\n    unsigned char *out = de'
+    'st;\n    const unsigned char *in = source;\n    while (count-- > 0U) *out+'
+    '+ = *in++;\n    return dest;\n}\n\nvoid *memmove(void *dest, const void *sou'
+    'rce, size_t count) {\n    unsigned char *out = dest;\n    const unsigned c'
+    'har *in = source;\n    uintptr_t out_address = (uintptr_t)dest;\n    uintp'
+    'tr_t in_address = (uintptr_t)source;\n    if (out_address <= in_address |'
+    '| out_address - in_address >= count) {\n        while (count-- > 0U) *out'
+    '++ = *in++;\n    } else {\n        out += count;\n        in += count;\n    '
+    '    while (count-- > 0U) *--out = *--in;\n    }\n    return dest;\n}\n\nint m'
+    'emcmp(const void *left, const void *right, size_t count) {\n    const uns'
+    'igned char *a = left;\n    const unsigned char *b = right;\n    while (cou'
+    'nt-- > 0U) {\n        if (*a != *b) return (int)*a - (int)*b;\n        a++'
+    ';\n        b++;\n    }\n    return 0;\n}\n\n#ifndef BTRC_RT_ARENA_BYTES\n#defin'
+    'e BTRC_RT_ARENA_BYTES (1u << 22)\n#endif\n#define BTRC_RT_ALIGNMENT ((size'
+    '_t)_Alignof(max_align_t))\n#define BTRC_RT_HEADER_BYTES \\\n    ((sizeof(si'
+    'ze_t) + BTRC_RT_ALIGNMENT - 1U) / BTRC_RT_ALIGNMENT * BTRC_RT_ALIGNMENT)'
+    '\nstatic union {\n    max_align_t alignment;\n    unsigned char bytes[BTRC_'
+    'RT_ARENA_BYTES];\n} __btrc_arena;\nstatic size_t __btrc_arena_offset = 0U;'
+    '\n\nvoid *malloc(size_t size) {\n    if (size > SIZE_MAX - (BTRC_RT_ALIGNME'
+    'NT - 1U)) return (void *)0;\n    size_t aligned = (size + BTRC_RT_ALIGNME'
+    'NT - 1U)\n        / BTRC_RT_ALIGNMENT * BTRC_RT_ALIGNMENT;\n    if (aligne'
+    'd > SIZE_MAX - BTRC_RT_HEADER_BYTES) return (void *)0;\n    size_t total '
+    '= BTRC_RT_HEADER_BYTES + aligned;\n    if (total > sizeof __btrc_arena.by'
+    'tes - __btrc_arena_offset) return (void *)0;\n    unsigned char *block = '
+    '__btrc_arena.bytes + __btrc_arena_offset;\n    __btrc_arena_offset += tot'
+    'al;\n    memcpy(block, &size, sizeof size);\n    return block + BTRC_RT_HE'
+    'ADER_BYTES;\n}\n\nvoid free(void *pointer) { (void)pointer; }\n\nvoid *calloc'
+    '(size_t count, size_t size) {\n    if (size != 0U && count > SIZE_MAX / s'
+    'ize) return (void *)0;\n    size_t total = count * size;\n    void *result'
+    ' = malloc(total);\n    if (result) memset(result, 0, total);\n    return r'
+    'esult;\n}\n\nvoid *realloc(void *pointer, size_t size) {\n    if (!pointer) '
+    'return malloc(size);\n    size_t old_size = 0U;\n    memcpy(&old_size, (un'
+    'signed char *)pointer - BTRC_RT_HEADER_BYTES, sizeof old_size);\n    void'
+    ' *result = malloc(size);\n    if (result) memcpy(result, pointer, old_siz'
+    'e < size ? old_size : size);\n    return result;\n}\n\nsize_t strlen(const c'
+    'har *value) {\n    const char *end = value;\n    while (*end) end++;\n    r'
+    'eturn (size_t)(end - value);\n}\n\nint strcmp(const char *left, const char '
+    '*right) {\n    while (*left && *left == *right) { left++; right++; }\n    '
+    'return (int)(unsigned char)*left - (int)(unsigned char)*right;\n}\n\nint st'
+    'rncmp(const char *left, const char *right, size_t count) {\n    while (co'
+    'unt > 0U && *left && *left == *right) { left++; right++; count--; }\n    '
+    'return count ? (int)(unsigned char)*left - (int)(unsigned char)*right : '
+    '0;\n}\n\nchar *strcpy(char *dest, const char *source) {\n    char *result = '
+    "dest;\n    while ((*dest++ = *source++) != '\\0') {}\n    return result;\n}\n"
+    '\nchar *strncpy(char *dest, const char *source, size_t count) {\n    size_'
+    "t index = 0U;\n    while (index < count && source[index] != '\\0') {\n     "
+    '   dest[index] = source[index];\n        index++;\n    }\n    while (index '
+    "< count) dest[index++] = '\\0';\n    return dest;\n}\n\nchar *strchr(const ch"
+    'ar *value, int needle) {\n    do {\n        if (*value == (char)needle) re'
+    "turn (char *)value;\n    } while (*value++ != '\\0');\n    return (char *)0"
+    ';\n}\n\nchar *strstr(const char *haystack, const char *needle) {\n    if (!*'
+    'needle) return (char *)haystack;\n    for (; *haystack; haystack++) {\n   '
+    '     const char *left = haystack;\n        const char *right = needle;\n  '
+    '      while (*left && *right && *left == *right) { left++; right++; }\n  '
+    '      if (!*right) return (char *)haystack;\n    }\n    return (char *)0;\n'
+    "}\n\nint isspace(int value) {\n    return value == ' ' || value == '\\t' || "
+    "value == '\\n'\n        || value == '\\r' || value == '\\v' || value == '\\f'"
+    ";\n}\nint isdigit(int value) { return value >= '0' && value <= '9'; }\nint "
+    "isalpha(int value) {\n    return (value >= 'a' && value <= 'z') || (value"
+    " >= 'A' && value <= 'Z');\n}\nint tolower(int value) { return value >= 'A'"
+    " && value <= 'Z' ? value + 32 : value; }\nint toupper(int value) { return"
+    " value >= 'a' && value <= 'z' ? value - 32 : value; }\n\nstatic long doubl"
+    'e __btrc_rt_parse_real(const char *text, char **end_pointer) {\n    const'
+    ' char *start = text;\n    while (isspace((unsigned char)*text)) text++;\n '
+    "   bool negative = false;\n    if (*text == '-' || *text == '+') { negati"
+    "ve = *text == '-'; text++; }\n    long double value = 0.0L;\n    bool any "
+    '= false;\n    while (isdigit((unsigned char)*text)) {\n        unsigned in'
+    "t digit = (unsigned int)(*text++ - '0');\n        any = true;\n        val"
+    'ue = value > (LDBL_MAX - (long double)digit) / 10.0L\n            ? LDBL_'
+    "MAX : value * 10.0L + (long double)digit;\n    }\n    if (*text == '.') {\n"
+    '        const char *fraction_start = text++;\n        long double scale ='
+    ' 0.1L;\n        while (isdigit((unsigned char)*text)) {\n            unsig'
+    "ned int digit = (unsigned int)(*text++ - '0');\n            any = true;\n "
+    '           if (value < LDBL_MAX) value += (long double)digit * scale;\n  '
+    '          scale /= 10.0L;\n        }\n        if (!any) text = fraction_st'
+    "art;\n    }\n    if (any && (*text == 'e' || *text == 'E')) {\n        cons"
+    't char *exponent_start = text++;\n        bool exponent_negative = false;'
+    "\n        if (*text == '-' || *text == '+') {\n            exponent_negati"
+    "ve = *text == '-';\n            text++;\n        }\n        int exponent = "
+    '0;\n        bool exponent_any = false;\n        while (isdigit((unsigned c'
+    'har)*text)) {\n            exponent_any = true;\n            if (exponent '
+    "<= 999) exponent = exponent * 10 + (*text - '0');\n            else expon"
+    'ent = 10000;\n            text++;\n        }\n        if (!exponent_any) te'
+    'xt = exponent_start;\n        else if (exponent_negative) while (exponent'
+    '-- > 0 && value != 0.0L) value /= 10.0L;\n        else while (exponent-- '
+    '> 0 && value < LDBL_MAX) {\n            value = value > LDBL_MAX / 10.0L '
+    '? LDBL_MAX : value * 10.0L;\n        }\n    }\n    if (end_pointer) *end_po'
+    'inter = (char *)(any ? text : start);\n    if (!any) return 0.0L;\n    ret'
+    'urn negative ? -value : value;\n}\n\nfloat strtof(const char *text, char **'
+    'end_pointer) {\n    return (float)__btrc_rt_parse_real(text, end_pointer)'
+    ';\n}\ndouble strtod(const char *text, char **end_pointer) {\n    return (do'
+    'uble)__btrc_rt_parse_real(text, end_pointer);\n}\n\n#ifndef BTRC_RT_PUTS\nvo'
+    'id __btrc_rt_puts(const char *text, size_t length) { (void)text; (void)l'
+    'ength; }\n#define BTRC_RT_PUTS __btrc_rt_puts\n#endif\n#ifndef BTRC_RT_TRAP'
+    '\n_Noreturn void __btrc_rt_trap(void) { for (;;) {} }\n#define BTRC_RT_TRA'
+    'P __btrc_rt_trap\n#endif\n_Noreturn void abort(void) { BTRC_RT_TRAP(); for'
+    ' (;;) {} }\n_Noreturn void exit(int code) { (void)code; BTRC_RT_TRAP(); f'
+    'or (;;) {} }\nvoid *stderr = (void *)0;\n\ntypedef struct {\n    char *out;\n'
+    '    size_t cap;\n    size_t pos;\n} __btrc_rt_sink;\n\nstatic void __btrc_rt'
+    '_put(__btrc_rt_sink *sink, char value) {\n    if (sink->out && sink->pos '
+    '+ 1U < sink->cap) sink->out[sink->pos] = value;\n    sink->pos++;\n}\n\nstat'
+    'ic void __btrc_rt_pad(__btrc_rt_sink *sink, char value, int count) {\n   '
+    ' while (count-- > 0) __btrc_rt_put(sink, value);\n}\n\nstatic int __btrc_rt'
+    '_digits(\n        char *reversed, uintmax_t value, unsigned int base, boo'
+    'l upper) {\n    const char *alphabet = upper\n        ? "0123456789ABCDEFG'
+    'HIJKLMNOPQRSTUVWXYZ"\n        : "0123456789abcdefghijklmnopqrstuvwxyz";\n '
+    '   int length = 0;\n    do {\n        reversed[length++] = alphabet[value '
+    '% base];\n        value /= base;\n    } while (value != 0U);\n    return le'
+    'ngth;\n}\n\nstatic void __btrc_rt_emit_integer(\n        __btrc_rt_sink *sin'
+    'k, uintmax_t value, bool negative,\n        unsigned int base, bool upper'
+    ', bool alternate, int width,\n        int precision, bool zero, bool left'
+    ', bool plus, bool space) {\n    char reversed[sizeof(uintmax_t) * CHAR_BI'
+    'T + 1U];\n    int digits = value == 0U && precision == 0\n        ? 0 : __'
+    'btrc_rt_digits(reversed, value, base, upper);\n    char sign = negative ?'
+    ' \'-\' : plus ? \'+\' : space ? \' \' : \'\\0\';\n    const char *prefix = "";\n   '
+    ' int prefix_length = sign ? 1 : 0;\n    if (alternate && value != 0U && b'
+    'ase == 16U) {\n        prefix = upper ? "0X" : "0x";\n        prefix_lengt'
+    'h += 2;\n    } else if (alternate && base == 8U && (digits == 0 || revers'
+    'ed[digits - 1] != \'0\')) {\n        prefix = "0";\n        prefix_length +='
+    ' 1;\n    }\n    int leading_zeroes = precision > digits ? precision - digi'
+    'ts : 0;\n    int padding = width - prefix_length - leading_zeroes - digit'
+    "s;\n    if (!left && (!zero || precision >= 0)) __btrc_rt_pad(sink, ' ', "
+    'padding);\n    if (sign) __btrc_rt_put(sink, sign);\n    while (*prefix) _'
+    '_btrc_rt_put(sink, *prefix++);\n    if (!left && zero && precision < 0) _'
+    "_btrc_rt_pad(sink, '0', padding);\n    __btrc_rt_pad(sink, '0', leading_z"
+    'eroes);\n    while (digits-- > 0) __btrc_rt_put(sink, reversed[digits]);\n'
+    "    if (left) __btrc_rt_pad(sink, ' ', padding);\n}\n\n\nstatic int __btrc_r"
+    't_normalize(long double *value) {\n    int exponent = 0;\n    if (*value ='
+    '= 0.0L) return 0;\n    while (*value >= 10.0L) { *value /= 10.0L; exponen'
+    't++; }\n    while (*value < 1.0L) { *value *= 10.0L; exponent--; }\n    re'
+    'turn exponent;\n}\n\nstatic int __btrc_rt_next_digit(long double *value) {\n'
+    '    int digit = (int)*value;\n    if (digit < 0) digit = 0;\n    if (digit'
+    ' > 9) digit = 9;\n    *value = (*value - (long double)digit) * 10.0L;\n   '
+    ' if (*value < 0.0L) *value = 0.0L;\n    return digit;\n}\n\nstatic void __bt'
+    'rc_rt_emit_exponent(\n        __btrc_rt_sink *sink, int exponent, bool up'
+    'per) {\n    char reversed[16];\n    int length;\n    __btrc_rt_put(sink, up'
+    "per ? 'E' : 'e');\n    if (exponent < 0) { __btrc_rt_put(sink, '-'); expo"
+    "nent = -exponent; }\n    else __btrc_rt_put(sink, '+');\n    length = __bt"
+    'rc_rt_digits(reversed, (uintmax_t)exponent, 10U, false);\n    if (length '
+    "< 2) __btrc_rt_put(sink, '0');\n    while (length-- > 0) __btrc_rt_put(si"
+    'nk, reversed[length]);\n}\n\nstatic void __btrc_rt_emit_fixed_body(\n       '
+    ' __btrc_rt_sink *sink, long double value, int precision) {\n    long doub'
+    'le rounding = 0.5L;\n    for (int i = 0; i < precision; ++i) rounding /= '
+    '10.0L;\n    long double rounded = value + rounding;\n    if (rounded != 0.'
+    '0L && rounded + rounded == rounded) rounded = value;\n    value = rounded'
+    ';\n    int exponent = __btrc_rt_normalize(&value);\n    if (rounded == 0.0'
+    "L || exponent < 0) {\n        __btrc_rt_put(sink, '0');\n    } else {\n    "
+    '    for (int place = exponent; place >= 0; --place)\n            __btrc_r'
+    "t_put(sink, (char)('0' + __btrc_rt_next_digit(&value)));\n    }\n    if (p"
+    "recision <= 0) return;\n    __btrc_rt_put(sink, '.');\n    for (int place "
+    '= -1; place >= -precision; --place) {\n        int digit = place > expone'
+    'nt || rounded == 0.0L\n            ? 0 : __btrc_rt_next_digit(&value);\n  '
+    "      __btrc_rt_put(sink, (char)('0' + digit));\n    }\n}\n\nstatic int __bt"
+    'rc_rt_significant_digits(\n        long double *value, int count, unsigne'
+    'd char *digits) {\n    if (*value == 0.0L) {\n        for (int i = 0; i < '
+    'count; ++i) digits[i] = 0U;\n        return 0;\n    }\n    int exponent = _'
+    '_btrc_rt_normalize(value);\n    long double rounding = 0.5L;\n    for (int'
+    ' i = 1; i < count; ++i) rounding /= 10.0L;\n    *value += rounding;\n    i'
+    'f (*value >= 10.0L) { *value /= 10.0L; exponent++; }\n    for (int i = 0;'
+    ' i < count; ++i)\n        digits[i] = (unsigned char)__btrc_rt_next_digit'
+    '(value);\n    return exponent;\n}\n\nstatic void __btrc_rt_emit_scientific_b'
+    'ody(\n        __btrc_rt_sink *sink, long double value, int precision, boo'
+    'l upper) {\n    unsigned char digits[20];\n    int count = precision + 1;\n'
+    '    int exponent = __btrc_rt_significant_digits(&value, count, digits);\n'
+    "    __btrc_rt_put(sink, (char)('0' + digits[0]));\n    if (precision > 0)"
+    " {\n        __btrc_rt_put(sink, '.');\n        for (int i = 1; i < count; "
+    "++i)\n            __btrc_rt_put(sink, (char)('0' + digits[i]));\n    }\n   "
+    ' __btrc_rt_emit_exponent(sink, exponent, upper);\n}\n\nstatic void __btrc_r'
+    't_emit_general_body(\n        __btrc_rt_sink *sink, long double value, in'
+    't precision,\n        bool upper, bool alternate) {\n    unsigned char dig'
+    'its[18];\n    int exponent = __btrc_rt_significant_digits(&value, precisi'
+    'on, digits);\n    int last = precision - 1;\n    if (!alternate) while (la'
+    'st >= 0 && digits[last] == 0) last--;\n    if (last < 0) { __btrc_rt_put('
+    "sink, '0'); return; }\n    if (exponent < -4 || exponent >= precision) {\n"
+    "        __btrc_rt_put(sink, (char)('0' + digits[0]));\n        if (last >"
+    " 0 || alternate) {\n            __btrc_rt_put(sink, '.');\n            for"
+    ' (int i = 1; i <= last; ++i)\n                __btrc_rt_put(sink, (char)('
+    "'0' + digits[i]));\n        }\n        __btrc_rt_emit_exponent(sink, expon"
+    'ent, upper);\n        return;\n    }\n    if (exponent < 0) {\n        __btr'
+    "c_rt_put(sink, '0');\n        __btrc_rt_put(sink, '.');\n        for (int "
+    "place = -1; place > exponent; --place) __btrc_rt_put(sink, '0');\n       "
+    ' for (int i = 0; i <= last; ++i)\n            __btrc_rt_put(sink, (char)('
+    "'0' + digits[i]));\n        return;\n    }\n    for (int place = 0; place <"
+    '= exponent; ++place) {\n        int digit = place < precision ? digits[pl'
+    "ace] : 0;\n        __btrc_rt_put(sink, (char)('0' + digit));\n    }\n    if"
+    " (last > exponent || alternate) {\n        __btrc_rt_put(sink, '.');\n    "
+    '    for (int i = exponent + 1; i <= last; ++i)\n            __btrc_rt_put'
+    "(sink, (char)('0' + digits[i]));\n    }\n}\n\nstatic void __btrc_rt_emit_rea"
+    'l_body(\n        __btrc_rt_sink *sink, long double value, char spec,\n    '
+    "    int precision, bool alternate) {\n    bool upper = spec == 'F' || spe"
+    "c == 'E' || spec == 'G';\n    char lower = upper ? (char)(spec + ('a' - '"
+    "A')) : spec;\n    if (value != value) {\n        const char *word = upper "
+    '? "NAN" : "nan";\n        while (*word) __btrc_rt_put(sink, *word++);\n   '
+    ' } else if (value != 0.0L && value + value == value) {\n        const cha'
+    'r *word = upper ? "INF" : "inf";\n        while (*word) __btrc_rt_put(sin'
+    "k, *word++);\n    } else if (lower == 'f') {\n        __btrc_rt_emit_fixed"
+    "_body(sink, value, precision);\n    } else if (lower == 'e') {\n        __"
+    'btrc_rt_emit_scientific_body(sink, value, precision, upper);\n    } else '
+    '{\n        __btrc_rt_emit_general_body(sink, value, precision, upper, alt'
+    'ernate);\n    }\n}\n\nstatic void __btrc_rt_emit_real(\n        __btrc_rt_sin'
+    'k *sink, long double value, char spec, int width,\n        int precision,'
+    ' bool zero, bool left, bool plus, bool space,\n        bool alternate) {\n'
+    '    bool negative = value < 0.0L;\n    if (negative) value = -value;\n    '
+    "char sign = negative ? '-' : plus ? '+' : space ? ' ' : '\\0';\n    __btrc"
+    '_rt_sink count = {0};\n    __btrc_rt_emit_real_body(&count, value, spec, '
+    'precision, alternate);\n    int padding = width - (int)count.pos - (sign '
+    "? 1 : 0);\n    if (!left && !zero) __btrc_rt_pad(sink, ' ', padding);\n   "
+    ' if (sign) __btrc_rt_put(sink, sign);\n    if (!left && zero) __btrc_rt_p'
+    "ad(sink, '0', padding);\n    __btrc_rt_emit_real_body(sink, value, spec, "
+    "precision, alternate);\n    if (left) __btrc_rt_pad(sink, ' ', padding);\n"
+    '}\n\nstatic size_t __btrc_fmt(char *out, size_t cap, const char *fmt, va_l'
+    'ist ap) {\n    __btrc_rt_sink sink = {out, cap, 0U};\n    while (*fmt) {\n '
+    "       if (*fmt != '%') { __btrc_rt_put(&sink, *fmt++); continue; }\n    "
+    '    fmt++;\n        bool left = false, plus = false, space = false, alter'
+    'nate = false, zero = false;\n        bool flags = true;\n        while (fl'
+    "ags) {\n            switch (*fmt) {\n            case '-': left = true; fm"
+    "t++; break;\n            case '+': plus = true; fmt++; break;\n           "
+    " case ' ': space = true; fmt++; break;\n            case '#': alternate ="
+    " true; fmt++; break;\n            case '0': zero = true; fmt++; break;\n  "
+    '          default: flags = false; break;\n            }\n        }\n       '
+    " int width = 0;\n        if (*fmt == '*') {\n            width = va_arg(ap"
+    ', int);\n            fmt++;\n            if (width < 0) {\n                '
+    'left = true;\n                width = width == INT_MIN ? INT_MAX : -width'
+    ";\n            }\n        }\n        else while (*fmt >= '0' && *fmt <= '9'"
+    ') {\n            if (width <= (INT_MAX - 9) / 10) width = width * 10 + (*'
+    "fmt - '0');\n            fmt++;\n        }\n        int precision = -1;\n   "
+    "     if (*fmt == '.') {\n            fmt++; precision = 0;\n            if"
+    " (*fmt == '*') { precision = va_arg(ap, int); fmt++; }\n            else "
+    "while (*fmt >= '0' && *fmt <= '9') {\n                if (precision <= (I"
+    "NT_MAX - 9) / 10) precision = precision * 10 + (*fmt - '0');\n           "
+    '     fmt++;\n            }\n            if (precision < 0) precision = -1;'
+    "\n        }\n        int length = 0;\n        if (*fmt == 'h') { fmt++; len"
+    "gth = *fmt == 'h' ? (fmt++, -2) : -1; }\n        else if (*fmt == 'l') { "
+    "fmt++; length = *fmt == 'l' ? (fmt++, 2) : 1; }\n        else if (*fmt =="
+    " 'j') { fmt++; length = 3; }\n        else if (*fmt == 'z') { fmt++; leng"
+    "th = 4; }\n        else if (*fmt == 't') { fmt++; length = 5; }\n        e"
+    "lse if (*fmt == 'L') { fmt++; length = 6; }\n        char spec = *fmt;\n  "
+    "      if (!spec) break;\n        fmt++;\n        if (spec == 'd' || spec ="
+    "= 'i') {\n            intmax_t signed_value = length == 1 ? (intmax_t)va_"
+    'arg(ap, long)\n                : length == 2 ? (intmax_t)va_arg(ap, long '
+    'long)\n                : length == 3 ? va_arg(ap, intmax_t)\n             '
+    '   : length == 4 || length == 5 ? (intmax_t)va_arg(ap, ptrdiff_t)\n      '
+    '          : (intmax_t)va_arg(ap, int);\n            bool negative = signe'
+    'd_value < 0;\n            uintmax_t magnitude = negative\n                '
+    '? (uintmax_t)(-(signed_value + 1)) + 1U : (uintmax_t)signed_value;\n     '
+    '       __btrc_rt_emit_integer(&sink, magnitude, negative, 10U, false,\n  '
+    '              false, width, precision, zero, left, plus, space);\n       '
+    " } else if (spec == 'u' || spec == 'o' || spec == 'x' || spec == 'X') {\n"
+    '            uintmax_t value = length == 1 ? (uintmax_t)va_arg(ap, unsign'
+    'ed long)\n                : length == 2 ? (uintmax_t)va_arg(ap, unsigned '
+    'long long)\n                : length == 3 ? va_arg(ap, uintmax_t)\n       '
+    '         : length == 4 ? (uintmax_t)va_arg(ap, size_t)\n                :'
+    ' length == 5 ? (uintmax_t)va_arg(ap, uintptr_t)\n                : (uintm'
+    "ax_t)va_arg(ap, unsigned int);\n            unsigned int base = spec == '"
+    "o' ? 8U : (spec == 'x' || spec == 'X' ? 16U : 10U);\n            __btrc_r"
+    "t_emit_integer(&sink, value, false, base, spec == 'X',\n                a"
+    'lternate, width, precision, zero, left, false, false);\n        } else if'
+    " (spec == 'f' || spec == 'F' || spec == 'e' || spec == 'E'\n             "
+    "   || spec == 'g' || spec == 'G') {\n            long double value = leng"
+    'th == 6 ? va_arg(ap, long double)\n                                      '
+    '      : (long double)va_arg(ap, double);\n            int real_precision '
+    "= precision < 0 ? 6 : precision;\n            if ((spec == 'g' || spec =="
+    " 'G') && real_precision == 0) real_precision = 1;\n            if (real_p"
+    'recision > 18) real_precision = 18;\n            __btrc_rt_emit_real(&sin'
+    'k, value, spec, width, real_precision,\n                zero, left, plus,'
+    " space, alternate);\n        } else if (spec == 'c') {\n            int pa"
+    "dding = width - 1;\n            if (!left) __btrc_rt_pad(&sink, ' ', padd"
+    'ing);\n            __btrc_rt_put(&sink, (char)va_arg(ap, int));\n         '
+    "   if (left) __btrc_rt_pad(&sink, ' ', padding);\n        } else if (spec"
+    " == 's') {\n            const char *value = va_arg(ap, const char *);\n   "
+    '         if (!value) value = "(null)";\n            size_t length_value ='
+    ' strlen(value);\n            if (precision >= 0 && length_value > (size_t'
+    ')precision) length_value = (size_t)precision;\n            int padding = '
+    'length_value < (size_t)width ? width - (int)length_value : 0;\n          '
+    "  if (!left) __btrc_rt_pad(&sink, ' ', padding);\n            for (size_t"
+    ' i = 0; i < length_value; ++i) __btrc_rt_put(&sink, value[i]);\n         '
+    "   if (left) __btrc_rt_pad(&sink, ' ', padding);\n        } else if (spec"
+    " == 'p') {\n            uintptr_t value = (uintptr_t)va_arg(ap, void *);\n"
+    '            __btrc_rt_emit_integer(&sink, (uintmax_t)value, false, 16U, '
+    'false,\n                true, width, precision, zero, left, false, false)'
+    ";\n        } else if (spec == '%') {\n            __btrc_rt_put(&sink, '%'"
+    ");\n        } else {\n            __btrc_rt_put(&sink, '%');\n            _"
+    '_btrc_rt_put(&sink, spec);\n        }\n    }\n    if (out && cap) out[sink.'
+    "pos < cap ? sink.pos : cap - 1U] = '\\0';\n    return sink.pos;\n}\n\nint snp"
+    'rintf(char *out, size_t cap, const char *format, ...) {\n    va_list args'
+    ';\n    va_start(args, format);\n    size_t length = __btrc_fmt(out, cap, f'
+    'ormat, args);\n    va_end(args);\n    return length > (size_t)INT_MAX ? -1'
+    ' : (int)length;\n}\nstatic int __btrc_rt_vprint(const char *format, va_lis'
+    't args) {\n    va_list count_args;\n    va_copy(count_args, args);\n    siz'
+    'e_t length = __btrc_fmt((char *)0, 0U, format, count_args);\n    va_end(c'
+    'ount_args);\n    if (length > (size_t)INT_MAX || length == SIZE_MAX) retu'
+    'rn -1;\n    char *buffer = malloc(length + 1U);\n    if (!buffer) return -'
+    '1;\n    (void)__btrc_fmt(buffer, length + 1U, format, args);\n    BTRC_RT_'
+    'PUTS(buffer, length);\n    free(buffer);\n    return (int)length;\n}\nint pr'
+    'intf(const char *format, ...) {\n    va_list args;\n    va_start(args, for'
+    'mat);\n    int result = __btrc_rt_vprint(format, args);\n    va_end(args);'
+    '\n    return result;\n}\nint fprintf(void *stream, const char *format, ...)'
+    ' {\n    (void)stream;\n    va_list args;\n    va_start(args, format);\n    i'
+    'nt result = __btrc_rt_vprint(format, args);\n    va_end(args);\n    return'
+    ' result;\n}\n\n#endif /* BTRC_FREESTANDING_IMPL */\n\n#endif /* BTRC_FREESTAN'
+    'DING */\n\n#endif /* BTRC_RT_H */\n'
 )

@@ -89,7 +89,6 @@ class CoreTextRun {
 		CGContextSetTextMatrix(self._context, CGAffineTransformMake(1.0, 0.0, 0.0, 1.0, 0.0, 0.0));
 		CGContextSetTextPosition(self._context, -left, (height - above - below) * 0.5 + below);
 		CTLineDraw(self._line, self._context);
-		CGContextRelease(self._context);
 		self._context = null;
 		for (int index = 0; index < image.width * image.height; index++) {
 			image.data[index * 4] = 255;
@@ -101,15 +100,6 @@ class CoreTextRun {
 	}
 
 	public void __del__() {
-		if (self._context != null) { CGContextRelease(self._context); }
-		if (self._line != null) { CFRelease(self._line); }
-		if (self._attributed != null) { CFRelease(self._attributed); }
-		if (self._string != null) { CFRelease(self._string); }
-		if (self._descriptor != null) { CFRelease(self._descriptor); }
-		if (self._attributes != null) { CFRelease(self._attributes); }
-		if (self._traits != null) { CFRelease(self._traits); }
-		if (self._weight != null) { CFRelease(self._weight); }
-		if (self._font != null) { CFRelease(self._font); }
-		if (self._regular != null) { CFRelease(self._regular); }
+		self._context = null;
 	}
 }

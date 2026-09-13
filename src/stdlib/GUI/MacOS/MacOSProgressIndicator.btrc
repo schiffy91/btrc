@@ -35,6 +35,12 @@ class MacOSProgressIndicator implements IProgressIndicator, IMacOSView {
 
 	public bool isVisible() { return self._view.isVisible(); }
 
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._view.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._view.onScroll(handler, owner); }
+
+	public void cancelPointerCapture() { self._view.cancelPointerCapture(); }
+
 	public void setVisible(bool visible) { self._view.setVisible(visible); }
 
 	public CallbackCancellation pollClose() { return self._view.pollClose(); }
@@ -59,11 +65,11 @@ class MacOSProgressIndicator implements IProgressIndicator, IMacOSView {
 
 	public CallbackCancellation close() {
 		if (!NSThread.isMainThread()) { throw "Native progress indicators require the main thread"; }
-		if (self._indicator == null) { return CallbackCancellation.Complete; }
+		if (self._indicator == null) { return self._view.pollClose(); }
 		self._view.requireDetached();
 		self.setRunning(false);
-		self._view.close();
+		var state = self._view.close();
 		self._indicator = null;
-		return CallbackCancellation.Complete;
+		return state;
 	}
 }

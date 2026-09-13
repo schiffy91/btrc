@@ -146,6 +146,7 @@ class TrayProvider {
 	public void quit() { self.requireMainThread(); self._commands.quit(); }
 	public bool pump(int timeoutMs) {
 		self.requireMainThread();
+		if (!self._commands.failure.isEmpty()) { throw self._commands.failure; }
 		if (self._status == null || self._commands.quitRequested) { return false; }
 		var app = NSApplication.sharedApplication();
 		var until = timeoutMs < 0 ? NSDate.distantFuture() : NSDate.dateWithTimeIntervalSinceNow((double)timeoutMs / 1000.0);
@@ -157,6 +158,7 @@ class TrayProvider {
 	}
 	public void run() {
 		self.requireMainThread();
+		if (!self._commands.failure.isEmpty()) { throw self._commands.failure; }
 		if (self._status == null) { throw "Native tray is closed"; }
 		if (self._commands.quitRequested) { return; }
 		var app = NSApplication.sharedApplication();

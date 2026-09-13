@@ -32,6 +32,8 @@ class MacOSStackLayout implements IMacOSContainerLayout {
 
 	public NSView nativeView() { return self.control(); }
 
+	public NSView childParent() { return self.control(); }
+
 	public void arrangeChild(NSView child) { self.control().addArrangedSubview(child); }
 
 	public void forgetChild(NSView child) { self.control().removeArrangedSubview(child); }
@@ -99,6 +101,12 @@ class MacOSStack implements IStack, IMacOSView {
 	public void arrange(double x, double y, double width, double height) { self._container.arrange(x, y, width, height); }
 
 	public bool isVisible() { return self._container.isVisible(); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._container.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._container.onScroll(handler, owner); }
+
+	public void cancelPointerCapture() { self._container.cancelPointerCapture(); }
 
 	public void setVisible(bool visible) { self._container.setVisible(visible); }
 

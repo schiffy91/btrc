@@ -106,7 +106,15 @@ class CompilerPipeline {
 			realtimeIndex = realtimeIndex + 1;
 		}
 		if (hasRealtimeRoot) {
-			module.realtimeSafeExternals = self.hostedAbi.realtimeSafeFunctions();
+			/* Lowering already recorded generated realtime operations; the hosted
+			 * and runtime allowlists join that set rather than replacing it. */
+			Map<string, bool> hostedRealtimeSafe = self.hostedAbi.realtimeSafeFunctions();
+			Vector<string> hostedSafeNames = hostedRealtimeSafe.keys();
+			int hostedSafeIndex = 0;
+			while (hostedSafeIndex < hostedSafeNames.len) {
+				module.realtimeSafeExternals.put(hostedSafeNames.get(hostedSafeIndex), true);
+				hostedSafeIndex = hostedSafeIndex + 1;
+			}
 			Map<string, bool> runtimeRealtimeSafe = runtimeHelpers.realtimeSafeFunctions();
 			Vector<string> runtimeSafeNames = runtimeRealtimeSafe.keys();
 			int runtimeSafeIndex = 0;
@@ -130,7 +138,7 @@ class CompilerPipeline {
 		for name in module.nativeUnits.keys() {
 			IRModule unit = module.nativeUnits.get(name);
 			if (unit.language != "objective-c" || unit.nativeUnits.len > 0) { throw "native adapter must be a standalone Objective-C unit"; }
-			packages.linkPlan.generatedUnits.push(FeNativeGeneratedUnit(name, unit.language, "c11", "arc", CEmitter().emit(unit)));
+			packages.linkPlan.generatedUnits.push(FeNativeGeneratedUnit(name, unit.language, unit.language == "c++" ? "c++17" : "c11", unit.language == "c++" ? "raii" : "arc", CEmitter().emit(unit)));
 		}
 		return BtrccCompilationResult(true, emitter.emit(module), "", packages.linkPlan.canonicalJson());
 	}

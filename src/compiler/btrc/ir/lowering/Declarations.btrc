@@ -14,6 +14,7 @@ import ../../generated/ast/Node.btrc;
 import ../../generated/native_abi/Models.btrc;
 import ../../frontend/Models.btrc;
 import ../../syntax/Identity.btrc;
+import ../../syntax/Literals.btrc;
 import ../../syntax/Types.btrc;
 import ../Model.btrc;
 import ./CallableFlow.btrc;
@@ -47,6 +48,7 @@ class DeclarationLowerer {
 	private CTypeLowerer cTypes;
 	private FunctionLowerer functions;
 	private ExpressionLowerer expressions;
+	private Map<string, FeNativeResourceBinding> nativeResources;
 
 	public DeclarationLowerer(Analyzed analyzed, HostedAbiRepository hostedAbi, DeclarationRegistry semanticDeclarations, ManagedValueSemantics managedValues, CycleSemantics cycles, CleanupSlotRegistry cleanupSlots, CallableValueSemantics callableValues, CallableBoundaryPolicy callableBoundaries, LoweringContext context, ManagedLifetimeLowerer managedLifetime, ManagedTypeLowerer managedTypes, CycleBoundaryLowerer cycleBoundaries, CycleReturnBoundaryLowerer cycleReturns, CTypeLowerer cTypes, FunctionLowerer functions, ExpressionLowerer expressions) {
 		self.analyzed = analyzed;
@@ -61,7 +63,11 @@ class DeclarationLowerer {
 		self.cycleBoundaries = cycleBoundaries;
 		self.cycleReturns = cycleReturns;
 		self.cTypes = cTypes; self.functions = functions; self.expressions = expressions;
+		self.nativeResources = {};
+		for imported in analyzed.nativeDeclarations { if (imported.resource != null) { self.nativeResources.put(imported.resource.name, imported.resource); } }
 	}
+
+	private bool uniqueResource(string name) { return self.nativeResources.has(name) && self.nativeResources.get(name).ownership == "unique"; }
 
 	private string lexicalBindingCName(string name) { return self.hostedAbi.lexicalBindingCName(name, self.hostedAbi.typedefName(name) || self.analyzed.lexicalBindingConflictsType(name)); }
 
@@ -150,7 +156,9 @@ class DeclarationLowerer {
 	private void emitNativeAdapter(Node declaration, FeNativeCallContract contract, IRModule module) {
 		string name = contract.adapterSymbol(declaration.name);
 		if (name.equals(declaration.name)) { return; }
+		for callback in contract.callbacks { if (callback.realtime != null) { self.emitRealtimeCAdapter(declaration, contract, module); return; } }
 		for callback in contract.callbacks { if (callback.oneShot) { self.emitOneShotCAdapter(declaration, contract, module); return; } }
+		if (contract.callbackTable != null) { self.emitCallbackTableAdapter(declaration, contract, module); return; }
 		var adapter = IRFunction();
 		adapter.name = name;
 		adapter.returnType = self.cTypes.lower(declaration.returnType);
@@ -182,12 +190,12 @@ class DeclarationLowerer {
 		for callback in contract.callbacks { leases.put(visible.get(callback.parameterIndex), true); }
 		bool recordLeases = false;
 		for name in contract.recordTypes.keys() { for field in contract.recordTypes.get(name).fields { if (field.managed()) { recordLeases = true; } } }
-		if (leases.len > 0 || recordLeases || contract.recordOutput != null) {
+		if (leases.len > 0 || recordLeases || contract.recordOutput != null || contract.ownedOutput != null || contract.copiedResult != null || contract.recordSnapshot != null) {
 			IRNode discard = self.nativeCleanupScope(parameterNames, statements);
 			if (contract.callbacks.len > 0) { cleanup.push(IRNode.expressionStatement(self.managedLifetime.flushCycles())); }
 			cleanup.push(discard);
 			for index in range(arguments.len) {
-				if (leases.has(index)) { arguments.set(index, self.emitNativeLease(index, declaration.params.get(index).type, arguments.get(index), parameterNames, statements, releases)); }
+				if (leases.has(index)) { arguments.set(index, self.emitNativeLease(index, declaration.params.get(index).type, arguments.get(index), parameterNames, statements, releases, false, null, contract.copiedInput != null && index == contract.copiedInput.ownerIndex)); }
 			}
 		}
 		Vector<IRNode> locals = [];
@@ -199,7 +207,11 @@ class DeclarationLowerer {
 		statements = locals;
 		for index in range(contract.resourceParameters.len) {
 			string resource = contract.resourceParameters.get(index);
-			if (!resource.isEmpty()) { arguments.set(index, IRNode.cast(resource, arguments.get(index))); }
+			if (!resource.isEmpty()) {
+				if (contract.copiedInput != null && index == contract.copiedInput.ownerIndex) { continue; }
+				IRNode owner = arguments.get(index);
+				arguments.set(index, self.uniqueResource(resource) ? IRNode.ternary(IRNode.binary(owner, "==", IRNode.literal("NULL")), IRNode.literal("NULL"), IRNode.fieldAccess(owner, "value", true)) : IRNode.cast(resource, owner));
+			}
 		}
 		if (contract.callbacks.len > 0) {
 			Vector<IRNode> nativeArguments = [];
@@ -215,9 +227,27 @@ class DeclarationLowerer {
 			}
 			arguments = nativeArguments;
 		}
+		if (contract.boundParameter >= 0) {
+			Vector<IRNode> selectedArguments = [];
+			for index in range(arguments.len + 1) {
+				if (index == contract.boundParameter) { selectedArguments.push(IRNode.variable(contract.boundConstant)); }
+				else { selectedArguments.push(arguments.get(index < contract.boundParameter ? index : index - 1)); }
+			}
+			arguments = selectedArguments;
+		}
 		IRNode call = IRNode.call(declaration.name, arguments);
 		if (!contract.resourceResult.isEmpty()) { call = IRNode.cast(adapter.returnType, call); }
-		if (contract.recordOutput != null) {
+		if (contract.copiedInput != null) {
+			self.nativeCopiedInput(declaration, contract.copiedInput, arguments, parameterNames, statements, releases, cleanup);
+		} else if (contract.recordSnapshot != null) {
+			self.nativeRecordSnapshot(declaration, contract.recordSnapshot, arguments, statements, releases, cleanup);
+		} else if (contract.copiedResult != null) {
+			self.nativeCopiedResult(declaration, contract, arguments, parameterNames, statements, releases, cleanup);
+		} else if (contract.ownedOutput != null) {
+			self.nativeOwnedOutput(declaration, contract.ownedOutput, arguments, parameterNames, statements, releases, cleanup);
+		} else if (self.uniqueResource(contract.resourceResult)) {
+			self.nativeUniqueResult(declaration, IRNode.call(declaration.name, arguments), parameterNames, statements, releases, cleanup);
+		} else if (contract.recordOutput != null) {
 			self.nativeRecordOutput(declaration, contract.recordOutput, arguments, parameterNames, statements, releases, cleanup);
 		} else if (adapter.returnType.equals("void")) {
 			statements.push(IRNode.expressionStatement(call));
@@ -228,6 +258,8 @@ class DeclarationLowerer {
 			while (parameterNames.has(result)) { result = result + "_"; }
 			IRNode resultSlot = IRNode.variableDeclaration(adapter.returnType, result, call);
 			statements.push(resultSlot);
+			/* Retain the promised result before ending any native argument lease. */
+			if (contract.borrowedResultOwner >= 0) { statements.push(IRNode.expressionStatement(self.managedLifetime.retainValue(IRNode.variable(result), declaration.returnType))); }
 			if (cleanup.len > 0 && !contract.resourceResult.isEmpty()) { statements.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(resultSlot, self.managedValues.runtimeType(declaration.returnType)))); }
 			for (int index = releases.len - 1; index >= 0; index--) { statements.extend(releases.get(index)); }
 			if (contract.nonnullReturn) { statements.push(self.nativeNullGuard(IRNode.variable(result), f"Native call {declaration.name}: null result", contract.realtimeSafe)); }
@@ -285,7 +317,7 @@ class DeclarationLowerer {
 		return IRNode.expressionStatement(IRNode.call("__btrc_discard_cleanups_to", [IRNode.variable(marker)]));
 	}
 
-	private IRNode emitNativeLease(int index, Node valueType, IRNode argument, Map<string, bool> parameterNames, Vector<IRNode> statements, Vector<Vector<IRNode>> releases, bool owned = false, Vector<IRNode>? locals = null) {
+	private IRNode emitNativeLease(int index, Node valueType, IRNode argument, Map<string, bool> parameterNames, Vector<IRNode> statements, Vector<Vector<IRNode>> releases, bool owned = false, Vector<IRNode>? locals = null, bool attachment = false) {
 		string name = f"__btrc_native_argument_{index}";
 		while (parameterNames.has(name)) { name = name + "_"; }
 		string valueCType = self.cTypes.lower(valueType);
@@ -294,13 +326,20 @@ class DeclarationLowerer {
 		if (locals == null) { statements.push(slot); }
 		else { locals.push(slot); statements.push(IRNode.assignment(value, argument)); }
 		if (!owned) { statements.push(IRNode.expressionStatement(self.managedLifetime.retainValue(value, valueType))); }
-		statements.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(slot, self.managedValues.runtimeType(valueType))));
+		IRNode registration = self.managedLifetime.registerCleanupSlot(slot, self.managedValues.runtimeType(valueType));
+		string operation = attachment ? "attachment" : "borrow";
+		if (self.uniqueResource(valueType.base)) {
+			string prefix = "__btrc_unique_" + valueType.base;
+			statements.push(IRNode.expressionStatement(IRNode.call(prefix + "_begin_" + operation, [value])));
+			registration.args.set(2, IRNode.functionReference(prefix + "_end_" + operation));
+		}
+		statements.push(IRNode.expressionStatement(registration));
 		string releasedName = f"__btrc_native_released_{index}";
 		while (parameterNames.has(releasedName)) { releasedName = releasedName + "_"; }
 		releases.push([
 			IRNode.variableDeclaration(valueCType, releasedName, value),
 			IRNode.assignment(value, IRNode.literal("NULL")),
-			IRNode.expressionStatement(self.managedLifetime.releaseValue(IRNode.variable(releasedName), valueType))
+			IRNode.expressionStatement(self.uniqueResource(valueType.base) ? IRNode.call("__btrc_unique_" + valueType.base + "_end_" + operation, [IRNode.variable(releasedName)]) : self.managedLifetime.releaseValue(IRNode.variable(releasedName), valueType))
 		]);
 		return value;
 	}
@@ -400,6 +439,7 @@ class DeclarationLowerer {
 	private void emitResourceLifetime(FeNativeImportedDeclaration imported, IRModule module) {
 		var resource = imported.resource;
 		if (resource == null) { return; }
+		if (resource.ownership == "unique") { self.emitUniqueResource(imported, module); return; }
 		module.structForwards.push(IRStructForward("__btrc_native_" + resource.name));
 		for operation in ["retain", "release"] {
 			var adapter = IRFunction();
@@ -415,6 +455,690 @@ class DeclarationLowerer {
 			module.functionDecls.push(prototype);
 			module.functions.push(adapter);
 		}
+		if (!imported.resourceQueryType.isEmpty()) { self.emitResourceQuery(imported, module); }
+	}
+
+	private void emitResourceQuery(FeNativeImportedDeclaration imported, IRModule module) {
+		var resource = imported.resource;
+		Node sourceType = Node(); sourceType.kind = NK_TYPE_EXPR; sourceType.base = imported.resourceQueryType; sourceType.isNullable = true; sourceType.pointerDepth = 1;
+		Node targetType = Node(); targetType.kind = NK_TYPE_EXPR; targetType.base = resource.name; targetType.isNullable = true; targetType.pointerDepth = 1;
+		Vector<IRParam> parameters = [IRParam(self.cTypes.lower(sourceType), "source")];
+		Map<string, bool> parameterNames = {"source": true};
+		Vector<IRNode> statements = []; Vector<Vector<IRNode>> releases = [];
+		IRNode cleanup = self.nativeCleanupScope(parameterNames, statements);
+		IRNode source = self.emitNativeLease(0, sourceType, IRNode.variable("source"), parameterNames, statements, releases);
+		Vector<IRNode> noArguments = [];
+		IRNode matches = IRNode.binary(source, "&&", IRNode.binary(IRNode.call(resource.typeQuery, [IRNode.cast(imported.resourceQueryType, source)]), "==", IRNode.call(resource.typeTag, noArguments)));
+		IRNode slot = IRNode.variableDeclaration(self.cTypes.lower(targetType), "__btrc_native_projection", IRNode.ternary(matches, IRNode.cast(self.cTypes.lower(targetType), source), IRNode.literal("NULL")));
+		IRNode result = IRNode.variable("__btrc_native_projection");
+		statements.push(slot);
+		statements.push(IRNode.expressionStatement(self.managedLifetime.retainValue(result, targetType)));
+		statements.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(slot, self.managedValues.runtimeType(targetType))));
+		for (int index = releases.len - 1; index >= 0; index--) { statements.extend(releases.get(index)); }
+		statements.push(cleanup); statements.push(IRNode.returnStatement(result));
+		self.nativeUniqueFunction(module, "__btrc_native_" + resource.name + "_try_cast", self.cTypes.lower(targetType), parameters, statements);
+	}
+
+	private void emitRealtimeCAdapter(Node declaration, FeNativeCallContract contract, IRModule module) {
+		self.context.referenceHelper("__btrc_safe_calloc"); self.context.referenceHelper("__btrc_interface_methods");
+		var callback = contract.callbacks.get(0); var shape = callback.realtime;
+		string prefix = contract.adapterSymbol(declaration.name); string contextName = prefix + "_context"; string contextType = "struct " + contextName + "*";
+		Node receiverType = SemanticTypeSystem.namedClass(callback.interfaceName); Node ownerType = SemanticTypeSystem.namedClass(shape.resource);
+		string uniquePrefix = "__btrc_unique_" + shape.resource;
+		IRNode context = IRNode.variable("context"); IRNode owner = IRNode.fieldAccess(context, "owner", true); IRNode receiver = IRNode.fieldAccess(context, "receiver", true); IRNode gate = IRNode.fieldAccess(context, "gate", true); IRNode unit = IRNode.fieldAccess(owner, "value", true);
+		Vector<IRParam> parameters = []; Vector<IRParam> payload = []; Vector<IRNode> payloadValues = [];
+		for index in range(callback.parameters.len) {
+			var parameter = IRParam(self.cTypes.lower(callback.parameters.get(index)), f"argument{index}"); parameters.push(parameter);
+			if (!callback.isContext(index)) { payload.push(parameter); payloadValues.push(IRNode.variable(parameter.name)); }
+		}
+		string resultType = self.cTypes.lower(callback.returnType); string fallbackName = prefix + "_fallback";
+		string interfaceTable = f"__btrc_interface_{callback.interfaceName.length()}_{callback.interfaceName}";
+		var fallback = IRFunctionPointerTypedef(fallbackName, resultType); for parameter in payload { fallback.paramTypes.push(parameter.cType); } module.functionPointerTypedefs.push(fallback);
+		var contextDefinition = IRStructDef(); contextDefinition.name = contextName;
+		Node atomic = Node(); atomic.kind = NK_TYPE_EXPR; atomic.base = "Atomic"; atomic.pointerDepth = 1; Node unsignedType = Node(); unsignedType.kind = NK_TYPE_EXPR; unsignedType.base = "uint"; atomic.genericArgs.push(unsignedType);
+		contextDefinition.fields = [IRStructField(self.cTypes.lower(receiverType), "receiver"), IRStructField(self.cTypes.lower(ownerType), "owner"), IRStructField(self.cTypes.lower(atomic), "gate"), IRStructField(fallbackName, "denied"), IRStructField(interfaceTable + "_invoke_fn", "invoke")];
+		module.structDefs.push(contextDefinition); module.structForwards.push(IRStructForward(contextName));
+		var capabilityDefinition = IRStructDef(); capabilityDefinition.name = shape.invocation; capabilityDefinition.fields.push(IRStructField("void*", "_context")); module.structDefs.push(capabilityDefinition); module.structForwards.push(IRStructForward(shape.invocation));
+		IRNode loadContext = IRNode.variableDeclaration(contextType, "context", IRNode.cast(contextType, IRNode.variable("raw")));
+		self.nativeUniqueFunction(module, prefix + "_destroy", "void", [IRParam("void*", "raw")], [loadContext, IRNode.expressionStatement(IRNode.call(uniquePrefix + "_end_borrow", [owner])), IRNode.expressionStatement(self.managedLifetime.releaseValue(receiver, receiverType)), IRNode.expressionStatement(IRNode.call("free", [context]))]);
+		self.nativeUniqueFunction(module, prefix + "_unregister", "bool", [IRParam("void*", "raw")], [loadContext, IRNode.returnStatement(IRNode.binary(IRNode.call(callback.unregister.name, [unit]), "==", IRNode.literal("0")))]);
+		IRNode denied = IRNode.indirectCall(IRNode.fieldAccess(context, "denied", true), payloadValues); denied.realtimeProvenance = "typed-realtime-function";
+		Vector<IRNode> invocationArguments = [receiver, IRNode.addressOf(IRNode.variable("invocation"))]; invocationArguments.extend(payloadValues);
+		IRNode invoke = IRNode.indirectCall(IRNode.fieldAccess(context, "invoke", true), invocationArguments); invoke.realtimeProvenance = "typed-realtime-function";
+		Vector<IRNode> body = [
+			IRNode.variableDeclaration(contextType, "context", IRNode.cast(contextType, IRNode.variable(parameters.get(callback.callbackContextIndex).name))),
+			IRNode.ifStatement(IRNode.binary(IRNode.call("callbackGateTryEnter", [gate]), "==", IRNode.literal("false")), IRNode.block([IRNode.returnStatement(denied)]), null),
+			IRNode.variableDeclaration("struct " + shape.invocation, "invocation", IRNode.initializerList([IRNode.literal("0")])),
+			IRNode.assignment(IRNode.fieldAccess(IRNode.variable("invocation"), "_context", false), context),
+			IRNode.variableDeclaration(resultType, "result", invoke),
+			IRNode.expressionStatement(IRNode.call("callbackGateLeave", [gate])), IRNode.returnStatement(IRNode.variable("result"))
+		];
+		self.nativeUniqueFunction(module, prefix + "_invoke", resultType, parameters, body); module.functions.get(module.functions.len - 1).isRealtime = true;
+		for operation in shape.operations {
+			Vector<IRParam> operationParameters = [IRParam("struct " + shape.invocation + "*", "self")];
+			Vector<IRNode> arguments = [];
+			for position in range(operation.parameters.len + 1) {
+				if (position == operation.ownerIndex) { arguments.push(unit); }
+				else { Node parameter = operation.parameters.get(position < operation.ownerIndex ? position : position - 1); var lowered = self.cTypes.lowerParameter(parameter); operationParameters.push(lowered); arguments.push(IRNode.variable(lowered.name)); }
+			}
+			self.nativeUniqueFunction(module, shape.invocation + "_" + operation.name, self.cTypes.lower(operation.returnType), operationParameters, [IRNode.variableDeclaration(contextType, "context", IRNode.cast(contextType, IRNode.fieldAccess(IRNode.variable("self"), "_context", true))), IRNode.returnStatement(IRNode.call(operation.nativeFunction, arguments))]);
+			module.functions.get(module.functions.len - 1).isRealtime = true; module.realtimeSafeExternals.put(operation.nativeFunction, true);
+		}
+		Vector<IRParam> adapterParameters = []; for parameter in declaration.params { adapterParameters.push(self.cTypes.lowerParameter(parameter)); }
+		Vector<int> visible = []; for index in range(shape.nativeParameters.len) { if (index != callback.parameterIndex && index != shape.sizeIndex) { visible.push(index); } }
+		IRNode ownerArgument = IRNode.variable(adapterParameters.get(visible.indexOf(shape.ownerIndex)).name);
+		IRNode receiverArgument = IRNode.variable(adapterParameters.get(adapterParameters.len - 3).name); IRNode deniedArgument = IRNode.variable(adapterParameters.get(adapterParameters.len - 2).name); IRNode scopeArgument = IRNode.variable(adapterParameters.get(adapterParameters.len - 1).name);
+		IRNode lookup = IRNode.call("__btrc_interface_methods", [receiver, IRNode.literal(StringLiteral(callback.interfaceName).cSource())]);
+		Vector<IRNode> statements = [
+			self.nativeNullGuard(ownerArgument, "Realtime registration requires an owner"), self.nativeNullGuard(receiverArgument, "Realtime registration requires a receiver"), self.nativeNullGuard(deniedArgument, "Realtime registration requires a denied-admission fallback"), self.nativeNullGuard(scopeArgument, "Realtime registration requires a scope"),
+			IRNode.variableDeclaration(contextType, "context", IRNode.cast(contextType, IRNode.call("__btrc_safe_calloc", [IRNode.literal("1"), IRNode.sizeofType("struct " + contextName)]))),
+			IRNode.assignment(owner, ownerArgument), IRNode.expressionStatement(self.managedLifetime.retainValue(owner, ownerType)), IRNode.expressionStatement(IRNode.call(uniquePrefix + "_begin_borrow", [owner])),
+			IRNode.assignment(receiver, receiverArgument), IRNode.expressionStatement(self.managedLifetime.retainValue(receiver, receiverType)), IRNode.assignment(IRNode.fieldAccess(context, "denied", true), deniedArgument),
+			IRNode.assignment(IRNode.fieldAccess(context, "invoke", true), IRNode.fieldAccess(IRNode.cast("const struct " + interfaceTable + "*", lookup), "invoke", true)),
+			IRNode.variableDeclaration("struct CallbackState*", "registration", IRNode.call("CallbackScope_createNative", [scopeArgument, context, IRNode.functionReference(prefix + "_destroy"), IRNode.functionReference(prefix + "_unregister")])),
+			IRNode.assignment(gate, IRNode.call("CallbackState_activationGate", [IRNode.variable("registration")])),
+			IRNode.variableDeclaration(callback.record, "record", IRNode.initializerList([IRNode.literal("0")])),
+			IRNode.assignment(IRNode.fieldAccess(IRNode.variable("record"), callback.field, false), IRNode.functionReference(prefix + "_invoke")), IRNode.assignment(IRNode.fieldAccess(IRNode.variable("record"), callback.contextFields.get(0), false), context)
+		];
+		Vector<IRNode> nativeArguments = [];
+		for index in range(shape.nativeParameters.len) {
+			if (index == shape.ownerIndex) { nativeArguments.push(unit); }
+			else if (index == callback.parameterIndex) { nativeArguments.push(IRNode.addressOf(IRNode.variable("record"))); }
+			else if (index == shape.sizeIndex) { nativeArguments.push(IRNode.sizeofType(callback.record)); }
+			else { nativeArguments.push(IRNode.variable(adapterParameters.get(visible.indexOf(index)).name)); }
+		}
+		statements.push(IRNode.variableDeclaration(self.cTypes.lower(shape.statusType), "status", IRNode.call(shape.nativeFunction, nativeArguments)));
+		IRNode failure = self.nativeNullGuard(IRNode.literal("NULL"), "Realtime callback activation failed with indeterminate publication"); failure.condition = IRNode.binary(IRNode.variable("status"), "!=", IRNode.literal("0")); statements.push(failure);
+		statements.push(IRNode.expressionStatement(IRNode.call("CallbackState_finishActivation", [IRNode.variable("registration"), IRNode.literal("true")]))); statements.push(IRNode.returnStatement(IRNode.variable("registration")));
+		self.nativeUniqueFunction(module, prefix, self.cTypes.lower(declaration.returnType), adapterParameters, statements);
+	}
+
+	private IRNode tableHolder(string holderType, IRNode context) { return IRNode.variableDeclaration(holderType, "holder", IRNode.cast(holderType, context)); }
+
+	private IRNode tableThreadGuard(IRNode holder) {
+		Vector<IRNode> noArguments = [];
+		IRNode abortCall = IRNode.call("abort", noArguments);
+		abortCall.neverReturns = true;
+		return IRNode.ifStatement(IRNode.binary(IRNode.fieldAccess(holder, "thread", true), "!=", IRNode.addressOf(IRNode.variable("__btrc_try_top"))), IRNode.block([
+			IRNode.expressionStatement(IRNode.call("fputs", [IRNode.literal("\"BTRC native callback delivered on the wrong thread\\n\""), IRNode.variable("stderr")])),
+			IRNode.expressionStatement(abortCall)
+		]), null);
+	}
+
+	/* One holder claim per live SDK table: the original and every SDK reopen. */
+	private void emitCallbackTableAdapter(Node declaration, FeNativeCallContract contract, IRModule module) {
+		self.context.referenceHelper("__btrc_safe_calloc");
+		var table = contract.callbackTable;
+		string prefix = "__btrc_native_table_" + table.resource; string holderName = prefix + "_holder"; string holderType = "struct " + holderName + "*";
+		Node receiverType = SemanticTypeSystem.namedClass(table.interfaceName); string receiverC = self.cTypes.lower(receiverType); string tableType = table.nativeType + "*";
+		module.structForwards.push(IRStructForward(holderName));
+		var holderDefinition = IRStructDef(); holderDefinition.name = holderName;
+		holderDefinition.fields = [IRStructField(receiverC, "receiver"), IRStructField("char*", "label"), IRStructField("long", "claims"), IRStructField("volatile int*", "thread")];
+		module.structDefs.push(holderDefinition);
+		IRNode holder = IRNode.variable("holder"); IRNode claims = IRNode.fieldAccess(holder, "claims", true); IRNode receiver = IRNode.fieldAccess(holder, "receiver", true); IRNode label = IRNode.fieldAccess(holder, "label", true);
+		Vector<string> assignedFields = []; Vector<string> assignedFunctions = [];
+		for method in table.methods {
+			Vector<IRParam> parameters = []; Vector<IRNode> arguments = [receiver];
+			for index in range(method.nativeParameters.len) {
+				var parameter = IRParam(method.nativeParameters.get(index), f"argument{index}"); parameters.push(parameter);
+				if (index != table.contextIndex) { arguments.push(IRNode.variable(parameter.name)); }
+			}
+			IRNode call = IRNode.call(table.interfaceName + "_" + method.name, arguments);
+			Vector<IRNode> inner = [];
+			if (method.nativeReturn == "void") { inner.push(IRNode.expressionStatement(call)); } else { inner.push(IRNode.variableDeclaration(method.nativeReturn, "result", call)); }
+			inner.push(IRNode.expressionStatement(IRNode.unary("--", IRNode.variable("__btrc_try_top"), false)));
+			if (method.nativeReturn == "void") { inner.push(IRNode.returnStatement(null)); } else { inner.push(IRNode.returnStatement(IRNode.variable("result"))); }
+			self.nativeUniqueFunction(module, prefix + "_" + method.name, method.nativeReturn, parameters, [self.tableHolder(holderType, IRNode.variable(parameters.get(table.contextIndex).name)), self.tableThreadGuard(holder), self.nativeCallbackBoundary(inner, module)]);
+			assignedFields.push(method.field); assignedFunctions.push(prefix + "_" + method.name);
+		}
+		if (!table.label.isEmpty()) {
+			self.nativeUniqueFunction(module, prefix + "_label", "const char*", [IRParam("void*", "argument0")], [self.tableHolder(holderType, IRNode.variable("argument0")), self.tableThreadGuard(holder), IRNode.returnStatement(label)]);
+			assignedFields.push(table.label); assignedFunctions.push(prefix + "_label");
+		}
+		if (!table.reopen.isEmpty()) { assignedFields.push(table.reopen); assignedFunctions.push(prefix + "_reopen"); }
+		if (!table.releaseField.isEmpty()) { assignedFields.push(table.releaseField); assignedFunctions.push(prefix + "_release"); }
+		IRNode nativeTable = IRNode.variable("table");
+		Vector<IRNode> allocation = [
+			IRNode.variableDeclaration(tableType, "table", IRNode.cast(tableType, IRNode.call("__btrc_safe_calloc", [IRNode.literal("1"), IRNode.sizeofType(table.nativeType)]))),
+			IRNode.assignment(IRNode.fieldAccess(nativeTable, table.context, true), IRNode.cast("void*", holder))
+		];
+		for index in range(assignedFields.len) { allocation.push(IRNode.assignment(IRNode.fieldAccess(nativeTable, assignedFields.get(index), true), IRNode.functionReference(assignedFunctions.get(index)))); }
+		allocation.push(IRNode.assignment(claims, IRNode.binary(claims, "+", IRNode.literal("1"))));
+		allocation.push(IRNode.returnStatement(nativeTable));
+		self.nativeUniqueFunction(module, prefix + "_table", tableType, [IRParam(holderType, "holder")], allocation);
+		if (!table.reopen.isEmpty()) {
+			IRNode name = IRNode.variable("argument1");
+			IRNode mismatch = IRNode.binary(IRNode.binary(name, "==", IRNode.literal("NULL")), "||", IRNode.binary(IRNode.call("strcmp", [name, label]), "!=", IRNode.literal("0")));
+			self.nativeUniqueFunction(module, prefix + "_reopen", tableType, [IRParam("void*", "argument0"), IRParam("const char*", "argument1")], [
+				self.tableHolder(holderType, IRNode.variable("argument0")), self.tableThreadGuard(holder),
+				IRNode.ifStatement(mismatch, IRNode.block([IRNode.returnStatement(IRNode.literal("NULL"))]), null),
+				IRNode.returnStatement(IRNode.call(prefix + "_table", [holder]))
+			]);
+		}
+		if (!table.releaseField.isEmpty()) {
+			IRNode argument = IRNode.variable("argument0");
+			Vector<IRNode> finalRelease = [
+				IRNode.expressionStatement(self.managedLifetime.releaseValue(receiver, receiverType)),
+				IRNode.expressionStatement(IRNode.call("free", [label])),
+				IRNode.expressionStatement(IRNode.call("free", [holder])),
+				IRNode.expressionStatement(IRNode.unary("--", IRNode.variable("__btrc_try_top"), false))
+			];
+			self.nativeUniqueFunction(module, prefix + "_release", "void", [IRParam(tableType, "argument0")], [
+				IRNode.ifStatement(IRNode.binary(argument, "==", IRNode.literal("NULL")), IRNode.block([IRNode.returnStatement(null)]), null),
+				self.tableHolder(holderType, IRNode.fieldAccess(argument, table.context, true)), self.tableThreadGuard(holder),
+				IRNode.expressionStatement(IRNode.call("free", [argument])),
+				IRNode.assignment(claims, IRNode.binary(claims, "-", IRNode.literal("1"))),
+				IRNode.ifStatement(IRNode.binary(claims, "==", IRNode.literal("0")), self.nativeCallbackBoundary(finalRelease, module), null)
+			]);
+		}
+		Vector<IRParam> createParameters = [IRParam(receiverC, "receiver")];
+		Vector<IRNode> create = [
+			IRNode.variableDeclaration(holderType, "holder", IRNode.cast(holderType, IRNode.call("__btrc_safe_calloc", [IRNode.literal("1"), IRNode.sizeofType("struct " + holderName)]))),
+			IRNode.assignment(receiver, IRNode.variable("receiver")),
+			IRNode.expressionStatement(self.managedLifetime.retainValue(IRNode.variable("receiver"), receiverType)),
+			IRNode.assignment(IRNode.fieldAccess(holder, "thread", true), IRNode.addressOf(IRNode.variable("__btrc_try_top")))
+		];
+		if (!table.label.isEmpty()) {
+			createParameters.push(IRParam("char*", "label"));
+			create.push(IRNode.variableDeclaration("size_t", "length", IRNode.call("strlen", [IRNode.variable("label")])));
+			create.push(IRNode.assignment(label, IRNode.cast("char*", IRNode.call("__btrc_safe_calloc", [IRNode.literal("1"), IRNode.binary(IRNode.variable("length"), "+", IRNode.literal("1"))]))));
+			create.push(IRNode.expressionStatement(IRNode.call("memcpy", [label, IRNode.variable("label"), IRNode.variable("length")])));
+		}
+		create.push(IRNode.returnStatement(IRNode.call(prefix + "_table", [holder])));
+		self.nativeUniqueFunction(module, prefix + "_create", tableType, createParameters, create);
+		Vector<IRParam> adapterParameters = []; Vector<IRNode> statements = []; Vector<IRNode> arguments = []; Map<string, bool> parameterNames = {};
+		for parameter in declaration.params {
+			var lowered = self.cTypes.lowerParameter(parameter); adapterParameters.push(lowered); parameterNames.put(lowered.name, true); arguments.push(IRNode.variable(lowered.name));
+			statements.push(self.nativeNullGuard(IRNode.variable(lowered.name), f"Native call {declaration.name}: null argument {lowered.name}"));
+		}
+		Vector<Vector<IRNode>> releases = []; Vector<IRNode> cleanup = [];
+		self.nativeUniqueResult(declaration, IRNode.call(prefix + "_create", arguments), parameterNames, statements, releases, cleanup);
+		self.nativeUniqueFunction(module, contract.adapterSymbol(declaration.name), self.cTypes.lower(declaration.returnType), adapterParameters, statements);
+	}
+
+	private void nativeUniqueFunction(IRModule module, string name, string result, Vector<IRParam> parameters, Vector<IRNode> statements) {
+		var declaration = IRFunctionDecl(name, result, true);
+		declaration.params = parameters;
+		module.functionDecls.push(declaration);
+		var adapter = IRFunction();
+		adapter.name = name; adapter.returnType = result; adapter.params = parameters;
+		adapter.isStatic = true; adapter.body = IRNode.block(statements);
+		module.functions.push(adapter);
+	}
+
+	private IRNode nativeUniqueChecked(string name, Vector<IRNode> arguments) {
+		IRNode guard = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource synchronization: {name} failed");
+		guard.condition = IRNode.binary(IRNode.call(name, arguments), "!=", IRNode.literal("0"));
+		return guard;
+	}
+
+	private void emitUniqueResource(FeNativeImportedDeclaration imported, IRModule module) {
+		var resource = imported.resource;
+		string nativeType = imported.typeSpelling.isEmpty() ? resource.name : imported.typeSpelling;
+		bool statusRelease = !resource.releaseConsumption.isEmpty();
+		string closeType = "void";
+		for member in imported.declaration.members { if (member.name == "close") { closeType = self.cTypes.lower(member.returnType); } }
+		self.appendPreprocessorDecl(module, IRPreprocessorDecl.include("pthread.h", true));
+		string nativePrefix = "__btrc_native_" + resource.name;
+		string prefix = "__btrc_unique_" + resource.name;
+		module.structForwards.push(IRStructForward(nativePrefix));
+		string pointerType = "struct " + nativePrefix + "*";
+		IRNode owner = IRNode.variable("self");
+		IRNode value = IRNode.fieldAccess(owner, "value", true);
+		IRNode borrows = IRNode.fieldAccess(owner, "borrows", true);
+		IRNode closing = IRNode.fieldAccess(owner, "closing", true);
+		IRNode status = IRNode.fieldAccess(owner, "status", true);
+		IRNode closingThread = IRNode.fieldAccess(owner, "closingThread", true);
+		IRNode mutex = IRNode.addressOf(IRNode.fieldAccess(owner, "lock", true));
+		IRNode completed = IRNode.addressOf(IRNode.fieldAccess(owner, "completed", true));
+		Vector<IRParam> parameters = [IRParam(pointerType, "self")];
+		var definition = IRStructDef(); definition.name = nativePrefix;
+		self.managedTypes.appendHeaderField(definition);
+		definition.fields.push(IRStructField(nativeType, "value"));
+		definition.fields.push(IRStructField("unsigned int", "borrows"));
+		definition.fields.push(IRStructField("bool", "closing"));
+		definition.fields.push(IRStructField("pthread_t", "closingThread"));
+		definition.fields.push(IRStructField("pthread_mutex_t", "lock"));
+		definition.fields.push(IRStructField("pthread_cond_t", "completed"));
+		if (statusRelease) { definition.fields.push(IRStructField(closeType, "status")); }
+		if (!resource.storage.isEmpty()) { definition.fields.push(IRStructField(nativeType, "storage")); definition.fields.push(IRStructField("void*", "input")); definition.fields.push(IRStructField("bool", "inputAttached")); }
+		module.structDefs.push(definition);
+		for helper in ["__btrc_arc_retain", "__btrc_arc_release", "__btrc_safe_calloc"] { self.context.referenceHelper(helper); }
+		Vector<IRNode> noArguments = [];
+		IRNode lock = self.nativeUniqueChecked("pthread_mutex_lock", [mutex]);
+		IRNode unlock = self.nativeUniqueChecked("pthread_mutex_unlock", [mutex]);
+		IRNode reentrant = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource {resource.name}: reentrant close");
+		reentrant.condition = IRNode.call("pthread_equal", [closingThread, IRNode.call("pthread_self", noArguments)]);
+		IRNode wait = IRNode.whileStatement(closing, IRNode.block([reentrant, self.nativeUniqueChecked("pthread_cond_wait", [completed, mutex])]));
+		IRNode borrowed = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource {resource.name}: close during borrow");
+		borrowed.condition = IRNode.binary(borrows, "!=", IRNode.literal("0"));
+		Vector<IRNode> close = [
+			IRNode.ifStatement(IRNode.binary(owner, "==", IRNode.literal("NULL")), IRNode.block([IRNode.returnStatement(statusRelease ? IRNode.literal("0") : null)]), null),
+			lock, wait
+		];
+		if (statusRelease) { close.push(IRNode.ifStatement(IRNode.binary(value, "==", IRNode.literal("NULL")), IRNode.block([
+				IRNode.variableDeclaration(closeType, "result", status), unlock, IRNode.returnStatement(IRNode.variable("result"))
+			]), null)); }
+		close.extend([borrowed, IRNode.variableDeclaration(nativeType, "native", value),
+			IRNode.assignment(value, IRNode.literal("NULL")), IRNode.assignment(closing, IRNode.literal("true")),
+			IRNode.assignment(closingThread, IRNode.call("pthread_self", noArguments)), unlock
+		]);
+		IRNode destroyCall = IRNode.call(resource.releaseFunction, [IRNode.variable("native")]);
+		if (statusRelease) { close.push(IRNode.variableDeclaration(closeType, "result", destroyCall)); }
+		else { close.push(IRNode.ifStatement(IRNode.variable("native"), IRNode.block([IRNode.expressionStatement(destroyCall)]), null)); }
+		if (!resource.storage.isEmpty()) {
+			for field in ["input", "storage"] {
+				IRNode storage = IRNode.fieldAccess(owner, field, true);
+				close.push(IRNode.expressionStatement(IRNode.call("free", [storage])));
+				close.push(IRNode.assignment(storage, IRNode.literal("NULL")));
+			}
+		}
+		close.push(lock);
+		if (statusRelease) { close.push(IRNode.assignment(status, IRNode.variable("result"))); }
+		close.extend([IRNode.assignment(closing, IRNode.literal("false")), self.nativeUniqueChecked("pthread_cond_broadcast", [completed]), unlock]);
+		if (statusRelease) { close.push(IRNode.returnStatement(IRNode.variable("result"))); }
+		self.nativeUniqueFunction(module, prefix + "_close", closeType, parameters, close);
+		self.nativeUniqueFunction(module, prefix + "_isOpen_public", "bool", parameters, [
+			IRNode.ifStatement(IRNode.binary(owner, "==", IRNode.literal("NULL")), IRNode.block([IRNode.returnStatement(IRNode.literal("false"))]), null),
+			lock, IRNode.variableDeclaration("bool", "opened", IRNode.binary(IRNode.binary(value, "!=", IRNode.literal("NULL")), "&&", IRNode.binary(closing, "==", IRNode.literal("false")))), unlock, IRNode.returnStatement(IRNode.variable("opened"))
+		]);
+		IRNode destroyClose = IRNode.call(prefix + "_close", [owner]);
+		IRNode destroyCheck = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource {resource.name}: destruction outcome is indeterminate");
+		destroyCheck.condition = IRNode.binary(destroyClose, "!=", IRNode.literal("0"));
+		Vector<IRNode> destroy = [
+			IRNode.variableDeclaration(pointerType, "self", IRNode.cast(pointerType, IRNode.variable("raw"))),
+			resource.cleanupStatus == "abort" ? destroyCheck : IRNode.expressionStatement(destroyClose)
+		];
+		if (!resource.storage.isEmpty()) { for field in ["input", "storage"] { destroy.push(IRNode.expressionStatement(IRNode.call("free", [IRNode.fieldAccess(owner, field, true)]))); } }
+		destroy.extend([
+			self.nativeUniqueChecked("pthread_cond_destroy", [completed]), self.nativeUniqueChecked("pthread_mutex_destroy", [mutex]),
+			IRNode.expressionStatement(IRNode.call("free", [owner]))
+		]);
+		self.nativeUniqueFunction(module, prefix + "_destroy", "void", [IRParam("void*", "raw")], destroy);
+		self.managedTypes.emitDescriptor(module, prefix, false, false);
+		Vector<IRNode> create = [IRNode.variableDeclaration(pointerType, "self", IRNode.cast(pointerType, IRNode.call("__btrc_safe_calloc", [IRNode.literal("1"), IRNode.sizeofType("struct " + nativePrefix)])))];
+		create.push(self.nativeUniqueChecked("pthread_mutex_init", [mutex, IRNode.literal("NULL")]));
+		create.push(self.nativeUniqueChecked("pthread_cond_init", [completed, IRNode.literal("NULL")]));
+		self.managedTypes.appendHeaderInitialization(prefix, create);
+		create.push(IRNode.returnStatement(owner));
+		Vector<IRParam> noParameters = [];
+		self.nativeUniqueFunction(module, prefix + "_new", pointerType, noParameters, create);
+		self.nativeUniqueFunction(module, nativePrefix + "_retain", "void", [IRParam("void*", "raw")], [IRNode.expressionStatement(IRNode.call("__btrc_arc_retain", [IRNode.variable("raw")]))]);
+		self.nativeUniqueFunction(module, nativePrefix + "_release", "void", [IRParam("void*", "raw")], [IRNode.expressionStatement(IRNode.call("__btrc_arc_release", [IRNode.variable("raw"), IRNode.addressOf(IRNode.variable(self.managedTypes.descriptorSymbol(prefix)))]))]);
+		Vector<IRNode> publicClose = [];
+		if (statusRelease) { publicClose.push(self.nativeNullGuard(owner, f"Native resource {resource.name}: close on null owner")); }
+		publicClose.push(IRNode.expressionStatement(IRNode.call(nativePrefix + "_retain", [owner])));
+		IRNode closeCall = IRNode.call(prefix + "_close", [owner]);
+		publicClose.push(statusRelease ? IRNode.variableDeclaration(closeType, "result", closeCall) : IRNode.expressionStatement(closeCall));
+		publicClose.push(IRNode.expressionStatement(IRNode.call(nativePrefix + "_release", [owner])));
+		if (statusRelease) { publicClose.push(IRNode.returnStatement(IRNode.variable("result"))); }
+		self.nativeUniqueFunction(module, prefix + "_close_public", closeType, parameters, publicClose);
+		IRNode overflow = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource {resource.name}: borrow overflow");
+		overflow.condition = IRNode.binary(borrows, "==", IRNode.variable("UINT_MAX"));
+		IRNode exclusive = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource {resource.name}: exclusive operation in progress"); exclusive.condition = closing;
+		self.nativeUniqueFunction(module, prefix + "_begin_borrow", "void", parameters, [
+			IRNode.ifStatement(IRNode.binary(owner, "==", IRNode.literal("NULL")), IRNode.block([IRNode.returnStatement(null)]), null), lock,
+			self.nativeNullGuard(value, f"Native resource {resource.name}: use after close"), exclusive, overflow,
+			IRNode.assignment(borrows, IRNode.binary(borrows, "+", IRNode.literal("1"))), unlock
+		]);
+		self.nativeUniqueFunction(module, prefix + "_end_borrow", "void", [IRParam("void*", "raw")], [
+			IRNode.ifStatement(IRNode.binary(IRNode.variable("raw"), "==", IRNode.literal("NULL")), IRNode.block([IRNode.returnStatement(null)]), null),
+			IRNode.variableDeclaration(pointerType, "self", IRNode.cast(pointerType, IRNode.variable("raw"))), lock,
+			IRNode.assignment(borrows, IRNode.binary(borrows, "-", IRNode.literal("1"))), unlock,
+			IRNode.expressionStatement(IRNode.call(nativePrefix + "_release", [owner]))
+		]);
+		if (!resource.storage.isEmpty()) {
+			IRNode attachmentBorrowed = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource {resource.name}: attachment during borrow"); attachmentBorrowed.condition = IRNode.binary(borrows, "!=", IRNode.literal("0"));
+			IRNode attached = self.nativeNullGuard(IRNode.literal("NULL"), f"Native resource {resource.name}: input already attached"); attached.condition = IRNode.fieldAccess(owner, "inputAttached", true);
+			self.nativeUniqueFunction(module, prefix + "_begin_attachment", "void", parameters, [
+				self.nativeNullGuard(owner, f"Native resource {resource.name}: attachment on null owner"), lock, exclusive,
+				self.nativeNullGuard(value, f"Native resource {resource.name}: use after close"), attachmentBorrowed, attached,
+				IRNode.assignment(closing, IRNode.literal("true")), IRNode.assignment(closingThread, IRNode.call("pthread_self", noArguments)), unlock
+			]);
+			self.nativeUniqueFunction(module, prefix + "_end_attachment", "void", [IRParam("void*", "raw")], [
+				IRNode.ifStatement(IRNode.binary(IRNode.variable("raw"), "==", IRNode.literal("NULL")), IRNode.block([IRNode.returnStatement(null)]), null),
+				IRNode.variableDeclaration(pointerType, "self", IRNode.cast(pointerType, IRNode.variable("raw"))), lock,
+				IRNode.assignment(closing, IRNode.literal("false")), self.nativeUniqueChecked("pthread_cond_broadcast", [completed]), unlock,
+				IRNode.expressionStatement(IRNode.call(nativePrefix + "_release", [owner]))
+			]);
+		}
+	}
+
+	private IRNode nativeSnapshotPath(FeNativeRecordPath path, IRNode root, Vector<IRNode> statements, Vector<IRNode> failure) {
+		IRNode value = root;
+		for index in range(path.fields.len) {
+			bool pointer = path.pointers.get(index);
+			if (pointer) { statements.push(IRNode.ifStatement(IRNode.binary(value, "==", IRNode.literal("NULL")), IRNode.block(failure), null)); }
+			value = IRNode.fieldAccess(value, path.fields.get(index), pointer);
+		}
+		return value;
+	}
+
+	private Vector<IRNode> nativeSnapshotPlane(Vector<FeNativeRecordPath> paths, Vector<IRNode> arguments, Vector<IRNode> statements, Vector<IRNode> failure) {
+		IRNode width = IRNode.variable("__btrc_snapshot_width"); IRNode rows = IRNode.variable("__btrc_snapshot_rows");
+		IRNode pitch = IRNode.variable("__btrc_snapshot_pitch"); IRNode pointer = IRNode.variable("__btrc_snapshot_pointer");
+		IRNode span = IRNode.variable("__btrc_snapshot_span"); IRNode stride = IRNode.variable("__btrc_snapshot_stride");
+		IRNode offset = IRNode.variable("__btrc_snapshot_offset"); IRNode address = IRNode.variable("__btrc_snapshot_address");
+		Vector<IRNode> dimensions = [width, rows];
+		for index in range(dimensions.len) {
+			FeNativeRecordPath path = paths.get(index + 1); IRNode dimension = dimensions.get(index);
+			IRNode value = self.nativeSnapshotPath(path, arguments.get(0), statements, failure);
+			statements.push(IRNode.variableDeclaration(self.cTypes.lower(path.valueType), dimension.name, value));
+			if (!path.valueType.base.startsWith("unsigned")) { statements.push(IRNode.ifStatement(IRNode.binary(dimension, "<", IRNode.literal("0")), IRNode.block(failure), null)); }
+		}
+		statements.extend([
+			IRNode.variableDeclaration("const unsigned char*", pointer.name, IRNode.literal("NULL")),
+			IRNode.variableDeclaration("unsigned long long", span.name, IRNode.literal("0ULL"))
+		]);
+		Vector<IRNode> nonempty = [];
+		IRNode value = self.nativeSnapshotPath(paths.get(3), arguments.get(0), nonempty, failure);
+		nonempty.extend([
+			IRNode.variableDeclaration("long long", pitch.name, IRNode.cast("long long", value)),
+			IRNode.variableDeclaration("unsigned long long", stride.name, IRNode.ternary(IRNode.binary(pitch, "<", IRNode.literal("0LL")), IRNode.binary(IRNode.literal("0ULL"), "-", IRNode.cast("unsigned long long", pitch)), IRNode.cast("unsigned long long", pitch))),
+			IRNode.ifStatement(IRNode.binary(stride, "==", IRNode.literal("0ULL")), IRNode.block(failure), null),
+			IRNode.ifStatement(IRNode.binary(IRNode.cast("unsigned long long", rows), ">", IRNode.binary(IRNode.cast("unsigned long long", arguments.get(1)), "/", stride)), IRNode.block(failure), null),
+			IRNode.assignment(span, IRNode.binary(IRNode.cast("unsigned long long", rows), "*", stride)),
+			IRNode.ifStatement(IRNode.binary(span, ">", IRNode.literal("2147483646ULL")), IRNode.block(failure), null)
+		]);
+		IRNode data = self.nativeSnapshotPath(paths.get(0), arguments.get(0), nonempty, failure);
+		nonempty.extend([
+			IRNode.assignment(pointer, IRNode.cast("const unsigned char*", data)),
+			IRNode.ifStatement(IRNode.binary(pointer, "==", IRNode.literal("NULL")), IRNode.block(failure), null),
+			IRNode.variableDeclaration("uintptr_t", address.name, IRNode.cast("uintptr_t", pointer)),
+			IRNode.variableDeclaration("unsigned long long", offset.name, IRNode.binary(span, "-", stride)),
+			IRNode.ifStatement(IRNode.binary(pitch, "<", IRNode.literal("0LL")), IRNode.block([
+			IRNode.ifStatement(IRNode.binary(IRNode.cast("unsigned long long", address), "<=", offset), IRNode.block(failure), null),
+			IRNode.assignment(address, IRNode.binary(address, "-", IRNode.cast("uintptr_t", offset)))
+		]), null),
+			IRNode.ifStatement(IRNode.binary(span, ">", IRNode.binary(IRNode.cast("unsigned long long", IRNode.variable("UINTPTR_MAX")), "-", IRNode.cast("unsigned long long", address))), IRNode.block(failure), null),
+			IRNode.ifStatement(IRNode.binary(pitch, "<", IRNode.literal("0LL")), IRNode.block([IRNode.assignment(pointer, IRNode.binary(pointer, "-", IRNode.cast("size_t", offset)))]), null)
+		]);
+		statements.push(IRNode.ifStatement(IRNode.binary(IRNode.binary(width, "!=", IRNode.literal("0")), "&&", IRNode.binary(rows, "!=", IRNode.literal("0"))), IRNode.block(nonempty), null));
+		return [pointer, span];
+	}
+
+	private Vector<IRNode> nativeSnapshotSpan(Vector<FeNativeRecordPath> paths, Vector<IRNode> arguments, Vector<IRNode> statements, Vector<IRNode> failure) {
+		FeNativeRecordPath lengthPath = paths.get(1);
+		IRNode length = IRNode.variable("__btrc_snapshot_length"); IRNode pointer = IRNode.variable("__btrc_snapshot_pointer");
+		IRNode value = self.nativeSnapshotPath(lengthPath, arguments.get(0), statements, failure);
+		statements.push(IRNode.variableDeclaration(self.cTypes.lower(lengthPath.valueType), length.name, value));
+		if (!lengthPath.valueType.base.startsWith("unsigned")) { statements.push(IRNode.ifStatement(IRNode.binary(length, "<", IRNode.literal("0")), IRNode.block(failure), null)); }
+		IRNode wide = IRNode.cast("uintmax_t", length);
+		statements.push(IRNode.ifStatement(IRNode.binary(IRNode.binary(wide, ">", IRNode.cast("uintmax_t", arguments.get(1))), "||", IRNode.binary(wide, ">", IRNode.literal("2147483646U"))), IRNode.block(failure), null));
+		value = self.nativeSnapshotPath(paths.get(0), arguments.get(0), statements, failure);
+		statements.extend([
+			IRNode.variableDeclaration("const unsigned char*", pointer.name, IRNode.cast("const unsigned char*", value)),
+			IRNode.ifStatement(IRNode.binary(IRNode.binary(length, "!=", IRNode.literal("0")), "&&", IRNode.binary(pointer, "==", IRNode.literal("NULL"))), IRNode.block(failure), null),
+			IRNode.ifStatement(IRNode.binary(wide, ">", IRNode.binary(IRNode.cast("uintmax_t", IRNode.variable("UINTPTR_MAX")), "-", IRNode.cast("uintmax_t", IRNode.cast("uintptr_t", pointer)))), IRNode.block(failure), null)
+		]);
+		return [pointer, length];
+	}
+
+	private void nativeRecordSnapshot(Node declaration, FeNativeRecordSnapshot snapshot, Vector<IRNode> arguments, Vector<IRNode> statements, Vector<Vector<IRNode>> releases, Vector<IRNode> cleanup) {
+		Vector<IRNode> failure = [];
+		for (int index = releases.len - 1; index >= 0; index--) { failure.extend(releases.get(index)); }
+		failure.extend(cleanup); failure.push(IRNode.returnStatement(IRNode.literal("NULL")));
+		if (!snapshot.byteField.isEmpty() || snapshot.strings.len > 0) { statements.push(IRNode.ifStatement(IRNode.binary(arguments.get(1), "<", IRNode.literal("0")), IRNode.block(failure), null)); }
+		if (snapshot.guardPath != null) {
+			IRNode guard = self.nativeSnapshotPath(snapshot.guardPath, arguments.get(0), statements, failure);
+			statements.push(IRNode.ifStatement(IRNode.binary(guard, "!=", IRNode.variable(snapshot.guardConstant)), IRNode.block(failure), null));
+		}
+		Vector<IRNode> values = [];
+		for index in range(snapshot.paths.len) {
+			FeNativeRecordPath path = snapshot.paths.get(index);
+			IRNode value = self.nativeSnapshotPath(path, arguments.get(0), statements, failure);
+			string name = f"__btrc_snapshot_field_{index}";
+			statements.push(IRNode.variableDeclaration(self.cTypes.lower(path.valueType), name, value)); values.push(IRNode.variable(name));
+		}
+		Vector<IRNode> plane = [];
+		if (!snapshot.byteField.isEmpty()) { plane = snapshot.byteSpan ? self.nativeSnapshotSpan(snapshot.bytePaths, arguments, statements, failure) : self.nativeSnapshotPlane(snapshot.bytePaths, arguments, statements, failure); }
+		var stringNames = snapshot.strings.keys(); stringNames.sortBy((string left, string right) => Strings.lessThan(left, right));
+		Vector<IRNode> pointers = []; Vector<IRNode> lengths = [];
+		for index in range(stringNames.len) {
+			IRNode value = self.nativeSnapshotPath(snapshot.strings.get(stringNames.get(index)), arguments.get(0), statements, failure);
+			IRNode pointer = IRNode.variable(f"__btrc_snapshot_string_{index}"); IRNode length = IRNode.variable(f"__btrc_snapshot_length_{index}");
+			pointers.push(pointer); lengths.push(length);
+			statements.extend([
+				IRNode.variableDeclaration("const char*", pointer.name, IRNode.cast("const char*", value)),
+				IRNode.variableDeclaration("size_t", length.name, IRNode.literal("0")),
+				IRNode.ifStatement(IRNode.binary(pointer, "!=", IRNode.literal("NULL")), IRNode.block([
+				IRNode.whileStatement(IRNode.binary(IRNode.binary(length, "<=", IRNode.cast("size_t", arguments.get(1))), "&&", IRNode.binary(IRNode.dereference(IRNode.binary(pointer, "+", length)), "!=", IRNode.literal("0"))), IRNode.block([IRNode.assignment(length, IRNode.binary(length, "+", IRNode.literal("1")))])),
+				IRNode.ifStatement(IRNode.binary(IRNode.binary(length, ">", IRNode.cast("size_t", arguments.get(1))), "||", IRNode.binary(length, ">", IRNode.literal("2147483646U"))), IRNode.block(failure), null)
+			]), null)
+			]);
+		}
+		Vector<IRNode> noArguments = [];
+		IRNode owner = IRNode.variable("__btrc_snapshot_result");
+		IRNode slot = IRNode.variableDeclaration(self.cTypes.lower(declaration.returnType), owner.name, IRNode.call(snapshot.resultName + "_new", noArguments));
+		statements.extend([slot, IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(slot, self.managedValues.runtimeType(declaration.returnType)))]);
+		for index in range(snapshot.fields.len) { statements.push(IRNode.assignment(IRNode.fieldAccess(owner, snapshot.fields.get(index).name, true), values.get(index))); }
+
+		for index in range(stringNames.len) {
+			IRNode field = IRNode.fieldAccess(owner, stringNames.get(index), true); IRNode pointer = pointers.get(index); IRNode length = lengths.get(index);
+			statements.push(IRNode.ifStatement(IRNode.binary(pointer, "!=", IRNode.literal("NULL")), IRNode.block([
+				IRNode.assignment(field, IRNode.call("__btrc_string_alloc", [IRNode.cast("int", length)])),
+				IRNode.expressionStatement(IRNode.call("memcpy", [field, pointer, length]))
+			]), null));
+		}
+		if (!snapshot.byteField.isEmpty()) {
+			var bytesType = Node(); bytesType.kind = NK_TYPE_EXPR; bytesType.base = "Bytes"; bytesType.pointerDepth = 1;
+			statements.push(IRNode.expressionStatement(self.managedLifetime.replaceEdge(IRNode.fieldAccess(owner, snapshot.byteField, true), IRNode.call("Bytes_fromRaw", [IRNode.cast("char*", plane.get(0)), IRNode.cast("int", plane.get(1))]), bytesType, owner, true)));
+		}
+		for (int index = releases.len - 1; index >= 0; index--) { statements.extend(releases.get(index)); }
+		statements.extend(cleanup); statements.push(IRNode.returnStatement(owner));
+	}
+
+	private void nativeCopiedResult(Node declaration, FeNativeCallContract contract, Vector<IRNode> arguments, Map<string, bool> parameterNames, Vector<IRNode> statements, Vector<Vector<IRNode>> releases, Vector<IRNode> cleanup) {
+		FeNativeCopiedResult projection = contract.copiedResult;
+		Vector<string> names = [];
+		for stem in ["copied_result", "copied_pointer", "copied_length"] {
+			string name = "__btrc_native_" + stem;
+			while (parameterNames.has(name) || names.contains(name)) { name = name + "_"; }
+			names.push(name);
+		}
+		IRNode result = IRNode.variable(names.get(0)); IRNode pointer = IRNode.variable(names.get(1)); IRNode length = IRNode.variable(names.get(2));
+		IRNode slot = IRNode.variableDeclaration(self.cTypes.lower(declaration.returnType), names.get(0), IRNode.literal("NULL"));
+		statements.extend([slot, IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(slot, self.managedValues.runtimeType(declaration.returnType))), IRNode.variableDeclaration(projection.kind == "string" ? "const char*" : "const void*", names.get(1), IRNode.call(declaration.name, arguments))]);
+		if (contract.nonnullReturn) { statements.push(self.nativeNullGuard(pointer, f"Native call {declaration.name}: null result")); }
+		if (projection.kind == "string") {
+			Vector<IRNode> copy = [IRNode.assignment(result, IRNode.call("__btrc_string_alloc", [IRNode.cast("int", length)])), IRNode.expressionStatement(IRNode.call("memcpy", [result, pointer, length]))];
+			Vector<IRNode> measured = [IRNode.variableDeclaration("size_t", names.get(2), IRNode.call("strlen", [pointer])), IRNode.ifStatement(IRNode.binary(length, "<=", IRNode.literal("2147483647U")), IRNode.block(copy), null)];
+			statements.push(IRNode.ifStatement(IRNode.binary(pointer, "!=", IRNode.literal("NULL")), IRNode.block(measured), null));
+		} else {
+			Vector<IRNode> lengthArguments = [];
+			for index in projection.lengthArguments { lengthArguments.push(arguments.get(index)); }
+			statements.push(IRNode.variableDeclaration("int", names.get(2), IRNode.call(projection.lengthFunction, lengthArguments)));
+			IRNode bounded = IRNode.binary(IRNode.binary(length, ">=", IRNode.literal("0")), "&&", IRNode.binary(length, "<=", IRNode.literal("2147483646")));
+			IRNode validPointer = IRNode.binary(IRNode.binary(pointer, "!=", IRNode.literal("NULL")), "||", IRNode.binary(length, "==", IRNode.literal("0")));
+			statements.push(IRNode.ifStatement(IRNode.binary(bounded, "&&", validPointer), IRNode.block([IRNode.assignment(result, IRNode.call("Bytes_fromRaw", [IRNode.cast("char*", pointer), length]))]), null));
+		}
+		for (int index = releases.len - 1; index >= 0; index--) { statements.extend(releases.get(index)); }
+		statements.extend(cleanup); statements.push(IRNode.returnStatement(result));
+	}
+
+	private void nativeOwnedOutput(Node declaration, FeNativeOwnedOutput output, Vector<IRNode> arguments, Map<string, bool> parameterNames, Vector<IRNode> statements, Vector<Vector<IRNode>> releases, Vector<IRNode> cleanup) {
+		if (output.initializer != null) { self.nativeInitializer(declaration, output, arguments, parameterNames, statements, releases, cleanup); return; }
+		if (output.sizedResource != null) { self.nativeResourceOutput(declaration, output, arguments, parameterNames, statements, releases, cleanup); return; }
+		Vector<IRNode> callArguments = arguments;
+		string name = "__btrc_native_owned_output";
+		while (parameterNames.has(name)) { name = name + "_"; }
+		Vector<IRNode> noArguments = [];
+		IRNode slot = IRNode.variableDeclaration(self.cTypes.lower(declaration.returnType), name, IRNode.call(output.resultName + "_new", noArguments));
+		IRNode owner = IRNode.variable(name);
+		IRNode child = IRNode.fieldAccess(owner, "value", true);
+		IRNode native = IRNode.fieldAccess(child, "value", true);
+		statements.extend([slot, IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(slot, self.managedValues.runtimeType(declaration.returnType))), IRNode.assignment(child, IRNode.call("__btrc_unique_" + output.resource + "_new", noArguments))]);
+		FeNativeOutputOffset? offset = output.offset;
+		Vector<string> offsetNames = [];
+		IRNode source = IRNode.literal("NULL"); IRNode length = IRNode.literal("0"); IRNode tail = IRNode.literal("NULL");
+		if (offset != null) {
+			for stem in ["tail", "tail_base", "tail_address"] {
+				string local = "__btrc_native_" + stem;
+				while (parameterNames.has(local) || local == name || offsetNames.contains(local)) { local = local + "_"; }
+				offsetNames.push(local);
+			}
+			tail = IRNode.variable(offsetNames.get(0));
+			Vector<IRNode> nativeArguments = [];
+			int visible = 0;
+			for index in range(arguments.len + 2) {
+				if (index == output.parameterIndex) { nativeArguments.push(IRNode.addressOf(native)); }
+				else if (index == offset.parameterIndex) { nativeArguments.push(IRNode.addressOf(tail)); }
+				else {
+					IRNode argument = arguments.get(visible); visible++;
+					if (index == offset.inputIndex) { source = argument; }
+					if (index == offset.lengthIndex) { length = argument; }
+					nativeArguments.push(argument);
+				}
+			}
+			callArguments = nativeArguments;
+			statements.push(IRNode.variableDeclaration("const char*", offsetNames.get(0), IRNode.literal("NULL")));
+			IRNode guard = self.nativeNullGuard(IRNode.literal("NULL"), f"Native call {declaration.name}: negative bounded input length");
+			guard.condition = IRNode.binary(length, "<", IRNode.literal("0")); statements.push(guard);
+		} else { callArguments.insert(output.parameterIndex, IRNode.addressOf(native)); }
+		statements.push(IRNode.assignment(IRNode.fieldAccess(owner, "status", true), IRNode.call(declaration.name, callArguments)));
+		if (offset != null) {
+			IRNode base = IRNode.variable(offsetNames.get(1)); IRNode address = IRNode.variable(offsetNames.get(2));
+			IRNode difference = IRNode.binary(address, "-", base);
+			IRNode valid = IRNode.binary(IRNode.binary(IRNode.binary(tail, "!=", IRNode.literal("NULL")), "&&", IRNode.binary(source, "!=", IRNode.literal("NULL"))), "&&", IRNode.binary(IRNode.binary(address, ">=", base), "&&", IRNode.binary(difference, "<=", IRNode.cast("uintptr_t", length))));
+			statements.extend([
+				IRNode.variableDeclaration("uintptr_t", offsetNames.get(1), IRNode.cast("uintptr_t", source)),
+				IRNode.variableDeclaration("uintptr_t", offsetNames.get(2), IRNode.cast("uintptr_t", tail)),
+				IRNode.assignment(IRNode.fieldAccess(owner, offset.field, true), IRNode.literal("-1")),
+				IRNode.ifStatement(valid, IRNode.block([IRNode.assignment(IRNode.fieldAccess(owner, offset.field, true), IRNode.cast("int", difference))]), null)
+			]);
+		}
+		statements.push(IRNode.ifStatement(IRNode.binary(native, "==", IRNode.literal("NULL")), IRNode.block([
+			IRNode.expressionStatement(IRNode.call("__btrc_native_" + output.resource + "_release", [child])), IRNode.assignment(child, IRNode.literal("NULL"))
+		]), null));
+		for (int index = releases.len - 1; index >= 0; index--) { statements.extend(releases.get(index)); }
+		statements.extend(cleanup); statements.push(IRNode.returnStatement(owner));
+	}
+
+	private void nativeCopiedInput(Node declaration, FeNativeCopiedInput shape, Vector<IRNode> arguments, Map<string, bool> parameterNames, Vector<IRNode> statements, Vector<Vector<IRNode>> releases, Vector<IRNode> cleanup) {
+		IRNode owner = arguments.get(shape.ownerIndex);
+		IRNode source = arguments.get(shape.inputIndex); IRNode length = arguments.get(shape.lengthIndex);
+		IRNode backing = IRNode.fieldAccess(owner, "input", true);
+		string calledName = "__btrc_native_input_called"; while (parameterNames.has(calledName)) { calledName = calledName + "_"; }
+		IRNode called = IRNode.variable(calledName);
+		IRNode invalid = self.nativeNullGuard(IRNode.literal("NULL"), f"Native call {declaration.name}: invalid copied input span");
+		invalid.condition = IRNode.binary(IRNode.binary(IRNode.cast("uintmax_t", length), ">", IRNode.cast("uintmax_t", IRNode.variable("SIZE_MAX"))), "||", IRNode.binary(IRNode.binary(length, "!=", IRNode.literal("0")), "&&", IRNode.binary(source, "==", IRNode.literal("NULL"))));
+		Vector<IRNode> nativeArguments = [];
+		for index in range(arguments.len) { nativeArguments.push(index == shape.ownerIndex ? IRNode.fieldAccess(owner, "value", true) : index == shape.inputIndex ? backing : arguments.get(index)); }
+		statements.extend([
+			IRNode.variableDeclaration("bool", calledName, IRNode.literal("false")), invalid,
+			IRNode.assignment(backing, IRNode.call("calloc", [IRNode.literal("1"), IRNode.ternary(IRNode.binary(length, "==", IRNode.literal("0")), IRNode.literal("1"), length)])),
+			IRNode.ifStatement(IRNode.binary(backing, "!=", IRNode.literal("NULL")), IRNode.block([
+			IRNode.ifStatement(IRNode.binary(length, "!=", IRNode.literal("0")), IRNode.block([IRNode.expressionStatement(IRNode.call("memcpy", [backing, source, length]))]), null),
+			IRNode.expressionStatement(IRNode.call(declaration.name, nativeArguments)), IRNode.assignment(IRNode.fieldAccess(owner, "inputAttached", true), IRNode.literal("true")), IRNode.assignment(called, IRNode.literal("true"))
+		]), null)
+		]);
+		for (int index = releases.len - 1; index >= 0; index--) { statements.extend(releases.get(index)); }
+		statements.extend(cleanup); statements.push(IRNode.returnStatement(called));
+	}
+
+	private void nativeInitializer(Node declaration, FeNativeOwnedOutput output, Vector<IRNode> arguments, Map<string, bool> parameterNames, Vector<IRNode> statements, Vector<Vector<IRNode>> releases, Vector<IRNode> cleanup) {
+		string name = "__btrc_native_initializer";
+		while (parameterNames.has(name)) { name = name + "_"; }
+		Vector<IRNode> noArguments = [];
+		IRNode owner = IRNode.variable(name);
+		IRNode child = IRNode.fieldAccess(owner, "value", true);
+		IRNode storage = IRNode.fieldAccess(child, "storage", true);
+		IRNode backing = IRNode.fieldAccess(child, "input", true);
+		IRNode native = IRNode.fieldAccess(child, "value", true);
+		IRNode called = IRNode.fieldAccess(owner, "called", true);
+		IRNode status = IRNode.fieldAccess(owner, "status", true);
+		IRNode slot = IRNode.variableDeclaration(self.cTypes.lower(declaration.returnType), name, IRNode.call(output.resultName + "_new", noArguments));
+		statements.extend([
+			slot, IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(slot, self.managedValues.runtimeType(declaration.returnType))),
+			IRNode.assignment(child, IRNode.call("__btrc_unique_" + output.resource + "_new", noArguments)),
+			IRNode.assignment(storage, IRNode.call("calloc", [IRNode.literal("1"), IRNode.sizeofExpression(IRNode.dereference(storage))]))
+		]);
+		FeNativeInitializer shape = output.initializer;
+		Vector<IRNode> nativeArguments = [];
+		int visible = 0;
+		for index in range(arguments.len + 1) {
+			if (index == output.parameterIndex) { nativeArguments.push(storage); }
+			else { nativeArguments.push(arguments.get(visible)); visible++; }
+		}
+		IRNode ready = IRNode.binary(storage, "!=", IRNode.literal("NULL"));
+		if (shape.copiedInput >= 0) {
+			IRNode source = nativeArguments.get(shape.copiedInput); IRNode length = nativeArguments.get(shape.length);
+			IRNode invalid = self.nativeNullGuard(IRNode.literal("NULL"), f"Native call {declaration.name}: invalid copied input span");
+			invalid.condition = IRNode.binary(IRNode.binary(IRNode.cast("uintmax_t", length), ">", IRNode.cast("uintmax_t", IRNode.variable("SIZE_MAX"))), "||", IRNode.binary(IRNode.binary(length, "!=", IRNode.literal("0")), "&&", IRNode.binary(source, "==", IRNode.literal("NULL"))));
+			statements.push(invalid);
+			statements.push(IRNode.ifStatement(ready, IRNode.block([
+				IRNode.assignment(backing, IRNode.call("calloc", [IRNode.literal("1"), IRNode.ternary(IRNode.binary(length, "==", IRNode.literal("0")), IRNode.literal("1"), length)])),
+				IRNode.ifStatement(IRNode.binary(IRNode.binary(backing, "!=", IRNode.literal("NULL")), "&&", IRNode.binary(length, "!=", IRNode.literal("0"))), IRNode.block([IRNode.expressionStatement(IRNode.call("memcpy", [backing, source, length]))]), null)
+			]), null));
+			ready = IRNode.binary(ready, "&&", IRNode.binary(backing, "!=", IRNode.literal("NULL")));
+			nativeArguments.set(shape.copiedInput, IRNode.ternary(source, backing, IRNode.literal("NULL")));
+		}
+		statements.push(IRNode.ifStatement(ready, IRNode.block([
+			IRNode.assignment(status, IRNode.call(declaration.name, nativeArguments)),
+			IRNode.assignment(called, IRNode.literal("true")),
+			IRNode.ifStatement(IRNode.binary(status, shape.success.isEmpty() ? "!=" : "==", shape.success.isEmpty() ? IRNode.literal("0") : IRNode.variable(shape.success)), IRNode.block([IRNode.assignment(native, storage)]), null)
+		]), null));
+		statements.push(IRNode.ifStatement(IRNode.binary(native, "==", IRNode.literal("NULL")), IRNode.block([
+			IRNode.expressionStatement(IRNode.call("__btrc_native_" + output.resource + "_release", [child])), IRNode.assignment(child, IRNode.literal("NULL"))
+		]), null));
+		for group in releases { statements.extend(group); }
+		statements.extend(cleanup); statements.push(IRNode.returnStatement(owner));
+	}
+
+	private void nativeResourceOutput(Node declaration, FeNativeOwnedOutput output, Vector<IRNode> arguments, Map<string, bool> parameterNames, Vector<IRNode> statements, Vector<Vector<IRNode>> releases, Vector<IRNode> cleanup) {
+		Vector<string> names = [];
+		for stem in ["owner", "value", "size"] {
+			string name = "__btrc_native_output_" + stem;
+			while (parameterNames.has(name) || names.contains(name)) { name = name + "_"; }
+			names.push(name);
+		}
+		FeNativeSizedResourceOutput sized = output.sizedResource;
+		var valueType = Node(); valueType.kind = NK_TYPE_EXPR; valueType.base = output.resource; valueType.isNullable = true; valueType.pointerDepth = 1;
+		Vector<IRNode> noArguments = [];
+		IRNode ownerSlot = IRNode.variableDeclaration(self.cTypes.lower(declaration.returnType), names.get(0), IRNode.call(output.resultName + "_new", noArguments));
+		IRNode valueSlot = IRNode.variableDeclaration(output.resource, names.get(1), IRNode.literal("NULL")); valueSlot.isVolatile = true;
+		IRNode sizeSlot = IRNode.variableDeclaration(self.cTypes.lower(sized.sizeType), names.get(2), IRNode.sizeofType(output.resource)); sizeSlot.isVolatile = true;
+		IRNode owner = IRNode.variable(names.get(0)); IRNode value = IRNode.variable(names.get(1)); IRNode size = IRNode.variable(names.get(2));
+		statements.extend([
+			ownerSlot, IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(ownerSlot, self.managedValues.runtimeType(declaration.returnType))),
+			valueSlot, IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(valueSlot, self.managedValues.runtimeType(valueType))), sizeSlot
+		]);
+		Vector<IRNode> nativeArguments = [];
+		int visible = 0;
+		for index in range(arguments.len + 2) {
+			if (index == output.parameterIndex) { nativeArguments.push(IRNode.cast("void*", IRNode.addressOf(value))); }
+			else if (index == sized.sizeIndex) { nativeArguments.push(IRNode.cast(self.cTypes.lower(sized.sizeType) + "*", IRNode.addressOf(size))); }
+			else { nativeArguments.push(arguments.get(visible)); visible++; }
+		}
+		statements.extend([
+			IRNode.assignment(IRNode.fieldAccess(owner, "status", true), IRNode.call(sized.nativeFunction, nativeArguments)),
+			IRNode.assignment(IRNode.fieldAccess(owner, "size", true), size),
+			IRNode.assignment(IRNode.fieldAccess(owner, "sizeValid", true), IRNode.binary(size, "==", IRNode.sizeofType(output.resource))),
+			IRNode.assignment(IRNode.fieldAccess(owner, "value", true), IRNode.cast(self.cTypes.lower(valueType), value)),
+			IRNode.assignment(value, IRNode.literal("NULL"))
+		]);
+		for (int index = releases.len - 1; index >= 0; index--) { statements.extend(releases.get(index)); }
+		statements.extend(cleanup); statements.push(IRNode.returnStatement(owner));
+	}
+
+	private void nativeUniqueResult(Node declaration, IRNode call, Map<string, bool> parameterNames, Vector<IRNode> statements, Vector<Vector<IRNode>> releases, Vector<IRNode> cleanup) {
+		string prefix = "__btrc_unique_" + declaration.returnType.base;
+		string name = "__btrc_unique_result";
+		while (parameterNames.has(name)) { name = name + "_"; }
+		if (cleanup.len == 0) { cleanup.push(self.nativeCleanupScope(parameterNames, statements)); }
+		Vector<IRNode> noArguments = [];
+		IRNode slot = IRNode.variableDeclaration(self.cTypes.lower(declaration.returnType), name, IRNode.call(prefix + "_new", noArguments));
+		IRNode result = IRNode.variable(name);
+		IRNode value = IRNode.fieldAccess(result, "value", true);
+		statements.push(slot);
+		statements.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(slot, self.managedValues.runtimeType(declaration.returnType))));
+		statements.push(IRNode.assignment(value, call));
+		statements.push(IRNode.ifStatement(IRNode.binary(value, "==", IRNode.literal("NULL")), IRNode.block([
+			IRNode.expressionStatement(IRNode.call("__btrc_native_" + declaration.returnType.base + "_release", [result])), IRNode.assignment(result, IRNode.literal("NULL"))
+		]), null));
+		for (int index = releases.len - 1; index >= 0; index--) { statements.extend(releases.get(index)); }
+		if (!declaration.returnType.isNullable) { statements.push(self.nativeNullGuard(result, f"Native call {declaration.name}: null result")); }
+		statements.extend(cleanup); statements.push(IRNode.returnStatement(result));
 	}
 
 	private IRNode nativeRecordInput(FeNativeRecordInput projection, IRNode value, Vector<IRNode> locals, Vector<IRNode> statements, string callName, string path, Map<string, bool> parameterNames, Map<string, FeNativeRecordInput> recordTypes, Vector<Vector<IRNode>> releases, string prefix = "", bool byValue = false) {
@@ -481,9 +1205,27 @@ class DeclarationLowerer {
 		return IRNode.compoundLiteral(spelling, names, values);
 	}
 
-	private void emitObjectiveCGlobal(FeNativeImportedDeclaration imported, IRModule module) {
+	private void emitNativeGlobal(FeNativeImportedDeclaration imported, IRModule module) {
+		if (imported.language == "c") {
+			Node declaration = imported.declaration;
+			var accessor = IRFunction();
+			accessor.name = "__btrc_native_read_" + declaration.name;
+			accessor.returnType = self.cTypes.lower(declaration.type);
+			accessor.isStatic = true;
+			string resultName = "__btrc_native_global_result";
+			while (resultName == declaration.name) { resultName = resultName + "_"; }
+			IRNode result = IRNode.variable(resultName);
+			Vector<IRNode> statements = [IRNode.variableDeclaration(accessor.returnType, resultName, IRNode.cast(accessor.returnType, IRNode.variable(declaration.name)))];
+			if (!declaration.type.isNullable) { statements.push(self.nativeNullGuard(result, f"Native global {declaration.name}: null result")); }
+			statements.push(IRNode.expressionStatement(self.managedLifetime.retainValue(result, declaration.type)));
+			statements.push(IRNode.returnStatement(result));
+			accessor.body = IRNode.block(statements);
+			module.functionDecls.push(IRFunctionDecl(accessor.name, accessor.returnType, true));
+			module.functions.push(accessor);
+			return;
+		}
 		IRModule native = self.objectiveCUnit(imported, module);
-		if (self.analyzed.isObjectiveCObjectGlobal(imported.declaration.name)) {
+		if (self.analyzed.nativeGlobalReturnsOwned(imported.declaration.name)) {
 			self.emitObjectiveCObjectGlobal(imported, module, native);
 			return;
 		}
@@ -560,9 +1302,11 @@ class DeclarationLowerer {
 				continue;
 			}
 			NativeNode descriptor = contract.objectiveCMethod;
+			bool initializer = descriptor.methodFamily == "init" && !descriptor.classMethod && descriptor.relatedResult;
+			bool classFactory = descriptor.classMethod || initializer;
 			Map<int, FeNativeCallbackProjection> callbacks = {};
 			for callback in contract.callbacks { callbacks.put(callback.parameterIndex, callback); }
-			int offset = descriptor.classMethod ? 0 : 1;
+			int offset = classFactory ? 0 : 1;
 			string name = imported.declaration.name + "_" + method.name;
 			var wrapper = IRFunction();
 			wrapper.name = name;
@@ -574,7 +1318,8 @@ class DeclarationLowerer {
 			Vector<IRNode> arguments = [];
 			Vector<IRNode> nativeArguments = [];
 			IRNode receiver = IRNode.variable(imported.declaration.name);
-			if (!descriptor.classMethod) {
+			if (initializer) { Vector<IRNode> allocationArguments = []; receiver = IRNode.objectiveCMessage(receiver, "alloc", allocationArguments); }
+			if (!classFactory) {
 				var parameter = IRParam("struct __btrc_native_" + imported.declaration.name + "*", "self");
 				wrapper.params.push(parameter);
 				adapter.params.push(parameter);
@@ -651,13 +1396,13 @@ class DeclarationLowerer {
 				callArguments.push(IRNode.addressOf(result));
 			}
 			self.context.referenceHelper("__btrc_throw");
-			if (!descriptor.classMethod) { statements.push(self.objectiveCNullGuard(IRNode.variable("self"), "Objective-C call " + descriptor.name + ": null argument self")); }
+			if (!classFactory) { statements.push(self.objectiveCNullGuard(IRNode.variable("self"), "Objective-C call " + descriptor.name + ": null argument self")); }
 			for index in range(method.params.len) {
 				Node parameter = method.params.get(index);
 				if (callbacks.has(index) || (parameter.type.pointerDepth > 0 && !parameter.type.isNullable)) { statements.push(self.objectiveCNullGuard(IRNode.variable(parameter.name), "Objective-C call " + descriptor.name + ": null argument " + parameter.name)); }
 			}
 			Vector<Node> argumentTypes = [];
-			if (!descriptor.classMethod) {
+			if (!classFactory) {
 				Node selfType = Node();
 				selfType.kind = NK_TYPE_EXPR;
 				selfType.base = imported.declaration.name;
@@ -797,7 +1542,9 @@ class DeclarationLowerer {
 		body.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(receiverSlot, self.managedValues.runtimeType(receiverType))));
 		if (returnsValue) {
 			body.push(self.objectiveCNullGuard(receiver, f"Stored callback {prefix}: query after cancellation"));
-			body.push(IRNode.variableDeclaration(thunk.returnType, "result", IRNode.literal("0")));
+			IRNode resultSlot = IRNode.variableDeclaration(thunk.returnType, "result", IRNode.literal("0"));
+			body.push(resultSlot);
+			if (self.managedValues.isNative(callback.returnType)) { body.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(resultSlot, self.managedValues.runtimeType(callback.returnType)))); }
 		}
 		Vector<IRNode> arguments = [receiver];
 		Vector<Vector<IRNode>> releases = [];
@@ -1106,7 +1853,7 @@ class DeclarationLowerer {
 		Node contextType = method.returnType;
 		string contextSymbol = TypeIdentity.mangleGenericSymbol(contextType.base, contextType.genericArgs);
 		Node tokenType = contextType.genericArgs.get(1);
-		bool paired = cancellation.signature.parameters.len > 0;
+		bool paired = cancellation.signature.parameters.len > 0 && !cancellation.classMethod;
 		Node nativeTokenType = paired ? tokenType.genericArgs.get(1) : tokenType;
 		string nativeTokenC = self.cTypes.lower(nativeTokenType);
 		string tokenSymbol = TypeIdentity.mangleGenericSymbol(tokenType.base, tokenType.genericArgs);
@@ -1144,6 +1891,10 @@ class DeclarationLowerer {
 		unregisterAdapter.params = [IRParam(nativeTokenC, "token")];
 		IRNode unregisterReceiver = IRNode.cast(self.objectiveCObjectType(nativeTokenType.base), token, "borrow");
 		Vector<IRNode> unregisterArguments = [];
+		if (cancellation.classMethod) {
+			unregisterArguments.push(unregisterReceiver);
+			unregisterReceiver = IRNode.variable(cancellation.receiver);
+		}
 		if (paired) {
 			unregisterAdapter.params = [IRParam(self.cTypes.lower(sourceType), "source"), IRParam(nativeTokenC, "token")];
 			unregisterArguments.push(unregisterReceiver);
@@ -1246,7 +1997,7 @@ class DeclarationLowerer {
 				}
 				arguments.push(IRNode.objectiveCMessage(IRNode.variable("holder"), "context", noArguments));
 				IRNode call = IRNode.indirectCall(IRNode.variable("invoke0"), arguments);
-				block.body = IRNode.block([invocation.returnType == "void" ? IRNode.expressionStatement(call) : IRNode.returnStatement(IRNode.cast(callback.nativeReturn, call))]);
+				block.body = IRNode.block([invocation.returnType == "void" ? IRNode.expressionStatement(call) : IRNode.returnStatement(IRNode.cast(callback.nativeReturn, call, self.managedValues.isNative(callback.returnType) ? "transfer" : ""))]);
 				nativeArguments.push(block);
 			} else {
 				adapter.params.push(parameter);
@@ -1410,11 +2161,12 @@ class DeclarationLowerer {
 			if (!self.validIncludeHeader(imported.header)) { self.preprocessorFail("invalid native include header"); }
 			if (imported.language == "c") { self.appendPreprocessorDecl(m, IRPreprocessorDecl.include(imported.header, false)); }
 			if (imported.declaration.kind == NK_CLASS_DECL && !imported.coalesced) {
-				if (imported.resource != null) { self.emitResourceLifetime(imported, m); }
+				if (!imported.invocation.isEmpty()) { continue; }
+				else if (imported.resource != null) { self.emitResourceLifetime(imported, m); }
 				else { self.emitObjectiveCAdapters(imported, m); }
 			}
-			if (imported.language == "objective-c" && imported.declaration.kind == NK_VAR_DECL_STMT && !nativeConstants.has(imported.declaration.name)) {
-				if (imported.declaration.initializer == null) { self.emitObjectiveCGlobal(imported, m); }
+			if ((imported.language == "objective-c" || self.analyzed.nativeGlobalReturnsOwned(imported.declaration.name)) && imported.declaration.kind == NK_VAR_DECL_STMT && !nativeConstants.has(imported.declaration.name)) {
+				if (imported.declaration.initializer == null) { self.emitNativeGlobal(imported, m); }
 				else { self.emitGlobalVar(imported.declaration, m, false); }
 				nativeConstants.put(imported.declaration.name, true);
 			}

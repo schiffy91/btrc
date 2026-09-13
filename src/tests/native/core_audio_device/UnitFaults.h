@@ -24,6 +24,9 @@ unsigned long long unitHost(void);
 unsigned int unitFlags(void);
 int unitUninitializations(void);
 int unitDisposals(void);
+int unitRegistrations(void);
+int unitStops(void);
+int unitRenders(void);
 
 #define AudioComponentFindNext unitFind
 #define AudioComponentInstanceNew unitNew

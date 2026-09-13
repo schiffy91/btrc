@@ -1,3 +1,7 @@
+import Library.GPU.UniformBuffer;
+
+import ./Gameobject.btrc;
+
 /* btrc 3D Engine -- Camera
  *
  * Third-person camera with follow behavior.
@@ -28,7 +32,7 @@ class Camera {
 		self.position.z = tz - distance;
 	}
 
-	public void writeUniforms(GPUUniform u, int offset) {
+	public void writeUniforms(GPUUniformBuffer u, int offset) {
 		u.set(offset + 0, self.position.x);
 		u.set(offset + 1, self.position.y);
 		u.set(offset + 2, self.position.z);

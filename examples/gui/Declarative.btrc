@@ -60,8 +60,8 @@ int main() {
 	check(rs.pixel(12, 12) == red.packed(), "draws correctly after resize");
 
 	/* UTF-8: 'é' (2 bytes) measures as one glyph, like one of "aa". */
-	View ue = View.text("é"); UI.measure(ue);
-	View aa = View.text("aa"); UI.measure(aa);
+	View ue = View.text("é"); UI.measure(s, ue);
+	View aa = View.text("aa"); UI.measure(s, aa);
 	check(ue.mW == aa.mW / 2, "utf-8 width counts codepoints");
 
 	s.savePpm("/tmp/gui_declarative.ppm");

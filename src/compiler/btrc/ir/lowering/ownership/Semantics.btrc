@@ -119,13 +119,14 @@ class OwnershipSemantics {
 
 	public bool expressionOwnsResult(Node? expression, OwnershipOperandEnvironment environment, CallableFlowState callableFlow) {
 		if (expression == null) { return false; }
-		if (expression.kind == NK_IDENTIFIER) { return !self.context.sourceLexicalBindings.has(expression.name) && self.analyzed.isObjectiveCObjectGlobal(expression.name); }
+		if (expression.kind == NK_IDENTIFIER) { return !self.context.sourceLexicalBindings.has(expression.name) && self.analyzed.nativeGlobalReturnsOwned(expression.name); }
 		Node? resultType = self.expressionType(expression, environment);
 		bool managedResult = self.isManaged(resultType, environment);
 		if (expression.kind == NK_NEW_EXPR || expression.kind == NK_LIST_LITERAL || expression.kind == NK_MAP_LITERAL || expression.kind == NK_BRACE_INITIALIZER) {
 			return managedResult;
 		}
 		if (expression.kind == NK_CAST_EXPR) {
+			if (self.analyzed.nativeResourceQueryType(self.resolveType(expression.targetType, environment), self.resolveType(self.expressionType(expression.expr, environment), environment)) != "") { return true; }
 			return managedResult && self.expressionOwnsResult(expression.expr, environment, callableFlow);
 		}
 		if (expression.kind == NK_F_STRING_LITERAL) {

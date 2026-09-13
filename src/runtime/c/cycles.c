@@ -726,7 +726,21 @@ static int __btrc_arc_reverse_proves_live(void* object) {
         }
         __btrc_reverse_epoch = 1;
     }
-    __btrc_reverse_add(object);
+    /* Prefer the current concrete incoming-owner chain before expanding fan-in.
+     * Repeated temporary releases of a shared child otherwise enqueue every
+     * owner, even when its newest owner leads directly to an external root.
+     * The mutation lock keeps these owner edges valid. A witness is only a
+     * route: never treat a snapshot sentinel or a previously live owner as
+     * proof. Recheck each reference count and fall back to the exact worklist
+     * when the preferred chain ends or cycles. */
+    void* preferred = object;
+    while (preferred && __btrc_reverse_add(preferred)) {
+        __btrc_arc_validate(preferred);
+        __btrc_arc_header* header = __btrc_arc_header_of(preferred);
+        if (header->rc > header->edge_rc) return 1;
+        if (header->live_witness == preferred) break;
+        preferred = header->live_witness;
+    }
     for (int head = 0; head < __btrc_reverse_count; head++) {
         void* current = __btrc_reverse_queue[head];
         __btrc_arc_validate(current);

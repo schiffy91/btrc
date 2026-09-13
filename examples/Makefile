@@ -34,18 +34,10 @@ gui: ## Build + run the headless GUI example (offscreen, no display needed)
 	@$(MAKE) -C gui
 
 game: ## Build the 3D engine game
-	@if [ -f "$(GPU_LIB)" ]; then \
-		echo "=== game ===" && $(MAKE) -C game; \
-	else \
-		echo "=== game === (skipped — run 'make gpu' in project root first)"; \
-	fi
+	@$(MAKE) -C game
 
 triangle: ## Build the GPU triangle example
-	@if [ -f "$(GPU_LIB)" ]; then \
-		echo "=== triangle ===" && $(MAKE) -C triangle; \
-	else \
-		echo "=== triangle === (skipped — run 'make gpu' in project root first)"; \
-	fi
+	@$(MAKE) -C triangle
 
 sgd: ## Build the GPU SGD example
 	@if [ -f "$(GPU_LIB)" ]; then \

@@ -1,63 +1,106 @@
-/* One Library.App window with one attached WebGPU surface and triangle pipeline. */
+import Library.CLI;
+import Library.Callback;
+import Library.GUI.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.IGPUView;
+import Library.GPU.Program;
+import Library.GPU.SurfaceRenderer;
+import Library.GPU.Readback;
+import Library.GPU.UniformBuffer;
 
-import ../../src/stdlib/App/App.btrc;
-import ../../src/stdlib/GPU/GPU.btrc;
+/* Native application work schedules frames while the view owns asynchronous
+ * preparation/readback and drains them during ordinary window shutdown. */
+class Triangle implements IApplicationWork {
+	private IWindow _window;
+	private IGPUView _view;
+	private GPUProgram? _program;
+	private GPUUniformBuffer? _uniform;
+	private GPUReadback? _readback;
+	private bool _verify;
+	public bool verified = false;
 
-int main() {
-	Application application = new Application();
-	AppWindowOpenOutcome opened = application.openWindow(new AppWindowDescriptor("btrc Triangle", 800, 600));
-	if (opened.kind != APP_WINDOW_OPENED || opened.window == null) { return 1; }
-	ApplicationWindow window = opened.window;
-
-	AppSurfaceOpenOutcome surfaceOpened = window.surface();
-	if (surfaceOpened.kind != APP_SURFACE_OPENED || surfaceOpened.surface == null) { return 2; }
-	AppSurfaceAttachment surface = surfaceOpened.surface;
-
-	GPUAttachOutcome attached = GPU.attach(surface);
-	if (attached.kind != GPU_ATTACHED || attached.gpu == null) { return 3; }
-	GPU gpu = attached.gpu;
-
-	GPUShaderOutcome shaderCreated = gpu.createShader("""
-        @vertex fn vs_main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
-            var pos = array<vec2f, 3>(
-                vec2f( 0.0,  0.5),
-                vec2f(-0.5, -0.5),
-                vec2f( 0.5, -0.5)
-            );
-            return vec4f(pos[i], 0.0, 1.0);
-        }
-
-        @fragment fn fs_main() -> @location(0) vec4f {
-            return vec4f(1.0, 0.0, 0.0, 1.0);
-        }
-    """);
-	if (shaderCreated.kind != GPU_RESOURCE_READY || shaderCreated.shader == null) { return 4; }
-	GPUShader shader = shaderCreated.shader;
-	GPUPipelineOutcome pipelineCreated = gpu.createPipeline(shader);
-	if (pipelineCreated.kind != GPU_RESOURCE_READY || pipelineCreated.pipeline == null) { return 5; }
-	GPURenderPipeline pipeline = pipelineCreated.pipeline;
-
-	bool running = true;
-	while (running) {
-		AppWindowEvent event = application.poll();
-		if (event.kind == APP_EVENT_CLOSE_REQUESTED || event.kind == APP_EVENT_CLOSED || event.kind == APP_EVENT_FAILED) {
-			running = false;
-		}
-		if (!running) { break; }
-		GPUFrameOutcome frame = gpu.beginFrame(0.0f, 0.0f, 0.0f);
-		if (frame.kind == GPU_FRAME_READY) {
-			if (gpu.draw(pipeline, 3).kind != GPU_DRAW_RECORDED) { return 6; }
-			if (gpu.endFrame().kind != GPU_FRAME_PRESENTED) { return 7; }
-		} else if (frame.kind != GPU_FRAME_TIMEOUT && frame.kind != GPU_FRAME_OUTDATED) {
-			running = false;
-		}
+	public Triangle(IWindow window, IGPUView view, bool verify) {
+		self._window = window;
+		self._view = view;
+		self._verify = verify;
 	}
 
-	pipeline.close();
-	shader.close();
-	gpu.close();
-	surface.close();
-	window.close();
-	application.close();
+	public void run() {
+		if (!self._window.isOpen()) { self.close(); GUI.requestQuit(); return; }
+		bool ready = self._view.poll();
+		if (!self._view.error().isEmpty()) { throw self._view.error(); }
+		if (ready) {
+			if (self._program == null) {
+				self._program = self._view.createProgram("""
+                    struct Color { rgba: vec4f }
+                    @group(0) @binding(0) var<uniform> color: Color;
+                    @vertex fn vs_main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+                        var positions = array<vec2f, 3>(vec2f(0.0, 0.5), vec2f(-0.5, -0.5), vec2f(0.5, -0.5));
+                        return vec4f(positions[i], 0.0, 1.0);
+                    }
+                    @fragment fn fs_main() -> @location(0) vec4f { return color.rgba; }
+                """, 4, false, false);
+				var uniform = GPUUniformBuffer(self._view.frameRenderer().device(), 4);
+				uniform.set(0, 1.0f);
+				uniform.set(3, 1.0f);
+				self._uniform = uniform;
+			}
+			var program = self._program;
+			var uniform = self._uniform;
+			if (program == null || uniform == null) { throw "Triangle resources are missing"; }
+			var state = program.poll();
+			if (state == GPU_PROGRAM_FAILED) { throw program.error(); }
+			var readback = self._readback;
+			if (readback != null) {
+				if (readback.poll() == GPU_READBACK_FAILED) { throw readback.error(); }
+				if (readback.state() == GPU_READBACK_READY) {
+					var pixels = readback.takeImage();
+					var center = pixels.pixel(pixels.width / 2, pixels.height / 2);
+					var corner = pixels.pixel(0, 0);
+					if (center.red != 255 || center.green != 0 || center.blue != 0 || center.alpha != 255 || corner.red != 0 || corner.green != 0 || corner.blue != 0) { throw "Triangle pixel verification failed"; }
+					self.verified = true;
+					self.close();
+					GUI.requestQuit();
+					return;
+				}
+			} else if (state == GPU_PROGRAM_READY) {
+				var frame = self._view.beginFrame(0.0, 0.0, 0.0);
+				if (frame == GPU_SURFACE_FRAME_READY) {
+					var renderer = self._view.frameRenderer();
+					program.draw(renderer, uniform, 3);
+					if (self._verify) {
+						var readback = self._view.readback();
+						self._readback = readback;
+						if (!readback.submit()) { throw readback.error(); }
+					} else if (!renderer.present()) { throw renderer.error(); }
+				} else if (frame == GPU_SURFACE_FRAME_UNAVAILABLE) { throw self._view.error(); }
+			}
+		}
+		GUI.postAfter(1.0 / 60.0, self);
+	}
+
+	public void close() { if (self._uniform != null) { self._uniform.close(); self._uniform = null; } }
+	public void __del__() { self.close(); }
+}
+
+int main(int argc, char** argv) {
+	var args = CLIArgs(argc, argv);
+	if (args.count() > 1 || (args.count() == 1 && !args.has("--verify"))) { print("Usage: triangle [--verify]"); return 1; }
+	GUI.initialize();
+	Triangle? triangle = null;
+	try {
+		var window = GUI.createWindow("btrc Triangle", 800.0, 600.0);
+		var view = GUI.createGPUView();
+		window.attachRoot(view);
+		window.show();
+		triangle = Triangle(window, view, args.has("--verify"));
+		GUI.post(triangle);
+		GUI.run();
+		if (args.has("--verify")) {
+			if (triangle == null || !triangle.verified) { throw "Triangle verification ended before pixel readback"; }
+			print("PASS: native triangle pixels and shutdown");
+		}
+	} finally { if (triangle != null) { triangle.close(); } GUI.close(); }
 	return 0;
 }

@@ -12,6 +12,7 @@ CFNumberRef allocationNumber(CFAllocatorRef, CFNumberType, const void*);
 CFMutableDictionaryRef allocationDictionary(CFAllocatorRef, CFIndex, const CFDictionaryKeyCallBacks*, const CFDictionaryValueCallBacks*);
 CFMutableArrayRef allocationArray(CFAllocatorRef, CFIndex, const CFArrayCallBacks*);
 void allocationRelease(CFTypeRef);
+CFTypeRef allocationRetain(CFTypeRef);
 
 #define CFStringCreateWithCString allocationString
 #define CFUUIDCreate allocationUuid
@@ -20,4 +21,5 @@ void allocationRelease(CFTypeRef);
 #define CFDictionaryCreateMutable allocationDictionary
 #define CFArrayCreateMutable allocationArray
 #define CFRelease allocationRelease
+#define CFRetain allocationRetain
 #endif

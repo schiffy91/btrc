@@ -1519,6 +1519,8 @@ class ExpressionLowerer:
                 return IRDeref(expr=operand)
             return IRUnaryOp(op=node.op, operand=operand, prefix=node.prefix)
         if isinstance(node, CastExpr):
+            if self._native_resource_query_type(node):
+                return self._lower_native_resource_query(node, provenance)
             if self._is_interface_query(node):
                 return self._lower_interface_query(node, provenance)
             return IRCast(
@@ -1601,6 +1603,30 @@ class ExpressionLowerer:
             and source.base in self._analyzed.interface_table
             and target.base in self._analyzed.interface_table
             and target.is_nullable
+        )
+
+    def _native_resource_query_type(self, node: CastExpr) -> str:
+        return TypeSystem.native_resource_query_type(
+            self._analyzed.class_table,
+            self._types.canonical_type(node.target_type),
+            self._types.canonical_type(self._session.type_of(node.expr)),
+        )
+
+    def _lower_native_resource_query(self, node: CastExpr, provenance: CallableProvenance) -> IRExpr:
+        target = self._types.canonical_type(node.target_type)
+        query_type = self._native_resource_query_type(node)
+        prepared = self._prepare_operand_evaluation((node.expr,), provenance, operand_targets=(None,), force=True)
+        if prepared is None:
+            return IRCast(CType(self._cast_target_type(target)), self.lower_expr(node.expr, provenance))
+        evaluation, fact_types = prepared
+        with self._session.operand_scope(evaluation.values, fact_types, evaluation.ownership):
+            receiver = self.lower_expr(node.expr, provenance)
+        argument = IRCast(
+            CType(self._types.render(TypeExpr(base=query_type, is_nullable=True, pointer_depth=1))), receiver
+        )
+        result = IRCall(f"__btrc_native_{target.base}_try_cast", [argument])
+        return self._call_boundary.materialize(
+            evaluation, result, CallResultPlan(c_type=self._cast_target_type(target), type_expr=target, owned=True)
         )
 
     def _lower_interface_query(self, node: CastExpr, provenance: CallableProvenance) -> IRExpr:
@@ -1913,6 +1939,8 @@ class ExpressionLowerer:
             return result
         if isinstance(node, CastExpr):
             self._callable_boundaries.reject_nonportable_callable_cast(node, provenance)
+            if self._native_resource_query_type(node):
+                return self._lower_native_resource_query(node, provenance)
             if self._is_interface_query(node):
                 return self._lower_interface_query(node, provenance)
             return IRCast(
@@ -2030,9 +2058,10 @@ class ExpressionLowerer:
             return IRLiteral(text=predefined)
         if self._session.local_is_declared(name):
             return self._source_identifier_var(node, self._ownership.source_binding_c_name(name, provenance))
+        if name in self._analyzed.native_owned_globals:
+            prefix = "__btrc_objc_read_" if name in self._objective_c_globals else "__btrc_native_read_"
+            return IRCall(callee=prefix + name, args=[])
         if name in self._objective_c_globals:
-            if name in self._analyzed.native_object_globals:
-                return IRCall(callee=f"__btrc_objc_read_{name}", args=[])
             return IRDeref(expr=IRCall(callee=f"__btrc_objc_address_{name}", args=[]))
         if name in self._source_visible_helpers and (not self._session.local_is_declared(name)):
             self._session.require_helper(name)

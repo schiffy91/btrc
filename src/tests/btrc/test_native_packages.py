@@ -103,7 +103,8 @@ def _binding_source(root: Path, declaration: str, imported: bool = False) -> Pat
     [
         ("valid", ""),
         ("shared-hooks", ""),
-        ("unique", "reference-counted"),
+        ("unique", "must not declare retain"),
+        ("unique-valid", ""),
         ("unselected", "selected functions"),
         ("same-operation", "distinct"),
         ("unknown-field", "unexpected"),
@@ -128,6 +129,10 @@ def test_resource_binding_validation_has_frontend_parity(semantic_btrcc, tmp_pat
         )
     elif mutation == "unique":
         binding = binding.replace('ownership = "reference-counted"', 'ownership = "unique"')
+    elif mutation == "unique-valid":
+        binding = binding.replace('ownership = "reference-counted"', 'ownership = "unique"').replace(
+            'retain = "WidgetRetain"\n', ""
+        )
     elif mutation == "unselected":
         binding = binding.replace('retain = "WidgetRetain"', 'retain = "Unknown"')
     elif mutation == "same-operation":

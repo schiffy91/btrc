@@ -714,13 +714,14 @@ class OwnershipValidator {
 
 	public bool expressionOwnsResult(Node? expression, Map<string, Node> vars) {
 		if (expression == null) { return false; }
-		if (expression.kind == NK_IDENTIFIER) { return !self.state.localBindings.has(expression.name) && self.state.analyzed.isObjectiveCObjectGlobal(expression.name); }
+		if (expression.kind == NK_IDENTIFIER) { return !self.state.localBindings.has(expression.name) && self.state.analyzed.nativeGlobalReturnsOwned(expression.name); }
 		Node? result = self.types.inferType(expression,  vars);
 		bool managedResult = self.managedResultType(result);
 		if (expression.kind == NK_NEW_EXPR || expression.kind == NK_LIST_LITERAL || expression.kind == NK_MAP_LITERAL || expression.kind == NK_BRACE_INITIALIZER) {
 			return managedResult;
 		}
 		if (expression.kind == NK_CAST_EXPR) {
+			if (self.state.analyzed.nativeResourceQueryType(self.types.resolveAliases(expression.targetType), self.types.resolveAliases(self.types.inferType(expression.expr, vars))) != "") { return true; }
 			return managedResult && self.expressionOwnsResult(expression.expr, vars);
 		}
 		if (expression.kind == NK_F_STRING_LITERAL) {

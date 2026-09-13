@@ -1,3 +1,7 @@
+import Library.GPU.UniformBuffer;
+
+import ./Gameobject.btrc;
+
 /* btrc 3D Engine -- Light
  *
  * Directional light with ambient term.
@@ -15,7 +19,7 @@ class Light {
 		self.ambient = 0.22;
 	}
 
-	public void writeUniforms(GPUUniform u, int offset) {
+	public void writeUniforms(GPUUniformBuffer u, int offset) {
 		u.set(offset + 0, self.direction.x);
 		u.set(offset + 1, self.direction.y);
 		u.set(offset + 2, self.direction.z);

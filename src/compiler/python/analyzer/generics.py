@@ -96,7 +96,10 @@ class GenericAnalyzer:
                 dependencies = [(context, required)]
                 if contract.callbacks[0].one_shot:
                     dependencies = [(context, (*required, "complete"))]
-                elif contract.callbacks[0].unregister.signature.parameters:
+                elif (
+                    contract.callbacks[0].unregister.signature.parameters
+                    and not contract.callbacks[0].unregister.class_method
+                ):
                     dependencies.append((context.generic_args[1], ("publish", "source", "value")))
                 if result:
                     dependencies.append((result, ()))

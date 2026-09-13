@@ -9,6 +9,8 @@ enum NativeNodeKind {
 	NNK_NATIVE_HEADER,
 	NNK_NATIVE_FUNCTION,
 	NNK_NATIVE_OBJECTIVE_C_METHOD,
+	NNK_NATIVE_CXX_CLASS,
+	NNK_NATIVE_CXX_METHOD,
 	NNK_NATIVE_TYPEDEF,
 	NNK_NATIVE_CONSTANT,
 	NNK_NATIVE_GLOBAL,
@@ -58,11 +60,17 @@ class NativeNode {
 	public bool returnsInnerPointer;
 	public bool protocolOwner;
 	public bool optional;
+	public NativeNode recordType;
+	public bool defaultConstructor;
+	public bool publicDestructor;
+	public bool triviallyCopyable;
+	public bool triviallyDestructible;
+	public string methodName;
+	public bool constMethod;
 	public NativeNode underlying;
 	public NativeNode valueType;
 	public string decimalValue;
 	public bool readOnly;
-	public NativeNode recordType;
 	public int bits;
 	public int alignmentBitsInt;
 	public string signedness;
@@ -126,11 +134,17 @@ class NativeNode {
 		self.returnsInnerPointer = false;
 		self.protocolOwner = false;
 		self.optional = false;
+		self.recordType = null;
+		self.defaultConstructor = false;
+		self.publicDestructor = false;
+		self.triviallyCopyable = false;
+		self.triviallyDestructible = false;
+		self.methodName = "";
+		self.constMethod = false;
 		self.underlying = null;
 		self.valueType = null;
 		self.decimalValue = "";
 		self.readOnly = false;
-		self.recordType = null;
 		self.bits = 0;
 		self.alignmentBitsInt = 0;
 		self.signedness = "";

@@ -149,6 +149,7 @@ class CallTargetResolver {
 	private CallableValueSemantics callableValues;
 	private CTypeLowerer cTypes;
 	private LoweringContext context;
+	private Map<string, string> nativeUniqueMethods;
 
 	public CallTargetResolver(Analyzed analyzed, HostedAbiRepository hostedAbi, DeclarationRegistry declarations, ExpressionTypeResolver expressionTypes, CallableValueSemantics callableValues, CTypeLowerer cTypes, LoweringContext context) {
 		self.analyzed = analyzed;
@@ -158,6 +159,19 @@ class CallTargetResolver {
 		self.callableValues = callableValues;
 		self.cTypes = cTypes;
 		self.context = context;
+		self.nativeUniqueMethods = {};
+		for imported in analyzed.nativeDeclarations {
+			if (imported.resource != null && imported.resource.ownership == "unique") {
+				for method in imported.declaration.members {
+					if (method.kind == NK_METHOD_DECL) { self.nativeUniqueMethods.put(imported.declaration.name + "." + method.name, "__btrc_unique_" + imported.declaration.name + "_" + method.name + "_public"); }
+				}
+			}
+		}
+	}
+
+	private string methodSymbol(string owner, string name, string prefix) {
+		string key = owner + "." + name;
+		return self.nativeUniqueMethods.has(key) ? self.nativeUniqueMethods.get(key) : prefix + "_" + name;
 	}
 
 	private void fail(string message) {
@@ -314,7 +328,7 @@ class CallTargetResolver {
 		string prefix = receiverType.genericArgs.len > 0 ? TypeIdentity.mangleGenericType(owner, receiverType.genericArgs) : owner;
 		target.ownerName = owner;
 		target.classPrefix = prefix;
-		target.defaultCName = prefix + "_" + method.name;
+		target.defaultCName = self.methodSymbol(owner, method.name, prefix);
 		if (method.access != "class") {
 			Node selfType = SemanticTypeSystem.namedClass(owner);
 			int argumentIndex = 0;
@@ -446,7 +460,7 @@ class CallTargetResolver {
 		Map<string, Node> substitutions = self.targetTypeMap(call, receiverType, method, variableTypes);
 		target.signature = self.declarationSignature(method, substitutions);
 		string prefix = receiverType.genericArgs.len > 0 ? TypeIdentity.mangleGenericType(receiverType.base, receiverType.genericArgs) : receiverType.base;
-		target.symbol = prefix + "_" + method.name;
+		target.symbol = self.methodSymbol(receiverType.base, method.name, prefix);
 		if (method.genericParams.len > 0 && self.analyzed.methodGenCallArgs.has(AstIdentity.key(call))) {
 			target.symbol = GenericSpecializer.genericMethodInstanceName(receiverType.base, receiverType.genericArgs, method.name, self.analyzed.methodGenCallArgs.get(AstIdentity.key(call)));
 		}

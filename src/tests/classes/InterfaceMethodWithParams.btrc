@@ -4,11 +4,15 @@
 #include <assert.h>
 
 interface BinaryOp {
-	int apply(int a, int b);
+	int apply(int a, int b = 7);
 }
 
-class Adder implements BinaryOp {
-	public int apply(int a, int b) { return a + b; }
+interface ExtendedBinaryOp extends BinaryOp { int identity(int value = 19); }
+
+class Adder implements ExtendedBinaryOp {
+	public int apply(int a, int b = 100) { return a + b; }
+
+	public int identity(int value = 99) { return value; }
 }
 
 class Multiplier implements BinaryOp {
@@ -23,6 +27,12 @@ int main() {
 	Multiplier mul = Multiplier();
 	assert(mul.apply(2, 3) == 6);
 	assert(mul.apply(7, 0) == 0);
+	BinaryOp operation = add;
+	assert(operation.apply(3) == 10);
+	assert(operation.apply(b=8, a=2) == 10);
+	ExtendedBinaryOp extended = add;
+	assert(extended.apply(4) == 11 && extended.identity() == 19);
+	assert(add.apply(1) == 101 && add.identity() == 99);
 
 	print("PASS: test_interface_method_with_params");
 	return 0;

@@ -53,13 +53,13 @@ class ImageIODecodeSession {
 	}
 
 	public void __del__() {
-		if (self._context != null) { CGContextRelease(self._context); }
-		if (self._colorSpace != null) { CFRelease(self._colorSpace); }
-		if (self._image != null) { CFRelease(self._image); }
-		if (self._properties != null) { CFRelease(self._properties); }
-		if (self._source != null) { CFRelease(self._source); }
-		if (self._options != null) { CFRelease(self._options); }
-		if (self._data != null) { CFRelease(self._data); }
+		self._context = null;
+		self._colorSpace = null;
+		self._image = null;
+		self._properties = null;
+		self._source = null;
+		self._options = null;
+		self._data = null;
 	}
 
 	class EncodedImageDecodeOutcome run(Bytes encoded, string format, EncodedImageDecodeLimits limits) { return ImageIODecodeSession(encoded).decode(format, limits); }
@@ -88,7 +88,6 @@ class ImageIODecodeSession {
 		if (self._context == null) { return self.rejected(ENCODED_IMAGE_DECODE_FAILED); }
 		CGContextSetBlendMode(self._context, kCGBlendModeCopy);
 		CGContextDrawImage(self._context, CGRectMake(0.0, 0.0, (double)width, (double)height), self._image);
-		CGContextRelease(self._context);
 		self._context = null;
 		if (!pixels.tryCopyPremultipliedRgba(pixels.data, (unsigned long long)width * (unsigned long long)height * 4ULL)) { return self.rejected(ENCODED_IMAGE_DECODE_FAILED); }
 		return EncodedImageDecodeOutcome.decoded(pixels, self._encoded.length());
@@ -104,9 +103,11 @@ class ImageIODecodeSession {
 	private long long dimension(CFStringRef key) {
 		if (self._properties == null) { return 0LL; }
 		var value = CFDictionaryGetValue(self._properties, key);
-		if (value == null || CFGetTypeID(value) != CFNumberGetTypeID()) { return 0LL; }
+		if (value == null) { return 0LL; }
+		var number = (CFNumberRef?)value;
+		if (number == null) { return 0LL; }
 		long long dimension = 0LL;
-		if (CFNumberGetValue((CFNumberRef)value, kCFNumberLongLongType, &dimension) == 0) { return 0LL; }
+		if (CFNumberGetValue(number, kCFNumberLongLongType, &dimension) == 0) { return 0LL; }
 		return dimension;
 	}
 

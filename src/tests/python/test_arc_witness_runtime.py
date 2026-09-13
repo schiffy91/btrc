@@ -43,7 +43,7 @@ typedef struct Node {
 } Node;
 
 static const __btrc_arc_type node_type;
-static int destroyed[64];
+static int destroyed[8192];
 
 static void* node_slot_access(
         volatile void* raw, void* expected, void* replacement, int commit) {
@@ -64,7 +64,7 @@ static void remove_slot(Node* owner, Node** slot);
 
 static void node_destroy(void* raw) {
     Node* node = (Node*)raw;
-    if (node->id < 0 || node->id >= 64 || destroyed[node->id]++) abort();
+    if (node->id < 0 || node->id >= 8192 || destroyed[node->id]++) abort();
     remove_slot(node, &node->next);
     remove_slot(node, &node->alternate);
     if (node->arc.incoming != NULL) abort();
@@ -233,6 +233,140 @@ static void test_reverse_worklist_finds_alternate_root(void) {
     expect_once(60); expect_once(61); expect_once(62);
 }
 
+static void test_snapshot_after_last_root_removed(void) {
+    Node* first = new_node(70);
+    Node* second = new_node(71);
+    adopt_slot(first, &first->next, second);
+    retain_slot(second, &second->next, first);
+    __btrc_arc_unlink_edge(second, NULL);
+    __btrc_suspect(second, node_visit, node_destroy);
+    __btrc_collect_cycles();
+    if (second->arc.live_witness != second) abort();
+    release_external(first);
+    __btrc_flush_cycles();
+    expect_once(70); expect_once(71);
+}
+
+static void test_shared_child_release_work_is_bounded(void) {
+    enum { owner_count = 4096 };
+    Node* owners[owner_count];
+    Node* target = new_node(99);
+    for (int i = 0; i < owner_count; i++) {
+        owners[i] = new_node(100 + i);
+        retain_slot(owners[i], &owners[i]->next, target);
+    }
+    release_external(target);
+    if (__btrc_reverse_count != 2) abort();
+    for (int i = 0; i < owner_count; i++) {
+        __btrc_arc_retain(target);
+        release_external(target);
+        /* Count actual visited owners, independent of machine speed. */
+        if (__btrc_reverse_count != 2 || __btrc_suspect_count != 0) abort();
+    }
+    for (int i = owner_count - 1; i >= 0; i--) {
+        release_external(owners[i]);
+        expect_once(100 + i);
+    }
+    expect_once(99);
+}
+
+static void test_all_three_node_graphs_and_roots(void) {
+    /* Every vertex has a self-edge so rootless vertices remain valid ARC
+     * objects. Enumerate all cross-edges, external-root subsets, and each
+     * combination of concrete, absent, or snapshot witnesses. */
+    for (unsigned graph = 0; graph < 64; graph++) {
+        for (unsigned roots = 0; roots < 8; roots++) {
+            for (unsigned witnesses = 0; witnesses < 27; witnesses++) {
+                __btrc_arc_header nodes[3] = {0};
+                __btrc_arc_incoming edges[3][3] = {0};
+                unsigned reachable[3] = {1, 2, 4};
+                unsigned edge_bit = 0;
+                for (int owner = 0; owner < 3; owner++) {
+                    for (int target = 0; target < 3; target++) {
+                        int present = owner == target;
+                        if (!present) present = (graph >> edge_bit++) & 1;
+                        if (!present) continue;
+                        edges[owner][target].owner = &nodes[owner];
+                        edges[owner][target].next = nodes[target].incoming;
+                        nodes[target].incoming = &edges[owner][target];
+                        nodes[target].edge_rc++;
+                        reachable[target] |= 1u << owner;
+                        if (owner != target)
+                            nodes[target].live_witness = &nodes[owner];
+                    }
+                }
+                unsigned choices = witnesses;
+                for (int node = 0; node < 3; node++) {
+                    nodes[node].rc = nodes[node].edge_rc + ((roots >> node) & 1);
+                    nodes[node].state = __BTRC_ARC_LIVE;
+                    nodes[node].type = &node_type;
+                    if (choices % 3 == 1) nodes[node].live_witness = NULL;
+                    if (choices % 3 == 2) nodes[node].live_witness = &nodes[node];
+                    choices /= 3;
+                }
+                /* Independent transitive closure, not the runtime traversal. */
+                for (int via = 0; via < 3; via++) {
+                    for (int node = 0; node < 3; node++) {
+                        if (reachable[node] & (1u << via))
+                            reachable[node] |= reachable[via];
+                    }
+                }
+                for (int node = 0; node < 3; node++) {
+                    int expected = (reachable[node] & roots) != 0;
+                    if (__btrc_arc_reverse_proves_live(&nodes[node]) != expected)
+                        abort();
+                    if (__btrc_reverse_count > 3) abort();
+                }
+            }
+        }
+    }
+}
+
+static void test_collection_after_every_root_removal_order(void) {
+    static const int orders[6][3] = {
+        {0, 1, 2}, {0, 2, 1}, {1, 0, 2},
+        {1, 2, 0}, {2, 0, 1}, {2, 1, 0},
+    };
+    for (unsigned graph = 0; graph < 64; graph++) {
+        for (int order = 0; order < 6; order++) {
+            Node* nodes[3];
+            unsigned reachable[3] = {1, 2, 4};
+            unsigned roots = 7;
+            unsigned edge_bit = 0;
+            for (int node = 0; node < 3; node++) {
+                destroyed[80 + node] = 0;
+                nodes[node] = new_node(80 + node);
+            }
+            for (int owner = 0; owner < 3; owner++) {
+                int slot = 0;
+                for (int target = 0; target < 3; target++) {
+                    if (owner == target) continue;
+                    Node** address = slot++ ? &nodes[owner]->alternate : &nodes[owner]->next;
+                    if (!((graph >> edge_bit++) & 1)) continue;
+                    retain_slot(nodes[owner], address, nodes[target]);
+                    reachable[target] |= 1u << owner;
+                }
+            }
+            for (int via = 0; via < 3; via++) {
+                for (int node = 0; node < 3; node++) {
+                    if (reachable[node] & (1u << via))
+                        reachable[node] |= reachable[via];
+                }
+            }
+            for (int step = 0; step < 3; step++) {
+                int released = orders[order][step];
+                roots &= ~(1u << released);
+                release_external(nodes[released]);
+                __btrc_flush_cycles();
+                for (int node = 0; node < 3; node++) {
+                    int expected = (reachable[node] & roots) == 0;
+                    if (destroyed[80 + node] != expected) abort();
+                }
+            }
+        }
+    }
+}
+
 int main(void) {
     test_self_edge();
     test_multiple_owners();
@@ -242,6 +376,10 @@ int main(void) {
     test_rooted_ring();
     test_edge_after_snapshot();
     test_reverse_worklist_finds_alternate_root();
+    test_snapshot_after_last_root_removed();
+    test_shared_child_release_work_is_bounded();
+    test_all_three_node_graphs_and_roots();
+    test_collection_after_every_root_removal_order();
     if (__btrc_suspect_count != 0) abort();
     __btrc_cycle_state_cleanup();
     if (__btrc_reverse_queue || __btrc_reverse_keys
@@ -256,7 +394,8 @@ int main(void) {
     reason="requires a strict C11 compiler",
 )
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
-def test_witness_transitions_are_exact(tmp_path: Path, c_compiler: str) -> None:
+@pytest.mark.parametrize("sanitize", [False, True], ids=["optimized", "asan-ubsan"])
+def test_witness_transitions_are_exact(tmp_path: Path, c_compiler: str, sanitize: bool) -> None:
     source = tmp_path / "arc_witness.c"
     binary = tmp_path / "arc_witness"
     source.write_text(f"{HEADERS}\n{RUNTIME}\n{HARNESS}\n")
@@ -266,6 +405,7 @@ def test_witness_transitions_are_exact(tmp_path: Path, c_compiler: str) -> None:
             "-std=c11",
             "-pedantic-errors",
             "-O2",
+            *(["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if sanitize else []),
             "-Werror=implicit-function-declaration",
             str(source),
             "-o",

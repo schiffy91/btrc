@@ -4,6 +4,7 @@ import Library.Console;
 import Library.GUI.IWindow;
 import Library.GUI.IView;
 import Library.GUI.MacOS.AppKitText;
+import Library.GUI.MacOS.AppKitEvents;
 import Library.GUI.MacOS.MacOSView;
 import Library.GUI.MacOS.MacOSRunLoop;
 
@@ -27,6 +28,63 @@ class MacOSWindowEvents implements IAppKitWindowEvents {
 
 /* Main-thread native window owner. Managed roots transfer subtree lifecycle;
  * raw native children remain a legacy provider-only mounting path. */
+class MacOSWindowKeys implements IAppKitKeyMonitor {
+	private NSWindow _window;
+	private IWindowKeyHandler _handler;
+
+	public MacOSWindowKeys(NSWindow window, IWindowKeyHandler handler) { self._window = window; self._handler = handler; }
+
+	private AppKeyCode keyCode(unsigned short code) {
+		if (code == kVK_Space) { return APP_KEY_SPACE; }
+		if (code == kVK_Escape) { return APP_KEY_ESCAPE; }
+		if (code == kVK_Return) { return APP_KEY_ENTER; }
+		if (code == kVK_LeftArrow) { return APP_KEY_LEFT; }
+		if (code == kVK_RightArrow) { return APP_KEY_RIGHT; }
+		if (code == kVK_UpArrow) { return APP_KEY_UP; }
+		if (code == kVK_DownArrow) { return APP_KEY_DOWN; }
+		if (code == kVK_Tab) { return APP_KEY_TAB; }
+		if (code == kVK_Delete) { return APP_KEY_BACKSPACE; }
+		if (code == kVK_ForwardDelete) { return APP_KEY_DELETE; }
+		if (code == kVK_Home) { return APP_KEY_HOME; }
+		if (code == kVK_End) { return APP_KEY_END; }
+		if (code == kVK_ANSI_A) { return APP_KEY_A; }
+		if (code == kVK_ANSI_D) { return APP_KEY_D; }
+		if (code == kVK_ANSI_S) { return APP_KEY_S; }
+		if (code == kVK_ANSI_W) { return APP_KEY_W; }
+		if (code == kVK_ANSI_C) { return APP_KEY_C; }
+		if (code == kVK_ANSI_V) { return APP_KEY_V; }
+		if (code == kVK_ANSI_X) { return APP_KEY_X; }
+		if (code == kVK_ANSI_Z) { return APP_KEY_Z; }
+		if (code == kVK_Option) { return APP_KEY_LEFT_ALT; }
+		if (code == kVK_RightOption) { return APP_KEY_RIGHT_ALT; }
+		if (code == kVK_Shift) { return APP_KEY_LEFT_SHIFT; }
+		if (code == kVK_RightShift) { return APP_KEY_RIGHT_SHIFT; }
+		return APP_KEY_UNKNOWN;
+	}
+
+	public NSEvent? invoke(NSEvent native) {
+		if (native.window() != self._window) { return native; }
+		var key = self.keyCode(native.keyCode());
+		if (key == APP_KEY_UNKNOWN) { return native; }
+		var type = native.type();
+		var flags = native.modifierFlags();
+		bool down = type == NSEventTypeKeyDown;
+		if (type == NSEventTypeFlagsChanged) {
+			unsigned long mask = 0UL;
+			if (key == APP_KEY_LEFT_ALT) { mask = (unsigned long)MacOSLeftOptionFlag; }
+			else if (key == APP_KEY_RIGHT_ALT) { mask = (unsigned long)MacOSRightOptionFlag; }
+			else if (key == APP_KEY_LEFT_SHIFT) { mask = (unsigned long)MacOSLeftShiftFlag; }
+			else if (key == APP_KEY_RIGHT_SHIFT) { mask = (unsigned long)MacOSRightShiftFlag; }
+			else { return native; }
+			down = (flags & mask) != 0UL;
+		}
+		AppKeyAction action = down ? APP_KEY_PRESSED : APP_KEY_RELEASED;
+		if (type == NSEventTypeKeyDown && native.isARepeat()) { action = APP_KEY_REPEATED; }
+		var modifiers = AppKeyModifiers((flags & NSEventModifierFlagShift) != 0UL, (flags & NSEventModifierFlagControl) != 0UL, (flags & NSEventModifierFlagOption) != 0UL, (flags & NSEventModifierFlagCommand) != 0UL);
+		return self._handler.key(AppKeyboardEvent(action, key, modifiers)) ? null : native;
+	}
+}
+
 class MacOSWindow implements IWindow {
 	private NSWindow? _window;
 	private IView? _root;
@@ -186,6 +244,15 @@ class MacOSWindow implements IWindow {
 	public void hide() { self.nativeWindow().orderOut(null); }
 
 	public bool isVisible() { return self.isOpen() && self.nativeWindow().isVisible(); }
+
+	public bool isFocused() { return self.isOpen() && self.nativeWindow().isKeyWindow(); }
+
+	public ICallbackRegistration onKey(IWindowKeyHandler handler, CallbackScope owner) {
+		var receiver = MacOSWindowKeys(self.nativeWindow(), handler);
+		var registration = NSEvent.addLocalMonitorForEventsMatchingMask(NSEventMaskKeyDown | NSEventMaskKeyUp | NSEventMaskFlagsChanged, receiver, self._callbacks);
+		try { owner.track(registration); } catch (string error) { registration.cancel(); throw error; }
+		return registration;
+	}
 
 	public bool isPresented() { return self.isOpen() && (self.isVisible() || self.nativeWindow().isMiniaturized()); }
 

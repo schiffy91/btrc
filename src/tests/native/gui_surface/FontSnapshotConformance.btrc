@@ -1,0 +1,104 @@
+import Library.Bytes;
+import Library.GUI.FontFace;
+import Library.GUI.Font;
+import Library.GUI.Raster;
+import Library.GUI.View;
+
+#include <assert.h>
+
+class FontLifetime { public int destroyed = 0; }
+
+class SnapshotFace implements IFontFace {
+	private FontLifetime lifetime;
+	public int loads = 0;
+	public int rendered = 0;
+	public int replacements = 0;
+	public SnapshotFace(FontLifetime lifetime) { self.lifetime = lifetime; }
+
+	public FontMetrics metrics() { return new FontMetrics(128LL, 256LL); }
+
+	public FontGlyph? glyph(int codepoint, bool render) {
+		self.loads++;
+		if (render) { self.rendered++; }
+		if (codepoint == 65533) { self.replacements++; }
+		if (codepoint == 63) { return null; }
+		var pixels = new Bytes(); pixels.append(255); pixels.append(128);
+		long long advance = codepoint == 45 ? -64LL : 192LL;
+		if (codepoint == 33) { advance = 9223372036854775807LL; }
+		return new FontGlyph(advance, 0, 2, 2, 1, 2, FONT_PIXEL_GRAY, 256, pixels);
+	}
+
+	public void __del__() { self.lifetime.destroyed++; }
+}
+
+class FontSelectionProbe {
+	class void select(Surface surface, FontLifetime lifetime) {
+		var face = new SnapshotFace(lifetime);
+		var font = new Font(face);
+		surface.setFont(font);
+		assert(surface.textWidth("é?é\né", 99) == 6);
+		assert(surface.textWidth("-A", 1) == 3);
+		assert(surface.textWidth("!!", 1) == 2147483647);
+		assert(surface.textHeight(99) == 4);
+		assert(face.rendered == 0);
+		assert(surface.textWidth("\xc0\xaf", 1) == 6 && face.replacements == 2);
+	}
+}
+
+int main() {
+	var pixels = new Bytes();
+	pixels.append(1); pixels.append(2); pixels.append(99);
+	pixels.append(3); pixels.append(0); pixels.append(99);
+	var gray = new FontGlyph(129LL, -2, 3, 2, 2, -3, FONT_PIXEL_GRAY, 4, pixels);
+	pixels.set(3, 0);
+	assert(gray.advanceX26_6() == 129LL && gray.bitmapLeft() == -2 && gray.bitmapTop() == 3);
+	assert(gray.pitch() == -3 && gray.width() == 2 && gray.rows() == 2);
+	assert(gray.coverage(0, 0) == 255 && gray.coverage(0, 1) == 0);
+	assert(gray.coverage(1, 0) == 85 && gray.coverage(1, 1) == 170);
+	assert(gray.coverage(-1, 0) == 0 && gray.coverage(2, 0) == 0);
+	var bits = new Bytes(); bits.append(129); bits.append(128); bits.append(42);
+	var mono = new FontGlyph(-64LL, 0, 0, 9, 1, 3, FONT_PIXEL_MONO, 2, bits);
+	assert(mono.coverage(0, 0) == 255 && mono.coverage(0, 1) == 0 && mono.coverage(0, 7) == 255 && mono.coverage(0, 8) == 255);
+	var empty = new Bytes();
+	var unsupported = new FontGlyph(64LL, 0, 0, 20, 20, 0, FONT_PIXEL_UNSUPPORTED, 0, empty);
+	assert(unsupported.coverage(0, 0) == 0);
+	var space = new FontGlyph(256LL, 0, 0, 0, 0, 0, FONT_PIXEL_GRAY, 256, empty);
+	assert(space.coverage(0, 0) == 0);
+	bool rejected = false;
+	try { var invalid = new FontGlyph(0LL, 0, 0, 9, 1, 1, FONT_PIXEL_MONO, 2, bits); }
+	catch (string error) { rejected = true; }
+	assert(rejected);
+	rejected = false;
+	try { var invalid = new FontGlyph(0LL, 0, 0, 2, 2, -2147483647 - 1, FONT_PIXEL_GRAY, 256, bits); }
+	catch (string error) { rejected = true; }
+	assert(rejected);
+	var metrics = new FontMetrics(-65LL, 9223372036854775807LL);
+	assert(metrics.ascender26_6() == -65LL && metrics.height26_6() == 9223372036854775807LL);
+	assert(GUIRaster.fontPixels(-65LL) == -1 && GUIRaster.fontPixels(9223372036854775807LL) == 2147483647);
+	assert(GUIRaster.signedAdvance(9223372036854775807LL, 1LL) == 9223372036854775807LL);
+	assert(GUIRaster.signedAdvance(-9223372036854775807LL - 1LL, -1LL) == -9223372036854775807LL - 1LL);
+	var lifetime = new FontLifetime();
+	var surface = new Surface(32, 16);
+	var other = new Surface(32, 16);
+	FontSelectionProbe.select(surface, lifetime);
+	assert(lifetime.destroyed == 0 && other.textWidth("A") == 8 && other.textHeight() == 8);
+	surface.text(1, 1, "A\nA", new Color(200, 80, 40, 128), 9);
+	assert(surface.pixel(1, 1) == 0xc8502880U && surface.pixel(2, 1) == 0xc8502840U);
+	assert(surface.pixel(1, 5) == 0xc8502880U && surface.pixel(4, 1) == 0U);
+	surface.clear(new Color(0, 0, 0, 0));
+	surface.text(1, 1, "-A", new Color(200, 80, 40, 255), 1);
+	assert(surface.pixel(0, 1) == 0xc85028ffU);
+	var label = View.text("AA");
+	UI.measure(surface, label);
+	assert(label.mW == 6 && label.mH == 4);
+	var immediate = new RasterGUI(surface);
+	immediate.label("A");
+	assert(immediate.cursorY == 28);
+	surface.setFont(null);
+	assert(lifetime.destroyed == 1 && surface.textWidth("A") == 8 && surface.textHeight() == 8);
+	surface.clear(new Color(0, 0, 0, 0));
+	surface.text(0, 0, "A", Color.rgb(255, 255, 255), 1);
+	assert(surface.pixel(1, 0) == 0xffffffffU && surface.pixel(0, 0) == 0U);
+	print("PASS: owned signed-pitch font snapshots");
+	return 0;
+}

@@ -13,8 +13,6 @@
 
 import Library.Vector;
 
-#include <GPU.btrc>
-
 // ── GPU kernel ─────────────────────────────────────────────
 // Each thread updates one weight: w -= lr * (momentum + regularization)
 // The inner loop is the compute-intensive part.

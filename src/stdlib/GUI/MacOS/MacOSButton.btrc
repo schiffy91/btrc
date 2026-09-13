@@ -11,6 +11,8 @@ class MacOSButton implements IButton, IMacOSView {
 	private MacOSActionQueue? _actions;
 	private IMacOSAction? _action;
 	private bool _selectable = false;
+	private bool _bordered = true;
+	private double _fontSize = 13.0;
 
 	public MacOSButton(string title, MacOSActionQueue? actions = null) {
 		if (!NSThread.isMainThread()) { throw "Native buttons require the main thread"; }
@@ -48,6 +50,12 @@ class MacOSButton implements IButton, IMacOSView {
 
 	public bool isVisible() { return self._view.isVisible(); }
 
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._view.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._view.onScroll(handler, owner); }
+
+	public void cancelPointerCapture() { self._view.cancelPointerCapture(); }
+
 	public void setVisible(bool visible) { self._view.setVisible(visible); }
 
 	public string title() { return AppKitText.ownedValue(self.control().title()); }
@@ -62,11 +70,25 @@ class MacOSButton implements IButton, IMacOSView {
 	 * custom content, such as an artwork card, rather than a second painted bezel. */
 	public void setTransparent(bool transparent) { self.control().setTransparent(transparent); }
 
+	public void setBordered(bool bordered) {
+		var button = self.control();
+		if (bordered && self._fontSize > 20.0) { throw "Native bordered buttons support font sizes up to 20 points"; }
+		button.setBordered(bordered);
+		self._bordered = bordered;
+	}
+
+	public void setCentered(bool centered) { self.control().setAlignment(centered ? NSTextAlignmentCenter : NSTextAlignmentLeft); }
+
 	public void cancelPendingActions() { var control = self.control(); if (self._actions != null) { self._actions.discard(control); } }
 
 	public void setFont(double size) {
 		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native button font size"; }
-		self.control().setFont(NSFont.systemFontOfSize(size));
+		var button = self.control();
+		if (self._bordered && size > 20.0) { throw "Native bordered buttons support font sizes up to 20 points"; }
+		/* Rounded bezels keep a fixed native height even in a taller frame. */
+		button.setControlSize(size > 13.0 ? NSControlSizeLarge : NSControlSizeRegular);
+		button.setFont(NSFont.systemFontOfSize(size));
+		self._fontSize = size;
 	}
 
 	/* Selectable navigation buttons retain AppKit's toggle/highlight behavior;
@@ -107,15 +129,15 @@ class MacOSButton implements IButton, IMacOSView {
 		return self._actions.onAction(control, action, scope);
 	}
 
-	public CallbackCancellation pollClose() { return self.isOpen() ? CallbackCancellation.NotRequested : CallbackCancellation.Complete; }
+	public CallbackCancellation pollClose() { return self._view.pollClose(); }
 
 	public CallbackCancellation close() {
 		if (!NSThread.isMainThread()) { throw "Native buttons require the main thread"; }
-		if (self._button == null) { return CallbackCancellation.Complete; }
+		if (self._button == null) { return self._view.pollClose(); }
 		self._view.requireDetached();
 		if (self._actions != null) { self._actions.unbind(self._button); }
-		self._view.close();
+		var state = self._view.close();
 		self._button = null;
-		return CallbackCancellation.Complete;
+		return state;
 	}
 }

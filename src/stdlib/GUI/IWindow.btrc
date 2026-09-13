@@ -1,4 +1,9 @@
 import Library.GUI.IView;
+import Library.App;
+
+/* Synchronous native key routing. True consumes the event; false preserves
+ * the platform's normal editor/command handling. Ownership is scope-bound. */
+interface IWindowKeyHandler { bool key(AppKeyboardEvent event); }
 
 /* A window owns its attached root and descendants. Detach returns the same
  * open root; surviving aliases observe subtree shutdown when the window closes.
@@ -18,6 +23,9 @@ interface IWindow {
 	void hide();
 	// Closed windows remain queryable and are never visible.
 	bool isVisible();
+	bool isFocused();
+	void showAlert(string title, string message);
+	ICallbackRegistration onKey(IWindowKeyHandler handler, CallbackScope owner);
 	CallbackCancellation close();
 	CallbackCancellation pollClose();
 }

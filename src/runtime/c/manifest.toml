@@ -101,10 +101,6 @@ prefix = "btrc_gui_"
 macro = "BTRC_RT_NEEDS_GUI"
 
 [[runtime_call_features]]
-prefix = "btrc_tray_"
-macro = "BTRC_RT_NEEDS_TRAY"
-
-[[runtime_call_features]]
 prefix = "pthread_"
 macro = "BTRC_RT_NEEDS_PTHREAD"
 

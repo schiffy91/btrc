@@ -289,7 +289,7 @@ class NameValidator {
 		}
 	}
 
-	public bool publicNativeBinding(string name) { return name == "btrc_gpu_available" || name == "btrc_gui_window_fb_width" || name == "btrc_tray_show"; }
+	public bool publicNativeBinding(string name) { return name == "btrc_gpu_available" || name == "btrc_gui_font_load"; }
 
 	public bool trustedNativeBinding(string name, Node site) { return self.publicNativeBinding(name) || self.hostedAbi.compilerStdlibNode(site) || (self.state.analyzed.isNativeDeclaration(site) && self.hostedAbi.functionOwnedName(name)); }
 
@@ -558,6 +558,10 @@ class NameValidator {
 
 	public void claimClassSymbols(Node declaration, Map<string, string> symbols) {
 		string name = declaration.name;
+		bool unique = false;
+		for imported in self.state.analyzed.nativeDeclarations {
+			if (imported.declaration == declaration && imported.resource != null && imported.resource.ownership == "unique") { unique = true; break; }
+		}
 		if (self.state.analyzed.nativeClassLanguage(name) == "") {
 			self.claimGeneratedSymbol(symbols, name + "_init", "class '" + name + "' initializer", declaration);
 			self.claimGeneratedSymbol(symbols, name + "_new", "class '" + name + "' allocator", declaration);
@@ -574,7 +578,8 @@ class NameValidator {
 		int methodIndex = 0;
 		while (methodIndex < methods.len) {
 			MethodEntry entry = methods.get(methodIndex);
-			self.claimGeneratedSymbol(symbols, name + "_" + entry.name, "method '" + name + "." + entry.name + "'", entry.sig);
+			string symbol = unique ? "__btrc_unique_" + name + "_" + entry.name + "_public" : name + "_" + entry.name;
+			self.claimGeneratedSymbol(symbols, symbol, "method '" + name + "." + entry.name + "'", entry.sig);
 			methodIndex = methodIndex + 1;
 		}
 		Vector<Node> properties = DeclarationRegistry.mergedClassProperties(self.state.analyzed, name);

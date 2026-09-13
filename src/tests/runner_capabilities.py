@@ -76,87 +76,36 @@ def _socket_error(operation: str, error: OSError) -> str:
 
 
 def darwin_gpu_flags() -> tuple[list[str], str | None]:
-    """Resolve Homebrew WebGPU/GLFW flags without assuming brew exists."""
+    """Resolve Homebrew compute-only WebGPU flags without assuming brew exists."""
     brew = shutil.which("brew")
     if brew is None:
         return [], (
             "WebGPU toolchain is unavailable on macOS: GPU_CFLAGS/GPU_LDFLAGS are unset and Homebrew is not on PATH"
         )
-    prefixes: dict[str, str] = {}
-    for formula in ("wgpu-native", "glfw"):
-        try:
-            result = subprocess.run(
-                [brew, "--prefix", formula],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-        except (OSError, subprocess.TimeoutExpired) as error:
-            return [], f"WebGPU toolchain lookup failed for {formula}: {error}"
-        prefix = result.stdout.strip()
-        if result.returncode != 0 or not prefix:
-            detail = result.stderr.strip() or "formula is not installed"
-            return [], f"WebGPU toolchain is unavailable: Homebrew {formula}: {detail[:300]}"
-        prefixes[formula] = prefix
-    wgpu_prefix = prefixes["wgpu-native"]
-    glfw_prefix = prefixes["glfw"]
-    return [
-        f"-I{wgpu_prefix}/include",
-        f"-L{wgpu_prefix}/lib",
-        "-lwgpu_native",
-        f"-I{glfw_prefix}/include",
-        f"-L{glfw_prefix}/lib",
-        "-lglfw",
-        "-framework",
-        "Metal",
-        "-framework",
-        "QuartzCore",
-        "-framework",
-        "Cocoa",
-        "-framework",
-        "IOKit",
-        "-framework",
-        "CoreVideo",
-        "-framework",
-        "CoreText",
-        "-framework",
-        "CoreGraphics",
-        "-framework",
-        "CoreFoundation",
-    ], None
-
-
-def darwin_app_flags() -> tuple[list[str], str | None]:
-    """Resolve Homebrew GLFW flags without probing for WebGPU."""
-    brew = shutil.which("brew")
-    if brew is None:
-        return [], (
-            "GLFW toolchain is unavailable on macOS: APP_CFLAGS/APP_LDFLAGS are unset and Homebrew is not on PATH"
-        )
     try:
         result = subprocess.run(
-            [brew, "--prefix", "glfw"],
+            [brew, "--prefix", "wgpu-native"],
             capture_output=True,
             text=True,
             timeout=15,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
-        return [], f"GLFW toolchain lookup failed for glfw: {error}"
+        return [], f"WebGPU toolchain lookup failed for wgpu-native: {error}"
     prefix = result.stdout.strip()
     if result.returncode != 0 or not prefix:
         detail = result.stderr.strip() or "formula is not installed"
-        return [], f"GLFW toolchain is unavailable: Homebrew glfw: {detail[:300]}"
+        return [], f"WebGPU toolchain is unavailable: Homebrew wgpu-native: {detail[:300]}"
     return [
-        "-DGLFW_INCLUDE_NONE",
         f"-I{prefix}/include",
         f"-L{prefix}/lib",
-        "-lglfw",
+        "-lwgpu_native",
+        "-lpthread",
         "-framework",
-        "Cocoa",
+        "Metal",
         "-framework",
-        "IOKit",
+        "QuartzCore",
         "-framework",
-        "CoreVideo",
+        "Foundation",
     ], None
 
 

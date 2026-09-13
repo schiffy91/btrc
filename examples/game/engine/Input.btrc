@@ -1,6 +1,9 @@
-/* btrc 3D Engine -- typed keyboard state from Library.App events. */
+import Library.App;
+import Library.GUI.IWindow;
 
-class Input {
+/* Held keys are state, delivered by the window's scoped native handler. */
+
+class Input implements IWindowKeyHandler {
 	private bool w;
 	private bool a;
 	private bool s;
@@ -14,7 +17,9 @@ class Input {
 	private bool leftShift;
 	private bool rightShift;
 
-	public Input() {
+	public Input() { self.reset(); }
+
+	public void reset() {
 		self.w = false;
 		self.a = false;
 		self.s = false;
@@ -29,13 +34,10 @@ class Input {
 		self.rightShift = false;
 	}
 
-	public void consume(AppWindowEvent event) {
-		if (event.kind != APP_EVENT_KEYBOARD || event.keyboard == null) {
-			return;
-		}
-
-		AppKeyboardEvent keyboard = event.keyboard;
+	public bool key(AppKeyboardEvent keyboard) {
+		bool command = keyboard.modifiers.command || keyboard.modifiers.control;
 		bool pressed = keyboard.action != APP_KEY_RELEASED;
+		if (command && pressed) { return false; }
 		if (keyboard.key == APP_KEY_W) {
 			self.w = pressed;
 		} else if (keyboard.key == APP_KEY_A) {
@@ -60,10 +62,11 @@ class Input {
 			self.leftShift = pressed;
 		} else if (keyboard.key == APP_KEY_RIGHT_SHIFT) {
 			self.rightShift = pressed;
-		}
+		} else { return false; }
+		return !command;
 	}
 
-	public bool key(AppKeyCode key) {
+	public bool pressed(AppKeyCode key) {
 		if (key == APP_KEY_W) { return self.w; }
 		if (key == APP_KEY_A) { return self.a; }
 		if (key == APP_KEY_S) { return self.s; }

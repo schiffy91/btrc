@@ -6,5 +6,7 @@
 /* Give the SDK's macro-only device flags typed declarations for import. */
 enum {
 	MacOSLeftOptionFlag = NX_DEVICELALTKEYMASK,
-	MacOSRightOptionFlag = NX_DEVICERALTKEYMASK
+	MacOSRightOptionFlag = NX_DEVICERALTKEYMASK,
+	MacOSLeftShiftFlag = NX_DEVICELSHIFTKEYMASK,
+	MacOSRightShiftFlag = NX_DEVICERSHIFTKEYMASK
 };

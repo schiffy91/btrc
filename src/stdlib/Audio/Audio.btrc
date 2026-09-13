@@ -1,0 +1,27 @@
+import Library.Audio.AudioDevice;
+
+class Audio {
+	class AudioDeviceProviderOpenOutcome createDevice() { return AudioProvider.open(); }
+}
+
+/* The outcome owns an alias to the provider, not a second native resource.
+ * Session lifetimes and failures use the existing AudioDeviceProvider contract. */
+class AudioDeviceProviderOpenOutcome {
+	private AudioDeviceStatus _status;
+	private AudioDeviceProvider? _provider;
+	private string _message;
+
+	public AudioDeviceProviderOpenOutcome(AudioDeviceStatus status, AudioDeviceProvider? provider, string message) {
+		if ((status == AUDIO_DEVICE_OK) != (provider != null && message.isEmpty())) { throw "Invalid audio provider outcome"; }
+		self._status = status; self._provider = provider;
+		self._message = status == AUDIO_DEVICE_OK ? "" : (message.isEmpty() ? audioDeviceStatusMessage(status) : message);
+	}
+
+	public bool succeeded() { return self._status == AUDIO_DEVICE_OK; }
+
+	public AudioDeviceStatus status() { return self._status; }
+
+	public string message() { return self._message; }
+
+	public AudioDeviceProvider provider() { if (self._provider == null) { throw "Audio provider is unavailable"; } return self._provider; }
+}

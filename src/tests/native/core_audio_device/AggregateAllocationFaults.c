@@ -6,6 +6,7 @@
 #undef CFDictionaryCreateMutable
 #undef CFArrayCreateMutable
 #undef CFRelease
+#undef CFRetain
 #include <assert.h>
 
 static int failure, calls, references;
@@ -37,4 +38,9 @@ void allocationRelease(CFTypeRef value) {
     assert(value && references > 0);
     references--;
     CFRelease(value);
+}
+CFTypeRef allocationRetain(CFTypeRef value) {
+    assert(value != NULL);
+    references++;
+    return CFRetain(value);
 }

@@ -231,7 +231,7 @@ class OperatorSemantics {
 		if (self.analyzed.isInterface(parent.base)) {
 			return !child.isArray && !parent.isArray && parent.genericArgs.len == 0 && self.valueDepth(child) == 1 && self.valueDepth(parent) == 1 && self.analyzed.isSubclass(child.base, parent.base);
 		}
-		if (self.analyzed.nativeClassLanguage(child.base) == "objective-c") {
+		if (self.analyzed.nativeClassLanguage(child.base) == "objective-c" || self.analyzed.nativeClassLanguage(child.base) == "c") {
 			return !child.isArray && !parent.isArray && child.genericArgs.len == 0 && parent.genericArgs.len == 0 && self.valueDepth(child) == 1 && self.valueDepth(parent) == 1 && self.analyzed.isSubclass(child.base, parent.base);
 		}
 		string currentBase = child.base;

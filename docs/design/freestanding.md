@@ -34,7 +34,7 @@ One header, two modes:
 
 The compiler derives native feature flags from live structured calls after
 dead-code elimination. `BTRC_RT_NEEDS_PTHREAD`, `BTRC_RT_NEEDS_SETJMP`,
-`BTRC_RT_NEEDS_GPU`, `BTRC_RT_NEEDS_GUI`, and `BTRC_RT_NEEDS_TRAY` appear before
+`BTRC_RT_NEEDS_GPU` and `BTRC_RT_NEEDS_GUI` appear before
 the seam only when reached. A target supplies the corresponding
 `BTRC_RT_*_HEADER`; a single `BTRC_RT_PLATFORM_HEADER` can provide additional
 filesystem/socket/platform declarations.

@@ -19,6 +19,8 @@
  */
 
 import Library.Vector;
+import Library.GUI.Raster;
+import Library.GUI.Geometry;
 
 class View {
 	public string kind;     /* column | row | text | button | checkbox | spacer | box */
@@ -129,24 +131,24 @@ class UI {
 	}
 
 	/* Intrinsic size pass (bottom-up). */
-	class void measure(View v) {
+	class void measure(Surface s, View v) {
 		if (v.kind.equals("text")) {
 			int inset = GUIInt.multiply(2, v.padding);
-			v.mW = GUIInt.add(GUIRaster.textWidth(v.text, v.scale), inset);
-			v.mH = GUIInt.add(GUIRaster.textHeight(v.scale), inset);
+			v.mW = GUIInt.add(s.textWidth(v.text, v.scale), inset);
+			v.mH = GUIInt.add(s.textHeight(v.scale), inset);
 		} else if (v.kind.equals("button")) {
 			int inset = GUIInt.multiply(2, v.padding);
-			v.mW = GUIInt.add(GUIInt.add(GUIRaster.textWidth(v.text, v.scale), inset), 20);
-			v.mH = GUIInt.add(GUIInt.add(GUIRaster.textHeight(v.scale), inset), 12);
+			v.mW = GUIInt.add(GUIInt.add(s.textWidth(v.text, v.scale), inset), 20);
+			v.mH = GUIInt.add(GUIInt.add(s.textHeight(v.scale), inset), 12);
 		} else if (v.kind.equals("checkbox")) {
-			int box = GUIRaster.textHeight(v.scale);
+			int box = s.textHeight(v.scale);
 			int inset = GUIInt.multiply(2, v.padding);
-			v.mW = GUIInt.add(GUIInt.add(GUIInt.add(box, 8), GUIRaster.textWidth(v.text, v.scale)), inset);
+			v.mW = GUIInt.add(GUIInt.add(GUIInt.add(box, 8), s.textWidth(v.text, v.scale)), inset);
 			v.mH = GUIInt.add(box, inset);
 		} else if (v.kind.equals("spacer")) {
 			v.mW = 0; v.mH = 0;
 		} else {
-			for c in v.children { UI.measure(c); }
+			for c in v.children { UI.measure(s, c); }
 			int n = v.children.len;
 			int main = 0;
 			int cross = 0;
@@ -219,12 +221,12 @@ class UI {
 			Color fill = hovered ? theme.accent : theme.panel;
 			Color fg = hovered ? theme.accentText : theme.text;
 			s.fillRect(v.x, v.y, v.w, v.h, fill);
-			int tw = GUIRaster.textWidth(v.text, v.scale);
-			int th = GUIRaster.textHeight(v.scale);
+			int tw = s.textWidth(v.text, v.scale);
+			int th = s.textHeight(v.scale);
 			s.text(GUIInt.add(v.x, GUIInt.subtract(v.w, tw) / 2), GUIInt.add(v.y, GUIInt.subtract(v.h, th) / 2), v.text, fg, v.scale);
 			if (hovered && input.mousePressed && !v.id.isEmpty()) { ev.clicked = v.id; }
 		} else if (v.kind.equals("checkbox")) {
-			int box = GUIRaster.textHeight(v.scale);
+			int box = s.textHeight(v.scale);
 			bool hovered = UI.hit(input, v.x, v.y, v.w, v.h);
 			s.fillRect(v.x, v.y, box, box, theme.border);
 			if (v.checked) {
@@ -239,7 +241,7 @@ class UI {
 
 	/* One declarative frame: measure → layout to the surface → render → events. */
 	class GUIEvents frame(Surface s, GUIInput input, Theme theme, View root) {
-		UI.measure(root);
+		UI.measure(s, root);
 		UI.layout(root, 0, 0, s.width(), s.height());
 		s.clear(theme.bg);
 		GUIEvents ev = GUIEvents();

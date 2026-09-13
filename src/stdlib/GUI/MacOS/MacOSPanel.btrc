@@ -95,6 +95,12 @@ class MacOSPanel implements IPanel, IMacOSView {
 
 	public bool isVisible() { return self._container.isVisible(); }
 
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._container.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._container.onScroll(handler, owner); }
+
+	public void cancelPointerCapture() { self._container.cancelPointerCapture(); }
+
 	public void setVisible(bool visible) { self._container.setVisible(visible); }
 
 	public void setFill(RGBA fill) { self.nativeView(); self._layout.setFill(fill); }

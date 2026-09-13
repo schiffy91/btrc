@@ -1,28 +1,21 @@
-/* btrc 3D Engine -- Renderer
- *
- * Thin wrapper around Scene. Sets up camera follow and renders.
- */
+import Library.GUI.IGPUView;
+import Library.GPU.Readback;
+
+import ./Scene.btrc;
+import ./Gameobject.btrc;
 
 class Renderer {
 	public Scene scene;
-	public int width;
-	public int height;
 
-	public Renderer(GPU gpu, int w, int h) {
-		self.width = w;
-		self.height = h;
-		self.scene = new Scene(gpu, w, h);
-	}
+	public Renderer(IGPUView view, int width, int height) { self.scene = Scene(view, width, height); }
 
-	public GPUFrameKind render(GPU gpu, GameObject player, float time) { return self.scene.render(gpu, player, time); }
+	public bool poll() { return self.scene.poll(); }
 
-	public void resize(int w, int h) {
-		self.width = w;
-		self.height = h;
-		self.scene.resize(w, h);
-	}
+	public GPUReadback? render(IGPUView view, GameObject player, float time, bool capture = false) { return self.scene.render(view, player, time, capture); }
 
-	public void close() { self.scene.close(); }
+	public void resize(int width, int height) { self.scene.resize(width, height); }
+
+	public void close() { if (self.scene != null) { self.scene.close(); } }
 
 	public void __del__() { self.close(); }
 }

@@ -1,0 +1,161 @@
+import Library.GUI.GUI;
+import Library.GUI.IView;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.AppKitEvents;
+import Library.Callback;
+import Library.App;
+import Library.Image;
+
+import ./PointerEvents.btrc;
+#include <assert.h>
+
+class PointerReceiver implements IViewPointerHandler {
+	public bool consume = true;
+	public int presses = 0;
+	public int releases = 0;
+	public int drags = 0;
+	public int entered = 0;
+	public int exited = 0;
+	public int cancelled = 0;
+	public double x = 0.0;
+	public double y = 0.0;
+	public CallbackScope? cancelOwner;
+	public IWindow? closeWindow;
+	public CallbackCancellation closeState = CallbackCancellation.NotRequested;
+
+	public bool pointer(AppPointerEvent event) {
+		self.x = event.logicalX; self.y = event.logicalY;
+		if (event.action == APP_POINTER_PRESSED) { self.presses++; }
+		if (event.action == APP_POINTER_RELEASED) { self.releases++; }
+		if (event.action == APP_POINTER_DRAGGED) { self.drags++; }
+		if (event.action == APP_POINTER_ENTERED) { self.entered++; }
+		if (event.action == APP_POINTER_EXITED) { self.exited++; }
+		if (event.action == APP_POINTER_CANCELLED) { self.cancelled++; }
+		if (event.action == APP_POINTER_DRAGGED) {
+			if (self.cancelOwner != null) { self.closeState = self.cancelOwner.cancel(); }
+			if (self.closeWindow != null) { self.closeState = self.closeWindow.close(); }
+		}
+		return self.consume;
+	}
+}
+
+class ScrollReceiver implements IViewScrollHandler {
+	public int calls = 0;
+	public bool scroll(AppScrollEvent event) {
+		self.calls++;
+		assert(event.logicalX == 15.0 && event.logicalY == 20.0);
+		assert(event.deltaX == -3.5 && event.deltaY == 8.25 && event.precise);
+		assert(event.phase == APP_SCROLL_CHANGED && event.momentumPhase == APP_SCROLL_BEGAN);
+		assert(event.modifiers.shift && !event.modifiers.command);
+		return true;
+	}
+}
+
+void sendPointer(MacOSWindow window, unsigned long type, double x, double y) {
+	var location = window.nativeWindow().frame().origin;
+	location.x = x; location.y = window.contentHeight() - y;
+	var event = NSEvent.mouseEventWithType(type, location, 0UL, 0.0, window.nativeWindow().windowNumber(), null, 0L, 1L, 1.0f);
+	assert(event != null);
+	NSApplication.sharedApplication().sendEvent(event);
+}
+
+int main() {
+	GUI.initialize();
+	var native = MacOSWindow("Pointer routing", 360.0, 220.0);
+	var root = GUI.createContainer();
+	native.attachRoot(root);
+	IView view = MacOSView(NativePointerEvents.view());
+	root.attach(view);
+	view.arrange(30.0, 40.0, 100.0, 80.0);
+	native.show();
+	var receiver = PointerReceiver();
+	var scope = CallbackScope();
+	var registration = view.onPointer(receiver, scope);
+	var scroll = ScrollReceiver();
+	view.onScroll(scroll, scope);
+	NativePointerEvents.scroll(native.nativeWindow(), 45.0, 60.0);
+	assert(scroll.calls == 1);
+	// Native descendants participate in a containing panel's hover hit region.
+	var panel = GUI.createPanel(RGBA(20, 30, 40, 255));
+	root.attach(panel);
+	panel.arrange(230.0, 40.0, 100.0, 100.0);
+	var button = GUI.createButton("Native child");
+	panel.attach(button);
+	button.arrange(0.0, 0.0, 80.0, 60.0);
+	var hover = PointerReceiver();
+	hover.consume = false;
+	var hoverScope = CallbackScope();
+	panel.onPointer(hover, hoverScope);
+	panel.onScroll(scroll, hoverScope);
+	sendPointer(native, NSEventTypeMouseMoved, 245.0, 60.0);
+	assert(hover.entered == 1 && hover.x == 15.0 && hover.y == 20.0);
+	NativePointerEvents.scroll(native.nativeWindow(), 245.0, 60.0);
+	assert(scroll.calls == 2);
+	root.detach(panel);
+	assert(hover.exited == 1);
+	assert(panel.close() == CallbackCancellation.Complete && !button.isOpen());
+	assert(hoverScope.cancel() == CallbackCancellation.Complete);
+	sendPointer(native, NSEventTypeLeftMouseDown, 45.0, 60.0);
+	assert(receiver.presses == 1 && receiver.entered == 1);
+	assert(NativePointerEvents.forwarded() == 0);
+	assert(receiver.x == 15.0 && receiver.y == 20.0);
+	sendPointer(native, NSEventTypeLeftMouseDragged, 200.0, 180.0);
+	assert(receiver.drags == 1 && receiver.exited == 1);
+	assert(receiver.x == 170.0 && receiver.y == 140.0);
+	sendPointer(native, NSEventTypeLeftMouseUp, 210.0, 190.0);
+	assert(receiver.releases == 1);
+	sendPointer(native, NSEventTypeLeftMouseDragged, 210.0, 190.0);
+	assert(receiver.drags == 1);
+	receiver.consume = false;
+	sendPointer(native, NSEventTypeLeftMouseDown, 50.0, 60.0);
+	assert(NativePointerEvents.forwarded() > 0);
+	sendPointer(native, NSEventTypeLeftMouseDragged, 210.0, 190.0);
+	assert(receiver.presses == 2 && receiver.drags == 1);
+	receiver.consume = true;
+	sendPointer(native, NSEventTypeLeftMouseDown, 50.0, 60.0);
+	NativePointerEvents.loseFocus(native.nativeWindow());
+	assert(receiver.cancelled == 1);
+	sendPointer(native, NSEventTypeLeftMouseDown, 50.0, 60.0);
+	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(receiver.cancelled == 2 && !registration.isOpen());
+	sendPointer(native, NSEventTypeLeftMouseDragged, 60.0, 70.0);
+	assert(receiver.drags == 1);
+	var next = CallbackScope();
+	view.onPointer(receiver, next);
+	sendPointer(native, NSEventTypeLeftMouseDown, 50.0, 60.0);
+	root.detach(view);
+	assert(receiver.cancelled == 3 && next.isOpen());
+	var other = MacOSWindow("Moved pointer view", 360.0, 220.0);
+	var otherRoot = GUI.createContainer();
+	other.attachRoot(otherRoot);
+	otherRoot.attach(view);
+	view.arrange(30.0, 40.0, 100.0, 80.0);
+	sendPointer(other, NSEventTypeLeftMouseDown, 50.0, 60.0);
+	NativePointerEvents.loseFocus(native.nativeWindow());
+	assert(receiver.cancelled == 3);
+	NativePointerEvents.loseFocus(other.nativeWindow());
+	assert(receiver.cancelled == 4);
+	otherRoot.detach(view);
+	root.attach(view);
+	view.arrange(30.0, 40.0, 100.0, 80.0);
+	assert(other.close() == CallbackCancellation.Complete);
+	receiver.cancelOwner = next;
+	sendPointer(native, NSEventTypeLeftMouseDown, 50.0, 60.0);
+	sendPointer(native, NSEventTypeLeftMouseDragged, 60.0, 70.0);
+	assert(receiver.closeState == CallbackCancellation.Pending);
+	assert(next.pollCompletion() == CallbackCancellation.Complete && receiver.cancelled == 5);
+	receiver.cancelOwner = null;
+	var closing = CallbackScope();
+	view.onPointer(receiver, closing);
+	receiver.closeWindow = native;
+	sendPointer(native, NSEventTypeLeftMouseDown, 50.0, 60.0);
+	sendPointer(native, NSEventTypeLeftMouseDragged, 60.0, 70.0);
+	assert(receiver.closeState == CallbackCancellation.Pending);
+	assert(native.pollClose() == CallbackCancellation.Complete);
+	assert(!view.isOpen() && receiver.cancelled == 6);
+	assert(closing.cancel() == CallbackCancellation.Complete);
+	assert(GUI.close() == CallbackCancellation.Complete);
+	print("PASS: view-local pointer routing, capture, forwarding and scoped native shutdown");
+	return 0;
+}

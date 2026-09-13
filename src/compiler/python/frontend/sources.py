@@ -698,7 +698,7 @@ _EXPLICIT_STDLIB_MODULES = frozenset(
         "MacOSDirectoryPicker.btrc",
         "MacOSEncodedImageDecoder.btrc",
         "NativeUI.btrc",
-        "NativeUIApp.btrc",
+        "SystemImageDecoder.btrc",
         # Its process callback lives in realtime_clip_transport/Runtime.btrc.
         # Relaxed composition drops nested imports, so composing this module
         # would leave that callback undeclared.

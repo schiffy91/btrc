@@ -719,7 +719,7 @@ C11_RESERVED_NAMES = frozenset(
         "_Thread_local",
     }
 )
-_PUBLIC_NATIVE_BINDINGS = frozenset({"btrc_gpu_available", "btrc_gui_window_fb_width", "btrc_tray_show"})
+_PUBLIC_NATIVE_BINDINGS = frozenset({"btrc_gpu_available", "btrc_gui_font_load"})
 _COMPILER_RESERVED_PREFIXES = ("__btrc_", "__BTRC_", "__gpu_", "btrc_")
 MAGIC_METHOD_SIGNATURES = {
     "__add__": (1, None),
@@ -943,7 +943,15 @@ class DeclarationRegistry:
             if method.body is not None:
                 self.session.error(f"Abstract {owner} cannot have a body", method.line, method.col)
         elif method.body is None and not (
-            isinstance(class_decl.source_file, NativeHeaderSource) and method.name in class_decl.source_file.methods
+            isinstance(class_decl.source_file, NativeHeaderSource)
+            and (
+                method.name in class_decl.source_file.methods
+                or (
+                    class_decl.source_file.resource is not None
+                    and class_decl.source_file.resource.ownership == "unique"
+                    and method.name in {"close", "isOpen"}
+                )
+            )
         ):
             self.session.error(f"Concrete {owner} requires a body", method.line, method.col)
         signature = MAGIC_METHOD_SIGNATURES.get(method.name)
@@ -1338,6 +1346,9 @@ class DeclarationRegistry:
             native_ancestors=declaration.source_file.native_ancestors
             if isinstance(declaration.source_file, NativeHeaderSource)
             else (),
+            native_query_type=declaration.source_file.resource_query_type
+            if isinstance(declaration.source_file, NativeHeaderSource)
+            else "",
             generic_params=declaration.generic_params,
             parent=declaration.parent,
             interfaces=declaration.interfaces,

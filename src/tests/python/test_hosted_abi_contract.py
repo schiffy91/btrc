@@ -278,10 +278,7 @@ def test_every_shipped_native_source_prototype_has_an_exact_spec() -> None:
                 tuple(analyzer.declarations.hosted_abi_type(parameter.type) for parameter in declaration.params)
                 == spec.parameters
             )
-            if name == "btrc_tray_take_command":
-                assert declaration.return_type.base == "char"
-                assert declaration.return_type.pointer_depth == 1
-        if name.startswith("btrc_") and (name.endswith("_destroy") or name == "btrc_gui_window_close"):
+        if name.startswith("btrc_") and name.endswith("_destroy"):
             assert spec.raw_lifetime
             assert spec.consume_deallocator == name
         if name.startswith("std_"):
@@ -299,29 +296,12 @@ def test_native_headers_are_exact_or_an_explicit_internal_seam() -> None:
     assert names == set(HOSTED_NATIVE_FUNCTIONS) | set(HOSTED_NATIVE_INTERNAL_NAMES)
 
 
-def test_native_app_thread_boundary_and_ui_effects_are_exact() -> None:
-    scroll = hosted_function("std_app_event_scroll_x")
+def test_native_thread_boundary_is_exact() -> None:
     invoke = hosted_function("__btrc_native_thread_invoke")
-    add_image = hosted_function("std_gpu_native_ui_add_image")
-    add_text = hosted_function("std_gpu_native_ui_add_text")
-    measure_text = hosted_function("std_gpu_native_ui_measure_text")
-
-    assert scroll is not None and scroll.result == abi_type("float")
     assert hosted_function("std_background_jobs_submit") is None
     assert invoke is not None and invoke.parameters is not None
     assert invoke.parameters[0] == abi_type("CFunction", generic_args=(INT, VOID_PTR))
     assert invoke.callback_lifetimes == ("during_call", None, None)
-    assert add_image is not None
-    assert add_image.effects == (VALUE, READ, READ, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE)
-    assert add_text is not None
-    assert add_text.effects == (VALUE, READ, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE)
-    assert measure_text is not None
-    assert measure_text.effects == (VALUE, READ, VALUE, VALUE, VALUE, MUTATE, MUTATE, MUTATE, MUTATE, MUTATE)
-    assert {
-        "btrc_gpu_native_ui_create",
-        "btrc_gpu_native_ui_text_measure",
-        "btrc_gpu_native_ui_test_fail_next_upload",
-    } <= set(HOSTED_NATIVE_INTERNAL_NAMES)
 
 
 def test_local_application_channel_effects_are_exact() -> None:
@@ -334,15 +314,7 @@ def test_local_application_channel_effects_are_exact() -> None:
     assert close is None
 
 
-def test_gpu_surface_attachment_uses_public_capabilities_and_private_raw_compute() -> None:
-    attach = hosted_function("std_gpu_attach_surface")
-    close = hosted_function("std_gpu_close")
-
-    assert attach is not None
-    assert attach.effects == (VALUE, MUTATE, MUTATE)
-    assert close is not None
-    assert close.effects == (VALUE, VALUE)
-    assert not close.raw_lifetime
+def test_gpu_compute_abi_is_private() -> None:
     assert hosted_function("btrc_gpu_init") is None
     assert "btrc_gpu_acquire_compute" not in HOSTED_NATIVE_FUNCTIONS
     assert "btrc_gpu_acquire_compute" in HOSTED_NATIVE_INTERNAL_NAMES
@@ -418,15 +390,11 @@ def test_resolved_stdlib_import_receives_authenticated_provenance(tmp_path: Path
 
 
 def test_exact_public_native_abi_has_one_authoritative_diagnostic() -> None:
-    errors = _analyze("extern bool std_gpu_attach_surface(); int main() { return 0; }").errors
-    matching = [error for error in errors if "std_gpu_attach_surface" in error]
+    errors = _analyze("extern bool btrc_gui_font_load(); int main() { return 0; }").errors
+    matching = [error for error in errors if "btrc_gui_font_load" in error]
     assert len(matching) == 1
     assert "does not match compiler-owned C ABI" in matching[0]
-    assert not _analyze(
-        "extern int std_gpu_attach_surface(unsigned long long surface, "
-        "unsigned long long* gpu, unsigned long long* receipt); "
-        "int main() { return 0; }"
-    ).errors
+    assert not _analyze("extern void* btrc_gui_font_load(string path, int pixelSize); int main() { return 0; }").errors
 
 
 def test_hosted_function_definitions_are_mangled_source_shadows() -> None:

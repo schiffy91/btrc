@@ -1,29 +1,17 @@
-# btrc GPU examples
-#
-# Prerequisites: run  make gpu  first
-
+# Native AppKit window and managed WebGPU child. The SDK reader and
+# wgpu-native pkg-config dependency must be available in the build environment.
 BTRC_ROOT := ../..
-BTRC      := python3 -m src.compiler.python.main
-GPU_DIR   := $(BTRC_ROOT)/src/stdlib/GPU
-GPU_BUILD := $(BTRC_ROOT)/build/stdlib/GPU
-APP_DIR   := $(BTRC_ROOT)/src/stdlib/App
-APP_BUILD := $(BTRC_ROOT)/build/stdlib/App
+BTRC := python3 -m src.compiler.python.main
 
-CC      := cc
-GPU_THREAD_FLAGS ?= $(if $(filter Windows_NT,$(OS)),,-pthread)
-CFLAGS  := -I$(GPU_DIR) -I$(APP_DIR) $(GPU_CFLAGS) -O2
-LDFLAGS := -L$(GPU_BUILD) -lbtrc_gpu -L$(APP_BUILD) -lbtrc_app $(GPU_LDFLAGS) -lm $(GPU_THREAD_FLAGS)
-
-.PHONY: all clean
-
+.PHONY: all triangle verify clean
 all: triangle
 
-triangle: Triangle.btrc
-	@echo "--- Transpiling Triangle.btrc → triangle.c ---"
-	cd $(BTRC_ROOT) && $(BTRC) examples/triangle/Triangle.btrc -o examples/triangle/triangle.c
-	@echo "--- Compiling triangle.c → triangle ---"
-	$(CC) triangle.c -o triangle $(CFLAGS) $(LDFLAGS)
-	@echo "--- Done: ./triangle ---"
+triangle:
+	cd $(BTRC_ROOT) && $(BTRC) examples/triangle/Triangle.btrc -o examples/triangle/triangle.c --emit-link-plan examples/triangle/triangle.link.json
+	cd $(BTRC_ROOT) && python3 -m tools.native_plan --plan examples/triangle/triangle.link.json --generated-c examples/triangle/triangle.c --output examples/triangle/triangle --cc clang --cxx clang++
+
+verify: triangle
+	./triangle --verify
 
 clean:
-	rm -f triangle triangle.c
+	rm -f triangle triangle.c triangle.link.json

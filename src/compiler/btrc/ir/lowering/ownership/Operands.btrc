@@ -130,7 +130,7 @@ class OwnershipOperandPlanner {
 		if (expression == null) { return false; }
 		int kind = expression.kind;
 		if (kind == NK_IDENTIFIER) {
-			if (self.analyzed.isObjectiveCObjectGlobal(expression.name)) { return true; }
+			if (self.analyzed.nativeGlobalReturnsOwned(expression.name)) { return true; }
 			if (!environment.hasVariable(expression.name) && self.analyzed.funcTable.has(expression.name)) {
 				return false;
 			}

@@ -1,0 +1,143 @@
+import Library.Console;
+import Library.GUI.IGPUView;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSGPUSurface;
+
+interface IMacOSGPUView extends IGPUView { MacOSGPUSurface captureSurface(); }
+
+/* Construction publishes no asynchronous work. The application remembers this
+ * owner before poll() can start device creation. Existing CallbackScope owns
+ * programs/readbacks; the native subtree owns this view throughout shutdown. */
+class MacOSGPUView implements IMacOSGPUView, IMacOSView {
+	private MacOSGPUSurface _target = MacOSGPUSurface();
+	private MacOSView _view;
+	private GPUDevice? _device;
+	private GPUSurfaceRenderer? _renderer;
+	private CallbackScope _work = CallbackScope();
+	private bool _capture;
+	private bool _closing = false;
+	private bool _deviceClosing = false;
+	private bool _closed = false;
+	private bool _closeFailed = false;
+	private string _error = "";
+
+	public MacOSGPUView(bool capture) { self._view = MacOSView(self._target.nativeView()); self._capture = capture; }
+
+	private void requireExecutor() { self._work.isOpen(); }
+
+	private void requireOpen() { self.requireExecutor(); if (self._closing || self._closed) { throw "GPU view is closing or closed"; } }
+
+	public NSView nativeView() { self.requireOpen(); return self._view.nativeView(); }
+
+	public MacOSGPUSurface captureSurface() { self.requireOpen(); return self._target; }
+
+	public void attachTo(NSView parent) { self.requireOpen(); self._view.attachTo(parent); }
+
+	public void detachFrom(NSView parent) { self.requireOpen(); self._view.detachFrom(parent); }
+
+	public bool isOpen() { self.requireExecutor(); return !self._closing && !self._closed; }
+
+	public double fittingWidth() { self.requireOpen(); return self._view.fittingWidth(); }
+
+	public double fittingHeight() { self.requireOpen(); return self._view.fittingHeight(); }
+
+	public void arrange(double x, double y, double width, double height) { self.requireOpen(); self._view.arrange(x, y, width, height); }
+
+	public bool isVisible() { self.requireOpen(); return self._view.isVisible(); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { self.requireOpen(); return self._view.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { self.requireOpen(); return self._view.onScroll(handler, owner); }
+
+	public void cancelPointerCapture() { self._view.cancelPointerCapture(); }
+
+	public void setVisible(bool visible) { self.requireOpen(); self._view.setVisible(visible); }
+
+	public double backingScale() { self.requireOpen(); self._target.refreshBackingSize(); return self._target.backingScale(); }
+
+	public int pixelWidth() { self.requireOpen(); self._target.refreshBackingSize(); return self._target.pixelWidth(); }
+
+	public int pixelHeight() { self.requireOpen(); self._target.refreshBackingSize(); return self._target.pixelHeight(); }
+
+	public string error() { self.requireExecutor(); return self._error; }
+
+	public bool poll() {
+		self.requireOpen();
+		if (!self._error.isEmpty()) { return false; }
+		self._work.pollCompletion();
+		try {
+			if (self._device == null) { self._device = GPUDevice(self._target.nativeInstance(), self._target.nativeSurface()); }
+			var device = self._device;
+			if (device == null) { throw "GPU device construction returned no owner"; }
+			var state = device.poll();
+			if (state == GPU_DEVICE_FAILED) { self._error = device.error(); return false; }
+			if (state != GPU_DEVICE_READY) { return false; }
+			if (self._renderer == null) { self._renderer = GPUSurfaceRenderer(device, self._target.nativeSurface(), self._capture); }
+		} catch (string error) { self._error = error; return false; }
+		return true;
+	}
+
+	public GPUSurfaceRenderer frameRenderer() {
+		self.requireOpen();
+		if (self._renderer == null) { throw "GPU view is not ready"; }
+		return self._renderer;
+	}
+
+	public GPUFrameAvailability beginFrame(double red, double green, double blue, double alpha = 1.0) {
+		var renderer = self.frameRenderer();
+		self._target.refreshBackingSize();
+		bool visible = !self.nativeView().isHiddenOrHasHiddenAncestor();
+		renderer.resize(visible ? self._target.pixelWidth() : 0, visible ? self._target.pixelHeight() : 0);
+		return renderer.beginFrame(red, green, blue, alpha);
+	}
+
+	public GPUProgram createProgram(string source, int uniformFloatCount, bool textured = true, bool sourceOver = true, string vertexEntry = "vs_main", string fragmentEntry = "fs_main") {
+		var renderer = self.frameRenderer();
+		return GPUProgram.create(renderer.device(), renderer.nativeFormat(), source, uniformFloatCount, textured, sourceOver, vertexEntry, fragmentEntry, self._work);
+	}
+
+	public GPUReadback readback(int maximumPixels = 16777216) { return GPUReadback.create(self.frameRenderer(), maximumPixels, self._work); }
+
+	public CallbackCancellation close() {
+		self.requireExecutor();
+		if (self._closed) { return CallbackCancellation.Complete; }
+		if (!self._closing) {
+			self._view.requireDetached();
+			self._closing = true;
+			try {
+				self._view.cancelInput();
+				if (self._renderer != null) { self._renderer.close(); }
+				self._work.cancel();
+			} catch (string error) { self._error = error; self._closeFailed = true; }
+		}
+		return self.pollClose();
+	}
+
+	public CallbackCancellation pollClose() {
+		self.requireExecutor();
+		if (self._closed) { return CallbackCancellation.Complete; }
+		if (!self._closing) { return CallbackCancellation.NotRequested; }
+		if (self._closeFailed) { return CallbackCancellation.Failed; }
+		try {
+			var work = self._work.pollCompletion();
+			if (work != CallbackCancellation.Complete) { return work; }
+			var device = self._device;
+			if (device != null) {
+				if (!self._deviceClosing) { self._deviceClosing = true; device.close(); }
+				if (device.poll() != GPU_DEVICE_CLOSED) { return CallbackCancellation.Pending; }
+			}
+			self._renderer = null;
+			self._device = null;
+			self._target.close();
+			var view = self._view.close();
+			if (view != CallbackCancellation.Complete) { return view; }
+			self._closed = true;
+		} catch (string error) { self._error = error; self._closeFailed = true; return CallbackCancellation.Failed; }
+		return CallbackCancellation.Complete;
+	}
+
+	public void __del__() {
+		if (self._view == null) { if (self._target != null) { self._target.close(); } return; }
+		if (self.close() != CallbackCancellation.Complete) { Console.fatal("GPU view destroyed before native work drained"); }
+	}
+}

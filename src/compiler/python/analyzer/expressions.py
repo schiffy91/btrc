@@ -341,7 +341,7 @@ class ExpressionAnalyzer:
                 or operand_type.base == "__fn_ptr"
                 or (
                     operand_type.base in self.index.class_table
-                    and self.index.class_table[operand_type.base].native_language == "objective-c"
+                    and self.index.class_table[operand_type.base].native_language in ("objective-c", "c")
                 )
             )
         ):
@@ -941,7 +941,11 @@ class ExpressionAnalyzer:
             (native_source is not None and native_source.native_language == "c")
             or (native_target is not None and native_target.native_language == "c")
         ) and (
-            source.base != target.base
+            (
+                source.base != target.base
+                and not self.types.is_subclass(source.base, target.base)
+                and not self.types.native_resource_query_type(self.index.class_table, target, source)
+            )
             or source.pointer_depth - int(source.is_nullable) != 0
             or target.pointer_depth - int(target.is_nullable) != 0
         ):

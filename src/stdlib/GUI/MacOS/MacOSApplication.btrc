@@ -16,6 +16,27 @@ import Library.GUI.MacOS.MacOSActionQueue;
 import Library.GUI.MacOS.MacOSRunLoop;
 import Library.GUI.IStack;
 import Library.GUI.MacOS.MacOSStack;
+import Library.GUI.IGPUView;
+import Library.GUI.MacOS.MacOSGPUView;
+import Library.GUI.ILabel;
+import Library.GUI.MacOS.MacOSLabel;
+import Library.GUI.IImageView;
+import Library.GUI.MacOS.MacOSImageView;
+import Library.GUI.IPanel;
+import Library.GUI.MacOS.MacOSPanel;
+import Library.GUI.IProgressIndicator;
+import Library.GUI.MacOS.MacOSProgressIndicator;
+import Library.GUI.ILevelIndicator;
+import Library.GUI.MacOS.MacOSLevelIndicator;
+import Library.GUI.ISlider;
+import Library.GUI.MacOS.MacOSSlider;
+import Library.GUI.ISelect;
+import Library.GUI.MacOS.MacOSSelect;
+import Library.GUI.IScrollView;
+import Library.GUI.MacOS.MacOSScrollView;
+import Library.GUI.IGrid;
+import Library.GUI.MacOS.MacOSGrid;
+import Library.Image;
 
 /* Query callbacks only request loop exit. Returning Cancel prevents AppKit
  * from exiting the process before ordinary BTRC shutdown has run. */
@@ -401,6 +422,27 @@ class MacOSApplication implements IApplication {
 	public IStack createRow(double spacing) { self.requireCreation(); var row = MacOSStack(false, spacing); self.rememberView(row); return row; }
 
 	public IStack createColumn(double spacing) { self.requireCreation(); var column = MacOSStack(true, spacing); self.rememberView(column); return column; }
+
+	public IGPUView createGPUView(bool capture) { self.requireCreation(); var view = MacOSGPUView(capture); self.rememberView(view); return view; }
+
+	public ILabel createLabel(string text) { self.requireCreation(); var view = MacOSLabel(text); self.rememberView(view); return view; }
+
+	public IImageView createImageView() { self.requireCreation(); var view = MacOSImageView(); self.rememberView(view); return view; }
+
+	public IPanel createPanel(RGBA fill, double radius) { self.requireCreation(); var view = MacOSPanel(fill, radius); self.rememberView(view); return view; }
+
+	public IProgressIndicator createProgressIndicator() { self.requireCreation(); var view = MacOSProgressIndicator(); self.rememberView(view); return view; }
+
+	public ILevelIndicator createLevelIndicator(double warning, double critical) { self.requireCreation(); var view = MacOSLevelIndicator(warning, critical); self.rememberView(view); return view; }
+
+	public ISlider createSlider(double minimum, double maximum, int intervals) { self.requireCreation(); var view = MacOSSlider(minimum, maximum, intervals); self.rememberView(view); return view; }
+
+	public ISelect createSelect() { self.requireCreation(); var view = MacOSSelect(); self.rememberView(view); return view; }
+
+	public IScrollView createScrollView() { self.requireCreation(); var view = MacOSScrollView(); self.rememberView(view); return view; }
+
+	public IGrid createGrid(int columns, int rows, double columnSpacing, double rowSpacing) { self.requireCreation(); var view = MacOSGrid(columns, rows, columnSpacing, rowSpacing); self.rememberView(view); return view; }
+
 
 	private void dispatchWindowEvents() { self._events.dispatchWindowEvents(); }
 

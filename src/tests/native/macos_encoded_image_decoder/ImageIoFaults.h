@@ -12,6 +12,9 @@ static int imageIoFailure;
 static int imageIoCreated;
 static int imageIoReleased;
 static const void* imageIoOwned[8];
+static int imageIoClaims[8];
+static const void* imageIoBorrowed[32];
+static int imageIoBorrowedClaims[32];
 static const unsigned char* imageIoInput;
 static unsigned char* imageIoPixels;
 static int imageIoAwaitPixels;
@@ -23,7 +26,8 @@ static inline void imageIoBegin(int failure) {
     imageIoInput = NULL;
     imageIoPixels = NULL;
     imageIoAwaitPixels = 0;
-    for (int index = 0; index < 8; index++) { assert(imageIoOwned[index] == NULL); }
+    for (int index = 0; index < 8; index++) { assert(imageIoOwned[index] == NULL && imageIoClaims[index] == 0); }
+    for (int index = 0; index < 32; index++) { assert(imageIoBorrowed[index] == NULL && imageIoBorrowedClaims[index] == 0); }
 }
 
 static inline int imageIoOutstanding(void) { return imageIoCreated - imageIoReleased; }
@@ -32,12 +36,14 @@ static inline int imageIoCreations(void) { return imageIoCreated; }
 static inline void imageIoTrack(int slot, const void* resource) {
     assert(imageIoOwned[slot] == NULL);
     imageIoOwned[slot] = resource;
-    if (resource != NULL) { imageIoCreated++; }
+    if (resource != NULL) { imageIoCreated++; imageIoClaims[slot] = 1; }
 }
 
 static inline void imageIoForget(const void* resource) {
     for (int slot = 0; slot < 8; slot++) {
         if (imageIoOwned[slot] == resource) {
+            assert(imageIoClaims[slot] == 1);
+            imageIoClaims[slot] = 0;
             imageIoOwned[slot] = NULL;
             imageIoReleased++;
             return;
@@ -45,6 +51,47 @@ static inline void imageIoForget(const void* resource) {
     }
     assert(!"release of an unowned or already released resource");
 }
+
+/* Managed aliases and call leases retain the same SDK object. Only the final
+ * claim retires it; the test still checks every claim and backing lifetime. */
+static inline void imageIoRetainClaim(const void* resource) {
+    for (int slot = 0; slot < 8; slot++) {
+        if (imageIoOwned[slot] == resource) { assert(imageIoClaims[slot] > 0); imageIoClaims[slot]++; return; }
+    }
+    for (int slot = 0; slot < 32; slot++) {
+        if (imageIoBorrowed[slot] == resource) { imageIoBorrowedClaims[slot]++; return; }
+    }
+    for (int slot = 0; slot < 32; slot++) {
+        if (imageIoBorrowed[slot] == NULL) { imageIoBorrowed[slot] = resource; imageIoBorrowedClaims[slot] = 1; return; }
+    }
+    assert(!"unbounded borrowed native claims");
+}
+
+static inline void imageIoReleaseClaim(const void* resource) {
+    for (int slot = 0; slot < 8; slot++) {
+        if (imageIoOwned[slot] == resource) {
+            assert(imageIoClaims[slot] > 0);
+            if (imageIoClaims[slot] > 1) { imageIoClaims[slot]--; }
+            else { imageIoForget(resource); }
+            return;
+        }
+    }
+    for (int slot = 0; slot < 32; slot++) {
+        if (imageIoBorrowed[slot] == resource) {
+            assert(imageIoBorrowedClaims[slot] > 0);
+            if (--imageIoBorrowedClaims[slot] == 0) { imageIoBorrowed[slot] = NULL; }
+            return;
+        }
+    }
+    assert(!"release of an unowned resource");
+}
+
+static inline CFTypeRef imageIoRetain(CFTypeRef value) { imageIoRetainClaim(value); return CFRetain(value); }
+static inline CGImageRef imageIoRetainImage(CGImageRef value) { imageIoRetainClaim(value); return CGImageRetain(value); }
+static inline void imageIoReleaseImage(CGImageRef value) { imageIoReleaseClaim(value); CGImageRelease(value); }
+static inline CGColorSpaceRef imageIoRetainColorSpace(CGColorSpaceRef value) { imageIoRetainClaim(value); return CGColorSpaceRetain(value); }
+static inline void imageIoReleaseColorSpace(CGColorSpaceRef value) { imageIoReleaseClaim(value); CGColorSpaceRelease(value); }
+static inline CGContextRef imageIoRetainContext(CGContextRef value) { imageIoRetainClaim(value); return CGContextRetain(value); }
 
 static inline CFDataRef imageIoData(CFAllocatorRef allocator, const UInt8* bytes, CFIndex length, CFAllocatorRef deallocator) {
     if (imageIoFailure == 1) { return NULL; }
@@ -113,7 +160,7 @@ static inline void imageIoRelease(CFTypeRef value) {
     /* Deliberately touch borrowed bytes under ASan: cleanup must precede the
      * managed input's destruction, even when the caller passed a temporary. */
     if (value == imageIoOwned[0]) { assert(imageIoInput[0] == 137); }
-    imageIoForget(value);
+    imageIoReleaseClaim(value);
     CFRelease(value);
 }
 
@@ -121,7 +168,7 @@ static inline void imageIoReleaseContext(CGContextRef value) {
     assert(imageIoPixels != NULL);
     volatile unsigned char alive = imageIoPixels[0];
     (void)alive;
-    imageIoForget(value);
+    imageIoReleaseClaim(value);
     CGContextRelease(value);
 }
 
@@ -160,7 +207,13 @@ static inline Boolean imageIoString(CFStringRef string, char* buffer, CFIndex ca
 #define CGColorSpaceCreateWithName imageIoColorSpace
 #define CGBitmapContextCreate imageIoContext
 #define CFRelease imageIoRelease
+#define CFRetain imageIoRetain
 #define CGContextRelease imageIoReleaseContext
+#define CGContextRetain imageIoRetainContext
+#define CGImageRetain imageIoRetainImage
+#define CGImageRelease imageIoReleaseImage
+#define CGColorSpaceRetain imageIoRetainColorSpace
+#define CGColorSpaceRelease imageIoReleaseColorSpace
 #define free imageIoFree
 #define CGImageSourceGetType imageIoType
 #define CGImageSourceGetCount imageIoCount

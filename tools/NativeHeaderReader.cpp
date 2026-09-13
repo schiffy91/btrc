@@ -33,6 +33,7 @@
 class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader> {
 	clang::ASTContext* context = nullptr;
 	std::set<std::string> requested;
+	std::vector<std::string> recordPaths;
 	std::map<std::string, const clang::NamedDecl*> declarations;
 	std::map<std::string, const clang::ObjCInterfaceDecl*> interfaces;
 	std::map<std::string, const clang::ObjCProtocolDecl*> protocols;
@@ -337,7 +338,34 @@ class NativeHeaderReader : public clang::RecursiveASTVisitor<NativeHeaderReader>
 	}
 
 public:
-	explicit NativeHeaderReader(const std::vector<std::string>& symbols) : requested(symbols.begin(), symbols.end()) {}
+	explicit NativeHeaderReader(const std::vector<std::string>& symbols, const std::vector<std::string>& paths) : requested(symbols.begin(), symbols.end()), recordPaths(paths) {}
+
+	void requestRecordPath(const std::string& path) {
+		auto separator = path.find('.');
+		if (separator == std::string::npos) { errors.push_back("Record path requires an owner and field: " + path); return; }
+		auto owner = declarations.find(path.substr(0, separator));
+		const auto* type = owner == declarations.end() ? nullptr : llvm::dyn_cast<clang::TypedefNameDecl>(owner->second);
+		if (!type) { errors.push_back("Record path requires a selected SDK owner typedef: " + path); return; }
+		clang::QualType current = type->getUnderlyingType();
+		if (!current->isPointerType()) { errors.push_back("Record path requires a pointer owner: " + path); return; }
+		std::set<const clang::TagDecl*> visited;
+		while (separator != std::string::npos) {
+			auto begin = separator + 1;
+			separator = path.find('.', begin);
+			auto name = path.substr(begin, separator == std::string::npos ? separator : separator - begin);
+			if (current.isVolatileQualified() || current.isRestrictQualified()) { errors.push_back("Record path cannot traverse qualified mutation: " + path); return; }
+			if (const auto* pointer = current->getAs<clang::PointerType>()) { current = pointer->getPointeeType(); }
+			if (current.isVolatileQualified() || current.isRestrictQualified()) { errors.push_back("Record path cannot traverse qualified mutation: " + path); return; }
+			const auto* recordType = current->getAs<clang::RecordType>();
+			const auto* record = recordType ? recordType->getDecl()->getDefinition() : nullptr;
+			if (!record || !record->isStruct() || !visited.insert(record->getCanonicalDecl()).second) { errors.push_back("Record path requires noncyclic complete SDK structs: " + path); return; }
+			const clang::FieldDecl* selected = nullptr;
+			for (const auto* field : record->fields()) { if (field->getNameAsString() == name) { selected = field; break; } }
+			if (!selected || selected->isAnonymousStructOrUnion() || selected->isBitField()) { errors.push_back("Record path names an unavailable SDK field: " + path); return; }
+			requestRecord(record, false);
+			current = selected->getType();
+		}
+	}
 
 	bool VisitObjCInterfaceDecl(clang::ObjCInterfaceDecl* value) {
 		interfaces[value->getNameAsString()] = value->getCanonicalDecl();
@@ -404,6 +432,7 @@ public:
 				exports.push_back(std::move(exported));
 			}
 		}
+		for (const auto& path : recordPaths) { requestRecordPath(path); }
 		if (errors.empty() && !value.getDiagnostics().hasErrorOccurred()) { readRecords(); }
 		pendingRecords.clear();
 		declarations.clear();
@@ -491,13 +520,14 @@ public:
 int main(int argc, const char** argv) {
 	llvm::cl::OptionCategory category("BTRC native header reader");
 	llvm::cl::list<std::string> symbols("symbol", llvm::cl::desc("Exact qualified declaration to read"), llvm::cl::OneOrMore, llvm::cl::cat(category));
+	llvm::cl::list<std::string> recordPaths("record-path", llvm::cl::desc("Selected owner and checked dotted SDK field path"), llvm::cl::ZeroOrMore, llvm::cl::cat(category));
 	llvm::cl::list<std::string> packages("pkg-config", llvm::cl::desc("Selected native dependency supplying compile flags"), llvm::cl::ZeroOrMore, llvm::cl::cat(category));
 	auto options = clang::tooling::CommonOptionsParser::create(argc, argv, category, llvm::cl::OneOrMore);
 	if (!options) { llvm::errs() << options.takeError(); return 1; }
 	if (options->getSourcePathList().size() != 1) { llvm::errs() << "error: expected exactly one native translation unit\n"; return 1; }
 	std::vector<std::string> flags;
 	if (!NativeHeaderDependencies().resolve(std::vector<std::string>(packages.begin(), packages.end()), flags)) { return 1; }
-	NativeHeaderReader reader(std::vector<std::string>(symbols.begin(), symbols.end()));
+	NativeHeaderReader reader(std::vector<std::string>(symbols.begin(), symbols.end()), std::vector<std::string>(recordPaths.begin(), recordPaths.end()));
 	NativeHeaderActionFactory factory(reader);
 	clang::tooling::ClangTool tool(options->getCompilations(), options->getSourcePathList());
 	tool.appendArgumentsAdjuster(clang::tooling::getInsertArgumentAdjuster(flags, clang::tooling::ArgumentInsertPosition::BEGIN));

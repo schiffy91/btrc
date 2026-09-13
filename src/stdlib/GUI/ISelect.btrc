@@ -2,7 +2,8 @@ import Library.GUI.IView;
 import Library.Vector;
 
 /* Selection uses an index so duplicate titles remain distinct. An empty list
- * selects -1. Replacing items and publishing selection do not synthesize input. */
+ * selects -1. Replacing items and publishing selection do not synthesize input.
+ * macOS supports native selection fonts up to 20pt; larger sizes are rejected. */
 interface ISelect extends IView {
 	void setItems(Vector<string> titles, int selectedIndex);
 	int itemCount();

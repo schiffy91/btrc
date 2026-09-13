@@ -1,5 +1,5 @@
 """Behavioral analyzer tests: assert real diagnostics (not just line execution)
-for enum-switch exhaustiveness, the managed-alias warning, and parallel-for."""
+for enum-switch exhaustiveness, automatic managed aliases, and parallel-for."""
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.lexer.lexer import Lexer
@@ -70,7 +70,7 @@ def test_default_case_makes_switch_exhaustive():
     assert not _has(errors(src), "not exhaustive")
 
 
-def test_managed_alias_emits_warning():
+def test_managed_alias_does_not_recommend_a_redundant_keep():
     src = """
     class Node { public int v; public Node(int v) { self.v = v; } }
     int main() {
@@ -79,7 +79,8 @@ def test_managed_alias_emits_warning():
         return b.v;
     }
     """
-    assert _has(warnings(src), "Aliasing managed variable")
+    assert not errors(src)
+    assert not _has(warnings(src), "Aliasing managed variable")
 
 
 def test_primitive_copy_is_not_aliased():

@@ -1540,7 +1540,7 @@ class OwnershipLowerer:
     ) -> bool:
         """Whether evaluating ``expression`` produces caller-owned +1."""
         if isinstance(expression, Identifier):
-            return expression.name in self._analyzed.native_object_globals and not self._session.local_is_declared(
+            return expression.name in self._analyzed.native_owned_globals and not self._session.local_is_declared(
                 expression.name
             )
         if isinstance(expression, NewExpr):
@@ -1549,6 +1549,14 @@ class OwnershipLowerer:
             result_type = self._session.type_of(expression)
             return bool(result_type and result_type.base in self._analyzed.class_table)
         if isinstance(expression, CastExpr):
+            if TypeSystem.native_resource_query_type(
+                self._analyzed.class_table,
+                TypeSystem.canonical_declaration_type(expression.target_type, self._analyzed.typedef_table),
+                TypeSystem.canonical_declaration_type(
+                    self._session.type_of(expression.expr), self._analyzed.typedef_table
+                ),
+            ):
+                return True
             return self._values.is_managed(self._session.type_of(expression)) and self.owns_result(
                 expression.expr, provenance=provenance
             )
@@ -2540,7 +2548,7 @@ class OwnershipLowerer:
         if isinstance(node, Identifier):
             if self._enum_constant_identifier(node):
                 return False
-            if node.name in self._analyzed.native_object_globals and not self._session.local_is_declared(node.name):
+            if node.name in self._analyzed.native_owned_globals and not self._session.local_is_declared(node.name):
                 return True
             return self._session.type_of(node) is None
         if isinstance(

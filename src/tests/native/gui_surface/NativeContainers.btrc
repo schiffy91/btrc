@@ -25,6 +25,8 @@ class FailingLayout implements IMacOSContainerLayout {
 
 	public NSView nativeView() { return self._view; }
 
+	public NSView childParent() { return self._view; }
+
 	public void arrangeChild(NSView child) { child.setTranslatesAutoresizingMaskIntoConstraints(false); throw "Injected native layout failure"; }
 
 	public void forgetChild(NSView child) { self.forgets++; }
@@ -106,6 +108,12 @@ class FailingView implements IMacOSView {
 	public void attachTo(NSView parent) { self.verifyReentry(); self._view.attachTo(parent); }
 
 	public void detachFrom(NSView parent) { self._view.detachFrom(parent); }
+
+	public void cancelPointerCapture() { self._view.cancelPointerCapture(); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._view.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._view.onScroll(handler, owner); }
 
 	public bool isOpen() { return !self._closing && self._view.isOpen(); }
 

@@ -21,7 +21,7 @@ import tempfile
 import tomllib
 from collections.abc import Iterable, Mapping
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 
 
@@ -274,6 +274,20 @@ class ModuleProvider:
 
 
 @dataclass(frozen=True)
+class NativeCallbackTable:
+    """A unique SDK record of callbacks that BTRC implements through one receiver."""
+
+    name: str
+    interface: str
+    context: str
+    context_index: int
+    methods: tuple[tuple[str, str], ...]
+    label: str = ""
+    reopen: str = ""
+    release: str = ""
+
+
+@dataclass(frozen=True)
 class NativeResourceBinding:
     """Missing ownership facts for one header-declared native resource."""
 
@@ -281,6 +295,42 @@ class NativeResourceBinding:
     ownership: str
     retain: str
     release: str
+    release_consumption: str = ""
+    cleanup_status: str = ""
+    type_query: str = ""
+    type_tag: str = ""
+    storage: str = ""
+    alias: str = ""
+    constructor: str = ""
+    owner: str = ""
+    methods: tuple[str, ...] = ()
+    table: NativeCallbackTable | None = None
+
+
+@dataclass(frozen=True)
+class NativeInitializerBinding:
+    """Initialize one zeroed inline resource, optionally retaining copied bytes."""
+
+    function: str
+    resource: str
+    parameter: str
+    result: str
+    success: str
+    copied_input: str = ""
+    length: str = ""
+    status_field: str = ""
+
+
+@dataclass(frozen=True)
+class NativeRealtimeCallbackBinding:
+    """A stored SDK callback record with registration-bound native operations."""
+
+    name: str
+    record: str
+    size: str
+    owner: str
+    invocation: str
+    operations: tuple[tuple[str, str], ...]
 
 
 @dataclass(frozen=True)
@@ -302,6 +352,7 @@ class NativeCallbackBinding:
     action_getter: str = ""
     owned_arguments: tuple[int, ...] = ()
     field: str = ""
+    realtime: NativeRealtimeCallbackBinding | None = None
 
 
 @dataclass(frozen=True)
@@ -312,6 +363,38 @@ class NativeStringViewBinding:
     data: str
     length: str
     null_length: str
+
+
+@dataclass(frozen=True)
+class NativeVariadicBinding:
+    """One fixed C variadic shape selected by an SDK opcode constant."""
+
+    parameter: str
+    value: str
+    arguments: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class NativeResourceOutputBinding:
+    """Named, sized erased RC output projection alongside the raw SDK entry."""
+
+    resource: str
+    size_parameter: str
+    alias: str
+
+
+@dataclass(frozen=True)
+class NativeRecordSnapshotBinding:
+    """Owning values copied from checked field paths of an admitted resource."""
+
+    result: str
+    owner: str
+    name: str
+    fields: tuple[tuple[str, str], ...]
+    byte_plane: tuple[str, str, str, str, str] = ()
+    guard: tuple[str, str] = ()
+    strings: tuple[tuple[str, str], ...] = ()
+    byte_span: tuple[str, str, str] = ()
 
 
 @dataclass(frozen=True)
@@ -340,6 +423,18 @@ class NativeBinding:
     record_outputs: tuple[str, ...] = ()
     owned_output_fields: tuple[str, ...] = ()
     null_output_fields: tuple[str, ...] = ()
+    borrowed_results: tuple[tuple[str, str], ...] = ()
+    static_globals: tuple[str, ...] = ()
+    resource_parameters: tuple[tuple[str, str], ...] = ()
+    resource_results: tuple[tuple[str, str], ...] = ()
+    owned_outputs: tuple[tuple[str, str], ...] = ()
+    variadic_calls: tuple[NativeVariadicBinding, ...] = ()
+    output_offsets: tuple[tuple[str, str, str, str], ...] = ()
+    copied_results: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = ()
+    owned_output_resources: tuple[tuple[str, NativeResourceOutputBinding], ...] = ()
+    record_snapshots: tuple[NativeRecordSnapshotBinding, ...] = ()
+    initializers: tuple[NativeInitializerBinding, ...] = ()
+    copied_inputs: tuple[tuple[str, str, str], ...] = ()
 
     def selected_for(self, target: PackageTarget) -> bool:
         return (not self.operating_systems or target.operating_system in self.operating_systems) and (
@@ -1091,6 +1186,12 @@ class PackageManifestValidator:
                         "action-getter",
                         "owned-arguments",
                         "field",
+                        "name",
+                        "record",
+                        "size",
+                        "owner",
+                        "invocation",
+                        "operations",
                     }
                 ),
                 location,
@@ -1116,8 +1217,9 @@ class PackageManifestValidator:
             lifetime = value.get("lifetime")
             if lifetime not in {"call", "stored", "one-shot"}:
                 raise ValueError(f"{location}.lifetime requires call, stored or one-shot")
+            realtime = self._realtime_callback_binding(value, symbols, location, language, lifetime)
             callback_field = self._identifier(value["field"], f"{location}.field") if "field" in value else ""
-            if callback_field and (language != "c" or lifetime != "one-shot"):
+            if callback_field and (language != "c" or (lifetime != "one-shot" and realtime is None)):
                 raise ValueError(f"{location}.field requires a C one-shot callback")
             if len(indices) > 1 and not callback_field:
                 raise ValueError(f"{location}: multiple context slots require a callback field")
@@ -1163,7 +1265,7 @@ class PackageManifestValidator:
                         f"{location}: delegate cancellation requires its setter and activation-failure abort"
                     )
             if lifetime == "stored":
-                if language != "objective-c":
+                if language != "objective-c" and realtime is None:
                     raise ValueError(f"{location}: stored callbacks currently require Objective-C blocks")
                 if not isinstance(unregister, str) or unregister not in symbols:
                     raise ValueError(f"{location}.unregister must name a selected native method")
@@ -1182,7 +1284,7 @@ class PackageManifestValidator:
                 raise ValueError(f"{location}: cancellation facts require a stored callback")
             if value.get("failure") != "abort":
                 raise ValueError(f"{location}.failure currently requires abort")
-            if value.get("executor") != "caller":
+            if value.get("executor") != "caller" and realtime is None:
                 raise ValueError(f"{location}.executor currently requires caller")
             if interface in symbols:
                 raise ValueError(f"{location}.interface conflicts with another imported name")
@@ -1194,7 +1296,7 @@ class PackageManifestValidator:
                     interface,
                     lifetime,
                     "abort",
-                    "caller",
+                    value["executor"],
                     unregister,
                     activation_failure,
                     tuple(sorted(methods)),
@@ -1203,9 +1305,46 @@ class PackageManifestValidator:
                     action_getter,
                     tuple(sorted(owned_arguments)),
                     callback_field,
+                    realtime,
                 )
             )
         return tuple(callbacks)
+
+    def _realtime_callback_binding(self, value, symbols, location, language, lifetime):
+        fields = {"name", "record", "size", "owner", "invocation", "operations"}
+        if value.get("executor") != "realtime":
+            if fields.intersection(value):
+                raise ValueError(f"{location}: callback operation facts require executor realtime")
+            return None
+        if (
+            language != "c"
+            or lifetime != "stored"
+            or not fields.issubset(value)
+            or not value.get("field")
+            or value.get("activation-failure") != "abort"
+            or any(
+                key in value for key in ("methods", "slot-getter", "action-setter", "action-getter", "owned-arguments")
+            )
+        ):
+            raise ValueError(
+                f"{location}: realtime requires a stored C callback record, owner, invocation and operations"
+            )
+        selected = {field: self._identifier(value[field], f"{location}.{field}") for field in fields - {"operations"}}
+        if (
+            selected["record"] not in symbols
+            or selected["name"] in symbols
+            or selected["invocation"] in symbols
+            or len({selected["name"], selected["invocation"], value.get("interface")}) != 3
+            or selected["size"] == selected["owner"]
+        ):
+            raise ValueError(f"{location}: realtime callback names or selected record conflict")
+        operations = value["operations"]
+        if not isinstance(operations, dict) or not operations:
+            raise ValueError(f"{location}.operations requires named selected function.parameter pairs")
+        for name, parameter in operations.items():
+            self._identifier(name, f"{location}.operations")
+            self._resource_functions([parameter], symbols, location, "operations", parameters=True)
+        return NativeRealtimeCallbackBinding(**selected, operations=tuple(sorted(operations.items())))
 
     def _string_view_bindings(self, values, symbols, context, language):
         if not isinstance(values, dict) or (values and language != "c"):
@@ -1226,12 +1365,68 @@ class PackageManifestValidator:
             bindings.append(NativeStringViewBinding(name, data, length, value["null-length"]))
         return tuple(bindings)
 
-    def _resource_bindings(self, values, symbols, context) -> tuple[NativeResourceBinding, ...]:
+    def _resource_bindings(self, values, symbols, context, language="c") -> tuple[NativeResourceBinding, ...]:
         if not isinstance(values, dict):
             raise ValueError(f"{context}.resources must map selected typedefs to ownership declarations")
         resources = []
         operations = set()
+        aliases = set()
         for name, value in sorted(values.items()):
+            if language == "c++":
+                location = f"{context}.resources.{name}"
+                if name not in symbols or not _NATIVE_SYMBOL.fullmatch(name) or not isinstance(value, dict):
+                    raise ValueError(f"{location}: C++ resources require selected SDK classes")
+                ownership = value.get("ownership")
+                required = {"name", "ownership", "methods"}
+                required |= {"constructor", "release"} if ownership == "unique" else {"owner"}
+                if ownership not in {"unique", "owner-bound-value"} or set(value) != required:
+                    raise ValueError(
+                        f"{location}: C++ resources require unique/default/delete or owner-bound-value facts"
+                    )
+                alias = self._identifier(value["name"], f"{location}.name")
+                if alias in aliases or alias in symbols:
+                    raise ValueError(f"{location}: C++ resource aliases must be distinct")
+                methods = value["methods"]
+                if (
+                    not isinstance(methods, list)
+                    or any(
+                        not isinstance(method, str)
+                        or not _IDENTIFIER.fullmatch(method.removesuffix("()"))
+                        or method.removesuffix("()") in {"create", "close"}
+                        for method in methods
+                    )
+                    or len(methods) != len({method.removesuffix("()") for method in methods})
+                ):
+                    raise ValueError(f"{location}.methods requires distinct unambiguous public method names")
+                constructor, release, owner = (
+                    value.get("constructor", ""),
+                    value.get("release", ""),
+                    value.get("owner", ""),
+                )
+                if ownership == "unique" and (constructor != "default" or release != "delete"):
+                    raise ValueError(f"{location}: C++ unique construction/destruction requires default/delete")
+                if ownership == "owner-bound-value" and (
+                    not isinstance(owner, str)
+                    or owner == name
+                    or owner not in values
+                    or not isinstance(values[owner], dict)
+                    or values[owner].get("ownership") != "unique"
+                ):
+                    raise ValueError(f"{location}: owner-bound values require a selected unique originating document")
+                aliases.add(alias)
+                resources.append(
+                    NativeResourceBinding(
+                        name,
+                        ownership,
+                        "",
+                        release,
+                        alias=alias,
+                        constructor=constructor,
+                        owner=owner,
+                        methods=tuple(sorted(methods)),
+                    )
+                )
+                continue
             if (
                 name not in symbols
                 or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None
@@ -1239,11 +1434,45 @@ class PackageManifestValidator:
             ):
                 raise ValueError(f"{context}.resources must map selected typedefs to ownership declarations")
             location = f"{context}.resources.{name}"
-            self._reject_unknown(value, frozenset({"ownership", "retain", "release"}), location)
-            if value.get("ownership") != "reference-counted":
-                raise ValueError(f"{location}.ownership currently requires reference-counted")
-            retain, release = value.get("retain"), value.get("release")
-            for operation in (retain, release):
+            self._reject_unknown(
+                value,
+                frozenset(
+                    {
+                        "ownership",
+                        "retain",
+                        "release",
+                        "release-consumption",
+                        "cleanup-status",
+                        "type-query",
+                        "type-tag",
+                        "storage",
+                        "table",
+                    }
+                ),
+                location,
+            )
+            ownership = value.get("ownership")
+            if ownership not in {"reference-counted", "unique"}:
+                raise ValueError(f"{location}.ownership requires reference-counted or unique")
+            if ownership == "unique" and "retain" in value:
+                raise ValueError(f"{location}: unique resources must not declare retain")
+            storage = value.get("storage", "")
+            if "storage" in value and (storage != "inline" or ownership != "unique"):
+                raise ValueError(f"{location}: storage requires inline unique ownership")
+            consumption = value.get("release-consumption", "")
+            cleanup = value.get("cleanup-status", "")
+            if storage and consumption == "success-or-indeterminate":
+                raise ValueError(f"{location}: inline storage does not support indeterminate destruction")
+            if "release-consumption" in value or "cleanup-status" in value:
+                if ownership != "unique" or (consumption, cleanup) not in {
+                    ("always", "discard"),
+                    ("success-or-indeterminate", "abort"),
+                }:
+                    raise ValueError(
+                        f"{location}: status release requires unique and matching release-consumption/cleanup-status: always/discard or success-or-indeterminate/abort"
+                    )
+            retain, release = value.get("retain", ""), value.get("release")
+            for operation in (release,) if ownership == "unique" else (retain, release):
                 if (
                     not isinstance(operation, str)
                     or operation not in symbols
@@ -1253,10 +1482,214 @@ class PackageManifestValidator:
                 operations.add(operation)
             if retain == release:
                 raise ValueError(f"{location}: lifetime operations must be distinct")
-            resources.append(NativeResourceBinding(name, "reference-counted", retain, release))
+            query, tag = value.get("type-query", ""), value.get("type-tag", "")
+            if "type-query" in value or "type-tag" in value:
+                if ownership != "reference-counted" or query not in symbols or tag not in symbols or query == tag:
+                    raise ValueError(
+                        f"{location}: type-query/type-tag require distinct selected functions on a reference-counted resource"
+                    )
+            table = self._callback_table(value, symbols, location, ownership, storage) if "table" in value else None
+            resources.append(
+                NativeResourceBinding(
+                    name, ownership, retain, release, consumption, cleanup, query, tag, storage, table=table
+                )
+            )
         if operations.intersection(values):
             raise ValueError(f"{context}: lifetime operations must be distinct from resource types")
         return tuple(resources)
+
+    def _callback_table(self, value, symbols, location, ownership, storage):
+        table = value["table"]
+        location = f"{location}.table"
+        if ownership != "unique" or storage or not isinstance(table, dict):
+            raise ValueError(f"{location} requires a unique pointer resource and a table declaration")
+        self._reject_unknown(
+            table,
+            frozenset(
+                {
+                    "name",
+                    "interface",
+                    "context",
+                    "context-index",
+                    "executor",
+                    "failure",
+                    "methods",
+                    "label",
+                    "reopen",
+                    "release",
+                }
+            ),
+            location,
+        )
+        for key in ("name", "interface", "context", "methods", "executor", "failure"):
+            if key not in table:
+                raise ValueError(f"{location} requires name, interface, context, methods, executor and failure")
+        name = self._identifier(table["name"], f"{location}.name")
+        interface = self._identifier(table["interface"], f"{location}.interface")
+        context = self._identifier(table["context"], f"{location}.context")
+        index = table.get("context-index", 0)
+        if type(index) is not int or index < 0 or index > 999999999:
+            raise ValueError(f"{location}.context-index must be a nonnegative native parameter index")
+        if table["executor"] != "caller":
+            raise ValueError(f"{location}.executor currently requires caller")
+        if table["failure"] != "abort":
+            raise ValueError(f"{location}.failure currently requires abort")
+        methods = table["methods"]
+        if not isinstance(methods, dict) or not methods:
+            raise ValueError(f"{location}.methods must map BTRC method names to callback fields")
+        projected = tuple(
+            (self._identifier(method, f"{location}.methods"), self._identifier(field, f"{location}.methods.{method}"))
+            for method, field in sorted(methods.items())
+        )
+        optional = {
+            key: self._identifier(table[key], f"{location}.{key}") if key in table else ""
+            for key in ("label", "reopen", "release")
+        }
+        fields = [context, *(field for _, field in projected), *(field for field in optional.values() if field)]
+        if len(set(fields)) != len(fields):
+            raise ValueError(f"{location}: context, method, label, reopen and release fields must be distinct")
+        if optional["reopen"] and not optional["label"]:
+            raise ValueError(f"{location}.reopen requires a label field to answer")
+        if name in symbols or interface in symbols or name == interface:
+            raise ValueError(f"{location}: name and interface must be distinct from selected symbols")
+        if any(method in {"close", "isOpen"} for method, _ in projected):
+            raise ValueError(f"{location}.methods cannot shadow resource operations")
+        return NativeCallbackTable(name, interface, context, index, projected, **optional)
+
+    def _initializer_bindings(self, values, binding, context):
+        if not isinstance(values, dict):
+            raise ValueError(f"{context}.initializers requires selected function tables")
+        resources = {resource.name: resource for resource in binding.resources}
+        results, owners, projections = set(), set(), []
+        for function, value in sorted(values.items()):
+            self._resource_functions([function], binding.symbols, context, "initializers")
+            if binding.language == "c++":
+                if not isinstance(value, dict) or set(value) != {
+                    "resource",
+                    "result",
+                    "success",
+                    "status-field",
+                    "failure",
+                }:
+                    raise ValueError("C++ initializer requires resource, result, success, status-field and failure")
+                resource, result, success = value["resource"], value["result"], value["success"]
+                self._identifier(result, "C++ initializer result")
+                self._identifier(value["status-field"], "C++ initializer status-field")
+                if (
+                    not isinstance(resource, str)
+                    or resource not in resources
+                    or resources[resource].ownership != "unique"
+                    or not function.startswith(resource + "::")
+                    or value["failure"] != "destroy"
+                ):
+                    raise ValueError("C++ initializer requires its unique SDK receiver and failure = destroy")
+                if (
+                    not isinstance(success, str)
+                    or success not in binding.symbols
+                    or resource in owners
+                    or result in results
+                    or result in binding.symbols
+                    or result in {item.alias for item in resources.values()}
+                ):
+                    raise ValueError(
+                        "C++ initializer requires one factory per owner, a distinct result and selected success constant"
+                    )
+                if function.removeprefix(resource + "::") in {
+                    method.removesuffix("()") for method in resources[resource].methods
+                }:
+                    raise ValueError("C++ initialization cannot also expose an instance mutation method")
+                projections.append(
+                    NativeInitializerBinding(
+                        function, resource, "", result, success, status_field=value["status-field"]
+                    )
+                )
+                results.add(result)
+                owners.add(resource)
+                continue
+            if not isinstance(value, dict) or set(value) - {"copied-inputs"} not in (
+                {"resource", "parameter", "result", "success", "failure"},
+                {"resource", "parameter", "result", "success-nonzero", "failure"},
+            ):
+                raise ValueError(f"{context}.initializers requires resource, parameter, result, success and failure")
+            for field in ("resource", "parameter", "result"):
+                self._identifier(value[field], f"{context}.initializers.{field}")
+            resource, parameter, result = (value[field] for field in ("resource", "parameter", "result"))
+            success = value.get("success", "")
+            if "success" in value:
+                self._identifier(success, f"{context}.initializers.success")
+            elif value["success-nonzero"] is not True:
+                raise ValueError("initializer success-nonzero requires true")
+            if resource not in resources or resources[resource].storage != "inline" or binding.language != "c":
+                raise ValueError("initializers requires a declared inline C resource")
+            if value["failure"] != "rolled-back":
+                raise ValueError("initializers requires fully rolled-back SDK failure")
+            if (
+                result in results
+                or result in binding.symbols
+                or resource in owners
+                or (success and success not in binding.symbols)
+            ):
+                raise ValueError(
+                    "initializers requires one initializer per resource, a distinct result and selected success constant"
+                )
+            if (
+                function in {entry.split(".", 1)[0] for entry, _ in binding.owned_outputs}
+                or function in binding.owned_results
+            ):
+                raise ValueError("initializers cannot combine other owned outputs/results")
+            copies = value.get("copied-inputs", {})
+            if not isinstance(copies, dict) or len(copies) > 1:
+                raise ValueError("initializers currently supports at most one immutable copied input")
+            copied_input, length = "", ""
+            for copied_input, copy in copies.items():
+                self._identifier(copied_input, "initializer copied input")
+                if not isinstance(copy, dict) or set(copy) != {"length"}:
+                    raise ValueError("initializer copied-inputs requires only length")
+                length = copy["length"]
+                self._identifier(length, "initializer copied input length")
+                if len({parameter, copied_input, length}) != 3:
+                    raise ValueError("initializer storage, copied input and length must be distinct")
+            results.add(result)
+            owners.add(resource)
+            projections.append(
+                NativeInitializerBinding(function, resource, parameter, result, success, copied_input, length)
+            )
+        if binding.language == "c++":
+            if {resource.name for resource in resources.values() if resource.ownership == "unique"} != owners:
+                raise ValueError("every C++ unique resource requires one checked initialization factory")
+        elif {resource.name for resource in resources.values() if resource.storage} != owners:
+            raise ValueError("every inline resource requires one checked initializer")
+        return tuple(projections)
+
+    def _copied_input_bindings(self, values, binding, context):
+        if not isinstance(values, dict):
+            raise ValueError("copied-inputs requires selected function.parameter tables")
+        owners, copies = set(), []
+        for parameter, shape in sorted(values.items()):
+            self._resource_functions([parameter], binding.symbols, context, "copied-inputs", parameters=True)
+            if (
+                not isinstance(shape, dict)
+                or set(shape) != {"owner", "length", "assignment"}
+                or shape["assignment"] != "once"
+            ):
+                raise ValueError("copied-inputs requires owner, length and assignment = once")
+            owner, length = shape["owner"], shape["length"]
+            self._identifier(owner, "copied-inputs owner")
+            self._identifier(length, "copied-inputs length")
+            function, input_name = parameter.split(".", 1)
+            if (
+                len({owner, length, input_name}) != 3
+                or f"{function}.{owner}" not in binding.borrowed_parameters
+                or parameter not in binding.read_only_borrows
+            ):
+                raise ValueError(
+                    "copied-inputs requires distinct declared resource-owner and read-only byte parameters"
+                )
+            if function in owners:
+                raise ValueError("copied-inputs requires one copied span per SDK setter")
+            owners.add(function)
+            copies.append((parameter, owner, length))
+        return tuple(copies)
 
     def _resource_functions(self, values, symbols, context, field, *, parameters=False) -> tuple[str, ...]:
         if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
@@ -1274,6 +1707,245 @@ class PackageManifestValidator:
         if len(set(values)) != len(values):
             raise ValueError(f"{context}.{field} contains a duplicate value")
         return tuple(sorted(values))
+
+    def _owned_output_bindings(self, values, symbols, context):
+        if not isinstance(values, dict):
+            raise ValueError(f"{context}.owned-outputs must map function.parameter names to result classes")
+        outputs = []
+        functions = set()
+        results = set()
+        for parameter, value in sorted(values.items()):
+            self._resource_functions([parameter], symbols, context, "owned-outputs", parameters=True)
+            if not isinstance(value, dict) or set(value) not in ({"result"}, {"result", "resource", "size", "name"}):
+                raise ValueError(f"{context}.owned-outputs requires only a result class; adoption is unconditional")
+            result = value["result"]
+            self._identifier(result, f"{context}.owned-outputs result")
+            function = parameter.split(".", 1)[0]
+            if function in functions or result in results or result in symbols:
+                raise ValueError(
+                    f"{context}.owned-outputs requires one output per function and distinct result classes"
+                )
+            functions.add(function)
+            results.add(result)
+            outputs.append((parameter, result))
+        return tuple(outputs)
+
+    def _owned_output_resource_bindings(self, values, binding, context):
+        projections = []
+        aliases = set()
+        resources = {resource.name: resource for resource in binding.resources}
+        output_names = dict(binding.owned_outputs)
+        for parameter, value in sorted(values.items()):
+            if "resource" not in value:
+                continue
+            for field in ("resource", "size", "name"):
+                self._identifier(value[field], f"{context}.owned-outputs.{parameter}.{field}")
+            resource, size, alias = value["resource"], value["size"], value["name"]
+            if resource not in resources or resources[resource].ownership != "reference-counted":
+                raise ValueError("erased owned-outputs requires a declared reference-counted resource")
+            if (
+                alias in binding.symbols
+                or alias in aliases
+                or alias in output_names.values()
+                or size == parameter.split(".", 1)[1]
+            ):
+                raise ValueError("erased owned-outputs requires distinct alias, result and output parameters")
+            if any(offset[0].split(".", 1)[0] == parameter.split(".", 1)[0] for offset in binding.output_offsets):
+                raise ValueError("erased owned-outputs cannot combine output-offsets")
+            aliases.add(alias)
+            projections.append((parameter, NativeResourceOutputBinding(resource, size, alias)))
+        return tuple(projections)
+
+    def _copied_result_bindings(self, values, symbols, context):
+        if not isinstance(values, dict):
+            raise ValueError(f"{context}.copied-results requires function mappings")
+        results = []
+        for function, value in sorted(values.items()):
+            self._resource_functions([function], symbols, context, "copied-results")
+            if not isinstance(value, dict) or value.get("kind") not in {"string", "bytes"}:
+                raise ValueError(f"{context}.copied-results kind requires string or bytes")
+            kind = value["kind"]
+            owner = value.get("owner", "")
+            if owner:
+                self._identifier(owner, f"{context}.copied-results owner")
+            if kind == "string":
+                if (set(value) != {"kind", "owner"} or not owner) and (
+                    set(value) != {"kind", "lifetime"} or value.get("lifetime") != "static"
+                ):
+                    raise ValueError(f"{context}.copied-results string requires an owner or explicit static lifetime")
+                results.append((function, kind, owner, "", ()))
+                continue
+            if (
+                set(value) != {"kind", "owner", "length-function", "length-arguments", "length-preserves-result"}
+                or not owner
+                or value.get("length-preserves-result") is not True
+            ):
+                raise ValueError(f"{context}.copied-results bytes requires owner and length-preserves-result = true")
+            length_function = value["length-function"]
+            self._resource_functions([length_function], symbols, context, "copied-results length-function")
+            arguments = value["length-arguments"]
+            if not isinstance(arguments, list) or not arguments:
+                raise ValueError(f"{context}.copied-results length-arguments requires parameter names")
+            for argument in arguments:
+                self._identifier(argument, f"{context}.copied-results length argument")
+            results.append((function, kind, owner, length_function, tuple(arguments)))
+        return tuple(results)
+
+    def _output_offset_bindings(self, values, symbols, outputs, context):
+        if not isinstance(values, dict):
+            raise ValueError(f"{context}.output-offsets must map function.parameter paths to bounded offsets")
+        offsets = []
+        functions = set()
+        owners = {parameter.split(".", 1)[0] for parameter, _ in outputs}
+        for parameter, value in sorted(values.items()):
+            self._resource_functions([parameter], symbols, context, "output-offsets", parameters=True)
+            if not isinstance(value, dict) or set(value) != {"input", "length", "field"}:
+                raise ValueError(f"{context}.output-offsets requires input, length, and field")
+            for key in ("input", "length", "field"):
+                self._identifier(value[key], f"{context}.output-offsets {key}")
+            function, output = parameter.split(".", 1)
+            if function not in owners or function in functions:
+                raise ValueError(f"{context}.output-offsets requires one offset alongside an owned output")
+            if len({output, value["input"], value["length"]}) != 3 or value["field"] in {"status", "value"}:
+                raise ValueError(f"{context}.output-offsets requires distinct parameters and a fresh result field")
+            functions.add(function)
+            offsets.append((parameter, value["input"], value["length"], value["field"]))
+        return tuple(offsets)
+
+    def _variadic_bindings(self, values, symbols, context, language):
+        if not isinstance(values, dict) or (values and language != "c"):
+            raise ValueError(f"{context}.variadic-calls requires selected C call shapes")
+        calls = []
+        functions = set()
+        promoted = {"int", "unsigned int", "long", "unsigned long", "long long", "unsigned long long", "double"}
+        pointees = promoted | {"char", "signed char", "unsigned char", "short", "unsigned short", "float"}
+        for parameter, value in sorted(values.items()):
+            self._resource_functions([parameter], symbols, context, "variadic-calls", parameters=True)
+            if not isinstance(value, dict) or set(value) != {"value", "arguments"}:
+                raise ValueError(f"{context}.variadic-calls requires value and arguments")
+            constant = value["value"]
+            arguments = value["arguments"]
+            if not isinstance(constant, str) or constant not in symbols:
+                raise ValueError(f"{context}.variadic-calls value must name a selected SDK constant")
+            if (
+                not isinstance(arguments, list)
+                or not arguments
+                or any(not isinstance(argument, str) for argument in arguments)
+            ):
+                raise ValueError(f"{context}.variadic-calls arguments must be a nonempty native scalar type list")
+            for argument in arguments:
+                pointee = argument[:-1].removeprefix("const ") if argument.endswith("*") else ""
+                if argument not in promoted and pointee not in pointees:
+                    raise ValueError(f"{context}.variadic-calls requires promoted scalars or scalar pointers")
+            function = parameter.split(".", 1)[0]
+            if function in functions:
+                raise ValueError(f"{context}.variadic-calls selects exactly one shape per function")
+            functions.add(function)
+            calls.append(NativeVariadicBinding(parameter, constant, tuple(arguments)))
+        return tuple(calls)
+
+    def _record_snapshot_bindings(self, values, binding, context):
+        if not isinstance(values, dict):
+            raise ValueError(f"{context}.record-snapshots must be a table")
+        if values and binding.language != "c":
+            raise ValueError(f"{context}.record-snapshots requires C")
+        resources = {resource.name for resource in binding.resources}
+        names = set(binding.symbols)
+        snapshots = []
+        for result, value in sorted(values.items()):
+            if not _IDENTIFIER.fullmatch(result) or result in names or not isinstance(value, dict):
+                raise ValueError(f"{context}.record-snapshots requires distinct result class names")
+            if not {"owner", "name", "fields"} <= value.keys() or value.keys() - {
+                "owner",
+                "name",
+                "fields",
+                "byte-plane",
+                "guard",
+                "strings",
+                "byte-span",
+            }:
+                raise ValueError(f"{context}.record-snapshots requires owner, name, fields and optional byte-plane")
+            owner, name, fields = value["owner"], value["name"], value["fields"]
+            if (
+                not isinstance(owner, str)
+                or owner not in resources
+                or not isinstance(name, str)
+                or not _IDENTIFIER.fullmatch(name)
+                or name in names
+                or name == result
+            ):
+                raise ValueError(f"{context}.record-snapshots requires a selected resource and distinct function name")
+            if not isinstance(fields, dict) or any(
+                not _IDENTIFIER.fullmatch(alias) or not isinstance(path, str) or not _MODULE_NAME.fullmatch(path)
+                for alias, path in fields.items()
+            ):
+                raise ValueError(f"{context}.record-snapshots fields must map aliases to dotted SDK field paths")
+            plane = value.get("byte-plane", {})
+            if not isinstance(plane, dict) or (
+                "byte-plane" in value and set(plane) != {"field", "pointer", "width", "rows", "pitch"}
+            ):
+                raise ValueError(
+                    f"{context}.record-snapshots byte-plane requires field, pointer, width, rows and pitch"
+                )
+            if plane and (
+                any(not isinstance(item, str) for item in plane.values())
+                or not _IDENTIFIER.fullmatch(plane["field"])
+                or plane["field"] in fields
+                or any(not _MODULE_NAME.fullmatch(plane[key]) for key in ("pointer", "width", "rows", "pitch"))
+            ):
+                raise ValueError(
+                    f"{context}.record-snapshots byte-plane requires a distinct field and dotted SDK paths"
+                )
+            guard = value.get("guard", {})
+            if not isinstance(guard, dict) or ("guard" in value and set(guard) != {"field", "equals"}):
+                raise ValueError(f"{context}.record-snapshots guard requires field and equals")
+            if guard and (
+                not isinstance(guard["field"], str)
+                or not _MODULE_NAME.fullmatch(guard["field"])
+                or guard["equals"] not in binding.symbols
+            ):
+                raise ValueError(f"{context}.record-snapshots guard requires an SDK path and selected constant")
+            strings = value.get("strings", {})
+            if not isinstance(strings, dict) or any(
+                not _IDENTIFIER.fullmatch(alias)
+                or alias in fields
+                or not isinstance(path, str)
+                or not _MODULE_NAME.fullmatch(path)
+                for alias, path in strings.items()
+            ):
+                raise ValueError(f"{context}.record-snapshots strings requires distinct aliases and SDK paths")
+            span = value.get("byte-span", {})
+            if not isinstance(span, dict) or ("byte-span" in value and set(span) != {"field", "pointer", "length"}):
+                raise ValueError(f"{context}.record-snapshots byte-span requires field, pointer and length")
+            if span and (
+                plane
+                or any(not isinstance(item, str) for item in span.values())
+                or not _IDENTIFIER.fullmatch(span["field"])
+                or span["field"] in fields
+                or span["field"] in strings
+                or any(not _MODULE_NAME.fullmatch(span[key]) for key in ("pointer", "length"))
+            ):
+                raise ValueError(
+                    f"{context}.record-snapshots byte-span requires a distinct byte field and cannot combine byte-plane"
+                )
+            if plane and plane["field"] in strings:
+                raise ValueError(f"{context}.record-snapshots requires distinct copied fields")
+            if not fields and not plane and not strings and not span:
+                raise ValueError(f"{context}.record-snapshots requires copied fields")
+            names.update((name, result))
+            snapshots.append(
+                NativeRecordSnapshotBinding(
+                    result,
+                    owner,
+                    name,
+                    tuple(sorted(fields.items())),
+                    tuple(plane[key] for key in ("field", "pointer", "width", "rows", "pitch")) if plane else (),
+                    tuple(guard[key] for key in ("field", "equals")) if guard else (),
+                    tuple(sorted(strings.items())),
+                    tuple(span[key] for key in ("field", "pointer", "length")) if span else (),
+                )
+            )
+        return tuple(snapshots)
 
     def bindings(self, manifest: Mapping, root: str, package: str, path: str) -> tuple[NativeBinding, ...]:
         entries = manifest.get("native", {}).get("bindings", [])
@@ -1296,13 +1968,24 @@ class PackageManifestValidator:
                         "read-only-borrows",
                         "realtime-safe",
                         "owned-records",
+                        "record-snapshots",
                         "record-inputs",
                         "object-fields",
                         "resources",
                         "owned-results",
+                        "owned-outputs",
+                        "variadic-calls",
+                        "output-offsets",
+                        "copied-results",
+                        "initializers",
+                        "copied-inputs",
+                        "borrowed-results",
                         "borrowed-parameters",
                         "callbacks",
                         "main-thread-globals",
+                        "static-globals",
+                        "resource-parameters",
+                        "resource-results",
                         "string-views",
                         "record-outputs",
                         "owned-output-fields",
@@ -1363,7 +2046,13 @@ class PackageManifestValidator:
             if (
                 not isinstance(records, list)
                 or not all(
-                    isinstance(value, str) and value in symbols and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value)
+                    isinstance(value, str)
+                    and value in symbols
+                    and (
+                        bool(_NATIVE_SYMBOL.fullmatch(value))
+                        if language == "c++"
+                        else bool(_IDENTIFIER.fullmatch(value))
+                    )
                     for value in records
                 )
                 or len(set(records)) != len(records)
@@ -1393,13 +2082,37 @@ class PackageManifestValidator:
                 for key, value in object_fields.items()
             ):
                 raise ValueError(f"{context}.object-fields must map selected record.field names to object types")
-            if (records or inputs or object_fields) and language != "c":
+            if (records and language not in {"c", "c++"}) or ((inputs or object_fields) and language != "c"):
                 raise ValueError(f"{context}: record input projections currently require a C binding")
-            resources = self._resource_bindings(entry.get("resources", {}), symbols, context)
+            resources = self._resource_bindings(entry.get("resources", {}), symbols, context, language)
             owned_results = self._resource_functions(entry.get("owned-results", []), symbols, context, "owned-results")
             borrowed_parameters = self._resource_functions(
                 entry.get("borrowed-parameters", []), symbols, context, "borrowed-parameters", parameters=True
             )
+            borrowed_results = entry.get("borrowed-results", {})
+            if not isinstance(borrowed_results, dict) or not all(
+                isinstance(function, str)
+                and function in symbols
+                and isinstance(owner, str)
+                and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", owner)
+                and f"{function}.{owner}" in borrowed_parameters
+                for function, owner in borrowed_results.items()
+            ):
+                raise ValueError(
+                    f"{context}.borrowed-results must map selected functions to declared borrowed owner parameters"
+                )
+            if set(borrowed_results) & set(owned_results):
+                raise ValueError(f"{context}: owned-results and borrowed-results must be distinct")
+            resource_projections = []
+            for field, parameters in (("resource-parameters", True), ("resource-results", False)):
+                mappings = entry.get(field, {})
+                if not isinstance(mappings, dict) or any(
+                    not isinstance(value, str) or value not in {resource.name for resource in resources}
+                    for value in mappings.values()
+                ):
+                    raise ValueError(f"{context}.{field} must map selected native positions to declared resources")
+                self._resource_functions(list(mappings), symbols, context, field, parameters=parameters)
+                resource_projections.append(tuple(sorted(mappings.items())))
             callbacks = self._callback_bindings(entry.get("callbacks", {}), symbols, context, language)
             outputs = self._resource_functions(
                 entry.get("record-outputs", []), symbols, context, "record-outputs", parameters=True
@@ -1428,9 +2141,11 @@ class PackageManifestValidator:
                 raise ValueError("owned/null output fields must be distinct")
             if callbacks and language not in {"c", "objective-c"}:
                 raise ValueError(f"{context}: callback mappings currently require C or Objective-C")
-            if resources or owned_results or borrowed_parameters:
-                if language != "c":
-                    raise ValueError(f"{context}: resource bindings currently require C")
+            if resources or owned_results or borrowed_parameters or borrowed_results:
+                if language not in {"c", "c++"}:
+                    raise ValueError(f"{context}: resource bindings require C or C++")
+                if language == "c++" and (owned_results or borrowed_parameters or borrowed_results):
+                    raise ValueError(f"{context}: C++ resource methods carry ownership through their receiver")
                 if not resources:
                     raise ValueError(f"{context}: resource ownership requires declared resources")
                 operations = {operation for resource in resources for operation in (resource.retain, resource.release)}
@@ -1470,7 +2185,66 @@ class PackageManifestValidator:
                 self._string_view_bindings(entry.get("string-views", {}), symbols, context, language),
                 outputs,
                 *output_fields,
+                tuple(sorted(borrowed_results.items())),
+                self._resource_functions(entry.get("static-globals", []), symbols, context, "static-globals"),
+                *resource_projections,
+                self._owned_output_bindings(entry.get("owned-outputs", {}), symbols, context),
             )
+            if binding.owned_outputs and (language != "c" or not resources):
+                raise ValueError(f"{context}: owned-outputs requires declared C resources")
+            binding = replace(
+                binding,
+                variadic_calls=self._variadic_bindings(entry.get("variadic-calls", {}), symbols, context, language),
+            )
+            binding = replace(
+                binding,
+                output_offsets=self._output_offset_bindings(
+                    entry.get("output-offsets", {}), symbols, binding.owned_outputs, context
+                ),
+                copied_results=self._copied_result_bindings(
+                    entry.get("copied-results", {}),
+                    symbols
+                    + [
+                        f"{resource.name}::{method.removesuffix('()')}"
+                        for resource in resources
+                        if language == "c++"
+                        for method in resource.methods
+                    ],
+                    context,
+                ),
+            )
+            if binding.copied_results and language not in {"c", "c++"}:
+                raise ValueError(f"{context}: copied-results requires C functions or C++ methods")
+            if language == "c++" and any(
+                kind != "string"
+                or owner != "self"
+                or function
+                not in {
+                    f"{resource.name}::{method.removesuffix('()')}"
+                    for resource in resources
+                    for method in resource.methods
+                }
+                for function, kind, owner, _, _ in binding.copied_results
+            ):
+                raise ValueError("C++ copied-results requires selected instance strings with owner = self")
+            binding = replace(
+                binding,
+                owned_output_resources=self._owned_output_resource_bindings(
+                    entry.get("owned-outputs", {}), binding, context
+                ),
+            )
+            binding = replace(
+                binding,
+                record_snapshots=self._record_snapshot_bindings(entry.get("record-snapshots", {}), binding, context),
+            )
+            binding = replace(
+                binding, initializers=self._initializer_bindings(entry.get("initializers", {}), binding, context)
+            )
+            binding = replace(
+                binding, copied_inputs=self._copied_input_bindings(entry.get("copied-inputs", {}), binding, context)
+            )
+            if binding.static_globals and (language != "c" or not resources):
+                raise ValueError(f"{context}: static-globals requires declared C resources")
             if any(binding.overlaps(previous) for previous in bindings):
                 raise ValueError(f"{context} overlaps a native binding for the same module and target")
             bindings.append(binding)

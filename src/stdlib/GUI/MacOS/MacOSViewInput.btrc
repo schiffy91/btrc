@@ -1,0 +1,192 @@
+import Library.GUI.IView;
+import Library.GUI.MacOS.AppKitEvents;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+/* One native subscription, not another view owner. The view and caller scopes
+ * share its cancellation identity; native callbacks retain the receiver until
+ * admission closes and in-flight dispatch drains. */
+class MacOSViewFocus implements IAppKitRunLoopEvents {
+	private MacOSViewInput _input;
+	public MacOSViewFocus(MacOSViewInput input) { self._input = input; }
+
+	public void invoke(NSNotification notification) { self._input.focusLost(notification); }
+}
+
+class MacOSViewInput implements IAppKitKeyMonitor, ICallbackRegistration {
+	private NSView? _view;
+	private IViewPointerHandler? _pointer;
+	private IViewScrollHandler? _scroll;
+	private CallbackScope _native = CallbackScope();
+	private NSTrackingArea? _tracking;
+	private bool _open = true;
+	private bool _inside = false;
+	private AppPointerButton _captured = APP_POINTER_BUTTON_NONE;
+	private double _x = 0.0;
+	private double _y = 0.0;
+	private AppKeyModifiers _modifiers = AppKeyModifiers(false, false, false, false);
+
+	public MacOSViewInput(NSView view, IViewPointerHandler? pointer, IViewScrollHandler? scroll) {
+		if ((pointer == null) == (scroll == null)) { throw "View input requires exactly one handler"; }
+		self._view = view;
+		self._pointer = pointer;
+		self._scroll = scroll;
+	}
+
+	public void start() {
+		if (!NSThread.isMainThread()) { throw "View input requires the main thread"; }
+		var view = self._view;
+		if (view == null) { throw "View input is closed"; }
+		var window = view.window();
+		if (window == null) { throw "Attach the view to a window before subscribing to input"; }
+		unsigned long mask = NSEventMaskScrollWheel;
+		if (self._pointer != null) {
+			mask = NSEventMaskMouseMoved | NSEventMaskMouseEntered | NSEventMaskMouseExited | NSEventMaskLeftMouseDown | NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged | NSEventMaskRightMouseDown | NSEventMaskRightMouseUp | NSEventMaskRightMouseDragged | NSEventMaskOtherMouseDown | NSEventMaskOtherMouseUp | NSEventMaskOtherMouseDragged;
+			window.setAcceptsMouseMovedEvents(true);
+			self._tracking = NSTrackingArea.initWithRect(view.bounds(), NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect, view, null);
+			if (self._tracking == null) { throw "Cannot create native view tracking area"; }
+			view.addTrackingArea(self._tracking);
+			var focus = MacOSViewFocus(self);
+			NSNotificationCenter.defaultCenter().addObserverForName(NSWindowDidResignKeyNotification, null, null, focus, self._native);
+			NSNotificationCenter.defaultCenter().addObserverForName(NSApplicationDidResignActiveNotification, null, null, focus, self._native);
+		}
+		NSEvent.addLocalMonitorForEventsMatchingMask(mask, self, self._native);
+	}
+
+	private AppPointerButton button(long button) {
+		if (button == 0L) { return APP_POINTER_BUTTON_PRIMARY; }
+		if (button == 1L) { return APP_POINTER_BUTTON_SECONDARY; }
+		if (button == 2L) { return APP_POINTER_BUTTON_MIDDLE; }
+		if (button == 3L) { return APP_POINTER_BUTTON_BACK; }
+		if (button == 4L) { return APP_POINTER_BUTTON_FORWARD; }
+		return APP_POINTER_BUTTON_OTHER;
+	}
+
+	private AppScrollPhase phase(unsigned long phase) {
+		if ((phase & NSEventPhaseCancelled) != 0UL) { return APP_SCROLL_CANCELLED; }
+		if ((phase & NSEventPhaseEnded) != 0UL) { return APP_SCROLL_ENDED; }
+		if ((phase & NSEventPhaseBegan) != 0UL) { return APP_SCROLL_BEGAN; }
+		if ((phase & NSEventPhaseChanged) != 0UL) { return APP_SCROLL_CHANGED; }
+		if ((phase & NSEventPhaseMayBegin) != 0UL) { return APP_SCROLL_MAY_BEGIN; }
+		if ((phase & NSEventPhaseStationary) != 0UL) { return APP_SCROLL_STATIONARY; }
+		return APP_SCROLL_NONE;
+	}
+
+	private bool pointer(AppPointerAction action, AppPointerButton button = APP_POINTER_BUTTON_NONE, int clicks = 0) {
+		var handler = self._pointer;
+		return handler != null && handler.pointer(AppPointerEvent(action, button, self._x, self._y, self._modifiers, clicks));
+	}
+
+	private void cancelCapture() {
+		var button = self._captured;
+		self._captured = APP_POINTER_BUTTON_NONE;
+		if (button != APP_POINTER_BUTTON_NONE) { self.pointer(APP_POINTER_CANCELLED, button); }
+		if (self._inside) { self._inside = false; self.pointer(APP_POINTER_EXITED); }
+	}
+
+	public void focusLost(NSNotification notification) {
+		var view = self._view;
+		if (!self._open || view == null) { return; }
+		id? window = view.window();
+		if (notification.name() == NSApplicationDidResignActiveNotification || notification.object() == window) { self.cancelCapture(); }
+	}
+
+	public void detach() { if (self._open) { self.cancelCapture(); } }
+
+	public NSEvent? invoke(NSEvent native) {
+		var view = self._view;
+		if (!self._open || view == null) { return native; }
+		var window = view.window();
+		if (window == null || view.isHiddenOrHasHiddenAncestor()) { self.cancelCapture(); return native; }
+		bool matching = native.window() == window;
+		var location = view.convertPoint(native.locationInWindow(), null);
+		var bounds = view.bounds();
+		var visible = view.visibleRect();
+		bool inside = matching && location.x >= visible.origin.x && location.y >= visible.origin.y && location.x < visible.origin.x + visible.size.width && location.y < visible.origin.y + visible.size.height;
+		if (inside) {
+			var content = window.contentView();
+			if (content == null) { inside = false; }
+			else {
+				var hit = content.hitTest(content.convertPoint(native.locationInWindow(), null));
+				inside = hit != null && (hit == view || hit.isDescendantOf(view));
+			}
+		}
+		if (matching) {
+			self._x = location.x - bounds.origin.x;
+			self._y = view.isFlipped() ? location.y - bounds.origin.y : bounds.origin.y + bounds.size.height - location.y;
+			var flags = native.modifierFlags();
+			self._modifiers = AppKeyModifiers((flags & NSEventModifierFlagShift) != 0UL, (flags & NSEventModifierFlagControl) != 0UL, (flags & NSEventModifierFlagOption) != 0UL, (flags & NSEventModifierFlagCommand) != 0UL);
+		}
+		var type = native.type();
+		if (type == NSEventTypeScrollWheel) {
+			var handler = self._scroll;
+			if (!inside || handler == null) { return native; }
+			return handler.scroll(AppScrollEvent(native.scrollingDeltaX(), native.scrollingDeltaY(), self._x, self._y, native.hasPreciseScrollingDeltas(), self.phase(native.phase()), self.phase(native.momentumPhase()), self._modifiers)) ? null : native;
+		}
+		if (type == NSEventTypeMouseExited && native.trackingArea() == self._tracking) { inside = false; }
+		bool consumed = false;
+		if (inside != self._inside) {
+			self._inside = inside;
+			consumed = self.pointer(inside ? APP_POINTER_ENTERED : APP_POINTER_EXITED);
+		}
+		if (!self._open) { return consumed ? null : native; }
+		if (type == NSEventTypeMouseMoved) { if (inside) { consumed = self.pointer(APP_POINTER_MOVED) || consumed; } }
+		else if (type == NSEventTypeLeftMouseDown || type == NSEventTypeRightMouseDown || type == NSEventTypeOtherMouseDown) {
+			if (inside) {
+				var button = self.button(native.buttonNumber());
+				bool pressed = self.pointer(APP_POINTER_PRESSED, button, (int)native.clickCount());
+				if (pressed && self._open && self._captured == APP_POINTER_BUTTON_NONE) { self._captured = button; }
+				consumed = pressed || consumed;
+			}
+		} else if (type == NSEventTypeLeftMouseUp || type == NSEventTypeRightMouseUp || type == NSEventTypeOtherMouseUp) {
+			var button = self.button(native.buttonNumber());
+			bool captured = self._captured == button;
+			if (captured) { self._captured = APP_POINTER_BUTTON_NONE; }
+			if (inside || captured) { consumed = self.pointer(APP_POINTER_RELEASED, button, (int)native.clickCount()) || captured || consumed; }
+		} else if (type == NSEventTypeLeftMouseDragged || type == NSEventTypeRightMouseDragged || type == NSEventTypeOtherMouseDragged) {
+			var button = self.button(native.buttonNumber());
+			bool captured = self._captured == button;
+			if (inside || captured) { consumed = self.pointer(APP_POINTER_DRAGGED, button, (int)native.clickCount()) || captured || consumed; }
+		}
+		return consumed ? null : native;
+	}
+
+	public bool isOpen() {
+		if (!NSThread.isMainThread()) { throw "View input requires the main thread"; }
+		return self._open;
+	}
+
+	public CallbackCancellation cancel() {
+		if (!NSThread.isMainThread()) { throw "View input requires the main thread"; }
+		if (self._open) {
+			self._open = false;
+			self._native.cancel();
+			if (self._view != null && self._tracking != null) { self._view.removeTrackingArea(self._tracking); }
+			self._tracking = null;
+			self.cancelCapture();
+		}
+		return self.pollCompletion();
+	}
+
+	public CallbackCancellation pollCompletion() {
+		if (!NSThread.isMainThread()) { throw "View input requires the main thread"; }
+		if (self._open) { return CallbackCancellation.NotRequested; }
+		var state = self._native.pollCompletion();
+		if (state == CallbackCancellation.Complete) { self._view = null; self._pointer = null; self._scroll = null; }
+		return state;
+	}
+
+	class ICallbackRegistration subscribe(NSView view, IViewPointerHandler? pointer, IViewScrollHandler? scroll, CallbackScope viewOwner, CallbackScope owner, Vector<MacOSViewInput> inputs) {
+		viewOwner.pollCompletion();
+		for (int index = inputs.len - 1; index >= 0; index--) { if (!inputs.get(index).isOpen()) { inputs.remove(index); } }
+		var registration = MacOSViewInput(view, pointer, scroll);
+		try {
+			viewOwner.track(registration);
+			owner.track(registration);
+			registration.start();
+			inputs.push(registration);
+		} catch (string error) { registration.cancel(); throw error; }
+		return registration;
+	}
+
+	class void detached(Vector<MacOSViewInput> inputs) { for input in inputs { input.detach(); } }
+}

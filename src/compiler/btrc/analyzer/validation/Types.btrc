@@ -750,7 +750,12 @@ class TypeValidator {
 		nested.put(name, true);
 		int fieldIndex = 0;
 		while (fieldIndex < declaration.fields.len) {
-			if (!self.realtimePodInner(declaration.fields.get(fieldIndex).type, nested)) {
+			Node? payload = self.resolveAliases(declaration.fields.get(fieldIndex).type);
+			if (payload != null && payload.isArray) {
+				if (payload.arraySize == null || payload.isNullable) { return false; }
+				payload = TypeShape.withoutOuterArray(payload);
+			}
+			if (!self.realtimePodInner(payload, nested)) {
 				return false;
 			}
 			fieldIndex = fieldIndex + 1;

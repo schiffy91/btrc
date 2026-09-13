@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.abi.native_generated import NativeObjectiveCMethod
+from src.compiler.python.abi.native_generated import NativeCxxClass, NativeCxxMethod, NativeObjectiveCMethod
 from src.compiler.python.frontend.native_imports import NativeHeaderCodec, NativeImportError
 
 REPO = Path(__file__).resolve().parents[3]
@@ -75,6 +75,14 @@ def assert_codec_parity(codec_probe, tmp_path, source):
             lines.append(
                 f"method {declaration.name} {declaration.identity} {declaration.receiver} {declaration.owner} {int(declaration.protocol_owner)} {int(declaration.optional)}"
             )
+        elif isinstance(declaration, NativeCxxClass):
+            lines.append(
+                f"cxxclass {declaration.name} {int(declaration.default_constructor)} {int(declaration.public_destructor)} {int(declaration.trivially_copyable)} {int(declaration.trivially_destructible)}"
+            )
+        elif isinstance(declaration, NativeCxxMethod):
+            lines.append(
+                f"cxxmethod {declaration.name} {declaration.identity} {declaration.receiver} {declaration.owner} {declaration.method_name} {int(declaration.const_method)} {len(declaration.parameter_semantics)}"
+            )
     assert result.stdout.splitlines() == lines
 
 
@@ -90,11 +98,21 @@ def reader() -> str:
     return executable
 
 
-def read(reader, tmp_path, source, symbols, *flags):
+def read(reader, tmp_path, source, symbols, *flags, record_values=()):
     path = tmp_path / "Native.c"
     path.write_text(source, encoding="utf-8")
     result = subprocess.run(
-        [reader, *(f"--symbol={name}" for name in symbols), str(path), "--", "-x", "c", "-std=c11", *flags],
+        [
+            reader,
+            *(f"--symbol={name}" for name in symbols),
+            *(f"--record-value={name}" for name in record_values),
+            str(path),
+            "--",
+            "-x",
+            "c",
+            "-std=c11",
+            *flags,
+        ],
         text=True,
         capture_output=True,
         timeout=30,
@@ -663,6 +681,147 @@ def test_cpp_requires_adapters_not_c_erasure(reader, tmp_path, source):
     assert result.returncode != 0
     assert result.stdout == ""
     assert "C++ function adapters are not implemented" in result.stderr
+
+
+def test_cpp_resource_metadata_preserves_opaque_sdk_classes(reader, codec_probe, tmp_path):
+    result = read(
+        reader,
+        tmp_path,
+        "namespace sdk { class View { void *hidden; public: bool empty() const; View next() const; }; "
+        "class Document: public View { public: Document(); ~Document(); int load(const void*, unsigned long); "
+        "private: Document(const Document&); }; }",
+        ["sdk::Document", "sdk::View", "sdk::Document::load", "sdk::Document::empty", "sdk::View::next"],
+        "-x",
+        "c++",
+        "-std=c++17",
+    )
+    assert result.returncode == 0, result.stderr
+    document = json.loads(result.stdout)
+    declarations = {item["name"]: item for item in document["declarations"]}
+    owner = declarations["sdk::Document"]
+    assert owner["kind"] == "cxx_class" and owner["default_constructor"] and owner["public_destructor"]
+    assert not owner["trivially_copyable"]
+    view = declarations["sdk::View"]
+    assert view["trivially_copyable"] and view["trivially_destructible"]
+    assert view["type"]["opaque"] and document["records"] == [], "private SDK layout must stay opaque"
+    inherited = declarations["sdk::Document::empty"]
+    assert inherited["owner"] == "sdk::View" and inherited["receiver"] == "sdk::Document"
+    assert inherited["const_method"] and inherited["method_name"] == "empty"
+    assert_codec_parity(codec_probe, tmp_path, result.stdout)
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        "private: int read();",
+        "public: int read() = delete;",
+        "public: static int read();",
+        "public: int read(); int read(int);",
+        "public: template<class T> int read(T);",
+        "public: int read() volatile;",
+        "public: int read() &&;",
+    ],
+)
+def test_cpp_resource_method_selection_rejects_unsupported_access(reader, tmp_path, member):
+    result = read(
+        reader,
+        tmp_path,
+        f"namespace sdk {{ class Owner {{ {member} }}; }}",
+        ["sdk::Owner", "sdk::Owner::read"],
+        "-x",
+        "c++",
+        "-std=c++17",
+    )
+    assert result.returncode != 0 and not result.stdout
+    assert "C++" in result.stderr or "Ambiguous native declaration" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "members,success",
+    [
+        ("int read() const; int read(int) const;", True),
+        ("int read(int value = 0) const;", False),
+        ("int read(); int read() const;", False),
+    ],
+)
+def test_cpp_exact_zero_selector_does_not_guess_default_or_cv_overloads(reader, tmp_path, members, success):
+    result = read(
+        reader,
+        tmp_path,
+        f"namespace sdk {{ class Owner {{ public: {members} }}; }}",
+        ["sdk::Owner", "sdk::Owner::read()"],
+        "-x",
+        "c++",
+        "-std=c++17",
+    )
+    assert (result.returncode == 0) == success, result.stderr
+    if success:
+        declaration = next(item for item in json.loads(result.stdout)["declarations"] if item["kind"] == "cxx_method")
+        assert declaration["const_method"] and declaration["parameter_semantics"] == []
+    else:
+        assert not result.stdout
+
+
+def test_cpp_pugixml_sdk_resource_metadata(reader, codec_probe, tmp_path):
+    package = shutil.which("pkg-config")
+    if package is None:
+        pytest.skip("pugixml metadata proof requires pkg-config")
+    flags = subprocess.run([package, "--cflags", "pugixml"], capture_output=True, text=True)
+    if flags.returncode != 0:
+        pytest.skip("pugixml SDK is not installed")
+    import shlex
+
+    symbols = ["pugi::xml_document", "pugi::xml_node", "pugi::xml_attribute", "pugi::xml_parse_result"]
+    symbols += ["pugi::xml_document::" + name for name in ("load_buffer", "document_element", "first_child")]
+    symbols += [
+        "pugi::xml_node::" + name
+        for name in ("empty", "type", "name", "child_value()", "first_child", "next_sibling()", "first_attribute")
+    ]
+    symbols += ["pugi::xml_attribute::" + name for name in ("empty", "name", "value", "next_attribute")]
+    result = read(
+        reader,
+        tmp_path,
+        "#include <pugixml.hpp>\n",
+        symbols,
+        "-x",
+        "c++",
+        "-std=c++17",
+        *shlex.split(flags.stdout),
+        "-isysroot",
+        os.environ["BTRC_NATIVE_SYSROOT"],
+        "-target",
+        os.environ["BTRC_NATIVE_TARGET"],
+        record_values=["pugi::xml_parse_result"],
+    )
+    assert result.returncode == 0, result.stderr
+    document = json.loads(result.stdout)
+    declarations = {item["name"]: item for item in document["declarations"]}
+    assert declarations["pugi::xml_document"]["default_constructor"]
+    assert declarations["pugi::xml_document"]["public_destructor"]
+    assert declarations["pugi::xml_node"]["trivially_copyable"]
+    assert declarations["pugi::xml_attribute"]["trivially_copyable"]
+    assert declarations["pugi::xml_document::first_child"]["owner"] == "pugi::xml_node"
+    [record] = document["records"]
+    assert record["name"] == "pugi::xml_parse_result"
+    assert [field["name"] for field in record["fields"]] == ["status", "offset", "encoding"]
+    assert_codec_parity(codec_probe, tmp_path, result.stdout)
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "class Result { int status; };",
+        "struct Result { int *status; };",
+        "struct Result { volatile int status; };",
+        "struct Result { int status:3; };",
+        "struct Result { int status; ~Result(); };",
+        "struct Base { int status; }; struct Result : Base {};",
+    ],
+)
+def test_cpp_record_values_reject_non_scalar_or_hidden_layout(reader, tmp_path, declaration):
+    result = read(reader, tmp_path, declaration, ["Result"], "-x", "c++", "-std=c++17", record_values=["Result"])
+    assert result.returncode != 0 and not result.stdout
+    assert "C++ record values" in result.stderr
 
 
 @pytest.mark.parametrize(

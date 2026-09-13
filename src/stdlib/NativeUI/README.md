@@ -23,11 +23,10 @@ their source pixels participate in the ordinary renderer resource limits.
 
 ## Retained layout
 
-`NativeUIRenderer.layoutImmutable(root, width, height)` and
-`NativeUIAppSession.prepareImmutable(root)` opt into retained subtree
+`NativeUIRenderer.layoutImmutable(root, width, height)` opts into retained subtree
 measurements. The caller publishes immutable element trees: replace changed
 branches rather than mutating previously published elements, descriptors, or
-image geometry. Ordinary `layout`, `render`, and `prepare` support mutable
+image geometry. Ordinary `layout` and `render` support mutable
 trees and discard retained measurements.
 
 `element.copy().replaceChild(index, child)` creates a separate container with
@@ -222,6 +221,7 @@ lineHeight, fontWeight, color, backingScale)`. The result is a transparent
 painter otherwise, sized from `measure()` either way. Runs longer than 4096
 bytes are cut at a scalar boundary; the empty run is `Image.empty()`.
 `NativeUITextRaster.blit(target, source, x, y)` composes with straight
-alpha and keeps the target's own transparency. `NativeUIAppSession` exposes
-`typography()` and `backingScale()` so painters use the same provider and
-scale as the frame compositor.
+alpha and keeps the target's own transparency. Callers supply the typography
+provider and backing scale explicitly. Native application presentation uses
+the portable GUI controls and GPU views; the former native-UI session host
+has been removed.

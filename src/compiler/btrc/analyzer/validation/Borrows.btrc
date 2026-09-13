@@ -29,6 +29,80 @@ class BorrowValidator {
 		self.ownership = ownership;
 	}
 
+	private Vector<Node> invocationChildren(Node node) {
+		Vector<Node> result = [];
+		Vector<Node> singles = [node.spec, node.returnType, node.bodyNode, node.original, node.arraySize, node.type, node.default_, node.initializer, node.getterBody, node.setterBody, node.valueNode, node.condition, node.thenBlock, node.elseBlock, node.iterable, node.init, node.update, node.expr, node.tryBlock, node.catchType, node.catchBlock, node.finallyBlock, node.ifStmt, node.varDecl, node.expression, node.left, node.right, node.operand, node.callee, node.obj, node.index, node.targetType, node.trueExpr, node.falseExpr, node.target, node.fn, node.key];
+		for child in singles { if (child != null) { result.push(child); } }
+		Vector<Vector<Node>> lists = [node.declarations, node.members, node.methods, node.params, node.fields, node.values, node.variants, node.genericArgs, node.statements, node.cases, node.bodyNodeList, node.args, node.elements, node.entries, node.parts, node.captures];
+		for children in lists { result.extend(children); }
+		return result;
+	}
+
+	private bool invocationUsesAreLocal(Node? node, string name, string capability, Vector<Node> visiting) {
+		if (node == null) { return true; }
+		if (node.kind == NK_IDENTIFIER) { return node.name != name; }
+		if (node.kind == NK_CALL_EXPR) {
+			Node callee = node.callee;
+			if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR && callee.obj != null && callee.obj.kind == NK_IDENTIFIER && callee.obj.name == name) {
+				if (self.state.analyzed.classMethod(capability, callee.field) == null) { return false; }
+				for argument in node.args { if (self.rawExpressionMentionsParam(argument, name)) { return false; } }
+				return true;
+			}
+			bool carries = false;
+			for argument in node.args { if (self.rawExpressionMentionsParam(argument, name)) { carries = true; } }
+			if (carries) {
+				Node? target = null;
+				if (callee != null && callee.kind == NK_IDENTIFIER && callee.name != name && self.state.analyzed.funcTable.has(callee.name)) { target = self.state.analyzed.funcTable.get(callee.name); }
+				else if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR && callee.obj != null && callee.obj.kind == NK_IDENTIFIER) { target = self.state.analyzed.classMethod(callee.obj.name, callee.field); }
+				if (target == null || !target.isRealtime || target.bodyNode == null || visiting.contains(target)) { return false; }
+				var nested = visiting.copy(); nested.push(target);
+				for index in range(node.args.len) {
+					Node value = node.args.get(index); if (!self.rawExpressionMentionsParam(value, name)) { continue; }
+					int slot = self.rawBorrowArgumentParameter(target, node, index);
+					if (value.kind != NK_IDENTIFIER || value.name != name || slot < 0 || slot >= target.params.len) { return false; }
+					Node parameter = target.params.get(slot); Node? canonical = self.types.resolveAliases(parameter.type);
+					if (canonical == null || canonical.base != capability || canonical.pointerDepth != 0 || canonical.isNullable || !self.invocationUsesAreLocal(target.bodyNode, parameter.name, capability, nested)) { return false; }
+				}
+				return true;
+			}
+		}
+		if (node.kind == NK_LAMBDA_EXPR) { for capture in node.captures { if (capture.name == name) { return false; } } }
+		if ((node.kind == NK_LAMBDA_EXPR || node.kind == NK_SPAWN_EXPR) && self.rawExpressionMentionsParam(node, name)) { return false; }
+		for child in self.invocationChildren(node) { if (!self.invocationUsesAreLocal(child, name, capability, visiting)) { return false; } }
+		return true;
+	}
+
+	private void validateInvocationTypes(Node node, Vector<Node> allowed) {
+		if (node.kind == NK_TYPE_EXPR && !allowed.contains(node)) {
+			Node? canonical = self.types.resolveAliases(node);
+			if (canonical != null && self.state.analyzed.nativeInvocation(canonical.base)) { TypeValidator.fail("Native invocation capability is only valid as a callback-local parameter", node); }
+		}
+		for child in self.invocationChildren(node) { self.validateInvocationTypes(child, allowed); }
+	}
+
+	public void validateNativeInvocations(Node program) {
+		bool present = false;
+		for imported in self.state.analyzed.nativeDeclarations { if (!imported.invocation.isEmpty()) { present = true; } }
+		if (!present) { return; }
+		for declaration in program.declarations {
+			if (self.state.analyzed.isNativeDeclaration(declaration)) { continue; }
+			if (declaration.parent != null && self.state.analyzed.nativeInvocation(declaration.parent)) { TypeValidator.fail("Native invocation capabilities cannot be inherited", declaration); }
+			Vector<Node> callables = declaration.kind == NK_FUNCTION_DECL ? [declaration] : declaration.members;
+			Vector<Node> allowed = [];
+			for callable in callables {
+				for parameter in callable.params {
+					Node? canonical = self.types.resolveAliases(parameter.type);
+					if (canonical == null || !self.state.analyzed.nativeInvocation(canonical.base) || canonical.pointerDepth != 0 || canonical.isNullable || canonical.isArray || canonical.genericArgs.len > 0) { continue; }
+					allowed.push(parameter.type);
+					if (!callable.isRealtime) { TypeValidator.fail("Native invocation parameters require @realtime", parameter); }
+					Vector<Node> visiting = [];
+					if (!self.invocationUsesAreLocal(callable.bodyNode, parameter.name, canonical.base, visiting)) { TypeValidator.fail("Native invocation capability may only call its declared operations; it cannot escape or be reinterpreted", parameter); }
+				}
+			}
+			self.validateInvocationTypes(declaration, allowed);
+		}
+	}
+
 	private int parameterIndex(Vector<Node> parameters, string name) {
 		int index = 0;
 		while (index < parameters.len) {
@@ -565,6 +639,11 @@ class BorrowValidator {
 	}
 
 	public void validateOpaqueCallArgument(Node? declaration, int parameterIndex, Node? expected, Node argument, string label, bool bodylessFfi, Map<string, Node> vars) {
+		Node? canonical = self.types.resolveAliases(expected);
+		if (canonical != null && self.state.analyzed.nativeInvocation(canonical.base)) {
+			Node? actual = self.types.resolveAliases(self.types.inferType(argument, vars));
+			if (argument.kind != NK_IDENTIFIER || actual == null || actual.base != canonical.base) { TypeValidator.fail("Native invocation arguments require an existing callback-local capability", argument); }
+		}
 		if (!self.opaqueRawCarrierType(expected) || !self.expressionIsOpaqueBorrow(argument, vars)) {
 			return;
 		}

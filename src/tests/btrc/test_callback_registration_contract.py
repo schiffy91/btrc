@@ -1951,6 +1951,77 @@ int main() { abandon(); return 0; }
     assert "unsafe unregister" not in run.stderr and "unsafe close" not in run.stderr
 
 
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.parametrize("throws", [False, True])
+def test_indeterminate_unregister_preserves_context_without_retry(
+    request, tmp_path: Path, frontend: str, sanitized: bool, throws: bool
+) -> None:
+    program = """import Library.Callback;
+int attempts = 0;
+int closes = 0;
+int destroyed = 0;
+class Context implements ICallbackContext {
+    public bool unregister() { attempts++; FAILURE }
+    public bool close() { closes++; return true; }
+    public void __del__() { destroyed++; }
+}
+void terminal() {
+    var scope = CallbackScope();
+    var state = scope.create(Context(), false);
+    state.finishActivation(true);
+    Atomic<uint>* gate = state.activationGate();
+    assert(callbackGateTryEnter(gate));
+    bool caught = false;
+    try { assert(state.cancel() == CallbackCancellation.Failed); }
+    catch (string error) { caught = error == "unknown cancellation"; }
+    assert(caught == THROWS);
+    assert(state.pollCompletion() == CallbackCancellation.Failed);
+    assert(state.cancel() == CallbackCancellation.Failed);
+    assert(scope.cancel() == CallbackCancellation.Failed);
+    callbackGateLeave(gate);
+    assert(!callbackGateTryEnter(gate));
+    assert(scope.pollCompletion() == CallbackCancellation.Failed);
+    assert(attempts == 1 && closes == 0 && destroyed == 0 && scope.pendingCount() == 1);
+    fprintf(stderr, "retained indeterminate context without retry\\n");
+}
+int main() { terminal(); return 0; }
+""".replace("FAILURE", 'throw "unknown cancellation";' if throws else "return false;").replace(
+        "THROWS", "true" if throws else "false"
+    )
+    compiled, source = (
+        _compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
+        if frontend == "selfhost"
+        else _compile_reference_source(tmp_path, program)
+    )
+    assert compiled.returncode == 0, compiled.stderr
+    fake = tmp_path / "empty.c"
+    fake.write_text("typedef int EmptyNativeDriver;\n")
+    toolchain = require_sanitizers(tmp_path) if sanitized else None
+    executable = tmp_path / "indeterminate"
+    _build(
+        toolchain.command if toolchain else COMPILERS[0],
+        source,
+        fake,
+        executable,
+        extra_flags=SANITIZER_FLAGS if toolchain else (),
+        environment=toolchain.environment if toolchain else None,
+    )
+    run = subprocess.run(
+        [str(executable)],
+        cwd=REPO,
+        env=sanitizer_environment(toolchain) if toolchain else None,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert run.returncode != 0
+    assert "retained indeterminate context without retry" in run.stderr
+    assert "Callback scope released before cancellation completed" in run.stderr
+    assert "Assertion" not in run.stderr and "ERROR: AddressSanitizer" not in run.stderr
+    assert "runtime error:" not in run.stderr
+
+
 def test_activation_failure_releases_native_operation_guard(semantic_btrcc: Path, tmp_path: Path) -> None:
     probe = tmp_path / "OperationGuard.h"
     probe.write_text(

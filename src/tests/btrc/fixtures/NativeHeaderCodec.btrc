@@ -78,6 +78,8 @@ int main(int argc, char** argv) {
 		}
 		for declaration in header.exports {
 			if (declaration.kind == NNK_NATIVE_OBJECTIVE_C_METHOD) { printf("method %s %s %s %s %d %d\n", declaration.name, declaration.identity, declaration.receiver, declaration.owner, (int)declaration.protocolOwner, (int)declaration.optional); }
+			else if (declaration.kind == NNK_NATIVE_CXX_CLASS) { printf("cxxclass %s %d %d %d %d\n", declaration.name, (int)declaration.defaultConstructor, (int)declaration.publicDestructor, (int)declaration.triviallyCopyable, (int)declaration.triviallyDestructible); }
+			else if (declaration.kind == NNK_NATIVE_CXX_METHOD) { printf("cxxmethod %s %s %s %s %s %d %d\n", declaration.name, declaration.identity, declaration.receiver, declaration.owner, declaration.methodName, (int)declaration.constMethod, declaration.parameterSemantics.len); }
 		}
 		return 0;
 	} catch (string error) {

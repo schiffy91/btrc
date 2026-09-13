@@ -1,34 +1,105 @@
-/* btrc 3D Ball Game
- *
- * A ball on a ground plane with WASD movement and space to jump.
- * Rendered via GPU raymarching with shadows and lighting.
- *
- * Build:
- *   make gpu && make -C examples/game
- *   ./examples/game/game
- */
-#include "engine/Engine.btrc"
+import Library.App;
+import Library.Callback;
+import Library.CLI;
+import Library.Math;
+import Library.GUI.GUI;
+import Library.GUI.IApplication;
+import Library.GPU.Readback;
+import Library.Image;
 
-int main() {
-	var engine = Engine("btrc 3D Ball", 800, 600);
-	var player = new GameObject();
-	float speed = 4.0;
+import ./engine/Engine.btrc;
+import ./engine/Gameobject.btrc;
 
-	while (engine.isRunning()) {
-		engine.update();
-		if (!engine.isRunning()) { continue; }
-		float dt = engine.time.deltaTime;
+/* WASD moves the ball, Space jumps and Escape exits. Native application work
+ * schedules frames; window shutdown drains the GPU child and its callbacks. */
+class Game implements IApplicationWork {
+	private Engine _engine;
+	private GameObject _player = GameObject();
+	private CallbackScope _frames = CallbackScope();
+	private GPUReadback? _readback;
+	private bool _verify;
+	private int _captureStage = 0;
+	private int _firstWidth = 0;
+	public bool verified = false;
 
-		if (engine.input.key(APP_KEY_W)) { player.move(0.0, 0.0, speed * dt); }
-		if (engine.input.key(APP_KEY_S)) { player.move(0.0, 0.0, -speed * dt); }
-		if (engine.input.key(APP_KEY_A)) { player.move(speed * dt, 0.0, 0.0); }
-		if (engine.input.key(APP_KEY_D)) { player.move(-speed * dt, 0.0, 0.0); }
-		if (engine.input.key(APP_KEY_SPACE)) { player.jump(speed); }
-		if (engine.input.key(APP_KEY_ESCAPE)) { break; }
-
-		player.applyPhysics(dt);
-		engine.render(player);
+	public Game(bool verify) {
+		self._verify = verify;
+		self._engine = Engine("btrc 3D Ball", 800, 600);
 	}
-	engine.close();
+
+	public void run() {
+		self._frames.pollCompletion();
+		if (!self._engine.isRunning() || self._engine.input.pressed(APP_KEY_ESCAPE)) { GUI.requestQuit(); return; }
+		if (self._verify && self._engine.time.elapsed > 20.0f) { throw "Game verification timed out"; }
+		if (self._engine.update()) {
+			var readback = self._readback;
+			if (readback != null) {
+				if (readback.poll() == GPU_READBACK_FAILED) { throw readback.error(); }
+				if (readback.state() == GPU_READBACK_READY) {
+					self.verifyFrame(readback.takeImage());
+					self._readback = null;
+					if (self.verified) { GUI.requestQuit(); return; }
+				}
+			} else {
+				if (!self._verify) { self.updatePlayer(); }
+				self._readback = self._engine.render(self._player, self._verify);
+			}
+		}
+		self._frames.track(GUI.postAfter(1.0 / 60.0, self));
+	}
+
+	private void updatePlayer() {
+		float dt = self._engine.time.deltaTime;
+		float speed = 4.0f;
+		var input = self._engine.input;
+		if (input.pressed(APP_KEY_W)) { self._player.move(0.0, 0.0, speed * dt); }
+		if (input.pressed(APP_KEY_S)) { self._player.move(0.0, 0.0, -speed * dt); }
+		if (input.pressed(APP_KEY_A)) { self._player.move(speed * dt, 0.0, 0.0); }
+		if (input.pressed(APP_KEY_D)) { self._player.move(-speed * dt, 0.0, 0.0); }
+		if (input.pressed(APP_KEY_SPACE)) { self._player.jump(speed); }
+		self._player.applyPhysics(dt);
+	}
+
+	private void verifyFrame(Image pixels) {
+		if (pixels.width != self._engine.width || pixels.height != self._engine.height || pixels.width <= 0 || pixels.height <= 0) { throw "Game readback dimensions do not match the drawable"; }
+		var ball = pixels.pixel(pixels.width / 2, pixels.height / 2);
+		var sky = pixels.pixel(0, 0);
+		if (ball.alpha != 255 || ball.red <= ball.green || ball.red <= ball.blue || sky.blue <= sky.red) { throw "Game scene pixels do not contain the ball and sky"; }
+		if (self._captureStage == 0) {
+			self._firstWidth = pixels.width;
+			self._engine.window.setContentSize(640.0, 400.0);
+			self._player.move(0.75f, 0.0f, 0.0f);
+			self._player.jump(4.0f);
+			self._player.applyPhysics(0.05f);
+			if (self._player.isGrounded() || self._player.position.y <= BALL_RADIUS) { throw "Game jump physics did not advance"; }
+			self._captureStage = 1;
+		} else {
+			if (pixels.width == self._firstWidth || Math.absDouble((double)pixels.width / (double)pixels.height - 1.6) > 0.01) { throw "Game resize did not update the drawable aspect ratio"; }
+			self.verified = true;
+		}
+	}
+
+	public void close() {
+		if (self._frames != null) { self._frames.cancel(); }
+		if (self._engine != null) { self._engine.close(); }
+	}
+
+	public void __del__() { self.close(); }
+}
+
+int main(int argc, char** argv) {
+	var args = CLIArgs(argc, argv);
+	if (args.count() > 1 || (args.count() == 1 && !args.has("--verify"))) { print("Usage: game [--verify]"); return 1; }
+	GUI.initialize();
+	Game? game = null;
+	try {
+		game = Game(args.has("--verify"));
+		GUI.post(game);
+		GUI.run();
+		if (args.has("--verify")) {
+			if (game == null || !game.verified) { throw "Game verification ended before rendering"; }
+			print("PASS: native game scene, camera follow, jump physics, resize and shutdown");
+		}
+	} finally { if (game != null) { game.close(); } GUI.close(); }
 	return 0;
 }

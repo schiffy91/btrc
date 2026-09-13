@@ -46,15 +46,19 @@ SUPPORTING_CONSUMERS = frozenset(
     }
 )
 
-# The raw per-file audit intentionally does not expand legacy includes. This
-# example includes GUI/View.btrc, whose UI shadows the unrelated Library.UI UI.
-# The fully resolved strict-import audit covers this source without an error.
+# The raw per-file audit uses one symbol owner and does not resolve the GUI
+# View module's UI shadowing the unrelated Library.UI UI. These consumers
+# select GUI/View explicitly; both fully resolved compilers qualify the calls.
 RAW_INCLUDE_SHADOWS = frozenset(
     {
         (
             "examples/gui/Declarative.btrc",
             "'UI' is defined in UI.btrc but Declarative.btrc does not import it",
-        )
+        ),
+        (
+            "src/tests/native/gui_surface/FontSnapshotConformance.btrc",
+            "'UI' is defined in UI.btrc but FontSnapshotConformance.btrc does not import it",
+        ),
     }
 )
 
@@ -170,7 +174,7 @@ def test_corpus_declares_every_direct_stdlib_owner(
 ) -> None:
     # Includes the native SDK lifecycle and AppKit fixtures; guard against
     # accidentally narrowing the corpus audit as providers move packages.
-    assert corpus_import_audit.source_count == 1207
+    assert corpus_import_audit.source_count == 1210
     assert corpus_import_audit.duplicate_modules == ()
     assert corpus_import_audit.unknown_modules == ()
     assert corpus_import_audit.direct_owner_diagnostics == ()

@@ -3,7 +3,6 @@ import re
 import shlex
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -12,7 +11,6 @@ from src.tests.python.test_codegen import emit_c
 
 ROOT = Path(__file__).resolve().parents[3]
 GPU = ROOT / "src" / "stdlib" / "GPU"
-APP = ROOT / "src" / "stdlib" / "App"
 HARNESS = ROOT / "src" / "tests" / "native" / "gpu_runtime_invalid.c"
 SHADER_VALIDATION_HARNESS = ROOT / "src" / "tests" / "native" / "gpu_shader_validation.c"
 SINGLETON_HARNESS = ROOT / "src" / "tests" / "native" / "gpu_compute_singleton.c"
@@ -28,26 +26,14 @@ def _compile_strict_c11(compiler: str, output: Path, sources: list[Path], flags:
 
 
 def _runtime_sources() -> list[str]:
-    sources = [
-        str(APP / "btrc_app.c"),
-        str(GPU / "btrc_gpu.c"),
-        str(GPU / "btrc_gpu_native_ui.c"),
-        str(GPU / "btrc_gpu_native_ui_text.c"),
-        str(GPU / "btrc_gpu_async.c"),
-        str(GPU / "btrc_gpu_surface.c"),
-    ]
-    if sys.platform == "darwin":
-        sources.append(str(GPU / "btrc_gpu_surface_macos.m"))
-    suffix = "macos.m" if sys.platform == "darwin" else "stub.c"
-    sources.append(str(APP / f"btrc_app_window_{suffix}"))
-    return sources
+    return [str(GPU / "btrc_gpu.c"), str(GPU / "btrc_gpu_async.c")]
 
 
 def _compile_native_gpu_harness(tmp_path: Path, harness: Path, name: str) -> Path:
     cflags = os.environ.get("GPU_CFLAGS")
     ldflags = os.environ.get("GPU_LDFLAGS")
     if not cflags or not ldflags:
-        pytest.skip("WebGPU/GLFW build flags are unavailable")
+        pytest.skip("WebGPU build flags are unavailable")
 
     executable = tmp_path / name
     subprocess.run(
@@ -61,7 +47,6 @@ def _compile_native_gpu_harness(tmp_path: Path, harness: Path, name: str) -> Pat
             "-Werror",
             "-pedantic",
             f"-I{GPU}",
-            f"-I{APP}",
             str(harness),
             *_runtime_sources(),
             *shlex.split(ldflags),
@@ -88,33 +73,13 @@ def test_compute_context_singleton_uses_c11_atomic_publication() -> None:
     assert "destroy_candidate(candidate);" in publication
 
 
-def test_render_context_borrows_the_application_surface() -> None:
-    runtime = (GPU / "btrc_gpu.c").read_text()
-
-    assert "std_app_surface_attach(surface_id, &lease)" in runtime
-    assert "gpu->app_surface = lease;" in runtime
-    assert "(void)std_app_surface_detach(gpu->app_surface);" in runtime
-    assert "attach_failed:" in runtime
-    assert "destroy_gpu_unchecked(gpu);" in runtime
-    assert "wgpuSurfaceUnconfigure(gpu->surface);" in runtime
-    assert runtime.index("wgpuSurfaceUnconfigure(gpu->surface);") < runtime.index("wgpuQueueRelease(gpu->queue)")
-    assert "static unsigned long long active_render_gpu_id" in runtime
-    assert "deviceLostCallbackInfo" in runtime
-    assert "device_is_lost(gpu)" in runtime
-    assert "glfwInit(" not in runtime
-    assert "glfwCreateWindow(" not in runtime
-    assert "btrc_gpu_window_create" not in runtime
-
-
 def test_shader_creation_captures_backend_validation() -> None:
     runtime = (GPU / "btrc_gpu.c").read_text()
-    interface = (GPU / "GPU.btrc").read_text()
 
     assert "uncapturedErrorCallbackInfo" in runtime
     assert "wgpuDevicePushErrorScope(gpu->device, WGPUErrorFilter_Validation);" in runtime
     assert "wgpuDevicePopErrorScope(" in runtime
-    assert "return BTRC_GPU_RESOURCE_CREATION_FAILED;" in runtime
-    assert "GPU_RESOURCE_CREATION_FAILED = 306" in interface
+    assert 'fprintf(stderr, "[btrc-gpu] shader compilation failed\\n");' in runtime
 
 
 def test_headless_gpu_probe_is_quiet_when_no_adapter_exists() -> None:
@@ -128,7 +93,7 @@ def test_headless_gpu_probe_is_quiet_when_no_adapter_exists() -> None:
 
     assert "fprintf" not in request_adapter
     assert "fprintf" not in request_device
-    assert 'fprintf(stderr, "[btrc-gpu] no suitable GPU adapter found' in runtime
+    assert 'fprintf(stderr, "[btrc-gpu] no suitable GPU adapter found' not in runtime
 
 
 @pytest.mark.parametrize("c_compiler", ["gcc", "clang"])
@@ -150,31 +115,8 @@ def test_gpu_dispatch_abi_is_consistent() -> None:
         assert re.search(r"\bvoid\s*\*\s*btrc_gpu_acquire_compute\s*\(", declaration)
         assert not re.search(r"\bvoid\s+btrc_gpu_dispatch\s*\(", declaration)
 
-    public_header = (GPU / "btrc_gpu.h").read_text()
-    public_module = (GPU / "GPU.btrc").read_text()
-    assert "btrc_gpu_acquire_compute" not in public_header
-    assert "void* btrc_gpu_" not in public_header
-    assert "btrc_gpu_dispatch" not in public_module
-    assert "btrc_gpu_acquire_compute" not in public_module
-    assert "public void*" not in public_module
-
-
-@pytest.mark.parametrize("c_compiler", ["gcc", "clang"])
-def test_gpu_public_header_consumer_compiles_strict_c11(tmp_path: Path, c_compiler: str) -> None:
-    if not shutil.which(c_compiler):
-        pytest.skip(f"{c_compiler} is unavailable")
-    consumer = tmp_path / "gpu_public_header_consumer.c"
-    consumer.write_text(
-        "#include <btrc_gpu.h>\n"
-        "int consume(unsigned long long gpu, unsigned long long receipt) { "
-        "return std_gpu_close(gpu, receipt); }\n"
-    )
-    _compile_strict_c11(
-        c_compiler,
-        tmp_path / f"gpu-consumer-{c_compiler}.o",
-        [consumer],
-        [f"-I{GPU}", "-c"],
-    )
+    assert not (GPU / "btrc_gpu.h").exists()
+    assert not (GPU / "GPU.btrc").exists()
 
 
 def test_gpu_runtime_rejects_invalid_inputs_without_a_display(tmp_path: Path) -> None:
@@ -278,7 +220,7 @@ def test_native_gpu_cpu_fallback_when_explicitly_disabled(
     tmp_path: Path,
     source: str,
 ) -> None:
-    executable = _compile_generated_gpu(tmp_path, "#include <btrc_gpu.h>\n" + source)
+    executable = _compile_generated_gpu(tmp_path, _GPU_PROBE_PREAMBLE + source)
     environment = {**os.environ, "BTRC_NO_GPU": "1"}
     subprocess.run([str(executable)], check=True, env=environment, timeout=_RUN_TIMEOUT_SECONDS)
 
@@ -287,7 +229,7 @@ def _compile_generated_gpu(tmp_path: Path, source: str) -> Path:
     cflags = os.environ.get("GPU_CFLAGS")
     ldflags = os.environ.get("GPU_LDFLAGS")
     if not cflags or not ldflags:
-        pytest.skip("WebGPU/GLFW build flags are unavailable")
+        pytest.skip("WebGPU build flags are unavailable")
     unit = tmp_path / "checked_gpu.c"
     unit.write_text(emit_c(source))
     executable = tmp_path / "checked-gpu"
@@ -302,7 +244,6 @@ def _compile_generated_gpu(tmp_path: Path, source: str) -> Path:
             "-Werror",
             "-pedantic",
             f"-I{GPU}",
-            f"-I{APP}",
             str(unit),
             *_runtime_sources(),
             *shlex.split(ldflags),

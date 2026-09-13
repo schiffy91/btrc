@@ -4,46 +4,69 @@ import Library.Vector;
 
 #include <assert.h>
 
-struct FakeAudioSessionBackend {
-	int state;
-	unsigned long long epoch;
-};
+int liveBackends = 0;
+int destroyedBackends = 0;
+int closeFailures = 0;
 
-AudioDeviceStatus fakeAudioStart(void* raw) {
-	struct FakeAudioSessionBackend* backend = (struct FakeAudioSessionBackend*)raw;
-	if (backend == null || backend->state != 0) { return AUDIO_DEVICE_WRONG_STATE; }
-	backend->state = 1;
-	backend->epoch++;
-	return AUDIO_DEVICE_OK;
+class AudioSessionObserver {
+	public DuplexAudioSession? session;
+	public AudioSessionObserver() { self.session = null; }
+
+	public void backendDestroyed() {
+		var session = self.session;
+		if (session == null) { throw "missing observed session"; }
+		assert(session.state() == DUPLEX_AUDIO_SESSION_CLOSED);
+		assert(session.close().succeeded());
+	}
 }
 
-AudioDeviceStatus fakeAudioSuspend(void* raw) {
-	struct FakeAudioSessionBackend* backend = (struct FakeAudioSessionBackend*)raw;
-	if (backend == null || backend->state != 1) { return AUDIO_DEVICE_WRONG_STATE; }
-	backend->state = 2;
-	return AUDIO_DEVICE_OK;
-}
+class FakeAudioSessionBackend implements AudioSessionBackend {
+	private int _state;
+	private unsigned long long _epoch;
+	private AudioSessionObserver? _observer;
 
-AudioDeviceStatus fakeAudioDrain(void* raw) {
-	struct FakeAudioSessionBackend* backend = (struct FakeAudioSessionBackend*)raw;
-	if (backend == null || backend->state != 2) { return AUDIO_DEVICE_WRONG_STATE; }
-	backend->state = 3;
-	return AUDIO_DEVICE_OK;
-}
+	public FakeAudioSessionBackend(AudioSessionObserver? observer = null) {
+		self._state = 0;
+		self._epoch = 0ULL;
+		self._observer = observer;
+		liveBackends++;
+	}
 
-AudioDeviceStatus fakeAudioClose(void* raw) {
-	struct FakeAudioSessionBackend* backend = (struct FakeAudioSessionBackend*)raw;
-	if (backend == null || (backend->state != 0 && backend->state != 3)) { return AUDIO_DEVICE_WRONG_STATE; }
-	backend->state = 4;
-	return AUDIO_DEVICE_OK;
-}
+	public AudioDeviceStatus start() {
+		if (self._state != 0) { return AUDIO_DEVICE_WRONG_STATE; }
+		self._state = 1;
+		self._epoch++;
+		return AUDIO_DEVICE_OK;
+	}
 
-unsigned long long fakeAudioEpoch(void* raw) {
-	struct FakeAudioSessionBackend* backend = (struct FakeAudioSessionBackend*)raw;
-	return backend == null ? 0ULL : backend->epoch;
-}
+	public AudioDeviceStatus suspend() {
+		if (self._state != 1) { return AUDIO_DEVICE_WRONG_STATE; }
+		self._state = 2;
+		return AUDIO_DEVICE_OK;
+	}
 
-void fakeAudioDispose(void* raw) { free(raw); }
+	public AudioDeviceStatus drain() {
+		if (self._state != 2) { return AUDIO_DEVICE_WRONG_STATE; }
+		self._state = 3;
+		return AUDIO_DEVICE_OK;
+	}
+
+	public AudioDeviceStatus close() {
+		if (self._state != 0 && self._state != 3) { return AUDIO_DEVICE_WRONG_STATE; }
+		if (closeFailures > 0) { closeFailures--; return AUDIO_DEVICE_BUSY; }
+		self._state = 4;
+		return AUDIO_DEVICE_OK;
+	}
+
+	public unsigned long long epoch() { return self._epoch; }
+
+	public void __del__() {
+		assert(self._state == 4);
+		if (self._observer != null) { self._observer.backendDestroyed(); }
+		liveBackends--;
+		destroyedBackends++;
+	}
+}
 
 @realtime void fakeAudioProcess(void* context, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {
 	(void*)context;
@@ -77,10 +100,8 @@ class FakeAudioDeviceProvider implements AudioDeviceProvider {
 		if (request.inventoryGeneration() != self._generation) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_STALE_INVENTORY); }
 		if (!request.hasInput() || request.inputDeviceId() != "input-device" || request.outputDeviceId() != "output-device" || request.inputChannels().count() != 1 || request.outputChannels().count() != 2) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_NOT_FOUND); }
 		if (request.stream().sampleRate() != 48000 || request.stream().bufferFrames() != 128) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_UNSUPPORTED_FORMAT); }
-		struct FakeAudioSessionBackend* backend = (struct FakeAudioSessionBackend*)calloc(1, sizeof(struct FakeAudioSessionBackend));
-		if (backend == null) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_FAILED); }
 		DuplexAudioNegotiatedFormat format = DuplexAudioNegotiatedFormat(self._generation, request.inputDeviceId(), RealtimeAudioFormat(48000, 1), request.outputDeviceId(), RealtimeAudioFormat(48000, 2), 128);
-		return DuplexAudioSessionOpenOutcome.opened(DuplexAudioSession(format, program, backend, fakeAudioStart, fakeAudioSuspend, fakeAudioDrain, fakeAudioClose, fakeAudioEpoch, fakeAudioDispose));
+		return DuplexAudioSessionOpenOutcome.opened(DuplexAudioSession(format, program, FakeAudioSessionBackend()));
 	}
 
 	public AudioDeviceOperationOutcome close() {
@@ -89,7 +110,57 @@ class FakeAudioDeviceProvider implements AudioDeviceProvider {
 	}
 }
 
+void abandonSession(FakeAudioDeviceProvider provider, DuplexAudioOpenRequest request, RealtimeAudioProgram program, bool start) {
+	var session = provider.openDuplex(request, program).session();
+	assert(liveBackends == 1);
+	if (start) { assert(session.start().succeeded()); }
+	throw "abandoned session";
+}
+
+DuplexAudioSession sessionWithBackendAlias(DuplexAudioNegotiatedFormat format, RealtimeAudioProgram program, AudioSessionObserver observer) {
+	var concrete = FakeAudioSessionBackend(observer);
+	AudioSessionBackend alias = concrete;
+	return DuplexAudioSession(format, program, alias);
+}
+
+void verifyBackendAliases(DuplexAudioNegotiatedFormat format, RealtimeAudioProgram program) {
+	var observer = AudioSessionObserver();
+	var session = sessionWithBackendAlias(format, program, observer);
+	observer.session = session;
+	assert(liveBackends == 1);
+	assert(session.close().succeeded());
+	assert(liveBackends == 0);
+}
+
+void verifyTerminalStatus() {
+	assert((int)AUDIO_DEVICE_FAILED == 9);
+	assert((int)AUDIO_DEVICE_INDETERMINATE == 10);
+	var operation = AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_INDETERMINATE);
+	var inventory = AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_INDETERMINATE);
+	var opened = DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_INDETERMINATE);
+	assert(!operation.succeeded() && operation.status() == AUDIO_DEVICE_INDETERMINATE);
+	assert(!inventory.succeeded() && inventory.status() == operation.status());
+	assert(!opened.succeeded() && opened.status() == operation.status());
+	assert(operation.message() == "audio device cleanup is indeterminate; native operations cannot be retried");
+	assert(inventory.message() == operation.message() && opened.message() == operation.message());
+	assert(AudioDeviceOperationOutcome(AUDIO_DEVICE_INDETERMINATE, "native status -50").message() == "native status -50");
+	bool missingInventory = false;
+	try { inventory.inventory(); } catch (string error) { missingInventory = error == "audio device inventory is unavailable"; }
+	bool missingSession = false;
+	try { opened.session(); } catch (string error) { missingSession = error == "duplex audio session is unavailable"; }
+	assert(missingInventory && missingSession);
+	for (int value = -1; value <= 11; value += 12) {
+		AudioDeviceStatus invalid = (AudioDeviceStatus)value;
+		int rejected = 0;
+		try { AudioDeviceOperationOutcome.fromStatus(invalid); } catch (string error) { rejected++; }
+		try { AudioDeviceInventoryOutcome.failed(invalid); } catch (string error) { rejected++; }
+		try { DuplexAudioSessionOpenOutcome.failed(invalid); } catch (string error) { rejected++; }
+		assert(rejected == 3);
+	}
+}
+
 int main() {
+	verifyTerminalStatus();
 	FakeAudioDeviceProvider provider = FakeAudioDeviceProvider();
 	AudioDeviceInventoryOutcome inventoryOutcome = provider.inventory();
 	assert(inventoryOutcome.succeeded());
@@ -124,8 +195,21 @@ int main() {
 	assert(!session.close().succeeded());
 	assert(session.suspend().succeeded() && session.state() == DUPLEX_AUDIO_SESSION_SUSPENDED);
 	assert(session.drain().succeeded() && session.state() == DUPLEX_AUDIO_SESSION_DRAINED);
+	closeFailures = 1;
+	assert(session.close().status() == AUDIO_DEVICE_BUSY);
+	assert(session.state() == DUPLEX_AUDIO_SESSION_DRAINED && liveBackends == 1 && destroyedBackends == 0);
 	assert(session.close().succeeded() && session.state() == DUPLEX_AUDIO_SESSION_CLOSED && !session.isOpen());
+	assert(liveBackends == 0 && destroyedBackends == 1);
 	assert(session.close().succeeded());
+	assert(destroyedBackends == 1);
+	for (int iteration = 0; iteration < 2; iteration++) {
+		bool caught = false;
+		try { abandonSession(provider, request, program, iteration == 1); }
+		catch (string error) { caught = error == "abandoned session"; }
+		assert(caught && liveBackends == 0 && destroyedBackends == iteration + 2);
+	}
+	verifyBackendAliases(session.format(), program);
+	assert(destroyedBackends == 4);
 	assert(provider.close().succeeded() && !provider.isOpen());
 	print("PASS AudioDeviceContract");
 	return 0;

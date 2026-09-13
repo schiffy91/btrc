@@ -5,6 +5,21 @@ import Library.GUI.IButton;
 import Library.GUI.ITextField;
 import Library.GUI.IContainer;
 import Library.GUI.IStack;
+import Library.GUI.IGPUView;
+import Library.GUI.ILabel;
+import Library.GUI.IImageView;
+import Library.GUI.IPanel;
+import Library.GUI.IProgressIndicator;
+import Library.GUI.ILevelIndicator;
+import Library.GUI.ISlider;
+import Library.GUI.ISelect;
+import Library.GUI.IScrollView;
+import Library.GUI.IGrid;
+import Library.GUI.Capture;
+import Library.GUI.TextRun;
+import Library.App;
+import Library.Image;
+import Library.Vector;
 
 /* One application owner; the package chooses its provider for the target.
  * initialize/run/close stay on the UI thread. run closes before returning,
@@ -23,6 +38,34 @@ class GUI {
 	class IStack createRow(double spacing = 8.0) { return GUIProvider.application().createRow(spacing); }
 
 	class IStack createColumn(double spacing = 8.0) { return GUIProvider.application().createColumn(spacing); }
+
+	class IGPUView createGPUView(bool capture = true) { return GUIProvider.application().createGPUView(capture); }
+
+	class ILabel createLabel(string text = "") { return GUIProvider.application().createLabel(text); }
+
+	class IImageView createImageView() { return GUIProvider.application().createImageView(); }
+
+	class IPanel createPanel(RGBA fill, double radius = 0.0) { return GUIProvider.application().createPanel(fill, radius); }
+
+	class IProgressIndicator createProgressIndicator() { return GUIProvider.application().createProgressIndicator(); }
+
+	class ILevelIndicator createLevelIndicator(double warning, double critical) { return GUIProvider.application().createLevelIndicator(warning, critical); }
+
+	class ISlider createSlider(double minimum, double maximum, int intervals = 0) { return GUIProvider.application().createSlider(minimum, maximum, intervals); }
+
+	class ISelect createSelect() { return GUIProvider.application().createSelect(); }
+
+	class IScrollView createScrollView() { return GUIProvider.application().createScrollView(); }
+
+	class IGrid createGrid(int columns, int rows, double columnSpacing = 0.0, double rowSpacing = 0.0) { return GUIProvider.application().createGrid(columns, rows, columnSpacing, rowSpacing); }
+
+	class AppDirectoryPickerOutcome chooseDirectory(AppDirectoryPickerRequest request) { return GUIProvider.chooseDirectory(request); }
+
+	class void rasterizeText(TextRasterization request) { GUIProvider.rasterizeText(request); }
+
+	class Image rasterText(TextRun run) { return GUIProvider.rasterText(run); }
+
+	class Image capture(IView root, Vector<GUICaptureLayer> layers) { return GUIProvider.capture(root, layers); }
 
 	class void post(IApplicationWork work) { GUIProvider.application().post(work); }
 

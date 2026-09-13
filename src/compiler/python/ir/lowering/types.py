@@ -797,10 +797,12 @@ class CTypeLowerer:
             return False
         ct = self._analyzed.class_table
         native = ct.get(sub)
-        if native and native.native_language == "objective-c":
+        if native and native.native_language in ("objective-c", "c"):
             target = ct.get(base)
             return bool(
-                target and target.native_language == "objective-c" and (sub == base or base in native.native_ancestors)
+                target
+                and target.native_language == native.native_language
+                and (sub == base or base in native.native_ancestors)
             )
         seen: set[str] = set()
         pending = [sub]

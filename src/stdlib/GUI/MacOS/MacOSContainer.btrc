@@ -2,12 +2,14 @@ import Library.Vector;
 import Library.Console;
 import Library.GUI.IContainer;
 import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSViewInput;
 
 /* Layout metadata is separate from physical parentage and subtree ownership.
  * forgetChild is idempotent; it removes layout participation, not the view.
  * Neither policy nor child may retain this container owner. */
 interface IMacOSContainerLayout {
 	NSView nativeView();
+	NSView childParent();
 	void arrangeChild(NSView child);
 	void forgetChild(NSView child);
 }
@@ -29,6 +31,8 @@ class MacOSContainer implements IContainer, IMacOSView {
 	private IMacOSContainerLayout? _layout;
 	private bool _attached = false;
 	private bool _closing = false;
+	private CallbackScope _input = CallbackScope();
+	private Vector<MacOSViewInput> _inputs = [];
 	private bool _mutating = false;
 	private string _closeFailure = "";
 
@@ -88,16 +92,17 @@ class MacOSContainer implements IContainer, IMacOSView {
 	}
 
 	private void attachChild(IView child, NSView parent) {
+		var childParent = self._layout == null ? parent : self._layout.childParent();
 		var native = self.projection(child);
 		var childView = native.nativeView();
-		MacOSView.validateAttachment(childView, parent);
+		MacOSView.validateAttachment(childView, childParent);
 		// Retain before publishing to AppKit, so allocation cannot fail after
 		// native attachment has transferred the child's lifecycle to this tree.
 		var entry = MacOSContainerChild(child, childView.translatesAutoresizingMaskIntoConstraints());
 		self._children.push(entry);
 		bool attached = false;
 		try {
-			native.attachTo(parent);
+			native.attachTo(childParent);
 			attached = true;
 			if (self._layout != null) { self._layout.arrangeChild(childView); }
 		} catch (string error) {
@@ -105,7 +110,7 @@ class MacOSContainer implements IContainer, IMacOSView {
 				try { self.detachChild(entry, parent); }
 				catch (string rollback) { entry.failed = true; self._closing = true; self._closeFailure = rollback; throw rollback; }
 			}
-			if (childView.superview() == parent) {
+			if (childView.superview() == childParent) {
 				entry.failed = true;
 				self._closeFailure = error;
 				self._closing = true;
@@ -117,10 +122,11 @@ class MacOSContainer implements IContainer, IMacOSView {
 	}
 
 	private void detachChild(MacOSContainerChild entry, NSView parent) {
+		var childParent = self._layout == null ? parent : self._layout.childParent();
 		var native = self.projection(entry.view);
 		var child = native.nativeView();
 		if (self._layout != null) { self._layout.forgetChild(child); }
-		native.detachFrom(parent);
+		native.detachFrom(childParent);
 		child.setTranslatesAutoresizingMaskIntoConstraints(entry.translatesAutoresizing);
 	}
 
@@ -159,6 +165,7 @@ class MacOSContainer implements IContainer, IMacOSView {
 	public void detachFrom(NSView parent) {
 		var view = self.mutationView();
 		if (!self._attached) { throw "View has no container attachment"; }
+		self.cancelPointerCapture();
 		self._mutating = true;
 		try { MacOSView.detachNative(view, parent); } catch (string error) {
 			self._mutating = false;
@@ -176,6 +183,15 @@ class MacOSContainer implements IContainer, IMacOSView {
 
 	public bool isVisible() { return !self.nativeView().isHidden(); }
 
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), handler, null, self._input, owner, self._inputs); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), null, handler, self._input, owner, self._inputs); }
+
+	public void cancelPointerCapture() {
+		MacOSViewInput.detached(self._inputs);
+		for child in self._children { if (!child.closing) { self.projection(child.view).cancelPointerCapture(); } }
+	}
+
 	public void setVisible(bool visible) { self.nativeView().setHidden(!visible); }
 
 	public CallbackCancellation close() {
@@ -183,7 +199,7 @@ class MacOSContainer implements IContainer, IMacOSView {
 		if (self._view == null) { return CallbackCancellation.Complete; }
 		if (self._mutating) { throw "Native container mutation is already active"; }
 		if (self._attached) { throw "Detach the view from its container before closing it"; }
-		self._closing = true;
+		if (!self._closing) { self._closing = true; self._input.cancel(); }
 		return self.pollClose();
 	}
 
@@ -193,6 +209,8 @@ class MacOSContainer implements IContainer, IMacOSView {
 		var view = self._view;
 		if (view == null) { return CallbackCancellation.Complete; }
 		if (!self._closing) { return CallbackCancellation.NotRequested; }
+		var input = self._input.pollCompletion();
+		if (input != CallbackCancellation.Complete) { return input; }
 		self._mutating = true;
 		CallbackCancellation result = CallbackCancellation.Complete;
 		try {

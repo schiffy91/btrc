@@ -15,6 +15,12 @@ module NativeAbi {
                                                 string returned_ownership, string method_family,
                                                 bool consumes_self, bool related_result, bool returns_inner_pointer,
                                                 bool protocol_owner, bool optional)
+                       | NativeCxxClass(identifier name, native_type record_type,
+                                        bool default_constructor, bool public_destructor,
+                                        bool trivially_copyable, bool trivially_destructible)
+                       | NativeCxxMethod(identifier name, string identity, identifier owner, identifier receiver,
+                                         identifier method_name, native_type signature,
+                                         native_parameter* parameter_semantics, bool const_method)
                        | NativeTypedef(identifier name, native_type underlying)
                        | NativeConstant(identifier name, native_type value_type, string decimal_value)
                        | NativeGlobal(identifier name, native_type value_type, bool read_only)

@@ -780,25 +780,57 @@ class RealtimeAnalyzer:
         return summaries
 
     def _recursive_callables(self) -> set[str]:
-        recursive = set()
-        for key, callable_ in self.callables.items():
-            if any(
-                isinstance(event, RealtimeEdge) and self._reaches_target(event.target, key, frozenset({key}))
+        # A callable is recursive exactly when its strongly connected component
+        # has multiple members or a self-edge. Iterative Kosaraju traversals
+        # bound work to O(V + E), including convergent DAGs and deep call chains.
+        graph = {
+            key: tuple(
+                event.target
                 for event in callable_.events
-            ):
-                recursive.add(key)
-        return recursive
+                if isinstance(event, RealtimeEdge) and event.target in self.callables
+            )
+            for key, callable_ in self.callables.items()
+        }
+        incoming: dict[str, list[str]] = {key: [] for key in graph}
+        for key, targets in graph.items():
+            for target in targets:
+                incoming[target].append(key)
 
-    def _reaches_target(self, key: str, target: str, visiting: frozenset[str]) -> bool:
-        if key == target:
-            return True
-        if key in visiting or key not in self.callables:
-            return False
-        visiting = visiting | {key}
-        return any(
-            isinstance(event, RealtimeEdge) and self._reaches_target(event.target, target, visiting)
-            for event in self.callables[key].events
-        )
+        visited: set[str] = set()
+        finished: list[str] = []
+        for key in graph:
+            if key in visited:
+                continue
+            visited.add(key)
+            stack = [(key, iter(graph[key]))]
+            while stack:
+                current, targets = stack[-1]
+                target = next(targets, None)
+                if target is None:
+                    finished.append(current)
+                    stack.pop()
+                elif target not in visited:
+                    visited.add(target)
+                    stack.append((target, iter(graph[target])))
+
+        recursive: set[str] = set()
+        visited.clear()
+        for key in reversed(finished):
+            if key in visited:
+                continue
+            visited.add(key)
+            members = []
+            pending = [key]
+            while pending:
+                current = pending.pop()
+                members.append(current)
+                for caller in incoming[current]:
+                    if caller not in visited:
+                        visited.add(caller)
+                        pending.append(caller)
+            if len(members) > 1 or key in graph[key]:
+                recursive.update(members)
+        return recursive
 
     def _first_witness(self, key, unsafe, visiting) -> RealtimeWitness | None:
         if key in visiting:

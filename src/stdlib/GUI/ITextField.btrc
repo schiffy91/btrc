@@ -8,4 +8,5 @@ interface ITextField extends IView {
 	void setPlaceholder(string text);
 	bool isEnabled();
 	void setEnabled(bool enabled);
+	void setFont(double size);
 }

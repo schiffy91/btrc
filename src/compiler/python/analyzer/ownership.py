@@ -549,12 +549,22 @@ class OwnershipAnalyzer:
                 managed
                 and declaration is not None
                 and isinstance(declaration.source_file, NativeHeaderSource)
-                and declaration.source_file.language == "objective-c"
+                and (
+                    declaration.source_file.language == "objective-c"
+                    or (
+                        declaration.source_file.call_contract is not None
+                        and declaration.source_file.call_contract.resource_result
+                    )
+                )
                 and self.session.scope.lookup(expression.name) is self.session.global_scope.lookup(expression.name)
             )
         if isinstance(expression, (NewExpr, BraceInitializer, ListLiteral, MapLiteral)):
             return managed
         if isinstance(expression, CastExpr):
+            if self.types.native_resource_query_type(
+                self.index.class_table, result, self.types.canonical_type(self.type_of(expression.expr))
+            ):
+                return True
             return managed and self.expression_produces_owned_result(expression.expr)
         if isinstance(expression, FStringLiteral):
             return any(isinstance(part, FStringExpr) for part in expression.parts)

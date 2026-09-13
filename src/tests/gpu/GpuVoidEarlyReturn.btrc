@@ -1,5 +1,5 @@
 #include <assert.h>
-#include <btrc_gpu.h>
+#include <btrc_gpu_compute_internal.h>
 // A void @gpu kernel with a bare `return;` early-exit and gpu_id() used as an
 // array index in arithmetic positions (the has_output=false WGSL path).
 @gpu void clampNonNegative(int[] a) {

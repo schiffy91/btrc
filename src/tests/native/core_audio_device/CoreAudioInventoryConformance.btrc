@@ -5,11 +5,19 @@ import Library.Audio.AudioDevice;
 
 void inventoryScenario(int scenario);
 int inventoryRetainedValues();
+int inventoryPropertyReads();
 void inventoryVerifyForeignRelease();
 
 int main() {
 	inventoryScenario(0);
 	inventoryVerifyForeignRelease();
+	var device = CoreAudioHardwareDevice(22u);
+	int reads = inventoryPropertyReads();
+	assert(device.text(0u) == "" && device.text(1u) == "");
+	assert(inventoryPropertyReads() == reads);
+	assert(device.matchesIdentity("device-b") == AUDIO_DEVICE_OK);
+	assert(device.matchesIdentity("different") == AUDIO_DEVICE_NOT_FOUND);
+	assert(inventoryRetainedValues() == 0);
 	var hardware = CoreAudioHardwareInventory();
 	var first = hardware.refresh();
 	assert(first.succeeded());
@@ -36,18 +44,22 @@ int main() {
 	assert(inventory.generation() == 1ULL && inventory.at(1).name() == "device-b");
 	inventoryScenario(3);
 	assert(hardware.refresh().inventory().at(1).name() == "Renamed output");
-	for (int scenario = 4; scenario <= 17; scenario++) {
+	for (int scenario = 4; scenario <= 20; scenario++) {
 		if (scenario == 5 || scenario == 8) { continue; }
 		inventoryScenario(scenario);
 		var result = hardware.refresh();
 		assert(result.succeeded());
 		var snapshot = result.inventory();
 		if (scenario == 4 || scenario == 10 || scenario == 16) { assert(!snapshot.at(0).streamCapability().isKnown()); }
-		if (scenario == 6 || scenario == 11 || scenario == 13 || scenario == 14 || scenario == 17) { assert(snapshot.count() == 1 && snapshot.at(0).id() == "device-a"); }
+		if (scenario == 6 || scenario == 11 || scenario == 13 || scenario == 14 || scenario == 17 || scenario >= 18) { assert(snapshot.count() == 1 && snapshot.at(0).id() == "device-a"); }
 		if (scenario == 9) { assert(snapshot.at(0).streamCapability().sampleRateRangeAt(0).maximum() == 768000); }
 		if (scenario == 12) { assert(snapshot.defaultInput() == null && snapshot.defaultOutput() == null); }
 		if (scenario == 15) { assert(snapshot.count() == 0); }
 		assert(inventoryRetainedValues() == 0);
+		if (scenario >= 18) {
+			assert(device.matchesIdentity("device-b") == (scenario == 18 ? AUDIO_DEVICE_NOT_FOUND : AUDIO_DEVICE_UNAVAILABLE));
+			assert(inventoryRetainedValues() == 0);
+		}
 	}
 	print("PASS: CoreAudio inventory validates SDK data and publishes stable snapshots");
 	return 0;

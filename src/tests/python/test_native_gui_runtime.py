@@ -73,6 +73,48 @@ def _transpile_gui(source, tmp_path, request, frontend):
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
+def test_owned_font_snapshots_and_surface_selection(tmp_path: Path, request, frontend, sanitized) -> None:
+    source = ROOT / "src/tests/native/gui_surface/FontSnapshotConformance.btrc"
+    generated, environment = _transpile_gui(source, tmp_path, request, frontend)
+    executable = tmp_path / "font-snapshots"
+    flags = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"] if sanitized else []
+    subprocess.run(
+        [
+            "/usr/bin/clang" if sys.platform == "darwin" else "cc",
+            "-O2",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-pedantic-errors",
+            "-pthread",
+            *flags,
+            f"-I{GUI}",
+            f"-I{ROOT / 'src/runtime/c'}",
+            str(generated),
+            "-lm",
+            "-o",
+            str(executable),
+        ],
+        check=True,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    completed = subprocess.run(
+        [str(executable)],
+        check=True,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert "PASS: owned signed-pitch font snapshots" in completed.stdout
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
 def test_btrc_owns_gui_surface(tmp_path: Path, request, frontend, sanitized) -> None:
     source = ROOT / "src/tests/native/gui_surface/GuiSurfaceConformance.btrc"
     generated, environment = _transpile_gui(source, tmp_path, request, frontend)
@@ -140,12 +182,9 @@ def test_btrc_owns_gui_surface(tmp_path: Path, request, frontend, sanitized) -> 
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
-@pytest.mark.parametrize("consumer", ["Main", "Declarative", "GuiFontConformance", "GuiWindowConformance"])
+@pytest.mark.parametrize("consumer", ["Main", "Declarative", "GuiFontConformance"])
 def test_gui_consumers_use_btrc_pixels(tmp_path, request, frontend, consumer):
     uses_font = consumer == "GuiFontConformance"
-    uses_window = consumer == "GuiWindowConformance"
-    if uses_window and os.environ.get("BTRC_REAL_WINDOW_TEST") != "1":
-        pytest.skip("enable BTRC_REAL_WINDOW_TEST=1 for the real standalone GLFW/OpenGL window")
     font = next(
         (
             path
@@ -160,9 +199,7 @@ def test_gui_consumers_use_btrc_pixels(tmp_path, request, frontend, consumer):
     )
     if uses_font and (font is None or not os.environ.get("FONT_CFLAGS")):
         pytest.skip("requires FreeType headers/link flags and a real font")
-    original = (
-        ROOT / "src/tests/native/gui_surface" if uses_font or uses_window else ROOT / "examples/gui"
-    ) / f"{consumer}.btrc"
+    original = (ROOT / "src/tests/native/gui_surface" if uses_font else ROOT / "examples/gui") / f"{consumer}.btrc"
     source = tmp_path / f"{consumer}.btrc"
     # Keep the existing examples' output inside this isolated test directory.
     source.write_text(
@@ -178,15 +215,6 @@ def test_gui_consumers_use_btrc_pixels(tmp_path, request, frontend, consumer):
     if uses_font:
         native.append(str(GUI / "btrc_gui_font.c"))
         flags = [*shlex.split(os.environ["FONT_CFLAGS"]), *shlex.split(os.environ["FONT_LDFLAGS"])]
-    if uses_window:
-        native.append(str(GUI / "btrc_gui_window.c"))
-        glfw = subprocess.run(["pkg-config", "--libs", "glfw3"], capture_output=True, text=True, check=True, timeout=30)
-        flags = [
-            *shlex.split(os.environ.get("GPU_CFLAGS", "")),
-            *shlex.split(glfw.stdout),
-            "-DGL_SILENCE_DEPRECATION",
-            *(["-framework", "OpenGL"] if sys.platform == "darwin" else ["-lGL"]),
-        ]
     compiled = subprocess.run(
         [
             compiler,
@@ -226,6 +254,4 @@ def test_gui_consumers_use_btrc_pixels(tmp_path, request, frontend, consumer):
     expected = "GUI TESTS PASSED"
     if uses_font:
         expected = "PASS: FreeType draws into BTRC-owned pixels"
-    if uses_window:
-        expected = "PASS: native window presents BTRC-owned pixels"
     assert expected in completed.stdout

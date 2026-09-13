@@ -7,12 +7,22 @@ interface IButtonAction { void invoke(); }
  * uses native control tracking and returns false when the control is disabled.
  * onAction registers one queued receiver in an independently owned scope.
  * Cancel before replacement; cancellation/close discards queued old actions.
- * Delivery happens after native dispatch, on the application UI executor. */
+ * Delivery happens after native dispatch, on the application UI executor.
+ * Providers reject unsupported typography rather than clipping it. macOS
+ * bordered buttons support up to 20pt; borderless buttons allow larger text. */
 interface IButton extends IView {
 	string title();
 	void setTitle(string title);
 	bool isEnabled();
 	void setEnabled(bool enabled);
+	void setFont(double size);
+	void setCentered(bool centered);
+	void setSystemSymbol(string name);
+	void setSelected(bool selected);
+	bool isSelected();
+	void setTransparent(bool transparent);
+	void setBordered(bool bordered);
+	void cancelPendingActions();
 	bool activate();
 	ICallbackRegistration onAction(IButtonAction action, CallbackScope scope);
 }

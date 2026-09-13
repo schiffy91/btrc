@@ -1,0 +1,127 @@
+import Library.GUI.GUI;
+import Library.GUI.IGPUView;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.IContainer;
+import Library.GPU.Readback;
+import Library.GPU.Program;
+import Library.Datetime;
+import Library.Callback;
+
+import ./CompletionProbe.btrc;
+#include <assert.h>
+
+/* The product-facing path has no AppKit/Metal imports or manual event pump.
+ * The existing probe delays real SDK completions, not the view implementation. */
+class PortableGPUJourney implements IApplicationWork {
+	public IGPUView view;
+	public IWindow window;
+	public IContainer root;
+	public int stage;
+	public bool done = false;
+	private int _step = 0;
+	private GPUReadback? _readback;
+	private GPUProgram? _program;
+	private Timer _deadline = Timer();
+
+	public PortableGPUJourney(IGPUView view, IWindow window, IContainer root, int stage) {
+		self.view = view; self.window = window; self.root = root; self.stage = stage;
+		self._deadline.start();
+	}
+
+	public void run() {
+		assert(self._deadline.elapsed() < 10.0f);
+		if (self._step == 2) {
+			assert(!self.view.isOpen() && self.view.pollClose() == CallbackCancellation.Pending);
+			assert(probePendingCompletions() == 1);
+			probeDeliverCompletion();
+			GUI.requestQuit();
+			self.done = true;
+			return;
+		}
+		bool ready = self.view.poll();
+		assert(self.view.error().isEmpty());
+		if (self.stage == 1 || self.stage == 2) {
+			if (probePendingCompletions() == 1) { self.beginClose(); return; }
+		} else if (ready) {
+			if (self.stage == 3) {
+				if (self._program == null) { self._program = self.view.createProgram("invalid WGSL", 4, false); }
+				var program = self._program;
+				if (program == null) { throw "Missing program"; }
+				program.poll();
+				if (probePendingCompletions() == 1) { self.beginClose(); return; }
+			} else {
+				if (self._readback == null) {
+					self.view.setVisible(false);
+					assert(self.view.beginFrame(0.0, 0.0, 0.0) == GPU_SURFACE_FRAME_EMPTY);
+					self.view.setVisible(true);
+					assert(self.view.beginFrame(0.0, 0.5, 1.0) == GPU_SURFACE_FRAME_READY);
+					var readback = self.view.readback();
+					self._readback = readback;
+					assert(readback.submit());
+				}
+				var readback = self._readback;
+				if (readback == null) { throw "Missing readback"; }
+				readback.poll();
+				if (self.stage == 4 && probePendingCompletions() == 1) { self.beginClose(); return; }
+				if (self.stage == 0 && readback.state() == GPU_READBACK_READY) {
+					var pixels = readback.takeImage();
+					var renderer = self.view.frameRenderer();
+					assert(pixels.width == renderer.width() && pixels.height == renderer.height());
+					assert(pixels.width >= (self._step == 0 ? 320 : 440));
+					var pixel = pixels.pixel(0, 0);
+					assert(pixel.red == 0 && pixel.green >= 127 && pixel.green <= 128 && pixel.blue == 255 && pixel.alpha == 255);
+					if (self._step == 0) {
+						self.window.setContentSize(480.0, 300.0);
+						self.view.arrange(20.0, 60.0, 440.0, 220.0);
+						self._readback = null;
+						self._step = 1;
+					} else {
+						GUI.requestQuit(); self.done = true; return;
+					}
+				}
+			}
+		}
+		GUI.postAfter(0.001, self);
+	}
+
+	private void beginClose() {
+		assert(self.window.close() == CallbackCancellation.Pending);
+		assert(!self.window.isOpen() && !self.root.isOpen() && !self.view.isOpen());
+		bool rejected = false;
+		try { self.view.frameRenderer(); } catch (string error) { rejected = true; }
+		assert(rejected && self.view.pollClose() == CallbackCancellation.Pending);
+		self._step = 2;
+		GUI.postAfter(0.001, self);
+	}
+}
+
+int main() {
+	for (int stage = 0; stage <= 4; stage++) {
+		GUI.initialize();
+		probeDelayCompletions(stage);
+		var window = GUI.createWindow("Portable native GPU", 360.0, 240.0);
+		var root = GUI.createContainer();
+		var field = GUI.createTextField("Native editor beside WebGPU");
+		var view = GUI.createGPUView();
+		root.attach(field); root.attach(view);
+		window.attachRoot(root);
+		field.arrange(20.0, 12.0, 320.0, 28.0);
+		view.arrange(20.0, 60.0, 320.0, 160.0);
+		assert(view.pollClose() == CallbackCancellation.NotRequested);
+		bool rejected = false;
+		try { view.close(); } catch (string error) { rejected = true; }
+		assert(rejected && view.isOpen());
+		window.show();
+		var journey = PortableGPUJourney(view, window, root, stage);
+		GUI.post(journey);
+		GUI.run();
+		assert(journey.done && view.pollClose() == CallbackCancellation.Complete);
+		assert(!field.isOpen() && root.childCount() == 0);
+		assert(probePendingCompletions() == 0 && probeAdapterClaims() == 0 && probeDeviceClaims() == 0 && probeBufferClaims() == 0);
+		assert(GUI.close() == CallbackCancellation.Complete);
+	}
+	probeDelayCompletions(0);
+	print("PASS: portable GPU view renders, resizes and drains through native application shutdown");
+	return 0;
+}
