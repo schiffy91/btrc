@@ -22,7 +22,6 @@ import math
 import os
 import platform
 import shlex
-import shutil
 import subprocess
 import tempfile
 
@@ -41,7 +40,6 @@ from src.tests.runner_capabilities import (
 
 BTRC_TEST_DIR = os.path.dirname(__file__)
 _REPO_ROOT = os.path.dirname(os.path.dirname(BTRC_TEST_DIR))
-_TRAY_DIR = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "tray")
 _APP_DIR = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "app")
 _GPU_DIR = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "gpu")
 _APP_BUILD = os.path.join(_REPO_ROOT, "build", "stdlib", "app")
@@ -100,8 +98,10 @@ def _require_test_capabilities(btrc_path):
     if "loopback-listener" in required:
         if error := loopback_listener_error():
             pytest.skip(error)
+    if "native-tray" in required and platform.system() != "Darwin":
+        pytest.skip("native tray provider is not implemented for this target")
     if "native-tray" in required and platform.system() == "Darwin":
-        error = darwin_tray_backend_error(tuple(BTRC_CC), tuple(BTRC_CFLAGS), _TRAY_DIR)
+        error = darwin_tray_backend_error(tuple(BTRC_CC), tuple(BTRC_CFLAGS))
         if error:
             pytest.skip(error)
 
@@ -158,46 +158,6 @@ def _gcc_flags(c_source, c_path, bin_path):
     needs_app = "btrc_app.h" in c_source or needs_gpu
     if "pthread.h" in c_source:
         gcc_flags.append("-lpthread")
-    if "btrc_tray.h" in c_source:
-        system = platform.system()
-        if system == "Darwin":
-            try:
-                _ver = subprocess.run([*BTRC_CC, "--version"], capture_output=True, text=True).stdout.lower()
-            except OSError as error:
-                pytest.skip(f"tray shim compiler is unavailable: {error}")
-            if "clang" not in _ver:
-                pytest.skip("tray shim needs clang (Objective-C/Cocoa) on macOS")
-            shim = os.path.join(_TRAY_DIR, "btrc_tray_macos.m")
-            gcc_flags = [
-                *BTRC_CC,
-                *BTRC_CFLAGS,
-                "-fobjc-arc",
-                f"-I{_TRAY_DIR}",
-                c_path,
-                shim,
-                "-framework",
-                "Cocoa",
-                "-lm",
-                "-o",
-                bin_path,
-            ]
-            if "pthread.h" in c_source:
-                gcc_flags.append("-lpthread")
-        elif system == "Linux":
-            pkg_config = shutil.which("pkg-config")
-            if pkg_config is None:
-                pytest.skip("tray shim needs dbus-1 (pkg-config) on Linux")
-            dependency = subprocess.run(
-                [pkg_config, "--cflags", "--libs", "dbus-1"],
-                capture_output=True,
-                text=True,
-            )
-            if dependency.returncode != 0:
-                pytest.skip("tray shim needs dbus-1 development files (pkg-config) on Linux")
-            shim = os.path.join(_TRAY_DIR, "btrc_tray_linux.c")
-            gcc_flags.extend([f"-I{_TRAY_DIR}", shim, *dependency.stdout.split()])
-        else:
-            pytest.skip(f"native tray corpus is unsupported on {system}")
     if needs_gpu:
         if not os.path.isfile(os.path.join(_GPU_BUILD, "libbtrc_gpu.a")):
             pytest.skip("GPU runtime not built (run make gpu)")

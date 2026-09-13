@@ -13,12 +13,14 @@ KNOWN_CAPABILITIES = frozenset({"loopback-listener", "native-tray"})
 
 _TRAY_PROBE_MARKER = "BTRC_TRAY_BACKEND_READY"
 _TRAY_PROBE_SOURCE = f"""
-#include "btrc_tray.h"
+#import <AppKit/AppKit.h>
 #include <stdio.h>
 
 int main(void) {{
-    void* tray = btrc_tray_create("btrc capability probe");
-    if (tray != NULL) {{ btrc_tray_destroy(tray); }}
+    [NSApplication sharedApplication];
+    NSStatusBar* bar = [NSStatusBar systemStatusBar];
+    NSStatusItem* item = [bar statusItemWithLength:NSVariableStatusItemLength];
+    if (item != nil) {{ [bar removeStatusItem:item]; }}
     puts("{_TRAY_PROBE_MARKER}");
     return 0;
 }}
@@ -161,7 +163,6 @@ def darwin_app_flags() -> tuple[list[str], str | None]:
 def darwin_tray_backend_error(
     compiler: tuple[str, ...],
     cflags: tuple[str, ...],
-    tray_dir: str,
 ) -> str | None:
     """Probe whether Cocoa tray initialization returns control to a CLI app."""
     with tempfile.TemporaryDirectory(prefix="btrc-tray-probe-") as temporary:
@@ -172,9 +173,7 @@ def darwin_tray_backend_error(
             *compiler,
             *cflags,
             "-fobjc-arc",
-            f"-I{tray_dir}",
             str(source_path),
-            str(Path(tray_dir, "btrc_tray_macos.m")),
             "-framework",
             "Cocoa",
             "-o",

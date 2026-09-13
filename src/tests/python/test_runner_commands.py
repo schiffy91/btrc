@@ -9,7 +9,7 @@ from src.tests import runner_capabilities as capabilities
 
 
 @pytest.mark.parametrize("standard", ("-std=c11", "-std=gnu11"))
-def test_darwin_tray_command_preserves_configured_cflags_once(
+def test_corpus_command_preserves_configured_cflags_once(
     standard: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -23,9 +23,8 @@ def test_darwin_tray_command_preserves_configured_cflags_once(
         lambda *_args, **_kwargs: SimpleNamespace(stdout="Apple clang version 18.0.0"),
     )
 
-    command = runner._gcc_flags("/* btrc_tray.h */", "/tmp/program.c", "/tmp/program")
+    command = runner._gcc_flags("int main(void) { return 0; }", "/tmp/program.c", "/tmp/program")
 
-    assert "-fobjc-arc" in command
     assert [argument for argument in command if argument.startswith("-std=")] == [standard]
     for flag in configured:
         assert command.count(flag) == 1
@@ -184,12 +183,12 @@ def test_gpu_environment_flags_must_be_configured_as_a_pair(tmp_path, monkeypatc
         runner._gcc_flags("/* btrc_gpu.h */", "/tmp/program.c", "/tmp/program")
 
 
-def test_linux_tray_without_pkg_config_is_a_precise_skip(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_linux_tray_is_an_explicit_unsupported_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(platform, "system", lambda: "Linux")
-    monkeypatch.setattr(runner.shutil, "which", lambda _command: None)
+    monkeypatch.setattr(runner, "declared_capabilities", lambda _source: {"native-tray"})
 
-    with pytest.raises(pytest.skip.Exception, match=r"dbus-1 \(pkg-config\) on Linux"):
-        runner._gcc_flags("/* btrc_tray.h */", "/tmp/program.c", "/tmp/program")
+    with pytest.raises(pytest.skip.Exception, match="native tray provider is not implemented"):
+        runner._require_test_capabilities("TrayNative.btrc")
 
 
 def test_loopback_listener_probe_reports_permission_denial(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -265,7 +264,7 @@ def test_darwin_tray_probe_treats_early_clean_exit_as_unavailable(
     )
     monkeypatch.setattr(capabilities.subprocess, "run", lambda *_args, **_kwargs: next(results))
 
-    error = capabilities.darwin_tray_backend_error(("clang",), ("-std=c11",), "/tmp/tray")
+    error = capabilities.darwin_tray_backend_error(("clang",), ("-std=c11",))
 
     assert error == "native tray backend is unavailable: Cocoa terminated the capability probe during initialization"
 
@@ -278,7 +277,7 @@ def test_darwin_tray_probe_build_failure_is_not_a_runtime_skip(monkeypatch: pyte
     )
 
     with pytest.raises(capabilities.CapabilityProbeBuildError, match="Objective-C compile failed"):
-        capabilities.darwin_tray_backend_error(("clang",), ("-std=c11",), "/tmp/tray")
+        capabilities.darwin_tray_backend_error(("clang",), ("-std=c11",))
 
 
 def test_darwin_tray_probe_nonzero_exit_is_not_a_runtime_skip(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -291,7 +290,7 @@ def test_darwin_tray_probe_nonzero_exit_is_not_a_runtime_skip(monkeypatch: pytes
     monkeypatch.setattr(capabilities.subprocess, "run", lambda *_args, **_kwargs: next(results))
 
     with pytest.raises(capabilities.CapabilityProbeRuntimeError, match="probe crashed"):
-        capabilities.darwin_tray_backend_error(("clang",), ("-std=c11",), "/tmp/tray")
+        capabilities.darwin_tray_backend_error(("clang",), ("-std=c11",))
 
 
 def test_runtime_capability_check_runs_after_successful_c_compilation(

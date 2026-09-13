@@ -1,0 +1,178 @@
+import Library.Callback;
+import Library.Process;
+import Library.UI;
+import Library.Vector;
+import Library.GUI.MacOS.AppKitText;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+/* This receiver cannot reach the provider's cancellation scope. Overflow is
+ * latched and reported after returning from the native action callback. */
+class TrayCommands implements IAppKitRunLoopEvents {
+	private Tray _model;
+	private UnixShell _shell;
+	private Vector<NSMenuItem> _items;
+	private Vector<string> _pending = [];
+	private MacOSRunLoopSignal _signal;
+	private int _head = 0;
+	private int _count = 0;
+	private bool _overflow = false;
+	private bool _ownsLoop = false;
+	private bool _dispatching = false;
+	public bool quitRequested = false;
+	public string failure = "";
+
+	public TrayCommands(Tray model, Vector<NSMenuItem> items, MacOSRunLoopSignal signal) {
+		self._model = model;
+		self._items = items;
+		self._shell = UnixShell();
+		self._signal = signal;
+		for (int index = 0; index < 256; index++) { self._pending.push(""); }
+	}
+	public void enqueue(string command) {
+		if (self.quitRequested || self._overflow) { return; }
+		if (self._count == 256) { self._overflow = true; self._signal.wake(); return; }
+		self._pending.set((self._head + self._count) % 256, command);
+		self._count++;
+		self._signal.wake();
+	}
+	public void refresh() {
+		for (int index = 0; index < self._items.len && index < self._model.items.len; index++) {
+			var entry = self._model.items.get(index);
+			if (!entry.stateCommand.isEmpty()) {
+				bool checked = self._shell.run(entry.stateCommand, logFailure=false).ok();
+				self._items.get(index).setState(checked ? NSControlStateValueOn : NSControlStateValueOff);
+			}
+		}
+	}
+	public void dispatch() {
+		if (self._dispatching || self.quitRequested) { return; }
+		self._dispatching = true;
+		try {
+			if (self._overflow) { throw "Native tray command capacity exceeded"; }
+			int count = self._count;
+			for (int index = 0; index < count && !self.quitRequested; index++) {
+				var command = self._pending.get(self._head);
+				self._pending.set(self._head, "");
+				self._head = (self._head + 1) % 256;
+				self._count--;
+				if (command.equals("__quit__")) { self.quit(); }
+				else { self._shell.run(command, stdout=CommandOutput.stream(), stderr=CommandOutput.stream(), logFailure=false); self.refresh(); }
+			}
+		} catch (string error) { self.failure = error; self.quit(); }
+		finally { self._dispatching = false; }
+	}
+	public void invoke(NSNotification notification) { self.dispatch(); }
+	public void ownLoop(bool ownsLoop) { self._ownsLoop = ownsLoop; }
+	public void quit() {
+		self.quitRequested = true;
+		if (self._ownsLoop) {
+			var app = NSApplication.sharedApplication();
+			app.stop(null);
+			CGPoint point;
+			point.x = 0.0;
+			point.y = 0.0;
+			var event = NSEvent.otherEventWithType(NSEventTypeApplicationDefined, point, 0UL, 0.0, 0L, null, 0, 0L, 0L);
+			if (event != null) { app.postEvent(event, false); }
+		}
+	}
+}
+
+class TrayAction implements IAppKitTrayAction {
+	private TrayCommands _commands;
+	private string _command;
+	public TrayAction(TrayCommands commands, string command) { self._commands = commands; self._command = command; }
+	public void invoke() { self._commands.enqueue(self._command); }
+}
+
+class TrayProvider {
+	private NSStatusItem? _status;
+	private NSMenu? _menu;
+	private CallbackScope _scope;
+	private MacOSRunLoopSignal _signal;
+	private TrayCommands _commands;
+
+	public TrayProvider(Tray model) {
+		self.requireMainThread();
+		self._scope = CallbackScope();
+		self._signal = MacOSRunLoopSignal();
+		Vector<NSMenuItem> items = [];
+		self._commands = TrayCommands(model, items, self._signal);
+		try {
+			var app = NSApplication.sharedApplication();
+			if (app.activationPolicy() == NSApplicationActivationPolicyProhibited) { app.setActivationPolicy(NSApplicationActivationPolicyAccessory); }
+			var status = NSStatusBar.systemStatusBar().statusItemWithLength(NSVariableStatusItemLength);
+			if (status == null) { throw "Cannot create native status item"; }
+			self._status = status;
+			var button = status.button();
+			if (button == null) { throw "Native status item has no button"; }
+			button.setTitle(AppKitText.nativeValue(model.title));
+			button.setToolTip(AppKitText.nativeValue(model.tooltip));
+			if (!model.iconPath.isEmpty()) {
+				var representation = NSImageRep.imageRepWithContentsOfFile(AppKitText.nativeValue(model.iconPath));
+				if (representation != null) {
+					var image = NSImage.new();
+					if (image == null) { throw "Cannot create native tray image"; }
+					image.addRepresentation(representation);
+					image.setTemplate(true);
+					CGSize size;
+					size.width = 18.0;
+					size.height = 18.0;
+					image.setSize(size);
+					button.setImage(image);
+					button.setTitle(AppKitText.nativeValue(""));
+				}
+			}
+			var menu = NSMenu.new();
+			if (menu == null) { throw "Cannot create native tray menu"; }
+			self._menu = menu;
+			menu.setAutoenablesItems(false);
+			for entry in model.items {
+				var item = NSMenuItem.new();
+				if (item == null) { throw "Cannot create native tray menu item"; }
+				item.setTitle(AppKitText.nativeValue(entry.label));
+				item.setEnabled(entry.enabled);
+				item.setTarget(TrayAction(self._commands, entry.command), self._scope);
+				items.push(item);
+				menu.addItem(item);
+			}
+			self._commands.refresh();
+			self._signal.subscribe(self._commands, self._scope);
+			status.setMenu(menu);
+			status.setVisible(true);
+		} catch (string error) { self.close(); throw error; }
+	}
+	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native trays require the main thread"; } }
+	public void refreshCheckItems() { self.requireMainThread(); if (self._status != null) { self._commands.refresh(); } }
+	public void quit() { self.requireMainThread(); self._commands.quit(); }
+	public bool pump(int timeoutMs) {
+		self.requireMainThread();
+		if (self._status == null || self._commands.quitRequested) { return false; }
+		var app = NSApplication.sharedApplication();
+		var until = timeoutMs < 0 ? NSDate.distantFuture() : NSDate.dateWithTimeIntervalSinceNow((double)timeoutMs / 1000.0);
+		var event = app.nextEventMatchingMask(NSEventMaskAny, until, NSDefaultRunLoopMode, true);
+		if (event != null) { app.sendEvent(event); }
+		self._commands.dispatch();
+		if (!self._commands.failure.isEmpty()) { throw self._commands.failure; }
+		return !self._commands.quitRequested;
+	}
+	public void run() {
+		self.requireMainThread();
+		if (self._status == null) { throw "Native tray is closed"; }
+		if (self._commands.quitRequested) { return; }
+		var app = NSApplication.sharedApplication();
+		if (app.isRunning()) { throw "The native application loop is already running"; }
+		self._commands.ownLoop(true);
+		try { app.finishLaunching(); app.run(); }
+		finally { self._commands.ownLoop(false); }
+		if (!self._commands.failure.isEmpty()) { throw self._commands.failure; }
+	}
+	public void close() {
+		self.requireMainThread();
+		self._commands.quit();
+		if (self._scope.cancel() != CallbackCancellation.Complete) { throw "Native tray callbacks must drain before closing"; }
+		self._signal.close();
+		if (self._status != null) { self._status.setMenu(null); NSStatusBar.systemStatusBar().removeStatusItem(self._status); self._status = null; }
+		self._menu = null;
+	}
+	public void __del__() { self.close(); }
+}

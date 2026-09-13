@@ -5,11 +5,11 @@
  * stdlib. "Quit" stops the loop and removes the icon.
  *
  * Build + run (macOS):   make            (this folder)
- * Headless hosts (no GUI session) print a notice and exit cleanly.
+ * Native initialization failures are reported explicitly.
  */
 import Library.UI;
 
-#include "Tray/Tray.btrc"
+import Library.Tray.Tray;
 
 int main() {
 	SystemTray tray = SystemTray("btrc")
@@ -20,14 +20,11 @@ int main() {
 		.add(TrayItem("Build (disabled)", "make").disabled())
 		.item("Quit", TraySignal.quit());
 
-	if (!tray.show()) {
-		print("No native tray available (headless / no GUI session).");
-		print("On a desktop session this shows a clickable menu-bar icon.");
-		return 0;
-	}
+	tray.show();
 
 	print("btrc tray is live in the menu bar — click an item, or Quit to exit.");
-	tray.run();   // pump the native loop until Quit
+	tray.run();
+	tray.close();
 	print("tray closed");
 	return 0;
 }
