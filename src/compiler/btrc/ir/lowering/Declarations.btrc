@@ -167,12 +167,15 @@ class DeclarationLowerer {
 		Vector<IRNode> statements = [];
 		Map<string, bool> parameterNames = {};
 		for index in range(declaration.params.len) {
-			Node parameter = declaration.params.get(index);
-			adapter.params.push(self.cTypes.lowerParameter(parameter));
-			parameterNames.put(parameter.name, true);
-			IRNode argument = IRNode.variable(parameter.name);
+			/* The lowered name is the C binding name: a source parameter that shadows a
+			 * hosted macro or a program type (an Objective-C `id`) is renamed once here
+			 * and referenced by that name everywhere below, as the reference does. */
+			IRParam lowered = self.cTypes.lowerParameter(declaration.params.get(index));
+			adapter.params.push(lowered);
+			parameterNames.put(lowered.name, true);
+			IRNode argument = IRNode.variable(lowered.name);
 			arguments.push(argument);
-			if (contract.nonnullParameters.get(index)) { statements.push(self.nativeNullGuard(argument, f"Native call {declaration.name}: null argument {parameter.name}", contract.realtimeSafe)); }
+			if (contract.nonnullParameters.get(index)) { statements.push(self.nativeNullGuard(argument, f"Native call {declaration.name}: null argument {lowered.name}", contract.realtimeSafe)); }
 		}
 		Vector<Vector<IRNode>> releases = [];
 		Vector<IRNode> cleanup = [];

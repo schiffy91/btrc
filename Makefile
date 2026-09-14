@@ -87,9 +87,9 @@ BTRCC_INPUTS := $(BTRCC_BOOTSTRAP_SOURCES) $(BTRCC_SELFHOST_SOURCES) \
 # Windows-only compat layer (POSIX builds never see it): shim headers for the
 # handful of POSIX includes MinGW-w64 omits (found via -I) plus a force-included
 # header that supplies the few missing symbols and safe filesystem seams. See
-# src/stdlib/Windows/README.md. Real Win32 backends for terminal/process/socket are
+# src/runtime/windows/README.md. Real Win32 backends for terminal/process/socket are
 # a Milestone-2 follow-up; today these orphan APIs are DCE'd out of btrcc.
-WIN_COMPAT := -I src/stdlib/Windows -include src/stdlib/Windows/btrc_win_compat.h
+WIN_COMPAT := -I src/runtime/windows -include src/runtime/windows/btrc_win_compat.h
 
 $(BTRCC_C): $(BTRCC_INPUTS) | generated-check
 	@mkdir -p dist

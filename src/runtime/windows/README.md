@@ -5,7 +5,7 @@ cross-compile to Windows with `zig cc -target x86_64-windows-gnu`. It is applied
 **only** to Windows builds, via the Makefile variable:
 
 ```make
-WIN_COMPAT := -I src/stdlib/Windows -include src/stdlib/Windows/btrc_win_compat.h
+WIN_COMPAT := -I src/runtime/windows -include src/runtime/windows/btrc_win_compat.h
 ```
 
 POSIX (macOS/Linux) builds never add these flags, so their output is unchanged.

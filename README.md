@@ -1436,7 +1436,7 @@ the module subdirectory to the C compiler include path—for example,
 source or library and the platform dependencies documented by `GPU/`, `GUI/`,
 or `Tray/`.
 
-**Windows** uses a small compat layer in [`src/stdlib/Windows/`](src/stdlib/Windows/)
+**Windows** uses a small compat layer in [`src/runtime/windows/`](src/runtime/windows/)
 (applied only to Windows builds, via `-I` + `-include`) that fills the handful of
 POSIX headers/symbols MinGW-w64 omits. This gets `btrcc` and ordinary btrc
 programs building and running on Windows; the POSIX-only stdlib modules

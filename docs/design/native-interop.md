@@ -466,7 +466,7 @@ Initial tracked-file inventory (2026-09-09), not a completed semantic audit: BTR
 | `src/stdlib/BackgroundJobs/` | 1 remaining | `NativeThreads.h` includes pthread/errno SDK headers only. `BackgroundJobs` owns queues, cancellation, completion, worker joins and disposal; old C executor/header/ABI/archive target removed. |
 | `src/stdlib/LocalApplicationChannel/` | 1 remaining | `Socket.h` supplies SDK declarations and a Darwin/Linux peer-credential ABI helper. Client/server ownership, framing, budgets, deadlines, permissions and conditional endpoint cleanup moved to BTRC; old C/header/hosted ABI/archive target removed. Windows provider selection and Linux self-hosted qualification remain open. |
 | `src/stdlib/Tray/` | 3 | Platform tray providers; event callbacks, menus and teardown. |
-| `src/stdlib/Windows/` | 17 | Typed Windows providers; audit compatibility headers individually, no success-only POSIX shims. |
+| `src/runtime/windows/` | 17 | Typed Windows providers; audit compatibility headers individually, no success-only POSIX shims. |
 | `src/runtime/c/` | 10 | Separate unavoidable runtime machinery from movable stdlib policy; preserve bootstrap, ARC, exceptions and threading semantics. |
 | `tools/NativeHeaderReader.cpp` | 1 | Build-time Clang AST access remains justified C++; no product policy here. |
 | Native tests/examples | 62 | Keep genuine foreign-ABI oracles; update consumers and remove fixtures for retired bridges, not independent correctness coverage. |
