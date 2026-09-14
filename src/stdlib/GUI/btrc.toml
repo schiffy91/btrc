@@ -105,6 +105,7 @@ symbols = [
 	"+[NSTextField textFieldWithString:]", "-[NSTextField stringValue]", "-[NSTextField setStringValue:]",
 	"-[NSTextField setPlaceholderString:]", "-[NSTextField setEnabled:]", "-[NSTextField isEnabled]",
 	"-[NSTextField setFont:]", "+[NSFont systemFontOfSize:]",
+	"-[NSTextField setBezelStyle:]", "NSTextFieldRoundedBezel", "-[NSTextField setControlSize:]", "NSControlSizeRegular", "NSControlSizeLarge",
 	"-[NSTextField validateEditing]", "-[NSTextField abortEditing]", "-[NSTextField removeFromSuperview]",
 	"-[NSTextField frame]", "-[NSTextField setFrame:]"
 ]
@@ -181,7 +182,7 @@ symbols = [
 	"-[NSButton setFont:]", "+[NSFont systemFontOfSize:]", "-[NSButton setState:]", "-[NSButton state]", "NSControlStateValueOn", "NSControlStateValueOff",
 	"+[NSImage imageWithSystemSymbolName:accessibilityDescription:]", "-[NSButton setImage:]", "-[NSButton setImagePosition:]", "NSImageLeading",
 	"-[NSButton setImageHugsTitle:]", "-[NSButton setAlignment:]", "NSTextAlignmentLeft", "NSTextAlignmentCenter", "-[NSButton setTransparent:]", "-[NSButton setBordered:]",
-	"-[NSButton setControlSize:]", "NSControlSizeRegular", "NSControlSizeLarge"
+	"-[NSButton setControlSize:]", "NSControlSizeRegular", "NSControlSizeLarge", "NSImageOnly"
 ]
 os = ["macos"]
 

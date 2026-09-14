@@ -18,6 +18,9 @@ class MacOSTextField implements ITextField, IMacOSView {
 		self._control = null;
 		self.requireMainThread();
 		self._control = NSTextField.textFieldWithString(AppKitText.nativeValue(text));
+		/* Rounded bezels center their text vertically and share the native
+		 * control heights buttons use, so mixed toolbars align without padding hacks. */
+		self.nativeControl().setBezelStyle(NSTextFieldRoundedBezel);
 		self.setPlaceholder(placeholder);
 	}
 
@@ -91,7 +94,9 @@ class MacOSTextField implements ITextField, IMacOSView {
 
 	public void setFont(double size) {
 		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native text field font size"; }
-		self.nativeControl().setFont(NSFont.systemFontOfSize(size));
+		var control = self.nativeControl();
+		control.setControlSize(size > 13.0 ? NSControlSizeLarge : NSControlSizeRegular);
+		control.setFont(NSFont.systemFontOfSize(size));
 	}
 
 	public bool isEnabled() { return self.nativeControl().isEnabled(); }

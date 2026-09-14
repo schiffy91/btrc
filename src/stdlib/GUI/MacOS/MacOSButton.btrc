@@ -12,6 +12,7 @@ class MacOSButton implements IButton, IMacOSView {
 	private IMacOSAction? _action;
 	private bool _selectable = false;
 	private bool _bordered = true;
+	private bool _symbol = false;
 	private double _fontSize = 13.0;
 
 	public MacOSButton(string title, MacOSActionQueue? actions = null) {
@@ -62,7 +63,7 @@ class MacOSButton implements IButton, IMacOSView {
 
 	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
 
-	public void setTitle(string title) { self.control().setTitle(AppKitText.nativeValue(title)); }
+	public void setTitle(string title) { self.control().setTitle(AppKitText.nativeValue(title)); self.placeSymbol(); }
 
 	public void setEnabled(bool enabled) { self.control().setEnabled(enabled); }
 
@@ -107,9 +108,19 @@ class MacOSButton implements IButton, IMacOSView {
 		var image = NSImage.imageWithSystemSymbolName(AppKitText.nativeValue(name), null);
 		if (image == null) { throw "Native button system symbol is unavailable"; }
 		button.setImage(image);
-		button.setImagePosition(NSImageLeading);
-		button.setImageHugsTitle(true);
-		button.setAlignment(NSTextAlignmentLeft);
+		self._symbol = true;
+		self.placeSymbol();
+	}
+
+	/* A symbol without a title is the whole control: center it instead of
+	 * hugging an empty leading title, which leaves the glyph off-center. */
+	private void placeSymbol() {
+		var button = self.control();
+		if (!self._symbol) { return; }
+		bool titled = !self.title().isEmpty();
+		button.setImagePosition(titled ? NSImageLeading : NSImageOnly);
+		button.setImageHugsTitle(titled);
+		button.setAlignment(titled ? NSTextAlignmentLeft : NSTextAlignmentCenter);
 	}
 
 	public bool isEnabled() { return self.control().isEnabled(); }
