@@ -13,7 +13,7 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 REPOSITORY = Path(__file__).resolve().parents[3]
 FIXTURE = Path(__file__).with_name("fixtures") / "EncodedImageContract.btrc"
-API = REPOSITORY / "src" / "stdlib" / "EncodedImage.btrc"
+API = REPOSITORY / "src" / "stdlib" / "Image" / "EncodedImage.btrc"
 STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
@@ -73,7 +73,7 @@ def test_encoded_image_contract_runs_with_both_frontends(semantic_btrcc: Path, t
 
 def test_encoded_image_contract_is_content_only_bounded_and_owning() -> None:
     source = API.read_text()
-    assert "interface EncodedImageDecoder" in source
+    assert "interface IEncodedImageDecoder" in source
     assert "EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits);" in source
     assert "maximumInputBytes" in source
     assert "maximumWidth" in source

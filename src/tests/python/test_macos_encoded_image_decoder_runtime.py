@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
-FIXTURES = ROOT / "src/tests/native/macos_encoded_image_decoder"
+FIXTURES = ROOT / "src/tests/native/image"
 APPLE_CLANG = "/usr/bin/clang"
 PACKAGE_NAME = "btrc_stdlib_runtime"
 COMPILE_TIMEOUT = 240
@@ -161,7 +161,7 @@ def test_imageio_provider(compiler, fixture, hooks, tmp_path, request, sdk_envir
 
 def test_system_text_failure_cleanup(compiler, tmp_path, request, sdk_environment):
     source = tmp_path / "SystemTextCleanup.btrc"
-    source.write_text("""import Library.MacOSEncodedImageDecoder;
+    source.write_text("""import Library.Image.MacOS.MacOSEncodedImageDecoder;
 import Library.GUI.MacOS.MacOSSystemText;
 import Library.GUI.TextRun;
 import Library.Image;
@@ -210,7 +210,7 @@ int main(int argc, char** argv) {
             executable,
             payload["frameworks"],
             sanitized=sanitized,
-            hook_header=ROOT / "src/tests/native/gui_surface/SystemTextFaults.h",
+            hook_header=ROOT / "src/tests/native/gui/SystemTextFaults.h",
         )
         assert _run(executable).stdout == "PASS SystemTextCleanup\n"
         for failure, function in (
@@ -242,7 +242,7 @@ def test_imageio_binding_requires_reader_before_emitting_code(tmp_path, monkeypa
 
 @pytest.mark.parametrize("text_first", [False, True])
 def test_imageio_and_system_text_share_managed_sdk_resources(compiler, text_first, tmp_path, request, sdk_environment):
-    imports = ["Library.MacOSEncodedImageDecoder", "Library.GUI.MacOS.MacOSSystemText"]
+    imports = ["Library.Image.MacOS.MacOSEncodedImageDecoder", "Library.GUI.MacOS.MacOSSystemText"]
     if text_first:
         imports.reverse()
     source = tmp_path / "CombinedNativeRaster.btrc"
@@ -251,7 +251,7 @@ def test_imageio_and_system_text_share_managed_sdk_resources(compiler, text_firs
         "".join(f"import {module};\n" for module in imports)
         + """import Library.GUI.TextRun;
 import Library.Bytes;
-import Library.EncodedImage;
+import Library.Image.EncodedImage;
 import Library.Image;
 
 import ./ImageIoSamples.btrc;

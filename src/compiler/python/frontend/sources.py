@@ -683,28 +683,14 @@ _PRIORITY_FILES = (
     "Strings.btrc",
     "Platform.btrc",
     "Process.btrc",
-    "FileSystem.btrc",
-    "Daemon.btrc",
-    "UI.btrc",
 )
 # Legacy relaxed composition and the prebuilt core archive concatenate root
 # modules after stripping imports. Native adapters with nested source-graph or
 # compiler-owned native-link dependencies must remain explicit imports so the
 # resolver retains those requirements.
-_EXPLICIT_STDLIB_MODULES = frozenset(
-    {
-        "BackgroundJobs.btrc",
-        "LocalApplicationChannel.btrc",
-        "MacOSDirectoryPicker.btrc",
-        "MacOSEncodedImageDecoder.btrc",
-        "NativeUI.btrc",
-        "SystemImageDecoder.btrc",
-        # Its process callback lives in realtime_clip_transport/Runtime.btrc.
-        # Relaxed composition drops nested imports, so composing this module
-        # would leave that callback undeclared.
-        "RealtimeClipTransport.btrc",
-    }
-)
+# Every native adapter and nested source graph now lives in a group folder
+# (see src/stdlib/README.md), so no root module needs an exemption today.
+_EXPLICIT_STDLIB_MODULES: frozenset[str] = frozenset()
 _CLASS_NAME = re.compile(
     r"^\s*(?:abstract\s+)?class\s+(\w+)(?:\s*<[^>\n]+>)?\s*"
     r"(?:extends\s+\w+(?:\s*<[^>\n]+>)?\s*)?"

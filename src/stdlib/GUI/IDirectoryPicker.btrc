@@ -1,0 +1,46 @@
+/* Portable directory-picker contract. Each platform provider (GUI/MacOS today;
+ * Linux and Windows later) implements IDirectoryPicker and owns its UI-thread
+ * checks and modal resources. Keep the concrete type at the call site;
+ * interfaces do not erase ownership in BTRC. */
+
+import Library.App;
+
+class DirectoryPickerRequest {
+	public string title;
+	public string initialDirectory;
+
+	public DirectoryPickerRequest(string title, string initialDirectory = "") {
+		self.title = title;
+		self.initialDirectory = initialDirectory;
+	}
+
+	public bool isValid() { return !self.title.isEmpty(); }
+}
+
+enum DirectoryPickerKind {
+	DIRECTORY_PICKER_SELECTED = 1,
+	DIRECTORY_PICKER_CANCELLED = 2,
+	DIRECTORY_PICKER_FAILED = 3
+};
+
+class DirectoryPickerOutcome {
+	public DirectoryPickerKind kind;
+	public string directory;
+	public AppError? error;
+
+	private DirectoryPickerOutcome(DirectoryPickerKind kind, string directory, AppError? error) {
+		self.kind = kind;
+		self.directory = directory;
+		self.error = error;
+	}
+
+	class DirectoryPickerOutcome selected(string directory) { return new DirectoryPickerOutcome(DIRECTORY_PICKER_SELECTED, directory, null); }
+
+	class DirectoryPickerOutcome cancelled() { return new DirectoryPickerOutcome(DIRECTORY_PICKER_CANCELLED, "", null); }
+
+	class DirectoryPickerOutcome failed(AppError error) { return new DirectoryPickerOutcome(DIRECTORY_PICKER_FAILED, "", error); }
+}
+
+interface IDirectoryPicker {
+	DirectoryPickerOutcome chooseDirectory(DirectoryPickerRequest request);
+}

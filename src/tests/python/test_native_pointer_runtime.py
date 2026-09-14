@@ -15,7 +15,7 @@ from tools.native_plan import NativePlanBuilder
 def test_native_pointer_routing(native_project, native_compile, sanitize):
     source, _, _ = native_project
     root = source.parent.parent
-    fixture = REPO / "src/tests/native/gui_surface"
+    fixture = REPO / "src/tests/native/gui"
     for name in ["NativePointerEvents.h", "NativePointerEvents.m"]:
         (root / name).write_text((fixture / name).read_text())
     (source.parent / "PointerEvents.btrc").write_text("")

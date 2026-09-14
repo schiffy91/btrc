@@ -217,7 +217,7 @@ def test_gpu_archive_rule_asserts_runtime_membership() -> None:
     assert r'grep -q "btrc_gpu_async\\.o$$"' in makefile
     assert "GLFW" not in makefile
     assert "btrc_gpu_surface" not in makefile
-    assert "btrc_gpu_native_ui" not in makefile
+    assert "btrc_gpu_ui" not in makefile
 
 
 @pytest.mark.parametrize("example", ["sgd"])
@@ -232,7 +232,7 @@ def test_compute_runtime_has_no_window_or_rendering_dependency() -> None:
     runtime = (GPU / "btrc_gpu.c").read_text()
     for obsolete in ("GLFW/", "btrc_app", "std_gpu_", "WGPUSurface", "WGPURenderPipeline"):
         assert obsolete not in runtime
-    for removed in ("btrc_gpu.h", "btrc_gpu_surface.c", "btrc_gpu_native_ui.c"):
+    for removed in ("btrc_gpu.h", "btrc_gpu_surface.c", "btrc_gpu_ui.c"):
         assert not (GPU / removed).exists()
 
 

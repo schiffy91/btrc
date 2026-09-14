@@ -1,0 +1,13 @@
+manifest-version = 1
+
+[package]
+name = "btrc_stdlib_backgroundjobs"
+exports = ["BackgroundJobs"]
+
+[[native.bindings]]
+module = "BackgroundJobs"
+header = "NativeThreads.h"
+language = "c"
+standard = "c11"
+symbols = ["pthread_create", "pthread_join", "pthread_self", "pthread_equal", "pthread_mutex_init", "pthread_mutex_destroy", "pthread_mutex_lock", "pthread_mutex_trylock", "pthread_mutex_unlock", "pthread_cond_init", "pthread_cond_destroy", "pthread_cond_wait", "pthread_cond_signal", "pthread_cond_broadcast"]
+os = ["linux","macos"]

@@ -1,0 +1,83 @@
+manifest-version = 1
+
+[package]
+name = "btrc_stdlib_tray"
+exports = ["Tray"]
+
+[[package.providers]]
+module = "Tray"
+implementation = "MacOS.TrayProvider"
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.TrayProvider"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+	"+[NSThread isMainThread]",
+	"+[NSApplication sharedApplication]",
+	"-[NSApplication setActivationPolicy:]",
+	"-[NSApplication activationPolicy]",
+	"NSApplicationActivationPolicyAccessory",
+	"NSApplicationActivationPolicyProhibited",
+	"+[NSStatusBar systemStatusBar]",
+	"-[NSStatusBar statusItemWithLength:]",
+	"-[NSStatusBar removeStatusItem:]",
+	"NSVariableStatusItemLength",
+	"-[NSStatusItem button]",
+	"-[NSStatusItem setMenu:]",
+	"-[NSStatusItem setVisible:]",
+	"-[NSStatusBarButton setTitle:]",
+	"-[NSStatusBarButton setImage:]",
+	"-[NSStatusBarButton setToolTip:]",
+	"+[NSMenu new]",
+	"-[NSMenu setAutoenablesItems:]",
+	"-[NSMenu addItem:]",
+	"+[NSMenuItem new]",
+	"-[NSMenuItem setTitle:]",
+	"-[NSMenuItem setEnabled:]",
+	"-[NSMenuItem setState:]",
+	"-[NSMenuItem setTarget:]",
+	"-[NSMenuItem target]",
+	"-[NSMenuItem setAction:]",
+	"-[NSMenuItem action]",
+	"NSControlStateValueOn",
+	"NSControlStateValueOff",
+	"+[NSImage new]",
+	"+[NSImageRep imageRepWithContentsOfFile:]",
+	"-[NSImage addRepresentation:]",
+	"-[NSImage setTemplate:]",
+	"-[NSImage setSize:]",
+	"+[NSDate distantFuture]",
+	"+[NSDate dateWithTimeIntervalSinceNow:]",
+	"-[NSApplication nextEventMatchingMask:untilDate:inMode:dequeue:]",
+	"-[NSApplication sendEvent:]",
+	"NSEventMaskAny",
+	"NSDefaultRunLoopMode",
+	"-[NSApplication run]",
+	"-[NSApplication stop:]",
+	"-[NSApplication isRunning]",
+	"-[NSApplication finishLaunching]",
+	"-[NSApplication postEvent:atStart:]",
+	"+[NSEvent otherEventWithType:location:modifierFlags:timestamp:windowNumber:context:subtype:data1:data2:]",
+	"NSEventTypeApplicationDefined"
+]
+os = ["macos"]
+
+[native.bindings.callbacks."-[NSMenuItem setTarget:].target"]
+interface = "IAppKitTrayAction"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NSMenuItem setTarget:]"
+slot-getter = "-[NSMenuItem target]"
+action-setter = "-[NSMenuItem setAction:]"
+action-getter = "-[NSMenuItem action]"
+activation-failure = "abort"
+cancellation = "entry-barrier"
+
+[[native.frameworks]]
+name = "AppKit"
+modules = ["MacOS.TrayProvider"]
+os = ["macos"]

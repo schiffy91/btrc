@@ -1,7 +1,7 @@
 /* Typed exact-handle values never require dummy success or error payloads. */
 import Library.Bytes;
 import Library.FileSystem;
-import Library.FileSystemHandles;
+import Library.FileSystem.FileSystemHandles;
 
 #include <assert.h>
 

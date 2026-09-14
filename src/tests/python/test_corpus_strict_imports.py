@@ -40,8 +40,8 @@ SUPPORTING_CONSUMERS = frozenset(
         "src/compiler/btrc/cli/Driver.btrc",
         "src/compiler/btrc/syntax/Identity.btrc",
         "src/compiler/btrc/syntax/Types.btrc",
-        "src/stdlib/Daemon.btrc",
-        "src/stdlib/Graph.btrc",
+        "src/stdlib/Daemon/Daemon.btrc",
+        "src/stdlib/Graph/Graph.btrc",
         "src/stdlib/GUI/View.btrc",
     }
 )
@@ -56,7 +56,7 @@ RAW_INCLUDE_SHADOWS = frozenset(
             "'UI' is defined in UI.btrc but Declarative.btrc does not import it",
         ),
         (
-            "src/tests/native/gui_surface/FontSnapshotConformance.btrc",
+            "src/tests/native/gui/FontSnapshotConformance.btrc",
             "'UI' is defined in UI.btrc but FontSnapshotConformance.btrc does not import it",
         ),
     }
@@ -174,7 +174,7 @@ def test_corpus_declares_every_direct_stdlib_owner(
 ) -> None:
     # Includes the native SDK lifecycle and AppKit fixtures; guard against
     # accidentally narrowing the corpus audit as providers move packages.
-    assert corpus_import_audit.source_count == 1211
+    assert corpus_import_audit.source_count == 1208
     assert corpus_import_audit.duplicate_modules == ()
     assert corpus_import_audit.unknown_modules == ()
     assert corpus_import_audit.direct_owner_diagnostics == ()

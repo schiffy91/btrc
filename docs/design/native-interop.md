@@ -458,7 +458,7 @@ Initial tracked-file inventory (2026-09-09), not a completed semantic audit: BTR
 
 | Owner | Native files | BTRC destination / required proof |
 |---|---:|---|
-| `src/stdlib/MacOSEncodedImageDecoder/` | 1 remaining | `ImageIO.h` includes SDK headers only. Decode policy and cleanup moved to `MacOSEncodedImageDecoder`; old C implementation/header removed. |
+| `src/stdlib/Image/MacOS/` | 1 remaining | `ImageIO.h` includes SDK headers only. Decode policy and cleanup moved to `MacOSEncodedImageDecoder`; old C implementation/header removed. |
 | `src/stdlib/Audio/MacOS/` | 1 native header | `Hardware.h` includes SDK headers and read-only aliases for SDK string macros. BTRC owns inventory, configuration/rollback, aggregates, AUHAL setup/render/drain and retryable cleanup. Old session C/header/ABI removed; both-compiler runtime checks pass. |
 | `src/stdlib/App/` | 9 | Existing app/window owners; platform objects, pickers, event delivery and shutdown. |
 | `src/stdlib/GPU/` | 14 | WebGPU and native UI owners; resource lifetimes, async completion, actual rendering/text/captures. |

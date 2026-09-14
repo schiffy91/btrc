@@ -1,0 +1,119 @@
+manifest-version = 1
+
+[package]
+name = "btrc_stdlib_image"
+exports = ["DDSEncodedImageDecoder", "EncodedImage", "Image", "MacOS.MacOSEncodedImageDecoder", "SystemImageDecoder"]
+
+[[package.providers]]
+module = "SystemImageDecoder"
+implementation = "MacOS.SystemImageProvider"
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSEncodedImageDecoder"
+header = "MacOS/ImageIO.h"
+language = "c"
+standard = "c11"
+symbols = [
+	"CGContextRef", "CGContextRetain", "CGImageRef", "CGImageRetain", "CGImageRelease", "CGColorSpaceRef", "CGColorSpaceRetain", "CGColorSpaceRelease",
+	"CFDataCreateWithBytesNoCopy", "kCFAllocatorDefault", "kCFAllocatorNull", "CFRelease",
+	"CFTypeRef", "CFDataRef", "CFStringRef", "CFNumberRef", "CFBooleanRef", "CFMutableDictionaryRef", "CFDictionaryRef", "CGImageSourceRef", "CFRetain", "CFStringGetTypeID",
+	"CFDictionaryCreateMutable", "CFDictionarySetValue", "CFDictionaryGetValue",
+	"kCFTypeDictionaryKeyCallBacks", "kCFTypeDictionaryValueCallBacks", "kCFBooleanFalse",
+	"CFStringGetCString", "kCFStringEncodingUTF8", "CFGetTypeID", "CFNumberGetTypeID", "CFNumberGetValue", "kCFNumberLongLongType",
+	"CGImageSourceCreateWithData", "CGImageSourceGetType", "CGImageSourceGetCount", "CGImageSourceCopyPropertiesAtIndex", "CGImageSourceCreateImageAtIndex",
+	"kCGImageSourceShouldCache", "kCGImagePropertyPixelWidth", "kCGImagePropertyPixelHeight",
+	"CGImageGetWidth", "CGImageGetHeight", "CGColorSpaceCreateWithName", "kCGColorSpaceSRGB",
+	"CGBitmapContextCreate", "CGContextRelease", "CGContextSetBlendMode", "CGContextDrawImage", "CGRectMake",
+	"kCGImageAlphaPremultipliedLast", "kCGBitmapByteOrder32Big", "kCGBlendModeCopy"
+]
+owned-results = ["CGBitmapContextCreate", "CGImageSourceCreateImageAtIndex", "CGColorSpaceCreateWithName", "CFDataCreateWithBytesNoCopy", "CFDictionaryCreateMutable", "CGImageSourceCreateWithData", "CGImageSourceCopyPropertiesAtIndex"]
+borrowed-parameters = ["CGBitmapContextCreate.space", "CGImageGetWidth.image", "CGImageGetHeight.image", "CGContextSetBlendMode.c", "CGContextDrawImage.c", "CGContextDrawImage.image", "CFDictionarySetValue.theDict", "CFDictionarySetValue.key", "CFDictionarySetValue.value", "CFDictionaryGetValue.theDict", "CFDictionaryGetValue.key", "CFStringGetCString.theString", "CFGetTypeID.cf", "CFNumberGetValue.number", "CGImageSourceCreateWithData.data", "CGImageSourceCreateWithData.options", "CGImageSourceGetType.isrc", "CGImageSourceGetCount.isrc", "CGImageSourceCopyPropertiesAtIndex.isrc", "CGImageSourceCopyPropertiesAtIndex.options", "CGImageSourceCreateImageAtIndex.isrc", "CGImageSourceCreateImageAtIndex.options", "CGColorSpaceCreateWithName.name"]
+static-globals = ["kCFBooleanFalse", "kCGImageSourceShouldCache", "kCGImagePropertyPixelWidth", "kCGImagePropertyPixelHeight", "kCGColorSpaceSRGB"]
+os = ["macos"]
+
+[native.bindings.resource-parameters]
+"CFDictionarySetValue.key" = "CFTypeRef"
+"CFDictionarySetValue.value" = "CFTypeRef"
+"CFDictionaryGetValue.key" = "CFTypeRef"
+
+[native.bindings.resource-results]
+CFDictionaryGetValue = "CFTypeRef"
+
+[native.bindings.borrowed-results]
+CFDictionaryGetValue = "theDict"
+CGImageSourceGetType = "isrc"
+
+[native.bindings.resources.CFTypeRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFDataRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFStringRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+type-query = "CFGetTypeID"
+type-tag = "CFStringGetTypeID"
+
+[native.bindings.resources.CFNumberRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+type-query = "CFGetTypeID"
+type-tag = "CFNumberGetTypeID"
+
+[native.bindings.resources.CFBooleanRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFMutableDictionaryRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFDictionaryRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CGImageSourceRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CGContextRef]
+ownership = "reference-counted"
+retain = "CGContextRetain"
+release = "CGContextRelease"
+
+[native.bindings.resources.CGImageRef]
+ownership = "reference-counted"
+retain = "CGImageRetain"
+release = "CGImageRelease"
+
+[native.bindings.resources.CGColorSpaceRef]
+ownership = "reference-counted"
+retain = "CGColorSpaceRetain"
+release = "CGColorSpaceRelease"
+
+[[native.frameworks]]
+name = "CoreFoundation"
+modules = ["MacOS.MacOSEncodedImageDecoder"]
+os = ["macos"]
+
+[[native.frameworks]]
+name = "CoreGraphics"
+modules = ["MacOS.MacOSEncodedImageDecoder"]
+os = ["macos"]
+
+[[native.frameworks]]
+name = "ImageIO"
+modules = ["MacOS.MacOSEncodedImageDecoder"]
+os = ["macos"]

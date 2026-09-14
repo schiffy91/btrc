@@ -1,7 +1,7 @@
 /* SHA-256 known vectors plus binary-safe Bytes coverage. */
 
 import Library.Bytes;
-import Library.SHA256;
+import Library.Digest.SHA256;
 import Library.Strings;
 
 #include <assert.h>

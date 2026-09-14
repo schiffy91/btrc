@@ -148,7 +148,7 @@ btrcc-dist: btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 
 # the sample under wine if available (Linux/CI), skipping execution gracefully
 # elsewhere (e.g. Apple Silicon, where x86_64 wine isn't readily available).
 WIN_SAMPLE := src/tests/strings/BracesInCodeGen.btrc
-WIN_PATH_SAMPLE := src/tests/stdlib/StdlibPathWindowsLexical.btrc
+WIN_PATH_SAMPLE := src/tests/stdlib/PathWindowsLexical.btrc
 test-windows: btrcc-windows-x64 ## Build Windows btrcc bundle + sample; run sample under wine if present
 	@mkdir -p dist
 	@echo "==> cross-compiling sample btrc program to a Windows .exe"

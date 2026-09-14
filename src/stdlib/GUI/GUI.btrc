@@ -1,6 +1,7 @@
 import Library.Callback;
 import Library.GUI.IApplication;
 import Library.GUI.IWindow;
+import Library.GUI.IDirectoryPicker;
 import Library.GUI.IButton;
 import Library.GUI.ITextField;
 import Library.GUI.IContainer;
@@ -59,7 +60,7 @@ class GUI {
 
 	class IGrid createGrid(int columns, int rows, double columnSpacing = 0.0, double rowSpacing = 0.0) { return GUIProvider.application().createGrid(columns, rows, columnSpacing, rowSpacing); }
 
-	class AppDirectoryPickerOutcome chooseDirectory(AppDirectoryPickerRequest request) { return GUIProvider.chooseDirectory(request); }
+	class DirectoryPickerOutcome chooseDirectory(DirectoryPickerRequest request) { return GUIProvider.chooseDirectory(request); }
 
 	class void rasterizeText(TextRasterization request) { GUIProvider.rasterizeText(request); }
 

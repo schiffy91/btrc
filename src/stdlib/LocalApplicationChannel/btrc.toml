@@ -1,0 +1,19 @@
+manifest-version = 1
+
+[package]
+name = "btrc_stdlib_localapplicationchannel"
+exports = ["LocalApplicationChannel"]
+
+[[native.bindings]]
+module = "LocalApplicationChannel"
+header = "Socket.h"
+language = "c"
+standard = "c11"
+symbols = ["LocalSocketAddress", "socket", "getsockopt", "recv", "send", "shutdown", "close", "localSocketPeerUser"]
+os = ["linux", "macos"]
+
+[[native.defines]]
+name = "_GNU_SOURCE"
+value = "1"
+modules = ["LocalApplicationChannel"]
+os = ["linux"]

@@ -1,0 +1,5 @@
+manifest-version = 1
+
+[package]
+name = "btrc_stdlib_realtime"
+exports = ["RealtimeClipPractice", "RealtimeClipTransport", "RealtimeClipTransport.PracticeRuntime", "RealtimeClipTransport.Runtime", "RealtimeClock"]

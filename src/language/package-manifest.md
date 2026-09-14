@@ -1778,14 +1778,20 @@ that projection by module scope and target predicates. Unrelated packages and
 native inputs remain validated and locked, but do not appear in the emitted
 plan.
 
-Compiler-owned standard-library metadata lives in `src/stdlib/btrc.toml`, using
-this same schema and validator. Loaded modules select their native sources,
-headers, frameworks and typed bindings before semantic imports run. The reserved
-`btrc_stdlib_runtime` package owns all selected stdlib units; the compiler no
-longer contains separate provider lists. Importing an unrelated pure module adds
-no native package. The manifest travels with installed compiler data, is hashed
-as a compiler input, and cannot declare package dependencies. Importing it never
-writes a lock into compiler data. Custom pure-source stdlibs may omit it.
+Compiler-owned standard-library metadata lives in `src/stdlib/btrc.toml` and in
+one `btrc.toml` per group folder (`src/stdlib/GUI/btrc.toml`, ...), all using
+this same schema and validator. The root manifest names the reserved
+`btrc_stdlib_runtime` package, exports the prelude modules, and lists every
+group as a path dependency inside the stdlib tree; each group manifest names a
+reserved `btrc_stdlib_<group>` package and keeps its exports, providers, typed
+bindings, headers, frameworks and pkg-config beside the modules they describe.
+Loaded modules select their native metadata before semantic imports run, and
+ordinary export visibility applies across groups (`Library.GUI.MacOS.MacOSRunLoop`
+is importable only because GUI exports it). Importing an unrelated pure module
+adds no native package. The manifests travel with installed compiler data, are
+hashed as compiler inputs, may depend only on path packages beneath the stdlib
+root, and never write a lock into compiler data. Custom pure-source stdlibs may
+omit them.
 
 This preserves module-owned metadata in installed and relocatable compiler data
 without placing an ambient checkout archive in a supposedly reproducible plan. Migrating a

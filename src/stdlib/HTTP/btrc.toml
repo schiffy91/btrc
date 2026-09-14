@@ -1,0 +1,5 @@
+manifest-version = 1
+
+[package]
+name = "btrc_stdlib_http"
+exports = ["HTTP", "HTTPClient", "HTTPFraming", "HTTPProtocol", "HTTPResponseHeaders", "HTTPServer", "HTTPSocket", "HTTPTypes"]

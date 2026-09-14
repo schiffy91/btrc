@@ -13,7 +13,7 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 REPOSITORY = Path(__file__).resolve().parents[3]
 FIXTURE = Path(__file__).with_name("fixtures") / "DdsEncodedImageDecoderContract.btrc"
-API = REPOSITORY / "src" / "stdlib" / "DDSEncodedImageDecoder.btrc"
+API = REPOSITORY / "src" / "stdlib" / "Image" / "DDSEncodedImageDecoder.btrc"
 STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
@@ -73,7 +73,7 @@ def test_dds_decoder_runs_with_both_frontends(semantic_btrcc: Path, tmp_path: Pa
 
 def test_dds_decoder_is_bounded_and_content_driven() -> None:
     source = API.read_text()
-    assert "implements EncodedImageDecoder" in source
+    assert "implements IEncodedImageDecoder" in source
     assert "68, 88, 84, 49" in source
     assert "68, 88, 84, 53" in source
     assert "limits.allowsInput(inputBytes)" in source

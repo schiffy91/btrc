@@ -1,0 +1,630 @@
+manifest-version = 1
+
+[package]
+name = "btrc_stdlib_gui"
+exports = ["Capture", "Font", "FontFace", "FreeType", "GUI", "Geometry", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IGPUView", "IGrid", "IImageView", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISlider", "IStack", "ITextField", "IView", "IWindow", "MacOS.AppKitEvents", "MacOS.AppKitText", "MacOS.MacOSActionQueue", "MacOS.MacOSApplication", "MacOS.MacOSButton", "MacOS.MacOSComposedCapture", "MacOS.MacOSContainer", "MacOS.MacOSDirectoryPicker", "MacOS.MacOSGPUSurface", "MacOS.MacOSGrid", "MacOS.MacOSImageView", "MacOS.MacOSLabel", "MacOS.MacOSLevelIndicator", "MacOS.MacOSPanel", "MacOS.MacOSProgressIndicator", "MacOS.MacOSRunLoop", "MacOS.MacOSScrollView", "MacOS.MacOSSelect", "MacOS.MacOSSlider", "MacOS.MacOSSystemText", "MacOS.MacOSTextField", "MacOS.MacOSView", "MacOS.MacOSViewCapture", "MacOS.MacOSWindow", "MacOS.MetalLayer", "MacOS.ObjectiveCRuntime", "MacOS.WebGPUSurface", "Raster", "TextRun", "View"]
+
+[[package.providers]]
+module = "GUI"
+implementation = "MacOS.GUIProvider"
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.GUIProvider"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["+[NSThread isMainThread]"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "Raster"
+header = "btrc_gui.h"
+language = "c"
+standard = "c11"
+symbols = ["BtrcGuiPixels"]
+
+[[native.bindings]]
+module = "FreeType.FreeTypeFace"
+header = "FreeType/FreeType.h"
+language = "c"
+standard = "c11"
+symbols = ["FT_Library", "FT_Face", "FT_Init_FreeType", "FT_Done_FreeType", "FT_New_Face", "FT_Done_Face", "FT_Set_Pixel_Sizes", "FT_Load_Char", "BTRC_FT_LOAD_DEFAULT", "BTRC_FT_LOAD_RENDER", "FT_PIXEL_MODE_MONO", "FT_PIXEL_MODE_GRAY"]
+borrowed-parameters = ["FT_New_Face.library", "FT_Set_Pixel_Sizes.face", "FT_Load_Char.face"]
+read-only-borrows = ["FT_New_Face.filepathname"]
+
+# FreeType 2.14.3's valid freshly created claims have reference count one.
+# This private provider does not import FT_Reference_* or expose raw handles.
+# FT_Done_Face consumes that valid claim; FT_Done_FreeType consumes the library
+# and memory manager. Invalid handles are outside this provider's contract.
+[native.bindings.resources.FT_Library]
+ownership = "unique"
+release = "FT_Done_FreeType"
+release-consumption = "always"
+cleanup-status = "discard"
+
+[native.bindings.resources.FT_Face]
+ownership = "unique"
+release = "FT_Done_Face"
+release-consumption = "always"
+cleanup-status = "discard"
+
+[native.bindings.owned-outputs."FT_Init_FreeType.alibrary"]
+result = "FreeTypeLibraryResult"
+
+[native.bindings.owned-outputs."FT_New_Face.aface"]
+result = "FreeTypeFaceResult"
+
+[native.bindings.record-snapshots.FreeTypeMetricsSnapshot]
+owner = "FT_Face"
+name = "copyFreeTypeMetrics"
+fields = {ascender = "size.metrics.ascender", height = "size.metrics.height"}
+
+[native.bindings.record-snapshots.FreeTypeAdvanceSnapshot]
+owner = "FT_Face"
+name = "copyFreeTypeAdvance"
+fields = {advanceX = "glyph.advance.x"}
+
+[native.bindings.record-snapshots.FreeTypeGlyphSnapshot]
+owner = "FT_Face"
+name = "copyFreeTypeGlyph"
+fields = {advanceX = "glyph.advance.x", left = "glyph.bitmap_left", top = "glyph.bitmap_top", width = "glyph.bitmap.width", rows = "glyph.bitmap.rows", pitch = "glyph.bitmap.pitch", pixelMode = "glyph.bitmap.pixel_mode", numGrays = "glyph.bitmap.num_grays"}
+
+[native.bindings.record-snapshots.FreeTypeGlyphSnapshot.byte-plane]
+field = "bitmap"
+pointer = "glyph.bitmap.buffer"
+width = "glyph.bitmap.width"
+rows = "glyph.bitmap.rows"
+pitch = "glyph.bitmap.pitch"
+
+[[native.pkg-config]]
+name = "freetype2"
+modules = ["FreeType.FreeTypeFace"]
+
+[[native.bindings]]
+module = "MacOS.MacOSDirectoryPicker"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+	"+[NSThread isMainThread]", "+[NSString stringWithUTF8String:]", "+[NSOpenPanel openPanel]",
+	"-[NSOpenPanel setTitle:]", "-[NSOpenPanel setPrompt:]", "-[NSOpenPanel setCanChooseDirectories:]",
+	"-[NSOpenPanel setCanChooseFiles:]", "-[NSOpenPanel setAllowsMultipleSelection:]", "-[NSOpenPanel setCanCreateDirectories:]",
+	"-[NSOpenPanel setResolvesAliases:]", "-[NSOpenPanel setDirectoryURL:]", "-[NSOpenPanel runModal]", "-[NSOpenPanel URL]",
+	"+[NSURL fileURLWithPath:isDirectory:]", "-[NSURL getFileSystemRepresentation:maxLength:]", "NSModalResponseOK", "NSModalResponseCancel", "NSModalResponseAbort"
+]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSTextField"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+	"+[NSThread isMainThread]",
+	"+[NSTextField textFieldWithString:]", "-[NSTextField stringValue]", "-[NSTextField setStringValue:]",
+	"-[NSTextField setPlaceholderString:]", "-[NSTextField setEnabled:]", "-[NSTextField isEnabled]",
+	"-[NSTextField setFont:]", "+[NSFont systemFontOfSize:]",
+	"-[NSTextField validateEditing]", "-[NSTextField abortEditing]", "-[NSTextField removeFromSuperview]",
+	"-[NSTextField frame]", "-[NSTextField setFrame:]"
+]
+os = ["macos"]
+
+[[native.frameworks]]
+name = "AppKit"
+modules = ["MacOS.MacOSViewInput", "MacOS.MacOSSlider", "MacOS.AppKitEvents", "MacOS.MacOSDirectoryPicker", "MacOS.MacOSTextField", "MacOS.MacOSWindow", "MacOS.AppKitText", "MacOS.MacOSScrollView", "MacOS.MacOSApplication", "MacOS.MetalLayer", "MacOS.MacOSViewCapture", "MacOS.MacOSComposedCapture", "MacOS.MacOSView", "MacOS.MacOSLabel", "MacOS.MacOSImageView", "MacOS.MacOSPanel", "MacOS.MacOSProgressIndicator", "MacOS.MacOSActionQueue", "MacOS.MacOSButton", "MacOS.MacOSSelect", "MacOS.MacOSGrid", "MacOS.MacOSLevelIndicator", "MacOS.MacOSRunLoop", "MacOS.MacOSStack", "MacOS.MacOSContainer"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.ObjectiveCRuntime"
+header = "MacOS/ObjectiveCRuntime.h"
+language = "c"
+standard = "c11"
+symbols = ["SEL", "sel_registerName"]
+read-only-borrows = ["sel_registerName.str"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSActionQueue"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+	"+[NSThread isMainThread]",
+	"-[NSButton setAction:]", "-[NSButton setTarget:]", "-[NSButton action]", "-[NSButton target]"
+]
+os = ["macos"]
+
+[native.bindings.callbacks."-[NSButton setTarget:].target"]
+interface = "IAppKitButtonAction"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NSButton setTarget:]"
+slot-getter = "-[NSButton target]"
+action-setter = "-[NSButton setAction:]"
+action-getter = "-[NSButton action]"
+activation-failure = "abort"
+cancellation = "entry-barrier"
+
+[[native.bindings]]
+module = "MacOS.MacOSRunLoop"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+	"+[NSThread isMainThread]", "+[NSObject new]",
+	"+[NSNotificationCenter defaultCenter]", "-[NSNotificationCenter addObserverForName:object:queue:usingBlock:]", "-[NSNotificationCenter removeObserver:]",
+	"+[NSNotification notificationWithName:object:]", "-[NSNotification name]", "-[NSNotification object]", "+[NSNotificationQueue defaultQueue]",
+	"-[NSNotificationQueue enqueueNotification:postingStyle:]", "-[NSNotificationQueue dequeueNotificationsMatching:coalesceMask:]",
+	"NSPostASAP", "NSNotificationCoalescingOnName", "NSNotificationCoalescingOnSender"
+]
+os = ["macos"]
+
+[native.bindings.callbacks."-[NSNotificationCenter addObserverForName:object:queue:usingBlock:].block"]
+interface = "IAppKitRunLoopEvents"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NSNotificationCenter removeObserver:]"
+activation-failure = "abort"
+cancellation = "entry-barrier"
+
+[[native.bindings]]
+module = "MacOS.MacOSButton"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+	"+[NSThread isMainThread]", "+[NSButton new]", "-[NSButton title]", "-[NSButton setTitle:]", "-[NSButton setButtonType:]", "-[NSButton setBezelStyle:]", "-[NSButton setContinuous:]",
+	"NSButtonTypeMomentaryPushIn", "NSButtonTypePushOnPushOff", "NSBezelStyleRounded", "-[NSButton setEnabled:]", "-[NSButton isEnabled]", "-[NSButton performClick:]",
+	"-[NSButton setFont:]", "+[NSFont systemFontOfSize:]", "-[NSButton setState:]", "-[NSButton state]", "NSControlStateValueOn", "NSControlStateValueOff",
+	"+[NSImage imageWithSystemSymbolName:accessibilityDescription:]", "-[NSButton setImage:]", "-[NSButton setImagePosition:]", "NSImageLeading",
+	"-[NSButton setImageHugsTitle:]", "-[NSButton setAlignment:]", "NSTextAlignmentLeft", "NSTextAlignmentCenter", "-[NSButton setTransparent:]", "-[NSButton setBordered:]",
+	"-[NSButton setControlSize:]", "NSControlSizeRegular", "NSControlSizeLarge"
+]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.AppKitText"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["+[NSString stringWithUTF8String:]", "-[NSString lengthOfBytesUsingEncoding:]", "-[NSString getCString:maxLength:encoding:]", "NSUTF8StringEncoding"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSViewCapture"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+	"+[NSThread isMainThread]", "-[NSView bounds]", "-[NSView convertRectToBacking:]", "-[NSView setNeedsDisplay:]",
+	"-[NSView bitmapImageRepForCachingDisplayInRect:]", "-[NSView cacheDisplayInRect:toBitmapImageRep:]",
+	"-[NSBitmapImageRep pixelsWide]", "-[NSBitmapImageRep pixelsHigh]", "-[NSBitmapImageRep TIFFRepresentation]",
+	"-[NSData length]", "-[NSData getBytes:length:]"
+]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSComposedCapture"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+	"+[NSThread isMainThread]", "-[NSView isDescendantOf:]", "-[NSView bounds]", "-[NSView convertRectToBacking:]", "-[NSView addSubview:]",
+	"+[NSData dataWithBytes:length:]", "+[NSBitmapImageRep imageRepWithData:]", "+[NSImage new]", "-[NSImage addRepresentation:]",
+	"+[NSImageView new]", "-[NSImageView setFrame:]", "-[NSImageView setImage:]", "-[NSImageView setImageScaling:]", "-[NSImageView removeFromSuperview]", "NSImageScaleAxesIndependently"
+]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSView"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["+[NSThread isMainThread]", "+[NSView new]", "-[NSView frame]", "-[NSView setFrame:]", "-[NSView superview]", "-[NSView bounds]", "-[NSView isFlipped]", "-[NSView setHidden:]", "-[NSView isHidden]", "-[NSView fittingSize]", "-[NSView intrinsicContentSize]", "-[NSView isDescendantOf:]", "-[NSView addSubview:]", "-[NSView removeFromSuperview]", "-[NSView setAppearance:]", "-[NSView appearance]", "+[NSAppearance appearanceNamed:]", "-[NSAppearance name]", "NSAppearanceNameAqua", "NSAppearanceNameDarkAqua"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSGPUView"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["-[NSView isHiddenOrHasHiddenAncestor]"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSContainer"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["-[NSView translatesAutoresizingMaskIntoConstraints]", "-[NSView setTranslatesAutoresizingMaskIntoConstraints:]"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSStack"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+	"+[NSThread isMainThread]", "+[NSStackView new]", "-[NSStackView setOrientation:]",
+	"NSUserInterfaceLayoutOrientationVertical", "NSUserInterfaceLayoutOrientationHorizontal",
+	"-[NSStackView setDetachesHiddenViews:]", "-[NSStackView spacing]", "-[NSStackView setSpacing:]",
+	"-[NSStackView setAlignment:]", "NSLayoutAttributeLeading", "NSLayoutAttributeTop",
+	"NSLayoutAttributeCenterX", "NSLayoutAttributeCenterY", "NSLayoutAttributeTrailing", "NSLayoutAttributeBottom",
+	"-[NSStackView edgeInsets]", "-[NSStackView setEdgeInsets:]",
+	"-[NSStackView addArrangedSubview:]", "-[NSStackView removeArrangedSubview:]", "-[NSView layoutSubtreeIfNeeded]"
+]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSPanel"
+header = "MacOS/MetalLayer.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["+[NSThread isMainThread]", "+[NSBox new]", "-[NSBox setBoxType:]", "NSBoxCustom", "-[NSBox setTitlePosition:]", "NSNoTitle", "-[NSBox setBorderWidth:]", "-[NSBox contentView]", "-[NSBox contentViewMargins]", "-[NSBox setContentViewMargins:]", "-[NSBox setFillColor:]", "-[NSBox setCornerRadius:]", "+[NSColor colorWithSRGBRed:green:blue:alpha:]", "-[NSView setWantsLayer:]", "-[NSView layer]", "-[CALayer setCornerRadius:]", "-[CALayer setMasksToBounds:]"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSProgressIndicator"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["+[NSThread isMainThread]", "+[NSProgressIndicator new]", "-[NSProgressIndicator setStyle:]", "NSProgressIndicatorStyleSpinning", "-[NSProgressIndicator setIndeterminate:]", "-[NSProgressIndicator setDisplayedWhenStopped:]", "-[NSProgressIndicator startAnimation:]", "-[NSProgressIndicator stopAnimation:]"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSLabel"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["+[NSThread isMainThread]", "+[NSTextField labelWithString:]", "-[NSTextField setStringValue:]", "-[NSTextField stringValue]", "-[NSTextField setFont:]", "-[NSTextField setTextColor:]", "-[NSTextField setAlignment:]", "NSTextAlignmentCenter", "NSTextAlignmentLeft", "+[NSFont systemFontOfSize:]", "+[NSFont boldSystemFontOfSize:]", "+[NSColor labelColor]", "+[NSColor secondaryLabelColor]", "-[NSTextField setUsesSingleLineMode:]", "-[NSTextField setMaximumNumberOfLines:]", "-[NSTextField setLineBreakMode:]", "NSLineBreakByWordWrapping", "NSLineBreakByTruncatingTail"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSImageView"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["+[NSThread isMainThread]", "+[NSImageView new]", "-[NSImageView setImage:]", "-[NSImageView setImageScaling:]", "NSImageScaleProportionallyUpOrDown", "+[NSData dataWithBytes:length:]", "+[NSBitmapImageRep imageRepWithData:]", "+[NSImage new]", "-[NSImage addRepresentation:]"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSLevelIndicator"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["+[NSThread isMainThread]", "+[NSLevelIndicator new]", "-[NSLevelIndicator setLevelIndicatorStyle:]", "NSLevelIndicatorStyleContinuousCapacity", "-[NSLevelIndicator setEditable:]", "-[NSLevelIndicator setMinValue:]", "-[NSLevelIndicator setMaxValue:]", "-[NSLevelIndicator setWarningValue:]", "-[NSLevelIndicator setCriticalValue:]", "-[NSLevelIndicator setDoubleValue:]", "-[NSLevelIndicator doubleValue]"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSGrid"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+	"+[NSThread isMainThread]", "+[NSGridView gridViewWithNumberOfColumns:rows:]",
+	"-[NSGridView numberOfColumns]", "-[NSGridView numberOfRows]", "-[NSGridView cellAtColumnIndex:rowIndex:]",
+	"-[NSGridView columnAtIndex:]", "-[NSGridView rowAtIndex:]", "-[NSGridView setXPlacement:]", "-[NSGridView setYPlacement:]",
+	"NSGridCellPlacementFill", "NSGridCellPlacementCenter", "NSGridViewSizeForContent",
+	"-[NSGridView setColumnSpacing:]", "-[NSGridView setRowSpacing:]", "-[NSGridColumn setWidth:]", "-[NSGridColumn setHidden:]", "-[NSGridRow setHeight:]", "-[NSGridRow setHidden:]",
+	"-[NSGridCell contentView]", "-[NSGridCell setContentView:]", "-[NSView superview]", "-[NSView layoutSubtreeIfNeeded]"
+]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSSelect"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+	"+[NSThread isMainThread]", "+[NSPopUpButton new]", "-[NSPopUpButton setPullsDown:]", "-[NSPopUpButton setAutoenablesItems:]",
+	"-[NSPopUpButton setMenu:]", "-[NSPopUpButton selectItemAtIndex:]", "-[NSPopUpButton indexOfSelectedItem]", "-[NSPopUpButton titleOfSelectedItem]",
+	"-[NSPopUpButton numberOfItems]", "-[NSPopUpButton setEnabled:]", "-[NSPopUpButton isEnabled]",
+	"-[NSPopUpButton setFont:]", "+[NSFont systemFontOfSize:]", "-[NSPopUpButton setControlSize:]", "NSControlSizeRegular", "NSControlSizeLarge",
+	"+[NSMenu new]", "-[NSMenu setAutoenablesItems:]", "-[NSMenu addItem:]", "+[NSMenuItem new]", "-[NSMenuItem setTitle:]",
+	"-[NSPopUpButton itemAtIndex:]", "-[NSMenuItem setEnabled:]", "-[NSMenuItem isEnabled]"
+]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSWindow"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+	"+[NSThread isMainThread]", "+[NSWindow new]", "-[NSWindow setReleasedWhenClosed:]",
+	"-[NSWindow setDelegate:]", "-[NSWindow delegate]", "-[NSWindowDelegate windowShouldClose:]", "-[NSWindowDelegate windowWillClose:]", "-[NSWindow endEditingFor:]",
+	"-[NSWindow setStyleMask:]", "NSWindowStyleMaskTitled", "NSWindowStyleMaskClosable", "NSWindowStyleMaskMiniaturizable", "NSWindowStyleMaskResizable",
+	"-[NSWindow title]", "-[NSWindow setTitle:]", "-[NSWindow contentView]", "-[NSView bounds]", "-[NSWindow frame]", "-[NSWindow setContentSize:]", "-[NSWindow close]",
+	"-[NSView autoresizingMask]", "-[NSView setAutoresizingMask:]", "NSViewWidthSizable", "NSViewHeightSizable",
+	"-[NSWindow makeKeyAndOrderFront:]", "-[NSWindow orderOut:]", "-[NSWindow isVisible]", "-[NSWindow isKeyWindow]", "-[NSWindow isMiniaturized]", "-[NSWindow setContentMinSize:]",
+	"+[NSAlert new]", "-[NSAlert setMessageText:]", "-[NSAlert setInformativeText:]", "-[NSAlert addButtonWithTitle:]", "-[NSAlert runModal]"
+]
+os = ["macos"]
+
+[native.bindings.callbacks."-[NSWindow setDelegate:].delegate"]
+interface = "IAppKitWindowEvents"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NSWindow setDelegate:]"
+slot-getter = "-[NSWindow delegate]"
+methods = ["-[NSWindowDelegate windowShouldClose:]", "-[NSWindowDelegate windowWillClose:]"]
+activation-failure = "abort"
+cancellation = "entry-barrier"
+
+[[native.bindings]]
+module = "MacOS.MacOSApplication"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+	"+[NSRunLoop currentRunLoop]", "-[NSRunLoop performBlock:]",
+	"+[NSTimer scheduledTimerWithTimeInterval:repeats:block:]", "-[NSTimer invalidate]", "-[NSTimer isValid]",
+	"+[NSThread isMainThread]", "+[NSApplication sharedApplication]", "-[NSApplication finishLaunching]",
+	"-[NSApplication activationPolicy]", "-[NSApplication setActivationPolicy:]", "NSApplicationActivationPolicyRegular",
+	"-[NSApplication activate]", "-[NSApplication run]", "-[NSApplication stop:]", "-[NSApplication isRunning]",
+	"-[NSApplication modalWindow]", "-[NSApplication stopModalWithCode:]", "NSModalResponseAbort",
+	"-[NSApplication setDelegate:]", "-[NSApplication delegate]", "-[NSApplicationDelegate applicationShouldTerminate:]", "NSTerminateCancel",
+	"-[NSApplication postEvent:atStart:]", "+[NSEvent otherEventWithType:location:modifierFlags:timestamp:windowNumber:context:subtype:data1:data2:]", "NSEventTypeApplicationDefined",
+	"-[NSApplication nextEventMatchingMask:untilDate:inMode:dequeue:]", "-[NSApplication sendEvent:]", "-[NSApplication updateWindows]",
+	"+[NSDate distantPast]", "+[NSDate dateWithTimeIntervalSinceNow:]", "NSDefaultRunLoopMode", "NSEventMaskAny"
+]
+os = ["macos"]
+
+[native.bindings.callbacks."-[NSApplication setDelegate:].delegate"]
+interface = "IAppKitApplicationEvents"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NSApplication setDelegate:]"
+slot-getter = "-[NSApplication delegate]"
+methods = ["-[NSApplicationDelegate applicationShouldTerminate:]"]
+activation-failure = "abort"
+cancellation = "entry-barrier"
+
+[native.bindings.callbacks."-[NSRunLoop performBlock:].block"]
+interface = "IAppKitApplicationWork"
+lifetime = "one-shot"
+failure = "abort"
+executor = "caller"
+activation-failure = "abort"
+cancellation = "abandon"
+
+[native.bindings.callbacks."+[NSTimer scheduledTimerWithTimeInterval:repeats:block:].block"]
+interface = "IAppKitDelayedWork"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NSTimer invalidate]"
+activation-failure = "abort"
+cancellation = "entry-barrier"
+
+[[native.frameworks]]
+name = "Foundation"
+modules = ["MacOS.MacOSDirectoryPicker", "MacOS.ObjectiveCRuntime"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSScrollView"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+	"+[NSThread isMainThread]", "+[NSScrollView new]", "+[NSView new]",
+	"-[NSView frame]", "-[NSView setFrame:]", "-[NSView addSubview:]",
+	"-[NSScrollView setBorderType:]", "NSNoBorder", "-[NSScrollView setDrawsBackground:]",
+	"-[NSScrollView setHasVerticalScroller:]", "-[NSScrollView setHasHorizontalScroller:]",
+	"-[NSScrollView setAutohidesScrollers:]", "-[NSScrollView setScrollerStyle:]", "NSScrollerStyleOverlay",
+	"-[NSScrollView setDocumentView:]", "-[NSScrollView documentView]", "-[NSScrollView contentView]",
+	"-[NSScrollView frame]", "-[NSScrollView setFrame:]", "-[NSScrollView tile]",
+	"-[NSScrollView reflectScrolledClipView:]", "-[NSScrollView removeFromSuperview]",
+	"-[NSClipView bounds]", "-[NSClipView scrollToPoint:]"
+]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MetalLayer"
+header = "MacOS/MetalLayer.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+	"+[NSThread isMainThread]", "+[NSView new]", "-[NSView frame]", "-[NSView setFrame:]", "-[NSView bounds]",
+	"-[NSView setWantsLayer:]", "-[NSView setClipsToBounds:]", "-[NSView setLayer:]", "-[NSView addSubview:]", "-[NSView removeFromSuperview]",
+	"-[NSView convertRectToBacking:]", "+[CAMetalLayer layer]", "-[CAMetalLayer setDrawableSize:]", "-[CAMetalLayer setContentsScale:]"
+]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.WebGPUSurface"
+header = "MacOS/WebGPUSurface.h"
+language = "c"
+standard = "c11"
+symbols = ["WGPUInstance", "WGPUSurface", "wgpuCreateInstance", "wgpuInstanceAddRef", "wgpuInstanceRelease", "wgpuInstanceCreateSurface", "wgpuSurfaceAddRef", "wgpuSurfaceRelease", "WGPUSurfaceDescriptor", "WGPUSurfaceSourceMetalLayer", "WGPUSType_SurfaceSourceMetalLayer"]
+owned-results = ["wgpuCreateInstance", "wgpuInstanceCreateSurface"]
+borrowed-parameters = ["wgpuInstanceCreateSurface.instance"]
+owned-records = ["WGPUSurfaceDescriptor", "WGPUSurfaceSourceMetalLayer"]
+record-inputs = ["wgpuInstanceCreateSurface.descriptor"]
+os = ["macos"]
+[native.bindings.object-fields]
+"WGPUSurfaceDescriptor.nextInChain" = "WGPUSurfaceSourceMetalLayer?"
+"WGPUSurfaceSourceMetalLayer.layer" = "CAMetalLayer"
+[native.bindings.resources.WGPUInstance]
+ownership = "reference-counted"
+retain = "wgpuInstanceAddRef"
+release = "wgpuInstanceRelease"
+[native.bindings.resources.WGPUSurface]
+ownership = "reference-counted"
+retain = "wgpuSurfaceAddRef"
+release = "wgpuSurfaceRelease"
+
+[[native.frameworks]]
+name = "QuartzCore"
+modules = ["MacOS.MetalLayer", "MacOS.MacOSPanel"]
+os = ["macos"]
+
+[[native.pkg-config]]
+name = "wgpu-native"
+modules = ["MacOS.WebGPUSurface"]
+os = ["macos"]
+
+[[native.frameworks]]
+name = "CoreFoundation"
+modules = ["MacOS.MacOSSystemText"]
+os = ["macos"]
+
+[[native.frameworks]]
+name = "CoreGraphics"
+modules = ["MacOS.MacOSSystemText"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSSystemText"
+header = "MacOS/CoreText.h"
+language = "c"
+standard = "c11"
+symbols = [
+	"CGContextRef", "CGContextRetain", "CGColorSpaceRef", "CGColorSpaceRetain", "CGColorSpaceRelease",
+	"CTFontCreateUIFontForLanguage", "kCTFontUIFontSystem", "CTFontCreateCopyWithAttributes", "CTFontDescriptorCreateWithAttributes",
+	"CFTypeRef", "CFStringRef", "CFNumberRef", "CFMutableDictionaryRef", "CFDictionaryRef", "CFAttributedStringRef", "CTFontRef", "CTFontDescriptorRef", "CTLineRef", "CFRetain", "CFGetTypeID", "CFNumberGetTypeID", "CFStringGetTypeID",
+	"CFDictionaryCreateMutable", "CFDictionarySetValue", "CFDictionaryRemoveAllValues", "kCFAllocatorDefault",
+	"kCFTypeDictionaryKeyCallBacks", "kCFTypeDictionaryValueCallBacks", "CFNumberCreate", "kCFNumberDoubleType",
+	"kCTFontWeightTrait", "kCTFontTraitsAttribute", "kCTFontAttributeName", "CFRelease",
+	"CFStringCreateWithBytes", "kCFStringEncodingUTF8", "CFAttributedStringCreate", "CTLineCreateWithAttributedString",
+	"CTLineGetTypographicBounds", "CTLineGetBoundsWithOptions", "kCTLineBoundsUseGlyphPathBounds",
+	"CGBitmapContextCreate", "kCGImageAlphaOnly", "CGContextSetShouldAntialias", "CGContextSetShouldSmoothFonts",
+	"CGContextSetTextMatrix", "CGAffineTransformMake", "CGContextSetTextPosition", "CTLineDraw", "CGContextRelease"
+]
+owned-results = ["CGBitmapContextCreate", "CTFontCreateUIFontForLanguage", "CTFontCreateCopyWithAttributes", "CTFontDescriptorCreateWithAttributes", "CFDictionaryCreateMutable", "CFNumberCreate", "CFStringCreateWithBytes", "CFAttributedStringCreate", "CTLineCreateWithAttributedString"]
+borrowed-parameters = ["CGBitmapContextCreate.space", "CGContextSetShouldAntialias.c", "CGContextSetShouldSmoothFonts.c", "CGContextSetTextMatrix.c", "CGContextSetTextPosition.c", "CTLineDraw.context", "CTFontCreateUIFontForLanguage.language", "CTFontCreateCopyWithAttributes.font", "CTFontCreateCopyWithAttributes.attributes", "CTFontDescriptorCreateWithAttributes.attributes", "CFDictionarySetValue.theDict", "CFDictionarySetValue.key", "CFDictionarySetValue.value", "CFDictionaryRemoveAllValues.theDict", "CFAttributedStringCreate.str", "CFAttributedStringCreate.attributes", "CTLineCreateWithAttributedString.attrString", "CTLineGetTypographicBounds.line", "CTLineGetBoundsWithOptions.line", "CTLineDraw.line", "CFGetTypeID.cf"]
+static-globals = ["kCTFontWeightTrait", "kCTFontTraitsAttribute", "kCTFontAttributeName"]
+os = ["macos"]
+
+[native.bindings.resource-parameters]
+"CFDictionarySetValue.key" = "CFTypeRef"
+"CFDictionarySetValue.value" = "CFTypeRef"
+
+[native.bindings.resources.CFTypeRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFStringRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+type-query = "CFGetTypeID"
+type-tag = "CFStringGetTypeID"
+
+[native.bindings.resources.CFNumberRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+type-query = "CFGetTypeID"
+type-tag = "CFNumberGetTypeID"
+
+[native.bindings.resources.CFMutableDictionaryRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFDictionaryRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFAttributedStringRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CTFontRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CTFontDescriptorRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CTLineRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CGContextRef]
+ownership = "reference-counted"
+retain = "CGContextRetain"
+release = "CGContextRelease"
+
+[native.bindings.resources.CGColorSpaceRef]
+ownership = "reference-counted"
+retain = "CGColorSpaceRetain"
+release = "CGColorSpaceRelease"
+
+[[native.frameworks]]
+name = "CoreText"
+modules = ["MacOS.MacOSSystemText"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.AppKitEvents"
+header = "MacOS/AppKitEvents.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+	"-[NSEvent type]", "-[NSEvent keyCode]", "-[NSEvent modifierFlags]", "-[NSEvent isARepeat]", "-[NSEvent window]",
+	"-[NSWindow isKeyWindow]", "-[NSWindow canBecomeKeyWindow]", "-[NSWindow windowNumber]",
+	"-[NSWindow makeFirstResponder:]", "-[NSWindow resignKeyWindow]", "-[NSWindow makeKeyWindow]", "-[NSApplication postEvent:atStart:]",
+	"+[NSEvent keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:]",
+	"+[NSEvent mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:]",
+	"NSEventTypeKeyDown", "NSEventTypeKeyUp", "NSEventTypeFlagsChanged", "NSEventModifierFlagOption",
+	"NSEventModifierFlagShift", "NSEventModifierFlagControl", "NSEventModifierFlagCommand", "kVK_Space", "kVK_Option", "kVK_RightOption",
+	"MacOSLeftOptionFlag", "MacOSRightOptionFlag", "MacOSLeftShiftFlag", "MacOSRightShiftFlag",
+	"kVK_Escape", "kVK_Return", "kVK_LeftArrow", "kVK_RightArrow", "kVK_UpArrow", "kVK_DownArrow", "kVK_Tab", "kVK_Delete", "kVK_ForwardDelete", "kVK_Home", "kVK_End",
+	"kVK_ANSI_A", "kVK_ANSI_D", "kVK_ANSI_S", "kVK_ANSI_W", "kVK_ANSI_C", "kVK_ANSI_V", "kVK_ANSI_X", "kVK_ANSI_Z", "kVK_Shift", "kVK_RightShift",
+	"+[NSEvent addLocalMonitorForEventsMatchingMask:handler:]", "+[NSEvent removeMonitor:]", "NSEventMaskKeyDown", "NSEventMaskKeyUp", "NSEventMaskFlagsChanged"
+]
+os = ["macos"]
+
+[native.bindings.callbacks."+[NSEvent addLocalMonitorForEventsMatchingMask:handler:].block"]
+interface = "IAppKitKeyMonitor"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "+[NSEvent removeMonitor:]"
+activation-failure = "abort"
+cancellation = "entry-barrier"
+
+[[native.bindings]]
+module = "MacOS.MacOSViewInput"
+header = "MacOS/AppKitEvents.h"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+symbols = [
+	"+[NSThread isMainThread]", "-[NSView convertPoint:fromView:]", "-[NSView hitTest:]", "-[NSView visibleRect]", "-[NSView isHiddenOrHasHiddenAncestor]", "-[NSView window]", "-[NSView bounds]", "-[NSView isFlipped]", "-[NSView isDescendantOf:]",
+	"-[NSWindow setAcceptsMouseMovedEvents:]", "-[NSWindow contentView]",
+	"-[NSEvent locationInWindow]", "-[NSEvent buttonNumber]", "-[NSEvent clickCount]", "-[NSEvent scrollingDeltaX]", "-[NSEvent scrollingDeltaY]", "-[NSEvent hasPreciseScrollingDeltas]", "-[NSEvent phase]", "-[NSEvent momentumPhase]", "-[NSEvent trackingArea]",
+	"NSEventTypeMouseMoved", "NSEventTypeMouseEntered", "NSEventTypeMouseExited", "NSEventTypeLeftMouseDown", "NSEventTypeLeftMouseUp", "NSEventTypeLeftMouseDragged", "NSEventTypeRightMouseDown", "NSEventTypeRightMouseUp", "NSEventTypeRightMouseDragged", "NSEventTypeOtherMouseDown", "NSEventTypeOtherMouseUp", "NSEventTypeOtherMouseDragged", "NSEventTypeScrollWheel",
+	"NSEventMaskMouseMoved", "NSEventMaskMouseEntered", "NSEventMaskMouseExited", "NSEventMaskLeftMouseDown", "NSEventMaskLeftMouseUp", "NSEventMaskLeftMouseDragged", "NSEventMaskRightMouseDown", "NSEventMaskRightMouseUp", "NSEventMaskRightMouseDragged", "NSEventMaskOtherMouseDown", "NSEventMaskOtherMouseUp", "NSEventMaskOtherMouseDragged", "NSEventMaskScrollWheel",
+	"NSEventPhaseNone", "NSEventPhaseBegan", "NSEventPhaseChanged", "NSEventPhaseEnded", "NSEventPhaseCancelled", "NSEventPhaseMayBegin", "NSEventPhaseStationary",
+	"-[NSTrackingArea initWithRect:options:owner:userInfo:]", "-[NSView addTrackingArea:]", "-[NSView removeTrackingArea:]", "NSTrackingMouseEnteredAndExited", "NSTrackingMouseMoved", "NSTrackingActiveInKeyWindow", "NSTrackingInVisibleRect",
+	"NSWindowDidResignKeyNotification", "NSApplicationDidResignActiveNotification"
+]
+main-thread-globals = ["NSWindowDidResignKeyNotification", "NSApplicationDidResignActiveNotification"]
+
+[[native.bindings]]
+module = "MacOS.MacOSSlider"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = [
+	"+[NSSlider new]", "-[NSSlider setMinValue:]", "-[NSSlider setMaxValue:]", "-[NSSlider setNumberOfTickMarks:]",
+	"-[NSSlider setAllowsTickMarkValuesOnly:]", "-[NSSlider closestTickMarkValueToValue:]", "-[NSSlider setContinuous:]",
+	"-[NSSlider doubleValue]", "-[NSSlider setDoubleValue:]", "-[NSSlider setEnabled:]", "-[NSSlider isEnabled]"
+]
+os = ["macos"]

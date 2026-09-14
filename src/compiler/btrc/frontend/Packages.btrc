@@ -4,7 +4,7 @@ import Library.FileSystem;
 import Library.JSON;
 import Library.Map;
 import Library.Platform;
-import Library.SHA256;
+import Library.Digest.SHA256;
 import Library.Strings;
 import Library.TOML;
 import Library.Vector;
@@ -1957,28 +1957,56 @@ class FeNativeLinkPlan {
 		self.declarations = selectedDeclarations;
 	}
 
+	/* The stdlib root manifest names btrc_stdlib_runtime and depends only on path packages
+	 * inside the stdlib tree, one per group folder; every package in that graph carries a
+	 * reserved btrc_stdlib_ identity and keeps its native metadata beside its modules. */
 	public void includeStdlib(string stdlibDirectory, Vector<string> sources, FeSourceFileReader sourceFiles) {
 		string root = PathTools.absolute(stdlibDirectory);
 		string path = PathTools.join(root, "btrc.toml");
 		if (!FileSystem.exists(path)) { return; }
-		string source = sourceFiles.readRequired(path);
-		FeParsedPackageManifest manifest = FePackageManifestParser(source, path, root).parse();
-		if (!manifest.name.equals("btrc_stdlib_runtime") || manifest.dependencies.len != 0) { FePackageFailure.fail("stdlib manifest must declare btrc_stdlib_runtime without dependencies"); }
-		Map<string, string> dependencies = {};
-		var package = FePackageNode(manifest.name, root, dependencies, root, SHA256.digest(source), manifest.nativeDeclarations);
-		package.bindings = manifest.bindings;
-		Vector<FePackageNode> libraryPackages = [package];
-		var selected = FeNativeLinkPlan(self.target, libraryPackages, manifest.nativeDeclarations);
+		Vector<FePackageNode> libraryPackages = [];
+		Map<string, string> namesByRoot = {};
+		Vector<string> loading = [];
+		self.loadStdlibPackage(root, path, "", sourceFiles, libraryPackages, namesByRoot, loading);
+		Vector<FeNativeDeclaration> declarations = [];
+		for package in libraryPackages { declarations.extend(package.nativeDeclarations); }
+		var selected = FeNativeLinkPlan(self.target, libraryPackages, declarations);
 		selected.restrictToSources(sources);
 		if (selected.declarations.len == 0 && selected.bindingImports().len == 0) { return; }
 		for existing in self.packages {
-			if (existing.name.equals(manifest.name)) {
-				if (FeSourcePathPolicy().identity(existing.root).equals(FeSourcePathPolicy().identity(root)) && existing.manifestHash.equals(package.manifestHash)) { return; }
-				FePackageFailure.fail(f"package identity '{manifest.name}' is reserved for compiler-owned stdlib runtimes");
+			if (!existing.name.startsWith("btrc_stdlib_")) { continue; }
+			for package in libraryPackages {
+				if (package.name.equals(existing.name) && FeSourcePathPolicy().identity(existing.root).equals(FeSourcePathPolicy().identity(package.root)) && existing.manifestHash.equals(package.manifestHash)) { return; }
 			}
+			FePackageFailure.fail(f"package identity '{existing.name}' is reserved for compiler-owned stdlib runtimes");
 		}
 		self.packages.extend(selected.packages);
 		self.declarations.extend(selected.declarations);
+	}
+
+	private string loadStdlibPackage(string root, string path, string alias, FeSourceFileReader sourceFiles, Vector<FePackageNode> packages, Map<string, string> namesByRoot, Vector<string> loading) {
+		string packageRoot = PathTools.dirname(path);
+		if (loading.contains(packageRoot)) { FePackageFailure.fail(f"stdlib package dependency cycle through '{path}'"); }
+		loading.push(packageRoot);
+		string source = sourceFiles.readRequired(path);
+		FeParsedPackageManifest manifest = FePackageManifestParser(source, path, packageRoot).parse();
+		if (alias.isEmpty() && !manifest.name.equals("btrc_stdlib_runtime")) { FePackageFailure.fail("stdlib manifest must declare btrc_stdlib_runtime"); }
+		if (!alias.isEmpty() && !manifest.name.startsWith("btrc_stdlib_")) { FePackageFailure.fail(f"stdlib group '{alias}' must declare a btrc_stdlib_ package identity"); }
+		for package in packages { if (package.name.equals(manifest.name)) { FePackageFailure.fail(f"duplicate stdlib package identity '{manifest.name}'"); } }
+		Map<string, string> dependencies = {};
+		for dependency in manifest.dependencies {
+			if (dependency.path.isEmpty()) { FePackageFailure.fail(f"stdlib dependency '{dependency.alias}' must be a path package inside the stdlib"); }
+			string targetRoot = PathTools.absolute(PathTools.join(packageRoot, dependency.path));
+			if (!targetRoot.startsWith(root + "/")) { FePackageFailure.fail(f"stdlib dependency '{dependency.alias}' must stay inside the stdlib tree"); }
+			string targetName = namesByRoot.has(targetRoot) ? namesByRoot.get(targetRoot) : self.loadStdlibPackage(root, PathTools.join(targetRoot, "btrc.toml"), dependency.alias, sourceFiles, packages, namesByRoot, loading);
+			dependencies.put(dependency.alias, targetName);
+		}
+		var package = FePackageNode(manifest.name, packageRoot, dependencies, packageRoot, SHA256.digest(source), manifest.nativeDeclarations);
+		package.bindings = manifest.bindings;
+		packages.push(package);
+		namesByRoot.put(packageRoot, manifest.name);
+		loading.pop();
+		return manifest.name;
 	}
 
 	private Vector<FeNativeDeclaration> selected(string kind) {

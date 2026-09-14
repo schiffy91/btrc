@@ -1,4 +1,4 @@
-import Library.MacOSEncodedImageDecoder;
+import Library.Image.MacOS.MacOSEncodedImageDecoder;
 
 class SystemImageProvider {
 	class EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits) { return MacOSEncodedImageDecoder().decode(encoded, limits); }

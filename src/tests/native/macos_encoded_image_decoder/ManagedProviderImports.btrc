@@ -1,6 +1,0 @@
-import Library.Audio.MacOS.CoreAudioDevice;
-import Library.MacOSEncodedImageDecoder;
-import Library.GUI.MacOS.MacOSSystemText;
-
-/* Type-check shared SDK identities without opening the user's audio devices. */
-int main() { return 0; }

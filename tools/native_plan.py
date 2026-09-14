@@ -509,7 +509,8 @@ class NativePlanBuilder:
             runtime_libraries = ["-lm"]
             if plan.operating_system != "windows":
                 runtime_libraries.append("-pthread")
-            framework_flags = [part for name in plan.frameworks for part in ("-framework", name)]
+            # Group packages may each declare the same framework; link it once.
+            framework_flags = [part for name in dict.fromkeys(plan.frameworks) for part in ("-framework", name)]
             self._run(
                 [
                     tools["cxx" if plan.linker_language == "c++" else "cc"],

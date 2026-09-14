@@ -1,0 +1,172 @@
+import Library.Image;
+import Library.UI;
+import Library.Strings;
+import Library.Vector;
+
+#include <assert.h>
+
+class UiSemanticTest {
+	class bool hasEvent(UIEventBatch batch, UIEventKind kind) {
+		for (int index = 0; index < batch.eventCount(); index++) {
+			if (batch.eventAt(index).kind() == kind) { return true; }
+		}
+		return false;
+	}
+}
+
+int main() {
+	UISemantics toggle = UISemantics(UI_SEMANTIC_ROLE_TOGGLE_BUTTON, "Playback", "Starts or pauses playback", "Playing", UI_SEMANTIC_LIVE_POLITE).pressed(UI_SEMANTIC_TOGGLE_ON).expanded(UI_SEMANTIC_EXPANSION_OFF).busy(true).readOnly(true);
+	assert(toggle.valid());
+	assert(toggle.role() == UI_SEMANTIC_ROLE_TOGGLE_BUTTON);
+	assert(toggle.label() == "Playback");
+	assert(toggle.hint() == "Starts or pauses playback");
+	assert(toggle.value() == "Playing");
+	assert(toggle.live() == UI_SEMANTIC_LIVE_POLITE);
+	assert(toggle.checkedState() == UI_SEMANTIC_TOGGLE_UNSET);
+	assert(toggle.pressedState() == UI_SEMANTIC_TOGGLE_ON);
+	assert(toggle.expansionState() == UI_SEMANTIC_EXPANSION_OFF);
+	assert(toggle.isBusy());
+	assert(toggle.isReadOnly());
+	assert(UISemantics(UI_SEMANTIC_ROLE_TOGGLE_BUTTON).checked(UI_SEMANTIC_TOGGLE_MIXED).pressed(UI_SEMANTIC_TOGGLE_OFF).valid());
+
+	assert(!UISemantics((UISemanticRole)99).valid());
+	assert(!UISemantics(UI_SEMANTIC_ROLE_STATUS, "", "", "", (UISemanticLiveMode)99).valid());
+	assert(!UISemantics(UI_SEMANTIC_ROLE_STATUS, "", "\xc3").valid());
+	assert(!UISemantics(UI_SEMANTIC_ROLE_CHECKBOX).checked((UISemanticToggleState)99).valid());
+	assert(!UISemantics(UI_SEMANTIC_ROLE_BUTTON).expanded((UISemanticExpansionState)99).valid());
+	StringBuilder longLabel = StringBuilder();
+	for (int index = 0; index < 513; index++) { longLabel.append("x"); }
+	assert(!UISemantics(UI_SEMANTIC_ROLE_STATUS, longLabel.toString()).valid());
+
+	UIElement enabledButton = UIElement.button("enabled", "Play").selected(true).semantics(toggle);
+	UIElement disabledButton = UIElement.button("disabled", "Unavailable").enabled(false).semantics(UISemantics(UI_SEMANTIC_ROLE_BUTTON, "Unavailable"));
+	UIElement focusTarget = UIElement.text("tab", "Practice").focusable(true).semantics(UISemantics(UI_SEMANTIC_ROLE_TAB, "Practice tab").expanded(UI_SEMANTIC_EXPANSION_ON));
+	Image rangeImage = Image(80, 20);
+	UIElement disabledRange = UIElement.image("disabled-range", rangeImage, "Position").semanticRange(UISemanticRange.horizontal("Position", 0LL, 100LL, 50LL)).enabled(false);
+	UIElement disabledInput = UIElement.textInput("disabled-input", "old", "Unavailable input", 16).enabled(false);
+	UIElement root = UIElement.column("root").child(enabledButton).child(disabledButton).child(focusTarget).child(disabledRange).child(disabledInput);
+	UIRenderer renderer = UIRenderer();
+	UIFrame frame = renderer.layout(root, 240, 240);
+	assert(frame.ok());
+
+	UILayoutBox enabledSemanticBox = frame.boxFor("enabled");
+	UIResolvedSemantics enabled = enabledSemanticBox.resolvedSemantics();
+	assert(enabled.role() == UI_SEMANTIC_ROLE_TOGGLE_BUTTON);
+	assert(enabled.enabled() && enabled.selected() && enabled.focusable() && !enabled.focused());
+	assert(enabled.label() == "Playback" && enabled.hint() == "Starts or pauses playback" && enabled.value() == "Playing");
+	assert(enabled.live() == UI_SEMANTIC_LIVE_POLITE);
+	assert(enabled.pressedState() == UI_SEMANTIC_TOGGLE_ON);
+	assert(enabled.expansionState() == UI_SEMANTIC_EXPANSION_OFF);
+	assert(enabled.isBusy() && enabled.isReadOnly());
+	assert(frame.resolvedSemanticsFor("enabled") != null);
+	assert(frame.resolvedSemanticsFor("missing") == null);
+
+	UILayoutBox disabledSemanticBox = frame.boxFor("disabled");
+	UIResolvedSemantics disabled = disabledSemanticBox.resolvedSemantics();
+	assert(!disabled.enabled() && !disabled.focusable() && !disabled.focused());
+	assert(disabledButton.hasFocusableOverride() == false);
+	disabledButton.focusable(true);
+	assert(disabledButton.hasFocusableOverride() && disabledButton.focusableOverride());
+	assert(!disabledButton.isFocusable());
+	assert(UIElement.button("not-focusable", "No focus").focusable(false).isFocusable() == false);
+	assert(UIElement.text("automatic", "Text").effectiveSemanticRole() == UI_SEMANTIC_ROLE_TEXT);
+	assert(UIElement.image("automatic-image", rangeImage, "Image").effectiveSemanticRole() == UI_SEMANTIC_ROLE_IMAGE);
+	assert(disabledRange.effectiveSemanticRole() == UI_SEMANTIC_ROLE_SLIDER);
+
+	assert(renderer.activate("enabled").eventCount() == 1);
+	assert(renderer.activate("enabled").eventAt(0).kind() == UI_CLICKED);
+	assert(renderer.activate("tab").eventCount() == 1);
+	assert(renderer.activate("disabled").eventCount() == 0);
+
+	renderer.focusNext();
+	assert(renderer.focusedId() == "enabled");
+	UILayoutBox focusedEnabledBox = renderer.currentFrame().boxFor("enabled");
+	assert(focusedEnabledBox.resolvedSemantics().focused());
+	renderer.focusNext();
+	assert(renderer.focusedId() == "tab");
+	UILayoutBox unfocusedEnabledBox = renderer.currentFrame().boxFor("enabled");
+	UILayoutBox focusedTabBox = renderer.currentFrame().boxFor("tab");
+	assert(!unfocusedEnabledBox.resolvedSemantics().focused());
+	assert(focusedTabBox.resolvedSemantics().focused());
+	renderer.focusNext();
+	assert(renderer.focusedId() == "enabled");
+	renderer.blur();
+	assert(renderer.focusedId().isEmpty());
+	UILayoutBox blurredEnabledBox = renderer.currentFrame().boxFor("enabled");
+	assert(!blurredEnabledBox.resolvedSemantics().focused());
+
+	UILayoutBox disabledBox = renderer.currentFrame().boxFor("disabled");
+	int disabledX = disabledBox.bounds.x + 2;
+	int disabledY = disabledBox.bounds.y + 2;
+	assert(renderer.pointerMoved(disabledX, disabledY).eventCount() == 0);
+	assert(renderer.hoveredId().isEmpty());
+	assert(renderer.pointerPressed(disabledX, disabledY).eventCount() == 0);
+	assert(!UiSemanticTest.hasEvent(renderer.pointerReleased(disabledX, disabledY), UI_CLICKED));
+
+	UILayoutBox rangeBox = renderer.currentFrame().boxFor("disabled-range");
+	int rangeX = rangeBox.bounds.x + 2;
+	int rangeY = rangeBox.bounds.y + 2;
+	assert(renderer.pointerMoved(rangeX, rangeY).eventCount() == 0);
+	assert(renderer.pointerPressed(rangeX, rangeY).eventCount() == 0);
+	assert(renderer.capturedRangeId().isEmpty());
+	assert(renderer.adjustRange("disabled-range", UI_RANGE_ADJUST_SMALL_INCREMENT).eventCount() == 0);
+	assert(!UiSemanticTest.hasEvent(renderer.wheelBy(0, 40), UI_RANGE_WHEEL));
+
+	UILayoutBox inputBox = renderer.currentFrame().boxFor("disabled-input");
+	renderer.pointerPressed(inputBox.bounds.x + 2, inputBox.bounds.y + 2);
+	assert(renderer.focusedId().isEmpty());
+	assert(renderer.textEntered("x").eventCount() == 0);
+	assert(renderer.backspace().eventCount() == 0);
+
+	Vector<UISelectOption> monitorOptions = [];
+	monitorOptions.push(UISelectOption("song-effects", "Song effects"));
+	monitorOptions.push(UISelectOption("disabled", "Unavailable", false));
+	monitorOptions.push(UISelectOption("raw-signal", "Raw signal"));
+	UIRenderer selectRenderer = UIRenderer();
+	UIElement monitor = UIElement.select("monitor", UISelect(monitorOptions, "song-effects")).semantics(UISemantics(UI_SEMANTIC_ROLE_AUTOMATIC, "Monitor"));
+	UIFrame selectFrame = selectRenderer.layout(monitor, 240, 120);
+	assert(selectFrame.ok());
+	UILayoutBox collapsedMonitorBox = selectFrame.boxFor("monitor");
+	UIResolvedSemantics monitorSemantics = collapsedMonitorBox.resolvedSemantics();
+	assert(monitorSemantics.role() == UI_SEMANTIC_ROLE_COMBO_BOX);
+	assert(monitorSemantics.label() == "Monitor");
+	assert(monitorSemantics.value() == "Song effects");
+	assert(monitorSemantics.expansionState() == UI_SEMANTIC_EXPANSION_OFF);
+	assert(monitorSemantics.focusable() && !monitorSemantics.focused());
+	assert(selectRenderer.activate("monitor").eventCount() == 0);
+	assert(selectRenderer.expandedSelectId() == "monitor");
+	UILayoutBox expandedMonitorBox = selectRenderer.currentFrame().boxFor("monitor");
+	monitorSemantics = expandedMonitorBox.resolvedSemantics();
+	assert(monitorSemantics.focused());
+	assert(monitorSemantics.expansionState() == UI_SEMANTIC_EXPANSION_ON);
+	selectRenderer.navigateFocusedSelect(1);
+	assert(selectRenderer.highlightedSelectIndex() == 2);
+	UIEventBatch monitorChanged = selectRenderer.activate("monitor");
+	assert(monitorChanged.eventCount() == 1);
+	assert(monitorChanged.eventAt(0).kind() == UI_SELECTION_CHANGED);
+	assert(monitorChanged.eventAt(0).value() == "raw-signal");
+	assert(selectRenderer.expandedSelectId().isEmpty());
+	assert(selectRenderer.focusedId() == "monitor");
+	UIElement rawMonitor = UIElement.select("monitor", UISelect(monitorOptions, "raw-signal")).semantics(UISemantics(UI_SEMANTIC_ROLE_AUTOMATIC, "Monitor"));
+	selectRenderer.layout(rawMonitor, 240, 120);
+	UILayoutBox rawMonitorBox = selectRenderer.currentFrame().boxFor("monitor");
+	assert(rawMonitorBox.resolvedSemantics().value() == "Raw signal");
+	assert(selectRenderer.activate("monitor").eventCount() == 0);
+	selectRenderer.dismiss();
+	assert(selectRenderer.expandedSelectId().isEmpty());
+	assert(selectRenderer.focusedId() == "monitor");
+	selectRenderer.dismiss();
+	assert(selectRenderer.focusedId().isEmpty());
+	UIFrame disabledSelectFrame = UIRenderer().layout(UIElement.select("disabled-select", UISelect(monitorOptions, "song-effects")).enabled(false), 240, 60);
+	assert(disabledSelectFrame.ok());
+	UILayoutBox disabledSelectBox = disabledSelectFrame.boxFor("disabled-select");
+	assert(!disabledSelectBox.resolvedSemantics().enabled());
+	assert(!disabledSelectBox.resolvedSemantics().focusable());
+
+	UIFrame semanticCss = UIRenderer().render(UIElement.button("css", "CSS").style("selected: true"), 80, 40);
+	assert(!semanticCss.ok());
+	assert(semanticCss.status == UI_FRAME_INVALID_STYLE);
+
+	print("PASS: typed native UI semantics and disabled interaction");
+	return 0;
+}

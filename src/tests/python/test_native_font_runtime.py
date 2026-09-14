@@ -155,7 +155,7 @@ def test_optional_freetype_factory(native_project, native_compile, sanitize, con
     if consumer == "GuiFontConformance" and not font.is_file():
         pytest.skip("requires BTRC_TEST_FONT or the system Arial font")
     source, _, _ = native_project
-    directory = REPO / ("src/tests/native/gui_surface" if consumer == "GuiFontConformance" else "examples/gui")
+    directory = REPO / ("src/tests/native/gui" if consumer == "GuiFontConformance" else "examples/gui")
     source.write_text((directory / f"{consumer}.btrc").read_text())
     arguments = [str(font)] if consumer == "GuiFontConformance" else []
     result = _compile_and_run(source, native_compile, sanitize, arguments)

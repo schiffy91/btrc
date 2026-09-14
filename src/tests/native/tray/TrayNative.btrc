@@ -1,6 +1,4 @@
 /* Real AppKit provider lifecycle, built through the native link plan. */
-import Library.UI;
-
 import Library.Tray.Tray;
 
 int main() {

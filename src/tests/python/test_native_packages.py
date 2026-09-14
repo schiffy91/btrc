@@ -34,18 +34,21 @@ def test_stdlib_manifest_selects_only_loaded_provider_units():
     assert plan.with_stdlib(str(library), [str(library / "Strings.btrc")]) == plan
     selected = plan.with_stdlib(
         str(library),
-        [str(library / "Audio/MacOS/CoreAudioDevice.btrc"), str(library / "MacOSEncodedImageDecoder.btrc")],
+        [str(library / "Audio/MacOS/CoreAudioDevice.btrc"), str(library / "Image/MacOS/MacOSEncodedImageDecoder.btrc")],
     )
     payload = selected.as_dict()
     assert payload["units"] == []
-    assert [item["name"] for item in payload["frameworks"]] == [
-        "AudioToolbox",
-        "CoreAudio",
-        "CoreFoundation",
-        "CoreGraphics",
-        "ImageIO",
+    # Audio and Image each declare CoreFoundation; the planner links it once.
+    assert [(item["package"], item["name"]) for item in payload["frameworks"]] == [
+        ("btrc_stdlib_audio", "AudioToolbox"),
+        ("btrc_stdlib_audio", "CoreAudio"),
+        ("btrc_stdlib_audio", "CoreFoundation"),
+        ("btrc_stdlib_image", "CoreFoundation"),
+        ("btrc_stdlib_image", "CoreGraphics"),
+        ("btrc_stdlib_image", "ImageIO"),
     ]
-    assert len(selected.packages) == 1 and len(selected.packages[0].manifest_hash) == 64
+    assert sorted(package.name for package in selected.packages) == ["btrc_stdlib_audio", "btrc_stdlib_image"]
+    assert all(len(package.manifest_hash) == 64 for package in selected.packages)
     assert [Path(binding.module).name for binding in selected.bindings] == [
         "CoreAudioDevice.btrc",
         "MacOSEncodedImageDecoder.btrc",
@@ -55,7 +58,10 @@ def test_stdlib_manifest_selects_only_loaded_provider_units():
     assert (
         selected.with_stdlib(
             str(library),
-            [str(library / "Audio/MacOS/CoreAudioDevice.btrc"), str(library / "MacOSEncodedImageDecoder.btrc")],
+            [
+                str(library / "Audio/MacOS/CoreAudioDevice.btrc"),
+                str(library / "Image/MacOS/MacOSEncodedImageDecoder.btrc"),
+            ],
         )
         == selected
     )

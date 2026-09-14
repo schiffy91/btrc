@@ -3,7 +3,7 @@
  * only the generic handle surface under test. */
 import Library.Bytes;
 import Library.FileSystem;
-import Library.FileSystemHandles;
+import Library.FileSystem.FileSystemHandles;
 import Library.IO;
 
 #include <assert.h>

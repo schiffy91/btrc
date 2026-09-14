@@ -14,7 +14,7 @@ from tools.native_plan import NativePlanBuilder
 @pytest.mark.parametrize("sanitize", [False, True])
 def test_native_control_sizing(native_project, native_compile, sanitize):
     source, _, _ = native_project
-    source.write_text((REPO / "src/tests/native/gui_surface/NativeControlSizing.btrc").read_text())
+    source.write_text((REPO / "src/tests/native/gui/NativeControlSizing.btrc").read_text())
     plan = source.with_suffix(".link.json")
     compiled = native_compile(source, plan_path=plan)
     assert compiled.successful, str(compiled.failure) + "\n" + "\n".join(str(item) for item in compiled.diagnostics)

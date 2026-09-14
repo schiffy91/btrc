@@ -14,9 +14,9 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 REPOSITORY = Path(__file__).resolve().parents[3]
 FIXTURE = Path(__file__).with_name("fixtures") / "RealtimeClipTransportRuntime.btrc"
-PUBLIC_API = REPOSITORY / "src" / "stdlib" / "RealtimeClipTransport.btrc"
-RUNTIME = REPOSITORY / "src" / "stdlib" / "RealtimeClipTransport" / "Runtime.btrc"
-PRACTICE_RUNTIME = REPOSITORY / "src" / "stdlib" / "RealtimeClipTransport" / "PracticeRuntime.btrc"
+PUBLIC_API = REPOSITORY / "src" / "stdlib" / "Realtime" / "RealtimeClipTransport.btrc"
+RUNTIME = REPOSITORY / "src" / "stdlib" / "Realtime" / "RealtimeClipTransport" / "Runtime.btrc"
+PRACTICE_RUNTIME = REPOSITORY / "src" / "stdlib" / "Realtime" / "RealtimeClipTransport" / "PracticeRuntime.btrc"
 STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 

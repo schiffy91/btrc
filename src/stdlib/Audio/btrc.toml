@@ -1,0 +1,145 @@
+manifest-version = 1
+
+[package]
+name = "btrc_stdlib_audio"
+exports = ["Audio", "AudioDevice", "MacOS.CoreAudioDevice", "RealtimeAudio", "RealtimeAudioRouter"]
+
+[[package.providers]]
+module = "Audio"
+implementation = "MacOS.AudioProvider"
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.CoreAudioDevice"
+header = "MacOS/Hardware.h"
+language = "c"
+standard = "c11"
+read-only-borrows = ["CFStringCreateWithCString.cStr"]
+# Reviewed for the configured Apple AUHAL only, not arbitrary AudioUnit plugins.
+realtime-safe = ["AudioUnitRender", "AudioConvertHostTimeToNanos", "AudioGetCurrentHostTime"]
+symbols = [
+	"AudioComponentInstance", "AudioComponentDescription", "AudioComponentFindNext", "AudioComponentInstanceNew", "AudioComponentInstanceDispose",
+	"AudioStreamBasicDescription", "AURenderCallbackStruct", "AudioTimeStamp", "AudioUnitRender",
+	"AudioUnitSetProperty", "AudioUnitGetProperty", "AudioUnitInitialize", "AudioUnitUninitialize", "AudioOutputUnitStart", "AudioOutputUnitStop",
+	"AudioConvertHostTimeToNanos", "AudioGetCurrentHostTime", "kAudioUnitType_Output", "kAudioUnitSubType_HALOutput", "kAudioUnitManufacturer_Apple",
+	"kAudioOutputUnitProperty_EnableIO", "kAudioOutputUnitProperty_CurrentDevice", "kAudioUnitProperty_MaximumFramesPerSlice",
+	"kAudioUnitProperty_StreamFormat", "kAudioUnitProperty_SetRenderCallback", "kAudioUnitScope_Input", "kAudioUnitScope_Output", "kAudioUnitScope_Global",
+	"kAudioFormatLinearPCM", "kAudioFormatFlagIsFloat", "kAudioFormatFlagIsPacked", "kAudioFormatFlagsNativeEndian",
+	"kAudioTimeStampSampleTimeValid", "kAudioTimeStampHostTimeValid", "kAudioUnitRenderAction_OutputIsSilence",
+	"AudioObjectGetPropertyData", "AudioObjectGetPropertyDataSize", "AudioObjectPropertyAddress", "AudioBufferList", "AudioBuffer", "AudioValueRange",
+	"AudioObjectSetPropertyData", "AudioHardwareCreateAggregateDevice", "AudioHardwareDestroyAggregateDevice",
+	"CFStringCreateWithCString", "CFUUIDCreate", "CFUUIDCreateString", "CFNumberCreate", "kCFNumberIntType", "kCFAllocatorDefault",
+	"CFDictionaryCreateMutable", "CFDictionarySetValue", "kCFTypeDictionaryKeyCallBacks", "kCFTypeDictionaryValueCallBacks",
+	"CFArrayCreateMutable", "CFArrayAppendValue", "kCFTypeArrayCallBacks",
+	"coreAudioSubDeviceUidKey", "coreAudioDriftCompensationKey", "coreAudioAggregateUidKey", "coreAudioAggregateNameKey",
+	"coreAudioAggregateSubDevicesKey", "coreAudioAggregateMainDeviceKey", "coreAudioAggregatePrivateKey", "coreAudioAggregateStackedKey",
+	"kAudio_ParamError", "kAudioHardwareBadDeviceError", "kAudioUnitErr_FormatNotSupported", "kAudioDeviceUnsupportedFormatError",
+	"kAudioHardwareUnsupportedOperationError", "kAudioUnitErr_Unauthorized", "kAudioDevicePermissionsError",
+	"kAudioUnitErr_CannotDoInCurrentContext", "kAudioHardwareIllegalOperationError", "kAudioHardwareNotRunningError",
+	"kAudioUnitErr_FailedInitialization", "kAudioUnitErr_Uninitialized",
+	"kAudioObjectPropertyElementMain", "kAudioObjectPropertyScopeGlobal", "kAudioObjectSystemObject", "kAudioObjectUnknown",
+	"kAudioHardwarePropertyDefaultInputDevice", "kAudioHardwarePropertyDefaultOutputDevice", "kAudioHardwarePropertyDevices",
+	"kAudioDevicePropertyStreamConfiguration", "kAudioDevicePropertyScopeInput", "kAudioDevicePropertyScopeOutput",
+	"kAudioDevicePropertyDeviceUID", "kAudioObjectPropertyName", "kAudioDevicePropertyNominalSampleRate",
+	"kAudioDevicePropertyBufferFrameSizeRange", "kAudioDevicePropertyBufferFrameSize", "kAudioDevicePropertyAvailableNominalSampleRates",
+	"CFRelease", "CFGetTypeID", "CFStringGetTypeID", "CFStringGetCString", "kCFStringEncodingUTF8",
+	"CFTypeRef", "CFStringRef", "CFNumberRef", "CFUUIDRef", "CFMutableDictionaryRef", "CFDictionaryRef", "CFMutableArrayRef", "CFRetain", "CFNumberGetTypeID"
+]
+owned-results = ["CFStringCreateWithCString", "CFUUIDCreate", "CFUUIDCreateString", "CFNumberCreate", "CFDictionaryCreateMutable", "CFArrayCreateMutable"]
+borrowed-parameters = ["CFStringGetCString.theString", "CFUUIDCreateString.uuid", "CFDictionarySetValue.theDict", "CFDictionarySetValue.key", "CFDictionarySetValue.value", "CFArrayAppendValue.theArray", "CFArrayAppendValue.value", "AudioHardwareCreateAggregateDevice.inDescription", "CFGetTypeID.cf", "AudioUnitSetProperty.inUnit", "AudioUnitGetProperty.inUnit", "AudioUnitInitialize.inUnit", "AudioUnitUninitialize.inUnit", "AudioOutputUnitStart.ci", "AudioOutputUnitStop.ci", "AudioUnitRender.inUnit"]
+os = ["macos"]
+
+[native.bindings.resources.AudioComponentInstance]
+ownership = "unique"
+release = "AudioComponentInstanceDispose"
+release-consumption = "success-or-indeterminate"
+cleanup-status = "abort"
+
+[native.bindings.owned-outputs."AudioComponentInstanceNew.outInstance"]
+result = "CoreAudioUnitOpenResult"
+
+# AUHAL Stop success is the reviewed entry barrier. Failed Stop is terminal;
+# retain the registration and silence late entries without touching its owner.
+[native.bindings.callbacks."AudioUnitSetProperty.inData"]
+name = "installCoreAudioRender"
+record = "AURenderCallbackStruct"
+field = "inputProc"
+context = "inputProcRefCon"
+context-index = 0
+size = "inDataSize"
+interface = "ICoreAudioRender"
+invocation = "CoreAudioRenderInvocation"
+lifetime = "stored"
+executor = "realtime"
+failure = "abort"
+owner = "inUnit"
+unregister = "AudioOutputUnitStop"
+cancellation = "entry-barrier"
+activation-failure = "abort"
+[native.bindings.callbacks."AudioUnitSetProperty.inData".operations]
+input = "AudioUnitRender.inUnit"
+
+[native.bindings.owned-outputs."AudioObjectGetPropertyData.outData"]
+result = "CoreAudioPropertyResult"
+resource = "CFTypeRef"
+size = "ioDataSize"
+name = "copyCoreAudioProperty"
+
+[native.bindings.resource-parameters]
+"CFDictionarySetValue.key" = "CFTypeRef"
+"CFDictionarySetValue.value" = "CFTypeRef"
+"CFArrayAppendValue.value" = "CFTypeRef"
+
+[native.bindings.resources.CFTypeRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFStringRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+type-query = "CFGetTypeID"
+type-tag = "CFStringGetTypeID"
+
+[native.bindings.resources.CFNumberRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+type-query = "CFGetTypeID"
+type-tag = "CFNumberGetTypeID"
+
+[native.bindings.resources.CFUUIDRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFMutableDictionaryRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFDictionaryRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFMutableArrayRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[[native.frameworks]]
+name = "CoreFoundation"
+modules = ["MacOS.CoreAudioDevice"]
+os = ["macos"]
+
+[[native.frameworks]]
+name = "CoreAudio"
+modules = ["MacOS.CoreAudioDevice"]
+os = ["macos"]
+
+[[native.frameworks]]
+name = "AudioToolbox"
+modules = ["MacOS.CoreAudioDevice"]
+os = ["macos"]

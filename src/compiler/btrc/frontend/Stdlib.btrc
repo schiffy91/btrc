@@ -75,9 +75,6 @@ class FeStdlibRepository {
 			"Strings.btrc",
 			"Platform.btrc",
 			"Process.btrc",
-			"FileSystem.btrc",
-			"Daemon.btrc",
-			"UI.btrc",
 		];
 		int priorityIndex = 0;
 		while (priorityIndex < priority.len) {
@@ -135,10 +132,9 @@ class FeStdlibRepository {
 		return FeStdlibLookup(false, "", f"stdlib import 'Library.{name}' not found\n  searched: {self.directoryPath}");
 	}
 
-	private bool explicitModulePath(string path) {
-		string name = self.sourcePaths.baseName(path);
-		return name.equals("BackgroundJobs.btrc") || name.equals("LocalApplicationChannel.btrc") || name.equals("MacOSDirectoryPicker.btrc") || name.equals("MacOSEncodedImageDecoder.btrc") || name.equals("NativeUI.btrc") || name.equals("SystemImageDecoder.btrc") || name.equals("RealtimeClipTransport.btrc");
-	}
+	/* Every native adapter and nested source graph now lives in a group folder
+	 * (src/stdlib/README.md), so no root module needs an exemption today. */
+	private bool explicitModulePath(string path) { return false; }
 
 	/* Legacy relaxed composition and the core archive strip imports before
      * concatenating root modules. Native adapters with nested source-graph or

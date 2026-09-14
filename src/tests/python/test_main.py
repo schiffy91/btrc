@@ -4,9 +4,11 @@ resolution, stdlib selection, error formatting, and IR dumping."""
 import json
 import os
 import pickle
+import re
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -540,25 +542,42 @@ def test_discover_stdlib_files():
     assert "Strings.btrc" in files
 
 
-def test_native_adapters_remain_explicit_stdlib_modules():
-    explicit_modules = (
+def test_root_stdlib_modules_form_a_closed_prelude():
+    # src/stdlib/README.md: a root module imports only other root modules, so
+    # the relaxed unit and the core archive stay self-contained.
+    root = STDLIB.directory()
+    root_modules = {name[: -len(".btrc")] for name in STDLIB.discover_files()}
+    for name in sorted(root_modules):
+        source = (Path(root) / f"{name}.btrc").read_text(encoding="utf-8")
+        for imported in re.findall(r"^import Library\.([A-Za-z0-9_.]+);", source, re.M):
+            assert imported in root_modules, f"{name} imports Library.{imported} outside the root prelude"
+        assert not re.search(r"^import \./", source, re.M), f"{name} imports a nested source graph"
+
+
+def test_native_adapters_live_outside_relaxed_composition():
+    # Group facades resolve by name through their folder, but only root
+    # primitives compose into the legacy relaxed unit.
+    grouped_modules = (
         "BackgroundJobs.btrc",
         "LocalApplicationChannel.btrc",
-        "NativeUI.btrc",
+        "UI.btrc",
         "SystemImageDecoder.btrc",
+        "FileSystem.btrc",
+        "HTTP.btrc",
     )
     discovered = STDLIB.discover_files()
     relaxed = STDLIB.relaxed_composition_files()
 
-    for module in explicit_modules:
-        assert module in discovered
+    for module in grouped_modules:
+        assert module not in discovered
         assert module not in relaxed
         assert STDLIB.find_file(module) is not None
+    assert "Vector.btrc" in relaxed
 
     source = STDLIB.source("")
     assert "class BackgroundJobExecutor" not in source
-    assert "class NativeUIElement" not in source
-    assert "class NativeUIAppSession" not in source
+    assert "class UIElement" not in source
+    assert "class UIAppSession" not in source
     assert "class SystemImageDecoder" not in source
     assert "SystemImageProvider" not in source
 

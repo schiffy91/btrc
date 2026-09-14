@@ -1,6 +1,6 @@
 import Library.Callback;
 import Library.Process;
-import Library.UI;
+import Library.Tray.Tray;
 import Library.Vector;
 import Library.GUI.MacOS.AppKitText;
 import Library.GUI.MacOS.MacOSRunLoop;
@@ -28,6 +28,7 @@ class TrayCommands implements IAppKitRunLoopEvents {
 		self._signal = signal;
 		for (int index = 0; index < 256; index++) { self._pending.push(""); }
 	}
+
 	public void enqueue(string command) {
 		if (self.quitRequested || self._overflow) { return; }
 		if (self._count == 256) { self._overflow = true; self._signal.wake(); return; }
@@ -35,6 +36,7 @@ class TrayCommands implements IAppKitRunLoopEvents {
 		self._count++;
 		self._signal.wake();
 	}
+
 	public void refresh() {
 		for (int index = 0; index < self._items.len && index < self._model.items.len; index++) {
 			var entry = self._model.items.get(index);
@@ -44,6 +46,7 @@ class TrayCommands implements IAppKitRunLoopEvents {
 			}
 		}
 	}
+
 	public void dispatch() {
 		if (self._dispatching || self.quitRequested) { return; }
 		self._dispatching = true;
@@ -61,8 +64,11 @@ class TrayCommands implements IAppKitRunLoopEvents {
 		} catch (string error) { self.failure = error; self.quit(); }
 		finally { self._dispatching = false; }
 	}
+
 	public void invoke(NSNotification notification) { self.dispatch(); }
+
 	public void ownLoop(bool ownsLoop) { self._ownsLoop = ownsLoop; }
+
 	public void quit() {
 		self.quitRequested = true;
 		if (self._ownsLoop) {
@@ -81,6 +87,7 @@ class TrayAction implements IAppKitTrayAction {
 	private TrayCommands _commands;
 	private string _command;
 	public TrayAction(TrayCommands commands, string command) { self._commands = commands; self._command = command; }
+
 	public void invoke() { self._commands.enqueue(self._command); }
 }
 
@@ -141,9 +148,13 @@ class TrayProvider {
 			status.setVisible(true);
 		} catch (string error) { self.close(); throw error; }
 	}
+
 	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native trays require the main thread"; } }
+
 	public void refreshCheckItems() { self.requireMainThread(); if (self._status != null) { self._commands.refresh(); } }
+
 	public void quit() { self.requireMainThread(); self._commands.quit(); }
+
 	public bool pump(int timeoutMs) {
 		self.requireMainThread();
 		if (!self._commands.failure.isEmpty()) { throw self._commands.failure; }
@@ -156,6 +167,7 @@ class TrayProvider {
 		if (!self._commands.failure.isEmpty()) { throw self._commands.failure; }
 		return !self._commands.quitRequested;
 	}
+
 	public void run() {
 		self.requireMainThread();
 		if (!self._commands.failure.isEmpty()) { throw self._commands.failure; }
@@ -168,6 +180,7 @@ class TrayProvider {
 		finally { self._commands.ownLoop(false); }
 		if (!self._commands.failure.isEmpty()) { throw self._commands.failure; }
 	}
+
 	public void close() {
 		self.requireMainThread();
 		self._commands.quit();
@@ -176,5 +189,6 @@ class TrayProvider {
 		if (self._status != null) { self._status.setMenu(null); NSStatusBar.systemStatusBar().removeStatusItem(self._status); self._status = null; }
 		self._menu = null;
 	}
+
 	public void __del__() { self.close(); }
 }

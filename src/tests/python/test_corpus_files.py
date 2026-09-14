@@ -11,7 +11,7 @@ def test_helper_named_programs_are_not_mistaken_for_include_fixtures():
     selected = set(language_test_files(TESTS))
 
     assert "gpu/GpuWithHelperFunc.btrc" in selected
-    assert "stdlib/StdlibMathFloatHelpers.btrc" in selected
+    assert "stdlib/MathFloatHelpers.btrc" in selected
 
 
 def test_upper_camel_contract_programs_are_runnable_corpus_entries():
@@ -28,8 +28,8 @@ def test_upper_camel_contract_programs_are_runnable_corpus_entries():
 def test_native_programs_are_owned_by_their_dedicated_harnesses():
     selected = set(language_test_files(TESTS))
 
-    assert "native/app_surface/MacOsDirectoryPickerConformance.btrc" not in selected
-    assert "native/gui_surface/NativeContainers.btrc" not in selected
+    assert "native/app/MacOsDirectoryPickerConformance.btrc" not in selected
+    assert "native/gui/NativeContainers.btrc" not in selected
 
 
 def test_formatter_fixtures_are_owned_by_syntax_preservation_tests():

@@ -4114,7 +4114,7 @@ int main() {
 def test_native_gpu_child_renders_and_reads_pixels(native_project, native_compile, sanitize, consumer):
     source, _sdk, _triple = native_project
     root = source.parent.parent / "render"
-    shutil.copytree(REPO / "src/tests/native/gui_surface/webgpu_child", root)
+    shutil.copytree(REPO / "src/tests/native/gui/webgpu_child", root)
     plan = root / "Program.link.json"
     compiled = native_compile(root / f"{consumer}.btrc", plan_path=plan)
     assert compiled.successful, str(compiled.failure) + "\n" + "\n".join(str(item) for item in compiled.diagnostics)
@@ -4235,7 +4235,7 @@ int main() {
 @pytest.mark.parametrize("sanitize", [False, True])
 def test_native_window_keyboard_monitor(native_project, native_compile, sanitize):
     source, _, _ = native_project
-    source.write_text((REPO / "src/tests/native/gui_surface/NativeKeyboard.btrc").read_text())
+    source.write_text((REPO / "src/tests/native/gui/NativeKeyboard.btrc").read_text())
     plan = source.parent / "Keyboard.link.json"
     compiled = native_compile(source, plan_path=plan)
     assert compiled.successful, str(compiled.failure) + "\n" + "\n".join(str(item) for item in compiled.diagnostics)
@@ -5938,10 +5938,10 @@ def test_native_gui_factory_keeps_application_owner_private(
 def test_macos_panel_and_progress_controls(native_project, native_compile, sanitize, fixture_name, expected):
     source, _sdk, _triple = native_project
     root = source.parent.parent
-    source.write_text((REPO / f"src/tests/native/gui_surface/{fixture_name}.btrc").read_text())
+    source.write_text((REPO / f"src/tests/native/gui/{fixture_name}.btrc").read_text())
     if fixture_name == "NativeStacks":
         for name in ("StackProbe.h", "StackProbe.m"):
-            (root / name).write_text((REPO / "src/tests/native/gui_surface" / name).read_text())
+            (root / name).write_text((REPO / "src/tests/native/gui" / name).read_text())
         manifest = root / "btrc.toml"
         manifest.write_text(
             manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "StackProbe.h"\n'
@@ -6175,7 +6175,7 @@ def test_portable_native_example_edit_apply_and_quit(native_project, native_comp
         + "\nint main() { ExampleProbe.schedule(); int result = exampleMain(); ExampleProbe.verify(); return result; }\n"
     )
     for name in ("ExampleProbe.h", "ExampleProbe.m"):
-        (root / name).write_text((REPO / "src/tests/native/gui_surface" / name).read_text())
+        (root / name).write_text((REPO / "src/tests/native/gui" / name).read_text())
     manifest = root / "btrc.toml"
     manifest.write_text(
         manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "ExampleProbe.h"\n'
@@ -6241,11 +6241,11 @@ def test_native_c_boolean_values_and_storage(native_project, native_compile, san
 def test_system_text_uses_owned_btrc_rasters(native_project, native_compile, sanitize):
     source, _sdk, _triple = native_project
     root = source.parent.parent
-    source.write_text((REPO / "src/tests/native/gui_surface/NativeSystemText.btrc").read_text())
+    source.write_text((REPO / "src/tests/native/gui/NativeSystemText.btrc").read_text())
     plan = root / "Text.link.json"
     compiled = native_compile(source, plan_path=plan)
     assert compiled.successful, (compiled.failure, compiled.diagnostics)
-    assert "btrc_gpu_native_ui_text_rasterize" not in compiled.c_source
+    assert "btrc_gpu_ui_text_rasterize" not in compiled.c_source
     generated = root / "Text.c"
     generated.write_text(compiled.c_source)
     executable = root / "Text"
@@ -6368,7 +6368,7 @@ int main() {
 def test_macos_view_capture_owns_native_pixels(native_project, native_compile, sanitize):
     source, _sdk, _triple = native_project
     root = source.parent.parent
-    source.write_text((REPO / "src/tests/native/gui_surface/ViewCapture.btrc").read_text())
+    source.write_text((REPO / "src/tests/native/gui/ViewCapture.btrc").read_text())
     plan = root / "Capture.link.json"
     compiled = native_compile(source, plan_path=plan)
     assert compiled.successful, (compiled.failure, compiled.diagnostics)
@@ -6430,12 +6430,12 @@ def test_native_capture_composes_with_image_io(native_project, native_compile, r
         "import Library.GUI.MacOS.MacOSTextField;",
         "import Library.GUI.MacOS.MacOSScrollView;",
         "import Library.GUI.MacOS.MacOSViewCapture;",
-        "import Library.MacOSEncodedImageDecoder;",
+        "import Library.Image.MacOS.MacOSEncodedImageDecoder;",
     ]
     source.write_text(
         "\n".join(reversed(imports) if reverse else imports)
         + """
-import Library.EncodedImage;
+import Library.Image.EncodedImage;
 #include <assert.h>
 int main() {
 	var app = MacOSApplication();

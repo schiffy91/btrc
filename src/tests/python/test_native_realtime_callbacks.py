@@ -257,7 +257,7 @@ int main() {
 def test_audio_unit_typed_realtime_sdk_callback(native_project, native_compile, sanitize):
     source, sdk, triple = native_project
     root = source.parent.parent
-    faults = Path(__file__).resolve().parents[1] / "native/core_audio_device/UnitFaults.c"
+    faults = Path(__file__).resolve().parents[1] / "native/audio/UnitFaults.c"
     (root / "Foundation.h").write_text(f'#include "{faults}"\n')
     (source.parent / "Foundation.btrc").write_text("")
     (root / "btrc.toml").write_text("""manifest-version = 1

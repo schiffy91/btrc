@@ -1,5 +1,69 @@
 import Library.Process;
-import Library.UI;
+
+/* Declarative tray model consumed by the platform provider. */
+class TrayItem {
+	public string label;
+	public string command;
+	public bool enabled;
+	public string stateCommand;  /* non-empty: exit 0 renders a checkmark */
+
+	public TrayItem(string label, string command) {
+		self.label = label;
+		self.command = command;
+		self.enabled = true;
+		self.stateCommand = "";
+	}
+
+	public TrayItem disabled() {
+		self.enabled = false;
+		return self;
+	}
+
+	public string renderLabel() { return self.enabled ? self.label : f"{self.label} (disabled)"; }
+}
+
+class Tray {
+	public string title;
+	public string tooltip;
+	public string iconPath;
+	public Vector<TrayItem> items;
+
+	public Tray(string title) {
+		self.title = title;
+		self.tooltip = title;
+		self.iconPath = "";
+		self.items = [];
+	}
+
+	public Tray icon(string path) {
+		self.iconPath = path;
+		return self;
+	}
+
+	public Tray tip(string text) {
+		self.tooltip = text;
+		return self;
+	}
+
+	public Tray item(string label, string command) {
+		self.items.push(TrayItem(label, command));
+		return self;
+	}
+
+	/* A checkable item: the mark mirrors stateCommand's exit status (0 = on),
+     * probed when the menu is realized and again after each activation. */
+	public Tray checkItem(string label, string command, string stateCommand) {
+		TrayItem entry = TrayItem(label, command);
+		entry.stateCommand = stateCommand;
+		self.items.push(entry);
+		return self;
+	}
+
+	public Tray add(TrayItem item) {
+		self.items.push(item);
+		return self;
+	}
+}
 
 class TraySignal {
 	class string quit() { return "__quit__"; }
@@ -13,24 +77,39 @@ class SystemTray {
 	private UnixShell _shell;
 
 	public SystemTray(string title) { self.model = Tray(title); self._shell = UnixShell(); }
+
 	class SystemTray fromTray(Tray tray) { var result = SystemTray(tray.title); result.model = tray; return result; }
+
 	public SystemTray icon(string path) { self.model.icon(path); return self; }
+
 	public SystemTray tip(string text) { self.model.tip(text); return self; }
+
 	public SystemTray item(string label, string command) { self.model.item(label, command); return self; }
+
 	public SystemTray checkItem(string label, string command, string stateCommand) { self.model.checkItem(label, command, stateCommand); return self; }
+
 	public SystemTray add(TrayItem item) { self.model.add(item); return self; }
+
 	public bool available() { return self._provider != null; }
+
 	public bool probeState(string command) { return self._shell.run(command, logFailure=false).ok(); }
+
 	public bool show() {
 		if (self._provider != null) { return true; }
 		self._provider = TrayProvider(self.model);
 		self.realized = true;
 		return true;
 	}
+
 	public bool pump(int timeoutMs) { return self._provider != null && self._provider.pump(timeoutMs); }
+
 	public void refreshCheckItems() { if (self._provider != null) { self._provider.refreshCheckItems(); } }
+
 	public void run() { self.show(); if (self._provider != null) { self._provider.run(); } }
+
 	public void quit() { if (self._provider != null) { self._provider.quit(); } }
+
 	public void close() { if (self._provider != null) { self._provider.close(); self._provider = null; } self.realized = false; }
+
 	public void __del__() { self.close(); }
 }

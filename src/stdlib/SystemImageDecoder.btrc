@@ -1,5 +1,0 @@
-import Library.EncodedImage;
-
-class SystemImageDecoder implements EncodedImageDecoder {
-	public EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits) { return SystemImageProvider.decode(encoded, limits); }
-}

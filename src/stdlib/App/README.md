@@ -1,7 +1,7 @@
 # `Library.App`
 
-This module contains portable application event, error, window-description,
-and directory-picker values. It does not create windows or own a native event
+This module contains portable application event, error and window-description
+values. The directory-picker contract lives in `Library.GUI.IDirectoryPicker`. It does not create windows or own a native event
 loop. Use `Library.GUI.GUI` and the portable `IWindow`/`IView` interfaces for
 application lifecycle and native controls.
 
@@ -15,18 +15,17 @@ scopes close with that subtree. See [GUI lifecycle and rendering](../GUI/README.
 Directory selection remains an explicit provider operation:
 
 ```btrc
-import Library.App;
-import Library.MacOSDirectoryPicker;
+import Library.GUI.GUI;
+import Library.GUI.IDirectoryPicker;
 
 // Run from the application's main-thread action handler.
-var picked = MacOSDirectoryPicker().chooseDirectory(
-    AppDirectoryPickerRequest("Choose music", "/Music"));
+var picked = GUI.chooseDirectory(DirectoryPickerRequest("Choose music", "/Music"));
 ```
 
-`AppDirectoryPicker` describes selected, cancelled, and failed outcomes.
-`MacOSDirectoryPicker` owns panel configuration, modal response handling and
-path copying in BTRC; typed AppKit imports generate the message and ARC
-adapters. It rejects worker-thread calls before presenting UI. There is no
+`IDirectoryPicker` describes selected, cancelled, and failed outcomes. The
+target's provider (`GUI/MacOS/MacOSDirectoryPicker` on macOS) owns panel
+configuration, modal response handling and path copying in BTRC; typed AppKit
+imports generate the message and ARC adapters. It rejects worker-thread calls before presenting UI. There is no
 implicit picker on unsupported platforms. The optional prompt and path-buffer
 limit are constructor parameters; errors never masquerade as cancellation.
 

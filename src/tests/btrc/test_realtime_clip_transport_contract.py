@@ -14,8 +14,8 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 REPOSITORY = Path(__file__).resolve().parents[3]
 FIXTURE = Path(__file__).with_name("fixtures") / "RealtimeClipTransportContract.btrc"
-CONTRACT = REPOSITORY / "src" / "stdlib" / "RealtimeClipTransport.btrc"
-PRACTICE = REPOSITORY / "src" / "stdlib" / "RealtimeClipPractice.btrc"
+CONTRACT = REPOSITORY / "src" / "stdlib" / "Realtime" / "RealtimeClipTransport.btrc"
+PRACTICE = REPOSITORY / "src" / "stdlib" / "Realtime" / "RealtimeClipPractice.btrc"
 STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 

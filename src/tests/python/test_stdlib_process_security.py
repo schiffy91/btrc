@@ -6,10 +6,10 @@ from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 
 ROOT = Path(__file__).resolve().parents[3]
 PROCESS = ROOT / "src" / "stdlib" / "Process.btrc"
-HTTP_CLIENT = ROOT / "src" / "stdlib" / "HTTPClient.btrc"
-FILESYSTEM = ROOT / "src" / "stdlib" / "FileSystem.btrc"
-PASSWORD_EXCHANGE = ROOT / "src" / "stdlib" / "TerminalPasswordExchange.btrc"
-TERMINAL = ROOT / "src" / "stdlib" / "Terminal.btrc"
+HTTP_CLIENT = ROOT / "src" / "stdlib" / "HTTP" / "HTTPClient.btrc"
+FILESYSTEM = ROOT / "src" / "stdlib" / "FileSystem" / "FileSystem.btrc"
+PASSWORD_EXCHANGE = ROOT / "src" / "stdlib" / "Terminal" / "TerminalPasswordExchange.btrc"
+TERMINAL = ROOT / "src" / "stdlib" / "Terminal" / "Terminal.btrc"
 PROCESS_HELPERS = {helper.name: helper for helper in RuntimeHelperCatalog().definitions_in_category("process")}
 PROCESS_RUNTIME = "\n".join(helper.c_source for helper in PROCESS_HELPERS.values())
 

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePath, PurePosixPath
 from types import MappingProxyType
 
+from src.compiler.python.frontend.packages import PackageManifestReader, PackageManifestValidator
 from src.compiler.python.lexer.lexer import Lexer, LexerError
 from src.compiler.python.parser.parser import ParseError, Parser
 from src.compiler.python.syntax.ast.generated import ClassDecl, FieldDecl, MethodDecl, PropertyDecl, TypeExpr
@@ -307,10 +308,7 @@ class BuiltinStdlibScanner:
 
         collections: dict[str, BuiltinClassSpec] = {}
         static_classes: dict[str, BuiltinClassSpec] = {}
-        for source_path in sorted(
-            self._stdlib_directory.glob("*.btrc"),
-            key=self._source_order_key,
-        ):
+        for source_path in sorted(self._exported_modules(), key=self._source_order_key):
             for class_name, declaration in self._parse_file(source_path).items():
                 declared_methods = [
                     member
@@ -339,10 +337,46 @@ class BuiltinStdlibScanner:
             static_classes=tuple(static_classes.values()),
         )
 
+    def _exported_modules(self) -> list[Path]:
+        """The catalog is the stdlib's public API: every module its manifests export.
+
+        The root manifest exports the prelude and names each group folder as a
+        path dependency (src/stdlib/README.md); group manifests export their own
+        public modules and keep private providers beside them, so the manifest
+        graph, not the directory listing, decides visibility.
+        """
+        root_manifest = self._stdlib_directory / "btrc.toml"
+        if not root_manifest.is_file():
+            return sorted(self._stdlib_directory.rglob("*.btrc"))
+        reader = PackageManifestReader()
+        validator = PackageManifestValidator()
+        exported: list[Path] = []
+        pending = [root_manifest]
+        seen: set[Path] = set()
+        while pending:
+            manifest_path = pending.pop(0)
+            if manifest_path in seen:
+                continue
+            seen.add(manifest_path)
+            try:
+                manifest = reader.read(str(manifest_path))
+                modules = validator.exported_modules(manifest, str(manifest_path))
+                dependencies = validator.dependencies(manifest, str(manifest_path))
+            except (OSError, ValueError) as error:
+                raise BuiltinCatalogGenerationError(f"cannot read stdlib manifest {manifest_path}: {error}") from error
+            if modules is None:
+                exported.extend(sorted(manifest_path.parent.rglob("*.btrc")))
+            else:
+                exported.extend(Path(path) for path in modules)
+            for specification in dependencies.values():
+                if "path" in specification:
+                    pending.append((manifest_path.parent / specification["path"] / "btrc.toml").resolve())
+        return exported
+
     @staticmethod
     def _source_order_key(source_path: PurePath) -> str:
-        """Use one case-sensitive order on POSIX and Windows path flavors."""
-        return source_path.name
+        """Use one case-sensitive, flavor-independent order: path parts joined by '/'."""
+        return "/".join(PurePath(source_path).parts)
 
     def _parse_file(self, source_path: Path) -> dict[str, ClassDecl]:
         try:

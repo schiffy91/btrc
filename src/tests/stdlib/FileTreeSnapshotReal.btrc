@@ -1,7 +1,7 @@
 /* Real deterministic traversal, bounds, cancellation, and handle ownership. */
 import Library.FileSystem;
-import Library.FileSystemHandles;
-import Library.FileTree;
+import Library.FileSystem.FileSystemHandles;
+import Library.FileSystem.FileTree;
 import Library.IO;
 
 #include <assert.h>

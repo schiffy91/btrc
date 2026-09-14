@@ -130,7 +130,7 @@ jobs:
 
       - name: Prove Windows drive, UNC, and separator semantics
         run: |
-          python -m src.compiler.python.main src/tests/stdlib/StdlibPathWindowsLexical.btrc --no-cache -o dist/win_paths.c
+          python -m src.compiler.python.main src/tests/stdlib/PathWindowsLexical.btrc --no-cache -o dist/win_paths.c
           zig cc -target "$ZIG_TARGET" -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/Windows -include "$WIN_COMPAT_HEADER" dist/win_paths.c -o dist/win_paths.exe -lm
           ./dist/win_paths.exe > dist/win_paths.stdout
           python - <<'PY'
@@ -141,7 +141,7 @@ jobs:
 
           actual = logical_lines("dist/win_paths.stdout")
           expected = logical_lines(
-              "src/tests/stdlib/expected/StdlibPathWindowsLexical.stdout"
+              "src/tests/stdlib/expected/PathWindowsLexical.stdout"
           )
           if actual != expected:
               raise SystemExit(f"path output mismatch: {actual!r} != {expected!r}")

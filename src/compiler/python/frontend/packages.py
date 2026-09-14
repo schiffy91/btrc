@@ -662,42 +662,100 @@ class NativeLinkPlan:
         )
         return NativeLinkPlan(self.target, packages, declarations, self.generated_units)
 
+    STDLIB_PACKAGE_PREFIX = "btrc_stdlib_"
+
     def with_stdlib(self, stdlib_directory: str, sources: Iterable[str]) -> NativeLinkPlan:
-        """Compose compiler-owned native metadata through the ordinary manifest."""
+        """Compose compiler-owned native metadata through the ordinary manifest graph.
+
+        The stdlib root manifest names ``btrc_stdlib_runtime`` and depends only
+        on path packages inside the stdlib tree, one per group folder; every
+        package in that graph carries a reserved ``btrc_stdlib_`` identity and
+        keeps its native metadata beside the modules it describes.
+        """
         root = os.path.realpath(stdlib_directory)
         path = os.path.join(root, "btrc.toml")
         if not os.path.exists(path):
             return self
         try:
-            manifest, encoded = PackageManifestReader().read_document(path)
-            validator = PackageManifestValidator()
-            name = validator.validate_identity(manifest, path)
-            if name != "btrc_stdlib_runtime" or validator.dependencies(manifest, path):
-                raise ValueError("stdlib manifest must declare btrc_stdlib_runtime without dependencies")
-            native = validator.native(manifest, root, name, path)
-            bindings = validator.bindings(manifest, root, name, path)
+            packages = self._stdlib_packages(root, path)
         except (OSError, ValueError) as error:
             raise IncludeResolutionError(f"stdlib native manifest: {error}") from error
-        package = PackageNode(name, root, {}, {"path": root}, hashlib.sha256(encoded).hexdigest(), native, bindings)
-        selected = NativeLinkPlan(self.target, (package,), native).for_sources(sources)
+        native = tuple(declaration for package in packages for declaration in package.native)
+        selected = NativeLinkPlan(self.target, tuple(packages), native).for_sources(sources)
         if not selected.declarations and not selected.bindings:
             return self
+        known = {package.name: package for package in packages}
         for existing in self.packages:
-            if existing.name == name:
-                if (
-                    self._source_identity(existing.root) == self._source_identity(root)
-                    and existing.manifest_hash == package.manifest_hash
-                ):
-                    return self
-                raise IncludeResolutionError(
-                    f"package identity {name!r} is reserved for compiler-owned stdlib runtimes"
-                )
+            if not existing.name.startswith(self.STDLIB_PACKAGE_PREFIX):
+                continue
+            package = known.get(existing.name)
+            if (
+                package is not None
+                and self._source_identity(existing.root) == self._source_identity(package.root)
+                and existing.manifest_hash == package.manifest_hash
+            ):
+                return self
+            raise IncludeResolutionError(
+                f"package identity {existing.name!r} is reserved for compiler-owned stdlib runtimes"
+            )
         return NativeLinkPlan(
             self.target,
             self.packages + selected.packages,
             self.declarations + selected.declarations,
             self.generated_units,
         )
+
+    def _stdlib_packages(self, root: str, path: str) -> tuple[PackageNode, ...]:
+        """Load the stdlib root manifest and every path dependency beneath the stdlib root."""
+        reader = PackageManifestReader()
+        validator = PackageManifestValidator()
+        packages: list[PackageNode] = []
+        names_by_root: dict[str, str] = {}
+        loading: list[str] = []
+
+        def load(manifest_path: str, alias: str | None) -> str:
+            package_root = os.path.dirname(manifest_path)
+            if package_root in loading:
+                raise ValueError(f"stdlib package dependency cycle through {manifest_path!r}")
+            loading.append(package_root)
+            manifest, encoded = reader.read_document(manifest_path)
+            name = validator.validate_identity(manifest, manifest_path)
+            if alias is None and name != "btrc_stdlib_runtime":
+                raise ValueError("stdlib manifest must declare btrc_stdlib_runtime")
+            if alias is not None and not name.startswith(self.STDLIB_PACKAGE_PREFIX):
+                raise ValueError(f"stdlib group {alias!r} must declare a {self.STDLIB_PACKAGE_PREFIX} package identity")
+            if name in {package.name for package in packages}:
+                raise ValueError(f"duplicate stdlib package identity {name!r}")
+            dependencies: dict[str, str] = {}
+            for dependency_alias, specification in validator.dependencies(manifest, manifest_path).items():
+                if "path" not in specification:
+                    raise ValueError(f"stdlib dependency {dependency_alias!r} must be a path package inside the stdlib")
+                target_root = os.path.realpath(os.path.join(package_root, specification["path"]))
+                if os.path.commonpath((root, target_root)) != root or target_root == root:
+                    raise ValueError(f"stdlib dependency {dependency_alias!r} must stay inside the stdlib tree")
+                target_name = names_by_root.get(target_root) or load(
+                    os.path.join(target_root, "btrc.toml"), dependency_alias
+                )
+                dependencies[dependency_alias] = target_name
+            native = validator.native(manifest, package_root, name, manifest_path)
+            bindings = validator.bindings(manifest, package_root, name, manifest_path)
+            packages.append(
+                PackageNode(
+                    name,
+                    package_root,
+                    dependencies,
+                    {"path": package_root},
+                    hashlib.sha256(encoded).hexdigest(),
+                    native,
+                    bindings,
+                )
+            )
+            names_by_root[package_root] = name
+            loading.pop()
+            return name
+
+        load(path, None)
+        return tuple(packages)
 
 
 @dataclass(frozen=True)

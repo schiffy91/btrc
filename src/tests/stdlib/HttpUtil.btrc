@@ -2,9 +2,9 @@
  * chunked transfer-encoding decoding.
  *
  * These are the deterministic, socket-free helpers. Local socket framing and
- * short-write coverage lives in StdlibHttpSocketIo.btrc. */
-import Library.HTTPServer;
-import Library.HTTPTypes;
+ * short-write coverage lives in HttpSocketIo.btrc. */
+import Library.HTTP.HTTPServer;
+import Library.HTTP.HTTPTypes;
 import Library.Map;
 
 #include <assert.h>

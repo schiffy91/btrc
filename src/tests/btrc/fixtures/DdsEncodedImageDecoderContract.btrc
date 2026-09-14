@@ -1,5 +1,5 @@
-import Library.DDSEncodedImageDecoder;
-import Library.EncodedImage;
+import Library.Image.DDSEncodedImageDecoder;
+import Library.Image.EncodedImage;
 import Library.Bytes;
 import Library.Image;
 

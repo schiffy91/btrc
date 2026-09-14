@@ -30,9 +30,17 @@ Linux/Windows are future provider boundaries.
    (`src/tests/python/test_native_cxx_owners.py`, 9 cases per frontend on
    fresh self-host compiler `8b49c232195c7d1caa6c5360751c4781`); BTRSmith's
    handwritten pugixml adapter is deleted.
-3. Re-run real consumers on the final tree, then delete any superseded bridge
+3. Structure first (2026-09-13 evening, user direction): the stdlib is a closed
+   root prelude plus group folders with same-named facades and `I`-prefixed
+   platform contracts (`src/stdlib/README.md`); the BTRC-drawn toolkit is
+   `Library.UI` (formerly `NativeUI`); each stdlib group gets its own
+   `btrc.toml` and the root manifest depends on those packages (extend
+   `with_stdlib`/`includeStdlib` in both compilers); then every other BTRC
+   directory (tests, tools, examples, nix files, docs) is reviewed against the
+   same standard. The exact order is BTRSmith's `docs/NativePlatformPlan.md`.
+4. Re-run real consumers on the final tree, then delete any superseded bridge
    and its build wiring. Keep no silent legacy fallback.
-4. Hand the resulting provider revisions to BTRSmith for product integration
+5. Hand the resulting provider revisions to BTRSmith for product integration
    and its visual/physical-audio gates.
 
 Compiler/runtime failures belong to the BTRC owner with a reproducer. Consumer

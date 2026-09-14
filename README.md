@@ -902,7 +902,7 @@ manifest row explicitly says so; an absent summary is unsafe.
 }
 ```
 
-See [`examples/RealtimeGain.btrc`](examples/RealtimeGain.btrc) for a complete
+See [`examples/realtime-primitives/RealtimeGain.btrc`](examples/realtime-primitives/RealtimeGain.btrc) for a complete
 strict-C11 standalone program.
 
 ### 3D Game Engine
@@ -1068,7 +1068,7 @@ Console.error("problem");          // stderr + newline
 #### Application directories
 
 ```btrc
-import Library.ApplicationDirectories;
+import Library.FileSystem.ApplicationDirectories;
 
 ApplicationDirectoryRootsOutcome resolved = ApplicationDirectories.resolve(ApplicationDirectoryLimits.standard());
 if (resolved.ok()) {

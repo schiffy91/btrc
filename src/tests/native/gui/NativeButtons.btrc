@@ -1,0 +1,288 @@
+import Library.Datetime;
+import Library.IO;
+import Library.Image;
+import Library.Image.EncodedImage;
+import Library.Image.MacOS.MacOSEncodedImageDecoder;
+import Library.GUI.IView;
+import Library.GUI.IButton;
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSButton;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSPanel;
+import Library.GUI.MacOS.MacOSViewCapture;
+
+#include <assert.h>
+
+bool takesButton(MacOSActionQueue actions, MacOSButton button) {
+	var sender = actions.take();
+	return sender != null && button.matches(sender);
+}
+
+void verifyPortableButton(IButton button) {
+	assert(button.isOpen() && button.isEnabled() && button.title().equals("Library"));
+	double width = button.fittingWidth();
+	assert(width > 0.0 && button.fittingHeight() > 0.0);
+	button.setTitle("A much longer native button title — 音楽");
+	assert(button.title().equals("A much longer native button title — 音楽"));
+	assert(button.fittingWidth() > width);
+	button.setTitle("Library");
+	button.setVisible(false);
+	assert(!button.isVisible());
+	button.setVisible(true);
+	assert(button.isVisible());
+	button.setEnabled(false);
+	assert(!button.activate());
+	button.setEnabled(true);
+}
+
+void verifyCoordinates(NSView parent, bool flipped) {
+	assert(parent.isFlipped() == flipped);
+	var parentFrame = parent.frame();
+	parentFrame.size.width = 220.0;
+	parentFrame.size.height = 130.0;
+	parent.setFrame(parentFrame);
+	var origin = parent.bounds().origin;
+	origin.x = 11.0;
+	origin.y = 17.0;
+	parent.setBoundsOrigin(origin);
+	var child = MacOSView();
+	IView view = child;
+	parent.addSubview(child.nativeView());
+	view.arrange(3.0, 5.0, 31.0, 23.0);
+	var frame = child.nativeView().frame();
+	assert(frame.origin.x == 14.0 && frame.origin.y == (flipped ? 22.0 : 119.0));
+	assert(frame.size.width == 31.0 && frame.size.height == 23.0);
+	view.close();
+	assert(!child.isOpen());
+}
+
+void verifyEventWait(MacOSApplication app) {
+	bool timedOut = false;
+	for (int attempt = 0; attempt < 8 && !timedOut; attempt++) {
+		app.pumpEvents();
+		var timer = Timer();
+		timer.start();
+		if (!app.waitForEvents(0.02)) {
+			assert(timer.elapsedMillis() >= 15.0f && timer.elapsedMillis() < 1000.0f);
+			timedOut = true;
+		}
+	}
+	assert(timedOut);
+	app.waitForEvents(0.0);
+}
+
+void clickNativeButton(MacOSApplication app, MacOSWindow window, MacOSButton button) {
+	var point = button.nativeView().frame().origin;
+	point.x += 30.0;
+	point.y += 16.0;
+	assert(window.contentView().hitTest(point) == button.nativeView());
+	var down = NSEvent.mouseEventWithType(NSEventTypeLeftMouseDown, point, 0UL, 0.0, window.nativeWindow().windowNumber(), null, 1L, 1L, 1.0f);
+	var up = NSEvent.mouseEventWithType(NSEventTypeLeftMouseUp, point, 0UL, 0.0, window.nativeWindow().windowNumber(), null, 2L, 1L, 0.0f);
+	assert(down != null && up != null);
+	NSApplication.sharedApplication().postEvent(up, false);
+	var wake = Timer();
+	wake.start();
+	assert(app.waitForEvents(0.5));
+	assert(wake.elapsedMillis() < 250.0f);
+	// Synthetic events have no WindowServer activation. Deliver the down event
+	// through NSWindow routing; native button tracking consumes the queued up.
+	// This exercises AppKit hit testing/tracking even when the Mac is locked,
+	// not desktop activation or external WindowServer input delivery.
+	window.nativeWindow().sendEvent(down);
+	app.pumpEvents();
+}
+
+bool hasButtonText(Image image, int left) {
+	int scale = image.width / 400;
+	int minimum = 255;
+	int maximum = 0;
+	for (int y = 68 * scale; y < 78 * scale; y++) {
+		for (int x = (left + 20) * scale; x < (left + 130) * scale; x++) {
+			int value = image.pixel(x, y).red;
+			if (value < minimum) { minimum = value; }
+			if (value > maximum) { maximum = value; }
+		}
+	}
+	return maximum - minimum > 60;
+}
+
+void verifyBoundedActions() {
+	bool rejected = false;
+	try { var invalid = MacOSActionQueue(0); } catch (string error) { rejected = true; }
+	assert(rejected);
+	var actions = MacOSActionQueue(2);
+	var first = MacOSButton("First", actions);
+	var second = MacOSButton("Second", actions);
+	for (int index = 0; index < 4; index++) {
+		assert(first.activate() && second.activate());
+		first.cancelPendingActions();
+		assert(first.activate());
+		assert(takesButton(actions, second) && takesButton(actions, first));
+		assert(actions.take() == null);
+	}
+	assert(first.activate() && takesButton(actions, first));
+	assert(first.activate() && second.activate());
+	first.cancelPendingActions();
+	assert(first.activate());
+	assert(takesButton(actions, second) && takesButton(actions, first));
+	assert(first.activate() && second.activate() && first.activate());
+	for (int attempt = 0; attempt < 2; attempt++) {
+		rejected = false;
+		try { actions.take(); } catch (string error) { rejected = error.contains("capacity"); }
+		assert(rejected);
+	}
+	first.close();
+	second.close();
+	actions.close();
+}
+
+void abandonActionQueue(NSButton control) {
+	var actions = MacOSActionQueue(2);
+	var action = actions.bind(control);
+	control.performClick(null);
+	assert(actions.take() == action);
+	control.performClick(null);
+}
+
+void verifyActionLifetime() {
+	assert(ActionButtonProbe.liveCount() == 0L);
+	IMacOSAction? retired = null;
+	{
+		var control = ActionButtonProbe.new();
+		assert(control != null && ActionButtonProbe.liveCount() == 1L);
+		abandonActionQueue(control);
+		assert(!control.hasAction());
+		var actions = MacOSActionQueue(3);
+		var action = actions.bind(control);
+		retired = action;
+		for (int index = 0; index < 1000; index++) {
+			control.fire();
+			control.fire();
+			assert(actions.take() == action);
+			control.fire();
+			assert(actions.take() == action && actions.take() == action);
+		}
+		control.fire();
+		actions.unbind(control);
+		assert(actions.take() == null && !control.hasAction());
+		actions.close();
+	}
+	assert(retired != null && ActionButtonProbe.liveCount() == 0L);
+}
+
+int main() {
+	var app = MacOSApplication();
+	verifyBoundedActions();
+	verifyActionLifetime();
+	verifyCoordinates(NSView.new(), false);
+	verifyCoordinates(FlippedTestView.new(), true);
+	bool invalidWait = false;
+	try { app.waitForEvents(-1.0); } catch (string error) { invalidWait = true; }
+	assert(invalidWait);
+	verifyEventWait(app);
+	var window = MacOSWindow("Native actions", 400.0, 140.0);
+	/* Native dark-mode button drawing composites with its destination. An
+	 * empty transparent capture is not the window's actual background. */
+	var background = MacOSPanel(RGBA(30, 30, 30), 0.0);
+	background.setFrame(0.0, 0.0, 400.0, 140.0);
+	window.contentView().addSubview(background.nativeView());
+	var actions = MacOSActionQueue();
+	var first = MacOSButton("Library", actions);
+	var second = MacOSButton("Settings", actions);
+	IButton portable = first;
+	IView view = portable;
+	IMacOSView? native = (IMacOSView?)view;
+	assert(native != null && native.nativeView() == first.nativeView());
+	IButton? projectedButton = (IButton?)native;
+	assert(projectedButton != null && projectedButton.title().equals("Library"));
+	verifyPortableButton(portable);
+	assert(actions.take() == null);
+	bool unattachedRejected = false;
+	try { view.arrange(20.0, 58.0, 150.0, 32.0); } catch (string error) { unattachedRejected = true; }
+	assert(unattachedRejected);
+	first.setFont(18.0);
+	second.setFont(18.0);
+	first.setSystemSymbol("folder");
+	first.setSelected(true);
+	assert(first.isSelected());
+	assert(first.activate() && !first.isSelected() && takesButton(actions, first));
+	first.setSelected(false);
+	bool invalidFont = false;
+	try { first.setFont(0.0); } catch (string error) { invalidFont = true; }
+	assert(invalidFont);
+	first.setFrame(20.0, 50.0, 150.0, 32.0);
+	second.setFrame(220.0, 50.0, 150.0, 32.0);
+	for view in [first.nativeView(), second.nativeView()] { window.contentView().addSubview(view); }
+	view.arrange(20.0, 58.0, 150.0, 32.0);
+	assert(first.nativeView().frame().origin.x == 20.0 && first.nativeView().frame().origin.y == 50.0);
+	bool invalidBounds = false;
+	try { view.arrange(20.0, 58.0, -1.0, 32.0); } catch (string error) { invalidBounds = true; }
+	assert(invalidBounds && first.nativeView().frame().size.width == 150.0);
+	for button in [first, second] { assert(button.isEnabled()); }
+	window.show();
+	app.pumpEvents();
+	assert(actions.take() == null);
+	var otherActions = MacOSActionQueue();
+	var unowned = NSButton.new();
+	assert(unowned != null);
+	var expectedAction = actions.bind(unowned);
+	bool duplicateRejected = false;
+	try { otherActions.bind(unowned); } catch (string error) { duplicateRejected = true; }
+	assert(duplicateRejected);
+	unowned.performClick(null);
+	assert(actions.take() == expectedAction && otherActions.take() == null);
+	actions.unbind(unowned);
+	var reboundAction = otherActions.bind(unowned);
+	assert(reboundAction != expectedAction);
+	unowned.performClick(null);
+	assert(otherActions.take() == reboundAction && actions.take() == null);
+	otherActions.unbind(unowned);
+	otherActions.close();
+	assert(first.activate() && second.activate() && first.activate());
+	assert(takesButton(actions, first) && takesButton(actions, second) && takesButton(actions, first));
+	assert(actions.take() == null);
+	second.setEnabled(false);
+	assert(!second.isEnabled() && !second.activate() && actions.take() == null);
+	second.setEnabled(true);
+	for (int index = 0; index < 8; index++) { assert(first.activate() && second.activate()); }
+	for (int index = 0; index < 8; index++) { assert(takesButton(actions, first) && takesButton(actions, second)); }
+	assert(actions.take() == null);
+	bool rejected = false;
+	try { actions.close(); } catch (string error) { rejected = true; }
+	assert(rejected && second.activate() && takesButton(actions, second));
+	var bytes = MacOSViewCapture.captureTiff(window.contentView());
+	var capture = File("NativeButtons.tiff", "wb");
+	assert(capture.ok() && capture.writeBytes(bytes) && capture.close());
+	var decoded = MacOSEncodedImageDecoder().decode(bytes, EncodedImageDecodeLimits(32000000, 4096, 4096, 4000000LL));
+	assert(decoded.succeeded());
+	assert(hasButtonText(decoded.image(), 20) && hasButtonText(decoded.image(), 220));
+	first.setTransparent(true);
+	var transparent = MacOSEncodedImageDecoder().decode(MacOSViewCapture.captureTiff(window.contentView()), EncodedImageDecodeLimits(32000000, 4096, 4096, 4000000LL));
+	assert(transparent.succeeded() && !hasButtonText(transparent.image(), 20) && hasButtonText(transparent.image(), 220));
+	clickNativeButton(app, window, first);
+	assert(takesButton(actions, first) && actions.take() == null);
+	assert(first.activate() && second.activate() && first.activate());
+	first.cancelPendingActions();
+	assert(takesButton(actions, second) && actions.take() == null);
+	assert(first.activate() && takesButton(actions, first));
+	first.setTransparent(false);
+	assert(first.activate() && second.activate() && first.activate());
+	view.close();
+	assert(!portable.isOpen() && !first.isOpen());
+	first.close();
+	assert(takesButton(actions, second) && actions.take() == null);
+	rejected = false;
+	try { first.activate(); } catch (string error) { rejected = true; }
+	assert(rejected);
+	second.close();
+	actions.close();
+	actions.close();
+	rejected = false;
+	try { actions.take(); } catch (string error) { rejected = true; }
+	assert(rejected);
+	background.close();
+	window.close();
+	print("PASS: ordered native button actions, disabled state, cancellation and teardown");
+	return 0;
+}

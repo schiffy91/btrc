@@ -300,15 +300,6 @@ SET_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("iterGet", "T", "method", (("int", "n"),), "iterGet"),
 )
 
-# Generated from src/stdlib/state.btrc
-STATE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
-    BuiltinMemberSpec("value", "T", "field", doc="value"),
-    BuiltinMemberSpec("version", "int", "field", doc="version"),
-    BuiltinMemberSpec("get", "T", "method", (), "get"),
-    BuiltinMemberSpec("set", "State<T>", "method", (("T", "value"),), "set"),
-    BuiltinMemberSpec("changedSince", "bool", "method", (("int", "seenVersion"),), "changedSince"),
-)
-
 # Generated from src/stdlib/vector.btrc
 VECTOR_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("len", "int", "field", doc="len"),
@@ -380,7 +371,6 @@ MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("Result", RESULT_MEMBERS),
     ("SPSCQueue", SPSCQUEUE_MEMBERS),
     ("Set", SET_MEMBERS),
-    ("State", STATE_MEMBERS),
     ("Vector", VECTOR_MEMBERS),
 )
 
@@ -391,9 +381,8 @@ MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
 
 # Generated from stdlib .btrc files
 STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
-    ("ApplicationDirectories", (
-        BuiltinMemberSpec("resolve", "ApplicationDirectoryRootsOutcome", "method", (("ApplicationDirectoryLimits", "limits"),), "resolve"),
-        BuiltinMemberSpec("resolveStandard", "ApplicationDirectoryRootsOutcome", "method", (), "resolveStandard"),
+    ("Audio", (
+        BuiltinMemberSpec("createDevice", "AudioDeviceProviderOpenOutcome", "method", (), "createDevice"),
     )),
     ("BitPattern32", (
         BuiltinMemberSpec("signedInteger", "int", "method", (("uint", "bits"),), "signedInteger"),
@@ -451,6 +440,10 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("probe", "bool", "method", (("string", "pidFile"), ("DaemonControlRecord", "record"), ("int", "timeoutMilliseconds"),), "probe"),
         BuiltinMemberSpec("waitForRecord", "bool", "method", (("string", "pidFile"), ("int", "timeoutMilliseconds"),), "waitForRecord"),
         BuiltinMemberSpec("waitForRemoval", "bool", "method", (("string", "pidFile"), ("DaemonControlRecord", "original"), ("int", "timeoutMilliseconds"),), "waitForRemoval"),
+    )),
+    ("ApplicationDirectories", (
+        BuiltinMemberSpec("resolve", "ApplicationDirectoryRootsOutcome", "method", (("ApplicationDirectoryLimits", "limits"),), "resolve"),
+        BuiltinMemberSpec("resolveStandard", "ApplicationDirectoryRootsOutcome", "method", (), "resolveStandard"),
     )),
     ("UnixFileSystem", (
         BuiltinMemberSpec("chmodPath", "int", "method", (("string", "path"), ("int", "mode"),), "chmodPath"),
@@ -518,6 +511,87 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     )),
     ("ExactFileSnapshot", (
         BuiltinMemberSpec("validate", "FileSystemError*", "method", (("FileSnapshot", "expected"), ("FileSnapshotOutcome", "held"), ("string", "path"), ("string", "operation"),), "validate"),
+    )),
+    ("FreeType", (
+        BuiltinMemberSpec("load", "Font", "method", (("string", "path"), ("int", "pixelSize"),), "load"),
+    )),
+    ("GUI", (
+        BuiltinMemberSpec("initialize", "void", "method", (("int", "workCapacity"),), "initialize"),
+        BuiltinMemberSpec("createWindow", "IWindow", "method", (("string", "title"), ("double", "width"), ("double", "height"),), "createWindow"),
+        BuiltinMemberSpec("createButton", "IButton", "method", (("string", "title"),), "createButton"),
+        BuiltinMemberSpec("createTextField", "ITextField", "method", (("string", "text"), ("string", "placeholder"),), "createTextField"),
+        BuiltinMemberSpec("createContainer", "IContainer", "method", (), "createContainer"),
+        BuiltinMemberSpec("createRow", "IStack", "method", (("double", "spacing"),), "createRow"),
+        BuiltinMemberSpec("createColumn", "IStack", "method", (("double", "spacing"),), "createColumn"),
+        BuiltinMemberSpec("createGPUView", "IGPUView", "method", (("bool", "capture"),), "createGPUView"),
+        BuiltinMemberSpec("createLabel", "ILabel", "method", (("string", "text"),), "createLabel"),
+        BuiltinMemberSpec("createImageView", "IImageView", "method", (), "createImageView"),
+        BuiltinMemberSpec("createPanel", "IPanel", "method", (("RGBA", "fill"), ("double", "radius"),), "createPanel"),
+        BuiltinMemberSpec("createProgressIndicator", "IProgressIndicator", "method", (), "createProgressIndicator"),
+        BuiltinMemberSpec("createLevelIndicator", "ILevelIndicator", "method", (("double", "warning"), ("double", "critical"),), "createLevelIndicator"),
+        BuiltinMemberSpec("createSlider", "ISlider", "method", (("double", "minimum"), ("double", "maximum"), ("int", "intervals"),), "createSlider"),
+        BuiltinMemberSpec("createSelect", "ISelect", "method", (), "createSelect"),
+        BuiltinMemberSpec("createScrollView", "IScrollView", "method", (), "createScrollView"),
+        BuiltinMemberSpec("createGrid", "IGrid", "method", (("int", "columns"), ("int", "rows"), ("double", "columnSpacing"), ("double", "rowSpacing"),), "createGrid"),
+        BuiltinMemberSpec("chooseDirectory", "DirectoryPickerOutcome", "method", (("DirectoryPickerRequest", "request"),), "chooseDirectory"),
+        BuiltinMemberSpec("rasterizeText", "void", "method", (("TextRasterization", "request"),), "rasterizeText"),
+        BuiltinMemberSpec("rasterText", "Image", "method", (("TextRun", "run"),), "rasterText"),
+        BuiltinMemberSpec("capture", "Image", "method", (("IView", "root"), ("Vector<GUICaptureLayer>", "layers"),), "capture"),
+        BuiltinMemberSpec("post", "void", "method", (("IApplicationWork", "work"),), "post"),
+        BuiltinMemberSpec("postAfter", "ICallbackRegistration", "method", (("double", "delaySeconds"), ("IApplicationWork", "work"),), "postAfter"),
+        BuiltinMemberSpec("requestQuit", "void", "method", (), "requestQuit"),
+        BuiltinMemberSpec("run", "void", "method", (), "run"),
+        BuiltinMemberSpec("close", "CallbackCancellation", "method", (), "close"),
+    )),
+    ("GUIInt", (
+        BuiltinMemberSpec("clamp", "int", "method", (("long long", "value"),), "clamp"),
+        BuiltinMemberSpec("add", "int", "method", (("int", "left"), ("int", "right"),), "add"),
+        BuiltinMemberSpec("subtract", "int", "method", (("int", "left"), ("int", "right"),), "subtract"),
+        BuiltinMemberSpec("multiply", "int", "method", (("int", "left"), ("int", "right"),), "multiply"),
+    )),
+    ("DirectoryPickerOutcome", (
+        BuiltinMemberSpec("selected", "DirectoryPickerOutcome", "method", (("string", "directory"),), "selected"),
+        BuiltinMemberSpec("cancelled", "DirectoryPickerOutcome", "method", (), "cancelled"),
+        BuiltinMemberSpec("failed", "DirectoryPickerOutcome", "method", (("AppError", "error"),), "failed"),
+    )),
+    ("AppKitText", (
+        BuiltinMemberSpec("nativeValue", "NSString", "method", (("string", "text"),), "nativeValue"),
+        BuiltinMemberSpec("ownedValue", "string", "method", (("NSString", "text"),), "ownedValue"),
+    )),
+    ("MacOSComposedCapture", (
+        BuiltinMemberSpec("captureTiff", "Bytes", "method", (("NSView", "root"), ("Vector<MacOSCaptureLayer>", "layers"), ("int", "maximumPixels"), ("int", "maximumBytes"),), "captureTiff"),
+    )),
+    ("MacOSSystemText", (
+        BuiltinMemberSpec("rasterize", "void", "method", (("TextRasterization", "request"),), "rasterize"),
+        BuiltinMemberSpec("raster", "Image", "method", (("TextRun", "run"),), "raster"),
+    )),
+    ("MacOSViewCapture", (
+        BuiltinMemberSpec("captureTiff", "Bytes", "method", (("NSView", "view"), ("int", "maximumPixels"), ("int", "maximumBytes"),), "captureTiff"),
+    )),
+    ("GUIRaster", (
+        BuiltinMemberSpec("glyph", "unsigned long long", "method", (("int", "codepoint"),), "glyph"),
+        BuiltinMemberSpec("nextCodepoint", "int", "method", (("string", "text"), ("int", "length"), ("int*", "offset"),), "nextCodepoint"),
+        BuiltinMemberSpec("advance", "long long", "method", (("long long", "position"), ("long long", "distance"),), "advance"),
+        BuiltinMemberSpec("blendChannel", "unsigned int", "method", (("unsigned int", "source"), ("unsigned int", "sourceAlpha"), ("unsigned int", "destination"), ("unsigned int", "destinationAlpha"), ("unsigned int", "alphaNumerator"),), "blendChannel"),
+        BuiltinMemberSpec("blendPixel", "void", "method", (("BtrcGuiPixels*", "pixels"), ("int", "x"), ("int", "y"), ("unsigned int", "rgba"),), "blendPixel"),
+        BuiltinMemberSpec("rectangle", "void", "method", (("BtrcGuiPixels*", "pixels"), ("long long", "x"), ("long long", "y"), ("long long", "width"), ("long long", "height"), ("unsigned int", "rgba"), ("bool", "blend"),), "rectangle"),
+        BuiltinMemberSpec("bitmapText", "void", "method", (("BtrcGuiPixels*", "pixels"), ("int", "x"), ("int", "y"), ("string", "text"), ("unsigned int", "rgba"), ("int", "scale"),), "bitmapText"),
+        BuiltinMemberSpec("textWidth", "int", "method", (("string", "text"), ("int", "scale"),), "textWidth"),
+        BuiltinMemberSpec("textHeight", "int", "method", (("int", "scale"),), "textHeight"),
+        BuiltinMemberSpec("signedAdvance", "long long", "method", (("long long", "position"), ("long long", "distance"),), "signedAdvance"),
+        BuiltinMemberSpec("fontPixels", "int", "method", (("long long", "fixed26_6"),), "fontPixels"),
+        BuiltinMemberSpec("fontWidth", "int", "method", (("Font", "font"), ("string", "text"),), "fontWidth"),
+        BuiltinMemberSpec("fontText", "void", "method", (("BtrcGuiPixels*", "pixels"), ("Font", "font"), ("int", "x"), ("int", "y"), ("string", "text"), ("unsigned int", "rgba"),), "fontText"),
+    )),
+    ("Theme", (
+        BuiltinMemberSpec("dark", "Theme", "method", (), "dark"),
+    )),
+    ("UI", (
+        BuiltinMemberSpec("hit", "bool", "method", (("GUIInput", "input"), ("int", "x"), ("int", "y"), ("int", "w"), ("int", "h"),), "hit"),
+        BuiltinMemberSpec("measure", "void", "method", (("Surface", "s"), ("View", "v"),), "measure"),
+        BuiltinMemberSpec("layout", "void", "method", (("View", "v"), ("int", "x"), ("int", "y"), ("int", "w"), ("int", "h"),), "layout"),
+        BuiltinMemberSpec("render", "void", "method", (("Surface", "s"), ("GUIInput", "input"), ("Theme", "theme"), ("View", "v"), ("GUIEvents", "ev"),), "render"),
+        BuiltinMemberSpec("frame", "GUIEvents", "method", (("Surface", "s"), ("GUIInput", "input"), ("Theme", "theme"), ("View", "root"),), "frame"),
     )),
     ("GraphCLI", (
         BuiltinMemberSpec("args", "Map<string, string>", "method", (("CLIArgs", "args"), ("int", "startIndex"),), "args"),
@@ -696,15 +770,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("fclamp", "float", "method", (("float", "val"), ("float", "lo"), ("float", "hi"),), "fclamp"),
         BuiltinMemberSpec("sign", "int", "method", (("int", "x"),), "sign"),
         BuiltinMemberSpec("fsign", "float", "method", (("float", "x"),), "fsign"),
-    )),
-    ("NativeUIStyle", (
-        BuiltinMemberSpec("decimal", "bool", "method", (("string", "value"), ("bool", "allowZero"),), "decimal"),
-        BuiltinMemberSpec("pixels", "bool", "method", (("string", "value"), ("bool", "allowZero"),), "pixels"),
-        BuiltinMemberSpec("hexDigit", "bool", "method", (("char", "value"),), "hexDigit"),
-        BuiltinMemberSpec("color", "bool", "method", (("string", "value"),), "color"),
-        BuiltinMemberSpec("gradientColors", "Vector<string>", "method", (("string", "value"),), "gradientColors"),
-        BuiltinMemberSpec("validate", "NativeUIStyleError", "method", (("string", "css"),), "validate"),
-        BuiltinMemberSpec("validateClassName", "NativeUIStyleError", "method", (("string", "value"),), "validateClassName"),
     )),
     ("OwnedBuffers", (
         BuiltinMemberSpec("tryOpen", "OwnedBufferOpenKind", "method", (("size_t", "count"), ("size_t", "valueSize"), ("struct OwnedBufferStorage**", "output"),), "tryOpen"),
@@ -926,37 +991,76 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("writeResponseUntil", "bool", "method", (("int", "fd"), ("string", "value"), ("long long", "deadline"),), "writeResponseUntil"),
         BuiltinMemberSpec("answer", "bool", "method", (("int", "fd"), ("Vector<string>", "responses"), ("int", "responseCount"), ("long long", "deadline"),), "answer"),
     )),
-    ("HTML", (
-        BuiltinMemberSpec("escape", "string", "method", (("string", "raw"),), "escape"),
+    ("TraySignal", (
+        BuiltinMemberSpec("quit", "string", "method", (), "quit"),
     )),
-    ("LinuxUIBuilder", (
-        BuiltinMemberSpec("html", "HTMLUIBackend", "method", (), "html"),
-        BuiltinMemberSpec("native", "NativeUIBackend", "method", (), "native"),
+    ("UITextInput", (
+        BuiltinMemberSpec("iconBounds", "UIRect", "method", (("UILayoutBox", "box"),), "iconBounds"),
+        BuiltinMemberSpec("byteAt", "int", "method", (("string", "value"), ("int", "index"),), "byteAt"),
+        BuiltinMemberSpec("continuation", "bool", "method", (("int", "value"),), "continuation"),
+        BuiltinMemberSpec("scalarWidth", "int", "method", (("string", "value"), ("int", "index"),), "scalarWidth"),
+        BuiltinMemberSpec("validUtf8", "bool", "method", (("string", "value"),), "validUtf8"),
+        BuiltinMemberSpec("previousBoundary", "int", "method", (("string", "value"), ("int", "offset"),), "previousBoundary"),
+        BuiltinMemberSpec("nextBoundary", "int", "method", (("string", "value"), ("int", "offset"),), "nextBoundary"),
+        BuiltinMemberSpec("scalarCount", "int", "method", (("string", "value"), ("int", "endOffset"),), "scalarCount"),
+        BuiltinMemberSpec("wordCharacter", "bool", "method", (("string", "value"), ("int", "offset"),), "wordCharacter"),
+        BuiltinMemberSpec("previousWord", "int", "method", (("string", "value"), ("int", "offset"),), "previousWord"),
+        BuiltinMemberSpec("selectionGroup", "int", "method", (("string", "value"), ("int", "offset"),), "selectionGroup"),
+        BuiltinMemberSpec("selectionWordStart", "int", "method", (("string", "value"), ("int", "offset"),), "selectionWordStart"),
+        BuiltinMemberSpec("selectionWordEnd", "int", "method", (("string", "value"), ("int", "offset"),), "selectionWordEnd"),
+        BuiltinMemberSpec("nextWord", "int", "method", (("string", "value"), ("int", "offset"),), "nextWord"),
     )),
-    ("MacUIBuilder", (
-        BuiltinMemberSpec("html", "HTMLUIBackend", "method", (), "html"),
-        BuiltinMemberSpec("native", "NativeUIBackend", "method", (), "native"),
+    ("UILayout", (
+        BuiltinMemberSpec("maximum", "int", "method", (("int", "left"), ("int", "right"),), "maximum"),
+        BuiltinMemberSpec("minimum", "int", "method", (("int", "left"), ("int", "right"),), "minimum"),
+        BuiltinMemberSpec("gridColumns", "int", "method", (("int", "width"), ("int", "gap"),), "gridColumns"),
+        BuiltinMemberSpec("intrinsicWidth", "int", "method", (("UIElement", "element"), ("UIResolvedStyle", "style"), ("int", "availableWidth"), ("UITypography", "typography"),), "intrinsicWidth"),
+        BuiltinMemberSpec("measure", "UIMeasuredNode*", "method", (("UIElement", "element"), ("int", "availableWidth"), ("int", "depth"), ("UIBuildContext", "context"),), "measure"),
+        BuiltinMemberSpec("measureFresh", "UIMeasuredNode*", "method", (("UIElement", "element"), ("int", "availableWidth"), ("int", "depth"), ("UIBuildContext", "context"),), "measureFresh"),
+        BuiltinMemberSpec("place", "void", "method", (("UIMeasuredNode", "node"), ("int", "x"), ("int", "y"), ("int", "width"), ("int", "depth"), ("Vector<UILayoutBox>", "boxes"), ("bool", "freezeStyles"), ("int", "assignedHeight"),), "place"),
+        BuiltinMemberSpec("pinHeaders", "Vector<UILayoutBox>", "method", (("Vector<UILayoutBox>", "boxes"), ("int", "scrollY"),), "pinHeaders"),
+        BuiltinMemberSpec("virtualGridViewports", "Vector<UIVirtualGridViewport>", "method", (("Vector<UILayoutBox>", "boxes"), ("UIViewportMetrics", "viewport"),), "virtualGridViewports"),
     )),
-    ("WindowsUIBuilder", (
-        BuiltinMemberSpec("html", "HTMLUIBackend", "method", (), "html"),
-        BuiltinMemberSpec("native", "NativeUIBackend", "method", (), "native"),
+    ("UISelectIndicator", (
+        BuiltinMemberSpec("bounds", "UIRect", "method", (("UILayoutBox", "box"), ("int", "scrollX"), ("int", "scrollY"),), "bounds"),
+        BuiltinMemberSpec("color", "UIColor", "method", (("UILayoutBox", "box"), ("UITheme", "theme"),), "color"),
+        BuiltinMemberSpec("covers", "bool", "method", (("float", "x"), ("float", "y"), ("int", "width"), ("int", "height"), ("bool", "expanded"),), "covers"),
     )),
-    ("UI", (
-        BuiltinMemberSpec("node", "UINode", "method", (("string", "tag"),), "node"),
-        BuiltinMemberSpec("text", "UINode", "method", (("string", "value"),), "text"),
-        BuiltinMemberSpec("rawHtml", "UINode", "method", (("string", "value"),), "rawHtml"),
-        BuiltinMemberSpec("div", "UINode", "method", (), "div"),
-        BuiltinMemberSpec("button", "UINode", "method", (("string", "label"),), "button"),
-        BuiltinMemberSpec("input", "UINode", "method", (("string", "name"), ("string", "value"),), "input"),
-        BuiltinMemberSpec("document", "UIDocument", "method", (("string", "title"), ("UINode", "body"),), "document"),
+    ("UIRaster", (
+        BuiltinMemberSpec("textMenu", "void", "method", (("Image", "image"), ("UITextMenu*", "menu"), ("UITheme", "theme"), ("UITypography", "typography"),), "textMenu"),
+        BuiltinMemberSpec("chevron", "void", "method", (("Image", "image"), ("UIRect", "bounds"), ("UIColor", "color"), ("bool", "expanded"),), "chevron"),
+        BuiltinMemberSpec("pixel", "void", "method", (("Image", "image"), ("int", "x"), ("int", "y"), ("UIColor", "color"),), "pixel"),
+        BuiltinMemberSpec("fillRect", "void", "method", (("Image", "image"), ("int", "x"), ("int", "y"), ("int", "width"), ("int", "height"), ("UIColor", "color"), ("int", "radius"), ("UILinearGradient*", "gradient"),), "fillRect"),
+        BuiltinMemberSpec("text", "void", "method", (("Image", "image"), ("int", "x"), ("int", "y"), ("string", "value"), ("UIColor", "color"), ("UIResolvedStyle", "style"), ("UITypography", "typography"),), "text"),
+        BuiltinMemberSpec("panel", "void", "method", (("Image", "image"), ("int", "x"), ("int", "y"), ("int", "width"), ("int", "height"), ("UIColor", "fill"), ("UIResolvedStyle", "style"), ("UILinearGradient*", "gradient"),), "panel"),
+        BuiltinMemberSpec("glyphRun", "void", "method", (("Image", "image"), ("int", "x"), ("int", "y"), ("string", "value"), ("UIColor", "color"), ("int", "fontSize"), ("int", "lineHeight"), ("int", "fontWeight"), ("UITypography", "typography"), ("bool", "composite"),), "glyphRun"),
+        BuiltinMemberSpec("image", "void", "method", (("Image", "target"), ("Image", "source"), ("UIRect", "bounds"), ("int", "scrollX"), ("int", "scrollY"), ("int", "padding"), ("UIImageRegion*", "region"),), "image"),
+        BuiltinMemberSpec("selectPopup", "void", "method", (("Image", "image"), ("Vector<UILayoutBox>", "boxes"), ("UISelectPopup", "popup"), ("int", "highlightedOption"), ("UITheme", "theme"), ("UITypography", "typography"),), "selectPopup"),
+        BuiltinMemberSpec("frame", "void", "method", (("Image", "image"), ("Vector<UILayoutBox>", "boxes"), ("UITheme", "theme"), ("UITypography", "typography"), ("string", "hovered"), ("string", "focused"), ("string", "focusedValue"), ("int", "caretByteOffset"), ("int", "scrollX"), ("int", "scrollY"), ("UISelectPopup", "popup"), ("int", "highlightedOption"), ("UIScrollbar*", "scrollbar"), ("int", "anchorByteOffset"), ("bool", "caretVisible"),), "frame"),
     )),
-    ("NativeUI", (
-        BuiltinMemberSpec("applescriptString", "string", "method", (("string", "raw"),), "applescriptString"),
-        BuiltinMemberSpec("detect", "NativeUIBackend", "method", (), "detect"),
+    ("UISemanticText", (
+        BuiltinMemberSpec("byteAt", "int", "method", (("string", "value"), ("int", "index"),), "byteAt"),
+        BuiltinMemberSpec("continuation", "bool", "method", (("int", "value"),), "continuation"),
+        BuiltinMemberSpec("scalarWidth", "int", "method", (("string", "value"), ("int", "index"),), "scalarWidth"),
+        BuiltinMemberSpec("valid", "bool", "method", (("string", "value"), ("int", "maximumBytes"),), "valid"),
     )),
-    ("UIRuntime", (
-        BuiltinMemberSpec("runCommandAsync", "Thread<int>", "method", (("Command", "command"),), "runCommandAsync"),
-        BuiltinMemberSpec("notifyAsync", "Thread<int>", "method", (("NativeUIBackend", "backend"), ("string", "title"), ("string", "body"),), "notifyAsync"),
+    ("UITextRaster", (
+        BuiltinMemberSpec("maximumBytes", "int", "method", (), "maximumBytes"),
+        BuiltinMemberSpec("bounded", "string", "method", (("string", "value"),), "bounded"),
+        BuiltinMemberSpec("tint", "void", "method", (("Image", "image"), ("UIColor", "color"),), "tint"),
+        BuiltinMemberSpec("tryPlatformRasterize", "Image*", "method", (("UITypography", "typography"), ("string", "value"), ("int", "fontSize"), ("int", "lineHeight"), ("int", "fontWeight"), ("UIColor", "color"), ("float", "backingScale"),), "tryPlatformRasterize"),
+        BuiltinMemberSpec("deterministic", "Image", "method", (("UITypography", "typography"), ("string", "value"), ("int", "fontSize"), ("int", "lineHeight"), ("int", "fontWeight"), ("UIColor", "color"), ("float", "backingScale"),), "deterministic"),
+        BuiltinMemberSpec("rasterize", "Image", "method", (("UITypography", "typography"), ("string", "value"), ("int", "fontSize"), ("int", "lineHeight"), ("int", "fontWeight"), ("UIColor", "color"), ("float", "backingScale"),), "rasterize"),
+        BuiltinMemberSpec("blit", "void", "method", (("Image", "target"), ("Image", "source"), ("int", "left"), ("int", "top"),), "blit"),
+    )),
+    ("UIStyle", (
+        BuiltinMemberSpec("decimal", "bool", "method", (("string", "value"), ("bool", "allowZero"),), "decimal"),
+        BuiltinMemberSpec("pixels", "bool", "method", (("string", "value"), ("bool", "allowZero"),), "pixels"),
+        BuiltinMemberSpec("hexDigit", "bool", "method", (("char", "value"),), "hexDigit"),
+        BuiltinMemberSpec("color", "bool", "method", (("string", "value"),), "color"),
+        BuiltinMemberSpec("gradientColors", "Vector<string>", "method", (("string", "value"),), "gradientColors"),
+        BuiltinMemberSpec("validate", "UIStyleError", "method", (("string", "css"),), "validate"),
+        BuiltinMemberSpec("validateClassName", "UIStyleError", "method", (("string", "value"),), "validateClassName"),
     )),
 )
 

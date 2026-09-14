@@ -1,0 +1,110 @@
+import Library.Image;
+import Library.Image.EncodedImage;
+import Library.IO;
+import Library.Image.MacOS.MacOSEncodedImageDecoder;
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSPanel;
+import Library.GUI.MacOS.MacOSButton;
+import Library.GUI.MacOS.MacOSSelect;
+import Library.GUI.MacOS.MacOSViewCapture;
+
+#include <assert.h>
+
+Image sizingPixels(MacOSWindow window, string name) {
+	var bytes = MacOSViewCapture.captureTiff(window.contentView());
+	var file = File(f"{name}.tiff", "wb");
+	assert(file.ok() && file.writeBytes(bytes) && file.close());
+	return MacOSEncodedImageDecoder().decode(bytes, EncodedImageDecodeLimits(32000000, 4096, 4096, 4000000LL)).image();
+}
+
+/* Compare labeled and blank captures so the test measures actual title ink,
+ * independently of the system appearance. The bezel is sampled off-title. */
+void containedTitle(Image labeled, Image blank, int left, int top) {
+	int scale = labeled.width / 600;
+	int inkTop = labeled.height;
+	int inkBottom = -1;
+	int bezelTop = labeled.height;
+	int bezelBottom = -1;
+	int background = blank.pixel(0, 0).red;
+	for (int y = top * scale; y < (top + 60) * scale; y++) {
+		var edge = blank.pixel((left + 35) * scale, y);
+		if (edge.red < background - 8 || edge.red > background + 8) {
+			if (y < bezelTop) { bezelTop = y; }
+			bezelBottom = y;
+		}
+		for (int x = (left + 45) * scale; x < (left + 230) * scale; x++) {
+			var a = labeled.pixel(x, y);
+			var b = blank.pixel(x, y);
+			if (a.red == b.red && a.green == b.green && a.blue == b.blue) { continue; }
+			if (y < inkTop) { inkTop = y; }
+			inkBottom = y;
+		}
+	}
+	assert(inkBottom - inkTop > 12 * scale);
+	assert(inkTop >= bezelTop + scale && inkBottom <= bezelBottom - scale);
+}
+
+void sizingScenario(MacOSApplication app, bool dark) {
+	var window = MacOSWindow("Native control sizing", 600.0, 100.0);
+	var background = dark ? RGBA(30, 30, 30) : RGBA(255, 255, 255);
+	var root = MacOSPanel(background);
+	root.setDarkAppearance(dark);
+	window.attachRoot(root);
+	var panel = MacOSPanel(background);
+	root.attach(panel);
+	panel.arrange(0.0, 0.0, 600.0, 100.0);
+	var button = MacOSButton("Mgyp Button");
+	var select = MacOSSelect();
+	select.setItems(["Mgyp Selection"], 0);
+	panel.attach(button);
+	panel.attach(select);
+	button.arrange(15.0, 20.0, 270.0, 60.0);
+	select.arrange(315.0, 20.0, 270.0, 60.0);
+	button.setFont(13.0);
+	select.setFont(13.0);
+	double regularButton = button.fittingHeight();
+	double regularSelect = select.fittingHeight();
+	button.setFont(20.0);
+	select.setFont(20.0);
+	assert(button.fittingHeight() > regularButton && select.fittingHeight() > regularSelect);
+	window.show();
+	app.pumpEvents();
+	string theme = dark ? "Dark" : "Light";
+	var labeled = sizingPixels(window, f"NativeControlSizing{theme}");
+	assert(labeled.width >= 600 && labeled.height * 6 == labeled.width);
+	bool rejected = false;
+	try { button.setFont(24.0); } catch (string error) { rejected = true; }
+	assert(rejected);
+	rejected = false;
+	try { select.setFont(24.0); } catch (string error) { rejected = true; }
+	assert(rejected);
+	button.setBordered(false);
+	button.setFont(24.0);
+	rejected = false;
+	try { button.setBordered(true); } catch (string error) { rejected = true; }
+	assert(rejected);
+	button.setFont(20.0);
+	button.setBordered(true);
+	var restored = sizingPixels(window, f"NativeControlSizing{theme}Restored");
+	button.setTitle("");
+	select.setItems([""], 0);
+	var blank = sizingPixels(window, f"NativeControlSizing{theme}Blank");
+	containedTitle(labeled, blank, 15, 20);
+	containedTitle(labeled, blank, 315, 20);
+	containedTitle(restored, blank, 15, 20);
+	containedTitle(restored, blank, 315, 20);
+	button.setFont(13.0);
+	select.setFont(13.0);
+	assert(button.fittingHeight() == regularButton && select.fittingHeight() == regularSelect);
+	window.close();
+}
+
+int main() {
+	var app = MacOSApplication();
+	sizingScenario(app, false);
+	sizingScenario(app, true);
+	app.close();
+	print("PASS: native control sizing, contained 20-point ink, rejected oversized bezels and restoration");
+	return 0;
+}

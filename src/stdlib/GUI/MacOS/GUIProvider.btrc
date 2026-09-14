@@ -3,8 +3,8 @@ import Library.GUI.MacOS.MacOSGPUView;
 import Library.GUI.MacOS.MacOSComposedCapture;
 import Library.GUI.MacOS.MacOSSystemText;
 import Library.GUI.Capture;
-import Library.MacOSDirectoryPicker;
-import Library.MacOSEncodedImageDecoder;
+import Library.GUI.MacOS.MacOSDirectoryPicker;
+import Library.Image.MacOS.MacOSEncodedImageDecoder;
 
 /* Private package implementation. The static slot is the application owner,
  * not a widget registry or a second native lifetime mechanism. */
@@ -27,7 +27,7 @@ class GUIProvider {
 		return application;
 	}
 
-	class AppDirectoryPickerOutcome chooseDirectory(AppDirectoryPickerRequest request) { GUIProvider.application(); return MacOSDirectoryPicker().chooseDirectory(request); }
+	class DirectoryPickerOutcome chooseDirectory(DirectoryPickerRequest request) { GUIProvider.application(); return MacOSDirectoryPicker().chooseDirectory(request); }
 
 	class void rasterizeText(TextRasterization request) { GUIProvider.requireMainThread(); MacOSSystemText.rasterize(request); }
 

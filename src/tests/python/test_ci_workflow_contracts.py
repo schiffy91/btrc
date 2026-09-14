@@ -151,7 +151,7 @@ def test_windows_ci_runs_and_uploads_the_extracted_zip() -> None:
     assert "if actual_stdlib != expected_stdlib:" in job
     assert re.search(r"grep[^\n]*PASS", job) is None
     assert job.count("src/tests/strings/expected/BracesInCodeGen.stdout") >= 2
-    assert "src/tests/stdlib/expected/StdlibPathWindowsLexical.stdout" in job
+    assert "src/tests/stdlib/expected/PathWindowsLexical.stdout" in job
     # Logical-line equality tolerates Git's platform EOL checkout while still
     # rejecting any extra, missing, or otherwise changed output line.
     assert job.count(".splitlines()") >= 4
