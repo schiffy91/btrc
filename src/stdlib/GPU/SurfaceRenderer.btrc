@@ -105,7 +105,10 @@ class GPUSurfaceRenderer {
 		if (self._capture) { configuration.usage |= WGPUTextureUsage_CopySrc; }
 		configuration.width = (uint32_t)self._width;
 		configuration.height = (uint32_t)self._height;
-		configuration.presentMode = WGPUPresentMode_Fifo;
+		/* Immediate presentation never waits for the display: frames leave as
+		 * soon as they are recorded, so the frame rate is bounded by rendering
+		 * cost rather than the panel's refresh (tearing is accepted). */
+		configuration.presentMode = WGPUPresentMode_Immediate;
 		configuration.alphaMode = self._alphaMode;
 		wgpuSurfaceConfigure(self._surface, configuration);
 		self._configured = true;

@@ -24,7 +24,7 @@ symbols = [
 	"WGPUPopErrorScopeCallbackInfo", "WGPUBufferMapCallbackInfo",
 	"wgpuDeviceGetLimits", "WGPULimits", "wgpuSurfaceGetCapabilities", "wgpuSurfaceCapabilitiesFreeMembers", "WGPUStatus_Success",
 	"WGPUTextureFormat_BGRA8Unorm", "WGPUTextureFormat_RGBA8Unorm", "WGPUTextureUsage_RenderAttachment", "WGPUTextureUsage_CopySrc",
-	"wgpuSurfaceConfigure", "wgpuSurfaceUnconfigure", "WGPUSurfaceConfiguration", "WGPUPresentMode_Fifo",
+	"wgpuSurfaceConfigure", "wgpuSurfaceUnconfigure", "WGPUSurfaceConfiguration", "WGPUPresentMode_Fifo", "WGPUPresentMode_Immediate",
 	"wgpuSurfaceGetCurrentTexture", "WGPUSurfaceTexture", "WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal", "WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal",
 	"WGPUSurfaceGetCurrentTextureStatus_Timeout", "WGPUSurfaceGetCurrentTextureStatus_Outdated",
 	"wgpuTextureCreateView", "wgpuDeviceCreateCommandEncoder", "wgpuCommandEncoderBeginRenderPass", "WGPURenderPassColorAttachment", "WGPURenderPassDescriptor",
