@@ -18,6 +18,8 @@ interface IButton extends IView {
 	void setFont(double size);
 	void setCentered(bool centered);
 	void setSystemSymbol(string name);
+	/* Native hover help; an empty string removes it. */
+	void setToolTip(string text);
 	void setSelected(bool selected);
 	bool isSelected();
 	void setTransparent(bool transparent);

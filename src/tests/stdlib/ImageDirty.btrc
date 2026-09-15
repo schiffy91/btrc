@@ -1,0 +1,69 @@
+/* Dirty tracking for retained rasters: off by default, every typed write
+ * widens one box while on, and copyRegionFrom restores from a same-sized
+ * image. Writes straight to `data` are reported through markDirty. */
+import Library.Image;
+
+#include <assert.h>
+
+void verifyDefaultsOff() {
+	Image image = Image(16, 8);
+	image.fillRect(2, 2, 4, 3, RGBA(9, 9, 9));
+	assert(!image.hasDirty());
+	assert(image.dirtyWidth() == 0 && image.dirtyHeight() == 0);
+}
+
+void verifyBoxWidens() {
+	Image image = Image(16, 8);
+	image.trackDirty(true);
+	assert(!image.hasDirty());
+	image.setPixel(5, 3, RGBA(1, 2, 3));
+	assert(image.hasDirty());
+	assert(image.dirtyLeft() == 5 && image.dirtyTop() == 3 && image.dirtyWidth() == 1 && image.dirtyHeight() == 1);
+	image.fillRect(10, 1, 4, 2, RGBA(4, 5, 6));
+	assert(image.dirtyLeft() == 5 && image.dirtyTop() == 1 && image.dirtyWidth() == 9 && image.dirtyHeight() == 3);
+	image.compositePixel(0, 7, RGBA(7, 8, 9, 128), 0.5);
+	assert(image.dirtyLeft() == 0 && image.dirtyTop() == 1 && image.dirtyWidth() == 14 && image.dirtyHeight() == 7);
+	image.mixPixel(15, 0, RGBA(1, 1, 1), 0.25);
+	assert(image.dirtyLeft() == 0 && image.dirtyTop() == 0 && image.dirtyWidth() == 16 && image.dirtyHeight() == 8);
+	image.clearDirty();
+	assert(!image.hasDirty());
+	/* Clipped rectangles only count their visible part; empty ones count nothing. */
+	image.fillRect(-3, -3, 5, 5, RGBA(2, 2, 2));
+	assert(image.dirtyLeft() == 0 && image.dirtyTop() == 0 && image.dirtyWidth() == 2 && image.dirtyHeight() == 2);
+	image.fillRect(40, 40, 5, 5, RGBA(2, 2, 2));
+	assert(image.dirtyWidth() == 2 && image.dirtyHeight() == 2);
+	image.trackDirty(false);
+	assert(!image.hasDirty());
+	image.setPixel(9, 9 - 2, RGBA(3, 3, 3));
+	assert(!image.hasDirty());
+}
+
+void verifyMarkAndRestore() {
+	Image stage = Image(12, 6);
+	stage.fillRect(0, 0, 12, 6, RGBA(20, 21, 24));
+	Image working = stage.crop(0, 0, 12, 6);
+	working.fillRect(3, 1, 4, 3, RGBA(200, 10, 10));
+	working.trackDirty(true);
+	assert(working.copyRegionFrom(stage, 3, 1, 4, 3));
+	assert(working.diff(stage).exact());
+	assert(working.dirtyLeft() == 3 && working.dirtyTop() == 1 && working.dirtyWidth() == 4 && working.dirtyHeight() == 3);
+	assert(!working.copyRegionFrom(Image(11, 6), 0, 0, 1, 1));
+	assert(!working.copyRegionFrom(stage, 10, 0, 4, 1));
+	working.clearDirty();
+	working.data[(2 * 12 + 7) * 4] = 255;
+	assert(!working.hasDirty());
+	working.markDirty(7, 2, 1, 1);
+	assert(working.dirtyLeft() == 7 && working.dirtyTop() == 2 && working.dirtyWidth() == 1 && working.dirtyHeight() == 1);
+	Image packed = Image(12, 6);
+	packed.trackDirty(true);
+	assert(packed.tryCopyPackedRgba(stage.data, 288ULL));
+	assert(packed.dirtyWidth() == 12 && packed.dirtyHeight() == 6);
+}
+
+int main() {
+	verifyDefaultsOff();
+	verifyBoxWidens();
+	verifyMarkAndRestore();
+	print("PASS: test_stdlib_image_dirty");
+	return 0;
+}

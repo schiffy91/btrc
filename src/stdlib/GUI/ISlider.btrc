@@ -7,4 +7,6 @@ interface ISlider extends IView {
 	void setValue(double value);
 	void setEnabled(bool enabled);
 	bool isEnabled();
+	/* Native hover help; an empty string removes it. */
+	void setToolTip(string text);
 }

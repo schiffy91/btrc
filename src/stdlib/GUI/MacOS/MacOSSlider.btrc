@@ -1,6 +1,7 @@
 import Library.Math;
 import Library.Callback;
 import Library.GUI.ISlider;
+import Library.GUI.MacOS.AppKitText;
 import Library.GUI.MacOS.MacOSView;
 
 /* AppKit owns pointer/keyboard tracking. Read the value after dispatch; model
@@ -74,6 +75,8 @@ class MacOSSlider implements ISlider, IMacOSView {
 	public void setEnabled(bool enabled) { self.control().setEnabled(enabled); }
 
 	public bool isEnabled() { return self.control().isEnabled(); }
+
+	public void setToolTip(string text) { NSView view = self.control(); view.setToolTip(AppKitText.nativeValue(text)); }
 
 	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
 

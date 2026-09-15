@@ -72,6 +72,27 @@ class GPUImageTexture {
 
 	public GPUDevice device() { self.requireOpen(); return self._device; }
 
+	/* Upload one rectangle of a same-sized image: the rows are read in place
+	 * with the image's own stride, so a retained raster uploads only what its
+	 * dirty box covers. */
+	public void updateRegion(Image image, int x, int y, int width, int height) {
+		self.requireOpen();
+		if (image == null || image.data == null || image.width != self._width || image.height != self._height) { throw "GPU image update must match the texture dimensions"; }
+		if (!image.containsRegion(x, y, width, height)) { throw "GPU image region is out of bounds"; }
+		if (self.recorded()) { throw "GPU image is referenced by an active frame"; }
+		WGPUTexelCopyTextureInfo destination = {null};
+		destination.texture = self._texture;
+		destination.aspect = WGPUTextureAspect_All;
+		destination.origin.x = (uint32_t)x;
+		destination.origin.y = (uint32_t)y;
+		WGPUTexelCopyBufferLayout layout = {0ULL};
+		layout.bytesPerRow = (uint32_t)image.width * 4u;
+		layout.rowsPerImage = (uint32_t)height;
+		WGPUExtent3D extent = {(uint32_t)width, (uint32_t)height, 1u};
+		size_t stride = (size_t)image.width * (size_t)4;
+		wgpuQueueWriteTexture(self._device.nativeQueue(), &destination, image.data + (size_t)y * stride + (size_t)x * (size_t)4, (size_t)(height - 1) * stride + (size_t)width * (size_t)4, &layout, &extent);
+	}
+
 	public WGPUTextureView nativeView() { self.requireOpen(); return self._view; }
 
 	public WGPUTextureView viewFor(GPUSurfaceRenderer surface) {
