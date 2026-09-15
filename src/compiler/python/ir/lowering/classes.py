@@ -162,6 +162,9 @@ class ClassLowerer:
                 args=[IRVar(name="self"), *[IRVar(name=param.name) for param in parameters]],
             )
             terminal = IRExprStmt(expr=call) if str(result) == "void" else IRReturn(value=call)
+            # Interface dispatch is part of a library's linkable surface, like
+            # the class methods it reaches: the stdlib archive exports it rather
+            # than shipping an unused static definition.
             self._session.module.function_defs.append(
                 IRFunctionDef(
                     name=function_name,
@@ -169,6 +172,7 @@ class ClassLowerer:
                     params=dispatch_parameters,
                     body=IRBlock(stmts=[table, terminal]),
                     is_static=True,
+                    archive_export=True,
                 )
             )
         if fields:

@@ -333,7 +333,10 @@ class StdlibArchiveAdapter:
             ]
             reachable = {helper.name for helper in declarations}
             active = {name for name, group in self.HELPER_GROUPS.items() if reachable & group}
-            active_apis = {name for name, group in self.ARCHIVE_API_GROUPS.items() if reachable & group}
+            # The archive's thread API is part of its public runtime surface
+            # whenever the ARC runtime ships, even when no stdlib module spawns
+            # a thread itself: consumers link workers against it.
+            active_apis = set(self.ARCHIVE_API_GROUPS) if active else set()
             required: set[str] = set()
             for name in active:
                 required.update(self.HELPER_GROUPS[name])
