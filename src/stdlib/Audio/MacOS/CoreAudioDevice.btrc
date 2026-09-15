@@ -114,9 +114,7 @@ class CoreAudioRenderContext implements ICoreAudioRender {
 		self._sliceNanoseconds = sliceNanoseconds;
 	}
 
-	public @realtime OSStatus invoke(CoreAudioRenderInvocation invocation, AudioUnitRenderActionFlags* flags, const AudioTimeStamp* timestamp, UInt32 bus, UInt32 frames, AudioBufferList? output) {
-		return CoreAudioUnit.render(invocation, self._state, flags, timestamp, frames, output);
-	}
+	public @realtime OSStatus invoke(CoreAudioRenderInvocation invocation, AudioUnitRenderActionFlags* flags, const AudioTimeStamp* timestamp, UInt32 bus, UInt32 frames, AudioBufferList? output) { return CoreAudioUnit.render(invocation, self._state, flags, timestamp, frames, output); }
 }
 
 @realtime OSStatus coreAudioSilence(AudioUnitRenderActionFlags* flags, const AudioTimeStamp* timestamp, UInt32 bus, UInt32 frames, AudioBufferList? output) {
@@ -807,7 +805,6 @@ class CoreAudioAggregateDescription {
 	}
 
 	public CFDictionaryRef dictionary() { return self._description; }
-
 }
 
 class CoreAudioAggregateDevice {

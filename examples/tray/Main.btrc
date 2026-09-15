@@ -8,7 +8,6 @@
  * Native initialization failures are reported explicitly.
  */
 import Library.UI;
-
 import Library.Tray.Tray;
 
 int main() {

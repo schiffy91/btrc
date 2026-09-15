@@ -81,6 +81,7 @@ class Triangle implements IApplicationWork {
 	}
 
 	public void close() { if (self._uniform != null) { self._uniform.close(); self._uniform = null; } }
+
 	public void __del__() { self.close(); }
 }
 

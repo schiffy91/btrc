@@ -99,7 +99,5 @@ class CoreTextRun {
 		return image;
 	}
 
-	public void __del__() {
-		self._context = null;
-	}
+	public void __del__() { self._context = null; }
 }

@@ -443,7 +443,6 @@ class MacOSApplication implements IApplication {
 
 	public IGrid createGrid(int columns, int rows, double columnSpacing, double rowSpacing) { self.requireCreation(); var view = MacOSGrid(columns, rows, columnSpacing, rowSpacing); self.rememberView(view); return view; }
 
-
 	private void dispatchWindowEvents() { self._events.dispatchWindowEvents(); }
 
 	/* A host can consume its own shortcuts before dispatching the remaining

@@ -84,6 +84,7 @@ class Analyzed {
 	}
 
 	public string nativeClassLanguage(string name) { return self.nativeClassIndex.has(name) ? self.nativeClassIndex.get(name).language : ""; }
+
 	public bool nativeInvocation(string name) { return self.nativeClassIndex.has(name) && !self.nativeClassIndex.get(name).invocation.isEmpty(); }
 
 	public bool nativeFunctionReturnsOwned(Node declaration) { return self.nativeOwnedFunctions.has(declaration.name) && self.nativeOwnedFunctions.get(declaration.name) == declaration; }
