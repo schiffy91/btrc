@@ -287,8 +287,11 @@ class FeNativeDeclarationImporter {
 		if (value.kind == NNK_NATIVE_ARRAY_TYPE) {
 			var count = value.count;
 			if (count == null || count.isEmpty()) { return false; }
+			/* Index a non-null local: the self-host types an element of a nullable
+			 * string as a string, which no char literal compares against. */
+			string digits = count;
 			bool positive = false;
-			for index in range(count.length()) { if (!Strings.isDigit(count[index])) { return false; } if (count[index] != '0') { positive = true; } }
+			for index in range(digits.length()) { if (!Strings.isDigit(digits[index])) { return false; } if (digits[index] != '0') { positive = true; } }
 			return positive && self.realtimePod(value.element, seen);
 		}
 		if (value.kind != NNK_NATIVE_RECORD_TYPE) { return false; }

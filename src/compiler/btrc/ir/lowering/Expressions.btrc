@@ -973,6 +973,7 @@ class ExpressionLowerer {
 	}
 
 	public IRNode lowerExpr(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow) {
+		self.context.diagnosticLine = node.line;
 		if (node == null) { return IRNode.literal("0"); }
 		if (self.gpuPipeline.cpuActive() && node.kind == NK_INDEX_EXPR) {
 			IRNode array = self.lowerExpr(node.obj, varTypes, callableFlow);
@@ -1559,7 +1560,13 @@ class ExpressionLowerer {
 	public Node? resolvedExpressionType(Node? expression, Map<string, Node> varTypes) { return self.operandPlanner.expressionType(expression, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive())); }
 
 	public void typedOperatorFail(string message) {
-		fprintf(stderr, "error: %s\n", message);
+		int line = self.context.diagnosticLine;
+		if (line > 0) {
+			string file = self.context.sourceFileForLine(line);
+			fprintf(stderr, "error: %s at %s:%d\n", message, file, self.context.sourceLineFor(line));
+		} else {
+			fprintf(stderr, "error: %s\n", message);
+		}
 		exit(1);
 	}
 

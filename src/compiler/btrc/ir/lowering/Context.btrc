@@ -33,6 +33,8 @@ class LoweringContext {
 	public int tryDepth;
 	public int tryCatchDepth;
 	public string currentClass;
+	/* Combined source line of the expression being lowered, for diagnostics raised below the node. */
+	public int diagnosticLine = 0;
 	public string currentPropertyBacking;
 	public string currentReturnCType;
 	public Node? currentReturnType;
