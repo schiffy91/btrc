@@ -1,8 +1,8 @@
 *
 !.devcontainer/
 !.devcontainer/bashrc
-!build/
-!build/*.nix
+!nix/
+!nix/*.nix
 !flake.lock
 !flake.nix
 !src/
@@ -18,8 +18,8 @@
 !src/stdlib/**
 
 # Runtime/build output inside otherwise admitted source trees never belongs in
-# the container context. The deny-all rule also keeps build/generated and
-# build/out out while admitting only build/*.nix above.
+# the container context. The deny-all rule keeps build/ out entirely; the
+# flake's own modules live in nix/ and are admitted above.
 src/**/__pycache__/
 src/**/*.pyc
 **/.venv/
@@ -27,7 +27,3 @@ src/**/*.pyc
 **/.ruff_cache/
 **/.btrc-cache/
 **/.DS_Store
-build/bdist.*/
-build/generated/
-build/lib/
-build/out/
