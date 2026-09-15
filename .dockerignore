@@ -9,8 +9,6 @@
 !examples/
 !examples/native-package/
 !examples/native-package/**
-!smoke/
-!smoke/**
 !src/
 !src/compiler/
 !src/compiler/python/
