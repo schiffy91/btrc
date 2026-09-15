@@ -11,7 +11,7 @@ import pytest
 from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
-FIXTURE = ROOT / "src" / "tests" / "native" / "app_surface"
+FIXTURE = ROOT / "src" / "tests" / "native" / "app"
 COMPILE_TIMEOUT = 120
 RUN_TIMEOUT = 30
 

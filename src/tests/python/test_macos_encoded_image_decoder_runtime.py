@@ -14,7 +14,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "src/tests/native/image"
 APPLE_CLANG = "/usr/bin/clang"
-PACKAGE_NAME = "btrc_stdlib_runtime"
+PACKAGE_NAME = "btrc_stdlib_image"
 COMPILE_TIMEOUT = 240
 RUN_TIMEOUT = 60
 
@@ -69,14 +69,15 @@ def _transpile(frontend, fixture, generated, plan, request, environment, *, with
         generated.write_text(completed.stdout)
     payload = json.loads(plan.read_text())
     assert payload["units"] == []  # No handwritten decoder implementation.
-    names = (
-        ("CoreFoundation", "CoreGraphics", "CoreText", "ImageIO")
-        if with_text
-        else ("CoreFoundation", "CoreGraphics", "ImageIO")
-    )
+    # Each stdlib group is its own package; the plan lists frameworks per
+    # package in package order, so shared frameworks appear once per owner.
+    expected = []
     if with_audio:
-        names = ("AudioToolbox", "CoreAudio", *names)
-    assert payload["frameworks"] == [{"name": name, "package": PACKAGE_NAME} for name in names]
+        expected += [("btrc_stdlib_audio", name) for name in ("AudioToolbox", "CoreAudio", "CoreFoundation")]
+    if with_text:
+        expected += [("btrc_stdlib_gui", name) for name in ("CoreFoundation", "CoreGraphics", "CoreText")]
+    expected += [(PACKAGE_NAME, name) for name in ("CoreFoundation", "CoreGraphics", "ImageIO")]
+    assert payload["frameworks"] == [{"name": name, "package": package} for package, name in expected]
     return payload
 
 

@@ -853,7 +853,7 @@ int main() {
 def test_unique_audio_unit_sdk_disposal_contract(native_project, native_compile, sanitize, mode):
     source, sdk, triple = native_project
     root = source.parent.parent
-    faults = Path(__file__).resolve().parents[1] / "native" / "core_audio_device" / "UnitFaults.c"
+    faults = Path(__file__).resolve().parents[1] / "native" / "audio" / "UnitFaults.c"
     (root / "Foundation.h").write_text(f'#include "{faults}"\n')
     (source.parent / "Foundation.btrc").write_text("// Real AudioToolbox types with the existing SDK fault driver.\n")
     (root / "btrc.toml").write_text("""manifest-version = 1
@@ -908,7 +908,7 @@ int main() {
 @pytest.mark.parametrize("sanitize", [False, True])
 def test_audio_unit_callback_installation_after_initialize(native_project, sanitize):
     source, sdk, triple = native_project
-    fixture = Path(__file__).resolve().parents[1] / "native" / "core_audio_device" / "CallbackInstallation.c"
+    fixture = Path(__file__).resolve().parents[1] / "native" / "audio" / "CallbackInstallation.c"
     ran = run_native_executable(
         fixture.read_text(),
         source.parent.parent,

@@ -296,7 +296,7 @@ def test_import_emits_and_links_sdk_declarations_without_native_executor(
         assert reference.returncode == 0, reference.stderr
         assert plan.read_bytes() == reference_plan.read_bytes()
     payload = json.loads(plan.read_text())
-    runtime_units = [unit for unit in payload["units"] if unit["package"] == "btrc_stdlib_runtime"]
+    runtime_units = [unit for unit in payload["units"] if unit["package"] == "btrc_stdlib_backgroundjobs"]
     assert runtime_units == []
     assert "std_background_jobs_" not in generated.read_text()
     assert str(RUNTIME / "NativeThreads.h") in generated.read_text()

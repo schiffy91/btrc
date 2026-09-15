@@ -10,9 +10,9 @@ import pytest
 from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
-FIXTURE = ROOT / "src" / "tests" / "native" / "core_audio_device"
+FIXTURE = ROOT / "src" / "tests" / "native" / "audio"
 CONFORMANCE = FIXTURE / "CoreAudioDeviceConformance.btrc"
-PACKAGE_NAME = "btrc_stdlib_runtime"
+PACKAGE_NAME = "btrc_stdlib_audio"
 COMPILE_TIMEOUT = 240
 RUN_TIMEOUT = 30
 
