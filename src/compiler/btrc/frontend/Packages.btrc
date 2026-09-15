@@ -1997,7 +1997,10 @@ class FeNativeLinkPlan {
 		for dependency in manifest.dependencies {
 			if (dependency.path.isEmpty()) { FePackageFailure.fail(f"stdlib dependency '{dependency.alias}' must be a path package inside the stdlib"); }
 			string targetRoot = PathTools.absolute(PathTools.join(packageRoot, dependency.path));
-			if (!targetRoot.startsWith(root + "/")) { FePackageFailure.fail(f"stdlib dependency '{dependency.alias}' must stay inside the stdlib tree"); }
+			/* Compare path identities: they use one separator and one case on
+			 * every host, where the native spelling on Windows does not. */
+			FeSourcePathPolicy identities = FeSourcePathPolicy();
+			if (!identities.identity(targetRoot).startsWith(identities.identity(root) + "/")) { FePackageFailure.fail(f"stdlib dependency '{dependency.alias}' must stay inside the stdlib tree"); }
 			string targetName = namesByRoot.has(targetRoot) ? namesByRoot.get(targetRoot) : self.loadStdlibPackage(root, PathTools.join(targetRoot, "btrc.toml"), dependency.alias, sourceFiles, packages, namesByRoot, loading);
 			dependencies.put(dependency.alias, targetName);
 		}
