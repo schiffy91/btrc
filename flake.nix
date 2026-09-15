@@ -31,7 +31,7 @@
             wayland.dev pkg-config dbus.dev   # native windowing and system-tray shims
           ];
       };
-      files = import ./build { inherit cfg lib; };
+      files = import ./nix { inherit cfg lib; };
       systems = [ "aarch64-darwin" "x86_64-darwin" "x86_64-linux" "aarch64-linux" ];
       eachSystem = fn: nixpkgs.lib.genAttrs systems (system: fn (import nixpkgs { inherit system; }));
       nativeHeaderEnvironment = pkgs: let

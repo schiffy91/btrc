@@ -22,7 +22,7 @@ in
         rm -f /tmp/determinate-nix-installer.sh && \
         chown -R ${uid}:${uid} /nix
     COPY --chown=${uid}:${uid} flake.nix flake.lock /tmp/flake/
-    COPY --chown=${uid}:${uid} build/ /tmp/flake/build/
+    COPY --chown=${uid}:${uid} nix/ /tmp/flake/nix/
     COPY --chown=${uid}:${uid} src/compiler/python/ /tmp/flake/src/compiler/python/
     COPY --chown=${uid}:${uid} src/devex/lsp/ /tmp/flake/src/devex/lsp/
     COPY --chown=${uid}:${uid} src/language/ /tmp/flake/src/language/
