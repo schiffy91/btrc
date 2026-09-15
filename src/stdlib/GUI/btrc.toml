@@ -182,7 +182,7 @@ symbols = [
 	"-[NSButton setFont:]", "+[NSFont systemFontOfSize:]", "-[NSButton setState:]", "-[NSButton state]", "NSControlStateValueOn", "NSControlStateValueOff",
 	"+[NSImage imageWithSystemSymbolName:accessibilityDescription:]", "-[NSButton setImage:]", "-[NSButton setImagePosition:]", "NSImageLeading",
 	"-[NSButton setImageHugsTitle:]", "-[NSButton setAlignment:]", "NSTextAlignmentLeft", "NSTextAlignmentCenter", "-[NSButton setTransparent:]", "-[NSButton setBordered:]",
-	"-[NSButton setControlSize:]", "NSControlSizeRegular", "NSControlSizeLarge", "NSImageOnly", "-[NSView setToolTip:]"
+	"-[NSButton setControlSize:]", "NSControlSizeRegular", "NSControlSizeLarge", "NSImageOnly", "-[NSView setToolTip:]", "-[NSView toolTip]"
 ]
 os = ["macos"]
 
@@ -626,6 +626,6 @@ standard = "c11"
 symbols = [
 	"+[NSSlider new]", "-[NSSlider setMinValue:]", "-[NSSlider setMaxValue:]", "-[NSSlider setNumberOfTickMarks:]",
 	"-[NSSlider setAllowsTickMarkValuesOnly:]", "-[NSSlider closestTickMarkValueToValue:]", "-[NSSlider setContinuous:]",
-	"-[NSSlider doubleValue]", "-[NSSlider setDoubleValue:]", "-[NSSlider setEnabled:]", "-[NSSlider isEnabled]", "-[NSView setToolTip:]"
+	"-[NSSlider doubleValue]", "-[NSSlider setDoubleValue:]", "-[NSSlider setEnabled:]", "-[NSSlider isEnabled]", "-[NSView setToolTip:]", "-[NSView toolTip]"
 ]
 os = ["macos"]

@@ -127,6 +127,12 @@ class MacOSButton implements IButton, IMacOSView {
 
 	public void setToolTip(string text) { NSView view = self.control(); view.setToolTip(AppKitText.nativeValue(text)); }
 
+	public string toolTip() {
+		NSView view = self.control();
+		NSString? text = view.toolTip();
+		return text == null ? "" : AppKitText.ownedValue(text);
+	}
+
 	public bool matches(IMacOSAction? action) { self.control(); return action != null && self._action == action; }
 
 	public bool activate() {

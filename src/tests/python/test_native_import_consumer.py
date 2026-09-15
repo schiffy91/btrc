@@ -5931,6 +5931,7 @@ def test_native_gui_factory_keeps_application_owner_private(
         ("NativeLabels", "native label ellipsis"),
         ("NativeSelect", "native selection, duplicate titles"),
         ("NativeSlider", "native slider, stepped tracking"),
+        ("NativeToolTips", "native control tool tips"),
         ("NativeGrid", "native grid layout, resizing"),
         ("NativeLevelIndicator", "native level value"),
     ],

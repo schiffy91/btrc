@@ -9,4 +9,7 @@ interface ISlider extends IView {
 	bool isEnabled();
 	/* Native hover help; an empty string removes it. */
 	void setToolTip(string text);
+
+	/* The hover help text last set; empty when none. */
+	string toolTip();
 }

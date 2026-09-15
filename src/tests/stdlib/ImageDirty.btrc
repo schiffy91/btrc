@@ -60,10 +60,36 @@ void verifyMarkAndRestore() {
 	assert(packed.dirtyWidth() == 12 && packed.dirtyHeight() == 6);
 }
 
+void verifyBands() {
+	Image image = Image(64, 16);
+	image.trackDirty(true, 4);
+	assert(image.dirtyRegionCount() == 0);
+	image.setPixel(3, 5, RGBA(1, 1, 1));
+	image.fillRect(40, 10, 8, 4, RGBA(2, 2, 2));
+	assert(image.dirtyRegionCount() == 2);
+	assert(image.dirtyRegionX(0) == 3 && image.dirtyRegionY(0) == 5 && image.dirtyRegionWidth(0) == 13 && image.dirtyRegionHeight(0) == 1);
+	/* A band spans its columns inside the overall box, with its own rows. */
+	assert(image.dirtyRegionX(1) == 32 && image.dirtyRegionY(1) == 10 && image.dirtyRegionWidth(1) == 16 && image.dirtyRegionHeight(1) == 4);
+	/* A rectangle across bands widens each band's rows only where it lies. */
+	image.fillRect(14, 0, 20, 2, RGBA(3, 3, 3));
+	assert(image.dirtyRegionCount() == 3);
+	assert(image.dirtyRegionX(0) == 3 && image.dirtyRegionY(0) == 0 && image.dirtyRegionWidth(0) == 13 && image.dirtyRegionHeight(0) == 6);
+	assert(image.dirtyRegionX(1) == 16 && image.dirtyRegionY(1) == 0 && image.dirtyRegionWidth(1) == 16 && image.dirtyRegionHeight(1) == 2);
+	assert(image.dirtyRegionX(2) == 32 && image.dirtyRegionY(2) == 0 && image.dirtyRegionWidth(2) == 16 && image.dirtyRegionHeight(2) == 14);
+	assert(image.dirtyLeft() == 3 && image.dirtyWidth() == 45);
+	image.clearDirty();
+	assert(image.dirtyRegionCount() == 0);
+	Image single = Image(8, 8);
+	single.trackDirty(true);
+	single.fillRect(1, 1, 2, 2, RGBA(4, 4, 4));
+	assert(single.dirtyRegionCount() == 1 && single.dirtyRegionX(0) == 1 && single.dirtyRegionWidth(0) == 2 && single.dirtyRegionHeight(0) == 2);
+}
+
 int main() {
 	verifyDefaultsOff();
 	verifyBoxWidens();
 	verifyMarkAndRestore();
+	verifyBands();
 	print("PASS: test_stdlib_image_dirty");
 	return 0;
 }

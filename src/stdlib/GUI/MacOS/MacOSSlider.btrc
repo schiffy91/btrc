@@ -78,6 +78,12 @@ class MacOSSlider implements ISlider, IMacOSView {
 
 	public void setToolTip(string text) { NSView view = self.control(); view.setToolTip(AppKitText.nativeValue(text)); }
 
+	public string toolTip() {
+		NSView view = self.control();
+		NSString? text = view.toolTip();
+		return text == null ? "" : AppKitText.ownedValue(text);
+	}
+
 	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
 
 	public CallbackCancellation close() { var state = self._view.close(); self._slider = null; return state; }

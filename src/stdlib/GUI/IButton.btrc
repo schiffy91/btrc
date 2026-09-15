@@ -20,6 +20,9 @@ interface IButton extends IView {
 	void setSystemSymbol(string name);
 	/* Native hover help; an empty string removes it. */
 	void setToolTip(string text);
+
+	/* The hover help text last set; empty when none. */
+	string toolTip();
 	void setSelected(bool selected);
 	bool isSelected();
 	void setTransparent(bool transparent);

@@ -1,0 +1,54 @@
+import Library.GUI.IButton;
+import Library.GUI.ISlider;
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSPanel;
+import Library.GUI.MacOS.MacOSButton;
+import Library.GUI.MacOS.MacOSSlider;
+
+#include <assert.h>
+
+/* Hover help on native controls: set through the portable interfaces, read
+ * back from AppKit, replaced and cleared without touching titles or values. */
+int main() {
+	var app = MacOSApplication();
+	var window = MacOSWindow("Native tool tips", 360.0, 160.0);
+	var background = MacOSPanel(RGBA(30, 30, 30));
+	background.setFrame(0.0, 0.0, 360.0, 160.0);
+	window.contentView().addSubview(background.nativeView());
+	var button = MacOSButton("Play");
+	IButton portableButton = button;
+	assert(button.toolTip().equals(""));
+	portableButton.setToolTip("Play");
+	assert(button.toolTip().equals("Play"));
+	assert(button.title().equals("Play"));
+	portableButton.setToolTip("Pause");
+	assert(portableButton.toolTip().equals("Pause"));
+	portableButton.setToolTip("Métronome – on");
+	assert(button.toolTip().equals("Métronome – on"));
+	background.attach(portableButton);
+	portableButton.arrange(20.0, 20.0, 120.0, 30.0);
+	assert(button.toolTip().equals("Métronome – on"));
+	portableButton.setToolTip("");
+	assert(button.toolTip().equals(""));
+	var slider = MacOSSlider(0.0, 100.0);
+	ISlider portableSlider = slider;
+	assert(slider.toolTip().equals(""));
+	portableSlider.setToolTip("Volume");
+	assert(portableSlider.toolTip().equals("Volume"));
+	slider.setValue(40.0);
+	assert(slider.value() == 40.0 && slider.toolTip().equals("Volume"));
+	background.attach(portableSlider);
+	portableSlider.arrange(20.0, 80.0, 320.0, 30.0);
+	window.show();
+	app.pumpEvents();
+	assert(slider.toolTip().equals("Volume") && button.toolTip().equals(""));
+	background.detach(portableSlider);
+	background.detach(portableButton);
+	portableSlider.close();
+	portableButton.close();
+	background.close();
+	window.close();
+	print("PASS: native control tool tips set, replaced and cleared through the portable interfaces");
+	return 0;
+}

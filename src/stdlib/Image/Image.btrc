@@ -8,6 +8,7 @@
 
 import Library.Bytes;
 import Library.IO;
+import Library.Vector;
 
 class RGBA {
 	public int red;
@@ -71,6 +72,11 @@ class Image {
 	private int _dirtyTop = 0;
 	private int _dirtyRight = 0;
 	private int _dirtyBottom = 0;
+	/* Optional column bands, each with its own row range, so sparse writes
+	 * spread across a wide raster report several small boxes. */
+	private int _dirtyBands = 1;
+	private Vector<int> _bandTop = [];
+	private Vector<int> _bandBottom = [];
 
 	public Image(int width, int height) {
 		if (width == 0 && height == 0) {
@@ -125,8 +131,10 @@ class Image {
 
 	/* Start or stop recording the box of typed writes; starting clears it.
 	 * Writes straight to `data` are not observed: report them with markDirty. */
-	public void trackDirty(bool enabled) {
+	public void trackDirty(bool enabled, int bands = 1) {
+		if (bands < 1 || bands > 64) { fprintf(stderr, "Image.trackDirty: bands out of range\n"); exit(1); }
 		self._trackDirty = enabled;
+		self._dirtyBands = enabled && self.width > 0 && bands <= self.width ? bands : 1;
 		self.clearDirty();
 	}
 
@@ -135,6 +143,58 @@ class Image {
 		self._dirtyTop = self.height;
 		self._dirtyRight = 0;
 		self._dirtyBottom = 0;
+		self._bandTop = [];
+		self._bandBottom = [];
+		for (int band = 0; band < self._dirtyBands; band++) { self._bandTop.push(self.height); self._bandBottom.push(0); }
+	}
+
+	private int bandLeft(int band) { return (int)((long long)band * (long long)self.width / (long long)self._dirtyBands); }
+
+	private void touchBand(int band, int top, int bottom) {
+		if (top < self._bandTop.get(band)) { self._bandTop.set(band, top); }
+		if (bottom > self._bandBottom.get(band)) { self._bandBottom.set(band, bottom); }
+	}
+
+	/* Column bands that hold writes; each is one box to upload or restore. */
+	public int dirtyRegionCount() {
+		if (!self.hasDirty()) { return 0; }
+		int count = 0;
+		for (int band = 0; band < self._dirtyBands; band++) { if (self._bandBottom.get(band) > self._bandTop.get(band)) { count++; } }
+		return count;
+	}
+
+	private int dirtyBandAt(int index) {
+		int seen = 0;
+		for (int band = 0; band < self._dirtyBands; band++) {
+			if (self._bandBottom.get(band) <= self._bandTop.get(band)) { continue; }
+			if (seen == index) { return band; }
+			seen++;
+		}
+		fprintf(stderr, "Image dirty region index out of range: %d\n", index);
+		exit(1);
+		return 0;
+	}
+
+	public int dirtyRegionX(int index) {
+		int band = self.dirtyBandAt(index);
+		int left = self.bandLeft(band);
+		return left > self._dirtyLeft ? left : self._dirtyLeft;
+	}
+
+	public int dirtyRegionY(int index) { return self._bandTop.get(self.dirtyBandAt(index)); }
+
+	public int dirtyRegionWidth(int index) {
+		int band = self.dirtyBandAt(index);
+		int left = self.bandLeft(band);
+		int right = self.bandLeft(band + 1);
+		if (left < self._dirtyLeft) { left = self._dirtyLeft; }
+		if (right > self._dirtyRight) { right = self._dirtyRight; }
+		return right - left;
+	}
+
+	public int dirtyRegionHeight(int index) {
+		int band = self.dirtyBandAt(index);
+		return self._bandBottom.get(band) - self._bandTop.get(band);
 	}
 
 	public bool hasDirty() { return self._dirtyRight > self._dirtyLeft && self._dirtyBottom > self._dirtyTop; }
@@ -161,6 +221,9 @@ class Image {
 		if (top < self._dirtyTop) { self._dirtyTop = top; }
 		if (endX > self._dirtyRight) { self._dirtyRight = endX; }
 		if (endY > self._dirtyBottom) { self._dirtyBottom = endY; }
+		int firstBand = (int)((long long)left * (long long)self._dirtyBands / (long long)self.width);
+		int lastBand = (int)((long long)(endX - 1) * (long long)self._dirtyBands / (long long)self.width);
+		for (int band = firstBand; band <= lastBand; band++) { self.touchBand(band, top, endY); }
 	}
 
 	private void touch(int x, int y) {
@@ -169,6 +232,7 @@ class Image {
 		if (y < self._dirtyTop) { self._dirtyTop = y; }
 		if (x + 1 > self._dirtyRight) { self._dirtyRight = x + 1; }
 		if (y + 1 > self._dirtyBottom) { self._dirtyBottom = y + 1; }
+		self.touchBand((int)((long long)x * (long long)self._dirtyBands / (long long)self.width), y, y + 1);
 	}
 
 	/* Copy a rectangle of same-sized `source` pixels over this image, the
