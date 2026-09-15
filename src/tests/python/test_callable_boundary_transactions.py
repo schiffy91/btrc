@@ -663,7 +663,7 @@ class TestCallableProvenanceQueryIsolation:
             value=Identifier(name="make"),
         )
         owner = _callable_owner(
-            function_table={"make": SimpleNamespace(body=object())},
+            function_table={"make": SimpleNamespace(body=object(), source_file=None)},
             node_types={id(assignment.target): callback_type},
             local_names={"callback"},
         )

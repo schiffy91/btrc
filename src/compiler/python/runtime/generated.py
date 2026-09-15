@@ -1635,9 +1635,15 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='trycatch',
         name='__btrc_trycatch_globals',
         c_source=(
-            '/* btrc try/catch runtime (dynamic) */\ntypedef struct { jmp_buf env; } _'
-            '_btrc_try_frame;\nstatic _Thread_local __btrc_try_frame** __btrc_try_stac'
-            'k = NULL;\nstatic _Thread_local char __btrc_error_msg[1024] = "";'
+            "/* btrc try/catch runtime (dynamic) */\n#if defined(__APPLE__)\n/* Darwin'"
+            's setjmp saves the signal mask and the alternate-stack state, two\n * sys'
+            'tem calls on every try frame, cleanup guard and deferred drain. A btrc\n '
+            '* frame never changes either, so the BSD register-only variants serve; o'
+            'n\n * glibc, setjmp already is the register-only form. */\n#undef setjmp\n#'
+            'undef longjmp\n#define setjmp(env) _setjmp(env)\n#define longjmp(env, valu'
+            'e) _longjmp(env, value)\n#endif\ntypedef struct { jmp_buf env; } __btrc_tr'
+            'y_frame;\nstatic _Thread_local __btrc_try_frame** __btrc_try_stack = NULL'
+            ';\nstatic _Thread_local char __btrc_error_msg[1024] = "";'
         ),
         depends_on=('__btrc_try_level',),
         required_headers=('setjmp.h',),
@@ -1796,35 +1802,38 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'y-line input, the self-hosted compiler ran 1.54 billion\n     * iteration'
             's of this loop to serve 41,267 matches, averaging 99.9 iterations\n     *'
             ' per call for a 0.27% hit rate. Entries are never moved, so a window\n   '
-            '  * measured down from the top is stable. */\n    /* Each _Thread_local r'
+            '  * measured down from the top is stable. Four entries catch the loop-bo'
+            'dy\n     * case; a wider window only made the misses, which are the commo'
+            'n case,\n     * proportionally slower (the scan was a sixth of the self-h'
+            "osted\n     * compiler's time at sixteen). */\n    /* Each _Thread_local r"
             'ead is an out-of-line call on some targets, so read\n     * the ones this'
             ' path needs once. The reallocating branch below refreshes\n     * `stack`'
             ', which is the only local a resize can invalidate. */\n    const int rece'
-            'nt = 16;\n    const int try_level = __btrc_try_top;\n    int top = __btrc_'
-            'cleanup_top;\n    __btrc_cleanup_entry* stack = __btrc_cleanup_stack;\n   '
-            ' int oldest = top - (recent - 1);\n    if (oldest < 0) oldest = 0;\n    fo'
-            'r (int i = top; i >= oldest; i--) {\n        __btrc_cleanup_entry* existi'
-            'ng = &stack[i];\n        if (existing->try_level == try_level && existing'
-            '->slot == slot) {\n            existing->take = take;\n            existin'
-            'g->fn = fn;\n            existing->visit = visit;\n            existing->d'
-            'irect = direct;\n            return;\n        }\n    }\n    if (__btrc_clean'
-            'up_cap < 1) __btrc_cleanup_cap = 64;\n    if (!stack) {\n        if ((size'
-            '_t)__btrc_cleanup_cap > SIZE_MAX / sizeof(__btrc_cleanup_entry)) { fprin'
-            'tf(stderr, "btrc: cleanup stack size overflow\\n"); exit(1); }\n        st'
-            'ack = (__btrc_cleanup_entry*)__btrc_safe_realloc(\n            NULL, size'
-            'of(__btrc_cleanup_entry) * (size_t)__btrc_cleanup_cap);\n        __btrc_c'
-            'leanup_stack = stack;\n    }\n    if (top == INT_MAX) { fprintf(stderr, "b'
-            'trc: cleanup stack overflow\\n"); exit(1); }\n    if (top + 1 >= __btrc_cl'
-            'eanup_cap) {\n        if (__btrc_cleanup_cap > INT_MAX / 2) { fprintf(std'
-            'err, "btrc: cleanup stack capacity overflow\\n"); exit(1); }\n        int '
-            'new_cap = __btrc_cleanup_cap * 2;\n        if ((size_t)new_cap > SIZE_MAX'
-            ' / sizeof(__btrc_cleanup_entry)) { fprintf(stderr, "btrc: cleanup stack '
-            'size overflow\\n"); exit(1); }\n        stack = (__btrc_cleanup_entry*)__b'
-            'trc_safe_realloc(\n            stack, sizeof(__btrc_cleanup_entry) * (siz'
-            'e_t)new_cap);\n        __btrc_cleanup_stack = stack;\n        __btrc_clean'
-            'up_cap = new_cap;\n    }\n    top++;\n    __btrc_cleanup_top = top;\n    sta'
-            'ck[top] = (__btrc_cleanup_entry){\n        slot, take, fn, visit, try_lev'
-            'el, direct};\n}'
+            'nt = 4;\n    const int try_level = __btrc_try_top;\n    int top = __btrc_c'
+            'leanup_top;\n    __btrc_cleanup_entry* stack = __btrc_cleanup_stack;\n    '
+            'int oldest = top - (recent - 1);\n    if (oldest < 0) oldest = 0;\n    for'
+            ' (int i = top; i >= oldest; i--) {\n        __btrc_cleanup_entry* existin'
+            'g = &stack[i];\n        if (existing->try_level == try_level && existing-'
+            '>slot == slot) {\n            existing->take = take;\n            existing'
+            '->fn = fn;\n            existing->visit = visit;\n            existing->di'
+            'rect = direct;\n            return;\n        }\n    }\n    if (__btrc_cleanu'
+            'p_cap < 1) __btrc_cleanup_cap = 64;\n    if (!stack) {\n        if ((size_'
+            't)__btrc_cleanup_cap > SIZE_MAX / sizeof(__btrc_cleanup_entry)) { fprint'
+            'f(stderr, "btrc: cleanup stack size overflow\\n"); exit(1); }\n        sta'
+            'ck = (__btrc_cleanup_entry*)__btrc_safe_realloc(\n            NULL, sizeo'
+            'f(__btrc_cleanup_entry) * (size_t)__btrc_cleanup_cap);\n        __btrc_cl'
+            'eanup_stack = stack;\n    }\n    if (top == INT_MAX) { fprintf(stderr, "bt'
+            'rc: cleanup stack overflow\\n"); exit(1); }\n    if (top + 1 >= __btrc_cle'
+            'anup_cap) {\n        if (__btrc_cleanup_cap > INT_MAX / 2) { fprintf(stde'
+            'rr, "btrc: cleanup stack capacity overflow\\n"); exit(1); }\n        int n'
+            'ew_cap = __btrc_cleanup_cap * 2;\n        if ((size_t)new_cap > SIZE_MAX '
+            '/ sizeof(__btrc_cleanup_entry)) { fprintf(stderr, "btrc: cleanup stack s'
+            'ize overflow\\n"); exit(1); }\n        stack = (__btrc_cleanup_entry*)__bt'
+            'rc_safe_realloc(\n            stack, sizeof(__btrc_cleanup_entry) * (size'
+            '_t)new_cap);\n        __btrc_cleanup_stack = stack;\n        __btrc_cleanu'
+            'p_cap = new_cap;\n    }\n    top++;\n    __btrc_cleanup_top = top;\n    stac'
+            'k[top] = (__btrc_cleanup_entry){\n        slot, take, fn, visit, try_leve'
+            'l, direct};\n}'
         ),
         depends_on=('__btrc_cleanup_types', '__btrc_cleanup_capacity', '__btrc_safe_realloc'),
         required_headers=(),
@@ -2387,21 +2396,30 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='cycles',
         name='__btrc_arc_validate',
         c_source=(
-            'static inline void __btrc_arc_validate(void* object) {\n    if (!object) '
-            'return;\n    __btrc_arc_header* header = __btrc_arc_header_of(object);\n  '
-            '  int live = header->state == __BTRC_ARC_LIVE\n        && header->rc > 0 '
-            '&& header->edge_rc >= 0\n        && header->edge_rc <= header->rc\n       '
-            ' && header->deferred_next == NULL && !header->suppress_hook;\n    int que'
-            'ued = header->state == __BTRC_ARC_QUEUED\n        && header->rc == 0 && h'
-            'eader->edge_rc == 0\n        && header->live_witness == NULL && header->i'
-            'ncoming == NULL;\n    int destroying = header->state == __BTRC_ARC_DESTRO'
-            'YING\n        && header->rc == 0 && header->edge_rc == 0\n        && heade'
-            'r->live_witness == NULL && header->incoming == NULL\n        && header->d'
-            'eferred_next == NULL && !header->suppress_hook;\n    if ((!live && !queue'
-            'd && !destroying) || !header->type\n            || !header->type->destroy'
-            '\n            || (header->type->hook\n                && (!header->type->g'
-            'uard || !header->type->raise))) {\n        fprintf(stderr, "btrc: invalid'
-            ' ARC header\\n");\n        exit(1);\n    }\n}'
+            '/* Header invariants are checked on every retain, release and edge move.'
+            '\n * That is a debugging aid, not a memory-safety boundary: the checks co'
+            "st\n * about a twentieth of a compiled program's time, so they stay on un"
+            'der a\n * sanitizer or BTRC_ARC_CHECKS and are compiled out otherwise. */'
+            '\n#if defined(BTRC_ARC_CHECKS) || defined(__SANITIZE_ADDRESS__) || define'
+            'd(__SANITIZE_THREAD__)\n#define __BTRC_ARC_CHECKS 1\n#elif defined(__has_f'
+            'eature)\n#if __has_feature(address_sanitizer) || __has_feature(thread_san'
+            'itizer)\n#define __BTRC_ARC_CHECKS 1\n#endif\n#endif\nstatic inline void __b'
+            'trc_arc_validate(void* object) {\n#if !defined(__BTRC_ARC_CHECKS)\n    (vo'
+            'id)object;\n    return;\n#endif\n    if (!object) return;\n    __btrc_arc_he'
+            'ader* header = __btrc_arc_header_of(object);\n    int live = header->stat'
+            'e == __BTRC_ARC_LIVE\n        && header->rc > 0 && header->edge_rc >= 0\n '
+            '       && header->edge_rc <= header->rc\n        && header->deferred_next'
+            ' == NULL && !header->suppress_hook;\n    int queued = header->state == __'
+            'BTRC_ARC_QUEUED\n        && header->rc == 0 && header->edge_rc == 0\n     '
+            '   && header->live_witness == NULL && header->incoming == NULL;\n    int '
+            'destroying = header->state == __BTRC_ARC_DESTROYING\n        && header->r'
+            'c == 0 && header->edge_rc == 0\n        && header->live_witness == NULL &'
+            '& header->incoming == NULL\n        && header->deferred_next == NULL && !'
+            'header->suppress_hook;\n    if ((!live && !queued && !destroying) || !hea'
+            'der->type\n            || !header->type->destroy\n            || (header->'
+            'type->hook\n                && (!header->type->guard || !header->type->ra'
+            'ise))) {\n        fprintf(stderr, "btrc: invalid ARC header\\n");\n        '
+            'exit(1);\n    }\n}'
         ),
         depends_on=('__btrc_arc_header_of',),
         required_headers=(),
@@ -5142,21 +5160,6 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_objects=(),
         source_visible=False,
         realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='runtime',
-        name='__btrc_host_target_architecture',
-        c_source=(
-            'static inline int __btrc_host_target_architecture(void) {\n#if defined(__'
-            'x86_64__) || defined(_M_X64)\n    return 1;\n#elif defined(__aarch64__) ||'
-            ' defined(_M_ARM64)\n    return 2;\n#else\n    return 0;\n#endif\n}'
-        ),
-        depends_on=(),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=True,
-        realtime_effect='safe',
     ),
 )
 

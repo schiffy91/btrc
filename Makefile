@@ -4,11 +4,16 @@
         generated-check compiler-codegen-generate compiler-codegen-check lint format format-check format-btrc format-btrc-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
         extension extension-install \
-        devcontainer clean
+        devcontainer clean \
+	test-shard-unit test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one
 
 SHELL       := /bin/bash
 NIX         := nix develop --command
 HOST_AR     := $(if $(filter Darwin,$(shell uname -s)),/usr/bin/ar,ar)
+# The dev shell's `cc` is GCC everywhere; on macOS that GCC emulates thread-local
+# storage through pthread keys, which roughly halves the speed of every compiled
+# btrc program, the self-hosted compiler included. Apple's clang uses native TLS.
+HOST_CC     := $(if $(filter Darwin,$(shell uname -s)),clang,cc)
 # The repository links wgpu-native, whose WaitAny entry point aborts. Override
 # this only when linking a conforming webgpu.h implementation such as Dawn.
 GPU_BACKEND_CFLAGS ?= -DBTRC_GPU_WGPU_NATIVE
@@ -106,7 +111,7 @@ btrcc: $(BTRCC_NATIVE) ## Build the self-hosted compiler for THIS machine -> bin
 
 $(BTRCC_NATIVE): $(BTRCC_C)
 	@mkdir -p bin
-	$(NIX) cc $(NATIVE_CFLAGS) -O2 $(BTRCC_C) -o $(BTRCC_NATIVE) -lm -lpthread
+	$(NIX) $(HOST_CC) $(NATIVE_CFLAGS) -O2 $(BTRCC_C) -o $(BTRCC_NATIVE) -lm -lpthread
 	@echo "Built bin/btrcc (native $$(uname -s) $$(uname -m))"
 
 btrcc-macos-arm64: btrcc-release-c ## Build relocatable btrcc bundle for macOS arm64 -> dist/
@@ -248,6 +253,38 @@ test-c11: generated-check gpu-required btrcc ## Strict C11: both compilers with 
 			done; \
 		done && \
 		echo "All C11 compliance tests passed (gcc + clang, -O0 through -O3)."'
+
+# ─── CI shards ──────────────────────────────────────────────────────────────
+# One parallel CI job each; together they cover exactly what `test` and
+# `test-c11` cover. The self-host compiler is built once per shard (bin/btrcc)
+# and handed to every test through BTRC_TEST_BTRCC instead of being rebuilt
+# by each pytest session.
+SHARD_BTRCC := BTRC_TEST_BTRCC="$(abspath $(BTRCC_NATIVE))"
+
+test-shard-unit: generated-check gpu-required ## CI shard: everything but the self-host and corpus suites
+	$(NIX) $(PYTEST) src/tests/ \
+		--ignore=src/tests/btrc --ignore=src/tests/runner.py $(PYTEST_ARGS)
+
+test-shard-btrc: generated-check gpu-required btrcc ## CI shard: self-host contract tests
+	$(NIX) $(SHARD_BTRCC) $(PYTEST) src/tests/btrc/ \
+		--ignore=src/tests/btrc/test_bootstrap.py $(PYTEST_ARGS)
+
+test-shard-corpus-python: generated-check gpu-required ## CI shard: language corpus through the reference compiler
+	$(NIX) $(PYTEST) src/tests/runner.py --compilers=python $(PYTEST_ARGS)
+
+test-shard-corpus-btrc: generated-check gpu-required btrcc ## CI shard: language corpus through the self-hosted compiler
+	$(NIX) $(SHARD_BTRCC) $(PYTEST) src/tests/runner.py --compilers=btrc $(PYTEST_ARGS)
+
+test-shard-bootstrap: generated-check test-boundaries gpu-required bootstrap ## CI shard: frozen boundaries + self-host fixed point
+
+C11_CC ?= gcc
+C11_OPT ?= O2
+test-c11-one: generated-check gpu-required btrcc ## One strict-C11 configuration: C11_CC=gcc|clang C11_OPT=O0..O3
+	$(NIX) bash -c '\
+		echo "=== $(C11_CC) -std=c11 -$(C11_OPT) ===" && \
+		$(SHARD_BTRCC) BTRC_CC=$(C11_CC) \
+			BTRC_CFLAGS="-std=c11 -pedantic-errors -Wall -Wextra -Werror -$(C11_OPT)" \
+			$(PYTEST) src/tests/runner.py --compilers=python,btrc $(PYTEST_ARGS)'
 
 test-generate-goldens: generated-check ## Regenerate golden .stdout files
 	$(NIX) python3 src/tests/generate_expected.py

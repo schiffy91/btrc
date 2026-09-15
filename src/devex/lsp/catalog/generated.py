@@ -796,6 +796,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("Platform", (
         BuiltinMemberSpec("isUnix", "bool", "method", (), "isUnix"),
         BuiltinMemberSpec("isWindows", "bool", "method", (), "isWindows"),
+        BuiltinMemberSpec("probeWindows", "bool", "method", (), "probeWindows"),
         BuiltinMemberSpec("pathSeparator", "string", "method", (), "pathSeparator"),
         BuiltinMemberSpec("pid", "int", "method", (), "pid"),
         BuiltinMemberSpec("euid", "int", "method", (), "euid"),

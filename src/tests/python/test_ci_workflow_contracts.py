@@ -75,7 +75,7 @@ def test_every_workflow_action_reference_is_pinned_to_a_commit() -> None:
 
 
 def test_linux_x64_ci_runs_and_uploads_the_archived_bundle() -> None:
-    job = _job(_workflow("ci.yml"), "test")
+    job = _job(_workflow("ci.yml"), "release")
 
     assert 'test "$(uname -m)" = x86_64' in job
     assert "make NIX= btrcc-linux-x64" in job
@@ -83,12 +83,42 @@ def test_linux_x64_ci_runs_and_uploads_the_archived_bundle() -> None:
     assert "mktemp -d" in job
     assert "src/tests/strings/expected/BracesInCodeGen.stdout" in job
     assert "-std=c11 -pedantic-errors -Wall -Wextra -Werror" in job
-    # Both budgets are raised for the container: it rebuilds the self-hosted
+    # The release job builds and smokes artifacts only; the suite runs as the
+    # sharded `tests` job so no test shares a runner with a release build.
+    assert "PYTEST_WORKERS" not in job
+    assert job.count('podman run --rm --init -v "$PWD:/workspace"') == 3
+    _assert_linux_archive_smoke(job, "linux-x64")
+
+
+def test_linux_test_shards_partition_the_suite_across_parallel_jobs() -> None:
+    job = _job(_workflow("ci.yml"), "tests")
+    makefile = (REPO / "Makefile").read_text(encoding="utf-8")
+
+    assert "fail-fast: false" in job
+    shards = re.findall(r"- \{ shard: ([a-zA-Z0-9-]+), target: ([^}]+?) \}", job)
+    assert [shard for shard, _ in shards] == [
+        "unit",
+        "btrc",
+        "corpus-python",
+        "corpus-btrc",
+        "bootstrap",
+        *(f"c11-{cc}-{opt}" for cc in ("gcc", "clang") for opt in ("O0", "O1", "O2", "O3")),
+    ]
+    for _, target in shards:
+        rule = target.split()[0]
+        assert f"\n{rule}:" in makefile, target
+    assert all(
+        f"C11_CC={shard.split('-')[1]} C11_OPT={shard.split('-')[2]}" in target
+        for shard, target in shards
+        if shard.startswith("c11-")
+    )
+    # Every shard rebuilds the container from the Nix cache and runs one make
+    # target with the budgets the container needs: it rebuilds the self-hosted
     # compiler against a cold cache, and the corpus's heaviest program does not
     # finish inside the default run budget at -O0.
-    assert job.count("PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60") == 2
-    assert job.count('podman run --rm --init -v "$PWD:/workspace"') == 5
-    _assert_linux_archive_smoke(job, "linux-x64")
+    assert "make devcontainer" in job
+    assert job.count('podman run --rm --init -v "$PWD:/workspace"') == 1
+    assert "PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}" in job
 
 
 def test_linux_arm64_ci_runs_and_uploads_the_archived_bundle() -> None:

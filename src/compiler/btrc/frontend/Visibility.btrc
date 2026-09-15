@@ -352,6 +352,10 @@ class FeImportVisibilityChecker {
 	private FeSourcePathPolicy sourcePaths;
 	private FePackageImportPolicy packageAccess;
 	private Map<string, Map<string, bool>> visibleFiles;
+	/* Whether a source file lies inside the compiler's stdlib, by path. The
+	 * answer needs two canonical-path lookups (system calls), and the checker
+	 * asks it for every reference it visits. */
+	private Map<string, bool> stdlibSourceFiles;
 
 	public FeImportVisibilityChecker(Node program, FeResolvedSource resolved, FeStdlibRepository stdlib, FeStdlibSymbolIndex stdlibSymbols, GrammarInfo grammar, Map<string, bool> compilerImplicitSymbols) {
 		self.program = program;
@@ -364,6 +368,7 @@ class FeImportVisibilityChecker {
 		self.sourcePaths = FeSourcePathPolicy();
 		self.packageAccess = FePackageImportPolicy();
 		self.visibleFiles = {};
+		self.stdlibSourceFiles = {};
 	}
 
 	private bool containsPath(Vector<string> paths, string path) {
@@ -458,7 +463,12 @@ class FeImportVisibilityChecker {
 		return visible;
 	}
 
-	private bool compilerStdlibSource(string sourceFile) { return !self.sourcePaths.identity(sourceFile).equals(self.sourcePaths.identity(self.resolved.rootSourcePath)) && self.stdlib.snapshotContainsSource(self.resolved.stdlibSnapshot, sourceFile); }
+	private bool compilerStdlibSource(string sourceFile) {
+		if (self.stdlibSourceFiles.has(sourceFile)) { return self.stdlibSourceFiles.get(sourceFile); }
+		bool inside = !self.sourcePaths.identity(sourceFile).equals(self.sourcePaths.identity(self.resolved.rootSourcePath)) && self.stdlib.snapshotContainsSource(self.resolved.stdlibSnapshot, sourceFile);
+		self.stdlibSourceFiles.put(sourceFile, inside);
+		return inside;
+	}
 
 	private FeStdlibSymbolIndexResult ensureStdlibIndex() {
 		FeStdlibRootSnapshot snapshot = self.resolved.stdlibSnapshot;

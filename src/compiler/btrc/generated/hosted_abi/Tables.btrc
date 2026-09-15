@@ -180,7 +180,7 @@ class GeneratedHostedAbiData {
 		self.pushPlatformTypedefNames0();
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
-		self.fingerprint = "36d6befa8107dc598dd8a517995577ced43251be2599bbb372b2527e83bcc422";
+		self.fingerprint = "4532bf0606ebc661949beff48b63e964ce2acfa14e35e820c1b981879ad90506";
 	}
 
 	private void pushFunctions0() {
@@ -372,7 +372,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-		self.functions.push(GeneratedHostedFunctionRow("__btrc_host_target_architecture", "runtime", GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "safe"));
 		self.functions.push(GeneratedHostedFunctionRow(
 			"__btrc_move_descriptor_outside_stdio",
 			"runtime",
@@ -874,9 +873,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions1() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"aligned_alloc",
 			"stdlib",
@@ -898,6 +894,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions1() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"asin",
 			"math",
@@ -1651,9 +1650,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions2() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"cbrtf",
 			"math",
@@ -1674,6 +1670,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions2() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"cbrtl",
 			"math",
@@ -2443,9 +2442,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions3() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"fabs",
 			"math",
@@ -2466,6 +2462,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions3() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"fabsf",
 			"math",
@@ -3259,9 +3258,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions4() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"fread",
 			"stdio",
@@ -3285,6 +3281,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions4() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"free",
 			"stdlib",
@@ -4030,9 +4029,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions5() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"listen",
 			"posix",
@@ -4054,6 +4050,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions5() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"llabs",
 			"stdlib",
@@ -4859,9 +4858,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions6() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"pclose",
 			"stdio",
@@ -4882,6 +4878,9 @@ class GeneratedHostedAbiData {
 			"pclose",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions6() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"perror",
 			"stdio",
@@ -5679,9 +5678,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions7() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"rintl",
 			"math",
@@ -5702,6 +5698,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions7() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"rmdir",
 			"posix",
@@ -6512,9 +6511,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions8() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"strncat",
 			"string",
@@ -6537,6 +6533,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions8() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"strncmp",
 			"string",
@@ -7326,9 +7325,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions9() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"unlinkat",
 			"posix",
@@ -7351,6 +7347,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions9() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"unsetenv",
 			"posix_process",
@@ -7432,7 +7431,6 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("__btrc_exec_signal_guard_begin");
 		self.functionNames.push("__btrc_exec_signal_guard_child_end");
 		self.functionNames.push("__btrc_exec_signal_guard_parent_end");
-		self.functionNames.push("__btrc_host_target_architecture");
 		self.functionNames.push("__btrc_move_descriptor_outside_stdio");
 		self.functionNames.push("__btrc_native_thread_invoke");
 		self.functionNames.push("__btrc_posix_spawn_cloexec");
@@ -7668,10 +7666,10 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("ffsl");
 		self.functionNames.push("ffsll");
 		self.functionNames.push("fgetattrlist");
+		self.functionNames.push("fgetc");
 	}
 
 	private void pushFunctionNames1() {
-		self.functionNames.push("fgetc");
 		self.functionNames.push("fgetpos");
 		self.functionNames.push("fgetpwent");
 		self.functionNames.push("fgetpwent_r");
@@ -7921,10 +7919,10 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("llround");
 		self.functionNames.push("llroundf");
 		self.functionNames.push("llroundl");
+		self.functionNames.push("localtime");
 	}
 
 	private void pushFunctionNames2() {
-		self.functionNames.push("localtime");
 		self.functionNames.push("localtime_r");
 		self.functionNames.push("lockf");
 		self.functionNames.push("log");
@@ -8174,10 +8172,10 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("putpwent");
 		self.functionNames.push("puts");
 		self.functionNames.push("pwrite");
+		self.functionNames.push("qecvt");
 	}
 
 	private void pushFunctionNames3() {
-		self.functionNames.push("qecvt");
 		self.functionNames.push("qecvt_r");
 		self.functionNames.push("qfcvt");
 		self.functionNames.push("qfcvt_r");
@@ -8427,10 +8425,10 @@ class GeneratedHostedAbiData {
 		self.functionNames.push("tanhf");
 		self.functionNames.push("tanhl");
 		self.functionNames.push("tanl");
+		self.functionNames.push("tcdrain");
 	}
 
 	private void pushFunctionNames4() {
-		self.functionNames.push("tcdrain");
 		self.functionNames.push("tcflow");
 		self.functionNames.push("tcflush");
 		self.functionNames.push("tcgetattr");
@@ -14034,7 +14032,6 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("__btrc_exec_signal_guard_begin");
 		self.ownedNames.push("__btrc_exec_signal_guard_child_end");
 		self.ownedNames.push("__btrc_exec_signal_guard_parent_end");
-		self.ownedNames.push("__btrc_host_target_architecture");
 		self.ownedNames.push("__btrc_move_descriptor_outside_stdio");
 		self.ownedNames.push("__btrc_native_thread_invoke");
 		self.ownedNames.push("__btrc_posix_spawn_cloexec");
@@ -14149,10 +14146,10 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("atomic_load_explicit");
 		self.ownedNames.push("atomic_long");
 		self.ownedNames.push("atomic_ptrdiff_t");
+		self.ownedNames.push("atomic_schar");
 	}
 
 	private void pushOwnedNames10() {
-		self.ownedNames.push("atomic_schar");
 		self.ownedNames.push("atomic_short");
 		self.ownedNames.push("atomic_signal_fence");
 		self.ownedNames.push("atomic_size_t");
@@ -14402,10 +14399,10 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("flock");
 		self.ownedNames.push("flockfile");
 		self.ownedNames.push("flocktimeout");
+		self.ownedNames.push("floor");
 	}
 
 	private void pushOwnedNames11() {
-		self.ownedNames.push("floor");
 		self.ownedNames.push("floorf");
 		self.ownedNames.push("floorl");
 		self.ownedNames.push("fls");
@@ -14655,10 +14652,10 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("isalnum");
 		self.ownedNames.push("isalpha");
 		self.ownedNames.push("isatty");
+		self.ownedNames.push("isblank");
 	}
 
 	private void pushOwnedNames12() {
-		self.ownedNames.push("isblank");
 		self.ownedNames.push("iscntrl");
 		self.ownedNames.push("isdigit");
 		self.ownedNames.push("isfdtype");
@@ -14908,10 +14905,10 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("pselect");
 		self.ownedNames.push("pseudo_AF_HDRCMPLT");
 		self.ownedNames.push("pseudo_AF_KEY");
+		self.ownedNames.push("pseudo_AF_PIP");
 	}
 
 	private void pushOwnedNames13() {
-		self.ownedNames.push("pseudo_AF_PIP");
 		self.ownedNames.push("pseudo_AF_RTIP");
 		self.ownedNames.push("pseudo_AF_XTP");
 		self.ownedNames.push("psiginfo");
@@ -15161,10 +15158,10 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("scalblnl");
 		self.ownedNames.push("scalbn");
 		self.ownedNames.push("scalbnf");
+		self.ownedNames.push("scalbnl");
 	}
 
 	private void pushOwnedNames14() {
-		self.ownedNames.push("scalbnl");
 		self.ownedNames.push("scandir");
 		self.ownedNames.push("scandir_b");
 		self.ownedNames.push("scandirat");
@@ -15414,10 +15411,10 @@ class GeneratedHostedAbiData {
 		self.ownedNames.push("tanl");
 		self.ownedNames.push("tcdrain");
 		self.ownedNames.push("tcflag_t");
+		self.ownedNames.push("tcflow");
 	}
 
 	private void pushOwnedNames15() {
-		self.ownedNames.push("tcflow");
 		self.ownedNames.push("tcflush");
 		self.ownedNames.push("tcgetattr");
 		self.ownedNames.push("tcgetpgrp");

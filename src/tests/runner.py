@@ -22,7 +22,9 @@ import math
 import os
 import platform
 import shlex
+import shutil
 import subprocess
+import sys
 import tempfile
 
 import pytest
@@ -45,7 +47,21 @@ _GPU_BUILD = os.path.join(_REPO_ROOT, "build", "stdlib", "GPU")
 # Compiler and flags configurable via environment.
 # Default to "cc" (the system C compiler), which resolves to the nix
 # gcc-wrapper that knows where glibc crt objects live.
-BTRC_CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
+
+
+def default_c_compiler() -> str:
+    """The host C compiler when BTRC_CC is unset.
+
+    Nix's `cc` on macOS is GCC, which emulates thread-local storage through
+    pthread keys and roughly halves the speed of every compiled btrc program,
+    the self-hosted compiler included. Apple's clang uses native TLS.
+    """
+    if sys.platform == "darwin" and shutil.which("clang"):
+        return "clang"
+    return "cc"
+
+
+BTRC_CC = shlex.split(os.environ.get("BTRC_CC", default_c_compiler()))
 BTRC_CFLAGS = shlex.split(os.environ.get("BTRC_CFLAGS", "-std=c11 -pedantic"))
 if not BTRC_CC:
     raise ValueError("BTRC_CC must name a C compiler")

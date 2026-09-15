@@ -2486,16 +2486,6 @@ realtime_effect = "safe"
 order = { python = 227, btrc = 212 }
 
 [[helpers]]
-name = "__btrc_host_target_architecture"
-category = "runtime"
-asset = "core.c"
-dependencies = []
-headers = []
-source_visible = true
-realtime_effect = "safe"
-order = { python = 231, btrc = 216 }
-
-[[helpers]]
 name = "__btrc_native_thread_invoke"
 category = "threads"
 asset = "threads.c"

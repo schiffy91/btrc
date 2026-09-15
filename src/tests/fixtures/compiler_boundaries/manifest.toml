@@ -302,7 +302,6 @@ channels = [
   "helper.__btrc_gpu_index_check",
   "helper.__btrc_hash_real",
   "helper.__btrc_hash_str",
-  "helper.__btrc_host_target_architecture",
   "helper.__btrc_indexOf",
   "helper.__btrc_intToString",
   "helper.__btrc_interface_methods",
@@ -1375,8 +1374,8 @@ channel = "asset.core_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.core_c.bin"
 baseline_sha256 = "9073d4d1c0363d79bc29c168852ab117112c4f0796256864c553d5430f804cac"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.core_c.bin"
-accepted_sha256 = "6f18b607dd237afe79faad3ee5c73df4bc0967c58b933368632da97045389a82"
-reason = "ApplicationDirectories resolves platform policy and the self-hosted compiler defaults its package target through compiler-owned runtime platform and architecture discriminators."
+accepted_sha256 = "946f3cc39d1f2cb8b73abd73d3bdc89c150b3a2331694683c1b03503a23ebdd5"
+reason = "ApplicationDirectories resolves macOS, Linux, and future Windows policy through a compiler-owned runtime platform discriminator."
 regressions = ["src/tests/python/test_application_directories_contract.py"]
 
 [[records]]
@@ -1389,8 +1388,8 @@ channel = "asset.cycles_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.cycles_c.bin"
 baseline_sha256 = "6a0d034d5d19ee0ab69b789a82d6898c5060a3d095dc1145f82c90248ad074a2"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.cycles_c.bin"
-accepted_sha256 = "c3c06b7f7efadb1649c83903d88f5126415552342e261b1f56e57c1522681f9b"
-reason = "Track cycle suspect buffer indices for bounded removal; the ARC lock stays one portable atomic flag so --freestanding output includes nothing but btrc_rt.h."
+accepted_sha256 = "24ea69f673f04abac35e7043ac585591cc54ddb68eee3cf14d50e1dc009561a8"
+reason = "Runtime tuned for compiled-program speed: Darwin try frames use the register-only setjmp, ARC header validation is opt-in outside sanitizer builds, and the cleanup registration scan looks at four entries."
 regressions = ["src/tests/python/test_cli_flags.py", "src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/python/test_stdlib_archive_shared_state.py", "src/tests/btrc/test_cycle_suspect_forget.py"]
 
 [[records]]
@@ -1469,8 +1468,8 @@ channel = "asset.trycatch_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.trycatch_c.bin"
 baseline_sha256 = "aa851e085554c048b119ea587348aaee4a2f60ec889bfa6541ef0d04830fabcd"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.trycatch_c.bin"
-accepted_sha256 = "37293fc1cbe976e5665c3f9e932393b9014e77cdc991433c3b91d604f8c241bd"
-reason = "Cleanup registration no longer scans every live entry to find a slot to supersede; it is a runtime cost removal that leaves emitted C byte-identical."
+accepted_sha256 = "0c4a83760c8fd795d6fead46d8c0c551f51ebdcfd1cfb2dce6fd2141292bb422"
+reason = "Runtime tuned for compiled-program speed: Darwin try frames use the register-only setjmp, ARC header validation is opt-in outside sanitizer builds, and the cleanup registration scan looks at four entries."
 regressions = ["src/tests/memory/CleanupSlotReuse.btrc", "src/tests/memory/EmptyManagedLocal.btrc"]
 
 [[records]]
@@ -2100,6 +2099,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_validate"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0059.bin"
 baseline_sha256 = "9bd236e2fb685072b225d21201839a9c23e7fe3759440546022562c2c4090dc8"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0059.bin"
+accepted_sha256 = "af41af29a043e89ce6fc935fcc7363e2e57d92fb421379fe26f09397998c4422"
+reason = "Runtime tuned for compiled-program speed: Darwin try frames use the register-only setjmp, ARC header validation is opt-in outside sanitizer builds, and the cleanup registration scan looks at four entries."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0060"
@@ -3169,8 +3172,8 @@ channel = "helper.__btrc_register_cleanup_kind"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0159.bin"
 baseline_sha256 = "deba8e0417508305b8353e2e24bfb7f5c2c9a50f9a4b558de4b0e76a476bad2a"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0159.bin"
-accepted_sha256 = "d0e66ac35cd0b88012ccadd03ce0bf6d9f4166fa55d8477fad5ceaccfc7b75ea"
-reason = "Cleanup registration no longer scans every live entry to find a slot to supersede; it is a runtime cost removal that leaves emitted C byte-identical."
+accepted_sha256 = "4cb891f9f1e30078026bd5f9661e233485ab1f48a7b193376dc32acff8833b18"
+reason = "Runtime tuned for compiled-program speed: Darwin try frames use the register-only setjmp, ARC header validation is opt-in outside sanitizer builds, and the cleanup registration scan looks at four entries."
 regressions = ["src/tests/memory/CleanupSlotReuse.btrc", "src/tests/memory/EmptyManagedLocal.btrc"]
 
 [[records]]
@@ -3820,6 +3823,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_trycatch_globals"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0217.bin"
 baseline_sha256 = "7d1fd916786ca4843168e25a90fcd4dc0dce2b3a42fc2342110747af8e7ad609"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0217.bin"
+accepted_sha256 = "dd96a306c75a723262e962b52ffbef4a614a076c8e359c73c0b29d681358cf50"
+reason = "Runtime tuned for compiled-program speed: Darwin try frames use the register-only setjmp, ARC header validation is opt-in outside sanitizer builds, and the cleanup registration scan looks at four entries."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0218"
@@ -3941,8 +3948,8 @@ channel = "python"
 baseline_path = "baseline/runtime-catalog.shared.runtime-order.python.bin"
 baseline_sha256 = "37e2442001713cb436302de380466e70ae4d1c6123368fbd0b4e30f5021b422a"
 accepted_path = "accepted/runtime-catalog.shared.runtime-order.python.bin"
-accepted_sha256 = "70f467177c4fac9762cf69f96acd4ff3c5df2961430c1dd502d6d0489b8df073"
-reason = "The accepted order retains the reviewed runtime thread-types delta; the platform and host-architecture discriminators extend both order universes."
+accepted_sha256 = "7653745ad6429b20b7c5cd71343507f3ad1ab93b69a05f33f717452a6cb23691"
+reason = "The accepted order retains the reviewed runtime thread-types delta; ApplicationDirectories extends both order universes with its platform discriminator."
 regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_application_directories_contract.py"]
 
 [[records]]
@@ -3955,8 +3962,8 @@ channel = "btrc"
 baseline_path = "baseline/runtime-catalog.shared.runtime-order.btrc.bin"
 baseline_sha256 = "213371cc7e12185e6643930ec91b4a3016d51ab6add711a63cd7d41b6c85dea2"
 accepted_path = "accepted/runtime-catalog.shared.runtime-order.btrc.bin"
-accepted_sha256 = "268e2d34606784c1ff6338b9fbace47b5e44878b4532c5c877b281134d4422a5"
-reason = "The accepted order retains the reviewed runtime thread-types delta; the platform and host-architecture discriminators extend both order universes."
+accepted_sha256 = "526ab09269517d5d1fb4be3e2a95e45de4d34dfb1536fd0b1de380fa9b26d8af"
+reason = "The accepted order retains the reviewed runtime thread-types delta; ApplicationDirectories extends both order universes with its platform discriminator."
 regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_application_directories_contract.py"]
 
 [[equalities]]
@@ -4169,18 +4176,4 @@ baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0231.bin"
 accepted_sha256 = "ad4dd51fbc79b14545f655f246fdbebb8f951c51df1978f944da3a66a463156a"
 reason = "Runtime helper added after the frozen baseline: the stdlib archive exports interface dispatch and the thread API, so their helpers join the shared runtime metadata."
-regressions = ["src/tests/python/test_runtime_helper_registry.py"]
-
-[[records]]
-id = "runtime-catalog.shared.runtime-metadata.0232"
-fixture = "runtime-catalog"
-capability = "shared.runtime-metadata"
-compiler = "shared"
-boundary = "runtime-helper-metadata"
-channel = "helper.__btrc_host_target_architecture"
-baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0232.bin"
-baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
-accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0232.bin"
-accepted_sha256 = "4f70e43fcc790b53477ad6f9e2c1d78d1d961da1a4a6a29e98d5e282964a6d83"
-reason = "Runtime helper added after the frozen baseline: the self-hosted compiler defaults the package target to the compiling host, so the architecture probe joins the shared runtime metadata."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]

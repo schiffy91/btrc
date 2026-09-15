@@ -32,23 +32,9 @@ class FePackageTarget {
 
 	private bool validArchitecture(string value) { return value.equals("x86_64") || value.equals("aarch64"); }
 
-	/* The compiling host, matching the reference compiler's default when no
-	 * --target is given: the platform helper names the operating system and
-	 * the architecture helper the instruction set the compiler was built for. */
-	class FePackageTarget host() {
-		int platform = __btrc_application_directories_platform();
-		int architecture = __btrc_host_target_architecture();
-		string os = platform == 1 ? "macos" : (platform == 2 ? "linux" : (platform == 3 ? "windows" : ""));
-		string arch = architecture == 1 ? "x86_64" : (architecture == 2 ? "aarch64" : "");
-		if (os.isEmpty() || arch.isEmpty()) {
-			FePackageFailure.fail("cannot infer a supported package target for this host; pass --target OS-ARCH");
-		}
-		return FePackageTarget(os, arch);
-	}
-
 	class FePackageTarget parse(string raw) {
 		if (raw == null || raw.isEmpty()) {
-			return FePackageTarget.host();
+			FePackageFailure.fail("version-1 package manifests require --target OS-ARCH");
 		}
 		int separator = raw.indexOf("-");
 		if (separator < 1 || separator + 1 >= raw.length()) {
@@ -2593,7 +2579,12 @@ class FePackageGraphResolver {
 		return manifest.name;
 	}
 
-	private FePackageTarget planTarget(string targetValue) { return FePackageTarget.parse(targetValue); }
+	private FePackageTarget planTarget(string targetValue) {
+		if (targetValue == null || targetValue.isEmpty()) {
+			return FePackageTarget("", "");
+		}
+		return FePackageTarget.parse(targetValue);
+	}
 
 	public FeResolvedPackages resolveFor(string sourcePath, string targetValue) {
 		FePackageTarget target = self.planTarget(targetValue);
@@ -2613,6 +2604,7 @@ class FePackageGraphResolver {
 			FeNativeLinkPlan legacyPlan = FeNativeLinkPlan(target, legacyPackages, legacyDeclarations);
 			return FeResolvedPackages(false, manifestPath, "", legacyNodes, legacyPlan);
 		}
+		target = FePackageTarget.parse(targetValue);
 		string root = PathTools.absolute(PathTools.dirname(manifestPath));
 		string lockPath = PathTools.join(root, "btrc.lock");
 		FePackageLock lock = FePackageLock(self.sourceFiles);

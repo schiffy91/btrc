@@ -12,10 +12,15 @@ import ./Models.btrc;
 class FeSourcePathPolicy {
 	private bool windows;
 	private string currentDirectory;
+	/* Canonical identities by the path as asked. Each answer costs a
+	 * realpath system call, and the import checks ask for the same handful
+	 * of files once per reference. */
+	private Map<string, string> identities;
 
 	public FeSourcePathPolicy() {
 		self.windows = Platform.isWindows();
 		self.currentDirectory = FileSystem.currentDirectory();
+		self.identities = {};
 	}
 
 	public bool isSeparatorFor(char value, bool windows) { return value == '/' || (windows && value == '\\'); }
@@ -115,10 +120,13 @@ class FeSourcePathPolicy {
 	}
 
 	public string identity(string path) {
+		if (self.identities.has(path)) { return self.identities.get(path); }
 		string canonical = PathTools.absolute(path);
 		if (canonical.isEmpty()) { canonical = self.absolute(path); }
 		string normalized = self.normalizeAbsoluteFor(canonical, self.currentDirectory, self.windows);
-		return self.windows ? normalized.toLower() : normalized;
+		string result = self.windows ? normalized.toLower() : normalized;
+		self.identities.put(path, result);
+		return result;
 	}
 
 	public string directoryName(string path) { return PathTools.dirname(path); }

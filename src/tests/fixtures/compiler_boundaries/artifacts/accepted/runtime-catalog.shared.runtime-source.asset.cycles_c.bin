@@ -86,7 +86,22 @@ static inline const void* __btrc_interface_methods(void* object, const char* nam
 }
 /* btrc-runtime-helper:end __btrc_interface_methods */
 /* btrc-runtime-helper:begin __btrc_arc_validate */
+/* Header invariants are checked on every retain, release and edge move.
+ * That is a debugging aid, not a memory-safety boundary: the checks cost
+ * about a twentieth of a compiled program's time, so they stay on under a
+ * sanitizer or BTRC_ARC_CHECKS and are compiled out otherwise. */
+#if defined(BTRC_ARC_CHECKS) || defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+#define __BTRC_ARC_CHECKS 1
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
+#define __BTRC_ARC_CHECKS 1
+#endif
+#endif
 static inline void __btrc_arc_validate(void* object) {
+#if !defined(__BTRC_ARC_CHECKS)
+    (void)object;
+    return;
+#endif
     if (!object) return;
     __btrc_arc_header* header = __btrc_arc_header_of(object);
     int live = header->state == __BTRC_ARC_LIVE

@@ -21,7 +21,18 @@ class UnixPlatform {
 class Platform {
 	class bool isUnix() { return !Platform.isWindows(); }
 
+	/* 0 = not probed, 1 = Unix, 2 = Windows. The probe reads the working
+	 * directory, a system call, and path helpers ask on every call. */
+	class int windowsProbe = 0;
+
 	class bool isWindows() {
+		if (Platform.windowsProbe != 0) { return Platform.windowsProbe == 2; }
+		bool windows = Platform.probeWindows();
+		Platform.windowsProbe = windows ? 2 : 1;
+		return windows;
+	}
+
+	class bool probeWindows() {
 		/* MinGW's getcwd() returns either a drive-rooted path (C:\\...) or
          * a UNC path.  Detect that shape at runtime so cross-compiled programs
          * do not bake the transpiler host's platform into their output. */

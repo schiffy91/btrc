@@ -122,7 +122,9 @@ def test_actual_bundle_compiles_and_runs_stdlib_program_from_unrelated_cwd(
         "}\n",
         encoding="utf-8",
     )
-    gui_compiled = _run([str(compiler), str(gui_source)], cwd=unrelated, env=environment)
+    # Native header bindings need an explicit target on the self-hosted
+    # compiler even without a project manifest.
+    gui_compiled = _run([str(compiler), "--target", target, str(gui_source)], cwd=unrelated, env=environment)
     assert gui_compiled.returncode == 0, gui_compiled.stderr
     # The Raster binding header is included from the bundle's own data root,
     # so the generated C compiles without any repository checkout present.

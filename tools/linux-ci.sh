@@ -41,6 +41,9 @@ declare -a roots=()
 while IFS= read -r link; do
   target="$(readlink "$link")"
   [[ "$target" == /* ]] || continue
+  # A link into the Nix store names a host build output, not a build
+  # directory; shadowing /nix/store inside the container empties its toolchain.
+  [[ "$target" == /nix/store/* ]] && continue
   root="$(dirname "$target")"
   slot="$private/$(printf '%s' "$root" | tr '/' '_')"
   mkdir -p "$slot/$(basename "$target")"
@@ -51,9 +54,13 @@ while IFS= read -r link; do
   mounts+=(-v "$slot:$root")
 done < <(find build dist -maxdepth 1 -type l 2>/dev/null)
 
+# Default the worker count to the VM's CPUs (CI's runner has four); `podman
+# machine set --cpus N --memory M` resizes the VM, restarting it.
+workers="${PYTEST_WORKERS:-$(podman info --format '{{.Host.CPUs}}' 2>/dev/null || echo 4)}"
+
 exec podman run --rm --init "${mounts[@]}" \
   -e PYTHONPYCACHEPREFIX=/tmp/btrc-pycache "$image" \
-  make NIX= "PYTEST_WORKERS=${PYTEST_WORKERS:-4}" \
+  make NIX= "PYTEST_WORKERS=$workers" \
   "BTRC_TEST_TRANSPILE_TIMEOUT=${BTRC_TEST_TRANSPILE_TIMEOUT:-1800}" \
   "BTRC_TEST_RUN_TIMEOUT=${BTRC_TEST_RUN_TIMEOUT:-60}" \
   "${@:-gpu-required test}"

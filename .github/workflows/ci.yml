@@ -13,7 +13,7 @@ permissions:
   id-token: write
 
 jobs:
-  test:
+  release:
     runs-on: ubuntu-latest
     steps:
       # Pin action implementations by commit so moving tags cannot alter CI.
@@ -74,12 +74,43 @@ jobs:
           )
           git diff --exit-code -- "${paths[@]}"
           test -z "$(git status --porcelain --untracked-files=all -- "${paths[@]}")"
+
+  # The suite is split into independent shards that run as parallel jobs on
+  # four-core runners; each builds the devcontainer from the Nix cache (about
+  # two minutes) and the self-host compiler once. Together the shards cover
+  # exactly what `make test` and `make test-c11` cover.
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { shard: unit, target: test-shard-unit }
+          - { shard: btrc, target: test-shard-btrc }
+          - { shard: corpus-python, target: test-shard-corpus-python }
+          - { shard: corpus-btrc, target: test-shard-corpus-btrc }
+          - { shard: bootstrap, target: test-shard-bootstrap }
+          - { shard: c11-gcc-O0, target: test-c11-one C11_CC=gcc C11_OPT=O0 }
+          - { shard: c11-gcc-O1, target: test-c11-one C11_CC=gcc C11_OPT=O1 }
+          - { shard: c11-gcc-O2, target: test-c11-one C11_CC=gcc C11_OPT=O2 }
+          - { shard: c11-gcc-O3, target: test-c11-one C11_CC=gcc C11_OPT=O3 }
+          - { shard: c11-clang-O0, target: test-c11-one C11_CC=clang C11_OPT=O0 }
+          - { shard: c11-clang-O1, target: test-c11-one C11_CC=clang C11_OPT=O1 }
+          - { shard: c11-clang-O2, target: test-c11-one C11_CC=clang C11_OPT=O2 }
+          - { shard: c11-clang-O3, target: test-c11-one C11_CC=clang C11_OPT=O3 }
+    name: tests (${{ matrix.shard }})
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      - run: make devcontainer
+      - run: chmod -R a+w .
       # Each pytest worker also runs native compilers. Keep the four-core
-      # release runner within its real CPU/memory envelope and allow one slow
+      # runner within its real CPU/memory envelope and allow one slow
       # self-host transpile to make progress under shared load. The init owner
       # reaps daemon-test grandchildren after process-group termination.
-      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 gpu-required test
-      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11
+      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
 
   linux-arm64-bundle:
     runs-on: ubuntu-24.04-arm

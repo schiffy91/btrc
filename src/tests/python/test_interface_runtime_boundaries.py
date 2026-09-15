@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -179,7 +180,11 @@ def test_related_interface_equality_preserves_identity(tmp_path, sanitized, inte
 
 
 def _run_interface_program(tmp_path, emitted, sanitized, *, other_units=()):
-    compiler = shutil.which("clang")
+    # Nix's clang ships a compiler-rt whose sanitizer runtime deadlocks in
+    # dyld initialization on macOS; Apple's clang links the working one.
+    compiler = (
+        "/usr/bin/clang" if sys.platform == "darwin" and os.path.exists("/usr/bin/clang") else shutil.which("clang")
+    )
     if compiler is None:
         pytest.skip("requires clang")
     c_file = tmp_path / "interfaces.c"
@@ -555,7 +560,7 @@ def test_nullable_interface_query_unwinds_failed_temporary_cleanup(tmp_path, san
     [
         ('view.value("wrong")', "expects"),
         ("view.missing()", "has no method 'missing'"),
-        ("var raw = view.value", "closure capturing its receiver"),
+        ("var raw = view.value", "capture the receiver in a closure"),
         ("var invalid = (IView)Other()", "proven implementation upcast"),
         ("var invalid = (IView)(void*)null", "proven implementation upcast"),
         ("var invalid = (IView?)(void*)null", "proven implementation upcast"),

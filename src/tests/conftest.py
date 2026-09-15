@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.runner import default_c_compiler
+
 REPO = Path(__file__).resolve().parents[2]
 
 # Every input category the self-hosted compiler is generated from. This mirrors
@@ -197,7 +199,7 @@ def immutable_btrcc(_selfhost_runtime_data) -> Path:
     configured = _configured_test_btrcc()
     if configured is not None:
         return configured
-    compiler = shlex.split(os.environ.get("BTRC_CC", "cc"))
+    compiler = shlex.split(os.environ.get("BTRC_CC", default_c_compiler()))
     if not compiler:
         raise ValueError("BTRC_CC must name a C compiler")
     output = REPO / "build" / "test-btrcc" / _btrcc_fingerprint(compiler)
@@ -277,7 +279,7 @@ def selfhost_driver(_selfhost_runtime_data):
     worker, and every later run over unchanged sources.
     """
 
-    compiler = shlex.split(os.environ.get("BTRC_CC", "cc"))
+    compiler = shlex.split(os.environ.get("BTRC_CC", default_c_compiler()))
     if not compiler:
         raise ValueError("BTRC_CC must name a C compiler")
     revision = _btrcc_fingerprint(compiler)

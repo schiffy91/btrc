@@ -3,6 +3,16 @@ static _Thread_local volatile int __btrc_try_top = -1;
 /* btrc-runtime-helper:end __btrc_try_level */
 /* btrc-runtime-helper:begin __btrc_trycatch_globals */
 /* btrc try/catch runtime (dynamic) */
+#if defined(__APPLE__)
+/* Darwin's setjmp saves the signal mask and the alternate-stack state, two
+ * system calls on every try frame, cleanup guard and deferred drain. A btrc
+ * frame never changes either, so the BSD register-only variants serve; on
+ * glibc, setjmp already is the register-only form. */
+#undef setjmp
+#undef longjmp
+#define setjmp(env) _setjmp(env)
+#define longjmp(env, value) _longjmp(env, value)
+#endif
 typedef struct { jmp_buf env; } __btrc_try_frame;
 static _Thread_local __btrc_try_frame** __btrc_try_stack = NULL;
 static _Thread_local char __btrc_error_msg[1024] = "";
@@ -98,11 +108,14 @@ static inline void __btrc_register_cleanup_kind(
      * compile of a thirty-line input, the self-hosted compiler ran 1.54 billion
      * iterations of this loop to serve 41,267 matches, averaging 99.9 iterations
      * per call for a 0.27% hit rate. Entries are never moved, so a window
-     * measured down from the top is stable. */
+     * measured down from the top is stable. Four entries catch the loop-body
+     * case; a wider window only made the misses, which are the common case,
+     * proportionally slower (the scan was a sixth of the self-hosted
+     * compiler's time at sixteen). */
     /* Each _Thread_local read is an out-of-line call on some targets, so read
      * the ones this path needs once. The reallocating branch below refreshes
      * `stack`, which is the only local a resize can invalidate. */
-    const int recent = 16;
+    const int recent = 4;
     const int try_level = __btrc_try_top;
     int top = __btrc_cleanup_top;
     __btrc_cleanup_entry* stack = __btrc_cleanup_stack;
