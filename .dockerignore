@@ -12,10 +12,15 @@
 !src/devex/
 !src/devex/lsp/
 !src/devex/lsp/**
+!src/devex/vscode/
+!src/devex/vscode/package.json
 !src/language/
 !src/language/**
 !src/stdlib/
 !src/stdlib/**
+!tools/
+!tools/native_plan.py
+!tools/NativeHeaderReader.cpp
 
 # Runtime/build output inside otherwise admitted source trees never belongs in
 # the container context. The deny-all rule keeps build/ out entirely; the

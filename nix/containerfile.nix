@@ -27,6 +27,8 @@ in
     COPY --chown=${uid}:${uid} src/devex/lsp/ /tmp/flake/src/devex/lsp/
     COPY --chown=${uid}:${uid} src/language/ /tmp/flake/src/language/
     COPY --chown=${uid}:${uid} src/stdlib/ /tmp/flake/src/stdlib/
+    COPY --chown=${uid}:${uid} src/devex/vscode/package.json /tmp/flake/src/devex/vscode/package.json
+    COPY --chown=${uid}:${uid} tools/native_plan.py tools/NativeHeaderReader.cpp /tmp/flake/tools/
     USER ${uid}:${uid}
     ENV HOME="${home}" DEVCONTAINER=true LANG=C.UTF-8 BASH_ENV="${home}/.nix-devshell.sh" PATH="${home}/.local/bin:/nix/var/nix/profiles/default/bin:$PATH"
     RUN cd /tmp/flake && git init -q && git add -A && \
