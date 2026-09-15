@@ -112,7 +112,7 @@ void* archive_arc_tls_address(int index) {
 
 void* archive_arc_process_address(int index) {
     switch (index) {
-        case 0: return (void*)&__btrc_arc_lock_flag;
+        case 0: return (void*)&__btrc_arc_lock_word;
         case 1: return (void*)&__btrc_arc_snapshotting;
         case 2: return (void*)&__btrc_arc_topology_active;
         case 3: return (void*)&__btrc_suspects;

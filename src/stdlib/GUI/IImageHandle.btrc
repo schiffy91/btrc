@@ -1,0 +1,10 @@
+/* A decoded image already converted to the platform's native image object.
+ * Create it on any thread from decoded pixels, then hand it to image views on
+ * the UI thread: presenting it is a pointer assignment, never an encode or
+ * decode. Close releases the native object; views keep their own reference. */
+interface IImageHandle {
+	int width();
+	int height();
+	bool isOpen();
+	void close();
+}

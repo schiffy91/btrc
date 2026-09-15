@@ -1,0 +1,56 @@
+import Library.Image;
+import Library.GUI.IImageHandle;
+
+/* NSImage built from decoded pixels on whichever thread decoded them, so the
+ * conversion never runs on the UI thread. NSImage creation off the main thread
+ * is permitted; drawing it into a view still happens on the main thread
+ * through the image view. */
+/* Platform side of a handle: the image an AppKit image view can present.
+ * Views query it through this interface rather than downcasting to the class. */
+interface IMacOSImageHandle {
+	NSImage nativeImage();
+}
+
+class MacOSImageHandle implements IImageHandle, IMacOSImageHandle {
+	private NSImage? _image;
+	private int _width;
+	private int _height;
+
+	private MacOSImageHandle(NSImage image, int width, int height) {
+		self._image = image;
+		self._width = width;
+		self._height = height;
+	}
+
+	class MacOSImageHandle create(Image pixels, int maximumPixels = 16777216) {
+		if (pixels == null || pixels.isEmpty() || pixels.data == null) { throw "Native image handle requires decoded pixels"; }
+		if (maximumPixels <= 0 || maximumPixels > 16777216 || (long long)pixels.width * (long long)pixels.height > (long long)maximumPixels) { throw "Native artwork exceeds image limits"; }
+		/* The bitmap representation copies the bytes it is given, so the
+		 * decoded Image may be released afterwards; the cost stays on the
+		 * calling thread, never on the view that presents the result. */
+		var encoded = ImageIO.encodeBmp(pixels);
+		var data = NSData.dataWithBytes(encoded.data, (unsigned long)encoded.length());
+		if (data == null) { throw "Cannot allocate native image data"; }
+		var representation = NSBitmapImageRep.imageRepWithData(data);
+		if (representation == null) { throw "Cannot decode native image"; }
+		var image = NSImage.new();
+		if (image == null) { throw "Cannot allocate native image"; }
+		image.addRepresentation(representation);
+		return MacOSImageHandle(image, pixels.width, pixels.height);
+	}
+
+	public int width() { return self._width; }
+
+	public int height() { return self._height; }
+
+	public bool isOpen() { return self._image != null; }
+
+	public NSImage nativeImage() {
+		if (self._image == null) { throw "Native image handle is closed"; }
+		return self._image;
+	}
+
+	public void close() { self._image = null; }
+
+	public void __del__() { self.close(); }
+}

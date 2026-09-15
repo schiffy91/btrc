@@ -332,15 +332,31 @@ static inline void __btrc_suspect(
  * platform lock would need a header the manifest cannot express, because the
  * dependency would hold on one target and not on another, and --freestanding
  * output is allowed to include nothing but btrc_rt.h. */
-static atomic_flag __btrc_arc_lock_flag = ATOMIC_FLAG_INIT;
+static _Atomic int __btrc_arc_lock_word = 0;
 
+/* A waiter polls the word with plain loads and a pause hint, so contending
+ * threads do not bounce the cache line on every spin and the owner keeps the
+ * cycles it needs to release. The hint is a compiler builtin: no header. */
+static inline void __btrc_arc_lock_relax(void) {
+#if defined(__aarch64__) || defined(__arm__)
+    __asm__ __volatile__("yield" ::: "memory");
+#elif (defined(__x86_64__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))
+    __asm__ __volatile__("pause" ::: "memory");
+#endif
+}
 static void __btrc_arc_lock_raw(void) {
-    while (atomic_flag_test_and_set_explicit(
-            &__btrc_arc_lock_flag, memory_order_acquire)) {}
+    for (;;) {
+        if (!atomic_exchange_explicit(
+                &__btrc_arc_lock_word, 1, memory_order_acquire))
+            return;
+        while (atomic_load_explicit(
+                &__btrc_arc_lock_word, memory_order_relaxed))
+            __btrc_arc_lock_relax();
+    }
 }
 static void __btrc_arc_unlock_raw(void) {
-    atomic_flag_clear_explicit(
-        &__btrc_arc_lock_flag, memory_order_release);
+    atomic_store_explicit(
+        &__btrc_arc_lock_word, 0, memory_order_release);
 }
 /* btrc-runtime-helper:end __btrc_arc_lock_state */
 /* btrc-runtime-helper:begin __btrc_arc_shutdown_state */

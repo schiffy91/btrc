@@ -526,6 +526,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("createGPUView", "IGPUView", "method", (("bool", "capture"),), "createGPUView"),
         BuiltinMemberSpec("createLabel", "ILabel", "method", (("string", "text"),), "createLabel"),
         BuiltinMemberSpec("createImageView", "IImageView", "method", (), "createImageView"),
+        BuiltinMemberSpec("createImageHandle", "IImageHandle", "method", (("Image", "pixels"), ("int", "maximumPixels"),), "createImageHandle"),
         BuiltinMemberSpec("createPanel", "IPanel", "method", (("RGBA", "fill"), ("double", "radius"),), "createPanel"),
         BuiltinMemberSpec("createProgressIndicator", "IProgressIndicator", "method", (), "createProgressIndicator"),
         BuiltinMemberSpec("createLevelIndicator", "ILevelIndicator", "method", (("double", "warning"), ("double", "critical"),), "createLevelIndicator"),

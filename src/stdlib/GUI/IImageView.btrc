@@ -1,8 +1,12 @@
 import Library.GUI.IView;
+import Library.GUI.IImageHandle;
 import Library.Image;
 
 /* Aspect-preserving image presentation. Null clears the image; size changes
  * reuse the current decoded image. Pixel limits apply when publishing it. */
 interface IImageView extends IView {
 	void setImage(Image? pixels, int maximumPixels = 16777216);
+
+	/* Present an image already converted on another thread; null clears it. */
+	void setImageHandle(IImageHandle? handle);
 }

@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_gui"
-exports = ["Capture", "Font", "FontFace", "FreeType", "GUI", "Geometry", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IGPUView", "IGrid", "IImageView", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISlider", "IStack", "ITextField", "IView", "IWindow", "MacOS.AppKitEvents", "MacOS.AppKitText", "MacOS.MacOSActionQueue", "MacOS.MacOSApplication", "MacOS.MacOSButton", "MacOS.MacOSComposedCapture", "MacOS.MacOSContainer", "MacOS.MacOSDirectoryPicker", "MacOS.MacOSGPUSurface", "MacOS.MacOSGrid", "MacOS.MacOSImageView", "MacOS.MacOSLabel", "MacOS.MacOSLevelIndicator", "MacOS.MacOSPanel", "MacOS.MacOSProgressIndicator", "MacOS.MacOSRunLoop", "MacOS.MacOSScrollView", "MacOS.MacOSSelect", "MacOS.MacOSSlider", "MacOS.MacOSSystemText", "MacOS.MacOSTextField", "MacOS.MacOSView", "MacOS.MacOSViewCapture", "MacOS.MacOSWindow", "MacOS.MetalLayer", "MacOS.ObjectiveCRuntime", "MacOS.WebGPUSurface", "Raster", "TextRun", "View"]
+exports = ["Capture", "Font", "FontFace", "FreeType", "GUI", "Geometry", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IGPUView", "IGrid", "IImageView", "IImageHandle", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISlider", "IStack", "ITextField", "IView", "IWindow", "MacOS.AppKitEvents", "MacOS.AppKitText", "MacOS.MacOSActionQueue", "MacOS.MacOSApplication", "MacOS.MacOSButton", "MacOS.MacOSComposedCapture", "MacOS.MacOSContainer", "MacOS.MacOSDirectoryPicker", "MacOS.MacOSGPUSurface", "MacOS.MacOSGrid", "MacOS.MacOSImageHandle", "MacOS.MacOSImageView", "MacOS.MacOSLabel", "MacOS.MacOSLevelIndicator", "MacOS.MacOSPanel", "MacOS.MacOSProgressIndicator", "MacOS.MacOSRunLoop", "MacOS.MacOSScrollView", "MacOS.MacOSSelect", "MacOS.MacOSSlider", "MacOS.MacOSSystemText", "MacOS.MacOSTextField", "MacOS.MacOSView", "MacOS.MacOSViewCapture", "MacOS.MacOSWindow", "MacOS.MetalLayer", "MacOS.ObjectiveCRuntime", "MacOS.WebGPUSurface", "Raster", "TextRun", "View"]
 
 [[package.providers]]
 module = "GUI"
@@ -113,7 +113,7 @@ os = ["macos"]
 
 [[native.frameworks]]
 name = "AppKit"
-modules = ["MacOS.MacOSViewInput", "MacOS.MacOSSlider", "MacOS.AppKitEvents", "MacOS.MacOSDirectoryPicker", "MacOS.MacOSTextField", "MacOS.MacOSWindow", "MacOS.AppKitText", "MacOS.MacOSScrollView", "MacOS.MacOSApplication", "MacOS.MetalLayer", "MacOS.MacOSViewCapture", "MacOS.MacOSComposedCapture", "MacOS.MacOSView", "MacOS.MacOSLabel", "MacOS.MacOSImageView", "MacOS.MacOSPanel", "MacOS.MacOSProgressIndicator", "MacOS.MacOSActionQueue", "MacOS.MacOSButton", "MacOS.MacOSSelect", "MacOS.MacOSGrid", "MacOS.MacOSLevelIndicator", "MacOS.MacOSRunLoop", "MacOS.MacOSStack", "MacOS.MacOSContainer"]
+modules = ["MacOS.MacOSViewInput", "MacOS.MacOSSlider", "MacOS.AppKitEvents", "MacOS.MacOSDirectoryPicker", "MacOS.MacOSTextField", "MacOS.MacOSWindow", "MacOS.AppKitText", "MacOS.MacOSScrollView", "MacOS.MacOSApplication", "MacOS.MetalLayer", "MacOS.MacOSViewCapture", "MacOS.MacOSComposedCapture", "MacOS.MacOSView", "MacOS.MacOSLabel", "MacOS.MacOSImageView", "MacOS.MacOSImageHandle", "MacOS.MacOSPanel", "MacOS.MacOSProgressIndicator", "MacOS.MacOSActionQueue", "MacOS.MacOSButton", "MacOS.MacOSSelect", "MacOS.MacOSGrid", "MacOS.MacOSLevelIndicator", "MacOS.MacOSRunLoop", "MacOS.MacOSStack", "MacOS.MacOSContainer"]
 os = ["macos"]
 
 [[native.bindings]]
@@ -281,6 +281,14 @@ header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
 symbols = ["+[NSThread isMainThread]", "+[NSTextField labelWithString:]", "-[NSTextField setStringValue:]", "-[NSTextField stringValue]", "-[NSTextField setFont:]", "-[NSTextField setTextColor:]", "-[NSTextField setAlignment:]", "NSTextAlignmentCenter", "NSTextAlignmentLeft", "+[NSFont systemFontOfSize:]", "+[NSFont boldSystemFontOfSize:]", "+[NSColor labelColor]", "+[NSColor secondaryLabelColor]", "-[NSTextField setUsesSingleLineMode:]", "-[NSTextField setMaximumNumberOfLines:]", "-[NSTextField setLineBreakMode:]", "NSLineBreakByWordWrapping", "NSLineBreakByTruncatingTail"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSImageHandle"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["+[NSData dataWithBytes:length:]", "+[NSBitmapImageRep imageRepWithData:]", "+[NSImage new]", "-[NSImage addRepresentation:]"]
 os = ["macos"]
 
 [[native.bindings]]

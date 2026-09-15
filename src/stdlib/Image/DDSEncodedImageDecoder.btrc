@@ -78,17 +78,34 @@ class DDSEncodedImageDecoder implements IEncodedImageDecoder {
 
 	class int blue(int color) { return (color & 31) * 255 / 31; }
 
-	class RGBA color(int first, int second, int selector, bool allowTransparent) {
+	/* A block colour packed as 0xAARRGGBB: no managed object per pixel, so a
+	 * decode worker never touches the process-wide reference-count lock. */
+	class int packedColor(int first, int second, int selector, bool allowTransparent) {
 		int firstRed = DDSEncodedImageDecoder.red(first);
 		int firstGreen = DDSEncodedImageDecoder.green(first);
 		int firstBlue = DDSEncodedImageDecoder.blue(first);
-		if (selector == 0) { return RGBA(firstRed, firstGreen, firstBlue); }
+		if (selector == 0) { return DDSEncodedImageDecoder.pack(firstRed, firstGreen, firstBlue, 255); }
 		int secondRed = DDSEncodedImageDecoder.red(second);
 		int secondGreen = DDSEncodedImageDecoder.green(second);
 		int secondBlue = DDSEncodedImageDecoder.blue(second);
-		if (selector == 1) { return RGBA(secondRed, secondGreen, secondBlue); }
-		if (allowTransparent && first <= second) { return selector == 2 ? RGBA((firstRed + secondRed) / 2, (firstGreen + secondGreen) / 2, (firstBlue + secondBlue) / 2) : RGBA(0, 0, 0, 0); }
-		return selector == 2 ? RGBA((firstRed * 2 + secondRed) / 3, (firstGreen * 2 + secondGreen) / 3, (firstBlue * 2 + secondBlue) / 3) : RGBA((firstRed + secondRed * 2) / 3, (firstGreen + secondGreen * 2) / 3, (firstBlue + secondBlue * 2) / 3);
+		if (selector == 1) { return DDSEncodedImageDecoder.pack(secondRed, secondGreen, secondBlue, 255); }
+		if (allowTransparent && first <= second) { return selector == 2 ? DDSEncodedImageDecoder.pack((firstRed + secondRed) / 2, (firstGreen + secondGreen) / 2, (firstBlue + secondBlue) / 2, 255) : 0; }
+		return selector == 2 ? DDSEncodedImageDecoder.pack((firstRed * 2 + secondRed) / 3, (firstGreen * 2 + secondGreen) / 3, (firstBlue * 2 + secondBlue) / 3, 255) : DDSEncodedImageDecoder.pack((firstRed + secondRed * 2) / 3, (firstGreen + secondGreen * 2) / 3, (firstBlue + secondBlue * 2) / 3, 255);
+	}
+
+	class int pack(int red, int green, int blue, int alpha) { return (alpha << 24) | (red << 16) | (green << 8) | blue; }
+
+	class int packedRed(int packed) { return (packed >> 16) & 255; }
+
+	class int packedGreen(int packed) { return (packed >> 8) & 255; }
+
+	class int packedBlue(int packed) { return packed & 255; }
+
+	class int packedAlpha(int packed) { return (packed >> 24) & 255; }
+
+	class RGBA color(int first, int second, int selector, bool allowTransparent) {
+		int packed = DDSEncodedImageDecoder.packedColor(first, second, selector, allowTransparent);
+		return RGBA(DDSEncodedImageDecoder.packedRed(packed), DDSEncodedImageDecoder.packedGreen(packed), DDSEncodedImageDecoder.packedBlue(packed), DDSEncodedImageDecoder.packedAlpha(packed));
 	}
 
 	class int alpha(int first, int second, unsigned long long selectors, int pixel) {
@@ -122,9 +139,14 @@ class DDSEncodedImageDecoder implements IEncodedImageDecoder {
 						if (x >= header.width() || y >= header.height()) { continue; }
 						int pixel = localY * 4 + localX;
 						int selector = (int)((colorSelectors >> (pixel * 2)) & 3ULL);
-						RGBA color = DDSEncodedImageDecoder.color(firstColor, secondColor, selector, header.encoding() == 1);
-						int alpha = header.encoding() == 1 ? color.alpha : DDSEncodedImageDecoder.alpha(encoded.get(block), encoded.get(block + 1), alphaSelectors, pixel);
-						image.setRGBA(x, y, color.red, color.green, color.blue, alpha);
+						int color = DDSEncodedImageDecoder.packedColor(firstColor, secondColor, selector, header.encoding() == 1);
+						int alpha = header.encoding() == 1 ? DDSEncodedImageDecoder.packedAlpha(color) : DDSEncodedImageDecoder.alpha(encoded.get(block), encoded.get(block + 1), alphaSelectors, pixel);
+						/* Plain locals as arguments: a call inside an argument makes the
+						 * generated C retain the receiver around the write. */
+						int red = DDSEncodedImageDecoder.packedRed(color);
+						int green = DDSEncodedImageDecoder.packedGreen(color);
+						int blue = DDSEncodedImageDecoder.packedBlue(color);
+						image.setRGBA(x, y, red, green, blue, alpha);
 					}
 				}
 			}

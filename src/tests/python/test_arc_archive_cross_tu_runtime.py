@@ -37,7 +37,7 @@ TLS_SYMBOLS = (
     "__btrc_destroyed_cap",
 )
 PROCESS_SYMBOLS = (
-    "__btrc_arc_lock_flag",
+    "__btrc_arc_lock_word",
     "__btrc_arc_snapshotting",
     "__btrc_arc_snapshot_pending",
     "__btrc_arc_topology_active",

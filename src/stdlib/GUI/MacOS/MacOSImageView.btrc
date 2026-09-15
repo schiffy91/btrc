@@ -1,7 +1,9 @@
 import Library.Image;
 import Library.Callback;
 import Library.GUI.IImageView;
+import Library.GUI.IImageHandle;
 import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSImageHandle;
 
 /* Native artwork presentation. Decode once when the source changes; resizing
  * does not re-encode it or create a new control. Aspect ratio is preserved. */
@@ -59,6 +61,16 @@ class MacOSImageView implements IImageView, IMacOSView {
 		if (image == null) { throw "Cannot allocate native image"; }
 		image.addRepresentation(representation);
 		view.setImage(image);
+	}
+
+	public void setImageHandle(IImageHandle? handle) {
+		self.nativeView();
+		var view = self._imageView;
+		if (view == null) { throw "Native image view is closed"; }
+		if (handle == null) { view.setImage(null); return; }
+		IMacOSImageHandle? native = (IMacOSImageHandle?)handle;
+		if (native == null) { throw "Native image view requires a macOS image handle"; }
+		view.setImage(native.nativeImage());
 	}
 
 	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
