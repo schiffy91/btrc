@@ -50,7 +50,7 @@ def _absolute_path_flags(flags: list[str]) -> list[str]:
             continue
         for prefix in ("-I", "-isystem"):
             if flag.startswith(prefix) and len(flag) > len(prefix):
-                path = flag[len(prefix):]
+                path = flag[len(prefix) :]
                 candidate = os.path.join(REPO, path)
                 if not os.path.isabs(path) and os.path.exists(candidate):
                     flag = prefix + candidate
