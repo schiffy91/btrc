@@ -947,7 +947,8 @@ class ChildProcess {
 		}
 		if (child == (pid_t)0) {
 			if (setpgid(0, 0) != 0) {
-				write(STDERR_FILENO, "failed to prepare child process\n", 32);
+				/* The diagnostic is best effort; fortified builds insist the result is read. */
+				if (write(STDERR_FILENO, "failed to prepare child process\n", 32) < 0) { _exit(126); }
 				_exit(126);
 			}
 			if (terminalDescriptor >= 0) {
@@ -956,7 +957,8 @@ class ChildProcess {
 			if (stdoutPipe[0] >= 0) { close(stdoutPipe[0]); }
 			if (stderrPipe[0] >= 0) { close(stderrPipe[0]); }
 			if ((stdoutPipe[1] >= 0 && dup2(stdoutPipe[1], STDOUT_FILENO) < 0) || (suppressStdout && dup2(nullDescriptor, STDOUT_FILENO) < 0) || (stderrPipe[1] >= 0 && dup2(stderrPipe[1], STDERR_FILENO) < 0) || (suppressStderr && dup2(nullDescriptor, STDERR_FILENO) < 0) || (combineStderr && dup2(STDOUT_FILENO, STDERR_FILENO) < 0) || (inputDescriptor >= 0 && dup2(inputDescriptor, STDIN_FILENO) < 0)) {
-				write(STDERR_FILENO, "failed to prepare child process\n", 32);
+				/* The diagnostic is best effort; fortified builds insist the result is read. */
+				if (write(STDERR_FILENO, "failed to prepare child process\n", 32) < 0) { _exit(126); }
 				_exit(126);
 			}
 			if (stdoutPipe[1] >= 0) { close(stdoutPipe[1]); }
@@ -965,21 +967,25 @@ class ChildProcess {
 			if (inputDescriptor >= 0) { close(inputDescriptor); }
 			for (int index = 0; index < descriptorMappingCount; index++) {
 				if (dup2(leasedMappingDescriptors[index], childMappingDescriptors[index]) < 0) {
-					write(STDERR_FILENO, "failed to map child descriptor\n", 31);
+					/* The diagnostic is best effort; fortified builds insist the result is read. */
+					if (write(STDERR_FILENO, "failed to map child descriptor\n", 31) < 0) { _exit(126); }
 					_exit(126);
 				}
 			}
 			if ((leasedWorkingDirectory >= 0 && __btrc_enter_working_directory_descriptor(leasedWorkingDirectory) != 0) || (leasedWorkingDirectory < 0 && hasCwd && chdir(cwd) != 0)) {
-				write(STDERR_FILENO, "failed to enter working directory\n", 34);
+				/* The diagnostic is best effort; fortified builds insist the result is read. */
+				if (write(STDERR_FILENO, "failed to enter working directory\n", 34) < 0) { _exit(126); }
 				_exit(126);
 			}
 			int closeResult = descriptorMappingCount > 0 ? __btrc_close_descriptors_except_many(descriptorBound, preservedDescriptors, preservedDescriptorCount) : (leasedExecutable >= 0 ? __btrc_close_descriptors_except(descriptorBound, leasedExecutable) : ChildProcess.closeDescriptorsForExec(descriptorBound));
 			if (closeResult != 0) {
-				write(STDERR_FILENO, "unsupported process descriptor limit\n", 37);
+				/* The diagnostic is best effort; fortified builds insist the result is read. */
+				if (write(STDERR_FILENO, "unsupported process descriptor limit\n", 37) < 0) { _exit(126); }
 				_exit(126);
 			}
 			if (__btrc_exec_signal_guard_child_end(&previousSignalMask) != 0) {
-				write(STDERR_FILENO, "failed to restore child signals\n", 32);
+				/* The diagnostic is best effort; fortified builds insist the result is read. */
+				if (write(STDERR_FILENO, "failed to restore child signals\n", 32) < 0) { _exit(126); }
 				_exit(126);
 			}
 			if (leasedExecutable >= 0) {
@@ -987,7 +993,8 @@ class ChildProcess {
 			} else {
 				execve(resolvedExecutable, execArguments, execEnvironment);
 			}
-			write(STDERR_FILENO, "failed to execute child process\n", 32);
+			/* The diagnostic is best effort; fortified builds insist the result is read. */
+			if (write(STDERR_FILENO, "failed to execute child process\n", 32) < 0) { _exit(127); }
 			_exit(127);
 		}
 
