@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
@@ -63,7 +64,7 @@ def test_helper_comment_does_not_materialize_an_unused_runtime_function(
         ],
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=BTRC_TRANSPILE_TIMEOUT,
     )
     assert compiled.returncode == 0, compiled.stderr
 

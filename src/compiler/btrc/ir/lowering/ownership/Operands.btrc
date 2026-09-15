@@ -215,6 +215,13 @@ class OwnershipOperandPlanner {
 			return "int";
 		}
 		Node? canonical = SemanticTypeSystem.resolveTypedefType(typeExpr, self.analyzed.typedefTable);
+		Node? outer = SemanticTypeSystem.resolveOuterTypedefType(typeExpr, self.analyzed.typedefTable);
+		if (outer != null && (outer.base == "__fn_ptr" || outer.base == "__realtime_fn_ptr") && outer.pointerDepth == 0 && !outer.isArray) {
+			/* A callback's parameter aliases are its only spelling of qualifiers
+			 * on an intermediate pointer layer; flattening them would change the
+			 * C signature the temporary is assigned from. */
+			canonical = outer;
+		}
 		if (canonical != null && canonical.pointerDepth == 0 && !canonical.isArray) {
 			/* A copied scalar does not retain the source slot's constness. */
 			Node storage = TypeShape.copy(canonical);

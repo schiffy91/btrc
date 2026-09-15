@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -51,7 +52,9 @@ def test_btrc_directory_picker_appkit(tmp_path, request, frontend, sanitized):
         if frontend == "python"
         else [str(request.getfixturevalue("immutable_btrcc")), *flags]
     )
-    compiled = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=180)
+    compiled = subprocess.run(
+        command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=BTRC_TRANSPILE_TIMEOUT
+    )
     assert compiled.returncode == 0, compiled.stderr
     if frontend == "selfhost":
         generated.write_text(compiled.stdout)
@@ -152,7 +155,9 @@ def test_btrc_text_field_appkit(tmp_path, request, frontend, sanitized, consumer
         if frontend == "python"
         else [str(request.getfixturevalue("immutable_btrcc")), *flags]
     )
-    compiled = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=180)
+    compiled = subprocess.run(
+        command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=BTRC_TRANSPILE_TIMEOUT
+    )
     assert compiled.returncode == 0, compiled.stderr
     if frontend == "selfhost":
         generated.write_text(compiled.stdout)

@@ -648,6 +648,12 @@ class StorageValidator {
 		if (resolvedType.isExtern && resolvedType.arraySize == null) {
 			return false;
 		}
+		// The inferred value type drops the declaration's storage class, so an
+		// incomplete extern array is only visible on the declared type.
+		Node? declared = vars.has(target.name) ? self.types.resolveAliases(vars.get(target.name)) : null;
+		if (declared != null && declared.isExtern && declared.isArray && declared.arraySize == null) {
+			return false;
+		}
 		return !self.pointerBackedArrayTarget(target, resolvedType, vars);
 	}
 

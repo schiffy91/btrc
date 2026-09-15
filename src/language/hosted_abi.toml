@@ -23,6 +23,7 @@ functions = [
   "__btrc_exec_signal_guard_begin",
   "__btrc_exec_signal_guard_child_end",
   "__btrc_exec_signal_guard_parent_end",
+  "__btrc_host_target_architecture",
   "__btrc_move_descriptor_outside_stdio",
   "__btrc_native_thread_invoke",
   "__btrc_posix_spawn_cloexec",
@@ -6549,6 +6550,7 @@ owned = [
   "__btrc_exec_signal_guard_begin",
   "__btrc_exec_signal_guard_child_end",
   "__btrc_exec_signal_guard_parent_end",
+  "__btrc_host_target_architecture",
   "__btrc_move_descriptor_outside_stdio",
   "__btrc_native_thread_invoke",
   "__btrc_posix_spawn_cloexec",
@@ -11540,6 +11542,17 @@ parameters = [
 variadic = false
 return_effect = "value"
 raw_lifetime = false
+
+[[functions]]
+name = "__btrc_host_target_architecture"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = []
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "safe"
 
 [[functions]]
 name = "__btrc_move_descriptor_outside_stdio"

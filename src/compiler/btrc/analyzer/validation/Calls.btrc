@@ -333,7 +333,10 @@ class CallValidator {
 			self.borrows.validateOpaqueCallArguments(null, concreteVariant.params, call, callee.obj.name + "." + callee.field, noSubstitutions, false, vars);
 			return;
 		}
-		Node? calleeType = SemanticTypeSystem.directFunctionPointer(self.types.inferType(callee, vars), self.state.analyzed);
+		/* Resolve only the outer alias: flattening the parameter aliases would
+         * move a `const` written on an aliased pointee onto the wrong
+         * declarator layer, and the argument checks resolve aliases themselves. */
+		Node? calleeType = SemanticTypeSystem.directFunctionPointerSpecialization(self.types.inferType(callee, vars), self.state.analyzed);
 		if (calleeType != null) {
 			Vector<Node> callableParams = [];
 			int callableIndex = 1;
@@ -461,7 +464,7 @@ class CallValidator {
 
 	public bool validateCallableValueCall(Node call, string name, Map<string, Node> vars) {
 		if (!vars.has(name)) { return false; }
-		Node? resolvedCallable = SemanticTypeSystem.directFunctionPointer(vars.get(name), self.state.analyzed);
+		Node? resolvedCallable = SemanticTypeSystem.directFunctionPointerSpecialization(vars.get(name), self.state.analyzed);
 		if (resolvedCallable == null) {
 			TypeValidator.fail("Value '" + name + "' is not callable", call);
 		}

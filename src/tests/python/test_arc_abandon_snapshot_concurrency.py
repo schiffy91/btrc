@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 ROOTS = {
     "__btrc_safe_calloc",
@@ -73,7 +74,7 @@ def _build_and_run(
         ],
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=BTRC_TRANSPILE_TIMEOUT,
         env=environment,
     )
     assert build.returncode == 0, build.stderr

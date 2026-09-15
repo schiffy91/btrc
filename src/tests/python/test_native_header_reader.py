@@ -30,7 +30,7 @@ def codec_probe(request, tmp_path_factory):
         command = [sys.executable, "-m", "src.compiler.python.main", "--no-cache", str(source), "-o", str(generated)]
     else:
         command = [str(request.getfixturevalue("semantic_btrcc")), str(source)]
-    result = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=180)
+    result = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=BTRC_TRANSPILE_TIMEOUT)
     assert result.returncode == 0, result.stderr
     if request.param == "selfhost":
         generated.write_text(result.stdout, encoding="utf-8")
@@ -93,6 +93,7 @@ def assert_codec_parity(codec_probe, tmp_path, source):
 
 
 from src.compiler.python.frontend.packages import PackageUniverse
+from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 
 @pytest.fixture(scope="module")

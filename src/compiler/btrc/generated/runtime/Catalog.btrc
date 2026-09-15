@@ -80,6 +80,7 @@ class GeneratedRuntimeCatalogData {
 		self.pushRows24();
 		self.pushRows25();
 		self.pushRows26();
+		self.pushRows27();
 		self.intrinsicEffects = [];
 		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Atomic", "compareExchangeStrong", "safe", "atomic_compare_exchange_strong_explicit", "Atomic.compareExchangeStrong"));
 		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Atomic", "exchange", "safe", "atomic_exchange_explicit", "Atomic.exchange"));
@@ -2854,4 +2855,6 @@ class GeneratedRuntimeCatalogData {
 			false,
 			"unknown"));
 	}
+
+	private void pushRows27() { self.rows.push(GeneratedRuntimeHelperRow("runtime", "__btrc_host_target_architecture", ["static inline int __btrc_host_target_architecture(void) {\n#if defined(__x86_64__) || defined(_M_X64)\n    return 1;\n#elif defined(__aarch64__) || defined(_M_ARM64)\n    return 2;\n#else\n    return 0;\n#endif\n}",], self.emptyStrings(), self.emptyStrings(), self.emptyStrings(), self.emptyStrings(), true, "safe")); }
 }

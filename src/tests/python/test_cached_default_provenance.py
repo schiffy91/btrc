@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.sources import ResolvedSource
+from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 REPO = Path(__file__).resolve().parents[3]
 CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
@@ -23,7 +24,7 @@ def _run(command: list[str], *, environment: dict[str, str]) -> subprocess.Compl
         env=environment,
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=BTRC_TRANSPILE_TIMEOUT,
     )
 
 

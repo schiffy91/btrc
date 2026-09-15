@@ -16,11 +16,11 @@ int main() {
 	matrix.push(row3);
 	assert(matrix.len == 3);
 
-	Vector<int> first_row = matrix.get(0);
-	assert(first_row.len == 3);
-	assert(first_row[0] == 1);
-	assert(first_row[1] == 2);
-	assert(first_row[2] == 3);
+	Vector<int> firstRow = matrix.get(0);
+	assert(firstRow.len == 3);
+	assert(firstRow[0] == 1);
+	assert(firstRow[1] == 2);
+	assert(firstRow[2] == 3);
 
 	Vector<int> secondRow = matrix.get(1);
 	assert(secondRow[0] == 4);

@@ -16,6 +16,7 @@ from src.tests.btrc.test_mutex_value_contract import (
     _strict_matrix,
 )
 from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
@@ -146,7 +147,7 @@ def _compile_reference_with_stdlib(
         env={**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "collection-cache")},
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=BTRC_TRANSPILE_TIMEOUT,
     )
     return result, generated
 

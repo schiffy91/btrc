@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
+
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 REPOSITORY = Path(__file__).resolve().parents[3]
@@ -36,7 +38,7 @@ def _reference(source: Path, output: Path, cache: Path) -> subprocess.CompletedP
         env={**os.environ, "BTRC_CACHE_DIR": str(cache)},
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=BTRC_TRANSPILE_TIMEOUT,
     )
 
 
@@ -46,7 +48,7 @@ def _selfhost(compiler: Path, source: Path, output: Path) -> subprocess.Complete
         cwd=REPOSITORY,
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=BTRC_TRANSPILE_TIMEOUT,
     )
     if compiled.returncode == 0:
         output.write_text(compiled.stdout)
@@ -97,7 +99,7 @@ def _build_and_run(
         env=environment,
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=BTRC_TRANSPILE_TIMEOUT,
     )
     assert built.returncode == 0, built.stderr
     return subprocess.run(

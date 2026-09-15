@@ -1124,6 +1124,20 @@ void abandonScopedCycle() {
         text=True,
         timeout=30,
     )
+    if scenario == "abandonCycle":
+        # The collector detaches every edge of a dead cycle before it runs a
+        # finalizer, so an activated registration abandoned inside a bare
+        # context/state cycle can no longer reach its context to cancel it.
+        # The runtime fails loudly instead of leaking the native publication;
+        # `abandonScopedCycle` is the supported shape, where an owner outside
+        # the cycle closes the registration first.
+        assert run.returncode != 0, (frontend, scenario, run.stdout)
+        assert "CallbackRegistration collected before its owning scope cancelled it" in run.stderr, (
+            frontend,
+            scenario,
+            run.stderr,
+        )
+        return
     assert run.returncode == 0, (frontend, scenario, run.stderr)
 
 

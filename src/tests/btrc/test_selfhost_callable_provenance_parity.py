@@ -304,7 +304,7 @@ def test_interface_bound_method_values_fail_closed_in_both_compilers(
 ) -> None:
     for result, _ in _compile_both(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
-        assert "interface type 'factorylike'" in (result.stdout + result.stderr).lower()
+        assert "capture the receiver in a closure" in (result.stdout + result.stderr).lower()
 
 
 @pytest.mark.parametrize(

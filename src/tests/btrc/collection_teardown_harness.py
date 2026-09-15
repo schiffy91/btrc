@@ -8,6 +8,7 @@ from pathlib import Path
 
 from src.tests.btrc.test_mutex_value_contract import REPO, _strict_matrix
 from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 
 def compile_stdlib_pair(
@@ -44,7 +45,7 @@ def compile_stdlib_pair(
         },
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=BTRC_TRANSPILE_TIMEOUT,
     )
 
     assert selfhost.returncode == 0, selfhost.stderr

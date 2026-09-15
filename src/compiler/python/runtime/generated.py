@@ -5143,6 +5143,21 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         source_visible=False,
         realtime_effect='unknown',
     ),
+    GeneratedRuntimeHelperRow(
+        category='runtime',
+        name='__btrc_host_target_architecture',
+        c_source=(
+            'static inline int __btrc_host_target_architecture(void) {\n#if defined(__'
+            'x86_64__) || defined(_M_X64)\n    return 1;\n#elif defined(__aarch64__) ||'
+            ' defined(_M_ARM64)\n    return 2;\n#else\n    return 0;\n#endif\n}'
+        ),
+        depends_on=(),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='safe',
+    ),
 )
 
 INTRINSIC_EFFECT_ROWS: tuple[GeneratedIntrinsicEffectRow, ...] = (

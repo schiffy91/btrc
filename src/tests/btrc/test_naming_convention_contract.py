@@ -72,8 +72,14 @@ _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])([A-Z])")
 
 
 def _tracked(pattern: str) -> list[str]:
+    # A container mounts the checkout under another uid; git refuses such a
+    # repository unless told the directory is safe.
     listing = subprocess.run(
-        ["git", "ls-files", pattern], capture_output=True, check=True, cwd=REPO, text=True
+        ["git", "-c", "safe.directory=*", "ls-files", pattern],
+        capture_output=True,
+        check=True,
+        cwd=REPO,
+        text=True,
     ).stdout.split()
     assert listing, f"no tracked files match {pattern}"
     return listing
@@ -103,6 +109,12 @@ def _foreign_names() -> frozenset[str]:
         | abi.platform_typedef_names
     )
 
+
+# Compute intrinsics the language itself spells the way the shading and C
+# worlds do. `gpu_id()` is resolved by name inside both compilers rather than
+# declared anywhere btrc could read, so it is listed here beside the struct
+# members.
+_LANGUAGE_INTRINSICS = frozenset({"gpu_id"})
 
 _FSTRING = re.compile(r'f"(?:[^"\\\n]|\\.)*"')
 _INTERPOLATION = re.compile(r"\{[^{}]*\}")
@@ -178,7 +190,7 @@ def _report(offenders: dict[str, set[str]]) -> str:
 def test_every_btrc_source_owns_only_camel_case_names() -> None:
     """The convention covers the stdlib, the corpus and the examples too."""
 
-    foreign = _foreign_names() | _repository_c_names() | _PLATFORM_STRUCT_MEMBERS
+    foreign = _foreign_names() | _repository_c_names() | _PLATFORM_STRUCT_MEMBERS | _LANGUAGE_INTRINSICS
     offenders: dict[str, set[str]] = {}
     for relative in _tracked("*.btrc"):
         owned = _owned_snake_case_names(REPO / relative, foreign)

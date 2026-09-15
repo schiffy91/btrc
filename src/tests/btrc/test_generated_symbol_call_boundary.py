@@ -71,7 +71,7 @@ def test_name_validator_owns_closed_generated_symbol_policy() -> None:
     assert "validatePreprocessorSymbolReferences" not in names[publish_start:publish_end]
     assert "self.validatePreprocessorSymbolReferences(program);" in names[publish_end:]
     assert "self.names.validateCompletedGeneratedSymbols(self.program);" in validator
-    assert analyzer.index("self.generics.closeExpressionGraph(program);") < analyzer.index(
+    assert analyzer.index("self.generics.closeExpressionGraph(program, hostedAbi);") < analyzer.index(
         "validator.validateCompletedGeneratedSymbols();"
     )
 

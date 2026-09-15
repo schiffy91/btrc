@@ -214,3 +214,4 @@ __btrc_application_directories_platform
 __btrc_native_thread_invoke
 __btrc_interface_try_methods
 __btrc_interface_methods
+__btrc_host_target_architecture

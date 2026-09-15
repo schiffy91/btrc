@@ -23,6 +23,7 @@ from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
     _tracked_strict_matrix,
 )
 from src.tests.btrc.test_semantic_validation import REPO
+from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
@@ -102,7 +103,7 @@ def _compile_hosted_shadow_pair(
         env=environment,
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=BTRC_TRANSPILE_TIMEOUT,
     )
     assert selfhost.returncode == 0, selfhost.stderr
     selfhost_c.write_text(selfhost.stdout)

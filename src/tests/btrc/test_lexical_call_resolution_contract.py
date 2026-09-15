@@ -18,6 +18,7 @@ from src.tests.btrc.production_readiness_harness import (
 )
 from src.tests.btrc.string_coercion_harness import compile_pair
 from src.tests.btrc.test_semantic_validation import REPO
+from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
@@ -348,7 +349,7 @@ def test_hosted_stdlib_function_values_fail_closed_under_user_shadows(
         env={**os.environ, "BTRC_HOME": str(data_root)},
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=BTRC_TRANSPILE_TIMEOUT,
     )
     assert selfhost.returncode != 0
     diagnostic = "cannot be stored or forwarded as a value because bare __fn_ptr"

@@ -243,6 +243,7 @@ EXPECTED_PRIMARY_RETAINED = {
         "ExpressionLowerer",
         "StatementLowerer",
         "OwnershipLowerer",
+        "ManagedLifetimeLowerer",
         "ExceptionLowerer",
         "ConcurrencyLowerer",
         "GpuLowerer",

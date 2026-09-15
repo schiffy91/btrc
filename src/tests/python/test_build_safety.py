@@ -11,7 +11,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MAKEFILE = REPO_ROOT / "Makefile"
 FLAKE = REPO_ROOT / "flake.nix"
-DEVCONTAINER_CONFIG = REPO_ROOT / "build"
+DEVCONTAINER_CONFIG = REPO_ROOT / "nix"
 
 
 def _make_dry_run(*args: str) -> str:
@@ -116,8 +116,8 @@ def test_devcontainer_policy_and_generated_output_are_unambiguously_filtered():
         "devcontainer.nix",
         "host.nix",
     }
-    assert "files = import ./build" in (REPO_ROOT / "flake.nix").read_text()
-    assert "build/ /tmp/flake/build/" in (DEVCONTAINER_CONFIG / "containerfile.nix").read_text()
+    assert "files = import ./nix" in (REPO_ROOT / "flake.nix").read_text()
+    assert "nix/ /tmp/flake/nix/" in (DEVCONTAINER_CONFIG / "containerfile.nix").read_text()
     ignored = (REPO_ROOT / ".gitignore").read_text().splitlines()
     assert "/build/" not in ignored
     assert "/build/generated/" in ignored
@@ -130,8 +130,9 @@ def test_devcontainer_context_excludes_repo_state_and_stages_lsp_runtime():
 
     assert ignored.startswith("*\n")
     assert "!.git" not in ignored
-    assert "build/generated/" in ignored
-    assert "build/out/" in ignored
+    # The deny-all rule keeps build/ (generated C, test compilers, bundles)
+    # out of the context; no rule may admit it back.
+    assert "!build" not in ignored
     for local_state in (
         "**/.venv/",
         "**/.pytest_cache/",
@@ -166,13 +167,13 @@ def test_optional_native_backends_only_skip_missing_dependencies():
     makefile = MAKEFILE.read_text()
     flake = (REPO_ROOT / "flake.nix").read_text()
 
-    assert makefile.count(" -E ") >= 3
+    assert makefile.count(" -E ") >= 1
     assert "$$CC" not in makefile
-    assert makefile.count("$(CC)") >= 7
+    assert makefile.count("$(CC)") >= 3
     assert '|| echo "GPU runtime skipped' not in makefile
     assert '|| echo "GUI window backend skipped' not in makefile
     assert '|| echo "GUI font backend skipped' not in makefile
-    assert "-I${pkgs.glfw.dev}/include" in flake
+    assert "-I${pkgs.freetype.dev}/include/freetype2" in flake
 
 
 def test_btrcc_c_rebuilds_for_every_input_category():

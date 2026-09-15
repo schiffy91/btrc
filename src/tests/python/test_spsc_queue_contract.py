@@ -98,7 +98,7 @@ def test_managed_typed_wrapper_delegates_to_the_canonical_storage() -> None:
         "int value = 0; q.tryPush(1); q.tryPop(&value); delete q; return value; }"
     )
     for method in ("tryPush", "tryPop"):
-        body = _body(generated, f"btrc_SpscQueue_int_{method}")
+        body = _body(generated, f"btrc_SPSCQueue_int_{method}")
         assert not re.search(r"\b(malloc|calloc|realloc|free|pthread_mutex|fprintf|printf|sleep)\b", body)
         assert f"SPSCQueues_{'tryPushBorrowed' if method == 'tryPush' else 'tryPopBorrowed'}" in body
     assert generated.count("class SPSCQueue") == 0

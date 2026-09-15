@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 ROOTS = {
     "__btrc_arc_abandon",
@@ -132,7 +133,7 @@ def test_cycle_capacity_boundaries_are_strict_c11(
         ],
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=BTRC_TRANSPILE_TIMEOUT,
         env=environment,
     )
     assert build.returncode == 0, build.stderr

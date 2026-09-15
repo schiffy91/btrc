@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.packages import PackageTarget
+from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 ROOT = Path(__file__).resolve().parents[3]
 GUI = ROOT / "src" / "stdlib" / "GUI"
@@ -32,7 +33,9 @@ def _transpile_gui(source, tmp_path, request, frontend):
         if frontend == "python"
         else [str(request.getfixturevalue("immutable_btrcc")), "--no-stdlib", *target_flags, str(source)]
     )
-    compiled = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=180)
+    compiled = subprocess.run(
+        command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=BTRC_TRANSPILE_TIMEOUT
+    )
     assert compiled.returncode == 0, compiled.stderr
     if frontend == "selfhost":
         generated.write_text(compiled.stdout)
@@ -145,7 +148,12 @@ def test_btrc_owns_gui_surface(tmp_path: Path, request, frontend, sanitized) -> 
     )
     assert result.returncode == 0, result.stderr
     ppm = tmp_path / "surface.ppm"
-    result = subprocess.run([str(executable), str(ppm)], env=environment, capture_output=True, text=True, timeout=30)
+    # The probe pins one surface with `keep`, a retain the program never
+    # balances by design; LeakSanitizer would report that pin at exit.
+    run_environment = {**environment, "ASAN_OPTIONS": "detect_leaks=0"}
+    result = subprocess.run(
+        [str(executable), str(ppm)], env=run_environment, capture_output=True, text=True, timeout=30
+    )
     assert result.returncode == 0, result.stderr
     assert result.stdout == "PASS: BTRC-owned GUI pixels\n"
     pixels = b"\xaa\x00\x55" + b"\x00\x00\xff" * 8

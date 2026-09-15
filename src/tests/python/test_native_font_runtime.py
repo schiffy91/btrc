@@ -98,7 +98,7 @@ int main(int argc, char** argv) {
     assert(retained == coverage);
     library.close();
     var provider = new FreeTypeFace(argv[1], 18);
-    assert(provider.metrics().height26_6() > 0LL);
+    assert(provider.metrics().heightFixed() > 0LL);
     var rendered = provider.glyph(0xe9, true);
     if (rendered == null) { throw "Cannot render accented glyph"; }
     assert(rendered.width() > 0 && rendered.rows() > 0);

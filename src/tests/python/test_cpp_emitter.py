@@ -28,7 +28,13 @@ from src.compiler.python.ir.nodes import (
 )
 from src.compiler.python.ir.verifier import IRVerifier
 from src.tests.python.test_native_import_consumer import apple_environment
+from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 from tools.native_plan import NativePlanBuilder
+
+# Apple's developer-tool shim is the toolchain the plan builder targets on
+# macOS; elsewhere the host compilers are whatever `cc` and `c++` name.
+HOST_CC = "/usr/bin/clang" if sys.platform == "darwin" else "cc"
+HOST_CXX = "/usr/bin/clang++" if sys.platform == "darwin" else "c++"
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -42,14 +48,14 @@ def emitted_adapter(request, tmp_path_factory):
         command = [sys.executable, "-m", "src.compiler.python.main", "--no-cache", str(source), "-o", str(generated)]
     else:
         command = [str(request.getfixturevalue("semantic_btrcc")), str(source)]
-    compiled = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=180)
+    compiled = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=BTRC_TRANSPILE_TIMEOUT)
     assert compiled.returncode == 0, compiled.stderr
     if request.param == "selfhost":
         generated.write_text(compiled.stdout)
     executable = root / "Emitter"
     built = subprocess.run(
         [
-            "/usr/bin/clang",
+            HOST_CC,
             "-std=c11",
             "-pedantic-errors",
             "-Wall",
@@ -179,8 +185,8 @@ int main(int argc, char **argv) {
         plan_path=plan,
         generated_c=main,
         output=executable,
-        cc="/usr/bin/clang",
-        cxx="/usr/bin/clang++",
+        cc=HOST_CC,
+        cxx=HOST_CXX,
         optimization=1 if sanitize else 2,
     )
     result = subprocess.run([str(executable)], env=environment, capture_output=True, text=True, timeout=10)

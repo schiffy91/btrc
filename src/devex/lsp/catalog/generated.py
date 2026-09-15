@@ -580,7 +580,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("textWidth", "int", "method", (("string", "text"), ("int", "scale"),), "textWidth"),
         BuiltinMemberSpec("textHeight", "int", "method", (("int", "scale"),), "textHeight"),
         BuiltinMemberSpec("signedAdvance", "long long", "method", (("long long", "position"), ("long long", "distance"),), "signedAdvance"),
-        BuiltinMemberSpec("fontPixels", "int", "method", (("long long", "fixed26_6"),), "fontPixels"),
+        BuiltinMemberSpec("fontPixels", "int", "method", (("long long", "fixedPoint"),), "fontPixels"),
         BuiltinMemberSpec("fontWidth", "int", "method", (("Font", "font"), ("string", "text"),), "fontWidth"),
         BuiltinMemberSpec("fontText", "void", "method", (("BtrcGuiPixels*", "pixels"), ("Font", "font"), ("int", "x"), ("int", "y"), ("string", "text"), ("unsigned int", "rgba"),), "fontText"),
     )),

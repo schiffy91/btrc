@@ -11,6 +11,7 @@ from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
 )
 from src.tests.btrc.test_mutex_value_contract import _compile_pair
 from src.tests.btrc.test_semantic_validation import REPO, _compile_source
+from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 
 def compile_pair(
@@ -51,7 +52,7 @@ def compile_pair(
         },
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=BTRC_TRANSPILE_TIMEOUT,
     )
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr

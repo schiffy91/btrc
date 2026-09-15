@@ -57,7 +57,7 @@ def test_standalone_realtime_example_compiles_identically(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    source = REPO / "examples/RealtimeGain.btrc"
+    source = REPO / "examples/realtime-primitives/RealtimeGain.btrc"
     reference_output = tmp_path / "reference.c"
     selfhost_output = tmp_path / "selfhost.c"
     reference = run_reference(source, reference_output)

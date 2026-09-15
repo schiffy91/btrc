@@ -216,7 +216,7 @@ class GUIRaster {
 		return position + distance;
 	}
 
-	class int fontPixels(long long fixed26_6) { return GUIInt.clamp(fixed26_6 / 64LL); }
+	class int fontPixels(long long fixedPoint) { return GUIInt.clamp(fixedPoint / 64LL); }
 
 	class int fontWidth(Font font, string text) {
 		if (text == null) { return 0; }
@@ -238,8 +238,8 @@ class GUIRaster {
 	class void fontText(BtrcGuiPixels* pixels, Font font, int x, int y, string text, unsigned int rgba) {
 		var metrics = font.metrics();
 		long long penX = (long long)x;
-		long long baseline = GUIRaster.signedAdvance((long long)y, (long long)GUIRaster.fontPixels(metrics.ascender26_6()));
-		int lineHeight = GUIRaster.fontPixels(metrics.height26_6());
+		long long baseline = GUIRaster.signedAdvance((long long)y, (long long)GUIRaster.fontPixels(metrics.ascenderFixed()));
+		int lineHeight = GUIRaster.fontPixels(metrics.heightFixed());
 		int offset = 0;
 		int length = text.len();
 		while (offset < length) {
@@ -297,7 +297,7 @@ class Surface {
 	public int textHeight(int scale = 1) {
 		var font = self.selectedFont;
 		if (font == null) { return GUIRaster.textHeight(scale); }
-		int height = GUIRaster.fontPixels(font.metrics().height26_6());
+		int height = GUIRaster.fontPixels(font.metrics().heightFixed());
 		return height > 0 ? height : 0;
 	}
 

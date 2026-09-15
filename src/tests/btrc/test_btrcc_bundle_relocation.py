@@ -124,7 +124,9 @@ def test_actual_bundle_compiles_and_runs_stdlib_program_from_unrelated_cwd(
     )
     gui_compiled = _run([str(compiler), str(gui_source)], cwd=unrelated, env=environment)
     assert gui_compiled.returncode == 0, gui_compiled.stderr
-    assert "#include <btrc_gui.h>" in gui_compiled.stdout
+    # The Raster binding header is included from the bundle's own data root,
+    # so the generated C compiles without any repository checkout present.
+    assert f'#include "{data_root.resolve() / "stdlib/GUI/btrc_gui.h"}"' in gui_compiled.stdout
     gui_generated.write_text(gui_compiled.stdout, encoding="utf-8", newline="\n")
     header_check = _run(
         [

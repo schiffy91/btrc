@@ -39,6 +39,7 @@ from src.compiler.python.ir.nodes import (
     IRVar,
     IRVarDecl,
 )
+from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 from tools.native_plan import NativePlanBuilder, NativePlanError
 
 REPO = Path(__file__).resolve().parents[3]
@@ -300,7 +301,7 @@ def emitter_probe(request, tmp_path_factory):
         command = [sys.executable, "-m", "src.compiler.python.main", "--no-cache", str(source), "-o", str(generated)]
     else:
         command = [str(request.getfixturevalue("semantic_btrcc")), str(source)]
-    compiled = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=180)
+    compiled = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=BTRC_TRANSPILE_TIMEOUT)
     assert compiled.returncode == 0, compiled.stderr
     if request.param == "selfhost":
         generated.write_text(compiled.stdout)

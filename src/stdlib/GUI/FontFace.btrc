@@ -6,14 +6,14 @@ class FontMetrics {
 	private long long ascenderValue;
 	private long long heightValue;
 
-	public FontMetrics(long long ascender26_6, long long height26_6) {
-		self.ascenderValue = ascender26_6;
-		self.heightValue = height26_6;
+	public FontMetrics(long long ascenderFixed, long long heightFixed) {
+		self.ascenderValue = ascenderFixed;
+		self.heightValue = heightFixed;
 	}
 
-	public long long ascender26_6() { return self.ascenderValue; }
+	public long long ascenderFixed() { return self.ascenderValue; }
 
-	public long long height26_6() { return self.heightValue; }
+	public long long heightFixed() { return self.heightValue; }
 }
 
 enum FontPixelMode {

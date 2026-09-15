@@ -240,6 +240,23 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
+        name='__btrc_host_target_architecture',
+        origin='runtime',
+        result=GeneratedAbiTypeRow('int', 0, False, ()),
+        parameters=(),
+        variadic=False,
+        semantic_result=None,
+        return_effect='value',
+        return_alias_parameter=None,
+        return_alias_null_effect=None,
+        raw_lifetime=False,
+        return_deallocator=None,
+        return_alias_shape=None,
+        consume_deallocator=None,
+        return_alias_null_deallocator=None,
+        realtime_effect='safe',
+    ),
+    GeneratedHostedFunctionRow(
         name='__btrc_move_descriptor_outside_stdio',
         origin='runtime',
         result=GeneratedAbiTypeRow('int', 0, False, ()),
@@ -6223,6 +6240,7 @@ HOSTED_FUNCTION_NAMES: tuple[str, ...] = (
     '__btrc_exec_signal_guard_begin',
     '__btrc_exec_signal_guard_child_end',
     '__btrc_exec_signal_guard_parent_end',
+    '__btrc_host_target_architecture',
     '__btrc_move_descriptor_outside_stdio',
     '__btrc_native_thread_invoke',
     '__btrc_posix_spawn_cloexec',
@@ -12754,6 +12772,7 @@ HOSTED_OWNED_NAMES: tuple[str, ...] = (
     '__btrc_exec_signal_guard_begin',
     '__btrc_exec_signal_guard_child_end',
     '__btrc_exec_signal_guard_parent_end',
+    '__btrc_host_target_architecture',
     '__btrc_move_descriptor_outside_stdio',
     '__btrc_native_thread_invoke',
     '__btrc_posix_spawn_cloexec',
@@ -17610,4 +17629,4 @@ HOSTED_PLATFORM_TYPEDEF_NAMES: tuple[str, ...] = (
 
 HOSTED_STDLIB_SOURCE_MARKER = 'compiler:stdlib'
 HOSTED_USER_SOURCE_MARKER = 'compiler:user'
-HOSTED_ABI_FINGERPRINT = '4532bf0606ebc661949beff48b63e964ce2acfa14e35e820c1b981879ad90506'
+HOSTED_ABI_FINGERPRINT = '36d6befa8107dc598dd8a517995577ced43251be2599bbb372b2527e83bcc422'

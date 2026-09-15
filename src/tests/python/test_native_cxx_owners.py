@@ -14,6 +14,7 @@ import pytest
 from src.tests.python.test_native_import_consumer import apple_environment
 from src.tests.python.test_native_import_consumer import native_compile as native_compile
 from src.tests.python.test_native_import_consumer import native_project as native_project
+from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
 # The C++ standard library the header reader sees comes from the PATH driver's
@@ -157,7 +158,9 @@ def build_native_program(native_compile, source, sanitize):
     def run_command(command, **kwargs):
         # Sanitizer flags belong to the compiler and linker steps, not pkg-config.
         extra = flags if command[0].endswith(("clang", "clang++")) else []
-        return subprocess.run([command[0], *extra, *command[1:]], env=environment, timeout=180, **kwargs)
+        return subprocess.run(
+            [command[0], *extra, *command[1:]], env=environment, timeout=BTRC_TRANSPILE_TIMEOUT, **kwargs
+        )
 
     executable = root / "Main"
     NativePlanBuilder(runner=run_command).build(

@@ -24,13 +24,13 @@ int main() {
 	v.push(Cat());
 	assert(v.len == 2);
 
-	int base_count = 0;
+	int baseCount = 0;
 	for a in v {
 		// Declared element type is Animal -> Animal.speak, not the override.
 		assert(a.speak() == "...");
-		base_count += 1;
+		baseCount += 1;
 	}
-	assert(base_count == 2);
+	assert(baseCount == 2);
 
 	print("PASS: test_vector_of_base_with_derived_elements");
 	return 0;

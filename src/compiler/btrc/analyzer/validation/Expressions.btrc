@@ -397,7 +397,7 @@ class ExpressionValidator {
 		if (receiver == null) { return; }
 		if (self.state.analyzed.isInterface(receiver.base)) {
 			if (self.state.analyzed.interfaceMethod(receiver.base, expression.field) == null) { TypeValidator.fail("Interface '" + receiver.base + "' has no method '" + expression.field + "'", expression); }
-			TypeValidator.fail("A bound interface method requires a closure capturing its receiver", expression);
+			TypeValidator.fail("Interface methods require a receiver-bound call; capture the receiver in a closure", expression);
 		}
 		if (receiver.base == "Atomic") {
 			string member = expression.field;

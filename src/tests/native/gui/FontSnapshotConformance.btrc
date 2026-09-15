@@ -73,7 +73,7 @@ int main() {
 	catch (string error) { rejected = true; }
 	assert(rejected);
 	var metrics = new FontMetrics(-65LL, 9223372036854775807LL);
-	assert(metrics.ascender26_6() == -65LL && metrics.height26_6() == 9223372036854775807LL);
+	assert(metrics.ascenderFixed() == -65LL && metrics.heightFixed() == 9223372036854775807LL);
 	assert(GUIRaster.fontPixels(-65LL) == -1 && GUIRaster.fontPixels(9223372036854775807LL) == 2147483647);
 	assert(GUIRaster.signedAdvance(9223372036854775807LL, 1LL) == 9223372036854775807LL);
 	assert(GUIRaster.signedAdvance(-9223372036854775807LL - 1LL, -1LL) == -9223372036854775807LL - 1LL);
