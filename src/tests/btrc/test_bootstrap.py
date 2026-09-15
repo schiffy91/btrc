@@ -30,6 +30,36 @@ import unittest
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
 CFLAGS = shlex.split(os.environ.get("BTRC_CFLAGS", "-std=c11 -Wall -Wextra -Werror -pedantic -O2"))
+
+
+def _absolute_path_flags(flags: list[str]) -> list[str]:
+    """Compiles run in scratch directories; repo-relative -I/-include/-isystem
+    paths in BTRC_CFLAGS (the Windows compat layer) are resolved against the
+    repository so they still land."""
+    resolved: list[str] = []
+    pending: str | None = None
+    for flag in flags:
+        if pending is not None:
+            candidate = os.path.join(REPO, flag)
+            resolved.append(candidate if not os.path.isabs(flag) and os.path.exists(candidate) else flag)
+            pending = None
+            continue
+        if flag in ("-I", "-include", "-isystem"):
+            resolved.append(flag)
+            pending = flag
+            continue
+        for prefix in ("-I", "-isystem"):
+            if flag.startswith(prefix) and len(flag) > len(prefix):
+                path = flag[len(prefix):]
+                candidate = os.path.join(REPO, path)
+                if not os.path.isabs(path) and os.path.exists(candidate):
+                    flag = prefix + candidate
+                break
+        resolved.append(flag)
+    return resolved
+
+
+CFLAGS = _absolute_path_flags(CFLAGS)
 LDLIBS = shlex.split(os.environ.get("BTRC_LDLIBS", "-lm" if os.name == "nt" else "-lm -lpthread"))
 PYTHON = shlex.split(os.environ.get("BTRC_PYTHON", "python" if os.name == "nt" else "python3"))
 BOOTSTRAP_TIMEOUT = int(os.environ.get("BTRC_BOOTSTRAP_TIMEOUT_SECONDS", "1200"))
