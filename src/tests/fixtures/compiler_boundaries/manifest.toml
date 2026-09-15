@@ -304,6 +304,8 @@ channels = [
   "helper.__btrc_hash_str",
   "helper.__btrc_indexOf",
   "helper.__btrc_intToString",
+  "helper.__btrc_interface_methods",
+  "helper.__btrc_interface_try_methods",
   "helper.__btrc_isAlnumStr",
   "helper.__btrc_isAlphaStr",
   "helper.__btrc_isBlank",
@@ -343,6 +345,7 @@ channels = [
   "helper.__btrc_mutex_val_set",
   "helper.__btrc_mutex_val_types",
   "helper.__btrc_mutex_value_callback_guard",
+  "helper.__btrc_native_thread_invoke",
   "helper.__btrc_padLeft",
   "helper.__btrc_padRight",
   "helper.__btrc_parseBool",
@@ -587,7 +590,7 @@ channel = "artifact"
 baseline_path = "baseline/surface.python.raw-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/surface.python.raw-ir.artifact.bin"
-accepted_sha256 = "db1f4eaaace110da8254d8854e0863c3b26d42b45fd7c6e656d60477b5f28aee"
+accepted_sha256 = "1f5db3a4d50079e26c653e7035a2c4d65a1d9ae8b9efc53270eb4797b2bc22e3"
 reason = "Structured realtime provenance and canonical intrinsic targets are now explicit IR data."
 regressions = ["src/tests/btrc/test_callback_registration_contract.py", "src/tests/btrc/test_realtime_parity.py", "src/tests/python/test_boundary_renderers.py", "src/tests/python/test_realtime.py"]
 
@@ -615,7 +618,7 @@ channel = "artifact"
 baseline_path = "baseline/surface.python.optimized-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/surface.python.optimized-ir.artifact.bin"
-accepted_sha256 = "62d51ef093a5fe9a70267d820c4261c5818a4f609db40adbf1d8a7debff58aff"
+accepted_sha256 = "fa0bd5f1b795b677eabdbae01ff61d17e1701f79ffd24324ee3818af8fd528e5"
 reason = "Structured realtime provenance and canonical intrinsic targets are now explicit IR data."
 regressions = ["src/tests/btrc/test_callback_registration_contract.py", "src/tests/btrc/test_realtime_parity.py", "src/tests/python/test_boundary_renderers.py", "src/tests/python/test_realtime.py"]
 
@@ -755,7 +758,7 @@ channel = "artifact"
 baseline_path = "baseline/managed.python.raw-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.python.raw-ir.artifact.bin"
-accepted_sha256 = "03e8fd9f71859c321a28b1f0f6b0e71e48cbd7f5b02260761f255e0032ee872f"
+accepted_sha256 = "a0d15096c6e13d46a5f030b372530d8398165e8b3e2a1044eb12074f9ee1ba1e"
 reason = "Managed call-result temporaries are volatile only when a reachable setjmp can bypass their assignment. String allocation adoption is null-checked in the shared strings.c helper (afea78f); the helper source, its catalog metadata, and the managed fixture's derived IR and C carry that guard."
 regressions = ["src/tests/classes/ConstructorCallResultSnapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py", "src/tests/btrc/test_fstring_allocation_c11.py"]
 
@@ -783,7 +786,7 @@ channel = "artifact"
 baseline_path = "baseline/managed.python.optimized-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.python.optimized-ir.artifact.bin"
-accepted_sha256 = "e195452985ecc07eeded60ad8319467981cef851397a6628db6c31f29a1d4d7e"
+accepted_sha256 = "f34d051ee81ac779fb28d7496490c0ad4feee9bea9377979f94a7b6924bc7769"
 reason = "Managed call-result temporaries are volatile only when a reachable setjmp can bypass their assignment. String allocation adoption is null-checked in the shared strings.c helper (afea78f); the helper source, its catalog metadata, and the managed fixture's derived IR and C carry that guard."
 regressions = ["src/tests/classes/ConstructorCallResultSnapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py", "src/tests/btrc/test_fstring_allocation_c11.py"]
 
@@ -1346,6 +1349,10 @@ boundary = "runtime-helper-source"
 channel = "asset.btrc_rt_h"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.btrc_rt_h.bin"
 baseline_sha256 = "925d122a8142fba8118171c9f9ad797a6976c9e16c7222b47ca49cd6f34d3932"
+accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.btrc_rt_h.bin"
+accepted_sha256 = "b26af4f85a2edeea27644594a10b1652f3f03f58f3615bf40f13dafd6de8f30f"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally: the ARC lock spins with a pause hint, the stdlib archive exports interface dispatch and the thread API, and the child-process failure paths read their write results."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-source.asset.collections_c"
@@ -1381,7 +1388,7 @@ channel = "asset.cycles_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.cycles_c.bin"
 baseline_sha256 = "6a0d034d5d19ee0ab69b789a82d6898c5060a3d095dc1145f82c90248ad074a2"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.cycles_c.bin"
-accepted_sha256 = "f5f210cdc7b0d6cbae6e9b6f431df31e47a7a4256e64b5d0a4475d04402a767f"
+accepted_sha256 = "c3c06b7f7efadb1649c83903d88f5126415552342e261b1f56e57c1522681f9b"
 reason = "Track cycle suspect buffer indices for bounded removal; the ARC lock stays one portable atomic flag so --freestanding output includes nothing but btrc_rt.h."
 regressions = ["src/tests/python/test_cli_flags.py", "src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/python/test_stdlib_archive_shared_state.py", "src/tests/btrc/test_cycle_suspect_forget.py"]
 
@@ -1404,6 +1411,10 @@ boundary = "runtime-helper-source"
 channel = "asset.mutex_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.mutex_c.bin"
 baseline_sha256 = "68be258549a2c0f35041fe1b884a417546df478106a5a0596632c6f8a985bd8b"
+accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.mutex_c.bin"
+accepted_sha256 = "a0be61a77efb4cfa11f01d1089b3c444117c0ba5deda69636f9961c6f1f428e6"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally: the ARC lock spins with a pause hint, the stdlib archive exports interface dispatch and the thread API, and the child-process failure paths read their write results."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-source.asset.process_c"
@@ -1443,7 +1454,7 @@ channel = "asset.threads_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.threads_c.bin"
 baseline_sha256 = "914cdd968337a25ca0bb90dedcdc1191f161b7dc6b44db279e5cd96ea21e5ec2"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.threads_c.bin"
-accepted_sha256 = "f92585bf748f2998f5ef0cdb0af4e49741606f5010548a7953fa2f763ed38089"
+accepted_sha256 = "74d575032c19a6a165279635f8dca1b260deb9b42a657cc0b943cc05d81a1e6b"
 reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
@@ -1457,7 +1468,7 @@ channel = "asset.trycatch_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.trycatch_c.bin"
 baseline_sha256 = "aa851e085554c048b119ea587348aaee4a2f60ec889bfa6541ef0d04830fabcd"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.trycatch_c.bin"
-accepted_sha256 = "b0356e887c066b5a73c6f79438d7bcda012236b789bd03184471efea2b27a96f"
+accepted_sha256 = "37293fc1cbe976e5665c3f9e932393b9014e77cdc991433c3b91d604f8c241bd"
 reason = "Cleanup registration no longer scans every live entry to find a slot to supersede; it is a runtime cost removal that leaves emitted C byte-identical."
 regressions = ["src/tests/memory/CleanupSlotReuse.btrc", "src/tests/memory/EmptyManagedLocal.btrc"]
 
@@ -1471,7 +1482,7 @@ channel = "manifest"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0000.bin"
 baseline_sha256 = "d50a8adfc16401de4293409dba6e41c5d17fd5d1ef2b0dbc5409ce67c7fd995d"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0000.bin"
-accepted_sha256 = "902e3894a4764d24b6c87402787d89fe1bb4cbc4c20990b18c2dc82e0f318d2c"
+accepted_sha256 = "83c535336ab8609960381982f155cfdf45bcde7d797bf355b1937dda9db830cc"
 reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
@@ -1709,7 +1720,7 @@ channel = "helper.__btrc_arc_callback_types"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0023.bin"
 baseline_sha256 = "642525460bc856e7fe062c97b707c84d98636058ed6b4809154093243ae530c9"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0023.bin"
-accepted_sha256 = "3dd1fe6db0f1095333b3304ef49051cfaaf9a059ca0d8c56995d51f4877f163b"
+accepted_sha256 = "6d42fa9afde49867ce7db1c3672df09911175e48df8564ec7b3c34bc28cdda81"
 reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
@@ -1823,7 +1834,7 @@ channel = "helper.__btrc_arc_lock_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0034.bin"
 baseline_sha256 = "2953863e9ce0b19d1faa2fe48cf167145ad9a33454d12d9305fd77187a569e11"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0034.bin"
-accepted_sha256 = "1ab8a5bdbcf44788af32a35fccb9c90a40cd34eae28d6007a5cc4f1d24e51a61"
+accepted_sha256 = "93d3ae00f178c6ea56624f5a4b5ba154e118e96476772654b277c8d11e2a740d"
 reason = "One portable atomic ARC lock: a platform lock needs a header the runtime manifest cannot express, and --freestanding output may include nothing but btrc_rt.h."
 regressions = ["src/tests/python/test_cli_flags.py", "src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/python/test_stdlib_archive_shared_state.py", "src/tests/btrc/test_cycle_suspect_forget.py"]
 
@@ -1930,6 +1941,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_reverse_proves_live"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0044.bin"
 baseline_sha256 = "172bb2295ac27b10af8851754f21fc6dcf391cbb82a8978a6def89c2c00a0aa5"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0044.bin"
+accepted_sha256 = "c123c51a3b23146d15ad2ca26c0ee92e00973dc97740aaa98306903faa34b8ae"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally: the ARC lock spins with a pause hint, the stdlib archive exports interface dispatch and the thread API, and the child-process failure paths read their write results."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0045"
@@ -2903,7 +2918,7 @@ channel = "helper.__btrc_mutex_arc_type"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0138.bin"
 baseline_sha256 = "85d7bf07a9d37118f846e6eb634e140a994bacf82b1b912f4f4b890303b7281b"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0138.bin"
-accepted_sha256 = "cbc530f5c08b3d0190c0431fb5577026f6da1ae3dbb74af33dd6216a745a901d"
+accepted_sha256 = "2a6d0b8b7f5660719e871f58abfa1dad6c84ad8f32aa72f59643b0d3873ee851"
 reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
@@ -3153,7 +3168,7 @@ channel = "helper.__btrc_register_cleanup_kind"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0159.bin"
 baseline_sha256 = "deba8e0417508305b8353e2e24bfb7f5c2c9a50f9a4b558de4b0e76a476bad2a"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0159.bin"
-accepted_sha256 = "623c66431acea0951c7c63ebbfe526f5b0cb311bfb08f5144c21279504df5a5a"
+accepted_sha256 = "d0e66ac35cd0b88012ccadd03ce0bf6d9f4166fa55d8477fad5ceaccfc7b75ea"
 reason = "Cleanup registration no longer scans every live entry to find a slot to supersede; it is a runtime cost removal that leaves emitted C byte-identical."
 regressions = ["src/tests/memory/CleanupSlotReuse.btrc", "src/tests/memory/EmptyManagedLocal.btrc"]
 
@@ -3246,6 +3261,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_run_cleanups"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0168.bin"
 baseline_sha256 = "4f08888f5b7472363efc3d366bb3dfb5f6102e810f844ac4bedb1784b3498bf3"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0168.bin"
+accepted_sha256 = "0d5a4ca7acd462488760220b4e0a0d2b5292cbe0c6a72a9e04b11427e930372f"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally: the ARC lock spins with a pause hint, the stdlib archive exports interface dispatch and the thread API, and the child-process failure paths read their write results."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0169"
@@ -3921,7 +3940,7 @@ channel = "python"
 baseline_path = "baseline/runtime-catalog.shared.runtime-order.python.bin"
 baseline_sha256 = "37e2442001713cb436302de380466e70ae4d1c6123368fbd0b4e30f5021b422a"
 accepted_path = "accepted/runtime-catalog.shared.runtime-order.python.bin"
-accepted_sha256 = "c7933b7eed8c8618614a451a18701675121e963363520bb6ef036df8fc0fcfbc"
+accepted_sha256 = "7653745ad6429b20b7c5cd71343507f3ad1ab93b69a05f33f717452a6cb23691"
 reason = "The accepted order retains the reviewed runtime thread-types delta; ApplicationDirectories extends both order universes with its platform discriminator."
 regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_application_directories_contract.py"]
 
@@ -3935,7 +3954,7 @@ channel = "btrc"
 baseline_path = "baseline/runtime-catalog.shared.runtime-order.btrc.bin"
 baseline_sha256 = "213371cc7e12185e6643930ec91b4a3016d51ab6add711a63cd7d41b6c85dea2"
 accepted_path = "accepted/runtime-catalog.shared.runtime-order.btrc.bin"
-accepted_sha256 = "1c305bbb9bd5454df990e2a58074d7ca4bf6c12ed89508c8f9295e064b5ebf90"
+accepted_sha256 = "526ab09269517d5d1fb4be3e2a95e45de4d34dfb1536fd0b1de380fa9b26d8af"
 reason = "The accepted order retains the reviewed runtime thread-types delta; ApplicationDirectories extends both order universes with its platform discriminator."
 regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_application_directories_contract.py"]
 
@@ -4108,3 +4127,45 @@ right = "managed.btrc.behavior-clang.stdout"
 id = "managed.btrc.toolchain-parity.stderr"
 left = "managed.btrc.behavior-gcc.stderr"
 right = "managed.btrc.behavior-clang.stderr"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0229"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_interface_methods"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0229.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0229.bin"
+accepted_sha256 = "459c776479d720b8df4b3d6410ca93815cff28023dbae8ff2220982e299c1175"
+reason = "Runtime helper added after the frozen baseline: the stdlib archive exports interface dispatch and the thread API, so their helpers join the shared runtime metadata."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0230"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_interface_try_methods"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0230.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0230.bin"
+accepted_sha256 = "b15a9f7b4a9c2874bbb21886d5bc3814f7014b397808299f63a939fbbeb8e4e2"
+reason = "Runtime helper added after the frozen baseline: the stdlib archive exports interface dispatch and the thread API, so their helpers join the shared runtime metadata."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0231"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_native_thread_invoke"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0231.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0231.bin"
+accepted_sha256 = "ad4dd51fbc79b14545f655f246fdbebb8f951c51df1978f944da3a66a463156a"
+reason = "Runtime helper added after the frozen baseline: the stdlib archive exports interface dispatch and the thread API, so their helpers join the shared runtime metadata."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]

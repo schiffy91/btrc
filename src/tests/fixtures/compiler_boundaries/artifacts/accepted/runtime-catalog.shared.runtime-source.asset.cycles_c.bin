@@ -35,12 +35,18 @@ typedef void (*__btrc_hook_fn)(void*);
 typedef int (*__btrc_hook_guard_fn)(
     __btrc_hook_fn, void*, char*, size_t);
 typedef void (*__btrc_raise_fn)(const char*);
+typedef struct {
+    const char* name;
+    const void* methods;
+} __btrc_interface_entry;
 struct __btrc_arc_type {
     __btrc_visit_fn visit;
     __btrc_destroy_fn destroy;
     __btrc_hook_fn hook;
     __btrc_hook_guard_fn guard;
     __btrc_raise_fn raise;
+    const __btrc_interface_entry* interfaces;
+    size_t interface_count;
 };
 /* btrc-runtime-helper:end __btrc_arc_callback_types */
 /* btrc-runtime-helper:begin __btrc_arc_header_of */
@@ -56,6 +62,29 @@ static inline const __btrc_arc_type* __btrc_arc_type_of(
     return fallback;
 }
 /* btrc-runtime-helper:end __btrc_arc_type_of */
+/* btrc-runtime-helper:begin __btrc_interface_try_methods */
+static inline const void* __btrc_interface_try_methods(void* object, const char* name) {
+    const __btrc_arc_type* type = __btrc_arc_type_of(object, NULL);
+    size_t first = 0;
+    size_t last = type ? type->interface_count : 0;
+    while (first < last) {
+        size_t middle = first + (last - first) / 2;
+        int order = strcmp(type->interfaces[middle].name, name);
+        if (order == 0) return type->interfaces[middle].methods;
+        if (order < 0) first = middle + 1;
+        else last = middle;
+    }
+    return NULL;
+}
+/* btrc-runtime-helper:end __btrc_interface_try_methods */
+/* btrc-runtime-helper:begin __btrc_interface_methods */
+static inline const void* __btrc_interface_methods(void* object, const char* name) {
+    const void* methods = __btrc_interface_try_methods(object, name);
+    if (methods) return methods;
+    fprintf(stderr, "btrc: invalid interface receiver for %s\n", name);
+    abort();
+}
+/* btrc-runtime-helper:end __btrc_interface_methods */
 /* btrc-runtime-helper:begin __btrc_arc_validate */
 static inline void __btrc_arc_validate(void* object) {
     if (!object) return;
@@ -303,15 +332,31 @@ static inline void __btrc_suspect(
  * platform lock would need a header the manifest cannot express, because the
  * dependency would hold on one target and not on another, and --freestanding
  * output is allowed to include nothing but btrc_rt.h. */
-static atomic_flag __btrc_arc_lock_flag = ATOMIC_FLAG_INIT;
+static _Atomic int __btrc_arc_lock_word = 0;
 
+/* A waiter polls the word with plain loads and a pause hint, so contending
+ * threads do not bounce the cache line on every spin and the owner keeps the
+ * cycles it needs to release. The hint is a compiler builtin: no header. */
+static inline void __btrc_arc_lock_relax(void) {
+#if defined(__aarch64__) || defined(__arm__)
+    __asm__ __volatile__("yield" ::: "memory");
+#elif (defined(__x86_64__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))
+    __asm__ __volatile__("pause" ::: "memory");
+#endif
+}
 static void __btrc_arc_lock_raw(void) {
-    while (atomic_flag_test_and_set_explicit(
-            &__btrc_arc_lock_flag, memory_order_acquire)) {}
+    for (;;) {
+        if (!atomic_exchange_explicit(
+                &__btrc_arc_lock_word, 1, memory_order_acquire))
+            return;
+        while (atomic_load_explicit(
+                &__btrc_arc_lock_word, memory_order_relaxed))
+            __btrc_arc_lock_relax();
+    }
 }
 static void __btrc_arc_unlock_raw(void) {
-    atomic_flag_clear_explicit(
-        &__btrc_arc_lock_flag, memory_order_release);
+    atomic_store_explicit(
+        &__btrc_arc_lock_word, 0, memory_order_release);
 }
 /* btrc-runtime-helper:end __btrc_arc_lock_state */
 /* btrc-runtime-helper:begin __btrc_arc_shutdown_state */
@@ -697,7 +742,21 @@ static int __btrc_arc_reverse_proves_live(void* object) {
         }
         __btrc_reverse_epoch = 1;
     }
-    __btrc_reverse_add(object);
+    /* Prefer the current concrete incoming-owner chain before expanding fan-in.
+     * Repeated temporary releases of a shared child otherwise enqueue every
+     * owner, even when its newest owner leads directly to an external root.
+     * The mutation lock keeps these owner edges valid. A witness is only a
+     * route: never treat a snapshot sentinel or a previously live owner as
+     * proof. Recheck each reference count and fall back to the exact worklist
+     * when the preferred chain ends or cycles. */
+    void* preferred = object;
+    while (preferred && __btrc_reverse_add(preferred)) {
+        __btrc_arc_validate(preferred);
+        __btrc_arc_header* header = __btrc_arc_header_of(preferred);
+        if (header->rc > header->edge_rc) return 1;
+        if (header->live_witness == preferred) break;
+        preferred = header->live_witness;
+    }
     for (int head = 0; head < __btrc_reverse_count; head++) {
         void* current = __btrc_reverse_queue[head];
         __btrc_arc_validate(current);

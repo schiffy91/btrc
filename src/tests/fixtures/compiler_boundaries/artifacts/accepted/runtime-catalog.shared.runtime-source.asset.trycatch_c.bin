@@ -84,7 +84,7 @@ static _Thread_local int __btrc_cleanup_cap = 64;
 static inline void __btrc_register_cleanup_kind(
         void* slot, __btrc_cleanup_take_fn take,
         __btrc_cleanup_fn fn, __btrc_visit_fn visit, int direct) {
-    if (!slot || !take || !fn) return;
+    if (!slot || !take || (direct && !fn)) return;
     /* Look for a superseded entry among the most recent registrations only.
      *
      * Finding one is an optimization, not a correctness requirement:
@@ -230,7 +230,7 @@ static inline void __btrc_run_cleanups(int level) {
         NULL, sizeof(void*) * (size_t)count);
     for (int i = count - 1; i >= 0; i--) {
         __btrc_cleanup_entry entry = entries[i];
-        objects[i] = (!entry.fn || !entry.slot || !entry.take)
+        objects[i] = ((entry.direct && !entry.fn) || !entry.slot || !entry.take)
             ? NULL : entry.take(entry.slot);
     }
     char primary_error[sizeof __btrc_error_msg];

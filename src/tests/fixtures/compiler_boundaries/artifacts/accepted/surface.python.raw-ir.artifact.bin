@@ -2,6 +2,10 @@
   "$format": "btrc-ir-v1",
   "module": {
     "$type": "IRModule",
+    "language": "c",
+    "native_units": {
+      "$map": []
+    },
     "preprocessor_decls": [
       {
         "$type": "IRMacroDef",
@@ -65,6 +69,9 @@
     "runtime_roots": {
       "$set": []
     },
+    "native_external_names": {
+      "$set": []
+    },
     "realtime_safe_externals": {
       "$set": []
     },
@@ -122,7 +129,8 @@
           "text": "int"
         },
         "params": [],
-        "is_static": false
+        "is_static": false,
+        "c_linkage": false
       }
     ],
     "helper_decls": [
@@ -145,6 +153,7 @@
       "$tuple": []
     },
     "global_decls": [],
+    "objective_c_classes": [],
     "function_defs": [
       {
         "$type": "IRFunctionDef",
@@ -168,7 +177,8 @@
         },
         "is_static": false,
         "archive_export": false,
-        "is_realtime": false
+        "is_realtime": false,
+        "c_linkage": false
       },
       {
         "$type": "IRFunctionDef",
@@ -223,7 +233,8 @@
         },
         "is_static": false,
         "archive_export": false,
-        "is_realtime": false
+        "is_realtime": false,
+        "c_linkage": false
       }
     ],
     "gpu_kernels": [],
