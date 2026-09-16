@@ -198,7 +198,8 @@ static inline int __btrc_string_length(const char* s) {
     /* Short strings are measured directly. A long tracked string is measured
      * once and the answer kept on its registry entry, so a lexer or a line
      * splitter walking a large text stays linear. */
-    size_t length = strnlen(s, 64);
+    size_t length = 0;
+    while (length < 64 && s[length] != '\0') length++;
     if (length >= 64) {
         length = 0;
         __btrc_string_registry_lock();

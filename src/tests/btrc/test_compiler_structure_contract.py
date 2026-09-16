@@ -54,6 +54,7 @@ EXPECTED_BTRC_FILES = frozenset(
     frontend/SourceIo.btrc
     frontend/Stage.btrc
     frontend/Stdlib.btrc
+    frontend/Timing.btrc
     frontend/Visibility.btrc
     generated/ast/Node.btrc
     generated/hosted_abi/Tables.btrc
@@ -465,7 +466,7 @@ def test_selfhost_tree_is_the_exact_ownership_namespace() -> None:
     actual = {path.relative_to(SELFHOST).as_posix() for path in SELFHOST.rglob("*.btrc")}
 
     assert actual == EXPECTED_BTRC_FILES
-    assert len(actual) == 95
+    assert len(actual) == 96
     assert {path.name for path in SELFHOST.glob("*.btrc")} == {"BtrccMain.btrc", "Compiler.btrc"}
 
 

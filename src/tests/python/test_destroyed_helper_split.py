@@ -72,7 +72,9 @@ def test_destroyed_query_is_separate_from_shared_state():
         "__btrc_arc_mutation_lock",
     )
     shared_helpers = StdlibArchiveAdapter.HELPER_NAMES
-    assert "__btrc_destroyed_tracking" in shared_helpers
+    # The tracking state itself lives in the one thread-local record.
+    assert "__btrc_tls_state" in shared_helpers
+    assert "__btrc_tls_state" in CYCLES["__btrc_destroyed_tracking"].depends_on
     assert "__btrc_is_destroyed" not in shared_helpers
     assert "__btrc_is_destroyed" not in CYCLES["__btrc_mark_destroyed"].depends_on
     assert "__btrc_is_destroyed" not in CYCLES["__btrc_collect_cycles"].depends_on

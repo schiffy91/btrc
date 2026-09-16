@@ -301,7 +301,8 @@ def test_thread_only_runtime_omits_optional_cycle_and_launder_callables(
     )
     assert emitted.returncode == 0 and emitted.stderr == ""
     assert "static _Thread_local void** __btrc_suspects" not in emitted.stdout
-    assert "static _Thread_local void* volatile __btrc_launder_slot" in emitted.stdout
+    assert "void* volatile launder_slot;" in emitted.stdout
+    assert "#define __btrc_launder_slot (__btrc_tls.launder_slot)" in emitted.stdout
     assert "static inline void __btrc_suspect(" not in emitted.stdout
     assert "static inline void* __btrc_launder(" not in emitted.stdout
 

@@ -29,7 +29,7 @@ HEADERS = """\
 ROOT_PROGRAMS = {
     "__btrc_string_registry": """
 int main(void) {
-    __btrc_string_entry entry = {NULL, 0, NULL};
+    __btrc_string_entry entry = {NULL, 0, 0, NULL};
     bool valid = entry.value == NULL && __btrc_string_bucket_count == 64
             && __btrc_string_buckets == __btrc_string_inline_buckets;
     return valid ? 0 : 1;

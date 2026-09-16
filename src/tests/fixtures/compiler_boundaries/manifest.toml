@@ -759,8 +759,8 @@ channel = "artifact"
 baseline_path = "baseline/managed.python.raw-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.python.raw-ir.artifact.bin"
-accepted_sha256 = "2212011678ee27049b58c75757a700118a7bd58817c28ff921771dda574e7237"
-reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length consults __btrc_string_registry_slot under the registry lock), so substring, length and index queries on a large text no longer walk the whole text; the managed fixture embeds the helper text."
+accepted_sha256 = "8c780aa85661532864bf9dd8faf065e60734065609c37bf2f8c6abf9ac91236f"
+reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length measures the short-string bound with a plain loop so strict C11 builds need no POSIX strnlen); substring, length and index queries on a large text no longer walk the whole text."
 regressions = ["src/tests/classes/ConstructorCallResultSnapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py", "src/tests/btrc/test_fstring_allocation_c11.py"]
 
 [[records]]
@@ -787,8 +787,8 @@ channel = "artifact"
 baseline_path = "baseline/managed.python.optimized-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.python.optimized-ir.artifact.bin"
-accepted_sha256 = "79162847440ddd461e5a5c5024126e8f0ead716ff19db72fc0c41fe1f0913202"
-reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length consults __btrc_string_registry_slot under the registry lock), so substring, length and index queries on a large text no longer walk the whole text; the managed fixture embeds the helper text."
+accepted_sha256 = "5dbdf38b456c9034726cef275db12388aaab056ad6a3b9bd1e2d360ebb26f667"
+reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length measures the short-string bound with a plain loop so strict C11 builds need no POSIX strnlen); substring, length and index queries on a large text no longer walk the whole text."
 regressions = ["src/tests/classes/ConstructorCallResultSnapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py", "src/tests/btrc/test_fstring_allocation_c11.py"]
 
 [[records]]
@@ -815,8 +815,8 @@ channel = "artifact"
 baseline_path = "baseline/managed.python.c.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.python.c.artifact.bin"
-accepted_sha256 = "383cbaba3c300a79c39c7fbc47cadb3d033f4d336fde12fa3084e78db9b3d75e"
-reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length consults __btrc_string_registry_slot under the registry lock), so substring, length and index queries on a large text no longer walk the whole text; the managed fixture embeds the helper text."
+accepted_sha256 = "3e592d3bdbff857cf377997d8630c6a9fd9e8156c2136cf9a3ebfb327dd0b9d8"
+reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length measures the short-string bound with a plain loop so strict C11 builds need no POSIX strnlen); substring, length and index queries on a large text no longer walk the whole text."
 regressions = ["src/tests/classes/ConstructorCallResultSnapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py", "src/tests/btrc/test_fstring_allocation_c11.py"]
 
 [[records]]
@@ -843,8 +843,8 @@ channel = "artifact"
 baseline_path = "baseline/managed.btrc.c.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.btrc.c.artifact.bin"
-accepted_sha256 = "7ff42275437b32b02c0b9fd9746d8faf82bf899853c5e1c16c17f92023b51984"
-reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length consults __btrc_string_registry_slot under the registry lock), so substring, length and index queries on a large text no longer walk the whole text; the managed fixture embeds the helper text."
+accepted_sha256 = "0fc1e549c1c60253c1ce102e7c9fc883c34c4ab433118df47f392975a8c3c51c"
+reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length measures the short-string bound with a plain loop so strict C11 builds need no POSIX strnlen); substring, length and index queries on a large text no longer walk the whole text."
 regressions = ["src/tests/classes/ConstructorCallResultSnapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py", "src/tests/btrc/test_fstring_allocation_c11.py"]
 
 [[records]]
@@ -1441,8 +1441,8 @@ channel = "asset.strings_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.strings_c.bin"
 baseline_sha256 = "0fb602f3c9a6b5e658c350b465199016c773cb50d411c082110c907c86cc3770"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.strings_c.bin"
-accepted_sha256 = "84aae268c2e4b7c52d4d604c7261ddff955c208885682f72b13d34529b07734f"
-reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length consults __btrc_string_registry_slot under the registry lock), so substring, length and index queries on a large text no longer walk the whole text; the managed fixture embeds the helper text."
+accepted_sha256 = "e55debe3254342f1e6861809142d10b8345750bb00d23491a5b1aaff66ca2a42"
+reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length measures the short-string bound with a plain loop so strict C11 builds need no POSIX strnlen); substring, length and index queries on a large text no longer walk the whole text."
 regressions = ["src/tests/btrc/test_fstring_allocation_c11.py"]
 
 [[records]]
@@ -3763,8 +3763,8 @@ channel = "helper.__btrc_string_length"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0180.bin"
 baseline_sha256 = "947b08317fbccc3b6fc78c4deecca5df811632e92e094a4fc8a6b00f689c96d9"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0180.bin"
-accepted_sha256 = "787f5a1575ce3209d2d8dab6c34c098f002bb69121115032146b83f50c5d1b33"
-reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length consults __btrc_string_registry_slot under the registry lock), so substring, length and index queries on a large text no longer walk the whole text; the managed fixture embeds the helper text."
+accepted_sha256 = "5d9878917b5b32685a909ae6914de03dc18a03fa1b94171c1d0688750544d731"
+reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length measures the short-string bound with a plain loop so strict C11 builds need no POSIX strnlen); substring, length and index queries on a large text no longer walk the whole text."
 regressions = ["src/tests/python/test_string_helpers_runtime.py"]
 
 [[records]]

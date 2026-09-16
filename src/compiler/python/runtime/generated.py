@@ -501,15 +501,16 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'rn 0;\n    /* Short strings are measured directly. A long tracked string '
             'is measured\n     * once and the answer kept on its registry entry, so a '
             'lexer or a line\n     * splitter walking a large text stays linear. */\n  '
-            '  size_t length = strnlen(s, 64);\n    if (length >= 64) {\n        length'
-            ' = 0;\n        __btrc_string_registry_lock();\n        if (__btrc_string_b'
-            'ucket_count != 0) {\n            __btrc_string_entry* entry = *__btrc_str'
-            'ing_slot(s);\n            if (entry) {\n                if (entry->length '
-            '== 0) entry->length = strlen(s);\n                length = entry->length;'
-            '\n            }\n        }\n        __btrc_string_registry_unlock();\n      '
-            '  if (length == 0) length = strlen(s);\n    }\n    if (length > (size_t)IN'
-            'T_MAX) {\n        fprintf(stderr, "btrc: string length overflow\\n"); exit'
-            '(1);\n    }\n    return (int)length;\n}'
+            "  size_t length = 0;\n    while (length < 64 && s[length] != '\\0') length"
+            '++;\n    if (length >= 64) {\n        length = 0;\n        __btrc_string_re'
+            'gistry_lock();\n        if (__btrc_string_bucket_count != 0) {\n          '
+            '  __btrc_string_entry* entry = *__btrc_string_slot(s);\n            if (e'
+            'ntry) {\n                if (entry->length == 0) entry->length = strlen(s'
+            ');\n                length = entry->length;\n            }\n        }\n     '
+            '   __btrc_string_registry_unlock();\n        if (length == 0) length = st'
+            'rlen(s);\n    }\n    if (length > (size_t)INT_MAX) {\n        fprintf(stder'
+            'r, "btrc: string length overflow\\n"); exit(1);\n    }\n    return (int)len'
+            'gth;\n}'
         ),
         depends_on=('__btrc_string_registry_slot', '__btrc_string_registry_lock'),
         required_headers=(),

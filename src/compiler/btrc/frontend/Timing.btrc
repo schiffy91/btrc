@@ -1,3 +1,4 @@
+import Library.Datetime;
 import Library.Strings;
 import Library.Vector;
 
@@ -8,35 +9,36 @@ import Library.Vector;
  * attach to. Off by default and never part of a compile's output. */
 class BtrccPhaseTimer {
 	class bool enabled = false;
-	class long long last = 0LL;
+	class Timer? clock = null;
 	class Vector<string>? report = null;
-
-	class long long now() {
-		struct timespec stamp;
-		stamp.tv_sec = (time_t)0;
-		stamp.tv_nsec = 0L;
-		if (clock_gettime(CLOCK_MONOTONIC, &stamp) != 0) { return 0LL; }
-		return (long long)stamp.tv_sec * 1000000000LL + (long long)stamp.tv_nsec;
-	}
 
 	class void begin() {
 		BtrccPhaseTimer.enabled = getenv("BTRCC_TIMING") != null;
 		Vector<string> empty = [];
 		BtrccPhaseTimer.report = empty;
-		BtrccPhaseTimer.last = BtrccPhaseTimer.now();
+		Timer clock = Timer();
+		clock.start();
+		BtrccPhaseTimer.clock = clock;
 	}
 
+	/* Each mark restarts the stopwatch, so a phase's elapsed time is a small
+	 * number and the stdlib Timer's float seconds keep microsecond precision. */
 	class void mark(string phase) {
-		if (!BtrccPhaseTimer.enabled || BtrccPhaseTimer.report == null) { return; }
-		long long current = BtrccPhaseTimer.now();
-		long long micros = (current - BtrccPhaseTimer.last) / 1000LL;
-		BtrccPhaseTimer.report.push(phase + "=" + Strings.fromInt((int)micros) + "us");
-		BtrccPhaseTimer.last = current;
+		if (!BtrccPhaseTimer.enabled) { return; }
+		Vector<string>? report = BtrccPhaseTimer.report;
+		Timer? clock = BtrccPhaseTimer.clock;
+		if (report == null || clock == null) { return; }
+		clock.stop();
+		long long micros = (long long)(clock.elapsed() * 1000000.0f);
+		clock.reset();
+		clock.start();
+		report.push(phase + "=" + Strings.fromInt((int)micros) + "us");
 	}
 
 	class void print() {
-		if (!BtrccPhaseTimer.enabled || BtrccPhaseTimer.report == null) { return; }
-		string rendered = Strings.join(BtrccPhaseTimer.report, " ");
+		Vector<string>? report = BtrccPhaseTimer.report;
+		if (!BtrccPhaseTimer.enabled || report == null) { return; }
+		string rendered = Strings.join(report, " ");
 		fprintf(stderr, "btrcc timing: %s\n", rendered);
 	}
 }
