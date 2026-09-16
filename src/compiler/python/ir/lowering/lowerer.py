@@ -56,6 +56,7 @@ class IRLowerer:
         type_identity: TypeIdentity | None = None,
         runtime_catalog: RuntimeHelperCatalog | None = None,
         realtime_safe_externals: frozenset[str] = frozenset(),
+        prune_stdlib: bool = False,
     ) -> None:
         identity = type_identity or TypeIdentity()
         catalog = runtime_catalog or RuntimeHelperCatalog()
@@ -296,6 +297,7 @@ class IRLowerer:
             exceptions,
             callable_boundaries,
             cleanup_slots,
+            prune_stdlib=prune_stdlib,
         )
 
     def lower(self) -> IRModule:

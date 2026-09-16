@@ -75,6 +75,7 @@ EXPECTED_BTRC_FILES = frozenset(
     ir/lowering/Expressions.btrc
     ir/lowering/Functions.btrc
     ir/lowering/Generics.btrc
+    ir/lowering/Reachability.btrc
     ir/lowering/Lowerer.btrc
     ir/lowering/ownership/Calls.btrc
     ir/lowering/ownership/CycleBoundaries.btrc
@@ -466,7 +467,7 @@ def test_selfhost_tree_is_the_exact_ownership_namespace() -> None:
     actual = {path.relative_to(SELFHOST).as_posix() for path in SELFHOST.rglob("*.btrc")}
 
     assert actual == EXPECTED_BTRC_FILES
-    assert len(actual) == 96
+    assert len(actual) == 97
     assert {path.name for path in SELFHOST.glob("*.btrc")} == {"BtrccMain.btrc", "Compiler.btrc"}
 
 

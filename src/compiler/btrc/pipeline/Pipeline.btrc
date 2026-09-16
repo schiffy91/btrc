@@ -10,6 +10,7 @@ import ../ir/Stage.btrc;
 import ./Models.btrc;
 import ../frontend/SourceIo.btrc;
 import ../frontend/Timing.btrc;
+import ../ir/lowering/Reachability.btrc;
 
 class CompilerPipeline {
 	private GrammarInfo grammar;
@@ -110,6 +111,7 @@ class CompilerPipeline {
 		BtrccPhaseTimer.mark("analyze");
 
 		IRLowerer lowerer = IRLowerer(analyzed, self.hostedAbi, analyzer.declarationRegistry(), analyzer.operatorSemantics(), analyzer.expressionTypes(), analyzer.gpuSemantics(), analyzer.managedValueSemantics(), analyzer.cycleSemantics(), runtimeHelpers, sourcePath, resolved.stdlibLineCount, resolved.userLines);
+		if (options.runDce) { lowerer.setStdlibKeys(StdlibReachability.classify(program.declarations, self.hostedAbi)); }
 		IRModule module = lowerer.lower(program);
 		BtrccPhaseTimer.mark("lower");
 		bool hasRealtimeRoot = false;

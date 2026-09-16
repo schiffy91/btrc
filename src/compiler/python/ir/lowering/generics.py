@@ -11,6 +11,10 @@ from src.compiler.python.analyzer.types import TypeIdentity
 from src.compiler.python.syntax.ast.codec import AstJsonCodec
 from src.compiler.python.syntax.ast.generated import ClassDecl, MethodDecl, TypeExpr
 
+# One codec serves every freeze and thaw: building a codec per call was most of
+# the cost of resolving a generic type (a hundred thousand times per compile).
+_CODEC = AstJsonCodec()
+
 
 @dataclass(frozen=True, slots=True, init=False)
 class TypeSubstitution:
@@ -76,8 +80,7 @@ class TypeSubstitution:
 
     @staticmethod
     def _thaw(values: tuple[tuple[str, str], ...]) -> dict[str, TypeExpr]:
-        codec = AstJsonCodec()
-        return {name: codec.decode(json.loads(value)) for name, value in values}
+        return {name: _CODEC.decode(json.loads(value)) for name, value in values}
 
 
 @dataclass(frozen=True, slots=True)

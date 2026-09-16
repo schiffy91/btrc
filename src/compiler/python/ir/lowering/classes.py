@@ -112,11 +112,15 @@ class ClassLowerer:
         """Declare every callable for one concrete class before any body lowers."""
         declaration = replace(view.declaration, name=view.symbol, generic_params=[])
         class_info = self._analyzed.class_table.get(view.base_name)
+        selected_callables = view.selected_callables
+        reachability = self._session.stdlib_reachability
+        if reachability is not None:
+            selected_callables = reachability.selected_callables(view.declaration, selected_callables)
         if class_info is not None:
             self.emit_class_callable_declarations(
                 declaration,
                 class_info,
-                view.selected_callables,
+                selected_callables,
             )
 
     def configure_pack_alignments(self, alignments: dict[int, int]) -> None:
@@ -1137,6 +1141,9 @@ class ClassLowerer:
             return
         specialization = self._session.active_specialization
         selected_callables = specialization.selected_callables if specialization is not None else None
+        reachability = self._session.stdlib_reachability
+        if reachability is not None:
+            selected_callables = reachability.selected_callables(source_declaration, selected_callables)
         if specialization is not None and specialization.declaration is decl:
             decl = replace(decl, name=specialization.symbol, generic_params=[])
         self._session.current_class = cls_info

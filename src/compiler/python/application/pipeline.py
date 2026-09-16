@@ -628,6 +628,7 @@ class CompilationPipeline:
                 if analyzed.realtime_safe_callables
                 else frozenset()
             ),
+            prune_stdlib=options.dce and options.stdlib_archive is None,
         ).lower()
         for declaration in analyzed.program.declarations:
             source = getattr(declaration, "source_file", None)

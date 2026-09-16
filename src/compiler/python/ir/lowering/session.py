@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from src.compiler.python.frontend.sources import SourceMap
 
     from .generics import SpecializationView
+    from .reachability import StdlibReachabilityPlan
 
 
 _MISSING = object()
@@ -69,6 +70,8 @@ class LoweringSession:
     temporaries: TemporaryNames = field(default_factory=TemporaryNames)
     lambda_counter: int = 0
     active_specialization: SpecializationView | None = None
+    # Stdlib callables this program reaches (see lowering.reachability); None lowers everything.
+    stdlib_reachability: StdlibReachabilityPlan | None = None
     persistent_edge_owner_c_name: str | None = None
     c_array_scopes: list[dict[str, bool]] = field(default_factory=list)
     control_context: list[object] = field(default_factory=list)

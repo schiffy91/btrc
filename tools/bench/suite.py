@@ -187,7 +187,9 @@ class Suite:
             source_map = frontend.source_bundle.source_map(
                 split_spaces=bool(frontend.stdlib_source and frontend.user_program is not None),
             )
-            module = IRLowerer(frontend.analyzed, source_file=program.path.name, source_map=source_map).lower()
+            module = IRLowerer(
+                frontend.analyzed, source_file=program.path.name, source_map=source_map, prune_stdlib=options.dce
+            ).lower()
             module = compiler.pipeline.optimize(module, options)
             return compiler.pipeline.emit(module)
 

@@ -29,6 +29,7 @@ import ./Generics.btrc;
 import ./ownership/Calls.btrc;
 import ./ownership/CycleBoundaries.btrc;
 import ./ownership/Lifetime.btrc;
+import ./Reachability.btrc;
 import ./ownership/ManagedTypes.btrc;
 import ./ownership/Operands.btrc;
 import ./ownership/Semantics.btrc;
@@ -40,6 +41,7 @@ import ./Types.btrc;
  * orchestrates one module operation; it owns no recursive AST lowering. */
 
 class IRLowerer {
+	private Map<string, bool>? stdlibKeys = null;
 	private ExpressionTypeResolver expressionTypes;
 	private LoweringContext context;
 	private CleanupSlotRegistry cleanupSlots;
@@ -97,9 +99,32 @@ class IRLowerer {
 		self.declarations = DeclarationLowerer(analyzed, hostedAbi, semanticDeclarations, managedValues, cycles, self.cleanupSlots, callableValues, callableBoundaries, self.context, managedLifetime, managedTypes, cycleBoundaries, cycleReturns, self.cTypes, self.functions, self.expressions);
 	}
 
+	/* With dead-code elimination on, the pipeline classifies the compiler-owned
+	 * stdlib declarations and only the callables the program reaches enter the
+	 * lowerer; the IR-level elimination stays the check. Null lowers everything. */
+	public void setStdlibKeys(Map<string, bool>? keys) { self.stdlibKeys = keys; }
+
 	public IRModule lower(Node program) {
 		self.expressionTypes.disableMemo();
 		self.cleanupSlots.reset();
+		Map<string, bool>? stdlibKeys = self.stdlibKeys;
+		if (stdlibKeys == null) {
+			self.context.reachability = null;
+		} else {
+			Vector<Node> instantiated = [];
+			Vector<Node> instantiatedTypes = [];
+			for classPlan in self.genericPlans.classPlans() {
+				instantiated.push(classPlan.declaration);
+				for argument in classPlan.instance.args { instantiatedTypes.push(argument); }
+			}
+			for methodPlan in self.genericPlans.methodPlans() {
+				instantiated.push(methodPlan.owner);
+				instantiated.push(methodPlan.method);
+				for argument in methodPlan.instance.classArgs { instantiatedTypes.push(argument); }
+				for argument in methodPlan.instance.methodArgs { instantiatedTypes.push(argument); }
+			}
+			self.context.reachability = StdlibReachability(program.declarations, stdlibKeys, instantiated, instantiatedTypes);
+		}
 		IRModule module = IRModule();
 		module.realtimeIntrinsicTargets = self.runtimeHelpers.realtimeIntrinsicTargetProvenance();
 		self.context.bindModule(module);

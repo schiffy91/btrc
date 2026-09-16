@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from src.compiler.python.analyzer.storage import StorageModel
 from src.compiler.python.analyzer.types import TypeIdentity, TypeSystem
 from src.compiler.python.frontend.native_imports import NativeHeaderSource
+from src.compiler.python.ir.lowering.reachability import StdlibReachability
 from src.compiler.python.ir.nodes import (
     CType,
     IRBinOp,
@@ -107,9 +108,11 @@ class TranslationUnitLowerer:
         exceptions: ExceptionLowerer,
         callable_boundaries: CallableStorageBoundary,
         cleanup_slots: CleanupSlotRegistry,
+        prune_stdlib: bool = False,
     ) -> None:
         self._session = session
         self._analyzed = analyzed
+        self._prune_stdlib = prune_stdlib
         self._types = types
         self._signatures = signatures
         self._type_identity = type_identity
@@ -129,8 +132,20 @@ class TranslationUnitLowerer:
 
     def lower(self):
         """Run the ordered translation-unit phase cascade."""
+        # With dead-code elimination on, stdlib callables no program name reaches
+        # never enter the lowerer; the IR-level elimination stays the check.
         class_views: tuple[SpecializedDeclarationView[ClassDecl], ...] = tuple(self._specializer.class_views())
         method_views: tuple[SpecializedDeclarationView[MethodDecl], ...] = tuple(self._specializer.method_views())
+        self._session.stdlib_reachability = (
+            StdlibReachability(
+                self._analyzed.program.declarations,
+                [view.declaration for view in (*class_views, *method_views)],
+                [view.owner_name for view in method_views],
+                [argument for view in (*class_views, *method_views) for argument in view.type_arguments],
+            ).plan
+            if self._prune_stdlib
+            else None
+        )
         self._classes.configure_pack_alignments(self.declaration_pack_alignments(self._analyzed.program))
         self._emit_includes()
         self._emit_forward_decls()
@@ -200,10 +215,14 @@ class TranslationUnitLowerer:
     def _emit_forward_decls(self):
         """Collect typed type and callable declarations."""
         function_decls: list[IRFunctionDecl] = []
+        reachability = self._session.stdlib_reachability
         for decl in self._analyzed.program.declarations:
             if isinstance(getattr(decl, "source_file", None), NativeHeaderSource) and not isinstance(
                 decl, InterfaceDecl
             ):
+                continue
+            if reachability is not None and not reachability.reaches(decl):
+                # An unreached stdlib declaration gets no forward or prototype either.
                 continue
             if isinstance(decl, EnumDecl) and decl.name:
                 function_decls.append(TranslationUnitLowerer._enum_to_string_decl(decl.name))
@@ -276,9 +295,17 @@ class TranslationUnitLowerer:
         emitted_globals = set()
         native_adapters = set()
         declarations = self._analyzed.program.declarations
+        reachability = self._session.stdlib_reachability
         for name in self._analyzed.interface_table:
-            self._classes.emit_interface(name)
+            if reachability is None or reachability.reaches_name(name):
+                self._classes.emit_interface(name)
         for decl in declarations:
+            if (
+                reachability is not None
+                and isinstance(decl, (ClassDecl, FunctionDecl, StructDecl, RichEnumDecl))
+                and not reachability.reaches(decl)
+            ):
+                continue
             if isinstance(getattr(decl, "source_file", None), NativeHeaderSource):
                 if (
                     isinstance(decl, VarDeclStmt)
@@ -372,8 +399,11 @@ class TranslationUnitLowerer:
     ) -> None:
         """Declare every concrete tuple shape before specialized bodies lower."""
         seen: dict[str, list[TypeExpr]] = {}
+        reachability = self._session.stdlib_reachability
         for declaration in self._analyzed.program.declarations:
             if isinstance(declaration, ClassDecl) and declaration.generic_params:
+                continue
+            if reachability is not None and not reachability.reaches(declaration):
                 continue
             self._collect_declaration_tuple_types(
                 declaration,

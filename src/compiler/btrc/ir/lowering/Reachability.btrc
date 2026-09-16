@@ -1,0 +1,437 @@
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
+
+import ../../analyzer/HostedAbi.btrc;
+import ../../generated/ast/Node.btrc;
+
+/* Which stdlib callables a program can reach, decided before lowering.
+ *
+ * Dead-code elimination runs on lowered IR, so every method of every imported
+ * stdlib class used to be lowered first and discarded afterwards. This pass
+ * answers the same question on the analyzed program, as an over-approximation
+ * by name: starting from every user and native declaration it collects the
+ * names a subtree mentions (identifiers, member accesses, type bases, class
+ * parents and interfaces, interface method signatures) and closes over them.
+ * A stdlib declaration is reachable once its name is mentioned; a method of a
+ * reachable stdlib class is lowered once its name is mentioned, and its body
+ * then contributes names of its own. Fields, properties, constructors,
+ * destructors, operators and the method names lowering itself implies always
+ * stay. The IR-level elimination still runs afterwards and removes exactly what
+ * it removed before, so the emitted C does not change; only lowering work is
+ * avoided. The reference compiler implements the same closure. */
+class StdlibReachability {
+	class Map<string, bool>? impliedNames = null;
+	/* Keys of the compiler-owned stdlib declarations, classified once at construction. */
+	private Map<string, bool> stdlibKeys;
+	private Map<string, bool> names;
+	private Map<string, bool> reached;
+	private Map<string, bool> pushedMethods;
+	private Vector<Node> reachedClasses;
+	private Map<string, Vector<Node>> stdlibByName;
+	private Map<string, Vector<Node>> implementers;
+
+	/* Method names either lowerer may call without the source spelling them; the
+	 * reference compiler carries the same list and a contract test keeps them equal. */
+	class bool impliedMethodName(string name) {
+		Map<string, bool>? implied = StdlibReachability.impliedNames;
+		if (implied == null) {
+			Map<string, bool> built = {};
+			built.put("abortActivation", true);
+			built.put("abs", true);
+			built.put("activate", true);
+			built.put("activationGate", true);
+			built.put("active", true);
+			built.put("alias", true);
+			built.put("any", true);
+			built.put("arg", true);
+			built.put("args", true);
+			built.put("attachment", true);
+			built.put("before", true);
+			built.put("borrow", true);
+			built.put("boundary", true);
+			built.put("bounded", true);
+			built.put("box", true);
+			built.put("callbacks", true);
+			built.put("capacity", true);
+			built.put("capitalize", true);
+			built.put("capture", true);
+			built.put("center", true);
+			built.put("checked", true);
+			built.put("child", true);
+			built.put("clamp", true);
+			built.put("clear", true);
+			built.put("close", true);
+			built.put("code", true);
+			built.put("compareTo", true);
+			built.put("complete", true);
+			built.put("completed", true);
+			built.put("contains", true);
+			built.put("context", true);
+			built.put("copy", true);
+			built.put("count", true);
+			built.put("create", true);
+			built.put("createNative", true);
+			built.put("current", true);
+			built.put("data", true);
+			built.put("depth", true);
+			built.put("empty", true);
+			built.put("enabled", true);
+			built.put("end", true);
+			built.put("enter", true);
+			built.put("entries", true);
+			built.put("entry", true);
+			built.put("equals", true);
+			built.put("error", true);
+			built.put("escape", true);
+			built.put("failure", true);
+			built.put("field", true);
+			built.put("file", true);
+			built.put("fill", true);
+			built.put("find", true);
+			built.put("finishActivation", true);
+			built.put("floating", true);
+			built.put("format", true);
+			built.put("frame", true);
+			built.put("frames", true);
+			built.put("free", true);
+			built.put("freeze", true);
+			built.put("fromRaw", true);
+			built.put("get", true);
+			built.put("hash", true);
+			built.put("header", true);
+			built.put("i32", true);
+			built.put("id", true);
+			built.put("identity", true);
+			built.put("indexOf", true);
+			built.put("invoke", true);
+			built.put("isAlnum", true);
+			built.put("isAlpha", true);
+			built.put("isAlphaStr", true);
+			built.put("isBlank", true);
+			built.put("isDigit", true);
+			built.put("isDigitStr", true);
+			built.put("isEmpty", true);
+			built.put("isOpen", true);
+			built.put("isValid", true);
+			built.put("iterGet", true);
+			built.put("iterKey", true);
+			built.put("iterLen", true);
+			built.put("iterValue", true);
+			built.put("iterValueAt", true);
+			built.put("join", true);
+			built.put("key", true);
+			built.put("keys", true);
+			built.put("kind", true);
+			built.put("label", true);
+			built.put("lastIndexOf", true);
+			built.put("lease", true);
+			built.put("leave", true);
+			built.put("left", true);
+			built.put("len", true);
+			built.put("length", true);
+			built.put("line", true);
+			built.put("list", true);
+			built.put("load", true);
+			built.put("loop", true);
+			built.put("lstrip", true);
+			built.put("map", true);
+			built.put("marker", true);
+			built.put("max", true);
+			built.put("maximum", true);
+			built.put("message", true);
+			built.put("min", true);
+			built.put("name", true);
+			built.put("next", true);
+			built.put("node", true);
+			built.put("offset", true);
+			built.put("opened", true);
+			built.put("operand", true);
+			built.put("operation", true);
+			built.put("order", true);
+			built.put("padLeft", true);
+			built.put("padRight", true);
+			built.put("path", true);
+			built.put("payload", true);
+			built.put("pitch", true);
+			built.put("pointer", true);
+			built.put("pop", true);
+			built.put("print", true);
+			built.put("property", true);
+			built.put("publish", true);
+			built.put("push", true);
+			built.put("put", true);
+			built.put("read", true);
+			built.put("record", true);
+			built.put("removePrefix", true);
+			built.put("repeat", true);
+			built.put("replace", true);
+			built.put("request", true);
+			built.put("resolve", true);
+			built.put("result", true);
+			built.put("reverse", true);
+			built.put("rows", true);
+			built.put("rstrip", true);
+			built.put("run", true);
+			built.put("seed", true);
+			built.put("session", true);
+			built.put("set", true);
+			built.put("size", true);
+			built.put("slot", true);
+			built.put("snapshot", true);
+			built.put("source", true);
+			built.put("split", true);
+			built.put("start", true);
+			built.put("state", true);
+			built.put("status", true);
+			built.put("stderr", true);
+			built.put("str", true);
+			built.put("swapCase", true);
+			built.put("system", true);
+			built.put("targets", true);
+			built.put("text", true);
+			built.put("title", true);
+			built.put("toDouble", true);
+			built.put("toFloat", true);
+			built.put("toInt", true);
+			built.put("toString", true);
+			built.put("token", true);
+			built.put("top", true);
+			built.put("track", true);
+			built.put("transfer", true);
+			built.put("tryGet", true);
+			built.put("trySet", true);
+			built.put("u32", true);
+			built.put("unknown", true);
+			built.put("unregister", true);
+			built.put("update", true);
+			built.put("value", true);
+			built.put("values", true);
+			built.put("visible", true);
+			built.put("visit", true);
+			built.put("width", true);
+			built.put("write", true);
+			StdlibReachability.impliedNames = built;
+			implied = built;
+		}
+		return implied.has(name);
+	}
+
+	class bool alwaysLowered(Node member) { return member.isConstructor || member.name.startsWith("__") || StdlibReachability.impliedMethodName(member.name) || member.genericParams.len > 0; }
+
+	class string declarationKey(Node declaration) { return Strings.fromInt((int)declaration.kind) + ":" + declaration.name + ":" + Strings.fromInt(declaration.line) + ":" + Strings.fromInt(declaration.col); }
+
+	/* The compiler-owned stdlib declarations among a program's, keyed for lookup. */
+	class Map<string, bool> classify(Vector<Node> declarations, HostedAbiRepository hostedAbi) {
+		Map<string, bool> keys = {};
+		for declaration in declarations {
+			if (hostedAbi.compilerStdlibNode(declaration)) { keys.put(StdlibReachability.declarationKey(declaration), true); }
+		}
+		return keys;
+	}
+
+	/* `instantiated` names the generic declarations the analyzer specialized: a
+	 * generic instance can exist without its class ever being spelled (a list
+	 * literal infers Vector<T>), so every specialized declaration is a root. */
+	public StdlibReachability(Vector<Node> declarations, Map<string, bool> stdlibKeys, Vector<Node> instantiated, Vector<Node> instantiatedTypes) {
+		self.stdlibKeys = stdlibKeys;
+		self.names = {};
+		self.reached = {};
+		self.pushedMethods = {};
+		self.reachedClasses = [];
+		self.stdlibByName = {};
+		self.implementers = {};
+		Vector<Node> worklist = [];
+		int index = 0;
+		while (index < declarations.len) {
+			Node declaration = declarations.get(index);
+			index = index + 1;
+			if (!stdlibKeys.has(StdlibReachability.declarationKey(declaration))) {
+				worklist.push(declaration);
+				continue;
+			}
+			string name = declaration.kind == NK_TYPEDEF_DECL ? declaration.alias : declaration.name;
+			if (name != null && name != "") {
+				if (!self.stdlibByName.has(name)) { Vector<Node> empty = []; self.stdlibByName.put(name, empty); }
+				self.stdlibByName.get(name).push(declaration);
+			}
+			if (declaration.kind == NK_CLASS_DECL) {
+				for iface in declaration.interfaces {
+					if (!self.implementers.has(iface)) { Vector<Node> none = []; self.implementers.put(iface, none); }
+					self.implementers.get(iface).push(declaration);
+				}
+			}
+		}
+		for declaration in instantiated {
+			if (stdlibKeys.has(StdlibReachability.declarationKey(declaration))) { self.reach(declaration, worklist); }
+		}
+		/* A specialization's type arguments name classes the instance's fields
+		 * and helpers need even when no lowered body spells them. */
+		for typeArgument in instantiatedTypes { worklist.push(typeArgument); }
+		while (worklist.len > 0) {
+			Node node = worklist.pop();
+			Map<string, bool> mentioned = {};
+			StdlibReachability.mentionedNames(node, mentioned);
+			Vector<string> fresh = [];
+			for name in mentioned.keys() {
+				if (!self.names.has(name)) { self.names.put(name, true); fresh.push(name); }
+			}
+			if (fresh.len == 0) { continue; }
+			for name in fresh {
+				if (self.stdlibByName.has(name)) {
+					for declaration in self.stdlibByName.get(name) { self.reach(declaration, worklist); }
+				}
+				if (self.implementers.has(name)) {
+					for implementer in self.implementers.get(name) { self.reach(implementer, worklist); }
+				}
+			}
+			Map<string, bool> freshSet = {};
+			for name in fresh { freshSet.put(name, true); }
+			for reachedClass in self.reachedClasses { self.pushMethods(reachedClass, freshSet, worklist); }
+		}
+	}
+
+	private void reach(Node declaration, Vector<Node> worklist) {
+		string key = StdlibReachability.declarationKey(declaration);
+		if (self.reached.has(key)) { return; }
+		self.reached.put(key, true);
+		if (declaration.kind != NK_CLASS_DECL) {
+			worklist.push(declaration);
+			return;
+		}
+		self.reachedClasses.push(declaration);
+		if (declaration.parent != null) { self.mentionName(declaration.parent, worklist); }
+		for iface in declaration.interfaces { self.mentionName(iface, worklist); }
+		for member in declaration.members {
+			if (member.kind == NK_METHOD_DECL) {
+				if (StdlibReachability.alwaysLowered(member)) { self.pushMethod(declaration, member, worklist); }
+			} else {
+				worklist.push(member);
+			}
+		}
+		self.pushMethods(declaration, self.names, worklist);
+	}
+
+	/* A bare name enters the closure through a synthetic identifier node. */
+	private void mentionName(string name, Vector<Node> worklist) {
+		Node identifier = Node();
+		identifier.kind = NK_IDENTIFIER;
+		identifier.name = name;
+		worklist.push(identifier);
+	}
+
+	private void pushMethods(Node declaration, Map<string, bool> names, Vector<Node> worklist) {
+		for member in declaration.members {
+			if (member.kind == NK_METHOD_DECL && names.has(member.name)) { self.pushMethod(declaration, member, worklist); }
+		}
+	}
+
+	private void pushMethod(Node declaration, Node member, Vector<Node> worklist) {
+		string key = StdlibReachability.declarationKey(declaration) + "." + member.name;
+		if (self.pushedMethods.has(key)) { return; }
+		self.pushedMethods.put(key, true);
+		worklist.push(member);
+	}
+
+	/* True unless every stdlib declaration of that name is unreached (interfaces are emitted by name). */
+	public bool reachesName(string name) {
+		if (!self.stdlibByName.has(name)) { return true; }
+		for declaration in self.stdlibByName.get(name) {
+			if (self.reached.has(StdlibReachability.declarationKey(declaration))) { return true; }
+		}
+		return false;
+	}
+
+	/* User and native declarations always; a stdlib declaration once its name is mentioned. */
+	public bool reaches(Node declaration) {
+		string key = StdlibReachability.declarationKey(declaration);
+		if (!self.stdlibKeys.has(key)) { return true; }
+		return self.reached.has(key);
+	}
+
+	public bool lowersMethod(Node declaration, Node member) {
+		if (!self.stdlibKeys.has(StdlibReachability.declarationKey(declaration))) { return true; }
+		return StdlibReachability.alwaysLowered(member) || self.names.has(member.name);
+	}
+
+	/* Every identifier, member, type, parent, interface and signature name a subtree mentions. */
+	class void mentionedNames(Node? root, Map<string, bool> out) {
+		if (root == null) { return; }
+		Vector<Node> stack = [root];
+		while (stack.len > 0) {
+			Node node = stack.pop();
+			if (node.kind == NK_IDENTIFIER) { out.put(node.name, true); }
+			else if (node.kind == NK_FIELD_ACCESS_EXPR) { out.put(node.field, true); }
+			else if (node.kind == NK_TYPE_EXPR) {
+				out.put(node.base, true);
+				/* `struct S*` / `enum E` spell a tagged declaration by its bare name. */
+				int space = node.base.indexOf(" ");
+				if (space >= 0) { out.put(node.base.substring(space + 1, node.base.len() - space - 1), true); }
+			}
+			else if (node.kind == NK_METHOD_SIG) { out.put(node.name, true); }
+			else if (node.kind == NK_CLASS_DECL) {
+				if (node.parent != null) { out.put(node.parent, true); }
+				for iface in node.interfaces { out.put(iface, true); }
+			}
+			StdlibReachability.pushChildren(node, stack);
+		}
+	}
+
+	class void pushChild(Node? child, Vector<Node> stack) { if (child != null) { stack.push(child); } }
+
+	class void pushChildren(Node node, Vector<Node> stack) {
+		for child in node.declarations { stack.push(child); }
+		for child in node.members { stack.push(child); }
+		for child in node.methods { stack.push(child); }
+		for child in node.params { stack.push(child); }
+		for child in node.fields { stack.push(child); }
+		for child in node.values { stack.push(child); }
+		for child in node.variants { stack.push(child); }
+		for child in node.genericArgs { stack.push(child); }
+		for child in node.statements { stack.push(child); }
+		for child in node.cases { stack.push(child); }
+		for child in node.bodyNodeList { stack.push(child); }
+		for child in node.args { stack.push(child); }
+		for child in node.elements { stack.push(child); }
+		for child in node.entries { stack.push(child); }
+		for child in node.parts { stack.push(child); }
+		for child in node.captures { stack.push(child); }
+		StdlibReachability.pushChild(node.spec, stack);
+		StdlibReachability.pushChild(node.returnType, stack);
+		StdlibReachability.pushChild(node.bodyNode, stack);
+		StdlibReachability.pushChild(node.original, stack);
+		StdlibReachability.pushChild(node.arraySize, stack);
+		StdlibReachability.pushChild(node.type, stack);
+		StdlibReachability.pushChild(node.default_, stack);
+		StdlibReachability.pushChild(node.initializer, stack);
+		StdlibReachability.pushChild(node.getterBody, stack);
+		StdlibReachability.pushChild(node.setterBody, stack);
+		StdlibReachability.pushChild(node.valueNode, stack);
+		StdlibReachability.pushChild(node.condition, stack);
+		StdlibReachability.pushChild(node.thenBlock, stack);
+		StdlibReachability.pushChild(node.elseBlock, stack);
+		StdlibReachability.pushChild(node.iterable, stack);
+		StdlibReachability.pushChild(node.init, stack);
+		StdlibReachability.pushChild(node.update, stack);
+		StdlibReachability.pushChild(node.expr, stack);
+		StdlibReachability.pushChild(node.tryBlock, stack);
+		StdlibReachability.pushChild(node.catchType, stack);
+		StdlibReachability.pushChild(node.catchBlock, stack);
+		StdlibReachability.pushChild(node.finallyBlock, stack);
+		StdlibReachability.pushChild(node.ifStmt, stack);
+		StdlibReachability.pushChild(node.varDecl, stack);
+		StdlibReachability.pushChild(node.expression, stack);
+		StdlibReachability.pushChild(node.left, stack);
+		StdlibReachability.pushChild(node.right, stack);
+		StdlibReachability.pushChild(node.operand, stack);
+		StdlibReachability.pushChild(node.callee, stack);
+		StdlibReachability.pushChild(node.obj, stack);
+		StdlibReachability.pushChild(node.index, stack);
+		StdlibReachability.pushChild(node.targetType, stack);
+		StdlibReachability.pushChild(node.trueExpr, stack);
+		StdlibReachability.pushChild(node.falseExpr, stack);
+		StdlibReachability.pushChild(node.target, stack);
+		StdlibReachability.pushChild(node.fn, stack);
+		StdlibReachability.pushChild(node.key, stack);
+	}
+}

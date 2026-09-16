@@ -6,6 +6,7 @@ import ../../generated/ast/Node.btrc;
 import ../../syntax/Identity.btrc;
 import ../Model.btrc;
 import ./ownership/Operands.btrc;
+import ./Reachability.btrc;
 
 /* Mutable state shared by one structured-IR lowering run.
  *
@@ -33,6 +34,8 @@ class LoweringContext {
 	public int tryDepth;
 	public int tryCatchDepth;
 	public string currentClass;
+	/* Stdlib callables this program reaches; null lowers everything. */
+	public StdlibReachability? reachability = null;
 	/* Combined source line of the expression being lowered, for diagnostics raised below the node. */
 	public int diagnosticLine = 0;
 	public string currentPropertyBacking;

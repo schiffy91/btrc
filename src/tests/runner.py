@@ -139,6 +139,7 @@ def _transpile_python(btrc_path, btrc_file):
         analyzed,
         source_file=os.path.basename(btrc_file),
         source_map=source_map,
+        prune_stdlib=options.dce,
     ).lower()
     ir_module = _PYTHON_COMPILER.pipeline.optimize(ir_module, options)
     return _PYTHON_COMPILER.pipeline.emit(ir_module)

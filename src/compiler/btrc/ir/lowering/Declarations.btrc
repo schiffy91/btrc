@@ -2410,7 +2410,10 @@ class DeclarationLowerer {
 	}
 
 	public void emitDeclarations(Node prog, IRModule m) {
-		for name in self.analyzed.interfaceTable.keys() { self.emitInterface(name, m); }
+		StdlibReachability? interfaceReachability = self.context.reachability;
+		for name in self.analyzed.interfaceTable.keys() {
+			if (interfaceReachability == null || interfaceReachability.reachesName(name)) { self.emitInterface(name, m); }
+		}
 		Map<string, bool> nativeAdapters = {};
 		Map<string, bool> nativeConstants = {};
 		for imported in self.analyzed.nativeDeclarations {
@@ -2441,10 +2444,15 @@ class DeclarationLowerer {
 			}
 			globalDeclarationIndex = globalDeclarationIndex + 1;
 		}
+		StdlibReachability? reachability = self.context.reachability;
 		int i = 0;
 		while (i < prog.declarations.len) {
 			Node d = prog.declarations.get(i);
 			if (self.analyzed.isNativeDeclaration(d)) {
+				i++;
+				continue;
+			}
+			if (reachability != null && (d.kind == NK_CLASS_DECL || d.kind == NK_FUNCTION_DECL || d.kind == NK_STRUCT_DECL || d.kind == NK_RICH_ENUM_DECL) && !reachability.reaches(d)) {
 				i++;
 				continue;
 			}
@@ -2788,10 +2796,12 @@ class DeclarationLowerer {
 		IRFunctionDecl destroyDeclaration = IRFunctionDecl(mangled + "_destroy", "void", true);
 		destroyDeclaration.params.push(IRParam("void*", "object"));
 		m.functionDecls.push(destroyDeclaration);
+		StdlibReachability? reachability = self.context.reachability;
 		int mi = 0;
 		while (mi < decl.members.len) {
 			Node mem = decl.members.get(mi);
-			if (mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams.len == 0) {
+			bool lowered = reachability == null || mem.kind != NK_METHOD_DECL || reachability.lowersMethod(decl, mem);
+			if (lowered && mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams.len == 0) {
 				string retC = self.cTypes.lowerGeneric(mem.returnType, typeMap);
 				IRFunctionDecl methodDeclaration = IRFunctionDecl(mangled + "_" + mem.name, retC, true);
 				methodDeclaration.params.push(IRParam(mangled + "*", "self"));
@@ -2934,7 +2944,8 @@ class DeclarationLowerer {
 		int m2 = 0;
 		while (m2 < decl.members.len) {
 			Node mem = decl.members.get(m2);
-			if (mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams.len == 0) {
+			bool bodyLowered = reachability == null || mem.kind != NK_METHOD_DECL || reachability.lowersMethod(decl, mem);
+			if (bodyLowered && mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams.len == 0) {
 				IRFunction fn = IRFunction();
 				fn.name = mangled + "_" + mem.name;
 				Node rrt = SemanticTypeSystem.resolveGenericType(mem.returnType, typeMap, self.analyzed);
@@ -3087,12 +3098,14 @@ class DeclarationLowerer {
 		/* Own methods + properties (skip constructor + __del__). */
 		Map<string, bool> ownMethods = {};
 		Map<string, bool> ownProperties = {};
+		StdlibReachability? reachability = self.context.reachability;
 		int i = 0;
 		while (i < decl.members.len) {
 			Node mem = decl.members.get(i);
 			if (mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__") {
 				ownMethods.put(mem.name, true);
-				if (mem.genericParams.len == 0 && !mem.isAbstract && mem.bodyNode != null) {
+				bool lowered = reachability == null || reachability.lowersMethod(decl, mem);
+				if (lowered && mem.genericParams.len == 0 && !mem.isAbstract && mem.bodyNode != null) {
 					m.functions.push(self.lowerMethod(decl, mem));
 				}
 			} else if (mem.kind == NK_PROPERTY_DECL) {
@@ -3182,11 +3195,13 @@ class DeclarationLowerer {
 		/* Own methods. */
 		Map<string, bool> own = {};
 		Map<string, bool> ownProperties = {};
+		StdlibReachability? reachability = self.context.reachability;
 		int i = 0;
 		while (i < decl.members.len) {
 			Node mem = decl.members.get(i);
 			if (mem.kind == NK_METHOD_DECL) { own.put(mem.name, true); }
-			if (mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams.len == 0) {
+			bool lowered = reachability == null || mem.kind != NK_METHOD_DECL || reachability.lowersMethod(decl, mem);
+			if (lowered && mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams.len == 0) {
 				bool isStatic = mem.access == "class";
 				string ret = self.cTypes.lower(mem.returnType);
 				IRFunctionDecl methodDeclaration = IRFunctionDecl(name + "_" + mem.name, ret, false);
@@ -3685,6 +3700,13 @@ class DeclarationLowerer {
 		while (i < prog.declarations.len) {
 			Node d = prog.declarations.get(i);
 			if (self.analyzed.isNativeDeclaration(d) && d.kind != NK_INTERFACE_DECL) {
+				i++;
+				continue;
+			}
+			StdlibReachability? reachability = self.context.reachability;
+			if (reachability != null && !reachability.reaches(d)) {
+				/* An unreached stdlib declaration gets no forward or prototype
+				 * either: lowering skips it entirely. */
 				i++;
 				continue;
 			}
