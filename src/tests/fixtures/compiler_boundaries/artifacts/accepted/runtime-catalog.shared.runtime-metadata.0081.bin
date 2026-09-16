@@ -1,0 +1,1 @@
+{"asset":"cycles.c","btrc_order":115,"category":"cycles","dependencies":["__btrc_tls_state"],"headers":[],"name":"__btrc_destroyed_capacity","provided_objects":[],"provided_types":[],"python_order":135,"source_sha256":"c8f21ac6b2285f5fdda57ba9b16958d3408c76881f92fe00f59afa96b05e578e","source_size":52,"source_visible":false}

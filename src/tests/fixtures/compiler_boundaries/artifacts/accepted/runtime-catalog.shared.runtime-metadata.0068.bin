@@ -1,0 +1,1 @@
+{"asset":"trycatch.c","btrc_order":93,"category":"trycatch","dependencies":["__btrc_tls_state"],"headers":[],"name":"__btrc_cleanup_capacity","provided_objects":[],"provided_types":[],"python_order":98,"source_sha256":"2c28ac80d0c77eb594a88f57d4d6821a716551b0146624dcd9f56715da24e85d","source_size":50,"source_visible":false}

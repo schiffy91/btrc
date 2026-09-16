@@ -8,6 +8,7 @@ import Library.Vector;
 import ../lexer/Lexer.btrc;
 import ../syntax/Grammar.btrc;
 import ../syntax/Tokens.btrc;
+import ./Timing.btrc;
 import ./Models.btrc;
 import ./Packages.btrc;
 import ./SourceIo.btrc;
@@ -668,11 +669,13 @@ class FeFrontendResolver {
 		self.importPolicy = FePackageImportPolicy(self.packages == null ? null : self.packages.linkPlan.target);
 		self.dependencies = FeDependencyGraphBuilder(self.sourcePaths);
 		FeStdlibRootSnapshot currentSnapshot = self.stdlib.rootSnapshot();
+		BtrccPhaseTimer.mark("r-snapshot");
 		self.stdlibSnapshot = currentSnapshot;
 		self.importResolver = FeImportResolver(self.stdlib, currentSnapshot, self.sourceDirectories, self.packages);
 
 		Vector<FeLine> userLines = [];
 		self.resolveGraph(source, sourcePath, userLines);
+		BtrccPhaseTimer.mark("r-graph");
 
 		Vector<string> userTexts = [];
 		int lineIndex = 0;
@@ -685,6 +688,7 @@ class FeFrontendResolver {
 		if (self.includeStdlib && !self.strictImports) {
 			stdlibSource = self.sourceAtSnapshot(userSource, self.stdlibSnapshot);
 		}
+		BtrccPhaseTimer.mark("r-stdlib-source");
 		string combined = stdlibSource.length() > 0 ? stdlibSource + "\n" + userSource : userSource;
 		int stdlibLineCount = stdlibSource.length() > 0 ? FeSourceText(stdlibSource).lineCount() : 0;
 		return FeResolvedSource(userSource, combined, stdlibSource, userLines, self.dependencies.build(), self.strictImports, stdlibLineCount, self.sourcePaths.absolute(sourcePath), self.stdlibSnapshot);

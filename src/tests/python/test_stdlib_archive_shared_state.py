@@ -158,6 +158,7 @@ def test_mutable_helper_groups_have_complete_ownership():
     expected_groups = {
         "try_stack": frozenset(
             {
+                "__btrc_tls_state",
                 "__btrc_try_level",
                 "__btrc_trycatch_globals",
                 "__btrc_try_capacity",
@@ -178,13 +179,7 @@ def test_mutable_helper_groups_have_complete_ownership():
                 "__btrc_arc_active_unwinds_state",
                 "__btrc_arc_snapshot_state",
                 "__btrc_arc_snapshot_gate_state",
-                "__btrc_arc_abandon_callback_state",
-                "__btrc_arc_abandon_queue_state",
                 "__btrc_arc_topology_state",
-                "__btrc_arc_topology_depth_state",
-                "__btrc_arc_deferred_state",
-                "__btrc_destroyed_tracking",
-                "__btrc_destroyed_capacity",
                 "__btrc_suspect_state",
                 "__btrc_suspect_capacity",
                 "__btrc_arc_reverse_state",

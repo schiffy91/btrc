@@ -20,8 +20,16 @@ class GenericSpecializer {
 	private OperatorSemantics operators;
 	private ExpressionTypeResolver expressions;
 	private Map<string, bool> validatedSpecializations;
+	/* Instances whose bodies the closure already walked. Discovery closes the
+	 * graph twice per analysis, once after class generics and once after
+	 * method generics are collected; a scan is deterministic for its instance,
+	 * so only instances registered since the last closure need walking. */
+	private Map<string, bool> closedClassInstances;
+	private Map<string, bool> closedMethodInstances;
 
 	public GenericSpecializer(Analyzed analyzed, OperatorSemantics operators, ExpressionTypeResolver expressions) {
+		self.closedClassInstances = {};
+		self.closedMethodInstances = {};
 		self.analyzed = analyzed;
 		self.operators = operators;
 		self.expressions = expressions;
@@ -1234,8 +1242,8 @@ class GenericSpecializer {
 	}
 
 	private void closeGenericInstanceGraph(Analyzed analyzed, OperatorSemantics operators) {
-		Map<string, bool> processedClasses = {};
-		Map<string, bool> processedMethods = {};
+		Map<string, bool> processedClasses = self.closedClassInstances;
+		Map<string, bool> processedMethods = self.closedMethodInstances;
 		int classIndex = 0;
 		int methodIndex = 0;
 		while (classIndex < analyzed.genericInstances.len || methodIndex < analyzed.methodGenInstances.len) {

@@ -126,9 +126,7 @@ static inline void __btrc_arc_validate(void* object) {
 /* btrc-runtime-helper:end __btrc_arc_validate */
 /* btrc-runtime-helper:begin __btrc_destroyed_tracking */
 /* ARC cascade-destroy tracking: avoid reading freed memory */
-static _Thread_local int __btrc_tracking = 0;
-static _Thread_local void** __btrc_destroyed = NULL;
-static _Thread_local int __btrc_destroyed_count = 0;
+/* __btrc_tracking, __btrc_destroyed and __btrc_destroyed_count are fields of __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_destroyed_tracking */
 /* btrc-runtime-helper:begin __btrc_destroyed_tracking_scope */
 static void __btrc_destroyed_tracking_begin(void) {
@@ -183,7 +181,7 @@ static int __btrc_is_destroyed(void* ptr) {
 }
 /* btrc-runtime-helper:end __btrc_is_destroyed */
 /* btrc-runtime-helper:begin __btrc_destroyed_capacity */
-static _Thread_local int __btrc_destroyed_cap = 0;
+/* __btrc_destroyed_cap is a field of __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_destroyed_capacity */
 /* btrc-runtime-helper:begin __btrc_mark_destroyed */
 static void __btrc_mark_destroyed(void* ptr) {
@@ -412,8 +410,7 @@ static int __btrc_arc_topology_active = 0;
 static int __btrc_arc_topology_flush_pending = 0;
 /* btrc-runtime-helper:end __btrc_arc_topology_state */
 /* btrc-runtime-helper:begin __btrc_arc_topology_depth_state */
-static _Thread_local int __btrc_arc_topology_depth = 0;
-static _Thread_local int __btrc_arc_draining = 0;
+/* __btrc_arc_topology_depth and __btrc_arc_draining are fields of __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_arc_topology_depth_state */
 /* btrc-runtime-helper:begin __btrc_arc_topology_begin */
 static void* __btrc_arc_topology_begin(void) {
@@ -506,8 +503,7 @@ static void __btrc_arc_topology_complete(
 /* btrc-runtime-helper:end __btrc_arc_topology_complete */
 /* btrc-runtime-helper:begin __btrc_arc_deferred_state */
 /* Per-thread intrusive FIFO for terminal ARC work. */
-static _Thread_local void* __btrc_arc_deferred_head = NULL;
-static _Thread_local void* __btrc_arc_deferred_tail = NULL;
+/* __btrc_arc_deferred_head and __btrc_arc_deferred_tail are fields of __btrc_tls. */
 
 static _Noreturn void __btrc_arc_raise_unlocked(
         const __btrc_arc_type* type, const char* message) {
@@ -1627,13 +1623,10 @@ static void __btrc_arc_abandon_now(void* object) {
 /* btrc-runtime-helper:end __btrc_arc_abandon_graph */
 /* btrc-runtime-helper:begin __btrc_arc_abandon_callback_state */
 typedef void (*__btrc_abandon_drain_fn)(void);
-static _Thread_local __btrc_abandon_drain_fn
-    __btrc_abandon_drain_callback = NULL;
+/* __btrc_abandon_drain_callback is a field of __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_arc_abandon_callback_state */
 /* btrc-runtime-helper:begin __btrc_arc_abandon_queue_state */
-static _Thread_local void** __btrc_abandon_queue = NULL;
-static _Thread_local int __btrc_abandon_count = 0;
-static _Thread_local int __btrc_abandon_cap = 0;
+/* __btrc_abandon_queue, __btrc_abandon_count and __btrc_abandon_cap are fields of __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_arc_abandon_queue_state */
 /* btrc-runtime-helper:begin __btrc_arc_abandon_queue_drain */
 static void __btrc_arc_drain_pending_abandons(void) {
@@ -1927,6 +1920,13 @@ static int __btrc_collect_cycles_once(void) {
 /* btrc-runtime-helper:begin __btrc_arc_drain */
 static void __btrc_arc_drain_deferred(int force_cycles) {
     if (__btrc_arc_draining) return;
+    /* The deferred FIFO is this thread's own: only its releases enqueue into
+     * it, under the mutation lock, and only this drain dequeues. So an empty
+     * head read here without the lock is exact, and the common release --
+     * one that leaves the object alive -- returns without touching the lock. */
+    if (!force_cycles && __btrc_arc_topology_depth == 0
+            && __btrc_arc_deferred_head == NULL)
+        return;
     if (__btrc_arc_topology_depth > 0) {
         __btrc_arc_lock_mutation();
         if (force_cycles || __btrc_arc_deferred_head

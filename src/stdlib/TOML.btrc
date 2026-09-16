@@ -14,7 +14,8 @@ class TOML {
 		bool inString = false;
 		bool escaped = false;
 		char quote = (char)0;
-		for (int i = 0; i < line.len(); i++) {
+		int length = line.len();
+		for (int i = 0; i < length; i++) {
 			char c = line[i];
 			if (inString) {
 				if (quote == (char)39) {
@@ -41,8 +42,19 @@ class TOML {
 		if (raw == null) { return ""; }
 		int comment = TOML.unquotedPosition(raw, '#');
 		if (comment >= 0) { return raw.substring(0, comment).trim(); }
+		if (TOML.isTrimmed(raw)) { return raw; }
 		return raw.trim();
 	}
+
+	/* A line with no surrounding whitespace is its own trimmed form; the
+	 * parsers below strip each line once and then re-examine it many times. */
+	class bool isTrimmed(string raw) {
+		int length = raw.len();
+		if (length == 0) { return true; }
+		return !TOML.isSpace(raw[0]) && !TOML.isSpace(raw[length - 1]);
+	}
+
+	class bool isSpace(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == (char)11 || c == (char)12; }
 
 	class string unquote(string raw) {
 		string value = raw.trim();

@@ -1,0 +1,42 @@
+import Library.Strings;
+import Library.Vector;
+
+/* Opt-in phase timing for the self-hosted compiler: with BTRCC_TIMING set,
+ * one line per compile reports each phase's wall time in microseconds on
+ * stderr. A latency budget is only meetable when every phase's share is
+ * visible, and a whole compile is now too short for a sampling profiler to
+ * attach to. Off by default and never part of a compile's output. */
+class BtrccPhaseTimer {
+	class bool enabled = false;
+	class long long last = 0LL;
+	class Vector<string>? report = null;
+
+	class long long now() {
+		struct timespec stamp;
+		stamp.tv_sec = (time_t)0;
+		stamp.tv_nsec = 0L;
+		if (clock_gettime(CLOCK_MONOTONIC, &stamp) != 0) { return 0LL; }
+		return (long long)stamp.tv_sec * 1000000000LL + (long long)stamp.tv_nsec;
+	}
+
+	class void begin() {
+		BtrccPhaseTimer.enabled = getenv("BTRCC_TIMING") != null;
+		Vector<string> empty = [];
+		BtrccPhaseTimer.report = empty;
+		BtrccPhaseTimer.last = BtrccPhaseTimer.now();
+	}
+
+	class void mark(string phase) {
+		if (!BtrccPhaseTimer.enabled || BtrccPhaseTimer.report == null) { return; }
+		long long current = BtrccPhaseTimer.now();
+		long long micros = (current - BtrccPhaseTimer.last) / 1000LL;
+		BtrccPhaseTimer.report.push(phase + "=" + Strings.fromInt((int)micros) + "us");
+		BtrccPhaseTimer.last = current;
+	}
+
+	class void print() {
+		if (!BtrccPhaseTimer.enabled || BtrccPhaseTimer.report == null) { return; }
+		string rendered = Strings.join(BtrccPhaseTimer.report, " ");
+		fprintf(stderr, "btrcc timing: %s\n", rendered);
+	}
+}

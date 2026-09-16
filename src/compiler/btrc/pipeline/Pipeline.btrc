@@ -8,6 +8,7 @@ import ../frontend/Packages.btrc;
 import ../frontend/NativeImports.btrc;
 import ../ir/Stage.btrc;
 import ./Models.btrc;
+import ../frontend/Timing.btrc;
 
 class CompilerPipeline {
 	private GrammarInfo grammar;
@@ -24,6 +25,7 @@ class CompilerPipeline {
 		self.hostedAbi = HostedAbiRepository(GeneratedHostedAbiData());
 		self.sourceFiles = sourceFiles;
 		self.nativeHeaderReader = nativeHeaderReader;
+		BtrccPhaseTimer.mark("tables");
 	}
 
 	private BtrccCompilationResult failure(string diagnostic) { return BtrccCompilationResult(false, "", diagnostic, ""); }
@@ -40,21 +42,26 @@ class CompilerPipeline {
 
 	public BtrccCompilationResult compile(string source, string sourcePath, BtrccOptions options) {
 		FeResolvedPackages packages = FePackageGraphResolver(self.sourceFiles).resolveFor(sourcePath, options.target);
+		BtrccPhaseTimer.mark("packages");
 		FeFrontendResolver resolver = FeFrontendResolver(self.grammar, self.stdlib, options.includeStdlib, options.strictImports, packages);
 		FeResolvedSource resolved = resolver.resolve(source, sourcePath);
+		BtrccPhaseTimer.mark("resolve");
 		Vector<string> sources = resolved.dependencies.sourceIdentities();
 		packages.linkPlan.restrictToSources(sources);
 		packages.linkPlan.includeStdlib(self.stdlib.directory(), sources, self.sourceFiles);
 		resolved.nativeDeclarations = FeNativeDeclarationImporter(self.nativeHeaderReader).resolve(packages.linkPlan);
+		BtrccPhaseTimer.mark("native");
 
 		Lexer lexer = Lexer(resolved.source, self.grammar);
 		Vector<Token> tokens = lexer.tokenize();
+		BtrccPhaseTimer.mark("lex");
 		if (lexer.failed) {
 			return self.failure("error: " + lexer.diagnostic);
 		}
 
 		Parser parser = Parser(tokens, self.grammar);
 		Node program = parser.parseProgram();
+		BtrccPhaseTimer.mark("parse");
 		if (parser.failed) {
 			return self.failure("error: " + parser.diagnostic);
 		}
@@ -88,15 +95,19 @@ class CompilerPipeline {
 		program.declarations = declarations;
 		resolved.nativeDeclarations = nativeDeclarations;
 
+		BtrccPhaseTimer.mark("visibility");
 		GeneratedRuntimeCatalogData runtimeData = GeneratedRuntimeCatalogData();
 		SourceRuntimeSymbols sourceRuntimeSymbols = SourceRuntimeSymbols(runtimeData.rows, runtimeData.intrinsicEffects);
 		RuntimeHelperCatalog runtimeHelpers = RuntimeHelperCatalog(runtimeData.rows, runtimeData.intrinsicEffects);
 		SemanticAnalyzer analyzer = SemanticAnalyzer(sourceRuntimeSymbols);
 		analyzer.configureNativeDeclarations(resolved.nativeDeclarations);
+		BtrccPhaseTimer.mark("catalog");
 		Analyzed analyzed = analyzer.analyze(program, self.hostedAbi);
+		BtrccPhaseTimer.mark("analyze");
 
 		IRLowerer lowerer = IRLowerer(analyzed, self.hostedAbi, analyzer.declarationRegistry(), analyzer.operatorSemantics(), analyzer.expressionTypes(), analyzer.gpuSemantics(), analyzer.managedValueSemantics(), analyzer.cycleSemantics(), runtimeHelpers, sourcePath, resolved.stdlibLineCount, resolved.userLines);
 		IRModule module = lowerer.lower(program);
+		BtrccPhaseTimer.mark("lower");
 		bool hasRealtimeRoot = false;
 		int realtimeIndex = 0;
 		while (realtimeIndex < module.functions.len) {
@@ -134,12 +145,16 @@ class CompilerPipeline {
 		SetjmpSafetyPlanner setjmpSafety = SetjmpSafetyPlanner(setjmpEffects);
 		IROptimizer optimizer = IROptimizer(setjmpSafety, runtimeHelpers);
 		optimizer.optimize(module, options.runDce);
+		BtrccPhaseTimer.mark("optimize");
 		CEmitter emitter = CEmitter();
 		for name in module.nativeUnits.keys() {
 			IRModule unit = module.nativeUnits.get(name);
 			if ((unit.language != "objective-c" && unit.language != "c++") || unit.nativeUnits.len > 0) { throw "native adapter must be a standalone Objective-C or C++ unit"; }
 			packages.linkPlan.generatedUnits.push(FeNativeGeneratedUnit(name, unit.language, unit.language == "c++" ? "c++17" : "c11", unit.language == "c++" ? "raii" : "arc", CEmitter().emit(unit)));
 		}
-		return BtrccCompilationResult(true, emitter.emit(module), "", packages.linkPlan.canonicalJson());
+		string emitted = emitter.emit(module);
+		BtrccPhaseTimer.mark("emit");
+		BtrccPhaseTimer.print();
+		return BtrccCompilationResult(true, emitted, "", packages.linkPlan.canonicalJson());
 	}
 }

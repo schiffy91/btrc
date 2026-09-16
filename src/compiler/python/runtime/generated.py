@@ -226,10 +226,15 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         name='__btrc_string_registry',
         c_source=(
             'typedef struct __btrc_string_entry {\n    char* value;\n    size_t referen'
-            'ces;\n    struct __btrc_string_entry* next;\n} __btrc_string_entry;\n\nstati'
-            'c __btrc_string_entry* __btrc_string_inline_buckets[64] = {0};\nstatic __'
-            'btrc_string_entry** __btrc_string_buckets =\n    __btrc_string_inline_buc'
-            'kets;\nstatic size_t __btrc_string_bucket_count = 64;'
+            'ces;\n    /* Byte length, cached by the first length query of a long stri'
+            'ng (0 =\n     * not yet measured). Strings are immutable once published, '
+            'so the cache\n     * never goes stale; it turns every substring, length a'
+            'nd index query on\n     * a large text from a strlen of the whole text in'
+            'to a table lookup. */\n    size_t length;\n    struct __btrc_string_entry*'
+            ' next;\n} __btrc_string_entry;\n\nstatic __btrc_string_entry* __btrc_string'
+            '_inline_buckets[64] = {0};\nstatic __btrc_string_entry** __btrc_string_bu'
+            'ckets =\n    __btrc_string_inline_buckets;\nstatic size_t __btrc_string_bu'
+            'cket_count = 64;'
         ),
         depends_on=(),
         required_headers=(),
@@ -349,18 +354,19 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'static inline char* __btrc_string_adopt(char* value) {\n    if (!value) r'
             'eturn NULL;\n    __btrc_string_entry* candidate = (__btrc_string_entry*)\n'
             '        __btrc_safe_realloc(NULL, sizeof(__btrc_string_entry));\n    cand'
-            'idate->value = value;\n    candidate->references = 1;\n    candidate->next'
-            ' = NULL;\n\n    __btrc_string_registry_lock();\n    __btrc_string_entry** s'
-            'lot = __btrc_string_slot(value);\n    if (*slot) {\n        __btrc_string_'
-            'registry_unlock();\n        free(candidate);\n        return value;\n    }\n'
-            '    if (__btrc_string_entry_count >= __btrc_string_bucket_count\n        '
-            '    - __btrc_string_bucket_count / 4) {\n        if (__btrc_string_bucket'
-            '_count > SIZE_MAX / 2) {\n            __btrc_string_registry_unlock();\n  '
-            '          fprintf(stderr, "btrc: string registry overflow\\n");\n         '
-            '   exit(1);\n        }\n        __btrc_string_registry_resize(__btrc_strin'
-            'g_bucket_count * 2);\n        slot = __btrc_string_slot(value);\n    }\n   '
-            ' candidate->next = *slot;\n    *slot = candidate;\n    __btrc_string_entry'
-            '_count++;\n    __btrc_string_registry_unlock();\n    return value;\n}'
+            'idate->value = value;\n    candidate->references = 1;\n    candidate->leng'
+            'th = 0;\n    candidate->next = NULL;\n\n    __btrc_string_registry_lock();\n'
+            '    __btrc_string_entry** slot = __btrc_string_slot(value);\n    if (*slo'
+            't) {\n        __btrc_string_registry_unlock();\n        free(candidate);\n '
+            '       return value;\n    }\n    if (__btrc_string_entry_count >= __btrc_s'
+            'tring_bucket_count\n            - __btrc_string_bucket_count / 4) {\n     '
+            '   if (__btrc_string_bucket_count > SIZE_MAX / 2) {\n            __btrc_s'
+            'tring_registry_unlock();\n            fprintf(stderr, "btrc: string regis'
+            'try overflow\\n");\n            exit(1);\n        }\n        __btrc_string_r'
+            'egistry_resize(__btrc_string_bucket_count * 2);\n        slot = __btrc_st'
+            'ring_slot(value);\n    }\n    candidate->next = *slot;\n    *slot = candida'
+            'te;\n    __btrc_string_entry_count++;\n    __btrc_string_registry_unlock()'
+            ';\n    return value;\n}'
         ),
         depends_on=('__btrc_string_registry_resize', '__btrc_string_registry_slot', '__btrc_string_registry_lock', '__btrc_string_registry_count', '__btrc_safe_realloc'),
         required_headers=(),
@@ -492,11 +498,20 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         name='__btrc_string_length',
         c_source=(
             'static inline int __btrc_string_length(const char* s) {\n    if (!s) retu'
-            'rn 0;\n    size_t length = strlen(s);\n    if (length > (size_t)INT_MAX) {'
-            '\n        fprintf(stderr, "btrc: string length overflow\\n"); exit(1);\n   '
-            ' }\n    return (int)length;\n}'
+            'rn 0;\n    /* Short strings are measured directly. A long tracked string '
+            'is measured\n     * once and the answer kept on its registry entry, so a '
+            'lexer or a line\n     * splitter walking a large text stays linear. */\n  '
+            '  size_t length = strnlen(s, 64);\n    if (length >= 64) {\n        length'
+            ' = 0;\n        __btrc_string_registry_lock();\n        if (__btrc_string_b'
+            'ucket_count != 0) {\n            __btrc_string_entry* entry = *__btrc_str'
+            'ing_slot(s);\n            if (entry) {\n                if (entry->length '
+            '== 0) entry->length = strlen(s);\n                length = entry->length;'
+            '\n            }\n        }\n        __btrc_string_registry_unlock();\n      '
+            '  if (length == 0) length = strlen(s);\n    }\n    if (length > (size_t)IN'
+            'T_MAX) {\n        fprintf(stderr, "btrc: string length overflow\\n"); exit'
+            '(1);\n    }\n    return (int)length;\n}'
         ),
-        depends_on=(),
+        depends_on=('__btrc_string_registry_slot', '__btrc_string_registry_lock'),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -1620,9 +1635,42 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
-        name='__btrc_try_level',
+        name='__btrc_tls_state',
         c_source=(
-            'static _Thread_local volatile int __btrc_try_top = -1;'
+            '/* Every per-thread runtime variable lives in one thread-local record. A'
+            '\n * separate _Thread_local object costs its own address lookup on target'
+            "s that\n * resolve thread storage out of line (Darwin's _tlv_get_addr): a"
+            ' cleanup\n * registration touched four of them, and those lookups were a '
+            "quarter of the\n * self-hosted compiler's time. The C compiler folds ever"
+            'y access to one record\n * into a single lookup per function. The histori'
+            'cal names remain as field\n * accessors, so runtime helpers, generated co'
+            'de and cross-unit fixtures read,\n * assign and take the address of the s'
+            'ame per-thread state as before. */\ntypedef struct {\n    volatile int try'
+            '_top;\n    struct __btrc_try_frame** try_stack;\n    char error_msg[1024];'
+            '\n    int try_cap;\n    void* volatile launder_slot;\n    struct __btrc_cle'
+            'anup_entry* cleanup_stack;\n    int cleanup_top;\n    int cleanup_cap;\n   '
+            ' int tracking;\n    void** destroyed;\n    int destroyed_count;\n    int de'
+            'stroyed_cap;\n    int arc_topology_depth;\n    int arc_draining;\n    void*'
+            ' arc_deferred_head;\n    void* arc_deferred_tail;\n    void (*abandon_drai'
+            'n_callback)(void);\n    void** abandon_queue;\n    int abandon_count;\n    '
+            'int abandon_cap;\n} __btrc_tls_record;\nstatic _Thread_local __btrc_tls_re'
+            'cord __btrc_tls = {\n    .try_top = -1, .try_cap = 16, .cleanup_top = -1,'
+            ' .cleanup_cap = 64};\n#define __btrc_try_top (__btrc_tls.try_top)\n#define'
+            ' __btrc_try_stack (__btrc_tls.try_stack)\n#define __btrc_error_msg (__btr'
+            'c_tls.error_msg)\n#define __btrc_try_cap (__btrc_tls.try_cap)\n#define __b'
+            'trc_launder_slot (__btrc_tls.launder_slot)\n#define __btrc_cleanup_stack '
+            '(__btrc_tls.cleanup_stack)\n#define __btrc_cleanup_top (__btrc_tls.cleanu'
+            'p_top)\n#define __btrc_cleanup_cap (__btrc_tls.cleanup_cap)\n#define __btr'
+            'c_tracking (__btrc_tls.tracking)\n#define __btrc_destroyed (__btrc_tls.de'
+            'stroyed)\n#define __btrc_destroyed_count (__btrc_tls.destroyed_count)\n#de'
+            'fine __btrc_destroyed_cap (__btrc_tls.destroyed_cap)\n#define __btrc_arc_'
+            'topology_depth (__btrc_tls.arc_topology_depth)\n#define __btrc_arc_draini'
+            'ng (__btrc_tls.arc_draining)\n#define __btrc_arc_deferred_head (__btrc_tl'
+            's.arc_deferred_head)\n#define __btrc_arc_deferred_tail (__btrc_tls.arc_de'
+            'ferred_tail)\n#define __btrc_abandon_drain_callback (__btrc_tls.abandon_d'
+            'rain_callback)\n#define __btrc_abandon_queue (__btrc_tls.abandon_queue)\n#'
+            'define __btrc_abandon_count (__btrc_tls.abandon_count)\n#define __btrc_ab'
+            'andon_cap (__btrc_tls.abandon_cap)'
         ),
         depends_on=(),
         required_headers=(),
@@ -1633,19 +1681,32 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
+        name='__btrc_try_level',
+        c_source=(
+            '/* __btrc_try_top is a field of __btrc_tls. */'
+        ),
+        depends_on=('__btrc_tls_state',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='trycatch',
         name='__btrc_trycatch_globals',
         c_source=(
-            "/* btrc try/catch runtime (dynamic) */\n#if defined(__APPLE__)\n/* Darwin'"
-            's setjmp saves the signal mask and the alternate-stack state, two\n * sys'
-            'tem calls on every try frame, cleanup guard and deferred drain. A btrc\n '
-            '* frame never changes either, so the BSD register-only variants serve; o'
-            'n\n * glibc, setjmp already is the register-only form. */\n#undef setjmp\n#'
-            'undef longjmp\n#define setjmp(env) _setjmp(env)\n#define longjmp(env, valu'
-            'e) _longjmp(env, value)\n#endif\ntypedef struct { jmp_buf env; } __btrc_tr'
-            'y_frame;\nstatic _Thread_local __btrc_try_frame** __btrc_try_stack = NULL'
-            ';\nstatic _Thread_local char __btrc_error_msg[1024] = "";'
+            '/* btrc try/catch runtime (dynamic) */\n#if defined(__APPLE__) && __STDC_'
+            "HOSTED__\n/* Darwin's setjmp saves the signal mask and the alternate-stac"
+            'k state, two\n * system calls on every try frame, cleanup guard and defer'
+            'red drain. A btrc\n * frame never changes either, so the BSD register-onl'
+            'y variants serve; on\n * glibc, setjmp already is the register-only form.'
+            ' */\n#undef setjmp\n#undef longjmp\n#define setjmp(env) _setjmp(env)\n#defin'
+            'e longjmp(env, value) _longjmp(env, value)\n#endif\ntypedef struct __btrc_'
+            'try_frame { jmp_buf env; } __btrc_try_frame;\n/* __btrc_try_stack and __b'
+            'trc_error_msg are fields of __btrc_tls. */'
         ),
-        depends_on=('__btrc_try_level',),
+        depends_on=('__btrc_tls_state', '__btrc_try_level'),
         required_headers=('setjmp.h',),
         provided_types=(),
         provided_objects=(),
@@ -1674,9 +1735,9 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='trycatch',
         name='__btrc_try_capacity',
         c_source=(
-            'static _Thread_local int __btrc_try_cap = 16;'
+            '/* __btrc_try_cap is a field of __btrc_tls. */'
         ),
-        depends_on=(),
+        depends_on=('__btrc_tls_state',),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -1687,9 +1748,9 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='trycatch',
         name='__btrc_launder_state',
         c_source=(
-            'static _Thread_local void* volatile __btrc_launder_slot;'
+            '/* __btrc_launder_slot is a field of __btrc_tls. */'
         ),
-        depends_on=(),
+        depends_on=('__btrc_tls_state',),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -1756,13 +1817,12 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         c_source=(
             '/* Cleanup slots are opaque; generated adapters access their exact type.'
             ' */\ntypedef __btrc_destroy_fn __btrc_cleanup_fn;\ntypedef void* (*__btrc_'
-            'cleanup_take_fn)(void*);\ntypedef struct { void* slot; __btrc_cleanup_tak'
-            'e_fn take; __btrc_cleanup_fn fn; __btrc_visit_fn visit; int try_level; i'
-            'nt direct; } __btrc_cleanup_entry;\nstatic _Thread_local __btrc_cleanup_e'
-            'ntry* __btrc_cleanup_stack = NULL;\nstatic _Thread_local int __btrc_clean'
-            'up_top = -1;'
+            'cleanup_take_fn)(void*);\ntypedef struct __btrc_cleanup_entry { void* slo'
+            't; __btrc_cleanup_take_fn take; __btrc_cleanup_fn fn; __btrc_visit_fn vi'
+            'sit; int try_level; int direct; } __btrc_cleanup_entry;\n/* __btrc_cleanu'
+            'p_stack and __btrc_cleanup_top are fields of __btrc_tls. */'
         ),
-        depends_on=('__btrc_try_level', '__btrc_arc_callback_types'),
+        depends_on=('__btrc_tls_state', '__btrc_try_level', '__btrc_arc_callback_types'),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -1773,9 +1833,9 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='trycatch',
         name='__btrc_cleanup_capacity',
         c_source=(
-            'static _Thread_local int __btrc_cleanup_cap = 64;'
+            '/* __btrc_cleanup_cap is a field of __btrc_tls. */'
         ),
-        depends_on=(),
+        depends_on=('__btrc_tls_state',),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -2432,11 +2492,11 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='cycles',
         name='__btrc_destroyed_tracking',
         c_source=(
-            '/* ARC cascade-destroy tracking: avoid reading freed memory */\nstatic _T'
-            'hread_local int __btrc_tracking = 0;\nstatic _Thread_local void** __btrc_'
-            'destroyed = NULL;\nstatic _Thread_local int __btrc_destroyed_count = 0;'
+            '/* ARC cascade-destroy tracking: avoid reading freed memory */\n/* __btrc'
+            '_tracking, __btrc_destroyed and __btrc_destroyed_count are fields of __b'
+            'trc_tls. */'
         ),
-        depends_on=(),
+        depends_on=('__btrc_tls_state',),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -2492,9 +2552,9 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='cycles',
         name='__btrc_destroyed_capacity',
         c_source=(
-            'static _Thread_local int __btrc_destroyed_cap = 0;'
+            '/* __btrc_destroyed_cap is a field of __btrc_tls. */'
         ),
-        depends_on=(),
+        depends_on=('__btrc_tls_state',),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -2786,10 +2846,10 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='cycles',
         name='__btrc_arc_topology_depth_state',
         c_source=(
-            'static _Thread_local int __btrc_arc_topology_depth = 0;\nstatic _Thread_l'
-            'ocal int __btrc_arc_draining = 0;'
+            '/* __btrc_arc_topology_depth and __btrc_arc_draining are fields of __btr'
+            'c_tls. */'
         ),
-        depends_on=(),
+        depends_on=('__btrc_tls_state',),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -2891,23 +2951,23 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='cycles',
         name='__btrc_arc_deferred_state',
         c_source=(
-            '/* Per-thread intrusive FIFO for terminal ARC work. */\nstatic _Thread_lo'
-            'cal void* __btrc_arc_deferred_head = NULL;\nstatic _Thread_local void* __'
-            'btrc_arc_deferred_tail = NULL;\n\nstatic _Noreturn void __btrc_arc_raise_u'
-            'nlocked(\n        const __btrc_arc_type* type, const char* message) {\n   '
-            ' if (type && type->raise) type->raise(message);\n    fprintf(stderr, "Unh'
-            'andled exception: %s\\n", message);\n    exit(1);\n}\n\nstatic void __btrc_ar'
-            'c_enqueue_locked(void* object) {\n    __btrc_arc_header* header = __btrc_'
-            'arc_header_of(object);\n    if (header->state != __BTRC_ARC_LIVE\n        '
-            '    || header->rc != 0 || header->edge_rc != 0\n            || header->in'
-            'coming != NULL || header->deferred_next != NULL) {\n        fprintf(stder'
-            'r, "btrc: invalid ARC enqueue\\n");\n        exit(1);\n    }\n    header->li'
-            've_witness = NULL;\n    header->state = __BTRC_ARC_QUEUED;\n    if (__btrc'
-            '_arc_deferred_tail) {\n        __btrc_arc_header_of(__btrc_arc_deferred_t'
-            'ail)->deferred_next = object;\n    } else {\n        __btrc_arc_deferred_h'
-            'ead = object;\n    }\n    __btrc_arc_deferred_tail = object;\n}'
+            '/* Per-thread intrusive FIFO for terminal ARC work. */\n/* __btrc_arc_def'
+            'erred_head and __btrc_arc_deferred_tail are fields of __btrc_tls. */\n\nst'
+            'atic _Noreturn void __btrc_arc_raise_unlocked(\n        const __btrc_arc_'
+            'type* type, const char* message) {\n    if (type && type->raise) type->ra'
+            'ise(message);\n    fprintf(stderr, "Unhandled exception: %s\\n", message);'
+            '\n    exit(1);\n}\n\nstatic void __btrc_arc_enqueue_locked(void* object) {\n '
+            '   __btrc_arc_header* header = __btrc_arc_header_of(object);\n    if (hea'
+            'der->state != __BTRC_ARC_LIVE\n            || header->rc != 0 || header->'
+            'edge_rc != 0\n            || header->incoming != NULL || header->deferred'
+            '_next != NULL) {\n        fprintf(stderr, "btrc: invalid ARC enqueue\\n");'
+            '\n        exit(1);\n    }\n    header->live_witness = NULL;\n    header->sta'
+            'te = __BTRC_ARC_QUEUED;\n    if (__btrc_arc_deferred_tail) {\n        __bt'
+            'rc_arc_header_of(__btrc_arc_deferred_tail)->deferred_next = object;\n    '
+            '} else {\n        __btrc_arc_deferred_head = object;\n    }\n    __btrc_arc'
+            '_deferred_tail = object;\n}'
         ),
-        depends_on=('__btrc_arc_callback_types', '__btrc_arc_header_of'),
+        depends_on=('__btrc_tls_state', '__btrc_arc_callback_types', '__btrc_arc_header_of'),
         required_headers=('stdio.h', 'stdlib.h'),
         provided_types=(),
         provided_objects=(),
@@ -3786,10 +3846,10 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='cycles',
         name='__btrc_arc_abandon_callback_state',
         c_source=(
-            'typedef void (*__btrc_abandon_drain_fn)(void);\nstatic _Thread_local __bt'
-            'rc_abandon_drain_fn\n    __btrc_abandon_drain_callback = NULL;'
+            'typedef void (*__btrc_abandon_drain_fn)(void);\n/* __btrc_abandon_drain_c'
+            'allback is a field of __btrc_tls. */'
         ),
-        depends_on=(),
+        depends_on=('__btrc_tls_state',),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -3800,11 +3860,10 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='cycles',
         name='__btrc_arc_abandon_queue_state',
         c_source=(
-            'static _Thread_local void** __btrc_abandon_queue = NULL;\nstatic _Thread_'
-            'local int __btrc_abandon_count = 0;\nstatic _Thread_local int __btrc_aban'
-            'don_cap = 0;'
+            '/* __btrc_abandon_queue, __btrc_abandon_count and __btrc_abandon_cap are'
+            ' fields of __btrc_tls. */'
         ),
-        depends_on=('__btrc_arc_abandon_callback_state',),
+        depends_on=('__btrc_tls_state', '__btrc_arc_abandon_callback_state'),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -4008,54 +4067,60 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         name='__btrc_arc_drain',
         c_source=(
             'static void __btrc_arc_drain_deferred(int force_cycles) {\n    if (__btrc'
-            '_arc_draining) return;\n    if (__btrc_arc_topology_depth > 0) {\n        '
-            '__btrc_arc_lock_mutation();\n        if (force_cycles || __btrc_arc_defer'
-            'red_head\n                || __btrc_suspect_count > 0)\n            __btrc'
-            '_arc_topology_flush_pending = 1;\n        __btrc_arc_unlock_mutation();\n '
-            '       return;\n    }\n    __btrc_arc_lock_mutation();\n    int has_termina'
-            'l = __btrc_arc_deferred_head != NULL;\n    if (!has_terminal && !force_cy'
-            'cles) {\n        __btrc_arc_unlock_mutation();\n        return;\n    }\n    '
-            'if (__btrc_arc_active_drains == INT_MAX) {\n        fprintf(stderr, "btrc'
-            ': ARC drain count overflow\\n");\n        exit(1);\n    }\n    __btrc_arc_ac'
-            'tive_drains++;\n    __btrc_arc_unlock_mutation();\n\n    __btrc_arc_drainin'
-            'g = 1;\n    int cascade = 0;\n    char first_error[1024];\n    first_error['
-            "0] = '\\0';\n    __btrc_raise_fn first_raise = NULL;\n    int has_error = 0"
-            ';\n    for (;;) {\n        __btrc_arc_lock_mutation();\n        void* objec'
-            't = __btrc_arc_deferred_head;\n        if (object) {\n            __btrc_a'
-            'rc_header* header = __btrc_arc_header_of(object);\n            if (header'
-            '->state != __BTRC_ARC_QUEUED) {\n                fprintf(stderr, "btrc: i'
-            'nvalid deferred ARC state\\n");\n                exit(1);\n            }\n  '
-            '          __btrc_arc_deferred_head = header->deferred_next;\n            '
-            'if (!__btrc_arc_deferred_head)\n                __btrc_arc_deferred_tail '
-            '= NULL;\n            header->deferred_next = NULL;\n            int suppre'
-            'ss_hook = header->suppress_hook;\n            header->suppress_hook = 0;\n'
-            '            header->state = __BTRC_ARC_DESTROYING;\n            const __b'
-            'trc_arc_type* type = header->type;\n            __btrc_arc_unlock_mutatio'
-            'n();\n\n            if (type->visit || type->hook) cascade = 1;\n          '
-            '  if (type->hook && !suppress_hook) {\n                char error[1024];\n'
-            "                error[0] = '\\0';\n                if (type->guard(type->h"
-            'ook, object, error, sizeof error)\n                        && !has_error)'
-            ' {\n                    memcpy(first_error, error, sizeof first_error);\n '
-            '                   first_raise = type->raise;\n                    has_er'
-            'ror = 1;\n                }\n            }\n            type->destroy(objec'
-            't);\n            continue;\n        }\n        int pending = __btrc_suspect'
-            '_count > 0;\n        if (!pending && __btrc_arc_topology_active == 0)\n   '
-            '         __btrc_arc_topology_flush_pending = 0;\n        __btrc_arc_unloc'
-            'k_mutation();\n        if (!(pending && (force_cycles || cascade))) break'
-            ';\n        int collected = __btrc_collect_cycles_once();\n        if (coll'
-            'ected == 1) continue;\n        /* Another collector owns the snapshot, or'
-            ' another thread owns a\n         * topology scope.  In either case collec'
-            't-once has published the\n         * global flush request.  Never wait he'
-            're: the topology owner may be\n         * waiting for this thread, while '
-            'an active collector will finish the\n         * handoff from its own drai'
-            'n loop. */\n        break;\n    }\n    __btrc_arc_draining = 0;\n    __btrc_'
-            'arc_lock_mutation();\n    if (__btrc_arc_active_drains <= 0) {\n        fp'
-            'rintf(stderr, "btrc: invalid ARC drain count\\n");\n        exit(1);\n    }'
-            '\n    __btrc_arc_active_drains--;\n    __btrc_arc_unlock_mutation();\n    i'
-            'f (has_error) {\n        __btrc_arc_type transport = {\n            .visit'
-            ' = NULL, .destroy = NULL, .hook = NULL,\n            .guard = NULL, .rais'
-            'e = first_raise};\n        __btrc_arc_raise_unlocked(&transport, first_er'
-            'ror);\n    }\n}'
+            "_arc_draining) return;\n    /* The deferred FIFO is this thread's own: on"
+            'ly its releases enqueue into\n     * it, under the mutation lock, and onl'
+            'y this drain dequeues. So an empty\n     * head read here without the loc'
+            'k is exact, and the common release --\n     * one that leaves the object '
+            'alive -- returns without touching the lock. */\n    if (!force_cycles && '
+            '__btrc_arc_topology_depth == 0\n            && __btrc_arc_deferred_head ='
+            '= NULL)\n        return;\n    if (__btrc_arc_topology_depth > 0) {\n       '
+            ' __btrc_arc_lock_mutation();\n        if (force_cycles || __btrc_arc_defe'
+            'rred_head\n                || __btrc_suspect_count > 0)\n            __btr'
+            'c_arc_topology_flush_pending = 1;\n        __btrc_arc_unlock_mutation();\n'
+            '        return;\n    }\n    __btrc_arc_lock_mutation();\n    int has_termin'
+            'al = __btrc_arc_deferred_head != NULL;\n    if (!has_terminal && !force_c'
+            'ycles) {\n        __btrc_arc_unlock_mutation();\n        return;\n    }\n   '
+            ' if (__btrc_arc_active_drains == INT_MAX) {\n        fprintf(stderr, "btr'
+            'c: ARC drain count overflow\\n");\n        exit(1);\n    }\n    __btrc_arc_a'
+            'ctive_drains++;\n    __btrc_arc_unlock_mutation();\n\n    __btrc_arc_draini'
+            'ng = 1;\n    int cascade = 0;\n    char first_error[1024];\n    first_error'
+            "[0] = '\\0';\n    __btrc_raise_fn first_raise = NULL;\n    int has_error = "
+            '0;\n    for (;;) {\n        __btrc_arc_lock_mutation();\n        void* obje'
+            'ct = __btrc_arc_deferred_head;\n        if (object) {\n            __btrc_'
+            'arc_header* header = __btrc_arc_header_of(object);\n            if (heade'
+            'r->state != __BTRC_ARC_QUEUED) {\n                fprintf(stderr, "btrc: '
+            'invalid deferred ARC state\\n");\n                exit(1);\n            }\n '
+            '           __btrc_arc_deferred_head = header->deferred_next;\n           '
+            ' if (!__btrc_arc_deferred_head)\n                __btrc_arc_deferred_tail'
+            ' = NULL;\n            header->deferred_next = NULL;\n            int suppr'
+            'ess_hook = header->suppress_hook;\n            header->suppress_hook = 0;'
+            '\n            header->state = __BTRC_ARC_DESTROYING;\n            const __'
+            'btrc_arc_type* type = header->type;\n            __btrc_arc_unlock_mutati'
+            'on();\n\n            if (type->visit || type->hook) cascade = 1;\n         '
+            '   if (type->hook && !suppress_hook) {\n                char error[1024];'
+            "\n                error[0] = '\\0';\n                if (type->guard(type->"
+            'hook, object, error, sizeof error)\n                        && !has_error'
+            ') {\n                    memcpy(first_error, error, sizeof first_error);\n'
+            '                    first_raise = type->raise;\n                    has_e'
+            'rror = 1;\n                }\n            }\n            type->destroy(obje'
+            'ct);\n            continue;\n        }\n        int pending = __btrc_suspec'
+            't_count > 0;\n        if (!pending && __btrc_arc_topology_active == 0)\n  '
+            '          __btrc_arc_topology_flush_pending = 0;\n        __btrc_arc_unlo'
+            'ck_mutation();\n        if (!(pending && (force_cycles || cascade))) brea'
+            'k;\n        int collected = __btrc_collect_cycles_once();\n        if (col'
+            'lected == 1) continue;\n        /* Another collector owns the snapshot, o'
+            'r another thread owns a\n         * topology scope.  In either case colle'
+            'ct-once has published the\n         * global flush request.  Never wait h'
+            'ere: the topology owner may be\n         * waiting for this thread, while'
+            ' an active collector will finish the\n         * handoff from its own dra'
+            'in loop. */\n        break;\n    }\n    __btrc_arc_draining = 0;\n    __btrc'
+            '_arc_lock_mutation();\n    if (__btrc_arc_active_drains <= 0) {\n        f'
+            'printf(stderr, "btrc: invalid ARC drain count\\n");\n        exit(1);\n    '
+            '}\n    __btrc_arc_active_drains--;\n    __btrc_arc_unlock_mutation();\n    '
+            'if (has_error) {\n        __btrc_arc_type transport = {\n            .visi'
+            't = NULL, .destroy = NULL, .hook = NULL,\n            .guard = NULL, .rai'
+            'se = first_raise};\n        __btrc_arc_raise_unlocked(&transport, first_e'
+            'rror);\n    }\n}'
         ),
         depends_on=('__btrc_arc_deferred_state', '__btrc_collect_cycles_once', '__btrc_arc_mutation_lock', '__btrc_arc_topology_state', '__btrc_arc_topology_depth_state', '__btrc_arc_shutdown_state', '__btrc_arc_active_drains_state'),
         required_headers=('limits.h', 'stdio.h', 'stdlib.h', 'string.h'),

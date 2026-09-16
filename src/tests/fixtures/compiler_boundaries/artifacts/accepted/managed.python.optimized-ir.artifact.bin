@@ -152,7 +152,7 @@
         "$type": "IRHelperDecl",
         "category": "string_ownership",
         "name": "__btrc_string_registry",
-        "c_source": "typedef struct __btrc_string_entry {\n    char* value;\n    size_t references;\n    struct __btrc_string_entry* next;\n} __btrc_string_entry;\n\nstatic __btrc_string_entry* __btrc_string_inline_buckets[64] = {0};\nstatic __btrc_string_entry** __btrc_string_buckets =\n    __btrc_string_inline_buckets;\nstatic size_t __btrc_string_bucket_count = 64;",
+        "c_source": "typedef struct __btrc_string_entry {\n    char* value;\n    size_t references;\n    /* Byte length, cached by the first length query of a long string (0 =\n     * not yet measured). Strings are immutable once published, so the cache\n     * never goes stale; it turns every substring, length and index query on\n     * a large text from a strlen of the whole text into a table lookup. */\n    size_t length;\n    struct __btrc_string_entry* next;\n} __btrc_string_entry;\n\nstatic __btrc_string_entry* __btrc_string_inline_buckets[64] = {0};\nstatic __btrc_string_entry** __btrc_string_buckets =\n    __btrc_string_inline_buckets;\nstatic size_t __btrc_string_bucket_count = 64;",
         "depends_on": [],
         "required_headers": []
       },
@@ -219,7 +219,7 @@
         "$type": "IRHelperDecl",
         "category": "string_ownership",
         "name": "__btrc_string_adopt",
-        "c_source": "static inline char* __btrc_string_adopt(char* value) {\n    if (!value) return NULL;\n    __btrc_string_entry* candidate = (__btrc_string_entry*)\n        __btrc_safe_realloc(NULL, sizeof(__btrc_string_entry));\n    candidate->value = value;\n    candidate->references = 1;\n    candidate->next = NULL;\n\n    __btrc_string_registry_lock();\n    __btrc_string_entry** slot = __btrc_string_slot(value);\n    if (*slot) {\n        __btrc_string_registry_unlock();\n        free(candidate);\n        return value;\n    }\n    if (__btrc_string_entry_count >= __btrc_string_bucket_count\n            - __btrc_string_bucket_count / 4) {\n        if (__btrc_string_bucket_count > SIZE_MAX / 2) {\n            __btrc_string_registry_unlock();\n            fprintf(stderr, \"btrc: string registry overflow\\n\");\n            exit(1);\n        }\n        __btrc_string_registry_resize(__btrc_string_bucket_count * 2);\n        slot = __btrc_string_slot(value);\n    }\n    candidate->next = *slot;\n    *slot = candidate;\n    __btrc_string_entry_count++;\n    __btrc_string_registry_unlock();\n    return value;\n}",
+        "c_source": "static inline char* __btrc_string_adopt(char* value) {\n    if (!value) return NULL;\n    __btrc_string_entry* candidate = (__btrc_string_entry*)\n        __btrc_safe_realloc(NULL, sizeof(__btrc_string_entry));\n    candidate->value = value;\n    candidate->references = 1;\n    candidate->length = 0;\n    candidate->next = NULL;\n\n    __btrc_string_registry_lock();\n    __btrc_string_entry** slot = __btrc_string_slot(value);\n    if (*slot) {\n        __btrc_string_registry_unlock();\n        free(candidate);\n        return value;\n    }\n    if (__btrc_string_entry_count >= __btrc_string_bucket_count\n            - __btrc_string_bucket_count / 4) {\n        if (__btrc_string_bucket_count > SIZE_MAX / 2) {\n            __btrc_string_registry_unlock();\n            fprintf(stderr, \"btrc: string registry overflow\\n\");\n            exit(1);\n        }\n        __btrc_string_registry_resize(__btrc_string_bucket_count * 2);\n        slot = __btrc_string_slot(value);\n    }\n    candidate->next = *slot;\n    *slot = candidate;\n    __btrc_string_entry_count++;\n    __btrc_string_registry_unlock();\n    return value;\n}",
         "depends_on": [
           "__btrc_string_registry_resize",
           "__btrc_string_registry_slot",
@@ -274,8 +274,11 @@
         "$type": "IRHelperDecl",
         "category": "string",
         "name": "__btrc_string_length",
-        "c_source": "static inline int __btrc_string_length(const char* s) {\n    if (!s) return 0;\n    size_t length = strlen(s);\n    if (length > (size_t)INT_MAX) {\n        fprintf(stderr, \"btrc: string length overflow\\n\"); exit(1);\n    }\n    return (int)length;\n}",
-        "depends_on": [],
+        "c_source": "static inline int __btrc_string_length(const char* s) {\n    if (!s) return 0;\n    /* Short strings are measured directly. A long tracked string is measured\n     * once and the answer kept on its registry entry, so a lexer or a line\n     * splitter walking a large text stays linear. */\n    size_t length = strnlen(s, 64);\n    if (length >= 64) {\n        length = 0;\n        __btrc_string_registry_lock();\n        if (__btrc_string_bucket_count != 0) {\n            __btrc_string_entry* entry = *__btrc_string_slot(s);\n            if (entry) {\n                if (entry->length == 0) entry->length = strlen(s);\n                length = entry->length;\n            }\n        }\n        __btrc_string_registry_unlock();\n        if (length == 0) length = strlen(s);\n    }\n    if (length > (size_t)INT_MAX) {\n        fprintf(stderr, \"btrc: string length overflow\\n\"); exit(1);\n    }\n    return (int)length;\n}",
+        "depends_on": [
+          "__btrc_string_registry_slot",
+          "__btrc_string_registry_lock"
+        ],
         "required_headers": []
       },
       {

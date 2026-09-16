@@ -91,6 +91,45 @@ class FeStdlibRepository {
 		return ordered;
 	}
 
+	/* The generated symbol index beside the root modules, when it describes
+	 * exactly the snapshot on disk. Null means missing, stale or malformed, and
+	 * the caller derives the index by parsing instead; nothing is written. */
+	public Map<string, Vector<string>>? loadSymbolIndex(FeStdlibRootSnapshot snapshot) {
+		string indexPath = self.sourcePaths.join(self.directoryPath, "btrc.symbols");
+		if (!FileSystem.isFile(indexPath)) { return null; }
+		string text = self.sourceFiles.readRequired(indexPath);
+		string header = "btrc-symbols 1 " + FeStdlibSymbolDigest.describe(snapshot);
+		int length = text.length();
+		int lineStart = 0;
+		int lineEnd = 0;
+		while (lineEnd < length && text[lineEnd] != '\n') { lineEnd++; }
+		if (lineEnd >= length || !text.substring(0, lineEnd).equals(header)) { return null; }
+		Map<string, Vector<string>> symbols = {};
+		lineStart = lineEnd + 1;
+		while (lineStart < length) {
+			lineEnd = lineStart;
+			int tab = -1;
+			while (lineEnd < length && text[lineEnd] != '\n') {
+				if (tab < 0 && text[lineEnd] == '\t') { tab = lineEnd; }
+				lineEnd++;
+			}
+			if (lineEnd > lineStart) {
+				if (tab <= lineStart || tab + 1 >= lineEnd) { return null; }
+				string name = text.substring(lineStart, tab - lineStart);
+				string relative = text.substring(tab + 1, lineEnd - tab - 1);
+				if (relative.indexOf("/") >= 0 || relative.indexOf("\\") >= 0 || relative[0] == '.') { return null; }
+				string path = self.sourcePaths.join(self.directoryPath, relative);
+				if (!symbols.has(name)) {
+					Vector<string> owners = [];
+					symbols.put(name, owners);
+				}
+				symbols.get(name).push(path);
+			}
+			lineStart = lineEnd + 1;
+		}
+		return symbols;
+	}
+
 	public FeStdlibRootSnapshot rootSnapshot() {
 		Vector<string> paths = [];
 		Vector<string> sources = [];
@@ -157,6 +196,65 @@ class FeStdlibRepository {
 		int index = self.snapshotIndexOf(snapshot, path);
 		if (index >= 0) { return snapshot.sourceAt(index); }
 		return self.sourceFiles.readRequired(path);
+	}
+}
+
+/* Digest of the root stdlib snapshot as the generated symbol index records it:
+ * CRC-32 (zlib semantics) over each module's file name, a zero byte, its bytes
+ * and a zero byte, in discovery order, then the byte and file counts. Mirrors
+ * src/compiler/python/frontend/symbol_index.py, which writes the index. */
+class FeStdlibSymbolDigest {
+	class Vector<unsigned int> crcTable() {
+		Vector<unsigned int> table = [];
+		for (int index = 0; index < 256; index++) {
+			unsigned int entry = (unsigned int)index;
+			for (int bit = 0; bit < 8; bit++) {
+				entry = (entry & 1U) != 0U ? (0xedb88320U ^ (entry >> 1)) : (entry >> 1);
+			}
+			table.push(entry);
+		}
+		return table;
+	}
+
+	class unsigned int updateByte(Vector<unsigned int> table, unsigned int crc, unsigned int value) {
+		unsigned int state = crc ^ 0xffffffffU;
+		state = table.get((int)((state ^ value) & 0xffU)) ^ (state >> 8);
+		return state ^ 0xffffffffU;
+	}
+
+	class unsigned int updateText(Vector<unsigned int> table, unsigned int crc, string text) {
+		unsigned int state = crc ^ 0xffffffffU;
+		int length = text.length();
+		for (int index = 0; index < length; index++) {
+			unsigned int value = (unsigned int)((unsigned char)text[index]);
+			state = table.get((int)((state ^ value) & 0xffU)) ^ (state >> 8);
+		}
+		return state ^ 0xffffffffU;
+	}
+
+	class string hex8(unsigned int value) {
+		string digits = "0123456789abcdef";
+		string rendered = "";
+		for (int shift = 28; shift >= 0; shift -= 4) {
+			rendered += digits.substring((int)((value >> shift) & 0xfU), 1);
+		}
+		return rendered;
+	}
+
+	class string describe(FeStdlibRootSnapshot snapshot) {
+		Vector<unsigned int> table = FeStdlibSymbolDigest.crcTable();
+		unsigned int crc = 0U;
+		int byteCount = 0;
+		int fileCount = snapshot.count();
+		for (int index = 0; index < fileCount; index++) {
+			string source = snapshot.sourceAt(index);
+			crc = FeStdlibSymbolDigest.updateText(table, crc, PathTools.basename(snapshot.pathAt(index)));
+			crc = FeStdlibSymbolDigest.updateByte(table, crc, 0U);
+			crc = FeStdlibSymbolDigest.updateText(table, crc, source);
+			crc = FeStdlibSymbolDigest.updateByte(table, crc, 0U);
+			byteCount += source.length();
+		}
+		return FeStdlibSymbolDigest.hex8(crc) + "-" + Strings.fromInt(byteCount) + "-" + Strings.fromInt(fileCount);
 	}
 }
 

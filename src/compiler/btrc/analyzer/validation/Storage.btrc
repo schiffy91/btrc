@@ -172,12 +172,15 @@ class StorageValidator {
 
 	public bool staticInitializer(Node? expression, Node? expected) {
 		if (expression == null) { return true; }
-		if (expected != null && expected.genericArgs.len > 0 && expected.base != "Tuple" && expected.base != "__fn_ptr" && expected.base != "__realtime_fn_ptr" && (self.state.analyzed.isGenericClass(expected.base) || self.types.runtimeTypeBase(expected.base))) {
+		bool literal = expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_LIST_LITERAL;
+		if (literal && expected != null && expected.genericArgs.len > 0 && expected.base != "Tuple" && expected.base != "__fn_ptr" && expected.base != "__realtime_fn_ptr" && (self.state.analyzed.isGenericClass(expected.base) || self.types.runtimeTypeBase(expected.base))) {
 			/* Collection/class literals allocate and populate at runtime; their
-             * brace spelling is not a C aggregate constant initializer. */
+             * brace spelling is not a C aggregate constant initializer. A null
+             * or other constant initializer of such a field is static storage
+             * like any other pointer, as the reference compiler accepts. */
 			return false;
 		}
-		if (expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_LIST_LITERAL) {
+		if (literal) {
 			if (expression.kind == NK_LIST_LITERAL && (expected == null || !expected.isArray)) {
 				return false;
 			}

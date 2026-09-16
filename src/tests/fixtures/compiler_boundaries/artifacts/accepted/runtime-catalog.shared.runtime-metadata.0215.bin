@@ -1,0 +1,1 @@
+{"asset":"trycatch.c","btrc_order":89,"category":"trycatch","dependencies":["__btrc_tls_state"],"headers":[],"name":"__btrc_try_level","provided_objects":[],"provided_types":[],"python_order":90,"source_sha256":"6bec345f9b930ccd88a2bd75f283c726383031cb72cabaca5e537f7c8126a3e5","source_size":46,"source_visible":false}

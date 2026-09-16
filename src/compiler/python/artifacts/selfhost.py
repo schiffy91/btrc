@@ -535,7 +535,9 @@ class SelfhostBundlePublisher:
 FORMAT_VERSION = 1
 MAX_ARCHIVE_EPOCH = 0xFFFFFFFF
 # The stdlib package graph ships its lock beside the group manifests.
-RUNTIME_SUFFIXES = frozenset({".btrc", ".c", ".cc", ".cpp", ".cxx", ".h", ".lock", ".m", ".md", ".mm", ".toml"})
+RUNTIME_SUFFIXES = frozenset(
+    {".btrc", ".c", ".cc", ".cpp", ".cxx", ".h", ".lock", ".m", ".md", ".mm", ".symbols", ".toml"}
+)
 EXCLUDED_DIRECTORIES = frozenset({"__pycache__", "build", ".cache"})
 TARGET_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 

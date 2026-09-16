@@ -1,0 +1,36 @@
+import Library.Vector;
+
+/* A static managed field may start as null: the reference and self-hosted
+ * compilers both treat a null initializer as C static storage, while a
+ * collection literal (which allocates) stays rejected. */
+class Registry {
+	class Vector<string>? names = null;
+
+	class void add(string name) {
+		if (Registry.names == null) {
+			Vector<string> fresh = [];
+			Registry.names = fresh;
+		}
+		Registry.names?.push(name);
+	}
+
+	class int count() {
+		Vector<string>? current = Registry.names;
+		return current == null ? 0 : current.len;
+	}
+
+	class string at(int index) {
+		Vector<string>? current = Registry.names;
+		return current == null ? "" : current.get(index);
+	}
+}
+
+int main() {
+	print(f"before: {Registry.count()}");
+	Registry.add("alpha");
+	Registry.add("beta");
+	print(f"after: {Registry.count()}");
+	print(Registry.at(1));
+	print("PASS");
+	return 0;
+}

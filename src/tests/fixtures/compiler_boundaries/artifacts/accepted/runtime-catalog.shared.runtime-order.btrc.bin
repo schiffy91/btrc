@@ -86,6 +86,7 @@ __btrc_math_fibonacci
 __btrc_math_isPrime
 __btrc_math_sum_int
 __btrc_math_fsum
+__btrc_tls_state
 __btrc_try_level
 __btrc_trycatch_globals
 __btrc_copy_error_message

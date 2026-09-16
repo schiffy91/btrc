@@ -18,6 +18,7 @@ import Library.Strings;
 import Library.Vector;
 
 import ../Compiler.btrc;
+import ../frontend/Timing.btrc;
 import ../frontend/Packages.btrc;
 import ../frontend/Models.btrc;
 
@@ -343,11 +344,13 @@ class BtrccDriver {
 			return self.writeLine(dataPaths.stdlib);
 		}
 
+		BtrccPhaseTimer.begin();
 		string grammarSource = self.sourceFiles.readRequired(dataPaths.grammar);
 		if (grammarSource.isEmpty()) {
 			return self.fail("cannot read grammar: " + dataPaths.grammar);
 		}
 		GrammarInfo grammar = EbnfGrammarParser(grammarSource).parse();
+		BtrccPhaseTimer.mark("grammar");
 
 		string sourcePath = self.commandLine.argument(options.inputIndex);
 		if (!FileSystem.isFile(sourcePath)) {

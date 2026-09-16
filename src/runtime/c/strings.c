@@ -2,6 +2,11 @@
 typedef struct __btrc_string_entry {
     char* value;
     size_t references;
+    /* Byte length, cached by the first length query of a long string (0 =
+     * not yet measured). Strings are immutable once published, so the cache
+     * never goes stale; it turns every substring, length and index query on
+     * a large text from a strlen of the whole text into a table lookup. */
+    size_t length;
     struct __btrc_string_entry* next;
 } __btrc_string_entry;
 
@@ -82,6 +87,7 @@ static inline char* __btrc_string_adopt(char* value) {
         __btrc_safe_realloc(NULL, sizeof(__btrc_string_entry));
     candidate->value = value;
     candidate->references = 1;
+    candidate->length = 0;
     candidate->next = NULL;
 
     __btrc_string_registry_lock();
@@ -189,7 +195,23 @@ static inline const char* __btrc_string_or_empty(const char* s) {
 /* btrc-runtime-helper:begin __btrc_string_length */
 static inline int __btrc_string_length(const char* s) {
     if (!s) return 0;
-    size_t length = strlen(s);
+    /* Short strings are measured directly. A long tracked string is measured
+     * once and the answer kept on its registry entry, so a lexer or a line
+     * splitter walking a large text stays linear. */
+    size_t length = strnlen(s, 64);
+    if (length >= 64) {
+        length = 0;
+        __btrc_string_registry_lock();
+        if (__btrc_string_bucket_count != 0) {
+            __btrc_string_entry* entry = *__btrc_string_slot(s);
+            if (entry) {
+                if (entry->length == 0) entry->length = strlen(s);
+                length = entry->length;
+            }
+        }
+        __btrc_string_registry_unlock();
+        if (length == 0) length = strlen(s);
+    }
     if (length > (size_t)INT_MAX) {
         fprintf(stderr, "btrc: string length overflow\n"); exit(1);
     }

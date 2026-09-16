@@ -475,6 +475,11 @@ class FeImportVisibilityChecker {
 		if (self.stdlibSymbols.currentFor(snapshot)) {
 			return FeStdlibSymbolIndexResult(true, "");
 		}
+		Map<string, Vector<string>>? generated = self.stdlib.loadSymbolIndex(snapshot);
+		if (generated != null) {
+			self.stdlibSymbols.replace(snapshot, generated);
+			return FeStdlibSymbolIndexResult(true, "");
+		}
 		Map<string, Vector<string>> nextSymbolFiles = {};
 		int fileIndex = 0;
 		while (fileIndex < snapshot.count()) {

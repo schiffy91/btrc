@@ -44,24 +44,28 @@ class FeSourceText {
      * the source ends in a newline. */
 	public Vector<string> lines() {
 		Vector<string> result = [];
+		string content = self.content;
+		int length = content.length();
 		int start = 0;
 		int index = 0;
-		while (index < self.content.length()) {
-			if (self.content[index] == '\n') {
-				result.push(self.content.substring(start, index - start));
+		while (index < length) {
+			if (content[index] == '\n') {
+				result.push(content.substring(start, index - start));
 				start = index + 1;
 			}
 			index++;
 		}
-		result.push(self.content.substring(start, self.content.length() - start));
+		result.push(content.substring(start, length - start));
 		return result;
 	}
 
 	public int lineCount() {
 		int count = 1;
 		int index = 0;
-		while (index < self.content.length()) {
-			if (self.content[index] == '\n') { count++; }
+		string content = self.content;
+		int length = content.length();
+		while (index < length) {
+			if (content[index] == '\n') { count++; }
 			index++;
 		}
 		return count;

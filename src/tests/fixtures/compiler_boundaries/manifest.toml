@@ -416,6 +416,7 @@ channels = [
   "helper.__btrc_toUpper",
   "helper.__btrc_trim",
   "helper.__btrc_try_capacity",
+  "helper.__btrc_tls_state",
   "helper.__btrc_try_level",
   "helper.__btrc_try_state_cleanup",
   "helper.__btrc_trycatch_globals",
@@ -758,8 +759,8 @@ channel = "artifact"
 baseline_path = "baseline/managed.python.raw-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.python.raw-ir.artifact.bin"
-accepted_sha256 = "a0d15096c6e13d46a5f030b372530d8398165e8b3e2a1044eb12074f9ee1ba1e"
-reason = "Managed call-result temporaries are volatile only when a reachable setjmp can bypass their assignment. String allocation adoption is null-checked in the shared strings.c helper (afea78f); the helper source, its catalog metadata, and the managed fixture's derived IR and C carry that guard."
+accepted_sha256 = "2212011678ee27049b58c75757a700118a7bd58817c28ff921771dda574e7237"
+reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length consults __btrc_string_registry_slot under the registry lock), so substring, length and index queries on a large text no longer walk the whole text; the managed fixture embeds the helper text."
 regressions = ["src/tests/classes/ConstructorCallResultSnapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py", "src/tests/btrc/test_fstring_allocation_c11.py"]
 
 [[records]]
@@ -786,8 +787,8 @@ channel = "artifact"
 baseline_path = "baseline/managed.python.optimized-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.python.optimized-ir.artifact.bin"
-accepted_sha256 = "f34d051ee81ac779fb28d7496490c0ad4feee9bea9377979f94a7b6924bc7769"
-reason = "Managed call-result temporaries are volatile only when a reachable setjmp can bypass their assignment. String allocation adoption is null-checked in the shared strings.c helper (afea78f); the helper source, its catalog metadata, and the managed fixture's derived IR and C carry that guard."
+accepted_sha256 = "79162847440ddd461e5a5c5024126e8f0ead716ff19db72fc0c41fe1f0913202"
+reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length consults __btrc_string_registry_slot under the registry lock), so substring, length and index queries on a large text no longer walk the whole text; the managed fixture embeds the helper text."
 regressions = ["src/tests/classes/ConstructorCallResultSnapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py", "src/tests/btrc/test_fstring_allocation_c11.py"]
 
 [[records]]
@@ -814,8 +815,8 @@ channel = "artifact"
 baseline_path = "baseline/managed.python.c.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.python.c.artifact.bin"
-accepted_sha256 = "90545a608eb9dfc81ae7da70a63969a86cc1e9e7978dbbb87ff2d326d3ad92da"
-reason = "Managed call-result temporaries are volatile only when a reachable setjmp can bypass their assignment. String allocation adoption is null-checked in the shared strings.c helper (afea78f); the helper source, its catalog metadata, and the managed fixture's derived IR and C carry that guard."
+accepted_sha256 = "383cbaba3c300a79c39c7fbc47cadb3d033f4d336fde12fa3084e78db9b3d75e"
+reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length consults __btrc_string_registry_slot under the registry lock), so substring, length and index queries on a large text no longer walk the whole text; the managed fixture embeds the helper text."
 regressions = ["src/tests/classes/ConstructorCallResultSnapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py", "src/tests/btrc/test_fstring_allocation_c11.py"]
 
 [[records]]
@@ -842,8 +843,8 @@ channel = "artifact"
 baseline_path = "baseline/managed.btrc.c.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.btrc.c.artifact.bin"
-accepted_sha256 = "85338286b1807c7e106f8cd2b5d3b369fb5cd9875f719a4da8c7ed61d0bf5f7a"
-reason = "Managed call-result temporaries are volatile only when a reachable setjmp can bypass their assignment. String allocation adoption is null-checked in the shared strings.c helper (afea78f); the helper source, its catalog metadata, and the managed fixture's derived IR and C carry that guard."
+accepted_sha256 = "7ff42275437b32b02c0b9fd9746d8faf82bf899853c5e1c16c17f92023b51984"
+reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length consults __btrc_string_registry_slot under the registry lock), so substring, length and index queries on a large text no longer walk the whole text; the managed fixture embeds the helper text."
 regressions = ["src/tests/classes/ConstructorCallResultSnapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py", "src/tests/btrc/test_fstring_allocation_c11.py"]
 
 [[records]]
@@ -1388,9 +1389,9 @@ channel = "asset.cycles_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.cycles_c.bin"
 baseline_sha256 = "6a0d034d5d19ee0ab69b789a82d6898c5060a3d095dc1145f82c90248ad074a2"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.cycles_c.bin"
-accepted_sha256 = "24ea69f673f04abac35e7043ac585591cc54ddb68eee3cf14d50e1dc009561a8"
-reason = "Runtime tuned for compiled-program speed: Darwin try frames use the register-only setjmp, ARC header validation is opt-in outside sanitizer builds, and the cleanup registration scan looks at four entries."
-regressions = ["src/tests/python/test_cli_flags.py", "src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/python/test_stdlib_archive_shared_state.py", "src/tests/btrc/test_cycle_suspect_forget.py"]
+accepted_sha256 = "58638792e14f8741ff24b3d6500c7b4a1eb60125f3edd40198bd9aeb18fff99d"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-source.asset.gpu_c"
@@ -1440,8 +1441,8 @@ channel = "asset.strings_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.strings_c.bin"
 baseline_sha256 = "0fb602f3c9a6b5e658c350b465199016c773cb50d411c082110c907c86cc3770"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.strings_c.bin"
-accepted_sha256 = "18ff27dbd57eb3fa1ebc18c15d9261f51822cd3ebdf5fe760d448d7b3833707a"
-reason = "String allocation adoption is null-checked in the shared strings.c helper (afea78f); the helper source, its catalog metadata, and the managed fixture's derived IR and C carry that guard."
+accepted_sha256 = "84aae268c2e4b7c52d4d604c7261ddff955c208885682f72b13d34529b07734f"
+reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length consults __btrc_string_registry_slot under the registry lock), so substring, length and index queries on a large text no longer walk the whole text; the managed fixture embeds the helper text."
 regressions = ["src/tests/btrc/test_fstring_allocation_c11.py"]
 
 [[records]]
@@ -1468,9 +1469,9 @@ channel = "asset.trycatch_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.trycatch_c.bin"
 baseline_sha256 = "aa851e085554c048b119ea587348aaee4a2f60ec889bfa6541ef0d04830fabcd"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.trycatch_c.bin"
-accepted_sha256 = "0c4a83760c8fd795d6fead46d8c0c551f51ebdcfd1cfb2dce6fd2141292bb422"
-reason = "Runtime tuned for compiled-program speed: Darwin try frames use the register-only setjmp, ARC header validation is opt-in outside sanitizer builds, and the cleanup registration scan looks at four entries."
-regressions = ["src/tests/memory/CleanupSlotReuse.btrc", "src/tests/memory/EmptyManagedLocal.btrc"]
+accepted_sha256 = "6c1f5bd3dbad33e4673e054748471251b62a009a8be7788413c747e961514fcb"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0000"
@@ -1495,6 +1496,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.List_all"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0001.bin"
 baseline_sha256 = "52762df6b9cd76475b536831493ce3a97f92568811a5e3bcbc63301ed371c533"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0001.bin"
+accepted_sha256 = "caebcd2f7cbac723d8435be7fae04d20a5aeb46dbcd391cbe67b526ae11fdbc1"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0002"
@@ -1505,6 +1510,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.List_any"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0002.bin"
 baseline_sha256 = "35d0c462e1e3bdbf3a705d030c4f0278a4485a71fad061b67376dfcb3e47aa0d"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0002.bin"
+accepted_sha256 = "a20c072e6ebd79ff19930002be843ffaeedd5c50d2e548f164135a340a63dd1a"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0003"
@@ -1515,6 +1524,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.List_filter"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0003.bin"
 baseline_sha256 = "1f97d9fc7bb472dfb8868908ec52079f810146c7c15ff2422bcab0e2f1aa89b2"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0003.bin"
+accepted_sha256 = "c3d41d4080c7168962e3877a4dac78aec2a1b5f06d3003c992a79d196ed657ad"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0004"
@@ -1525,6 +1538,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.List_findIndex"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0004.bin"
 baseline_sha256 = "9697828c033defa458c9121d2997696c6dc27dc07ab9b9be05fc24f3904c6450"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0004.bin"
+accepted_sha256 = "954a7ccd5353170d82ef8cebed0b893b7257e72b61f39c241cc5b11afdaf74ba"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0005"
@@ -1535,6 +1552,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.List_forEach"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0005.bin"
 baseline_sha256 = "e260f67dd2f4ad9a27e656ea1c8aa3ca78f6bc973f8f6b1f2fae549af42f1016"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0005.bin"
+accepted_sha256 = "ddb351601c6a4e73e111cc5c134a09736260a10855bb1abf01ce97af3dd0955d"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0006"
@@ -1545,6 +1566,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.List_map"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0006.bin"
 baseline_sha256 = "07901ecc470807067b7390e1fe0b7246f6570d5203bfc41ffdff34339efcf210"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0006.bin"
+accepted_sha256 = "937813b4d9c478f75f264fed6e26ba9806ee635bada98298e4f2f9bdbdadd5c0"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0007"
@@ -1555,6 +1580,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.List_reduce"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0007.bin"
 baseline_sha256 = "a48e2bfcfbaf76840c5b5097706422b706fd7a3ed662dd53a926fd00b381ae54"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0007.bin"
+accepted_sha256 = "a7ac4186e4ba479e1274a713765589cd5a373999db2a0a997b2dfcf8fdaebfa8"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0008"
@@ -1565,6 +1594,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.Map_containsValue"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0008.bin"
 baseline_sha256 = "fe6c6fc996ad3fde055207a38bd71092b4a5572a315d066e5ba2fd144fedb00a"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0008.bin"
+accepted_sha256 = "8fa5203b3cbeedc0c5edaa701e9a95e06448242afa8e7138c046f1126fb1f3fe"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0009"
@@ -1575,6 +1608,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.Map_forEach"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0009.bin"
 baseline_sha256 = "08f8c6bea83e31d77b03e243ea3ae282fcf2df76a9b16f363953b8213dc816d0"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0009.bin"
+accepted_sha256 = "cd9e511cdadb2fecd1143dfaf029f5b6b16ebd3542c8a9ddf1bff1d9ff1d5cab"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0010"
@@ -1585,6 +1622,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.Set_all"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0010.bin"
 baseline_sha256 = "af5825c09a0e406a95a4cd9d6226d10bad5ecfebcaca7d5230e1a2da957675b9"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0010.bin"
+accepted_sha256 = "4607acb60064345293762dcc4c3720555fb6875589986f0a3ebb8054d4ffdaf0"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0011"
@@ -1595,6 +1636,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.Set_any"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0011.bin"
 baseline_sha256 = "ec758283a3e10fab49d4c77e1b947105fa3de9c866731aff28c042f238e0debc"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0011.bin"
+accepted_sha256 = "a2dd48c6eb305a633454e02004482ceaf615c4f0eadbcc0799bd90bef973f74f"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0012"
@@ -1605,6 +1650,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.Set_filter"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0012.bin"
 baseline_sha256 = "a36c8443be2c7d99d221ae4e5be675de8da26bd9172372e558aa66830a62c5df"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0012.bin"
+accepted_sha256 = "733328a3184ad9bf800c69ee42eb84c2786ab3b0f7a1e1210f4d2e2b16c1a50b"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0013"
@@ -1615,6 +1664,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.Set_findIndex"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0013.bin"
 baseline_sha256 = "e721a206531028285f4d3809d9ace91cc3db6f8582e320d801a25e8e2d35caa2"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0013.bin"
+accepted_sha256 = "3d09ab26b2dce4359d0291e569a888389e1daaa58dc4789c33e5a4bef002bda0"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0014"
@@ -1625,6 +1678,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.Set_forEach"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0014.bin"
 baseline_sha256 = "618b9dfd3123f94d01d53d64531e1dbc4be5a2f98b281811abcb4b3eb39638dc"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0014.bin"
+accepted_sha256 = "8ab252d596ca4e931dccc592a5d000bd1bc1ddc3b3a690d36defc0d8adb0a996"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0015"
@@ -1635,6 +1692,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_abandon"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0015.bin"
 baseline_sha256 = "25c46613f6a5b50278ce92c8ad22671174bd0cedd8f80c96925e0140b74454a3"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0015.bin"
+accepted_sha256 = "63356590fe7d73da576e2c001a4d2d0059b4dac51f759113dc4931e3df9447e0"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0016"
@@ -1645,6 +1706,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_abandon_callback_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0016.bin"
 baseline_sha256 = "8c79832f16adfd3e6f41f478b78201e00573798a68a28fb4170567ef226de0ea"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0016.bin"
+accepted_sha256 = "23105edfbbb0e334f6625a7941d61f710c341f8fd3556211b74f09586a96ac29"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0017"
@@ -1655,6 +1720,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_abandon_graph"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0017.bin"
 baseline_sha256 = "6a625c5ad25b915cf0b5bc46a9ed154a7ceea08b7d77aec9011128588c9d3967"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0017.bin"
+accepted_sha256 = "9705774b75b8ff7f83e05a010330d9e10d8383831fb98e34f43d48ff3a93c13f"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0018"
@@ -1665,6 +1734,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_abandon_queue_drain"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0018.bin"
 baseline_sha256 = "b23d679a38bcf4e87f8f512fee5e7a09e8f87736d12981d36bb021a4598d2460"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0018.bin"
+accepted_sha256 = "6d117a3c4b04f440ac603a6cdf462032a46473eece0c750fd01f149c47eddd89"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0019"
@@ -1675,6 +1748,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_abandon_queue_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0019.bin"
 baseline_sha256 = "bb9ac8bc2567572b8c9714d7a56ad4637492b6af727adc8630543de53605d177"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0019.bin"
+accepted_sha256 = "e17f8a977cab34939e1bd340459d270a972a00333f2b1b25f1a845af62eaf368"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0020"
@@ -1685,6 +1762,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_active_drains_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0020.bin"
 baseline_sha256 = "a4120906c336354615bfec459bfe3fe012bc5b101d57b2cb6aacd8d5e77e9174"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0020.bin"
+accepted_sha256 = "49fd02ed938c03c17e724a7abbd92db044e925643e8947c1def7b137a2816a0e"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0021"
@@ -1695,6 +1776,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_active_unwinds_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0021.bin"
 baseline_sha256 = "2c13c5ce29ead26f74f456aeaa60373451f0c0c565e154e6b923bef96d184402"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0021.bin"
+accepted_sha256 = "9eafcc8f4308bf0fcd373cd0613ccf4cfa9f921c1893b6e9a085a34a003ad94e"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0022"
@@ -1706,9 +1791,9 @@ channel = "helper.__btrc_arc_adopt_edge"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0022.bin"
 baseline_sha256 = "db0b453df600752f98f1f28bba53fc71fdd71884ff5dfe67a0d4e404d7b47229"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0022.bin"
-accepted_sha256 = "d4c927342f7d3e3bf0e3454e965fe3497e069f27f60f2ccfe5ae96698ff0c53b"
-reason = "Runtime-helper references are exact manifest dependencies; compiler reachability no longer infers a second graph from source text."
-regressions = ["src/tests/btrc/test_runtime_dependency_closure.py", "src/tests/python/test_optimizer.py", "src/tests/python/test_runtime_helper_registry.py"]
+accepted_sha256 = "3f710decd489ed0d2b7e9028a395f312fb43361490e25a5ec78da6e48c06c711"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0023"
@@ -1720,8 +1805,8 @@ channel = "helper.__btrc_arc_callback_types"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0023.bin"
 baseline_sha256 = "642525460bc856e7fe062c97b707c84d98636058ed6b4809154093243ae530c9"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0023.bin"
-accepted_sha256 = "6d42fa9afde49867ce7db1c3672df09911175e48df8564ec7b3c34bc28cdda81"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "c489ae42a06a47104286ac5730afd25b16f0c50578affb9f4d5bc15bb1b354fa"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -1733,6 +1818,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_deferred_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0024.bin"
 baseline_sha256 = "f391833aa7f141d24d9d928278228615367027dcd301281134381caf0f892024"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0024.bin"
+accepted_sha256 = "44fb1230b136d2c318a77c59baf67c64c92eeea4e68ccc0bc910d091d4dcf058"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0025"
@@ -1743,6 +1832,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_destroy_edge"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0025.bin"
 baseline_sha256 = "0abc39f8d26a93683d9dc2c612fe2208ca664d34046183a15aebbe6ed16c8159"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0025.bin"
+accepted_sha256 = "fc6b10d691f54da13f2ec484c346e3b94b1179b84b1670fdf3170291e21087c5"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0026"
@@ -1753,6 +1846,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_destroy_slot"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0026.bin"
 baseline_sha256 = "06f0de7c0221018c51cb33a293e9babbd72d6735f6d8f143616720b5e57b3693"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0026.bin"
+accepted_sha256 = "920db377d2230bd73ba49c740f52464d0d57bec93e56c0ddde45e445daf3a469"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0027"
@@ -1763,6 +1860,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_drain"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0027.bin"
 baseline_sha256 = "cc4c2fca5738ecfdb9e1ff47285106316f48105313680881895ea8d32c811d38"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0027.bin"
+accepted_sha256 = "33c962efabfb019c141aed3354d6c7ac7ba7411518ca9d2965356d395a77ffb3"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0028"
@@ -1773,6 +1874,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_exclusive_snapshot"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0028.bin"
 baseline_sha256 = "1d354719c3cc688511e96f6d6803c956da3391a9d590cd0938a7986fe6ec4e9e"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0028.bin"
+accepted_sha256 = "d2044cc757f4ee6b82067139c4a933752fed49a9508cb157246e1384477a829f"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0029"
@@ -1783,6 +1888,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_graph_primitives"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0029.bin"
 baseline_sha256 = "3f08975a0fd9994d72d268263691fa23f5464a60310f4babdbbb331fad8fc2df"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0029.bin"
+accepted_sha256 = "5c935f5b2dcb632d735839a060e16e1914942141907bcc7894ebe43bfbd3e05b"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0030"
@@ -1793,6 +1902,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_guard_hook"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0030.bin"
 baseline_sha256 = "59077e6d1a652c18f06ad7e447d8a760b77734b5ee3bdde45e4384860fc0427a"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0030.bin"
+accepted_sha256 = "ab9187e7b1dae6b03bbafc91237bbd0cdc2ecd0556bb9c8f05b24484b589cedf"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0031"
@@ -1803,6 +1916,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_header_of"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0031.bin"
 baseline_sha256 = "b8d296f2411172d9e47a525a28b898f9424df9a8a882b420b8ca916d81ec8e61"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0031.bin"
+accepted_sha256 = "8fe9bc0ac44885155966448071ccfdd4fa28aa096dc4957322819a21e77ee741"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0032"
@@ -1813,6 +1930,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_incoming_teardown_pending"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0032.bin"
 baseline_sha256 = "63aa5576ec4bafcf1e4c4f5b9d03c3f182f8327c0ac64437e358a31b7e4a77ce"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0032.bin"
+accepted_sha256 = "cedc1f6321b66b76695e778af3e2f3565a6e70f2672c5c7ea974338cc29d31b2"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0033"
@@ -1823,6 +1944,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_invalidate"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0033.bin"
 baseline_sha256 = "d196cee045f7bc81499185c4e12c4c9e3bd7d8a75c0d374395429613ae2eb6e6"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0033.bin"
+accepted_sha256 = "9dc8943b140608bec7e3241c5b71e281e0ee6cc746b1c7f54ec74ee0f8cfb14b"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0034"
@@ -1834,9 +1959,9 @@ channel = "helper.__btrc_arc_lock_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0034.bin"
 baseline_sha256 = "2953863e9ce0b19d1faa2fe48cf167145ad9a33454d12d9305fd77187a569e11"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0034.bin"
-accepted_sha256 = "93d3ae00f178c6ea56624f5a4b5ba154e118e96476772654b277c8d11e2a740d"
-reason = "One portable atomic ARC lock: a platform lock needs a header the runtime manifest cannot express, and --freestanding output may include nothing but btrc_rt.h."
-regressions = ["src/tests/python/test_cli_flags.py", "src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/python/test_stdlib_archive_shared_state.py", "src/tests/btrc/test_cycle_suspect_forget.py"]
+accepted_sha256 = "2d8f91b9f6d833ca3028a22bc8d93506f84187ba7dae97db4027983aca657100"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0035"
@@ -1847,6 +1972,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_mutation_lock"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0035.bin"
 baseline_sha256 = "0f8d859570217b36bd39e94f72836fc4031df62b4d46e4c62f167890abb4bbe5"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0035.bin"
+accepted_sha256 = "8b12c744f7e25c2faf4924432e7ec8092d7a45e24b8eacbd1b759fb8ac5da711"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0036"
@@ -1857,6 +1986,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_register_incoming"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0036.bin"
 baseline_sha256 = "abbd2ea69cdf92e45731d786d5c348a547fa68dc62bc4960f7a9c783e63a259d"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0036.bin"
+accepted_sha256 = "1da6225374201df949f4e5605303d0023eabc5e6708012fce7cb0c5ffc616b7a"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0037"
@@ -1867,6 +2000,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_release"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0037.bin"
 baseline_sha256 = "b9c8f0e7698e2aeae9581ab8c3153e9961a21d86a08b7f0c6972ae90afd7a7be"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0037.bin"
+accepted_sha256 = "4c495b86e06f545c784ade6e08b2689922474d7086d6f9638153e4ec90f6e86e"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0038"
@@ -1877,6 +2014,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_release_acyclic"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0038.bin"
 baseline_sha256 = "d6e97f25f784ea8d1837c37a3efc1b294c81232141dd571dc79fad5d552d044d"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0038.bin"
+accepted_sha256 = "892d61ba618d1a65631e8675a9291af27a42cabc6b16c8abfcb27ff214a0f686"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0039"
@@ -1887,6 +2028,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_release_edge"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0039.bin"
 baseline_sha256 = "aaaf8bb981e747030f2a12d5b64d2cc8f46be99f79f6c5d61044f72d6a9ca629"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0039.bin"
+accepted_sha256 = "cc3ac5fe93d7496687f8ecc1644f68b64ea4b35cfd5d5cbf09ae77db1b728471"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0040"
@@ -1897,6 +2042,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_release_impl"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0040.bin"
 baseline_sha256 = "9fa2b8c8c15c973b7c2e761d88290ecd1b8891339f0e7f4336d8ed157d5f1159"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0040.bin"
+accepted_sha256 = "47f2a326699e6db48b87de4c89daec3522f90cbd719bf680cbb335e338c35709"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0041"
@@ -1907,6 +2056,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_replace_edge"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0041.bin"
 baseline_sha256 = "bf635c55224f2e32ed4926b098cae1a4b37b02206d5adf64d9b0962023cf9ca4"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0041.bin"
+accepted_sha256 = "b3943786b4b4f8238a91e0706c08f25f0eebd0972bd3004ac9b92c732c16629a"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0042"
@@ -1917,6 +2070,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_retain"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0042.bin"
 baseline_sha256 = "85893a203a5f41c7288e1f1319b3dabd1431eea29b015f4817729ccb50b24cae"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0042.bin"
+accepted_sha256 = "577c81d01f6d67b3f853248908b11b3d21a79f75dd071c8a11132db8aa9a8da7"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0043"
@@ -1928,9 +2085,9 @@ channel = "helper.__btrc_arc_retain_edge"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0043.bin"
 baseline_sha256 = "be024f3cf6448d6ad60638c2291a567d8c2507232843a14019a16e98da96ee43"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0043.bin"
-accepted_sha256 = "ebfdc01a48006088fd920828a54aa0c046d7b60bb2b843f5e8de961a6a622efb"
-reason = "Runtime-helper references are exact manifest dependencies; compiler reachability no longer infers a second graph from source text."
-regressions = ["src/tests/btrc/test_runtime_dependency_closure.py", "src/tests/python/test_optimizer.py", "src/tests/python/test_runtime_helper_registry.py"]
+accepted_sha256 = "3c62947effa47ccbe32bf3d70b75a58f7206a3c03fb49457db5ea8c00e7c6dcb"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0044"
@@ -1942,8 +2099,8 @@ channel = "helper.__btrc_arc_reverse_proves_live"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0044.bin"
 baseline_sha256 = "172bb2295ac27b10af8851754f21fc6dcf391cbb82a8978a6def89c2c00a0aa5"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0044.bin"
-accepted_sha256 = "c123c51a3b23146d15ad2ca26c0ee92e00973dc97740aaa98306903faa34b8ae"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally: the ARC lock spins with a pause hint, the stdlib archive exports interface dispatch and the thread API, and the child-process failure paths read their write results."
+accepted_sha256 = "8d5e2641babda054f5a5b6327a18df98680a477a4aa224ace911f2b22ca4d620"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -1955,6 +2112,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_reverse_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0045.bin"
 baseline_sha256 = "d6897dd3ce0d7def4b83e67eba0c441280f9dd5031995ee29d193be476f1dbba"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0045.bin"
+accepted_sha256 = "8bc90476acefc98e499dcea9596b80110ca0e6f793c0b1e58032d0cf355ecb9a"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0046"
@@ -1965,6 +2126,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_shutdown_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0046.bin"
 baseline_sha256 = "525f87f65f0b108cce0afc2bbfaa74e9f366956d1ae5197a1357923d669a0f6c"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0046.bin"
+accepted_sha256 = "c6f327a67926b6856ae630a748feda76e2f469cc6eaa77361868123505096e83"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0047"
@@ -1975,6 +2140,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_snapshot_gate_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0047.bin"
 baseline_sha256 = "c718f38598f6a5b4ddc3258aca4b22d41c34c7bafeacc628cfbf7dd4c9bd9b83"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0047.bin"
+accepted_sha256 = "8184cd9d2897adf7e4eada280b34b8a427b37f54bc4f16296aecf51ccdd9cefd"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0048"
@@ -1985,6 +2154,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_snapshot_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0048.bin"
 baseline_sha256 = "b2250c33be40a9d9b486aeed14fd05cfe7da1189bb66020f3474ec28894a67ea"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0048.bin"
+accepted_sha256 = "211264ec9d6bf28530bc8d6edb303f2da4a2182e993e625e961c53998ffb83ba"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0049"
@@ -1995,6 +2168,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_thread_state_cleanup"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0049.bin"
 baseline_sha256 = "6eff0ad14c04f2f532ef20af4e1a0776f83622f8bc9c3720fd92b25abccb1b51"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0049.bin"
+accepted_sha256 = "07dd402a480b5d3a44b20119e18c8c7e3faa253f64de6a8996ec5bc361bed944"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0050"
@@ -2005,6 +2182,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_topology_begin"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0050.bin"
 baseline_sha256 = "721a1a313932811fd11b9c0ce2910f81bb6cfa103c5b7f8fc0c2784a30174795"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0050.bin"
+accepted_sha256 = "3aa62f8e33037af3e2f113817c641057c370a1f85fadee6c97fbfff156034334"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0051"
@@ -2015,6 +2196,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_topology_cleanup"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0051.bin"
 baseline_sha256 = "c0247592a586f286f123f10c38be13873bee177865eb68e8550c97800d4ab014"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0051.bin"
+accepted_sha256 = "57f0f37843b62628f2e179f2bb5a51ef7c260cdc3b91e587aa0e9051a5e26ba5"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0052"
@@ -2025,6 +2210,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_topology_complete"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0052.bin"
 baseline_sha256 = "56749304897deb60d8520bf437b38c29e56881fed39fa30fd9d061d83b60dc1f"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0052.bin"
+accepted_sha256 = "8e0f9199f83e74a44ea706b5a11634e27b571e2dc535287f988fcbb411df527a"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0053"
@@ -2035,6 +2224,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_topology_depth_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0053.bin"
 baseline_sha256 = "59248800649c89d7ec483c5eb5b0ed7b9b11cf45fa249ff07e58890968bd3924"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0053.bin"
+accepted_sha256 = "28dcea467a27ab71e799d75f6f215d876a879156e6c2977c3cc6518955bb0ed8"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0054"
@@ -2045,6 +2238,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_topology_leave"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0054.bin"
 baseline_sha256 = "0b42a28a2251e193076362283f274274b72e7a790c19144927a2da08fc2ae676"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0054.bin"
+accepted_sha256 = "ab1fd1570737662353ea6b652c5c307f9378246505d6274336149104afe3f996"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0055"
@@ -2055,6 +2252,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_topology_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0055.bin"
 baseline_sha256 = "9470b8a287a805005e43a4cf053e5cd65791391d660a0dd032cb561cae70ee43"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0055.bin"
+accepted_sha256 = "6af5cc79bf583cafaf1117b07d03385d0a5f30904ed2ad9d84de6193e299c97f"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0056"
@@ -2065,6 +2266,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_type_of"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0056.bin"
 baseline_sha256 = "510fe6cbfa89cce3a3f8639e093747e866c1306bac1fe84fce014ced6cbd5241"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0056.bin"
+accepted_sha256 = "de32f88244c48e1736757a962e33802fcc81c59442063026cc63a4e510bc310a"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0057"
@@ -2076,9 +2281,9 @@ channel = "helper.__btrc_arc_unlink_edge"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0057.bin"
 baseline_sha256 = "73287766c5beae7e6c4f9cef3bee1b49ad5699207639048ffc655a6b5c34d7a1"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0057.bin"
-accepted_sha256 = "229a35051a9f09a2ff6d8519cc54f9a9f847288f1e568da5c25456be32406b84"
-reason = "Runtime-helper references are exact manifest dependencies; compiler reachability no longer infers a second graph from source text."
-regressions = ["src/tests/btrc/test_runtime_dependency_closure.py", "src/tests/python/test_optimizer.py", "src/tests/python/test_runtime_helper_registry.py"]
+accepted_sha256 = "683b6bc435582f4d6bae553ee950661cc072dbaf6be91c57e044261ecb2ba4d7"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0058"
@@ -2089,6 +2294,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_unregister_incoming"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0058.bin"
 baseline_sha256 = "879156f1ea10a38d82fb91cd9f8df0f0197742b2d404bf36329200422b0b078c"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0058.bin"
+accepted_sha256 = "c633bf687c91cab24682da66ab89ad117765ddfcf9396614a791879c6adc860a"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0059"
@@ -2100,8 +2309,8 @@ channel = "helper.__btrc_arc_validate"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0059.bin"
 baseline_sha256 = "9bd236e2fb685072b225d21201839a9c23e7fe3759440546022562c2c4090dc8"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0059.bin"
-accepted_sha256 = "af41af29a043e89ce6fc935fcc7363e2e57d92fb421379fe26f09397998c4422"
-reason = "Runtime tuned for compiled-program speed: Darwin try frames use the register-only setjmp, ARC header validation is opt-in outside sanitizer builds, and the cleanup registration scan looks at four entries."
+accepted_sha256 = "4fa3056dd5cf13606b79137d89186111fd16b27ab58c4cd166e3aef21d238d44"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2193,6 +2402,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_cleanup_capacity"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0068.bin"
 baseline_sha256 = "e8b29d54e51603becc742f5e1ecfbab25e0de842378888184138e820dce801f5"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0068.bin"
+accepted_sha256 = "d41baa766da400fbebb33ef2cac815fbce59f3cffb0f45efb9e63c25f6a548d6"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0069"
@@ -2203,6 +2416,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_cleanup_mark"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0069.bin"
 baseline_sha256 = "eab6428f92ca0b1fa2f87b7c0c694a4b85c410e7f442536e23f66676354fafc0"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0069.bin"
+accepted_sha256 = "f2042f04da2d2e28e1b1ecaa61cb478c0996b4e69b2a424c967dff6fdb8f3dcc"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0070"
@@ -2213,6 +2430,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_cleanup_types"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0070.bin"
 baseline_sha256 = "c76796364b02175bdc5c332f348b8fcb3421f21f050560d9cd03ab0b6a0195d1"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0070.bin"
+accepted_sha256 = "75ddb58e45d43ed84c0e64d6a9fa3bbe2d633cf9440b873adcf9f4463dd5ad5a"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0071"
@@ -2223,6 +2444,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_close_descriptors_except"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0071.bin"
 baseline_sha256 = "11785de5067035fc3816524e6a289a3a5467370f35e6af6d5f7a337b4518e812"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0071.bin"
+accepted_sha256 = "fab3375666a43d4ab8aa91dd2eefc6f8a01d38c58af90f9e0ee2244e2d86b316"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0072"
@@ -2233,6 +2458,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_close_descriptors_except_many"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0072.bin"
 baseline_sha256 = "d823fc647d652dd611445d4c8e4214e75acb1d535e7907461838683ca07bf2ae"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0072.bin"
+accepted_sha256 = "84944baa8795f1aad89203f16a08262c1af55f3732846fa182f124dde97401d2"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0073"
@@ -2243,6 +2472,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_close_descriptors_from"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0073.bin"
 baseline_sha256 = "1407888970a60e0b8981868491278ba287078e1f8be2d93e12d412db0fd49b24"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0073.bin"
+accepted_sha256 = "75bfc0be92929b16d49b68e6f4704dd8a250d3c343485a4d228621cf25db7040"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0074"
@@ -2253,6 +2486,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_collect_cycles"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0074.bin"
 baseline_sha256 = "ff6a181bb96dc3222dd8cd25482f619f90fc33647ac18a8630c065c213f32f5d"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0074.bin"
+accepted_sha256 = "924c0af2129d50d9efe35bc99daaa2a69909abb23ab48d72af66e51f376d74b9"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0075"
@@ -2264,8 +2501,8 @@ channel = "helper.__btrc_collect_cycles_once"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0075.bin"
 baseline_sha256 = "ac879c9fba649a1ab6f18875ab692fc58d54eee715f7562b75febecf3afddca3"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0075.bin"
-accepted_sha256 = "a1542f3958a12875bbe483052dda8e292069a1a0dc064dc10185fd1a23893f77"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "5e07c2d6ef478cd2a77d1fd2b2eab21d80de2a85e12318dcebb1729e9e3e2171"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2277,6 +2514,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_copy_error_message"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0076.bin"
 baseline_sha256 = "4a4f8525112a098e69229b4ce5dcf42bcda4f7c0033fd43e85ef7f9353c30d7e"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0076.bin"
+accepted_sha256 = "9c65fd73ed87f40d7e49660e5f080b40d1dc92607ce88606e2fcb9d7299bcda6"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0077"
@@ -2298,9 +2539,9 @@ channel = "helper.__btrc_cycle_collector_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0078.bin"
 baseline_sha256 = "a34a228f3c245c7c4f0e2fa052c5b3328ef31ba2d01110e42c274f11a3b0708a"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0078.bin"
-accepted_sha256 = "4d57ae0733a0f7501914fec97f6f32598b1b78883bbf535a5d045ad3a19b3b73"
-reason = "Manifest-owned helper reachability now declares semantic C dependencies explicitly; compiler selection no longer infers dependencies from comments or literals."
-regressions = ["src/tests/btrc/test_runtime_dependency_closure.py", "src/tests/python/test_optimizer.py", "src/tests/python/test_runtime_helper_registry.py"]
+accepted_sha256 = "0679839959a89284edc503d36ea69ac1c4a3a8f5ac6965c309985796f07346b4"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0079"
@@ -2312,9 +2553,9 @@ channel = "helper.__btrc_cycle_state_cleanup"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0079.bin"
 baseline_sha256 = "9a6752e57e701bf85bfb0d59d2904fad77898314c2ff63ad5805a4928141b5a0"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0079.bin"
-accepted_sha256 = "cd4a1ed82b36e0bf19860a7252f692f292764dc723fa62c4aaef2a0fda9f8b59"
-reason = "Track cycle suspect buffer indices for bounded removal and release that storage at cleanup."
-regressions = ["src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/btrc/test_cycle_suspect_forget.py"]
+accepted_sha256 = "18cf1f66bea572f6aa1c498238361d7e7cf66f00727d31b1c458b2c5d1a304eb"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0080"
@@ -2325,6 +2566,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_descriptor_close_bound"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0080.bin"
 baseline_sha256 = "e1dc48e8bb0208cde2e200fd328458af4d978725c202a4e400fed289a3278349"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0080.bin"
+accepted_sha256 = "e9461f15b6a0712815e035113279e59c7976e1e0ba728f052d22aea148fcbb3c"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0081"
@@ -2335,6 +2580,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_destroyed_capacity"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0081.bin"
 baseline_sha256 = "5d16c32144c04a9e62c207dd9588f3829ff9a86bfd9a9b0743256bc81915876b"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0081.bin"
+accepted_sha256 = "ddb38ad37644488da51fed3f8ab5a71cdaa170ac2b33a8f894a92bb547d49549"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0082"
@@ -2345,6 +2594,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_destroyed_tracking"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0082.bin"
 baseline_sha256 = "3306b0dd50233b2d6edcbd3c2c3dbf40f4d7164b44c5f96a6534a635c4deba94"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0082.bin"
+accepted_sha256 = "1de8ae7e2f8938f38bf9aa8527a6dfb80d50e05f675469ed25ecd322a52d9204"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0083"
@@ -2355,6 +2608,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_destroyed_tracking_scope"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0083.bin"
 baseline_sha256 = "284540a91980ea9ec0ae9fa0cf4a6298635407a1c202e9424ae936a3e0354ed7"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0083.bin"
+accepted_sha256 = "56469205f60b9b04b5f510d3a61c7a3acc0aaddc18dd770208a76951c0518c10"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0084"
@@ -2365,6 +2622,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_discard_cleanups"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0084.bin"
 baseline_sha256 = "8d4a39303d88bac3c0207669c9348912cd140cda1bea0260a505ca5893b9a301"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0084.bin"
+accepted_sha256 = "618d1184059c76550914fa80384ce3655f5f8b02d0b7f604d488387a567fc20d"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0085"
@@ -2375,6 +2636,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_discard_cleanups_to"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0085.bin"
 baseline_sha256 = "a99b8e9f89b4e24887879a0508866c1ea0dd6cdd538c03722802b2d9468e36dd"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0085.bin"
+accepted_sha256 = "2affd014060bccda2ebead51da5b2664ef8f18d1b2eb1e901772d6419b6f1787"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0086"
@@ -2435,6 +2700,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_enter_working_directory_descriptor"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0091.bin"
 baseline_sha256 = "0920ef469a4a49c5f3e4af20e522db842ea424565840fc90bb9415a448c6bfbb"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0091.bin"
+accepted_sha256 = "116c8ae0e9b2356905e06d650da704c1ce110efb93187a33f7571996d379a5e8"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0092"
@@ -2445,6 +2714,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_exec_executable_descriptor"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0092.bin"
 baseline_sha256 = "8da1c25d53c790d3c849e94049cad8467f3c78aa7f1d1320a1bd8f97909bafec"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0092.bin"
+accepted_sha256 = "729dc6fb1decab99b244d3c12841d86edaf234e476326a20624cf92039de907e"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0093"
@@ -2455,6 +2728,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_exec_signal_guard_begin"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0093.bin"
 baseline_sha256 = "643ec83856890849bdb5da8314fbb88fb570b8d94ec537f55579bd5b071c7729"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0093.bin"
+accepted_sha256 = "9294a444886b86fa9f6d61e47aa95e12cf09667909163e949c350a2c97ace51c"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0094"
@@ -2465,6 +2742,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_exec_signal_guard_child_end"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0094.bin"
 baseline_sha256 = "578b81790a6f82dbf33e09299d75cbf21871a37a7c8af00f8c9bb0a0ef95cb0f"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0094.bin"
+accepted_sha256 = "f487262c3a7f5a0631039865020afb02704d6120ddaad693b7f4c6ca3544eda1"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0095"
@@ -2475,6 +2756,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_exec_signal_guard_parent_end"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0095.bin"
 baseline_sha256 = "397e5ad01fed4318f32b60b26644af3c14b38d9734446f3a86d8108fca45b187"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0095.bin"
+accepted_sha256 = "9adaade99055db7d6f43978b78ff0aeaf59f25a43c16536f9e3f60267d5c7714"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0096"
@@ -2505,6 +2790,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_flush_cycles"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0098.bin"
 baseline_sha256 = "571af1d489e6bc369d26a6e24be4f6d03923e2733220498e8ffc55fdb7d1e08f"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0098.bin"
+accepted_sha256 = "5334c5531f536055113e070b5ab4f17f2681c33d7a6ab9dad1647362e27c7d49"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0099"
@@ -2515,6 +2804,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_flush_cycles_guarded"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0099.bin"
 baseline_sha256 = "67dc3c57d731d9db040e95c817d2b463e858ebe2bb310907c613317d0cc0c3b6"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0099.bin"
+accepted_sha256 = "9cb39a2d5af07c313e88e87f5cac98ead97de2e8bcdbc81231b48c2b1d95f641"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0100"
@@ -2526,9 +2819,9 @@ channel = "helper.__btrc_forget_suspect"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0100.bin"
 baseline_sha256 = "8e0f03262a9a3213f674a6ef68d57362314b59c47e26ef0887744258b5ec2972"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0100.bin"
-accepted_sha256 = "0d970713d6e440c87d0cb5ff398395b122ebb4903740fb6138de688640ca029d"
-reason = "Track cycle suspect buffer indices for bounded removal and release that storage at cleanup."
-regressions = ["src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/btrc/test_cycle_suspect_forget.py"]
+accepted_sha256 = "338a5d011539187cfc4af551d9ef504c54376c3a7d5a940d50a68bda9c7419d2"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0101"
@@ -2569,6 +2862,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_hash_real"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0104.bin"
 baseline_sha256 = "65e463325e457fd1e27fdc84ba8fb778acc442deb2f5963933c47ccf007bc64c"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0104.bin"
+accepted_sha256 = "552d33b33d35b16d1770527481193a38a94689da0a0fbd5b86d1f5edd93adf7e"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0105"
@@ -2579,6 +2876,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_hash_str"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0105.bin"
 baseline_sha256 = "a8ab70028bc0e624991ce42335d70c59a1058be340e31c93df2ba5f9e6da6ec7"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0105.bin"
+accepted_sha256 = "837212a0092b2d606e2608b1b8c6b92333d1bc2421645bf4b4b1527da62880e4"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0106"
@@ -2679,6 +2980,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_is_destroyed"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0115.bin"
 baseline_sha256 = "508bc889b9e0d7cf6ebc86c186f112e03bd722091aa7fe1f5f8b4a52901daf67"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0115.bin"
+accepted_sha256 = "7af8a8e733ccf4481fbe1169068d6f05a18bad1d709412cbb36e36efe9fa24d3"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0116"
@@ -2709,6 +3014,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_launder"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0118.bin"
 baseline_sha256 = "32a311bde9e4fed6db0d682f44ac78fbc9723bc6d0af74063de289bbecee68a3"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0118.bin"
+accepted_sha256 = "7008f76da6146391875eb21c1d14c1169f1ba8a6b4237eef4335b06a00318d44"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0119"
@@ -2719,6 +3028,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_launder_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0119.bin"
 baseline_sha256 = "43f5529d1fac7ef713cc0f66854a2f3b211e3f9be4968c260e1d9eeefbad40f0"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0119.bin"
+accepted_sha256 = "9d89db8048ea3e1504fdc663990c68ff359ba3ea0a04dc951da5297c263a2e88"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0120"
@@ -2769,6 +3082,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_mark_destroyed"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0124.bin"
 baseline_sha256 = "a44f80c6ab3287576d9f41f069d50969388308796f642348eaa22eeed18c2311"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0124.bin"
+accepted_sha256 = "38ca9d5171332b9620750b5951cca541e6614bcfa0e1939e734d7f3bd896bc34"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0125"
@@ -2869,6 +3186,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_move_descriptor_outside_stdio"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0134.bin"
 baseline_sha256 = "b8ae546dd80824cf479ab39000719ec17610fd212a031f66324fe7a4c2882893"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0134.bin"
+accepted_sha256 = "b80a59c9fbc0c73b1568edc6aed7e47c27b44ae03f3939bd9fa4120fa2b6450f"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0135"
@@ -2880,8 +3201,8 @@ channel = "helper.__btrc_mutex_arc_finalize"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0135.bin"
 baseline_sha256 = "d645930a1bb2b9a4088d1902e2e58e62742bab3e45e4f8891a58aa390ed6a92e"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0135.bin"
-accepted_sha256 = "174fca5eeb3ddb4610f812ba74771893e8bccd96306e05401f2266169a3be9fc"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "935c29c92f4ef3c3d8df08d54af89325287c3e641333fbb51508d25e877f39f7"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2894,8 +3215,8 @@ channel = "helper.__btrc_mutex_arc_release"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0136.bin"
 baseline_sha256 = "958a747b191199f2582aef52019217ce25c4e28b8f22d8129de68b3cd85e9d4e"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0136.bin"
-accepted_sha256 = "e6ff5d3d609a79b12668060f6be87a5dda0fe54e52a6088d1096eb6d3cc4c1b5"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "169d9f9431a62ba9054a41bc0929ca8dfae70f70c7df60f1c77ac2bf25001e54"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2908,8 +3229,8 @@ channel = "helper.__btrc_mutex_arc_retain"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0137.bin"
 baseline_sha256 = "f69c5629f6ad3be88c19356ce8468b252fd5e94dcecad25de077c4a45d6dc58f"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0137.bin"
-accepted_sha256 = "68afca2e5a8ea5950863cdda1c0fa2f651bb75bf4c7537de1ef0bebeebbb87fc"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "c11f2c313b9e7d443299199ca38ca782d42d8c8135491018aa6bc3d6661a5faa"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2922,8 +3243,8 @@ channel = "helper.__btrc_mutex_arc_type"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0138.bin"
 baseline_sha256 = "85d7bf07a9d37118f846e6eb634e140a994bacf82b1b912f4f4b890303b7281b"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0138.bin"
-accepted_sha256 = "2a6d0b8b7f5660719e871f58abfa1dad6c84ad8f32aa72f59643b0d3873ee851"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "6a74529d7d8b3aa48c60511312de7da907a2ecfdf4b958f402fa3e9343e784c9"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2936,8 +3257,8 @@ channel = "helper.__btrc_mutex_finalize_callback_guard"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0139.bin"
 baseline_sha256 = "59a097b567db42bb61290e6d4f79f214c83a107695cade7cb097c205a4308829"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0139.bin"
-accepted_sha256 = "03bb504dab23cef1a6eeb5348207039b6c165b4ea49909ba3b54b94f11d75387"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "8c37029db99ec3e97a8d22bf1dc3a45460a217e81ef7b70025120ee6c140d7fb"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2950,8 +3271,8 @@ channel = "helper.__btrc_mutex_string_release"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0140.bin"
 baseline_sha256 = "85aee26ee0587059eb25b0b843312098e9433149ea3874c41d2881df334e71fe"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0140.bin"
-accepted_sha256 = "b29b74febf8e03bb927d6c8470fede79d3ab0beb57d29239190df2b4e97b6cd3"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "442492011aa20a64920059ee83da1e2c58b80366ffc3fd6edae7123202391fc3"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2964,8 +3285,8 @@ channel = "helper.__btrc_mutex_string_retain"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0141.bin"
 baseline_sha256 = "bd2ef3a06d8b9d157e053e0d6b41b197b1cbd69f3d56d1095d57ce6c694af11d"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0141.bin"
-accepted_sha256 = "30cf9f60bc1590680c7818d24ccb60d357515631454912c774fbe8c27c8466a6"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "7d32698f9def8eb9a668afd5aecc589a96b458d0fed9c1f1dd7e5475d8b8b09a"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2978,8 +3299,8 @@ channel = "helper.__btrc_mutex_val_create"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0142.bin"
 baseline_sha256 = "05c0674f211651b27f63f17ac3b7effdd6551ddd291242f00c238eeae69cba73"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0142.bin"
-accepted_sha256 = "5216aeaa5cd5584b7c0620afc34de05ebebae0b415c20d8ee50a60609e2495a7"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "3a9e3b125108e4bbd8d9fe5babba603383f9ed4a2095153be26e5504902635ae"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2992,8 +3313,8 @@ channel = "helper.__btrc_mutex_val_get"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0143.bin"
 baseline_sha256 = "375bd5921b252c4b20bed3763abbc8d4be9f46c13f3c50d3e93a5efe3dd580e1"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0143.bin"
-accepted_sha256 = "a2086ab4152e5d087b8846ab3e71d47741eab432be025fb9abf8cee8d87a956f"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "5e32019cc9922b4dc0102cc5c7efee07cbec36c38b551d7018dd6a84c048ca7c"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3006,8 +3327,8 @@ channel = "helper.__btrc_mutex_val_set"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0144.bin"
 baseline_sha256 = "3f045d89053ba2d9bb00b8272291c9ef3a8642910b1ef306bc04a25ba2fb0b7d"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0144.bin"
-accepted_sha256 = "c9d59072553add5e3596deb6960706b159cfc1c3b8f6c0cf33b15727f84ed6f3"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "b3998242dbeff262c422d22502aa0ed21828f81b373536afe7a2923f456811df"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3020,8 +3341,8 @@ channel = "helper.__btrc_mutex_val_types"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0145.bin"
 baseline_sha256 = "b7370fe586eff7b262bf5280a2ff66f09b57d7422c049fd99cb7b1a825c3fba7"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0145.bin"
-accepted_sha256 = "ba293447f8468ab4520721f7625c8b01db2faf8f969ee2d8d8c57cbb81cab77d"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "5d5930bba59376caa58e889802a9e59d464191543a20fb912ff768c79c5a0155"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3034,8 +3355,8 @@ channel = "helper.__btrc_mutex_value_callback_guard"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0146.bin"
 baseline_sha256 = "ba461f2baa40ab447016bce12d34573a0d11b960aeff5b2e82807739e838e2a5"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0146.bin"
-accepted_sha256 = "f3dcce332421d3e9aa424c5a14227ab467af3b12d7107a1ab7cbff19a7caddb5"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "981667fb8d393f92b884430b1162e1250b36e6775044f34706c1c1947e251846"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3097,6 +3418,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_poll_cycles"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0152.bin"
 baseline_sha256 = "c2af592b3c6a7ab466bc61798692ad5f0001271c428f9f9f013a718c5e7be519"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0152.bin"
+accepted_sha256 = "217d8b0f47c666a5f9bfe5aac78d7f39720057479733942d3a322b195d2d7011"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0153"
@@ -3108,9 +3433,9 @@ channel = "helper.__btrc_posix_spawn_cloexec"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0153.bin"
 baseline_sha256 = "2757c47cd1cea5cb953a32e7d82628b2761756a6b8060b71d545e8a0b2ddb485"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0153.bin"
-accepted_sha256 = "869536407b6fac683d3f4b9f5bef8c2291d9c38ae8b82041124d0f625c263a4f"
-reason = "Select the spawn chdir spelling by macOS deployment target instead of silencing a deprecation with a compiler pragma; both spellings compile warning-free under -Werror."
-regressions = ["src/tests/python/test_process_descriptor_remap.py", "src/tests/python/test_stdlib_process_security.py", "src/tests/python/test_c_warning_contracts.py"]
+accepted_sha256 = "3de0058fc3eb3d067cb4d1b3a30fff4c9738d839cd58cac1d91e8e8319ae8158"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0154"
@@ -3121,6 +3446,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_process_descriptors_supported"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0154.bin"
 baseline_sha256 = "11539eafe7adddbb6bf70157eb2b7e434cf496943dbc62bce7f9e3781fe2bdfb"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0154.bin"
+accepted_sha256 = "f600f1491aab16b4d9928dd2d1c1af1bfa5dcf09d288ab5a9a5352dc2b9a2a97"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0155"
@@ -3131,6 +3460,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_ptr_hash"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0155.bin"
 baseline_sha256 = "0846506d63c73d65f8db2f4ab99893300f0729aec9a59ab2f26af6d3d46b2651"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0155.bin"
+accepted_sha256 = "3729cc6b593c854afb6d94dc458cd7dd99d7336182aea4d07cee5a53f1fb5b62"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0156"
@@ -3141,6 +3474,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_push_try"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0156.bin"
 baseline_sha256 = "df68bff0649402ab01782f5e1f6f7ca261226316ac6e27f4fc41ec02dfd40133"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0156.bin"
+accepted_sha256 = "aa2ace46e5aa65508cdf6beb9c9a5c504eb14eee1ba3b39c50ddfc9dfabc8dd7"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0157"
@@ -3151,6 +3488,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_raise_captured"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0157.bin"
 baseline_sha256 = "76034e1a928c453647c329d1505e3a5b8fcac6adc814d3d28e7bcaee43b4d30c"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0157.bin"
+accepted_sha256 = "6be05bb5192b9c3ed5a1160dcfe3e9c8c69c001324b01e5d72f3f1559c785591"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0158"
@@ -3161,6 +3502,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_register_cleanup"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0158.bin"
 baseline_sha256 = "6c1ca0f1ea7c4c4924050701cf72450573cddff3121872f45f4c73b1b73554c2"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0158.bin"
+accepted_sha256 = "5f9a15f18eaf38bd70518793d27625cf7783420a24496ded4ef7d4415557638a"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0159"
@@ -3172,9 +3517,9 @@ channel = "helper.__btrc_register_cleanup_kind"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0159.bin"
 baseline_sha256 = "deba8e0417508305b8353e2e24bfb7f5c2c9a50f9a4b558de4b0e76a476bad2a"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0159.bin"
-accepted_sha256 = "4cb891f9f1e30078026bd5f9661e233485ab1f48a7b193376dc32acff8833b18"
-reason = "Runtime tuned for compiled-program speed: Darwin try frames use the register-only setjmp, ARC header validation is opt-in outside sanitizer builds, and the cleanup registration scan looks at four entries."
-regressions = ["src/tests/memory/CleanupSlotReuse.btrc", "src/tests/memory/EmptyManagedLocal.btrc"]
+accepted_sha256 = "40046a2c1aec1b4d7b9bb562e81f10df4a30542d351e7000950a14cb83a10b55"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0160"
@@ -3185,6 +3530,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_register_direct_cleanup"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0160.bin"
 baseline_sha256 = "b7e9a6ad62c2ba3267f05dc2bc2fd6191057b16c9425678fff0f2351d84121eb"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0160.bin"
+accepted_sha256 = "288459ff204603a54dff83955a37fe49cad702fca859bdf2195232583dfb91da"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0161"
@@ -3255,6 +3604,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_run_cleanup_guarded"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0167.bin"
 baseline_sha256 = "6788220c02764e9a35d2797fe0a008f41cb08fecc0c9f620c7a0dcbf421805d3"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0167.bin"
+accepted_sha256 = "d58e2bb3374b17bcef2aa0c36b677b2a5767bef8b6aba02ef39d7771ab4ee51a"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0168"
@@ -3266,8 +3619,8 @@ channel = "helper.__btrc_run_cleanups"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0168.bin"
 baseline_sha256 = "4f08888f5b7472363efc3d366bb3dfb5f6102e810f844ac4bedb1784b3498bf3"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0168.bin"
-accepted_sha256 = "0d5a4ca7acd462488760220b4e0a0d2b5292cbe0c6a72a9e04b11427e930372f"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally: the ARC lock spins with a pause hint, the stdlib archive exports interface dispatch and the thread API, and the child-process failure paths read their write results."
+accepted_sha256 = "2b4940f924c636c8bca87a5ed12baf67950402ca1dce5619fa8e48d495ef1e36"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3381,6 +3734,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_string_adopt"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0178.bin"
 baseline_sha256 = "5f8c8a5210fd38b1ed83ba23b6e41df4a02828b56c291cc98862d5fee19439a6"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0178.bin"
+accepted_sha256 = "64a27e3bddd92b5dc1e2eb871e79b65bc690cd884c91f47130ea8a02f52123db"
+reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length consults __btrc_string_registry_slot under the registry lock), so substring, length and index queries on a large text no longer walk the whole text; the managed fixture embeds the helper text."
+regressions = ["src/tests/python/test_string_helpers_runtime.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0179"
@@ -3405,6 +3762,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_string_length"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0180.bin"
 baseline_sha256 = "947b08317fbccc3b6fc78c4deecca5df811632e92e094a4fc8a6b00f689c96d9"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0180.bin"
+accepted_sha256 = "787f5a1575ce3209d2d8dab6c34c098f002bb69121115032146b83f50c5d1b33"
+reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length consults __btrc_string_registry_slot under the registry lock), so substring, length and index queries on a large text no longer walk the whole text; the managed fixture embeds the helper text."
+regressions = ["src/tests/python/test_string_helpers_runtime.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0181"
@@ -3435,6 +3796,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_string_registry"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0183.bin"
 baseline_sha256 = "41e86985209b4ab57535cbdd0e013e5167ab4b8dca368f6096d014b4e5d1a39d"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0183.bin"
+accepted_sha256 = "6cb146462c0d4158926016d36e895a771e5d9b3da4da5d49b8b908579212656d"
+reason = "Tracked strings cache their byte length on the registry entry after the first query of a long string (__btrc_string_length consults __btrc_string_registry_slot under the registry lock), so substring, length and index queries on a large text no longer walk the whole text; the managed fixture embeds the helper text."
+regressions = ["src/tests/python/test_string_helpers_runtime.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0184"
@@ -3545,6 +3910,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_suspect"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0194.bin"
 baseline_sha256 = "0dce73bb668c97bbbcb0287d15b1a80d24e5a7e39ffb82b0cfed45dc9ada370e"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0194.bin"
+accepted_sha256 = "abbe7eb6d7bbd38d5b3a9c10b41cadd40b3f0440d497f2991d2b73897175bb96"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0195"
@@ -3555,6 +3924,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_suspect_capacity"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0195.bin"
 baseline_sha256 = "9de12c7a8a967e891e47d49431eff0e55d3c438dac1ba4cf89b1f52b4f4b31ee"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0195.bin"
+accepted_sha256 = "3c6bd69796e7ed7e0c468b8924198faafe9af39404dc11adb9337f75c095bc4b"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0196"
@@ -3566,9 +3939,9 @@ channel = "helper.__btrc_suspect_locked"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0196.bin"
 baseline_sha256 = "1c019203a760a890df43433200d6c8fad342c42c3482c4b37707bf00c7b0386c"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0196.bin"
-accepted_sha256 = "ee092812d1f57290c62d2e0f23d57124fd2edd7629272a33941867c1cbfbbba0"
-reason = "Track cycle suspect buffer indices for bounded removal and release that storage at cleanup."
-regressions = ["src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/btrc/test_cycle_suspect_forget.py"]
+accepted_sha256 = "b190b14cbfb6709e0643d1c37c2d56f63a5f8370ffd742b07bad85f0e57c4553"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0197"
@@ -3580,9 +3953,9 @@ channel = "helper.__btrc_suspect_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0197.bin"
 baseline_sha256 = "f67c5523c7189f6fc02ae0cf880829d116337e800cf8f0c1b664b07e7a4d2534"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0197.bin"
-accepted_sha256 = "23424bfdb1bda8d35429e749600ee6bf8d668f06c7ef43b721171d41b519d98a"
-reason = "Track cycle suspect buffer indices for bounded removal and release that storage at cleanup."
-regressions = ["src/tests/python/test_cycle_boundary_strict_c.py", "src/tests/btrc/test_cycle_suspect_forget.py"]
+accepted_sha256 = "0d810e59e09e45f9bf8685100ba0050f07567052349ee69c4662cd0902700259"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0198"
@@ -3604,8 +3977,8 @@ channel = "helper.__btrc_thread_arc_dispose"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0199.bin"
 baseline_sha256 = "660fb02ecb2ac79091e4b128610504824f483ad9ab3626d79124865b601069dd"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0199.bin"
-accepted_sha256 = "f28b01ed03b0435f229ba5a8729202055b8867af7bbd54799af891f7ab840a8a"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "2b6fe10c758cfd056f110b8dbaeddd03f273bbf62a6ecce293cea50d17b80678"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3618,8 +3991,8 @@ channel = "helper.__btrc_thread_box_dispose"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0200.bin"
 baseline_sha256 = "36185be1b8dbcb34e1fe4fa136cfae4b94dd224af17f0b3c90d05535968da838"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0200.bin"
-accepted_sha256 = "90adfd57cf1db7cda74e38166026dee1efac2b265ead6d89d4973434492f8979"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "c2abbb4ee0516ecc0c65387199666ed59a37a5c827d31f13a81cb78bd3457567"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3632,8 +4005,8 @@ channel = "helper.__btrc_thread_destroy_handle"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0201.bin"
 baseline_sha256 = "2ea83b647492716d067596b3dbf774d406072f7b6ed98258f1c56499f049918f"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0201.bin"
-accepted_sha256 = "2b774ff8d235882673c9b8e9683376b25bfa472ba1124e47dc784290f4c4bb65"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "f13d9e3fba39b6c7abcc76b1c82c1fa46e34b72ba24497a9a0a92a86d6bf1771"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3646,8 +4019,8 @@ channel = "helper.__btrc_thread_dispose_guarded"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0202.bin"
 baseline_sha256 = "800f7b52011db8d41c9909d5e2814e3858fcdb0f6d05b100ed6b3547276cdcb4"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0202.bin"
-accepted_sha256 = "2a8b26ea6624155c183301f604f6ec42e56c0e5a41d0b5e707c13a1c6a5acb99"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "6a415e5b4048046f58cfb4690dce83f8235ad5e6a1f54afe79d74a99dc0b86d9"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3660,8 +4033,8 @@ channel = "helper.__btrc_thread_finish"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0203.bin"
 baseline_sha256 = "58684475525179d0ea6f230b418f2fda40b1cd642c3bf8139f4aafd53894b7d3"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0203.bin"
-accepted_sha256 = "a51c9c094421196897cfab8c4d0a617f2b8045c6b382d0b2da7e80b2c5c0df57"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "e547f8e8ec8cd1327746a5e63097ae292d3d44e25e75ecbda774d4acc659e915"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3674,8 +4047,8 @@ channel = "helper.__btrc_thread_free"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0204.bin"
 baseline_sha256 = "cce5e1ed301f90cb9d88d19f3b509c30682e873e85f9cd7ebb4c71ad02f9c0d1"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0204.bin"
-accepted_sha256 = "453bb1da3c3bd710d541fb8be6608483bd3674595e56069305c984372abb4134"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "68416326d43d0d3c3795df861507d45cdf217ee3a5842489e9f91dc6afc5b7ab"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3688,8 +4061,8 @@ channel = "helper.__btrc_thread_join"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0205.bin"
 baseline_sha256 = "56aaa5ff8c234bc6e6f14cd45a30240fda8e2483b8143abc4b5fdf0d69bf31e7"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0205.bin"
-accepted_sha256 = "c3f1cf48868211fc439c3440d1a1a61ab18949d25b32f436fdd8d006f0cadc8e"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "889d95d9d572179fd15190a6a7918a6934d3391fc1f7dd86f9f63ca038dd78ed"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3702,8 +4075,8 @@ channel = "helper.__btrc_thread_spawn"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0206.bin"
 baseline_sha256 = "2799a6c0c4862dac65dbea8e6fd1869361ded5d7dde961d8ad0a8bc4db3fe375"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0206.bin"
-accepted_sha256 = "eda9381a74a47384dae873d8ceadc4cd3ee405d24a9993d9b6291c1713f4d4e6"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "7c01cebc25e4fddea47d5f07b93020395bb280acecacf42aa016321f3fd8e586"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3716,8 +4089,8 @@ channel = "helper.__btrc_thread_string_dispose"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0207.bin"
 baseline_sha256 = "7ae8e5a81f227816a739b5738974b733716d5776de4aa24dd60dd0d99c886026"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0207.bin"
-accepted_sha256 = "2043a8a589e438001abbaa27606dd9f1a255f5d9684e13efed3fbd41402472ac"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "a21d897f1ae03569b693c16a9e7cb9a1fe6aa567b4e78fc5056d1c12c9b18c1a"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3730,8 +4103,8 @@ channel = "helper.__btrc_thread_types"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0208.bin"
 baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0208.bin"
-accepted_sha256 = "84f1b59f6fc4822e387485f3ecda01fa7938c4a7e11e629a32b8ff0eb5a6feb8"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "93520a3a40e0d193c8d8229291a9717a9db6add02753d38def29610bdc82090a"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3743,6 +4116,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_throw"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0209.bin"
 baseline_sha256 = "dde5640c9ee147bb5b976736c15bf7d71858f7194b51d34b2370e27db6e6a179"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0209.bin"
+accepted_sha256 = "a90d4dcd00150c360a4c454a9eeb490f4e1e2e70603ebdc90e32b0fd81d9aa53"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0210"
@@ -3793,6 +4170,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_try_capacity"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0214.bin"
 baseline_sha256 = "b7882b2b793596883629387a0b11ed00a3b8a509d57c9a91113d5c5cd9c40e92"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0214.bin"
+accepted_sha256 = "126510eba9e4f3ecbe39b4eb1580a6b8ac7e50c2d29f7a9cee95b8f75e50494b"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0215"
@@ -3803,6 +4184,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_try_level"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0215.bin"
 baseline_sha256 = "e2c327eb39d0d3cee97b5da619cb08b6858f9ff30c725025b2c08e98051edd37"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0215.bin"
+accepted_sha256 = "7de084634e05408e8b1dd866f2817ec09001a0b3006d1ae1ba3b835d8037c4c8"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0216"
@@ -3813,6 +4198,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_try_state_cleanup"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0216.bin"
 baseline_sha256 = "a2cc5d75a588949a937d8c535047b64ccac2da286fb67cebbe95dd39398e2262"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0216.bin"
+accepted_sha256 = "5205f1c8ca7e81e18d441fd0f923ba482e96477c712c5474fdb41ce4ecc60a4a"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0217"
@@ -3824,9 +4213,9 @@ channel = "helper.__btrc_trycatch_globals"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0217.bin"
 baseline_sha256 = "7d1fd916786ca4843168e25a90fcd4dc0dce2b3a42fc2342110747af8e7ad609"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0217.bin"
-accepted_sha256 = "dd96a306c75a723262e962b52ffbef4a614a076c8e359c73c0b29d681358cf50"
-reason = "Runtime tuned for compiled-program speed: Darwin try frames use the register-only setjmp, ARC header validation is opt-in outside sanitizer builds, and the cleanup registration scan looks at four entries."
-regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+accepted_sha256 = "81a928c3bacaa22effbb7fe4f2a96e66e04b13357ec664b32f193cba7f17377a"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0218"
@@ -3877,6 +4266,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_validate_executable_descriptor"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0222.bin"
 baseline_sha256 = "4d864bc6715c7762b382bfce879eefde0acffd5e293a7797e15b9d22a2cca48d"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0222.bin"
+accepted_sha256 = "08c36e4ee94117a0eae1f188021100a7de1aa8c0586f8e7f72ba2c9320e66d05"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0223"
@@ -3887,6 +4280,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_validate_working_directory_descriptor"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0223.bin"
 baseline_sha256 = "04c31995ebb113479698cb5db9ad803d3a14e8cdb86882972dd44f7a547ba620"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0223.bin"
+accepted_sha256 = "83e2c3aeca5361155663f6c80cc844f2c6ada536063eb4265a20b1472158d983"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0224"
@@ -3907,6 +4304,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_controlling_terminal_descriptor"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0225.bin"
 baseline_sha256 = "c835b596852cd2b9519133cbdbddc6e059344a82421231125d5e6a3c4e05aa24"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0225.bin"
+accepted_sha256 = "3c328e711da72febc881d17b05325dc5e50f2710b8f0c73d79dd0edbae7e3dac"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0226"
@@ -3917,6 +4318,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_terminal_adopt_foreground"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0226.bin"
 baseline_sha256 = "6ec4c105b1f03ff9e9ba85a81de4443f583a90bc2226014b70c30d7c9d617636"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0226.bin"
+accepted_sha256 = "00d9c1e26852d8303f59e59a5800d8661fe182a5feec310907433eb68c2812aa"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0227"
@@ -3927,6 +4332,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_terminal_foreground_group"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0227.bin"
 baseline_sha256 = "700ca75c735c5776b3d798993630c6af8e9f80e39e6c9b93f9eb415d50b4ff71"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0227.bin"
+accepted_sha256 = "0dea5299652ae3b63abd406e70734158bc2a388c4bc44a1ad905f91279724bcc"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0228"
@@ -3937,6 +4346,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_application_directories_platform"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0228.bin"
 baseline_sha256 = "297a9a957afa03850c568ff30ba4f410f7f0ef33357ba32f5891d123877a8cc3"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0228.bin"
+accepted_sha256 = "68d96f8004b12160b0f1e056bc1d363880b32ead917beb006516c5e0cf1b118d"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-order.python"
@@ -3948,9 +4361,9 @@ channel = "python"
 baseline_path = "baseline/runtime-catalog.shared.runtime-order.python.bin"
 baseline_sha256 = "37e2442001713cb436302de380466e70ae4d1c6123368fbd0b4e30f5021b422a"
 accepted_path = "accepted/runtime-catalog.shared.runtime-order.python.bin"
-accepted_sha256 = "7653745ad6429b20b7c5cd71343507f3ad1ab93b69a05f33f717452a6cb23691"
-reason = "The accepted order retains the reviewed runtime thread-types delta; ApplicationDirectories extends both order universes with its platform discriminator."
-regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_application_directories_contract.py"]
+accepted_sha256 = "84dc25b1f1a735fcf79b5cf8ba52c6c6debbbdc4440d75993bdf5ecba35d8c7a"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-order.btrc"
@@ -3962,9 +4375,9 @@ channel = "btrc"
 baseline_path = "baseline/runtime-catalog.shared.runtime-order.btrc.bin"
 baseline_sha256 = "213371cc7e12185e6643930ec91b4a3016d51ab6add711a63cd7d41b6c85dea2"
 accepted_path = "accepted/runtime-catalog.shared.runtime-order.btrc.bin"
-accepted_sha256 = "526ab09269517d5d1fb4be3e2a95e45de4d34dfb1536fd0b1de380fa9b26d8af"
-reason = "The accepted order retains the reviewed runtime thread-types delta; ApplicationDirectories extends both order universes with its platform discriminator."
-regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_application_directories_contract.py"]
+accepted_sha256 = "08abaec51ff34c015abaae09d3acffb7da060ea682b33f36037968b1f0330f31"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[equalities]]
 id = "surface.tokens.artifact"
@@ -4146,8 +4559,8 @@ channel = "helper.__btrc_interface_methods"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0229.bin"
 baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0229.bin"
-accepted_sha256 = "459c776479d720b8df4b3d6410ca93815cff28023dbae8ff2220982e299c1175"
-reason = "Runtime helper added after the frozen baseline: the stdlib archive exports interface dispatch and the thread API, so their helpers join the shared runtime metadata."
+accepted_sha256 = "8219bc872737381b84d4d51b59adfec5605dd783ff17054480467f1f5dd5b272"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -4160,8 +4573,8 @@ channel = "helper.__btrc_interface_try_methods"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0230.bin"
 baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0230.bin"
-accepted_sha256 = "b15a9f7b4a9c2874bbb21886d5bc3814f7014b397808299f63a939fbbeb8e4e2"
-reason = "Runtime helper added after the frozen baseline: the stdlib archive exports interface dispatch and the thread API, so their helpers join the shared runtime metadata."
+accepted_sha256 = "0bac41e7b71e09771272c1805b049e3631f9e177aad118709e43baeda62a8f49"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -4174,6 +4587,20 @@ channel = "helper.__btrc_native_thread_invoke"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0231.bin"
 baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0231.bin"
-accepted_sha256 = "ad4dd51fbc79b14545f655f246fdbebb8f951c51df1978f944da3a66a463156a"
-reason = "Runtime helper added after the frozen baseline: the stdlib archive exports interface dispatch and the thread API, so their helpers join the shared runtime metadata."
+accepted_sha256 = "d4c63f96bf06466059083281fa422a3b7630ff9a866073d687b29b71465b1de8"
+reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0232"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_tls_state"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0232.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0232.bin"
+accepted_sha256 = "ab2c262b60f9aa96bbbf33c235c600f084978c0ad55139945dd524cd1eaf884d"
+reason = "Runtime helper added after the frozen baseline: every per-thread runtime variable now lives in the one thread-local record this helper declares (the historical names are field accessors), so one address lookup per function replaces one per variable."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]

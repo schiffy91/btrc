@@ -91,7 +91,13 @@ class StdlibArchiveAdapter:
     HELPER_GROUPS = MappingProxyType(
         {
             "try_stack": frozenset(
-                {"__btrc_try_level", "__btrc_trycatch_globals", "__btrc_try_capacity", "__btrc_launder_state"}
+                {
+                    "__btrc_tls_state",
+                    "__btrc_try_level",
+                    "__btrc_trycatch_globals",
+                    "__btrc_try_capacity",
+                    "__btrc_launder_state",
+                }
             ),
             "cleanup_stack": frozenset({"__btrc_cleanup_types", "__btrc_cleanup_capacity"}),
             "arc_runtime": frozenset(
@@ -102,13 +108,7 @@ class StdlibArchiveAdapter:
                     "__btrc_arc_active_unwinds_state",
                     "__btrc_arc_snapshot_state",
                     "__btrc_arc_snapshot_gate_state",
-                    "__btrc_arc_abandon_callback_state",
-                    "__btrc_arc_abandon_queue_state",
                     "__btrc_arc_topology_state",
-                    "__btrc_arc_topology_depth_state",
-                    "__btrc_arc_deferred_state",
-                    "__btrc_destroyed_tracking",
-                    "__btrc_destroyed_capacity",
                     "__btrc_suspect_state",
                     "__btrc_suspect_capacity",
                     "__btrc_arc_reverse_state",

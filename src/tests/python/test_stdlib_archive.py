@@ -326,8 +326,7 @@ def test_build_stdlib_writes_archive(tmp_path, monkeypatch, capsys):
         "_DEFAULT_SOURCE",
         "_DARWIN_C_SOURCE",
     }
-    assert "__btrc_destroyed_tracking" in manifest["shared_helpers"]
-    assert "__btrc_destroyed_capacity" in manifest["shared_helpers"]
+    assert "__btrc_tls_state" in manifest["shared_helpers"]
     assert "__btrc_cleanup_types" in manifest["shared_helpers"]
     assert "__btrc_cleanup_capacity" in manifest["shared_helpers"]
     assert "__btrc_suspect_state" in manifest["shared_helpers"]
@@ -335,32 +334,27 @@ def test_build_stdlib_writes_archive(tmp_path, monkeypatch, capsys):
     header = (out / sa.HEADER_NAME).read_text()
     impl = (out / sa.IMPL_NAME).read_text()
     assert "#ifndef BTRC_STDLIB_H" in header
-    assert "extern _Thread_local void** __btrc_destroyed;" in header
-    assert "extern _Thread_local int __btrc_tracking;" in header
-    assert "extern _Thread_local int __btrc_destroyed_count;" in header
-    assert "extern _Thread_local int __btrc_destroyed_cap;" in header
-    assert "extern _Thread_local __btrc_cleanup_entry* __btrc_cleanup_stack;" in header
-    assert "extern _Thread_local int __btrc_cleanup_cap;" in header
+    assert "extern _Thread_local __btrc_tls_record __btrc_tls;" in header
+    assert "#define __btrc_destroyed (__btrc_tls.destroyed)" in header
+    assert "#define __btrc_tracking (__btrc_tls.tracking)" in header
+    assert "#define __btrc_cleanup_stack (__btrc_tls.cleanup_stack)" in header
+    assert "#define __btrc_cleanup_cap (__btrc_tls.cleanup_cap)" in header
     assert "extern void** __btrc_suspects;" in header
     assert "extern int __btrc_suspect_cap;" in header
     assert "void __btrc_cycle_state_cleanup(void);" in header
     assert "const char* FileLineReadKind_toString(FileLineReadKind val);" in header
     assert "static const char* FileLineReadKind_toString(FileLineReadKind val);" not in header
     assert "static void __btrc_cycle_state_cleanup(void)" not in header
-    assert "static _Thread_local void** __btrc_destroyed" not in header
+    assert "static _Thread_local __btrc_tls_record __btrc_tls" not in header
     assert "_Thread_local void** __btrc_suspects" not in header
-    assert "static _Thread_local int __btrc_cleanup_cap" not in header
-    assert "_Thread_local void** __btrc_destroyed = NULL;" in impl
-    assert "_Thread_local int __btrc_tracking = 0;" in impl
-    assert "_Thread_local int __btrc_destroyed_count = 0;" in impl
-    assert "_Thread_local int __btrc_destroyed_cap = 0;" in impl
-    assert "_Thread_local int __btrc_cleanup_cap = 64;" in impl
+    assert "_Thread_local __btrc_tls_record __btrc_tls = {" in impl
+    assert ".try_top = -1, .try_cap = 16, .cleanup_top = -1, .cleanup_cap = 64};" in impl
     assert "void** __btrc_suspects = NULL;" in impl
     assert "int __btrc_suspect_cap = 0;" in impl
     assert "const char* FileLineReadKind_toString(FileLineReadKind val) {" in impl
     assert "static const char* FileLineReadKind_toString(FileLineReadKind val) {" not in impl
     assert "void __btrc_cycle_state_cleanup(void) {" in impl
-    assert "static _Thread_local void** __btrc_destroyed" not in impl
+    assert "static _Thread_local __btrc_tls_record __btrc_tls" not in impl
     assert "_Thread_local void** __btrc_suspects" not in impl
 
 

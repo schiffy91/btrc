@@ -1,9 +1,63 @@
+/* btrc-runtime-helper:begin __btrc_tls_state */
+/* Every per-thread runtime variable lives in one thread-local record. A
+ * separate _Thread_local object costs its own address lookup on targets that
+ * resolve thread storage out of line (Darwin's _tlv_get_addr): a cleanup
+ * registration touched four of them, and those lookups were a quarter of the
+ * self-hosted compiler's time. The C compiler folds every access to one record
+ * into a single lookup per function. The historical names remain as field
+ * accessors, so runtime helpers, generated code and cross-unit fixtures read,
+ * assign and take the address of the same per-thread state as before. */
+typedef struct {
+    volatile int try_top;
+    struct __btrc_try_frame** try_stack;
+    char error_msg[1024];
+    int try_cap;
+    void* volatile launder_slot;
+    struct __btrc_cleanup_entry* cleanup_stack;
+    int cleanup_top;
+    int cleanup_cap;
+    int tracking;
+    void** destroyed;
+    int destroyed_count;
+    int destroyed_cap;
+    int arc_topology_depth;
+    int arc_draining;
+    void* arc_deferred_head;
+    void* arc_deferred_tail;
+    void (*abandon_drain_callback)(void);
+    void** abandon_queue;
+    int abandon_count;
+    int abandon_cap;
+} __btrc_tls_record;
+static _Thread_local __btrc_tls_record __btrc_tls = {
+    .try_top = -1, .try_cap = 16, .cleanup_top = -1, .cleanup_cap = 64};
+#define __btrc_try_top (__btrc_tls.try_top)
+#define __btrc_try_stack (__btrc_tls.try_stack)
+#define __btrc_error_msg (__btrc_tls.error_msg)
+#define __btrc_try_cap (__btrc_tls.try_cap)
+#define __btrc_launder_slot (__btrc_tls.launder_slot)
+#define __btrc_cleanup_stack (__btrc_tls.cleanup_stack)
+#define __btrc_cleanup_top (__btrc_tls.cleanup_top)
+#define __btrc_cleanup_cap (__btrc_tls.cleanup_cap)
+#define __btrc_tracking (__btrc_tls.tracking)
+#define __btrc_destroyed (__btrc_tls.destroyed)
+#define __btrc_destroyed_count (__btrc_tls.destroyed_count)
+#define __btrc_destroyed_cap (__btrc_tls.destroyed_cap)
+#define __btrc_arc_topology_depth (__btrc_tls.arc_topology_depth)
+#define __btrc_arc_draining (__btrc_tls.arc_draining)
+#define __btrc_arc_deferred_head (__btrc_tls.arc_deferred_head)
+#define __btrc_arc_deferred_tail (__btrc_tls.arc_deferred_tail)
+#define __btrc_abandon_drain_callback (__btrc_tls.abandon_drain_callback)
+#define __btrc_abandon_queue (__btrc_tls.abandon_queue)
+#define __btrc_abandon_count (__btrc_tls.abandon_count)
+#define __btrc_abandon_cap (__btrc_tls.abandon_cap)
+/* btrc-runtime-helper:end __btrc_tls_state */
 /* btrc-runtime-helper:begin __btrc_try_level */
-static _Thread_local volatile int __btrc_try_top = -1;
+/* __btrc_try_top is a field of __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_try_level */
 /* btrc-runtime-helper:begin __btrc_trycatch_globals */
 /* btrc try/catch runtime (dynamic) */
-#if defined(__APPLE__)
+#if defined(__APPLE__) && __STDC_HOSTED__
 /* Darwin's setjmp saves the signal mask and the alternate-stack state, two
  * system calls on every try frame, cleanup guard and deferred drain. A btrc
  * frame never changes either, so the BSD register-only variants serve; on
@@ -13,9 +67,8 @@ static _Thread_local volatile int __btrc_try_top = -1;
 #define setjmp(env) _setjmp(env)
 #define longjmp(env, value) _longjmp(env, value)
 #endif
-typedef struct { jmp_buf env; } __btrc_try_frame;
-static _Thread_local __btrc_try_frame** __btrc_try_stack = NULL;
-static _Thread_local char __btrc_error_msg[1024] = "";
+typedef struct __btrc_try_frame { jmp_buf env; } __btrc_try_frame;
+/* __btrc_try_stack and __btrc_error_msg are fields of __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_trycatch_globals */
 /* btrc-runtime-helper:begin __btrc_copy_error_message */
 static inline void __btrc_copy_error_message(
@@ -32,10 +85,10 @@ static inline void __btrc_copy_error_message(
 }
 /* btrc-runtime-helper:end __btrc_copy_error_message */
 /* btrc-runtime-helper:begin __btrc_try_capacity */
-static _Thread_local int __btrc_try_cap = 16;
+/* __btrc_try_cap is a field of __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_try_capacity */
 /* btrc-runtime-helper:begin __btrc_launder_state */
-static _Thread_local void* volatile __btrc_launder_slot;
+/* __btrc_launder_slot is a field of __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_launder_state */
 /* btrc-runtime-helper:begin __btrc_launder */
 /* Opaque pointer launder used when returning a freshly-built object
@@ -83,12 +136,11 @@ static inline void __btrc_push_try(void) {
 /* Cleanup slots are opaque; generated adapters access their exact type. */
 typedef __btrc_destroy_fn __btrc_cleanup_fn;
 typedef void* (*__btrc_cleanup_take_fn)(void*);
-typedef struct { void* slot; __btrc_cleanup_take_fn take; __btrc_cleanup_fn fn; __btrc_visit_fn visit; int try_level; int direct; } __btrc_cleanup_entry;
-static _Thread_local __btrc_cleanup_entry* __btrc_cleanup_stack = NULL;
-static _Thread_local int __btrc_cleanup_top = -1;
+typedef struct __btrc_cleanup_entry { void* slot; __btrc_cleanup_take_fn take; __btrc_cleanup_fn fn; __btrc_visit_fn visit; int try_level; int direct; } __btrc_cleanup_entry;
+/* __btrc_cleanup_stack and __btrc_cleanup_top are fields of __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_cleanup_types */
 /* btrc-runtime-helper:begin __btrc_cleanup_capacity */
-static _Thread_local int __btrc_cleanup_cap = 64;
+/* __btrc_cleanup_cap is a field of __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_cleanup_capacity */
 /* btrc-runtime-helper:begin __btrc_register_cleanup_kind */
 static inline void __btrc_register_cleanup_kind(

@@ -20,6 +20,7 @@ GENERATED_PATHS = (
     REPO / "src/compiler/python/syntax/ast/generated.py",
     REPO / "src/compiler/btrc/generated/ast/Node.btrc",
     REPO / "src/devex/lsp/catalog/generated.py",
+    REPO / "src/stdlib/btrc.symbols",
 )
 HOSTED_ABI = REPO / "src/compiler/btrc/generated/hosted_abi"
 CODEGEN_ROOT = REPO / "tools/compiler_codegen"
@@ -38,10 +39,12 @@ CODEGEN_IMPORT_GRAPH = {
             "hosted_abi",
             "intrinsic_effects",
             "runtime",
+            "stdlib_symbols",
             "verification",
         }
     ),
     "runtime": frozenset({"__init__", "intrinsic_effects"}),
+    "stdlib_symbols": frozenset({"__init__"}),
     "verification": frozenset({"__init__", "runtime"}),
 }
 

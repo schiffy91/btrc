@@ -1,0 +1,1 @@
+{"asset":"cycles.c","btrc_order":107,"category":"cycles","dependencies":["__btrc_tls_state"],"headers":[],"name":"__btrc_arc_abandon_callback_state","provided_objects":[],"provided_types":[],"python_order":178,"source_sha256":"7345f66d9d829a664d1906fd3e36929a4c7341d3454ecc74905897297fe6906e","source_size":108,"source_visible":false}

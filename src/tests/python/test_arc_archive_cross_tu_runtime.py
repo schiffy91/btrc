@@ -114,7 +114,16 @@ def test_arc_mutable_state_is_extern_once(
 ) -> None:
     header = (stdlib_output / archive.HEADER_NAME).read_text()
     implementation = (stdlib_output / archive.IMPL_NAME).read_text()
-    for symbol in (*TLS_SYMBOLS, *PROCESS_SYMBOLS):
+    # Thread-local state is one record; each historical name is a field
+    # accessor declared once in the header, and the record is defined once.
+    for symbol in TLS_SYMBOLS:
+        assert len(re.findall(rf"(?m)^#define {symbol} \(__btrc_tls\.\w+\)$", header)) == 1, symbol
+        assert not re.search(rf"(?m)^(?:extern|static)\b[^;\n]*\b{symbol}\b[^;\n]*;$", header), symbol
+    assert header.count("extern _Thread_local __btrc_tls_record __btrc_tls;") == 1
+    assert not re.search(r"(?m)^static [^;]*\b__btrc_tls\b", header)
+    assert len(re.findall(r"(?m)^_Thread_local __btrc_tls_record __btrc_tls = \{$", implementation)) == 1
+    assert not re.search(r"(?m)^static [^;]*\b__btrc_tls\b", implementation)
+    for symbol in PROCESS_SYMBOLS:
         assert re.search(rf"(?m)^extern [^;]*\b{symbol}\b[^;]*;", header)
         assert not re.search(
             rf"(?m)^static (?!inline)[^();{{}}]*\b{symbol}\b[^;]*;",

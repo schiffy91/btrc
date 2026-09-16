@@ -71,6 +71,7 @@ jobs:
             src/compiler/python/abi/generated.py
             src/compiler/btrc/generated/hosted_abi/Tables.btrc
             src/devex/lsp/catalog/generated.py
+            src/stdlib/btrc.symbols
           )
           git diff --exit-code -- "${paths[@]}"
           test -z "$(git status --porcelain --untracked-files=all -- "${paths[@]}")"

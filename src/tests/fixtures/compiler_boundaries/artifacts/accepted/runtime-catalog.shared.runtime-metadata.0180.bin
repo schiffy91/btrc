@@ -1,0 +1,1 @@
+{"asset":"strings.c","btrc_order":23,"category":"string","dependencies":["__btrc_string_registry_slot","__btrc_string_registry_lock"],"headers":[],"name":"__btrc_string_length","provided_objects":[],"provided_types":[],"python_order":24,"source_sha256":"a30ba9233d32881a53581809811e8ff104d3e27f08bfdb33fa940137b3346062","source_size":900,"source_visible":true}

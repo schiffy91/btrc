@@ -28,6 +28,11 @@ the API surface, so the layout follows a few fixed rules.
   provider is the sibling folder (`GUI/Linux/LinuxDirectoryPicker`) selected by
   the same `[[package.providers]]` entry in `btrc.toml`; consumers never name a
   platform module.
+- **`btrc.symbols` is generated, not edited.** It maps every canonical root
+  symbol to its owning module so strict import visibility does not have to
+  parse the root stdlib on every compile. `make compiler-codegen-generate`
+  rewrites it after a root module changes; a stale index is ignored, and
+  `generated-check` fails until it is regenerated.
 - **Each group is its own package.** A group folder carries its own
   `btrc.toml` (`btrc_stdlib_<group>`) with the group's exports, providers,
   `[[native.bindings]]`, frameworks and pkg-config entries, and its import

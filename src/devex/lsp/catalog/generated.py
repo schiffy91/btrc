@@ -928,6 +928,8 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("TOML", (
         BuiltinMemberSpec("unquotedPosition", "int", "method", (("string", "line"), ("char", "target"),), "unquotedPosition"),
         BuiltinMemberSpec("stripInlineComment", "string", "method", (("string", "raw"),), "stripInlineComment"),
+        BuiltinMemberSpec("isTrimmed", "bool", "method", (("string", "raw"),), "isTrimmed"),
+        BuiltinMemberSpec("isSpace", "bool", "method", (("char", "c"),), "isSpace"),
         BuiltinMemberSpec("unquote", "string", "method", (("string", "raw"),), "unquote"),
         BuiltinMemberSpec("key", "string", "method", (("string", "line"),), "key"),
         BuiltinMemberSpec("value", "string", "method", (("string", "line"),), "value"),

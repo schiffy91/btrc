@@ -9,6 +9,7 @@ import Library.Strings;
 import Library.TOML;
 import Library.Vector;
 
+import ./Timing.btrc;
 import ./SourceIo.btrc;
 import ./Models.btrc;
 
@@ -492,18 +493,21 @@ class FeManifestBlock {
 			if (partLength < 2 || !((part[0] == '"' && part[partLength - 1] == '"') || (part[0] == '\'' && part[partLength - 1] == '\''))) {
 				FePackageFailure.fail(f"{self.context()}.{key} must be an array of strings");
 			}
-			string value = TOML.unquote(part);
-			int prior = 0;
-			while (!ordered && prior < values.len) {
-				if (values.get(prior).equals(value)) {
+			values.push(TOML.unquote(part));
+			index++;
+		}
+		if (!ordered) {
+			/* Sorted output makes the duplicate check a neighbour comparison
+			 * instead of a scan of every earlier value per element. */
+			values.sortBy((string left, string right) => Strings.lessThan(left, right));
+			int prior = 1;
+			while (prior < values.len) {
+				if (values.get(prior - 1).equals(values.get(prior))) {
 					FePackageFailure.fail(f"{self.context()}.{key} contains a duplicate value");
 				}
 				prior++;
 			}
-			values.push(value);
-			index++;
 		}
-		if (!ordered) { values.sortBy((string left, string right) => Strings.lessThan(left, right)); }
 		return values;
 	}
 
@@ -572,10 +576,14 @@ class FeManifestBlock {
 		if (modules.len == 0 && !allowEmpty) {
 			FePackageFailure.fail(f"{self.context()}.{field} must not be empty");
 		}
-		string canonicalRoot = PathTools.absolute(root);
+		string canonicalRoot = FeCanonicalPath.absolute(root);
 		string prefix = canonicalRoot.endsWith(Platform.pathSeparator()) ? canonicalRoot : canonicalRoot + Platform.pathSeparator();
 		string comparedRoot = Platform.isWindows() ? canonicalRoot.toLower() : canonicalRoot;
 		string comparedPrefix = Platform.isWindows() ? prefix.toLower() : prefix;
+		/* A package without a src/ directory cannot hold modules there, so
+		 * one directory probe replaces one failed file probe per module. */
+		string sourceRoot = PathTools.join(root, "src");
+		bool hasSourceRoot = FileSystem.isDir(sourceRoot);
 		int index = 0;
 		while (index < modules.len) {
 			string module = modules.get(index);
@@ -583,13 +591,13 @@ class FeManifestBlock {
 				FePackageFailure.fail(f"{self.context()}.{field} contains invalid module '{module}'");
 			}
 			string relative = Strings.replace(module, ".", Platform.pathSeparator()) + ".btrc";
-			string underSource = PathTools.join(PathTools.join(root, "src"), relative);
+			string underSource = PathTools.join(sourceRoot, relative);
 			string underRoot = PathTools.join(root, relative);
-			string selected = FileSystem.isFile(underSource) ? underSource : (FileSystem.isFile(underRoot) ? underRoot : "");
+			string selected = hasSourceRoot && FileSystem.isFile(underSource) ? underSource : (FileSystem.isFile(underRoot) ? underRoot : "");
 			if (selected.isEmpty()) {
 				FePackageFailure.fail(f"{self.context()}.{field} names unknown module '{module}'");
 			}
-			string canonical = PathTools.absolute(selected);
+			string canonical = FeCanonicalPath.absolute(selected);
 			string compared = Platform.isWindows() ? canonical.toLower() : canonical;
 			if (!compared.equals(comparedRoot) && !compared.startsWith(comparedPrefix)) {
 				FePackageFailure.fail(f"{self.context()}.{field} module '{module}' escapes " + f"package root '{canonicalRoot}'");
@@ -605,8 +613,8 @@ class FeManifestBlock {
 		if (PathTools.isAbsolute(relative)) {
 			FePackageFailure.fail(f"{self.context()}.{key} must be package-relative");
 		}
-		string canonicalRoot = PathTools.absolute(root);
-		string candidate = PathTools.absolute(PathTools.join(root, relative));
+		string canonicalRoot = FeCanonicalPath.absolute(root);
+		string candidate = FeCanonicalPath.absolute(PathTools.join(root, relative));
 		string prefix = canonicalRoot.endsWith(Platform.pathSeparator()) ? canonicalRoot : canonicalRoot + Platform.pathSeparator();
 		string comparedRoot = Platform.isWindows() ? canonicalRoot.toLower() : canonicalRoot;
 		string comparedCandidate = Platform.isWindows() ? candidate.toLower() : candidate;
@@ -1303,16 +1311,20 @@ class FeManifestBlock {
 	}
 
 	public FeNativeBinding finishBinding(string root, string packageName) {
+		BtrccPhaseTimer.mark("fb-enter");
 		self.validateFields();
+		BtrccPhaseTimer.mark("fb-validate");
 		if (!self.moduleName(self.requiredText("module"))) { FePackageFailure.fail(f"{self.context()}.module must be a dotted module name"); }
 		Vector<string> modules = self.modulePaths(root);
 		string header = self.packagePath(root, "header", false);
+		BtrccPhaseTimer.mark("fb-modules");
 		Vector<string> symbols = self.stringArray("symbols");
 		if (symbols.len == 0) { FePackageFailure.fail(f"{self.context()}.symbols must be a non-empty array of qualified native names"); }
 		string language = self.requiredText("language");
 		for symbol in symbols { if (!self.nativeSymbol(symbol, language)) { FePackageFailure.fail(f"{self.context()}.symbols must be a non-empty array of qualified native names"); } }
 		string standard = self.requiredText("standard");
 		self.validateLanguage(language, standard);
+		BtrccPhaseTimer.mark("fb-symbols");
 		Vector<string> operatingSystemValues = ["linux", "macos", "windows"];
 		Vector<string> architectureValues = ["x86_64", "aarch64"];
 		var binding = FeNativeBinding(packageName, modules.get(0), header, language, standard, symbols, self.targetArray("os", operatingSystemValues), self.targetArray("arch", architectureValues));
@@ -1328,6 +1340,7 @@ class FeManifestBlock {
 		self.finishCallbacks(binding);
 		self.finishStringViews(binding);
 		self.finishRecordSnapshots(binding);
+		BtrccPhaseTimer.mark("fb-sub");
 		binding.mainThreadGlobals = self.stringArray("main-thread-globals");
 		binding.staticGlobals = self.stringArray("static-globals");
 		for key in self.fields.keys() {
@@ -1390,6 +1403,7 @@ class FeManifestBlock {
 			var parts = Strings.split(borrow, ".");
 			if (parts.len != 2 || !symbols.contains(parts.get(0)) || !self.identifier(parts.get(1))) { FePackageFailure.fail(f"{self.context()}.read-only-borrows must name selected function.parameter pairs"); }
 		}
+		BtrccPhaseTimer.mark("fb-rest");
 		return binding;
 	}
 
@@ -1528,12 +1542,17 @@ class FePackageManifestParser {
 		Vector<FeManifestDependency> dependencies = [];
 		Vector<FeManifestBlock> nativeBlocks = [];
 		Vector<string> lines = Strings.split(self.source, "\n");
+		BtrccPhaseTimer.mark("p-split");
 		int index = 0;
 		while (index < lines.len) {
 			string line = TOML.stripInlineComment(lines.get(index));
 			index++;
 			if (line.isEmpty()) { continue; }
-			string tableArray = TOML.tableArrayName(line);
+			/* The line is already comment-free and trimmed, so only a bracketed
+			 * line can open a table and every other line is scanned for its
+			 * key/value separator exactly once. */
+			bool bracketed = line[0] == '[';
+			string tableArray = bracketed ? TOML.tableArrayName(line) : "";
 			if (!tableArray.isEmpty()) {
 				if (!self.nativeTable(tableArray) && tableArray != "package.providers") {
 					FePackageFailure.fail(f"package manifest '{self.manifestPath}' contains " + f"unexpected table array '{tableArray}'");
@@ -1543,7 +1562,7 @@ class FePackageManifestParser {
 				section = tableArray;
 				continue;
 			}
-			string table = TOML.sectionName(line);
+			string table = bracketed ? TOML.sectionName(line) : "";
 			if (!table.isEmpty()) {
 				string copiedInputPrefix = "native.bindings.copied-inputs.";
 				if (table.startsWith(copiedInputPrefix)) {
@@ -1643,11 +1662,12 @@ class FePackageManifestParser {
 				block = null;
 				continue;
 			}
-			string key = TOML.key(line);
+			int separator = TOML.unquotedPosition(line, '=');
+			string key = separator < 0 ? "" : TOML.unquote(line.substring(0, separator).trim());
 			if (key.isEmpty()) {
 				FePackageFailure.fail(f"cannot parse package manifest '{self.manifestPath}' line {index}");
 			}
-			string raw = line.substring(TOML.unquotedPosition(line, '=') + 1, line.length() - TOML.unquotedPosition(line, '=') - 1).trim();
+			string raw = line.substring(separator + 1, line.length() - separator - 1).trim();
 			while (raw.startsWith("[") && TOML.unquotedPosition(raw, ']') < 0 && index < lines.len) {
 				string continuation = TOML.stripInlineComment(lines.get(index));
 				index++;
@@ -1684,6 +1704,7 @@ class FePackageManifestParser {
 				block.set(prefix + TOML.unquote(key), raw);
 			}
 		}
+		BtrccPhaseTimer.mark("p-lines");
 		if (!sawVersion || !sawName) {
 			FePackageFailure.fail(f"package manifest '{self.manifestPath}' requires " + "manifest-version = 1 and [package].name");
 		}
@@ -1703,7 +1724,9 @@ class FePackageManifestParser {
 		int nativeIndex = 0;
 		while (nativeIndex < nativeBlocks.len) {
 			if (nativeBlocks.get(nativeIndex).isProvider()) {
+				BtrccPhaseTimer.mark("f-enter");
 				var provider = nativeBlocks.get(nativeIndex).finishProvider(self.root);
+				BtrccPhaseTimer.mark("f-provider");
 				for previous in providers { if (provider.overlaps(previous)) { FePackageFailure.fail("package.providers overlaps a provider for the same module and target"); } }
 				providers.push(provider);
 				nativeIndex++;
@@ -1718,7 +1741,9 @@ class FePackageManifestParser {
 				nativeIndex++;
 				continue;
 			}
+			BtrccPhaseTimer.mark("f-enter");
 			FeNativeDeclaration declaration = nativeBlocks.get(nativeIndex).finish(self.root, packageName);
+			BtrccPhaseTimer.mark("f-declaration");
 			int prior = 0;
 			while (prior < nativeDeclarations.len) {
 				if (nativeDeclarations.get(prior).sameIdentity(declaration)) {
@@ -1733,7 +1758,9 @@ class FePackageManifestParser {
 		parsed.bindings = bindings;
 		parsed.providers = providers;
 		parsed.restrictedExports = restrictedExports;
+		BtrccPhaseTimer.mark("p-finish");
 		parsed.exportedModules = packageFields.modulePaths(self.root, "exports", true);
+		BtrccPhaseTimer.mark("p-exports");
 		return parsed;
 	}
 }
@@ -1961,17 +1988,19 @@ class FeNativeLinkPlan {
 	 * inside the stdlib tree, one per group folder; every package in that graph carries a
 	 * reserved btrc_stdlib_ identity and keeps its native metadata beside its modules. */
 	public void includeStdlib(string stdlibDirectory, Vector<string> sources, FeSourceFileReader sourceFiles) {
-		string root = PathTools.absolute(stdlibDirectory);
+		string root = FeCanonicalPath.absolute(stdlibDirectory);
 		string path = PathTools.join(root, "btrc.toml");
 		if (!FileSystem.exists(path)) { return; }
 		Vector<FePackageNode> libraryPackages = [];
 		Map<string, string> namesByRoot = {};
 		Vector<string> loading = [];
 		self.loadStdlibPackage(root, path, "", sourceFiles, libraryPackages, namesByRoot, loading);
+		BtrccPhaseTimer.mark("stdlib-manifests");
 		Vector<FeNativeDeclaration> declarations = [];
 		for package in libraryPackages { declarations.extend(package.nativeDeclarations); }
 		var selected = FeNativeLinkPlan(self.target, libraryPackages, declarations);
 		selected.restrictToSources(sources);
+		BtrccPhaseTimer.mark("stdlib-restrict");
 		if (selected.declarations.len == 0 && selected.bindingImports().len == 0) { return; }
 		for existing in self.packages {
 			if (!existing.name.startsWith("btrc_stdlib_")) { continue; }
@@ -1989,14 +2018,16 @@ class FeNativeLinkPlan {
 		if (loading.contains(packageRoot)) { FePackageFailure.fail(f"stdlib package dependency cycle through '{path}'"); }
 		loading.push(packageRoot);
 		string source = sourceFiles.readRequired(path);
+		BtrccPhaseTimer.mark("m-read");
 		FeParsedPackageManifest manifest = FePackageManifestParser(source, path, packageRoot).parse();
+		BtrccPhaseTimer.mark("m-parse");
 		if (alias.isEmpty() && !manifest.name.equals("btrc_stdlib_runtime")) { FePackageFailure.fail("stdlib manifest must declare btrc_stdlib_runtime"); }
 		if (!alias.isEmpty() && !manifest.name.startsWith("btrc_stdlib_")) { FePackageFailure.fail(f"stdlib group '{alias}' must declare a btrc_stdlib_ package identity"); }
 		for package in packages { if (package.name.equals(manifest.name)) { FePackageFailure.fail(f"duplicate stdlib package identity '{manifest.name}'"); } }
 		Map<string, string> dependencies = {};
 		for dependency in manifest.dependencies {
 			if (dependency.path.isEmpty()) { FePackageFailure.fail(f"stdlib dependency '{dependency.alias}' must be a path package inside the stdlib"); }
-			string targetRoot = PathTools.absolute(PathTools.join(packageRoot, dependency.path));
+			string targetRoot = FeCanonicalPath.absolute(PathTools.join(packageRoot, dependency.path));
 			/* Compare path identities: they use one separator and one case on
 			 * every host, where the native spelling on Windows does not. */
 			FeSourcePathPolicy identities = FeSourcePathPolicy();
@@ -2004,7 +2035,10 @@ class FeNativeLinkPlan {
 			string targetName = namesByRoot.has(targetRoot) ? namesByRoot.get(targetRoot) : self.loadStdlibPackage(root, PathTools.join(targetRoot, "btrc.toml"), dependency.alias, sourceFiles, packages, namesByRoot, loading);
 			dependencies.put(dependency.alias, targetName);
 		}
-		var package = FePackageNode(manifest.name, packageRoot, dependencies, packageRoot, SHA256.digest(source), manifest.nativeDeclarations);
+		BtrccPhaseTimer.mark("m-deps");
+		string manifestDigest = SHA256.digest(source);
+		BtrccPhaseTimer.mark("m-hash");
+		var package = FePackageNode(manifest.name, packageRoot, dependencies, packageRoot, manifestDigest, manifest.nativeDeclarations);
 		package.bindings = manifest.bindings;
 		packages.push(package);
 		namesByRoot.put(packageRoot, manifest.name);
@@ -2436,7 +2470,7 @@ class FeResolvedPackages {
 	}
 
 	private FePackageNode ownerFor(string sourcePath) {
-		string source = PathTools.absolute(sourcePath);
+		string source = FeCanonicalPath.absolute(sourcePath);
 		Vector<string> names = self.nodes.keys();
 		FePackageNode best = null;
 		int bestLength = -1;
@@ -2502,7 +2536,7 @@ class FePackageGraphResolver {
 	}
 
 	private string findManifest(string sourcePath) {
-		string directory = PathTools.absolute(PathTools.dirname(sourcePath));
+		string directory = FeCanonicalPath.absolute(PathTools.dirname(sourcePath));
 		while (!directory.isEmpty()) {
 			string manifest = PathTools.join(directory, "btrc.toml");
 			if (FileSystem.isFile(manifest)) { return manifest; }
@@ -2528,7 +2562,7 @@ class FePackageGraphResolver {
 	}
 
 	private string resolveNode(string root) {
-		string canonical = PathTools.absolute(root);
+		string canonical = FeCanonicalPath.absolute(root);
 		if (self.nodesByRoot.has(canonical)) {
 			return self.nodesByRoot.get(canonical).name;
 		}
@@ -2564,7 +2598,7 @@ class FePackageGraphResolver {
 			if (PathTools.isAbsolute(dependency.path)) {
 				FePackageFailure.fail(f"path dependency '{dependency.alias}' must be relative");
 			}
-			string dependencyRoot = PathTools.absolute(PathTools.join(canonical, dependency.path));
+			string dependencyRoot = FeCanonicalPath.absolute(PathTools.join(canonical, dependency.path));
 			if (!FileSystem.isDir(dependencyRoot)) {
 				FePackageFailure.fail(f"path dependency '{dependency.alias}' does not name a directory: " + f"'{dependency.path}'");
 			}
@@ -2605,7 +2639,7 @@ class FePackageGraphResolver {
 			return FeResolvedPackages(false, manifestPath, "", legacyNodes, legacyPlan);
 		}
 		target = FePackageTarget.parse(targetValue);
-		string root = PathTools.absolute(PathTools.dirname(manifestPath));
+		string root = FeCanonicalPath.absolute(PathTools.dirname(manifestPath));
 		string lockPath = PathTools.join(root, "btrc.lock");
 		FePackageLock lock = FePackageLock(self.sourceFiles);
 		string existingLock = lock.validatedExisting(lockPath);

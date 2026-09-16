@@ -2,12 +2,31 @@
 
 import Library.Bytes;
 import Library.FileSystem;
+import Library.Map;
 import Library.IO;
 import Library.Platform;
 import Library.Strings;
 import Library.Vector;
 
 import ./Models.btrc;
+
+/* Canonical absolute paths, memoized for the process. Every realpath walks
+ * the whole path (about 15 microseconds on a cloud-synced volume) and the
+ * package loaders ask for the same package roots hundreds of times in one
+ * compile. The compiler is single-threaded and the tree is stable while it
+ * runs, so one answer per spelling is exact. */
+class FeCanonicalPath {
+	class Map<string, string>? memo = null;
+
+	class string absolute(string path) {
+		Map<string, string>? memo = FeCanonicalPath.memo;
+		if (memo == null) { memo = {}; FeCanonicalPath.memo = memo; }
+		if (memo.has(path)) { return memo.get(path); }
+		string result = PathTools.absolute(path);
+		memo.put(path, result);
+		return result;
+	}
+}
 
 class FeSourcePathPolicy {
 	private bool windows;
@@ -121,7 +140,7 @@ class FeSourcePathPolicy {
 
 	public string identity(string path) {
 		if (self.identities.has(path)) { return self.identities.get(path); }
-		string canonical = PathTools.absolute(path);
+		string canonical = FeCanonicalPath.absolute(path);
 		if (canonical.isEmpty()) { canonical = self.absolute(path); }
 		string normalized = self.normalizeAbsoluteFor(canonical, self.currentDirectory, self.windows);
 		string result = self.windows ? normalized.toLower() : normalized;
@@ -168,32 +187,43 @@ class FeUtf8SourceDecoder {
 		return 0;
 	}
 
+	/* Validate over the raw buffer and copy in runs: a byte-at-a-time walk
+	 * through the checked accessor cost more than reading the file. */
 	public string decode(Bytes data, string path) {
+		int length = data.len;
+		char* raw = data.data;
 		int index = 0;
-		if (data.len >= 3 && data.get(0) == 239 && data.get(1) == 187 && data.get(2) == 191) {
+		if (length >= 3 && (unsigned char)raw[0] == 239 && (unsigned char)raw[1] == 187 && (unsigned char)raw[2] == 191) {
 			index = 3;
 		}
 		Bytes normalized = Bytes();
-		while (index < data.len) {
+		int runStart = index;
+		while (index < length) {
+			int lead = (int)((unsigned char)raw[index]);
+			if (lead == 0) {
+				fprintf(stderr, "error: source file '%s' is not valid UTF-8 at byte %d\n", path, index);
+				exit(1);
+			}
+			if (lead == 13) {
+				if (index > runStart) { normalized.appendRaw(raw + runStart, index - runStart); }
+				normalized.append(10);
+				index++;
+				if (index < length && (unsigned char)raw[index] == 10) { index++; }
+				runStart = index;
+				continue;
+			}
+			if (lead <= 127) {
+				index++;
+				continue;
+			}
 			int width = self.widthAt(data, index);
 			if (width == 0) {
 				fprintf(stderr, "error: source file '%s' is not valid UTF-8 at byte %d\n", path, index);
 				exit(1);
 			}
-			int first = data.get(index);
-			if (first == 13) {
-				normalized.append(10);
-				index++;
-				if (index < data.len && data.get(index) == 10) { index++; }
-			} else {
-				int part = 0;
-				while (part < width) {
-					normalized.append(data.get(index + part));
-					part++;
-				}
-				index = index + width;
-			}
+			index = index + width;
 		}
+		if (index > runStart) { normalized.appendRaw(raw + runStart, index - runStart); }
 		return normalized.toStringLossy();
 	}
 }

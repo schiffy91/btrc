@@ -12,6 +12,7 @@ from .builtins import BuiltinCatalogGenerator
 from .hosted_abi import HostedAbiCatalogGenerator, HostedAbiManifest
 from .intrinsic_effects import IntrinsicEffectManifest
 from .runtime import RuntimeCatalogGenerator, RuntimeManifest
+from .stdlib_symbols import StdlibSymbolIndexGenerator
 from .verification import (
     CompilerBoundaryVerifier,
     CompilerVerificationError,
@@ -115,6 +116,7 @@ class CompilerCodegenCommand:
                 *RuntimeCatalogGenerator(runtime, intrinsic_effects).artifacts(),
                 *HostedAbiCatalogGenerator(hosted_abi).artifacts(),
                 *BuiltinCatalogGenerator(self._repository_root).artifacts(),
+                *StdlibSymbolIndexGenerator(self._repository_root).artifacts(),
             )
         )
 

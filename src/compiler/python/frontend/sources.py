@@ -23,6 +23,7 @@ from ..lexer.lexer import Lexer
 from ..parser.parser import Parser
 from ..syntax.ast.codec import AstJsonCodec
 from ..syntax.tokens import SourceSymbolDirective, Token, TokenKind
+from . import symbol_index
 from .native_imports import NativeDeclarationImporter
 from .packages import IncludeResolutionError, NativeLinkPlan, PackageUniverse
 
@@ -886,29 +887,66 @@ class StdlibRepository:
 
         Strict visibility must know about compiler-recognized stdlib types even
         when their source was not imported into the current AST. The map is
-        derived from the stdlib itself rather than a second hardcoded table.
+        derived from the stdlib itself rather than a second hardcoded table:
+        from the generated ``btrc.symbols`` index when its digest matches the
+        root modules on disk, otherwise by parsing them.
         """
 
         if self._symbol_files is not None:
             return self._symbol_files
 
+        root = self.directory()
+        files = self._root_module_files()
+        owners = symbol_index.load(root, self.symbol_index_digest(files))
+        if owners is None:
+            owners = self.parsed_symbol_owners(files)
+        self._symbol_files = {
+            name: frozenset(
+                SourceDependencyGraph.canonical_file(os.path.join(root, relative)) for relative in relatives
+            )
+            for name, relatives in owners.items()
+        }
+        return self._symbol_files
+
+    def _root_module_files(self) -> list[str]:
+        root = self.directory()
+        return [filename for filename in self.discover_files() if os.path.isfile(os.path.join(root, filename))]
+
+    def symbol_index_digest(self, files: list[str] | None = None) -> str:
+        """Digest of the root modules exactly as ``btrc.symbols`` records it."""
+
+        root = self.directory()
+        entries: list[tuple[str, bytes]] = []
+        for filename in self._root_module_files() if files is None else files:
+            try:
+                with open(os.path.join(root, filename), "rb") as source_file:
+                    entries.append((filename, source_file.read()))
+            except OSError as error:
+                raise IncludeResolutionError(f"cannot read stdlib module {filename!r}: {error}") from error
+        return symbol_index.snapshot_digest(entries)
+
+    def parsed_symbol_owners(self, files: list[str] | None = None) -> dict[str, set[str]]:
+        """Derive symbol -> owning root module names by parsing every root module."""
+
         owners: dict[str, set[str]] = {}
         root = self.directory()
-        for filename in self.discover_files():
+        for filename in self._root_module_files() if files is None else files:
             path = os.path.join(root, filename)
-            if not os.path.isfile(path):
-                continue
             try:
                 source = self._source_reader.read(path)
             except SourceReadError as error:
                 raise IncludeResolutionError(str(error)) from error
             program = Parser(Lexer(source, path).tokenize()).parse()
-            canonical = SourceDependencyGraph.canonical_file(path)
             for declaration in program.declarations:
                 for name in self._declaration_names(declaration):
-                    owners.setdefault(name, set()).add(canonical)
-        self._symbol_files = {name: frozenset(paths) for name, paths in owners.items()}
-        return self._symbol_files
+                    owners.setdefault(name, set()).add(filename)
+        return owners
+
+    def render_symbol_index(self) -> str:
+        """Render the current ``btrc.symbols`` content for this stdlib."""
+
+        files = self._root_module_files()
+        return symbol_index.render(self.symbol_index_digest(files), self.parsed_symbol_owners(files))
 
 
 class _SourceImportResolver(Protocol):

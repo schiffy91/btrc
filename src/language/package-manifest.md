@@ -1793,6 +1793,15 @@ hashed as compiler inputs, may depend only on path packages beneath the stdlib
 root, and never write a lock into compiler data. Custom pure-source stdlibs may
 omit them.
 
+The root also carries `btrc.symbols`, a generated index of which root module
+owns each canonical stdlib symbol (`tools.compiler_codegen generate`, verified
+by `generated-check`). Strict import visibility needs that map even for modules
+the program never imported; deriving it means parsing every root module, which
+costs more than compiling a typical program. Both compilers load the index only
+when its header digest (CRC-32 over each root module's name and bytes, plus the
+byte and file counts) matches the modules on disk, parse the modules otherwise,
+and never write the index at compile time.
+
 This preserves module-owned metadata in installed and relocatable compiler data
 without placing an ambient checkout archive in a supposedly reproducible plan. Migrating a
 provider replaces its manifest source unit with a module-owned header binding;
