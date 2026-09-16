@@ -8,6 +8,7 @@ import ../../generated/ast/Node.btrc;
 import ../../syntax/Identity.btrc;
 import ../../syntax/Types.btrc;
 import ../Model.btrc;
+import ./Reachability.btrc;
 
 /* Semantic TypeExpr -> C type lowering for one analyzed module.
  *
@@ -197,13 +198,16 @@ class CTypeLowerer {
 		ordered.push(declaration);
 	}
 
-	public void appendTypedefs(Node program, IRModule module) {
+	/* An unreached stdlib typedef is skipped like any other unreached declaration:
+	 * its alias and the function-pointer typedef it may register would name types
+	 * nothing else emits. */
+	public void appendTypedefs(Node program, IRModule module, StdlibReachability? reachability) {
 		Map<string, Node> declarations = {};
 		Vector<string> sourceOrder = [];
 		int index = 0;
 		while (index < program.declarations.len) {
 			Node declaration = program.declarations.get(index);
-			if (declaration.kind == NK_TYPEDEF_DECL && !self.analyzed.isNativeDeclaration(declaration)) {
+			if (declaration.kind == NK_TYPEDEF_DECL && !self.analyzed.isNativeDeclaration(declaration) && (reachability == null || reachability.reaches(declaration))) {
 				declarations.put(declaration.alias, declaration);
 				sourceOrder.push(declaration.alias);
 			}

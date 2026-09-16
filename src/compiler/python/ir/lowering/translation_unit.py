@@ -302,7 +302,7 @@ class TranslationUnitLowerer:
         for decl in declarations:
             if (
                 reachability is not None
-                and isinstance(decl, (ClassDecl, FunctionDecl, StructDecl, RichEnumDecl))
+                and isinstance(decl, (ClassDecl, FunctionDecl, StructDecl, RichEnumDecl, TypedefDecl))
                 and not reachability.reaches(decl)
             ):
                 continue

@@ -93,7 +93,8 @@ class DDSEncodedImageDecoder implements IEncodedImageDecoder {
 		return selector == 2 ? DDSEncodedImageDecoder.pack((firstRed * 2 + secondRed) / 3, (firstGreen * 2 + secondGreen) / 3, (firstBlue * 2 + secondBlue) / 3, 255) : DDSEncodedImageDecoder.pack((firstRed + secondRed * 2) / 3, (firstGreen + secondGreen * 2) / 3, (firstBlue + secondBlue * 2) / 3, 255);
 	}
 
-	class int pack(int red, int green, int blue, int alpha) { return (alpha << 24) | (red << 16) | (green << 8) | blue; }
+	/* Packed in unsigned arithmetic: shifting a byte by 24 in `int` is undefined. */
+	class int pack(int red, int green, int blue, int alpha) { return (int)(((uint32_t)alpha << 24) | ((uint32_t)red << 16) | ((uint32_t)green << 8) | (uint32_t)blue); }
 
 	class int packedRed(int packed) { return (packed >> 16) & 255; }
 

@@ -137,7 +137,7 @@ class IRLowerer {
 
 		self.declarations.emitForwardDecls(program, module);
 		self.gpuPipeline.registerKernels(program, module);
-		self.cTypes.appendTypedefs(program, module);
+		self.cTypes.appendTypedefs(program, module, self.context.reachability);
 		self.declarations.emitStructDefinitions(program, module);
 
 		Vector<GenericClassLoweringPlan> classPlans = self.genericPlans.classPlans();

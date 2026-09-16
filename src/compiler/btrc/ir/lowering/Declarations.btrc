@@ -2452,7 +2452,7 @@ class DeclarationLowerer {
 				i++;
 				continue;
 			}
-			if (reachability != null && (d.kind == NK_CLASS_DECL || d.kind == NK_FUNCTION_DECL || d.kind == NK_STRUCT_DECL || d.kind == NK_RICH_ENUM_DECL) && !reachability.reaches(d)) {
+			if (reachability != null && (d.kind == NK_CLASS_DECL || d.kind == NK_FUNCTION_DECL || d.kind == NK_STRUCT_DECL || d.kind == NK_RICH_ENUM_DECL || d.kind == NK_TYPEDEF_DECL) && !reachability.reaches(d)) {
 				i++;
 				continue;
 			}
