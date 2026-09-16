@@ -90,37 +90,37 @@ static void* take_cleanup_slot(void* raw) {
 
 static void register_cleanup_slot(
         void* volatile* slot, __btrc_cleanup_fn fn) {
-    if (__btrc_cleanup_cap < 1) __btrc_cleanup_cap = 64;
-    if (!__btrc_cleanup_stack) {
-        __btrc_cleanup_stack = (__btrc_cleanup_entry*)__btrc_safe_realloc(
-            NULL, sizeof(__btrc_cleanup_entry) * (size_t)__btrc_cleanup_cap);
+    if (__btrc_tls.cleanup_cap < 1) __btrc_tls.cleanup_cap = 64;
+    if (!__btrc_tls.cleanup_stack) {
+        __btrc_tls.cleanup_stack = (__btrc_cleanup_entry*)__btrc_safe_realloc(
+            NULL, sizeof(__btrc_cleanup_entry) * (size_t)__btrc_tls.cleanup_cap);
     }
-    if (__btrc_cleanup_top + 1 >= __btrc_cleanup_cap) {
-        __btrc_cleanup_cap *= 2;
-        __btrc_cleanup_stack = (__btrc_cleanup_entry*)__btrc_safe_realloc(
-            __btrc_cleanup_stack,
-            sizeof(__btrc_cleanup_entry) * (size_t)__btrc_cleanup_cap);
+    if (__btrc_tls.cleanup_top + 1 >= __btrc_tls.cleanup_cap) {
+        __btrc_tls.cleanup_cap *= 2;
+        __btrc_tls.cleanup_stack = (__btrc_cleanup_entry*)__btrc_safe_realloc(
+            __btrc_tls.cleanup_stack,
+            sizeof(__btrc_cleanup_entry) * (size_t)__btrc_tls.cleanup_cap);
     }
-    __btrc_cleanup_top++;
-    __btrc_cleanup_stack[__btrc_cleanup_top].slot = (void*)slot;
-    __btrc_cleanup_stack[__btrc_cleanup_top].take = take_cleanup_slot;
-    __btrc_cleanup_stack[__btrc_cleanup_top].fn = fn;
-    __btrc_cleanup_stack[__btrc_cleanup_top].visit = NULL;
-    __btrc_cleanup_stack[__btrc_cleanup_top].try_level = __btrc_try_top;
-    __btrc_cleanup_stack[__btrc_cleanup_top].direct = 1;
+    __btrc_tls.cleanup_top++;
+    __btrc_tls.cleanup_stack[__btrc_tls.cleanup_top].slot = (void*)slot;
+    __btrc_tls.cleanup_stack[__btrc_tls.cleanup_top].take = take_cleanup_slot;
+    __btrc_tls.cleanup_stack[__btrc_tls.cleanup_top].fn = fn;
+    __btrc_tls.cleanup_stack[__btrc_tls.cleanup_top].visit = NULL;
+    __btrc_tls.cleanup_stack[__btrc_tls.cleanup_top].try_level = __btrc_tls.try_top;
+    __btrc_tls.cleanup_stack[__btrc_tls.cleanup_top].direct = 1;
 }
 
 int archive_grow_shared_state(void) {
     (void)&__btrc_thread_spawn;
     (void)&__btrc_throw;
-    if (__btrc_destroyed != NULL || __btrc_destroyed_count != 0
-            || __btrc_destroyed_cap != 0) return 1;
-    if (__btrc_cleanup_stack != NULL || __btrc_cleanup_top != -1
-            || __btrc_cleanup_cap != 64) return 2;
+    if (__btrc_tls.destroyed != NULL || __btrc_tls.destroyed_count != 0
+            || __btrc_tls.destroyed_cap != 0) return 1;
+    if (__btrc_tls.cleanup_stack != NULL || __btrc_tls.cleanup_top != -1
+            || __btrc_tls.cleanup_cap != 64) return 2;
     if (__btrc_suspects != NULL || __btrc_suspect_count != 0
             || __btrc_suspect_cap != 0) return 3;
 
-    __btrc_tracking = 1;
+    __btrc_tls.tracking = 1;
     for (int i = 0; i < 300; i++) {
         __btrc_mark_destroyed(&destroyed_tokens[i]);
     }
@@ -129,23 +129,23 @@ int archive_grow_shared_state(void) {
         register_cleanup_slot(&cleanup_slots[i], noop_destroy);
     }
     __btrc_suspect(&suspect_node, no_children, noop_destroy);
-    if (__btrc_destroyed_count != 300 || __btrc_destroyed_cap < 300) return 4;
-    if (__btrc_cleanup_top != 129 || __btrc_cleanup_cap < 130) return 5;
+    if (__btrc_tls.destroyed_count != 300 || __btrc_tls.destroyed_cap < 300) return 4;
+    if (__btrc_tls.cleanup_top != 129 || __btrc_tls.cleanup_cap < 130) return 5;
     if (__btrc_suspect_count != 1 || __btrc_suspect_cap < 1) return 6;
     return 0;
 }
 
 int archive_verify_program_growth_and_reset(void) {
-    if (__btrc_destroyed_count != 3 || __btrc_destroyed_cap < 3) return 20;
-    if (__btrc_cleanup_top != 2 || __btrc_cleanup_cap < 3) return 21;
+    if (__btrc_tls.destroyed_count != 3 || __btrc_tls.destroyed_cap < 3) return 20;
+    if (__btrc_tls.cleanup_top != 2 || __btrc_tls.cleanup_cap < 3) return 21;
     if (__btrc_suspect_count != 1 || __btrc_suspect_cap < 1) return 22;
-    __btrc_tracking = 0;
+    __btrc_tls.tracking = 0;
     __btrc_cycle_state_cleanup();
     __btrc_try_state_cleanup();
-    if (__btrc_destroyed != NULL || __btrc_destroyed_count != 0
-            || __btrc_destroyed_cap != 0 || __btrc_tracking != 0) return 23;
-    if (__btrc_cleanup_stack != NULL || __btrc_cleanup_top != -1
-            || __btrc_cleanup_cap != 64) return 24;
+    if (__btrc_tls.destroyed != NULL || __btrc_tls.destroyed_count != 0
+            || __btrc_tls.destroyed_cap != 0 || __btrc_tls.tracking != 0) return 23;
+    if (__btrc_tls.cleanup_stack != NULL || __btrc_tls.cleanup_top != -1
+            || __btrc_tls.cleanup_cap != 64) return 24;
     if (__btrc_suspects != NULL || __btrc_suspect_count != 0
             || __btrc_suspect_cap != 0 || __btrc_visit_table != NULL
             || __btrc_destroy_table != NULL) return 25;
@@ -215,19 +215,19 @@ def test_mutable_helper_groups_have_complete_ownership():
             + TRYCATCH["__btrc_try_capacity"].c_source
             + TRYCATCH["__btrc_launder_state"].c_source,
             (
-                "__btrc_try_stack",
-                "__btrc_try_top",
-                "__btrc_try_cap",
-                "__btrc_launder_slot",
+                "__btrc_tls.try_stack",
+                "__btrc_tls.try_top",
+                "__btrc_tls.try_cap",
+                "__btrc_tls.launder_slot",
             ),
         ),
         (
             TRYCATCH["__btrc_cleanup_types"].c_source + TRYCATCH["__btrc_cleanup_capacity"].c_source,
-            ("__btrc_cleanup_stack", "__btrc_cleanup_top", "__btrc_cleanup_cap"),
+            ("__btrc_tls.cleanup_stack", "__btrc_tls.cleanup_top", "__btrc_tls.cleanup_cap"),
         ),
         (
             CYCLES["__btrc_destroyed_tracking"].c_source + CYCLES["__btrc_destroyed_capacity"].c_source,
-            ("__btrc_destroyed", "__btrc_destroyed_count", "__btrc_destroyed_cap"),
+            ("__btrc_tls.destroyed", "__btrc_tls.destroyed_count", "__btrc_tls.destroyed_cap"),
         ),
         (
             CYCLES["__btrc_suspect_state"].c_source + CYCLES["__btrc_suspect_capacity"].c_source,

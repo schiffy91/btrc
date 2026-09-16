@@ -1268,7 +1268,11 @@ class FunctionLowerer:
 
         def thread_guard():
             return IRIf(
-                IRBinOp(IRFieldAccess(holder, "thread", arrow=True), "!=", IRAddressOf(IRVar("__btrc_try_top"))),
+                IRBinOp(
+                    IRFieldAccess(holder, "thread", arrow=True),
+                    "!=",
+                    IRAddressOf(IRFieldAccess(IRVar("__btrc_tls"), "try_top")),
+                ),
                 IRBlock(
                     [
                         IRExprStmt(
@@ -1393,7 +1397,9 @@ class FunctionLowerer:
             ),
             IRAssign(receiver, IRVar("receiver")),
             IRExprStmt(self._lifetime.retain_value(IRVar("receiver"), receiver_type)),
-            IRAssign(IRFieldAccess(holder, "thread", arrow=True), IRAddressOf(IRVar("__btrc_try_top"))),
+            IRAssign(
+                IRFieldAccess(holder, "thread", arrow=True), IRAddressOf(IRFieldAccess(IRVar("__btrc_tls"), "try_top"))
+            ),
         ]
         if table.label:
             create_params.append(IRParam(CType("char*"), "label"))
@@ -1511,7 +1517,7 @@ class FunctionLowerer:
                     c_type=context_type,
                     fields=[
                         ("receiver", receiver),
-                        ("thread", IRAddressOf(expr=IRVar(name="__btrc_try_top"))),
+                        ("thread", IRAddressOf(expr=IRFieldAccess(obj=IRVar(name="__btrc_tls"), field="try_top"))),
                     ],
                 ),
             )
@@ -1603,7 +1609,7 @@ class FunctionLowerer:
                             condition=IRBinOp(
                                 left=IRFieldAccess(obj=context, field="thread", arrow=True),
                                 op="!=",
-                                right=IRAddressOf(expr=IRVar(name="__btrc_try_top")),
+                                right=IRAddressOf(expr=IRFieldAccess(obj=IRVar(name="__btrc_tls"), field="try_top")),
                             ),
                             then_block=IRBlock(
                                 stmts=[

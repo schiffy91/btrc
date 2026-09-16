@@ -1456,7 +1456,7 @@ class ExceptionLowerer:
                 IRExprStmt(
                     expr=IRCall(
                         callee="__btrc_discard_cleanups",
-                        args=[IRVar(name="__btrc_try_top")],
+                        args=[IRFieldAccess(obj=IRVar(name="__btrc_tls"), field="try_top")],
                         helper_ref="__btrc_discard_cleanups",
                     )
                 )
@@ -1572,7 +1572,9 @@ class ExceptionLowerer:
                     callee="__btrc_str_track",
                     args=[
                         IRCall(
-                            callee="__btrc_strdup", args=[IRVar(name="__btrc_error_msg")], helper_ref="__btrc_strdup"
+                            callee="__btrc_strdup",
+                            args=[IRFieldAccess(obj=IRVar(name="__btrc_tls"), field="error_msg")],
+                            helper_ref="__btrc_strdup",
                         )
                     ],
                     helper_ref="__btrc_str_track",
@@ -1609,7 +1611,10 @@ class ExceptionLowerer:
     @staticmethod
     def setjmp_success_condition():
         """Build ``setjmp(current_frame.env) == 0`` without rendered C."""
-        frame = IRIndex(obj=IRVar(name="__btrc_try_stack"), index=IRVar(name="__btrc_try_top"))
+        frame = IRIndex(
+            obj=IRFieldAccess(obj=IRVar(name="__btrc_tls"), field="try_stack"),
+            index=IRFieldAccess(obj=IRVar(name="__btrc_tls"), field="try_top"),
+        )
         return IRBinOp(
             left=IRCall(callee="setjmp", args=[IRFieldAccess(obj=frame, field="env", arrow=True)]),
             op="==",
@@ -1635,7 +1640,13 @@ class ExceptionLowerer:
                                 )
                             ),
                             IRExprStmt(
-                                expr=IRCall(callee="fputs", args=[IRVar(name="__btrc_error_msg"), IRVar(name="stderr")])
+                                expr=IRCall(
+                                    callee="fputs",
+                                    args=[
+                                        IRFieldAccess(obj=IRVar(name="__btrc_tls"), field="error_msg"),
+                                        IRVar(name="stderr"),
+                                    ],
+                                )
                             ),
                             IRExprStmt(expr=IRCall(callee="abort", args=[], never_returns=True)),
                         ]
@@ -1649,7 +1660,7 @@ class ExceptionLowerer:
         """Discard ``depth`` active generated try frames."""
         if depth <= 0:
             return []
-        top = IRVar(name="__btrc_try_top")
+        top = IRFieldAccess(obj=IRVar(name="__btrc_tls"), field="try_top")
         if depth == 1:
             expression = IRUnaryOp(op="--", operand=top, prefix=False)
         else:
@@ -1682,7 +1693,7 @@ class ExceptionLowerer:
                     args=[
                         IRCast(target_type=CType(text="char*"), expr=IRVar(name=error_name)),
                         IRSizeof(operand=IRVar(name=error_name)),
-                        IRVar(name="__btrc_error_msg"),
+                        IRFieldAccess(obj=IRVar(name="__btrc_tls"), field="error_msg"),
                     ],
                     helper_ref="__btrc_copy_error_message",
                 )

@@ -4,9 +4,8 @@
  * resolve thread storage out of line (Darwin's _tlv_get_addr): a cleanup
  * registration touched four of them, and those lookups were a quarter of the
  * self-hosted compiler's time. The C compiler folds every access to one record
- * into a single lookup per function. The historical names remain as field
- * accessors, so runtime helpers, generated code and cross-unit fixtures read,
- * assign and take the address of the same per-thread state as before. */
+ * into a single lookup per function. Runtime helpers, generated code and
+ * cross-unit fixtures name the record's fields directly. */
 typedef struct {
     volatile int try_top;
     struct __btrc_try_frame** try_stack;
@@ -31,29 +30,9 @@ typedef struct {
 } __btrc_tls_record;
 static _Thread_local __btrc_tls_record __btrc_tls = {
     .try_top = -1, .try_cap = 16, .cleanup_top = -1, .cleanup_cap = 64};
-#define __btrc_try_top (__btrc_tls.try_top)
-#define __btrc_try_stack (__btrc_tls.try_stack)
-#define __btrc_error_msg (__btrc_tls.error_msg)
-#define __btrc_try_cap (__btrc_tls.try_cap)
-#define __btrc_launder_slot (__btrc_tls.launder_slot)
-#define __btrc_cleanup_stack (__btrc_tls.cleanup_stack)
-#define __btrc_cleanup_top (__btrc_tls.cleanup_top)
-#define __btrc_cleanup_cap (__btrc_tls.cleanup_cap)
-#define __btrc_tracking (__btrc_tls.tracking)
-#define __btrc_destroyed (__btrc_tls.destroyed)
-#define __btrc_destroyed_count (__btrc_tls.destroyed_count)
-#define __btrc_destroyed_cap (__btrc_tls.destroyed_cap)
-#define __btrc_arc_topology_depth (__btrc_tls.arc_topology_depth)
-#define __btrc_arc_draining (__btrc_tls.arc_draining)
-#define __btrc_arc_deferred_head (__btrc_tls.arc_deferred_head)
-#define __btrc_arc_deferred_tail (__btrc_tls.arc_deferred_tail)
-#define __btrc_abandon_drain_callback (__btrc_tls.abandon_drain_callback)
-#define __btrc_abandon_queue (__btrc_tls.abandon_queue)
-#define __btrc_abandon_count (__btrc_tls.abandon_count)
-#define __btrc_abandon_cap (__btrc_tls.abandon_cap)
 /* btrc-runtime-helper:end __btrc_tls_state */
 /* btrc-runtime-helper:begin __btrc_try_level */
-/* __btrc_try_top is a field of __btrc_tls. */
+/* __btrc_tls.try_top lives in the thread-local record __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_try_level */
 /* btrc-runtime-helper:begin __btrc_trycatch_globals */
 /* btrc try/catch runtime (dynamic) */
@@ -68,7 +47,7 @@ static _Thread_local __btrc_tls_record __btrc_tls = {
 #define longjmp(env, value) _longjmp(env, value)
 #endif
 typedef struct __btrc_try_frame { jmp_buf env; } __btrc_try_frame;
-/* __btrc_try_stack and __btrc_error_msg are fields of __btrc_tls. */
+/* __btrc_tls.try_stack and __btrc_tls.error_msg live in the thread-local record __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_trycatch_globals */
 /* btrc-runtime-helper:begin __btrc_copy_error_message */
 static inline void __btrc_copy_error_message(
@@ -85,10 +64,10 @@ static inline void __btrc_copy_error_message(
 }
 /* btrc-runtime-helper:end __btrc_copy_error_message */
 /* btrc-runtime-helper:begin __btrc_try_capacity */
-/* __btrc_try_cap is a field of __btrc_tls. */
+/* __btrc_tls.try_cap lives in the thread-local record __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_try_capacity */
 /* btrc-runtime-helper:begin __btrc_launder_state */
-/* __btrc_launder_slot is a field of __btrc_tls. */
+/* __btrc_tls.launder_slot lives in the thread-local record __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_launder_state */
 /* btrc-runtime-helper:begin __btrc_launder */
 /* Opaque pointer launder used when returning a freshly-built object
@@ -101,33 +80,33 @@ static inline void __btrc_copy_error_message(
  * forces the object to escape, which defeats that miscompilation.
  * Pure C11; the volatile access is the optimization barrier. */
 static inline void* __btrc_launder(void* p) {
-    __btrc_launder_slot = p;
-    return __btrc_launder_slot;
+    __btrc_tls.launder_slot = p;
+    return __btrc_tls.launder_slot;
 }
 /* btrc-runtime-helper:end __btrc_launder */
 /* btrc-runtime-helper:begin __btrc_push_try */
 static inline void __btrc_push_try(void) {
-    if (__btrc_try_cap < 1) __btrc_try_cap = 16;
-    if (__btrc_try_top == INT_MAX) { fprintf(stderr, "btrc: try stack overflow\n"); exit(1); }
-    if (!__btrc_try_stack) {
-        if ((size_t)__btrc_try_cap > SIZE_MAX / sizeof(*__btrc_try_stack)) { fprintf(stderr, "btrc: try stack size overflow\n"); exit(1); }
-        __btrc_try_stack = (__btrc_try_frame**)__btrc_safe_realloc(
-            NULL, sizeof(*__btrc_try_stack) * (size_t)__btrc_try_cap);
-        for (int i = 0; i < __btrc_try_cap; i++) __btrc_try_stack[i] = NULL;
+    if (__btrc_tls.try_cap < 1) __btrc_tls.try_cap = 16;
+    if (__btrc_tls.try_top == INT_MAX) { fprintf(stderr, "btrc: try stack overflow\n"); exit(1); }
+    if (!__btrc_tls.try_stack) {
+        if ((size_t)__btrc_tls.try_cap > SIZE_MAX / sizeof(*__btrc_tls.try_stack)) { fprintf(stderr, "btrc: try stack size overflow\n"); exit(1); }
+        __btrc_tls.try_stack = (__btrc_try_frame**)__btrc_safe_realloc(
+            NULL, sizeof(*__btrc_tls.try_stack) * (size_t)__btrc_tls.try_cap);
+        for (int i = 0; i < __btrc_tls.try_cap; i++) __btrc_tls.try_stack[i] = NULL;
     }
-    if (__btrc_try_top + 1 >= __btrc_try_cap) {
-        if (__btrc_try_cap > INT_MAX / 2) { fprintf(stderr, "btrc: try stack capacity overflow\n"); exit(1); }
-        int old_cap = __btrc_try_cap;
-        int new_cap = __btrc_try_cap * 2;
-        if ((size_t)new_cap > SIZE_MAX / sizeof(*__btrc_try_stack)) { fprintf(stderr, "btrc: try stack size overflow\n"); exit(1); }
-        __btrc_try_stack = (__btrc_try_frame**)__btrc_safe_realloc(
-            __btrc_try_stack, sizeof(*__btrc_try_stack) * (size_t)new_cap);
-        for (int i = old_cap; i < new_cap; i++) __btrc_try_stack[i] = NULL;
-        __btrc_try_cap = new_cap;
+    if (__btrc_tls.try_top + 1 >= __btrc_tls.try_cap) {
+        if (__btrc_tls.try_cap > INT_MAX / 2) { fprintf(stderr, "btrc: try stack capacity overflow\n"); exit(1); }
+        int old_cap = __btrc_tls.try_cap;
+        int new_cap = __btrc_tls.try_cap * 2;
+        if ((size_t)new_cap > SIZE_MAX / sizeof(*__btrc_tls.try_stack)) { fprintf(stderr, "btrc: try stack size overflow\n"); exit(1); }
+        __btrc_tls.try_stack = (__btrc_try_frame**)__btrc_safe_realloc(
+            __btrc_tls.try_stack, sizeof(*__btrc_tls.try_stack) * (size_t)new_cap);
+        for (int i = old_cap; i < new_cap; i++) __btrc_tls.try_stack[i] = NULL;
+        __btrc_tls.try_cap = new_cap;
     }
-    __btrc_try_top++;
-    if (!__btrc_try_stack[__btrc_try_top]) {
-        __btrc_try_stack[__btrc_try_top] = (__btrc_try_frame*)
+    __btrc_tls.try_top++;
+    if (!__btrc_tls.try_stack[__btrc_tls.try_top]) {
+        __btrc_tls.try_stack[__btrc_tls.try_top] = (__btrc_try_frame*)
             __btrc_safe_realloc(NULL, sizeof(__btrc_try_frame));
     }
 }
@@ -137,10 +116,10 @@ static inline void __btrc_push_try(void) {
 typedef __btrc_destroy_fn __btrc_cleanup_fn;
 typedef void* (*__btrc_cleanup_take_fn)(void*);
 typedef struct __btrc_cleanup_entry { void* slot; __btrc_cleanup_take_fn take; __btrc_cleanup_fn fn; __btrc_visit_fn visit; int try_level; int direct; } __btrc_cleanup_entry;
-/* __btrc_cleanup_stack and __btrc_cleanup_top are fields of __btrc_tls. */
+/* __btrc_tls.cleanup_stack and __btrc_tls.cleanup_top live in the thread-local record __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_cleanup_types */
 /* btrc-runtime-helper:begin __btrc_cleanup_capacity */
-/* __btrc_cleanup_cap is a field of __btrc_tls. */
+/* __btrc_tls.cleanup_cap lives in the thread-local record __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_cleanup_capacity */
 /* btrc-runtime-helper:begin __btrc_register_cleanup_kind */
 static inline void __btrc_register_cleanup_kind(
@@ -168,9 +147,9 @@ static inline void __btrc_register_cleanup_kind(
      * the ones this path needs once. The reallocating branch below refreshes
      * `stack`, which is the only local a resize can invalidate. */
     const int recent = 4;
-    const int try_level = __btrc_try_top;
-    int top = __btrc_cleanup_top;
-    __btrc_cleanup_entry* stack = __btrc_cleanup_stack;
+    const int try_level = __btrc_tls.try_top;
+    int top = __btrc_tls.cleanup_top;
+    __btrc_cleanup_entry* stack = __btrc_tls.cleanup_stack;
     int oldest = top - (recent - 1);
     if (oldest < 0) oldest = 0;
     for (int i = top; i >= oldest; i--) {
@@ -183,25 +162,25 @@ static inline void __btrc_register_cleanup_kind(
             return;
         }
     }
-    if (__btrc_cleanup_cap < 1) __btrc_cleanup_cap = 64;
+    if (__btrc_tls.cleanup_cap < 1) __btrc_tls.cleanup_cap = 64;
     if (!stack) {
-        if ((size_t)__btrc_cleanup_cap > SIZE_MAX / sizeof(__btrc_cleanup_entry)) { fprintf(stderr, "btrc: cleanup stack size overflow\n"); exit(1); }
+        if ((size_t)__btrc_tls.cleanup_cap > SIZE_MAX / sizeof(__btrc_cleanup_entry)) { fprintf(stderr, "btrc: cleanup stack size overflow\n"); exit(1); }
         stack = (__btrc_cleanup_entry*)__btrc_safe_realloc(
-            NULL, sizeof(__btrc_cleanup_entry) * (size_t)__btrc_cleanup_cap);
-        __btrc_cleanup_stack = stack;
+            NULL, sizeof(__btrc_cleanup_entry) * (size_t)__btrc_tls.cleanup_cap);
+        __btrc_tls.cleanup_stack = stack;
     }
     if (top == INT_MAX) { fprintf(stderr, "btrc: cleanup stack overflow\n"); exit(1); }
-    if (top + 1 >= __btrc_cleanup_cap) {
-        if (__btrc_cleanup_cap > INT_MAX / 2) { fprintf(stderr, "btrc: cleanup stack capacity overflow\n"); exit(1); }
-        int new_cap = __btrc_cleanup_cap * 2;
+    if (top + 1 >= __btrc_tls.cleanup_cap) {
+        if (__btrc_tls.cleanup_cap > INT_MAX / 2) { fprintf(stderr, "btrc: cleanup stack capacity overflow\n"); exit(1); }
+        int new_cap = __btrc_tls.cleanup_cap * 2;
         if ((size_t)new_cap > SIZE_MAX / sizeof(__btrc_cleanup_entry)) { fprintf(stderr, "btrc: cleanup stack size overflow\n"); exit(1); }
         stack = (__btrc_cleanup_entry*)__btrc_safe_realloc(
             stack, sizeof(__btrc_cleanup_entry) * (size_t)new_cap);
-        __btrc_cleanup_stack = stack;
-        __btrc_cleanup_cap = new_cap;
+        __btrc_tls.cleanup_stack = stack;
+        __btrc_tls.cleanup_cap = new_cap;
     }
     top++;
-    __btrc_cleanup_top = top;
+    __btrc_tls.cleanup_top = top;
     stack[top] = (__btrc_cleanup_entry){
         slot, take, fn, visit, try_level, direct};
 }
@@ -223,8 +202,8 @@ static inline void __btrc_register_direct_cleanup(
 static void __btrc_run_cleanup_guarded(
         __btrc_cleanup_entry entry, void* object) {
     __btrc_push_try();
-    int guard_level = __btrc_try_top;
-    if (setjmp(__btrc_try_stack[guard_level]->env) != 0) return;
+    int guard_level = __btrc_tls.try_top;
+    if (setjmp(__btrc_tls.try_stack[guard_level]->env) != 0) return;
     if (entry.direct) {
         entry.fn(object);
     } else {
@@ -236,27 +215,27 @@ static void __btrc_run_cleanup_guarded(
          * must choose whether release discovers a cycle. */
         __btrc_arc_release(object, &type);
     }
-    __btrc_try_top--;
+    __btrc_tls.try_top--;
 }
 /* btrc-runtime-helper:end __btrc_run_cleanup_guarded */
 /* btrc-runtime-helper:begin __btrc_arc_guard_hook */
 static int __btrc_arc_guard_hook(
         __btrc_hook_fn hook, void* object,
         char* error, size_t error_capacity) {
-    char ambient[sizeof __btrc_error_msg];
-    memcpy(ambient, __btrc_error_msg, sizeof ambient);
+    char ambient[sizeof __btrc_tls.error_msg];
+    memcpy(ambient, __btrc_tls.error_msg, sizeof ambient);
     if (error && error_capacity) error[0] = '\0';
     __btrc_push_try();
-    int guard_level = __btrc_try_top;
-    if (setjmp(__btrc_try_stack[guard_level]->env) != 0) {
+    int guard_level = __btrc_tls.try_top;
+    if (setjmp(__btrc_tls.try_stack[guard_level]->env) != 0) {
         __btrc_copy_error_message(
-            error, error_capacity, __btrc_error_msg);
-        memcpy(__btrc_error_msg, ambient, sizeof ambient);
+            error, error_capacity, __btrc_tls.error_msg);
+        memcpy(__btrc_tls.error_msg, ambient, sizeof ambient);
         return 1;
     }
     hook(object);
-    __btrc_try_top--;
-    memcpy(__btrc_error_msg, ambient, sizeof ambient);
+    __btrc_tls.try_top--;
+    memcpy(__btrc_tls.error_msg, ambient, sizeof ambient);
     return 0;
 }
 /* btrc-runtime-helper:end __btrc_arc_guard_hook */
@@ -271,25 +250,25 @@ static _Noreturn void __btrc_raise_captured(
 /* btrc-runtime-helper:begin __btrc_flush_cycles_guarded */
 static void __btrc_flush_cycles_guarded(void) {
     __btrc_push_try();
-    int guard_level = __btrc_try_top;
-    if (setjmp(__btrc_try_stack[guard_level]->env) != 0) return;
+    int guard_level = __btrc_tls.try_top;
+    if (setjmp(__btrc_tls.try_stack[guard_level]->env) != 0) return;
     __btrc_flush_cycles();
-    __btrc_try_top--;
+    __btrc_tls.try_top--;
 }
 /* btrc-runtime-helper:end __btrc_flush_cycles_guarded */
 /* btrc-runtime-helper:begin __btrc_run_cleanups */
 static inline void __btrc_run_cleanups(int level) {
-    int base = __btrc_cleanup_top;
-    while (base >= 0 && __btrc_cleanup_stack[base].try_level >= level) base--;
+    int base = __btrc_tls.cleanup_top;
+    while (base >= 0 && __btrc_tls.cleanup_stack[base].try_level >= level) base--;
     base++;
-    if (base > __btrc_cleanup_top) return;
-    int count = __btrc_cleanup_top - base + 1;
+    if (base > __btrc_tls.cleanup_top) return;
+    int count = __btrc_tls.cleanup_top - base + 1;
     if ((size_t)count > SIZE_MAX / sizeof(__btrc_cleanup_entry)) { fprintf(stderr, "btrc: cleanup batch size overflow\n"); exit(1); }
     __btrc_cleanup_entry* entries = (__btrc_cleanup_entry*)__btrc_safe_realloc(
         NULL, sizeof(__btrc_cleanup_entry) * (size_t)count);
-    memcpy(entries, &__btrc_cleanup_stack[base],
+    memcpy(entries, &__btrc_tls.cleanup_stack[base],
         sizeof(__btrc_cleanup_entry) * (size_t)count);
-    __btrc_cleanup_top = base - 1;
+    __btrc_tls.cleanup_top = base - 1;
     if ((size_t)count > SIZE_MAX / sizeof(void*)) { fprintf(stderr, "btrc: cleanup object batch size overflow\n"); exit(1); }
     void** objects = (void**)__btrc_safe_realloc(
         NULL, sizeof(void*) * (size_t)count);
@@ -298,8 +277,8 @@ static inline void __btrc_run_cleanups(int level) {
         objects[i] = ((entry.direct && !entry.fn) || !entry.slot || !entry.take)
             ? NULL : entry.take(entry.slot);
     }
-    char primary_error[sizeof __btrc_error_msg];
-    memcpy(primary_error, __btrc_error_msg, sizeof primary_error);
+    char primary_error[sizeof __btrc_tls.error_msg];
+    memcpy(primary_error, __btrc_tls.error_msg, sizeof primary_error);
     __btrc_destroyed_tracking_begin();
     for (int i = count - 1; i >= 0; i--) {
         __btrc_cleanup_entry entry = entries[i];
@@ -307,10 +286,10 @@ static inline void __btrc_run_cleanups(int level) {
         if (!object) continue;
         if (!entry.direct && __btrc_is_destroyed(object)) continue;
         __btrc_run_cleanup_guarded(entry, object);
-        memcpy(__btrc_error_msg, primary_error, sizeof primary_error);
+        memcpy(__btrc_tls.error_msg, primary_error, sizeof primary_error);
     }
     __btrc_flush_cycles_guarded();
-    memcpy(__btrc_error_msg, primary_error, sizeof primary_error);
+    memcpy(__btrc_tls.error_msg, primary_error, sizeof primary_error);
     __btrc_destroyed_tracking_end();
     free(objects);
     free(entries);
@@ -318,54 +297,54 @@ static inline void __btrc_run_cleanups(int level) {
 /* btrc-runtime-helper:end __btrc_run_cleanups */
 /* btrc-runtime-helper:begin __btrc_discard_cleanups */
 static inline void __btrc_discard_cleanups(int level) {
-    while (__btrc_cleanup_top >= 0 &&
-           __btrc_cleanup_stack[__btrc_cleanup_top].try_level >= level) {
-        __btrc_cleanup_top--;
+    while (__btrc_tls.cleanup_top >= 0 &&
+           __btrc_tls.cleanup_stack[__btrc_tls.cleanup_top].try_level >= level) {
+        __btrc_tls.cleanup_top--;
     }
 }
 /* btrc-runtime-helper:end __btrc_discard_cleanups */
 /* btrc-runtime-helper:begin __btrc_cleanup_mark */
-static inline int __btrc_cleanup_mark(void) { return __btrc_cleanup_top; }
+static inline int __btrc_cleanup_mark(void) { return __btrc_tls.cleanup_top; }
 /* btrc-runtime-helper:end __btrc_cleanup_mark */
 /* btrc-runtime-helper:begin __btrc_discard_cleanups_to */
 static inline void __btrc_discard_cleanups_to(int mark) {
-    if (mark < -1 || mark > __btrc_cleanup_top) {
+    if (mark < -1 || mark > __btrc_tls.cleanup_top) {
         fprintf(stderr, "btrc: invalid cleanup scope marker\n");
         exit(1);
     }
-    __btrc_cleanup_top = mark;
+    __btrc_tls.cleanup_top = mark;
 }
 /* btrc-runtime-helper:end __btrc_discard_cleanups_to */
 /* btrc-runtime-helper:begin __btrc_throw */
 static _Noreturn void __btrc_throw(const char* msg) {
     const char* text = msg ? msg : "Unknown exception";
     __btrc_copy_error_message(
-        __btrc_error_msg, sizeof __btrc_error_msg, text);
-    if (__btrc_try_top < 0) {
+        __btrc_tls.error_msg, sizeof __btrc_tls.error_msg, text);
+    if (__btrc_tls.try_top < 0) {
         __btrc_run_cleanups(-1);
-        fprintf(stderr, "Unhandled exception: %s\n", __btrc_error_msg);
+        fprintf(stderr, "Unhandled exception: %s\n", __btrc_tls.error_msg);
         exit(1);
     }
-    __btrc_run_cleanups(__btrc_try_top);
-    int level = __btrc_try_top;
-    __btrc_try_top--;
-    longjmp(__btrc_try_stack[level]->env, 1);
+    __btrc_run_cleanups(__btrc_tls.try_top);
+    int level = __btrc_tls.try_top;
+    __btrc_tls.try_top--;
+    longjmp(__btrc_tls.try_stack[level]->env, 1);
 }
 /* btrc-runtime-helper:end __btrc_throw */
 /* btrc-runtime-helper:begin __btrc_try_state_cleanup */
 static void __btrc_try_state_cleanup(void) {
-    for (int i = 0; i < __btrc_try_cap; i++) {
-        free(__btrc_try_stack ? __btrc_try_stack[i] : NULL);
+    for (int i = 0; i < __btrc_tls.try_cap; i++) {
+        free(__btrc_tls.try_stack ? __btrc_tls.try_stack[i] : NULL);
     }
-    free(__btrc_try_stack);
-    free(__btrc_cleanup_stack);
-    __btrc_try_stack = NULL;
-    __btrc_cleanup_stack = NULL;
-    __btrc_try_cap = 16;
-    __btrc_cleanup_cap = 64;
-    __btrc_try_top = -1;
-    __btrc_cleanup_top = -1;
-    __btrc_error_msg[0] = '\0';
-    __btrc_launder_slot = NULL;
+    free(__btrc_tls.try_stack);
+    free(__btrc_tls.cleanup_stack);
+    __btrc_tls.try_stack = NULL;
+    __btrc_tls.cleanup_stack = NULL;
+    __btrc_tls.try_cap = 16;
+    __btrc_tls.cleanup_cap = 64;
+    __btrc_tls.try_top = -1;
+    __btrc_tls.cleanup_top = -1;
+    __btrc_tls.error_msg[0] = '\0';
+    __btrc_tls.launder_slot = NULL;
 }
 /* btrc-runtime-helper:end __btrc_try_state_cleanup */

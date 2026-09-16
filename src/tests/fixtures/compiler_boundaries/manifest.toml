@@ -1389,8 +1389,8 @@ channel = "asset.cycles_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.cycles_c.bin"
 baseline_sha256 = "6a0d034d5d19ee0ab69b789a82d6898c5060a3d095dc1145f82c90248ad074a2"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.cycles_c.bin"
-accepted_sha256 = "58638792e14f8741ff24b3d6500c7b4a1eb60125f3edd40198bd9aeb18fff99d"
-reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+accepted_sha256 = "3b4b9193cdb21fcc2c7f830e3842d2ce8c6ebcee7a83c3b81c86ae4aebdae052"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
@@ -1455,8 +1455,8 @@ channel = "asset.threads_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.threads_c.bin"
 baseline_sha256 = "914cdd968337a25ca0bb90dedcdc1191f161b7dc6b44db279e5cd96ea21e5ec2"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.threads_c.bin"
-accepted_sha256 = "74d575032c19a6a165279635f8dca1b260deb9b42a657cc0b943cc05d81a1e6b"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+accepted_sha256 = "f1438d621b1b3d88e5dba76ab0fef863d98cf4124fe1719d4ab3cc8ed8d223ea"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -1469,8 +1469,8 @@ channel = "asset.trycatch_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.trycatch_c.bin"
 baseline_sha256 = "aa851e085554c048b119ea587348aaee4a2f60ec889bfa6541ef0d04830fabcd"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.trycatch_c.bin"
-accepted_sha256 = "6c1f5bd3dbad33e4673e054748471251b62a009a8be7788413c747e961514fcb"
-reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+accepted_sha256 = "99b9b61380334e6adc0afd1fa2be4a4697a52211a383ba1ebe6bfd6b4805ac59"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
@@ -1693,8 +1693,8 @@ channel = "helper.__btrc_arc_abandon"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0015.bin"
 baseline_sha256 = "25c46613f6a5b50278ce92c8ad22671174bd0cedd8f80c96925e0140b74454a3"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0015.bin"
-accepted_sha256 = "63356590fe7d73da576e2c001a4d2d0059b4dac51f759113dc4931e3df9447e0"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "66484c05539613f2bcb33a10093fcd8e0f4ba7c3fbea099257f2b2ab047194f6"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -1707,8 +1707,8 @@ channel = "helper.__btrc_arc_abandon_callback_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0016.bin"
 baseline_sha256 = "8c79832f16adfd3e6f41f478b78201e00573798a68a28fb4170567ef226de0ea"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0016.bin"
-accepted_sha256 = "23105edfbbb0e334f6625a7941d61f710c341f8fd3556211b74f09586a96ac29"
-reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+accepted_sha256 = "f450022446b4eef301186cabe16455f0ee4e33bfc91d4cb49114ba7f2f287b69"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
@@ -1735,8 +1735,8 @@ channel = "helper.__btrc_arc_abandon_queue_drain"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0018.bin"
 baseline_sha256 = "b23d679a38bcf4e87f8f512fee5e7a09e8f87736d12981d36bb021a4598d2460"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0018.bin"
-accepted_sha256 = "6d117a3c4b04f440ac603a6cdf462032a46473eece0c750fd01f149c47eddd89"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "dcbfdd8d5e0865ef94a5b57236b81430ad1e82b3a55d73a9885e553b7ffffdde"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -1749,8 +1749,8 @@ channel = "helper.__btrc_arc_abandon_queue_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0019.bin"
 baseline_sha256 = "bb9ac8bc2567572b8c9714d7a56ad4637492b6af727adc8630543de53605d177"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0019.bin"
-accepted_sha256 = "e17f8a977cab34939e1bd340459d270a972a00333f2b1b25f1a845af62eaf368"
-reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+accepted_sha256 = "e775519b59e0cf0b0488b785aee97582ce1061799282ac83fc3a4f4cfb496df1"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
@@ -1819,8 +1819,8 @@ channel = "helper.__btrc_arc_deferred_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0024.bin"
 baseline_sha256 = "f391833aa7f141d24d9d928278228615367027dcd301281134381caf0f892024"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0024.bin"
-accepted_sha256 = "44fb1230b136d2c318a77c59baf67c64c92eeea4e68ccc0bc910d091d4dcf058"
-reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+accepted_sha256 = "153f69142e789330d6c555343db33b174fccd174f1309d6c01ea61fc9adbb457"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
@@ -1861,8 +1861,8 @@ channel = "helper.__btrc_arc_drain"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0027.bin"
 baseline_sha256 = "cc4c2fca5738ecfdb9e1ff47285106316f48105313680881895ea8d32c811d38"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0027.bin"
-accepted_sha256 = "33c962efabfb019c141aed3354d6c7ac7ba7411518ca9d2965356d395a77ffb3"
-reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+accepted_sha256 = "2d7ce771e6b8f6db9d59d2e48bc0850a20ac8f9f97cd836c3edc8bb2032c45da"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
@@ -1875,8 +1875,8 @@ channel = "helper.__btrc_arc_exclusive_snapshot"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0028.bin"
 baseline_sha256 = "1d354719c3cc688511e96f6d6803c956da3391a9d590cd0938a7986fe6ec4e9e"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0028.bin"
-accepted_sha256 = "d2044cc757f4ee6b82067139c4a933752fed49a9508cb157246e1384477a829f"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "78479b085cfb041d28af231b620adda84ae1eda6d1e2e1981ef1bb0f2228b458"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -1903,8 +1903,8 @@ channel = "helper.__btrc_arc_guard_hook"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0030.bin"
 baseline_sha256 = "59077e6d1a652c18f06ad7e447d8a760b77734b5ee3bdde45e4384860fc0427a"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0030.bin"
-accepted_sha256 = "ab9187e7b1dae6b03bbafc91237bbd0cdc2ecd0556bb9c8f05b24484b589cedf"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "f5438e42001f0a114b8325fae5722a407c7cef98e58e7b903ddbd66b06bc6290"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2169,8 +2169,8 @@ channel = "helper.__btrc_arc_thread_state_cleanup"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0049.bin"
 baseline_sha256 = "6eff0ad14c04f2f532ef20af4e1a0776f83622f8bc9c3720fd92b25abccb1b51"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0049.bin"
-accepted_sha256 = "07dd402a480b5d3a44b20119e18c8c7e3faa253f64de6a8996ec5bc361bed944"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "793f2e36b1d065f1bf8a7342b8cdb16d351c439610f613853bd2a96c83574202"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2183,8 +2183,8 @@ channel = "helper.__btrc_arc_topology_begin"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0050.bin"
 baseline_sha256 = "721a1a313932811fd11b9c0ce2910f81bb6cfa103c5b7f8fc0c2784a30174795"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0050.bin"
-accepted_sha256 = "3aa62f8e33037af3e2f113817c641057c370a1f85fadee6c97fbfff156034334"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "5930c87b6d97a938591ecb85b88144f88a4274b4aacc3ba302f6693f6e699579"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2225,8 +2225,8 @@ channel = "helper.__btrc_arc_topology_depth_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0053.bin"
 baseline_sha256 = "59248800649c89d7ec483c5eb5b0ed7b9b11cf45fa249ff07e58890968bd3924"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0053.bin"
-accepted_sha256 = "28dcea467a27ab71e799d75f6f215d876a879156e6c2977c3cc6518955bb0ed8"
-reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+accepted_sha256 = "cd06eae41057c43695ca6b934fc1a6703a7d060c5281aefa3a2787d813998c36"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
@@ -2239,8 +2239,8 @@ channel = "helper.__btrc_arc_topology_leave"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0054.bin"
 baseline_sha256 = "0b42a28a2251e193076362283f274274b72e7a790c19144927a2da08fc2ae676"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0054.bin"
-accepted_sha256 = "ab1fd1570737662353ea6b652c5c307f9378246505d6274336149104afe3f996"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "2f5d095922ae6d6576060b8b93059cf8b417a6a478d25f894ec486eeeaaf3fd3"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2403,8 +2403,8 @@ channel = "helper.__btrc_cleanup_capacity"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0068.bin"
 baseline_sha256 = "e8b29d54e51603becc742f5e1ecfbab25e0de842378888184138e820dce801f5"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0068.bin"
-accepted_sha256 = "d41baa766da400fbebb33ef2cac815fbce59f3cffb0f45efb9e63c25f6a548d6"
-reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+accepted_sha256 = "8f5e445750641089a766323fec42c6525c6a9ea1eff7f7fe565707669780c61b"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
@@ -2417,8 +2417,8 @@ channel = "helper.__btrc_cleanup_mark"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0069.bin"
 baseline_sha256 = "eab6428f92ca0b1fa2f87b7c0c694a4b85c410e7f442536e23f66676354fafc0"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0069.bin"
-accepted_sha256 = "f2042f04da2d2e28e1b1ecaa61cb478c0996b4e69b2a424c967dff6fdb8f3dcc"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "b3ac9104a2b6744ddb2756167ff01922cdee3e3b9e96b4bfb566e087b71bb048"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2431,8 +2431,8 @@ channel = "helper.__btrc_cleanup_types"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0070.bin"
 baseline_sha256 = "c76796364b02175bdc5c332f348b8fcb3421f21f050560d9cd03ab0b6a0195d1"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0070.bin"
-accepted_sha256 = "75ddb58e45d43ed84c0e64d6a9fa3bbe2d633cf9440b873adcf9f4463dd5ad5a"
-reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+accepted_sha256 = "e0d0c284979eaa9dd9ff96fe1752efe601980347871e0e6038690984c867e114"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
@@ -2553,8 +2553,8 @@ channel = "helper.__btrc_cycle_state_cleanup"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0079.bin"
 baseline_sha256 = "9a6752e57e701bf85bfb0d59d2904fad77898314c2ff63ad5805a4928141b5a0"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0079.bin"
-accepted_sha256 = "18cf1f66bea572f6aa1c498238361d7e7cf66f00727d31b1c458b2c5d1a304eb"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "03599ec3fb988e84534b1927088559980d0d3b2d9bd26b2ecba28edc79de7f63"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2581,8 +2581,8 @@ channel = "helper.__btrc_destroyed_capacity"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0081.bin"
 baseline_sha256 = "5d16c32144c04a9e62c207dd9588f3829ff9a86bfd9a9b0743256bc81915876b"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0081.bin"
-accepted_sha256 = "ddb38ad37644488da51fed3f8ab5a71cdaa170ac2b33a8f894a92bb547d49549"
-reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+accepted_sha256 = "773cccb09c7c9159ff044f00b3572744fd0d0e8f4a2b79aa70ecbcf35962ff95"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
@@ -2595,8 +2595,8 @@ channel = "helper.__btrc_destroyed_tracking"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0082.bin"
 baseline_sha256 = "3306b0dd50233b2d6edcbd3c2c3dbf40f4d7164b44c5f96a6534a635c4deba94"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0082.bin"
-accepted_sha256 = "1de8ae7e2f8938f38bf9aa8527a6dfb80d50e05f675469ed25ecd322a52d9204"
-reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+accepted_sha256 = "a6bb4a6b0d6c81c57c83abfdb9eb9aeb6030a46f380af8fa629b6582be7b7489"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
@@ -2609,8 +2609,8 @@ channel = "helper.__btrc_destroyed_tracking_scope"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0083.bin"
 baseline_sha256 = "284540a91980ea9ec0ae9fa0cf4a6298635407a1c202e9424ae936a3e0354ed7"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0083.bin"
-accepted_sha256 = "56469205f60b9b04b5f510d3a61c7a3acc0aaddc18dd770208a76951c0518c10"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "8c29cf3fa275d178bfbbf8c7d0b2f929505581de6ce52c9f06b400d2fe77217f"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2623,8 +2623,8 @@ channel = "helper.__btrc_discard_cleanups"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0084.bin"
 baseline_sha256 = "8d4a39303d88bac3c0207669c9348912cd140cda1bea0260a505ca5893b9a301"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0084.bin"
-accepted_sha256 = "618d1184059c76550914fa80384ce3655f5f8b02d0b7f604d488387a567fc20d"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "352000562d4829e1c0e05f63295ebcc7f23c2d5be014f8ae46200745d05d90b6"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2637,8 +2637,8 @@ channel = "helper.__btrc_discard_cleanups_to"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0085.bin"
 baseline_sha256 = "a99b8e9f89b4e24887879a0508866c1ea0dd6cdd538c03722802b2d9468e36dd"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0085.bin"
-accepted_sha256 = "2affd014060bccda2ebead51da5b2664ef8f18d1b2eb1e901772d6419b6f1787"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "105ec2b9c49c743060b1dec85153e1fee52c0c5b6196e3adef14b0fac50a2d70"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2805,8 +2805,8 @@ channel = "helper.__btrc_flush_cycles_guarded"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0099.bin"
 baseline_sha256 = "67dc3c57d731d9db040e95c817d2b463e858ebe2bb310907c613317d0cc0c3b6"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0099.bin"
-accepted_sha256 = "9cb39a2d5af07c313e88e87f5cac98ead97de2e8bcdbc81231b48c2b1d95f641"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "13c8361d643b72aec28d08fb096e9f1bb8e8ff4a2e7224a59ef70ef0e9ad4c47"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -2981,8 +2981,8 @@ channel = "helper.__btrc_is_destroyed"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0115.bin"
 baseline_sha256 = "508bc889b9e0d7cf6ebc86c186f112e03bd722091aa7fe1f5f8b4a52901daf67"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0115.bin"
-accepted_sha256 = "7af8a8e733ccf4481fbe1169068d6f05a18bad1d709412cbb36e36efe9fa24d3"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "1452216c7ac9e4d608a95e2c363339ad47635ce9cabf755946e2446904783e7c"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3015,8 +3015,8 @@ channel = "helper.__btrc_launder"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0118.bin"
 baseline_sha256 = "32a311bde9e4fed6db0d682f44ac78fbc9723bc6d0af74063de289bbecee68a3"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0118.bin"
-accepted_sha256 = "7008f76da6146391875eb21c1d14c1169f1ba8a6b4237eef4335b06a00318d44"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "c69a57bfb71e2068264d71a5e124b16f4144a5263afa6fba9e0e0bfbc7fbb7c8"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3029,8 +3029,8 @@ channel = "helper.__btrc_launder_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0119.bin"
 baseline_sha256 = "43f5529d1fac7ef713cc0f66854a2f3b211e3f9be4968c260e1d9eeefbad40f0"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0119.bin"
-accepted_sha256 = "9d89db8048ea3e1504fdc663990c68ff359ba3ea0a04dc951da5297c263a2e88"
-reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+accepted_sha256 = "ed239955c965bbd416a68af89056ef8e6a920d4b197cff2b740819553a967507"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
@@ -3083,8 +3083,8 @@ channel = "helper.__btrc_mark_destroyed"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0124.bin"
 baseline_sha256 = "a44f80c6ab3287576d9f41f069d50969388308796f642348eaa22eeed18c2311"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0124.bin"
-accepted_sha256 = "38ca9d5171332b9620750b5951cca541e6614bcfa0e1939e734d7f3bd896bc34"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "c37d2ac94ece893434d8c94c54527533071c66d4e7ee8e881b64349904cd9177"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3475,8 +3475,8 @@ channel = "helper.__btrc_push_try"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0156.bin"
 baseline_sha256 = "df68bff0649402ab01782f5e1f6f7ca261226316ac6e27f4fc41ec02dfd40133"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0156.bin"
-accepted_sha256 = "aa2ace46e5aa65508cdf6beb9c9a5c504eb14eee1ba3b39c50ddfc9dfabc8dd7"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "1f4c247e436aef670cc462c98f554ce2c0567722eb34c601fd939e80ecae0e46"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3517,8 +3517,8 @@ channel = "helper.__btrc_register_cleanup_kind"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0159.bin"
 baseline_sha256 = "deba8e0417508305b8353e2e24bfb7f5c2c9a50f9a4b558de4b0e76a476bad2a"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0159.bin"
-accepted_sha256 = "40046a2c1aec1b4d7b9bb562e81f10df4a30542d351e7000950a14cb83a10b55"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "463fa9a26c295922cfa395bd4a2afcd77d696bd18134bdd5da6f079850deed2f"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3605,8 +3605,8 @@ channel = "helper.__btrc_run_cleanup_guarded"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0167.bin"
 baseline_sha256 = "6788220c02764e9a35d2797fe0a008f41cb08fecc0c9f620c7a0dcbf421805d3"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0167.bin"
-accepted_sha256 = "d58e2bb3374b17bcef2aa0c36b677b2a5767bef8b6aba02ef39d7771ab4ee51a"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "e25328943d9be2952daf4406698c695b516d9b9b935db3f123d783af1f7fd09b"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -3619,8 +3619,8 @@ channel = "helper.__btrc_run_cleanups"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0168.bin"
 baseline_sha256 = "4f08888f5b7472363efc3d366bb3dfb5f6102e810f844ac4bedb1784b3498bf3"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0168.bin"
-accepted_sha256 = "2b4940f924c636c8bca87a5ed12baf67950402ca1dce5619fa8e48d495ef1e36"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "14cb4675775a68f38919923496d3d6412c4dee42ee74a609d3b14d500b8ff3ce"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -4117,8 +4117,8 @@ channel = "helper.__btrc_throw"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0209.bin"
 baseline_sha256 = "dde5640c9ee147bb5b976736c15bf7d71858f7194b51d34b2370e27db6e6a179"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0209.bin"
-accepted_sha256 = "a90d4dcd00150c360a4c454a9eeb490f4e1e2e70603ebdc90e32b0fd81d9aa53"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "890f53ec66cc9a737a60e2d34615da6c3f8a07d11c8286799ce9e1362a6912b3"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -4171,8 +4171,8 @@ channel = "helper.__btrc_try_capacity"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0214.bin"
 baseline_sha256 = "b7882b2b793596883629387a0b11ed00a3b8a509d57c9a91113d5c5cd9c40e92"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0214.bin"
-accepted_sha256 = "126510eba9e4f3ecbe39b4eb1580a6b8ac7e50c2d29f7a9cee95b8f75e50494b"
-reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+accepted_sha256 = "d460e2780447b813d27c5f6796757ac9b80284935da0f9e7fa2d5481a19be84a"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
@@ -4185,8 +4185,8 @@ channel = "helper.__btrc_try_level"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0215.bin"
 baseline_sha256 = "e2c327eb39d0d3cee97b5da619cb08b6858f9ff30c725025b2c08e98051edd37"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0215.bin"
-accepted_sha256 = "7de084634e05408e8b1dd866f2817ec09001a0b3006d1ae1ba3b835d8037c4c8"
-reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+accepted_sha256 = "d8db1d10c774d93f30099ea549456866d039be88b8213aba321e353b15ea1e07"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
@@ -4199,8 +4199,8 @@ channel = "helper.__btrc_try_state_cleanup"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0216.bin"
 baseline_sha256 = "a2cc5d75a588949a937d8c535047b64ccac2da286fb67cebbe95dd39398e2262"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0216.bin"
-accepted_sha256 = "5205f1c8ca7e81e18d441fd0f923ba482e96477c712c5474fdb41ce4ecc60a4a"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "5209f48c3eb698c607d5be817ab981ba1b7be6bc2a4f9d35fe202606f9b5cbc0"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -4213,8 +4213,8 @@ channel = "helper.__btrc_trycatch_globals"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0217.bin"
 baseline_sha256 = "7d1fd916786ca4843168e25a90fcd4dc0dce2b3a42fc2342110747af8e7ad609"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0217.bin"
-accepted_sha256 = "81a928c3bacaa22effbb7fe4f2a96e66e04b13357ec664b32f193cba7f17377a"
-reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
+accepted_sha256 = "03256e81cfdfc5d4accfd9bc55be82c4508a7c7ca6d138d6bf5e6cf004101236"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
 
 [[records]]
@@ -4587,8 +4587,8 @@ channel = "helper.__btrc_native_thread_invoke"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0231.bin"
 baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0231.bin"
-accepted_sha256 = "d4c63f96bf06466059083281fa422a3b7630ff9a866073d687b29b71465b1de8"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
+accepted_sha256 = "48ae32c66dd5bd36a2979274eedf8fcb5839236b01cb820e24ef4d04ef0b3c89"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
@@ -4601,6 +4601,6 @@ channel = "helper.__btrc_tls_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0232.bin"
 baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0232.bin"
-accepted_sha256 = "ab2c262b60f9aa96bbbf33c235c600f084978c0ad55139945dd524cd1eaf884d"
-reason = "Runtime helper added after the frozen baseline: every per-thread runtime variable now lives in the one thread-local record this helper declares (the historical names are field accessors), so one address lookup per function replaces one per variable."
+accepted_sha256 = "40f09e39623921332a754cbf147a79978de71349ebeaa4e03fc4c4a057d64dd2"
+reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]

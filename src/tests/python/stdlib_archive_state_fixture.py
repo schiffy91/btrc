@@ -52,24 +52,24 @@ static void* take_cleanup_slot(void* raw) {
 
 static void register_cleanup_slot(
         void* volatile* slot, __btrc_cleanup_fn fn) {
-    if (__btrc_cleanup_cap < 1) __btrc_cleanup_cap = 64;
-    if (!__btrc_cleanup_stack) {
-        __btrc_cleanup_stack = (__btrc_cleanup_entry*)__btrc_safe_realloc(
-            NULL, sizeof(__btrc_cleanup_entry) * (size_t)__btrc_cleanup_cap);
+    if (__btrc_tls.cleanup_cap < 1) __btrc_tls.cleanup_cap = 64;
+    if (!__btrc_tls.cleanup_stack) {
+        __btrc_tls.cleanup_stack = (__btrc_cleanup_entry*)__btrc_safe_realloc(
+            NULL, sizeof(__btrc_cleanup_entry) * (size_t)__btrc_tls.cleanup_cap);
     }
-    if (__btrc_cleanup_top + 1 >= __btrc_cleanup_cap) {
-        __btrc_cleanup_cap *= 2;
-        __btrc_cleanup_stack = (__btrc_cleanup_entry*)__btrc_safe_realloc(
-            __btrc_cleanup_stack,
-            sizeof(__btrc_cleanup_entry) * (size_t)__btrc_cleanup_cap);
+    if (__btrc_tls.cleanup_top + 1 >= __btrc_tls.cleanup_cap) {
+        __btrc_tls.cleanup_cap *= 2;
+        __btrc_tls.cleanup_stack = (__btrc_cleanup_entry*)__btrc_safe_realloc(
+            __btrc_tls.cleanup_stack,
+            sizeof(__btrc_cleanup_entry) * (size_t)__btrc_tls.cleanup_cap);
     }
-    __btrc_cleanup_top++;
-    __btrc_cleanup_stack[__btrc_cleanup_top].slot = (void*)slot;
-    __btrc_cleanup_stack[__btrc_cleanup_top].take = take_cleanup_slot;
-    __btrc_cleanup_stack[__btrc_cleanup_top].fn = fn;
-    __btrc_cleanup_stack[__btrc_cleanup_top].visit = NULL;
-    __btrc_cleanup_stack[__btrc_cleanup_top].try_level = __btrc_try_top;
-    __btrc_cleanup_stack[__btrc_cleanup_top].direct = 1;
+    __btrc_tls.cleanup_top++;
+    __btrc_tls.cleanup_stack[__btrc_tls.cleanup_top].slot = (void*)slot;
+    __btrc_tls.cleanup_stack[__btrc_tls.cleanup_top].take = take_cleanup_slot;
+    __btrc_tls.cleanup_stack[__btrc_tls.cleanup_top].fn = fn;
+    __btrc_tls.cleanup_stack[__btrc_tls.cleanup_top].visit = NULL;
+    __btrc_tls.cleanup_stack[__btrc_tls.cleanup_top].try_level = __btrc_tls.try_top;
+    __btrc_tls.cleanup_stack[__btrc_tls.cleanup_top].direct = 1;
 }
 
 int main(void) {
@@ -101,24 +101,24 @@ int main(void) {
 
     int status = archive_grow_shared_state();
     if (status != 0) return status;
-    if (__btrc_destroyed_count != 300 || __btrc_destroyed_cap < 300) return 5;
-    if (!__btrc_is_destroyed(__btrc_destroyed[299])) return 6;
-    if (__btrc_cleanup_top != 129 || __btrc_cleanup_cap < 130) return 7;
+    if (__btrc_tls.destroyed_count != 300 || __btrc_tls.destroyed_cap < 300) return 5;
+    if (!__btrc_is_destroyed(__btrc_tls.destroyed[299])) return 6;
+    if (__btrc_tls.cleanup_top != 129 || __btrc_tls.cleanup_cap < 130) return 7;
     if (__btrc_suspect_count != 1 || __btrc_suspect_cap < 1) return 8;
 
-    __btrc_tracking = 0;
+    __btrc_tls.tracking = 0;
     __btrc_collect_cycles();
     __btrc_try_state_cleanup();
-    __btrc_destroyed_count = 0;
-    if (__btrc_destroyed == NULL || __btrc_destroyed_cap < 300
-            || __btrc_tracking != 0) return 9;
-    if (__btrc_cleanup_stack != NULL || __btrc_cleanup_top != -1
-            || __btrc_cleanup_cap != 64) return 10;
+    __btrc_tls.destroyed_count = 0;
+    if (__btrc_tls.destroyed == NULL || __btrc_tls.destroyed_cap < 300
+            || __btrc_tls.tracking != 0) return 9;
+    if (__btrc_tls.cleanup_stack != NULL || __btrc_tls.cleanup_top != -1
+            || __btrc_tls.cleanup_cap != 64) return 10;
     if (__btrc_suspects == NULL || __btrc_suspect_count != 0
             || __btrc_suspect_cap < 1 || __btrc_visit_table == NULL
             || __btrc_destroy_table == NULL) return 11;
 
-    __btrc_tracking = 1;
+    __btrc_tls.tracking = 1;
     for (int i = 0; i < 3; i++) {
         __btrc_mark_destroyed(&destroyed_tokens[i]);
         cleanup_slots[i] = &cleanup_tokens[i];

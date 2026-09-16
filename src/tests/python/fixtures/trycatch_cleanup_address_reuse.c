@@ -68,7 +68,7 @@ int main(void) {
         (void*)&original_slot, take_node, destroy_node, NULL);
     __btrc_register_cleanup(
         (void*)&trigger_slot, take_node, destroy_node, NULL);
-    if (__btrc_cleanup_top != 1) return 10;
+    if (__btrc_tls.cleanup_top != 1) return 10;
 
     __btrc_run_cleanups(-1);
 
@@ -80,8 +80,8 @@ int main(void) {
     if (trigger_slot != NULL) return 15;
     if (original_slot != &recycled_storage
             || original_slot->id != REPLACEMENT_ID) return 16;
-    if (__btrc_cleanup_top != -1 || __btrc_tracking != 0
-            || __btrc_destroyed_count != 0) return 17;
+    if (__btrc_tls.cleanup_top != -1 || __btrc_tls.tracking != 0
+            || __btrc_tls.destroyed_count != 0) return 17;
 
     __btrc_arc_release_acyclic(original_slot, &cleanup_node_type);
     original_slot = NULL;

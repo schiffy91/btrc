@@ -95,18 +95,18 @@ CrossChild* cross_program_child_new(int id) {
 
 static void* program_arc_tls_address(int index) {
     switch (index) {
-        case 0: return (void*)&__btrc_arc_deferred_head;
-        case 1: return (void*)&__btrc_arc_deferred_tail;
-        case 2: return (void*)&__btrc_arc_draining;
-        case 3: return (void*)&__btrc_arc_topology_depth;
-        case 4: return (void*)&__btrc_tracking;
-        case 5: return (void*)&__btrc_destroyed;
-        case 6: return (void*)&__btrc_destroyed_count;
-        case 7: return (void*)&__btrc_destroyed_cap;
-        case 8: return (void*)&__btrc_abandon_queue;
-        case 9: return (void*)&__btrc_abandon_count;
-        case 10: return (void*)&__btrc_abandon_cap;
-        case 11: return (void*)&__btrc_abandon_drain_callback;
+        case 0: return (void*)&__btrc_tls.arc_deferred_head;
+        case 1: return (void*)&__btrc_tls.arc_deferred_tail;
+        case 2: return (void*)&__btrc_tls.arc_draining;
+        case 3: return (void*)&__btrc_tls.arc_topology_depth;
+        case 4: return (void*)&__btrc_tls.tracking;
+        case 5: return (void*)&__btrc_tls.destroyed;
+        case 6: return (void*)&__btrc_tls.destroyed_count;
+        case 7: return (void*)&__btrc_tls.destroyed_cap;
+        case 8: return (void*)&__btrc_tls.abandon_queue;
+        case 9: return (void*)&__btrc_tls.abandon_count;
+        case 10: return (void*)&__btrc_tls.abandon_cap;
+        case 11: return (void*)&__btrc_tls.abandon_drain_callback;
         default: return NULL;
     }
 }
@@ -135,19 +135,19 @@ int main(void) {
     }
 
     void* abandon_probe[3] = {NULL, NULL, NULL};
-    __btrc_abandon_queue = abandon_probe;
-    __btrc_abandon_count = 2;
-    __btrc_abandon_cap = 3;
-    __btrc_abandon_drain_callback = noop_abandon_drain;
+    __btrc_tls.abandon_queue = abandon_probe;
+    __btrc_tls.abandon_count = 2;
+    __btrc_tls.abandon_cap = 3;
+    __btrc_tls.abandon_drain_callback = noop_abandon_drain;
     atomic_store_explicit(
         &__btrc_arc_snapshot_pending, 1, memory_order_release);
     if (!archive_arc_new_state_matches(
             abandon_probe, 2, 3, 1, 1)) return 27;
     archive_arc_clear_new_state();
-    if (__btrc_abandon_queue != NULL
-            || __btrc_abandon_count != 0
-            || __btrc_abandon_cap != 0
-            || __btrc_abandon_drain_callback != NULL
+    if (__btrc_tls.abandon_queue != NULL
+            || __btrc_tls.abandon_count != 0
+            || __btrc_tls.abandon_cap != 0
+            || __btrc_tls.abandon_drain_callback != NULL
             || atomic_load_explicit(
                 &__btrc_arc_snapshot_pending,
                 memory_order_acquire) != 0) return 28;
@@ -170,9 +170,9 @@ int main(void) {
             || destroy_counts[2] != 1
             || destroy_counts[3] != 1) return 33;
     if (!archive_arc_tls_is_idle()
-            || __btrc_arc_deferred_head != NULL
-            || __btrc_arc_deferred_tail != NULL
-            || __btrc_arc_draining != 0) return 34;
+            || __btrc_tls.arc_deferred_head != NULL
+            || __btrc_tls.arc_deferred_tail != NULL
+            || __btrc_tls.arc_draining != 0) return 34;
     __btrc_flush_cycles();
     if (hook_trace_length != 3) return 35;
     __btrc_cycle_state_cleanup();

@@ -338,10 +338,10 @@ static void test_overlapping_queued_roots(void) {
     void* volatile topology = __btrc_arc_topology_begin();
     __btrc_arc_abandon(inner);
     __btrc_arc_abandon(outer);
-    if (__btrc_abandon_count != 2) abort();
+    if (__btrc_tls.abandon_count != 2) abort();
     __btrc_arc_topology_complete(&topology);
-    if (__btrc_abandon_count != 0 || __btrc_abandon_queue
-            || __btrc_abandon_drain_callback) abort();
+    if (__btrc_tls.abandon_count != 0 || __btrc_tls.abandon_queue
+            || __btrc_tls.abandon_drain_callback) abort();
     if (atomic_load_explicit(
             &failed_destroys, memory_order_relaxed) != 4
             || atomic_load_explicit(
@@ -371,14 +371,14 @@ static void test_nested_queued_root_scc_with_shared_child(void) {
     void* volatile inner = __btrc_arc_topology_begin();
     __btrc_arc_abandon(second);
     __btrc_arc_abandon(first);
-    if (__btrc_abandon_count != 2) abort();
+    if (__btrc_tls.abandon_count != 2) abort();
     __btrc_arc_topology_complete(&inner);
-    if (inner || __btrc_arc_topology_depth != 1
-            || __btrc_abandon_count != 2) abort();
+    if (inner || __btrc_tls.arc_topology_depth != 1
+            || __btrc_tls.abandon_count != 2) abort();
     __btrc_arc_topology_complete(&outer);
-    if (outer || __btrc_arc_topology_depth != 0
-            || __btrc_abandon_count != 0 || __btrc_abandon_queue
-            || __btrc_abandon_drain_callback) abort();
+    if (outer || __btrc_tls.arc_topology_depth != 0
+            || __btrc_tls.abandon_count != 0 || __btrc_tls.abandon_queue
+            || __btrc_tls.abandon_drain_callback) abort();
     if (atomic_load_explicit(
             &forest_destroys, memory_order_relaxed) != 2
             || atomic_load_explicit(

@@ -127,9 +127,9 @@ static int action(void* raw) {
     __btrc_destroyed_tracking_end();
     if (mode == 2) {
         int result = 73;
-        int level = __btrc_try_top;
+        int level = __btrc_tls.try_top;
         if (__btrc_native_thread_invoke(action, raw, &result) != 1
-                || result != 73 || __btrc_try_top != level) return -2;
+                || result != 73 || __btrc_tls.try_top != level) return -2;
     }
     if (mode == 1 || mode == 3) {
         void* volatile slot = raw;
@@ -140,9 +140,9 @@ static int action(void* raw) {
     return 42;
 }
 static int clean(void) {
-    return __btrc_try_stack == NULL && __btrc_cleanup_stack == NULL
-        && __btrc_try_top == -1 && __btrc_cleanup_top == -1
-        && __btrc_destroyed == NULL && __btrc_destroyed_cap == 0;
+    return __btrc_tls.try_stack == NULL && __btrc_tls.cleanup_stack == NULL
+        && __btrc_tls.try_top == -1 && __btrc_tls.cleanup_top == -1
+        && __btrc_tls.destroyed == NULL && __btrc_tls.destroyed_cap == 0;
 }
 static void* worker(void* unused) {
     (void)unused;
@@ -194,7 +194,7 @@ def test_direct_cleanup_helper_is_warning_clean_without_indirect_wrapper(tmp_pat
         "int main(void) {\n"
         "    void* volatile value = NULL;\n"
         "    __btrc_register_direct_cleanup((void*)&value, take, cleanup);\n"
-        "    return __btrc_cleanup_top == 0 ? 0 : 1;\n"
+        "    return __btrc_tls.cleanup_top == 0 ? 0 : 1;\n"
         "}\n"
     )
     compiled = subprocess.run(
@@ -332,18 +332,18 @@ int main(void) {
     free(node);
 
     for (int i = 0; i < 80; i++) __btrc_push_try();
-    if (__btrc_try_top != 79 || __btrc_try_cap < 80) return 12;
-    __btrc_try_top = -1;
+    if (__btrc_tls.try_top != 79 || __btrc_tls.try_cap < 80) return 12;
+    __btrc_tls.try_top = -1;
     void* volatile cleanup_ptrs[80];
     for (int i = 0; i < 80; i++) {
         cleanup_ptrs[i] = (void*)(intptr_t)(i + 1);
         __btrc_register_cleanup(
             (void*)&cleanup_ptrs[i], test_take, test_cleanup, NULL);
     }
-    if (__btrc_cleanup_top != 79 || __btrc_cleanup_cap < 80) return 13;
+    if (__btrc_tls.cleanup_top != 79 || __btrc_tls.cleanup_cap < 80) return 13;
     __btrc_register_cleanup(
         (void*)&cleanup_ptrs[79], test_take, test_cleanup, NULL);
-    if (__btrc_cleanup_top != 79) return 24;
+    if (__btrc_tls.cleanup_top != 79) return 24;
     __btrc_try_state_cleanup();
 
     void* token = (void*)(intptr_t)41;

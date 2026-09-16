@@ -69,8 +69,8 @@ def test_throwing_cleanup_preserves_primary_in_both_compilers(
         ("reference", reference_c),
     ):
         emitted = generated.read_text()
-        assert "__btrc_cleanup_top = base - 1;" in emitted
-        assert "char primary_error[sizeof __btrc_error_msg];" in emitted
+        assert "__btrc_tls.cleanup_top = base - 1;" in emitted
+        assert "char primary_error[sizeof __btrc_tls.error_msg];" in emitted
         assert "__btrc_run_cleanups(-1);" in emitted
         for c_compiler in COMPILERS:
             c_name = Path(c_compiler).name

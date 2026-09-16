@@ -126,14 +126,14 @@ static inline void __btrc_arc_validate(void* object) {
 /* btrc-runtime-helper:end __btrc_arc_validate */
 /* btrc-runtime-helper:begin __btrc_destroyed_tracking */
 /* ARC cascade-destroy tracking: avoid reading freed memory */
-/* __btrc_tracking, __btrc_destroyed and __btrc_destroyed_count are fields of __btrc_tls. */
+/* __btrc_tls.tracking, __btrc_tls.destroyed and __btrc_tls.destroyed_count live in the thread-local record __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_destroyed_tracking */
 /* btrc-runtime-helper:begin __btrc_destroyed_tracking_scope */
 static void __btrc_destroyed_tracking_begin(void) {
     __btrc_arc_lock_mutation();
-    int active = __btrc_tracking;
+    int active = __btrc_tls.tracking;
     if (active == 0) {
-        __btrc_destroyed_count = 0;
+        __btrc_tls.destroyed_count = 0;
         if (__btrc_arc_active_unwinds == INT_MAX) {
             fprintf(stderr, "btrc: active unwind count overflow\n");
             exit(1);
@@ -144,20 +144,20 @@ static void __btrc_destroyed_tracking_begin(void) {
         fprintf(stderr, "btrc: destroyed tracking depth overflow\n");
         exit(1);
     }
-    __btrc_tracking = active + 1;
+    __btrc_tls.tracking = active + 1;
     __btrc_arc_unlock_mutation();
 }
 static void __btrc_destroyed_tracking_end(void) {
     __btrc_arc_lock_mutation();
-    int active = __btrc_tracking;
+    int active = __btrc_tls.tracking;
     if (active <= 0) {
         fprintf(stderr, "btrc: unbalanced destroyed tracking scope\n");
         exit(1);
     }
     active--;
-    __btrc_tracking = active;
+    __btrc_tls.tracking = active;
     if (active == 0) {
-        __btrc_destroyed_count = 0;
+        __btrc_tls.destroyed_count = 0;
         if (__btrc_arc_active_unwinds <= 0) {
             fprintf(stderr, "btrc: invalid active unwind count\n");
             exit(1);
@@ -171,8 +171,8 @@ static void __btrc_destroyed_tracking_end(void) {
 static int __btrc_is_destroyed(void* ptr) {
     if (!ptr) return 0;
     __btrc_arc_lock_mutation();
-    for (int i = 0; i < __btrc_destroyed_count; i++) {
-        if (__btrc_destroyed[i] != ptr) continue;
+    for (int i = 0; i < __btrc_tls.destroyed_count; i++) {
+        if (__btrc_tls.destroyed[i] != ptr) continue;
         __btrc_arc_unlock_mutation();
         return 1;
     }
@@ -181,36 +181,36 @@ static int __btrc_is_destroyed(void* ptr) {
 }
 /* btrc-runtime-helper:end __btrc_is_destroyed */
 /* btrc-runtime-helper:begin __btrc_destroyed_capacity */
-/* __btrc_destroyed_cap is a field of __btrc_tls. */
+/* __btrc_tls.destroyed_cap lives in the thread-local record __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_destroyed_capacity */
 /* btrc-runtime-helper:begin __btrc_mark_destroyed */
 static void __btrc_mark_destroyed(void* ptr) {
     if (!ptr) return;
     __btrc_arc_lock_mutation();
-    if (!__btrc_tracking) {
+    if (!__btrc_tls.tracking) {
         __btrc_arc_unlock_mutation();
         return;
     }
-    if (__btrc_destroyed_count < 0 || __btrc_destroyed_cap < 0
-            || __btrc_destroyed_count > __btrc_destroyed_cap) {
+    if (__btrc_tls.destroyed_count < 0 || __btrc_tls.destroyed_cap < 0
+            || __btrc_tls.destroyed_count > __btrc_tls.destroyed_cap) {
         fprintf(stderr, "btrc: invalid destroyed tracking capacity\n");
         exit(1);
     }
-    for (int i = 0; i < __btrc_destroyed_count; i++) {
-        if (__btrc_destroyed[i] != ptr) continue;
+    for (int i = 0; i < __btrc_tls.destroyed_count; i++) {
+        if (__btrc_tls.destroyed[i] != ptr) continue;
         __btrc_arc_unlock_mutation();
         return;
     }
-    if (__btrc_destroyed_count >= __btrc_destroyed_cap) {
-        if (__btrc_destroyed_cap > INT_MAX / 2) { fprintf(stderr, "btrc: destroyed tracking overflow\n"); exit(1); }
-        int new_cap = __btrc_destroyed_cap ? __btrc_destroyed_cap * 2 : 256;
+    if (__btrc_tls.destroyed_count >= __btrc_tls.destroyed_cap) {
+        if (__btrc_tls.destroyed_cap > INT_MAX / 2) { fprintf(stderr, "btrc: destroyed tracking overflow\n"); exit(1); }
+        int new_cap = __btrc_tls.destroyed_cap ? __btrc_tls.destroyed_cap * 2 : 256;
         if ((size_t)new_cap > SIZE_MAX / sizeof(void*)) { fprintf(stderr, "btrc: destroyed tracking size overflow\n"); exit(1); }
         size_t bytes = sizeof(void*) * (size_t)new_cap;
-        __btrc_destroyed = (void**)__btrc_safe_realloc(
-            __btrc_destroyed, bytes);
-        __btrc_destroyed_cap = new_cap;
+        __btrc_tls.destroyed = (void**)__btrc_safe_realloc(
+            __btrc_tls.destroyed, bytes);
+        __btrc_tls.destroyed_cap = new_cap;
     }
-    __btrc_destroyed[__btrc_destroyed_count++] = ptr;
+    __btrc_tls.destroyed[__btrc_tls.destroyed_count++] = ptr;
     __btrc_arc_unlock_mutation();
 }
 /* btrc-runtime-helper:end __btrc_mark_destroyed */
@@ -410,16 +410,16 @@ static int __btrc_arc_topology_active = 0;
 static int __btrc_arc_topology_flush_pending = 0;
 /* btrc-runtime-helper:end __btrc_arc_topology_state */
 /* btrc-runtime-helper:begin __btrc_arc_topology_depth_state */
-/* __btrc_arc_topology_depth and __btrc_arc_draining are fields of __btrc_tls. */
+/* __btrc_tls.arc_topology_depth and __btrc_tls.arc_draining live in the thread-local record __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_arc_topology_depth_state */
 /* btrc-runtime-helper:begin __btrc_arc_topology_begin */
 static void* __btrc_arc_topology_begin(void) {
-    if (__btrc_arc_topology_depth > 0) {
-        if (__btrc_arc_topology_depth == INT_MAX) {
+    if (__btrc_tls.arc_topology_depth > 0) {
+        if (__btrc_tls.arc_topology_depth == INT_MAX) {
             fprintf(stderr, "btrc: ARC topology scope overflow\n");
             exit(1);
         }
-        __btrc_arc_topology_depth++;
+        __btrc_tls.arc_topology_depth++;
         return (void*)&__btrc_arc_topology_active;
     }
     for (;;) {
@@ -434,13 +434,13 @@ static void* __btrc_arc_topology_begin(void) {
                 && !atomic_load_explicit(
                     &__btrc_arc_snapshot_pending, memory_order_acquire)
                 && (!__btrc_arc_topology_flush_pending
-                    || __btrc_arc_draining)) {
+                    || __btrc_tls.arc_draining)) {
             if (__btrc_arc_topology_active == INT_MAX) {
                 fprintf(stderr, "btrc: ARC topology scope overflow\n");
                 exit(1);
             }
             __btrc_arc_topology_active++;
-            __btrc_arc_topology_depth = 1;
+            __btrc_tls.arc_topology_depth = 1;
             __btrc_arc_unlock_raw();
             return (void*)&__btrc_arc_topology_active;
         }
@@ -456,12 +456,12 @@ static void* __btrc_arc_topology_begin(void) {
 static int __btrc_arc_topology_leave(void* token) {
     if (!token) return 0;
     if (token != (void*)&__btrc_arc_topology_active
-            || __btrc_arc_topology_depth <= 0) {
+            || __btrc_tls.arc_topology_depth <= 0) {
         fprintf(stderr, "btrc: invalid ARC topology scope\n");
         exit(1);
     }
-    __btrc_arc_topology_depth--;
-    if (__btrc_arc_topology_depth > 0) return 0;
+    __btrc_tls.arc_topology_depth--;
+    if (__btrc_tls.arc_topology_depth > 0) return 0;
     __btrc_arc_lock_raw();
     if (__btrc_arc_shutdown) {
         __btrc_arc_unlock_raw();
@@ -503,7 +503,7 @@ static void __btrc_arc_topology_complete(
 /* btrc-runtime-helper:end __btrc_arc_topology_complete */
 /* btrc-runtime-helper:begin __btrc_arc_deferred_state */
 /* Per-thread intrusive FIFO for terminal ARC work. */
-/* __btrc_arc_deferred_head and __btrc_arc_deferred_tail are fields of __btrc_tls. */
+/* __btrc_tls.arc_deferred_head and __btrc_tls.arc_deferred_tail live in the thread-local record __btrc_tls. */
 
 static _Noreturn void __btrc_arc_raise_unlocked(
         const __btrc_arc_type* type, const char* message) {
@@ -522,12 +522,12 @@ static void __btrc_arc_enqueue_locked(void* object) {
     }
     header->live_witness = NULL;
     header->state = __BTRC_ARC_QUEUED;
-    if (__btrc_arc_deferred_tail) {
-        __btrc_arc_header_of(__btrc_arc_deferred_tail)->deferred_next = object;
+    if (__btrc_tls.arc_deferred_tail) {
+        __btrc_arc_header_of(__btrc_tls.arc_deferred_tail)->deferred_next = object;
     } else {
-        __btrc_arc_deferred_head = object;
+        __btrc_tls.arc_deferred_head = object;
     }
-    __btrc_arc_deferred_tail = object;
+    __btrc_tls.arc_deferred_tail = object;
 }
 /* btrc-runtime-helper:end __btrc_arc_deferred_state */
 /* btrc-runtime-helper:begin __btrc_arc_snapshot_gate_state */
@@ -543,7 +543,7 @@ static void __btrc_arc_exclusive_snapshot_begin(void) {
             fprintf(stderr, "btrc: ARC operation after shutdown\n");
             exit(1);
         }
-        if (__btrc_arc_topology_depth != 0) {
+        if (__btrc_tls.arc_topology_depth != 0) {
             fprintf(stderr, "btrc: ARC snapshot inside topology mutation\n");
             exit(1);
         }
@@ -1623,29 +1623,29 @@ static void __btrc_arc_abandon_now(void* object) {
 /* btrc-runtime-helper:end __btrc_arc_abandon_graph */
 /* btrc-runtime-helper:begin __btrc_arc_abandon_callback_state */
 typedef void (*__btrc_abandon_drain_fn)(void);
-/* __btrc_abandon_drain_callback is a field of __btrc_tls. */
+/* __btrc_tls.abandon_drain_callback lives in the thread-local record __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_arc_abandon_callback_state */
 /* btrc-runtime-helper:begin __btrc_arc_abandon_queue_state */
-/* __btrc_abandon_queue, __btrc_abandon_count and __btrc_abandon_cap are fields of __btrc_tls. */
+/* __btrc_tls.abandon_queue, __btrc_tls.abandon_count and __btrc_tls.abandon_cap live in the thread-local record __btrc_tls. */
 /* btrc-runtime-helper:end __btrc_arc_abandon_queue_state */
 /* btrc-runtime-helper:begin __btrc_arc_abandon_queue_drain */
 static void __btrc_arc_drain_pending_abandons(void) {
     __btrc_abandon_drain_fn callback =
-        __btrc_abandon_drain_callback;
+        __btrc_tls.abandon_drain_callback;
     if (callback) callback();
 }
 /* btrc-runtime-helper:end __btrc_arc_abandon_queue_drain */
 /* btrc-runtime-helper:begin __btrc_arc_abandon */
 static void __btrc_arc_drain_abandon_queue(void) {
-    if (__btrc_arc_topology_depth != 0) return;
+    if (__btrc_tls.arc_topology_depth != 0) return;
     for (;;) {
         __btrc_arc_lock_mutation();
-        void** batch = __btrc_abandon_queue;
-        int count = __btrc_abandon_count;
-        __btrc_abandon_queue = NULL;
-        __btrc_abandon_count = 0;
-        __btrc_abandon_cap = 0;
-        __btrc_abandon_drain_callback = NULL;
+        void** batch = __btrc_tls.abandon_queue;
+        int count = __btrc_tls.abandon_count;
+        __btrc_tls.abandon_queue = NULL;
+        __btrc_tls.abandon_count = 0;
+        __btrc_tls.abandon_cap = 0;
+        __btrc_tls.abandon_drain_callback = NULL;
         __btrc_arc_unlock_mutation();
         if (count == 0) {
             free(batch);
@@ -1657,7 +1657,7 @@ static void __btrc_arc_drain_abandon_queue(void) {
 
 static void __btrc_arc_abandon(void* object) {
     if (!object) return;
-    if (__btrc_arc_topology_depth == 0) {
+    if (__btrc_tls.arc_topology_depth == 0) {
         __btrc_arc_abandon_now(object);
         return;
     }
@@ -1668,39 +1668,39 @@ static void __btrc_arc_abandon(void* object) {
         fprintf(stderr, "btrc: invalid deferred construction abandon\n");
         exit(1);
     }
-    if (__btrc_abandon_count < 0 || __btrc_abandon_cap < 0
-            || __btrc_abandon_count > __btrc_abandon_cap) {
+    if (__btrc_tls.abandon_count < 0 || __btrc_tls.abandon_cap < 0
+            || __btrc_tls.abandon_count > __btrc_tls.abandon_cap) {
         fprintf(stderr, "btrc: invalid construction abandon capacity\n");
         exit(1);
     }
-    for (int i = 0; i < __btrc_abandon_count; i++) {
-        if (__btrc_abandon_queue[i] == object) {
+    for (int i = 0; i < __btrc_tls.abandon_count; i++) {
+        if (__btrc_tls.abandon_queue[i] == object) {
             fprintf(stderr, "btrc: duplicate deferred construction abandon\n");
             exit(1);
         }
     }
-    if (__btrc_abandon_count == INT_MAX) {
+    if (__btrc_tls.abandon_count == INT_MAX) {
         fprintf(stderr, "btrc: construction abandon queue overflow\n");
         exit(1);
     }
-    if (__btrc_abandon_count >= __btrc_abandon_cap) {
-        if (__btrc_abandon_cap > INT_MAX / 2) {
+    if (__btrc_tls.abandon_count >= __btrc_tls.abandon_cap) {
+        if (__btrc_tls.abandon_cap > INT_MAX / 2) {
             fprintf(stderr, "btrc: construction abandon capacity overflow\n");
             exit(1);
         }
-        int cap = __btrc_abandon_cap
-            ? __btrc_abandon_cap * 2 : 16;
+        int cap = __btrc_tls.abandon_cap
+            ? __btrc_tls.abandon_cap * 2 : 16;
         if ((size_t)cap > SIZE_MAX / sizeof(void*)) {
             fprintf(stderr, "btrc: construction abandon size overflow\n");
             exit(1);
         }
         size_t bytes = sizeof(void*) * (size_t)cap;
-        __btrc_abandon_queue = (void**)__btrc_safe_realloc(
-            __btrc_abandon_queue, bytes);
-        __btrc_abandon_cap = cap;
+        __btrc_tls.abandon_queue = (void**)__btrc_safe_realloc(
+            __btrc_tls.abandon_queue, bytes);
+        __btrc_tls.abandon_cap = cap;
     }
-    __btrc_abandon_queue[__btrc_abandon_count++] = object;
-    __btrc_abandon_drain_callback =
+    __btrc_tls.abandon_queue[__btrc_tls.abandon_count++] = object;
+    __btrc_tls.abandon_drain_callback =
         __btrc_arc_drain_abandon_queue;
     __btrc_arc_topology_flush_pending = 1;
     __btrc_arc_unlock_mutation();
@@ -1919,24 +1919,24 @@ static int __btrc_collect_cycles_once(void) {
 /* btrc-runtime-helper:end __btrc_collect_cycles_once */
 /* btrc-runtime-helper:begin __btrc_arc_drain */
 static void __btrc_arc_drain_deferred(int force_cycles) {
-    if (__btrc_arc_draining) return;
+    if (__btrc_tls.arc_draining) return;
     /* The deferred FIFO is this thread's own: only its releases enqueue into
      * it, under the mutation lock, and only this drain dequeues. So an empty
      * head read here without the lock is exact, and the common release --
      * one that leaves the object alive -- returns without touching the lock. */
-    if (!force_cycles && __btrc_arc_topology_depth == 0
-            && __btrc_arc_deferred_head == NULL)
+    if (!force_cycles && __btrc_tls.arc_topology_depth == 0
+            && __btrc_tls.arc_deferred_head == NULL)
         return;
-    if (__btrc_arc_topology_depth > 0) {
+    if (__btrc_tls.arc_topology_depth > 0) {
         __btrc_arc_lock_mutation();
-        if (force_cycles || __btrc_arc_deferred_head
+        if (force_cycles || __btrc_tls.arc_deferred_head
                 || __btrc_suspect_count > 0)
             __btrc_arc_topology_flush_pending = 1;
         __btrc_arc_unlock_mutation();
         return;
     }
     __btrc_arc_lock_mutation();
-    int has_terminal = __btrc_arc_deferred_head != NULL;
+    int has_terminal = __btrc_tls.arc_deferred_head != NULL;
     if (!has_terminal && !force_cycles) {
         __btrc_arc_unlock_mutation();
         return;
@@ -1948,7 +1948,7 @@ static void __btrc_arc_drain_deferred(int force_cycles) {
     __btrc_arc_active_drains++;
     __btrc_arc_unlock_mutation();
 
-    __btrc_arc_draining = 1;
+    __btrc_tls.arc_draining = 1;
     int cascade = 0;
     char first_error[1024];
     first_error[0] = '\0';
@@ -1956,16 +1956,16 @@ static void __btrc_arc_drain_deferred(int force_cycles) {
     int has_error = 0;
     for (;;) {
         __btrc_arc_lock_mutation();
-        void* object = __btrc_arc_deferred_head;
+        void* object = __btrc_tls.arc_deferred_head;
         if (object) {
             __btrc_arc_header* header = __btrc_arc_header_of(object);
             if (header->state != __BTRC_ARC_QUEUED) {
                 fprintf(stderr, "btrc: invalid deferred ARC state\n");
                 exit(1);
             }
-            __btrc_arc_deferred_head = header->deferred_next;
-            if (!__btrc_arc_deferred_head)
-                __btrc_arc_deferred_tail = NULL;
+            __btrc_tls.arc_deferred_head = header->deferred_next;
+            if (!__btrc_tls.arc_deferred_head)
+                __btrc_tls.arc_deferred_tail = NULL;
             header->deferred_next = NULL;
             int suppress_hook = header->suppress_hook;
             header->suppress_hook = 0;
@@ -2001,7 +2001,7 @@ static void __btrc_arc_drain_deferred(int force_cycles) {
          * handoff from its own drain loop. */
         break;
     }
-    __btrc_arc_draining = 0;
+    __btrc_tls.arc_draining = 0;
     __btrc_arc_lock_mutation();
     if (__btrc_arc_active_drains <= 0) {
         fprintf(stderr, "btrc: invalid ARC drain count\n");
@@ -2040,26 +2040,26 @@ static int __btrc_flush_cycles(void) {
 /* btrc-runtime-helper:begin __btrc_arc_thread_state_cleanup */
 static void __btrc_arc_thread_state_finalize(void) {
     __btrc_arc_lock_mutation();
-    if (__btrc_tracking != 0
-            || __btrc_arc_topology_depth != 0
-            || __btrc_arc_draining
-            || __btrc_arc_deferred_head
-            || __btrc_arc_deferred_tail
-            || __btrc_abandon_queue
-            || __btrc_abandon_count != 0
-            || __btrc_abandon_drain_callback) {
+    if (__btrc_tls.tracking != 0
+            || __btrc_tls.arc_topology_depth != 0
+            || __btrc_tls.arc_draining
+            || __btrc_tls.arc_deferred_head
+            || __btrc_tls.arc_deferred_tail
+            || __btrc_tls.abandon_queue
+            || __btrc_tls.abandon_count != 0
+            || __btrc_tls.abandon_drain_callback) {
         fprintf(stderr, "btrc: ARC thread cleanup during active work\n");
         exit(1);
     }
-    free(__btrc_destroyed);
-    __btrc_destroyed = NULL;
-    __btrc_destroyed_count = 0;
-    __btrc_destroyed_cap = 0;
-    free(__btrc_abandon_queue);
-    __btrc_abandon_queue = NULL;
-    __btrc_abandon_count = 0;
-    __btrc_abandon_cap = 0;
-    __btrc_abandon_drain_callback = NULL;
+    free(__btrc_tls.destroyed);
+    __btrc_tls.destroyed = NULL;
+    __btrc_tls.destroyed_count = 0;
+    __btrc_tls.destroyed_cap = 0;
+    free(__btrc_tls.abandon_queue);
+    __btrc_tls.abandon_queue = NULL;
+    __btrc_tls.abandon_count = 0;
+    __btrc_tls.abandon_cap = 0;
+    __btrc_tls.abandon_drain_callback = NULL;
     __btrc_arc_unlock_mutation();
 }
 static void __btrc_arc_thread_state_cleanup(void) {
@@ -2124,8 +2124,8 @@ static inline void __btrc_cycle_state_cleanup(void) {
     __btrc_reverse_queue_cap = __btrc_reverse_key_cap = 0;
     __btrc_reverse_count = 0;
     __btrc_reverse_epoch = 0;
-    if (__btrc_arc_deferred_head || __btrc_arc_deferred_tail
-            || __btrc_arc_draining) {
+    if (__btrc_tls.arc_deferred_head || __btrc_tls.arc_deferred_tail
+            || __btrc_tls.arc_draining) {
         fprintf(stderr, "btrc: ARC cleanup during active drain\n");
         exit(1);
     }

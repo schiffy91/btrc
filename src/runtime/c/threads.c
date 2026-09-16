@@ -212,8 +212,8 @@ static void __btrc_native_thread_cleanup_thunk(void* unused) {
  * Neither a callback exception nor a cleanup exception crosses the C boundary. */
 static int __btrc_native_thread_invoke(
         int (*action)(void*), void* context, int* result) {
-    if (!action || !result || __btrc_try_top != -1
-            || __btrc_cleanup_top != -1) return 1;
+    if (!action || !result || __btrc_tls.try_top != -1
+            || __btrc_tls.cleanup_top != -1) return 1;
     *result = 0;
     __btrc_native_thread_call call = {action, context, 0};
     int failed = __btrc_arc_guard_hook(

@@ -96,9 +96,9 @@ int main(int argc, char** argv) {
         (void)__btrc_suspect_capacity_bytes(
             2, SIZE_MAX, "suspect byte boundary");
     if (strcmp(argv[1], "destroyed-state") == 0) {
-        __btrc_tracking = 1;
-        __btrc_destroyed_count = 1;
-        __btrc_destroyed_cap = 0;
+        __btrc_tls.tracking = 1;
+        __btrc_tls.destroyed_count = 1;
+        __btrc_tls.destroyed_cap = 0;
         __btrc_mark_destroyed((void*)(uintptr_t)1);
     }
     return 3;

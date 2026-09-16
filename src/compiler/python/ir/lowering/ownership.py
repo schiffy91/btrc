@@ -2279,7 +2279,7 @@ class OwnershipLowerer:
         stmts: list[IRStmt] = []
         if self._session.uses_any_helper({"__btrc_register_cleanup", "__btrc_register_direct_cleanup"}):
             self._session.require_helper("__btrc_discard_cleanups")
-            level = IRVar(name="__btrc_try_top")
+            level = IRFieldAccess(obj=IRVar(name="__btrc_tls"), field="try_top")
             if depth > 1:
                 level = IRBinOp(left=level, op="-", right=IRLiteral(text=str(depth - 1)))
             stmts.append(
@@ -2298,7 +2298,7 @@ class OwnershipLowerer:
     def _pop_try_frames(depth: int) -> list[IRStmt]:
         if depth <= 0:
             return []
-        top = IRVar(name="__btrc_try_top")
+        top = IRFieldAccess(obj=IRVar(name="__btrc_tls"), field="try_top")
         expression = (
             IRUnaryOp(op="--", operand=top, prefix=False)
             if depth == 1

@@ -30,7 +30,7 @@ PYTEST_WORKERS ?= 8
 # confused with a run whose coverage was silently gated away.
 PYTEST_ARGS ?= -q -rs -n $(PYTEST_WORKERS)
 PYTEST_SERIAL_ARGS ?= -q -rs
-BTRC_FORMAT_PATHS := src examples bench
+BTRC_FORMAT_PATHS := src examples
 # What `make linux-ci` runs inside the container. Override to reproduce a
 # single CI step, e.g. LINUX_CI_TARGETS="lint format-check".
 LINUX_CI_TARGETS ?= gpu-required test

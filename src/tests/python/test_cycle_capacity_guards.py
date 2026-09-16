@@ -78,13 +78,13 @@ def test_cycle_allocations_compute_checked_bytes_before_use() -> None:
     for helper_name, capacity, size_check, allocation in (
         (
             "__btrc_arc_abandon",
-            "__btrc_abandon_cap > INT_MAX / 2",
+            "__btrc_tls.abandon_cap > INT_MAX / 2",
             "(size_t)cap > SIZE_MAX / sizeof(void*)",
             "__btrc_safe_realloc",
         ),
         (
             "__btrc_mark_destroyed",
-            "__btrc_destroyed_cap > INT_MAX / 2",
+            "__btrc_tls.destroyed_cap > INT_MAX / 2",
             "(size_t)new_cap > SIZE_MAX / sizeof(void*)",
             "__btrc_safe_realloc",
         ),

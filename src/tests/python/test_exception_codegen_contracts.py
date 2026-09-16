@@ -512,10 +512,9 @@ def test_try_frames_are_indirect_and_catch_messages_are_owned():
     """)
 
     assert "struct __btrc_try_frame** try_stack;" in emitted
-    assert "#define __btrc_try_stack (__btrc_tls.try_stack)" in emitted
-    assert "setjmp(__btrc_try_stack[__btrc_try_top]->env)" in emitted
-    assert "longjmp(__btrc_try_stack[level]->env, 1)" in emitted
-    assert "__btrc_str_track(__btrc_strdup(__btrc_error_msg))" in emitted
+    assert "setjmp(__btrc_tls.try_stack[__btrc_tls.try_top]->env)" in emitted
+    assert "longjmp(__btrc_tls.try_stack[level]->env, 1)" in emitted
+    assert "__btrc_str_track(__btrc_strdup(__btrc_tls.error_msg))" in emitted
 
 
 def test_terminating_try_catch_materializes_the_impossible_c_edge():

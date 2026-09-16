@@ -335,10 +335,11 @@ def test_build_stdlib_writes_archive(tmp_path, monkeypatch, capsys):
     impl = (out / sa.IMPL_NAME).read_text()
     assert "#ifndef BTRC_STDLIB_H" in header
     assert "extern _Thread_local __btrc_tls_record __btrc_tls;" in header
-    assert "#define __btrc_destroyed (__btrc_tls.destroyed)" in header
-    assert "#define __btrc_tracking (__btrc_tls.tracking)" in header
-    assert "#define __btrc_cleanup_stack (__btrc_tls.cleanup_stack)" in header
-    assert "#define __btrc_cleanup_cap (__btrc_tls.cleanup_cap)" in header
+    # The record's fields are declared once, in the typedef the header carries.
+    assert "    void** destroyed;" in header
+    assert "    int tracking;" in header
+    assert "    struct __btrc_cleanup_entry* cleanup_stack;" in header
+    assert "    int cleanup_cap;" in header
     assert "extern void** __btrc_suspects;" in header
     assert "extern int __btrc_suspect_cap;" in header
     assert "void __btrc_cycle_state_cleanup(void);" in header

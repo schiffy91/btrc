@@ -65,8 +65,8 @@ static int handled_case(void) {
     reset_state();
 
     __btrc_push_try();
-    int handler_level = __btrc_try_top;
-    if (setjmp(__btrc_try_stack[handler_level]->env) == 0) {
+    int handler_level = __btrc_tls.try_top;
+    if (setjmp(__btrc_tls.try_stack[handler_level]->env) == 0) {
         __btrc_register_direct_cleanup(
             (void*)&first_slot, take_slot, record_cleanup);
         __btrc_register_direct_cleanup(
@@ -74,9 +74,9 @@ static int handled_case(void) {
         __btrc_throw("primary failure");
     }
 
-    int ok = strcmp(__btrc_error_msg, "primary failure") == 0
-        && __btrc_try_top == -1
-        && __btrc_cleanup_top == -1
+    int ok = strcmp(__btrc_tls.error_msg, "primary failure") == 0
+        && __btrc_tls.try_top == -1
+        && __btrc_tls.cleanup_top == -1
         && first_slot == NULL
         && second_slot == NULL
         && nested_slot == NULL

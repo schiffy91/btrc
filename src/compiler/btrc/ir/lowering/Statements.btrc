@@ -797,9 +797,9 @@ class StatementLowerer {
      * returned object escapes and must stay alive, and the non-returned managed
      * locals were already released by emitReturnRelease just before this.
      *
-     * The function's open try levels occupy [base+1 .. __btrc_try_top] where
-     * base = __btrc_try_top - inTryDepth; so discard every cleanup at
-     * try_level >= base+1 (= __btrc_try_top - (inTryDepth - 1)) and pop inTryDepth
+     * The function's open try levels occupy [base+1 .. __btrc_tls.try_top] where
+     * base = __btrc_tls.try_top - inTryDepth; so discard every cleanup at
+     * try_level >= base+1 (= __btrc_tls.try_top - (inTryDepth - 1)) and pop inTryDepth
      * levels. Mirrors arc._emit_return_try_pop. */
 	public void emitReturnTryPop(Vector<IRNode> out) { self.emitTryPopDepth(self.context.tryDepth, out); }
 
@@ -812,7 +812,7 @@ class StatementLowerer {
          * none. */
 		if (self.context.referencesHelper("__btrc_register_cleanup") || self.context.referencesHelper("__btrc_register_direct_cleanup")) {
 			self.context.referenceHelper("__btrc_discard_cleanups");
-			IRNode level = IRNode.variable("__btrc_try_top");
+			IRNode level = IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false);
 			if (depth != 1) {
 				level = IRNode.binary(level, "-", IRNode.literal(Strings.fromInt(depth - 1)));
 			}
@@ -822,9 +822,9 @@ class StatementLowerer {
 		}
 		/* Pop this function's open try levels off the try stack. */
 		if (depth == 1) {
-			out.push(IRNode.expressionStatement(IRNode.unary("--", IRNode.variable("__btrc_try_top"), false)));
+			out.push(IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false)));
 		} else {
-			out.push(IRNode.expressionStatement(IRNode.binary(IRNode.variable("__btrc_try_top"), "-=", IRNode.literal(Strings.fromInt(depth)))));
+			out.push(IRNode.expressionStatement(IRNode.binary(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), "-=", IRNode.literal(Strings.fromInt(depth)))));
 		}
 	}
 
@@ -1046,10 +1046,10 @@ class StatementLowerer {
 		if (self.context.referencesHelper("__btrc_register_cleanup") || self.context.referencesHelper("__btrc_register_direct_cleanup")) {
 			self.context.referenceHelper("__btrc_discard_cleanups");
 			Vector<IRNode> dargs = [];
-			dargs.push(IRNode.variable("__btrc_try_top"));
+			dargs.push(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false));
 			tryBody.stmts.push(IRNode.expressionStatement(IRNode.call("__btrc_discard_cleanups", dargs)));
 		}
-		tryBody.stmts.push(IRNode.expressionStatement(IRNode.unary("--", IRNode.variable("__btrc_try_top"), false)));
+		tryBody.stmts.push(IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false)));
 
 		/* Without checked throws, every callback state reached while lowering
          * the try is visible to its exceptional edge. */
@@ -1088,7 +1088,7 @@ class StatementLowerer {
 			Vector<IRNode> copyArgs = [];
 			copyArgs.push(IRNode.cast("char*", IRNode.variable(errorName)));
 			copyArgs.push(IRNode.sizeofExpression(IRNode.variable(errorName)));
-			copyArgs.push(IRNode.variable("__btrc_error_msg"));
+			copyArgs.push(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "error_msg", false));
 			cstmts.push(IRNode.expressionStatement(IRNode.call("__btrc_copy_error_message", copyArgs)));
 			catchBody = IRNode.block(cstmts);
 		} else if (node.catchBlock != null) {
@@ -1114,7 +1114,7 @@ class StatementLowerer {
 				self.context.referenceHelper("__btrc_strdup");
 				self.context.referenceHelper("__btrc_str_track");
 				Vector<IRNode> copyArgs = [];
-				copyArgs.push(IRNode.variable("__btrc_error_msg"));
+				copyArgs.push(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "error_msg", false));
 				Vector<IRNode> trackArgs = [];
 				trackArgs.push(IRNode.call("__btrc_strdup", copyArgs));
 				catchBindings.push(IRNode.variableDeclaration("char*", catchCName, IRNode.call("__btrc_str_track", trackArgs)));
@@ -1149,7 +1149,7 @@ class StatementLowerer {
 		}
 		CallableFlowSnapshot normalContinuation = callableFlow.snapshot();
 
-		IRNode frame = IRNode.indexAccess(IRNode.variable("__btrc_try_stack"), IRNode.variable("__btrc_try_top"));
+		IRNode frame = IRNode.indexAccess(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_stack", false), IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false));
 		Vector<IRNode> setjmpArgs = [];
 		setjmpArgs.push(IRNode.fieldAccess(frame, "env", true));
 		IRNode tcIf = self.controlFlow.materializeConditional(ConditionalPlan(IRNode.binary(IRNode.call("setjmp", setjmpArgs), "==", IRNode.literal("0")), tryBody, catchBody));

@@ -352,7 +352,7 @@ class DeclarationLowerer {
 		string contextType = f"struct __btrc_native_callback_{functionName}_{callback.parameterIndex}_context";
 		string contextName = f"__btrc_callback_context_{callback.parameterIndex}";
 		while (parameterNames.has(contextName)) { contextName = contextName + "_"; }
-		statements.push(IRNode.variableDeclaration(contextType, contextName, IRNode.compoundLiteral(contextType, ["receiver", "thread"], [receiver, IRNode.addressOf(IRNode.variable("__btrc_try_top"))])));
+		statements.push(IRNode.variableDeclaration(contextType, contextName, IRNode.compoundLiteral(contextType, ["receiver", "thread"], [receiver, IRNode.addressOf(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false))])));
 		return [thunk, IRNode.addressOf(IRNode.variable(contextName))];
 	}
 
@@ -405,12 +405,12 @@ class DeclarationLowerer {
 		else { body.push(IRNode.variableDeclaration(adapter.returnType, "__btrc_callback_result", call)); }
 		for (int index = releases.len - 1; index >= 0; index--) { body.extend(releases.get(index)); }
 		body.extend(cleanup);
-		body.push(IRNode.expressionStatement(IRNode.unary("--", IRNode.variable("__btrc_try_top"), false)));
+		body.push(IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false)));
 		body.push(IRNode.returnStatement(adapter.returnType == "void" ? null : IRNode.variable("__btrc_callback_result")));
 		Vector<IRNode> noArguments = [];
 		IRNode abortCall = IRNode.call("abort", noArguments);
 		abortCall.neverReturns = true;
-		IRNode wrongThread = IRNode.ifStatement(IRNode.binary(IRNode.fieldAccess(context, "thread", true), "!=", IRNode.addressOf(IRNode.variable("__btrc_try_top"))), IRNode.block([
+		IRNode wrongThread = IRNode.ifStatement(IRNode.binary(IRNode.fieldAccess(context, "thread", true), "!=", IRNode.addressOf(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false))), IRNode.block([
 			IRNode.expressionStatement(IRNode.call("fputs", [IRNode.literal("\"BTRC native callback delivered on the wrong thread\\n\""), IRNode.variable("stderr")])),
 			IRNode.expressionStatement(abortCall)
 		]), null);
@@ -426,14 +426,14 @@ class DeclarationLowerer {
 		self.context.referenceHelper("__btrc_trycatch_globals");
 		self.context.referenceHelper("__btrc_push_try");
 		self.appendPreprocessorDecl(module, IRPreprocessorDecl.include("setjmp.h", true));
-		IRNode frame = IRNode.indexAccess(IRNode.variable("__btrc_try_stack"), IRNode.variable("__btrc_try_top"));
+		IRNode frame = IRNode.indexAccess(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_stack", false), IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false));
 		IRNode condition = IRNode.binary(IRNode.call("setjmp", [IRNode.fieldAccess(frame, "env", true)]), "==", IRNode.literal("0"));
 		Vector<IRNode> noArguments = [];
 		IRNode abortCall = IRNode.call("abort", noArguments);
 		abortCall.neverReturns = true;
 		Vector<IRNode> failure = [
 			IRNode.expressionStatement(IRNode.call("fputs", [IRNode.literal("\"BTRC native callback failed: \""), IRNode.variable("stderr")])),
-			IRNode.expressionStatement(IRNode.call("fputs", [IRNode.variable("__btrc_error_msg"), IRNode.variable("stderr")])),
+			IRNode.expressionStatement(IRNode.call("fputs", [IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "error_msg", false), IRNode.variable("stderr")])),
 			IRNode.expressionStatement(abortCall)
 		];
 		return IRNode.block([IRNode.expressionStatement(IRNode.call("__btrc_push_try", noArguments)), IRNode.ifStatement(condition, IRNode.block(body), IRNode.block(failure))]);
@@ -562,7 +562,7 @@ class DeclarationLowerer {
 		Vector<IRNode> noArguments = [];
 		IRNode abortCall = IRNode.call("abort", noArguments);
 		abortCall.neverReturns = true;
-		return IRNode.ifStatement(IRNode.binary(IRNode.fieldAccess(holder, "thread", true), "!=", IRNode.addressOf(IRNode.variable("__btrc_try_top"))), IRNode.block([
+		return IRNode.ifStatement(IRNode.binary(IRNode.fieldAccess(holder, "thread", true), "!=", IRNode.addressOf(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false))), IRNode.block([
 			IRNode.expressionStatement(IRNode.call("fputs", [IRNode.literal("\"BTRC native callback delivered on the wrong thread\\n\""), IRNode.variable("stderr")])),
 			IRNode.expressionStatement(abortCall)
 		]), null);
@@ -589,7 +589,7 @@ class DeclarationLowerer {
 			IRNode call = IRNode.call(table.interfaceName + "_" + method.name, arguments);
 			Vector<IRNode> inner = [];
 			if (method.nativeReturn == "void") { inner.push(IRNode.expressionStatement(call)); } else { inner.push(IRNode.variableDeclaration(method.nativeReturn, "result", call)); }
-			inner.push(IRNode.expressionStatement(IRNode.unary("--", IRNode.variable("__btrc_try_top"), false)));
+			inner.push(IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false)));
 			if (method.nativeReturn == "void") { inner.push(IRNode.returnStatement(null)); } else { inner.push(IRNode.returnStatement(IRNode.variable("result"))); }
 			self.nativeUniqueFunction(module, prefix + "_" + method.name, method.nativeReturn, parameters, [self.tableHolder(holderType, IRNode.variable(parameters.get(table.contextIndex).name)), self.tableThreadGuard(holder), self.nativeCallbackBoundary(inner, module)]);
 			assignedFields.push(method.field); assignedFunctions.push(prefix + "_" + method.name);
@@ -624,7 +624,7 @@ class DeclarationLowerer {
 				IRNode.expressionStatement(self.managedLifetime.releaseValue(receiver, receiverType)),
 				IRNode.expressionStatement(IRNode.call("free", [label])),
 				IRNode.expressionStatement(IRNode.call("free", [holder])),
-				IRNode.expressionStatement(IRNode.unary("--", IRNode.variable("__btrc_try_top"), false))
+				IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false))
 			];
 			self.nativeUniqueFunction(module, prefix + "_release", "void", [IRParam(tableType, "argument0")], [
 				IRNode.ifStatement(IRNode.binary(argument, "==", IRNode.literal("NULL")), IRNode.block([IRNode.returnStatement(null)]), null),
@@ -639,7 +639,7 @@ class DeclarationLowerer {
 			IRNode.variableDeclaration(holderType, "holder", IRNode.cast(holderType, IRNode.call("__btrc_safe_calloc", [IRNode.literal("1"), IRNode.sizeofType("struct " + holderName)]))),
 			IRNode.assignment(receiver, IRNode.variable("receiver")),
 			IRNode.expressionStatement(self.managedLifetime.retainValue(IRNode.variable("receiver"), receiverType)),
-			IRNode.assignment(IRNode.fieldAccess(holder, "thread", true), IRNode.addressOf(IRNode.variable("__btrc_try_top")))
+			IRNode.assignment(IRNode.fieldAccess(holder, "thread", true), IRNode.addressOf(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false)))
 		];
 		if (!table.label.isEmpty()) {
 			createParameters.push(IRParam("char*", "label"));
@@ -1715,7 +1715,7 @@ class DeclarationLowerer {
 			thunk.body = self.nativeCallbackBoundary([
 				IRNode.expressionStatement(IRNode.call(contextSymbol + "_isOpen", [context])),
 				IRNode.expressionStatement(action),
-				IRNode.expressionStatement(IRNode.unary("--", IRNode.variable("__btrc_try_top"), false))
+				IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false))
 			], module);
 			self.appendFunction(thunk, module);
 		}
@@ -1830,7 +1830,7 @@ class DeclarationLowerer {
 		if (callback.oneShot) { body.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_complete", [context]))); }
 		if (consumeNativeClaim) { body.push(IRNode.expressionStatement(self.managedLifetime.releaseValue(context, contextType))); }
 		body.push(cleanup);
-		body.push(IRNode.expressionStatement(IRNode.unary("--", IRNode.variable("__btrc_try_top"), false)));
+		body.push(IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false)));
 		if (returnsValue) { body.push(IRNode.returnStatement(IRNode.variable("result"))); }
 		thunk.body = self.nativeCallbackBoundary(body, module);
 		self.appendFunction(thunk, module);

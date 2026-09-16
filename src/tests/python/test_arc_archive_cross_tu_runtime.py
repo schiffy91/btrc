@@ -22,19 +22,19 @@ ARCHIVE_TU = FIXTURES / "arc_archive_cross_tu_archive.c"
 PROGRAM_TU = FIXTURES / "arc_archive_cross_tu_program.c"
 THREAD_ARCHIVE_TU = FIXTURES / "thread_archive_cross_tu_archive.c"
 THREAD_PROGRAM_TU = FIXTURES / "thread_archive_cross_tu_program.c"
-TLS_SYMBOLS = (
-    "__btrc_arc_deferred_head",
-    "__btrc_arc_deferred_tail",
-    "__btrc_arc_draining",
-    "__btrc_arc_topology_depth",
-    "__btrc_abandon_queue",
-    "__btrc_abandon_count",
-    "__btrc_abandon_cap",
-    "__btrc_abandon_drain_callback",
-    "__btrc_tracking",
-    "__btrc_destroyed",
-    "__btrc_destroyed_count",
-    "__btrc_destroyed_cap",
+TLS_FIELDS = (
+    "arc_deferred_head",
+    "arc_deferred_tail",
+    "arc_draining",
+    "arc_topology_depth",
+    "abandon_queue",
+    "abandon_count",
+    "abandon_cap",
+    "abandon_drain_callback",
+    "tracking",
+    "destroyed",
+    "destroyed_count",
+    "destroyed_cap",
 )
 PROCESS_SYMBOLS = (
     "__btrc_arc_lock_word",
@@ -114,15 +114,16 @@ def test_arc_mutable_state_is_extern_once(
 ) -> None:
     header = (stdlib_output / archive.HEADER_NAME).read_text()
     implementation = (stdlib_output / archive.IMPL_NAME).read_text()
-    # Thread-local state is one record; each historical name is a field
-    # accessor declared once in the header, and the record is defined once.
-    for symbol in TLS_SYMBOLS:
-        assert len(re.findall(rf"(?m)^#define {symbol} \(__btrc_tls\.\w+\)$", header)) == 1, symbol
-        assert not re.search(rf"(?m)^(?:extern|static)\b[^;\n]*\b{symbol}\b[^;\n]*;$", header), symbol
+    # Thread-local state is one record: each field is declared once in the
+    # record typedef the header carries, and the record itself is defined once.
+    record = re.search(r"typedef struct \{\n(.*?)\n\} __btrc_tls_record;", header, re.S)
+    assert record is not None
+    for field in TLS_FIELDS:
+        assert len(re.findall(rf"(?m)^    [^;\n]*\b{field}(?:\)\(void\))?;$", record.group(1))) == 1, field
     assert header.count("extern _Thread_local __btrc_tls_record __btrc_tls;") == 1
-    assert not re.search(r"(?m)^static [^;]*\b__btrc_tls\b", header)
+    assert not re.search(r"(?m)^static [^;(\n]*\b__btrc_tls\b", header)
     assert len(re.findall(r"(?m)^_Thread_local __btrc_tls_record __btrc_tls = \{$", implementation)) == 1
-    assert not re.search(r"(?m)^static [^;]*\b__btrc_tls\b", implementation)
+    assert not re.search(r"(?m)^static [^;(\n]*\b__btrc_tls\b", implementation)
     for symbol in PROCESS_SYMBOLS:
         assert re.search(rf"(?m)^extern [^;]*\b{symbol}\b[^;]*;", header)
         assert not re.search(
