@@ -8,6 +8,7 @@ import ../frontend/Packages.btrc;
 import ../frontend/NativeImports.btrc;
 import ../ir/Stage.btrc;
 import ./Models.btrc;
+import ../frontend/SourceIo.btrc;
 import ../frontend/Timing.btrc;
 
 class CompilerPipeline {
@@ -41,6 +42,9 @@ class CompilerPipeline {
 	}
 
 	public BtrccCompilationResult compile(string source, string sourcePath, BtrccOptions options) {
+		/* Canonical paths are memoized for one compile: a process that compiles
+		 * repeatedly must not answer from a tree that has changed since. */
+		FeCanonicalPath.reset();
 		FeResolvedPackages packages = FePackageGraphResolver(self.sourceFiles).resolveFor(sourcePath, options.target);
 		BtrccPhaseTimer.mark("packages");
 		FeFrontendResolver resolver = FeFrontendResolver(self.grammar, self.stdlib, options.includeStdlib, options.strictImports, packages);

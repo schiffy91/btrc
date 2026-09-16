@@ -11,7 +11,7 @@ def test_sizeof_expression_and_type():
 
 
 def test_len_on_string_and_list():
-    c = emit_c('int main() { string s = "hello"; List<int> xs = {1, 2, 3};\n              return len(s) + len(xs); }')
+    c = emit_c('int main() { string s = "hello"; List<int> xs = [1, 2, 3];\n              return len(s) + len(xs); }')
     assert "len" in c or "strlen" in c
 
 

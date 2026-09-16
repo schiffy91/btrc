@@ -19,7 +19,7 @@ import stat
 import subprocess
 import tempfile
 import tomllib
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from types import MappingProxyType
@@ -616,15 +616,16 @@ class NativeLinkPlan:
     def _source_identity(path: str) -> str:
         return os.path.normcase(os.path.realpath(os.path.abspath(path)))
 
-    def for_sources(self, sources: Iterable[str]) -> NativeLinkPlan:
-        """Project this resolved package graph to loaded source owners."""
+    @classmethod
+    def reached_packages(cls, packages: Sequence[PackageNode], sources: Iterable[str]) -> frozenset[str]:
+        """Names of the packages whose root owns one of the sources (deepest root wins)."""
 
-        source_identities = frozenset(self._source_identity(path) for path in sources)
-        package_roots = {package.name: self._source_identity(package.root) for package in self.packages}
-        reached_packages: set[str] = set()
+        source_identities = frozenset(cls._source_identity(path) for path in sources)
+        package_roots = {package.name: cls._source_identity(package.root) for package in packages}
+        reached: set[str] = set()
         for source in source_identities:
             owners = []
-            for package in self.packages:
+            for package in packages:
                 try:
                     if os.path.commonpath((source, package_roots[package.name])) == package_roots[package.name]:
                         owners.append(package)
@@ -632,7 +633,15 @@ class NativeLinkPlan:
                     continue
             owner = max(owners, key=lambda package: len(package_roots[package.name]), default=None)
             if owner is not None:
-                reached_packages.add(owner.name)
+                reached.add(owner.name)
+        return frozenset(reached)
+
+    def for_sources(self, sources: Iterable[str]) -> NativeLinkPlan:
+        """Project this resolved package graph to loaded source owners."""
+
+        sources = tuple(sources)
+        source_identities = frozenset(self._source_identity(path) for path in sources)
+        reached_packages = self.reached_packages(self.packages, sources)
 
         packages = tuple(
             PackageNode(
@@ -676,8 +685,9 @@ class NativeLinkPlan:
         path = os.path.join(root, "btrc.toml")
         if not os.path.exists(path):
             return self
+        sources = tuple(sources)
         try:
-            packages = self._stdlib_packages(root, path)
+            packages = self._stdlib_packages(root, path, sources)
         except (OSError, ValueError) as error:
             raise IncludeResolutionError(f"stdlib native manifest: {error}") from error
         native = tuple(declaration for package in packages for declaration in package.native)
@@ -705,11 +715,19 @@ class NativeLinkPlan:
             self.generated_units,
         )
 
-    def _stdlib_packages(self, root: str, path: str) -> tuple[PackageNode, ...]:
-        """Load the stdlib root manifest and every path dependency beneath the stdlib root."""
+    def _stdlib_packages(self, root: str, path: str, sources: Iterable[str]) -> tuple[PackageNode, ...]:
+        """Load the stdlib root manifest and every path dependency beneath the stdlib root.
+
+        Every manifest is read and its identity and dependencies validated, but
+        native blocks and bindings finish only for packages whose root owns one
+        of the program's sources: ``for_sources`` drops the rest anyway, and the
+        self-hosted compiler finishes them lazily the same way, so a program
+        that never reaches a stdlib group pays for its manifest parse only.
+        """
         reader = PackageManifestReader()
         validator = PackageManifestValidator()
         packages: list[PackageNode] = []
+        manifests: dict[str, tuple[dict, str, str]] = {}
         names_by_root: dict[str, str] = {}
         loading: list[str] = []
 
@@ -737,8 +755,6 @@ class NativeLinkPlan:
                     os.path.join(target_root, "btrc.toml"), dependency_alias
                 )
                 dependencies[dependency_alias] = target_name
-            native = validator.native(manifest, package_root, name, manifest_path)
-            bindings = validator.bindings(manifest, package_root, name, manifest_path)
             packages.append(
                 PackageNode(
                     name,
@@ -746,16 +762,31 @@ class NativeLinkPlan:
                     dependencies,
                     {"path": package_root},
                     hashlib.sha256(encoded).hexdigest(),
-                    native,
-                    bindings,
+                    (),
+                    (),
                 )
             )
+            manifests[name] = (manifest, package_root, manifest_path)
             names_by_root[package_root] = name
             loading.pop()
             return name
 
         load(path, None)
-        return tuple(packages)
+        reached = self.reached_packages(packages, sources)
+        finished: list[PackageNode] = []
+        for package in packages:
+            if package.name not in reached:
+                finished.append(package)
+                continue
+            manifest, package_root, manifest_path = manifests[package.name]
+            finished.append(
+                replace(
+                    package,
+                    native=validator.native(manifest, package_root, package.name, manifest_path),
+                    bindings=validator.bindings(manifest, package_root, package.name, manifest_path),
+                )
+            )
+        return tuple(finished)
 
 
 @dataclass(frozen=True)

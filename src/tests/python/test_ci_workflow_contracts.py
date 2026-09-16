@@ -186,3 +186,16 @@ def test_windows_ci_runs_and_uploads_the_extracted_zip() -> None:
     # rejecting any extra, missing, or otherwise changed output line.
     assert job.count(".splitlines()") >= 4
     _assert_archive_upload(job, "dist/btrcc-windows-x64.zip")
+
+
+def test_linux_bench_job_guards_every_performance_indicator() -> None:
+    job = _job(_workflow("ci.yml"), "bench")
+    makefile = (REPO / "Makefile").read_text(encoding="utf-8")
+
+    # One container run measures compile time, startup, emitted-C size, cc
+    # time and generated-code speed, and fails on a regression against the
+    # tracked baseline; the raw numbers are kept as an artifact either way.
+    assert "\nbench-check:" in makefile and "\nbench-baseline:" in makefile
+    assert 'podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= bench-check' in job
+    assert "if: always()" in job
+    assert "name: bench-results" in job and "build/bench/results.json" in job

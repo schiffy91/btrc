@@ -81,7 +81,7 @@ def test_generic_typed_collection_literal_in_method():
         public T seed;
         public Builder(T s) { self.seed = s; }
         public int sum() {
-            List<int> xs = {1, 2, 3};
+            List<int> xs = [1, 2, 3];
             int total = 0;
             for x in xs { total = total + x; }
             return total;

@@ -303,6 +303,13 @@ class FeParsedPackageManifest {
 	public Vector<FeNativeBinding> bindings;
 	public bool restrictedExports = false;
 	public Vector<string> exportedModules;
+	/* Native blocks, providers and exported module paths finish on demand:
+	 * a stdlib group the program never reaches costs its manifest parse only.
+	 * User packages finish as soon as they are parsed. */
+	public Vector<FeManifestBlock> nativeBlocks;
+	public FeManifestBlock? packageFields = null;
+	public FePackageManifestParser? finisher = null;
+	public bool finished = false;
 
 	public FeParsedPackageManifest(string name, Vector<FeManifestDependency> dependencies, Vector<FeNativeDeclaration> nativeDeclarations) {
 		self.providers = [];
@@ -311,6 +318,12 @@ class FeParsedPackageManifest {
 		self.nativeDeclarations = nativeDeclarations;
 		self.bindings = [];
 		self.exportedModules = [];
+		self.nativeBlocks = [];
+	}
+
+	public void ensureFinished() {
+		FePackageManifestParser? finisher = self.finisher;
+		if (finisher != null) { finisher.finishNative(self); }
 	}
 }
 
@@ -1311,20 +1324,16 @@ class FeManifestBlock {
 	}
 
 	public FeNativeBinding finishBinding(string root, string packageName) {
-		BtrccPhaseTimer.mark("fb-enter");
 		self.validateFields();
-		BtrccPhaseTimer.mark("fb-validate");
 		if (!self.moduleName(self.requiredText("module"))) { FePackageFailure.fail(f"{self.context()}.module must be a dotted module name"); }
 		Vector<string> modules = self.modulePaths(root);
 		string header = self.packagePath(root, "header", false);
-		BtrccPhaseTimer.mark("fb-modules");
 		Vector<string> symbols = self.stringArray("symbols");
 		if (symbols.len == 0) { FePackageFailure.fail(f"{self.context()}.symbols must be a non-empty array of qualified native names"); }
 		string language = self.requiredText("language");
 		for symbol in symbols { if (!self.nativeSymbol(symbol, language)) { FePackageFailure.fail(f"{self.context()}.symbols must be a non-empty array of qualified native names"); } }
 		string standard = self.requiredText("standard");
 		self.validateLanguage(language, standard);
-		BtrccPhaseTimer.mark("fb-symbols");
 		Vector<string> operatingSystemValues = ["linux", "macos", "windows"];
 		Vector<string> architectureValues = ["x86_64", "aarch64"];
 		var binding = FeNativeBinding(packageName, modules.get(0), header, language, standard, symbols, self.targetArray("os", operatingSystemValues), self.targetArray("arch", architectureValues));
@@ -1340,7 +1349,6 @@ class FeManifestBlock {
 		self.finishCallbacks(binding);
 		self.finishStringViews(binding);
 		self.finishRecordSnapshots(binding);
-		BtrccPhaseTimer.mark("fb-sub");
 		binding.mainThreadGlobals = self.stringArray("main-thread-globals");
 		binding.staticGlobals = self.stringArray("static-globals");
 		for key in self.fields.keys() {
@@ -1403,7 +1411,6 @@ class FeManifestBlock {
 			var parts = Strings.split(borrow, ".");
 			if (parts.len != 2 || !symbols.contains(parts.get(0)) || !self.identifier(parts.get(1))) { FePackageFailure.fail(f"{self.context()}.read-only-borrows must name selected function.parameter pairs"); }
 		}
-		BtrccPhaseTimer.mark("fb-rest");
 		return binding;
 	}
 
@@ -1531,7 +1538,7 @@ class FePackageManifestParser {
 
 	private bool nativeTable(string name) { return name.equals("native.sources") || name.equals("native.headers") || name.equals("native.include-directories") || name.equals("native.defines") || name.equals("native.frameworks") || name.equals("native.pkg-config") || name.equals("native.bindings"); }
 
-	public FeParsedPackageManifest parse() {
+	public FeParsedPackageManifest parse(bool deferNative = false) {
 		string section = "";
 		FeManifestBlock block = null;
 		var packageFields = FeManifestBlock("package", self.manifestPath);
@@ -1542,7 +1549,6 @@ class FePackageManifestParser {
 		Vector<FeManifestDependency> dependencies = [];
 		Vector<FeManifestBlock> nativeBlocks = [];
 		Vector<string> lines = Strings.split(self.source, "\n");
-		BtrccPhaseTimer.mark("p-split");
 		int index = 0;
 		while (index < lines.len) {
 			string line = TOML.stripInlineComment(lines.get(index));
@@ -1704,7 +1710,6 @@ class FePackageManifestParser {
 				block.set(prefix + TOML.unquote(key), raw);
 			}
 		}
-		BtrccPhaseTimer.mark("p-lines");
 		if (!sawVersion || !sawName) {
 			FePackageFailure.fail(f"package manifest '{self.manifestPath}' requires " + "manifest-version = 1 and [package].name");
 		}
@@ -1718,15 +1723,28 @@ class FePackageManifestParser {
 			aliases.put(alias, true);
 			dependencyIndex++;
 		}
+		Vector<FeNativeDeclaration> none = [];
+		FeParsedPackageManifest parsed = FeParsedPackageManifest(packageName, dependencies, none);
+		parsed.restrictedExports = restrictedExports;
+		parsed.nativeBlocks = nativeBlocks;
+		parsed.packageFields = packageFields;
+		parsed.finisher = self;
+		if (!deferNative) { parsed.ensureFinished(); }
+		return parsed;
+	}
+
+	public void finishNative(FeParsedPackageManifest parsed) {
+		if (parsed.finished) { return; }
+		parsed.finished = true;
+		string packageName = parsed.name;
+		Vector<FeManifestBlock> nativeBlocks = parsed.nativeBlocks;
 		Vector<FeNativeDeclaration> nativeDeclarations = [];
 		Vector<FeModuleProvider> providers = [];
 		Vector<FeNativeBinding> bindings = [];
 		int nativeIndex = 0;
 		while (nativeIndex < nativeBlocks.len) {
 			if (nativeBlocks.get(nativeIndex).isProvider()) {
-				BtrccPhaseTimer.mark("f-enter");
 				var provider = nativeBlocks.get(nativeIndex).finishProvider(self.root);
-				BtrccPhaseTimer.mark("f-provider");
 				for previous in providers { if (provider.overlaps(previous)) { FePackageFailure.fail("package.providers overlaps a provider for the same module and target"); } }
 				providers.push(provider);
 				nativeIndex++;
@@ -1741,9 +1759,7 @@ class FePackageManifestParser {
 				nativeIndex++;
 				continue;
 			}
-			BtrccPhaseTimer.mark("f-enter");
 			FeNativeDeclaration declaration = nativeBlocks.get(nativeIndex).finish(self.root, packageName);
-			BtrccPhaseTimer.mark("f-declaration");
 			int prior = 0;
 			while (prior < nativeDeclarations.len) {
 				if (nativeDeclarations.get(prior).sameIdentity(declaration)) {
@@ -1754,14 +1770,11 @@ class FePackageManifestParser {
 			nativeDeclarations.push(declaration);
 			nativeIndex++;
 		}
-		FeParsedPackageManifest parsed = FeParsedPackageManifest(packageName, dependencies, nativeDeclarations);
+		parsed.nativeDeclarations = nativeDeclarations;
 		parsed.bindings = bindings;
 		parsed.providers = providers;
-		parsed.restrictedExports = restrictedExports;
-		BtrccPhaseTimer.mark("p-finish");
-		parsed.exportedModules = packageFields.modulePaths(self.root, "exports", true);
-		BtrccPhaseTimer.mark("p-exports");
-		return parsed;
+		FeManifestBlock? packageFields = parsed.packageFields;
+		if (packageFields != null) { parsed.exportedModules = packageFields.modulePaths(self.root, "exports", true); }
 	}
 }
 
@@ -1902,33 +1915,28 @@ class FeNativeLinkPlan {
 		if (bindings.len > 0) { FePackageFailure.fail(f"native binding for module '{bindings.get(0).module}' requires BTRC_NATIVE_HEADER_READER for typed header imports"); }
 	}
 
-	private bool sourceInside(string source, string root) {
-		string prefix = root.endsWith(Platform.pathSeparator()) ? root : root + Platform.pathSeparator();
-		return source.equals(root) || source.startsWith(prefix);
-	}
-
-	public void restrictToSources(Vector<string> sourcePaths) {
+	/* The packages whose root owns one of the program's sources: the deepest
+	 * owning root wins for each source. */
+	class Map<string, bool> reachedPackages(Vector<FePackageNode> packages, Vector<string> sourcePaths) {
 		FeSourcePathPolicy sourcePolicy = FeSourcePathPolicy();
 		Map<string, string> roots = {};
 		int packageIndex = 0;
-		while (packageIndex < self.packages.len) {
-			FePackageNode package = self.packages.get(packageIndex);
+		while (packageIndex < packages.len) {
+			FePackageNode package = packages.get(packageIndex);
 			roots.put(package.name, sourcePolicy.identity(package.root));
 			packageIndex++;
 		}
-		Map<string, bool> sources = {};
 		Map<string, bool> reached = {};
 		int sourceIndex = 0;
 		while (sourceIndex < sourcePaths.len) {
 			string source = sourcePolicy.identity(sourcePaths.get(sourceIndex));
-			sources.put(source, true);
 			FePackageNode owner = null;
 			int ownerLength = -1;
 			packageIndex = 0;
-			while (packageIndex < self.packages.len) {
-				FePackageNode candidate = self.packages.get(packageIndex);
+			while (packageIndex < packages.len) {
+				FePackageNode candidate = packages.get(packageIndex);
 				string root = roots.get(candidate.name);
-				if (self.sourceInside(source, root) && root.length() > ownerLength) {
+				if (FeNativeLinkPlan.rootOwns(source, root) && root.length() > ownerLength) {
 					owner = candidate;
 					ownerLength = root.length();
 				}
@@ -1937,6 +1945,24 @@ class FeNativeLinkPlan {
 			if (owner != null) { reached.put(owner.name, true); }
 			sourceIndex++;
 		}
+		return reached;
+	}
+
+	class bool rootOwns(string source, string root) {
+		string prefix = root.endsWith(Platform.pathSeparator()) ? root : root + Platform.pathSeparator();
+		return source.equals(root) || source.startsWith(prefix);
+	}
+
+	public void restrictToSources(Vector<string> sourcePaths) {
+		FeSourcePathPolicy sourcePolicy = FeSourcePathPolicy();
+		Map<string, bool> reached = FeNativeLinkPlan.reachedPackages(self.packages, sourcePaths);
+		Map<string, bool> sources = {};
+		int sourceIndex = 0;
+		while (sourceIndex < sourcePaths.len) {
+			sources.put(sourcePolicy.identity(sourcePaths.get(sourceIndex)), true);
+			sourceIndex++;
+		}
+		int packageIndex = 0;
 
 		Vector<FePackageNode> selectedPackages = [];
 		packageIndex = 0;
@@ -1994,8 +2020,23 @@ class FeNativeLinkPlan {
 		Vector<FePackageNode> libraryPackages = [];
 		Map<string, string> namesByRoot = {};
 		Vector<string> loading = [];
-		self.loadStdlibPackage(root, path, "", sourceFiles, libraryPackages, namesByRoot, loading);
+		Map<string, FeParsedPackageManifest> manifestsByName = {};
+		Map<string, string> sourcesByName = {};
+		self.loadStdlibPackage(root, path, "", sourceFiles, libraryPackages, namesByRoot, loading, manifestsByName, sourcesByName);
 		BtrccPhaseTimer.mark("stdlib-manifests");
+		/* Only a package whose root owns one of the program's sources can
+		 * contribute native metadata (restrictToSources drops the rest), so
+		 * only those finish their native blocks and hash their manifest text. */
+		Map<string, bool> reached = FeNativeLinkPlan.reachedPackages(libraryPackages, sources);
+		for package in libraryPackages {
+			if (!reached.has(package.name)) { continue; }
+			FeParsedPackageManifest manifest = manifestsByName.get(package.name);
+			manifest.ensureFinished();
+			package.nativeDeclarations = manifest.nativeDeclarations;
+			package.bindings = manifest.bindings;
+			package.manifestHash = SHA256.digest(sourcesByName.get(package.name));
+		}
+		BtrccPhaseTimer.mark("stdlib-finish");
 		Vector<FeNativeDeclaration> declarations = [];
 		for package in libraryPackages { declarations.extend(package.nativeDeclarations); }
 		var selected = FeNativeLinkPlan(self.target, libraryPackages, declarations);
@@ -2005,7 +2046,9 @@ class FeNativeLinkPlan {
 		for existing in self.packages {
 			if (!existing.name.startsWith("btrc_stdlib_")) { continue; }
 			for package in libraryPackages {
-				if (package.name.equals(existing.name) && FeSourcePathPolicy().identity(existing.root).equals(FeSourcePathPolicy().identity(package.root)) && existing.manifestHash.equals(package.manifestHash)) { return; }
+				if (!package.name.equals(existing.name)) { continue; }
+				if (package.manifestHash.isEmpty()) { package.manifestHash = SHA256.digest(sourcesByName.get(package.name)); }
+				if (FeSourcePathPolicy().identity(existing.root).equals(FeSourcePathPolicy().identity(package.root)) && existing.manifestHash.equals(package.manifestHash)) { return; }
 			}
 			FePackageFailure.fail(f"package identity '{existing.name}' is reserved for compiler-owned stdlib runtimes");
 		}
@@ -2013,14 +2056,12 @@ class FeNativeLinkPlan {
 		self.declarations.extend(selected.declarations);
 	}
 
-	private string loadStdlibPackage(string root, string path, string alias, FeSourceFileReader sourceFiles, Vector<FePackageNode> packages, Map<string, string> namesByRoot, Vector<string> loading) {
+	private string loadStdlibPackage(string root, string path, string alias, FeSourceFileReader sourceFiles, Vector<FePackageNode> packages, Map<string, string> namesByRoot, Vector<string> loading, Map<string, FeParsedPackageManifest> manifestsByName, Map<string, string> sourcesByName) {
 		string packageRoot = PathTools.dirname(path);
 		if (loading.contains(packageRoot)) { FePackageFailure.fail(f"stdlib package dependency cycle through '{path}'"); }
 		loading.push(packageRoot);
 		string source = sourceFiles.readRequired(path);
-		BtrccPhaseTimer.mark("m-read");
-		FeParsedPackageManifest manifest = FePackageManifestParser(source, path, packageRoot).parse();
-		BtrccPhaseTimer.mark("m-parse");
+		FeParsedPackageManifest manifest = FePackageManifestParser(source, path, packageRoot).parse(true);
 		if (alias.isEmpty() && !manifest.name.equals("btrc_stdlib_runtime")) { FePackageFailure.fail("stdlib manifest must declare btrc_stdlib_runtime"); }
 		if (!alias.isEmpty() && !manifest.name.startsWith("btrc_stdlib_")) { FePackageFailure.fail(f"stdlib group '{alias}' must declare a btrc_stdlib_ package identity"); }
 		for package in packages { if (package.name.equals(manifest.name)) { FePackageFailure.fail(f"duplicate stdlib package identity '{manifest.name}'"); } }
@@ -2032,15 +2073,14 @@ class FeNativeLinkPlan {
 			 * every host, where the native spelling on Windows does not. */
 			FeSourcePathPolicy identities = FeSourcePathPolicy();
 			if (!identities.identity(targetRoot).startsWith(identities.identity(root) + "/")) { FePackageFailure.fail(f"stdlib dependency '{dependency.alias}' must stay inside the stdlib tree"); }
-			string targetName = namesByRoot.has(targetRoot) ? namesByRoot.get(targetRoot) : self.loadStdlibPackage(root, PathTools.join(targetRoot, "btrc.toml"), dependency.alias, sourceFiles, packages, namesByRoot, loading);
+			string targetName = namesByRoot.has(targetRoot) ? namesByRoot.get(targetRoot) : self.loadStdlibPackage(root, PathTools.join(targetRoot, "btrc.toml"), dependency.alias, sourceFiles, packages, namesByRoot, loading, manifestsByName, sourcesByName);
 			dependencies.put(dependency.alias, targetName);
 		}
-		BtrccPhaseTimer.mark("m-deps");
-		string manifestDigest = SHA256.digest(source);
-		BtrccPhaseTimer.mark("m-hash");
-		var package = FePackageNode(manifest.name, packageRoot, dependencies, packageRoot, manifestDigest, manifest.nativeDeclarations);
-		package.bindings = manifest.bindings;
+		Vector<FeNativeDeclaration> none = [];
+		var package = FePackageNode(manifest.name, packageRoot, dependencies, packageRoot, "", none);
 		packages.push(package);
+		manifestsByName.put(manifest.name, manifest);
+		sourcesByName.put(manifest.name, source);
 		namesByRoot.put(packageRoot, manifest.name);
 		loading.pop();
 		return manifest.name;

@@ -250,6 +250,12 @@ class ExpressionValidator {
 				TypeValidator.fail(subject + " cannot use a non-empty brace initializer for heap class '" + self.types.formatType(canonical) + "'; use an explicit constructor call", value);
 			}
 			if (canonical.genericArgs.len == 1 && (canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector")) {
+				/* Lowering has no path from a brace list to a managed collection;
+				 * only the empty form builds one. */
+				if (value.kind == NK_BRACE_INITIALIZER && value.elements.len > 0 && canonical.base != "Array") {
+					string hint = canonical.base == "Set" ? "'{}' creates an empty Set and add() inserts elements" : "use a list literal [...]";
+					TypeValidator.fail(subject + " cannot use a non-empty brace initializer for '" + canonical.base + "'; " + hint, value);
+				}
 				self.validateInitializerElements(canonical.genericArgs.get(0), value.elements, subject, vars);
 				return;
 			}

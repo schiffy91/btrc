@@ -759,6 +759,7 @@ class HostedAbiCatalogGenerator:
         lines = [
             "/* Generated hosted-ABI data. Do not edit by hand. */",
             "",
+            "import Library.Map;",
             "import Library.Vector;",
             "",
             "class GeneratedAbiTypeRow {",
@@ -839,92 +840,131 @@ class HostedAbiCatalogGenerator:
             "}",
             "",
             "class GeneratedHostedAbiData {",
-            "    public Vector<GeneratedHostedFunctionRow> functions;",
-            "    public Vector<string> functionNames;",
-            "    public Vector<string> macroNames;",
-            "    public Vector<string> objectNames;",
-            "    public Vector<string> typeNames;",
-            "    public Vector<string> typedefNames;",
-            "    public Vector<string> ownedNames;",
-            "    public Vector<string> nativeNames;",
-            "    public Vector<string> nativeInternalNames;",
-            "    public Vector<string> runtimeAdoptingHelpers;",
-            "    public Vector<string> platformFunctionNames;",
-            "    public Vector<string> platformMacroNames;",
-            "    public Vector<string> platformObjectNames;",
-            "    public Vector<string> platformTypeNames;",
-            "    public Vector<string> platformTypedefNames;",
             "    public string stdlibSourceMarker;",
             "    public string userSourceMarker;",
             "    public string fingerprint;",
-            "",
-            "    private Vector<GeneratedHostedParameterRow> emptyParameters() {",
-            "        Vector<GeneratedHostedParameterRow> values = [];",
-            "        return values;",
-            "    }",
-            "",
-            "    private Vector<GeneratedAbiTypeRow> emptyTypes() {",
-            "        Vector<GeneratedAbiTypeRow> values = [];",
-            "        return values;",
-            "    }",
-            "",
-            "    public GeneratedHostedAbiData() {",
+            "    private Vector<GeneratedHostedFunctionRow>? functionRows = null;",
+            "    private Map<string, int>? functionSlots = null;",
+            "    private Map<string, GeneratedHostedFunctionRow>? functionMemo = null;",
         ]
-        # Populating these tables from the constructor alone produced a single C
-        # function of 114,000 lines, and a C optimizer's cost grows superlinearly
-        # with function size: that one function accounted for roughly 90% of the
-        # time to compile the whole self-hosted compiler. Spreading the same rows,
-        # in the same order, over many small methods keeps the data identical
-        # while staying in the optimizer's linear regime.
-        calls: list[str] = ["        self.functions = [];"]
-        methods: list[str] = []
-        self._btrc_chunk(
-            calls,
-            methods,
-            "pushFunctions",
-            [self._btrc_function(function) for function in self._manifest.functions],
-            self.BTRC_ROWS_PER_METHOD,
-        )
-        for field, values in self._btrc_name_fields():
-            calls.append(f"        self.{field} = [];")
-            self._btrc_chunk(
-                calls,
-                methods,
-                f"push{field[:1].upper()}{field[1:]}",
-                [[f"        self.{field}.push({self._btrc_string(value)});"] for value in values],
-                self.BTRC_NAMES_PER_METHOD,
-            )
-        calls.extend(
+        name_fields = self._btrc_name_fields()
+        lines.extend(f"    private Vector<string>? {field}Memo = null;" for field, _ in name_fields)
+        lines.extend(
             [
+                "",
+                "    private Vector<GeneratedHostedParameterRow> emptyParameters() {",
+                "        Vector<GeneratedHostedParameterRow> values = [];",
+                "        return values;",
+                "    }",
+                "",
+                "    private Vector<GeneratedAbiTypeRow> emptyTypes() {",
+                "        Vector<GeneratedAbiTypeRow> values = [];",
+                "        return values;",
+                "    }",
+                "",
+                "    public GeneratedHostedAbiData() {",
                 "        self.stdlibSourceMarker = "
                 f"{self._btrc_string(self._manifest.provenance.stdlib_source_marker)};",
                 f"        self.userSourceMarker = {self._btrc_string(self._manifest.provenance.user_source_marker)};",
                 f"        self.fingerprint = {self._btrc_string(self._manifest.fingerprint)};",
+                "    }",
+                "",
+                "    /* Every table builds on first use. A compile that never asks for a",
+                "     * name set or a function row never pays for it; building all of them",
+                "     * eagerly cost twelve thousand string pushes and map inserts on every",
+                "     * start of the compiler. Rows keep their manifest order. */",
+                "    public Vector<GeneratedHostedFunctionRow> functions() {",
+                "        Vector<GeneratedHostedFunctionRow>? rows = self.functionRows;",
+                "        if (rows != null) { return rows; }",
+                "        Vector<GeneratedHostedFunctionRow> built = [];",
+                "        int index = 0;",
+                f"        while (index < {len(self._manifest.functions)}) {{",
+                "            built.push(self.functionAt(index));",
+                "            index = index + 1;",
+                "        }",
+                "        self.functionRows = built;",
+                "        return built;",
+                "    }",
+                "",
+                "    private Map<string, GeneratedHostedFunctionRow> memoTable() {",
+                "        Map<string, GeneratedHostedFunctionRow>? existing = self.functionMemo;",
+                "        if (existing != null) { return existing; }",
+                "        Map<string, GeneratedHostedFunctionRow> fresh = {};",
+                "        self.functionMemo = fresh;",
+                "        return fresh;",
+                "    }",
+                "",
+                "    private Map<string, int> slotTable() {",
+                "        Map<string, int>? existing = self.functionSlots;",
+                "        if (existing != null) { return existing; }",
+                "        Map<string, int> indexed = {};",
+                "        self.indexFunctions(indexed);",
+                "        self.functionSlots = indexed;",
+                "        return indexed;",
+                "    }",
+                "",
+                "    public GeneratedHostedFunctionRow? functionNamed(string name) {",
+                "        Map<string, GeneratedHostedFunctionRow> memo = self.memoTable();",
+                "        if (memo.has(name)) { return memo.get(name); }",
+                "        Map<string, int> slots = self.slotTable();",
+                "        if (!slots.has(name)) { return null; }",
+                "        GeneratedHostedFunctionRow row = self.functionAt(slots.get(name));",
+                "        memo.put(name, row);",
+                "        return row;",
+                "    }",
+                "",
             ]
         )
-        lines.extend(calls)
+        # Populating every table from one method produced a single C function of
+        # 114,000 lines, and a C optimizer's cost grows superlinearly with
+        # function size: that one function accounted for roughly 90% of the time
+        # to compile the whole self-hosted compiler. Rows and names therefore
+        # spread over many small methods, in manifest order.
+        functions = list(self._manifest.functions)
+        chunks = range(0, len(functions), self.BTRC_ROWS_PER_METHOD)
+        lines.append("    private GeneratedHostedFunctionRow functionAt(int index) {")
+        for chunk, start_index in enumerate(chunks):
+            bound = start_index + self.BTRC_ROWS_PER_METHOD
+            lines.append(f"        if (index < {bound}) {{ return self.functionRow{chunk}(index); }}")
+        lines.extend(['        throw "hosted ABI function row index out of range";', "    }", ""])
+        for chunk, start_index in enumerate(chunks):
+            lines.append(f"    private GeneratedHostedFunctionRow functionRow{chunk}(int index) {{")
+            for offset, function in enumerate(functions[start_index : start_index + self.BTRC_ROWS_PER_METHOD]):
+                lines.append(f"        if (index == {start_index + offset}) {{")
+                lines.extend(self._btrc_function(function))
+                lines.append("        }")
+            lines.extend(['        throw "hosted ABI function row index out of range";', "    }", ""])
+        lines.append("    private void indexFunctions(Map<string, int> slots) {")
+        index_chunks = range(0, len(functions), self.BTRC_NAMES_PER_METHOD)
+        lines.extend(f"        self.indexFunctions{chunk}(slots);" for chunk, _ in enumerate(index_chunks))
         lines.extend(["    }", ""])
-        lines.extend(methods)
+        for chunk, start_index in enumerate(index_chunks):
+            lines.append(f"    private void indexFunctions{chunk}(Map<string, int> slots) {{")
+            for offset, function in enumerate(functions[start_index : start_index + self.BTRC_NAMES_PER_METHOD]):
+                lines.append(f"        slots.put({self._btrc_string(function.name)}, {start_index + offset});")
+            lines.extend(["    }", ""])
+        for field, values in name_fields:
+            method = f"push{field[:1].upper()}{field[1:]}"
+            value_chunks = range(0, len(values), self.BTRC_NAMES_PER_METHOD)
+            lines.extend(
+                [
+                    f"    public Vector<string> {field}() {{",
+                    f"        Vector<string>? memo = self.{field}Memo;",
+                    "        if (memo != null) { return memo; }",
+                    "        Vector<string> built = [];",
+                ]
+            )
+            lines.extend(f"        self.{method}{chunk}(built);" for chunk, _ in enumerate(value_chunks))
+            lines.extend([f"        self.{field}Memo = built;", "        return built;", "    }", ""])
+            for chunk, start_index in enumerate(value_chunks):
+                lines.append(f"    private void {method}{chunk}(Vector<string> values) {{")
+                lines.extend(
+                    f"        values.push({self._btrc_string(value)});"
+                    for value in values[start_index : start_index + self.BTRC_NAMES_PER_METHOD]
+                )
+                lines.extend(["    }", ""])
         lines.extend(["}", ""])
         return "\n".join(lines)
-
-    @staticmethod
-    def _btrc_chunk(
-        calls: list[str],
-        methods: list[str],
-        prefix: str,
-        blocks: list[list[str]],
-        per_method: int,
-    ) -> None:
-        """Spread row population across methods a C optimizer can still chew."""
-
-        for start in range(0, len(blocks), per_method):
-            name = f"{prefix}{start // per_method}"
-            calls.append(f"        self.{name}();")
-            methods.append(f"    private void {name}() {{")
-            for block in blocks[start : start + per_method]:
-                methods.extend(block)
-            methods.extend(["    }", ""])
 
     BTRC_ROWS_PER_METHOD = 40
     BTRC_NAMES_PER_METHOD = 250
@@ -932,7 +972,7 @@ class HostedAbiCatalogGenerator:
     def _btrc_function(self, function: HostedAbiFunctionSpec) -> list[str]:
         semantic = function.semantic_result or function.result
         lines = [
-            "        self.functions.push(GeneratedHostedFunctionRow(",
+            "            return GeneratedHostedFunctionRow(",
             f"            {self._btrc_string(function.name)},",
             f"            {self._btrc_string(function.origin)},",
             f"            {self._btrc_type(function.result)},",
@@ -963,27 +1003,26 @@ class HostedAbiCatalogGenerator:
                 f"            {self._btrc_optional(function.return_alias_shape)},",
                 f"            {self._btrc_optional(function.consume_deallocator)},",
                 f"            {self._btrc_optional(function.return_alias_null_deallocator)},",
-                f"            {self._btrc_string(function.realtime_effect)}));",
+                f"            {self._btrc_string(function.realtime_effect)});",
             ]
         )
         return lines
 
     def _btrc_name_fields(self) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        """The name sets the self-hosted analyzer consults (HostedAbiRepository).
+
+        The reference tables carry every set; the self-host only ever asks
+        whether a name is a hosted function, macro, typedef, owned name or
+        adopting helper, and its structure contract rejects accessors nothing
+        calls, so the other sets are not emitted for it.
+        """
+
         return (
             ("functionNames", self._manifest.names.functions),
             ("macroNames", self._manifest.names.macros),
-            ("objectNames", self._manifest.names.objects),
-            ("typeNames", self._manifest.names.types),
             ("typedefNames", self._manifest.names.typedefs),
             ("ownedNames", self._manifest.names.owned),
-            ("nativeNames", self._manifest.names.native),
-            ("nativeInternalNames", self._manifest.names.native_internal),
             ("runtimeAdoptingHelpers", self._manifest.names.runtime_adopting_helpers),
-            ("platformFunctionNames", self._manifest.platform.functions),
-            ("platformMacroNames", self._manifest.platform.macros),
-            ("platformObjectNames", self._manifest.platform.objects),
-            ("platformTypeNames", self._manifest.platform.types),
-            ("platformTypedefNames", self._manifest.platform.typedefs),
         )
 
     def _btrc_type(self, shape: HostedAbiTypeSpec) -> str:

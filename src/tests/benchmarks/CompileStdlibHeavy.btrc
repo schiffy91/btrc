@@ -1,0 +1,51 @@
+// Compile-time workload: a program that reaches a broad slice of the root
+// stdlib (JSON, TOML, Regex, Map, Set, Vector, Strings, Datetime, Math) so the
+// resolver, analyzer and lowering all have a realistic amount of imported
+// code to process. Its own logic is deliberately small.
+import Library.Datetime;
+import Library.JSON;
+import Library.Map;
+import Library.Math;
+import Library.Regex;
+import Library.Set;
+import Library.Strings;
+import Library.TOML;
+import Library.Vector;
+
+class Inventory {
+	public Map<string, int> counts;
+	public Set<string> seen;
+
+	public Inventory() { self.counts = {}; self.seen = {}; }
+
+	public void add(string name, int amount) {
+		self.counts.put(name, self.counts.getOrDefault(name, 0) + amount);
+		self.seen.add(name);
+	}
+
+	public string summary() {
+		Vector<string> lines = [];
+		for name, amount in self.counts { lines.push(f"{name}={amount}"); }
+		lines.sortBy((string left, string right) => Strings.lessThan(left, right));
+		return lines.join(",");
+	}
+}
+
+int main() {
+	Inventory inventory = Inventory();
+	inventory.add("apple", 3);
+	inventory.add("pear", 2);
+	inventory.add("apple", 1);
+	string config = "[package]\nname = \"demo\"\n";
+	string name = TOML.key("name = \"demo\"");
+	bool matched = Regex.matches("^a.*e$", "apple");
+	Timer timer = Timer();
+	timer.start();
+	float root = Math.sqrt(16.0f);
+	print(inventory.summary());
+	print(name);
+	print(matched);
+	print(root);
+	print(config.length());
+	return 0;
+}

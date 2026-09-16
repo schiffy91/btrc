@@ -177,7 +177,7 @@ def test_arc_field_assignment_uses_atomic_edge_replacement():
 
 def test_for_in_over_list():
     c = emit_c(
-        "int main() { List<int> xs = {1, 2, 3}; int total = 0;\n"
+        "int main() { List<int> xs = [1, 2, 3]; int total = 0;\n"
         "             for x in xs { total = total + x; } return total; }"
     )
     assert "for" in c
@@ -251,7 +251,8 @@ def test_map_and_set_literals():
     c = emit_c(
         "int main() {\n"
         '    Map<string, int> m = {"a": 1, "b": 2};\n'
-        "    Set<int> s = {1, 2, 3};\n"
+        "    Set<int> s = {};\n"
+        "    s.add(1); s.add(2); s.add(3);\n"
         "    return m.size() + s.size();\n"
         "}"
     )

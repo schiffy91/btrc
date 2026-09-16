@@ -1,0 +1,29 @@
+// Generated-code speed: try frames, throws that unwind through cleanups, and
+// the error-message copy on catch. setjmp cost and cleanup-stack discipline
+// are the two things that can regress here.
+import Library.Strings;
+
+class Holder {
+	public string label;
+
+	public Holder(string label) { self.label = label; }
+}
+
+int probe(int value) {
+	Holder holder = Holder("holder-" + Strings.fromInt(value));
+	if (value % 3 == 0) { throw "divisible " + holder.label; }
+	return holder.label.length();
+}
+
+int main() {
+	int checksum = 0;
+	for (int i = 0; i < 150000; i++) {
+		try {
+			checksum += probe(i);
+		} catch (string message) {
+			checksum += message.length();
+		}
+	}
+	print(checksum);
+	return 0;
+}

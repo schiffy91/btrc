@@ -20,7 +20,10 @@ int main() {
 		sum += v;
 	}
 
-	Set<int> seen = {1, 2, 3};
+	Set<int> seen = {};
+	seen.add(1);
+	seen.add(2);
+	seen.add(3);
 	seen.add(4);
 
 	print(total);

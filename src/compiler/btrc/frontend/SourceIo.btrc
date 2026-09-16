@@ -13,10 +13,14 @@ import ./Models.btrc;
 /* Canonical absolute paths, memoized for the process. Every realpath walks
  * the whole path (about 15 microseconds on a cloud-synced volume) and the
  * package loaders ask for the same package roots hundreds of times in one
- * compile. The compiler is single-threaded and the tree is stable while it
- * runs, so one answer per spelling is exact. */
+ * compile. The compiler is single-threaded and the tree is stable while one
+ * compile runs, so one answer per spelling is exact for that compile; the
+ * pipeline resets the memo before each compile. */
 class FeCanonicalPath {
 	class Map<string, string>? memo = null;
+
+	/* Forget every answer; the pipeline calls this at the start of a compile. */
+	class void reset() { FeCanonicalPath.memo = null; }
 
 	class string absolute(string path) {
 		Map<string, string>? memo = FeCanonicalPath.memo;

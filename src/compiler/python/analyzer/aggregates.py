@@ -226,6 +226,18 @@ class InitializerAnalyzer:
         canonical = self.types.canonical(expected) or expected
         if isinstance(initializer, BraceInitializer):
             if canonical.base in self._BRACE_SEQUENCE_COLLECTIONS and len(canonical.generic_args) == 1:
+                if initializer.elements and canonical.base != "Array":
+                    # Lowering has no path from a brace list to a managed
+                    # collection; only the empty form builds one.
+                    hint = (
+                        "'{}' creates an empty Set and add() inserts elements"
+                        if canonical.base == "Set"
+                        else "use a list literal [...]"
+                    )
+                    self.context.error(
+                        f"{subject} cannot use a non-empty brace initializer for '{canonical.base}'; {hint}", line, col
+                    )
+                    return InitializerPlan(True, (InitializerTypeContext(initializer, expected),))
                 element_types = canonical.generic_args
             elif canonical.is_array:
                 element_types = [self.types.array_element(canonical)]

@@ -1,0 +1,46 @@
+// Generated-code speed: object allocation, retain/release traffic through
+// fields and locals, and the cycle collector on a graph that closes on itself.
+// The ARC lock, cleanup registration and the deferred drain all show here.
+import Library.Vector;
+
+class Node {
+	public int id;
+	public Node? next;
+	public Vector<int> payload;
+
+	public Node(int id) {
+		self.id = id;
+		self.next = null;
+		self.payload = [];
+	}
+}
+
+int walk(Node head, int steps) {
+	int sum = 0;
+	Node? current = head;
+	for (int i = 0; i < steps; i++) {
+		Node node = current;
+		sum += node.id + node.payload.size();
+		current = node.next;
+	}
+	return sum;
+}
+
+int main() {
+	long long checksum = 0LL;
+	for (int round = 0; round < 60; round++) {
+		Node head = Node(0);
+		Node tail = head;
+		for (int i = 1; i < 1000; i++) {
+			Node node = Node(i);
+			node.payload.push(i);
+			tail.next = node;
+			tail = node;
+		}
+		tail.next = head;
+		checksum += (long long)walk(head, 2000);
+		tail.next = null;
+	}
+	print(checksum);
+	return 0;
+}

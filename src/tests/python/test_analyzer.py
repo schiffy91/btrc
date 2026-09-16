@@ -2994,7 +2994,7 @@ class TestBraceInitializer:
             int main() {
                 int x = 1;
                 int y = 2;
-                Vector<int> v = {x, y};
+                Vector<int> v = [x, y];
                 return 0;
             }
         """

@@ -11,6 +11,7 @@ import ../parser/SourceMacros.btrc;
 import ../syntax/Grammar.btrc;
 import ../syntax/Tokens.btrc;
 import ./Models.btrc;
+import ./Timing.btrc;
 import ./Packages.btrc;
 import ./SourceIo.btrc;
 import ./Stdlib.btrc;
@@ -509,6 +510,7 @@ class FeImportVisibilityChecker {
 	public FeVisibilityCheckResult check() {
 		Map<string, Vector<string>> symbols = self.localSymbolFiles();
 		FeStdlibSymbolIndexResult indexed = self.ensureStdlibIndex();
+		BtrccPhaseTimer.mark("visibility-index");
 		if (!indexed.success) {
 			Vector<FeVisibilityDiagnostic> emptyDiagnostics = [];
 			return FeVisibilityCheckResult(false, indexed.diagnostic, emptyDiagnostics);

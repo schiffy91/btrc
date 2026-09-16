@@ -1,0 +1,51 @@
+// Generated-code speed: interface dispatch, inherited method calls and a
+// generic container of interface values, the call shapes an application's
+// view and command layers are made of.
+import Library.Vector;
+
+interface Shape {
+	int area();
+}
+
+class Square implements Shape {
+	public int side;
+
+	public Square(int side) { self.side = side; }
+
+	public int area() { return self.side * self.side; }
+}
+
+class Rectangle implements Shape {
+	public int width;
+	public int height;
+
+	public Rectangle(int width, int height) { self.width = width; self.height = height; }
+
+	public int area() { return self.width * self.height; }
+}
+
+class Box<T> {
+	public T value;
+
+	public Box(T value) { self.value = value; }
+
+	public T get() { return self.value; }
+}
+
+int main() {
+	Vector<Shape> shapes = [];
+	for (int i = 0; i < 1000; i++) {
+		if (i % 2 == 0) { shapes.push(Square(i % 17)); }
+		else { shapes.push(Rectangle(i % 13, i % 7)); }
+	}
+	long long checksum = 0LL;
+	for (int round = 0; round < 2000; round++) {
+		for shape in shapes {
+			checksum += (long long)shape.area();
+		}
+		Box<int> box = Box(round);
+		checksum += (long long)box.get();
+	}
+	print(checksum);
+	return 0;
+}

@@ -1,0 +1,27 @@
+// Generated-code speed: Vector and Map churn with integer and string keys,
+// the shapes every analyzer table and every application model uses.
+import Library.Vector;
+import Library.Map;
+import Library.Strings;
+
+int main() {
+	long long checksum = 0LL;
+	for (int round = 0; round < 40; round++) {
+		Vector<int> numbers = [];
+		for (int i = 0; i < 20000; i++) { numbers.push((i * 7919 + round) % 10007); }
+		Map<int, int> histogram = {};
+		for value in numbers {
+			histogram.put(value, histogram.getOrDefault(value, 0) + 1);
+		}
+		Map<string, int> named = {};
+		for (int i = 0; i < 2000; i++) {
+			string key = "key-" + Strings.fromInt(i % 500);
+			named.put(key, named.getOrDefault(key, 0) + i);
+		}
+		Vector<int> evens = numbers.filter((int x) => x % 2 == 0);
+		checksum += (long long)histogram.size() + (long long)named.size() + (long long)evens.size();
+		checksum += (long long)numbers.reduce(0, (int a, int b) => (a + b) % 1000003);
+	}
+	print(checksum);
+	return 0;
+}

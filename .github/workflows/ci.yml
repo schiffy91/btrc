@@ -113,6 +113,26 @@ jobs:
       # reaps daemon-test grandchildren after process-group termination.
       - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
 
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      - run: make devcontainer
+      - run: chmod -R a+w .
+      # The suite measures compile time, startup, emitted-C size, cc time and
+      # generated-code speed and fails on a regression against the tracked
+      # baseline for this runner's platform. Three samples per timing keep the
+      # job short; the minimum is what is compared.
+      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= bench-check BENCH_ARGS="--repeat 3"
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bench-results
+          path: build/bench/results.json
+
   linux-arm64-bundle:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45

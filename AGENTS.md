@@ -272,7 +272,7 @@ output for `<Stem>.btrc`.
 
 The corpus runner discovers a file whose name begins with a capital, so a
 source that is imported rather than run is listed in `INCLUDE_FIXTURES`, and
-the benchmark directory -- whose programs `src/tests/bench.py` times instead --
+the benchmark directory -- whose programs `tools/bench` times instead --
 is listed in `NON_CORPUS_DIRECTORIES`. Both lists live in
 `src/tests/corpus_files.py`.
 

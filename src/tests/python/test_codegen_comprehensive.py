@@ -39,7 +39,7 @@ def test_generic_class_every_construct():
         public Item owned;
         public Container(T v) {
             self.value = v;
-            self.nums = {1, 2, 3};
+            self.nums = [1, 2, 3];
             self.table = {"a": 1};
             self.owned = new Item();
         }

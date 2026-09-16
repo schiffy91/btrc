@@ -102,12 +102,14 @@ def test_lambda_with_capture_allocates_env():
 def test_collections_list_map_set_methods():
     src = """
     int main() {
-        List<int> xs = {1, 2, 3};
+        List<int> xs = [1, 2, 3];
         xs.add(4);
         int n = xs.size();
         Map<string, int> m = {"a": 1};
         m.put("b", 2);
-        Set<int> s = {5, 6};
+        Set<int> s = {};
+        s.add(5);
+        s.add(6);
         s.add(7);
         return n + m.size() + s.size();
     }

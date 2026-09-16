@@ -18,7 +18,7 @@ def test_generic_class_with_collection_field_and_range_loop():
     c = emit_c(
         "class Box<T> {\n"
         "    public T v; public List<int> nums;\n"
-        "    public Box(T v) { self.v = v; self.nums = {1, 2, 3}; }\n"
+        "    public Box(T v) { self.v = v; self.nums = [1, 2, 3]; }\n"
         "    public int sum() { int s = 0; for i in range(3) { s = s + i; } return s; }\n"
         "}\n"
         "int main() { Box<int> b = new Box<int>(5); return b.sum(); }"

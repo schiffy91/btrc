@@ -1,0 +1,27 @@
+// Generated-code speed: string building, searching, splitting and joining.
+// The registry, substring and f-string paths dominate real compiler and
+// application workloads, so a slower string runtime shows here first.
+import Library.Strings;
+import Library.Vector;
+
+int main() {
+	int checksum = 0;
+	for (int round = 0; round < 200; round++) {
+		StringBuilder builder = StringBuilder();
+		for (int i = 0; i < 200; i++) {
+			builder.append(f"item-{i + round},");
+		}
+		string text = builder.toString();
+		Vector<string> parts = Strings.split(text, ",");
+		for part in parts {
+			if (part.contains("9")) { checksum += part.length(); }
+			string upper = part.toUpper();
+			checksum += upper.indexOf("ITEM");
+		}
+		string joined = parts.join(";");
+		checksum += joined.substring(5, 20).length();
+		checksum += text.replace("item", "x").length() % 97;
+	}
+	print(checksum);
+	return 0;
+}

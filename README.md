@@ -1388,7 +1388,8 @@ make examples-triangle      # Build the GPU triangle example
 make examples-sgd           # Build the GPU SGD example
 make examples-todo          # Build the todo example
 make examples-gui           # Build and run the headless GUI example
-make bench                  # Build and run transpile/compile/runtime benchmarks
+make bench                  # Measure compile time, startup, C size, cc time, generated-code speed
+make bench-check            # The same, failing on regressions against the tracked baseline
 make devcontainer           # Generate .devcontainer/ and build image
 make clean                  # Remove build artifacts
 ```

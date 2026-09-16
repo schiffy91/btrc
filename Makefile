@@ -5,7 +5,7 @@
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
         extension extension-install \
         devcontainer clean \
-	test-shard-unit test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one
+	test-shard-unit test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline
 
 SHELL       := /bin/bash
 NIX         := nix develop --command
@@ -336,8 +336,17 @@ examples-native-package: generated-check ## Build recursive native package from 
 	@test -n "$(TARGET)" || { echo "TARGET is required (for example TARGET=linux-x64)" >&2; exit 2; }
 	$(NIX) $(MAKE) -C examples native-package TARGET="$(TARGET)"
 
-bench: generated-check ## Build + run the benchmark suite (times transpile + compile + run)
-	$(NIX) $(MAKE) -C bench
+BENCH_ARGS ?=
+BENCH := python3 -m tools.bench
+BENCH_OPTIONS := --btrcc "$(abspath $(BTRCC_NATIVE))" --cc "$(HOST_CC)" --json build/bench/results.json $(BENCH_ARGS)
+bench: generated-check btrcc ## Measure compile time, startup, emitted-C size, cc time and generated-code speed
+	$(NIX) $(BENCH) run $(BENCH_OPTIONS)
+
+bench-check: generated-check btrcc ## Measure, then fail on regressions against the tracked per-platform baseline
+	$(NIX) $(BENCH) check $(BENCH_OPTIONS)
+
+bench-baseline: generated-check btrcc ## Measure and record this platform's baseline (src/tests/fixtures/benchmarks)
+	$(NIX) $(BENCH) baseline $(BENCH_OPTIONS)
 
 # ─── VSCode Extension ───────────────────────────────────────────────────────
 

@@ -12,7 +12,7 @@ NON_CORPUS_DIRECTORIES = frozenset(
         "formatter",
         "__pycache__",
         "expected",
-        # Benchmarks are programs, but src/tests/bench.py runs them and times
+        # Benchmarks are programs, but tools/bench compiles, runs and times
         # them; the corpus runner would only duplicate that far more slowly.
         "benchmarks",
     }
