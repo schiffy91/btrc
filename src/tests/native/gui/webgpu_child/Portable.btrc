@@ -103,7 +103,7 @@ int main() {
 		var window = GUI.createWindow("Portable native GPU", 360.0, 240.0);
 		var root = GUI.createContainer();
 		var field = GUI.createTextField("Native editor beside WebGPU");
-		var view = GUI.createGPUView();
+		var view = GUI.createGPUView(true);
 		root.attach(field); root.attach(view);
 		window.attachRoot(root);
 		field.arrange(20.0, 12.0, 320.0, 28.0);

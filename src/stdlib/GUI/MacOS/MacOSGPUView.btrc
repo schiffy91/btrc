@@ -15,6 +15,7 @@ class MacOSGPUView implements IMacOSGPUView, IMacOSView {
 	private GPUSurfaceRenderer? _renderer;
 	private CallbackScope _work = CallbackScope();
 	private bool _capture;
+	private bool _captureRequestPending = false;
 	private bool _closing = false;
 	private bool _deviceClosing = false;
 	private bool _closed = false;
@@ -72,7 +73,10 @@ class MacOSGPUView implements IMacOSGPUView, IMacOSView {
 			var state = device.poll();
 			if (state == GPU_DEVICE_FAILED) { self._error = device.error(); return false; }
 			if (state != GPU_DEVICE_READY) { return false; }
-			if (self._renderer == null) { self._renderer = GPUSurfaceRenderer(device, self._target.nativeSurface(), self._capture); }
+			if (self._renderer == null) {
+				self._renderer = GPUSurfaceRenderer(device, self._target.nativeSurface(), self._capture);
+				if (self._captureRequestPending) { self._captureRequestPending = false; self._renderer.requestCapture(); }
+			}
 		} catch (string error) { self._error = error; return false; }
 		return true;
 	}
@@ -94,6 +98,13 @@ class MacOSGPUView implements IMacOSGPUView, IMacOSView {
 	public GPUProgram createProgram(string source, int uniformFloatCount, bool textured = true, bool sourceOver = true, string vertexEntry = "vs_main", string fragmentEntry = "fs_main") {
 		var renderer = self.frameRenderer();
 		return GPUProgram.create(renderer.device(), renderer.nativeFormat(), source, uniformFloatCount, textured, sourceOver, vertexEntry, fragmentEntry, self._work);
+	}
+
+	public void requestCapture() {
+		self.requireOpen();
+		var renderer = self._renderer;
+		if (renderer == null) { self._captureRequestPending = true; return; }
+		renderer.requestCapture();
 	}
 
 	public GPUReadback readback(int maximumPixels = 16777216) { return GPUReadback.create(self.frameRenderer(), maximumPixels, self._work); }

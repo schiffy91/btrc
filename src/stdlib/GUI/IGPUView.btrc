@@ -18,4 +18,6 @@ interface IGPUView extends IView {
 	GPUFrameAvailability beginFrame(double red, double green, double blue, double alpha = 1.0);
 	GPUProgram createProgram(string source, int uniformFloatCount, bool textured = true, bool sourceOver = true, string vertexEntry = "vs_main", string fragmentEntry = "fs_main");
 	GPUReadback readback(int maximumPixels = 16777216);
+	/* Make the next frame readable by readback(); frames are framebuffer-only otherwise. */
+	void requestCapture();
 }

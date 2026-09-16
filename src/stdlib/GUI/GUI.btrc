@@ -42,7 +42,7 @@ class GUI {
 
 	class IStack createColumn(double spacing = 8.0) { return GUIProvider.application().createColumn(spacing); }
 
-	class IGPUView createGPUView(bool capture = true) { return GUIProvider.application().createGPUView(capture); }
+	class IGPUView createGPUView(bool capture = false) { return GUIProvider.application().createGPUView(capture); }
 
 	class ILabel createLabel(string text = "") { return GUIProvider.application().createLabel(text); }
 

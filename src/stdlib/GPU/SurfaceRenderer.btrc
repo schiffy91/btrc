@@ -19,7 +19,14 @@ class GPUSurfaceRenderer {
 	private WGPUTextureFormat _format;
 	private WGPUCompositeAlphaMode _alphaMode;
 	private uint32_t _maximumDimension;
+	/* Persistent capture keeps CopySrc on every frame (tests, tools). Requested
+	 * capture adds it for one frame only: on Metal a swapchain whose usage is
+	 * exactly RenderAttachment is framebuffer-only, and a framebuffer-only
+	 * drawable composites without an extra copy of the whole backing store. */
 	private bool _capture;
+	private bool _captureRequested = false;
+	private bool _capturable = false;
+	private bool _frameCapturable = false;
 	private bool _configured = false;
 	private bool _needsConfigure = false;
 	private bool _closed = false;
@@ -32,7 +39,7 @@ class GPUSurfaceRenderer {
 	private WGPUCommandEncoder _encoder = null;
 	private WGPURenderPassEncoder _pass = null;
 
-	public GPUSurfaceRenderer(GPUDevice device, WGPUSurface surface, bool capture = true) {
+	public GPUSurfaceRenderer(GPUDevice device, WGPUSurface surface, bool capture = false) {
 		if (surface == null || device.state() != GPU_DEVICE_READY) { throw "GPU renderer requires a ready device and surface"; }
 		self._device = device;
 		self._surface = surface;
@@ -56,6 +63,7 @@ class GPUSurfaceRenderer {
 		bool capturable = (capabilities.usages & WGPUTextureUsage_CopySrc) != 0ULL;
 		wgpuSurfaceCapabilitiesFreeMembers(capabilities);
 		if (!formatFound || !alphaFound || !renderable) { throw "GPU surface has no supported RGBA rendering configuration"; }
+		self._capturable = capturable;
 		if (self._capture && !capturable) { throw "GPU surface does not support pixel capture"; }
 	}
 
@@ -69,7 +77,22 @@ class GPUSurfaceRenderer {
 
 	public bool isOpen() { return !self._closed && self._device.state() == GPU_DEVICE_READY; }
 
-	public bool captureEnabled() { self.requireOpen(); return self._capture; }
+	/* Whether the active frame's texture can be read back; between frames, whether the next one can. */
+	public bool captureEnabled() {
+		self.requireOpen();
+		if (self._encoder != null) { return self._frameCapturable; }
+		return self._capture || self._captureRequested;
+	}
+
+	/* Make the next frame capturable: it is configured with CopySrc, and the
+	 * frame after it returns to the framebuffer-only configuration. */
+	public void requestCapture() {
+		self.requireOpen();
+		if (self._capture || self._captureRequested) { return; }
+		if (!self._capturable) { throw "GPU surface does not support pixel capture"; }
+		self._captureRequested = true;
+		self._needsConfigure = true;
+	}
 
 	private void requireIdle() { self.requireOpen(); if (self._encoder != null || self._texture != null) { throw "GPU frame is already active"; } }
 
@@ -102,7 +125,7 @@ class GPUSurfaceRenderer {
 		configuration.device = self._device.nativeDevice();
 		configuration.format = self._format;
 		configuration.usage = WGPUTextureUsage_RenderAttachment;
-		if (self._capture) { configuration.usage |= WGPUTextureUsage_CopySrc; }
+		if (self._capture || self._captureRequested) { configuration.usage |= WGPUTextureUsage_CopySrc; }
 		configuration.width = (uint32_t)self._width;
 		configuration.height = (uint32_t)self._height;
 		/* Immediate presentation never waits for the display: frames leave as
@@ -123,6 +146,7 @@ class GPUSurfaceRenderer {
 		if (self._width == 0 || self._height == 0) { return GPU_SURFACE_FRAME_EMPTY; }
 		var device = self._device.nativeDevice();
 		if (!self._configured || self._needsConfigure) { self.configure(); }
+		self._frameCapturable = self._capture || self._captureRequested;
 		WGPUSurfaceTexture current = {null};
 		wgpuSurfaceGetCurrentTexture(self._surface, &current);
 		self._texture = current.texture;
@@ -179,8 +203,15 @@ class GPUSurfaceRenderer {
 		var status = wgpuSurfacePresent(self._surface);
 		wgpuCommandBufferRelease(commands);
 		self.releaseFrame();
+		self.consumeCaptureRequest();
 		if (status != WGPUStatus_Success) { self._error = "Cannot present GPU frame"; return false; }
 		return true;
+	}
+
+	private void consumeCaptureRequest() {
+		if (!self._captureRequested) { return; }
+		self._captureRequested = false;
+		self._needsConfigure = true;
 	}
 
 	private void releaseFrame() {
@@ -190,7 +221,7 @@ class GPUSurfaceRenderer {
 		if (self._texture != null) { wgpuTextureRelease(self._texture); self._texture = null; }
 	}
 
-	public void discardFrame() { self.requireOpen(); self.releaseFrame(); }
+	public void discardFrame() { self.requireOpen(); self.releaseFrame(); self.consumeCaptureRequest(); }
 
 	public void close() {
 		if (self._closed) { return; }
