@@ -16,7 +16,14 @@ DEVCONTAINER_CONFIG = REPO_ROOT / "nix"
 
 def _make_dry_run(*args: str) -> str:
     environment = os.environ.copy()
-    for inherited_make_state in ("PYTEST_WORKERS", "MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES"):
+    for inherited_make_state in (
+        "PYTEST_WORKERS",
+        "PYTEST_ARGS",
+        "PYTEST_SERIAL_ARGS",
+        "MAKEFLAGS",
+        "MFLAGS",
+        "MAKEOVERRIDES",
+    ):
         environment.pop(inherited_make_state, None)
     result = subprocess.run(
         ["make", "--dry-run", *args],

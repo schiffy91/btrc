@@ -66,6 +66,7 @@ static _Noreturn void btrc_test_longjmp(jmp_buf environment, int status) {
 COMPILER_RUNTIME_SYMBOLS = {
     "_GLOBAL_OFFSET_TABLE_",
     "__aarch64_swp1_acq",
+    "__aarch64_swp4_acq",
     "__addtf3",
     "__divtf3",
     "__eqtf2",
