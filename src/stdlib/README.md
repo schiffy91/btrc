@@ -20,7 +20,7 @@ the API surface, so the layout follows a few fixed rules.
   `Library.FileSystem.FileTree`, `Library.Digest.SHA256`). Files are named
   after their primary class, so a module path reads folder then class.
 - **Platform code lives in a platform subfolder of its group** (`Audio/MacOS`,
-  `GUI/MacOS`, `Image/MacOS`, `Tray/MacOS`) and implements the group's portable
+  `GUI/MacOS`, `Image/MacOS`, `Tray/Linux`, `Tray/MacOS`) and implements the group's portable
   contract: `GUI/MacOS/MacOSDirectoryPicker` implements `GUI/IDirectoryPicker`,
   `Image/MacOS/MacOSEncodedImageDecoder` implements `Image/IEncodedImageDecoder`
   (declared in `Image/EncodedImage.btrc`), `Audio/MacOS/CoreAudioDevice`
@@ -49,4 +49,4 @@ the API surface, so the layout follows a few fixed rules.
 
 Current groups: `App`, `Audio`, `BackgroundJobs`, `Daemon`, `Digest`,
 `FileSystem`, `GPU`, `Graph`, `GUI` (`FreeType/`, `MacOS/`), `HTTP`, `Image`
-(`MacOS/`), `LocalApplicationChannel`, `Realtime`, `Terminal`, `Tray` (`MacOS/`), `UI`. Each group with behavior worth explaining has its own `README.md`.
+(`MacOS/`), `LocalApplicationChannel`, `Realtime`, `Terminal`, `Tray` (`Linux/`, `MacOS/`), `UI`. Each group with behavior worth explaining has its own `README.md`.

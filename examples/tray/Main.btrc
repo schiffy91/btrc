@@ -4,7 +4,7 @@
  * menu. Selecting an item runs that item's shell command via the UnixShell
  * stdlib. "Quit" stops the loop and removes the icon.
  *
- * Build + run (macOS):   make            (this folder)
+ * Build + run (macOS or Linux):   make            (this folder)
  * Native initialization failures are reported explicitly.
  */
 import Library.UI;

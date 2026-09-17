@@ -147,3 +147,34 @@ def darwin_tray_backend_error(
     if _TRAY_PROBE_MARKER not in result.stdout:
         return "native tray backend is unavailable: Cocoa terminated the capability probe during initialization"
     return None
+
+
+_TRAY_WATCHER_NAME = "org.kde.StatusNotifierWatcher"
+
+
+def linux_tray_backend_error() -> str | None:
+    """Return why a StatusNotifierItem cannot be hosted on this session bus."""
+    if subprocess.run(["pkg-config", "--exists", "dbus-1"], capture_output=True).returncode != 0:
+        return "native tray backend is unavailable: pkg-config cannot find dbus-1"
+    dbus_send = shutil.which("dbus-send")
+    if dbus_send is None:
+        return "native tray backend is unavailable: dbus-send is not installed"
+    command = [
+        dbus_send,
+        "--session",
+        "--print-reply",
+        "--dest=org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus.NameHasOwner",
+        f"string:{_TRAY_WATCHER_NAME}",
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return f"native tray backend is unavailable: {error}"
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"exit status {result.returncode}"
+        return f"native tray backend is unavailable: no session bus ({detail[:200]})"
+    if "boolean true" not in result.stdout:
+        return f"native tray backend is unavailable: {_TRAY_WATCHER_NAME} is not on the session bus"
+    return None

@@ -1,0 +1,474 @@
+import Library.Platform;
+import Library.Process;
+import Library.Strings;
+import Library.Vector;
+import Library.Tray.Tray;
+
+/* Marshalling helpers for the a{sv} dictionaries both interfaces speak. */
+class DBusWriter {
+	class void variantString(DBusMessageIter* parent, string value) {
+		DBusMessageIter variant;
+		dbus_message_iter_open_container(parent, DBUS_TYPE_VARIANT, "s", &variant);
+		btrcDBusAppendString(&variant, DBUS_TYPE_STRING, value);
+		dbus_message_iter_close_container(parent, &variant);
+	}
+
+	class void variantObjectPath(DBusMessageIter* parent, string path) {
+		DBusMessageIter variant;
+		dbus_message_iter_open_container(parent, DBUS_TYPE_VARIANT, "o", &variant);
+		btrcDBusAppendString(&variant, DBUS_TYPE_OBJECT_PATH, path);
+		dbus_message_iter_close_container(parent, &variant);
+	}
+
+	class void variantBool(DBusMessageIter* parent, bool value) {
+		DBusMessageIter variant;
+		dbus_message_iter_open_container(parent, DBUS_TYPE_VARIANT, "b", &variant);
+		btrcDBusAppendBool(&variant, value ? 1u : 0u);
+		dbus_message_iter_close_container(parent, &variant);
+	}
+
+	class void variantInt32(DBusMessageIter* parent, int value) {
+		DBusMessageIter variant;
+		dbus_message_iter_open_container(parent, DBUS_TYPE_VARIANT, "i", &variant);
+		btrcDBusAppendInt32(&variant, value);
+		dbus_message_iter_close_container(parent, &variant);
+	}
+
+	class void variantUInt32(DBusMessageIter* parent, unsigned int value) {
+		DBusMessageIter variant;
+		dbus_message_iter_open_container(parent, DBUS_TYPE_VARIANT, "u", &variant);
+		btrcDBusAppendUInt32(&variant, value);
+		dbus_message_iter_close_container(parent, &variant);
+	}
+
+	class void variantStringArray(DBusMessageIter* parent) {
+		DBusMessageIter variant;
+		DBusMessageIter array;
+		dbus_message_iter_open_container(parent, DBUS_TYPE_VARIANT, "as", &variant);
+		dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY, "s", &array);
+		dbus_message_iter_close_container(&variant, &array);
+		dbus_message_iter_close_container(parent, &variant);
+	}
+
+	/* ToolTip is (icon name, icon pixmaps, title, description). */
+	class void variantToolTip(DBusMessageIter* parent, string icon, string title, string description) {
+		DBusMessageIter variant;
+		DBusMessageIter tooltip;
+		DBusMessageIter pixmaps;
+		dbus_message_iter_open_container(parent, DBUS_TYPE_VARIANT, "(sa(iiay)ss)", &variant);
+		dbus_message_iter_open_container(&variant, DBUS_TYPE_STRUCT, null, &tooltip);
+		btrcDBusAppendString(&tooltip, DBUS_TYPE_STRING, icon);
+		dbus_message_iter_open_container(&tooltip, DBUS_TYPE_ARRAY, "(iiay)", &pixmaps);
+		dbus_message_iter_close_container(&tooltip, &pixmaps);
+		btrcDBusAppendString(&tooltip, DBUS_TYPE_STRING, title);
+		btrcDBusAppendString(&tooltip, DBUS_TYPE_STRING, description);
+		dbus_message_iter_close_container(&variant, &tooltip);
+		dbus_message_iter_close_container(parent, &variant);
+	}
+
+	class void openDictEntry(DBusMessageIter* dictionary, DBusMessageIter* entry, string key) {
+		dbus_message_iter_open_container(dictionary, DBUS_TYPE_DICT_ENTRY, null, entry);
+		btrcDBusAppendString(entry, DBUS_TYPE_STRING, key);
+	}
+
+	class void dictString(DBusMessageIter* dictionary, string key, string value) {
+		DBusMessageIter entry;
+		DBusWriter.openDictEntry(dictionary, &entry, key);
+		DBusWriter.variantString(&entry, value);
+		dbus_message_iter_close_container(dictionary, &entry);
+	}
+
+	class void dictObjectPath(DBusMessageIter* dictionary, string key, string path) {
+		DBusMessageIter entry;
+		DBusWriter.openDictEntry(dictionary, &entry, key);
+		DBusWriter.variantObjectPath(&entry, path);
+		dbus_message_iter_close_container(dictionary, &entry);
+	}
+
+	class void dictBool(DBusMessageIter* dictionary, string key, bool value) {
+		DBusMessageIter entry;
+		DBusWriter.openDictEntry(dictionary, &entry, key);
+		DBusWriter.variantBool(&entry, value);
+		dbus_message_iter_close_container(dictionary, &entry);
+	}
+
+	class void dictInt32(DBusMessageIter* dictionary, string key, int value) {
+		DBusMessageIter entry;
+		DBusWriter.openDictEntry(dictionary, &entry, key);
+		DBusWriter.variantInt32(&entry, value);
+		dbus_message_iter_close_container(dictionary, &entry);
+	}
+
+	class void dictUInt32(DBusMessageIter* dictionary, string key, unsigned int value) {
+		DBusMessageIter entry;
+		DBusWriter.openDictEntry(dictionary, &entry, key);
+		DBusWriter.variantUInt32(&entry, value);
+		dbus_message_iter_close_container(dictionary, &entry);
+	}
+}
+
+/* StatusNotifierItem plus com.canonical.dbusmenu served over a private
+ * session-bus connection. The connection is pumped by pull: pump() reads the
+ * socket and answers every queued method call itself, so no native callback
+ * or object-path vtable is involved and activations run on the caller's
+ * thread after their reply has left. */
+class TrayProvider {
+	private Tray _model;
+	private DBusConnection* _connection;
+	private string _busName;
+	private UnixShell _shell;
+	private Vector<bool> _checked = [];
+	private string _pendingCommand = "";
+	private unsigned int _revision = 1u;
+	private bool _quitRequested = false;
+
+	class string itemPath() { return "/StatusNotifierItem"; }
+
+	class string menuPath() { return "/MenuBar"; }
+
+	class string itemInterface() { return "org.kde.StatusNotifierItem"; }
+
+	class string menuInterface() { return "com.canonical.dbusmenu"; }
+
+	class string watcherName() { return "org.kde.StatusNotifierWatcher"; }
+
+	public TrayProvider(Tray model) {
+		self._model = model;
+		self._shell = UnixShell();
+		for entry in model.items { self._checked.push(false); }
+		self._connection = btrcDBusOpenSessionBus();
+		if (self._connection == null) { throw "No D-Bus session bus"; }
+		dbus_connection_set_exit_on_disconnect(self._connection, 0u);
+		try {
+			self._busName = "org.kde.StatusNotifierItem-" + Strings.fromInt(Platform.pid()) + "-" + self.connectionSerial();
+			if (!btrcDBusOwnName(self._connection, self._busName)) { throw "Cannot own " + self._busName + " on the session bus"; }
+			self.probeCheckItems();
+			if (!self.registerWithWatcher()) { throw "No StatusNotifierWatcher on the session bus"; }
+			self.watchWatcher();
+		} catch (string error) { self.close(); throw error; }
+	}
+
+	/* ":1.54" -> "54": unique per connection, so a closed and reopened tray
+	 * never races the bus daemon for the name its old connection still holds. */
+	private string connectionSerial() {
+		string unique = Strings.copy((char*)btrcDBusUniqueName(self._connection));
+		int dot = Strings.rfind(unique, ".");
+		return dot < 0 ? "1" : unique.substring(dot + 1, unique.len() - dot - 1);
+	}
+
+	private bool registerWithWatcher() {
+		DBusMessage* request = dbus_message_new_method_call(TrayProvider.watcherName(), "/StatusNotifierWatcher", TrayProvider.watcherName(), "RegisterStatusNotifierItem");
+		if (request == null) { return false; }
+		DBusMessageIter arguments;
+		dbus_message_iter_init_append(request, &arguments);
+		btrcDBusAppendString(&arguments, DBUS_TYPE_STRING, self._busName);
+		bool registered = btrcDBusCallSucceeds(self._connection, request, 2000) != 0u;
+		dbus_message_unref(request);
+		return registered;
+	}
+
+	/* A restarted watcher (kded/plasmashell crash recovery) forgets every item;
+	 * the spec has items re-register when the well-known name changes owner. */
+	private void watchWatcher() {
+		string rule = "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='" + TrayProvider.watcherName() + "'";
+		if (!btrcDBusAddMatch(self._connection, rule)) { throw "Cannot watch the StatusNotifierWatcher"; }
+	}
+
+	private void handleWatcherOwnerChange(DBusMessage* message) {
+		DBusMessageIter arguments;
+		if (dbus_message_iter_init(message, &arguments) == 0u || !dbus_message_iter_next(&arguments) || !dbus_message_iter_next(&arguments)) { return; }
+		string newOwner = Strings.copy((char*)btrcDBusReadString(&arguments));
+		if (!newOwner.isEmpty()) { self.registerWithWatcher(); }
+	}
+
+	/* True when any checkmark changed since the last probe. */
+	private bool probeCheckItems() {
+		bool changed = false;
+		int index = 0;
+		for entry in self._model.items {
+			if (!entry.stateCommand.isEmpty()) {
+				bool checked = self._shell.run(entry.stateCommand, logFailure=false).ok();
+				if (checked != self._checked.get(index)) { self._checked.set(index, checked); changed = true; }
+			}
+			index++;
+		}
+		return changed;
+	}
+
+	public void refreshCheckItems() {
+		if (self._connection == null) { return; }
+		if (self.probeCheckItems()) { self.announceLayout(); }
+	}
+
+	private void announceLayout() {
+		self._revision++;
+		DBusMessage* signal = dbus_message_new_signal(TrayProvider.menuPath(), TrayProvider.menuInterface(), "LayoutUpdated");
+		if (signal == null) { return; }
+		DBusMessageIter arguments;
+		dbus_message_iter_init_append(signal, &arguments);
+		btrcDBusAppendUInt32(&arguments, self._revision);
+		btrcDBusAppendInt32(&arguments, 0);
+		dbus_connection_send(self._connection, signal, null);
+		dbus_message_unref(signal);
+		dbus_connection_flush(self._connection);
+	}
+
+	public void quit() { self._quitRequested = true; }
+
+	public bool pump(int timeoutMs) {
+		if (self._connection == null || self._quitRequested) { return false; }
+		if (!dbus_connection_read_write(self._connection, timeoutMs)) { return false; }  /* bus went away */
+		DBusMessage* message = dbus_connection_pop_message(self._connection);
+		while (message != null && !self._quitRequested) {
+			self.handle(message);
+			dbus_message_unref(message);
+			message = dbus_connection_pop_message(self._connection);
+		}
+		if (message != null) { dbus_message_unref(message); }
+		return !self._quitRequested;
+	}
+
+	public void run() {
+		if (self._connection == null) { throw "Native tray is closed"; }
+		while (self.pump(-1)) {}
+	}
+
+	public void close() {
+		if (self._connection == null) { return; }
+		dbus_connection_close(self._connection);
+		dbus_connection_unref(self._connection);
+		self._connection = null;
+	}
+
+	public void __del__() { self.close(); }
+
+	private void handle(DBusMessage* message) {
+		if (dbus_message_is_signal(message, "org.freedesktop.DBus", "NameOwnerChanged")) { self.handleWatcherOwnerChange(message); return; }
+		if (dbus_message_get_type(message) != DBUS_MESSAGE_TYPE_METHOD_CALL) { return; }
+		string path = Strings.copy((char*)btrcDBusMessagePath(message));
+		string iface = Strings.copy((char*)btrcDBusMessageInterface(message));
+		string member = Strings.copy((char*)btrcDBusMessageMember(message));
+		DBusMessage* reply = null;
+		if (iface.equals("org.freedesktop.DBus.Introspectable") && member.equals("Introspect")) {
+			reply = self.introspectReply(message, path);
+		} else if (iface.equals("org.freedesktop.DBus.Properties")) {
+			reply = self.propertiesReply(message, path, member);
+		} else if (path.equals(TrayProvider.itemPath()) && iface.equals(TrayProvider.itemInterface())) {
+			reply = dbus_message_new_method_return(message);  /* Activate/ContextMenu/Scroll: the host shows the menu itself */
+		} else if (path.equals(TrayProvider.menuPath()) && iface.equals(TrayProvider.menuInterface())) {
+			reply = self.menuReply(message, member);
+		}
+		if (reply == null) { reply = dbus_message_new_error(message, "org.freedesktop.DBus.Error.UnknownMethod", "Unknown method on the native tray"); }
+		if (reply != null) {
+			if (!dbus_message_get_no_reply(message)) { dbus_connection_send(self._connection, reply, null); }
+			dbus_message_unref(reply);
+		}
+		dbus_connection_flush(self._connection);
+		if (!self._pendingCommand.isEmpty()) {
+			string command = self._pendingCommand;
+			self._pendingCommand = "";
+			self.activate(command);
+		}
+	}
+
+	/* Runs after the Event reply left, so the host never waits on the command. */
+	private void activate(string command) {
+		if (command.equals(TraySignal.quit())) { self.quit(); return; }
+		self._shell.run(command, stdout=CommandOutput.stream(), stderr=CommandOutput.stream(), logFailure=false);
+		self.refreshCheckItems();
+	}
+
+	private DBusMessage* introspectReply(DBusMessage* message, string path) {
+		string body = "";
+		if (path.equals(TrayProvider.itemPath())) {
+			body = "<interface name=\"org.kde.StatusNotifierItem\">" + "<property name=\"Category\" type=\"s\" access=\"read\"/><property name=\"Id\" type=\"s\" access=\"read\"/>" + "<property name=\"Title\" type=\"s\" access=\"read\"/><property name=\"Status\" type=\"s\" access=\"read\"/>" + "<property name=\"IconName\" type=\"s\" access=\"read\"/><property name=\"IconThemePath\" type=\"s\" access=\"read\"/>" + "<property name=\"ToolTip\" type=\"(sa(iiay)ss)\" access=\"read\"/><property name=\"ItemIsMenu\" type=\"b\" access=\"read\"/>" + "<property name=\"Menu\" type=\"o\" access=\"read\"/>" + "<method name=\"Activate\"><arg name=\"x\" type=\"i\" direction=\"in\"/><arg name=\"y\" type=\"i\" direction=\"in\"/></method>" + "<method name=\"SecondaryActivate\"><arg name=\"x\" type=\"i\" direction=\"in\"/><arg name=\"y\" type=\"i\" direction=\"in\"/></method>" + "<method name=\"ContextMenu\"><arg name=\"x\" type=\"i\" direction=\"in\"/><arg name=\"y\" type=\"i\" direction=\"in\"/></method>" + "<method name=\"Scroll\"><arg name=\"delta\" type=\"i\" direction=\"in\"/><arg name=\"orientation\" type=\"s\" direction=\"in\"/></method>" + "</interface>";
+		} else if (path.equals(TrayProvider.menuPath())) {
+			body = "<interface name=\"com.canonical.dbusmenu\">" + "<property name=\"Version\" type=\"u\" access=\"read\"/><property name=\"Status\" type=\"s\" access=\"read\"/>" + "<property name=\"TextDirection\" type=\"s\" access=\"read\"/><property name=\"IconThemePath\" type=\"as\" access=\"read\"/>" + "<method name=\"GetLayout\"><arg name=\"parentId\" type=\"i\" direction=\"in\"/><arg name=\"recursionDepth\" type=\"i\" direction=\"in\"/>" + "<arg name=\"propertyNames\" type=\"as\" direction=\"in\"/><arg name=\"revision\" type=\"u\" direction=\"out\"/><arg name=\"layout\" type=\"(ia{sv}av)\" direction=\"out\"/></method>" + "<method name=\"GetGroupProperties\"><arg name=\"ids\" type=\"ai\" direction=\"in\"/><arg name=\"propertyNames\" type=\"as\" direction=\"in\"/><arg name=\"properties\" type=\"a(ia{sv})\" direction=\"out\"/></method>" + "<method name=\"GetProperty\"><arg name=\"id\" type=\"i\" direction=\"in\"/><arg name=\"name\" type=\"s\" direction=\"in\"/><arg name=\"value\" type=\"v\" direction=\"out\"/></method>" + "<method name=\"Event\"><arg name=\"id\" type=\"i\" direction=\"in\"/><arg name=\"eventId\" type=\"s\" direction=\"in\"/><arg name=\"data\" type=\"v\" direction=\"in\"/><arg name=\"timestamp\" type=\"u\" direction=\"in\"/></method>" + "<method name=\"AboutToShow\"><arg name=\"id\" type=\"i\" direction=\"in\"/><arg name=\"needUpdate\" type=\"b\" direction=\"out\"/></method>" + "<signal name=\"LayoutUpdated\"><arg name=\"revision\" type=\"u\"/><arg name=\"parent\" type=\"i\"/></signal>" + "</interface>";
+		}
+		string xml = "<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Object Introspection 1.0//EN\" \"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd\">" + "<node>" + body + "<interface name=\"org.freedesktop.DBus.Introspectable\"><method name=\"Introspect\"><arg name=\"data\" type=\"s\" direction=\"out\"/></method></interface>" + "<interface name=\"org.freedesktop.DBus.Properties\"><method name=\"Get\"><arg type=\"s\" direction=\"in\"/><arg type=\"s\" direction=\"in\"/><arg type=\"v\" direction=\"out\"/></method>" + "<method name=\"GetAll\"><arg type=\"s\" direction=\"in\"/><arg type=\"a{sv}\" direction=\"out\"/></method></interface>" + "</node>";
+		DBusMessage* reply = dbus_message_new_method_return(message);
+		if (reply == null) { return null; }
+		DBusMessageIter arguments;
+		dbus_message_iter_init_append(reply, &arguments);
+		btrcDBusAppendString(&arguments, DBUS_TYPE_STRING, xml);
+		return reply;
+	}
+
+	private string iconName() { return self._model.iconPath.isEmpty() ? "application-x-executable" : self._model.iconPath; }
+
+	private DBusMessage* propertiesReply(DBusMessage* message, string path, string member) {
+		bool item = path.equals(TrayProvider.itemPath());
+		bool menu = path.equals(TrayProvider.menuPath());
+		if (!item && !menu) { return null; }
+		if (member.equals("GetAll")) {
+			DBusMessage* reply = dbus_message_new_method_return(message);
+			if (reply == null) { return null; }
+			DBusMessageIter arguments;
+			DBusMessageIter dictionary;
+			dbus_message_iter_init_append(reply, &arguments);
+			dbus_message_iter_open_container(&arguments, DBUS_TYPE_ARRAY, "{sv}", &dictionary);
+			if (item) {
+				DBusWriter.dictString(&dictionary, "Category", "ApplicationStatus");
+				DBusWriter.dictString(&dictionary, "Id", self._model.title);
+				DBusWriter.dictString(&dictionary, "Title", self._model.title);
+				DBusWriter.dictString(&dictionary, "Status", "Active");
+				DBusWriter.dictString(&dictionary, "IconName", self.iconName());
+				DBusWriter.dictString(&dictionary, "IconThemePath", "");
+				DBusMessageIter entry;
+				DBusWriter.openDictEntry(&dictionary, &entry, "ToolTip");
+				DBusWriter.variantToolTip(&entry, self.iconName(), self._model.title, self._model.tooltip);
+				dbus_message_iter_close_container(&dictionary, &entry);
+				DBusWriter.dictBool(&dictionary, "ItemIsMenu", true);
+				DBusWriter.dictObjectPath(&dictionary, "Menu", TrayProvider.menuPath());
+			} else {
+				DBusWriter.dictUInt32(&dictionary, "Version", 3u);
+				DBusWriter.dictString(&dictionary, "Status", "normal");
+				DBusWriter.dictString(&dictionary, "TextDirection", "ltr");
+				DBusMessageIter entry;
+				DBusWriter.openDictEntry(&dictionary, &entry, "IconThemePath");
+				DBusWriter.variantStringArray(&entry);
+				dbus_message_iter_close_container(&dictionary, &entry);
+			}
+			dbus_message_iter_close_container(&arguments, &dictionary);
+			return reply;
+		}
+		if (!member.equals("Get")) { return null; }
+		DBusMessageIter request;
+		string name = "";
+		if (dbus_message_iter_init(message, &request) != 0u && dbus_message_iter_next(&request) != 0u) { name = Strings.copy((char*)btrcDBusReadString(&request)); }
+		DBusMessage* reply = dbus_message_new_method_return(message);
+		if (reply == null) { return null; }
+		DBusMessageIter arguments;
+		dbus_message_iter_init_append(reply, &arguments);
+		bool known = true;
+		if (item) {
+			if (name.equals("Category")) { DBusWriter.variantString(&arguments, "ApplicationStatus"); }
+			else if (name.equals("Id") || name.equals("Title")) { DBusWriter.variantString(&arguments, self._model.title); }
+			else if (name.equals("Status")) { DBusWriter.variantString(&arguments, "Active"); }
+			else if (name.equals("IconName")) { DBusWriter.variantString(&arguments, self.iconName()); }
+			else if (name.equals("IconThemePath")) { DBusWriter.variantString(&arguments, ""); }
+			else if (name.equals("ToolTip")) { DBusWriter.variantToolTip(&arguments, self.iconName(), self._model.title, self._model.tooltip); }
+			else if (name.equals("ItemIsMenu")) { DBusWriter.variantBool(&arguments, true); }
+			else if (name.equals("Menu")) { DBusWriter.variantObjectPath(&arguments, TrayProvider.menuPath()); }
+			else { known = false; }
+		} else {
+			if (name.equals("Version")) { DBusWriter.variantUInt32(&arguments, 3u); }
+			else if (name.equals("Status")) { DBusWriter.variantString(&arguments, "normal"); }
+			else if (name.equals("TextDirection")) { DBusWriter.variantString(&arguments, "ltr"); }
+			else if (name.equals("IconThemePath")) { DBusWriter.variantStringArray(&arguments); }
+			else { known = false; }
+		}
+		if (known) { return reply; }
+		dbus_message_unref(reply);
+		return dbus_message_new_error(message, "org.freedesktop.DBus.Error.UnknownProperty", "Unknown property on the native tray");
+	}
+
+	/* dbusmenu ids: 0 is the root; items are 1-based in model order. */
+	private void appendItemProperties(DBusMessageIter* node, int index) {
+		TrayItem entry = self._model.items.get(index);
+		DBusMessageIter properties;
+		dbus_message_iter_open_container(node, DBUS_TYPE_ARRAY, "{sv}", &properties);
+		DBusWriter.dictString(&properties, "label", entry.label);
+		DBusWriter.dictBool(&properties, "enabled", entry.enabled);
+		DBusWriter.dictBool(&properties, "visible", true);
+		if (!entry.stateCommand.isEmpty()) {
+			DBusWriter.dictString(&properties, "toggle-type", "checkmark");
+			DBusWriter.dictInt32(&properties, "toggle-state", self._checked.get(index) ? 1 : 0);
+		}
+		dbus_message_iter_close_container(node, &properties);
+	}
+
+	/* One layout node (ia{sv}av); the menu is flat so children stay empty. */
+	private void appendLayoutNode(DBusMessageIter* parent, int index) {
+		DBusMessageIter node;
+		DBusMessageIter children;
+		dbus_message_iter_open_container(parent, DBUS_TYPE_STRUCT, null, &node);
+		btrcDBusAppendInt32(&node, index + 1);
+		self.appendItemProperties(&node, index);
+		dbus_message_iter_open_container(&node, DBUS_TYPE_ARRAY, "v", &children);
+		dbus_message_iter_close_container(&node, &children);
+		dbus_message_iter_close_container(parent, &node);
+	}
+
+	private DBusMessage* layoutReply(DBusMessage* message) {
+		DBusMessage* reply = dbus_message_new_method_return(message);
+		if (reply == null) { return null; }
+		DBusMessageIter arguments;
+		DBusMessageIter root;
+		DBusMessageIter properties;
+		DBusMessageIter children;
+		DBusMessageIter variant;
+		dbus_message_iter_init_append(reply, &arguments);
+		btrcDBusAppendUInt32(&arguments, self._revision);
+		dbus_message_iter_open_container(&arguments, DBUS_TYPE_STRUCT, null, &root);
+		btrcDBusAppendInt32(&root, 0);
+		dbus_message_iter_open_container(&root, DBUS_TYPE_ARRAY, "{sv}", &properties);
+		DBusWriter.dictString(&properties, "children-display", "submenu");
+		dbus_message_iter_close_container(&root, &properties);
+		dbus_message_iter_open_container(&root, DBUS_TYPE_ARRAY, "v", &children);
+		for (int index = 0; index < self._model.items.len; index++) {
+			dbus_message_iter_open_container(&children, DBUS_TYPE_VARIANT, "(ia{sv}av)", &variant);
+			self.appendLayoutNode(&variant, index);
+			dbus_message_iter_close_container(&children, &variant);
+		}
+		dbus_message_iter_close_container(&root, &children);
+		dbus_message_iter_close_container(&arguments, &root);
+		return reply;
+	}
+
+	private DBusMessage* groupPropertiesReply(DBusMessage* message) {
+		DBusMessage* reply = dbus_message_new_method_return(message);
+		if (reply == null) { return null; }
+		DBusMessageIter arguments;
+		DBusMessageIter array;
+		DBusMessageIter node;
+		dbus_message_iter_init_append(reply, &arguments);
+		dbus_message_iter_open_container(&arguments, DBUS_TYPE_ARRAY, "(ia{sv})", &array);
+		for (int index = 0; index < self._model.items.len; index++) {
+			dbus_message_iter_open_container(&array, DBUS_TYPE_STRUCT, null, &node);
+			btrcDBusAppendInt32(&node, index + 1);
+			self.appendItemProperties(&node, index);
+			dbus_message_iter_close_container(&array, &node);
+		}
+		dbus_message_iter_close_container(&arguments, &array);
+		return reply;
+	}
+
+	/* Event(id, eventId, data, timestamp): "clicked" queues the item's command. */
+	private void recordEvent(DBusMessage* message) {
+		DBusMessageIter request;
+		if (!dbus_message_iter_init(message, &request)) { return; }
+		int index = btrcDBusReadInt32(&request) - 1;
+		if (!dbus_message_iter_next(&request)) { return; }
+		string event = Strings.copy((char*)btrcDBusReadString(&request));
+		if (!event.equals("clicked") || index < 0 || index >= self._model.items.len) { return; }
+		TrayItem entry = self._model.items.get(index);
+		if (entry.enabled) { self._pendingCommand = entry.command; }
+	}
+
+	private DBusMessage* menuReply(DBusMessage* message, string member) {
+		if (member.equals("GetLayout")) { return self.layoutReply(message); }
+		if (member.equals("GetGroupProperties")) { return self.groupPropertiesReply(message); }
+		if (member.equals("Event")) { self.recordEvent(message); return dbus_message_new_method_return(message); }
+		if (member.equals("EventGroup")) { return dbus_message_new_method_return(message); }
+		if (member.equals("AboutToShow")) {
+			bool changed = self.probeCheckItems();
+			if (changed) { self._revision++; }
+			DBusMessage* reply = dbus_message_new_method_return(message);
+			if (reply == null) { return null; }
+			DBusMessageIter arguments;
+			dbus_message_iter_init_append(reply, &arguments);
+			btrcDBusAppendBool(&arguments, changed ? 1u : 0u);
+			return reply;
+		}
+		if (member.equals("GetProperty")) {
+			DBusMessage* reply = dbus_message_new_method_return(message);
+			if (reply == null) { return null; }
+			DBusMessageIter arguments;
+			dbus_message_iter_init_append(reply, &arguments);
+			DBusWriter.variantString(&arguments, "");
+			return reply;
+		}
+		return null;
+	}
+}

@@ -109,11 +109,23 @@ def test_gpu_environment_flags_must_be_configured_as_a_pair(tmp_path, monkeypatc
         runner._gcc_flags("/* btrc_gpu_compute_internal.h */", "/tmp/program.c", "/tmp/program")
 
 
-def test_linux_tray_is_an_explicit_unsupported_provider(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(platform, "system", lambda: "Linux")
+def test_windows_tray_is_an_explicit_unsupported_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(platform, "system", lambda: "Windows")
     monkeypatch.setattr(runner, "declared_capabilities", lambda _source: {"native-tray"})
 
     with pytest.raises(pytest.skip.Exception, match="native tray provider is not implemented"):
+        runner._require_test_capabilities("TrayNative.btrc")
+
+
+def test_linux_tray_skips_only_without_a_session_bus_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(runner, "declared_capabilities", lambda _source: {"native-tray"})
+    monkeypatch.setattr(runner, "linux_tray_backend_error", lambda: None)
+    runner._require_test_capabilities("TrayNative.btrc")
+
+    reason = "native tray backend is unavailable: org.kde.StatusNotifierWatcher is not on the session bus"
+    monkeypatch.setattr(runner, "linux_tray_backend_error", lambda: reason)
+    with pytest.raises(pytest.skip.Exception, match="StatusNotifierWatcher is not on the session bus"):
         runner._require_test_capabilities("TrayNative.btrc")
 
 

@@ -36,6 +36,7 @@ from src.tests.runner_capabilities import (
     darwin_gpu_flags,
     darwin_tray_backend_error,
     declared_capabilities,
+    linux_tray_backend_error,
     loopback_listener_error,
 )
 
@@ -111,11 +112,14 @@ def _require_test_capabilities(btrc_path):
     if "loopback-listener" in required:
         if error := loopback_listener_error():
             pytest.skip(error)
-    if "native-tray" in required and platform.system() != "Darwin":
+    if "native-tray" in required and platform.system() not in ("Darwin", "Linux"):
         pytest.skip("native tray provider is not implemented for this target")
     if "native-tray" in required and platform.system() == "Darwin":
         error = darwin_tray_backend_error(tuple(BTRC_CC), tuple(BTRC_CFLAGS))
         if error:
+            pytest.skip(error)
+    if "native-tray" in required and platform.system() == "Linux":
+        if error := linux_tray_backend_error():
             pytest.skip(error)
 
 

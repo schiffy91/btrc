@@ -9,6 +9,11 @@ module = "Tray"
 implementation = "MacOS.TrayProvider"
 os = ["macos"]
 
+[[package.providers]]
+module = "Tray"
+implementation = "Linux.TrayProvider"
+os = ["linux"]
+
 [[native.bindings]]
 module = "MacOS.TrayProvider"
 header = "MacOS/AppKit.h"
@@ -81,3 +86,36 @@ cancellation = "entry-barrier"
 name = "AppKit"
 modules = ["MacOS.TrayProvider"]
 os = ["macos"]
+
+[[native.pkg-config]]
+name = "dbus-1"
+modules = ["Linux.TrayProvider"]
+os = ["linux"]
+
+[[native.bindings]]
+module = "Linux.TrayProvider"
+header = "Linux/DBus.h"
+language = "c"
+standard = "c11"
+symbols = [
+	"DBusConnection", "DBusMessage", "DBusMessageIter",
+	"btrcDBusOpenSessionBus", "btrcDBusOwnName", "btrcDBusCallSucceeds", "btrcDBusAddMatch", "btrcDBusUniqueName",
+	"btrcDBusMessagePath", "btrcDBusMessageInterface", "btrcDBusMessageMember",
+	"btrcDBusAppendString", "btrcDBusAppendInt32", "btrcDBusAppendUInt32", "btrcDBusAppendBool",
+	"btrcDBusReadString", "btrcDBusReadInt32",
+	"dbus_connection_set_exit_on_disconnect", "dbus_connection_close", "dbus_connection_unref",
+	"dbus_connection_read_write", "dbus_connection_pop_message", "dbus_connection_send", "dbus_connection_flush",
+	"dbus_message_new_method_call", "dbus_message_new_method_return", "dbus_message_new_error", "dbus_message_new_signal",
+	"dbus_message_unref", "dbus_message_get_type", "dbus_message_get_no_reply", "dbus_message_is_signal",
+	"dbus_message_iter_init_append", "dbus_message_iter_init", "dbus_message_iter_next",
+	"dbus_message_iter_open_container", "dbus_message_iter_close_container"
+]
+read-only-borrows = [
+	"dbus_message_new_method_call.bus_name", "dbus_message_new_method_call.path", "dbus_message_new_method_call.iface", "dbus_message_new_method_call.method",
+	"dbus_message_new_signal.path", "dbus_message_new_signal.iface", "dbus_message_new_signal.name",
+	"dbus_message_new_error.error_name", "dbus_message_new_error.error_message",
+	"dbus_message_iter_open_container.contained_signature",
+	"dbus_message_is_signal.iface", "dbus_message_is_signal.signal_name",
+	"btrcDBusOwnName.name", "btrcDBusAppendString.value", "btrcDBusAddMatch.rule"
+]
+os = ["linux"]
