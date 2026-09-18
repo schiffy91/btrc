@@ -7,7 +7,7 @@
         devcontainer clean \
 	test-shard-unit test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline
 
-SHELL       := /bin/bash
+SHELL       := $(if $(wildcard /bin/bash),/bin/bash,bash)  # NixOS has no /bin/bash; make searches PATH for a bare name
 NIX         := nix develop --command
 HOST_AR     := $(if $(filter Darwin,$(shell uname -s)),/usr/bin/ar,ar)
 # The dev shell's `cc` is GCC everywhere; on macOS that GCC emulates thread-local

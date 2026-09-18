@@ -9,15 +9,18 @@ The exceptions are all foreign names, which must keep the spelling C gave
 them, and each has a source rather than a hand-written list that would drift:
 the hosted-ABI repository covers `size_t` and its neighbours, the
 repository's own C and Objective-C sources cover the stdlib shims, native
-fixtures and example packages that btrc links against, and a small tuple below
-covers system-header struct members, which have no declaration site to consult
-because btrc passes `entry->d_name` straight through to C.
+fixtures and example packages that btrc links against, the `symbols` a
+package manifest selects from an SDK header keep the spelling that header
+gave them, and a small tuple below covers system-header struct members, which
+have no declaration site to consult because btrc passes `entry->d_name`
+straight through to C.
 """
 
 from __future__ import annotations
 
 import re
 import subprocess
+import tomllib
 from pathlib import Path
 
 from src.compiler.python.abi.hosted import HostedAbiRepository
@@ -173,6 +176,22 @@ def _repository_c_names() -> frozenset[str]:
     return frozenset(names)
 
 
+def _selected_sdk_names() -> frozenset[str]:
+    """Identifiers the package manifests select from SDK headers.
+
+    A typed native binding imports each `symbols` entry under the name the
+    SDK declares, so `snd_pcm_readi` reaches btrc exactly as ALSA spells it.
+    The manifests are the declaration site; nothing in the tree redeclares them.
+    """
+
+    names: set[str] = set()
+    for relative in _tracked("*btrc.toml"):
+        manifest = tomllib.loads((REPO / relative).read_text())
+        for binding in manifest.get("native", {}).get("bindings", []):
+            names.update(name for name in binding.get("symbols", []) if _WORD.fullmatch(name))
+    return frozenset(names)
+
+
 def _owned_snake_case_names(source: Path, foreign: frozenset[str]) -> set[str]:
     """Snake_case identifiers a btrc source spells that no foreign name explains."""
 
@@ -190,7 +209,7 @@ def _report(offenders: dict[str, set[str]]) -> str:
 def test_every_btrc_source_owns_only_camel_case_names() -> None:
     """The convention covers the stdlib, the corpus and the examples too."""
 
-    foreign = _foreign_names() | _repository_c_names() | _PLATFORM_STRUCT_MEMBERS | _LANGUAGE_INTRINSICS
+    foreign = _foreign_names() | _repository_c_names() | _selected_sdk_names() | _PLATFORM_STRUCT_MEMBERS | _LANGUAGE_INTRINSICS
     offenders: dict[str, set[str]] = {}
     for relative in _tracked("*.btrc"):
         owned = _owned_snake_case_names(REPO / relative, foreign)

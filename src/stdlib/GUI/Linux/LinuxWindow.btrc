@@ -132,6 +132,7 @@ class LinuxWindow implements ILinuxWindow {
 	private bool _deviceClosing = false;
 	private string _closeFailure = "";
 	private unsigned long long _paintedRevision = 0ULL;
+	private int _frameFailures = 0;
 	private double _pointerX = 0.0;
 	private double _pointerY = 0.0;
 	private AppKeyModifiers _modifiers = AppKeyModifiers(false, false, false, false);
@@ -215,7 +216,12 @@ class LinuxWindow implements ILinuxWindow {
 		if (capture) { renderer.requestCapture(); }
 		var background = self.background();
 		var availability = renderer.beginFrame((double)background.red / 255.0, (double)background.green / 255.0, (double)background.blue / 255.0, 1.0);
-		if (availability == GPU_SURFACE_FRAME_UNAVAILABLE) { throw "Cannot render native window: " + renderer.error(); }
+		if (availability == GPU_SURFACE_FRAME_UNAVAILABLE) {
+			self._frameFailures++;
+			if (capture || self._frameFailures > 120) { throw "Cannot render native window: " + renderer.error(); }
+			return null;
+		}
+		self._frameFailures = 0;
 		if (availability != GPU_SURFACE_FRAME_READY) { return null; }
 		self._host.wakeSeconds = -1.0;
 		self._paintedRevision = self._context.invalidation.revision();

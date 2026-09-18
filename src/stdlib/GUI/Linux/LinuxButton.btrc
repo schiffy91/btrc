@@ -49,7 +49,9 @@ class LinuxButton implements IButton, ILinuxView {
 		double height = self._node.height;
 		double radius = LinuxMetrics.cornerRadius();
 		bool active = self._selectable && self._selected;
-		if (self._bordered && !self._transparent) {
+		/* A transparent button is pure tracking over its parent's content, as AppKit draws none. */
+		if (self._transparent) { return; }
+		if (self._bordered) {
 			RGBA fill = active ? theme.accent : (self._pressed ? theme.controlPressed : (self._hovered && self._enabled ? theme.controlHover : theme.controlFill));
 			painter.fillRect(x, y, width, height, fill, radius);
 			painter.strokeRect(x, y, width, height, active ? theme.accent : theme.controlBorder, radius, 1.0);
@@ -57,7 +59,7 @@ class LinuxButton implements IButton, ILinuxView {
 			int alpha = self._pressed ? 40 : (active ? 50 : 22);
 			painter.fillRect(x, y, width, height, RGBA(theme.text.red, theme.text.green, theme.text.blue, alpha), radius);
 		}
-		RGBA color = !self._enabled ? theme.disabledText : (active && self._bordered && !self._transparent ? theme.accentText : theme.text);
+		RGBA color = !self._enabled ? theme.disabledText : (active && self._bordered ? theme.accentText : theme.text);
 		double symbol = self._symbol.isEmpty() ? 0.0 : self.symbolSize();
 		double titleWidth = self._title.isEmpty() ? 0.0 : painter.textWidth(self._title, self._size, false);
 		double gap = symbol > 0.0 && titleWidth > 0.0 ? 6.0 : 0.0;
