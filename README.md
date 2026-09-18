@@ -183,10 +183,10 @@ subfolder of its group:
 
 | Package | What it covers |
 | --- | --- |
-| `App`, `UI`, `GUI`, `Tray` | Application lifecycle, declarative UI, native windows and controls, system tray |
-| `Audio`, `Realtime` | Device enumeration, duplex sessions, realtime buffers and queues; `Audio/MacOS` is the CoreAudio provider |
-| `GPU` | WebGPU device, programs, buffers, textures and compute dispatch |
-| `Image` | DDS decoding, platform image decoding through the system image services, pixel access, dirty-region tracking |
+| `App`, `UI`, `GUI`, `Tray` | Application lifecycle, declarative UI, native windows and controls (AppKit on macOS, drawn over SDL3/WebGPU on Linux), system tray |
+| `Audio`, `Realtime` | Device enumeration, duplex sessions, realtime buffers and queues; `Audio/MacOS` is the CoreAudio provider, `Audio/Linux` the ALSA provider |
+| `GPU` | WebGPU device, programs, buffers, textures, offscreen targets and compute dispatch |
+| `Image` | DDS decoding, platform image decoding (ImageIO on macOS, libpng/libjpeg-turbo on Linux), pixel access, dirty-region tracking |
 | `FileSystem`, `HTTP`, `Terminal`, `Daemon`, `Digest` | Files and directories, HTTP client and server, terminal control, daemons, SHA-256 |
 | `BackgroundJobs`, `Graph`, `LocalApplicationChannel` | Worker queues, graph utilities, local IPC between an app and its agent tools |
 
