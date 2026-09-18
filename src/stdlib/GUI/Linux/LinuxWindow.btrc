@@ -16,6 +16,7 @@ import Library.GUI.Linux.LinuxGPUSurface;
 import Library.GUI.Linux.LinuxPainter;
 import Library.GPU.Device;
 import Library.GPU.SurfaceRenderer;
+import Library.GPU.OffscreenTarget;
 import Library.GPU.Readback;
 
 /* One synchronous key subscription; the window and the caller's scope share
@@ -108,13 +109,15 @@ interface ILinuxWindow extends IWindow {
  * hit-testing that tree, and keyboard input goes to window subscriptions,
  * then the focused control. Closing drains the subtree, then the GPU
  * resources, then the native window, in that order. */
-class LinuxWindow implements ILinuxWindow {
+class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 	private SDL_Window* _window;
 	private unsigned int _id = 0u;
 	private LinuxContext _context;
 	private LinuxViewHost _host;
 	private LinuxGPUSurface? _surface = null;
 	private GPUDevice? _device = null;
+	private GPUOffscreenTarget? _captureTarget = null;
+	private GPUSurfaceRenderer? _captureRenderer = null;
 	private GPUSurfaceRenderer? _renderer = null;
 	private LinuxPainter? _painter = null;
 	private ILinuxView? _root = null;
@@ -156,6 +159,7 @@ class LinuxWindow implements ILinuxWindow {
 		if (self._window == null) { throw "Cannot create native window: " + Strings.copy((char*)SDL_GetError()); }
 		self._id = SDL_GetWindowID(self._window);
 		self._host = LinuxViewHost(self._window, context);
+		self._host.poller = self;  // released in destroyNative
 		try {
 			var surface = LinuxGPUSurface(self._window);
 			self._surface = surface;
@@ -206,17 +210,30 @@ class LinuxWindow implements ILinuxWindow {
 
 	private RGBA background() { var theme = self._dark ? self._context.darkTheme : self._context.lightTheme; return theme.dark ? RGBA(30, 30, 33, 255) : RGBA(238, 238, 240, 255); }
 
+	/* Captures paint into an offscreen target: no mapped surface is needed, so
+	 * a window captures before it is shown and never disturbs presentation. */
+	private GPUSurfaceRenderer captureRenderer(GPUDevice device, WGPUTextureFormat format) {
+		var renderer = self._captureRenderer;
+		if (renderer != null) { return renderer; }
+		var target = GPUOffscreenTarget(device, format);
+		self._captureTarget = target;
+		var created = GPUSurfaceRenderer.offscreen(device, target, true);
+		self._captureRenderer = created;
+		return created;
+	}
+
 	/* Paint one frame; with capture the frame is read back instead of presented. */
 	public Image? render(bool capture) {
-		var renderer = self._renderer;
+		var presenter = self._renderer;
 		var painter = self._painter;
 		var surface = self._surface;
-		if (renderer == null || painter == null || surface == null || self._closing || self._closed || !self._visible) { return null; }
+		var device = self._device;
+		if (presenter == null || painter == null || surface == null || device == null || self._closing || self._closed || (!capture && !self._visible)) { return null; }
 		surface.refreshBackingSize();
 		double scale = surface.backingScale();
 		if (scale != self._host.scale) { self._host.scale = scale; self._context.fonts.setScale(scale); }
+		var renderer = capture ? self.captureRenderer(device, presenter.nativeFormat()) : presenter;
 		renderer.resize(surface.pixelWidth(), surface.pixelHeight());
-		if (capture) { renderer.requestCapture(); }
 		var background = self.background();
 		var availability = renderer.beginFrame((double)background.red / 255.0, (double)background.green / 255.0, (double)background.blue / 255.0, 1.0);
 		if (availability == GPU_SURFACE_FRAME_UNAVAILABLE) {
@@ -703,7 +720,10 @@ class LinuxWindow implements ILinuxWindow {
 	}
 
 	private void destroyNative() {
+		self._host.poller = null;
 		self._painter = null;
+		self._captureRenderer = null;
+		self._captureTarget = null;
 		self._renderer = null;
 		self._device = null;
 		var surface = self._surface;
@@ -739,6 +759,10 @@ class LinuxWindow implements ILinuxWindow {
 			if (painter != null) { painter.close(); self._painter = null; }
 			var renderer = self._renderer;
 			if (renderer != null) { renderer.close(); self._renderer = null; }
+			var captureRenderer = self._captureRenderer;
+			if (captureRenderer != null) { captureRenderer.close(); self._captureRenderer = null; }
+			var captureTarget = self._captureTarget;
+			if (captureTarget != null) { captureTarget.close(); self._captureTarget = null; }
 			var device = self._device;
 			if (device != null) {
 				if (!self._deviceClosing) { self._deviceClosing = true; device.close(); }

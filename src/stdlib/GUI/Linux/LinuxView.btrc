@@ -34,9 +34,15 @@ class LinuxContext {
 /* What an attached subtree learns from its window: the native window for
  * text input, the device for GPU children, focus and the backing scale.
  * Owned by the window, referenced by attached nodes, referencing no view. */
+/* The window behind a host: advances its asynchronous device request on demand. */
+interface ILinuxDevicePoller {
+	bool pollDevice();
+}
+
 class LinuxViewHost {
 	public SDL_Window* window;
 	public LinuxContext context;
+	public ILinuxDevicePoller? poller = null;
 	public GPUDevice? device = null;
 	public WGPUTextureFormat format;
 	public double scale = 1.0;
@@ -61,7 +67,16 @@ class LinuxViewHost {
 		if (self.wakeSeconds < 0.0 || seconds < self.wakeSeconds) { self.wakeSeconds = seconds; }
 	}
 
-	public bool deviceReady() { var device = self.device; return device != null && device.state() == GPU_DEVICE_READY; }
+	/* GPU children may poll before the first loop turn, so ask the window for its device. */
+	public bool deviceReady() {
+		var device = self.device;
+		if (device == null) {
+			var poller = self.poller;
+			if (poller == null || !poller.pollDevice()) { return false; }
+			device = self.device;
+		}
+		return device != null && device.state() == GPU_DEVICE_READY;
+	}
 
 	public void requestFocus(int id) { self.focusRequest = id; self.context.invalidation.mark(); }
 
