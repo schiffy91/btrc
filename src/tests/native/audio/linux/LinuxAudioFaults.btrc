@@ -1,0 +1,150 @@
+/* The ALSA provider against the AlsaFaults fixture: setup failures release
+ * their PCM, a failed stop keeps the handle for a retried close, and a failed
+ * close is indeterminate and never retried. */
+import Library.Audio.Audio;
+import Library.Audio.AudioDevice;
+import Library.Audio.RealtimeAudio;
+import Library.Datetime;
+import Library.Console;
+
+#include <assert.h>
+#include <stdlib.h>
+
+void unitReset(int failure);
+void unitFail(int failure);
+void allowSessionCleanup();
+int pendingSessions();
+int unitDisposals();
+int unitStops();
+int unitRenders();
+
+struct BlockLog { int blocks; int inputBlocks; };
+
+@realtime void logProcess(void* context, struct AudioBlockView block, RealtimeAudioInputSamples input, RealtimeAudioOutputSamples output) {
+	struct BlockLog* state = (struct BlockLog*)context;
+	state->blocks++;
+	if (block.inputChannelCount > 0) { state->inputBlocks++; }
+	int samples = block.frameCount * block.outputChannelCount;
+	for (int index = 0; index < samples; index++) { output.trySet((size_t)index, 0.0f); }
+}
+
+DuplexAudioOpenRequest request(AudioDeviceProvider provider) {
+	var inventoried = provider.inventory();
+	assert(inventoried.succeeded());
+	var inventory = inventoried.inventory();
+	assert(inventory.count() == 1);
+	var output = inventory.defaultOutput();
+	var input = inventory.defaultInput();
+	assert(output != null && input != null && output.id() == "default" && output.name() == "Default ALSA Output");
+	assert(output.inputChannels() == 2 && output.outputChannels() == 2);
+	return DuplexAudioOpenRequest.duplex(inventory.generation(), input.id(), AudioChannelSelection.leading(1), output.id(), AudioChannelSelection.leading(2), AudioStreamRequest(48000, 128));
+}
+
+void runningSession(struct BlockLog* state) {
+	unitReset(0);
+	var opened = Audio.createDevice();
+	assert(opened.succeeded());
+	var provider = opened.provider();
+	var program = RealtimeAudioProgram(logProcess, state);
+	var session = provider.openDuplex(request(provider), program);
+	assert(session.succeeded() && pendingSessions() == 1);
+	var duplex = session.session();
+	assert(duplex.format().hasInput() && duplex.start().succeeded());
+	Timer.sleepMillis(120);
+	assert(duplex.suspend().succeeded() && duplex.drain().succeeded() && duplex.close().succeeded());
+	assert(pendingSessions() == 0 && unitDisposals() == 2 && unitRenders() > 10 && state->blocks > 10 && state->inputBlocks == state->blocks);
+	assert(provider.close().succeeded());
+}
+
+void failedSetup(int failure, AudioDeviceStatus expected) {
+	unitReset(0);
+	var opened = Audio.createDevice();
+	assert(opened.succeeded());
+	var provider = opened.provider();
+	struct BlockLog state = {0, 0};
+	var program = RealtimeAudioProgram(logProcess, &state);
+	var spec = request(provider);
+	unitFail(failure);
+	var session = provider.openDuplex(spec, program);
+	assert(!session.succeeded() && session.status() == expected);
+	assert(pendingSessions() == 0);
+	allowSessionCleanup();
+	var reopened = provider.openDuplex(spec, program);
+	assert(reopened.succeeded() && pendingSessions() == 1);
+	assert(reopened.session().close().succeeded() && pendingSessions() == 0);
+	assert(provider.close().succeeded());
+}
+
+void failedStart() {
+	unitReset(0);
+	var opened = Audio.createDevice();
+	assert(opened.succeeded());
+	var provider = opened.provider();
+	struct BlockLog state = {0, 0};
+	var program = RealtimeAudioProgram(logProcess, &state);
+	var session = provider.openDuplex(request(provider), program);
+	assert(session.succeeded());
+	var duplex = session.session();
+	unitFail(7);
+	assert(duplex.start().status() == AUDIO_DEVICE_UNAVAILABLE && duplex.isOpen());
+	assert(provider.close().status() == AUDIO_DEVICE_BUSY);
+	assert(duplex.close().succeeded() && pendingSessions() == 0 && state.blocks == 0);
+	assert(provider.close().succeeded());
+}
+
+void retriedClose() {
+	unitReset(0);
+	var opened = Audio.createDevice();
+	assert(opened.succeeded());
+	var provider = opened.provider();
+	struct BlockLog state = {0, 0};
+	var program = RealtimeAudioProgram(logProcess, &state);
+	var session = provider.openDuplex(request(provider), program);
+	assert(session.succeeded());
+	var duplex = session.session();
+	assert(duplex.start().succeeded());
+	Timer.sleepMillis(30);
+	unitFail(9);
+	assert(duplex.suspend().succeeded() && duplex.drain().succeeded());
+	int stops = unitStops();
+	assert(duplex.close().status() == AUDIO_DEVICE_UNAVAILABLE && duplex.isOpen() && pendingSessions() == 1);
+	assert(duplex.close().status() == AUDIO_DEVICE_UNAVAILABLE && unitStops() == stops + 2 && unitDisposals() == 0);
+	assert(provider.close().status() == AUDIO_DEVICE_BUSY);
+	allowSessionCleanup();
+	assert(duplex.close().succeeded() && !duplex.isOpen() && pendingSessions() == 0 && unitDisposals() == 2);
+	assert(provider.close().succeeded());
+}
+
+/* Runs in its own process: the retained session ends the program on destruction. */
+void indeterminateClose() {
+	unitReset(0);
+	var opened = Audio.createDevice();
+	assert(opened.succeeded());
+	var provider = opened.provider();
+	struct BlockLog state = {0, 0};
+	var program = RealtimeAudioProgram(logProcess, &state);
+	var session = provider.openDuplex(request(provider), program);
+	assert(session.succeeded());
+	var duplex = session.session();
+	assert(duplex.start().succeeded());
+	Timer.sleepMillis(30);
+	assert(duplex.suspend().succeeded() && duplex.drain().succeeded());
+	unitFail(10);
+	assert(duplex.close().status() == AUDIO_DEVICE_INDETERMINATE && duplex.isOpen());
+	allowSessionCleanup();
+	assert(duplex.close().status() == AUDIO_DEVICE_INDETERMINATE && unitDisposals() == 1);
+	assert(provider.close().status() == AUDIO_DEVICE_BUSY);
+	Console.error("PASS: indeterminate ALSA close is retained and never retried");
+}
+
+int main() {
+	if (getenv("BTRC_ALSA_FAULT_TERMINAL") != null) { indeterminateClose(); return 1; }
+	struct BlockLog state = {0, 0};
+	runningSession(&state);
+	failedSetup(2, AUDIO_DEVICE_BUSY);
+	failedSetup(3, AUDIO_DEVICE_UNSUPPORTED_FORMAT);
+	failedStart();
+	retriedClose();
+	Console.log("PASS: linux audio faults");
+	return 0;
+}

@@ -56,27 +56,67 @@ def _transpile(source: Path, generated: Path, plan: Path, frontend: str, request
         generated.write_text(compiled.stdout)
 
 
-def _build_and_run(
-    source: Path, tmp_path: Path, frontend: str, sanitized: bool, request, expected: str, timeout: int = 120
-) -> None:
+def _build(source: Path, tmp_path: Path, frontend: str, sanitized: bool, request, faults: Path | None = None) -> Path:
+    """Compile through the chosen frontend and link; `faults` names an SDK fixture
+    (Faults.h forced into the generated unit, Faults.c linked in) that replaces the real library."""
     generated = tmp_path / "Program.c"
     plan = tmp_path / "Program.json"
     _transpile(source, generated, plan, frontend, request)
     executable = tmp_path / "Program"
+    sanitizers = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if sanitized else []
+    objects = []
+    if faults is not None:
+        fixture = tmp_path / f"{faults.name}.o"
+        subprocess.run(
+            [
+                "cc",
+                "-std=c11",
+                "-pedantic-errors",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-O2",
+                *sanitizers,
+                "-c",
+                str(faults.with_suffix(".c")),
+                "-o",
+                str(fixture),
+            ],
+            check=True,
+        )
+        objects.append(str(fixture))
 
     def run(command, **kwargs):
-        if sanitized and "-o" in command:
-            command = [*command, "-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
+        command = list(command)
+        if "-c" in command:
+            if faults is not None and str(generated) in command:
+                command[1:1] = ["-include", str(faults.with_suffix(".h"))]
+        elif "-o" in command:
+            command[1:1] = objects
+            command.extend(sanitizers)
         return subprocess.run(command, **kwargs)
 
     NativePlanBuilder(runner=run).build(plan_path=plan, generated_c=generated, output=executable, cc="cc", cxx="c++")
-    environment = {**os.environ, "ASAN_OPTIONS": "detect_leaks=0"}
+    return executable
+
+
+def _environment(sanitized: bool, **extra: str) -> dict[str, str]:
+    environment = {**os.environ, "ASAN_OPTIONS": "detect_leaks=0", **extra}
     # libasan intercepts dlopen, so wgpu-native's own runpath no longer reaches
     # the Vulkan loader; NixOS keeps it under the driver prefix.
     driver = Path("/run/opengl-driver/lib")
     if sanitized and driver.is_dir():
         environment["LD_LIBRARY_PATH"] = ":".join(filter(None, [os.environ.get("LD_LIBRARY_PATH"), str(driver)]))
-    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=timeout, env=environment)
+    return environment
+
+
+def _build_and_run(
+    source: Path, tmp_path: Path, frontend: str, sanitized: bool, request, expected: str, timeout: int = 120
+) -> None:
+    executable = _build(source, tmp_path, frontend, sanitized, request)
+    result = subprocess.run(
+        [str(executable)], capture_output=True, text=True, timeout=timeout, env=_environment(sanitized)
+    )
     assert result.returncode == 0, result.stderr
     assert expected in result.stdout
 
@@ -109,6 +149,35 @@ def test_linux_audio_session(tmp_path, request, frontend, sanitized):
         request,
         "PASS: linux audio session",
     )
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_linux_audio_faults(tmp_path, request, frontend, sanitized):
+    """The ALSA provider over the fault fixture: no hardware, every failure point,
+    and the retained indeterminate close that ends the process on destruction."""
+    _require_linux_reader()
+    executable = _build(
+        ROOT / "src/tests/native/audio/linux/LinuxAudioFaults.btrc",
+        tmp_path,
+        frontend,
+        sanitized,
+        request,
+        faults=ROOT / "src/tests/native/audio/linux/AlsaFaults",
+    )
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=120, env=_environment(sanitized))
+    assert result.returncode == 0, result.stderr
+    assert "PASS: linux audio faults" in result.stdout
+    terminal = subprocess.run(
+        [str(executable)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=_environment(sanitized, BTRC_ALSA_FAULT_TERMINAL="1"),
+    )
+    assert terminal.returncode != 0
+    assert "PASS: indeterminate ALSA close is retained and never retried" in terminal.stderr
+    assert "audio session could not close during destruction" in terminal.stderr
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])

@@ -512,14 +512,30 @@ class AlsaStream {
 		return AUDIO_DEVICE_OK;
 	}
 
+	/* Stops then closes one PCM. A failed stop keeps the handle for a retry;
+	 * alsa-lib frees the handle even when close fails, so that state is unknowable. */
+	private AudioDeviceStatus releasePcm(bool capture) {
+		var render = self._render.borrow();
+		snd_pcm_t* pcm = capture ? render->capture : render->playback;
+		if (pcm == null) { return AUDIO_DEVICE_OK; }
+		if (btrcAlsaNeedsDrop(pcm) != 0) {
+			int dropped = snd_pcm_drop(pcm);
+			if (dropped < 0) { return dropped == -EBUSY ? AUDIO_DEVICE_BUSY : AUDIO_DEVICE_UNAVAILABLE; }
+		}
+		if (capture) { render->capture = null; } else { render->playback = null; }
+		if (snd_pcm_close(pcm) < 0) { self._state = ALSA_STREAM_INDETERMINATE; return AUDIO_DEVICE_INDETERMINATE; }
+		return AUDIO_DEVICE_OK;
+	}
+
 	public AudioDeviceStatus close() {
 		if (self._state == ALSA_STREAM_CLOSED) { return AUDIO_DEVICE_OK; }
 		if (self._state == ALSA_STREAM_INDETERMINATE) { return AUDIO_DEVICE_INDETERMINATE; }
 		if (self._state != ALSA_STREAM_READY && self._state != ALSA_STREAM_DRAINED) { return AUDIO_DEVICE_WRONG_STATE; }
 		if (self._render.opened()) {
-			var render = self._render.borrow();
-			if (render->playback != null) { snd_pcm_close(render->playback); render->playback = null; }
-			if (render->capture != null) { snd_pcm_close(render->capture); render->capture = null; }
+			var released = self.releasePcm(false);
+			if (released != AUDIO_DEVICE_OK) { return released; }
+			released = self.releasePcm(true);
+			if (released != AUDIO_DEVICE_OK) { return released; }
 		}
 		self._selectedOutput = null;
 		self._selectedInput = null;
@@ -537,7 +553,7 @@ class AlsaStream {
 	public void __del__() {
 		if (self._state == ALSA_STREAM_RUNNING) { self.suspend(); }
 		if (self._state == ALSA_STREAM_SUSPENDED) { self.drain(); }
-		if (self.close() != AUDIO_DEVICE_OK) { Console.fatal("ALSA stream destroyed before its worker joined"); }
+		if (self.close() != AUDIO_DEVICE_OK) { Console.fatal("ALSA stream destroyed before its native cleanup completed"); }
 	}
 }
 
