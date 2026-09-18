@@ -179,6 +179,19 @@ def test_related_interface_equality_preserves_identity(tmp_path, sanitized, inte
     _run_interface_program(tmp_path, interface_compile(source), sanitized)
 
 
+def _translation_unit(text: str) -> str:
+    """The emitted C plus this file's own probes, ending in a newline.
+
+    A test pastes its instrumentation around the compiler's output, and a
+    triple-quoted probe ends at the closing quotes' indentation rather than at
+    a line break. The compiler's own output always ends in a newline; only the
+    concatenation does not, and `-pedantic-errors` turns that into
+    `-Wnewline-eof` on the clang versions that still diagnose it.
+    """
+
+    return text if text.endswith("\n") else text + "\n"
+
+
 def _run_interface_program(tmp_path, emitted, sanitized, *, other_units=()):
     # Nix's clang ships a compiler-rt whose sanitizer runtime deadlocks in
     # dyld initialization on macOS; Apple's clang links the working one.
@@ -188,11 +201,11 @@ def _run_interface_program(tmp_path, emitted, sanitized, *, other_units=()):
     if compiler is None:
         pytest.skip("requires clang")
     c_file = tmp_path / "interfaces.c"
-    c_file.write_text(emitted)
+    c_file.write_text(_translation_unit(emitted))
     unit_paths = [c_file]
     for index, source in enumerate(other_units):
         unit_path = tmp_path / f"interfaceUnit{index}.c"
-        unit_path.write_text(source)
+        unit_path.write_text(_translation_unit(source))
         unit_paths.append(unit_path)
     binary = tmp_path / "interfaces"
     flags = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if sanitized else []
