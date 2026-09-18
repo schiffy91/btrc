@@ -29,6 +29,7 @@
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
             wayland.dev pkg-config dbus.dev   # native windowing and system-tray shims
+            sdl3.dev fontconfig.dev libpng.dev libjpeg_turbo.dev alsa-lib.dev   # Linux GUI, image and audio providers
           ];
       };
       files = import ./nix { inherit cfg lib; };
@@ -256,7 +257,7 @@
           Description: BTRC compiler-only WebGPU compute runtime
           Version: 0
           Cflags: -I''${includedir}
-          Libs: -L''${libdir} -lbtrc_gpu -L${pkgs.wgpu-native}/lib -lwgpu_native -pthread${gpuFrameworks}
+          Libs: -L''${libdir} -lbtrc_gpu -L${wgpuNativeLibrary}/lib -Wl,-rpath,${wgpuNativeLibrary}/lib -lwgpu_native -pthread${gpuFrameworks}
         '';
         btrcGpu = pkgs.stdenv.mkDerivation {
           pname = "btrc-gpu";
@@ -345,15 +346,27 @@
             runHook postInstall
           '';
         };
+        # wgpu-native dlopens the Vulkan loader; on NixOS that lives under the
+        # driver prefix, which the library's own runpath must name.
+        wgpuNativeLibrary = if isDarwin then pkgs.wgpu-native else pkgs.runCommand "wgpu-native-driver-runpath" {
+          nativeBuildInputs = [ pkgs.patchelf ];
+        } ''
+          mkdir -p "$out/lib"
+          cp ${pkgs.wgpu-native}/lib/* "$out/lib/"
+          chmod u+w "$out/lib/"*
+          for library in "$out"/lib/*.so; do
+            patchelf --add-rpath /run/opengl-driver/lib "$library"
+          done
+        '';
         nativeWebGpu = pkgs.symlinkJoin {
           name = "wgpu-native-${pkgs.wgpu-native.version}";
-          paths = [ pkgs.wgpu-native pkgs.wgpu-native.dev
+          paths = [ wgpuNativeLibrary pkgs.wgpu-native.dev
             (pkgs.writeTextDir "lib/pkgconfig/wgpu-native.pc" ''
               Name: wgpu-native
               Description: Pinned WebGPU native implementation
               Version: ${pkgs.wgpu-native.version}
               Cflags: -I${pkgs.wgpu-native.dev}/include/webgpu
-              Libs: -L${pkgs.wgpu-native}/lib -Wl,-rpath,${pkgs.wgpu-native}/lib -lwgpu_native
+              Libs: -L${wgpuNativeLibrary}/lib -Wl,-rpath,${wgpuNativeLibrary}/lib${lib.optionalString (!isDarwin) " -Wl,-rpath,/run/opengl-driver/lib"} -lwgpu_native
             '')
           ];
         };

@@ -129,11 +129,12 @@ class LinuxGlyphAtlas {
 	private int _shelfX = 0;
 	private int _shelfY = 0;
 	private int _shelfHeight = 0;
-	private Map<long long, LinuxAtlasSlot> _slots = new Map<long long, LinuxAtlasSlot>();
+	private Map<long long, LinuxAtlasSlot> _slots;
 	private OwnedBuffer<unsigned char> _staging;
 	private unsigned long long _generation = 1ULL;
 
 	public LinuxGlyphAtlas(GPUDevice device, int size, WGPUBindGroupLayout layout, WGPUSampler sampler, WGPUBuffer uniform, unsigned long long uniformBytes) {
+		self._slots = new Map<long long, LinuxAtlasSlot>();
 		self._size = size;
 		self._texture = LinuxTexture.create(device, size, size, WGPUTextureFormat_R8Unorm, layout, sampler, uniform, uniformBytes);
 		self._staging = OwnedBuffer((size_t)(512 * 512));
@@ -240,7 +241,7 @@ class LinuxPainter {
 	private LinuxTheme _defaultTheme;
 	private LinuxGlyphAtlas _atlas;
 	private LinuxTexture _white;
-	private Map<int, LinuxTexture> _images = new Map<int, LinuxTexture>();
+	private Map<int, LinuxTexture> _images;
 	private double _scale = 1.0;
 	private int _pixelWidth = 0;
 	private int _pixelHeight = 0;
@@ -248,6 +249,7 @@ class LinuxPainter {
 
 	public LinuxPainter(GPUDevice device, WGPUTextureFormat format, LinuxFonts fonts, LinuxTheme theme) {
 		if (device.state() != GPU_DEVICE_READY) { throw "Native painter requires a ready device"; }
+		self._images = new Map<int, LinuxTexture>();
 		self._device = device;
 		self._format = format;
 		self._fonts = fonts;

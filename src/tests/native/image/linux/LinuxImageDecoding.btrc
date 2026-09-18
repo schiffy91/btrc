@@ -1,0 +1,52 @@
+/* libpng and libjpeg-turbo behind the portable decoder contract: real pixels
+ * out, bounded limits enforced, corrupt input rejected without pixels. */
+import Library.Bytes;
+import Library.Image;
+import Library.Image.EncodedImage;
+import Library.Image.SystemImageDecoder;
+import Library.Console;
+
+#include <assert.h>
+
+Bytes fixture(int* values, int count) {
+	var bytes = Bytes();
+	for (int index = 0; index < count; index++) { bytes.append(values[index]); }
+	return bytes;
+}
+
+int main() {
+	int png[143] = {137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 2, 8, 6, 0, 0, 0, 114, 182, 13, 36, 0, 0, 0, 32, 99, 72, 82, 77, 0, 0, 122, 38, 0, 0, 128, 132, 0, 0, 250, 0, 0, 0, 128, 232, 0, 0, 117, 48, 0, 0, 234, 96, 0, 0, 58, 152, 0, 0, 23, 112, 156, 186, 81, 60, 0, 0, 0, 6, 98, 75, 71, 68, 0, 255, 0, 255, 0, 255, 160, 189, 167, 147, 0, 0, 0, 24, 73, 68, 65, 84, 8, 215, 5, 193, 1, 1, 0, 0, 8, 195, 32, 110, 255, 206, 19, 22, 193, 193, 228, 1, 33, 25, 3, 2, 185, 196, 162, 246, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130};
+	int jpeg[286] = {255, 216, 255, 224, 0, 16, 74, 70, 73, 70, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 255, 219, 0, 67, 0, 3, 2, 2, 3, 2, 2, 3, 3, 3, 3, 4, 3, 3, 4, 5, 8, 5, 5, 4, 4, 5, 10, 7, 7, 6, 8, 12, 10, 12, 12, 11, 10, 11, 11, 13, 14, 18, 16, 13, 14, 17, 14, 11, 11, 16, 22, 16, 17, 19, 20, 21, 21, 21, 12, 15, 23, 24, 22, 20, 24, 18, 20, 21, 20, 255, 219, 0, 67, 1, 3, 4, 4, 5, 4, 5, 9, 5, 5, 9, 20, 13, 11, 13, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 255, 192, 0, 17, 8, 0, 8, 0, 8, 3, 1, 17, 0, 2, 17, 1, 3, 17, 1, 255, 196, 0, 20, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 255, 196, 0, 20, 16, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 196, 0, 21, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 8, 255, 196, 0, 20, 17, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 218, 0, 12, 3, 1, 0, 2, 17, 3, 17, 0, 63, 0, 32, 61, 72, 63, 255, 217};
+	var limits = EncodedImageDecodeLimits(1048576, 64, 64, 4096LL);
+	var decoder = SystemImageDecoder();
+	var pngBytes = fixture(png, 143);
+	var decodedPng = decoder.decode(pngBytes, limits);
+	assert(decodedPng.succeeded());
+	var pngImage = decodedPng.image();
+	assert(pngImage.width == 2 && pngImage.height == 2);
+	var red = pngImage.pixel(0, 0);
+	var blue = pngImage.pixel(1, 1);
+	assert(red.red == 255 && red.green == 0 && red.blue == 0 && red.alpha == 255);
+	assert(blue.red == 0 && blue.green == 0 && blue.blue == 255 && blue.alpha == 255);
+	assert(decodedPng.inputBytes() == 143 && decodedPng.decodedBytes() == 16ULL);
+
+	var decodedJpeg = decoder.decode(fixture(jpeg, 286), limits);
+	assert(decodedJpeg.succeeded());
+	var jpegImage = decodedJpeg.image();
+	assert(jpegImage.width == 8 && jpegImage.height == 8);
+	var orange = jpegImage.pixel(4, 4);
+	assert(orange.red > 180 && orange.green > 80 && orange.green < 120 && orange.blue < 80 && orange.alpha == 255);
+
+	var tight = EncodedImageDecodeLimits(1048576, 1, 1, 1LL);
+	assert(decoder.decode(pngBytes, tight).status() == ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED);
+	var truncated = Bytes();
+	for (int index = 0; index < 40; index++) { truncated.append(png[index]); }
+	assert(decoder.decode(truncated, limits).status() == ENCODED_IMAGE_DECODE_CORRUPT);
+	var corruptJpeg = Bytes();
+	for (int index = 0; index < 60; index++) { corruptJpeg.append(jpeg[index]); }
+	assert(decoder.decode(corruptJpeg, limits).status() == ENCODED_IMAGE_DECODE_CORRUPT);
+	assert(decoder.decode(Bytes.fromString("GIF89a....."), limits).status() == ENCODED_IMAGE_DECODE_UNSUPPORTED);
+	assert(decoder.decode(Bytes(), limits).status() == ENCODED_IMAGE_DECODE_INVALID_ARGUMENT);
+	Console.log("PASS: linux image decoding");
+	return 0;
+}

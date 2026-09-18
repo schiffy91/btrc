@@ -900,7 +900,8 @@ class TypeValidator {
 		if (role != "return" && role != "alias" && TypeValidator.scalarVoid(canonical)) {
 			TypeValidator.fail(subject + " cannot have scalar/non-pointer void type", site);
 		}
-		if (canonical != null && canonical.pointerDepth == 0 && self.state.analyzed.structTable.has(canonical.base) && self.state.analyzed.structTable.get(canonical.base).isForward) {
+		/* A typedef may name an incomplete struct, as SDK handle types do; only by-value use sites need the definition. */
+		if (canonical != null && role != "alias" && canonical.pointerDepth == 0 && self.state.analyzed.structTable.has(canonical.base) && self.state.analyzed.structTable.get(canonical.base).isForward) {
 			TypeValidator.fail("Incomplete struct '" + canonical.base + "' cannot be used by value for " + subject, site);
 		}
 		if (!self.knownDeclarationType(typeExpr)) {

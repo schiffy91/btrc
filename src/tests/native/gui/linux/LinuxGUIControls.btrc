@@ -1,0 +1,157 @@
+/* The drawn Linux provider on a live display: layout, synthetic pointer,
+ * keyboard and text input reach the controls exactly like device events,
+ * and the composed window reads back through GUI.capture. */
+import Library.GUI.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IButton;
+import Library.GUI.IView;
+import Library.GUI.IWindow;
+import Library.GUI.Linux.SDL;
+import Library.GUI.Linux.LinuxWindow;
+import Library.Callback;
+import Library.Image;
+import Library.Vector;
+import Library.Console;
+
+#include <assert.h>
+
+class Counter implements IButtonAction {
+	public int count = 0;
+	public void invoke() { self.count++; }
+}
+
+class Pointer implements IViewPointerHandler {
+	public int presses = 0;
+	public int entered = 0;
+	public bool consume;
+	public Pointer(bool consume) { self.consume = consume; }
+	public bool pointer(AppPointerEvent event) {
+		if (event.action == APP_POINTER_PRESSED) { self.presses++; return self.consume; }
+		if (event.action == APP_POINTER_ENTERED) { self.entered++; }
+		return false;
+	}
+}
+
+class Journey implements IApplicationWork {
+	private int _step = 0;
+	private unsigned int _window;
+	private IView _root;
+	private IButton _button;
+	private ITextField _field;
+	private ISelect _select;
+	private ISlider _slider;
+	private IScrollView _scroll;
+	private IPanel _card;
+	private Counter _counter;
+	private Pointer _cardPointer;
+	private Pointer _rootPointer;
+	private int _rootBefore = 0;
+	public bool passed = false;
+
+	public Journey(unsigned int window, IView root, IButton button, ITextField field, ISelect select, ISlider slider, IScrollView scroll, IPanel card, Counter counter, Pointer cardPointer, Pointer rootPointer) {
+		self._window = window; self._root = root; self._button = button; self._field = field; self._select = select; self._slider = slider; self._scroll = scroll; self._card = card; self._counter = counter; self._cardPointer = cardPointer; self._rootPointer = rootPointer;
+	}
+
+	private void click(double x, double y) {
+		btrcSdlPushPointerMotion(self._window, (float)x, (float)y);
+		btrcSdlPushPointerButton(self._window, (float)x, (float)y, 1u, 1, 1u);
+		btrcSdlPushPointerButton(self._window, (float)x, (float)y, 1u, 0, 1u);
+	}
+
+	public void run() {
+		self._step++;
+		int step = self._step;
+		if (step == 2) { self.click(60.0, 30.0); }
+		else if (step == 4) {
+			assert(self._counter.count == 1);
+			self.click(200.0, 30.0);
+			btrcSdlPushText(self._window, "hello");
+			btrcSdlPushKey(self._window, (unsigned int)SDL_SCANCODE_LEFT, (unsigned int)SDLK_LEFT, 0u, 1, 0);
+			btrcSdlPushKey(self._window, (unsigned int)SDL_SCANCODE_LEFT, (unsigned int)SDLK_LEFT, 0u, 0, 0);
+			btrcSdlPushText(self._window, "X");
+			btrcSdlPushKey(self._window, (unsigned int)SDL_SCANCODE_BACKSPACE, (unsigned int)SDLK_BACKSPACE, 0u, 1, 0);
+			btrcSdlPushKey(self._window, (unsigned int)SDL_SCANCODE_BACKSPACE, (unsigned int)SDLK_BACKSPACE, 0u, 0, 0);
+		} else if (step == 6) {
+			assert(self._field.text().equals("hello"));
+			self.click(360.0, 30.0);
+		} else if (step == 8) {
+			self.click(360.0, 30.0 + 26.0 + 4.0 + 20.0 * 2.0 + 10.0);
+		} else if (step == 10) {
+			assert(self._select.selectedIndex() == 2);
+			btrcSdlPushPointerMotion(self._window, 30.0f, 90.0f);
+			btrcSdlPushPointerButton(self._window, 30.0f, 90.0f, 1u, 1, 1u);
+			btrcSdlPushPointerMotion(self._window, 80.0f, 90.0f);
+			btrcSdlPushPointerButton(self._window, 80.0f, 90.0f, 1u, 0, 1u);
+		} else if (step == 12) {
+			assert(self._slider.value() > 40.0 && self._slider.value() < 80.0);
+			btrcSdlPushWheel(self._window, 400.0f, 200.0f, 0.0f, -3.0f);
+		} else if (step == 14) {
+			assert(self._scroll.scrollOffset() > 100.0);
+			self._rootBefore = self._rootPointer.presses;
+			self.click(80.0, 200.0);
+		} else if (step == 16) {
+			/* Subscriptions see every press before built-in controls; the card consumed its own. */
+			assert(self._cardPointer.presses == 1 && self._rootPointer.presses == self._rootBefore);
+			assert(self._cardPointer.entered >= 1);
+			var image = GUI.capture(self._root, new Vector<GUICaptureLayer>());
+			assert(image.width > 0 && image.height > 0);
+			var pixel = image.pixel(image.width / 8, image.height * 3 / 4);
+			assert(pixel.red > 150 && pixel.green < 100 && pixel.blue < 100);
+			self.passed = true;
+			GUI.requestQuit();
+			return;
+		}
+		GUI.post(self);
+	}
+}
+
+int main() {
+	GUI.initialize(64);
+	var window = GUI.createWindow("BTRC Linux controls", 480.0, 320.0);
+	ILinuxWindow? native = (ILinuxWindow?)window;
+	assert(native != null);
+	var root = GUI.createPanel(RGBA(30, 30, 34, 255), 0.0);
+	var button = GUI.createButton("Press");
+	var field = GUI.createTextField("", "Type here");
+	var select = GUI.createSelect();
+	Vector<string> items = ["Alpha", "Beta", "Gamma"];
+	select.setItems(items, 0);
+	var slider = GUI.createSlider(0.0, 100.0, 0);
+	var scroll = GUI.createScrollView();
+	var content = GUI.createContainer();
+	for (int index = 0; index < 20; index++) {
+		var line = GUI.createLabel(f"Line {index}");
+		content.attach(line);
+		line.arrange(4.0, (double)index * 24.0, 150.0, 22.0);
+	}
+	scroll.attach(content);
+	content.arrange(0.0, 0.0, 160.0, 480.0);
+	scroll.setContentSize(160.0, 480.0);
+	var card = GUI.createPanel(RGBA(220, 60, 60, 255), 8.0);
+	var counter = Counter();
+	var scope = CallbackScope();
+	button.onAction(counter, scope);
+	var cardPointer = Pointer(true);
+	var rootPointer = Pointer(false);
+	root.attach(button); root.attach(field); root.attach(select); root.attach(slider); root.attach(scroll); root.attach(card);
+	window.attachRoot(root);
+	button.arrange(20.0, 16.0, 80.0, button.fittingHeight());
+	field.arrange(120.0, 16.0, 160.0, field.fittingHeight());
+	select.arrange(300.0, 16.0, 120.0, select.fittingHeight());
+	slider.arrange(20.0, 80.0, 120.0, slider.fittingHeight());
+	scroll.arrange(320.0, 120.0, 140.0, 160.0);
+	card.arrange(20.0, 160.0, 120.0, 120.0);
+	card.onPointer(cardPointer, scope);
+	root.onPointer(rootPointer, scope);
+	assert(button.fittingWidth() > 40.0 && button.fittingHeight() > 20.0);
+	assert(select.fittingWidth() > 60.0);
+	window.show();
+	unsigned int windowId = native == null ? 0u : native.nativeId();
+	var journey = Journey(windowId, root, button, field, select, slider, scroll, card, counter, cardPointer, rootPointer);
+	GUI.post(journey);
+	GUI.run();
+	assert(journey.passed);
+	assert(!root.isOpen());
+	Console.log("PASS: linux gui controls");
+	return 0;
+}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import socket
 import subprocess
@@ -177,4 +178,22 @@ def linux_tray_backend_error() -> str | None:
         return f"native tray backend is unavailable: no session bus ({detail[:200]})"
     if "boolean true" not in result.stdout:
         return f"native tray backend is unavailable: {_TRAY_WATCHER_NAME} is not on the session bus"
+    return None
+
+
+def linux_display_error() -> str | None:
+    """Return why a Wayland or X11 window cannot be opened from this session."""
+    if subprocess.run(["pkg-config", "--exists", "sdl3"], capture_output=True).returncode != 0:
+        return "native GUI backend is unavailable: pkg-config cannot find sdl3"
+    if not os.environ.get("WAYLAND_DISPLAY") and not os.environ.get("DISPLAY"):
+        return "native GUI backend is unavailable: no WAYLAND_DISPLAY or DISPLAY"
+    return None
+
+
+def linux_audio_backend_error() -> str | None:
+    """Return why no ALSA PCM can be opened from this session."""
+    if subprocess.run(["pkg-config", "--exists", "alsa"], capture_output=True).returncode != 0:
+        return "native audio backend is unavailable: pkg-config cannot find alsa"
+    if os.environ.get("BTRC_SKIP_AUDIO_TESTS"):
+        return "native audio backend tests are disabled by BTRC_SKIP_AUDIO_TESTS"
     return None

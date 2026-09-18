@@ -140,3 +140,73 @@ static inline void btrcSdlFolderDialogFree(BtrcSdlFolderDialog* dialog) {
 static inline char* btrcSdlClipboardText(void) { return SDL_GetClipboardText(); }
 
 static inline void btrcSdlFree(void* memory) { SDL_free(memory); }
+
+/* Synthetic input for automation and tests: events enter SDL's own queue and
+ * reach the window exactly like device events. Coordinates are window points. */
+static inline void btrcSdlPushPointerMotion(unsigned int window, float x, float y) {
+	SDL_Event event;
+	memset(&event, 0, sizeof(event));
+	event.type = SDL_EVENT_MOUSE_MOTION;
+	event.motion.windowID = window;
+	event.motion.x = x;
+	event.motion.y = y;
+	SDL_PushEvent(&event);
+}
+
+static inline void btrcSdlPushPointerButton(unsigned int window, float x, float y, unsigned int button, int down, unsigned int clicks) {
+	SDL_Event event;
+	memset(&event, 0, sizeof(event));
+	event.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+	event.button.windowID = window;
+	event.button.x = x;
+	event.button.y = y;
+	event.button.button = (Uint8)button;
+	event.button.clicks = (Uint8)clicks;
+	event.button.down = down ? true : false;
+	SDL_PushEvent(&event);
+}
+
+static inline void btrcSdlPushWheel(unsigned int window, float x, float y, float deltaX, float deltaY) {
+	SDL_Event event;
+	memset(&event, 0, sizeof(event));
+	event.type = SDL_EVENT_MOUSE_WHEEL;
+	event.wheel.windowID = window;
+	event.wheel.mouse_x = x;
+	event.wheel.mouse_y = y;
+	event.wheel.x = deltaX;
+	event.wheel.y = deltaY;
+	SDL_PushEvent(&event);
+}
+
+static inline void btrcSdlPushKey(unsigned int window, unsigned int scancode, unsigned int key, unsigned int modifiers, int down, int repeat) {
+	SDL_Event event;
+	memset(&event, 0, sizeof(event));
+	event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+	event.key.windowID = window;
+	event.key.scancode = (SDL_Scancode)scancode;
+	event.key.key = (SDL_Keycode)key;
+	event.key.mod = (SDL_Keymod)modifiers;
+	event.key.down = down ? true : false;
+	event.key.repeat = repeat ? true : false;
+	SDL_PushEvent(&event);
+}
+
+/* Pushed text lives in a small ring the next few pumps will have consumed;
+ * at most 63 bytes reach the window per event. */
+static char btrcSdlTextRing[16][64];
+static unsigned int btrcSdlTextRingIndex = 0u;
+
+static inline void btrcSdlPushText(unsigned int window, const char* text) {
+	SDL_Event event;
+	memset(&event, 0, sizeof(event));
+	char* slot = btrcSdlTextRing[btrcSdlTextRingIndex % 16u];
+	btrcSdlTextRingIndex++;
+	size_t length = strlen(text);
+	if (length > 63) { length = 63; }
+	memcpy(slot, text, length);
+	slot[length] = '\0';
+	event.type = SDL_EVENT_TEXT_INPUT;
+	event.text.windowID = window;
+	event.text.text = slot;
+	SDL_PushEvent(&event);
+}

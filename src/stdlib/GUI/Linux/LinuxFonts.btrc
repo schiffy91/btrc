@@ -63,9 +63,10 @@ class LinuxFace {
 	public double descent;
 	public double lineHeight;
 	private FreeTypeFace _face;
-	private Map<int, LinuxGlyph> _glyphs = new Map<int, LinuxGlyph>();
+	private Map<int, LinuxGlyph> _glyphs;
 
 	public LinuxFace(int key, string path, int pixelSize, bool bold) {
+		self._glyphs = new Map<int, LinuxGlyph>();
 		self.key = key;
 		self.pixelSize = pixelSize;
 		self.bold = bold;
@@ -107,9 +108,10 @@ class LinuxFonts {
 	private string _regularPath = "";
 	private string _boldPath = "";
 	private double _scale = 1.0;
-	private Map<int, LinuxFace> _faces = new Map<int, LinuxFace>();
+	private Map<int, LinuxFace> _faces;
 
 	public LinuxFonts() {
+		self._faces = new Map<int, LinuxFace>();
 		self._regularPath = LinuxFonts.resolve("sans-serif", 80);
 		self._boldPath = LinuxFonts.resolve("sans-serif", 200);
 		if (self._boldPath.isEmpty()) { self._boldPath = self._regularPath; }

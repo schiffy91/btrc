@@ -100,12 +100,17 @@ class LinuxKeys {
 	}
 }
 
+/* Provider-only projection: the native window identity synthetic input names. */
+interface ILinuxWindow extends IWindow {
+	unsigned int nativeId();
+}
+
 /* An SDL window whose whole content is one WebGPU surface. The root view
  * tree is painted by the window's painter, pointer input is routed by
  * hit-testing that tree, and keyboard input goes to window subscriptions,
  * then the focused control. Closing drains the subtree, then the GPU
  * resources, then the native window, in that order. */
-class LinuxWindow implements IWindow {
+class LinuxWindow implements ILinuxWindow {
 	private SDL_Window* _window;
 	private unsigned int _id = 0u;
 	private LinuxContext _context;
@@ -338,6 +343,13 @@ class LinuxWindow implements IWindow {
 		self._hoveredViews.clear();
 	}
 
+	private void forgetCapture() {
+		self._captureViewId = 0;
+		self._captureInputViewId = 0;
+		self._captureInputIndex = -1;
+		self._captureButton = APP_POINTER_BUTTON_NONE;
+	}
+
 	private void cancelCapture() {
 		if (self._captureInputViewId != 0) {
 			var located = self.locate(self._captureInputViewId);
@@ -350,16 +362,17 @@ class LinuxWindow implements IWindow {
 			var located = self.locate(self._captureViewId);
 			if (located != null) { located.view.pointer(self.localEvent(APP_POINTER_CANCELLED, self._captureButton, 0, located.originX, located.originY)); }
 		}
-		self._captureViewId = 0;
-		self._captureInputViewId = 0;
-		self._captureInputIndex = -1;
-		self._captureButton = APP_POINTER_BUTTON_NONE;
+		self.forgetCapture();
 	}
 
 	private void deliverPointer(AppPointerAction action, AppPointerButton button, int clicks) {
 		if (self._host.overlayId != 0) {
 			var overlay = self.locate(self._host.overlayId);
-			if (overlay != null && overlay.view.pointer(self.localEvent(action, button, clicks, overlay.originX, overlay.originY))) { self._context.invalidation.mark(); return; }
+			if (overlay != null && overlay.view.pointer(self.localEvent(action, button, clicks, overlay.originX, overlay.originY))) {
+				if (action == APP_POINTER_RELEASED && button == self._captureButton) { self.forgetCapture(); }
+				self._context.invalidation.mark();
+				return;
+			}
 		}
 		var path = self.hitPath(self._pointerX, self._pointerY);
 		bool captured = self._captureButton != APP_POINTER_BUTTON_NONE && (self._captureViewId != 0 || self._captureInputViewId != 0);
@@ -380,7 +393,7 @@ class LinuxWindow implements IWindow {
 				var located = self.locate(self._captureViewId);
 				if (located != null) { located.view.pointer(self.localEvent(action, button, clicks, located.originX, located.originY)); }
 			}
-			if (releasing) { self._captureViewId = 0; self._captureInputViewId = 0; self._captureInputIndex = -1; self._captureButton = APP_POINTER_BUTTON_NONE; self.updateHover(path); }
+			if (releasing) { self.forgetCapture(); self.updateHover(path); }
 			return;
 		}
 		for (int index = path.len - 1; index >= 0; index--) {
