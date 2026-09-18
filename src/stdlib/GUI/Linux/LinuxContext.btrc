@@ -1,0 +1,104 @@
+import Library.Math;
+import Library.Image;
+
+/* A monotonically increasing revision that windows compare against their last
+ * frame. Views bump it on every visible mutation; nothing retains the views. */
+class LinuxInvalidation {
+	private unsigned long long _revision = 1ULL;
+
+	public void mark() { self._revision++; }
+
+	public unsigned long long revision() { return self._revision; }
+}
+
+/* Stable identities for focus, capture and hover so no owner needs a back
+ * reference to the view it names. */
+class LinuxIds {
+	private int _next = 1;
+
+	public int next() {
+		if (self._next == 2147483647) { throw "Native view identities are exhausted"; }
+		int id = self._next;
+		self._next++;
+		return id;
+	}
+}
+
+/* Colors of the drawn controls. Dark and light variants share geometry. */
+class LinuxTheme {
+	public bool dark;
+	public RGBA text;
+	public RGBA secondaryText;
+	public RGBA controlFill;
+	public RGBA controlHover;
+	public RGBA controlPressed;
+	public RGBA controlBorder;
+	public RGBA fieldFill;
+	public RGBA accent;
+	public RGBA accentText;
+	public RGBA disabledText;
+	public RGBA track;
+	public RGBA popupFill;
+	public RGBA shadow;
+	public RGBA selection;
+
+	private LinuxTheme(bool dark) {
+		self.dark = dark;
+		if (dark) {
+			self.text = RGBA(240, 240, 240, 255);
+			self.secondaryText = RGBA(160, 164, 170, 255);
+			self.controlFill = RGBA(64, 66, 70, 255);
+			self.controlHover = RGBA(78, 80, 86, 255);
+			self.controlPressed = RGBA(52, 54, 58, 255);
+			self.controlBorder = RGBA(92, 94, 100, 255);
+			self.fieldFill = RGBA(28, 29, 32, 255);
+			self.accent = RGBA(61, 174, 233, 255);
+			self.accentText = RGBA(255, 255, 255, 255);
+			self.disabledText = RGBA(120, 122, 128, 255);
+			self.track = RGBA(88, 90, 96, 255);
+			self.popupFill = RGBA(44, 46, 50, 255);
+			self.shadow = RGBA(0, 0, 0, 110);
+			self.selection = RGBA(61, 174, 233, 110);
+		} else {
+			self.text = RGBA(28, 28, 30, 255);
+			self.secondaryText = RGBA(110, 112, 118, 255);
+			self.controlFill = RGBA(250, 250, 252, 255);
+			self.controlHover = RGBA(236, 237, 240, 255);
+			self.controlPressed = RGBA(218, 220, 224, 255);
+			self.controlBorder = RGBA(190, 192, 198, 255);
+			self.fieldFill = RGBA(255, 255, 255, 255);
+			self.accent = RGBA(0, 122, 255, 255);
+			self.accentText = RGBA(255, 255, 255, 255);
+			self.disabledText = RGBA(170, 172, 178, 255);
+			self.track = RGBA(200, 202, 208, 255);
+			self.popupFill = RGBA(255, 255, 255, 255);
+			self.shadow = RGBA(0, 0, 0, 70);
+			self.selection = RGBA(0, 122, 255, 90);
+		}
+	}
+
+	class LinuxTheme darkTheme() { return LinuxTheme(true); }
+
+	class LinuxTheme lightTheme() { return LinuxTheme(false); }
+}
+
+/* Native control metrics in logical points, shared by measurement and painting. */
+class LinuxMetrics {
+	class double controlHeight(double fontSize) { return Math.ceilDouble(fontSize * 1.65) + 4.0; }
+
+	class double horizontalPadding() { return 12.0; }
+
+	class double cornerRadius() { return 6.0; }
+
+	class double defaultFontSize() { return 13.0; }
+
+	class double sliderHeight() { return 22.0; }
+
+	class double sliderWidth() { return 120.0; }
+
+	class double levelHeight() { return 16.0; }
+
+	class double levelWidth() { return 100.0; }
+
+	class double spinnerSize() { return 24.0; }
+}

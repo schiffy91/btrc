@@ -2,12 +2,12 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_gpu"
-exports = ["Device", "ImageTexture", "Program", "Readback", "SurfaceRenderer", "UniformBuffer", "WebGPU"]
+exports = ["Device", "ImageTexture", "OffscreenTarget", "Program", "Readback", "SurfaceRenderer", "UniformBuffer", "WebGPU"]
 
 [[native.pkg-config]]
 name = "wgpu-native"
 modules = ["WebGPU"]
-os = ["macos"]
+os = ["macos", "linux"]
 
 [[native.bindings]]
 module = "WebGPU"
@@ -43,7 +43,9 @@ symbols = [
 	"WGPUPrimitiveTopology_TriangleList", "WGPUFrontFace_CCW", "WGPUCullMode_None", "wgpuDeviceCreateRenderPipeline", "wgpuRenderPipelineRelease",
 	"WGPUBindGroupEntry", "WGPUBindGroupDescriptor", "wgpuDeviceCreateBindGroup", "wgpuBindGroupRelease", "wgpuRenderPassEncoderSetPipeline", "wgpuRenderPassEncoderSetBindGroup", "wgpuRenderPassEncoderDraw",
 	"WGPUBufferUsage_MapRead", "WGPUTexelCopyBufferInfo", "WGPUExtent3D", "wgpuCommandEncoderCopyTextureToBuffer",
-	"wgpuBufferMapAsync", "WGPUMapMode_Read", "WGPUMapAsyncStatus_Success", "wgpuBufferGetConstMappedRange", "wgpuBufferUnmap"
+	"wgpuBufferMapAsync", "WGPUMapMode_Read", "WGPUMapAsyncStatus_Success", "wgpuBufferGetConstMappedRange", "wgpuBufferUnmap",
+	"WGPUVertexBufferLayout", "WGPUVertexAttribute", "WGPUVertexFormat_Float32x2", "WGPUVertexFormat_Float32x4", "WGPUVertexStepMode_Vertex", "WGPUBufferUsage_Vertex",
+	"wgpuRenderPassEncoderSetVertexBuffer", "wgpuRenderPassEncoderSetScissorRect", "WGPUTextureFormat_R8Unorm"
 ]
 owned-results = ["wgpuDeviceGetQueue"]
 borrowed-parameters = [
@@ -56,7 +58,7 @@ borrowed-parameters = [
 ]
 owned-records = ["WGPURequestAdapterOptions", "WGPURequestAdapterCallbackInfo", "WGPURequestDeviceCallbackInfo", "WGPUSurfaceConfiguration", "WGPUPopErrorScopeCallbackInfo", "WGPUBufferMapCallbackInfo"]
 record-inputs = ["wgpuInstanceRequestAdapter.options", "wgpuInstanceRequestAdapter.callbackInfo", "wgpuAdapterRequestDevice.callbackInfo", "wgpuSurfaceConfigure.config", "wgpuDevicePopErrorScope.callbackInfo", "wgpuBufferMapAsync.callbackInfo"]
-os = ["macos"]
+os = ["macos", "linux"]
 [native.bindings.resources.WGPUInstance]
 ownership = "reference-counted"
 retain = "wgpuInstanceAddRef"

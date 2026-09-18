@@ -1,0 +1,86 @@
+import Library.GPU.Device;
+import Library.GPU.WebGPU;
+
+/* An owned render-attachment texture standing in for a native swapchain. A
+ * compositor samples it between frames; the renderer that draws into it must
+ * finish before resize or close. Capturable on every frame: a plain texture
+ * has no framebuffer-only optimization to protect. */
+class GPUOffscreenTarget {
+	private GPUDevice _device;
+	private WGPUTextureFormat _format;
+	private uint32_t _maximumDimension;
+	private WGPUTexture _texture = null;
+	private WGPUTextureView _view = null;
+	private int _width = 0;
+	private int _height = 0;
+	private unsigned long long _generation = 0ULL;
+	private bool _closed = false;
+
+	public GPUOffscreenTarget(GPUDevice device, WGPUTextureFormat format) {
+		if (device.state() != GPU_DEVICE_READY) { throw "GPU offscreen target requires a ready device"; }
+		self._device = device;
+		self._format = format;
+		WGPULimits limits = {null};
+		if (wgpuDeviceGetLimits(device.nativeDevice(), &limits) != WGPUStatus_Success) { throw "Cannot read GPU device limits"; }
+		self._maximumDimension = limits.maxTextureDimension2D;
+	}
+
+	private void requireOpen() { if (self._closed) { throw "GPU offscreen target is closed"; } }
+
+	public bool isOpen() { return !self._closed; }
+
+	public GPUDevice device() { self.requireOpen(); return self._device; }
+
+	public WGPUTextureFormat nativeFormat() { self.requireOpen(); return self._format; }
+
+	public int width() { self.requireOpen(); return self._width; }
+
+	public int height() { self.requireOpen(); return self._height; }
+
+	/* Changes whenever the backing texture is replaced, so samplers can rebind. */
+	public unsigned long long generation() { self.requireOpen(); return self._generation; }
+
+	public bool hasTexture() { self.requireOpen(); return self._texture != null; }
+
+	public WGPUTexture nativeTexture() { self.requireOpen(); if (self._texture == null) { throw "GPU offscreen target has no texture"; } return self._texture; }
+
+	public WGPUTextureView nativeView() { self.requireOpen(); if (self._view == null) { throw "GPU offscreen target has no texture"; } return self._view; }
+
+	public void resize(int width, int height) {
+		self.requireOpen();
+		if (width < 0 || height < 0 || (uint32_t)width > self._maximumDimension || (uint32_t)height > self._maximumDimension) { throw "GPU offscreen dimensions exceed device limits"; }
+		if (width == self._width && height == self._height && (self._texture != null || width == 0 || height == 0)) { return; }
+		self.releaseTexture();
+		self._width = width;
+		self._height = height;
+		if (width == 0 || height == 0) { return; }
+		WGPUTextureDescriptor descriptor = {null};
+		descriptor.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopySrc;
+		descriptor.dimension = WGPUTextureDimension_2D;
+		descriptor.size.width = (uint32_t)width;
+		descriptor.size.height = (uint32_t)height;
+		descriptor.size.depthOrArrayLayers = 1u;
+		descriptor.format = self._format;
+		descriptor.mipLevelCount = 1u;
+		descriptor.sampleCount = 1u;
+		self._texture = wgpuDeviceCreateTexture(self._device.nativeDevice(), &descriptor);
+		if (self._texture != null) { self._view = wgpuTextureCreateView(self._texture, null); }
+		if (self._texture == null || self._view == null) { self.releaseTexture(); throw "Cannot allocate GPU offscreen texture"; }
+		self._generation++;
+	}
+
+	private void releaseTexture() {
+		if (self._view != null) { wgpuTextureViewRelease(self._view); self._view = null; }
+		if (self._texture != null) { wgpuTextureRelease(self._texture); self._texture = null; }
+	}
+
+	public void close() {
+		if (self._closed) { return; }
+		self.releaseTexture();
+		self._width = 0;
+		self._height = 0;
+		self._closed = true;
+	}
+
+	public void __del__() { self.close(); }
+}

@@ -1,5 +1,6 @@
 import Library.Math;
 import Library.GPU.Device;
+import Library.GPU.OffscreenTarget;
 import Library.GPU.WebGPU;
 
 enum GPUFrameAvailability {
@@ -9,13 +10,15 @@ enum GPUFrameAvailability {
 	GPU_SURFACE_FRAME_UNAVAILABLE
 };
 
-/* Owns configuration and one in-flight frame on a borrowed native surface.
+/* Owns configuration and one in-flight frame on a borrowed native surface, or
+ * on an offscreen target that a compositor samples instead of presenting.
  * Use on the device's owner thread; close before the device and surface.
  * Native rendering borrows the active pass. Capture may append commands after
  * finishDrawing; present submits once, while discardFrame submits nothing. */
 class GPUSurfaceRenderer {
 	private GPUDevice _device;
-	private WGPUSurface _surface;
+	private WGPUSurface? _surface;
+	private GPUOffscreenTarget? _target = null;
 	private WGPUTextureFormat _format;
 	private WGPUCompositeAlphaMode _alphaMode;
 	private uint32_t _maximumDimension;
@@ -33,24 +36,41 @@ class GPUSurfaceRenderer {
 	private int _width = 0;
 	private int _height = 0;
 	private unsigned long long _frameNumber = 0ULL;
+	private unsigned long long _presented = 0ULL;
 	private string _error = "";
 	private WGPUTexture _texture = null;
 	private WGPUTextureView _view = null;
 	private WGPUCommandEncoder _encoder = null;
 	private WGPURenderPassEncoder _pass = null;
 
-	public GPUSurfaceRenderer(GPUDevice device, WGPUSurface surface, bool capture = false) {
-		if (surface == null || device.state() != GPU_DEVICE_READY) { throw "GPU renderer requires a ready device and surface"; }
+	public GPUSurfaceRenderer(GPUDevice device, WGPUSurface? surface, bool capture = false, GPUOffscreenTarget? target = null) {
+		if ((surface == null) == (target == null) || device.state() != GPU_DEVICE_READY) { throw "GPU renderer requires a ready device and exactly one render target"; }
 		self._device = device;
 		self._surface = surface;
+		self._target = target;
 		self._capture = capture;
-		self.readCapabilities();
+		if (target != null) {
+			if (target.device() != device) { throw "GPU offscreen target belongs to another device"; }
+			self._format = target.nativeFormat();
+			self._capturable = true;
+		} else { self.readCapabilities(); }
 		self.readLimits();
+	}
+
+	/* Frames render into the target's texture; present submits without a swapchain. */
+	class GPUSurfaceRenderer offscreen(GPUDevice device, GPUOffscreenTarget target, bool capture = false) { return GPUSurfaceRenderer(device, null, capture, target); }
+
+	public bool isOffscreen() { return self._target != null; }
+
+	private WGPUSurface nativeSurface() {
+		var surface = self._surface;
+		if (surface == null) { throw "GPU renderer has no native surface"; }
+		return surface;
 	}
 
 	private void readCapabilities() {
 		WGPUSurfaceCapabilities capabilities = {null};
-		var status = wgpuSurfaceGetCapabilities(self._surface, self._device.nativeAdapter(), &capabilities);
+		var status = wgpuSurfaceGetCapabilities(self.nativeSurface(), self._device.nativeAdapter(), &capabilities);
 		if (status != WGPUStatus_Success) { wgpuSurfaceCapabilitiesFreeMembers(capabilities); throw "Cannot read GPU surface capabilities"; }
 		bool formatFound = false;
 		for (size_t index = (size_t)0; index < capabilities.formatCount; index++) {
@@ -114,13 +134,20 @@ class GPUSurfaceRenderer {
 		self.requireIdle();
 		if (width < 0 || height < 0 || (uint32_t)width > self._maximumDimension || (uint32_t)height > self._maximumDimension) { throw "GPU frame dimensions exceed device limits"; }
 		if (width == self._width && height == self._height) { return; }
-		if (self._configured) { wgpuSurfaceUnconfigure(self._surface); }
+		if (self._configured && self._surface != null) { wgpuSurfaceUnconfigure(self.nativeSurface()); }
 		self._configured = false;
 		self._width = width;
 		self._height = height;
 	}
 
 	private void configure() {
+		var target = self._target;
+		if (target != null) {
+			target.resize(self._width, self._height);
+			self._configured = true;
+			self._needsConfigure = false;
+			return;
+		}
 		var configuration = WGPUSurfaceConfigurationInput();
 		configuration.device = self._device.nativeDevice();
 		configuration.format = self._format;
@@ -133,7 +160,7 @@ class GPUSurfaceRenderer {
 		 * cost rather than the panel's refresh (tearing is accepted). */
 		configuration.presentMode = WGPUPresentMode_Immediate;
 		configuration.alphaMode = self._alphaMode;
-		wgpuSurfaceConfigure(self._surface, configuration);
+		wgpuSurfaceConfigure(self.nativeSurface(), configuration);
 		self._configured = true;
 		self._needsConfigure = false;
 	}
@@ -146,20 +173,25 @@ class GPUSurfaceRenderer {
 		if (self._width == 0 || self._height == 0) { return GPU_SURFACE_FRAME_EMPTY; }
 		var device = self._device.nativeDevice();
 		if (!self._configured || self._needsConfigure) { self.configure(); }
-		self._frameCapturable = self._capture || self._captureRequested;
-		WGPUSurfaceTexture current = {null};
-		wgpuSurfaceGetCurrentTexture(self._surface, &current);
-		self._texture = current.texture;
-		if (current.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal && current.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
-			self.releaseFrame();
-			if (current.status == WGPUSurfaceGetCurrentTextureStatus_Timeout) { return GPU_SURFACE_FRAME_RETRY; }
-			if (current.status == WGPUSurfaceGetCurrentTextureStatus_Outdated) { self._needsConfigure = true; return GPU_SURFACE_FRAME_RETRY; }
-			int status = (int)current.status;
-			self._error = f"Cannot acquire GPU frame ({status})";
-			return GPU_SURFACE_FRAME_UNAVAILABLE;
+		self._frameCapturable = self._capture || self._captureRequested || self._target != null;
+		var target = self._target;
+		if (target != null) {
+			self._texture = target.nativeTexture();
+		} else {
+			WGPUSurfaceTexture current = {null};
+			wgpuSurfaceGetCurrentTexture(self.nativeSurface(), &current);
+			self._texture = current.texture;
+			if (current.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal && current.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
+				self.releaseFrame();
+				if (current.status == WGPUSurfaceGetCurrentTextureStatus_Timeout) { return GPU_SURFACE_FRAME_RETRY; }
+				if (current.status == WGPUSurfaceGetCurrentTextureStatus_Outdated) { self._needsConfigure = true; return GPU_SURFACE_FRAME_RETRY; }
+				int status = (int)current.status;
+				self._error = f"Cannot acquire GPU frame ({status})";
+				return GPU_SURFACE_FRAME_UNAVAILABLE;
+			}
+			if (self._texture == null) { self._error = "GPU surface returned no frame texture"; return GPU_SURFACE_FRAME_UNAVAILABLE; }
+			self._needsConfigure = current.status == WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal;
 		}
-		if (self._texture == null) { self._error = "GPU surface returned no frame texture"; return GPU_SURFACE_FRAME_UNAVAILABLE; }
-		self._needsConfigure = current.status == WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal;
 		self._view = wgpuTextureCreateView(self._texture, null);
 		self._encoder = wgpuDeviceCreateCommandEncoder(device, null);
 		if (self._view == null || self._encoder == null) { self.releaseFrame(); self._error = "Cannot allocate GPU frame"; return GPU_SURFACE_FRAME_UNAVAILABLE; }
@@ -200,13 +232,17 @@ class GPUSurfaceRenderer {
 		const WGPUCommandBuffer commands = wgpuCommandEncoderFinish(self._encoder, null);
 		if (commands == null) { self.releaseFrame(); self._error = "Cannot finish GPU frame"; return false; }
 		wgpuQueueSubmit(queue, (size_t)1, &commands);
-		var status = wgpuSurfacePresent(self._surface);
+		var status = self._surface == null ? WGPUStatus_Success : wgpuSurfacePresent(self.nativeSurface());
 		wgpuCommandBufferRelease(commands);
 		self.releaseFrame();
 		self.consumeCaptureRequest();
 		if (status != WGPUStatus_Success) { self._error = "Cannot present GPU frame"; return false; }
+		self._presented++;
 		return true;
 	}
+
+	/* Frames submitted so far; a compositor samples an offscreen target only after the count moves. */
+	public unsigned long long presentedCount() { return self._presented; }
 
 	private void consumeCaptureRequest() {
 		if (!self._captureRequested) { return; }
@@ -218,7 +254,8 @@ class GPUSurfaceRenderer {
 		if (self._pass != null) { wgpuRenderPassEncoderEnd(self._pass); wgpuRenderPassEncoderRelease(self._pass); self._pass = null; }
 		if (self._encoder != null) { wgpuCommandEncoderRelease(self._encoder); self._encoder = null; }
 		if (self._view != null) { wgpuTextureViewRelease(self._view); self._view = null; }
-		if (self._texture != null) { wgpuTextureRelease(self._texture); self._texture = null; }
+		// An offscreen target keeps its texture claim; a swapchain frame is released per acquisition.
+		if (self._texture != null) { if (self._target == null) { wgpuTextureRelease(self._texture); } self._texture = null; }
 	}
 
 	public void discardFrame() { self.requireOpen(); self.releaseFrame(); self.consumeCaptureRequest(); }
@@ -226,7 +263,7 @@ class GPUSurfaceRenderer {
 	public void close() {
 		if (self._closed) { return; }
 		self.releaseFrame();
-		if (self._configured) { wgpuSurfaceUnconfigure(self._surface); }
+		if (self._configured && self._surface != null) { wgpuSurfaceUnconfigure(self.nativeSurface()); }
 		self._configured = false;
 		self._closed = true;
 	}

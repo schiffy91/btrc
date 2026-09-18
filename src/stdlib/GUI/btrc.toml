@@ -2,12 +2,79 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_gui"
-exports = ["Capture", "Font", "FontFace", "FreeType", "GUI", "Geometry", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IGPUView", "IGrid", "IImageView", "IImageHandle", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISlider", "IStack", "ITextField", "IView", "IWindow", "MacOS.AppKitEvents", "MacOS.AppKitText", "MacOS.MacOSActionQueue", "MacOS.MacOSApplication", "MacOS.MacOSButton", "MacOS.MacOSComposedCapture", "MacOS.MacOSContainer", "MacOS.MacOSDirectoryPicker", "MacOS.MacOSGPUSurface", "MacOS.MacOSGrid", "MacOS.MacOSImageHandle", "MacOS.MacOSImageView", "MacOS.MacOSLabel", "MacOS.MacOSLevelIndicator", "MacOS.MacOSPanel", "MacOS.MacOSProgressIndicator", "MacOS.MacOSRunLoop", "MacOS.MacOSScrollView", "MacOS.MacOSSelect", "MacOS.MacOSSlider", "MacOS.MacOSSystemText", "MacOS.MacOSTextField", "MacOS.MacOSView", "MacOS.MacOSViewCapture", "MacOS.MacOSWindow", "MacOS.MetalLayer", "MacOS.ObjectiveCRuntime", "MacOS.WebGPUSurface", "Raster", "TextRun", "View"]
+exports = ["Capture", "Font", "FontFace", "FreeType", "GUI", "Geometry", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IGPUView", "IGrid", "IImageView", "IImageHandle", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISlider", "IStack", "ITextField", "IView", "IWindow", "MacOS.AppKitEvents", "MacOS.AppKitText", "MacOS.MacOSActionQueue", "MacOS.MacOSApplication", "MacOS.MacOSButton", "MacOS.MacOSComposedCapture", "MacOS.MacOSContainer", "MacOS.MacOSDirectoryPicker", "MacOS.MacOSGPUSurface", "MacOS.MacOSGrid", "MacOS.MacOSImageHandle", "MacOS.MacOSImageView", "MacOS.MacOSLabel", "MacOS.MacOSLevelIndicator", "MacOS.MacOSPanel", "MacOS.MacOSProgressIndicator", "MacOS.MacOSRunLoop", "MacOS.MacOSScrollView", "MacOS.MacOSSelect", "MacOS.MacOSSlider", "MacOS.MacOSSystemText", "MacOS.MacOSTextField", "MacOS.MacOSView", "MacOS.MacOSViewCapture", "MacOS.MacOSWindow", "MacOS.MetalLayer", "MacOS.ObjectiveCRuntime", "MacOS.WebGPUSurface", "Linux.SDL", "Linux.WebGPUSurface", "Linux.LinuxGPUSurface", "Linux.LinuxFonts", "Linux.LinuxPainter", "Linux.LinuxContext", "Raster", "TextRun", "View"]
 
 [[package.providers]]
 module = "GUI"
 implementation = "MacOS.GUIProvider"
 os = ["macos"]
+
+[[package.providers]]
+module = "GUI"
+implementation = "Linux.GUIProvider"
+os = ["linux"]
+
+[[native.pkg-config]]
+name = "sdl3"
+modules = ["Linux.SDL"]
+os = ["linux"]
+
+[[native.pkg-config]]
+name = "wgpu-native"
+modules = ["Linux.WebGPUSurface"]
+os = ["linux"]
+
+[[native.bindings]]
+module = "Linux.SDL"
+header = "Linux/SDL.h"
+language = "c"
+standard = "c11"
+symbols = [
+	"SDL_Window", "SDL_Init", "SDL_Quit", "SDL_GetError", "SDL_CreateWindow", "SDL_DestroyWindow", "SDL_ShowWindow", "SDL_HideWindow", "SDL_RaiseWindow",
+	"SDL_SetWindowTitle", "SDL_GetWindowTitle", "SDL_SetWindowSize", "SDL_GetWindowSize", "SDL_GetWindowSizeInPixels", "SDL_SetWindowMinimumSize",
+	"SDL_GetWindowID", "SDL_GetWindowPixelDensity", "SDL_GetWindowDisplayScale", "SDL_SyncWindow",
+	"SDL_StartTextInput", "SDL_StopTextInput", "SDL_TextInputActive", "SDL_GetModState",
+	"SDL_SetClipboardText", "SDL_HasClipboardText", "SDL_GetTicksNS",
+	"SDL_Cursor", "SDL_CreateSystemCursor", "SDL_SetCursor", "SDL_DestroyCursor",
+	"BtrcSdlEvent", "btrcSdlPollEvent", "btrcSdlWaitEvent", "btrcSdlPushWake",
+	"btrcSdlWindowPointerProperty", "btrcSdlWindowNumberProperty", "btrcSdlWindowFlag", "btrcSdlSetTextInputArea", "btrcSdlSimpleMessageBox",
+	"BtrcSdlFolderDialog", "btrcSdlFolderDialogOpen", "btrcSdlFolderDialogState", "btrcSdlFolderDialogPath", "btrcSdlFolderDialogFree",
+	"btrcSdlClipboardText", "btrcSdlFree"
+]
+read-only-borrows = ["SDL_CreateWindow.title", "SDL_SetWindowTitle.title", "btrcSdlWindowPointerProperty.name", "btrcSdlWindowNumberProperty.name", "SDL_SetClipboardText.text", "btrcSdlSimpleMessageBox.title", "btrcSdlSimpleMessageBox.message", "btrcSdlFolderDialogOpen.initialDirectory"]
+os = ["linux"]
+
+[[native.pkg-config]]
+name = "fontconfig"
+modules = ["Linux.LinuxFonts"]
+os = ["linux"]
+
+[[native.bindings]]
+module = "Linux.LinuxFonts"
+header = "Linux/Fontconfig.h"
+language = "c"
+standard = "c11"
+symbols = ["btrcFontconfigMatchFile", "btrcFontconfigFree"]
+read-only-borrows = ["btrcFontconfigMatchFile.family"]
+os = ["linux"]
+
+[[native.bindings]]
+module = "Linux.WebGPUSurface"
+header = "Linux/WebGPUSurface.h"
+language = "c"
+standard = "c11"
+symbols = ["WGPUInstance", "WGPUSurface", "wgpuCreateInstance", "wgpuInstanceAddRef", "wgpuInstanceRelease", "wgpuInstanceCreateSurface", "wgpuSurfaceAddRef", "wgpuSurfaceRelease", "WGPUSurfaceDescriptor", "WGPUSurfaceSourceWaylandSurface", "WGPUSurfaceSourceXlibWindow", "WGPUSType_SurfaceSourceWaylandSurface", "WGPUSType_SurfaceSourceXlibWindow"]
+owned-results = ["wgpuCreateInstance", "wgpuInstanceCreateSurface"]
+borrowed-parameters = ["wgpuInstanceCreateSurface.instance"]
+os = ["linux"]
+[native.bindings.resources.WGPUInstance]
+ownership = "reference-counted"
+retain = "wgpuInstanceAddRef"
+release = "wgpuInstanceRelease"
+[native.bindings.resources.WGPUSurface]
+ownership = "reference-counted"
+retain = "wgpuSurfaceAddRef"
+release = "wgpuSurfaceRelease"
 
 [[native.bindings]]
 module = "MacOS.GUIProvider"

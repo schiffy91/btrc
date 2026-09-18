@@ -1,0 +1,100 @@
+import Library.Math;
+import Library.Strings;
+import Library.GUI.Linux.SDL;
+import Library.GUI.Linux.WebGPUSurface;
+
+/* One SDL window's WebGPU surface: Wayland when the compositor speaks it,
+ * Xlib otherwise. Renderers borrow the handles; the owner releases them after
+ * every dependent frame resource. Backing size follows the window's pixel
+ * density, which is the only scale SDL exposes for a Wayland surface. */
+class LinuxGPUSurface {
+	private SDL_Window* _window;
+	private WGPUInstance? _instance;
+	private WGPUSurface? _surface;
+	private int _pixelWidth = 0;
+	private int _pixelHeight = 0;
+	private double _backingScale = 1.0;
+
+	public LinuxGPUSurface(SDL_Window* window) {
+		if (window == null) { throw "GPU surface requires a native window"; }
+		self._window = window;
+		self._instance = wgpuCreateInstance(null);
+		if (self._instance == null) { throw "Cannot create WebGPU instance"; }
+		WGPUSurfaceDescriptor descriptor;
+		memset(&descriptor, 0, sizeof(WGPUSurfaceDescriptor));
+		WGPUSurfaceSourceWaylandSurface wayland;
+		memset(&wayland, 0, sizeof(WGPUSurfaceSourceWaylandSurface));
+		WGPUSurfaceSourceXlibWindow xlib;
+		memset(&xlib, 0, sizeof(WGPUSurfaceSourceXlibWindow));
+		void* waylandDisplay = btrcSdlWindowPointerProperty(window, SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER);
+		void* waylandSurface = btrcSdlWindowPointerProperty(window, SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER);
+		if (waylandDisplay != null && waylandSurface != null) {
+			wayland.chain.sType = WGPUSType_SurfaceSourceWaylandSurface;
+			wayland.display = waylandDisplay;
+			wayland.surface = waylandSurface;
+			descriptor.nextInChain = &wayland.chain;
+		} else {
+			void* xDisplay = btrcSdlWindowPointerProperty(window, SDL_PROP_WINDOW_X11_DISPLAY_POINTER);
+			long long xWindow = btrcSdlWindowNumberProperty(window, SDL_PROP_WINDOW_X11_WINDOW_NUMBER);
+			if (xDisplay == null || xWindow == 0LL) { self.close(); throw "Native window exposes neither a Wayland surface nor an X11 window"; }
+			xlib.chain.sType = WGPUSType_SurfaceSourceXlibWindow;
+			xlib.display = xDisplay;
+			xlib.window = (uint64_t)xWindow;
+			descriptor.nextInChain = &xlib.chain;
+		}
+		self._surface = wgpuInstanceCreateSurface(self._instance, &descriptor);
+		if (self._surface == null) { self.close(); throw "Cannot create native WebGPU surface"; }
+		self.refreshBackingSize();
+	}
+
+	private SDL_Window* window() {
+		var window = self._window;
+		if (window == null) { throw "GPU surface is closed"; }
+		return window;
+	}
+
+	public bool isOpen() { return self._window != null; }
+
+	public WGPUInstance nativeInstance() {
+		self.window();
+		var instance = self._instance;
+		if (instance == null) { throw "GPU surface is closed"; }
+		return instance;
+	}
+
+	public WGPUSurface nativeSurface() {
+		self.window();
+		var surface = self._surface;
+		if (surface == null) { throw "GPU surface is closed"; }
+		return surface;
+	}
+
+	public int pixelWidth() { self.window(); return self._pixelWidth; }
+
+	public int pixelHeight() { self.window(); return self._pixelHeight; }
+
+	public double backingScale() { self.window(); return self._backingScale; }
+
+	public void refreshBackingSize() {
+		var window = self.window();
+		int width = 0;
+		int height = 0;
+		SDL_GetWindowSizeInPixels(window, &width, &height);
+		if (width < 0 || height < 0) { throw "Invalid GPU backing size"; }
+		self._pixelWidth = width;
+		self._pixelHeight = height;
+		double density = (double)SDL_GetWindowPixelDensity(window);
+		self._backingScale = Math.isFinite(density) && density > 0.0 ? density : 1.0;
+	}
+
+	public void close() {
+		self._surface = null;
+		self._instance = null;
+		self._window = null;
+		self._pixelWidth = 0;
+		self._pixelHeight = 0;
+		self._backingScale = 1.0;
+	}
+
+	public void __del__() { self.close(); }
+}

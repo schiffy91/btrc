@@ -1,0 +1,157 @@
+import Library.Map;
+import Library.Math;
+import Library.Strings;
+import Library.GUI.Font;
+import Library.GUI.FontFace;
+import Library.GUI.FreeType.FreeTypeFace;
+
+/* One scalar of a UTF-8 string; malformed bytes advance one byte as U+FFFD. */
+class LinuxScalar {
+	public int codepoint;
+	public int next;
+
+	public LinuxScalar(int codepoint, int next) { self.codepoint = codepoint; self.next = next; }
+
+	class LinuxScalar decode(string text, int offset) {
+		int length = text.len();
+		if (offset < 0 || offset >= length) { return LinuxScalar(0, length); }
+		int first = (int)(unsigned char)text[offset];
+		if (first < 0x80) { return LinuxScalar(first, offset + 1); }
+		int extra = first >= 0xf0 ? 3 : (first >= 0xe0 ? 2 : (first >= 0xc2 ? 1 : -1));
+		if (extra < 0 || offset + extra >= length) { return LinuxScalar(0xfffd, offset + 1); }
+		int codepoint = first & (extra == 1 ? 0x1f : (extra == 2 ? 0x0f : 0x07));
+		for (int index = 1; index <= extra; index++) {
+			int next = (int)(unsigned char)text[offset + index];
+			if ((next & 0xc0) != 0x80) { return LinuxScalar(0xfffd, offset + 1); }
+			codepoint = (codepoint << 6) | (next & 0x3f);
+		}
+		if (codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff)) { return LinuxScalar(0xfffd, offset + extra + 1); }
+		return LinuxScalar(codepoint, offset + extra + 1);
+	}
+}
+
+/* A rendered glyph shared by every window: metrics in backing pixels plus the
+ * owned coverage bitmap. Atlases copy the coverage into their own texture. */
+class LinuxGlyph {
+	public int codepoint;
+	public double advance;
+	public int left;
+	public int top;
+	public int width;
+	public int rows;
+	public FontGlyph? raster;
+
+	public LinuxGlyph(int codepoint, double advance, int left, int top, int width, int rows, FontGlyph? raster) {
+		self.codepoint = codepoint;
+		self.advance = advance;
+		self.left = left;
+		self.top = top;
+		self.width = width;
+		self.rows = rows;
+		self.raster = raster;
+	}
+
+	public int coverage(int row, int column) { var raster = self.raster; return raster == null ? 0 : raster.coverage(row, column); }
+}
+
+/* One FreeType face at a fixed backing pixel size with its glyph cache. */
+class LinuxFace {
+	public int key;
+	public int pixelSize;
+	public bool bold;
+	public double ascent;
+	public double descent;
+	public double lineHeight;
+	private FreeTypeFace _face;
+	private Map<int, LinuxGlyph> _glyphs = new Map<int, LinuxGlyph>();
+
+	public LinuxFace(int key, string path, int pixelSize, bool bold) {
+		self.key = key;
+		self.pixelSize = pixelSize;
+		self.bold = bold;
+		self._face = FreeTypeFace(path, pixelSize);
+		var metrics = self._face.metrics();
+		self.ascent = (double)metrics.ascenderFixed() / 64.0;
+		self.lineHeight = (double)metrics.heightFixed() / 64.0;
+		if (self.lineHeight < (double)pixelSize) { self.lineHeight = (double)pixelSize * 1.2; }
+		self.descent = self.lineHeight - self.ascent;
+		if (self.descent < 0.0) { self.descent = 0.0; }
+	}
+
+	public LinuxGlyph glyph(int codepoint) {
+		if (self._glyphs.has(codepoint)) { return self._glyphs.get(codepoint); }
+		if (self._glyphs.size() > 4096) { self._glyphs.clear(); }
+		var rendered = self._face.glyph(codepoint, true);
+		if (rendered == null && codepoint != 0xfffd && codepoint != 63) { rendered = self._face.glyph(63, true); }
+		LinuxGlyph glyph = rendered == null ? LinuxGlyph(codepoint, (double)self.pixelSize * 0.5, 0, 0, 0, 0, null) : LinuxGlyph(codepoint, (double)rendered.advanceX26_6() / 64.0, rendered.bitmapLeft(), rendered.bitmapTop(), rendered.width(), rendered.rows(), rendered);
+		self._glyphs.put(codepoint, glyph);
+		return glyph;
+	}
+
+	public double advance(string text) {
+		double total = 0.0;
+		int offset = 0;
+		while (offset < text.len()) {
+			var scalar = LinuxScalar.decode(text, offset);
+			offset = scalar.next;
+			total += self.glyph(scalar.codepoint).advance;
+		}
+		return total;
+	}
+}
+
+/* Application-wide font resolution and measurement. Sizes are logical points;
+ * the backing scale chooses the FreeType pixel size so measurement matches
+ * what the atlas later draws. fontconfig supplies the system sans face. */
+class LinuxFonts {
+	private string _regularPath = "";
+	private string _boldPath = "";
+	private double _scale = 1.0;
+	private Map<int, LinuxFace> _faces = new Map<int, LinuxFace>();
+
+	public LinuxFonts() {
+		self._regularPath = LinuxFonts.resolve("sans-serif", 80);
+		self._boldPath = LinuxFonts.resolve("sans-serif", 200);
+		if (self._boldPath.isEmpty()) { self._boldPath = self._regularPath; }
+		if (self._regularPath.isEmpty()) { throw "No system sans-serif font is available"; }
+	}
+
+	class string resolve(string family, int weight) {
+		var matched = btrcFontconfigMatchFile(family, weight);
+		if (matched == null) { return ""; }
+		string path = Strings.copy(matched);
+		btrcFontconfigFree(matched);
+		return path;
+	}
+
+	public double scale() { return self._scale; }
+
+	/* Faces are keyed by pixel size, so a scale change simply selects new ones. */
+	public void setScale(double scale) {
+		if (!Math.isFinite(scale) || scale <= 0.0) { return; }
+		self._scale = scale;
+	}
+
+	public int pixelSize(double points) {
+		int size = (int)Math.round((float)(points * self._scale));
+		return size < 4 ? 4 : (size > 512 ? 512 : size);
+	}
+
+	public LinuxFace face(double points, bool bold) { return self.faceForPixels(self.pixelSize(points), bold); }
+
+	public LinuxFace faceForPixels(int pixelSize, bool bold) {
+		int key = pixelSize * 2 + (bold ? 1 : 0);
+		if (self._faces.has(key)) { return self._faces.get(key); }
+		if (self._faces.size() > 48) { self._faces.clear(); }
+		var face = LinuxFace(key, bold ? self._boldPath : self._regularPath, pixelSize, bold);
+		self._faces.put(key, face);
+		return face;
+	}
+
+	/* Measured in logical points. */
+	public double textWidth(string text, double points, bool bold) { return self.face(points, bold).advance(text) / self._scale; }
+
+	public double lineHeight(double points, bool bold) { return self.face(points, bold).lineHeight / self._scale; }
+
+	public double ascent(double points, bool bold) { return self.face(points, bold).ascent / self._scale; }
+}
