@@ -242,6 +242,8 @@ class LinuxPainter {
 	private LinuxGlyphAtlas _atlas;
 	private LinuxTexture _white;
 	private Map<int, LinuxTexture> _images;
+	private Map<int, unsigned long long> _imageUse;
+	private unsigned long long _frame = 0ULL;
 	private double _scale = 1.0;
 	private int _pixelWidth = 0;
 	private int _pixelHeight = 0;
@@ -250,6 +252,7 @@ class LinuxPainter {
 	public LinuxPainter(GPUDevice device, WGPUTextureFormat format, LinuxFonts fonts, LinuxTheme theme) {
 		if (device.state() != GPU_DEVICE_READY) { throw "Native painter requires a ready device"; }
 		self._images = new Map<int, LinuxTexture>();
+		self._imageUse = new Map<int, unsigned long long>();
 		self._device = device;
 		self._format = format;
 		self._fonts = fonts;
@@ -386,8 +389,10 @@ class LinuxPainter {
 	/* Wrap an external view (a GPU view's offscreen target) for sampling. */
 	public LinuxTexture borrowTexture(WGPUTextureView view, int width, int height) { return LinuxTexture.borrow(self._device, view, width, height, self._layout, self._sampler, self._uniform, 16ULL); }
 
-	/* Upload decoded RGBA pixels once per image identity. */
+	/* Upload decoded RGBA pixels once per image identity; unused uploads
+	 * are released after a few seconds of frames so recycled artwork stays bounded. */
 	public LinuxTexture imageTexture(int identity, Image pixels) {
+		self._imageUse.put(identity, self._frame);
 		if (self._images.has(identity)) { return self._images.get(identity); }
 		if (pixels == null || pixels.isEmpty() || pixels.data == null) { throw "Native image texture requires pixels"; }
 		var texture = LinuxTexture.create(self._device, pixels.width, pixels.height, WGPUTextureFormat_RGBA8Unorm, self._layout, self._sampler, self._uniform, 16ULL);
@@ -402,10 +407,23 @@ class LinuxPainter {
 		if (!self._images.has(identity)) { return; }
 		self._images.get(identity).close();
 		self._images.remove(identity);
+		if (self._imageUse.has(identity)) { self._imageUse.remove(identity); }
+	}
+
+	private void evictImages() {
+		if (self._frame % 64ULL != 0ULL) { return; }
+		Vector<int> stale = [];
+		for identity in self._images.keys() {
+			unsigned long long used = self._imageUse.has(identity) ? self._imageUse.get(identity) : 0ULL;
+			if (self._frame - used > 240ULL) { stale.push(identity); }
+		}
+		for identity in stale { self.forgetImageTexture(identity); }
 	}
 
 	public void beginFrame(int pixelWidth, int pixelHeight, double scale) {
 		if (self._closed) { throw "Native painter is closed"; }
+		self._frame++;
+		self.evictImages();
 		self._pixelWidth = pixelWidth;
 		self._pixelHeight = pixelHeight;
 		self._scale = scale;
@@ -643,6 +661,7 @@ class LinuxPainter {
 		self._runs.clear();
 		for identity in self._images.keys() { self._images.get(identity).close(); }
 		self._images.clear();
+		self._imageUse.clear();
 		self._atlas.close();
 		self._white.close();
 		if (self._vertices != null) { wgpuBufferRelease(self._vertices); self._vertices = null; }

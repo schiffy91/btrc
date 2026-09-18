@@ -12,14 +12,16 @@ class LinuxInvalidation {
 }
 
 /* Stable identities for focus, capture and hover so no owner needs a back
- * reference to the view it names. */
+ * reference to the view it names. Image handles take identities on worker
+ * threads, so the counter is atomic. */
 class LinuxIds {
-	private int _next = 1;
+	private Atomic<int> _next;
+
+	public LinuxIds() { self._next.init(1); }
 
 	public int next() {
-		if (self._next == 2147483647) { throw "Native view identities are exhausted"; }
-		int id = self._next;
-		self._next++;
+		int id = self._next.fetchAdd(1, MemoryOrder.ACQ_REL);
+		if (id <= 0 || id == 2147483647) { throw "Native view identities are exhausted"; }
 		return id;
 	}
 }
