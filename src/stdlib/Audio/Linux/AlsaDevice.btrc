@@ -1,0 +1,681 @@
+/* Direct ALSA provider for Library.Audio.AudioDevice.
+ *
+ * PCM names stay selectable independently for input and output. Each session
+ * owns one worker thread that reads capture periods, runs the realtime
+ * program on interleaved selected channels and writes playback periods in
+ * lock step, so both spans share one frame domain of bufferFrames. Xruns are
+ * recovered in place and reported as discontinuities. A provider and all its
+ * sessions belong to one control thread; the provider outlives them.
+ */
+
+import Library.Audio.AudioDevice;
+import Library.Console;
+import Library.Datetime;
+import Library.Math;
+import Library.OwnedBuffer;
+import Library.Strings;
+import Library.Vector;
+
+AudioDeviceStatus alsaStatus(int error) {
+	if (error >= 0) { return AUDIO_DEVICE_OK; }
+	if (error == -EINVAL) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
+	if (error == -ENOENT || error == -ENODEV) { return AUDIO_DEVICE_NOT_FOUND; }
+	if (error == -EACCES || error == -EPERM) { return AUDIO_DEVICE_PERMISSION_DENIED; }
+	if (error == -EBUSY) { return AUDIO_DEVICE_BUSY; }
+	if (error == -ENOMEM) { return AUDIO_DEVICE_FAILED; }
+	return AUDIO_DEVICE_UNAVAILABLE;
+}
+
+/* Probed once per inventory refresh. Descriptors carry BTRC values only. */
+class AlsaHardwareDevice {
+	private string _name;
+	private string _description;
+	private int _inputChannels;
+	private int _outputChannels;
+	private AudioStreamCapability _capability;
+
+	public AlsaHardwareDevice(string name, string description, int inputChannels, int outputChannels, AudioStreamCapability capability) {
+		self._name = name;
+		self._description = description;
+		self._inputChannels = inputChannels;
+		self._outputChannels = outputChannels;
+		self._capability = capability;
+	}
+
+	public string name() { return self._name; }
+
+	public int inputChannels() { return self._inputChannels; }
+
+	public int outputChannels() { return self._outputChannels; }
+
+	public AudioDeviceDescriptor descriptor(bool defaultInput, bool defaultOutput) {
+		return AudioDeviceDescriptor(self._name, self._description, self._inputChannels, self._outputChannels, defaultInput && self._inputChannels > 0, defaultOutput && self._outputChannels > 0, self._capability);
+	}
+
+	/* Open one direction to read what the PCM can do; null when it cannot open. */
+	class AlsaProbe? probe(string name, bool capture) {
+		snd_pcm_t* pcm = null;
+		if (btrcAlsaOpen(name, capture ? 1 : 0, 1, &pcm) != 0 || pcm == null) { return null; }
+		snd_pcm_hw_params_t* params = null;
+		AlsaProbe? result = null;
+		if (snd_pcm_hw_params_malloc(&params) == 0 && params != null) {
+			if (snd_pcm_hw_params_any(pcm, params) >= 0) {
+				unsigned int channelsMax = 0u;
+				unsigned int rateMin = 0u;
+				unsigned int rateMax = 0u;
+				snd_pcm_uframes_t periodMin = 0UL;
+				snd_pcm_uframes_t periodMax = 0UL;
+				int direction = 0;
+				snd_pcm_hw_params_get_channels_max(params, &channelsMax);
+				snd_pcm_hw_params_get_rate_min(params, &rateMin, &direction);
+				snd_pcm_hw_params_get_rate_max(params, &rateMax, &direction);
+				snd_pcm_hw_params_get_period_size_min(params, &periodMin, &direction);
+				snd_pcm_hw_params_get_period_size_max(params, &periodMax, &direction);
+				result = AlsaProbe((int)(channelsMax > 32u ? 32u : channelsMax), (int)rateMin, (int)(rateMax > 768000u ? 768000u : rateMax), (int)(periodMin > 65536UL ? 65536UL : periodMin), (int)(periodMax > 65536UL ? 65536UL : periodMax));
+			}
+			snd_pcm_hw_params_free(params);
+		}
+		snd_pcm_close(pcm);
+		return result;
+	}
+
+	class AlsaHardwareDevice? describe(string name, string description) {
+		var playback = AlsaHardwareDevice.probe(name, false);
+		var capture = AlsaHardwareDevice.probe(name, true);
+		if (playback == null && capture == null) { return null; }
+		int outputChannels = playback == null ? 0 : playback.channels;
+		int inputChannels = capture == null ? 0 : capture.channels;
+		if (outputChannels == 0 && inputChannels == 0) { return null; }
+		var reference = playback == null ? capture : playback;
+		if (reference == null) { return null; }
+		return AlsaHardwareDevice(name, description, inputChannels, outputChannels, reference.capability());
+	}
+}
+
+class AlsaProbe {
+	public int channels;
+	public int rateMin;
+	public int rateMax;
+	public int periodMin;
+	public int periodMax;
+
+	public AlsaProbe(int channels, int rateMin, int rateMax, int periodMin, int periodMax) {
+		self.channels = channels;
+		self.rateMin = rateMin;
+		self.rateMax = rateMax;
+		self.periodMin = periodMin;
+		self.periodMax = periodMax;
+	}
+
+	public AudioStreamCapability capability() {
+		int minimumRate = self.rateMin < 8000 ? 8000 : self.rateMin;
+		int maximumRate = self.rateMax > 768000 ? 768000 : self.rateMax;
+		int minimumPeriod = self.periodMin < 1 ? 1 : self.periodMin;
+		int maximumPeriod = self.periodMax > 65536 ? 65536 : self.periodMax;
+		if (minimumRate > maximumRate || minimumPeriod > maximumPeriod) { return AudioStreamCapability.unknown(); }
+		int currentRate = 48000 >= minimumRate && 48000 <= maximumRate ? 48000 : (44100 >= minimumRate && 44100 <= maximumRate ? 44100 : minimumRate);
+		int currentPeriod = 256 >= minimumPeriod && 256 <= maximumPeriod ? 256 : minimumPeriod;
+		Vector<AudioSampleRateRange> ranges = [];
+		ranges.push(AudioSampleRateRange(minimumRate, maximumRate));
+		return AudioStreamCapability.available(ranges, currentRate, minimumPeriod, maximumPeriod, currentPeriod);
+	}
+}
+
+/* Enumerates ALSA PCM hints, keeping the shared server entry points and the
+ * per-card devices; `default` is the default in both directions. */
+class AlsaHardwareInventory {
+	private unsigned long long _generation = 0ULL;
+	private Vector<AlsaHardwareDevice> _devices = [];
+	private Vector<AudioDeviceDescriptor> _published = [];
+
+	class bool selectable(string name) {
+		if (name == "default" || name == "pipewire" || name == "pulse" || name == "jack") { return true; }
+		return name.startsWith("sysdefault:") || name.startsWith("hw:") || name.startsWith("plughw:");
+	}
+
+	class string firstLine(string text) {
+		int newline = text.indexOf("\n");
+		return newline < 0 ? text : text.substring(0, newline);
+	}
+
+	public AlsaHardwareDevice? find(string id) {
+		for device in self._devices { if (device.name() == id) { return device; } }
+		return null;
+	}
+
+	public AudioDeviceInventoryOutcome refresh() {
+		btrcAlsaQuietErrors();
+		var hints = btrcAlsaHints();
+		if (hints == null) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_UNAVAILABLE, "ALSA device enumeration failed"); }
+		Vector<AlsaHardwareDevice> devices = [];
+		Vector<string> seen = [];
+		int count = btrcAlsaHintCount(hints);
+		for (int index = 0; index < count && devices.len < 256; index++) {
+			var rawName = btrcAlsaHintValue(hints, index, "NAME");
+			if (rawName == null) { continue; }
+			string name = Strings.copy(rawName);
+			btrcAlsaFreeText(rawName);
+			if (name.isEmpty() || name.len() > 511 || !AlsaHardwareInventory.selectable(name) || seen.contains(name)) { continue; }
+			seen.push(name);
+			string description = name;
+			var rawDescription = btrcAlsaHintValue(hints, index, "DESC");
+			if (rawDescription != null) {
+				string text = AlsaHardwareInventory.firstLine(Strings.copy(rawDescription));
+				btrcAlsaFreeText(rawDescription);
+				if (!text.isEmpty() && text.len() <= 511) { description = text; }
+			}
+			var device = AlsaHardwareDevice.describe(name, description);
+			if (device != null) { devices.push(device); }
+		}
+		btrcAlsaHintsFree(hints);
+		if (devices.isEmpty()) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_UNAVAILABLE, "no ALSA PCM device could be opened"); }
+		string defaultName = "";
+		for device in devices { if (device.name() == "default") { defaultName = "default"; } }
+		if (defaultName.isEmpty()) { for device in devices { if (device.name() == "pipewire") { defaultName = "pipewire"; } } }
+		if (defaultName.isEmpty()) { defaultName = devices.get(0).name(); }
+		Vector<AudioDeviceDescriptor> published = [];
+		bool inputAssigned = false;
+		bool outputAssigned = false;
+		for device in devices {
+			bool isDefault = device.name() == defaultName;
+			bool defaultInput = isDefault && !inputAssigned && device.inputChannels() > 0;
+			bool defaultOutput = isDefault && !outputAssigned && device.outputChannels() > 0;
+			if (defaultInput) { inputAssigned = true; }
+			if (defaultOutput) { outputAssigned = true; }
+			published.push(device.descriptor(defaultInput, defaultOutput));
+		}
+		if (!inputAssigned) { for (int index = 0; index < published.len && !inputAssigned; index++) { var entry = published.get(index); if (entry.inputChannels() > 0) { published.set(index, AudioDeviceDescriptor(entry.id(), entry.name(), entry.inputChannels(), entry.outputChannels(), true, entry.isDefaultOutput(), entry.streamCapability())); inputAssigned = true; } } }
+		if (!outputAssigned) { for (int index = 0; index < published.len && !outputAssigned; index++) { var entry = published.get(index); if (entry.outputChannels() > 0) { published.set(index, AudioDeviceDescriptor(entry.id(), entry.name(), entry.inputChannels(), entry.outputChannels(), entry.isDefaultInput(), true, entry.streamCapability())); outputAssigned = true; } } }
+		if (self._generation == 0ULL || !self.same(published)) { self._generation++; }
+		self._devices = devices;
+		self._published = published;
+		return AudioDeviceInventoryOutcome.available(AudioDeviceInventory(self._generation, published));
+	}
+
+	private bool same(Vector<AudioDeviceDescriptor> published) {
+		if (published.len != self._published.len) { return false; }
+		for (int index = 0; index < published.len; index++) {
+			var left = published.get(index);
+			var right = self._published.get(index);
+			if (left.id() != right.id() || left.name() != right.name() || left.inputChannels() != right.inputChannels() || left.outputChannels() != right.outputChannels() || left.isDefaultInput() != right.isDefaultInput() || left.isDefaultOutput() != right.isDefaultOutput()) { return false; }
+			var first = left.streamCapability();
+			var second = right.streamCapability();
+			if (first.isKnown() != second.isKnown()) { return false; }
+			if (first.isKnown() && (first.currentSampleRate() != second.currentSampleRate() || first.minimumBufferFrames() != second.minimumBufferFrames() || first.maximumBufferFrames() != second.maximumBufferFrames() || first.sampleRateRangeCount() != second.sampleRateRangeCount())) { return false; }
+		}
+		return true;
+	}
+}
+
+/* POD shared with the worker thread; the stream retains every backing buffer
+ * until the worker has joined. */
+struct AlsaRenderState {
+	RealtimeAudioProcess process;
+	void* processContext;
+	Atomic<uint>* admission;
+	Atomic<uint>* stopping;
+	int inputCount;
+	int outputCount;
+	int physicalInputCount;
+	int physicalOutputCount;
+	int* inputChannels;
+	int* outputChannels;
+	int blockFrames;
+	int sampleRate;
+	float* physicalInput;
+	float* physicalOutput;
+	float* selectedInput;
+	float* selectedOutput;
+	unsigned long long epoch;
+	unsigned long long inputFrame;
+	unsigned long long outputFrame;
+	uint pendingFlags;
+	snd_pcm_t* capture;
+	snd_pcm_t* playback;
+};
+
+struct AlsaWorkerContext {
+	AlsaStream stream;
+};
+
+int alsaWorkerRun(void* raw) {
+	struct AlsaWorkerContext* context = (struct AlsaWorkerContext*)raw;
+	AlsaStream stream = context->stream;
+	return stream.workLoop();
+}
+
+void* alsaWorkerEntry(void* raw) {
+	int result = 1;
+	if (__btrc_native_thread_invoke(alsaWorkerRun, raw, &result) != 0) { return raw; }
+	return result == 0 ? null : raw;
+}
+
+enum AlsaStreamState { ALSA_STREAM_READY, ALSA_STREAM_RUNNING, ALSA_STREAM_SUSPENDED, ALSA_STREAM_DRAINED, ALSA_STREAM_CLOSED, ALSA_STREAM_INDETERMINATE };
+
+/* One duplex ALSA stream and its worker. */
+class AlsaStream {
+	private OwnedBuffer<AlsaRenderState> _render;
+	private AtomicBuffer<uint> _counters;
+	private OwnedBuffer<int>? _inputChannels = null;
+	private OwnedBuffer<int>? _outputChannels = null;
+	private OwnedBuffer<float>? _physicalInput = null;
+	private OwnedBuffer<float>? _physicalOutput = null;
+	private OwnedBuffer<float>? _selectedInput = null;
+	private OwnedBuffer<float>? _selectedOutput = null;
+	private RealtimeAudioProgram? _program = null;
+	private struct AlsaWorkerContext* _context = null;
+	private pthread_t _thread;
+	private bool _threadStarted = false;
+	private bool _threadJoined = false;
+	private AlsaStreamState _state = ALSA_STREAM_READY;
+	private bool _attempted = false;
+	private int _actualPeriod = 0;
+
+	public AlsaStream() {
+		self._render = OwnedBuffer((size_t)1);
+		self._counters = AtomicBuffer((size_t)2);
+		if (self._counters.opened()) {
+			var counters = self._counters.borrow();
+			for (int index = 0; index < 2; index++) { counters[index].init(0u); }
+		}
+		if (self._render.opened() && self._counters.opened()) {
+			var render = self._render.borrow();
+			render->admission = self._counters.borrow();
+			render->stopping = self._counters.borrow() + 1;
+		}
+	}
+
+	private AudioDeviceStatus configure(snd_pcm_t* pcm, int channels, int rate, int periodFrames, int* actualChannels, int* actualPeriod) {
+		snd_pcm_hw_params_t* params = null;
+		if (snd_pcm_hw_params_malloc(&params) != 0 || params == null) { return AUDIO_DEVICE_FAILED; }
+		AudioDeviceStatus status = AUDIO_DEVICE_OK;
+		int error = snd_pcm_hw_params_any(pcm, params);
+		if (error >= 0) { error = btrcAlsaSetInterleavedFloat(pcm, params); }
+		if (error >= 0) { error = snd_pcm_hw_params_set_channels(pcm, params, (unsigned int)channels); }
+		if (error >= 0) { error = snd_pcm_hw_params_set_rate(pcm, params, (unsigned int)rate, 0); }
+		snd_pcm_uframes_t period = (snd_pcm_uframes_t)periodFrames;
+		int direction = 0;
+		if (error >= 0) { error = snd_pcm_hw_params_set_period_size_near(pcm, params, &period, &direction); }
+		unsigned int periods = 2u;
+		if (error >= 0) { error = snd_pcm_hw_params_set_periods_near(pcm, params, &periods, &direction); }
+		if (error >= 0) { error = snd_pcm_hw_params(pcm, params); }
+		if (error < 0) { status = alsaStatus(error); }
+		else {
+			unsigned int actual = 0u;
+			snd_pcm_hw_params_get_channels(params, &actual);
+			*actualChannels = (int)actual;
+			*actualPeriod = (int)period;
+		}
+		snd_pcm_hw_params_free(params);
+		if (status != AUDIO_DEVICE_OK) { return status; }
+		snd_pcm_sw_params_t* software = null;
+		if (snd_pcm_sw_params_malloc(&software) != 0 || software == null) { return AUDIO_DEVICE_FAILED; }
+		error = snd_pcm_sw_params_current(pcm, software);
+		if (error >= 0) { error = snd_pcm_sw_params_set_avail_min(pcm, software, period); }
+		if (error >= 0) { error = snd_pcm_sw_params_set_start_threshold(pcm, software, period); }
+		if (error >= 0) { error = snd_pcm_sw_params(pcm, software); }
+		snd_pcm_sw_params_free(software);
+		return error < 0 ? alsaStatus(error) : AUDIO_DEVICE_OK;
+	}
+
+	public AudioDeviceStatus prepare(AlsaHardwareDevice? input, AlsaHardwareDevice output, DuplexAudioOpenRequest request, RealtimeAudioProgram program) {
+		if (self._attempted || self._state != ALSA_STREAM_READY) { return AUDIO_DEVICE_WRONG_STATE; }
+		self._attempted = true;
+		if (!self._render.opened() || !self._counters.opened()) { return AUDIO_DEVICE_FAILED; }
+		var stream = request.stream();
+		int inputCount = request.hasInput() ? request.inputChannels().count() : 0;
+		int outputCount = request.outputChannels().count();
+		int availableInput = input == null ? 0 : input.inputChannels();
+		int availableOutput = output.outputChannels();
+		if ((inputCount > 0 && availableInput <= 0) || availableOutput <= 0) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
+		int physicalInput = inputCount > 0 ? request.inputChannels().at(inputCount - 1) + 1 : 0;
+		int physicalOutput = request.outputChannels().at(outputCount - 1) + 1;
+		if (physicalInput > availableInput || physicalOutput > availableOutput) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
+		if (physicalOutput < 2 && availableOutput >= 2) { physicalOutput = 2; }
+		if (physicalInput == 1 && availableInput >= 2) { physicalInput = 2; }
+		self._program = program;
+		var render = self._render.borrow();
+		render->process = program.invokePointer();
+		render->processContext = program.context();
+		render->inputCount = inputCount;
+		render->outputCount = outputCount;
+		render->sampleRate = stream.sampleRate();
+		render->blockFrames = stream.bufferFrames();
+		snd_pcm_t* playback = null;
+		int error = btrcAlsaOpen(request.outputDeviceId(), 0, 0, &playback);
+		if (error != 0 || playback == null) { return alsaStatus(error); }
+		render->playback = playback;
+		int actualChannels = 0;
+		int actualPeriod = 0;
+		var status = self.configure(playback, physicalOutput, stream.sampleRate(), stream.bufferFrames(), &actualChannels, &actualPeriod);
+		if (status != AUDIO_DEVICE_OK) { return status; }
+		if (actualChannels < physicalOutput || actualPeriod != stream.bufferFrames()) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
+		render->physicalOutputCount = actualChannels;
+		if (inputCount > 0 && input != null) {
+			snd_pcm_t* capture = null;
+			error = btrcAlsaOpen(request.inputDeviceId(), 1, 0, &capture);
+			if (error != 0 || capture == null) { return alsaStatus(error); }
+			render->capture = capture;
+			status = self.configure(capture, physicalInput, stream.sampleRate(), stream.bufferFrames(), &actualChannels, &actualPeriod);
+			if (status != AUDIO_DEVICE_OK) { return status; }
+			if (actualChannels < physicalInput || actualPeriod != stream.bufferFrames()) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
+			render->physicalInputCount = actualChannels;
+		}
+		self._actualPeriod = actualPeriod;
+		var inputChannels = new OwnedBuffer<int>((size_t)(inputCount > 0 ? inputCount : 1));
+		var outputChannels = new OwnedBuffer<int>((size_t)outputCount);
+		var physicalOutputSamples = new OwnedBuffer<float>((size_t)render->blockFrames * (size_t)render->physicalOutputCount);
+		var selectedOutput = new OwnedBuffer<float>((size_t)render->blockFrames * (size_t)outputCount);
+		if (!inputChannels.opened() || !outputChannels.opened() || !physicalOutputSamples.opened() || !selectedOutput.opened()) { return AUDIO_DEVICE_FAILED; }
+		for (int index = 0; index < inputCount; index++) { inputChannels.set((size_t)index, request.inputChannels().at(index)); }
+		for (int index = 0; index < outputCount; index++) { outputChannels.set((size_t)index, request.outputChannels().at(index)); }
+		self._inputChannels = inputChannels;
+		self._outputChannels = outputChannels;
+		self._physicalOutput = physicalOutputSamples;
+		self._selectedOutput = selectedOutput;
+		render->inputChannels = inputChannels.borrow();
+		render->outputChannels = outputChannels.borrow();
+		render->physicalOutput = physicalOutputSamples.borrow();
+		render->selectedOutput = selectedOutput.borrow();
+		if (inputCount > 0) {
+			var physicalInputSamples = new OwnedBuffer<float>((size_t)render->blockFrames * (size_t)render->physicalInputCount);
+			var selectedInput = new OwnedBuffer<float>((size_t)render->blockFrames * (size_t)inputCount);
+			if (!physicalInputSamples.opened() || !selectedInput.opened()) { return AUDIO_DEVICE_FAILED; }
+			self._physicalInput = physicalInputSamples;
+			self._selectedInput = selectedInput;
+			render->physicalInput = physicalInputSamples.borrow();
+			render->selectedInput = selectedInput.borrow();
+		}
+		return AUDIO_DEVICE_OK;
+	}
+
+	class @realtime void clear(float* samples, int count) { for (int index = 0; index < count; index++) { samples[index] = 0.0f; } }
+
+	/* One block: select input channels, run the program, scatter output channels. */
+	class @realtime void process(AlsaRenderState* state, int frames, unsigned long long host, uint flags) {
+		int inputCount = state->inputCount;
+		int outputCount = state->outputCount;
+		if (inputCount > 0) {
+			for (int index = 0; index < frames; index++) {
+				for (int channel = 0; channel < inputCount; channel++) { state->selectedInput[(size_t)index * (size_t)inputCount + (size_t)channel] = state->physicalInput[(size_t)index * (size_t)state->physicalInputCount + (size_t)state->inputChannels[channel]]; }
+			}
+		}
+		AlsaStream.clear(state->selectedOutput, frames * outputCount);
+		struct AudioBlockView block = {inputCount, outputCount, frames, state->inputFrame, state->outputFrame, state->epoch, host, flags};
+		state->process(state->processContext, block, Span(inputCount > 0 ? (const float*)state->selectedInput : (const float*)null, (size_t)frames * (size_t)inputCount), Span(state->selectedOutput, (size_t)frames * (size_t)outputCount));
+		AlsaStream.clear(state->physicalOutput, frames * state->physicalOutputCount);
+		for (int index = 0; index < frames; index++) {
+			for (int channel = 0; channel < outputCount; channel++) { state->physicalOutput[(size_t)index * (size_t)state->physicalOutputCount + (size_t)state->outputChannels[channel]] = state->selectedOutput[(size_t)index * (size_t)outputCount + (size_t)channel]; }
+		}
+	}
+
+	/* The worker: blocking period reads and writes drive the clock. */
+	public int workLoop() {
+		var render = self._render.borrow();
+		btrcAlsaRealtimePriority();
+		int frames = render->blockFrames;
+		snd_pcm_t* playback = render->playback;
+		snd_pcm_t* capture = render->capture;
+		AlsaStream.clear(render->physicalOutput, frames * render->physicalOutputCount);
+		for (int prefill = 0; prefill < 2; prefill++) { snd_pcm_writei(playback, render->physicalOutput, (snd_pcm_uframes_t)frames); }
+		if (capture != null) { snd_pcm_start(capture); }
+		uint flags = (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY | (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY;
+		while (render->stopping->load(MemoryOrder.ACQUIRE) == 0u) {
+			if (capture != null) {
+				snd_pcm_sframes_t read = snd_pcm_readi(capture, render->physicalInput, (snd_pcm_uframes_t)frames);
+				if (read < 0L) {
+					if (snd_pcm_recover(capture, (int)read, 1) < 0) { Timer.sleepMillis(1); }
+					AlsaStream.clear(render->physicalInput, frames * render->physicalInputCount);
+					flags |= (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY;
+				} else if ((int)read < frames) {
+					AlsaStream.clear(render->physicalInput + (size_t)read * (size_t)render->physicalInputCount, (frames - (int)read) * render->physicalInputCount);
+					flags |= (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY;
+				}
+			}
+			unsigned long long host = btrcAlsaHostNanoseconds();
+			if (render->admission->load(MemoryOrder.ACQUIRE) != 0u) { AlsaStream.process(render, frames, host, flags); }
+			else { AlsaStream.clear(render->physicalOutput, frames * render->physicalOutputCount); }
+			flags = 0u;
+			render->inputFrame += (unsigned long long)frames;
+			render->outputFrame += (unsigned long long)frames;
+			snd_pcm_sframes_t written = snd_pcm_writei(playback, render->physicalOutput, (snd_pcm_uframes_t)frames);
+			if (written < 0L) {
+				if (snd_pcm_recover(playback, (int)written, 1) < 0) { Timer.sleepMillis(1); }
+				flags |= (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY;
+			} else if ((int)written < frames) { flags |= (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY; }
+		}
+		snd_pcm_drop(playback);
+		if (capture != null) { snd_pcm_drop(capture); }
+		return 0;
+	}
+
+	public unsigned long long epoch() { return self._render.opened() ? self._render.borrow()->epoch : 0ULL; }
+
+	public AudioDeviceStatus start() {
+		if (self._state != ALSA_STREAM_READY || self._program == null) { return AUDIO_DEVICE_WRONG_STATE; }
+		var render = self._render.borrow();
+		render->epoch = btrcAlsaHostNanoseconds();
+		if (render->epoch == 0ULL) { render->epoch = 1ULL; }
+		render->inputFrame = 0ULL;
+		render->outputFrame = 0ULL;
+		render->stopping->store(0u, MemoryOrder.RELEASE);
+		render->admission->store(1u, MemoryOrder.RELEASE);
+		int prepared = snd_pcm_prepare(render->playback);
+		if (prepared < 0) { render->admission->store(0u, MemoryOrder.RELEASE); return alsaStatus(prepared); }
+		if (render->capture != null) {
+			prepared = snd_pcm_prepare(render->capture);
+			if (prepared < 0) { render->admission->store(0u, MemoryOrder.RELEASE); return alsaStatus(prepared); }
+		}
+		var context = (struct AlsaWorkerContext*)calloc(1, sizeof(struct AlsaWorkerContext));
+		if (context == null) { render->admission->store(0u, MemoryOrder.RELEASE); return AUDIO_DEVICE_FAILED; }
+		AlsaStream owner = self;
+		keep owner;
+		context->stream = owner;
+		self._context = context;
+		pthread_t handle = (pthread_t)0;
+		if (pthread_create(&handle, null, alsaWorkerEntry, context) != 0) {
+			render->admission->store(0u, MemoryOrder.RELEASE);
+			release context->stream;
+			free(context);
+			self._context = null;
+			return AUDIO_DEVICE_FAILED;
+		}
+		self._thread = handle;
+		self._threadStarted = true;
+		self._threadJoined = false;
+		self._state = ALSA_STREAM_RUNNING;
+		return AUDIO_DEVICE_OK;
+	}
+
+	public AudioDeviceStatus suspend() {
+		if (self._state != ALSA_STREAM_RUNNING) { return AUDIO_DEVICE_WRONG_STATE; }
+		var render = self._render.borrow();
+		render->admission->store(0u, MemoryOrder.RELEASE);
+		render->stopping->store(1u, MemoryOrder.RELEASE);
+		self._state = ALSA_STREAM_SUSPENDED;
+		return AUDIO_DEVICE_OK;
+	}
+
+	private AudioDeviceStatus joinWorker() {
+		if (!self._threadStarted || self._threadJoined) { return AUDIO_DEVICE_OK; }
+		void* result = null;
+		if (pthread_join(self._thread, &result) != 0) { self._state = ALSA_STREAM_INDETERMINATE; return AUDIO_DEVICE_INDETERMINATE; }
+		self._threadJoined = true;
+		var context = self._context;
+		if (context != null) { release context->stream; free(context); self._context = null; }
+		return result == null ? AUDIO_DEVICE_OK : AUDIO_DEVICE_FAILED;
+	}
+
+	public AudioDeviceStatus drain() {
+		if (self._state != ALSA_STREAM_SUSPENDED) { return AUDIO_DEVICE_WRONG_STATE; }
+		var joined = self.joinWorker();
+		if (joined == AUDIO_DEVICE_INDETERMINATE) { return joined; }
+		self._state = ALSA_STREAM_DRAINED;
+		return AUDIO_DEVICE_OK;
+	}
+
+	public AudioDeviceStatus close() {
+		if (self._state == ALSA_STREAM_CLOSED) { return AUDIO_DEVICE_OK; }
+		if (self._state == ALSA_STREAM_INDETERMINATE) { return AUDIO_DEVICE_INDETERMINATE; }
+		if (self._state != ALSA_STREAM_READY && self._state != ALSA_STREAM_DRAINED) { return AUDIO_DEVICE_WRONG_STATE; }
+		if (self._render.opened()) {
+			var render = self._render.borrow();
+			if (render->playback != null) { snd_pcm_close(render->playback); render->playback = null; }
+			if (render->capture != null) { snd_pcm_close(render->capture); render->capture = null; }
+		}
+		self._selectedOutput = null;
+		self._selectedInput = null;
+		self._physicalInput = null;
+		self._physicalOutput = null;
+		self._inputChannels = null;
+		self._outputChannels = null;
+		self._render.close();
+		self._counters.close();
+		self._program = null;
+		self._state = ALSA_STREAM_CLOSED;
+		return AUDIO_DEVICE_OK;
+	}
+
+	public void __del__() {
+		if (self._state == ALSA_STREAM_RUNNING) { self.suspend(); }
+		if (self._state == ALSA_STREAM_SUSPENDED) { self.drain(); }
+		if (self.close() != AUDIO_DEVICE_OK) { Console.fatal("ALSA stream destroyed before its worker joined"); }
+	}
+}
+
+class AlsaSessionLease {
+	public bool active = false;
+}
+
+class AlsaSessionBackend implements AudioSessionBackend {
+	private AlsaSessionLease _lease;
+	private AlsaStream _stream;
+
+	public AlsaSessionBackend(AlsaSessionLease lease, AlsaStream stream) { self._lease = lease; self._stream = stream; }
+
+	public AudioDeviceStatus start() { return self._stream.start(); }
+
+	public AudioDeviceStatus suspend() { return self._stream.suspend(); }
+
+	public AudioDeviceStatus drain() { return self._stream.drain(); }
+
+	public AudioDeviceStatus close() {
+		var status = self._stream.close();
+		if (status == AUDIO_DEVICE_OK) { self._lease.active = false; }
+		return status;
+	}
+
+	public unsigned long long epoch() { return self._stream.epoch(); }
+}
+
+class AlsaDeviceProviderOpenOutcome {
+	private AudioDeviceStatus _status;
+	private AlsaDeviceProvider? _provider;
+	private string _message;
+
+	private AlsaDeviceProviderOpenOutcome(AudioDeviceStatus status, AlsaDeviceProvider? provider, string message) {
+		if ((status == AUDIO_DEVICE_OK) != (provider != null && message.isEmpty())) { throw "invalid ALSA provider outcome"; }
+		self._status = status;
+		self._provider = provider;
+		self._message = status == AUDIO_DEVICE_OK ? "" : (message.isEmpty() ? audioDeviceStatusMessage(status) : message);
+	}
+
+	class AlsaDeviceProviderOpenOutcome opened(AlsaDeviceProvider provider) { return AlsaDeviceProviderOpenOutcome(AUDIO_DEVICE_OK, provider, ""); }
+
+	class AlsaDeviceProviderOpenOutcome failed(AudioDeviceStatus status, string message = "") {
+		if (status == AUDIO_DEVICE_OK) { throw "failed ALSA provider open requires an error status"; }
+		return AlsaDeviceProviderOpenOutcome(status, null, message);
+	}
+
+	public AudioDeviceStatus status() { return self._status; }
+
+	public bool succeeded() { return self._status == AUDIO_DEVICE_OK; }
+
+	public AlsaDeviceProvider provider() {
+		if (self._provider == null) { throw "ALSA provider is unavailable"; }
+		return self._provider;
+	}
+
+	public string message() { return self._message; }
+}
+
+class AlsaDeviceProvider implements AudioDeviceProvider {
+	private bool _open = true;
+	private AlsaHardwareInventory _inventory = AlsaHardwareInventory();
+	private AlsaSessionLease _lease = AlsaSessionLease();
+	private AlsaStream? _pending = null;
+
+	private AlsaDeviceProvider() {}
+
+	class AlsaDeviceProviderOpenOutcome open() {
+		var provider = AlsaDeviceProvider();
+		var inventory = provider.inventory();
+		if (!inventory.succeeded()) { return AlsaDeviceProviderOpenOutcome.failed(inventory.status(), inventory.message()); }
+		return AlsaDeviceProviderOpenOutcome.opened(provider);
+	}
+
+	public bool isOpen() { return self._open; }
+
+	public AudioDeviceInventoryOutcome inventory() {
+		if (!self._open) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_WRONG_STATE); }
+		return self._inventory.refresh();
+	}
+
+	public DuplexAudioSessionOpenOutcome openDuplex(DuplexAudioOpenRequest request, RealtimeAudioProgram program) {
+		if (!self._open || request == null || program == null) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_INVALID_ARGUMENT); }
+		if (self._lease.active) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_BUSY); }
+		if (self._pending != null) {
+			var cleanup = self._pending.close();
+			if (cleanup != AUDIO_DEVICE_OK) { return DuplexAudioSessionOpenOutcome.failed(cleanup, "Previous audio setup cleanup is still pending"); }
+			self._pending = null;
+		}
+		var inventoried = self.inventory();
+		if (!inventoried.succeeded()) { return DuplexAudioSessionOpenOutcome.failed(inventoried.status(), inventoried.message()); }
+		var inventory = inventoried.inventory();
+		AudioDeviceStatus validation = request.validate(inventory);
+		if (validation != AUDIO_DEVICE_OK) { return DuplexAudioSessionOpenOutcome.failed(validation); }
+		var output = self._inventory.find(request.outputDeviceId());
+		var input = request.hasInput() ? self._inventory.find(request.inputDeviceId()) : null;
+		if (output == null || (request.hasInput() && input == null)) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_NOT_FOUND); }
+		var stream = AlsaStream();
+		self._pending = stream;
+		var status = stream.prepare(input, output, request, program);
+		if (status != AUDIO_DEVICE_OK) { return self.failedSetup(status); }
+		var refreshed = self.inventory();
+		if (!refreshed.succeeded()) { return self.failedSetup(refreshed.status(), refreshed.message()); }
+		var requestedStream = request.stream();
+		int inputCount = request.hasInput() ? request.inputChannels().count() : 0;
+		RealtimeAudioFormat? inputFormat = request.hasInput() ? RealtimeAudioFormat(requestedStream.sampleRate(), inputCount) : null;
+		var format = DuplexAudioNegotiatedFormat(refreshed.inventory().generation(), request.hasInput() ? request.inputDeviceId() : "", inputFormat, request.outputDeviceId(), RealtimeAudioFormat(requestedStream.sampleRate(), request.outputChannels().count()), requestedStream.bufferFrames());
+		var backend = AlsaSessionBackend(self._lease, stream);
+		var session = DuplexAudioSession(format, program, backend);
+		var outcome = DuplexAudioSessionOpenOutcome.opened(session);
+		self._lease.active = true;
+		self._pending = null;
+		return outcome;
+	}
+
+	private DuplexAudioSessionOpenOutcome failedSetup(AudioDeviceStatus status, string message = "") {
+		var stream = self._pending;
+		if (stream == null) { throw "Audio setup has no resource owner"; }
+		var cleanup = stream.close();
+		if (cleanup != AUDIO_DEVICE_OK) { return DuplexAudioSessionOpenOutcome.failed(cleanup, "Audio setup failed; native cleanup remains pending: " + audioDeviceStatusMessage(status)); }
+		self._pending = null;
+		return DuplexAudioSessionOpenOutcome.failed(status, message);
+	}
+
+	public AudioDeviceOperationOutcome close() {
+		if (self._lease.active) { return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_BUSY); }
+		if (self._pending != null) {
+			var cleanup = self._pending.close();
+			if (cleanup != AUDIO_DEVICE_OK) { return AudioDeviceOperationOutcome.fromStatus(cleanup); }
+			self._pending = null;
+		}
+		self._open = false;
+		return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_OK);
+	}
+
+	public void __del__() {
+		if (self._open && !self.close().succeeded()) { Console.fatal("ALSA provider destroyed before its sessions closed"); }
+	}
+}

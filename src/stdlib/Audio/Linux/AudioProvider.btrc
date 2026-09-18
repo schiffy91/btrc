@@ -1,0 +1,10 @@
+import Library.Audio.Audio;
+import Library.Audio.Linux.AlsaDevice;
+
+class AudioProvider {
+	class AudioDeviceProviderOpenOutcome open() {
+		var opened = AlsaDeviceProvider.open();
+		if (!opened.succeeded()) { return AudioDeviceProviderOpenOutcome(opened.status(), null, opened.message()); }
+		return AudioDeviceProviderOpenOutcome(AUDIO_DEVICE_OK, opened.provider(), "");
+	}
+}
