@@ -2,73 +2,90 @@
 
 **Modern syntax & features. C output. No magic.**
 
-btrc is a statically-typed language that transpiles to C. It adds classes, generics, type inference, lambdas, f-strings, imports, collections, threads, GPU compute, automatic reference counting, exception handling, typed native interop, realtime-safety proofs, and a growing standard library -- all while staying compatible with C. The generated C is strict C11: no compiler extensions, no garbage collector, and no virtual machine. Core CPU programs embed the small helpers they use; optional GPU, GUI, tray, audio, and other native backends link their platform runtimes explicitly. You can inspect, debug, and link the output with a C11 toolchain. It comes with a self-hosted compiler that reproduces itself bit-for-bit, a canonical formatter, a VS Code extension, a language server, a source-level debugger, and thousands of compiler/language tests.
+btrc is a statically-typed language that transpiles to C. It adds the things
+you miss when you write C -- classes, interfaces, generics, type inference,
+lambdas, f-strings, real strings and collections, imports, automatic reference
+counting, exceptions and threads -- without taking away the things you use C
+for. There is no garbage collector, no virtual machine, and no runtime to ship:
+the output is strict C11 that you can read, debug, and link with any C11
+toolchain.
 
-## Current handoff status
-
-The typed native boundary and the portable `GUI`, `Audio`, `GPU`, callback and
-ownership primitives are implemented on `main`, but native-provider migration is
-not finished. CoreAudio realtime registration, the vgmstream callback-table
-owner, and pugixml's opaque C++ load-once owner are all qualified on fresh
-self-host compilers (2026-09-13), each through a generated `extern "C"` adapter
-unit in both compilers.
-
-The active work is the structure-first review recorded in BTRSmith's
-`docs/NativePlatformPlan.md`. Its first stage has landed: the stdlib is now a
-closed root prelude plus per-group packages with their own manifests
-([`src/stdlib/README.md`](src/stdlib/README.md)), and the BTRC-drawn toolkit is
-`Library.UI`. What remains is the review of every other directory in both
-repositories, then the final self-host product matrix and BTRSmith's
-visual/physical gates. macOS is the active provider target; the Linux tray
-provider (StatusNotifierItem + dbusmenu over typed libdbus) landed 2026-09-17,
-and the remaining Linux and Windows providers are still future boundaries.
-
-Read [AGENTS.md](AGENTS.md), [`docs/Handoff.md`](docs/Handoff.md), and BTRSmith's
-[`docs/NativePlatformPlan.md`](../btrsmith/docs/NativePlatformPlan.md) for the
-authoritative cross-repository order. Consumers may continue against approved
-interfaces while compiler repairs land; do not invent a second wrapper or
-ownership model.
+It also compiles itself. Alongside the reference compiler there is a
+self-hosted compiler written in btrc that reproduces itself bit-for-bit, plus a
+formatter, a language server, a source-level debugger, and a VS Code extension.
 
 And no – it's not actually better than C, but I like the name, which I ripped off from [btrfs](https://en.wikipedia.org/wiki/Btrfs).
 
-Here's a slice of the 3D ball game, which is written in btrc against the
-standard library's `App`, `GUI`, `GPU`, and `Image` packages:
-
 ```
-import Library.App;
-import Library.Callback;
-import Library.GUI.GUI;
-import ./engine/Engine.btrc;
+import Library.Vector;
 
-class Game implements IApplicationWork {
-    private Engine _engine;
-    private GameObject _player = GameObject();
-    private CallbackScope _frames = CallbackScope();
+interface Priced {
+    int cents();
+}
 
-    public void run() {
-        if (!self._engine.isRunning() || self._engine.input.pressed(APP_KEY_ESCAPE)) {
-            GUI.requestQuit();
-            return;
-        }
-        if (self._engine.update()) { self.updatePlayer(); }
-        self._frames.track(GUI.postAfter(1.0 / 60.0, self));
+class Item implements Priced {
+    public string name;
+    public int price;
+
+    public Item(string name, int price) {
+        self.name = name;
+        self.price = price;
     }
 
-    private void updatePlayer() {
-        float dt = self._engine.time.deltaTime;
-        float speed = 4.0f;
-        var input = self._engine.input;
-        if (input.pressed(APP_KEY_W)) { self._player.move(0.0, 0.0, speed * dt); }
-        if (input.pressed(APP_KEY_S)) { self._player.move(0.0, 0.0, -speed * dt); }
-        if (input.pressed(APP_KEY_A)) { self._player.move(speed * dt, 0.0, 0.0); }
-        if (input.pressed(APP_KEY_D)) { self._player.move(-speed * dt, 0.0, 0.0); }
-        if (input.pressed(APP_KEY_SPACE)) { self._player.jump(speed); }
-        self._player.applyPhysics(dt);
+    public int cents() { return self.price; }
+
+    public string toString() {
+        return f"{self.name}: {self.price / 100}.{self.price % 100}";
     }
+}
+
+int main() {
+    Vector<Item> cart = [];
+    cart.push(Item("coffee", 350));
+    cart.push(Item("bagel", 275));
+    cart.push(Item("orange", 95));
+
+    int total = 0;
+    for item in cart {
+        print(item.toString());
+        total += item.cents();
+    }
+
+    Vector<Item> cheap = cart.filter(bool function(Item i) { return i.cents() < 300; });
+    print(f"{cart.size()} items, {cheap.size()} under 3.00, {total} cents total");
+    return 0;
 }
 ```
 
+```
+coffee: 3.50
+bagel: 2.75
+orange: 0.95
+3 items, 2 under 3.00, 720 cents total
+```
+
+No manual `free`, no `strlen`, no `printf` format string, no header file. The
+`Item` objects are reference counted and released when `cart` goes out of
+scope, and the whole thing is one self-contained `.c` file when you're done.
+
+It goes further than that. This is a 3D game -- physics, shadows, and SDF
+raymarching on the GPU -- written in btrc, in about 760 lines:
+
 ![btrc 3D Ball Game](examples/game/game.gif)
+
+```
+float dt = self._engine.time.deltaTime;
+float speed = 4.0f;
+var input = self._engine.input;
+
+if (input.pressed(APP_KEY_W)) { self._player.move(0.0, 0.0, speed * dt); }
+if (input.pressed(APP_KEY_S)) { self._player.move(0.0, 0.0, -speed * dt); }
+if (input.pressed(APP_KEY_A)) { self._player.move(speed * dt, 0.0, 0.0); }
+if (input.pressed(APP_KEY_D)) { self._player.move(-speed * dt, 0.0, 0.0); }
+if (input.pressed(APP_KEY_SPACE)) { self._player.jump(speed); }
+
+self._player.applyPhysics(dt);
+```
 
 ## Why btrc?
 
@@ -87,6 +104,28 @@ Probably not. But you're welcome to contribute if you find this kind of thing fu
 If you need a production systems language with full safety guarantees, use [Rust](https://www.rust-lang.org/), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/), or [C3](https://c3-lang.org/). Those languages are more mature, robust, and real.
 
 Plus, btrc *definitely* has bugs.
+
+## What You Get Over C
+
+| C Pain Point | btrc Solution |
+|---|---|
+| No classes | Full OOP: classes, inheritance, interfaces, abstract classes, properties |
+| No generics | Monomorphized generics (`Vector<T>`, `Map<K,V>`, user-defined) |
+| Manual memory only | ARC (automatic reference counting) with `keep`/`release` and cycle detection |
+| No type inference | `var x = 42;` just works |
+| `printf` formatting | f-strings: `f"x = {x + 1}"` |
+| Ad hoc include order | `import Library.{JSON, Process}`, `import ./src/**`, plus old `#include` compatibility |
+| No collections | `Vector<T>`, `Map<K,V>`, `Set<T>`, `List<T>`, `Array<T>` with rich APIs |
+| No lambdas | Arrow lambdas: `(int x) => x * 2` |
+| No exceptions | `try`/`catch`/`finally` with ARC-safe cleanup on throw |
+| No operator overloading | `__add__`, `__sub__`, `__eq__`, `__lt__`, `__neg__`, ... |
+| No string methods | `.len()`, `.contains()`, `.split()`, `.trim()`, `.toUpper()`, and many more |
+| No threads | `spawn` + `Thread<T>` + `Mutex<T>` |
+| No GPU compute | `@gpu` functions transpile to WGSL shaders with auto-generated WebGPU boilerplate |
+| Unbounded callback work | `@realtime` proves the complete reachable call graph is realtime-safe |
+| Hand-written C bridges | `#include` a C/C++/Objective-C header and the compiler types it and generates the ABI adapters |
+| Raw function-pointer callbacks | `CFunction<...>` and `OwnedClosure<...>` with checked context ownership |
+| Null pointer chaos | Nullable types (`T?`), optional chaining `?.`, null coalescing `??` |
 
 ## Quick Start
 
@@ -154,29 +193,6 @@ Useful compiler modes include:
 self-hosted compiler. See [the precompiled-stdlib design](docs/design/precompiled-stdlib.md)
 for the archive layout and cross-translation-unit ownership contract. Run
 `./bin/btrcpy --help` for the complete current option list.
-
-## What You Get Over C
-
-| C Pain Point | btrc Solution |
-|---|---|
-| No classes | Full OOP: classes, inheritance, interfaces, abstract classes, properties |
-| No generics | Monomorphized generics (`Vector<T>`, `Map<K,V>`, user-defined) |
-| No memory management | ARC (Automatic Reference Counting) with cycle collection |
-| No type inference | `var x = 42;` just works |
-| `printf` formatting | f-strings: `f"x = {x + 1}"` |
-| Ad hoc include order | `import Library.{JSON, Process}`, `import ./src/**`, plus old `#include` compatibility |
-| No collections | `Vector<T>`, `Map<K,V>`, `Set<T>`, `List<T>`, `Array<T>` with rich APIs |
-| No lambdas | Arrow lambdas: `(int x) => x * 2` |
-| No exceptions | `try`/`catch`/`finally` with ARC-safe cleanup on throw |
-| No operator overloading | `__add__`, `__sub__`, `__eq__`, `__lt__`, `__neg__`, ... |
-| No string methods | `.len()`, `.contains()`, `.split()`, `.trim()`, `.toUpper()`, and many more |
-| No threads | `spawn` + `Thread<T>` + `Mutex<T>` |
-| No GPU compute | `@gpu` functions transpile to WGSL shaders with auto-generated WebGPU boilerplate |
-| Unbounded callback work | `@realtime` proves the complete reachable call graph is realtime-safe |
-| Hand-written C bridges | `#include` a C/C++/Objective-C header and the compiler types it and generates the ABI adapters |
-| Raw function-pointer callbacks | `CFunction<...>` and `OwnedClosure<...>` with checked context ownership |
-| Null pointer chaos | Nullable types (`T?`), optional chaining `?.`, null coalescing `??` |
-| Manual memory only | Automatic reference counting with `keep`/`release` + cycle detection |
 
 ## Imports and Stdlib
 
@@ -1412,15 +1428,10 @@ bootstrap stages and the fixed-point argument.
 
 ## Project Structure
 
-The production compiler inventories are held exact by
-[Compiler Structure](docs/design/compiler-structure.md), whose current
-normative count is 84 Python files and 95 self-hosted `.btrc` files (89
-compiler/generated files plus six explicit tool entry files). The tree
-currently carries two more on each side -- `frontend/symbol_index.py` and
-`ir/lowering/reachability.py`, and their self-hosted counterparts
-`Reachability.btrc` and `Timing.btrc` -- from the reachability and startup work
-that landed after the document was last revised, so that document needs a
-refresh to 86/97. The package view:
+Both compilers are held to an exact file inventory, owner by owner, in
+[Compiler Structure](docs/design/compiler-structure.md): a module exists
+because something owns a distinct responsibility, not because a file got long.
+The package view:
 
 ```
 src/
@@ -1547,17 +1558,13 @@ and 20 skips, and `make bootstrap` proves the self-hosted compiler reproduces
 itself byte-for-byte. The corpus itself is 1,177 `.btrc` programs with golden
 output, alongside 449 pytest files.
 
-Three things are worth knowing before you trust a green run. The skips are
+Two things are worth knowing before you trust a green run. The skips are
 missing tools rather than product defects -- `naga`, `lldb`, `pkg-config`, and
 platform-specific paths -- but they are still coverage you did not get, and the
 run looks identical either way: install those and the GPU/WGSL validation, the
-debugger, and the tray runtime all start testing for real. The boundary gate
-checks 301 records outside the nix shell but 277 inside it, because four
-observed-behavior capabilities are skipped there as incompatible, so 24 records
-go unchecked under that toolchain. And `stdlib/StdlibDaemon.btrc` asserts a
-wall-clock daemon-stop deadline, so it can fail on a saturated machine and pass
-on a quiet one; that is a timing assumption in the test, not a defect in the
-stdlib.
+debugger, and the tray runtime all start testing for real. And the daemon test
+asserts a wall-clock deadline, so it can fail on a saturated machine and pass
+on a quiet one.
 
 ```bash
 make all                    # Build and verify the complete developer tree
