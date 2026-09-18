@@ -1,4 +1,5 @@
 import Library.Strings;
+import Library.Datetime;
 import Library.Vector;
 import Library.Image;
 import Library.GUI.IView;
@@ -60,7 +61,12 @@ class GUIProvider {
 		if (native == null) { throw "Capture root belongs to another GUI provider"; }
 		var window = application.windowOwning(native);
 		if (window == null) { throw "Capture root is not attached to a window"; }
-		if (!window.pollDevice()) { throw "Capture window has no GPU device yet"; }
+		var deadline = Timer();
+		deadline.start();
+		while (!window.pollDevice()) {  // the device request is asynchronous; captures may precede the first loop turn
+			if (deadline.elapsedMillis() > 5000.0f) { throw "Capture window has no GPU device"; }
+			Timer.sleepMillis(1);
+		}
 		var image = window.render(true);
 		if (image == null) { throw "Capture window produced no frame"; }
 		return image;
