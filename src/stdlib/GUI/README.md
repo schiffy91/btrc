@@ -3,7 +3,7 @@
 `import Library.GUI;` selects the native provider for the compilation target.
 Call `GUI.initialize()`, create a window and controls with `GUI.createWindow`,
 `GUI.createColumn`, `GUI.createRow`, `GUI.createButton` and `GUI.createTextField`, attach them,
-then enter `GUI.run()`. Only macOS is implemented; other targets fail explicitly.
+then enter `GUI.run()`. macOS and Linux are implemented; other targets fail explicitly.
 The factory returns portable interfaces and its application owner is package-private.
 `GUI.post(work)` schedules UI-thread work; `GUI.requestQuit()` stops admission.
 `GUI.postAfter(delaySeconds, work)` schedules one cancellable delayed delivery
@@ -203,7 +203,7 @@ loop. Its native run/quit/delegate path is implemented above; actual GPU embeddi
 with overlay scrollers, top-relative logical-point offsets and resize clamping.
 Native document children retain AppKit's unflipped coordinates; this is not yet
 the portable recursive layout or recycled collection API. Native/GPU composition
-is unfinished. Future Linux/Windows providers use sibling platform packages;
+is unfinished. The Linux provider is the sibling `Linux/` package below; Windows is unimplemented;
 they are outside the current implementation scope.
 
 `MacOSButton(title, actions)` creates an AppKit momentary button. After native
@@ -406,3 +406,38 @@ make examples-gui   # build + run the headless examples/tests (demo, declarative
   presentation belongs to the portable GUI factory and its selected provider.
 - Drawing is opaque-rect + bitmap text; it's intentionally minimal, not a
   full retained-mode toolkit.
+
+## Linux provider
+
+`Linux/GUIProvider` is selected for `linux` targets. There is no single native
+toolkit to inherit, so the provider draws every control itself: each `IWindow`
+is one SDL3 window whose whole content is a WebGPU surface, the view tree is
+composed over one `LinuxViewNode` per control, and `LinuxPainter` records
+rounded rectangles, rings, glyph runs, images and clips into one vertex
+stream that replays inside the window's render pass. Text comes from the
+fontconfig `sans-serif` match rendered through FreeType at the window's
+backing scale, so measurement and drawing agree at fractional scales.
+
+- `LinuxApplication.run()` pumps SDL events, delivers posted and delayed
+  work, dispatches queued button actions in click order, and renders every
+  window whose invalidation revision moved. Blinking carets and spinners ask
+  the host for a wake instead of redrawing continuously.
+- Pointer input is routed by hit-testing the tree: subscriptions along the
+  path see the event first, leaf to root, then the controls' own behavior. A
+  consumed press captures its drag and release. Keyboard input goes to
+  window `onKey` handlers, then the focused control; SDL text input reaches
+  the focused text field, which owns caret, selection and clipboard editing.
+- `IGPUView` renders into a `GPUOffscreenTarget` on the window's device and
+  is composited by the window frame, so `poll()` reports not-ready until the
+  view sits under a ready window. `GUI.capture` reads the whole window back;
+  the layers argument is accepted for parity because the frame already
+  composes every GPU child.
+- `ISelect` opens a window overlay that receives pointer and keyboard input
+  first; `IWindow.showAlert` is SDL's message box; `GUI.chooseDirectory` is
+  the desktop folder dialog (portal or zenity) pumped like a modal.
+- `SDL.h` also exposes `btrcSdlPush*` synthetic input so automation and the
+  native tests drive windows through SDL's own queue.
+
+`src/tests/native/gui/linux/LinuxGUIControls.btrc` is the live regression:
+clicks, typing, a select choice, a slider drag, wheel scrolling, subscription
+capture and a readback pixel check on a real window.

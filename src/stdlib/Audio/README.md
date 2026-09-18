@@ -41,6 +41,15 @@ native backend; it does not infer an asynchronous entry barrier from a status
 code. The fault suite separately proves no callback publication on preparation
 failure and recovery after callback-installation failure.
 
-macOS is the only current device implementation in scope. Future Linux/Windows
-providers belong under sibling `Linux/` and `Windows/` packages and implement
-the same negotiated-format and drain contracts. Do not add fake-success stubs.
+`Linux/AlsaDevice.btrc` implements the same provider over ALSA. Inventory
+enumerates PCM hints, keeps the shared server entry points (`default`,
+`pipewire`, `pulse`, `jack`) and per-card `sysdefault`/`hw`/`plughw` names,
+probes each direction for channel, rate and period ranges, and reports
+`default` as both defaults. A session opens interleaved float capture and
+playback handles configured to the requested period with two periods of
+buffer, then runs a worker thread that reads one capture period, calls the
+realtime program on the selected channels and writes one playback period in
+lock step; xruns are recovered in place and reported as discontinuities, and
+the worker asks for `SCHED_FIFO` when the system allows it. `suspend()` stops
+admission and signals the worker, `drain()` joins it, `close()` releases the
+handles. Windows remains unimplemented; do not add fake-success stubs.
