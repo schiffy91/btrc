@@ -1,11 +1,12 @@
-/* A small native UI, rendered headless.
+/* A small UI, rendered headless.
  *
  * Builds a music-library window out of the declarative View toolkit -- a
- * sidebar, a track list with a selection, and a transport bar -- then drives it
- * through a scripted session (arrow down the list, press play, let the track
- * run) and writes each frame out as a PPM. There is no window and no display:
- * the same View tree is what a real window renders through the platform
- * provider on macOS.
+ * sidebar, a track list with a selection, and a transport bar -- then steps
+ * its state through a scripted session (walk down the list, start playback,
+ * let the track run) and writes each frame out as a PPM. There is no window
+ * and no display: the toolkit lays out and rasterizes the tree itself, which
+ * is what makes it runnable in CI. Real platform widgets are the other path,
+ * GUI.createWindow and friends; see examples/gui/Native.btrc.
  */
 import Library.Vector;
 
@@ -38,12 +39,10 @@ class Skin {
 
 class Track {
 	public string title;
-	public string artist;
 	public int seconds;
 
-	public Track(string title, string artist, int seconds) {
+	public Track(string title, int seconds) {
 		self.title = title;
-		self.artist = artist;
 		self.seconds = seconds;
 	}
 }
@@ -52,11 +51,11 @@ class Library {
 	public Vector<Track> tracks = [];
 
 	public Library() {
-		self.tracks.push(Track("BLUE MONDAY", "NEW ORDER", 448));
-		self.tracks.push(Track("CEREMONY", "NEW ORDER", 265));
-		self.tracks.push(Track("TEMPTATION", "NEW ORDER", 412));
-		self.tracks.push(Track("REGRET", "NEW ORDER", 245));
-		self.tracks.push(Track("TRUE FAITH", "NEW ORDER", 353));
+		self.tracks.push(Track("BLUE MONDAY", 448));
+		self.tracks.push(Track("CEREMONY", 265));
+		self.tracks.push(Track("TEMPTATION", 412));
+		self.tracks.push(Track("REGRET", 245));
+		self.tracks.push(Track("TRUE FAITH", 353));
 	}
 }
 
@@ -79,7 +78,18 @@ View trackRow(Track track, bool selected, bool playing) {
 	]);
 }
 
-View sidebar() { return View.column().pad(10).withGap(6).sized(120, 0).bgColor(Skin.sidebar()).kids([View.text("LIBRARY").fgColor(Skin.accent()), View.text("SONGS").fgColor(Skin.text()), View.text("ALBUMS").fgColor(Skin.dim()), View.text("ARTISTS").fgColor(Skin.dim()), View.spacer(), View.text("PLAYLISTS").fgColor(Skin.accent()), View.text("LATE NIGHT").fgColor(Skin.dim()),]); }
+View sidebar() {
+	View column = View.column().pad(10).withGap(6).sized(120, 0).bgColor(Skin.sidebar());
+	return column.kids([
+		View.text("LIBRARY").fgColor(Skin.accent()),
+		View.text("SONGS").fgColor(Skin.text()),
+		View.text("ALBUMS").fgColor(Skin.dim()),
+		View.text("ARTISTS").fgColor(Skin.dim()),
+		View.spacer(),
+		View.text("PLAYLISTS").fgColor(Skin.accent()),
+		View.text("LATE NIGHT").fgColor(Skin.dim()),
+	]);
+}
 
 /* The transport: play/pause, the elapsed clock, and an inline progress meter
  * built from two boxes so the fill width is the state. */

@@ -260,7 +260,7 @@ class CallableRuntimeHarness:
     ) -> None:
         source = tmp_path / f"callable-runtime-{Path(compiler).name}.c"
         executable = source.with_suffix("")
-        source.write_text(emit_c(source_text or cls.SOURCE) + "\n" + cls.FOREIGN_DEFINITION)
+        source.write_text(emit_c(source_text or cls.SOURCE) + "\n" + cls.FOREIGN_DEFINITION + "\n")
         built = subprocess.run(
             [
                 compiler,

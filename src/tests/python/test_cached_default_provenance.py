@@ -6,6 +6,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -110,7 +111,7 @@ def test_cached_cli_preserves_local_and_imported_default_source_coordinates(tmp_
         output = tmp_path / f"program-{index}.c"
         result = _run(
             [
-                "python3",
+                sys.executable,
                 "-m",
                 "src.compiler.python.main",
                 str(source),

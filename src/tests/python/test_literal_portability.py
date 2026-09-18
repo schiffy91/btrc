@@ -168,7 +168,7 @@ def test_accepted_string_tokens_compile_as_strict_c11(
         assert token.type is TokenKind.CHAR_LIT
         declarations.append(f"static const unsigned char char_{index} = {token.value};")
     c_file = tmp_path / "strings.c"
-    c_file.write_text("\n".join((*declarations, "int main(void) { return 0; }")))
+    c_file.write_text("\n".join((*declarations, "int main(void) { return 0; }")) + "\n")
 
     result = subprocess.run(
         [
@@ -211,7 +211,7 @@ def test_accepted_numeric_tokens_lower_to_strict_c11(
         assert token.type is TokenKind.FLOAT_LIT
         declarations.append(f"static const double float_{index} = {raw};")
     c_file = tmp_path / "numbers.c"
-    c_file.write_text("\n".join((*declarations, "int main(void) { return 0; }")))
+    c_file.write_text("\n".join((*declarations, "int main(void) { return 0; }")) + "\n")
 
     result = subprocess.run(
         [

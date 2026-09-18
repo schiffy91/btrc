@@ -384,9 +384,9 @@ def test_guarded_state_keeps_one_cross_tu_owner(tmp_path: Path, c_compiler: str)
     assert "extern int __btrc_test_native_lock;" in declarations
     assert "extern atomic_flag __btrc_test_lock_flag;" in declarations
     header = tmp_path / "lock.h"
-    header.write_text("#include <stdatomic.h>\n" + declarations)
+    header.write_text("#include <stdatomic.h>\n" + declarations + "\n")
     owner = tmp_path / "owner.c"
-    owner.write_text('#include "lock.h"\n' + implementation)
+    owner.write_text('#include "lock.h"\n' + implementation + "\n")
     consumer = tmp_path / "consumer.c"
     consumer.write_text(
         '#include "lock.h"\nint main(void) { __btrc_test_lock_raw(); __btrc_test_unlock_raw(); return 0; }\n'

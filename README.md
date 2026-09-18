@@ -81,8 +81,8 @@ scope, and the whole program is one self-contained `.c` file when you are done.
 Nothing above replaces C -- it sits on top of it. Structs, pointers, `malloc`,
 the preprocessor and any C library you want are all still right there, in the
 same file, with no binding layer in between. And when reference counting is not
-the ownership model you want, `keep`, `release` and `delete` hand you the
-refcount directly.
+the ownership model you want, `release` and `delete` hand you the refcount
+directly.
 
 ```
 #include <math.h>
@@ -106,13 +106,20 @@ int main() {
     buf[0] = 7;
     free(buf);
 
-    Node n = new Node(42);   // refcounted, released at scope exit
-    keep n;                  // ...unless you say otherwise: explicit rc++
-    release n;               // explicit rc--, destroys at zero
-    delete n;                // or force it now, whatever the count
+    Node a = new Node(1);    // refcounted: released for you when a leaves scope
+    Node b = new Node(2);
+    release b;               // rc--: that was the last reference, so b is
+                             //   destroyed here and set to null
+    Node c = new Node(3);
+    delete c;                // destroy right now, whatever the count
     return 0;
 }
 ```
+
+`keep` is the other half of that: `keep p;` pins an object across a boundary
+the compiler cannot see -- a pointer handed to a C callback, say -- and the
+matching `release` on the far side lets it go. A `keep` parameter does the same
+for the duration of one call.
 
 btrc is a little stricter than C where C is genuinely dangerous: that
 `(size_t)4` is required, because mixing `int` with `size_t` in an arithmetic
