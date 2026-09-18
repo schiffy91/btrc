@@ -9,7 +9,7 @@ import Library.Console;
 
 #include <assert.h>
 
-struct BlockLog { unsigned long long blocks; unsigned long long lastOutputFrame; unsigned long long epoch; int badFrames; int inputBlocks; int framesPerBlock; };
+struct BlockLog { unsigned long long blocks; unsigned long long lastOutputFrame; unsigned long long epoch; int badFrames; int inputBlocks; int framesPerBlock; int flaggedBlocks; };
 
 @realtime void logProcess(void* context, struct AudioBlockView block, RealtimeAudioInputSamples input, RealtimeAudioOutputSamples output) {
 	struct BlockLog* state = (struct BlockLog*)context;
@@ -18,6 +18,7 @@ struct BlockLog { unsigned long long blocks; unsigned long long lastOutputFrame;
 	state->epoch = block.streamEpoch;
 	state->blocks++;
 	if (block.inputChannelCount > 0) { state->inputBlocks++; }
+	if (block.flags != 0u) { state->flaggedBlocks++; }
 	int samples = block.frameCount * block.outputChannelCount;
 	for (int index = 0; index < samples; index++) { output.trySet((size_t)index, 0.0f); }
 }
@@ -34,7 +35,7 @@ int main() {
 	assert(output != null);
 	assert(output.streamCapability().isKnown());
 	var input = inventory.defaultInput();
-	struct BlockLog state = {0ULL, 0ULL, 0ULL, 0, 0, 128};
+	struct BlockLog state = {0ULL, 0ULL, 0ULL, 0, 0, 128, 0};
 	var program = RealtimeAudioProgram(logProcess, &state);
 	var stream = AudioStreamRequest(48000, 128);
 	var request = input == null ? DuplexAudioOpenRequest.outputOnly(inventory.generation(), output.id(), AudioChannelSelection.leading(2), stream) : DuplexAudioOpenRequest.duplex(inventory.generation(), input.id(), AudioChannelSelection.leading(1), output.id(), AudioChannelSelection.leading(2), stream);
@@ -53,6 +54,8 @@ int main() {
 	assert(!duplex.isOpen());
 	assert(state.blocks > 100ULL);
 	assert(state.badFrames == 0);
+	/* Only the first block after start is a discontinuity; a steady stream has no xruns. */
+	assert(state.flaggedBlocks == 1);
 	assert(state.epoch == duplex.streamEpoch());
 	if (input != null) { assert(state.inputBlocks > 100); }
 	var stale = DuplexAudioOpenRequest.outputOnly(inventory.generation() + 5ULL, output.id(), AudioChannelSelection.leading(2), stream);

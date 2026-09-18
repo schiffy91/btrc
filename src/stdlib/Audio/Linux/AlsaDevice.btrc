@@ -48,9 +48,7 @@ class AlsaHardwareDevice {
 
 	public int outputChannels() { return self._outputChannels; }
 
-	public AudioDeviceDescriptor descriptor(bool defaultInput, bool defaultOutput) {
-		return AudioDeviceDescriptor(self._name, self._description, self._inputChannels, self._outputChannels, defaultInput && self._inputChannels > 0, defaultOutput && self._outputChannels > 0, self._capability);
-	}
+	public AudioDeviceDescriptor descriptor(bool defaultInput, bool defaultOutput) { return AudioDeviceDescriptor(self._name, self._description, self._inputChannels, self._outputChannels, defaultInput && self._inputChannels > 0, defaultOutput && self._outputChannels > 0, self._capability); }
 
 	/* Open one direction to read what the PCM can do; null when it cannot open. */
 	class AlsaProbe? probe(string name, bool capture) {

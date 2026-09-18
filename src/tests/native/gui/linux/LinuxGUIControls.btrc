@@ -25,6 +25,7 @@ class Pointer implements IViewPointerHandler {
 	public int entered = 0;
 	public bool consume;
 	public Pointer(bool consume) { self.consume = consume; }
+
 	public bool pointer(AppPointerEvent event) {
 		if (event.action == APP_POINTER_PRESSED) { self.presses++; return self.consume; }
 		if (event.action == APP_POINTER_ENTERED) { self.entered++; }

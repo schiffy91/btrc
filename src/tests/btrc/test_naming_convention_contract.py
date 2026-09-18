@@ -209,7 +209,13 @@ def _report(offenders: dict[str, set[str]]) -> str:
 def test_every_btrc_source_owns_only_camel_case_names() -> None:
     """The convention covers the stdlib, the corpus and the examples too."""
 
-    foreign = _foreign_names() | _repository_c_names() | _selected_sdk_names() | _PLATFORM_STRUCT_MEMBERS | _LANGUAGE_INTRINSICS
+    foreign = (
+        _foreign_names()
+        | _repository_c_names()
+        | _selected_sdk_names()
+        | _PLATFORM_STRUCT_MEMBERS
+        | _LANGUAGE_INTRINSICS
+    )
     offenders: dict[str, set[str]] = {}
     for relative in _tracked("*.btrc"):
         owned = _owned_snake_case_names(REPO / relative, foreign)

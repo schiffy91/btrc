@@ -42,14 +42,23 @@ def _transpile(source: Path, generated: Path, plan: Path, frontend: str, request
             str(plan),
         ]
     else:
-        command = [str(request.getfixturevalue("immutable_btrcc")), "--target", TARGET, "--emit-link-plan", str(plan), str(source)]
+        command = [
+            str(request.getfixturevalue("immutable_btrcc")),
+            "--target",
+            TARGET,
+            "--emit-link-plan",
+            str(plan),
+            str(source),
+        ]
     compiled = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=600)
     assert compiled.returncode == 0, compiled.stderr
     if frontend == "selfhost":
         generated.write_text(compiled.stdout)
 
 
-def _build_and_run(source: Path, tmp_path: Path, frontend: str, sanitized: bool, request, expected: str, timeout: int = 120) -> None:
+def _build_and_run(
+    source: Path, tmp_path: Path, frontend: str, sanitized: bool, request, expected: str, timeout: int = 120
+) -> None:
     generated = tmp_path / "Program.c"
     plan = tmp_path / "Program.json"
     _transpile(source, generated, plan, frontend, request)
@@ -76,7 +85,14 @@ def _build_and_run(source: Path, tmp_path: Path, frontend: str, sanitized: bool,
 @pytest.mark.parametrize("sanitized", [False, True])
 def test_linux_image_decoding(tmp_path, request, frontend, sanitized):
     _require_linux_reader()
-    _build_and_run(ROOT / "src/tests/native/image/linux/LinuxImageDecoding.btrc", tmp_path, frontend, sanitized, request, "PASS: linux image decoding")
+    _build_and_run(
+        ROOT / "src/tests/native/image/linux/LinuxImageDecoding.btrc",
+        tmp_path,
+        frontend,
+        sanitized,
+        request,
+        "PASS: linux image decoding",
+    )
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
@@ -85,7 +101,14 @@ def test_linux_audio_session(tmp_path, request, frontend, sanitized):
     _require_linux_reader()
     if error := linux_audio_backend_error():
         pytest.skip(error)
-    _build_and_run(ROOT / "src/tests/native/audio/linux/LinuxAudioSession.btrc", tmp_path, frontend, sanitized, request, "PASS: linux audio session")
+    _build_and_run(
+        ROOT / "src/tests/native/audio/linux/LinuxAudioSession.btrc",
+        tmp_path,
+        frontend,
+        sanitized,
+        request,
+        "PASS: linux audio session",
+    )
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
@@ -95,7 +118,15 @@ def test_linux_gui_controls(tmp_path, request, frontend, sanitized):
     _require_linux_reader()
     if error := linux_display_error():
         pytest.skip(error)
-    _build_and_run(ROOT / "src/tests/native/gui/linux/LinuxGUIControls.btrc", tmp_path, frontend, sanitized, request, "PASS: linux gui controls", timeout=180)
+    _build_and_run(
+        ROOT / "src/tests/native/gui/linux/LinuxGUIControls.btrc",
+        tmp_path,
+        frontend,
+        sanitized,
+        request,
+        "PASS: linux gui controls",
+        timeout=180,
+    )
 
 
 @pytest.mark.parametrize("target", ["windows-x86_64"])

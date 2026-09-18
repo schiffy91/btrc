@@ -86,9 +86,7 @@ class LinuxKeys {
 		return APP_KEY_UNKNOWN;
 	}
 
-	class AppKeyModifiers modifiers(unsigned int mod) {
-		return AppKeyModifiers((mod & (unsigned int)SDL_KMOD_SHIFT) != 0u, (mod & (unsigned int)SDL_KMOD_CTRL) != 0u, (mod & (unsigned int)SDL_KMOD_ALT) != 0u, (mod & (unsigned int)SDL_KMOD_GUI) != 0u);
-	}
+	class AppKeyModifiers modifiers(unsigned int mod) { return AppKeyModifiers((mod & (unsigned int)SDL_KMOD_SHIFT) != 0u, (mod & (unsigned int)SDL_KMOD_CTRL) != 0u, (mod & (unsigned int)SDL_KMOD_ALT) != 0u, (mod & (unsigned int)SDL_KMOD_GUI) != 0u); }
 
 	class AppPointerButton button(unsigned int button) {
 		if (button == 1u) { return APP_POINTER_BUTTON_PRIMARY; }
@@ -311,9 +309,7 @@ class LinuxWindow implements ILinuxWindow {
 		return path;
 	}
 
-	private AppPointerEvent localEvent(AppPointerAction action, AppPointerButton button, int clicks, double originX, double originY) {
-		return AppPointerEvent(action, button, self._pointerX - originX, self._pointerY - originY, self._modifiers, clicks);
-	}
+	private AppPointerEvent localEvent(AppPointerAction action, AppPointerButton button, int clicks, double originX, double originY) { return AppPointerEvent(action, button, self._pointerX - originX, self._pointerY - originY, self._modifiers, clicks); }
 
 	private bool onPath(Vector<LinuxHit> path, int id) {
 		for hit in path { if (hit.view.node().id == id) { return true; } }

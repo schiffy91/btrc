@@ -13,15 +13,35 @@ class LinuxSystemText {
 		if (run == null) { throw "System text requires a run"; }
 		if (run.text().isEmpty()) { return Image.empty(); }
 		var face = fonts.faceForPixels(run.fontSize(), run.weight() >= 600);
-		double advance = face.advance(run.text());
-		int width = (int)Math.maxDouble(1.0, Math.ceilDouble(advance + 2.0));
-		int height = (int)Math.maxDouble((double)run.lineHeight(), Math.ceilDouble(face.lineHeight));
+		string text = run.text();
+		/* Typographic advance and ink bounds, like CoreText's glyph-path bounds:
+		 * the line height is the run's unless a glyph's ink reaches beyond it. */
+		double advance = 0.0;
+		double left = 0.0;
+		double right = 0.0;
+		double above = 0.0;
+		double below = 0.0;
+		int offset = 0;
+		while (offset < text.len()) {
+			var scalar = LinuxScalar.decode(text, offset);
+			offset = scalar.next;
+			var glyph = face.glyph(scalar.codepoint);
+			if (glyph.width > 0 && glyph.rows > 0) {
+				left = Math.minDouble(left, advance + (double)glyph.left);
+				right = Math.maxDouble(right, advance + (double)(glyph.left + glyph.width));
+				above = Math.maxDouble(above, (double)glyph.top);
+				below = Math.maxDouble(below, (double)(glyph.rows - glyph.top));
+			}
+			advance += glyph.advance;
+		}
+		right = Math.maxDouble(right, advance);
+		int width = (int)Math.maxDouble(1.0, Math.ceilDouble(right - left));
+		int height = (int)Math.maxDouble((double)run.lineHeight(), Math.ceilDouble(above + below));
 		if (width > 4096 || height > 4096) { throw "System text exceeds raster limits"; }
 		var image = Image(width, height);
-		double baseline = Math.floorDouble(((double)height - face.lineHeight) * 0.5 + face.ascent + 0.5);
-		double penX = 1.0;
-		int offset = 0;
-		string text = run.text();
+		double baseline = Math.floorDouble(((double)height - above - below) * 0.5 + above + 0.5);
+		double penX = -left;
+		offset = 0;
 		while (offset < text.len()) {
 			var scalar = LinuxScalar.decode(text, offset);
 			offset = scalar.next;

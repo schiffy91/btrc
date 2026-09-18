@@ -348,9 +348,7 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 		return result;
 	}
 
-	public CallbackCancellation pollClose() {
-		return self._closed ? CallbackCancellation.Complete : (self._closing ? self.close() : CallbackCancellation.NotRequested);
-	}
+	public CallbackCancellation pollClose() { return self._closed ? CallbackCancellation.Complete : (self._closing ? self.close() : CallbackCancellation.NotRequested); }
 
 	public CallbackCancellation close() {
 		if (self._closed) { return CallbackCancellation.Complete; }

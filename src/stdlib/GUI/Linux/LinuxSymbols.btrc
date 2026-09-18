@@ -5,10 +5,7 @@ import Library.GUI.Linux.LinuxPainter;
 /* Vector renderings of the system symbol names the portable API accepts.
  * Each draws centered in a square of `size` points at (x, y) top-left. */
 class LinuxSymbols {
-	class bool known(string name) {
-		return name == "gearshape" || name == "chevron.left" || name == "chevron.right" || name == "play.fill" || name == "pause.fill" || name == "waveform" || name == "folder"
-			|| name == "paintbrush" || name == "metronome" || name == "repeat" || name == "speaker.wave.2.fill" || name == "speedometer" || name == "line.3.horizontal.decrease" || name == "xmark" || name == "magnifyingglass" || name == "stop.fill";
-	}
+	class bool known(string name) { return name == "gearshape" || name == "chevron.left" || name == "chevron.right" || name == "play.fill" || name == "pause.fill" || name == "waveform" || name == "folder" || name == "paintbrush" || name == "metronome" || name == "repeat" || name == "speaker.wave.2.fill" || name == "speedometer" || name == "line.3.horizontal.decrease" || name == "xmark" || name == "magnifyingglass" || name == "stop.fill"; }
 
 	class void paint(LinuxPainter painter, string name, double x, double y, double size, RGBA color) {
 		double cx = x + size * 0.5;
