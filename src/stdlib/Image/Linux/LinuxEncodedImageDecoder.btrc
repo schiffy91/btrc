@@ -1,0 +1,55 @@
+import Library.Bytes;
+import Library.Image;
+import Library.Image.EncodedImage;
+import Library.Image.DDSEncodedImageDecoder;
+
+/* Bounded, synchronous decoding through libpng and libjpeg-turbo. The SDK
+ * owns its decoders; this module owns decode policy and every handle's
+ * lifetime. DDS stays in BTRC. */
+class LinuxEncodedImageDecoder implements IEncodedImageDecoder {
+	public LinuxEncodedImageDecoder() {}
+
+	public EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits) {
+		int inputBytes = encoded == null ? 0 : encoded.length();
+		if (encoded == null || encoded.isEmpty() || limits == null) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_INVALID_ARGUMENT, inputBytes); }
+		if (!limits.allowsInput(inputBytes)) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, inputBytes); }
+		if (DDSEncodedImageDecoder.recognizes(encoded)) { return DDSEncodedImageDecoder().decode(encoded, limits); }
+		int length = encoded.length();
+		if (length >= 8 && memcmp(encoded.data, "\x89PNG\r\n\x1a\n", 8) == 0) { return self.decodePng(encoded, limits); }
+		if (length >= 2 && encoded.get(0) == 255 && encoded.get(1) == 216) { return self.decodeJpeg(encoded, limits); }
+		return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_UNSUPPORTED, inputBytes);
+	}
+
+	private EncodedImageDecodeOutcome decodePng(Bytes encoded, EncodedImageDecodeLimits limits) {
+		unsigned int width = 0u;
+		unsigned int height = 0u;
+		if (btrcPngHeader((const unsigned char*)encoded.data, (size_t)encoded.length(), &width, &height) == 0) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_CORRUPT, encoded.length()); }
+		if (!Image.validDimensions((long long)width, (long long)height) || !limits.allowsDimensions((int)width, (int)height)) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, encoded.length()); }
+		var image = Image.tryCreate((int)width, (int)height);
+		if (image == null) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY, encoded.length()); }
+		if (btrcPngDecode((const unsigned char*)encoded.data, (size_t)encoded.length(), image.data, width, height) == 0) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_CORRUPT, encoded.length()); }
+		return EncodedImageDecodeOutcome.decoded(image, encoded.length());
+	}
+
+	private EncodedImageDecodeOutcome decodeJpeg(Bytes encoded, EncodedImageDecodeLimits limits) {
+		var handle = tj3Init(TJINIT_DECOMPRESS);
+		if (handle == null) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY, encoded.length()); }
+		EncodedImageDecodeStatus status = ENCODED_IMAGE_DECODE_OK;
+		Image? image = null;
+		if (tj3DecompressHeader(handle, (const unsigned char*)encoded.data, (size_t)encoded.length()) != 0) { status = ENCODED_IMAGE_DECODE_CORRUPT; }
+		else {
+			int width = tj3Get(handle, TJPARAM_JPEGWIDTH);
+			int height = tj3Get(handle, TJPARAM_JPEGHEIGHT);
+			if (width <= 0 || height <= 0) { status = ENCODED_IMAGE_DECODE_CORRUPT; }
+			else if (!Image.validDimensions((long long)width, (long long)height) || !limits.allowsDimensions(width, height)) { status = ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED; }
+			else {
+				image = Image.tryCreate(width, height);
+				if (image == null) { status = ENCODED_IMAGE_DECODE_OUT_OF_MEMORY; }
+				else if (tj3Decompress8(handle, (const unsigned char*)encoded.data, (size_t)encoded.length(), image.data, width * 4, TJPF_RGBA) != 0) { status = ENCODED_IMAGE_DECODE_CORRUPT; image = null; }
+			}
+		}
+		tj3Destroy(handle);
+		if (status != ENCODED_IMAGE_DECODE_OK || image == null) { return EncodedImageDecodeOutcome.rejected(status == ENCODED_IMAGE_DECODE_OK ? ENCODED_IMAGE_DECODE_FAILED : status, encoded.length()); }
+		return EncodedImageDecodeOutcome.decoded(image, encoded.length());
+	}
+}

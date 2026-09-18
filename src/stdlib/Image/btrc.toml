@@ -2,12 +2,35 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_image"
-exports = ["DDSEncodedImageDecoder", "EncodedImage", "Image", "MacOS.MacOSEncodedImageDecoder", "SystemImageDecoder"]
+exports = ["DDSEncodedImageDecoder", "EncodedImage", "Image", "MacOS.MacOSEncodedImageDecoder", "Linux.LinuxEncodedImageDecoder", "SystemImageDecoder"]
 
 [[package.providers]]
 module = "SystemImageDecoder"
 implementation = "MacOS.SystemImageProvider"
 os = ["macos"]
+
+[[package.providers]]
+module = "SystemImageDecoder"
+implementation = "Linux.SystemImageProvider"
+os = ["linux"]
+
+[[native.pkg-config]]
+name = "libpng"
+modules = ["Linux.LinuxEncodedImageDecoder"]
+os = ["linux"]
+
+[[native.pkg-config]]
+name = "libturbojpeg"
+modules = ["Linux.LinuxEncodedImageDecoder"]
+os = ["linux"]
+
+[[native.bindings]]
+module = "Linux.LinuxEncodedImageDecoder"
+header = "Linux/Codecs.h"
+language = "c"
+standard = "c11"
+symbols = ["btrcPngHeader", "btrcPngDecode", "tjhandle", "tj3Init", "tj3Destroy", "tj3DecompressHeader", "tj3Get", "tj3Decompress8"]
+os = ["linux"]
 
 [[native.bindings]]
 module = "MacOS.MacOSEncodedImageDecoder"
