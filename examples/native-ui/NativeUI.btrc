@@ -1,0 +1,146 @@
+/* A small native UI, rendered headless.
+ *
+ * Builds a music-library window out of the declarative View toolkit -- a
+ * sidebar, a track list with a selection, and a transport bar -- then drives it
+ * through a scripted session (arrow down the list, press play, let the track
+ * run) and writes each frame out as a PPM. There is no window and no display:
+ * the same View tree is what a real window renders through the platform
+ * provider on macOS.
+ */
+import Library.Vector;
+
+#include "GUI/Raster.btrc"
+#include "GUI/View.btrc"
+
+int WIDTH = 560;
+int HEIGHT = 360;
+int FRAMES = 96;
+
+class Skin {
+	class Color window() { return Color.rgb(24, 26, 33); }
+
+	class Color sidebar() { return Color.rgb(31, 34, 43); }
+
+	class Color rowEven() { return Color.rgb(28, 31, 39); }
+
+	class Color rowSelected() { return Color.rgb(59, 90, 158); }
+
+	class Color transport() { return Color.rgb(31, 34, 43); }
+
+	class Color text() { return Color.rgb(228, 233, 242); }
+
+	class Color dim() { return Color.rgb(132, 141, 161); }
+
+	class Color accent() { return Color.rgb(96, 165, 250); }
+
+	class Color meter() { return Color.rgb(74, 222, 128); }
+}
+
+class Track {
+	public string title;
+	public string artist;
+	public int seconds;
+
+	public Track(string title, string artist, int seconds) {
+		self.title = title;
+		self.artist = artist;
+		self.seconds = seconds;
+	}
+}
+
+class Library {
+	public Vector<Track> tracks = [];
+
+	public Library() {
+		self.tracks.push(Track("BLUE MONDAY", "NEW ORDER", 448));
+		self.tracks.push(Track("CEREMONY", "NEW ORDER", 265));
+		self.tracks.push(Track("TEMPTATION", "NEW ORDER", 412));
+		self.tracks.push(Track("REGRET", "NEW ORDER", 245));
+		self.tracks.push(Track("TRUE FAITH", "NEW ORDER", 353));
+	}
+}
+
+string clock(int seconds) {
+	int minutes = seconds / 60;
+	int rest = seconds % 60;
+	return f"{minutes}:{rest.toString().zfill(2)}";
+}
+
+/* One row of the track list. The selected row carries its own background. */
+View trackRow(Track track, bool selected, bool playing) {
+	string marker = selected && playing ? ">" : " ";
+	View row = View.row().pad(6).withGap(8);
+	row = row.bgColor(selected ? Skin.rowSelected() : Skin.rowEven());
+	return row.kids([
+		View.text(marker).fgColor(Skin.meter()),
+		View.text(track.title).fgColor(Skin.text()),
+		View.spacer(),
+		View.text(clock(track.seconds)).fgColor(Skin.dim()),
+	]);
+}
+
+View sidebar() { return View.column().pad(10).withGap(6).sized(120, 0).bgColor(Skin.sidebar()).kids([View.text("LIBRARY").fgColor(Skin.accent()), View.text("SONGS").fgColor(Skin.text()), View.text("ALBUMS").fgColor(Skin.dim()), View.text("ARTISTS").fgColor(Skin.dim()), View.spacer(), View.text("PLAYLISTS").fgColor(Skin.accent()), View.text("LATE NIGHT").fgColor(Skin.dim()),]); }
+
+/* The transport: play/pause, the elapsed clock, and an inline progress meter
+ * built from two boxes so the fill width is the state. */
+View transport(Track track, int elapsed, bool playing) {
+	int barWidth = 120;
+	int filled = track.seconds > 0 ? barWidth * elapsed / track.seconds : 0;
+	if (filled > barWidth) { filled = barWidth; }
+	View meter = View.row().sized(barWidth, 8).bgColor(Skin.rowEven());
+	if (filled > 0) { meter = meter.child(View.box().sized(filled, 8).bgColor(Skin.meter())); }
+
+	return View.row().pad(10).withGap(8).bgColor(Skin.transport()).kids([
+		View.text(playing ? "PAUSE" : "PLAY").fgColor(Skin.accent()),
+		View.text(track.title).fgColor(Skin.text()),
+		View.spacer(),
+		View.text(clock(elapsed)).fgColor(Skin.dim()),
+		meter,
+	]);
+}
+
+View window(Library library, int selected, int elapsed, bool playing) {
+	Vector<View> rows = [];
+	for (int i = 0; i < library.tracks.size(); i++) {
+		rows.push(trackRow(library.tracks.get(i), i == selected, playing));
+	}
+
+	View list = View.column().pad(10).withGap(4).grows().kids(rows);
+	View body = View.row().grows().kids([sidebar(), list]);
+
+	return View.column().bgColor(Skin.window()).kids([
+		body,
+		transport(library.tracks.get(selected), elapsed, playing),
+	]);
+}
+
+int main() {
+	Surface surface = Surface(WIDTH, HEIGHT);
+	if (!surface.opened()) { print("Cannot open the offscreen surface"); return 1; }
+
+	Library library = Library();
+	Theme theme = Theme.dark();
+	GUIInput input = GUIInput();
+
+	int selected = 0;
+	int elapsed = 0;
+	bool playing = false;
+
+	for (int frame = 0; frame < FRAMES; frame++) {
+		/* A scripted session: walk down the library, then start playing. */
+		if (frame < 40 && frame % 8 == 7) { selected = (selected + 1) % library.tracks.size(); }
+		if (frame == 44) { playing = true; }
+		if (playing) { elapsed = elapsed + 6; }
+
+		View root = window(library, selected, elapsed, playing);
+		UI.frame(surface, input, theme, root);
+
+		if (!surface.savePpm(f"frames/frame{frame.toString().zfill(3)}.ppm")) {
+			print("Cannot write the frame; is the frames/ directory present?");
+			return 1;
+		}
+	}
+
+	print(f"wrote {FRAMES} frames to frames/");
+	return 0;
+}

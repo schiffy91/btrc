@@ -7,15 +7,15 @@
 #         make clean    Clean all build artifacts
 # ─────────────────────────────────────────────────────────────────────────────
 
-.PHONY: all cpu gpu callback realtime-primitives todo game triangle sgd gui native-package clean
+.PHONY: all cpu gpu callback realtime-primitives todo game triangle sgd sgd-render gui native-ui native-package clean
 
 GPU_LIB := ../build/stdlib/GPU/libbtrc_gpu.a
 
 all: cpu gpu
 
-cpu: callback realtime-primitives todo gui
+cpu: callback realtime-primitives todo gui native-ui
 
-gpu: game triangle sgd
+gpu: game triangle sgd sgd-render
 
 callback: ## Build the owned callback closure example
 	@echo "=== callback ==="
@@ -46,6 +46,13 @@ sgd: ## Build the GPU SGD example
 		echo "=== sgd === (skipped — run 'make gpu' in project root first)"; \
 	fi
 
+sgd-render: ## Render the GPU SGD example to frames for the README animation
+	@if [ -f "$(GPU_LIB)" ]; then \
+		echo "=== sgd-render ===" && $(MAKE) -C sgd-render run; \
+	else \
+		echo "=== sgd-render === (skipped — run 'make gpu' in project root first)"; \
+	fi
+
 clean:
 	@$(MAKE) -C callback clean 2>/dev/null || true
 	@$(MAKE) -C todo clean 2>/dev/null || true
@@ -54,8 +61,14 @@ clean:
 	@$(MAKE) -C triangle clean 2>/dev/null || true
 	@$(MAKE) -C sgd clean 2>/dev/null || true
 	@$(MAKE) -C gui clean 2>/dev/null || true
+	@$(MAKE) -C sgd-render clean 2>/dev/null || true
+	@$(MAKE) -C native-ui clean 2>/dev/null || true
 	@$(MAKE) -C tray clean 2>/dev/null || true
 	@$(MAKE) -C native-package clean 2>/dev/null || true
+
+native-ui: ## Render the headless native UI example to frames
+	@echo "=== native-ui ==="
+	@$(MAKE) -C native-ui run
 
 native-package: ## Build the recursive C/C++ package through its emitted plan
 	@test -n "$(TARGET)" || { echo "TARGET is required" >&2; exit 2; }

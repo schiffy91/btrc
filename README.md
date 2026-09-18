@@ -125,91 +125,92 @@ WebGPU buffer setup, the dispatch, and the readback. At the call site it is
 just a function call:
 
 ```
-@gpu float[] sgdUpdate(float[] weights, float[] momentum, float lr) {
+/* One thread per weight: descend the gradient, with a little L2 pull. */
+@gpu float[] sgdUpdate(float[] weights, float[] gradients, float lr) {
     int i = gpu_id();
     float w = weights[i];
-    float m = momentum[i];
-
-    float reg = 0.0;
-    for (int k = 0; k < 50000; k++) {
-        float t = (float)k * 0.0001;
-        reg = reg + sin(w * t + t) * exp(-t);
-    }
-
-    return w - lr * (m + reg * 0.00001 * w);
+    float g = gradients[i];
+    return w - lr * (g + 0.001 * w);
 }
 ```
 
 ```
-// ...500 lines of WebGPU boilerplate you did not write:
-weights = sgdUpdate(weights, mom, self.lr);
+// ...and the WebGPU boilerplate you did not write:
+weights = sgdUpdate(weights, gradients, lr);
 ```
 
 Array parameters become storage buffers, scalars become uniforms, `gpu_id()` is
 the global invocation index, and the return value becomes the output buffer.
-If the GPU is unavailable the compiler has already emitted a CPU fallback. The
-complete example is [`examples/sgd/Sgd.btrc`](examples/sgd/Sgd.btrc), a
-training loop that learns `y = 2x + 3`.
+Where no GPU adapter is present the compiler has already emitted a CPU
+fallback, so the same program still runs and still produces the same numbers.
 
-### Wrapping a C library
+Here is that kernel fitting `y = 2x + 3` by gradient descent -- gradients on the
+CPU, the weight update on the GPU, 300 epochs:
 
-Native interop is a declaration, not a bridge. You name the header and the
-symbols you want, say who owns what, and the compiler reads the real header
-with Clang and generates the typed ABI adapter. Here is the whole binding for
-FreeType:
+![Stochastic gradient descent, rendered from btrc](examples/sgd-render/sgd.gif)
 
-```toml
-[[native.bindings]]
-module = "FreeType.FreeTypeFace"
-header = "FreeType/FreeType.h"
-language = "c"
-symbols = ["FT_Library", "FT_Face", "FT_Init_FreeType", "FT_New_Face",
-           "FT_Done_FreeType", "FT_Done_Face", "FT_Set_Pixel_Sizes", "FT_Load_Char"]
-borrowed-parameters = ["FT_New_Face.library", "FT_Load_Char.face"]
-read-only-borrows = ["FT_New_Face.filepathname"]
+Every frame of that animation was drawn by
+[`examples/sgd-render`](examples/sgd-render/), which runs the training loop and
+rasterizes each epoch to an offscreen surface -- no window, no display server.
+[`examples/sgd`](examples/sgd/Sgd.btrc) is the same model without the drawing.
 
-[native.bindings.resources.FT_Library]
-ownership = "unique"
-release = "FT_Done_FreeType"
+### Hardware-accelerated 3D
 
-[native.bindings.resources.FT_Face]
-ownership = "unique"
-release = "FT_Done_Face"
-```
-
-`FT_Library` and `FT_Face` are now ordinary typed btrc values that cannot be
-copied out of their owner, fallible calls come back as a `status`/`value` pair,
-and the declared `release` function runs when the owner goes away:
+A GPU view is an ordinary object you hand a shader and some uniforms. The game
+engine keeps its WGSL beside the btrc that feeds it, so the scene, the camera
+and the light are btrc values and the raymarcher is the shader they drive:
 
 ```
-class FreeTypeFace implements IFontFace {
-    private FT_Library? library = null;
-    private FT_Face? face = null;
+string shaderSource = """
+    @group(0) @binding(0) var<uniform> u: Uniforms;
 
-    public FreeTypeFace(string path, int pixelSize) {
-        var initialized = FT_Init_FreeType();
-        self.library = initialized.value;
-        if (initialized.status != 0 || self.library == null) { throw "Cannot initialize FreeType library"; }
-
-        var loaded = FT_New_Face(self.library, path, 0L);
-        self.face = loaded.value;
-        if (loaded.status != 0 || self.face == null) { throw "Cannot load FreeType face"; }
-
-        if (FT_Set_Pixel_Sizes(self.face, 0U, (unsigned int)pixelSize) != 0) { throw "Cannot set FreeType pixel size"; }
+    @fragment fn fs_main(in: VsOut) -> @location(0) vec4f {
+        // ...SDF raymarch of the ball, ground plane and sky...
+        return vec4f(col, 1.0);
     }
-}
+""";
+self._program = view.createProgram(shaderSource, U_COUNT, false, false);
+self._uniform = GPUUniformBuffer(view.frameRenderer().device(), U_COUNT);
 ```
 
-C++ and Objective-C work the same way; opaque C++ owners and Objective-C
-classes are projected through one generated `extern "C"` adapter. This is how
-the standard library's own providers are written -- CoreAudio, AppKit, ImageIO,
-FreeType, libdbus, WebGPU -- so there is no hand-written bridge anywhere in the
-tree. See [docs/design/native-interop.md](docs/design/native-interop.md).
+```
+/* Per frame: follow the player, then push the scene into the uniform buffer. */
+self.camera.follow(player.position.x, player.position.y, player.position.z, 4.5, 5.5);
+self.camera.writeUniforms(self._uniform, U_CAMERA);
+self.light.writeUniforms(self._uniform, U_LIGHT);
+self._uniform.set(U_BALL + 0, player.position.x);
+```
+
+![btrc 3D Ball Game](examples/game/game.gif)
+
+That is [`examples/game`](examples/game/) -- physics, shadows and SDF
+raymarching in about 760 lines of btrc across eleven engine modules. It runs in
+a real native window, driven by the application loop rather than a spin loop,
+so closing the window drains the GPU work and its callbacks in order.
 
 ### Native UI
 
-The same machinery gives btrc real windows, controls and a system tray. The
-declarative toolkit builds a view tree and lays it out:
+There are two ways to put something on screen, and btrc ships both.
+
+**Real platform controls.** `GUI` creates an actual window with actual native
+widgets -- on macOS these are AppKit views, behind the portable `IWindow`,
+`IButton`, `ITextField` interfaces, so the program never names a platform:
+
+```
+var window = GUI.createWindow("Native BTRC", 440.0, 180.0);
+var content = GUI.createColumn(16.0);
+var title = GUI.createTextField("Native BTRC", "Window title");
+var rename = GUI.createButton("Apply title");
+
+window.attachRoot(content);
+content.attach(title);
+rename.onAction(RenameWindow(window, title), actions);
+window.show();
+GUI.run();
+```
+
+**A toolkit btrc draws itself.** When you want to own every pixel, `View` builds
+a tree and rasterizes it, with the same layout on every platform:
 
 ```
 View build() {
@@ -226,10 +227,71 @@ View build() {
 }
 ```
 
-Put the GPU and the window together and you get this -- a 3D game with physics,
-shadows and SDF raymarching, in about 760 lines of btrc:
+Here is a small library browser built the second way -- a sidebar, a track list
+with a selection, and a transport bar whose progress meter is just a box whose
+width is the state:
 
-![btrc 3D Ball Game](examples/game/game.gif)
+![A native UI built in btrc](examples/native-ui/ui.gif)
+
+That is [`examples/native-ui`](examples/native-ui/). Because the toolkit
+rasterizes to an offscreen surface, the whole thing runs headless in CI and the
+animation above is the actual rendered output, not a mockup.
+[`examples/gui`](examples/gui/) has both paths side by side, and
+[`examples/tray`](examples/tray/) puts an app in the system tray.
+
+### Wrapping a C library
+
+Native interop is a declaration, not a bridge. Say which header you want, which
+symbols to take from it, and who owns what. Given this C library:
+
+```c
+/* sessions.h */
+typedef struct Session Session;
+
+Session* session_open(const char* name);
+int      session_count(Session* session);
+void     session_close(Session* session);
+```
+
+the whole binding is:
+
+```toml
+[[native.bindings]]
+module = "Sessions"
+header = "sessions.h"
+language = "c"
+symbols = ["Session", "session_open", "session_count", "session_close"]
+borrowed-parameters = ["session_count.session"]
+
+[native.bindings.resources.Session]
+ownership = "unique"
+release = "session_close"
+```
+
+and `Session` is now a typed btrc value:
+
+```
+var session = session_open("library");
+if (session == null) { throw "cannot open the session"; }
+print(f"{session_count(session)} entries");
+/* session_close runs when the owner goes out of scope */
+```
+
+Three things are doing the work there. `header` means the compiler reads the
+real header with Clang, so the types are the header's actual types rather than
+a hand-transcribed guess that drifts. `ownership = "unique"` makes `Session` a
+value that cannot be copied out of its owner, so it cannot be used after it is
+closed. `release` names the function that frees it, so it cannot leak or be
+closed twice, and you never write the call.
+
+The real bindings look the same, only longer:
+[`src/stdlib/GUI/btrc.toml`](src/stdlib/GUI/btrc.toml) binds FreeType this way
+and [`src/stdlib/GUI/FreeType/FreeTypeFace.btrc`](src/stdlib/GUI/FreeType/FreeTypeFace.btrc)
+is the btrc side of it. C++ and Objective-C work the same way, projected
+through one generated `extern "C"` adapter, which is how CoreAudio, AppKit,
+ImageIO, libdbus and WebGPU are all reached -- there is no hand-written bridge
+anywhere in the tree. See
+[docs/design/native-interop.md](docs/design/native-interop.md).
 
 ## What You Get Over C
 
@@ -1680,14 +1742,17 @@ examples/
   realtime-primitives/         # Standalone @realtime raw-buffer kernel
   todo/                        # Todo board -- classes, generics, collections
   gui/                         # Declarative and native GUI, font smoke test
+  native-ui/                   # Library browser UI, rendered headless to a GIF
   tray/                        # System tray application
   game/                        # 3D game engine -- Unity-inspired, WGSL raymarching
     engine/                    # Camera, Light, Material, Ground, Sky, Scene,
                                #   Input, Time, Gameobject, Renderer, Engine
     Game.btrc                  # The ball game (WASD + space to jump)
   sgd/                         # GPU-accelerated SGD -- @gpu, classes, Vector
+  sgd-render/                  # The same training loop, drawn frame by frame
   triangle/                    # WebGPU triangle -- raw WGSL render pipeline
   native-package/              # Recursive native package built from its canonical plan
+  make_gif.py                  # Turns rendered PPM frames into the README animations
 
 docs/                          # language/, design/, devex/, Handoff.md, known-language-gaps.md
 nix/, flake.nix                # Packages, dev shell, and the Linux CI container
@@ -1742,7 +1807,7 @@ make ast-generate           # Regenerate both AST catalogs through the unified o
 make extension              # Package VS Code extension (.vsix)
 make extension-install      # Install VS Code extension (dev)
 make examples               # Build and run the example set (callback, realtime-primitives,
-                            #   todo, gui, game, triangle, sgd)
+                            #   todo, gui, native-ui, game, triangle, sgd, sgd-render)
 make examples-native-package TARGET=linux-x64   # Build the recursive native package
 make gpu                    # Build compiler-only WebGPU compute runtime
 make gpu-required           # Require WebGPU compute dependencies and build runtime
