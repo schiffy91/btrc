@@ -2,19 +2,27 @@
 
 **Modern syntax & features. C output. No magic.**
 
-btrc is a statically-typed language that transpiles to C. It adds the things
-you miss when you write C -- classes, interfaces, generics, type inference,
-lambdas, f-strings, real strings and collections, imports, automatic reference
-counting, exceptions and threads -- without taking away the things you use C
-for. There is no garbage collector, no virtual machine, and no runtime to ship:
-the output is strict C11 that you can read, debug, and link with any C11
-toolchain.
+btrc is a statically-typed language that transpiles to C. There is no garbage
+collector, no virtual machine, and no runtime to ship: the output is strict C11
+that you can read, debug, and link with any C11 toolchain. What it adds is
+everything you find yourself missing once you have been writing C for a while.
 
-It also compiles itself. Alongside the reference compiler there is a
-self-hosted compiler written in btrc that reproduces itself bit-for-bit, plus a
-formatter, a language server, a source-level debugger, and a VS Code extension.
+- **Classes, interfaces and generics.** Generics are monomorphized, so they cost nothing at runtime.
+- **Type inference.** `var count = 10;` just works.
+- **Real strings** -- yes, even f-strings -- **and real collections**: `Vector<T>`, `Map<K,V>`, `Set<T>`, `List<T>`, `Array<T>`.
+- **Automatic reference counting**, with a cycle collector, and `keep`/`release` for the times ARC is not enough.
+- **Exceptions**, with `try`/`catch`/`finally` that unwinds ARC correctly.
+- **Threads**: `spawn`, typed `Thread<T>`, `Mutex<T>`, background job queues.
+- **Package management**: a `btrc.toml` manifest, a real lockfile, path and Git dependencies.
+- **GPU acceleration**: mark a function `@gpu` and it becomes a WGSL compute kernel you call like any other function.
+- **Native UI**: windows, controls, fonts and a system tray, driven from btrc.
+- **A module system**: `import` with strict, directed visibility, instead of header order and luck.
 
 And no – it's not actually better than C, but I like the name, which I ripped off from [btrfs](https://en.wikipedia.org/wiki/Btrfs).
+
+## What it looks like
+
+### Ordinary code
 
 ```
 import Library.Vector;
@@ -66,44 +74,162 @@ orange: 0.95
 
 No manual `free`, no `strlen`, no `printf` format string, no header file. The
 `Item` objects are reference counted and released when `cart` goes out of
-scope, and the whole thing is one self-contained `.c` file when you're done.
+scope, and the whole program is one self-contained `.c` file when you are done.
 
-It goes further than that. This is a 3D game -- physics, shadows, and SDF
-raymarching on the GPU -- written in btrc, in about 760 lines:
+### It is still C
+
+Nothing above replaces C -- it sits on top of it. Structs, pointers, `malloc`,
+the preprocessor and any C library you want are all still right there, in the
+same file, with no binding layer in between. And when reference counting is not
+the ownership model you want, `keep`, `release` and `delete` hand you the
+refcount directly.
+
+```
+#include <math.h>
+
+struct Vec2 { float x; float y; };
+
+float length(struct Vec2* v) {
+    return sqrtf(v->x * v->x + v->y * v->y);
+}
+
+class Node {
+    public int value;
+    public Node(int value) { self.value = value; }
+}
+
+int main() {
+    struct Vec2 v = {3.0f, 4.0f};
+    printf("len = %f\n", length(&v));
+
+    int* buf = (int*)malloc((size_t)4 * sizeof(int));
+    buf[0] = 7;
+    free(buf);
+
+    Node n = new Node(42);   // refcounted, released at scope exit
+    keep n;                  // ...unless you say otherwise: explicit rc++
+    release n;               // explicit rc--, destroys at zero
+    delete n;                // or force it now, whatever the count
+    return 0;
+}
+```
+
+btrc is a little stricter than C where C is genuinely dangerous: that
+`(size_t)4` is required, because mixing `int` with `size_t` in an arithmetic
+operator is a compile error rather than a platform-dependent surprise.
+
+### GPU compute
+
+Mark a function `@gpu` and the compiler generates a WGSL compute shader, the
+WebGPU buffer setup, the dispatch, and the readback. At the call site it is
+just a function call:
+
+```
+@gpu float[] sgdUpdate(float[] weights, float[] momentum, float lr) {
+    int i = gpu_id();
+    float w = weights[i];
+    float m = momentum[i];
+
+    float reg = 0.0;
+    for (int k = 0; k < 50000; k++) {
+        float t = (float)k * 0.0001;
+        reg = reg + sin(w * t + t) * exp(-t);
+    }
+
+    return w - lr * (m + reg * 0.00001 * w);
+}
+```
+
+```
+// ...500 lines of WebGPU boilerplate you did not write:
+weights = sgdUpdate(weights, mom, self.lr);
+```
+
+Array parameters become storage buffers, scalars become uniforms, `gpu_id()` is
+the global invocation index, and the return value becomes the output buffer.
+If the GPU is unavailable the compiler has already emitted a CPU fallback. The
+complete example is [`examples/sgd/Sgd.btrc`](examples/sgd/Sgd.btrc), a
+training loop that learns `y = 2x + 3`.
+
+### Wrapping a C library
+
+Native interop is a declaration, not a bridge. You name the header and the
+symbols you want, say who owns what, and the compiler reads the real header
+with Clang and generates the typed ABI adapter. Here is the whole binding for
+FreeType:
+
+```toml
+[[native.bindings]]
+module = "FreeType.FreeTypeFace"
+header = "FreeType/FreeType.h"
+language = "c"
+symbols = ["FT_Library", "FT_Face", "FT_Init_FreeType", "FT_New_Face",
+           "FT_Done_FreeType", "FT_Done_Face", "FT_Set_Pixel_Sizes", "FT_Load_Char"]
+borrowed-parameters = ["FT_New_Face.library", "FT_Load_Char.face"]
+read-only-borrows = ["FT_New_Face.filepathname"]
+
+[native.bindings.resources.FT_Library]
+ownership = "unique"
+release = "FT_Done_FreeType"
+
+[native.bindings.resources.FT_Face]
+ownership = "unique"
+release = "FT_Done_Face"
+```
+
+`FT_Library` and `FT_Face` are now ordinary typed btrc values that cannot be
+copied out of their owner, fallible calls come back as a `status`/`value` pair,
+and the declared `release` function runs when the owner goes away:
+
+```
+class FreeTypeFace implements IFontFace {
+    private FT_Library? library = null;
+    private FT_Face? face = null;
+
+    public FreeTypeFace(string path, int pixelSize) {
+        var initialized = FT_Init_FreeType();
+        self.library = initialized.value;
+        if (initialized.status != 0 || self.library == null) { throw "Cannot initialize FreeType library"; }
+
+        var loaded = FT_New_Face(self.library, path, 0L);
+        self.face = loaded.value;
+        if (loaded.status != 0 || self.face == null) { throw "Cannot load FreeType face"; }
+
+        if (FT_Set_Pixel_Sizes(self.face, 0U, (unsigned int)pixelSize) != 0) { throw "Cannot set FreeType pixel size"; }
+    }
+}
+```
+
+C++ and Objective-C work the same way; opaque C++ owners and Objective-C
+classes are projected through one generated `extern "C"` adapter. This is how
+the standard library's own providers are written -- CoreAudio, AppKit, ImageIO,
+FreeType, libdbus, WebGPU -- so there is no hand-written bridge anywhere in the
+tree. See [docs/design/native-interop.md](docs/design/native-interop.md).
+
+### Native UI
+
+The same machinery gives btrc real windows, controls and a system tray. The
+declarative toolkit builds a view tree and lays it out:
+
+```
+View build() {
+    return View.column().pad(16).withGap(8).kids([
+        View.text("Hello — héllo"),
+        View.button("Increment", "inc"),
+        View.checkbox("Word wrap", "wrap", true),
+        View.spacer(),
+        View.row().withGap(8).kids([
+            View.button("Save", "save"),
+            View.button("Quit", "quit"),
+        ]),
+    ]);
+}
+```
+
+Put the GPU and the window together and you get this -- a 3D game with physics,
+shadows and SDF raymarching, in about 760 lines of btrc:
 
 ![btrc 3D Ball Game](examples/game/game.gif)
-
-```
-float dt = self._engine.time.deltaTime;
-float speed = 4.0f;
-var input = self._engine.input;
-
-if (input.pressed(APP_KEY_W)) { self._player.move(0.0, 0.0, speed * dt); }
-if (input.pressed(APP_KEY_S)) { self._player.move(0.0, 0.0, -speed * dt); }
-if (input.pressed(APP_KEY_A)) { self._player.move(speed * dt, 0.0, 0.0); }
-if (input.pressed(APP_KEY_D)) { self._player.move(-speed * dt, 0.0, 0.0); }
-if (input.pressed(APP_KEY_SPACE)) { self._player.jump(speed); }
-
-self._player.applyPhysics(dt);
-```
-
-## Why btrc?
-
-I’ve wanted a modern, ergonomic take on C for years: something fast, simple, cross-platform, built with intent, and featuring (iffy) built-in GPU support. btrc is a personal project that tries to scratch this itch, and I've had it on the backburner for years. I never had the time (and honestly, I still don't), but with the help of AI, I've managed to bring it to life over some late night hacking. The experience of using AI to create an ambitious project from scratch made the project worth it. Also, the irony isn't lost on me: I'm fully aware of how silly it is to use AI to write a programming language in a time where we are writing less and less code ourselves.
-
-## What Is It?
-
-btrc is defined through a formal [EBNF grammar](src/language/grammar.ebnf), which mathematically defines every keyword and operator; an [algebraic AST spec](src/language/ast.asdl) defines every node type for the language graph; and a compiler pipeline consumes both the spec and the graph, walking your code through six stages (lexical analysis, syntax analysis, semantic analysis, intermediate code generation, code optimization, code generation). However, instead of outputting an intermediate language like LLVM or assembly code directly, it outputs C code. I don't expect folks will want to look at the C code outside of debugging errors, but it should resemble something that a human could have written (but more verbose and with a lot more underscores). You *should* be able to read it, debug it, and link it anything (or link anything else to it). It's just C11.
-
-Depending on how you define things, it might be more accurate to call btrc a transpiler rather than a compiler. You get gcc and clang compatibility for free, but you also inherit many of C's limitations. There is no Rust-style borrow checker here. The analyzer does enforce managed-value ownership and lifetime rules at call, assignment, projection, aggregate, and exception boundaries, while ARC handles most managed-object cleanup (including cycles and allocations unwound by exceptions). Raw pointers and explicit destruction remain C-like, so the compiler still cannot prevent every use-after-free or dangling-pointer bug.
-
-## Should I Use It?
-
-Probably not. But you're welcome to contribute if you find this kind of thing fun. [AGENTS.md](AGENTS.md) has the architecture rules and the gates a change has to pass; work happens directly on `main`.
-
-If you need a production systems language with full safety guarantees, use [Rust](https://www.rust-lang.org/), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/), or [C3](https://c3-lang.org/). Those languages are more mature, robust, and real.
-
-Plus, btrc *definitely* has bugs.
 
 ## What You Get Over C
 
@@ -126,6 +252,24 @@ Plus, btrc *definitely* has bugs.
 | Hand-written C bridges | `#include` a C/C++/Objective-C header and the compiler types it and generates the ABI adapters |
 | Raw function-pointer callbacks | `CFunction<...>` and `OwnedClosure<...>` with checked context ownership |
 | Null pointer chaos | Nullable types (`T?`), optional chaining `?.`, null coalescing `??` |
+
+## Why btrc?
+
+I’ve wanted a modern, ergonomic take on C for years: something fast, simple, cross-platform, built with intent, and featuring (iffy) built-in GPU support. btrc is a personal project that tries to scratch this itch, and I've had it on the backburner for years. I never had the time (and honestly, I still don't), but with the help of AI, I've managed to bring it to life over some late night hacking. The experience of using AI to create an ambitious project from scratch made the project worth it. Also, the irony isn't lost on me: I'm fully aware of how silly it is to use AI to write a programming language in a time where we are writing less and less code ourselves.
+
+## What Is It?
+
+btrc is defined through a formal [EBNF grammar](src/language/grammar.ebnf), which mathematically defines every keyword and operator; an [algebraic AST spec](src/language/ast.asdl) defines every node type for the language graph; and a compiler pipeline consumes both the spec and the graph, walking your code through six stages (lexical analysis, syntax analysis, semantic analysis, intermediate code generation, code optimization, code generation). However, instead of outputting an intermediate language like LLVM or assembly code directly, it outputs C code. I don't expect folks will want to look at the C code outside of debugging errors, but it should resemble something that a human could have written (but more verbose and with a lot more underscores). You *should* be able to read it, debug it, and link it anything (or link anything else to it). It's just C11.
+
+Depending on how you define things, it might be more accurate to call btrc a transpiler rather than a compiler. You get gcc and clang compatibility for free, but you also inherit many of C's limitations. There is no Rust-style borrow checker here. The analyzer does enforce managed-value ownership and lifetime rules at call, assignment, projection, aggregate, and exception boundaries, while ARC handles most managed-object cleanup (including cycles and allocations unwound by exceptions). Raw pointers and explicit destruction remain C-like, so the compiler still cannot prevent every use-after-free or dangling-pointer bug.
+
+## Should I Use It?
+
+Probably not. But you're welcome to contribute if you find this kind of thing fun. [AGENTS.md](AGENTS.md) has the architecture rules and the gates a change has to pass; work happens directly on `main`.
+
+If you need a production systems language with full safety guarantees, use [Rust](https://www.rust-lang.org/), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/), or [C3](https://c3-lang.org/). Those languages are more mature, robust, and real.
+
+Plus, btrc *definitely* has bugs.
 
 ## Quick Start
 
@@ -888,7 +1032,7 @@ int* ptr = &x;
 int val = *ptr;
 
 // C memory functions available
-int* buf = (int*)malloc(100 * sizeof(int));
+int* buf = (int*)malloc((size_t)100 * sizeof(int));
 free(buf);
 ```
 
