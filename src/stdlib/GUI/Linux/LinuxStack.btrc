@@ -1,0 +1,160 @@
+import Library.Callback;
+import Library.Console;
+import Library.Math;
+import Library.Vector;
+import Library.App;
+import Library.GUI.IStack;
+import Library.GUI.IView;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxContainer;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxPainter;
+
+/* Rows and columns place children at their fitting sizes along the axis;
+ * alignment positions them across it. Hidden children keep their space. */
+class LinuxStack implements IStack, ILinuxView {
+	private LinuxViewNode _node;
+	private bool _vertical;
+	private double _spacing;
+	private StackAlignment _alignment = StackAlignment.Start;
+	private double _top = 0.0;
+	private double _right = 0.0;
+	private double _bottom = 0.0;
+	private double _left = 0.0;
+
+	public LinuxStack(LinuxContext context, bool vertical, double spacing) {
+		self._node = LinuxViewNode(context);
+		self.validateLength(spacing);
+		self._vertical = vertical;
+		self._spacing = spacing;
+	}
+
+	private void validateLength(double value) { if (!Math.isFinite(value) || value < 0.0) { throw "Stack spacing and padding must be finite and nonnegative"; } }
+
+	public LinuxViewNode node() { return self._node; }
+
+	public void attachTo(LinuxViewHost? host) { self._node.setHost(host); }
+
+	public void paint(LinuxPainter painter, double x, double y) { self.relayout(); LinuxComposite.paintChildren(self._node, painter, x, y); }
+
+	public void paintOverlay(LinuxPainter painter, double x, double y) {}
+
+	public bool pointer(AppPointerEvent event) { return false; }
+
+	public bool scroll(AppScrollEvent event) { return false; }
+
+	public bool key(AppKeyboardEvent event) { return false; }
+
+	public void textInput(string value) {}
+
+	public void focus(bool focused) {}
+
+	public bool isOpen() { return self._node.isOpen(); }
+
+	public double fittingWidth() {
+		self._node.requireOpen();
+		double along = 0.0;
+		double across = 0.0;
+		int count = 0;
+		for child in self._node.children {
+			double width = child.fittingWidth();
+			if (self._vertical) { across = Math.maxDouble(across, width); } else { along += width; count++; }
+		}
+		if (!self._vertical && count > 1) { along += self._spacing * (double)(count - 1); }
+		return (self._vertical ? across : along) + self._left + self._right;
+	}
+
+	public double fittingHeight() {
+		self._node.requireOpen();
+		double along = 0.0;
+		double across = 0.0;
+		int count = 0;
+		for child in self._node.children {
+			double height = child.fittingHeight();
+			if (self._vertical) { along += height; count++; } else { across = Math.maxDouble(across, height); }
+		}
+		if (self._vertical && count > 1) { along += self._spacing * (double)(count - 1); }
+		return (self._vertical ? along : across) + self._top + self._bottom;
+	}
+
+	/* Place children; a child arranged by the consumer is overridden here,
+	 * because the stack owns its children's frames. */
+	private void relayout() {
+		double cursor = self._vertical ? self._top : self._left;
+		double innerWidth = Math.maxDouble(0.0, self._node.width - self._left - self._right);
+		double innerHeight = Math.maxDouble(0.0, self._node.height - self._top - self._bottom);
+		for child in self._node.children {
+			var childNode = child.node();
+			if (!childNode.isOpen()) { continue; }
+			double width = child.fittingWidth();
+			double height = child.fittingHeight();
+			if (self._vertical) {
+				if (width <= 0.0 || width > innerWidth) { width = innerWidth; }
+				double x = self._left;
+				if (self._alignment == StackAlignment.Center) { x = self._left + (innerWidth - width) * 0.5; }
+				else if (self._alignment == StackAlignment.End) { x = self._left + innerWidth - width; }
+				childNode.arrange(x, cursor, width, height);
+				cursor += height + self._spacing;
+			} else {
+				if (height <= 0.0 || height > innerHeight) { height = innerHeight; }
+				double y = self._top;
+				if (self._alignment == StackAlignment.Center) { y = self._top + (innerHeight - height) * 0.5; }
+				else if (self._alignment == StackAlignment.End) { y = self._top + innerHeight - height; }
+				childNode.arrange(cursor, y, width, height);
+				cursor += width + self._spacing;
+			}
+		}
+	}
+
+	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); self.relayout(); }
+
+	public bool isVisible() { self._node.requireOpen(); return self._node.visible; }
+
+	public void setVisible(bool visible) { self._node.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
+
+	public void attach(IView child) { self._node.attachChild(LinuxComposite.projection(child)); self.relayout(); }
+
+	public IView detach(IView child) { var detached = self._node.detachChild(LinuxComposite.projection(child)); self.relayout(); return detached; }
+
+	public int childCount() { self._node.requireOpen(); return self._node.children.len; }
+
+	public IView childAt(int index) {
+		self._node.requireOpen();
+		if (index < 0 || index >= self._node.children.len) { throw "Container child index is out of bounds"; }
+		return self._node.children.get(index);
+	}
+
+	public double spacing() { self._node.requireOpen(); return self._spacing; }
+
+	public void setSpacing(double spacing) { self._node.requireOpen(); self.validateLength(spacing); self._spacing = spacing; self.relayout(); self._node.invalidate(); }
+
+	public StackAlignment alignment() { self._node.requireOpen(); return self._alignment; }
+
+	public void setAlignment(StackAlignment alignment) {
+		self._node.requireOpen();
+		if (alignment != StackAlignment.Start && alignment != StackAlignment.Center && alignment != StackAlignment.End) { throw "Unknown stack alignment"; }
+		self._alignment = alignment;
+		self.relayout();
+		self._node.invalidate();
+	}
+
+	public void setPadding(double top, double right, double bottom, double left) {
+		self._node.requireOpen();
+		self.validateLength(top); self.validateLength(right); self.validateLength(bottom); self.validateLength(left);
+		self._top = top; self._right = right; self._bottom = bottom; self._left = left;
+		self.relayout();
+		self._node.invalidate();
+	}
+
+	public void layout() { self._node.requireOpen(); self.relayout(); }
+
+	public CallbackCancellation close() { return self._node.close(); }
+
+	public CallbackCancellation pollClose() { return self._node.pollClose(); }
+
+	public void __del__() { if (self._node != null && self.close() != CallbackCancellation.Complete) { Console.fatal("Native stack destroyed before subtree cleanup completed"); } }
+}

@@ -1,0 +1,89 @@
+import Library.Callback;
+import Library.Console;
+import Library.Math;
+import Library.Vector;
+import Library.App;
+import Library.GUI.IContainer;
+import Library.GUI.IView;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxPainter;
+
+/* Composition helpers shared by every container kind. */
+class LinuxComposite {
+	class ILinuxView projection(IView view) {
+		if (view == null) { throw "Cannot attach a missing view"; }
+		ILinuxView? native = (ILinuxView?)view;
+		if (native == null) { throw "View has no Linux implementation"; }
+		return native;
+	}
+
+	class void paintChildren(LinuxViewNode node, LinuxPainter painter, double x, double y) {
+		if (node.clipsChildren) { painter.pushClip(x, y, node.width, node.height); }
+		for child in node.children {
+			var childNode = child.node();
+			if (!childNode.visible || !childNode.isOpen()) { continue; }
+			child.paint(painter, x + node.contentOffsetX + childNode.x, y + node.contentOffsetY + childNode.y);
+		}
+		if (node.clipsChildren) { painter.popClip(); }
+	}
+}
+
+/* A plain grouping view: children are arranged by the consumer in points
+ * from this view's top-left. No native drawing of its own. */
+class LinuxContainer implements IContainer, ILinuxView {
+	private LinuxViewNode _node;
+
+	public LinuxContainer(LinuxContext context) { self._node = LinuxViewNode(context); }
+
+	public LinuxViewNode node() { return self._node; }
+
+	public void attachTo(LinuxViewHost? host) { self._node.setHost(host); }
+
+	public void paint(LinuxPainter painter, double x, double y) { LinuxComposite.paintChildren(self._node, painter, x, y); }
+
+	public void paintOverlay(LinuxPainter painter, double x, double y) {}
+
+	public bool pointer(AppPointerEvent event) { return false; }
+
+	public bool scroll(AppScrollEvent event) { return false; }
+
+	public bool key(AppKeyboardEvent event) { return false; }
+
+	public void textInput(string value) {}
+
+	public void focus(bool focused) {}
+
+	public bool isOpen() { return self._node.isOpen(); }
+
+	public double fittingWidth() { self._node.requireOpen(); return 0.0; }
+
+	public double fittingHeight() { self._node.requireOpen(); return 0.0; }
+
+	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); }
+
+	public bool isVisible() { self._node.requireOpen(); return self._node.visible; }
+
+	public void setVisible(bool visible) { self._node.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
+
+	public void attach(IView child) { self._node.attachChild(LinuxComposite.projection(child)); }
+
+	public IView detach(IView child) { return self._node.detachChild(LinuxComposite.projection(child)); }
+
+	public int childCount() { self._node.requireOpen(); return self._node.children.len; }
+
+	public IView childAt(int index) {
+		self._node.requireOpen();
+		if (index < 0 || index >= self._node.children.len) { throw "Container child index is out of bounds"; }
+		return self._node.children.get(index);
+	}
+
+	public CallbackCancellation close() { return self._node.close(); }
+
+	public CallbackCancellation pollClose() { return self._node.pollClose(); }
+
+	public void __del__() { if (self._node != null && self.close() != CallbackCancellation.Complete) { Console.fatal("Native container destroyed before subtree cleanup completed"); } }
+}

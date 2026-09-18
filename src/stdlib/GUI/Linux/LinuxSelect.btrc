@@ -1,0 +1,238 @@
+import Library.Callback;
+import Library.Math;
+import Library.Vector;
+import Library.App;
+import Library.Image;
+import Library.GUI.ISelect;
+import Library.GUI.IView;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxPainter;
+
+/* A drawn pop-up selector. The open menu is a window overlay painted above
+ * every sibling and routed pointer/keyboard input first; a committed choice
+ * is native state the consumer reads after dispatch. */
+class LinuxSelect implements ISelect, ILinuxView {
+	private LinuxViewNode _node;
+	private Vector<string> _titles = [];
+	private Vector<bool> _enabledItems = [];
+	private int _selected = -1;
+	private bool _enabled = true;
+	private double _size = 13.0;
+	private bool _open = false;
+	private int _highlight = -1;
+	private bool _hovered = false;
+	private bool _above = false;
+
+	public LinuxSelect(LinuxContext context) { self._node = LinuxViewNode(context); self._node.focusable = true; }
+
+	public LinuxViewNode node() { return self._node; }
+
+	public void attachTo(LinuxViewHost? host) { if (host == null) { self.closeMenu(); } self._node.setHost(host); }
+
+	private void validateSelection(int count, int index) {
+		if (count == 0 ? index != -1 : index < 0 || index >= count) { throw "Native selection index is out of range"; }
+	}
+
+	private double itemHeight() { return LinuxMetrics.controlHeight(self._size) - 4.0; }
+
+	private double menuHeight() { return self.itemHeight() * (double)self._titles.len + 8.0; }
+
+	private void openMenu() {
+		var host = self._node.host;
+		if (host == null || self._titles.isEmpty()) { return; }
+		self._open = true;
+		self._highlight = self._selected;
+		host.overlayId = self._node.id;
+		self._node.requestFocus();
+		self._node.invalidate();
+	}
+
+	private void closeMenu() {
+		if (!self._open) { return; }
+		self._open = false;
+		var host = self._node.host;
+		if (host != null && host.overlayId == self._node.id) { host.overlayId = 0; }
+		self._node.invalidate();
+	}
+
+	private void commit(int index) {
+		if (index >= 0 && index < self._titles.len && self._enabledItems.get(index)) { self._selected = index; }
+		self.closeMenu();
+	}
+
+	public void paint(LinuxPainter painter, double x, double y) {
+		var theme = painter.theme();
+		double width = self._node.width;
+		double height = self._node.height;
+		double radius = LinuxMetrics.cornerRadius();
+		painter.fillRect(x, y, width, height, self._open ? theme.controlPressed : (self._hovered && self._enabled ? theme.controlHover : theme.controlFill), radius);
+		painter.strokeRect(x, y, width, height, self._open ? theme.accent : theme.controlBorder, radius, 1.0);
+		RGBA color = self._enabled ? theme.text : theme.disabledText;
+		string title = self._selected >= 0 && self._selected < self._titles.len ? self._titles.get(self._selected) : "";
+		painter.textInBox(title, x + 10.0, y, Math.maxDouble(0.0, width - 34.0), height, self._size, false, color, 0);
+		double cx = x + width - 14.0;
+		double cy = y + height * 0.5;
+		painter.line(cx - 4.0, cy - 2.0, cx, cy + 2.0, 1.5, color);
+		painter.line(cx, cy + 2.0, cx + 4.0, cy - 2.0, 1.5, color);
+	}
+
+	/* The menu, in window coordinates relative to the control's origin. */
+	private double menuTop(double y) {
+		var host = self._node.host;
+		double height = self.menuHeight();
+		double below = y + self._node.height + 2.0;
+		self._above = host != null && below + height > host.height && y - height - 2.0 >= 0.0;
+		return self._above ? y - height - 2.0 : below;
+	}
+
+	public void paintOverlay(LinuxPainter painter, double x, double y) {
+		if (!self._open) { return; }
+		var theme = painter.theme();
+		double top = self.menuTop(y);
+		double height = self.menuHeight();
+		double width = Math.maxDouble(self._node.width, self.widestTitle() + 28.0);
+		painter.fillRect(x + 2.0, top + 3.0, width, height, theme.shadow, 8.0);
+		painter.fillRect(x, top, width, height, theme.popupFill, 8.0);
+		painter.strokeRect(x, top, width, height, theme.controlBorder, 8.0, 1.0);
+		double itemHeight = self.itemHeight();
+		for (int index = 0; index < self._titles.len; index++) {
+			double itemY = top + 4.0 + itemHeight * (double)index;
+			bool enabled = self._enabledItems.get(index);
+			if (index == self._highlight && enabled) { painter.fillRect(x + 4.0, itemY, width - 8.0, itemHeight, theme.accent, 5.0); }
+			RGBA color = !enabled ? theme.disabledText : (index == self._highlight ? theme.accentText : theme.text);
+			if (index == self._selected) { painter.text("✓", x + 8.0, itemY + (itemHeight - painter.lineHeight(self._size, false)) * 0.5, self._size, false, color); }
+			painter.textInBox(self._titles.get(index), x + 26.0, itemY, width - 30.0, itemHeight, self._size, false, color, 0);
+		}
+	}
+
+	private double widestTitle() {
+		double widest = 0.0;
+		for title in self._titles { widest = Math.maxDouble(widest, self._node.context.fonts.textWidth(title, self._size, false)); }
+		return widest;
+	}
+
+	private int itemAt(double localX, double localY) {
+		double top = self.menuTop(0.0);
+		double width = Math.maxDouble(self._node.width, self.widestTitle() + 28.0);
+		if (localX < 0.0 || localX >= width) { return -1; }
+		double relative = localY - top - 4.0;
+		if (relative < 0.0) { return -1; }
+		int index = (int)Math.floorDouble(relative / self.itemHeight());
+		return index >= 0 && index < self._titles.len ? index : -1;
+	}
+
+	public bool pointer(AppPointerEvent event) {
+		if (self._open) {
+			if (event.action == APP_POINTER_MOVED || event.action == APP_POINTER_DRAGGED) {
+				int item = self.itemAt(event.logicalX, event.logicalY);
+				if (item != self._highlight) { self._highlight = item; self._node.invalidate(); }
+				return true;
+			}
+			if (event.action == APP_POINTER_PRESSED) {
+				int item = self.itemAt(event.logicalX, event.logicalY);
+				bool onControl = event.logicalX >= 0.0 && event.logicalY >= 0.0 && event.logicalX < self._node.width && event.logicalY < self._node.height;
+				if (item >= 0) { self.commit(item); }
+				else if (onControl) { self.closeMenu(); }
+				else { self.closeMenu(); return false; }
+				return true;
+			}
+			if (event.action == APP_POINTER_RELEASED) { return true; }
+			return true;
+		}
+		if (event.action == APP_POINTER_ENTERED) { self._hovered = true; self._node.invalidate(); return false; }
+		if (event.action == APP_POINTER_EXITED) { self._hovered = false; self._node.invalidate(); return false; }
+		if (!self._enabled) { return false; }
+		if (event.action == APP_POINTER_PRESSED && event.button == APP_POINTER_BUTTON_PRIMARY) { self.openMenu(); return true; }
+		return false;
+	}
+
+	public bool scroll(AppScrollEvent event) { return self._open; }
+
+	public bool key(AppKeyboardEvent event) {
+		if (!self._open || event.action == APP_KEY_RELEASED) { return false; }
+		if (event.key == APP_KEY_ESCAPE) { self.closeMenu(); return true; }
+		if (event.key == APP_KEY_ENTER || event.key == APP_KEY_SPACE) { self.commit(self._highlight); return true; }
+		if (event.key == APP_KEY_UP || event.key == APP_KEY_DOWN) {
+			int step = event.key == APP_KEY_UP ? -1 : 1;
+			int index = self._highlight;
+			for (int attempt = 0; attempt < self._titles.len; attempt++) {
+				index += step;
+				if (index < 0) { index = self._titles.len - 1; }
+				if (index >= self._titles.len) { index = 0; }
+				if (self._enabledItems.get(index)) { break; }
+			}
+			self._highlight = index;
+			self._node.invalidate();
+			return true;
+		}
+		return true;
+	}
+
+	public void textInput(string value) {}
+
+	public void focus(bool focused) { if (!focused) { self.closeMenu(); } }
+
+	public bool isOpen() { return self._node.isOpen(); }
+
+	public double fittingWidth() { self._node.requireOpen(); return Math.ceilDouble(self.widestTitle()) + 40.0; }
+
+	public double fittingHeight() { self._node.requireOpen(); return LinuxMetrics.controlHeight(self._size); }
+
+	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); }
+
+	public bool isVisible() { self._node.requireOpen(); return self._node.visible; }
+
+	public void setVisible(bool visible) { self._node.setVisible(visible); if (!visible) { self.closeMenu(); } }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
+
+	public void setItems(Vector<string> titles, int selectedIndex) {
+		self._node.requireOpen();
+		if (titles == null) { throw "Native selection items are missing"; }
+		self.validateSelection(titles.len, selectedIndex);
+		self.closeMenu();
+		self._titles = titles.copy();
+		self._enabledItems.clear();
+		for title in titles { self._enabledItems.push(true); }
+		self._selected = selectedIndex;
+		self._node.invalidate();
+	}
+
+	public int itemCount() { self._node.requireOpen(); return self._titles.len; }
+
+	public int selectedIndex() { self._node.requireOpen(); return self._selected; }
+
+	private void requireItem(int index) { if (index < 0 || index >= self._titles.len) { throw "Native selection item is out of range"; } }
+
+	public void setItemEnabled(int index, bool enabled) { self._node.requireOpen(); self.requireItem(index); self._enabledItems.set(index, enabled); self._node.invalidate(); }
+
+	public bool isItemEnabled(int index) { self._node.requireOpen(); self.requireItem(index); return self._enabledItems.get(index); }
+
+	public void setSelectedIndex(int index) {
+		self._node.requireOpen();
+		self.validateSelection(self._titles.len, index);
+		if (index == self._selected) { return; }
+		self._selected = index;
+		self._node.invalidate();
+	}
+
+	public string selectedTitle() { self._node.requireOpen(); return self._selected >= 0 && self._selected < self._titles.len ? self._titles.get(self._selected) : ""; }
+
+	public void setEnabled(bool enabled) { self._node.requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; if (!enabled) { self.closeMenu(); } self._node.invalidate(); } }
+
+	public void setFont(double size) {
+		self._node.requireOpen();
+		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native selection font size"; }
+		self._size = size;
+		self._node.invalidate();
+	}
+
+	public bool isEnabled() { self._node.requireOpen(); return self._enabled; }
+
+	public CallbackCancellation close() { self.closeMenu(); return self._node.close(); }
+
+	public CallbackCancellation pollClose() { return self._node.pollClose(); }
+}

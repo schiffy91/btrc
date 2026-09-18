@@ -1,0 +1,31 @@
+import Library.App;
+import Library.Strings;
+import Library.GUI.IDirectoryPicker;
+import Library.GUI.Linux.SDL;
+
+/* The desktop's folder chooser through SDL's dialog API (portal or zenity).
+ * The application pumps events until the dialog answers, like a modal. */
+interface ILinuxDialogPump { void pumpOnce(int timeoutMilliseconds); }
+
+class LinuxDirectoryPicker implements IDirectoryPicker {
+	private SDL_Window* _parent;
+	private ILinuxDialogPump _pump;
+
+	public LinuxDirectoryPicker(SDL_Window* parent, ILinuxDialogPump pump) { self._parent = parent; self._pump = pump; }
+
+	public DirectoryPickerOutcome chooseDirectory(DirectoryPickerRequest request) {
+		if (request == null || !request.isValid()) { return DirectoryPickerOutcome.failed(AppError(APP_ERROR_INVALID_ARGUMENT, "invalid directory picker request")); }
+		var dialog = btrcSdlFolderDialogOpen(self._parent, request.initialDirectory);
+		if (dialog == null) { return DirectoryPickerOutcome.failed(AppError(APP_ERROR_BACKEND_UNAVAILABLE, "directory picker is unavailable")); }
+		DirectoryPickerOutcome outcome = DirectoryPickerOutcome.cancelled();
+		try {
+			while (btrcSdlFolderDialogState(dialog) == 0) { self._pump.pumpOnce(50); }
+			int state = btrcSdlFolderDialogState(dialog);
+			string directory = Strings.copy((char*)btrcSdlFolderDialogPath(dialog));
+			if (state == 1 && directory.isEmpty()) { outcome = DirectoryPickerOutcome.failed(AppError(APP_ERROR_INTERNAL, "directory picker selected an empty path")); }
+			else if (state == 1) { outcome = DirectoryPickerOutcome.selected(directory); }
+			else if (state != 2) { outcome = DirectoryPickerOutcome.failed(AppError(APP_ERROR_INTERNAL, "directory picker failed: " + Strings.copy((char*)SDL_GetError()))); }
+		} finally { btrcSdlFolderDialogFree(dialog); }
+		return outcome;
+	}
+}

@@ -1,0 +1,296 @@
+import Library.Callback;
+import Library.Math;
+import Library.Strings;
+import Library.Bytes;
+import Library.App;
+import Library.Image;
+import Library.GUI.ITextField;
+import Library.GUI.IView;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxFonts;
+import Library.GUI.Linux.LinuxPainter;
+import Library.GUI.Linux.SDL;
+
+/* A drawn single-line editor: caret, selection, clipboard and SDL text
+ * input. Text is always an owned BTRC string; offsets are byte offsets on
+ * scalar boundaries. */
+class LinuxTextField implements ITextField, ILinuxView, ILinuxTextTarget {
+	private LinuxViewNode _node;
+	private string _text;
+	private string _placeholder;
+	private double _size = 13.0;
+	private bool _enabled = true;
+	private int _caret = 0;
+	private int _anchor = 0;
+	private double _scroll = 0.0;
+	private bool _focused = false;
+	private bool _dragging = false;
+	private bool _hovered = false;
+	private unsigned long long _blinkStart = 0ULL;
+
+	public LinuxTextField(LinuxContext context, string text, string placeholder) {
+		self._node = LinuxViewNode(context);
+		self._node.focusable = true;
+		if (text == null || placeholder == null) { throw "Native text field text is missing"; }
+		self._text = text;
+		self._placeholder = placeholder;
+		self._caret = text.len();
+		self._anchor = self._caret;
+	}
+
+	public LinuxViewNode node() { return self._node; }
+
+	public void attachTo(LinuxViewHost? host) { self._node.setHost(host); }
+
+	private double padding() { return 8.0; }
+
+	private int selectionStart() { return Math.min(self._caret, self._anchor); }
+
+	private int selectionEnd() { return Math.max(self._caret, self._anchor); }
+
+	private bool hasSelection() { return self._caret != self._anchor; }
+
+	private int previousBoundary(int offset) {
+		if (offset <= 0) { return 0; }
+		int index = offset - 1;
+		while (index > 0 && ((int)(unsigned char)self._text[index] & 0xc0) == 0x80) { index--; }
+		return index;
+	}
+
+	private int nextBoundary(int offset) {
+		if (offset >= self._text.len()) { return self._text.len(); }
+		return LinuxScalar.decode(self._text, offset).next;
+	}
+
+	private bool wordByte(int index) { char c = self._text[index]; return Strings.isAlnum(c) || c == '_' || ((int)(unsigned char)c) >= 0x80; }
+
+	private int previousWord(int offset) {
+		int index = self.previousBoundary(offset);
+		while (index > 0 && !self.wordByte(index)) { index = self.previousBoundary(index); }
+		while (index > 0 && self.wordByte(self.previousBoundary(index))) { index = self.previousBoundary(index); }
+		return index;
+	}
+
+	private int nextWord(int offset) {
+		int length = self._text.len();
+		int index = offset;
+		while (index < length && !self.wordByte(index)) { index = self.nextBoundary(index); }
+		while (index < length && self.wordByte(index)) { index = self.nextBoundary(index); }
+		return index;
+	}
+
+	private double advanceTo(int offset) { return self._node.context.fonts.textWidth(self._text.substring(0, offset), self._size, false); }
+
+	private int offsetAt(double localX) {
+		double x = localX - self.padding() + self._scroll;
+		int offset = 0;
+		int length = self._text.len();
+		var fonts = self._node.context.fonts;
+		while (offset < length) {
+			int next = self.nextBoundary(offset);
+			double left = fonts.textWidth(self._text.substring(0, offset), self._size, false);
+			double right = fonts.textWidth(self._text.substring(0, next), self._size, false);
+			if (x < (left + right) * 0.5) { return offset; }
+			offset = next;
+		}
+		return length;
+	}
+
+	private void ensureCaretVisible() {
+		double inner = Math.maxDouble(1.0, self._node.width - self.padding() * 2.0);
+		double caretX = self.advanceTo(self._caret);
+		if (caretX - self._scroll > inner) { self._scroll = caretX - inner; }
+		if (caretX - self._scroll < 0.0) { self._scroll = caretX; }
+		double total = self.advanceTo(self._text.len());
+		if (total - self._scroll < inner) { self._scroll = Math.maxDouble(0.0, total - inner); }
+	}
+
+	private void replaceSelection(string insertion) {
+		int start = self.selectionStart();
+		int end = self.selectionEnd();
+		self._text = self._text.substring(0, start) + insertion + self._text.substring(end, self._text.len());
+		self._caret = start + insertion.len();
+		self._anchor = self._caret;
+		self.changed();
+	}
+
+	private void changed() {
+		self._blinkStart = SDL_GetTicksNS();
+		self.ensureCaretVisible();
+		self._node.invalidate();
+	}
+
+	private void moveCaret(int offset, bool extend) {
+		self._caret = offset < 0 ? 0 : (offset > self._text.len() ? self._text.len() : offset);
+		if (!extend) { self._anchor = self._caret; }
+		self.changed();
+	}
+
+	private void copySelection() {
+		if (!self.hasSelection()) { return; }
+		SDL_SetClipboardText(self._text.substring(self.selectionStart(), self.selectionEnd()));
+	}
+
+	private void paste() {
+		if (!SDL_HasClipboardText()) { return; }
+		var raw = btrcSdlClipboardText();
+		if (raw == null) { return; }
+		string pasted = Strings.copy(raw);
+		btrcSdlFree((void*)raw);
+		if (!Bytes.fromString(pasted).isNulFreeUtf8()) { return; }
+		self.replaceSelection(Strings.replace(Strings.replace(pasted, "\n", " "), "\r", ""));
+	}
+
+	public void paint(LinuxPainter painter, double x, double y) {
+		var theme = painter.theme();
+		double width = self._node.width;
+		double height = self._node.height;
+		double radius = LinuxMetrics.cornerRadius();
+		painter.fillRect(x, y, width, height, theme.fieldFill, radius);
+		painter.strokeRect(x, y, width, height, self._focused ? theme.accent : theme.controlBorder, radius, self._focused ? 1.5 : 1.0);
+		double pad = self.padding();
+		double lineHeight = painter.lineHeight(self._size, false);
+		double textY = y + (height - lineHeight) * 0.5;
+		double textX = x + pad - self._scroll;
+		painter.pushClip(x + pad - 1.0, y, Math.maxDouble(0.0, width - pad * 2.0 + 2.0), height);
+		if (self._text.isEmpty() && !self._placeholder.isEmpty()) { painter.text(self._placeholder, x + pad, textY, self._size, false, theme.secondaryText); }
+		if (self._focused && self.hasSelection()) {
+			double left = self.advanceTo(self.selectionStart());
+			double right = self.advanceTo(self.selectionEnd());
+			painter.fillRect(textX + left, textY, right - left, lineHeight, theme.selection, 2.0);
+		}
+		painter.text(self._text, textX, textY, self._size, false, self._enabled ? theme.text : theme.disabledText);
+		if (self._focused && self._enabled) {
+			unsigned long long elapsed = (SDL_GetTicksNS() - self._blinkStart) / 1000000ULL;
+			bool on = (elapsed / 530ULL) % 2ULL == 0ULL;
+			if (on) { painter.fillRect(textX + self.advanceTo(self._caret), textY + 1.0, 1.5, lineHeight - 2.0, theme.text, 0.0); }
+			var host = self._node.host;
+			if (host != null) { host.requestWake(0.53 - (double)(elapsed % 530ULL) / 1000.0); }
+		}
+		painter.popClip();
+	}
+
+	public void paintOverlay(LinuxPainter painter, double x, double y) {}
+
+	public bool pointer(AppPointerEvent event) {
+		if (event.action == APP_POINTER_ENTERED) { self._hovered = true; return false; }
+		if (event.action == APP_POINTER_EXITED) { self._hovered = false; return false; }
+		if (!self._enabled) { return false; }
+		if (event.action == APP_POINTER_PRESSED && event.button == APP_POINTER_BUTTON_PRIMARY) {
+			self._node.requestFocus();
+			int offset = self.offsetAt(event.logicalX);
+			if (event.clickCount >= 3) { self._anchor = 0; self._caret = self._text.len(); }
+			else if (event.clickCount == 2) { self._anchor = self.previousWord(Math.min(self._text.len(), offset + 1)); self._caret = self.nextWord(offset); }
+			else { self._caret = offset; if (!event.modifiers.shift) { self._anchor = offset; } }
+			self._dragging = event.clickCount < 2;
+			self.changed();
+			return true;
+		}
+		if (event.action == APP_POINTER_DRAGGED && self._dragging) { self._caret = self.offsetAt(event.logicalX); self.changed(); return true; }
+		if ((event.action == APP_POINTER_RELEASED || event.action == APP_POINTER_CANCELLED) && self._dragging) { self._dragging = false; return true; }
+		return false;
+	}
+
+	public bool scroll(AppScrollEvent event) { return false; }
+
+	public bool key(AppKeyboardEvent event) {
+		if (!self._focused || !self._enabled || event.action == APP_KEY_RELEASED) { return false; }
+		bool shift = event.modifiers.shift;
+		bool control = event.modifiers.control || event.modifiers.command;
+		if (event.key == APP_KEY_LEFT) {
+			if (self.hasSelection() && !shift) { self.moveCaret(self.selectionStart(), false); }
+			else { self.moveCaret(control ? self.previousWord(self._caret) : self.previousBoundary(self._caret), shift); }
+			return true;
+		}
+		if (event.key == APP_KEY_RIGHT) {
+			if (self.hasSelection() && !shift) { self.moveCaret(self.selectionEnd(), false); }
+			else { self.moveCaret(control ? self.nextWord(self._caret) : self.nextBoundary(self._caret), shift); }
+			return true;
+		}
+		if (event.key == APP_KEY_HOME) { self.moveCaret(0, shift); return true; }
+		if (event.key == APP_KEY_END) { self.moveCaret(self._text.len(), shift); return true; }
+		if (event.key == APP_KEY_BACKSPACE) {
+			if (!self.hasSelection()) { self._anchor = control ? self.previousWord(self._caret) : self.previousBoundary(self._caret); }
+			self.replaceSelection("");
+			return true;
+		}
+		if (event.key == APP_KEY_DELETE) {
+			if (!self.hasSelection()) { self._anchor = control ? self.nextWord(self._caret) : self.nextBoundary(self._caret); }
+			self.replaceSelection("");
+			return true;
+		}
+		if (control && event.key == APP_KEY_A) { self._anchor = 0; self._caret = self._text.len(); self.changed(); return true; }
+		if (control && event.key == APP_KEY_C) { self.copySelection(); return true; }
+		if (control && event.key == APP_KEY_X) { self.copySelection(); self.replaceSelection(""); return true; }
+		if (control && event.key == APP_KEY_V) { self.paste(); return true; }
+		return false;
+	}
+
+	public void textInput(string value) {
+		if (!self._focused || !self._enabled || value == null || value.isEmpty()) { return; }
+		if (!Bytes.fromString(value).isNulFreeUtf8()) { return; }
+		self.replaceSelection(value);
+	}
+
+	public void focus(bool focused) {
+		if (focused == self._focused) { return; }
+		self._focused = focused;
+		self._dragging = false;
+		if (!focused) { self._anchor = self._caret; }
+		self._blinkStart = SDL_GetTicksNS();
+		self._node.invalidate();
+	}
+
+	/* Where the input method should place its composition window. */
+	public void textInputArea(LinuxViewHost host, double x, double y) {
+		double lineHeight = self._node.context.fonts.lineHeight(self._size, false);
+		host.requestTextInput(true, x + self.padding() - self._scroll + self.advanceTo(self._caret), y + (self._node.height - lineHeight) * 0.5, 2.0, lineHeight);
+	}
+
+	public bool isOpen() { return self._node.isOpen(); }
+
+	public double fittingWidth() { self._node.requireOpen(); return Math.maxDouble(96.0, Math.ceilDouble(self._node.context.fonts.textWidth(self._text.isEmpty() ? self._placeholder : self._text, self._size, false)) + self.padding() * 2.0); }
+
+	public double fittingHeight() { self._node.requireOpen(); return LinuxMetrics.controlHeight(self._size); }
+
+	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); self.ensureCaretVisible(); }
+
+	public bool isVisible() { self._node.requireOpen(); return self._node.visible; }
+
+	public void setVisible(bool visible) { self._node.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
+
+	public string text() { self._node.requireOpen(); return self._text; }
+
+	/* Re-publishing unchanged state must not disturb caret or selection. */
+	public void setText(string text) {
+		self._node.requireOpen();
+		if (text == null) { throw "Native text field text is missing"; }
+		if (self._text.equals(text)) { return; }
+		self._text = text;
+		self._caret = text.len();
+		self._anchor = self._caret;
+		self.changed();
+	}
+
+	public void setPlaceholder(string text) { self._node.requireOpen(); self._placeholder = text == null ? "" : text; self._node.invalidate(); }
+
+	public bool isEnabled() { self._node.requireOpen(); return self._enabled; }
+
+	public void setEnabled(bool enabled) { self._node.requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; self._node.invalidate(); } }
+
+	public void setFont(double size) {
+		self._node.requireOpen();
+		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native text field font size"; }
+		self._size = size;
+		self._node.invalidate();
+	}
+
+	public CallbackCancellation close() { return self._node.close(); }
+
+	public CallbackCancellation pollClose() { return self._node.pollClose(); }
+}

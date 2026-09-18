@@ -10,7 +10,6 @@ import Library.GUI.IGPUView;
 import Library.GUI.ILabel;
 import Library.GUI.IImageView;
 import Library.GUI.IImageHandle;
-import Library.GUI.MacOS.MacOSImageHandle;
 import Library.GUI.IPanel;
 import Library.GUI.IProgressIndicator;
 import Library.GUI.ILevelIndicator;
@@ -49,7 +48,7 @@ class GUI {
 	class IImageView createImageView() { return GUIProvider.application().createImageView(); }
 
 	/* Convert decoded pixels to the platform image on the calling thread, which may be a worker. */
-	class IImageHandle createImageHandle(Image pixels, int maximumPixels = 16777216) { return MacOSImageHandle.create(pixels, maximumPixels); }
+	class IImageHandle createImageHandle(Image pixels, int maximumPixels = 16777216) { return GUIProvider.createImageHandle(pixels, maximumPixels); }
 
 	class IPanel createPanel(RGBA fill, double radius = 0.0) { return GUIProvider.application().createPanel(fill, radius); }
 

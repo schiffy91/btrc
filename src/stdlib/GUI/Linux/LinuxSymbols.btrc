@@ -1,0 +1,100 @@
+import Library.Math;
+import Library.Image;
+import Library.GUI.Linux.LinuxPainter;
+
+/* Vector renderings of the system symbol names the portable API accepts.
+ * Each draws centered in a square of `size` points at (x, y) top-left. */
+class LinuxSymbols {
+	class bool known(string name) {
+		return name == "gearshape" || name == "chevron.left" || name == "chevron.right" || name == "play.fill" || name == "pause.fill" || name == "waveform" || name == "folder"
+			|| name == "paintbrush" || name == "metronome" || name == "repeat" || name == "speaker.wave.2.fill" || name == "speedometer" || name == "line.3.horizontal.decrease" || name == "xmark" || name == "magnifyingglass" || name == "stop.fill";
+	}
+
+	class void paint(LinuxPainter painter, string name, double x, double y, double size, RGBA color) {
+		double cx = x + size * 0.5;
+		double cy = y + size * 0.5;
+		double r = size * 0.5;
+		double stroke = Math.maxDouble(1.5, size * 0.11);
+		if (name == "gearshape") {
+			painter.strokeCircle(cx, cy, r * 0.62, color, stroke * 1.4);
+			for (int tooth = 0; tooth < 8; tooth++) {
+				double angle = (double)tooth * 0.7853981633974483;
+				double dx = Math.cos((float)angle);
+				double dy = Math.sin((float)angle);
+				painter.line(cx + dx * r * 0.55, cy + dy * r * 0.55, cx + dx * r * 0.95, cy + dy * r * 0.95, stroke * 1.6, color);
+			}
+		} else if (name == "chevron.left") {
+			painter.line(cx + r * 0.3, cy - r * 0.65, cx - r * 0.35, cy, stroke, color);
+			painter.line(cx - r * 0.35, cy, cx + r * 0.3, cy + r * 0.65, stroke, color);
+		} else if (name == "chevron.right") {
+			painter.line(cx - r * 0.3, cy - r * 0.65, cx + r * 0.35, cy, stroke, color);
+			painter.line(cx + r * 0.35, cy, cx - r * 0.3, cy + r * 0.65, stroke, color);
+		} else if (name == "play.fill") {
+			painter.triangle(cx - r * 0.55, cy - r * 0.75, cx + r * 0.8, cy, cx - r * 0.55, cy + r * 0.75, color);
+		} else if (name == "pause.fill") {
+			painter.fillRect(cx - r * 0.7, cy - r * 0.7, r * 0.5, r * 1.4, color, 1.0);
+			painter.fillRect(cx + r * 0.2, cy - r * 0.7, r * 0.5, r * 1.4, color, 1.0);
+		} else if (name == "stop.fill") {
+			painter.fillRect(cx - r * 0.65, cy - r * 0.65, r * 1.3, r * 1.3, color, 2.0);
+		} else if (name == "waveform") {
+			double heights[7] = {0.35, 0.7, 1.0, 0.55, 0.85, 0.45, 0.25};
+			for (int bar = 0; bar < 7; bar++) {
+				double bx = cx - r * 0.9 + (double)bar * r * 0.3;
+				double half = heights[bar] * r * 0.8;
+				painter.fillRect(bx - stroke * 0.5, cy - half, stroke, half * 2.0, color, stroke * 0.5);
+			}
+		} else if (name == "folder") {
+			painter.strokeRect(cx - r * 0.85, cy - r * 0.45, r * 1.7, r * 1.15, color, r * 0.15, stroke);
+			painter.fillRect(cx - r * 0.85, cy - r * 0.7, r * 0.7, r * 0.35, color, r * 0.12);
+		} else if (name == "paintbrush") {
+			painter.line(cx + r * 0.7, cy - r * 0.7, cx - r * 0.1, cy + r * 0.1, stroke * 1.4, color);
+			painter.fillRect(cx - r * 0.75, cy + r * 0.05, r * 0.6, r * 0.6, color, r * 0.2);
+		} else if (name == "metronome") {
+			painter.line(cx - r * 0.55, cy + r * 0.8, cx - r * 0.2, cy - r * 0.8, stroke, color);
+			painter.line(cx + r * 0.55, cy + r * 0.8, cx + r * 0.2, cy - r * 0.8, stroke, color);
+			painter.line(cx - r * 0.55, cy + r * 0.8, cx + r * 0.55, cy + r * 0.8, stroke, color);
+			painter.line(cx, cy + r * 0.5, cx + r * 0.45, cy - r * 0.5, stroke, color);
+		} else if (name == "repeat") {
+			LinuxSymbols.arc(painter, cx, cy, r * 0.65, 0.4, 2.9, stroke, color);
+			LinuxSymbols.arc(painter, cx, cy, r * 0.65, 3.55, 6.05, stroke, color);
+			painter.triangle(cx + r * 0.85, cy - r * 0.15, cx + r * 0.35, cy - r * 0.15, cx + r * 0.6, cy - r * 0.6, color);
+			painter.triangle(cx - r * 0.85, cy + r * 0.15, cx - r * 0.35, cy + r * 0.15, cx - r * 0.6, cy + r * 0.6, color);
+		} else if (name == "speaker.wave.2.fill") {
+			painter.fillRect(cx - r * 0.85, cy - r * 0.3, r * 0.4, r * 0.6, color, 1.0);
+			painter.triangle(cx - r * 0.5, cy - r * 0.3, cx - r * 0.05, cy - r * 0.75, cx - r * 0.05, cy + r * 0.75, color);
+			painter.fillRect(cx - r * 0.5, cy - r * 0.3, r * 0.45, r * 0.6, color, 0.0);
+			LinuxSymbols.arc(painter, cx - r * 0.05, cy, r * 0.4, -0.9, 0.9, stroke, color);
+			LinuxSymbols.arc(painter, cx - r * 0.05, cy, r * 0.75, -0.9, 0.9, stroke, color);
+		} else if (name == "speedometer") {
+			LinuxSymbols.arc(painter, cx, cy + r * 0.15, r * 0.8, 3.3, 6.1, stroke, color);
+			painter.line(cx, cy + r * 0.15, cx + r * 0.5, cy - r * 0.45, stroke, color);
+			painter.fillCircle(cx, cy + r * 0.15, stroke, color);
+		} else if (name == "line.3.horizontal.decrease") {
+			painter.fillRect(cx - r * 0.8, cy - r * 0.5 - stroke * 0.5, r * 1.6, stroke, color, stroke * 0.5);
+			painter.fillRect(cx - r * 0.5, cy - stroke * 0.5, r * 1.0, stroke, color, stroke * 0.5);
+			painter.fillRect(cx - r * 0.2, cy + r * 0.5 - stroke * 0.5, r * 0.4, stroke, color, stroke * 0.5);
+		} else if (name == "xmark") {
+			painter.line(cx - r * 0.6, cy - r * 0.6, cx + r * 0.6, cy + r * 0.6, stroke, color);
+			painter.line(cx + r * 0.6, cy - r * 0.6, cx - r * 0.6, cy + r * 0.6, stroke, color);
+		} else if (name == "magnifyingglass") {
+			painter.strokeCircle(cx - r * 0.15, cy - r * 0.15, r * 0.5, color, stroke);
+			painter.line(cx + r * 0.2, cy + r * 0.2, cx + r * 0.7, cy + r * 0.7, stroke * 1.2, color);
+		} else {
+			painter.strokeCircle(cx, cy, r * 0.7, color, stroke);
+		}
+	}
+
+	class void arc(LinuxPainter painter, double cx, double cy, double radius, double from, double to, double stroke, RGBA color) {
+		int segments = 12;
+		double previousX = cx + radius * Math.cos((float)from);
+		double previousY = cy + radius * Math.sin((float)from);
+		for (int segment = 1; segment <= segments; segment++) {
+			double angle = from + (to - from) * (double)segment / (double)segments;
+			double nextX = cx + radius * Math.cos((float)angle);
+			double nextY = cy + radius * Math.sin((float)angle);
+			painter.line(previousX, previousY, nextX, nextY, stroke, color);
+			previousX = nextX;
+			previousY = nextY;
+		}
+	}
+}

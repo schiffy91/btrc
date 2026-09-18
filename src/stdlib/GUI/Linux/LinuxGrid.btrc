@@ -1,0 +1,230 @@
+import Library.Callback;
+import Library.Console;
+import Library.Math;
+import Library.Vector;
+import Library.App;
+import Library.GUI.IGrid;
+import Library.GUI.IView;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxContainer;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxPainter;
+
+/* Cells own attached subtrees. Columns fit their widest content unless a
+ * width is fixed; rows fit their tallest content unless a height is fixed.
+ * Cells fill their column and center vertically, like NSGridView's
+ * fill/center placement; hidden rows and columns take no space. */
+class LinuxGrid implements IGrid, ILinuxView {
+	private LinuxViewNode _node;
+	private int _columns;
+	private int _rows;
+	private double _columnSpacing;
+	private double _rowSpacing;
+	private Vector<ILinuxView?> _cells = [];
+	private Vector<double> _columnWidths = [];
+	private Vector<double> _rowHeights = [];
+	private Vector<bool> _columnHidden = [];
+	private Vector<bool> _rowHidden = [];
+	private Vector<double> _resolvedColumns = [];
+	private Vector<double> _resolvedRows = [];
+
+	public LinuxGrid(LinuxContext context, int columns, int rows, double columnSpacing, double rowSpacing) {
+		self._node = LinuxViewNode(context);
+		if (columns <= 0 || rows <= 0 || columns > 4096 || rows > 4096) { throw "Native grid dimensions must be positive"; }
+		self.validateSpacing(columnSpacing, rowSpacing);
+		self._columns = columns;
+		self._rows = rows;
+		self._columnSpacing = columnSpacing;
+		self._rowSpacing = rowSpacing;
+		for (int index = 0; index < columns * rows; index++) { self._cells.push(null); }
+		for (int column = 0; column < columns; column++) { self._columnWidths.push(-1.0); self._columnHidden.push(false); self._resolvedColumns.push(0.0); }
+		for (int row = 0; row < rows; row++) { self._rowHeights.push(-1.0); self._rowHidden.push(false); self._resolvedRows.push(0.0); }
+	}
+
+	private void validateSpacing(double columnSpacing, double rowSpacing) {
+		if (!Math.isFinite(columnSpacing) || !Math.isFinite(rowSpacing) || columnSpacing < 0.0 || rowSpacing < 0.0) { throw "Invalid native grid spacing"; }
+	}
+
+	private void requireColumn(int column) { if (column < 0 || column >= self._columns) { throw "Native grid column is out of bounds"; } }
+
+	private void requireRow(int row) { if (row < 0 || row >= self._rows) { throw "Native grid row is out of bounds"; } }
+
+	public LinuxViewNode node() { return self._node; }
+
+	public void attachTo(LinuxViewHost? host) { self._node.setHost(host); }
+
+	public void paint(LinuxPainter painter, double x, double y) { self.relayout(); LinuxComposite.paintChildren(self._node, painter, x, y); }
+
+	public void paintOverlay(LinuxPainter painter, double x, double y) {}
+
+	public bool pointer(AppPointerEvent event) { return false; }
+
+	public bool scroll(AppScrollEvent event) { return false; }
+
+	public bool key(AppKeyboardEvent event) { return false; }
+
+	public void textInput(string value) {}
+
+	public void focus(bool focused) {}
+
+	public bool isOpen() { return self._node.isOpen(); }
+
+	private void resolve() {
+		for (int column = 0; column < self._columns; column++) {
+			double width = self._columnWidths.get(column);
+			if (self._columnHidden.get(column)) { width = 0.0; }
+			else if (width < 0.0) {
+				width = 0.0;
+				for (int row = 0; row < self._rows; row++) {
+					var cell = self._cells.get(row * self._columns + column);
+					if (cell != null && !self._rowHidden.get(row)) { width = Math.maxDouble(width, cell.fittingWidth()); }
+				}
+			}
+			self._resolvedColumns.set(column, width);
+		}
+		for (int row = 0; row < self._rows; row++) {
+			double height = self._rowHeights.get(row);
+			if (self._rowHidden.get(row)) { height = 0.0; }
+			else if (height < 0.0) {
+				height = 0.0;
+				for (int column = 0; column < self._columns; column++) {
+					var cell = self._cells.get(row * self._columns + column);
+					if (cell != null && !self._columnHidden.get(column)) { height = Math.maxDouble(height, cell.fittingHeight()); }
+				}
+			}
+			self._resolvedRows.set(row, height);
+		}
+	}
+
+	private double totalWidth() {
+		double total = 0.0;
+		int visible = 0;
+		for (int column = 0; column < self._columns; column++) { if (!self._columnHidden.get(column)) { total += self._resolvedColumns.get(column); visible++; } }
+		return visible > 1 ? total + self._columnSpacing * (double)(visible - 1) : total;
+	}
+
+	private double totalHeight() {
+		double total = 0.0;
+		int visible = 0;
+		for (int row = 0; row < self._rows; row++) { if (!self._rowHidden.get(row)) { total += self._resolvedRows.get(row); visible++; } }
+		return visible > 1 ? total + self._rowSpacing * (double)(visible - 1) : total;
+	}
+
+	public double fittingWidth() { self._node.requireOpen(); self.resolve(); return self.totalWidth(); }
+
+	public double fittingHeight() { self._node.requireOpen(); self.resolve(); return self.totalHeight(); }
+
+	private void relayout() {
+		self.resolve();
+		double y = 0.0;
+		for (int row = 0; row < self._rows; row++) {
+			if (self._rowHidden.get(row)) { continue; }
+			double rowHeight = self._resolvedRows.get(row);
+			double x = 0.0;
+			for (int column = 0; column < self._columns; column++) {
+				if (self._columnHidden.get(column)) { continue; }
+				double columnWidth = self._resolvedColumns.get(column);
+				var cell = self._cells.get(row * self._columns + column);
+				if (cell != null) {
+					var cellNode = cell.node();
+					double height = Math.minDouble(rowHeight, cell.fittingHeight());
+					if (height <= 0.0) { height = rowHeight; }
+					cellNode.arrange(x, y + (rowHeight - height) * 0.5, columnWidth, height);
+					cellNode.setVisible(true);
+				}
+				x += columnWidth + self._columnSpacing;
+			}
+			y += rowHeight + self._rowSpacing;
+		}
+		for (int row = 0; row < self._rows; row++) {
+			for (int column = 0; column < self._columns; column++) {
+				var cell = self._cells.get(row * self._columns + column);
+				if (cell != null && (self._rowHidden.get(row) || self._columnHidden.get(column))) { cell.node().setVisible(false); }
+			}
+		}
+	}
+
+	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); self.relayout(); }
+
+	public bool isVisible() { self._node.requireOpen(); return self._node.visible; }
+
+	public void setVisible(bool visible) { self._node.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
+
+	public int columnCount() { self._node.requireOpen(); return self._columns; }
+
+	public int rowCount() { self._node.requireOpen(); return self._rows; }
+
+	public IView? childAt(int column, int row) {
+		self._node.requireOpen();
+		self.requireColumn(column);
+		self.requireRow(row);
+		return self._cells.get(row * self._columns + column);
+	}
+
+	public void setChild(int column, int row, IView? child) {
+		self._node.requireOpen();
+		self.requireColumn(column);
+		self.requireRow(row);
+		int index = row * self._columns + column;
+		var previous = self._cells.get(index);
+		if (previous == child) { return; }
+		ILinuxView? native = child == null ? null : LinuxComposite.projection(child);
+		if (previous != null) { self._node.detachChild(previous); self._cells.set(index, null); }
+		if (native == null) { return; }
+		self._node.attachChild(native);
+		self._cells.set(index, native);
+		self.relayout();
+	}
+
+	public void setSpacing(double columnSpacing, double rowSpacing) {
+		self._node.requireOpen();
+		self.validateSpacing(columnSpacing, rowSpacing);
+		self._columnSpacing = columnSpacing;
+		self._rowSpacing = rowSpacing;
+		self._node.invalidate();
+	}
+
+	public void setColumnWidth(int column, double width) {
+		self._node.requireOpen();
+		self.requireColumn(column);
+		if (!Math.isFinite(width) || width < 0.0) { throw "Invalid native grid column width"; }
+		self._columnWidths.set(column, width);
+		self._node.invalidate();
+	}
+
+	public void fitColumn(int column) { self._node.requireOpen(); self.requireColumn(column); self._columnWidths.set(column, -1.0); self._node.invalidate(); }
+
+	public void setRowHeight(int row, double height) {
+		self._node.requireOpen();
+		self.requireRow(row);
+		if (!Math.isFinite(height) || height < 0.0) { throw "Invalid native grid row height"; }
+		self._rowHeights.set(row, height);
+		self._node.invalidate();
+	}
+
+	public void fitRow(int row) { self._node.requireOpen(); self.requireRow(row); self._rowHeights.set(row, -1.0); self._node.invalidate(); }
+
+	public void setRowHidden(int row, bool hidden) { self._node.requireOpen(); self.requireRow(row); self._rowHidden.set(row, hidden); self._node.invalidate(); }
+
+	public void setColumnHidden(int column, bool hidden) { self._node.requireOpen(); self.requireColumn(column); self._columnHidden.set(column, hidden); self._node.invalidate(); }
+
+	public void layout() { self._node.requireOpen(); self.relayout(); }
+
+	public CallbackCancellation close() {
+		var state = self._node.close();
+		if (state == CallbackCancellation.Complete) { for (int index = 0; index < self._cells.len; index++) { self._cells.set(index, null); } }
+		return state;
+	}
+
+	public CallbackCancellation pollClose() {
+		var state = self._node.pollClose();
+		if (state == CallbackCancellation.Complete) { for (int index = 0; index < self._cells.len; index++) { self._cells.set(index, null); } }
+		return state;
+	}
+
+	public void __del__() { if (self._node != null && self.close() != CallbackCancellation.Complete) { Console.fatal("Native grid destroyed before subtree cleanup completed"); } }
+}

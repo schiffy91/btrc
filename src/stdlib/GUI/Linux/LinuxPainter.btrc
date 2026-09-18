@@ -7,6 +7,7 @@ import Library.GPU.Device;
 import Library.GPU.SurfaceRenderer;
 import Library.GPU.WebGPU;
 import Library.GUI.Linux.LinuxFonts;
+import Library.GUI.Linux.LinuxContext;
 
 /* One sampled texture with its bind group; images, glyph atlases and GPU-view
  * targets all bind through the same layout. Views borrow it per frame. */
@@ -235,6 +236,8 @@ class LinuxPainter {
 	private int _vertexCount = 0;
 	private Vector<LinuxDrawRun> _runs = [];
 	private Vector<LinuxClip> _clips = [];
+	private Vector<LinuxTheme> _themes = [];
+	private LinuxTheme _defaultTheme;
 	private LinuxGlyphAtlas _atlas;
 	private LinuxTexture _white;
 	private Map<int, LinuxTexture> _images = new Map<int, LinuxTexture>();
@@ -243,11 +246,12 @@ class LinuxPainter {
 	private int _pixelHeight = 0;
 	private bool _closed = false;
 
-	public LinuxPainter(GPUDevice device, WGPUTextureFormat format, LinuxFonts fonts) {
+	public LinuxPainter(GPUDevice device, WGPUTextureFormat format, LinuxFonts fonts, LinuxTheme theme) {
 		if (device.state() != GPU_DEVICE_READY) { throw "Native painter requires a ready device"; }
 		self._device = device;
 		self._format = format;
 		self._fonts = fonts;
+		self._defaultTheme = theme;
 		self._streamCapacity = (size_t)(16 * 6 * 1024);
 		self._stream = OwnedBuffer(self._streamCapacity);
 		if (!self._stream.opened()) { throw "Cannot allocate painter stream"; }
@@ -444,7 +448,17 @@ class LinuxPainter {
 		self._runs.clear();
 		self._clips.clear();
 		self._clips.push(LinuxClip(0.0, 0.0, (double)pixelWidth / scale, (double)pixelHeight / scale));
+		self._themes.clear();
+		self._themes.push(self._defaultTheme);
 	}
+
+	public void setDefaultTheme(LinuxTheme theme) { self._defaultTheme = theme; }
+
+	public void pushTheme(LinuxTheme theme) { self._themes.push(theme); }
+
+	public void popTheme() { if (self._themes.len > 1) { self._themes.pop(); } }
+
+	public LinuxTheme theme() { return self._themes.last(); }
 
 	public void pushClip(double x, double y, double width, double height) {
 		var current = self._clips.last();

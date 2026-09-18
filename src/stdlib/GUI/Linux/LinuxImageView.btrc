@@ -1,0 +1,121 @@
+import Library.Callback;
+import Library.Math;
+import Library.App;
+import Library.Image;
+import Library.GUI.IImageView;
+import Library.GUI.IImageHandle;
+import Library.GUI.IView;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxPainter;
+
+/* Decoded pixels with a stable identity. Any thread may create one; painters
+ * upload it to their device on first use and cache by identity. */
+interface ILinuxImageHandle extends IImageHandle {
+	int identity();
+	Image pixels();
+}
+
+class LinuxImageHandle implements ILinuxImageHandle {
+	private Image? _pixels;
+	private int _identity;
+	private int _width;
+	private int _height;
+
+	private LinuxImageHandle(int identity, Image pixels) {
+		self._identity = identity;
+		self._pixels = pixels;
+		self._width = pixels.width;
+		self._height = pixels.height;
+	}
+
+	class LinuxImageHandle create(LinuxIds ids, Image pixels, int maximumPixels = 16777216) {
+		if (pixels == null || pixels.isEmpty() || pixels.data == null) { throw "Native image handle requires decoded pixels"; }
+		if (maximumPixels <= 0 || maximumPixels > 16777216 || (long long)pixels.width * (long long)pixels.height > (long long)maximumPixels) { throw "Native artwork exceeds image limits"; }
+		var copy = Image(pixels.width, pixels.height);
+		memcpy(copy.data, pixels.data, (size_t)pixels.width * (size_t)pixels.height * (size_t)4);
+		return LinuxImageHandle(ids.next(), copy);
+	}
+
+	public int identity() { return self._identity; }
+
+	public Image pixels() { var pixels = self._pixels; if (pixels == null) { throw "Native image handle is closed"; } return pixels; }
+
+	public int width() { return self._width; }
+
+	public int height() { return self._height; }
+
+	public bool isOpen() { return self._pixels != null; }
+
+	public void close() { self._pixels = null; }
+
+	public void __del__() { self.close(); }
+}
+
+/* Aspect-preserving presentation of one image handle. */
+class LinuxImageView implements IImageView, ILinuxView {
+	private LinuxViewNode _node;
+	private ILinuxImageHandle? _handle = null;
+
+	public LinuxImageView(LinuxContext context) { self._node = LinuxViewNode(context); }
+
+	public LinuxViewNode node() { return self._node; }
+
+	public void attachTo(LinuxViewHost? host) { self._node.setHost(host); }
+
+	public void paint(LinuxPainter painter, double x, double y) {
+		var handle = self._handle;
+		if (handle == null || !handle.isOpen()) { return; }
+		var texture = painter.imageTexture(handle.identity(), handle.pixels());
+		painter.imageFit(texture, x, y, self._node.width, self._node.height, RGBA(255, 255, 255, 255));
+	}
+
+	public void paintOverlay(LinuxPainter painter, double x, double y) {}
+
+	public bool pointer(AppPointerEvent event) { return false; }
+
+	public bool scroll(AppScrollEvent event) { return false; }
+
+	public bool key(AppKeyboardEvent event) { return false; }
+
+	public void textInput(string value) {}
+
+	public void focus(bool focused) {}
+
+	public bool isOpen() { return self._node.isOpen(); }
+
+	public double fittingWidth() { self._node.requireOpen(); var handle = self._handle; return handle == null ? 0.0 : (double)handle.width(); }
+
+	public double fittingHeight() { self._node.requireOpen(); var handle = self._handle; return handle == null ? 0.0 : (double)handle.height(); }
+
+	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); }
+
+	public bool isVisible() { self._node.requireOpen(); return self._node.visible; }
+
+	public void setVisible(bool visible) { self._node.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
+
+	public void setImage(Image? pixels, int maximumPixels = 16777216) {
+		self._node.requireOpen();
+		if (pixels == null) { self._handle = null; self._node.invalidate(); return; }
+		self._handle = LinuxImageHandle.create(self._node.context.ids, pixels, maximumPixels);
+		self._node.invalidate();
+	}
+
+	public void setImageHandle(IImageHandle? handle) {
+		self._node.requireOpen();
+		if (handle == null) { self._handle = null; self._node.invalidate(); return; }
+		ILinuxImageHandle? native = (ILinuxImageHandle?)handle;
+		if (native == null) { throw "Native image view requires a Linux image handle"; }
+		if (self._handle == native) { return; }
+		self._handle = native;
+		self._node.invalidate();
+	}
+
+	public CallbackCancellation close() { var state = self._node.close(); if (state == CallbackCancellation.Complete) { self._handle = null; } return state; }
+
+	public CallbackCancellation pollClose() { var state = self._node.pollClose(); if (state == CallbackCancellation.Complete) { self._handle = null; } return state; }
+}

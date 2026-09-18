@@ -1,0 +1,136 @@
+import Library.Callback;
+import Library.Math;
+import Library.App;
+import Library.Image;
+import Library.GUI.ISlider;
+import Library.GUI.IView;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxPainter;
+
+/* A horizontal drawn slider. Dragging updates the value; the consumer reads
+ * it after dispatch. Programmatic values never synthesize input. */
+class LinuxSlider implements ISlider, ILinuxView {
+	private LinuxViewNode _node;
+	private double _minimum;
+	private double _maximum;
+	private int _intervals;
+	private double _value;
+	private bool _enabled = true;
+	private bool _dragging = false;
+	private bool _hovered = false;
+	private string _toolTip = "";
+
+	public LinuxSlider(LinuxContext context, double minimum, double maximum, int intervals) {
+		self._node = LinuxViewNode(context);
+		if (!Math.isFinite(minimum) || !Math.isFinite(maximum) || maximum <= minimum || !Math.isFinite(maximum - minimum) || intervals < 0 || intervals > 1000) { throw "Invalid native slider range"; }
+		self._minimum = minimum;
+		self._maximum = maximum;
+		self._intervals = intervals;
+		self._value = minimum;
+	}
+
+	public LinuxViewNode node() { return self._node; }
+
+	public void attachTo(LinuxViewHost? host) { self._node.setHost(host); }
+
+	private double knobRadius() { return Math.minDouble(10.0, Math.maxDouble(4.0, self._node.height * 0.42)); }
+
+	private double fraction() { return (self._value - self._minimum) / (self._maximum - self._minimum); }
+
+	private double snap(double value) {
+		if (self._intervals > 0) {
+			double step = (self._maximum - self._minimum) / (double)self._intervals;
+			value = self._minimum + Math.round((float)((value - self._minimum) / step)) * step;
+		}
+		return value < self._minimum ? self._minimum : (value > self._maximum ? self._maximum : value);
+	}
+
+	private void valueFromX(double x) {
+		double radius = self.knobRadius();
+		double track = Math.maxDouble(1.0, self._node.width - radius * 2.0);
+		double fraction = (x - radius) / track;
+		fraction = fraction < 0.0 ? 0.0 : (fraction > 1.0 ? 1.0 : fraction);
+		double next = self.snap(self._minimum + fraction * (self._maximum - self._minimum));
+		if (next != self._value) { self._value = next; self._node.invalidate(); }
+	}
+
+	public void paint(LinuxPainter painter, double x, double y) {
+		var theme = painter.theme();
+		double radius = self.knobRadius();
+		double centerY = y + self._node.height * 0.5;
+		double trackX = x + radius;
+		double trackWidth = Math.maxDouble(1.0, self._node.width - radius * 2.0);
+		double filled = trackWidth * self.fraction();
+		painter.fillRect(trackX, centerY - 2.0, trackWidth, 4.0, theme.track, 2.0);
+		painter.fillRect(trackX, centerY - 2.0, filled, 4.0, self._enabled ? theme.accent : theme.disabledText, 2.0);
+		if (self._intervals > 0 && self._intervals <= 64) {
+			for (int tick = 0; tick <= self._intervals; tick++) {
+				double tickX = trackX + trackWidth * (double)tick / (double)self._intervals;
+				painter.fillRect(tickX - 0.5, centerY + 5.0, 1.0, 4.0, theme.secondaryText, 0.0);
+			}
+		}
+		double knobX = trackX + filled;
+		painter.fillCircle(knobX, centerY, radius, self._enabled ? (self._dragging ? theme.controlPressed : theme.controlFill) : theme.controlPressed);
+		painter.strokeCircle(knobX, centerY, radius, self._dragging || self._hovered ? theme.accent : theme.controlBorder, 1.0);
+	}
+
+	public void paintOverlay(LinuxPainter painter, double x, double y) {}
+
+	public bool pointer(AppPointerEvent event) {
+		if (event.action == APP_POINTER_ENTERED) { self._hovered = true; self._node.invalidate(); return false; }
+		if (event.action == APP_POINTER_EXITED) { self._hovered = false; self._node.invalidate(); return false; }
+		if (!self._enabled) { return false; }
+		if (event.action == APP_POINTER_PRESSED && event.button == APP_POINTER_BUTTON_PRIMARY) { self._dragging = true; self.valueFromX(event.logicalX); return true; }
+		if (event.action == APP_POINTER_DRAGGED && self._dragging) { self.valueFromX(event.logicalX); return true; }
+		if ((event.action == APP_POINTER_RELEASED || event.action == APP_POINTER_CANCELLED) && self._dragging) { self._dragging = false; self._node.invalidate(); return true; }
+		return false;
+	}
+
+	public bool scroll(AppScrollEvent event) { return false; }
+
+	public bool key(AppKeyboardEvent event) { return false; }
+
+	public void textInput(string value) {}
+
+	public void focus(bool focused) {}
+
+	public bool isOpen() { return self._node.isOpen(); }
+
+	public double fittingWidth() { self._node.requireOpen(); return LinuxMetrics.sliderWidth(); }
+
+	public double fittingHeight() { self._node.requireOpen(); return LinuxMetrics.sliderHeight(); }
+
+	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); }
+
+	public bool isVisible() { self._node.requireOpen(); return self._node.visible; }
+
+	public void setVisible(bool visible) { self._node.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
+
+	public double value() { self._node.requireOpen(); return self._value; }
+
+	public void setValue(double value) {
+		self._node.requireOpen();
+		if (!Math.isFinite(value) || value < self._minimum || value > self._maximum) { throw "Native slider value is out of range"; }
+		double next = self.snap(value);
+		if (next == self._value) { return; }
+		self._value = next;
+		self._node.invalidate();
+	}
+
+	public void setEnabled(bool enabled) { self._node.requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; self._dragging = false; self._node.invalidate(); } }
+
+	public bool isEnabled() { self._node.requireOpen(); return self._enabled; }
+
+	public void setToolTip(string text) { self._node.requireOpen(); self._toolTip = text == null ? "" : text; }
+
+	public string toolTip() { self._node.requireOpen(); return self._toolTip; }
+
+	public CallbackCancellation close() { return self._node.close(); }
+
+	public CallbackCancellation pollClose() { return self._node.pollClose(); }
+}

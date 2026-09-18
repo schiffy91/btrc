@@ -1,0 +1,377 @@
+import Library.Callback;
+import Library.Console;
+import Library.Datetime;
+import Library.Math;
+import Library.Strings;
+import Library.Vector;
+import Library.Image;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.IView;
+import Library.GUI.IButton;
+import Library.GUI.ITextField;
+import Library.GUI.IContainer;
+import Library.GUI.IStack;
+import Library.GUI.IGPUView;
+import Library.GUI.ILabel;
+import Library.GUI.IImageView;
+import Library.GUI.IPanel;
+import Library.GUI.IProgressIndicator;
+import Library.GUI.ILevelIndicator;
+import Library.GUI.ISlider;
+import Library.GUI.ISelect;
+import Library.GUI.IScrollView;
+import Library.GUI.IGrid;
+import Library.GUI.Linux.SDL;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxWindow;
+import Library.GUI.Linux.LinuxContainer;
+import Library.GUI.Linux.LinuxPanel;
+import Library.GUI.Linux.LinuxStack;
+import Library.GUI.Linux.LinuxGrid;
+import Library.GUI.Linux.LinuxScrollView;
+import Library.GUI.Linux.LinuxLabel;
+import Library.GUI.Linux.LinuxButton;
+import Library.GUI.Linux.LinuxTextField;
+import Library.GUI.Linux.LinuxSelect;
+import Library.GUI.Linux.LinuxSlider;
+import Library.GUI.Linux.LinuxImageView;
+import Library.GUI.Linux.LinuxIndicators;
+import Library.GUI.Linux.LinuxGPUView;
+import Library.GUI.Linux.LinuxDirectoryPicker;
+
+/* Delayed UI-thread work: a deadline in the application's timer list. The
+ * registration only records cancellation; the loop owns delivery. */
+class LinuxDelayedWork implements ICallbackRegistration {
+	private IApplicationWork? _work;
+	private unsigned long long _deadline;
+	private bool _open = true;
+
+	public LinuxDelayedWork(IApplicationWork work, unsigned long long deadlineNanoseconds) { self._work = work; self._deadline = deadlineNanoseconds; }
+
+	public unsigned long long deadline() { return self._deadline; }
+
+	public IApplicationWork? take() { var work = self._work; self._work = null; self._open = false; return work; }
+
+	public bool isOpen() { return self._open; }
+
+	public CallbackCancellation cancel() { self._open = false; self._work = null; return CallbackCancellation.Complete; }
+
+	public CallbackCancellation pollCompletion() { return self._open ? CallbackCancellation.NotRequested : CallbackCancellation.Complete; }
+}
+
+/* One application owner on the UI thread. run() pumps SDL events, delivers
+ * posted and delayed work, dispatches queued button actions and renders
+ * every window whose content changed. Quit closes admission, drains admitted
+ * work, then closes windows and detached roots before returning. */
+class LinuxApplication implements IApplication, ILinuxDialogPump {
+	private LinuxContext _context;
+	private Vector<LinuxWindow> _windows = [];
+	private Vector<IView> _views = [];
+	private Vector<IView> _closingRoots = [];
+	private Vector<IApplicationWork> _work = [];
+	private Vector<LinuxDelayedWork> _delayed = [];
+	private int _workCapacity;
+	private int _pendingWork = 0;
+	private bool _quitRequested = false;
+	private bool _running = false;
+	private bool _dispatching = false;
+	private bool _closing = false;
+	private bool _closed = false;
+	private bool _viewsClosing = false;
+	private string _workFailure = "";
+	private bool _workFailed = false;
+	private string _closeFailure = "";
+	private unsigned long long _wakeDeadline = 0ULL;
+
+	public LinuxApplication(int workCapacity) {
+		if (workCapacity <= 0 || workCapacity > 65536) { throw "Application work capacity must be between 1 and 65536"; }
+		self._workCapacity = workCapacity;
+		self._context = LinuxContext(workCapacity);
+	}
+
+	public LinuxContext context() { return self._context; }
+
+	public bool quitRequested() { return self._quitRequested; }
+
+	private void requireIdle() {
+		if (self._dispatching) { throw "Native event dispatch is already active"; }
+		if (self._closing || self._closed) { throw "Application shutdown has started"; }
+	}
+
+	private void requireCreation() {
+		self.requireIdle();
+		if (self._quitRequested) { throw "Application quit has been requested"; }
+	}
+
+	public bool isRunning() { return self._running; }
+
+	public void requestQuit() {
+		if (self._closed || self._quitRequested) { return; }
+		self._quitRequested = true;
+		btrcSdlPushWake();
+	}
+
+	private void failWork(string error) {
+		if (!self._workFailed) { self._workFailure = error; self._workFailed = true; }
+		self.requestQuit();
+	}
+
+	public void post(IApplicationWork work) {
+		if (self._closing || self._closed) { throw "Application shutdown has started"; }
+		if (work == null) { throw "Application work is required"; }
+		if (self._quitRequested) { throw "Application quit has been requested"; }
+		self.pruneDelayed();
+		if (self._pendingWork + self._delayed.len >= self._workCapacity) { throw "Application work capacity exceeded"; }
+		self._work.push(work);
+		self._pendingWork++;
+		btrcSdlPushWake();
+	}
+
+	private void pruneDelayed() { for (int index = self._delayed.len - 1; index >= 0; index--) { if (!self._delayed.get(index).isOpen()) { self._delayed.remove(index); } } }
+
+	public ICallbackRegistration postAfter(double delaySeconds, IApplicationWork work) {
+		if (self._closing || self._closed) { throw "Application shutdown has started"; }
+		if (work == null || !Math.isFinite(delaySeconds) || delaySeconds < 0.0) { throw "Delayed work requires a finite nonnegative delay and a receiver"; }
+		if (self._quitRequested) { throw "Application quit has been requested"; }
+		self.pruneDelayed();
+		if (self._pendingWork + self._delayed.len >= self._workCapacity) { throw "Application work capacity exceeded"; }
+		var registration = LinuxDelayedWork(work, SDL_GetTicksNS() + (unsigned long long)(delaySeconds * 1000000000.0));
+		self._delayed.push(registration);
+		return registration;
+	}
+
+	/* Windows and roots created here stay owned until they close. */
+	public IWindow createWindow(string title, double width, double height) {
+		self.requireCreation();
+		var window = LinuxWindow(self._context, title, width, height);
+		self._windows.push(window);
+		return window;
+	}
+
+	private void rememberView(IView view) {
+		for (int index = self._views.len - 1; index >= 0; index--) {
+			var previous = self._views.get(index);
+			if (!previous.isOpen() && previous.pollClose() == CallbackCancellation.Complete) { self._views.remove(index); }
+		}
+		self._views.push(view);
+	}
+
+	public IButton createButton(string title) { self.requireCreation(); var view = LinuxButton(self._context, title); self.rememberView(view); return view; }
+
+	public ITextField createTextField(string text, string placeholder) { self.requireCreation(); var view = LinuxTextField(self._context, text, placeholder); self.rememberView(view); return view; }
+
+	public IContainer createContainer() { self.requireCreation(); var view = LinuxContainer(self._context); self.rememberView(view); return view; }
+
+	public IStack createRow(double spacing) { self.requireCreation(); var view = LinuxStack(self._context, false, spacing); self.rememberView(view); return view; }
+
+	public IStack createColumn(double spacing) { self.requireCreation(); var view = LinuxStack(self._context, true, spacing); self.rememberView(view); return view; }
+
+	public IGPUView createGPUView(bool capture) { self.requireCreation(); var view = LinuxGPUView(self._context, capture); self.rememberView(view); return view; }
+
+	public ILabel createLabel(string text) { self.requireCreation(); var view = LinuxLabel(self._context, text); self.rememberView(view); return view; }
+
+	public IImageView createImageView() { self.requireCreation(); var view = LinuxImageView(self._context); self.rememberView(view); return view; }
+
+	public IPanel createPanel(RGBA fill, double radius) { self.requireCreation(); var view = LinuxPanel(self._context, fill, radius); self.rememberView(view); return view; }
+
+	public IProgressIndicator createProgressIndicator() { self.requireCreation(); var view = LinuxProgressIndicator(self._context); self.rememberView(view); return view; }
+
+	public ILevelIndicator createLevelIndicator(double warning, double critical) { self.requireCreation(); var view = LinuxLevelIndicator(self._context, warning, critical); self.rememberView(view); return view; }
+
+	public ISlider createSlider(double minimum, double maximum, int intervals) { self.requireCreation(); var view = LinuxSlider(self._context, minimum, maximum, intervals); self.rememberView(view); return view; }
+
+	public ISelect createSelect() { self.requireCreation(); var view = LinuxSelect(self._context); self.rememberView(view); return view; }
+
+	public IScrollView createScrollView() { self.requireCreation(); var view = LinuxScrollView(self._context); self.rememberView(view); return view; }
+
+	public IGrid createGrid(int columns, int rows, double columnSpacing, double rowSpacing) { self.requireCreation(); var view = LinuxGrid(self._context, columns, rows, columnSpacing, rowSpacing); self.rememberView(view); return view; }
+
+	public LinuxWindow? firstWindow() { for window in self._windows { if (window.isOpen()) { return window; } } return null; }
+
+	public LinuxWindow? windowOwning(ILinuxView view) {
+		int id = view.node().id;
+		for window in self._windows { if (window.isOpen() && window.owns(id)) { return window; } }
+		return null;
+	}
+
+	private LinuxWindow? windowFor(unsigned int id) { for window in self._windows { if (window.isOpen() && window.nativeId() == id) { return window; } } return null; }
+
+	/* Pump every queued native event into its window. */
+	private void pumpEvents(int timeoutMilliseconds) {
+		BtrcSdlEvent event;
+		bool received = (timeoutMilliseconds > 0 ? btrcSdlWaitEvent(&event, timeoutMilliseconds) : btrcSdlPollEvent(&event)) != 0;
+		int dispatched = 0;
+		while (received && dispatched < 4096) {
+			dispatched++;
+			if (event.type == (unsigned int)SDL_EVENT_QUIT) { for window in self._windows { if (window.isOpen()) { window.requestNativeClose(); } } }
+			else if (event.window != 0u) {
+				var target = self.windowFor(event.window);
+				if (target != null) { target.dispatch(&event); }
+			}
+			received = btrcSdlPollEvent(&event) != 0;
+		}
+		for window in self._windows { if (window.isOpen()) { window.settle(); } }
+	}
+
+	private void runWork() {
+		if (self._work.isEmpty()) { return; }
+		var batch = self._work;
+		self._work = [];
+		for work in batch {
+			try { if (!self._quitRequested) { work.run(); } }
+			catch (string error) { self.failWork(error); }
+			finally { self._pendingWork--; }
+		}
+	}
+
+	private void runDelayed() {
+		unsigned long long now = SDL_GetTicksNS();
+		for (int index = 0; index < self._delayed.len; index++) {
+			var delayed = self._delayed.get(index);
+			if (!delayed.isOpen() || delayed.deadline() > now) { continue; }
+			var work = delayed.take();
+			if (work == null || self._quitRequested) { continue; }
+			try { work.run(); } catch (string error) { self.failWork(error); }
+		}
+		self.pruneDelayed();
+	}
+
+	private void dispatchActions() {
+		int count = self._context.actions.pendingCount();
+		for (int index = 0; index < count && !self._quitRequested; index++) { self._context.actions.dispatchOne(); }
+	}
+
+	private int waitMilliseconds() {
+		if (self._quitRequested || !self._work.isEmpty()) { return 0; }
+		unsigned long long now = SDL_GetTicksNS();
+		unsigned long long deadline = now + 250000000ULL;
+		for delayed in self._delayed { if (delayed.isOpen() && delayed.deadline() < deadline) { deadline = delayed.deadline(); } }
+		if (self._wakeDeadline != 0ULL && self._wakeDeadline < deadline) { deadline = self._wakeDeadline; }
+		for window in self._windows { if (window.isOpen() && window.needsFrame()) { return 0; } }
+		if (deadline <= now) { return 0; }
+		return (int)((deadline - now) / 1000000ULL) + 1;
+	}
+
+	private void renderWindows() {
+		self._wakeDeadline = 0ULL;
+		for (int index = self._windows.len - 1; index >= 0; index--) {
+			var window = self._windows.get(index);
+			if (!window.isOpen()) { continue; }
+			if (window.closeRequested()) { window.close(); continue; }
+			if (!window.pollDevice()) { continue; }
+			if (window.needsFrame()) {
+				window.render(false);
+				double wake = window.wakeSeconds();
+				if (wake >= 0.0) {
+					unsigned long long deadline = SDL_GetTicksNS() + (unsigned long long)(wake * 1000000000.0);
+					if (self._wakeDeadline == 0ULL || deadline < self._wakeDeadline) { self._wakeDeadline = deadline; }
+				}
+			}
+		}
+		if (self._wakeDeadline != 0ULL && SDL_GetTicksNS() >= self._wakeDeadline) { self._context.invalidation.mark(); }
+		for (int index = self._windows.len - 1; index >= 0; index--) {
+			var window = self._windows.get(index);
+			if (window.isOpen()) { continue; }
+			if (window.pollClose() == CallbackCancellation.Complete) { self._windows.remove(index); }
+		}
+	}
+
+	/* One loop turn: wait for events or the next deadline, then service everything. */
+	public void pumpOnce(int timeoutMilliseconds) {
+		self._dispatching = true;
+		try {
+			self.pumpEvents(timeoutMilliseconds);
+			if (self._wakeDeadline != 0ULL && SDL_GetTicksNS() >= self._wakeDeadline) { self._wakeDeadline = 0ULL; self._context.invalidation.mark(); }
+		} finally { self._dispatching = false; }
+		self.runDelayed();
+		self.runWork();
+		self.dispatchActions();
+		self.renderWindows();
+	}
+
+	public void run() {
+		if (self._running || self._dispatching) { throw "Native application loop is already active"; }
+		if (self._closed) { throw "Application shutdown has completed"; }
+		self._running = true;
+		try {
+			while (true) {
+				if (self._quitRequested && self._pendingWork == 0) { break; }
+				self.pumpOnce(self.waitMilliseconds());
+			}
+		} catch (string error) { self._running = false; self.close(); throw error; }
+		self._running = false;
+		self.requestQuit();
+		var result = self.close();
+		while (result == CallbackCancellation.Pending) {
+			self.pumpOnce(10);
+			result = self.pollClose();
+		}
+		if (result != CallbackCancellation.Complete) { throw "Native subtree shutdown failed without completion"; }
+		if (self._workFailed) { throw self._workFailure; }
+	}
+
+	private CallbackCancellation combine(CallbackCancellation result, CallbackCancellation state) {
+		if (result == CallbackCancellation.Failed || state == CallbackCancellation.Failed) { return CallbackCancellation.Failed; }
+		if (result == CallbackCancellation.RetryableFailure || state == CallbackCancellation.RetryableFailure) { return CallbackCancellation.RetryableFailure; }
+		return result == CallbackCancellation.Complete && state == CallbackCancellation.Complete ? CallbackCancellation.Complete : CallbackCancellation.Pending;
+	}
+
+	private CallbackCancellation closeViews() {
+		CallbackCancellation result = CallbackCancellation.Complete;
+		for (int index = self._windows.len - 1; index >= 0; index--) {
+			var window = self._windows.get(index);
+			var state = window.isOpen() ? window.close() : window.pollClose();
+			if (state == CallbackCancellation.Complete) { self._windows.remove(index); }
+			else { result = self.combine(result, state); }
+		}
+		if (!self._viewsClosing) {
+			self._viewsClosing = true;
+			for view in self._views {
+				if (!view.isOpen()) { if (view.pollClose() != CallbackCancellation.Complete) { self._closingRoots.push(view); } continue; }
+				var native = (ILinuxView?)view;
+				if (native == null) { throw "GUI view belongs to another provider"; }
+				if (!native.node().attached) { self._closingRoots.push(view); }
+			}
+		}
+		for (int index = self._closingRoots.len - 1; index >= 0; index--) {
+			var view = self._closingRoots.get(index);
+			var state = view.isOpen() ? view.close() : view.pollClose();
+			if (state == CallbackCancellation.Complete) { self._closingRoots.remove(index); }
+			else { result = self.combine(result, state); }
+		}
+		if (result == CallbackCancellation.Complete) {
+			for view in self._views { if (view.isOpen()) { throw "GUI view remains attached outside application ownership"; } }
+			self._views.clear();
+		}
+		return result;
+	}
+
+	public CallbackCancellation pollClose() {
+		return self._closed ? CallbackCancellation.Complete : (self._closing ? self.close() : CallbackCancellation.NotRequested);
+	}
+
+	public CallbackCancellation close() {
+		if (self._closed) { return CallbackCancellation.Complete; }
+		if (self._closeFailure != "") { throw self._closeFailure; }
+		if (self._dispatching) { throw "Native event dispatch is already active"; }
+		if (self._running) { throw "Request application quit before closing a running application"; }
+		if (self._pendingWork > 0 && !self._quitRequested) { throw "Run the application to drain pending work before closing"; }
+		self._quitRequested = true;
+		self._closing = true;
+		var views = self.closeViews();
+		if (views != CallbackCancellation.Complete) { return views; }
+		try {
+			self._work.clear();
+			self._pendingWork = 0;
+			for delayed in self._delayed { delayed.cancel(); }
+			self._delayed.clear();
+			self._context.actions.close();
+		} catch (string error) { self._closeFailure = error; throw error; }
+		self._closed = true;
+		return CallbackCancellation.Complete;
+	}
+
+	public void __del__() { if (self.close() != CallbackCancellation.Complete) { Console.fatal("Native application destroyed before subtree cleanup completed"); } }
+}

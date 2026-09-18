@@ -1,0 +1,190 @@
+import Library.Callback;
+import Library.Console;
+import Library.Math;
+import Library.App;
+import Library.Image;
+import Library.GUI.IGPUView;
+import Library.GUI.IView;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxPainter;
+import Library.GPU.Device;
+import Library.GPU.OffscreenTarget;
+import Library.GPU.SurfaceRenderer;
+import Library.GPU.Program;
+import Library.GPU.Readback;
+import Library.GPU.WebGPU;
+
+/* A GPU child rendered into an offscreen target on the window's device and
+ * composited by the window's painter. The device belongs to the window, so
+ * poll() reports not-ready until the view is attached under a ready window.
+ * Programs and readbacks are tracked here so teardown drains them. */
+class LinuxGPUView implements IGPUView, ILinuxView {
+	private LinuxViewNode _node;
+	private GPUOffscreenTarget? _target = null;
+	private GPUSurfaceRenderer? _renderer = null;
+	private LinuxTexture? _sampled = null;
+	private unsigned long long _sampledGeneration = 0ULL;
+	private CallbackScope _work = CallbackScope();
+	private bool _capture;
+	private bool _captureRequestPending = false;
+	private bool _closing = false;
+	private bool _closeFailed = false;
+	private string _error = "";
+
+	public LinuxGPUView(LinuxContext context, bool capture) { self._node = LinuxViewNode(context); self._capture = capture; }
+
+	public LinuxViewNode node() { return self._node; }
+
+	public void attachTo(LinuxViewHost? host) {
+		if (host == null) { self._sampled = null; }
+		self._node.setHost(host);
+	}
+
+	private double scale() { var host = self._node.host; return host == null ? self._node.context.fonts.scale() : host.scale; }
+
+	private bool exposed() {
+		if (!self._node.visible) { return false; }
+		var host = self._node.host;
+		return host != null;
+	}
+
+	public void paint(LinuxPainter painter, double x, double y) {
+		var target = self._target;
+		var renderer = self._renderer;
+		if (target == null || renderer == null || !target.hasTexture() || renderer.presentedCount() == 0ULL) { return; }
+		var sampled = self._sampled;
+		if (sampled == null || self._sampledGeneration != target.generation()) {
+			sampled = painter.borrowTexture(target.nativeView(), target.width(), target.height());
+			self._sampled = sampled;
+			self._sampledGeneration = target.generation();
+		}
+		painter.texture(sampled, x, y, self._node.width, self._node.height, RGBA(255, 255, 255, 255));
+	}
+
+	public void paintOverlay(LinuxPainter painter, double x, double y) {}
+
+	public bool pointer(AppPointerEvent event) { return false; }
+
+	public bool scroll(AppScrollEvent event) { return false; }
+
+	public bool key(AppKeyboardEvent event) { return false; }
+
+	public void textInput(string value) {}
+
+	public void focus(bool focused) {}
+
+	private void requireOpen() { if (self._closing || self._node.closed) { throw "GPU view is closing or closed"; } }
+
+	public bool isOpen() { return !self._closing && self._node.isOpen(); }
+
+	public double fittingWidth() { self.requireOpen(); return 0.0; }
+
+	public double fittingHeight() { self.requireOpen(); return 0.0; }
+
+	public void arrange(double x, double y, double width, double height) { self.requireOpen(); self._node.arrange(x, y, width, height); }
+
+	public bool isVisible() { self.requireOpen(); return self._node.visible; }
+
+	public void setVisible(bool visible) { self.requireOpen(); self._node.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { self.requireOpen(); return self._node.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { self.requireOpen(); return self._node.onScroll(handler, owner); }
+
+	public double backingScale() { self.requireOpen(); return self.scale(); }
+
+	public int pixelWidth() { self.requireOpen(); return (int)Math.ceilDouble(self._node.width * self.scale()); }
+
+	public int pixelHeight() { self.requireOpen(); return (int)Math.ceilDouble(self._node.height * self.scale()); }
+
+	public string error() { return self._error; }
+
+	public bool poll() {
+		self.requireOpen();
+		if (!self._error.isEmpty()) { return false; }
+		self._work.pollCompletion();
+		var host = self._node.host;
+		if (host == null || !host.deviceReady()) { return false; }
+		var device = host.device;
+		if (device == null) { return false; }
+		try {
+			if (self._target == null) { self._target = GPUOffscreenTarget(device, host.format); }
+			var target = self._target;
+			if (target == null) { throw "GPU offscreen target construction returned no owner"; }
+			if (self._renderer == null) {
+				var renderer = GPUSurfaceRenderer.offscreen(device, target, self._capture);
+				self._renderer = renderer;
+				if (self._captureRequestPending) { self._captureRequestPending = false; renderer.requestCapture(); }
+			}
+		} catch (string error) { self._error = error; return false; }
+		return true;
+	}
+
+	public GPUSurfaceRenderer frameRenderer() {
+		self.requireOpen();
+		var renderer = self._renderer;
+		if (renderer == null) { throw "GPU view is not ready"; }
+		return renderer;
+	}
+
+	public GPUFrameAvailability beginFrame(double red, double green, double blue, double alpha = 1.0) {
+		var renderer = self.frameRenderer();
+		bool visible = self.exposed();
+		renderer.resize(visible ? self.pixelWidth() : 0, visible ? self.pixelHeight() : 0);
+		self._node.invalidate();
+		return renderer.beginFrame(red, green, blue, alpha);
+	}
+
+	public GPUProgram createProgram(string source, int uniformFloatCount, bool textured = true, bool sourceOver = true, string vertexEntry = "vs_main", string fragmentEntry = "fs_main") {
+		var renderer = self.frameRenderer();
+		return GPUProgram.create(renderer.device(), renderer.nativeFormat(), source, uniformFloatCount, textured, sourceOver, vertexEntry, fragmentEntry, self._work);
+	}
+
+	public void requestCapture() {
+		self.requireOpen();
+		var renderer = self._renderer;
+		if (renderer == null) { self._captureRequestPending = true; return; }
+		renderer.requestCapture();
+	}
+
+	public GPUReadback readback(int maximumPixels = 16777216) { return GPUReadback.create(self.frameRenderer(), maximumPixels, self._work); }
+
+	public CallbackCancellation close() {
+		if (self._node.closed) { return CallbackCancellation.Complete; }
+		if (!self._closing) {
+			self._node.requireDetached();
+			self._closing = true;
+			try {
+				self._node.cancelInput();
+				var renderer = self._renderer;
+				if (renderer != null) { renderer.close(); }
+				self._work.cancel();
+			} catch (string error) { self._error = error; self._closeFailed = true; }
+		}
+		return self.pollClose();
+	}
+
+	public CallbackCancellation pollClose() {
+		if (self._node.closed) { return CallbackCancellation.Complete; }
+		if (!self._closing) { return CallbackCancellation.NotRequested; }
+		if (self._closeFailed) { return CallbackCancellation.Failed; }
+		try {
+			var work = self._work.pollCompletion();
+			if (work != CallbackCancellation.Complete) { return work; }
+			self._sampled = null;
+			self._renderer = null;
+			var target = self._target;
+			if (target != null) { target.close(); }
+			self._target = null;
+			var view = self._node.close();
+			if (view != CallbackCancellation.Complete) { return view; }
+		} catch (string error) { self._error = error; self._closeFailed = true; return CallbackCancellation.Failed; }
+		return CallbackCancellation.Complete;
+	}
+
+	public void __del__() {
+		if (self._node == null) { return; }
+		if (self.close() != CallbackCancellation.Complete) { Console.fatal("GPU view destroyed before native work drained"); }
+	}
+}

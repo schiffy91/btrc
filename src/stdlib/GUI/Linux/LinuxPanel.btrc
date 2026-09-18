@@ -1,0 +1,105 @@
+import Library.Callback;
+import Library.Console;
+import Library.Image;
+import Library.Math;
+import Library.Vector;
+import Library.App;
+import Library.GUI.IPanel;
+import Library.GUI.IView;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxContainer;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxPainter;
+
+/* A filled, optionally rounded container that also selects the theme its
+ * descendants draw with. Children clip to the rounded outline. */
+class LinuxPanel implements IPanel, ILinuxView {
+	private LinuxViewNode _node;
+	private RGBA _fill;
+	private double _radius;
+	private int _appearance = 0;
+
+	public LinuxPanel(LinuxContext context, RGBA fill, double radius) {
+		self._node = LinuxViewNode(context);
+		self._node.clipsChildren = true;
+		if (fill == null) { throw "Native panel fill is missing"; }
+		self._fill = fill;
+		self.setCornerRadius(radius);
+	}
+
+	public LinuxViewNode node() { return self._node; }
+
+	public void attachTo(LinuxViewHost? host) { self._node.setHost(host); }
+
+	public void paint(LinuxPainter painter, double x, double y) {
+		bool pushed = self._appearance != 0;
+		if (pushed) { painter.pushTheme(self._appearance == 2 ? self._node.context.darkTheme : self._node.context.lightTheme); }
+		painter.fillRect(x, y, self._node.width, self._node.height, self._fill, self._radius);
+		LinuxComposite.paintChildren(self._node, painter, x, y);
+		if (pushed) { painter.popTheme(); }
+	}
+
+	public void paintOverlay(LinuxPainter painter, double x, double y) {}
+
+	public bool pointer(AppPointerEvent event) { return false; }
+
+	public bool scroll(AppScrollEvent event) { return false; }
+
+	public bool key(AppKeyboardEvent event) { return false; }
+
+	public void textInput(string value) {}
+
+	public void focus(bool focused) {}
+
+	public bool isOpen() { return self._node.isOpen(); }
+
+	public double fittingWidth() { self._node.requireOpen(); return 0.0; }
+
+	public double fittingHeight() { self._node.requireOpen(); return 0.0; }
+
+	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); }
+
+	public bool isVisible() { self._node.requireOpen(); return self._node.visible; }
+
+	public void setVisible(bool visible) { self._node.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
+
+	public void attach(IView child) { self._node.attachChild(LinuxComposite.projection(child)); }
+
+	public IView detach(IView child) { return self._node.detachChild(LinuxComposite.projection(child)); }
+
+	public int childCount() { self._node.requireOpen(); return self._node.children.len; }
+
+	public IView childAt(int index) {
+		self._node.requireOpen();
+		if (index < 0 || index >= self._node.children.len) { throw "Container child index is out of bounds"; }
+		return self._node.children.get(index);
+	}
+
+	public void setFill(RGBA fill) {
+		self._node.requireOpen();
+		if (fill == null) { throw "Native panel fill is missing"; }
+		self._fill = fill;
+		self._node.invalidate();
+	}
+
+	public void setCornerRadius(double radius) {
+		self._node.requireOpen();
+		if (!Math.isFinite(radius) || radius < 0.0 || radius > 4096.0) { throw "Invalid native panel corner radius"; }
+		self._radius = radius;
+		self._node.invalidate();
+	}
+
+	public void setDarkAppearance(bool dark) { self._node.requireOpen(); self._appearance = dark ? 2 : 1; self._node.invalidate(); }
+
+	public void inheritAppearance() { self._node.requireOpen(); self._appearance = 0; self._node.invalidate(); }
+
+	public CallbackCancellation close() { return self._node.close(); }
+
+	public CallbackCancellation pollClose() { return self._node.pollClose(); }
+
+	public void __del__() { if (self._node != null && self.close() != CallbackCancellation.Complete) { Console.fatal("Native panel destroyed before subtree cleanup completed"); } }
+}

@@ -1,0 +1,144 @@
+import Library.Callback;
+import Library.Math;
+import Library.App;
+import Library.Image;
+import Library.GUI.IProgressIndicator;
+import Library.GUI.ILevelIndicator;
+import Library.GUI.IView;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxPainter;
+import Library.GUI.Linux.LinuxSymbols;
+import Library.GUI.Linux.SDL;
+
+/* An indeterminate spinner: a rotating arc redrawn while running. */
+class LinuxProgressIndicator implements IProgressIndicator, ILinuxView {
+	private LinuxViewNode _node;
+	private bool _running = false;
+
+	public LinuxProgressIndicator(LinuxContext context) { self._node = LinuxViewNode(context); }
+
+	public LinuxViewNode node() { return self._node; }
+
+	public void attachTo(LinuxViewHost? host) { self._node.setHost(host); }
+
+	public void paint(LinuxPainter painter, double x, double y) {
+		if (!self._running) { return; }
+		var theme = painter.theme();
+		double size = Math.minDouble(self._node.width, self._node.height);
+		double cx = x + self._node.width * 0.5;
+		double cy = y + self._node.height * 0.5;
+		double radius = Math.maxDouble(4.0, size * 0.4);
+		double phase = (double)(SDL_GetTicksNS() / 4000000ULL % 1000ULL) / 1000.0 * 6.283185307179586;
+		painter.strokeCircle(cx, cy, radius, RGBA(theme.text.red, theme.text.green, theme.text.blue, 40), Math.maxDouble(2.0, size * 0.12));
+		LinuxSymbols.arc(painter, cx, cy, radius, phase, phase + 1.9, Math.maxDouble(2.0, size * 0.12), theme.accent);
+		var host = self._node.host;
+		if (host != null) { host.requestWake(0.016); }
+	}
+
+	public void paintOverlay(LinuxPainter painter, double x, double y) {}
+
+	public bool pointer(AppPointerEvent event) { return false; }
+
+	public bool scroll(AppScrollEvent event) { return false; }
+
+	public bool key(AppKeyboardEvent event) { return false; }
+
+	public void textInput(string value) {}
+
+	public void focus(bool focused) {}
+
+	public bool isOpen() { return self._node.isOpen(); }
+
+	public double fittingWidth() { self._node.requireOpen(); return LinuxMetrics.spinnerSize(); }
+
+	public double fittingHeight() { self._node.requireOpen(); return LinuxMetrics.spinnerSize(); }
+
+	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); }
+
+	public bool isVisible() { self._node.requireOpen(); return self._node.visible; }
+
+	public void setVisible(bool visible) { self._node.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
+
+	public bool isRunning() { self._node.requireOpen(); return self._running; }
+
+	public void setRunning(bool running) { self._node.requireOpen(); if (running != self._running) { self._running = running; self._node.invalidate(); } }
+
+	public CallbackCancellation close() { return self._node.close(); }
+
+	public CallbackCancellation pollClose() { return self._node.pollClose(); }
+}
+
+/* A read-only capacity bar with warning and critical thresholds. */
+class LinuxLevelIndicator implements ILevelIndicator, ILinuxView {
+	private LinuxViewNode _node;
+	private double _warning;
+	private double _critical;
+	private double _value = 0.0;
+
+	public LinuxLevelIndicator(LinuxContext context, double warning, double critical) {
+		self._node = LinuxViewNode(context);
+		if (!Math.isFinite(warning) || !Math.isFinite(critical) || warning < 0.0 || critical > 1.0 || warning > critical) { throw "Invalid native level thresholds"; }
+		self._warning = warning;
+		self._critical = critical;
+	}
+
+	public LinuxViewNode node() { return self._node; }
+
+	public void attachTo(LinuxViewHost? host) { self._node.setHost(host); }
+
+	public void paint(LinuxPainter painter, double x, double y) {
+		var theme = painter.theme();
+		double height = Math.minDouble(self._node.height, 10.0);
+		double top = y + (self._node.height - height) * 0.5;
+		painter.fillRect(x, top, self._node.width, height, theme.track, height * 0.5);
+		RGBA color = self._value >= self._critical ? RGBA(220, 70, 70, 255) : (self._value >= self._warning ? RGBA(235, 180, 50, 255) : RGBA(80, 190, 110, 255));
+		painter.fillRect(x, top, self._node.width * self._value, height, color, height * 0.5);
+	}
+
+	public void paintOverlay(LinuxPainter painter, double x, double y) {}
+
+	public bool pointer(AppPointerEvent event) { return false; }
+
+	public bool scroll(AppScrollEvent event) { return false; }
+
+	public bool key(AppKeyboardEvent event) { return false; }
+
+	public void textInput(string value) {}
+
+	public void focus(bool focused) {}
+
+	public bool isOpen() { return self._node.isOpen(); }
+
+	public double fittingWidth() { self._node.requireOpen(); return LinuxMetrics.levelWidth(); }
+
+	public double fittingHeight() { self._node.requireOpen(); return LinuxMetrics.levelHeight(); }
+
+	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); }
+
+	public bool isVisible() { self._node.requireOpen(); return self._node.visible; }
+
+	public void setVisible(bool visible) { self._node.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
+
+	public void setValue(double value) {
+		self._node.requireOpen();
+		if (!Math.isFinite(value) || value < 0.0 || value > 1.0) { throw "Native level must be between zero and one"; }
+		if (value == self._value) { return; }
+		self._value = value;
+		self._node.invalidate();
+	}
+
+	public double value() { self._node.requireOpen(); return self._value; }
+
+	public CallbackCancellation close() { return self._node.close(); }
+
+	public CallbackCancellation pollClose() { return self._node.pollClose(); }
+}

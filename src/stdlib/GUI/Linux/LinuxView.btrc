@@ -1,0 +1,340 @@
+import Library.Callback;
+import Library.Math;
+import Library.Vector;
+import Library.App;
+import Library.GUI.IView;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxFonts;
+import Library.GUI.Linux.LinuxPainter;
+import Library.GUI.Linux.LinuxActionQueue;
+import Library.GUI.Linux.SDL;
+import Library.GPU.Device;
+import Library.GPU.WebGPU;
+
+/* Application-wide services every drawn view shares. Views retain it; it
+ * retains no view. */
+class LinuxContext {
+	public LinuxFonts fonts;
+	public LinuxInvalidation invalidation;
+	public LinuxIds ids;
+	public LinuxActionQueue actions;
+	public LinuxTheme darkTheme;
+	public LinuxTheme lightTheme;
+
+	public LinuxContext(int workCapacity) {
+		self.fonts = LinuxFonts();
+		self.invalidation = LinuxInvalidation();
+		self.ids = LinuxIds();
+		self.actions = LinuxActionQueue(workCapacity);
+		self.darkTheme = LinuxTheme.darkTheme();
+		self.lightTheme = LinuxTheme.lightTheme();
+	}
+}
+
+/* What an attached subtree learns from its window: the native window for
+ * text input, the device for GPU children, focus and the backing scale.
+ * Owned by the window, referenced by attached nodes, referencing no view. */
+class LinuxViewHost {
+	public SDL_Window* window;
+	public LinuxContext context;
+	public GPUDevice? device = null;
+	public WGPUTextureFormat format;
+	public double scale = 1.0;
+	public int focusedId = 0;
+	public int focusRequest = 0;
+	public bool textInputWanted = false;
+	public double textInputX = 0.0;
+	public double textInputY = 0.0;
+	public double textInputWidth = 0.0;
+	public double textInputHeight = 0.0;
+	public int cursorRequest = 0;
+	public int overlayId = 0;
+	public double width = 0.0;
+	public double height = 0.0;
+	public double wakeSeconds = -1.0;
+
+	public LinuxViewHost(SDL_Window* window, LinuxContext context) { self.window = window; self.context = context; }
+
+	/* Ask the window to repaint after at most `seconds`, for blinking or spinning. */
+	public void requestWake(double seconds) {
+		if (seconds < 0.0) { seconds = 0.0; }
+		if (self.wakeSeconds < 0.0 || seconds < self.wakeSeconds) { self.wakeSeconds = seconds; }
+	}
+
+	public bool deviceReady() { var device = self.device; return device != null && device.state() == GPU_DEVICE_READY; }
+
+	public void requestFocus(int id) { self.focusRequest = id; self.context.invalidation.mark(); }
+
+	public void requestTextInput(bool wanted, double x, double y, double width, double height) {
+		self.textInputWanted = wanted;
+		self.textInputX = x;
+		self.textInputY = y;
+		self.textInputWidth = width;
+		self.textInputHeight = height;
+	}
+}
+
+/* Where a pointer event lands inside one view: local coordinates plus the
+ * view's absolute origin, so capture can keep delivering after the pointer
+ * leaves the view. */
+class LinuxHit {
+	public ILinuxView view;
+	public double originX;
+	public double originY;
+
+	public LinuxHit(ILinuxView view, double originX, double originY) { self.view = view; self.originX = originX; self.originY = originY; }
+}
+
+/* Every drawn view: portable IView plus what the window needs to compose,
+ * paint and route input. Controls implement it over one LinuxViewNode. */
+interface ILinuxView extends IView {
+	LinuxViewNode node();
+	void attachTo(LinuxViewHost? host);
+	void paint(LinuxPainter painter, double x, double y);
+	void paintOverlay(LinuxPainter painter, double x, double y);
+	bool pointer(AppPointerEvent event);
+	bool scroll(AppScrollEvent event);
+	bool key(AppKeyboardEvent event);
+	void textInput(string value);
+	void focus(bool focused);
+}
+
+/* A focused control that hosts an input-method composition. */
+interface ILinuxTextTarget {
+	void textInputArea(LinuxViewHost host, double x, double y);
+}
+
+/* One consumer subscription to a view's pointer or scroll events. The view
+ * scope and the caller scope share its cancellation. Capture is per
+ * subscription: a consumed press keeps drags and the release. */
+class LinuxViewInput implements ICallbackRegistration {
+	private IViewPointerHandler? _pointer;
+	private IViewScrollHandler? _scroll;
+	private CallbackContext<LinuxViewInput, LinuxViewInput>? _context;
+	private bool _open = true;
+	public bool inside = false;
+	public AppPointerButton captured = APP_POINTER_BUTTON_NONE;
+
+	public LinuxViewInput(IViewPointerHandler? pointer, IViewScrollHandler? scroll) {
+		if ((pointer == null) == (scroll == null)) { throw "View input requires exactly one handler"; }
+		self._pointer = pointer;
+		self._scroll = scroll;
+	}
+
+	public bool handlesPointer() { return self._pointer != null; }
+
+	public bool handlesScroll() { return self._scroll != null; }
+
+	public void activate(CallbackScope viewOwner, CallbackScope owner) {
+		var context = new CallbackContext<LinuxViewInput, LinuxViewInput>(self, LinuxViewInput.unregister);
+		context.activate(viewOwner);
+		self._context = context;
+		try { owner.track(context); }
+		catch (string error) { context.abortActivation(); self._context = null; self._open = false; throw error; }
+		context.publish(self);
+	}
+
+	class bool unregister(LinuxViewInput input) { input._open = false; input.captured = APP_POINTER_BUTTON_NONE; input.inside = false; return true; }
+
+	private bool admitted() {
+		var context = self._context;
+		if (context == null || !self._open) { return false; }
+		var receiver = context.enter();
+		if (receiver == null) { return false; }
+		return true;
+	}
+
+	private void leave() { var context = self._context; if (context != null) { context.leave(); context.pollCompletion(); } }
+
+	public bool deliverPointer(AppPointerEvent event) {
+		var handler = self._pointer;
+		if (handler == null || !self.admitted()) { return false; }
+		bool consumed = false;
+		try { consumed = handler.pointer(event); }
+		finally { self.leave(); }
+		return consumed;
+	}
+
+	public bool deliverScroll(AppScrollEvent event) {
+		var handler = self._scroll;
+		if (handler == null || !self.admitted()) { return false; }
+		bool consumed = false;
+		try { consumed = handler.scroll(event); }
+		finally { self.leave(); }
+		return consumed;
+	}
+
+	/* Leave a captured or hovered state without a native event (detach, focus loss). */
+	public void cancelCapture(double x, double y) {
+		var button = self.captured;
+		self.captured = APP_POINTER_BUTTON_NONE;
+		if (button != APP_POINTER_BUTTON_NONE) { self.deliverPointer(AppPointerEvent(APP_POINTER_CANCELLED, button, x, y, AppKeyModifiers(false, false, false, false), 0)); }
+		if (self.inside) { self.inside = false; self.deliverPointer(AppPointerEvent(APP_POINTER_EXITED, APP_POINTER_BUTTON_NONE, x, y, AppKeyModifiers(false, false, false, false), 0)); }
+	}
+
+	public bool isOpen() { return self._open; }
+
+	public CallbackCancellation cancel() { var context = self._context; return context == null ? CallbackCancellation.Complete : context.cancel(); }
+
+	public CallbackCancellation pollCompletion() { var context = self._context; return context == null ? CallbackCancellation.Complete : context.pollCompletion(); }
+}
+
+/* Shared state of one drawn view: frame, visibility, attachment, host and
+ * input subscriptions. Containers also keep their children here so the
+ * window can traverse, hit-test and paint without control-specific code. */
+class LinuxViewNode {
+	public int id;
+	public LinuxContext context;
+	public double x = 0.0;
+	public double y = 0.0;
+	public double width = 0.0;
+	public double height = 0.0;
+	public bool visible = true;
+	public bool attached = false;
+	public bool closing = false;
+	public bool closed = false;
+	public LinuxViewHost? host = null;
+	public Vector<ILinuxView> children = [];
+	public double contentOffsetX = 0.0;
+	public double contentOffsetY = 0.0;
+	public bool clipsChildren = false;
+	public bool focusable = false;
+	private CallbackScope _input = CallbackScope();
+	private Vector<LinuxViewInput> _inputs = [];
+
+	public LinuxViewNode(LinuxContext context) {
+		self.context = context;
+		self.id = context.ids.next();
+	}
+
+	public void requireOpen() { if (self.closing || self.closed) { throw "Native view is closing or closed"; } }
+
+	public bool isOpen() { return !self.closing && !self.closed; }
+
+	public void invalidate() { self.context.invalidation.mark(); }
+
+	public void requireDetached() { if (self.attached) { throw "Detach the view from its container before closing it"; } }
+
+	public void arrange(double x, double y, double width, double height) {
+		self.requireOpen();
+		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid native view frame"; }
+		if (x == self.x && y == self.y && width == self.width && height == self.height) { return; }
+		self.x = x;
+		self.y = y;
+		self.width = width;
+		self.height = height;
+		self.invalidate();
+	}
+
+	public void setVisible(bool visible) {
+		self.requireOpen();
+		if (visible == self.visible) { return; }
+		self.visible = visible;
+		self.invalidate();
+	}
+
+	public bool isFocused() { var host = self.host; return host != null && host.focusedId == self.id; }
+
+	public void requestFocus() { var host = self.host; if (host != null) { host.requestFocus(self.id); } }
+
+	/* Attach a child subtree: lifecycle responsibility moves here. */
+	public void attachChild(ILinuxView child) {
+		self.requireOpen();
+		if (child == null) { throw "Cannot attach a missing view"; }
+		var childNode = child.node();
+		childNode.requireOpen();
+		if (childNode.attached) { throw "View already belongs to a container"; }
+		if (childNode == self || childNode.contains(self)) { throw "Native child is already attached or creates a cycle"; }
+		self.children.push(child);
+		childNode.attached = true;
+		child.attachTo(self.host);
+		self.invalidate();
+	}
+
+	private bool contains(LinuxViewNode node) {
+		for child in self.children { var childNode = child.node(); if (childNode == node || childNode.contains(node)) { return true; } }
+		return false;
+	}
+
+	public int childIndex(ILinuxView child) {
+		for (int index = 0; index < self.children.len; index++) { if (self.children.get(index) == child) { return index; } }
+		return -1;
+	}
+
+	public ILinuxView detachChild(ILinuxView child) {
+		self.requireOpen();
+		int index = self.childIndex(child);
+		if (index < 0) { throw "View does not belong to this container"; }
+		var childNode = child.node();
+		childNode.cancelPointerCapture();
+		self.children.remove(index);
+		childNode.attached = false;
+		child.attachTo(null);
+		self.invalidate();
+		return child;
+	}
+
+	public void setHost(LinuxViewHost? host) {
+		self.host = host;
+		for child in self.children { child.attachTo(host); }
+	}
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self.subscribe(handler, null, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self.subscribe(null, handler, owner); }
+
+	private ICallbackRegistration subscribe(IViewPointerHandler? pointer, IViewScrollHandler? scroll, CallbackScope owner) {
+		self.requireOpen();
+		self._input.pollCompletion();
+		for (int index = self._inputs.len - 1; index >= 0; index--) { if (!self._inputs.get(index).isOpen()) { self._inputs.remove(index); } }
+		var registration = LinuxViewInput(pointer, scroll);
+		registration.activate(self._input, owner);
+		self._inputs.push(registration);
+		return registration;
+	}
+
+	public Vector<LinuxViewInput> inputs() { return self._inputs; }
+
+	public void cancelPointerCapture() {
+		for input in self._inputs { if (input.isOpen()) { input.cancelCapture(0.0, 0.0); } }
+		for child in self.children { child.node().cancelPointerCapture(); }
+	}
+
+	public CallbackCancellation cancelInput() { return self._input.cancel(); }
+
+	/* Begin shutdown of this node and every attached child. */
+	public CallbackCancellation close() {
+		if (self.closed) { return CallbackCancellation.Complete; }
+		self.requireDetached();
+		if (!self.closing) {
+			self.closing = true;
+			self._input.cancel();
+			for child in self.children { var childNode = child.node(); childNode.attached = false; child.attachTo(null); }
+			self.invalidate();
+		}
+		return self.pollClose();
+	}
+
+	public CallbackCancellation pollClose() {
+		if (self.closed) { return CallbackCancellation.Complete; }
+		if (!self.closing) { return CallbackCancellation.NotRequested; }
+		var input = self._input.pollCompletion();
+		if (input != CallbackCancellation.Complete) { return input; }
+		CallbackCancellation result = CallbackCancellation.Complete;
+		for (int index = self.children.len - 1; index >= 0; index--) {
+			var child = self.children.get(index);
+			var state = child.isOpen() ? child.close() : child.pollClose();
+			if (state == CallbackCancellation.Complete) { self.children.remove(index); }
+			else if (state == CallbackCancellation.Failed) { result = state; }
+			else if (result != CallbackCancellation.Failed) {
+				if (state == CallbackCancellation.RetryableFailure) { result = state; }
+				else if (result != CallbackCancellation.RetryableFailure) { result = CallbackCancellation.Pending; }
+			}
+		}
+		if (result != CallbackCancellation.Complete) { return result; }
+		self._inputs.clear();
+		self.host = null;
+		self.closed = true;
+		return CallbackCancellation.Complete;
+	}
+}

@@ -1,2 +1,82 @@
-/* Placeholder while the Linux provider is assembled. */
-class GUIProvider {}
+import Library.Strings;
+import Library.Vector;
+import Library.Image;
+import Library.GUI.IView;
+import Library.GUI.IImageHandle;
+import Library.GUI.IDirectoryPicker;
+import Library.GUI.Capture;
+import Library.GUI.TextRun;
+import Library.GUI.Linux.SDL;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxWindow;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxImageView;
+import Library.GUI.Linux.LinuxDirectoryPicker;
+import Library.GUI.Linux.LinuxSystemText;
+
+/* Private package implementation for Linux. The static slot is the
+ * application owner, not a widget registry. */
+class GUIProvider {
+	class LinuxApplication? active = null;
+	class bool sdlReady = false;
+
+	class void initialize(int workCapacity) {
+		if (GUIProvider.active != null) { throw "GUI is already initialized"; }
+		if (workCapacity <= 0 || workCapacity > 65536) { throw "Application work capacity must be between 1 and 65536"; }
+		if (!GUIProvider.sdlReady) {
+			if (!SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS)) { throw "Cannot initialize native windowing: " + Strings.copy((char*)SDL_GetError()); }
+			GUIProvider.sdlReady = true;
+		}
+		GUIProvider.active = LinuxApplication(workCapacity);
+	}
+
+	class LinuxApplication application() {
+		var application = GUIProvider.active;
+		if (application == null) { throw "Initialize GUI before creating views or running work"; }
+		return application;
+	}
+
+	class IImageHandle createImageHandle(Image pixels, int maximumPixels) {
+		var application = GUIProvider.active;
+		if (application == null) { throw "Initialize GUI before creating image handles"; }
+		return LinuxImageHandle.create(application.context().ids, pixels, maximumPixels);
+	}
+
+	class DirectoryPickerOutcome chooseDirectory(DirectoryPickerRequest request) {
+		var application = GUIProvider.application();
+		var window = application.firstWindow();
+		return LinuxDirectoryPicker(window == null ? null : window.nativeWindow(), application).chooseDirectory(request);
+	}
+
+	class void rasterizeText(TextRasterization request) { LinuxSystemText.rasterize(GUIProvider.application().context().fonts, request); }
+
+	class Image rasterText(TextRun run) { return LinuxSystemText.raster(GUIProvider.application().context().fonts, run); }
+
+	/* The window already composites every GPU child, so the readback is the
+	 * composed capture; the caller's layers are accepted for API parity. */
+	class Image capture(IView root, Vector<GUICaptureLayer> layers) {
+		var application = GUIProvider.application();
+		var native = (ILinuxView?)root;
+		if (native == null) { throw "Capture root belongs to another GUI provider"; }
+		var window = application.windowOwning(native);
+		if (window == null) { throw "Capture root is not attached to a window"; }
+		if (!window.pollDevice()) { throw "Capture window has no GPU device yet"; }
+		var image = window.render(true);
+		if (image == null) { throw "Capture window produced no frame"; }
+		return image;
+	}
+
+	class void run() {
+		var application = GUIProvider.application();
+		if (application.isRunning()) { throw "GUI is already running"; }
+		try { application.run(); } finally { GUIProvider.close(); }
+	}
+
+	class CallbackCancellation close() {
+		var application = GUIProvider.active;
+		if (application == null) { return CallbackCancellation.Complete; }
+		var result = application.close();
+		if (result == CallbackCancellation.Complete) { GUIProvider.active = null; }
+		return result;
+	}
+}

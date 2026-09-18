@@ -2,6 +2,8 @@ import Library.GUI.MacOS.MacOSApplication;
 import Library.GUI.MacOS.MacOSGPUView;
 import Library.GUI.MacOS.MacOSComposedCapture;
 import Library.GUI.MacOS.MacOSSystemText;
+import Library.GUI.MacOS.MacOSImageHandle;
+import Library.GUI.IImageHandle;
 import Library.GUI.Capture;
 import Library.GUI.MacOS.MacOSDirectoryPicker;
 import Library.Image.MacOS.MacOSEncodedImageDecoder;
@@ -28,6 +30,9 @@ class GUIProvider {
 	}
 
 	class DirectoryPickerOutcome chooseDirectory(DirectoryPickerRequest request) { GUIProvider.application(); return MacOSDirectoryPicker().chooseDirectory(request); }
+
+	/* Conversion may run on a worker; it needs no initialized application. */
+	class IImageHandle createImageHandle(Image pixels, int maximumPixels) { return MacOSImageHandle.create(pixels, maximumPixels); }
 
 	class void rasterizeText(TextRasterization request) { GUIProvider.requireMainThread(); MacOSSystemText.rasterize(request); }
 

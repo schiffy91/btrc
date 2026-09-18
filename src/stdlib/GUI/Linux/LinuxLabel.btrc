@@ -1,0 +1,136 @@
+import Library.Callback;
+import Library.Math;
+import Library.Strings;
+import Library.Vector;
+import Library.App;
+import Library.Image;
+import Library.GUI.ILabel;
+import Library.GUI.IView;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxFonts;
+import Library.GUI.Linux.LinuxPainter;
+
+/* Greedy word wrapping over logical points using the shared font metrics. */
+class LinuxTextLines {
+	class Vector<string> wrap(LinuxFonts fonts, string text, double size, bool bold, double width) {
+		Vector<string> lines = [];
+		if (text.isEmpty()) { lines.push(""); return lines; }
+		for paragraph in Strings.split(text, "\n") {
+			if (width <= 0.0) { lines.push(paragraph); continue; }
+			string line = "";
+			for word in Strings.split(paragraph, " ") {
+				string candidate = line.isEmpty() ? word : line + " " + word;
+				if (!line.isEmpty() && fonts.textWidth(candidate, size, bold) > width) { lines.push(line); line = word; }
+				else { line = candidate; }
+			}
+			lines.push(line);
+		}
+		return lines;
+	}
+}
+
+class LinuxLabel implements ILabel, ILinuxView {
+	private LinuxViewNode _node;
+	private string _text;
+	private double _size = 13.0;
+	private bool _bold = false;
+	private bool _secondary = false;
+	private bool _centered = false;
+	private bool _wrapping = false;
+
+	public LinuxLabel(LinuxContext context, string text) { self._node = LinuxViewNode(context); self._text = text; }
+
+	public LinuxViewNode node() { return self._node; }
+
+	public void attachTo(LinuxViewHost? host) { self._node.setHost(host); }
+
+	private LinuxFonts fonts() { return self._node.context.fonts; }
+
+	public void paint(LinuxPainter painter, double x, double y) {
+		var theme = painter.theme();
+		var color = self._secondary ? theme.secondaryText : theme.text;
+		double lineHeight = painter.lineHeight(self._size, self._bold);
+		painter.pushClip(x, y, self._node.width, self._node.height);
+		if (self._wrapping) {
+			var lines = LinuxTextLines.wrap(self.fonts(), self._text, self._size, self._bold, self._node.width);
+			double top = y;
+			for line in lines {
+				double lineWidth = painter.textWidth(line, self._size, self._bold);
+				painter.text(line, self._centered ? x + (self._node.width - lineWidth) * 0.5 : x, top, self._size, self._bold, color);
+				top += lineHeight;
+			}
+		} else {
+			painter.textInBox(self._text, x, y, self._node.width, self._node.height, self._size, self._bold, color, self._centered ? 1 : 0);
+		}
+		painter.popClip();
+	}
+
+	public void paintOverlay(LinuxPainter painter, double x, double y) {}
+
+	public bool pointer(AppPointerEvent event) { return false; }
+
+	public bool scroll(AppScrollEvent event) { return false; }
+
+	public bool key(AppKeyboardEvent event) { return false; }
+
+	public void textInput(string value) {}
+
+	public void focus(bool focused) {}
+
+	public bool isOpen() { return self._node.isOpen(); }
+
+	public double fittingWidth() {
+		self._node.requireOpen();
+		double widest = 0.0;
+		for line in Strings.split(self._text, "\n") { widest = Math.maxDouble(widest, self.fonts().textWidth(line, self._size, self._bold)); }
+		return Math.ceilDouble(widest) + 4.0;
+	}
+
+	public double fittingHeight() {
+		self._node.requireOpen();
+		double lineHeight = self.fonts().lineHeight(self._size, self._bold);
+		int lines = 1;
+		if (self._wrapping) { lines = LinuxTextLines.wrap(self.fonts(), self._text, self._size, self._bold, self._node.width).len; }
+		else { lines = Strings.split(self._text, "\n").len; }
+		return Math.ceilDouble(lineHeight * (double)(lines < 1 ? 1 : lines)) + 2.0;
+	}
+
+	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); }
+
+	public bool isVisible() { self._node.requireOpen(); return self._node.visible; }
+
+	public void setVisible(bool visible) { self._node.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
+
+	public void setText(string text) {
+		self._node.requireOpen();
+		if (text == null) { throw "Native label text is missing"; }
+		if (self._text.equals(text)) { return; }
+		self._text = text;
+		self._node.invalidate();
+	}
+
+	public string text() { self._node.requireOpen(); return self._text; }
+
+	public void setFont(double size, bool bold = false) {
+		self._node.requireOpen();
+		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native label font size"; }
+		self._size = size;
+		self._bold = bold;
+		self._node.invalidate();
+	}
+
+	public void setSecondary(bool secondary) { self._node.requireOpen(); self._secondary = secondary; self._node.invalidate(); }
+
+	public void setCentered(bool centered) { self._node.requireOpen(); self._centered = centered; self._node.invalidate(); }
+
+	public void setWrapping(bool wrapping) { self._node.requireOpen(); self._wrapping = wrapping; self._node.invalidate(); }
+
+	public CallbackCancellation close() { return self._node.close(); }
+
+	public CallbackCancellation pollClose() { return self._node.pollClose(); }
+}

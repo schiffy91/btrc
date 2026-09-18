@@ -1,0 +1,691 @@
+import Library.Callback;
+import Library.Console;
+import Library.Datetime;
+import Library.Math;
+import Library.Strings;
+import Library.Vector;
+import Library.App;
+import Library.Image;
+import Library.GUI.IWindow;
+import Library.GUI.IView;
+import Library.GUI.Linux.SDL;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxContainer;
+import Library.GUI.Linux.LinuxGPUSurface;
+import Library.GUI.Linux.LinuxPainter;
+import Library.GPU.Device;
+import Library.GPU.SurfaceRenderer;
+import Library.GPU.Readback;
+
+/* One synchronous key subscription; the window and the caller's scope share
+ * its cancellation, so late cancellation never reaches a closed handler. */
+class LinuxWindowKeys implements ICallbackRegistration {
+	private IWindowKeyHandler? _handler;
+	private CallbackContext<LinuxWindowKeys, LinuxWindowKeys>? _context;
+	private bool _open = true;
+
+	public LinuxWindowKeys(IWindowKeyHandler handler) { self._handler = handler; }
+
+	public void activate(CallbackScope windowScope, CallbackScope owner) {
+		var context = new CallbackContext<LinuxWindowKeys, LinuxWindowKeys>(self, LinuxWindowKeys.unregister);
+		context.activate(windowScope);
+		self._context = context;
+		try { owner.track(context); }
+		catch (string error) { context.abortActivation(); self._context = null; self._open = false; throw error; }
+		context.publish(self);
+	}
+
+	class bool unregister(LinuxWindowKeys keys) { keys._open = false; keys._handler = null; return true; }
+
+	public bool deliver(AppKeyboardEvent event) {
+		var context = self._context;
+		var handler = self._handler;
+		if (context == null || handler == null || !self._open) { return false; }
+		if (context.enter() == null) { return false; }
+		bool consumed = false;
+		try { consumed = handler.key(event); }
+		finally { context.leave(); context.pollCompletion(); }
+		return consumed;
+	}
+
+	public bool isOpen() { return self._open; }
+
+	public CallbackCancellation cancel() { var context = self._context; return context == null ? CallbackCancellation.Complete : context.cancel(); }
+
+	public CallbackCancellation pollCompletion() { var context = self._context; return context == null ? CallbackCancellation.Complete : context.pollCompletion(); }
+}
+
+/* Translates SDL key and modifier codes into portable events. */
+class LinuxKeys {
+	class AppKeyCode keyCode(unsigned int key, unsigned int scancode) {
+		if (key == (unsigned int)SDLK_ESCAPE) { return APP_KEY_ESCAPE; }
+		if (key == (unsigned int)SDLK_RETURN || key == (unsigned int)SDLK_KP_ENTER) { return APP_KEY_ENTER; }
+		if (key == (unsigned int)SDLK_SPACE) { return APP_KEY_SPACE; }
+		if (key == (unsigned int)SDLK_LEFT) { return APP_KEY_LEFT; }
+		if (key == (unsigned int)SDLK_RIGHT) { return APP_KEY_RIGHT; }
+		if (key == (unsigned int)SDLK_UP) { return APP_KEY_UP; }
+		if (key == (unsigned int)SDLK_DOWN) { return APP_KEY_DOWN; }
+		if (key == (unsigned int)SDLK_TAB) { return APP_KEY_TAB; }
+		if (key == (unsigned int)SDLK_BACKSPACE) { return APP_KEY_BACKSPACE; }
+		if (key == (unsigned int)SDLK_DELETE) { return APP_KEY_DELETE; }
+		if (key == (unsigned int)SDLK_HOME) { return APP_KEY_HOME; }
+		if (key == (unsigned int)SDLK_END) { return APP_KEY_END; }
+		if (key == (unsigned int)SDLK_LSHIFT) { return APP_KEY_LEFT_SHIFT; }
+		if (key == (unsigned int)SDLK_RSHIFT) { return APP_KEY_RIGHT_SHIFT; }
+		if (key == (unsigned int)SDLK_LALT) { return APP_KEY_LEFT_ALT; }
+		if (key == (unsigned int)SDLK_RALT) { return APP_KEY_RIGHT_ALT; }
+		if (scancode == (unsigned int)SDL_SCANCODE_A) { return APP_KEY_A; }
+		if (scancode == (unsigned int)SDL_SCANCODE_D) { return APP_KEY_D; }
+		if (scancode == (unsigned int)SDL_SCANCODE_S) { return APP_KEY_S; }
+		if (scancode == (unsigned int)SDL_SCANCODE_W) { return APP_KEY_W; }
+		if (scancode == (unsigned int)SDL_SCANCODE_C) { return APP_KEY_C; }
+		if (scancode == (unsigned int)SDL_SCANCODE_V) { return APP_KEY_V; }
+		if (scancode == (unsigned int)SDL_SCANCODE_X) { return APP_KEY_X; }
+		if (scancode == (unsigned int)SDL_SCANCODE_Z) { return APP_KEY_Z; }
+		return APP_KEY_UNKNOWN;
+	}
+
+	class AppKeyModifiers modifiers(unsigned int mod) {
+		return AppKeyModifiers((mod & (unsigned int)SDL_KMOD_SHIFT) != 0u, (mod & (unsigned int)SDL_KMOD_CTRL) != 0u, (mod & (unsigned int)SDL_KMOD_ALT) != 0u, (mod & (unsigned int)SDL_KMOD_GUI) != 0u);
+	}
+
+	class AppPointerButton button(unsigned int button) {
+		if (button == 1u) { return APP_POINTER_BUTTON_PRIMARY; }
+		if (button == 3u) { return APP_POINTER_BUTTON_SECONDARY; }
+		if (button == 2u) { return APP_POINTER_BUTTON_MIDDLE; }
+		if (button == 4u) { return APP_POINTER_BUTTON_BACK; }
+		if (button == 5u) { return APP_POINTER_BUTTON_FORWARD; }
+		return APP_POINTER_BUTTON_OTHER;
+	}
+}
+
+/* An SDL window whose whole content is one WebGPU surface. The root view
+ * tree is painted by the window's painter, pointer input is routed by
+ * hit-testing that tree, and keyboard input goes to window subscriptions,
+ * then the focused control. Closing drains the subtree, then the GPU
+ * resources, then the native window, in that order. */
+class LinuxWindow implements IWindow {
+	private SDL_Window* _window;
+	private unsigned int _id = 0u;
+	private LinuxContext _context;
+	private LinuxViewHost _host;
+	private LinuxGPUSurface? _surface = null;
+	private GPUDevice? _device = null;
+	private GPUSurfaceRenderer? _renderer = null;
+	private LinuxPainter? _painter = null;
+	private ILinuxView? _root = null;
+	private CallbackScope _callbacks = CallbackScope();
+	private Vector<LinuxWindowKeys> _keys = [];
+	private string _title;
+	private bool _visible = false;
+	private bool _focused = false;
+	private bool _closeRequested = false;
+	private bool _closing = false;
+	private bool _closed = false;
+	private bool _rootClosing = false;
+	private bool _deviceClosing = false;
+	private string _closeFailure = "";
+	private unsigned long long _paintedRevision = 0ULL;
+	private double _pointerX = 0.0;
+	private double _pointerY = 0.0;
+	private AppKeyModifiers _modifiers = AppKeyModifiers(false, false, false, false);
+	private int _captureViewId = 0;
+	private int _captureInputViewId = 0;
+	private int _captureInputIndex = -1;
+	private AppPointerButton _captureButton = APP_POINTER_BUTTON_NONE;
+	private Vector<int> _hoveredViews = [];
+	private bool _pointerInside = false;
+	private bool _dark = true;
+
+	public LinuxWindow(LinuxContext context, string title, double width, double height) {
+		if (!Math.isFinite(width) || !Math.isFinite(height) || width <= 0.0 || height <= 0.0) { throw "Invalid window content size"; }
+		if (title == null) { throw "Native window title is missing"; }
+		self._context = context;
+		self._title = title;
+		self._window = SDL_CreateWindow(title, (int)Math.ceilDouble(width), (int)Math.ceilDouble(height), (unsigned long long)SDL_WINDOW_RESIZABLE | (unsigned long long)SDL_WINDOW_HIDDEN | (unsigned long long)SDL_WINDOW_HIGH_PIXEL_DENSITY);
+		if (self._window == null) { throw "Cannot create native window: " + Strings.copy((char*)SDL_GetError()); }
+		self._id = SDL_GetWindowID(self._window);
+		self._host = LinuxViewHost(self._window, context);
+		try {
+			var surface = LinuxGPUSurface(self._window);
+			self._surface = surface;
+			self._host.scale = surface.backingScale();
+			context.fonts.setScale(surface.backingScale());
+			self._device = GPUDevice(surface.nativeInstance(), surface.nativeSurface());
+			self._host.width = width;
+			self._host.height = height;
+		} catch (string error) { self.destroyNative(); throw error; }
+	}
+
+	public unsigned int nativeId() { return self._id; }
+
+	public LinuxViewHost host() { return self._host; }
+
+	public SDL_Window* nativeWindow() { self.requireOpen(); return self._window; }
+
+	public bool owns(int viewId) { return self.locate(viewId) != null; }
+
+	private void requireOpen() { if (self._window == null || self._closing || self._closed) { throw "Window shutdown has started"; } }
+
+	public bool isOpen() { return self._window != null && !self._closing && !self._closed; }
+
+	public bool closeRequested() { return self._closeRequested; }
+
+	public void requestNativeClose() { self._closeRequested = true; self._context.invalidation.mark(); }
+
+	/* Advance device creation; true once frames can render. */
+	public bool pollDevice() {
+		if (self._closing || self._closed) { return false; }
+		var device = self._device;
+		var surface = self._surface;
+		if (device == null || surface == null) { return false; }
+		if (self._renderer != null) { return true; }
+		var state = device.poll();
+		if (state == GPU_DEVICE_FAILED) { throw "GPU device unavailable for the native window: " + device.error(); }
+		if (state != GPU_DEVICE_READY) { return false; }
+		var renderer = GPUSurfaceRenderer(device, surface.nativeSurface(), false);
+		self._renderer = renderer;
+		self._painter = LinuxPainter(device, renderer.nativeFormat(), self._context.fonts, self._context.darkTheme);
+		self._host.device = device;
+		self._host.format = renderer.nativeFormat();
+		self._context.invalidation.mark();
+		return true;
+	}
+
+	public bool needsFrame() { return self._context.invalidation.revision() != self._paintedRevision; }
+
+	private RGBA background() { var theme = self._dark ? self._context.darkTheme : self._context.lightTheme; return theme.dark ? RGBA(30, 30, 33, 255) : RGBA(238, 238, 240, 255); }
+
+	/* Paint one frame; with capture the frame is read back instead of presented. */
+	public Image? render(bool capture) {
+		var renderer = self._renderer;
+		var painter = self._painter;
+		var surface = self._surface;
+		if (renderer == null || painter == null || surface == null || self._closing || self._closed || !self._visible) { return null; }
+		surface.refreshBackingSize();
+		double scale = surface.backingScale();
+		if (scale != self._host.scale) { self._host.scale = scale; self._context.fonts.setScale(scale); }
+		renderer.resize(surface.pixelWidth(), surface.pixelHeight());
+		if (capture) { renderer.requestCapture(); }
+		var background = self.background();
+		var availability = renderer.beginFrame((double)background.red / 255.0, (double)background.green / 255.0, (double)background.blue / 255.0, 1.0);
+		if (availability == GPU_SURFACE_FRAME_UNAVAILABLE) { throw "Cannot render native window: " + renderer.error(); }
+		if (availability != GPU_SURFACE_FRAME_READY) { return null; }
+		self._host.wakeSeconds = -1.0;
+		self._paintedRevision = self._context.invalidation.revision();
+		painter.setDefaultTheme(self._dark ? self._context.darkTheme : self._context.lightTheme);
+		painter.beginFrame(surface.pixelWidth(), surface.pixelHeight(), scale);
+		var root = self._root;
+		if (root != null && root.node().visible) { root.paint(painter, root.node().x, root.node().y); }
+		if (self._host.overlayId != 0) {
+			var overlay = self.locate(self._host.overlayId);
+			if (overlay != null) { overlay.view.paintOverlay(painter, overlay.originX, overlay.originY); }
+			else { self._host.overlayId = 0; }
+		}
+		painter.render(renderer);
+		if (!capture) { renderer.present(); return null; }
+		renderer.finishDrawing();
+		var readback = GPUReadback.create(renderer, 268435200, null);
+		if (!readback.submit()) { throw "Cannot submit native capture: " + readback.error(); }
+		var deadline = Timer();
+		deadline.start();
+		while (readback.poll() != GPU_READBACK_READY) {
+			if (readback.state() == GPU_READBACK_FAILED) { throw "Native capture failed: " + readback.error(); }
+			if (deadline.elapsedMillis() > 5000.0) { readback.close(); throw "Native capture timed out"; }
+			Timer.sleepMillis(1);
+		}
+		return readback.takeImage();
+	}
+
+	public double wakeSeconds() { return self._host.wakeSeconds; }
+
+	public void setDarkAppearance(bool dark) { self._dark = dark; self._context.invalidation.mark(); }
+
+	/* Find a view by identity with its absolute origin. */
+	private LinuxHit? locate(int id) {
+		var root = self._root;
+		if (root == null) { return null; }
+		return self.locateIn(root, root.node().x, root.node().y, id);
+	}
+
+	private LinuxHit? locateIn(ILinuxView view, double originX, double originY, int id) {
+		var node = view.node();
+		if (node.id == id) { return LinuxHit(view, originX, originY); }
+		for child in node.children {
+			var childNode = child.node();
+			var found = self.locateIn(child, originX + node.contentOffsetX + childNode.x, originY + node.contentOffsetY + childNode.y, id);
+			if (found != null) { return found; }
+		}
+		return null;
+	}
+
+	/* The visible views under a window point, root first. */
+	private Vector<LinuxHit> hitPath(double x, double y) {
+		Vector<LinuxHit> path = [];
+		var root = self._root;
+		if (root == null) { return path; }
+		var node = root.node();
+		if (!node.visible || x < node.x || y < node.y || x >= node.x + node.width || y >= node.y + node.height) { return path; }
+		ILinuxView current = root;
+		double originX = node.x;
+		double originY = node.y;
+		path.push(LinuxHit(current, originX, originY));
+		while (true) {
+			var currentNode = current.node();
+			ILinuxView? next = null;
+			double nextX = 0.0;
+			double nextY = 0.0;
+			if (currentNode.clipsChildren && (x < originX || y < originY || x >= originX + currentNode.width || y >= originY + currentNode.height)) { break; }
+			for (int index = currentNode.children.len - 1; index >= 0; index--) {
+				var child = currentNode.children.get(index);
+				var childNode = child.node();
+				if (!childNode.visible || !childNode.isOpen()) { continue; }
+				double childX = originX + currentNode.contentOffsetX + childNode.x;
+				double childY = originY + currentNode.contentOffsetY + childNode.y;
+				if (x >= childX && y >= childY && x < childX + childNode.width && y < childY + childNode.height) { next = child; nextX = childX; nextY = childY; break; }
+			}
+			if (next == null) { break; }
+			current = next;
+			originX = nextX;
+			originY = nextY;
+			path.push(LinuxHit(current, originX, originY));
+		}
+		return path;
+	}
+
+	private AppPointerEvent localEvent(AppPointerAction action, AppPointerButton button, int clicks, double originX, double originY) {
+		return AppPointerEvent(action, button, self._pointerX - originX, self._pointerY - originY, self._modifiers, clicks);
+	}
+
+	private bool onPath(Vector<LinuxHit> path, int id) {
+		for hit in path { if (hit.view.node().id == id) { return true; } }
+		return false;
+	}
+
+	/* Enter/exit bookkeeping for subscriptions and controls along the path. */
+	private void updateHover(Vector<LinuxHit> path) {
+		Vector<int> current = [];
+		for hit in path { current.push(hit.view.node().id); }
+		for (int index = self._hoveredViews.len - 1; index >= 0; index--) {
+			int id = self._hoveredViews.get(index);
+			if (current.contains(id)) { continue; }
+			var located = self.locate(id);
+			if (located != null) {
+				var event = self.localEvent(APP_POINTER_EXITED, APP_POINTER_BUTTON_NONE, 0, located.originX, located.originY);
+				for input in located.view.node().inputs() { if (input.inside) { input.inside = false; input.deliverPointer(event); } }
+				located.view.pointer(event);
+			}
+		}
+		for hit in path {
+			int id = hit.view.node().id;
+			if (self._hoveredViews.contains(id)) { continue; }
+			var event = self.localEvent(APP_POINTER_ENTERED, APP_POINTER_BUTTON_NONE, 0, hit.originX, hit.originY);
+			for input in hit.view.node().inputs() { if (input.handlesPointer() && input.isOpen()) { input.inside = true; input.deliverPointer(event); } }
+			hit.view.pointer(event);
+		}
+		self._hoveredViews = current;
+	}
+
+	private void clearHover() {
+		for (int index = self._hoveredViews.len - 1; index >= 0; index--) {
+			var located = self.locate(self._hoveredViews.get(index));
+			if (located == null) { continue; }
+			var event = self.localEvent(APP_POINTER_EXITED, APP_POINTER_BUTTON_NONE, 0, located.originX, located.originY);
+			for input in located.view.node().inputs() { if (input.inside) { input.inside = false; input.deliverPointer(event); } }
+			located.view.pointer(event);
+		}
+		self._hoveredViews.clear();
+	}
+
+	private void cancelCapture() {
+		if (self._captureInputViewId != 0) {
+			var located = self.locate(self._captureInputViewId);
+			if (located != null) {
+				var inputs = located.view.node().inputs();
+				if (self._captureInputIndex >= 0 && self._captureInputIndex < inputs.len) { inputs.get(self._captureInputIndex).cancelCapture(self._pointerX - located.originX, self._pointerY - located.originY); }
+			}
+		}
+		if (self._captureViewId != 0) {
+			var located = self.locate(self._captureViewId);
+			if (located != null) { located.view.pointer(self.localEvent(APP_POINTER_CANCELLED, self._captureButton, 0, located.originX, located.originY)); }
+		}
+		self._captureViewId = 0;
+		self._captureInputViewId = 0;
+		self._captureInputIndex = -1;
+		self._captureButton = APP_POINTER_BUTTON_NONE;
+	}
+
+	private void deliverPointer(AppPointerAction action, AppPointerButton button, int clicks) {
+		if (self._host.overlayId != 0) {
+			var overlay = self.locate(self._host.overlayId);
+			if (overlay != null && overlay.view.pointer(self.localEvent(action, button, clicks, overlay.originX, overlay.originY))) { self._context.invalidation.mark(); return; }
+		}
+		var path = self.hitPath(self._pointerX, self._pointerY);
+		bool captured = self._captureButton != APP_POINTER_BUTTON_NONE && (self._captureViewId != 0 || self._captureInputViewId != 0);
+		if (action == APP_POINTER_MOVED || (action == APP_POINTER_PRESSED && !captured)) { self.updateHover(path); }
+		if (captured && (action == APP_POINTER_DRAGGED || action == APP_POINTER_RELEASED)) {
+			bool releasing = action == APP_POINTER_RELEASED && button == self._captureButton;
+			if (self._captureInputViewId != 0) {
+				var located = self.locate(self._captureInputViewId);
+				if (located != null) {
+					var inputs = located.view.node().inputs();
+					if (self._captureInputIndex >= 0 && self._captureInputIndex < inputs.len) {
+						var input = inputs.get(self._captureInputIndex);
+						input.deliverPointer(self.localEvent(action, button, clicks, located.originX, located.originY));
+						if (releasing) { input.captured = APP_POINTER_BUTTON_NONE; }
+					}
+				}
+			} else if (self._captureViewId != 0) {
+				var located = self.locate(self._captureViewId);
+				if (located != null) { located.view.pointer(self.localEvent(action, button, clicks, located.originX, located.originY)); }
+			}
+			if (releasing) { self._captureViewId = 0; self._captureInputViewId = 0; self._captureInputIndex = -1; self._captureButton = APP_POINTER_BUTTON_NONE; self.updateHover(path); }
+			return;
+		}
+		for (int index = path.len - 1; index >= 0; index--) {
+			var hit = path.get(index);
+			var inputs = hit.view.node().inputs();
+			for (int inputIndex = 0; inputIndex < inputs.len; inputIndex++) {
+				var input = inputs.get(inputIndex);
+				if (!input.handlesPointer() || !input.isOpen()) { continue; }
+				if (input.deliverPointer(self.localEvent(action, button, clicks, hit.originX, hit.originY))) {
+					if (action == APP_POINTER_PRESSED && self._captureButton == APP_POINTER_BUTTON_NONE) { input.captured = button; self._captureInputViewId = hit.view.node().id; self._captureInputIndex = inputIndex; self._captureButton = button; }
+					return;
+				}
+			}
+		}
+		for (int index = path.len - 1; index >= 0; index--) {
+			var hit = path.get(index);
+			if (hit.view.pointer(self.localEvent(action, button, clicks, hit.originX, hit.originY))) {
+				if (action == APP_POINTER_PRESSED && self._captureButton == APP_POINTER_BUTTON_NONE) { self._captureViewId = hit.view.node().id; self._captureButton = button; }
+				return;
+			}
+		}
+	}
+
+	private void deliverScroll(double deltaX, double deltaY) {
+		var event = AppScrollEvent(deltaX, deltaY, 0.0, 0.0, false, APP_SCROLL_NONE, APP_SCROLL_NONE, self._modifiers);
+		if (self._host.overlayId != 0) {
+			var overlay = self.locate(self._host.overlayId);
+			if (overlay != null && overlay.view.scroll(event)) { return; }
+		}
+		var path = self.hitPath(self._pointerX, self._pointerY);
+		for (int index = path.len - 1; index >= 0; index--) {
+			var hit = path.get(index);
+			var local = AppScrollEvent(deltaX, deltaY, self._pointerX - hit.originX, self._pointerY - hit.originY, false, APP_SCROLL_NONE, APP_SCROLL_NONE, self._modifiers);
+			for input in hit.view.node().inputs() { if (input.handlesScroll() && input.isOpen() && input.deliverScroll(local)) { return; } }
+		}
+		for (int index = path.len - 1; index >= 0; index--) {
+			var hit = path.get(index);
+			if (hit.view.scroll(AppScrollEvent(deltaX, deltaY, self._pointerX - hit.originX, self._pointerY - hit.originY, false, APP_SCROLL_NONE, APP_SCROLL_NONE, self._modifiers))) { return; }
+		}
+	}
+
+	private void deliverKey(AppKeyboardEvent event) {
+		if (self._host.overlayId != 0) {
+			var overlay = self.locate(self._host.overlayId);
+			if (overlay != null && overlay.view.key(event)) { self._context.invalidation.mark(); return; }
+		}
+		for (int index = self._keys.len - 1; index >= 0; index--) {
+			var keys = self._keys.get(index);
+			if (!keys.isOpen()) { self._keys.remove(index); continue; }
+			if (keys.deliver(event)) { return; }
+		}
+		if (self._host.focusedId != 0) {
+			var focused = self.locate(self._host.focusedId);
+			if (focused != null) { focused.view.key(event); }
+		}
+	}
+
+	private void applyFocus() {
+		int request = self._host.focusRequest;
+		self._host.focusRequest = 0;
+		if (request == 0 || request == self._host.focusedId) { return; }
+		self.moveFocus(request);
+	}
+
+	private void moveFocus(int id) {
+		int previous = self._host.focusedId;
+		self._host.focusedId = id;
+		if (previous != 0) {
+			var old = self.locate(previous);
+			if (old != null) { old.view.focus(false); }
+		}
+		self._host.requestTextInput(false, 0.0, 0.0, 0.0, 0.0);
+		if (id != 0) {
+			var next = self.locate(id);
+			if (next != null) {
+				next.view.focus(true);
+				ILinuxTextTarget? field = (ILinuxTextTarget?)next.view;
+				if (field != null) { field.textInputArea(self._host, next.originX, next.originY); }
+			}
+		}
+		self.syncTextInput();
+		self._context.invalidation.mark();
+	}
+
+	private void syncTextInput() {
+		if (self._window == null) { return; }
+		if (self._host.textInputWanted) {
+			double scale = 1.0;
+			btrcSdlSetTextInputArea(self._window, (int)(self._host.textInputX * scale), (int)(self._host.textInputY * scale), (int)Math.maxDouble(1.0, self._host.textInputWidth * scale), (int)Math.maxDouble(1.0, self._host.textInputHeight * scale), 0);
+			if (!SDL_TextInputActive(self._window)) { SDL_StartTextInput(self._window); }
+		} else if (SDL_TextInputActive(self._window)) { SDL_StopTextInput(self._window); }
+	}
+
+	/* Route one flattened SDL event that names this window. */
+	public void dispatch(BtrcSdlEvent* event) {
+		if (self._window == null || self._closing || self._closed || event == null) { return; }
+		unsigned int type = event->type;
+		if (type == (unsigned int)SDL_EVENT_WINDOW_CLOSE_REQUESTED) { self._closeRequested = true; self._context.invalidation.mark(); return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_RESIZED || type == (unsigned int)SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED || type == (unsigned int)SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED || type == (unsigned int)SDL_EVENT_WINDOW_EXPOSED) {
+			self.layoutRoot();
+			self._context.invalidation.mark();
+			return;
+		}
+		if (type == (unsigned int)SDL_EVENT_WINDOW_FOCUS_GAINED) { self._focused = true; self._context.invalidation.mark(); return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_FOCUS_LOST) { self._focused = false; self.cancelCapture(); self._context.invalidation.mark(); return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_MOUSE_LEAVE) { self._pointerInside = false; if (self._captureButton == APP_POINTER_BUTTON_NONE) { self.clearHover(); } return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_MOUSE_ENTER) { self._pointerInside = true; return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_SHOWN) { self._visible = true; self._context.invalidation.mark(); return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_HIDDEN || type == (unsigned int)SDL_EVENT_WINDOW_MINIMIZED) { return; }
+		if (type == (unsigned int)SDL_EVENT_MOUSE_MOTION) {
+			self._pointerX = (double)event->x;
+			self._pointerY = (double)event->y;
+			self._modifiers = LinuxKeys.modifiers((unsigned int)SDL_GetModState());
+			bool dragging = self._captureButton != APP_POINTER_BUTTON_NONE && (self._captureViewId != 0 || self._captureInputViewId != 0);
+			self.deliverPointer(dragging ? APP_POINTER_DRAGGED : APP_POINTER_MOVED, dragging ? self._captureButton : APP_POINTER_BUTTON_NONE, 0);
+			return;
+		}
+		if (type == (unsigned int)SDL_EVENT_MOUSE_BUTTON_DOWN || type == (unsigned int)SDL_EVENT_MOUSE_BUTTON_UP) {
+			self._pointerX = (double)event->x;
+			self._pointerY = (double)event->y;
+			self._modifiers = LinuxKeys.modifiers((unsigned int)SDL_GetModState());
+			var button = LinuxKeys.button(event->button);
+			bool down = event->down != 0;
+			if (down && self._captureButton != APP_POINTER_BUTTON_NONE) { return; }
+			self.deliverPointer(down ? APP_POINTER_PRESSED : APP_POINTER_RELEASED, button, (int)event->clicks);
+			self.applyFocus();
+			return;
+		}
+		if (type == (unsigned int)SDL_EVENT_MOUSE_WHEEL) {
+			self._pointerX = (double)event->x;
+			self._pointerY = (double)event->y;
+			self.deliverScroll((double)event->wheelX, (double)event->wheelY);
+			return;
+		}
+		if (type == (unsigned int)SDL_EVENT_KEY_DOWN || type == (unsigned int)SDL_EVENT_KEY_UP) {
+			self._modifiers = LinuxKeys.modifiers(event->modifiers);
+			var code = LinuxKeys.keyCode(event->key, event->scancode);
+			AppKeyAction action = event->down != 0 ? (event->repeat != 0 ? APP_KEY_REPEATED : APP_KEY_PRESSED) : APP_KEY_RELEASED;
+			self.deliverKey(AppKeyboardEvent(action, code, self._modifiers));
+			self.applyFocus();
+			return;
+		}
+		if (type == (unsigned int)SDL_EVENT_TEXT_INPUT) {
+			if (event->text != null && self._host.focusedId != 0) {
+				var focused = self.locate(self._host.focusedId);
+				if (focused != null) { focused.view.textInput(Strings.copy((char*)event->text)); }
+			}
+			return;
+		}
+	}
+
+	/* Called by the application after dispatch so focus moves settle. */
+	public void settle() {
+		self.applyFocus();
+		if (self._host.focusedId != 0 && self.locate(self._host.focusedId) == null) { self.moveFocus(0); }
+		if (self._host.overlayId != 0 && self.locate(self._host.overlayId) == null) { self._host.overlayId = 0; }
+	}
+
+	private void layoutRoot() {
+		var root = self._root;
+		if (root == null || self._window == null) { return; }
+		int width = 0;
+		int height = 0;
+		SDL_GetWindowSize(self._window, &width, &height);
+		self._host.width = (double)width;
+		self._host.height = (double)height;
+		root.arrange(0.0, 0.0, (double)width, (double)height);
+	}
+
+	public string title() { self.requireOpen(); return self._title; }
+
+	public void setTitle(string title) {
+		self.requireOpen();
+		if (title == null) { throw "Native window title is missing"; }
+		self._title = title;
+		SDL_SetWindowTitle(self._window, title);
+	}
+
+	public double contentWidth() { self.requireOpen(); int width = 0; int height = 0; SDL_GetWindowSize(self._window, &width, &height); return (double)width; }
+
+	public double contentHeight() { self.requireOpen(); int width = 0; int height = 0; SDL_GetWindowSize(self._window, &width, &height); return (double)height; }
+
+	public void setContentSize(double width, double height) {
+		self.requireOpen();
+		if (!Math.isFinite(width) || !Math.isFinite(height) || width <= 0.0 || height <= 0.0) { throw "Invalid window content size"; }
+		SDL_SetWindowSize(self._window, (int)Math.ceilDouble(width), (int)Math.ceilDouble(height));
+		self._host.width = width;
+		self._host.height = height;
+		self.layoutRoot();
+	}
+
+	public void setMinimumContentSize(double width, double height) {
+		self.requireOpen();
+		if (!Math.isFinite(width) || !Math.isFinite(height) || width <= 0.0 || height <= 0.0) { throw "Invalid window content size"; }
+		SDL_SetWindowMinimumSize(self._window, (int)Math.ceilDouble(width), (int)Math.ceilDouble(height));
+	}
+
+	public IView? root() { return self._root; }
+
+	public void attachRoot(IView view) {
+		self.requireOpen();
+		if (self._root != null) { throw "Detach the existing window root before replacing it"; }
+		var native = LinuxComposite.projection(view);
+		var node = native.node();
+		node.requireOpen();
+		if (node.attached) { throw "View already belongs to a container"; }
+		node.attached = true;
+		self._root = native;
+		native.attachTo(self._host);
+		self.layoutRoot();
+		self._context.invalidation.mark();
+	}
+
+	public IView? detachRoot() {
+		self.requireOpen();
+		var root = self._root;
+		if (root == null) { return null; }
+		ILinuxView detaching = root;
+		self.cancelCapture();
+		self.clearHover();
+		if (self._host.focusedId != 0) { self.moveFocus(0); }
+		self._host.overlayId = 0;
+		detaching.node().attached = false;
+		detaching.attachTo(null);
+		self._root = null;
+		self._context.invalidation.mark();
+		return root;
+	}
+
+	public void show() { self.requireOpen(); SDL_ShowWindow(self._window); self._visible = true; self.layoutRoot(); self._context.invalidation.mark(); }
+
+	public void hide() { self.requireOpen(); SDL_HideWindow(self._window); self._visible = false; }
+
+	public bool isVisible() { return self.isOpen() && self._visible && btrcSdlWindowFlag(self._window, (unsigned long long)SDL_WINDOW_HIDDEN) == 0; }
+
+	public bool isFocused() { return self.isOpen() && self._focused; }
+
+	public void showAlert(string title, string message) {
+		self.requireOpen();
+		btrcSdlSimpleMessageBox(title, message, self._window);
+	}
+
+	public ICallbackRegistration onKey(IWindowKeyHandler handler, CallbackScope owner) {
+		self.requireOpen();
+		if (handler == null) { throw "Window key handler is required"; }
+		var keys = LinuxWindowKeys(handler);
+		keys.activate(self._callbacks, owner);
+		self._keys.push(keys);
+		return keys;
+	}
+
+	public CallbackCancellation close() {
+		if (self._closed) { return CallbackCancellation.Complete; }
+		if (self._closeFailure != "") { throw self._closeFailure; }
+		if (!self._closing) { self._closing = true; self._context.invalidation.mark(); }
+		return self.pollClose();
+	}
+
+	private void destroyNative() {
+		self._painter = null;
+		self._renderer = null;
+		self._device = null;
+		var surface = self._surface;
+		if (surface != null) { surface.close(); }
+		self._surface = null;
+		if (self._window != null) { SDL_DestroyWindow(self._window); self._window = null; }
+	}
+
+	public CallbackCancellation pollClose() {
+		if (self._closed) { return CallbackCancellation.Complete; }
+		if (!self._closing) { return CallbackCancellation.NotRequested; }
+		if (self._closeFailure != "") { throw self._closeFailure; }
+		CallbackCancellation result = CallbackCancellation.Complete;
+		try {
+			if (self._callbacks.cancel() != CallbackCancellation.Complete) { throw "Window callbacks must drain before shutdown"; }
+			self._keys.clear();
+			var root = self._root;
+			if (root != null) {
+				ILinuxView closingRoot = root;
+				if (!self._rootClosing) {
+					self.cancelCapture();
+					closingRoot.node().attached = false;
+					closingRoot.attachTo(null);
+					self._rootClosing = true;
+					result = closingRoot.close();
+				} else { result = closingRoot.pollClose(); }
+				if (result == CallbackCancellation.Complete) { self._root = null; }
+			}
+			if (result != CallbackCancellation.Complete) { return result; }
+			var painter = self._painter;
+			if (painter != null) { painter.close(); self._painter = null; }
+			var renderer = self._renderer;
+			if (renderer != null) { renderer.close(); self._renderer = null; }
+			var device = self._device;
+			if (device != null) {
+				if (!self._deviceClosing) { self._deviceClosing = true; device.close(); }
+				if (device.poll() != GPU_DEVICE_CLOSED) { return CallbackCancellation.Pending; }
+			}
+			self._device = null;
+			self._host.device = null;
+			self.destroyNative();
+			self._closed = true;
+		} catch (string error) { self._closeFailure = error; throw error; }
+		return CallbackCancellation.Complete;
+	}
+
+	public void __del__() { if (self._window != null && self.close() != CallbackCancellation.Complete) { Console.fatal("Native window destroyed before subtree cleanup completed"); } }
+}

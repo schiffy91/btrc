@@ -1,0 +1,159 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IButton;
+
+/* Stable BTRC identity for one button's action subscription. Each queued
+ * click snapshots its generation; cancellation or replacement invalidates
+ * older clicks without touching the ring. No path leads back to the scope. */
+class LinuxAction {
+	private LinuxActionMailbox _mailbox;
+	private int _generation = 0;
+	private bool _open = true;
+	private CallbackContext<IButtonAction, LinuxAction>? _handler;
+
+	public LinuxAction(LinuxActionMailbox mailbox) { self._mailbox = mailbox; }
+
+	public bool accepts(int generation) { return self._open && self._generation == generation; }
+
+	public bool hasReceiver() { return self._open && self._handler != null; }
+
+	/* Called by the button on a completed click. */
+	public void invoke() { if (self._open) { self._mailbox.enqueue(self, self._generation); } }
+
+	public ICallbackRegistration onAction(IButtonAction receiver, CallbackScope scope) {
+		if (!self._open) { throw "Native action is closed"; }
+		if (self._handler != null) { throw "Cancel the existing button action before replacing it"; }
+		self.discard();
+		var handler = new CallbackContext<IButtonAction, LinuxAction>(receiver, LinuxAction.unregisterHandler);
+		handler.activate(scope);
+		self._handler = handler;
+		handler.publish(self);
+		return handler;
+	}
+
+	class bool unregisterHandler(LinuxAction action) {
+		action.discard();
+		action._handler = null;
+		return true;
+	}
+
+	public void deliver() {
+		var handler = self._handler;
+		if (handler == null) { return; }
+		var receiver = handler.enter();
+		if (receiver == null) { return; }
+		try { receiver.invoke(); }
+		finally { handler.leave(); handler.pollCompletion(); }
+	}
+
+	public void discard() {
+		if (self._generation == 2147483647) { throw "Native action generation is exhausted"; }
+		self._generation++;
+		self._mailbox.prune();
+	}
+
+	public void close() {
+		self._open = false;
+		self._mailbox.prune();
+		if (self._handler != null) { self._handler.cancel(); }
+	}
+}
+
+/* Preallocated ordered click storage. Overflow is latched and reported by
+ * the consumer after dispatch, never by throwing inside input handling. */
+class LinuxActionMailbox {
+	private Vector<LinuxAction?> _pending = [];
+	private Vector<int> _generations = [];
+	private int _capacity;
+	private int _head = 0;
+	private int _count = 0;
+	private bool _overflow = false;
+
+	public LinuxActionMailbox(int capacity) {
+		if (capacity <= 0 || capacity > 65536) { throw "Native action capacity must be between 1 and 65536"; }
+		self._capacity = capacity;
+		for (int index = 0; index < capacity; index++) { self._pending.push(null); self._generations.push(0); }
+	}
+
+	public int pendingCount() { self.requireCapacity(); return self._count; }
+
+	private void requireCapacity() { if (self._overflow) { throw "Native action capacity exceeded; close this action queue before continuing"; } }
+
+	public void prune() {
+		int retained = 0;
+		for (int offset = 0; offset < self._count; offset++) {
+			int index = (self._head + offset) % self._capacity;
+			var action = self._pending.get(index);
+			int generation = self._generations.get(index);
+			self._pending.set(index, null);
+			if (action != null && action.accepts(generation)) {
+				int destination = (self._head + retained) % self._capacity;
+				self._pending.set(destination, action);
+				self._generations.set(destination, generation);
+				retained++;
+			}
+		}
+		self._count = retained;
+	}
+
+	public void enqueue(LinuxAction action, int generation) {
+		if (self._overflow) { return; }
+		if (self._count == self._capacity) { self.prune(); }
+		if (self._count == self._capacity) { self._overflow = true; return; }
+		int index = (self._head + self._count) % self._capacity;
+		self._pending.set(index, action);
+		self._generations.set(index, generation);
+		self._count++;
+	}
+
+	public LinuxAction? take() {
+		self.requireCapacity();
+		while (self._count > 0) {
+			var action = self._pending.get(self._head);
+			int generation = self._generations.get(self._head);
+			self._pending.set(self._head, null);
+			self._head = (self._head + 1) % self._capacity;
+			self._count--;
+			if (action != null && action.accepts(generation)) { return action; }
+		}
+		return null;
+	}
+}
+
+/* The application's click queue. Buttons bind one action each; dispatch runs
+ * on the UI thread after native events, in click order. */
+class LinuxActionQueue {
+	private LinuxActionMailbox _mailbox;
+	private int _bound = 0;
+	private bool _closed = false;
+
+	public LinuxActionQueue(int capacity = 256) { self._mailbox = LinuxActionMailbox(capacity); }
+
+	private void requireOpen() { if (self._closed) { throw "Native action queue is closed"; } }
+
+	public LinuxAction bind() {
+		self.requireOpen();
+		self._bound++;
+		return LinuxAction(self._mailbox);
+	}
+
+	public void unbind(LinuxAction action) {
+		self.requireOpen();
+		action.close();
+		self._bound--;
+	}
+
+	public int pendingCount() { self.requireOpen(); return self._mailbox.pendingCount(); }
+
+	public void dispatchOne() {
+		self.requireOpen();
+		var action = self._mailbox.take();
+		if (action != null) { action.deliver(); }
+	}
+
+	public void close() {
+		if (self._closed) { return; }
+		if (self._bound != 0) { throw "Close native controls before their action queue"; }
+		self._closed = true;
+	}
+}
