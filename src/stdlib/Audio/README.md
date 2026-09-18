@@ -51,5 +51,11 @@ buffer, then runs a worker thread that reads one capture period, calls the
 realtime program on the selected channels and writes one playback period in
 lock step; xruns are recovered in place and reported as discontinuities, and
 the worker asks for `SCHED_FIFO` when the system allows it. `suspend()` stops
-admission and signals the worker, `drain()` joins it, `close()` releases the
-handles. Windows remains unimplemented; do not add fake-success stubs.
+admission and signals the worker, `drain()` joins it, `close()` stops and
+releases the handles. A failed `snd_pcm_drop` keeps the handle, so the close is
+retryable; alsa-lib frees the handle whether or not `snd_pcm_close` succeeds,
+so that failure is indeterminate and the stream is never touched again, the
+same disposal contract the CoreAudio provider exposes. The fault suite
+(`src/tests/native/audio/linux/AlsaFaults.h`, `LinuxAudioFaults.btrc`) stands
+in for alsa-lib with one fake `default` PCM and drives every failure point
+without hardware. Windows remains unimplemented; do not add fake-success stubs.
