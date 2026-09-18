@@ -1,0 +1,36 @@
+/* A for-in over an inline list literal whose elements are interface-typed
+ * fields and locals: the inferred Vector<IPingable> instance must be emitted
+ * as a reference vector, the same as for class elements. */
+import Library.Vector;
+
+#include <assert.h>
+#include <stdio.h>
+
+int pings = 0;
+
+interface IPingable {
+	void ping();
+}
+
+class Pinger implements IPingable {
+	public void ping() { pings++; }
+}
+
+class Panel {
+	private IPingable _first = Pinger();
+	private IPingable _second = Pinger();
+
+	public void pingAll() { for target in [self._first, self._second] { target.ping(); target.ping(); } }
+}
+
+int main() {
+	var panel = Panel();
+	panel.pingAll();
+	assert(pings == 4);
+	IPingable local = Pinger();
+	IPingable other = Pinger();
+	for target in [local, other] { target.ping(); }
+	assert(pings == 6);
+	printf("PASS: test_forin_interface_list_literal\n");
+	return 0;
+}

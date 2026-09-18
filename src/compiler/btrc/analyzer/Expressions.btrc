@@ -685,7 +685,7 @@ class ExpressionTypeResolver {
 				Node? et = self.inferSpecializationType(node.elements.get(0), a, operators, varTypes);
 				if (et != null) {
 					Node elementType = et;
-					if ((a.isClass(et.base) || a.isGenericClass(et.base)) && et.pointerDepth == 0) {
+					if ((a.isClass(et.base) || a.isGenericClass(et.base) || a.isInterface(et.base)) && et.pointerDepth == 0) {
 						elementType = SemanticTypeSystem.classReference(et);
 					}
 					Node u = Node();

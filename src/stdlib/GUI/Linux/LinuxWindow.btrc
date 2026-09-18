@@ -206,7 +206,8 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		return true;
 	}
 
-	public bool needsFrame() { return self._context.invalidation.revision() != self._paintedRevision; }
+	/* Hidden windows present nothing, so they never keep the loop awake. */
+	public bool needsFrame() { return self._visible && self._context.invalidation.revision() != self._paintedRevision; }
 
 	private RGBA background() { var theme = self._dark ? self._context.darkTheme : self._context.lightTheme; return theme.dark ? RGBA(30, 30, 33, 255) : RGBA(238, 238, 240, 255); }
 
