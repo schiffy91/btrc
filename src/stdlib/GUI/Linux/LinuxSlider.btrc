@@ -19,7 +19,6 @@ class LinuxSlider implements ISlider, ILinuxView {
 	private bool _enabled = true;
 	private bool _dragging = false;
 	private bool _hovered = false;
-	private string _toolTip = "";
 
 	public LinuxSlider(LinuxContext context, double minimum, double maximum, int intervals) {
 		self._node = LinuxViewNode(context);
@@ -126,9 +125,9 @@ class LinuxSlider implements ISlider, ILinuxView {
 
 	public bool isEnabled() { self._node.requireOpen(); return self._enabled; }
 
-	public void setToolTip(string text) { self._node.requireOpen(); self._toolTip = text == null ? "" : text; }
+	public void setToolTip(string text) { self._node.requireOpen(); self._node.toolTip = text == null ? "" : text; }
 
-	public string toolTip() { self._node.requireOpen(); return self._toolTip; }
+	public string toolTip() { self._node.requireOpen(); return self._node.toolTip; }
 
 	public CallbackCancellation close() { return self._node.close(); }
 

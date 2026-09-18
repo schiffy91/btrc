@@ -27,6 +27,7 @@ class LinuxGrid implements IGrid, ILinuxView {
 	private Vector<bool> _rowHidden = [];
 	private Vector<double> _resolvedColumns = [];
 	private Vector<double> _resolvedRows = [];
+	private Vector<bool> _gridHidden = [];
 
 	public LinuxGrid(LinuxContext context, int columns, int rows, double columnSpacing, double rowSpacing) {
 		self._node = LinuxViewNode(context);
@@ -36,7 +37,7 @@ class LinuxGrid implements IGrid, ILinuxView {
 		self._rows = rows;
 		self._columnSpacing = columnSpacing;
 		self._rowSpacing = rowSpacing;
-		for (int index = 0; index < columns * rows; index++) { self._cells.push(null); }
+		for (int index = 0; index < columns * rows; index++) { self._cells.push(null); self._gridHidden.push(false); }
 		for (int column = 0; column < columns; column++) { self._columnWidths.push(-1.0); self._columnHidden.push(false); self._resolvedColumns.push(0.0); }
 		for (int row = 0; row < rows; row++) { self._rowHeights.push(-1.0); self._rowHidden.push(false); self._resolvedRows.push(0.0); }
 	}
@@ -130,16 +131,19 @@ class LinuxGrid implements IGrid, ILinuxView {
 					double height = Math.minDouble(rowHeight, cell.fittingHeight());
 					if (height <= 0.0) { height = rowHeight; }
 					cellNode.arrange(x, y + (rowHeight - height) * 0.5, columnWidth, height);
-					cellNode.setVisible(true);
+					int index = row * self._columns + column;
+					if (self._gridHidden.get(index)) { self._gridHidden.set(index, false); cellNode.setVisible(true); }
 				}
 				x += columnWidth + self._columnSpacing;
 			}
 			y += rowHeight + self._rowSpacing;
 		}
+		/* Hidden rows and columns hide their cells; a consumer's own visibility choice is left alone otherwise. */
 		for (int row = 0; row < self._rows; row++) {
 			for (int column = 0; column < self._columns; column++) {
-				var cell = self._cells.get(row * self._columns + column);
-				if (cell != null && (self._rowHidden.get(row) || self._columnHidden.get(column))) { cell.node().setVisible(false); }
+				int index = row * self._columns + column;
+				var cell = self._cells.get(index);
+				if (cell != null && (self._rowHidden.get(row) || self._columnHidden.get(column)) && cell.node().visible) { cell.node().setVisible(false); self._gridHidden.set(index, true); }
 			}
 		}
 	}
@@ -173,7 +177,7 @@ class LinuxGrid implements IGrid, ILinuxView {
 		var previous = self._cells.get(index);
 		if (previous == child) { return; }
 		ILinuxView? native = child == null ? null : LinuxComposite.projection(child);
-		if (previous != null) { self._node.detachChild(previous); self._cells.set(index, null); }
+		if (previous != null) { self._node.detachChild(previous); self._cells.set(index, null); self._gridHidden.set(index, false); }
 		if (native == null) { return; }
 		self._node.attachChild(native);
 		self._cells.set(index, native);

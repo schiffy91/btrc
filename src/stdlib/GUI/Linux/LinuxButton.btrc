@@ -26,7 +26,6 @@ class LinuxButton implements IButton, ILinuxView {
 	private bool _transparent = false;
 	private bool _bordered = true;
 	private string _symbol = "";
-	private string _toolTip = "";
 	private bool _hovered = false;
 	private bool _pressed = false;
 
@@ -163,9 +162,9 @@ class LinuxButton implements IButton, ILinuxView {
 		self._node.invalidate();
 	}
 
-	public void setToolTip(string text) { self._node.requireOpen(); self._toolTip = text == null ? "" : text; }
+	public void setToolTip(string text) { self._node.requireOpen(); self._node.toolTip = text == null ? "" : text; }
 
-	public string toolTip() { self._node.requireOpen(); return self._toolTip; }
+	public string toolTip() { self._node.requireOpen(); return self._node.toolTip; }
 
 	public void setSelected(bool selected) {
 		self._node.requireOpen();

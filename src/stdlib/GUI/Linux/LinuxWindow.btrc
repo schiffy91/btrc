@@ -143,6 +143,11 @@ class LinuxWindow implements ILinuxWindow {
 	private Vector<int> _hoveredViews = [];
 	private bool _pointerInside = false;
 	private bool _dark = true;
+	private int _hoverTopId = 0;
+	private unsigned long long _hoverStart = 0ULL;
+	private int _cursorKind = 0;
+	private SDL_Cursor* _textCursor = null;
+	private SDL_Cursor* _defaultCursor = null;
 
 	public LinuxWindow(LinuxContext context, string title, double width, double height) {
 		if (!Math.isFinite(width) || !Math.isFinite(height) || width <= 0.0 || height <= 0.0) { throw "Invalid window content size"; }
@@ -234,6 +239,7 @@ class LinuxWindow implements ILinuxWindow {
 			if (overlay != null) { overlay.view.paintOverlay(painter, overlay.originX, overlay.originY); }
 			else { self._host.overlayId = 0; }
 		}
+		self.paintToolTip(painter);
 		painter.render(renderer);
 		if (!capture) { renderer.present(); return null; }
 		renderer.finishDrawing();
@@ -336,6 +342,46 @@ class LinuxWindow implements ILinuxWindow {
 			hit.view.pointer(event);
 		}
 		self._hoveredViews = current;
+		int top = path.isEmpty() ? 0 : path.last().view.node().id;
+		if (top != self._hoverTopId) {
+			self._hoverTopId = top;
+			self._hoverStart = SDL_GetTicksNS();
+			self.applyCursor(path.isEmpty() ? 0 : path.last().view.node().cursor);
+			self._context.invalidation.mark();
+		}
+	}
+
+	private void applyCursor(int kind) {
+		if (kind == self._cursorKind || self._window == null) { return; }
+		self._cursorKind = kind;
+		if (kind == 1) {
+			if (self._textCursor == null) { self._textCursor = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_TEXT); }
+			if (self._textCursor != null) { SDL_SetCursor(self._textCursor); }
+		} else {
+			if (self._defaultCursor == null) { self._defaultCursor = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT); }
+			if (self._defaultCursor != null) { SDL_SetCursor(self._defaultCursor); }
+		}
+	}
+
+	/* Hover help after the pointer rests on a control for a moment. */
+	private void paintToolTip(LinuxPainter painter) {
+		if (self._hoverTopId == 0 || !self._pointerInside || self._captureButton != APP_POINTER_BUTTON_NONE) { return; }
+		var located = self.locate(self._hoverTopId);
+		if (located == null || located.view.node().toolTip.isEmpty()) { return; }
+		unsigned long long elapsed = (SDL_GetTicksNS() - self._hoverStart) / 1000000ULL;
+		if (elapsed < 700ULL) { self._host.requestWake((double)(700ULL - elapsed) / 1000.0); return; }
+		var theme = painter.theme();
+		string text = located.view.node().toolTip;
+		double size = LinuxMetrics.defaultFontSize() - 1.0;
+		double width = painter.textWidth(text, size, false) + 16.0;
+		double height = painter.lineHeight(size, false) + 10.0;
+		double x = Math.minDouble(Math.maxDouble(0.0, self._pointerX + 12.0), Math.maxDouble(0.0, self._host.width - width));
+		double y = self._pointerY + 20.0;
+		if (y + height > self._host.height) { y = Math.maxDouble(0.0, self._pointerY - height - 8.0); }
+		painter.fillRect(x + 1.0, y + 2.0, width, height, theme.shadow, 5.0);
+		painter.fillRect(x, y, width, height, theme.popupFill, 5.0);
+		painter.strokeRect(x, y, width, height, theme.controlBorder, 5.0, 1.0);
+		painter.textInBox(text, x + 8.0, y, width - 16.0, height, size, false, theme.text, 0);
 	}
 
 	private void clearHover() {
@@ -347,6 +393,8 @@ class LinuxWindow implements ILinuxWindow {
 			located.view.pointer(event);
 		}
 		self._hoveredViews.clear();
+		self._hoverTopId = 0;
+		self.applyCursor(0);
 	}
 
 	private void forgetCapture() {
@@ -665,6 +713,8 @@ class LinuxWindow implements ILinuxWindow {
 		var surface = self._surface;
 		if (surface != null) { surface.close(); }
 		self._surface = null;
+		if (self._textCursor != null) { SDL_DestroyCursor(self._textCursor); self._textCursor = null; }
+		if (self._defaultCursor != null) { SDL_DestroyCursor(self._defaultCursor); self._defaultCursor = null; }
 		if (self._window != null) { SDL_DestroyWindow(self._window); self._window = null; }
 	}
 

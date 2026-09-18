@@ -199,6 +199,8 @@ class LinuxViewNode {
 	public double contentOffsetY = 0.0;
 	public bool clipsChildren = false;
 	public bool focusable = false;
+	public string toolTip = "";
+	public int cursor = 0;
 	private CallbackScope _input = CallbackScope();
 	private Vector<LinuxViewInput> _inputs = [];
 

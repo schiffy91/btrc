@@ -32,6 +32,7 @@ class LinuxTextField implements ITextField, ILinuxView, ILinuxTextTarget {
 	public LinuxTextField(LinuxContext context, string text, string placeholder) {
 		self._node = LinuxViewNode(context);
 		self._node.focusable = true;
+		self._node.cursor = 1;
 		if (text == null || placeholder == null) { throw "Native text field text is missing"; }
 		self._text = text;
 		self._placeholder = placeholder;
