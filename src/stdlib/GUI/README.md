@@ -428,10 +428,12 @@ backing scale, so measurement and drawing agree at fractional scales.
   window `onKey` handlers, then the focused control; SDL text input reaches
   the focused text field, which owns caret, selection and clipboard editing.
 - `IGPUView` renders into a `GPUOffscreenTarget` on the window's device and
-  is composited by the window frame, so `poll()` reports not-ready until the
-  view sits under a ready window. `GUI.capture` reads the whole window back;
-  the layers argument is accepted for parity because the frame already
-  composes every GPU child.
+  is composited by the window frame; `poll()` asks the window to advance its
+  device request, so a child polled before the first loop turn still becomes
+  ready. `GUI.capture` paints the whole window into an offscreen target and
+  reads it back, so a window captures before it is shown and presentation is
+  never reconfigured; the layers argument is accepted for parity because the
+  frame already composes every GPU child.
 - `ISelect` opens a window overlay that receives pointer and keyboard input
   first; `IWindow.showAlert` is SDL's message box; `GUI.chooseDirectory` is
   the desktop folder dialog (portal or zenity) pumped like a modal.
