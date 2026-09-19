@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -23,7 +24,7 @@ def _compile_reference(tmp_path: Path, fixture: Path) -> tuple[subprocess.Comple
     generated = tmp_path / f"python-{fixture.stem}.c"
     result = subprocess.run(
         [
-            "python3",
+            sys.executable,
             "-m",
             "src.compiler.python.main",
             str(fixture),

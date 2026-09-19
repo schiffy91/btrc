@@ -7,6 +7,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -28,7 +29,7 @@ def _selfhost(compiler: Path, program: Path, *, timeout: int = 120):
 def _reference(program: Path, output: Path, *, timeout: int = 120):
     return subprocess.run(
         [
-            "python3",
+            sys.executable,
             "-m",
             "src.compiler.python.main",
             str(program),

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -135,7 +136,7 @@ def _compile_reference_with_stdlib(
     program.write_text(source)
     result = subprocess.run(
         [
-            "python3",
+            sys.executable,
             "-m",
             "src.compiler.python.main",
             str(program),

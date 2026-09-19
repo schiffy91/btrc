@@ -42,7 +42,11 @@ src/devex/lsp/.venv/
 .devcontainer/
 
 # Claude Code
-.claude/
+# Claude Code: local state stays private, but the session hook and the
+# project settings that register it are part of the repository.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
 
 # VS Code extension build artifacts
 /build/devex/vscode/

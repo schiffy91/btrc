@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from src.tests.btrc.test_mutex_value_contract import REPO, _strict_matrix
@@ -30,7 +31,7 @@ def compile_stdlib_pair(
     program.write_text(source)
     reference = subprocess.run(
         [
-            "python3",
+            sys.executable,
             "-m",
             "src.compiler.python.main",
             str(program),

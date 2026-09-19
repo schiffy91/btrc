@@ -6,6 +6,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -204,7 +205,7 @@ def test_valid_literal_tokens_remain_reference_identical(
     )
     reference = _run(
         [
-            "python3",
+            sys.executable,
             "-m",
             "src.compiler.python.main",
             str(program),
@@ -225,7 +226,7 @@ def test_selfhost_successful_lexer_reuse_is_idempotent(tmp_path: Path) -> None:
     binary = tmp_path / "lexer_reuse"
     transpile = _run(
         [
-            "python3",
+            sys.executable,
             "-m",
             "src.compiler.python.main",
             str(source),

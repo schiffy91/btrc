@@ -150,7 +150,7 @@ def compile_reference_source(tmp_path: Path, source: str, stem: str) -> tuple[su
     program.write_text(source)
     result = subprocess.run(
         [
-            "python3",
+            sys.executable,
             "-m",
             "src.compiler.python.main",
             str(program),

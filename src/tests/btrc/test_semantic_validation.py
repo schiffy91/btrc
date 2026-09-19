@@ -7,6 +7,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -64,7 +65,7 @@ def _compile_reference_source(
     generated = tmp_path / "reference.c"
     program.write_text(source)
     command = [
-        "python3",
+        sys.executable,
         "-m",
         "src.compiler.python.main",
         str(program),

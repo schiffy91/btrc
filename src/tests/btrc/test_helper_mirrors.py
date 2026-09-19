@@ -6,6 +6,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -55,7 +56,7 @@ def _reference_emit(tmp_path: Path, source: str) -> str:
     program.write_text(source)
     emitted = _run(
         [
-            "python3",
+            sys.executable,
             "-m",
             "src.compiler.python.main",
             "--no-stdlib",

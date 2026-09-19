@@ -88,7 +88,7 @@ def test_debug_build_preserves_the_compiler_strict_import_default(tmp_path):
 
     with pytest.raises(builder.BuildError, match=r"consumer\.btrc does not import it"):
         builder.ProgramBuilder(
-            ["python3", "-m", "src.compiler.python.main"],
+            [sys.executable, "-m", "src.compiler.python.main"],
             cwd=str(REPO),
         ).build(program)
 

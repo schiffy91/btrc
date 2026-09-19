@@ -6,6 +6,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -32,7 +33,7 @@ def _run(command: list[str], *, timeout: int = 120) -> subprocess.CompletedProce
 def _reference(program: Path, output: Path, *flags: str):
     return _run(
         [
-            "python3",
+            sys.executable,
             "-m",
             "src.compiler.python.main",
             *flags,
@@ -89,7 +90,7 @@ def test_relaxed_core_excludes_explicit_native_providers(semantic_btrcc: Path, t
     program.write_text("int main() { return 0; }\n")
     for command in (
         [str(semantic_btrcc)],
-        ["python3", "-m", "src.compiler.python.main", "--no-cache", "-o", str(tmp_path / "Main.c")],
+        [sys.executable, "-m", "src.compiler.python.main", "--no-cache", "-o", str(tmp_path / "Main.c")],
     ):
         result = _run([*command, "--relaxed-imports", str(program)])
         assert result.returncode == 0, result.stderr
@@ -381,7 +382,7 @@ def test_no_stdlib_still_resolves_explicit_include_and_import(
     reference_c = tmp_path / "reference.c"
     reference = _run(
         [
-            "python3",
+            sys.executable,
             "-m",
             "src.compiler.python.main",
             str(program),

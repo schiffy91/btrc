@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
@@ -37,7 +38,7 @@ def compile_pair(
     program.write_text(source)
     reference = subprocess.run(
         [
-            "python3",
+            sys.executable,
             "-m",
             "src.compiler.python.main",
             str(program),
