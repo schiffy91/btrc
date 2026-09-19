@@ -22,26 +22,29 @@ ADAPTER_COMMAND = [sys.executable, "-m", "src.devex.debug"]
 
 
 def _lldb_runtime_available() -> bool:
-    """lldb's binary can exist while its Python scripting bridge is unavailable
-    (e.g. an lldb built against a different Python than the one on PATH). The
-    adapter loads lldb via `lldb -P`, and macOS can separately require debugger
-    authorization before launching an inferior. Skip when either prerequisite
-    is missing, matching this module's "skips gracefully where the toolchain is
-    unavailable" contract."""
-    lldb = shutil.which("lldb")
-    if lldb is None:
+    """Whether the adapter can start on this host.
+
+    lldb's binary can exist while its Python bridge cannot be imported: a
+    distribution that ships lldb without its python3-lldb package, or an lldb
+    built against a different Python than any on PATH. Probing lldb's module
+    directory from this process proves nothing about the adapter, which is
+    launched as a fresh interpreter with its own search path; the only honest
+    probe is the adapter itself, launched exactly as these tests launch it,
+    answering initialize. macOS can separately require debugger authorization.
+    Skip when either is missing, matching this module's "skips gracefully
+    where the toolchain is unavailable" contract."""
+    if not LldbBootstrap().debugger_access_available():
         return False
+    proc = subprocess.Popen(
+        ADAPTER_COMMAND, cwd=REPO, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
     try:
-        scripting_available = subprocess.run([lldb, "-P"], capture_output=True).returncode == 0
-    except OSError:
-        return False
-    return scripting_available and LldbBootstrap().debugger_access_available()
+        response = DapClient(proc).request("initialize", {"adapterID": "btrc"}, timeout=30)
+    finally:
+        proc.kill()
+        proc.wait()
+    return bool(response and response.get("success"))
 
-
-pytestmark = pytest.mark.skipif(
-    not _lldb_runtime_available() or (shutil.which("cc") is None and shutil.which("gcc") is None),
-    reason="needs lldb (with Python scripting) and a C compiler",
-)
 
 PROGRAM = """\
 class Point { public int x; public int y;
@@ -113,6 +116,12 @@ class DapClient:
             return None
 
 
+# Evaluated at import: it launches the adapter, so it follows the client it uses.
+pytestmark = pytest.mark.skipif(
+    not _lldb_runtime_available() or (shutil.which("cc") is None and shutil.which("gcc") is None),
+    reason="needs lldb (with Python scripting) and a C compiler",
+)
+
 LOOP_PROGRAM = """\
 int main() {
   int sum = 0;
@@ -125,6 +134,22 @@ int main() {
 """
 
 
+def _initialize(proc, client):
+    """The initialize response, or a failure carrying the adapter's own stderr.
+
+    A dead adapter answers nothing, and indexing the resulting None would
+    report a TypeError that hides why it died.
+    """
+
+    response = client.request("initialize", {"adapterID": "btrc"})
+    if response is None:
+        proc.kill()
+        stderr = proc.stderr.read().decode(errors="replace")
+        pytest.fail(f"debug adapter did not answer initialize; its stderr:\n{stderr}")
+    assert response["success"]
+    return response
+
+
 def _spawn(tmp_path, program, name="prog", stop_on_entry=False):
     prog = tmp_path / f"{name}.btrc"
     prog.write_text(program)
@@ -132,7 +157,7 @@ def _spawn(tmp_path, program, name="prog", stop_on_entry=False):
         ADAPTER_COMMAND, cwd=REPO, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
     c = DapClient(proc)
-    assert c.request("initialize", {"adapterID": "btrc"})["success"]
+    _initialize(proc, c)
     c.wait_event("initialized")
     assert c.request(
         "launch",
@@ -207,7 +232,7 @@ def test_full_debug_session(tmp_path):
     )
     try:
         c = DapClient(proc)
-        assert c.request("initialize", {"adapterID": "btrc"})["success"]
+        _initialize(proc, c)
         assert c.wait_event("initialized") is not None
         launch = c.request(
             "launch",
