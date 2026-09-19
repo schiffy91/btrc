@@ -2282,9 +2282,16 @@ class DeclarationLowerer {
 			published = holder;
 		}
 		if (action) {
-			nativeBody.push(IRNode.expressionStatement(IRNode.objectiveCMessage(nativeReceiver, callback.actionSetter.selector, [IRNode.objectiveCSelector("btrcInvoke:")])));
-			nativeBody.push(IRNode.ifStatement(IRNode.binary(IRNode.objectiveCMessage(nativeReceiver, callback.actionGetter.selector, noArguments), "!=", IRNode.objectiveCSelector("btrcInvoke:")), IRNode.block([IRNode.returnStatement(IRNode.literal("4"))]), null));
-			nativeBody.push(IRNode.ifStatement(IRNode.binary(IRNode.objectiveCMessage(nativeReceiver, callback.slotGetter.selector, noArguments), "!=", holder), IRNode.block([IRNode.returnStatement(IRNode.literal("4"))]), null));
+			/* `action` only proves the setter; the resolver admits an action
+			 * projection with all three accessors, so bind them once and fail
+			 * closed rather than dereference the nullable fields. */
+			var actionSetter = callback.actionSetter;
+			var actionGetter = callback.actionGetter;
+			var slotGetter = callback.slotGetter;
+			if (actionSetter == null || actionGetter == null || slotGetter == null) { throw "action callback requires its action setter, action getter and slot getter"; }
+			nativeBody.push(IRNode.expressionStatement(IRNode.objectiveCMessage(nativeReceiver, actionSetter.selector, [IRNode.objectiveCSelector("btrcInvoke:")])));
+			nativeBody.push(IRNode.ifStatement(IRNode.binary(IRNode.objectiveCMessage(nativeReceiver, actionGetter.selector, noArguments), "!=", IRNode.objectiveCSelector("btrcInvoke:")), IRNode.block([IRNode.returnStatement(IRNode.literal("4"))]), null));
+			nativeBody.push(IRNode.ifStatement(IRNode.binary(IRNode.objectiveCMessage(nativeReceiver, slotGetter.selector, noArguments), "!=", holder), IRNode.block([IRNode.returnStatement(IRNode.literal("4"))]), null));
 		}
 		nativeBody.push(IRNode.assignment(IRNode.dereference(IRNode.variable("nativeResult")), IRNode.cast(nativeTokenC, published, "retain")));
 		nativeBody.push(IRNode.returnStatement(IRNode.literal("0")));
