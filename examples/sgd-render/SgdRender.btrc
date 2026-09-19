@@ -1,0 +1,208 @@
+/* Renders the GPU SGD example.
+ *
+ * The same @gpu kernel as examples/sgd, but every epoch is drawn to an
+ * offscreen surface and written out as a PPM frame, so the training run can be
+ * turned into the animation in the README. Runs headless: no window, no
+ * display. When no GPU adapter is present the compiler's CPU fallback runs the
+ * kernel instead, and the output is identical.
+ */
+import Library.Vector;
+
+#include <math.h>
+#include "GUI/Raster.btrc"
+
+/* One thread per weight: descend the gradient, with a little L2 pull. */
+@gpu float[] sgdUpdate(float[] weights, float[] gradients, float lr) {
+	int i = gpu_id();
+	float w = weights[i];
+	float g = gradients[i];
+	return w - lr * (g + 0.001 * w);
+}
+
+int POINTS = 40;
+int EPOCHS = 300;
+int CAPTURE_EVERY = 3;
+int WIDTH = 640;
+int HEIGHT = 400;
+
+/* Plot box for the data, in pixels. */
+int PLOT_LEFT = 56;
+int PLOT_RIGHT = 608;
+int PLOT_TOP = 56;
+int PLOT_BOTTOM = 272;
+
+class Palette {
+	class Color background() { return Color.rgb(18, 20, 26); }
+
+	class Color panel() { return Color.rgb(28, 31, 40); }
+
+	class Color axis() { return Color.rgb(70, 76, 92); }
+
+	class Color point() { return Color.rgb(96, 165, 250); }
+
+	class Color fit() { return Color.rgb(248, 113, 113); }
+
+	class Color loss() { return Color.rgb(74, 222, 128); }
+
+	class Color label() { return Color.rgb(226, 232, 240); }
+
+	class Color dim() { return Color.rgb(128, 137, 158); }
+}
+
+/* y = 2x + 3, with a deterministic wobble so the fit has something to do. */
+class Dataset {
+	public Vector<float> xs = [];
+	public Vector<float> ys = [];
+
+	public Dataset() {
+		for (int i = 0; i < POINTS; i++) {
+			float x = (float)i * 0.25f;
+			float wobble = (float)((i * 7919) % 17) * 0.06f - 0.5f;
+			self.xs.push(x);
+			self.ys.push(2.0f * x + 3.0f + wobble);
+		}
+	}
+}
+
+class Model {
+	public float slope = 0.0f;
+	public float intercept = 0.0f;
+
+	public float predict(float x) { return self.slope * x + self.intercept; }
+
+	public float loss(Dataset data) {
+		float total = 0.0f;
+		for (int i = 0; i < POINTS; i++) {
+			float error = self.predict(data.xs[i]) - data.ys[i];
+			total = total + error * error;
+		}
+		return total / (float)POINTS;
+	}
+
+	/* One epoch: mean-squared-error gradients on the CPU, the weight update on
+	 * the GPU. Two weights, so two GPU threads. */
+	public void step(Dataset data, float lr) {
+		float slopeGradient = 0.0f;
+		float interceptGradient = 0.0f;
+		for (int i = 0; i < POINTS; i++) {
+			float error = self.predict(data.xs[i]) - data.ys[i];
+			slopeGradient = slopeGradient + 2.0f * error * data.xs[i];
+			interceptGradient = interceptGradient + 2.0f * error;
+		}
+		slopeGradient = slopeGradient / (float)POINTS;
+		interceptGradient = interceptGradient / (float)POINTS;
+
+		float[] weights = [self.slope, self.intercept];
+		float[] gradients = [slopeGradient, interceptGradient];
+		weights = sgdUpdate(weights, gradients, lr);
+
+		self.slope = weights[0];
+		self.intercept = weights[1];
+	}
+}
+
+class Plot {
+	public Surface surface;
+
+	public Plot(Surface surface) { self.surface = surface; }
+
+	public int screenX(float x) { return PLOT_LEFT + (int)(x * 52.0f); }
+
+	public int screenY(float y) { return PLOT_BOTTOM - (int)(y * 8.4f); }
+
+	public void axes() {
+		self.surface.fillRect(PLOT_LEFT, PLOT_TOP, PLOT_RIGHT - PLOT_LEFT, PLOT_BOTTOM - PLOT_TOP, Palette.panel());
+		for (int gx = 0; gx <= 10; gx = gx + 2) {
+			int px = self.screenX((float)gx);
+			self.surface.fillRect(px, PLOT_TOP, 1, PLOT_BOTTOM - PLOT_TOP, Palette.axis());
+		}
+		for (int gy = 0; gy <= 25; gy = gy + 5) {
+			int py = self.screenY((float)gy);
+			if (py > PLOT_TOP) { self.surface.fillRect(PLOT_LEFT, py, PLOT_RIGHT - PLOT_LEFT, 1, Palette.axis()); }
+		}
+	}
+
+	public void points(Dataset data) {
+		for (int i = 0; i < POINTS; i++) {
+			int px = self.screenX(data.xs[i]);
+			int py = self.screenY(data.ys[i]);
+			self.surface.fillRect(px - 2, py - 2, 5, 5, Palette.point());
+		}
+	}
+
+	/* Sample the model across the plot and stamp a dot per column. */
+	public void fitLine(Model model) {
+		for (int px = PLOT_LEFT; px < PLOT_RIGHT; px++) {
+			float x = (float)(px - PLOT_LEFT) / 52.0f;
+			int py = self.screenY(model.predict(x));
+			if (py >= PLOT_TOP && py < PLOT_BOTTOM) { self.surface.fillRect(px, py - 1, 1, 3, Palette.fit()); }
+		}
+	}
+
+	public void lossCurve(Vector<float> history, int count, float worst) {
+		int base = 376;
+		int height = 72;
+		self.surface.text(PLOT_LEFT, base - height - 14, "loss", Palette.dim(), 1);
+		/* Log scale: a linear axis would flatten everything after the first
+		 * few epochs into one pixel. */
+		float top = logf(worst + 0.001f);
+		float floorValue = logf(0.01f);
+		for (int i = 0; i < count; i++) {
+			float scaled = (logf(history[i] + 0.001f) - floorValue) / (top - floorValue);
+			if (scaled < 0.0f) { scaled = 0.0f; }
+			if (scaled > 1.0f) { scaled = 1.0f; }
+			int bar = (int)(scaled * (float)height);
+			if (bar < 1) { bar = 1; }
+			int px = PLOT_LEFT + i * 5;
+			self.surface.fillRect(px, base - bar, 3, bar, Palette.loss());
+		}
+	}
+}
+
+string round2(float value) {
+	int scaled = (int)(value * 100.0f + (value < 0.0f ? -0.5f : 0.5f));
+	int whole = scaled / 100;
+	int fraction = scaled % 100;
+	if (fraction < 0) { fraction = -fraction; }
+	return f"{whole}.{fraction.toString().zfill(2)}";
+}
+
+int main() {
+	Surface surface = Surface(WIDTH, HEIGHT);
+	if (!surface.opened()) { print("Cannot open the offscreen surface"); return 1; }
+
+	Dataset data = Dataset();
+	Model model = Model();
+	Plot plot = Plot(surface);
+
+	Vector<float> history = [];
+	float worst = model.loss(data);
+
+	int frame = 0;
+	for (int epoch = 0; epoch < EPOCHS; epoch++) {
+		model.step(data, 0.025f);
+		if ((epoch + 1) % CAPTURE_EVERY != 0) { continue; }
+
+		float loss = model.loss(data);
+		history.push(loss);
+
+		surface.clear(Palette.background());
+		plot.axes();
+		plot.points(data);
+		plot.fitLine(model);
+		plot.lossCurve(history, frame + 1, worst);
+
+		surface.text(PLOT_LEFT, 20, "BTRC GPU SGD: Y = 2X + 3", Palette.label(), 2);
+		surface.text(PLOT_LEFT, 40, f"epoch {epoch + 1}/{EPOCHS}   slope {round2(model.slope)}   intercept {round2(model.intercept)}   loss {round2(loss)}", Palette.dim(), 1);
+
+		if (!surface.savePpm(f"frames/frame{frame.toString().zfill(3)}.ppm")) {
+			print("Cannot write the frame; is the frames/ directory present?");
+			return 1;
+		}
+		frame++;
+	}
+
+	print(f"slope {round2(model.slope)} intercept {round2(model.intercept)} loss {round2(model.loss(data))}");
+	print(f"wrote {frame} frames to frames/");
+	return 0;
+}

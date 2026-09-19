@@ -259,7 +259,11 @@ test-c11: generated-check gpu-required btrcc ## Strict C11: both compilers with 
 # `test-c11` cover. The self-host compiler is built once per shard (bin/btrcc)
 # and handed to every test through BTRC_TEST_BTRCC instead of being rebuilt
 # by each pytest session.
-SHARD_BTRCC := BTRC_TEST_BTRCC="$(abspath $(BTRCC_NATIVE))"
+# `env` because the shard recipes run this through $(NIX): `nix develop
+# --command` execs its arguments without a shell, so a bare VAR=value would
+# be taken as the program to run. With NIX= (CI in the devcontainer) env is
+# a harmless no-op.
+SHARD_BTRCC := env BTRC_TEST_BTRCC="$(abspath $(BTRCC_NATIVE))"
 
 test-shard-unit: generated-check gpu-required ## CI shard: everything but the self-host and corpus suites
 	$(NIX) $(PYTEST) src/tests/ \

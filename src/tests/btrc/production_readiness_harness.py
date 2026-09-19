@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -46,7 +47,7 @@ def compile_no_dce_pair(
     reference_c = tmp_path / f"{name}.reference.c"
     reference = subprocess.run(
         [
-            "python3",
+            sys.executable,
             "-m",
             "src.compiler.python.main",
             str(program),

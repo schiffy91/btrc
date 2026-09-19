@@ -6,6 +6,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -131,7 +132,7 @@ def test_valid_program_still_crosses_both_boundaries(selfhost_drivers: dict[str,
     assert parsed.returncode == 0 and parsed.stderr == ""
     reference = _run(
         [
-            "python3",
+            sys.executable,
             "-m",
             "tools.compiler_codegen.main",
             "verify-ast",
@@ -170,7 +171,7 @@ def test_keyword_member_names_match_reference_ast(selfhost_drivers: dict[str, Pa
     )
     program.write_text("void inspect() {\n" + "\n".join(members) + "\n}\n")
     parsed = _run([str(selfhost_drivers["parser"]), str(program)], timeout=15)
-    reference = _run(["python3", "-m", "tools.compiler_codegen.main", "verify-ast", str(program)], timeout=15)
+    reference = _run([sys.executable, "-m", "tools.compiler_codegen.main", "verify-ast", str(program)], timeout=15)
     assert parsed.returncode == 0, parsed.stderr
     assert reference.returncode == 0, reference.stderr
     assert parsed.stdout == reference.stdout

@@ -24,6 +24,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -61,7 +62,9 @@ def _absolute_path_flags(flags: list[str]) -> list[str]:
 
 CFLAGS = _absolute_path_flags(CFLAGS)
 LDLIBS = shlex.split(os.environ.get("BTRC_LDLIBS", "-lm" if os.name == "nt" else "-lm -lpthread"))
-PYTHON = shlex.split(os.environ.get("BTRC_PYTHON", "python" if os.name == "nt" else "python3"))
+# BTRC_PYTHON overrides the interpreter (Windows CI sets it); otherwise the
+# child compiler runs under the interpreter running this test.
+PYTHON = shlex.split(os.environ["BTRC_PYTHON"]) if "BTRC_PYTHON" in os.environ else [sys.executable]
 BOOTSTRAP_TIMEOUT = int(os.environ.get("BTRC_BOOTSTRAP_TIMEOUT_SECONDS", "1200"))
 EXE_SUFFIX = ".exe" if os.name == "nt" else ""
 COMPILER_ENTRYPOINT = os.path.join("cli", "WindowsMain.btrc") if os.name == "nt" else "BtrccMain.btrc"

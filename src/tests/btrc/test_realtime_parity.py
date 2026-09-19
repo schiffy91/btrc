@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,7 @@ REPO = Path(__file__).resolve().parents[3]
 def run_reference(source: Path, output: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
-            "python3",
+            sys.executable,
             "-m",
             "src.compiler.python.main",
             "--no-stdlib",

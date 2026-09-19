@@ -23,7 +23,7 @@ def _strict_build_and_run(
 ) -> None:
     source = tmp_path / f"{name}.c"
     binary = tmp_path / name
-    source.write_text(generated)
+    source.write_text(generated if generated.endswith("\n") else generated + "\n")
     compiled = subprocess.run(
         [
             c_compiler,
