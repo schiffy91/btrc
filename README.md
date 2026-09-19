@@ -163,45 +163,70 @@ rasterizes each epoch to an offscreen surface -- no window, no display server.
 
 ### Hardware-accelerated 3D
 
-A GPU view is an ordinary object you hand a shader and some uniforms. The game
-engine keeps its WGSL beside the btrc that feeds it, so the scene, the camera
-and the light are btrc values and the raymarcher is the shader they drive:
+A GPU view is an ordinary object you hand a shader and some uniforms. This is
+the note highway from [BTRSmith](https://github.com/schiffy91/btrsmith), a
+guitar-learning app written entirely in btrc: the song plays, the chart scrolls
+toward you, and every note is a lit, bevelled tile with its fret number:
+
+![BTRSmith's player: tablature, the 3D note highway and the fretboard, all drawn by btrc](docs/images/btrsmith-player.png)
+
+Each frame starts on the CPU as plain btrc values. The projection walks the
+authored arrangement against the transport clock, keeps the notes inside the
+look-ahead window, works out where the fretting hand should be, and hands the
+renderer one `Highway3DFrame`:
 
 ```
-string shaderSource = """
-    @group(0) @binding(0) var<uniform> u: Uniforms;
-
-    @fragment fn fs_main(in: VsOut) -> @location(0) vec4f {
-        // ...SDF raymarch of the ball, ground plane and sky...
-        return vec4f(col, 1.0);
-    }
-""";
-self._program = view.createProgram(shaderSource, U_COUNT, false, false);
-self._uniform = GPUUniformBuffer(view.frameRenderer().device(), U_COUNT);
+/* Highway3DProjection.btrc: one frame from the transport clock. */
+if (note.start().value() <= horizon && note.end().value() >= now) {
+    visible.push(Highway3DNote(index, note.stringIndex(), note.fret(),
+        note.start().value() - now,                              // frames until impact
+        note.end().value() > now ? note.end().value() - now : 0LL,  // sustain left
+        self.techniques(authored),
+        showFret=self._fretLabels.get(index), chordName=self._chordNames.at(index)));
+}
+// ...
+return Highway3DProjectionOutcome.ready(Highway3DFrame(clock.session(), clock.epoch(),
+    clock.deviceFrame(), TransportFrame(now), self._spec.lookAheadFrames,
+    self._timeline.stringCount(), visible, truncated, hand,
+    HighwayFretRange(firstFret, lastFret), impacts));
 ```
 
+The WGSL lives beside the btrc that feeds it, as a string the renderer compiles
+through `view.createProgram(...)`. This is the note material -- a curved,
+top-lit face with a dark lower bevel, lit by tile coordinates so the shading
+never depends on which string or beat a note belongs to:
+
 ```
-/* Per frame: follow the player, then push the scene into the uniform buffer. */
-self.camera.follow(player.position.x, player.position.y, player.position.z, 4.5, 5.5);
-self.camera.writeUniforms(self._uniform, U_CAMERA);
-self.light.writeUniforms(self._uniform, U_LIGHT);
-self._uniform.set(U_BALL + 0, player.position.x);
+fn noteMaterial(point: vec2f, noteColor: vec3f, outside: f32) -> vec3f {
+    let up = point.y * 0.5 + 0.5;
+    let dome = max(0.0, 1.0 - point.x * point.x * 0.4 - point.y * point.y * 0.35);
+    var shade = noteColor * (0.54 + 0.27 * up + 0.10 * dome);
+    let glaze = (smoothstep(-0.05, 0.16, point.y) - smoothstep(0.68, 0.94, point.y))
+        * 0.20 * (1.0 - 0.22 * point.x * point.x);
+    shade = mix(shade, vec3f(0.94, 0.97, 1.0), glaze);
+    shade *= 1.0 - 0.28 * (1.0 - smoothstep(-0.8, -0.5, point.y));
+    let rim = smoothstep(-3.1, -0.5, outside);
+    let rimLight = clamp(0.52 + 0.40 * point.y + 0.16 * abs(point.x), 0.0, 1.0);
+    let rimColor = mix(noteColor * 0.22 + vec3f(0.08), vec3f(0.96, 0.98, 1.0), rimLight);
+    return mix(shade, rimColor, rim);
+}
 ```
 
-![btrc 3D Ball Game](examples/game/game.gif)
-
-That is [`examples/game`](examples/game/) -- physics, shadows and SDF
-raymarching in about 760 lines of btrc across eleven engine modules. It runs in
-a real native window, driven by the application loop rather than a spin loop,
-so closing the window drains the GPU work and its callbacks in order.
+The GPU view renders into an offscreen target that the window composites with
+the native controls around it, so the tablature, transport and fretboard above
+are ordinary widgets and the highway is just another child. Closing the window
+drains the GPU work and its callbacks in order. For a self-contained example,
+[`examples/game`](examples/game/) is an SDF-raymarched ball game in about 760
+lines of btrc.
 
 ### Native UI
 
 There are two ways to put something on screen, and btrc ships both.
 
 **Real platform controls.** `GUI` creates an actual window with actual native
-widgets -- on macOS these are AppKit views, behind the portable `IWindow`,
-`IButton`, `ITextField` interfaces, so the program never names a platform:
+widgets -- AppKit views on macOS, controls btrc draws over SDL3 and WebGPU on
+Linux -- behind the portable `IWindow`, `IButton`, `ITextField` interfaces, so
+the program never names a platform:
 
 ```
 var window = GUI.createWindow("Native BTRC", 440.0, 180.0);
@@ -234,17 +259,47 @@ View build() {
 }
 ```
 
-Here is a small library browser built the second way -- a sidebar, a track list
-with a selection, and a transport bar whose progress meter is just a box whose
-width is the state:
+Here is the first way at full size: BTRSmith's library, 922 albums scanned
+from a Rocksmith DLC folder, with artwork decoded off the main thread and a
+recycled pool of native cells behind a scroll view:
 
-![A native UI built in btrc](examples/native-ui/ui.gif)
+![BTRSmith's library screen, built from btrc's native controls](docs/images/btrsmith-library.png)
 
-That is [`examples/native-ui`](examples/native-ui/). Because the toolkit
-rasterizes to an offscreen surface, the whole thing runs headless in CI and the
-animation above is the actual rendered output, not a mockup.
-[`examples/gui`](examples/gui/) has both paths side by side, and
-[`examples/tray`](examples/tray/) puts an app in the system tray.
+An album card is a handful of native controls that get rebound as the grid
+scrolls. Only what changed reaches the platform -- text, visibility and frames
+are compared before a setter is called, and artwork already decoded on a worker
+is presented as a handle rather than re-encoded:
+
+```
+/* AlbumGrid.btrc: bind one recycled card to an album. */
+public void bind(AlbumCellView cell, bool opensSection, AlbumLibraryNativeLayout layout,
+                 double x, double y, string unknownYear) {
+    string identity = cell.album.id().value();
+    bool hasArtwork = cell.artwork != null;
+    if (identity != self._identity || cell.artworkRevision != self._artworkRevision || hasArtwork != self._hasArtwork) {
+        if (cell.artworkHandle != null) { self._artwork.setImageHandle(cell.artworkHandle); }
+        else { self._artwork.setImage(cell.artwork); }
+        self._identity = identity;
+        self._artworkRevision = cell.artworkRevision;
+        self._hasArtwork = hasArtwork;
+    }
+    string artistText = cell.album.artist();
+    if (artistText != self._artistText) { self._artistText = artistText; self._artist.setText(artistText); }
+    string yearText = cell.album.year().isKnown() ? f"{cell.album.year().value()}" : unknownYear;
+    if (yearText != self._yearText) { self._yearText = yearText; self._year.setText(yearText); }
+    string statusText = hasArtwork ? "" : (cell.artworkLoading ? "Loading artwork…"
+        : (cell.artworkError.isEmpty() ? "No artwork" : f"Artwork unavailable: {cell.artworkError}"));
+    if (statusText != self._statusText) { self._statusText = statusText; self._artworkStatus.setText(statusText); }
+    // ...
+}
+```
+
+The cell's controls are created once (`GUI.createPanel`, `GUI.createImageView`,
+`GUI.createLabel`) and live in the card for the life of the grid; the same
+source produces the AppKit screen on macOS and the drawn screen above on Linux.
+[`examples/gui`](examples/gui/) has both toolkit paths side by side,
+[`examples/native-ui`](examples/native-ui/) is a small headless library browser,
+and [`examples/tray`](examples/tray/) puts an app in the system tray.
 
 ### Wrapping a C library
 
