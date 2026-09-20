@@ -463,6 +463,161 @@ makes per-thread node graphs cheap.
 
 ---
 
+## 6. C compatibility track (independent of the performance milestones)
+
+### Why, and how much
+
+btrc does not need C source inside `.btrc` files to use C: `#include "x.h"`
+pulls native declarations through the header reader, a `.c` file compiles
+and links through the package link plan (`src/tests/imports/ImportCSourceFile.btrc`),
+and every Linux provider (SDL, ALSA, FreeType, WebGPU) is imported that way.
+So the gaps below never block building software. They matter for two
+reasons: the README's "C, but better" reads as "C is a subset", and the
+first C habits a newcomer types (`int main(void)`, a braceless `if`,
+`int a, b;`) fail today; and C programmers write btrc with the same habits.
+The goal of this track is therefore **ordinary C11 parses as btrc, and the
+things btrc refuses are refused on purpose and documented**, not "rename
+`.c` to `.btrc` and it compiles".
+
+### What the probe found (2026-09-20, btrcpy, 100 one-construct programs)
+
+Method: one tiny C11 program per construct, compiled with
+`python3 -m src.compiler.python.main --no-cache --strict-imports --target linux-x86_64 P.btrc -o P.c`,
+then `cc -std=c11 P.c && ./a.out`; a construct "passes" when the binary
+exits 0. Regenerate the battery from the table below when adding to it;
+each program should end up as a corpus case (see C5).
+
+Passes today: pointers, pointer-to-pointer, pointer arithmetic (`p = p + 2`),
+arrays and decay, casts including `void*`, `static` functions and locals,
+`extern`, globals with initialisers, enums with values, function-like
+macros, `_Generic`, `do`/`while`, `switch` with fallthrough, nested struct
+initialisers, literal suffixes (`LL`, `UL`, `f`), hex, octal, escapes,
+`volatile`, `printf`, prototypes with named parameters,
+`int main(int argc, char** argv)`, assignment in a condition, `if (i)` on an int.
+
+| # | Construct | Symptom today | Class |
+| --- | --- | --- | --- |
+| 1 | `int f(void)`; unnamed prototype parameters `int f(int);` | "Expected parameter name" | parser gap |
+| 2 | braceless bodies after `if`/`else`/`for`/`while` | "Expected LBRACE" | parser gap |
+| 3 | multiple declarators `int a = 1, b = 2;`, `int x, y;` in structs | "Expected SEMICOLON, got COMMA" | parser gap |
+| 4 | `char s[] = "abc"`, `char s[4] = "abc"` | "requires an array initializer" | parser gap |
+| 5 | adjacent string literals `"a" "b"` | parse error | lexer gap |
+| 6 | empty statement `;` (`for (...);`) | "Expected LBRACE" | parser gap |
+| 7 | function-pointer declarators `int (*f)(int)`, `typedef int (*Op)(int,int)`, arrays of them, as parameters | parse error; btrc spells these `CFunction<...>` | parser gap (sugar) |
+| 8 | `typedef struct { } T;`, `typedef struct P { } P;`, anonymous struct/union members | "Expected struct name" / "Expected typedef alias" | parser gap |
+| 9 | `union U { };` as a declaration | only `union IDENT` as an interop base type (grammar line 30) | parser gap with an ownership rule |
+| 10 | designated initialisers `{.b = 2}`, `{[2] = 7}`; compound literals `(struct S){5}` | "Unexpected token" | parser + IR gap |
+| 11 | `goto` / labels | no syntax by design (grammar line 27) | parser + lowering rule |
+| 12 | bitfields `unsigned a:3` | "Expected SEMICOLON, got COLON" | struct model gap |
+| 13 | flexible array member `int d[];` | rejected | struct model gap |
+| 14 | variadic definitions `int f(int n, ...)`, `va_list` | "Expected parameter name, got DOT" | parser + intrinsics |
+| 15 | `inline`, `restrict`, `register`, `auto`, `_Noreturn`, `_Thread_local`, `_Alignas`, `_Static_assert` | "Expected name" | keyword pass-through |
+| 16 | `long double` literal `1.5L`, `wchar_t`, `L'x'` | "Invalid numeric literal" / parse error | lexer + type gap |
+| 17 | multi-dimensional arrays `int m[2][3]` | explicit diagnostic: needs an AST/IR representation per dimension | known gap |
+| 18 | `#if`/`#else`/`#ifndef`/`#if 0` | directives pass through; the analyzer sees every branch ("Duplicate definition", "unsupported directive") | preprocessor gap |
+| 19 | comma operator `(1, 2)` | parsed as a tuple literal | **conflict**: tuples |
+| 20 | identifiers named `in`, `string`, `keep`, `self`, `class`, `interface`, `spawn`, `new`, `var`, `null`, `true`, `false` | keywords | **conflict**: reserved words |
+| 21 | `strlen(s) == 2` (`size_t` vs `int`) | "mixes ABI-dependent integer type" | **on purpose**: strict integer mixing |
+| 22 | `_Bool b = 1`; `return a();` in a void function | type errors | **on purpose** |
+| 23 | VLAs `int v[n]` | parse error | **won't do**: conflicts with the array-size model |
+| 24 | `_Atomic`, `_Complex` | rejected | **deferred**: need type-system entries |
+
+### C1 — The ergonomic set (rows 1–7)
+
+Pure grammar additions with a direct lowering and no semantic cost; this
+is what makes the README claim true at first contact.
+
+1. `(void)` as an empty parameter list; unnamed parameters in prototypes
+   and in function-pointer types.
+2. A single statement as the body of `if`, `else`, `for`, `while`; lower
+   with braces. `;` as an empty statement.
+3. Multiple declarators per declaration, locals and struct fields,
+   expanded in the parser into separate declarations (initialisers stay
+   attached to their own declarator).
+4. String literal as the initialiser of a `char` array, sized or not;
+   adjacent string literal concatenation in the lexer.
+5. C function-pointer declarator syntax parsed into the existing
+   `CFunction` type (`src/language/grammar.ebnf` `function_pointer` rules,
+   `TypeIdentity`), including `typedef` and arrays of pointers.
+
+Files: `src/language/grammar.ebnf` (the spec; change it first),
+`src/compiler/python/parser/parser.py`, `src/compiler/btrc/parser/Parser.btrc`,
+`src/compiler/python/lexer/`, `src/compiler/btrc/lexer/`. Any new AST node
+goes through `src/language/ast.asdl` and `make compiler-codegen-generate`.
+
+### C2 — Declarations (rows 8–10, 12–13)
+
+1. Anonymous struct and union members; `typedef struct { } T` and
+   `typedef struct P { } P` (synthesize the tag; both analyzers key structs
+   by name).
+2. `union` declarations for plain C members. Rule: a union member may not
+   be ARC-managed (class, `string`, collection) — the runtime cannot know
+   which member is live; the analyzer rejects it with a diagnostic, in
+   both compilers.
+3. Designated initialisers and compound literals: an initialiser node with
+   field/index designators, lowered to the same C.
+4. Bitfields: a field width on the struct model (`ast.asdl` field decl,
+   layout in `analyzer/Storage`), lowered verbatim; native typed bindings
+   keep rejecting bitfield structs (they cannot be addressed).
+5. Flexible array members: last field only, `sizeof` excluded, no
+   by-value copies of the struct.
+
+### C3 — Control flow and calls (rows 11, 14–16)
+
+1. `goto` and labels. btrc scopes carry ARC releases and cleanup slots, so
+   the lowering must reject a jump that enters a scope past an owned
+   variable's initialiser or leaves a `try` frame; jumps within one scope
+   or outward past releases (emitting the releases) are allowed. Both
+   compilers, same diagnostics.
+2. Variadic definitions: `...` as the last parameter, `va_list`,
+   `va_start`, `va_arg`, `va_end` as opaque intrinsics in
+   `src/language/intrinsic_effects.toml`; realtime analysis treats them
+   as non-allocating.
+3. Keyword pass-through: `inline`, `restrict`, `register`, `auto`,
+   `_Noreturn`, `_Thread_local`, `_Alignas`, `_Static_assert` parsed as
+   declaration attributes and emitted verbatim (`_Thread_local` globals
+   need the unit emitters' `extern` shaping from M4).
+4. `long double` literals with `L`, `wchar_t` and `L'x'`/`L"x"` literals.
+
+### C4 — Preprocessor conditionals (row 18)
+
+Directives are passed through to C today, so the analyzer sees every
+branch. Evaluate `#if`/`#ifdef`/`#ifndef`/`#elif`/`#else`/`#endif` in the
+front end over object-like `#define`s in the closure plus the target's
+predefined macros (`__linux__`, `__APPLE__`, `__x86_64__`, from
+`src/language/hosted_abi.toml`'s target table), drop the dead branches
+before parsing, and keep emitting the live branch's directives so the C
+compiler agrees. `#if` on a macro the front end cannot evaluate (a system
+header's) stays an error with a diagnostic naming the macro.
+
+### C5 — Spec, corpus and the documented refusals (rows 19–24)
+
+1. A `src/tests/c11/` corpus directory: one program per row of the table,
+   each printing `PASS: <construct>` with a golden
+   (`src/tests/generate_expected.py`), run through both compilers by the
+   existing runner; rows 19–24 as diagnostics tests asserting the exact
+   message.
+2. A section in `src/language/grammar.ebnf`'s preamble and in
+   `docs/known-language-gaps.md`: "C that btrc rejects on purpose" —
+   the comma operator outside `for` headers (tuple literals win; support
+   it only in `for` init/update), the reserved-word list, strict integer
+   mixing, int-to-bool assignment, returning a void expression, VLAs,
+   `_Atomic` and `_Complex` (deferred), with the reason for each.
+3. README wording: "C's syntax and semantics where they are safe, the rest
+   reachable through `#include`", linking to that section.
+
+### Order and gates
+
+C1 → C5 (corpus and docs first, so every later step has its goldens) →
+C4 → C2 → C3. The track is independent of M7–M11 except that **C1–C3
+add AST nodes and M8 changes the node schema**: land the C-track parser
+work either before M8 starts or after it lands, never interleaved. Every
+step: both compilers in one commit, `make test`, `make bootstrap`,
+`make test-c11`, and the boundary fixtures for `surface.python.tokens`/
+`surface.python.ast` re-accepted once per grammar change (section 2).
+
+---
+
 ## 5. Order of operations, one line
 
 M0 measure → M1 subclass index → M2 scope chains → M3 remaining scans and
