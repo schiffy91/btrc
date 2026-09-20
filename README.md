@@ -1,22 +1,34 @@
 # btrc
 
-**Modern syntax & features. C output. No magic.**
+**C, but better?**
 
-btrc is a statically-typed language that transpiles to C. There is no garbage
-collector, no virtual machine, and no runtime to ship: the output is strict C11
-that you can read, debug, and link with any C11 toolchain. What it adds is
-everything you find yourself missing once you have been writing C for a while.
+It is possible to design a beautiful programming language with modern ergonomics and tools that doesn't sacrifice performance, readability, and interoperability?
 
-- **Classes, interfaces and generics.** Generics are monomorphized, so they cost nothing at runtime.
-- **Type inference.** `var count = 10;` just works.
-- **Real strings** -- yes, even f-strings -- **and real collections**: `Vector<T>`, `Map<K,V>`, `Set<T>`, `List<T>`, `Array<T>`.
-- **Automatic reference counting**, with a cycle collector, and `keep`/`release` for the times ARC is not enough.
+Sort of.
+
+btrc is a statically-typed language that transpiles to C. There is no garbage collector, no virtual machine, and no runtime: the output is strict C11 that you can read, debug, and link with any C11 toolchain, and you get all the following:
+
+- **C11.** Almost all C11 is valid btrc. You can intermingle the two languages in the same file without any special syntax or glue code. :)
+- **Classes, interfaces and generics.** Compile-time type safety for managed objects with monomorphized generics (i.e. type safety that costs nothing at runtime).
+- **Type inference.** `var count = 10;` just works and costs nothing at runtime because of btrc's compile-time typechecker.
+- **Real strings and collections**: UTF-8 strings, f-strings like `f"x={x}"`, and collections like `Vector<T>`, `Map<K,V>`, `Set<T>`, `List<T>`, `Array<T>`.
+- **Automatic reference counting** with a cycle collector, so that you don't have to worry about memory management. There's no VM or garbage collector, so ARC is suitable for high-performance applications. If ARC is not enough, `keep` and `release` allow you to step in and handle edge cases manually. And, if that's not enough, then don't use btrc's objects -- you can use raw C when and where you want.
 - **Exceptions**, with `try`/`catch`/`finally` that unwinds ARC correctly.
 - **Threads**: `spawn`, typed `Thread<T>`, `Mutex<T>`, background job queues.
+- **GPU acceleration**: Mark a function `@gpu` and btrc compiles it to a WGSL compute shader, automatically orchestrating WebGPU buffer uploads, dispatch, and readback—with a zero-dependency CPU fallback if no GPU is found.
+- **Native UI**: Real platform controls (AppKit on macOS, SDL3/WebGPU on Linux, with eventual support on Windows, Android, and iOS) and a self-drawn declarative toolkit—with the ability to composite hardware-accelerated 3D WebGPU views directly alongside native widgets.
 - **Package management**: a `btrc.toml` manifest, a real lockfile, path and Git dependencies.
-- **GPU acceleration**: mark a function `@gpu` and it becomes a WGSL compute kernel you call like any other function.
-- **Native UI**: windows, controls, fonts and a system tray, driven from btrc.
+- **A standard library**: Written in btrc: rich strings, collections (`Vector`, `Map`, `Set`), `JSON`, `TOML`, `HTTP`, audio, and OS abstraction—with a freestanding zero-libc mode for embedded targets.
 - **A module system**: `import` with strict, directed visibility, instead of header order and luck.
+
+There's no free lunch, but it's cheap. What you give up is surprisingly low:
+
+- **A few bytes and CPU cycles for managed objects.** Managed objects carry an ARC header (48 bytes to support cycle collection and safe unwinding). But you only pay for what you use: btrc primitives and C structs and raw pointers carry zero extra bytes and zero runtime overhead.
+- **Total memory safety guarantees.** While there is no Rust-style borrow checker, the compiler enforces managed lifetimes and ARC prevents most leaks, but raw pointers and free remain C-like. You can still shoot yourself in the foot. But the code is also readable by just about anyone including those who have never seen btrc -- so there's that.
+- **A bit of binary size.** Generics are fully monomorphized for maximum speed, which trades binary footprint for zero runtime dispatch cost (the same tradeoff as C++ templates or Rust generics).
+- **A bit of compile time.** Not only do those generics take a bit of time to compile, but you're adding a transpiler to the mix before the C compiler.
+
+Corporate battle-testing. It's an ambitious personal project with known gaps and bugs—not a 10-year-old production standard.
 
 And no – it's not actually better than C, but I like the name, which I ripped off from [btrfs](https://en.wikipedia.org/wiki/Btrfs).
 
