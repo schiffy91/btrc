@@ -265,6 +265,20 @@ compilers (the three GPU programs need the GPU runtime library the corpus
 runner links separately), and the split BTRSmith passes its library smoke
 from either compiler's units.
 
+### M5: source mapping and the dev build (2026-09-20)
+
+`--debug` now works in btrcc as it did in btrcpy: every statement lowers to
+an `IRK_LINE_MARKER` naming its `.btrc` file and line, and the emitter stamps
+a `#line` before each content line of a function body — the marker's
+location for user statements, the generated file's own line (patched in once
+the layout is final) for synthesized code, so a debugger never points into
+the wrong file. `-o PATH` lets btrcc know that name; with `--emit-units` each
+secondary resets to itself. Release output is untouched: the corpus is
+byte-identical to M4 through both compilers without `--debug`.
+`btrc-native-plan --debug-info` adds `-g`, and BTRSmith's `BUILD=dev` turns
+both on with `--optimization 0`; the dev binaries pass the goldens and their
+DWARF line tables name the `.btrc` sources.
+
 ## Raw data
 
 `/tmp/claude-1000/prof/`: `btrcc-timing.txt`, `gprof-flat.txt`,

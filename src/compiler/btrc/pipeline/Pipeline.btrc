@@ -112,7 +112,10 @@ class CompilerPipeline {
 
 		IRLowerer lowerer = IRLowerer(analyzed, self.hostedAbi, analyzer.declarationRegistry(), analyzer.operatorSemantics(), analyzer.expressionTypes(), analyzer.gpuSemantics(), analyzer.managedValueSemantics(), analyzer.cycleSemantics(), runtimeHelpers, sourcePath, resolved.stdlibLineCount, resolved.userLines);
 		if (options.runDce) { lowerer.setStdlibKeys(StdlibReachability.classify(program.declarations, self.hostedAbi)); }
+		lowerer.setDebug(options.debug);
 		IRModule module = lowerer.lower(program);
+		module.debug = options.debug;
+		if (options.debug && !options.outputPath.isEmpty()) { module.debugCfile = FeCanonicalPath.absolute(options.outputPath); }
 		BtrccPhaseTimer.mark("lower");
 		bool hasRealtimeRoot = false;
 		int realtimeIndex = 0;

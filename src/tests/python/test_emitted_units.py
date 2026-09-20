@@ -15,7 +15,7 @@ PROGRAM = ROOT / "src/tests/collections/ForinInterfaceListLiteral.btrc"
 GOLDEN = ROOT / "src/tests/collections/expected/ForinInterfaceListLiteral.stdout"
 
 
-def _compile(frontend: str, out: Path, plan: Path, request) -> None:
+def _compile(frontend: str, out: Path, plan: Path, request, *extra: str) -> None:
     env = {**os.environ, "BTRC_HOME": str(ROOT / "src"), "BTRC_UNIT_LINES": "120"}
     if frontend == "btrcpy":
         command = [
@@ -30,6 +30,7 @@ def _compile(frontend: str, out: Path, plan: Path, request) -> None:
             str(plan),
             "--emit-units",
             str(out),
+            *extra,
             str(PROGRAM),
             "-o",
             str(out),
@@ -44,12 +45,13 @@ def _compile(frontend: str, out: Path, plan: Path, request) -> None:
             str(plan),
             "--emit-units",
             str(out),
+            *extra,
+            "-o",
+            str(out),
             str(PROGRAM),
         ]
     completed = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, timeout=600)
     assert completed.returncode == 0, completed.stderr
-    if frontend == "btrcc":
-        out.write_text(completed.stdout)
 
 
 @pytest.mark.skipif(sys.platform != "linux" or shutil.which("cc") is None, reason="needs a Linux C toolchain")
@@ -94,3 +96,32 @@ def test_single_unit_output_keeps_static_runtime_state(tmp_path):
     assert "BTRC_RT_PRIMARY_UNIT" not in text.splitlines()[:3]
     assert "BTRC_RT_STATE(_Thread_local __btrc_tls_record __btrc_tls" in text
     assert not list(tmp_path.glob("program.c.unit-*.c"))
+
+
+@pytest.mark.skipif(sys.platform != "linux" or shutil.which("cc") is None, reason="needs a Linux C toolchain")
+@pytest.mark.parametrize("frontend", ["btrcpy", "btrcc"])
+def test_debug_split_units_map_lines_and_run(tmp_path, request, frontend):
+    """--debug stamps #line back to the .btrc source in every unit, each unit
+    names itself for synthesized code, and -g binaries still match the golden."""
+    out = tmp_path / "program.c"
+    plan = tmp_path / "program.json"
+    _compile(frontend, out, plan, request, "--debug")
+    units = sorted(tmp_path.glob("program.c.unit-*.c"))
+    assert units
+    program_lines = 0
+    for path in [out, *units]:
+        directives = [line for line in path.read_text().splitlines() if line.startswith("#line ")]
+        program_lines += sum(line.endswith(f'"{PROGRAM}"') for line in directives)
+        generated = {line.rsplit(" ", 1)[1] for line in directives if line.endswith('.c"')}
+        assert generated <= {f'"{path}"'}, f"{path.name} resets #line to another unit: {generated}"
+    assert program_lines > 0, "no unit maps a line back to the program"
+    executable = tmp_path / "program"
+    NativePlanBuilder().build(
+        plan_path=plan, generated_c=out, output=executable, cc="cc", cxx="c++", optimization=0, debug_info=True
+    )
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == GOLDEN.read_text()
+    with_debug = subprocess.run(["readelf", "--debug-dump=line", str(executable)], capture_output=True, text=True)
+    if with_debug.returncode == 0:
+        assert "ForinInterfaceListLiteral.btrc" in with_debug.stdout

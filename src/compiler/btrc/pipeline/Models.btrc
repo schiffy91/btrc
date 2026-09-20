@@ -12,6 +12,9 @@ class BtrccOptions {
 	public string linkPlanPath;
 	/* Split the emitted C into units written as <prefix>.unit-<k>.c; empty means one unit. */
 	public string unitsPrefix = "";
+	/* -o: write the generated C here instead of stdout; --debug: #line directives. */
+	public string outputPath = "";
+	public bool debug = false;
 	public int inputIndex;
 	public string diagnostic;
 

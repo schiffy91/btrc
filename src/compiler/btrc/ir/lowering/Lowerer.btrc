@@ -104,6 +104,8 @@ class IRLowerer {
 	 * lowerer; the IR-level elimination stays the check. Null lowers everything. */
 	public void setStdlibKeys(Map<string, bool>? keys) { self.stdlibKeys = keys; }
 
+	public void setDebug(bool enabled) { self.context.debug = enabled; }
+
 	public IRModule lower(Node program) {
 		self.expressionTypes.disableMemo();
 		self.cleanupSlots.reset();

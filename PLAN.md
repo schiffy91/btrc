@@ -175,19 +175,22 @@ every BTRSmith check passes on both frontends.
 
 ## M5 — Developer build mode and source mapping
 
-1. **`#line` directives** in emitted C, on by default, using the line map
-   that `sourceFileForLine` / `stampProgramSources` already maintain
-   (btrcpy: the same map in `translation_unit.py`). Single-unit corpus output
-   gains the directives too; the corpus goldens compare stdout, not C, so
-   nothing else moves. `--no-line-directives` for anyone diffing C by hand.
-2. **`BUILD=dev`** in BTRSmith's `make/Config.mk` and btrc's example
-   Makefiles: `btrc-native-plan --opt 0 -g`; assert messages, sanitizer
-   reports and gdb frames name `AlbumGrid.btrc:97`.
-3. Check that `btrsmithctl`, the smokes and the check suite pass under
-   `BUILD=dev` (they exercise the same binaries, just unoptimised).
+1. **`#line` directives** in emitted C under `--debug`, now in both
+   compilers: btrcc gains the `IRK_LINE_MARKER` statement that btrcpy already
+   lowered, stamped by the emitter from the line map `sourceFileForLine` /
+   `sourceLineFor` maintain; synthesized code resets to the generated file
+   (each unit names itself). The directives stay opt-in: release output is
+   unchanged byte for byte, and anyone diffing C by hand sees no noise.
+   btrcc also gains `-o PATH` so the reset directives can name the file.
+2. **`BUILD=dev`** in BTRSmith's `make/Config.mk`: `--debug` on the
+   transpile and `btrc-native-plan --optimization 0 --debug-info` (`-g`) on
+   every link; assert messages, sanitizer reports and gdb frames name
+   `AlbumGrid.btrc:97`.
+3. Check that the smokes pass under `BUILD=dev` (they exercise the same
+   binaries, just unoptimised).
 
-Exit: a dev rebuild of BTRSmith after M3+M4 is transpile + ~5 s of clang;
-a crash under gdb shows btrc source locations.
+Exit: a dev rebuild of BTRSmith after M3+M4 is transpile + a few seconds of
+clang; a crash under gdb shows btrc source locations.
 
 ---
 

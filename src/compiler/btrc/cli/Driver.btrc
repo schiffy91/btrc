@@ -189,7 +189,7 @@ class BtrccCommandLine {
 
 	public string argument(int index) { return self.arguments.get(index); }
 
-	public string usage() { return "usage: btrcc [--strict-imports | --relaxed-imports] " + "[--no-stdlib] [--no-dce] [--target OS-ARCH] " + "[--emit-link-plan PATH] [--emit-units PREFIX] [--] <file.btrc>\n" + "       btrcc --stdlib-dir\n\n" + "Strict imports are the default; --strict-imports explicitly " + "asserts that mode.\n" + "--relaxed-imports enables legacy implicit cross-file visibility " + "and stdlib composition.\n" + "--no-stdlib disables relaxed stdlib composition; explicit " + "imports still resolve."; }
+	public string usage() { return "usage: btrcc [--strict-imports | --relaxed-imports] " + "[--no-stdlib] [--no-dce] [--target OS-ARCH] " + "[--emit-link-plan PATH] [--emit-units PREFIX] [--debug] [-o PATH] [--] <file.btrc>\n" + "       btrcc --stdlib-dir\n\n" + "Strict imports are the default; --strict-imports explicitly " + "asserts that mode.\n" + "--relaxed-imports enables legacy implicit cross-file visibility " + "and stdlib composition.\n" + "--no-stdlib disables relaxed stdlib composition; explicit " + "imports still resolve."; }
 
 	private BtrccOptions invalid(BtrccOptions options, string diagnostic) {
 		options.valid = false;
@@ -239,6 +239,17 @@ class BtrccCommandLine {
 					return self.invalid(options, "--emit-link-plan requires an output path");
 				}
 				options.linkPlanPath = self.arguments.get(index);
+			} else if (option.equals("--debug")) {
+				options.debug = true;
+			} else if (option.equals("-o") || option.equals("--output")) {
+				if (!options.outputPath.isEmpty()) {
+					return self.invalid(options, "-o may be specified only once");
+				}
+				index++;
+				if (index >= self.arguments.len) {
+					return self.invalid(options, "-o requires an output path");
+				}
+				options.outputPath = self.arguments.get(index);
 			} else if (option.equals("--emit-units")) {
 				if (!options.unitsPrefix.isEmpty()) {
 					return self.invalid(options, "--emit-units may be specified only once");
@@ -383,6 +394,10 @@ class BtrccDriver {
 			string unitPath = options.unitsPrefix + ".unit-" + Strings.fromInt(unit + 1) + ".c";
 			if (!FePackageFileStore().writeAtomically(unitPath, result.units.get(unit))) { return self.fail("cannot write translation unit: " + unitPath); }
 			unit = unit + 1;
+		}
+		if (!options.outputPath.isEmpty()) {
+			if (!FePackageFileStore().writeAtomically(options.outputPath, result.output)) { return self.fail("cannot write generated C: " + options.outputPath); }
+			return 0;
 		}
 		if (self.output.write(result.output)) { return 0; }
 		return self.fail("cannot write standard output");

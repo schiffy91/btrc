@@ -63,6 +63,7 @@ enum IRKind {
 	IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY,
 	IRK_CXX_DELETE,
 	IRK_CXX_EXCEPTION_BOUNDARY,
+	IRK_LINE_MARKER,
 };
 
 class IRNode {
@@ -122,6 +123,8 @@ class IRNode {
 	public bool neverReturns;   /* IRCall: control cannot continue afterward. */
 	/* Typed unwind-slot identity shared by one declaration and its calls. */
 	public IRCleanupSlot cleanupSlot;
+	public string sourceFile;  /* IRLineMarker: the .btrc file the next lines came from */
+	public int sourceLine;
 	public string helperRef;    /* Explicit runtime-helper edge on IRCall. */
 	public string realtimeProvenance; /* Exact typed-intrinsic or proof-carrying-call certificate. */
 	public IRNode init;          /* IRVarDecl initializer / IRFor init */
@@ -434,6 +437,15 @@ class IRNode {
 		IRNode n = IRNode();
 		n.kind = IRK_RETURN;
 		if (value != null) { n.value = value; }
+		return n;
+	}
+
+	/* --debug: the statements that follow map back to file:line. */
+	class IRNode lineMarker(string file, int line) {
+		IRNode n = IRNode();
+		n.kind = IRK_LINE_MARKER;
+		n.sourceFile = file;
+		n.sourceLine = line;
 		return n;
 	}
 
@@ -870,6 +882,9 @@ class IRTemporaryNames {
 
 class IRModule {
 	public string language;
+	/* --debug: emit #line directives; the generated file's own path for resets. */
+	public bool debug = false;
+	public string debugCfile = "";
 	public Map<string, IRModule> nativeUnits;
 	public Vector<IRPreprocessorDecl> preprocessorDecls;
 	public Vector<IREnumDef> enumDefs;

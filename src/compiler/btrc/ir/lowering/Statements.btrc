@@ -342,6 +342,10 @@ class StatementLowerer {
      * The outer assignment boundary exclusively owns receiver stabilization
      * and release; this atom manages only the old and replacement field values. */
 	public void lowerStmtInto(Node node, Map<string, Node> varTypes, Vector<IRNode> out, CallableFlowState callableFlow) {
+		if (self.context.debug && node.line > 0) {
+			string sourceFile = self.context.sourceFileForLine(node.line);
+			if (sourceFile != "<stdlib>" && sourceFile != "") { out.push(IRNode.lineMarker(sourceFile, self.context.sourceLineFor(node.line))); }
+		}
 		GpuStatementPlan gpuPlan = self.gpuPipeline.planStatement(node, varTypes);
 		if (gpuPlan.handled) {
 			GpuStatementOperands gpuOperands = GpuStatementOperands();

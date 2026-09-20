@@ -29,6 +29,8 @@ class LoweringContext {
      * never services: retained lowerers share them when an expression, block,
      * function, and declaration participate in the same source construct. */
 	public Map<string, int> packAlignments;
+	/* --debug: statements carry line markers back to their .btrc source. */
+	public bool debug = false;
 	public Map<string, bool> borrowedLocalBindings;
 	public Map<string, string> sourceLexicalBindings;
 	public int tryDepth;

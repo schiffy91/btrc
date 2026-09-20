@@ -448,6 +448,7 @@ class NativePlanBuilder:
         pkg_config: str = "pkg-config",
         optimization: int = 2,
         jobs: int | None = None,
+        debug_info: bool = False,
     ) -> None:
         if type(optimization) is not int or optimization not in range(4):
             raise NativePlanError("optimization must be an integer from 0 through 3")
@@ -472,6 +473,8 @@ class NativePlanBuilder:
         includes = [f"-I{path}" for path in plan.include_directories]
         defines = [f"-D{name}={value}" if value else f"-D{name}" for name, value in plan.defines]
         strict = ["-pedantic-errors", "-Wall", "-Wextra", "-Werror"]
+        if debug_info:
+            strict.append("-g")
         with tempfile.TemporaryDirectory(prefix=".btrc-native-", dir=parent) as temporary_text:
             temporary = Path(temporary_text)
             objects: list[Path] = []
@@ -614,6 +617,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--jobs", type=int, default=None, help="parallel C compiles for emitted units (default: CPU count)"
     )
+    parser.add_argument("--debug-info", action="store_true", help="compile with -g so binaries carry source locations")
     parser.add_argument(
         "--optimization",
         type=int,
@@ -632,6 +636,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             pkg_config=arguments.pkg_config,
             optimization=arguments.optimization,
             jobs=arguments.jobs,
+            debug_info=arguments.debug_info,
         )
     except (NativePlanError, OSError) as error:
         sys.stderr.write(f"btrc-native-plan: error: {error}\n")
