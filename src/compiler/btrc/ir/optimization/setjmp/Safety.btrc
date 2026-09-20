@@ -10,6 +10,7 @@ import ./Analysis.btrc;
 class SetjmpSafetyPlanner {
 	private SetjmpEffectAnalysis effectAnalysis;
 	private Map<string, SetjmpCallEffects> effectsByFunction;
+	private Map<string, bool> setjmpBodies = {};  /* function name -> body contains setjmp */
 
 	public SetjmpSafetyPlanner(SetjmpEffectAnalysis effectAnalysis) {
 		self.effectAnalysis = effectAnalysis;
@@ -369,8 +370,14 @@ class SetjmpSafetyPlanner {
 		return false;
 	}
 
+	private bool bodyContainsSetjmp(IRFunction definition) {
+		if (definition.body == null) { return false; }
+		if (!self.setjmpBodies.has(definition.name)) { self.setjmpBodies.put(definition.name, self.containsSetjmp(definition.body)); }
+		return self.setjmpBodies.get(definition.name);
+	}
+
 	private void rejectUnmodelledCaptures(IRFunction definition, SetjmpCallEffects effects) {
-		if (!self.containsSetjmp(definition.body)) { return; }
+		if (!self.bodyContainsSetjmp(definition)) { return; }
 		int index = 0;
 		while (index < effects.flow.unknownPointerValues.len) {
 			SetjmpStorage storage = effects.flow.unknownPointerValues.get(index);
@@ -714,12 +721,13 @@ class SetjmpSafetyPlanner {
 	}
 
 	public void apply(IRModule module) {
+		self.setjmpBodies = {};
 		self.validateGlobals(module);
 		bool hasSetjmp = false;
 		int index = 0;
 		while (index < module.functions.len) {
 			IRFunction definition = module.functions.get(index);
-			if (definition.body != null && self.containsSetjmp(definition.body)) {
+			if (self.bodyContainsSetjmp(definition)) {
 				hasSetjmp = true;
 			}
 			index = index + 1;

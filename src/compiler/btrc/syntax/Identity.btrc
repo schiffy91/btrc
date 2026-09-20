@@ -692,15 +692,15 @@ class TypeIdentity {
 
 	class string utf8Hex(string value) {
 		string digits = "0123456789abcdef";
-		string encoded = "";
+		StringBuilder encoded = StringBuilder();
 		int index = 0;
 		while (index < value.length()) {
 			int byteValue = (int)((unsigned char)value[index]);
-			encoded = encoded + f"{digits[byteValue / 16]}";
-			encoded = encoded + f"{digits[byteValue % 16]}";
+			encoded.appendChar(digits[byteValue / 16]);
+			encoded.appendChar(digits[byteValue % 16]);
 			index = index + 1;
 		}
-		return encoded;
+		return encoded.toString();
 	}
 
 	class string field(string tag, string value) { return tag + Strings.fromInt(value.length()) + "_" + value; }

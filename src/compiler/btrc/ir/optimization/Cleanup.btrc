@@ -20,6 +20,7 @@ class CleanupValidationState {
 class CleanupSlotValidator {
 	private IRModule module;
 	private Map<int, string> attached;
+	private Map<string, IRFunction> functionsByName = {};
 
 	public CleanupSlotValidator(IRModule module) {
 		self.module = module;
@@ -87,13 +88,17 @@ class CleanupSlotValidator {
 	}
 
 	private IRFunction? adapterDefinition(string name) {
-		int index = 0;
-		while (index < self.module.functions.len) {
-			IRFunction definition = self.module.functions.get(index);
-			if (definition.name == name) { return definition; }
-			index = index + 1;
+		if (self.functionsByName.len != self.module.functions.len) {  /* index the module once per shape */
+			self.functionsByName = {};
+			int index = 0;
+			while (index < self.module.functions.len) {
+				IRFunction definition = self.module.functions.get(index);
+				self.functionsByName.put(definition.name, definition);
+				index = index + 1;
+			}
 		}
-		return null;
+		if (!self.functionsByName.has(name)) { return null; }
+		return self.functionsByName.get(name);
 	}
 
 	private IRCleanupSlot validateRegistration(IRNode call) {
