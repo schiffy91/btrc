@@ -224,6 +224,27 @@ Exit (measured, BTRSmith, btrcc): cold 101 s; one-line edit in one module
 → 1 of 15 units recompiled, 98 s, of which the transpile is ~90 s. The
 rebuild is now the transpile; M7 works on that.
 
+Left open here, to be picked up alongside M7 (each is small and measured on
+its own):
+
+4. **Trim the per-unit prologue.** Every unit carries the whole program's
+   struct definitions, prototypes and runtime helpers (~50k of a unit's
+   ~95k lines), so a 40k-line unit costs clang almost as much as an 80k
+   one. Emit per unit only the types, prototypes and helpers its functions
+   reference (a name walk over the unit's bodies); the object cache then
+   also hits more often, since a change to an unrelated prototype no longer
+   touches every unit.
+5. **No-op rebuilds.** `make` re-runs the transpile whenever a source is
+   touched (the 94 s "no change" row above). Key the generated C and link
+   plan on the closure's content hash (the reference compiler's output
+   cache already computes it) so an unchanged closure is a copy, and make
+   the BTRSmith rules depend on that hash rather than on mtimes.
+6. **The reference compiler.** btrcpy is at 259 s (lower 140 s, optimize
+   57 s) and nothing above targets it; the corpus and CI run it on every
+   program. M8 applies to it by construction; before that, profile its
+   `optimize` (the setjmp planner again) and its lowering with cProfile
+   after each btrcc cut and port the same shape.
+
 ---
 
 ## M7 — Profile-driven cuts (in progress)
@@ -401,7 +422,9 @@ lowering.
 
 M11 comes before M9 and M10 because it changes what an edit costs, which
 matters more than what a cold build costs, and it depends on neither; M9
-and M10 then shrink both. M1–M3 and M7–M10 are byte-identical-output
+and M10 then shrink both. M6's open items 4–6 (prologue trimming, no-op
+rebuilds, the reference compiler) ride along with M7 and M8 as they are
+measured. M1–M3 and M7–M10 are byte-identical-output
 changes gated by `cmp`; M4–M6 and M11 change the emitted shape and are
 gated by the corpus goldens, bootstrap and the BTRSmith suite. Each
 milestone ends with the table in `docs/design/compile-performance.md`
