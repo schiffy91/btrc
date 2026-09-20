@@ -5,427 +5,481 @@ under a minute incremental (M0–M7, done: 101 s cold, 98 s incremental), then
 on to clang-class turnaround: btrcc under 10 s cold and an edit to one
 module rebuilt in under 10 s (M8–M11), with the same two-compiler,
 bootstrap-verified output the project has today. The measurements and the
-reasoning behind the order are in
-[`docs/design/compile-performance.md`](docs/design/compile-performance.md).
+reasoning are in [`docs/design/compile-performance.md`](docs/design/compile-performance.md).
 
-Ground rules for every milestone:
+This file is written to be picked up cold by another agent. Section 1 is
+the state of the tree, section 2 the rules and the exact commands every
+milestone uses, section 3 what landed (with file pointers), section 4 the
+open milestones step by step, section 5 the order.
 
-- Both compilers change together. Every step lands in `src/compiler/python`
-  and `src/compiler/btrc` in the same commit, and BTRSmith's
+---
+
+## 1. Handoff state (2026-09-20)
+
+- **btrc `main` is 15 commits ahead of `origin/main`** (b27a1acb..a5b79afe):
+  M0–M7 plus this plan. Every gate below is green on the final tree
+  (`make test` 8608 passed, `make bootstrap`, `make test-c11` on gcc and
+  clang -O0..-O3, `make lint`, `make format-check`). **They are not pushed**:
+  the 1Password SSH agent refused to sign from the automated session. Push
+  is the first thing to do: `cd ~/Downloads/btrc && git push origin main`.
+- **btrsmith `main` is 1 commit ahead** (ee24762: `make/Config.mk`,
+  `make/Toolchain.mk`, `tools/LinkPlanParity.btrc` — units, object cache,
+  `BUILD=dev`). Push it, then **repin its btrc flake input** to the pushed
+  btrc rev: its Nix build needs the new `--emit-units` and `-o` flags of
+  btrcc, so until the repin `nix build` of btrsmith uses the old compiler.
+- The user's own uncommitted edit to btrc `README.md` (a rewritten opening)
+  is in the working tree. Leave it alone; never `git add -A`.
+- Commits were made unsigned (`git -c commit.gpgsign=false commit`) because
+  signing needs the user's 1Password session; keep doing that unless the
+  user is present.
+- Current numbers (BTRSmith, x86_64 NixOS, quiet machine):
+
+  | | wall | phases |
+  | --- | --- | --- |
+  | btrcc | **76 s** (was 542 s) | lex+parse 2.7, analyze 12 (generics 3.1, validate 4.8, close-generics 1.9, realtime 2.1), lower 28 (l-generic-classes 12.3, l-declarations 14.8), optimize 16.5 (o-setjmp 12.0, o-dce 2.8), emit 2.8 |
+  | btrcpy | **259 s** (was 742 s) | analyze 16, lower 140, optimize 57, emit 7 |
+  | clang + link, 15 units | **~8 s** (was 85 s) | |
+  | `make btrsmith-native` cold / edit one module | 101 s / 98 s | edit recompiles 1 of 15 units |
+
+---
+
+## 2. Ground rules and the commands
+
+### Rules
+
+- Both compilers change together: the reference compiler
+  (`src/compiler/python`, "btrcpy") and the self-hosted one
+  (`src/compiler/btrc`, "btrcc") land in the same commit, and BTRSmith's
   `application-frontend-check` (reference and self-hosted link plans
   identical, both binaries built) is part of the gate.
-- "Byte-identical" below means each compiler against its own output before
-  the change (the two compilers do not emit identical C today; the bootstrap
-  fixed point is btrcc against btrcc). The check is `tools/perf` output of
-  the corpus and BTRSmith before and after, `cmp`'d per compiler, with the
-  three corpus programs that embed absolute include paths compared modulo
-  that path.
+- "Byte-identical" means each compiler against **its own** output before the
+  change. The two compilers do not emit identical C (957 of 960 corpus
+  programs differ between them, by design); the bootstrap fixed point is
+  btrcc against btrcc.
 - Gates that never regress: `make test`, `make bootstrap`, `make test-c11`,
-  `make lint`, `make format-check`; in `../btrsmith`, `application-frontend-check`
-  and `btrsmith-library-smoke` on both frontends.
-- Every milestone records its own numbers in `docs/design/compile-performance.md`
-  (the same `BTRCC_TIMING=1` phase table and `/usr/bin/env time -f "%e %M"`
-  on BTRSmith), so the next milestone starts from measured, not remembered.
+  `make lint`, `make format-check`; in `../btrsmith`,
+  `application-frontend-check` and the library smoke on both frontends.
+- Every milestone records its numbers in
+  `docs/design/compile-performance.md` (the `BTRC_TIMING=1` phase line and
+  wall time on BTRSmith) so the next milestone starts from measured, not
+  remembered.
 - No effort estimates. Order is by dependency and payoff only.
 
-Baseline (2026-09-19, BTRSmith, x86_64 NixOS): btrcc 542 s / 5.2 GB, btrcpy
-742 s / 2.5 GB, clang -O2 83 s, link 9 s. Phases: analyze 209 s, lower 248 s,
-optimize 46 s, everything else 8 s.
+### Building the compilers
+
+```sh
+cd ~/Downloads/btrc
+nix develop                     # dev shell: python, ruff, clang, gcc, pkg-config
+make btrcc                      # bin/btrcc from dist/btrcc.c (btrcpy transpiles BtrccMain.btrc, cc -O2 compiles it; ~5 min)
+export BTRC_HOME=$PWD/src       # both compilers find the stdlib here
+python3 -m src.compiler.python.main --no-cache --strict-imports --target linux-x86_64 P.btrc -o P.c   # btrcpy
+bin/btrcc --strict-imports --target linux-x86_64 P.btrc -o P.c                                          # btrcc
+```
+
+`make btrcc` runs `compiler-codegen-check` first (regenerate with
+`make compiler-codegen-generate` after touching `src/runtime/c/*` or
+`src/runtime/c/manifest.toml`; it rewrites
+`src/compiler/python/runtime/generated.py` and
+`src/compiler/btrc/generated/runtime/Catalog.btrc`, which are committed).
+
+**Never run `make btrcc` while `make test` is running**: it replaces
+`bin/btrcc` under the suite. **Never edit Python sources while `make test`
+runs**: a mid-run import error produced 332 bogus failures once.
+`make test` with `BTRC_TEST_BTRCC=$PWD/bin/btrcc` exported skips the
+suite's own content-addressed btrcc build.
+
+### Measuring
+
+```sh
+BTRC_TIMING=1 bin/btrcc ... 2>&1 >/dev/null | grep 'btrcc timing:'      # phase and sub-phase marks (a-*, l-*, o-*)
+BTRC_TIMING=1 python3 -m src.compiler.python.main ... 2>&1 | grep 'btrcpy timing:'
+python3 -m tools.perf ../btrsmith/src/BTRSmith.btrc --json build/perf/btrsmith.json   # both compilers + C compile table
+nix develop ../btrsmith -c make NIX= perf-btrsmith                                    # same, from BTRSmith's dev shell (its packages)
+```
+
+BTRSmith needs its packages' headers: run btrcc/btrcpy on it inside
+`nix develop ~/Downloads/btrsmith` (which puts pkg-config paths and the
+native header reader in the environment), or export that shell's
+`PKG_CONFIG_PATH`. Phase marks are added with `BtrccPhaseTimer.mark("name")`
+(`src/compiler/btrc/frontend/Timing.btrc`) and `self._timed(profile, "name", start)`
+in `src/compiler/python/application/pipeline.py`.
+
+gprof works on btrcc: `cc -std=c11 -O2 -pg -w dist/btrcc.c -o btrcc-pg -lm -lpthread`,
+run it on BTRSmith, `gprof -b -p btrcc-pg gmon.out` (flat) and `-q` (graph).
+Self time under `-pg` is dominated by the ARC runtime; read the **call
+counts** and the call graph's inclusive column, not the self column. For
+btrcpy use `python3 -m cProfile -o out.prof -m src.compiler.python.main ...`.
+
+### Byte-identity gate
+
+Emit the whole corpus with a compiler into a directory, once before and
+once after, and `cmp` every file:
+
+```sh
+python3 - <<'EOF' > programs.txt
+import sys; sys.path.insert(0, '.')
+from src.tests.corpus_files import language_test_files
+for p in language_test_files('src/tests'): print(p if p.startswith('src/tests/') else 'src/tests/' + p)
+EOF
+mkdir -p out/after
+while read f; do rel=${f#src/tests/}; dst=out/after/${rel%.btrc}.c; mkdir -p "$(dirname "$dst")"
+  bin/btrcc --strict-imports --target linux-x86_64 "$f" -o "$dst" 2>/dev/null || echo "FAIL $f"; done < programs.txt
+for f in $(cd out/before && find . -name '*.c'); do cmp -s out/before/$f out/after/$f || echo "DIFF $f"; done
+```
+
+Three programs embed absolute include paths
+(`basics/InteropCEnumBaseType`, `basics/InteropUnionBaseType`,
+`imports/ImportCSourceFile`): compare them modulo the checkout path. For
+BTRSmith, `cmp` the single-unit output (no `--emit-units`). Milestones
+that change the emitted shape (M4–M6, M11) are gated by the corpus
+goldens (`make test`) instead.
+
+### Frozen compiler boundaries
+
+`src/tests/fixtures/compiler_boundaries/manifest.toml` freezes IR dumps,
+generated C and the runtime catalog. After an intentional change:
+
+1. `python3 -m tools.compiler_codegen.main boundary-capture` writes
+   candidates to `build/verification/compiler-boundaries/candidate/records/<id>.bin`.
+2. For every record whose capability is `portable` and whose candidate
+   sha256 differs from its `accepted_sha256` (or `baseline_sha256`), copy
+   the candidate to `artifacts/accepted/<id>.bin` and set
+   `accepted_path`, `accepted_sha256`, `reason`, `regressions` on the
+   record by editing the TOML (no tool does this). **Never** accept records
+   of `observed` capabilities (`*.behavior-gcc`, `*.behavior-clang`): they
+   are recorded on macOS and skipped on Linux.
+3. `python3 -m tools.compiler_codegen.main boundary-check`.
+4. A new runtime helper needs a new `helper.<name>` channel on
+   `shared.runtime-metadata` and a record whose baseline file contains
+   `null`; `src/tests/python/test_boundary_manifest.py` hardcodes the
+   record count (309).
+
+### BTRSmith
+
+```sh
+cd ~/Downloads/btrsmith && nix develop            # its dev shell has the pinned store btrcc/btrcpy
+make btrsmith-native                              # reference frontend, units, object cache (build/objects)
+make BTRC_FRONTEND=selfhost btrsmith-native       # btrcc
+make BUILD=dev btrsmith-native                    # --debug (#line into .btrc), -O0 -g
+make macos-btrsmith-library-smoke                 # runs on Linux despite the name; prints PASS lines
+make -f make/Product.mk application-frontend-check
+```
+
+To use a locally built compiler instead of the pinned one, pass
+`BTRCC=$HOME/Downloads/btrc/bin/btrcc BTRC=$HOME/Downloads/btrc/bin/btrcc`
+(selfhost) or a small wrapper that runs
+`python3 -m src.compiler.python.main` with `PYTHONPATH=$HOME/Downloads/btrc`
+(reference), plus `NATIVE_PLAN="python3 -m tools.native_plan"` from the btrc
+checkout, with `BTRC_HOME=$HOME/Downloads/btrc/src` exported; keep the
+BTRSmith dev shell's `PKG_CONFIG_PATH`. Knobs: `BTRC_UNITS=` (one unit),
+`BTRC_UNIT_LINES` (unit size, default 40000), `BTRC_OBJECT_CACHE=`
+(disable), `BUILD=dev|release`.
 
 ---
 
-## M0 — Measurement harness
+## 3. What landed (M0–M7)
 
-Make the numbers reproducible before touching anything, so each later
-milestone has a one-command before/after.
+### M0 — Measurement harness (b27a1acb)
 
-1. `make perf-btrsmith` (or `tools/perf/btrsmith.sh`): transpile BTRSmith
-   with both compilers under `BTRCC_TIMING=1` and `/usr/bin/env time`,
-   compile the emitted unit(s) with clang, print one table (phase seconds,
-   peak RSS, C line count, function/struct/instance counts, clang seconds).
-2. Add `BTRC_TIMING` to btrcpy with the same phase names as btrcc's
-   `BtrccPhaseTimer`, so the two tables line up.
-3. Add a `make perf-self` variant that compiles `BtrccMain.btrc` — the
-   "same output size, 3× fewer classes" control that exposes superlinear
-   behaviour.
-4. Check the tables into `docs/design/compile-performance.md` as the baseline.
+`tools/perf.py` (`make perf-btrsmith`, `make perf-self`), `BTRC_TIMING=1`
+phase timing in both compilers with the same phase names, baseline tables
+in the design doc. Test: `src/tests/python/test_perf_tool.py`.
 
-Exit: one command produces the table; the numbers above are reproduced.
+### M1–M3 — Algorithmic cuts (154093de, b1c9816a, 4ae64cda)
 
----
+- Subclass/ancestor index in `Analyzed`
+  (`src/compiler/btrc/analyzer/Models.btrc`: `ancestorsOf`, `subclassesOf`,
+  `refreshInheritanceIndex`); `CycleSemantics` iterates `subclassesOf`.
+  Python mirror in `ir/lowering/ownership.py` (`_ancestors`, `_subclasses_of`).
+- Environments shared instead of copied per expression
+  (`ir/lowering/ownership/Operands.btrc` `variables()`/`typeArguments()`;
+  `generics.py` `TypeSubstitution` caches decoded tables and hands out
+  copies on read — a9b4d215).
+- Native-declaration indexes, DCE membership sets, setjmp fixed point
+  driven by "consulted" summaries (`ir/optimization/setjmp/Analysis.btrc`,
+  `exceptions.py`), iterative IR walker in `ir/nodes.py`.
+- The compiler `keep`s its analysis and IR graphs at exit
+  (`pipeline/Pipeline.btrc`, `analyzer/Analyzer.btrc`): releasing them
+  cost 200 s of ARC reverse-edge proofs.
 
-## M1 — Remove the quadratic class walks
+### M4 — Translation units (62d69404, reworked in 598bc161)
 
-The single largest bucket (~40 % of btrcc, the `_is_subclass` storm in
-btrcpy). Output must not change by a byte.
+`--emit-units PREFIX` in both compilers writes `PREFIX.unit-<k>.c`; the
+link plan is schema 3 with `emitted-units`; `btrc-native-plan --jobs`
+compiles units in parallel. Every unit carries the prologue, types,
+helpers and prototypes; functions and globals lose `static`; the primary
+unit defines globals and kernels, secondaries declare them. Runtime
+file-scope state stays written as plain `static` in `src/runtime/c/*.c`
+(the stdlib archive parses that text to derive its `extern` header); the
+unit emitters reshape it per unit through
+`src/compiler/python/backend/runtime_state.py` and
+`src/compiler/btrc/ir/RuntimeState.btrc` (primary drops `static`, others
+declare `extern`). Emitters: `c_emitter.py` `emit_units`/`_emit_unit`,
+`ir/Emitter.btrc` `emitUnits`/`emitUnit`. Tests:
+`src/tests/python/test_emitted_units.py`, `test_native_plan_builder.py`.
 
-1. **Subclass index** in `Analyzed` (`src/compiler/btrc/analyzer/Models.btrc`)
-   and its Python mirror (`analyzer/program.py` / `ir/lowering/ownership.py`):
-   after declaration registration build `parent → children`,
-   `class → ancestors`, `interface → implementors`, and the generic-instance
-   equivalents. `isSubclass(sub, base)` becomes an ancestor-set lookup with no
-   allocation; native (`objective-c`/`c`) classes keep their `nativeAncestors`
-   path but through the same index.
-2. **`CycleSemantics.appendRuntimeTypes` / `computeRuntimeTypeMayCycle`**
-   (`analyzer/ownership/Cycles.btrc`, `ir/lowering/ownership.py`
-   `_runtime_type_candidates` / `type_may_cycle`): iterate the descendants of
-   the field's type from the index instead of `classTable.keys()`; keep the
-   result order identical to today's (class-table insertion order) so the
-   emitted visitor tables do not reorder.
-3. **Memoise `runtimeTypeMayCycle` and `typeIsCyclable`** per runtime type
-   name for the whole compile (today: 86,713 calls for 1,440 distinct
-   answers).
-4. Verify with the corpus and BTRSmith: `cmp` of the emitted C before and
-   after on every corpus program and on BTRSmith, both frontends.
+### M5 — Source mapping and dev builds (d7f24d73, f7000dcd)
 
-Exit: analyze + lower drop by ~200 s on BTRSmith; `perf-self` ratio to
-BTRSmith falls from 8.5× toward the output-size ratio (~1×).
+btrcc `--debug` lowers `IRK_LINE_MARKER` statements
+(`ir/lowering/Statements.btrc` `lowerStmtInto`) and the emitter stamps
+`#line` before every content line of a function body
+(`ir/Emitter.btrc` `emitLineDirective`, `fixGeneratedLineResets`);
+`-o PATH` (options may follow the input); `btrc-native-plan --debug-info`;
+BTRSmith `BUILD=dev`. Tests: `src/tests/btrc/test_cli_arguments.py`,
+`test_emitted_units.py::test_debug_split_units_map_lines_and_run`.
 
----
+### M6 — Incremental rebuilds (1d285e55)
 
-## M2 — Stop copying the environment per expression
+Every lowered function records its `.btrc` module (`IRFunction.sourceFile`,
+`IRFunctionDef.source_file`, stamped by
+`LoweringContext.stampFunctionSources` per top-level declaration and per
+generic instantiation, and by `TranslationUnit._stamping_sources`);
+`--emit-units` packs consecutive same-module runs to the line target
+(`Emitter.unitStarts`, `CEmitter._unit_starts`), so an edit changes one
+unit. `btrc-native-plan --object-cache DIR` (`tools/native_plan.py`
+`_ObjectCache`) keys objects on compiler identity, flags and source bytes.
+Per-module parse caching was dropped for cause: the front end is 3 s of 76.
 
-Second bucket (~19 %). Output must not change by a byte.
+Open items, small, to ride along with M7/M8:
 
-1. `OwnershipOperandEnvironment` (`ir/lowering/ownership/Operands.btrc`) and
-   `CallableBoundaryContext.variables()`: return a read-only view of the
-   variable-type map; introduce a scope chain (`Scope { parent, bindings }`)
-   where a nested block creates a child scope instead of `copyTypes`.
-   Lookup walks outward. Same in `ir/lowering/session.py` `type_of` and
-   `ownership.py`.
-2. The analyzer's `ExpressionValidator.copyTypes` (`analyzer/Expressions.btrc`
-   lines ~971–1074, `analyzer/expressions.py`) → the same scope chain.
-3. `ExpressionLowerer.resolvedExpressionType` (762 k calls): memoise per
-   `(node, scope)` where the scope object is stable; drop the memo when the
-   scope is popped.
-4. `cmp` gate as in M1.
+- **Trim the per-unit prologue.** Every unit carries the whole program's
+  struct definitions, prototypes and helpers (~50k of a unit's ~95k
+  lines). Emit per unit only what its functions reference (walk the unit's
+  bodies for names); clang time per unit halves and the object cache hits
+  more often.
+- **No-op rebuilds.** `make` re-runs the transpile whenever a source is
+  touched (94 s for "no change"). Key the generated C and plan on the
+  closure's content hash (btrcpy's output cache in
+  `application/compiler.py` already computes it) and make BTRSmith's rules
+  depend on the hash rather than mtimes.
+- **The reference compiler.** btrcpy is at 259 s and nothing targets it;
+  profile `optimize` (its setjmp planner) and lowering with cProfile after
+  each btrcc cut and port the same shape.
 
-Exit: `copyTypes` disappears from the top 40 of the profile; lower drops
-by ~80 s.
+### M7 — Profile-driven cuts (9f7d7328, 5d9562be; in progress)
 
----
+Parallel lowering is off the table as the plan first stated it: every ARC
+retain and release takes the global spinlock `__btrc_arc_lock_mutation`
+(`src/runtime/c/cycles.c`), so threads inside btrcc would serialise on it,
+and `Analyzed`'s lazily filled caches are not thread-safe. M9 and M10 are
+the way around both.
 
-## M3 — The remaining linear scans and allocation churn
-
-Everything else in the profile that is a data-structure choice, not an
-algorithm. Output must not change by a byte.
-
-1. **Native declaration index**: `Analyzed.nativeGlobalReturnsOwned`,
-   `nativeGlobalReadOnly`, `nativeClassLanguage` callers → `Map<string, …>`
-   built once from `nativeDeclarations` (btrcpy: the matching lookups in
-   `analyzer/program.py`).
-2. **DCE membership**: `IROptimizer.containsName` and the `removed` vectors
-   → `Map<string, bool>` (btrcpy `ir/optimizer.py`: sets).
-3. **Setjmp analysis** (`ir/optimization/setjmp/*.btrc`,
-   `ir/lowering/exceptions.py`): memoise `contains_setjmp` / pointer-flow
-   per function; skip functions with no `try`, no callable boundary and no
-   volatile-relevant locals up front.
-4. **`Node` allocation** (`src/compiler/btrc/generated/ast/Node.btrc`,
-   generated from the AST schema): allocate the 21 child vectors lazily
-   (null until first push, readers treat null as empty). Regenerate the
-   codec; the Python `Node` dataclasses use default factories only where a
-   field is written.
-5. **Pointer-keyed memo maps**: replace `AstIdentity.key(node)` (string of
-   the address, 68 sites) with an identity-keyed `Map<Node, …>`; btrcpy
-   already keys by object identity.
-6. **btrcpy only**: stop round-tripping resolved types through JSON
-   (`ir/lowering/generics.py` `_thaw` / `syntax/ast/codec.py`); keep frozen
-   type trees as interned tuples with an identity cache. Also the tuple-type
-   collection in `translation_unit.py` `_collect_ast_tuple_types` (4 M AST
-   walks) → one walk with a memo per declaration.
-7. Re-profile (gprof for btrcc, cProfile for btrcpy) and fix whatever is now
-   above 3 %; stop when the top of the flat profile is lexing/parsing-shaped
-   work or the ARC runtime on data the compiler genuinely has to touch.
-
-Exit: btrcc ≤ 150 s and ≤ 3.5 GB on BTRSmith; btrcpy ≤ 250 s.
+Landed, all byte-identical: cleanup-adapter name index
+(`ir/optimization/Cleanup.btrc`), `TypeIdentity.utf8Hex` through a
+`StringBuilder` (`syntax/Identity.btrc`), memoised setjmp body scans
+(`setjmp/Safety.btrc` `bodyContainsSetjmp`), copy-on-write alias states
+and one shared empty origin set (`setjmp/Analysis.btrc` `shareSlot`,
+`ownOrigins`, `noOrigins`), `CallableBoundaryContext.variables()` returns
+the live table (`ir/lowering/Callables.btrc`). Sub-phase marks `l-*` and
+`o-*` in `Lowerer.btrc`, `Optimizer.btrc`, `Pipeline.btrc`.
 
 ---
 
-## M4 — Multiple translation units
+## 4. Open milestones
 
-The clang minutes become seconds, and per-unit recompilation becomes
-possible. This milestone changes the emitted shape, so the proof is the
-corpus and the full BTRSmith check suite on both frontends, not `cmp`.
+### M7 (remainder) — finish the profile-driven cuts
 
-1. **Origin tracking**: give `IRFunction`, `IRStructDef`, `IRGlobalDecl` and
-   generic instances an `origin` (package name) populated in lowering from
-   the source stamps `stampProgramSources` already puts on declarations.
-   Runtime helpers and each generic instantiation get the origin of the
-   first demander; the runtime prelude gets `btrc_runtime`.
-2. **Emitter** (`ir/Emitter.btrc`, `ir/lowering/translation_unit.py`): emit
-   one header (`<name>.h`: prelude, enums, typedefs, struct definitions,
-   function pointer typedefs, prototypes for every non-`static` function,
-   `extern` globals) and one `.c` per origin. Anything referenced from
-   another unit loses `static`; anything referenced only within its unit
-   keeps it. Deterministic unit order and content.
-3. **Link plan schema 3**: the plan lists the emitted units (reusing the
-   existing `units` / `generated-units` shape) so `tools/native_plan.py`
-   compiles them in parallel (`-j` = cores) and links once. `--emit-link-plan`
-   callers (btrc `Makefile`, BTRSmith `make/Config.mk`, the nix packages)
-   move from "one generated C file" to "a generated directory".
-4. **Single-file mode stays** (`--single-unit`) for the corpus runner, the
-   bootstrap fixed point and anyone who wants one file; it must be byte
-   identical to today.
-5. Optional `-flto` switch in the native plan for release builds; measure
-   whether it matters for BTRSmith's frame time before turning it on.
+Target: btrcc under 55 s on BTRSmith, byte-identical. Measure each step
+with `BTRC_TIMING=1` on BTRSmith and the corpus `cmp`.
 
-Exit: BTRSmith compiles as ~20 units; clang wall ≤ 20 s on this host;
-`make bootstrap` still reaches its fixed point through single-unit mode;
-every BTRSmith check passes on both frontends.
+1. **Intern origin sets in the setjmp flow** (`o-setjmp` 12 s).
+   `SetjmpPointerFlowResult` (`src/compiler/btrc/ir/optimization/setjmp/Analysis.btrc`)
+   allocates ~35 M `Vector<SetjmpOrigin>` per compile: `flowExpression`
+   returns a fresh vector per expression, `copyOrigins` is called 7.6 M
+   times, `addOrigins` 16 M. Make an origin set an immutable value:
+   a canonical sorted `Vector<SetjmpOrigin>` interned in a per-function
+   table keyed by the joined `storage.identity/depth/sourceExposed`
+   triples, so `copyOrigins` is a reference copy, `addOrigins` builds the
+   union once and interns it, and `flowSameOrigins` is a pointer compare.
+   `SetjmpAliasSlot.origins` then never needs copying (drop `owned`).
+   Mirror in `src/compiler/python/ir/lowering/exceptions.py` (its sets are
+   `frozenset`s already; the cost there is the per-node dict churn —
+   cProfile it first). Gate: corpus `cmp`, BTRSmith `cmp`, `make test`.
+2. **Generic instantiation allocation** (`l-generic-classes` 12 s).
+   `SemanticTypeSystem.resolveGenericType` and
+   `TypeShape.copyWithArguments` (`src/compiler/btrc/analyzer/Types.btrc`,
+   `syntax/Identity.btrc`) create ~1.6 M type nodes per compile;
+   `SemanticTypeSystem.namedClass` another 1.15 M. Memoise substitution
+   per (type identity, type-map identity) within one instantiation
+   (`DeclarationLowerer.emitGenericInstance`, `ir/lowering/Declarations.btrc`),
+   return the input when no parameter is reached (the M1 shape in
+   `resolveTypedefType`), and audit `namedClass` callers for mutation
+   before sharing its result.
+3. **Declaration lowering** (`l-declarations` 15 s). Re-profile after 1–2.
+   Inclusive-time candidates from the last graph:
+   `CallTargetResolver.resolve` (300k calls, 4.7 s), `resolveField`
+   (219k), `CallableValueSemantics.expressionAbi` (620k, 4.8 s),
+   `CallableFlowState.applyEvaluation` (240k, 4.8 s),
+   `CycleSemantics.reaches` (2.2k calls at 1.8 ms each — memoise per
+   (type, target) or precompute reachability once per class graph).
+4. Port each cut to btrcpy where the same shape exists; record the numbers.
 
----
+### M8 — Per-kind AST and IR nodes
 
-## M5 — Developer build mode and source mapping
+Target: btrcc under 30 s on BTRSmith, peak RSS under 1.5 GB, node
+allocations down at least 3× (gprof call counts of `Node_init`,
+`IRNode_init`, `__btrc_cycle_grow_slots`). Byte-identical at every commit.
 
-1. **`#line` directives** in emitted C under `--debug`, now in both
-   compilers: btrcc gains the `IRK_LINE_MARKER` statement that btrcpy already
-   lowered, stamped by the emitter from the line map `sourceFileForLine` /
-   `sourceLineFor` maintain; synthesized code resets to the generated file
-   (each unit names itself). The directives stay opt-in: release output is
-   unchanged byte for byte, and anyone diffing C by hand sees no noise.
-   btrcc also gains `-o PATH` so the reset directives can name the file.
-2. **`BUILD=dev`** in BTRSmith's `make/Config.mk`: `--debug` on the
-   transpile and `btrc-native-plan --optimization 0 --debug-info` (`-g`) on
-   every link; assert messages, sanitizer reports and gdb frames name
-   `AlbumGrid.btrc:97`.
-3. Check that the smokes pass under `BUILD=dev` (they exercise the same
-   binaries, just unoptimised).
+Why: `Node` (`src/compiler/btrc/generated/ast/Node.btrc`, generated from
+the AST schema under `tools/compiler_codegen/`) is one 103-field struct
+whose constructor allocates several empty vectors and maps; 3.8 M are
+built per BTRSmith compile, plus 2.9 M `IRNode`s of the same shape
+(`ir/Model.btrc`). Most of the runtime's allocation, reverse-edge and
+deferred-release work in the profile is those fields.
 
-Exit: a dev rebuild of BTRSmith after M3+M4 is transpile + a few seconds of
-clang; a crash under gdb shows btrc source locations.
+1. **Schema.** Extend the AST schema (`tools/compiler_codegen/ast.py`,
+   `asdl.py`; Python side `src/compiler/python/syntax/ast/generated.py`)
+   with the field set each kind uses; generate a base node (`kind`, `line`,
+   `col`, identity) and one struct per kind. Child vectors are created on
+   first use; a kind that has no `args` has no `args` field.
+2. **Accessors.** Generate typed accessors so passes keep compiling during
+   the migration: `node.args()` returns the kind's vector or one shared
+   empty vector; `node.child(FIELD)` for the generic walkers. Replace the
+   hand-written child enumerations (`containsSetjmp`,
+   `globalInitializerHasEffects`, `collectGlobalRefs`, the `_TRAVERSAL_FIELDS`
+   table in `ir/nodes.py`) with a generated per-kind child table.
+3. **Migrate pass by pass**, both compilers, `cmp` after each pass: lexer
+   and parser, analyzer, lowering, optimisation, emitter. The boundary
+   fixtures (`surface.*`, `managed.*` IR dumps) change when the IR dump
+   format changes — re-accept them once, deliberately.
+4. **IR nodes** the same way once the AST is done.
+5. Re-measure RSS and allocation counts; update the design doc.
 
----
+### M11 — Separate compilation (the dev loop)
 
-## M6 — Incremental rebuilds
+Target: editing one BTRSmith module and rebuilding takes under 10 s
+(summary reads, one module lowered, one unit compiled, link); a cold dev
+build is no slower than today; release output is unchanged. Gate: corpus
+stdout goldens in both modes, bootstrap in release mode, BTRSmith suite in
+both modes.
 
-Re-measured after M1–M5, the front end (resolve, lex, parse, visibility)
-is 3 s of btrcc's 58 s on BTRSmith and 13 s of btrcpy's 225 s, so a
-per-module parse cache would buy at most 5 %; and no per-function analysis
-or lowering cache is possible while instantiation, DCE, ownership and cycle
-analysis are whole-program. The milestone therefore targets the part of an
-edit-rebuild that *can* be skipped, the C compiler:
-
-1. **Stable unit partition**: every `IRFunction` records the `.btrc`
-   module it was lowered from (stamped per top-level declaration and per
-   generic instantiation; synthesized helpers join the preceding run), and
-   `--emit-units` packs consecutive same-module runs to the line target
-   instead of cutting balanced slices. Editing one module changes that
-   module's unit and leaves the other units byte-identical.
-2. **Object cache**: `btrc-native-plan --object-cache DIR` keys each
-   compile on compiler identity, flags and source text and copies a cached
-   object instead of compiling; entries untouched for two weeks are pruned.
-   BTRSmith links with `BTRC_OBJECT_CACHE=build/objects` by default.
-3. The whole-program C cache (`--no-cache` in the Makefiles) stays off for
-   builds: it can only hit when nothing in the closure changed, which make
-   already skips. `--no-cache` remains for the goldens and CI's clean-tree
-   runs.
-
-Exit (measured, BTRSmith, btrcc): cold 101 s; one-line edit in one module
-→ 1 of 15 units recompiled, 98 s, of which the transpile is ~90 s. The
-rebuild is now the transpile; M7 works on that.
-
-Left open here, to be picked up alongside M7 (each is small and measured on
-its own):
-
-4. **Trim the per-unit prologue.** Every unit carries the whole program's
-   struct definitions, prototypes and runtime helpers (~50k of a unit's
-   ~95k lines), so a 40k-line unit costs clang almost as much as an 80k
-   one. Emit per unit only the types, prototypes and helpers its functions
-   reference (a name walk over the unit's bodies); the object cache then
-   also hits more often, since a change to an unrelated prototype no longer
-   touches every unit.
-5. **No-op rebuilds.** `make` re-runs the transpile whenever a source is
-   touched (the 94 s "no change" row above). Key the generated C and link
-   plan on the closure's content hash (the reference compiler's output
-   cache already computes it) so an unchanged closure is a copy, and make
-   the BTRSmith rules depend on that hash rather than on mtimes.
-6. **The reference compiler.** btrcpy is at 259 s (lower 140 s, optimize
-   57 s) and nothing above targets it; the corpus and CI run it on every
-   program. M8 applies to it by construction; before that, profile its
-   `optimize` (the setjmp planner again) and its lowering with cProfile
-   after each btrcc cut and port the same shape.
-
----
-
-## M7 — Profile-driven cuts (in progress)
-
-Parallel lowering is off the table as written: the ARC runtime takes one
-global spinlock on every retain and release (`__btrc_arc_lock_mutation`),
-so threads inside the compiler would serialise on it, and the analyzer's
-lazily filled caches are not thread-safe (M9 and M10 remove both limits).
-The single-thread work follows `BTRC_TIMING=1` sub-phase marks (`l-*` in
-lowering, `o-*` in optimisation) so each cut is measured against the
-phase it targets.
-
-Done (every step byte-identical on the corpus and BTRSmith): cleanup-adapter
-index, `utf8Hex` through a builder, memoised setjmp body scans,
-copy-on-write alias states and shared empty origin sets in the setjmp flow,
-the boundary context's variable table shared instead of snapshotted.
-btrcc on BTRSmith: 85 s → 76 s. Where the time is now: lower 28 s
-(generic class instances 12 s, declarations 15 s), setjmp safety planner
-12 s, analyze 12 s, DCE 2.8 s, emit 2.8 s.
-
-Remaining, in order:
-
-1. **Intern origin sets in the setjmp flow.** The planner allocates ~35 M
-   `Vector<SetjmpOrigin>` per compile, one per expression flow result.
-   Represent an origin set as an immutable, hash-consed value (a small
-   sorted array keyed in a per-function table) so `copyOrigins` is a
-   pointer copy and `addOrigins` a table lookup; return sets by reference.
-   Same shape in `exceptions.py`.
-2. **Generic instantiation allocation.** `resolveGenericType` and
-   `TypeShape.copyWithArguments` create ~1.6 M type nodes per compile;
-   memoise substitution per (type identity, type-map identity) inside one
-   instantiation, and stop re-cloning a type that no parameter reaches.
-3. **Declaration lowering.** Re-profile `l-declarations` after 1–2; the
-   candidates are `CallTargetResolver.resolve` (300k, 4.7 s inclusive),
-   `CallableValueSemantics.expressionAbi` (620k) and
-   `CycleSemantics.reaches` (2 k calls, 1.8 ms each).
-
-Exit: btrcc under 55 s on BTRSmith cold, RSS unchanged, byte-identical.
-
----
-
-## M8 — Per-kind AST and IR nodes
-
-`Node` is one 103-field struct that allocates several vectors on
-construction; 3.8 M of them are built per BTRSmith compile plus 2.9 M
-`IRNode`s of the same shape. Most of the runtime's allocation, reverse-edge
-and deferred-release work in the profile is those fields.
-
-1. **Schema first.** Both node schemas are already generated
-   (`src/compiler/btrc/generated/ast`, `syntax/ast/generated.py`; the IR
-   has `ir/Model.btrc` and `ir/nodes.py`). Extend the schema with a
-   per-kind field set; generate a base node (`kind`, `line`, `col`,
-   identity) and one struct per kind that carries only its fields, with
-   child vectors created on first use rather than in the constructor.
-2. **Accessors keep the passes compiling.** Generate typed accessors
-   (`node.args()` returns the kind's vector or a shared empty one) so passes
-   migrate kind by kind; the generic walkers (`walk_value`, the IR walker,
-   `containsSetjmp`-style scans) move to a generated child-iteration table.
-3. **Migrate pass by pass** in both compilers, byte-identical at every
-   commit; the corpus, bootstrap and the boundary fixtures are the gate.
-   IR nodes go the same way once the AST is done.
-4. Re-measure RSS and the allocation counts from the gprof flat profile.
-
-Exit: btrcc under 30 s on BTRSmith cold, peak RSS under 1.5 GB, node
-allocations down at least 3×.
-
----
-
-## M9 — Arena allocation for compiler-lifetime data
-
-Everything the compiler builds lives until the process exits (M1–M3
-already `keep` the big graphs to skip a 200 s teardown). Refcounting,
-reverse edges and the mutation lock buy nothing for that data.
-
-1. **Language feature, not a hack.** Add region allocation to btrc: an
-   `Arena` value, and allocation of a class instance "in" an arena, whose
-   objects are neither refcounted nor cycle-collected and are released with
-   the arena. Rules the analyzer enforces: arena objects may reference each
-   other and ordinary ARC objects freely; an ARC-owned field may reference
-   an arena object only while the arena is alive — the first version allows
-   only process-lifetime arenas (never released), which makes the rule
-   trivially true and matches what the compiler needs.
-2. **Runtime.** Arena allocation is a bump allocator; `retain`/`release`
-   on an arena object are no-ops recognised from the object header, so
-   generated code does not change shape and the corpus stays identical.
-3. **Compiler adoption.** Tokens, AST, analysis tables and IR go into one
-   compiler arena; the emitter's string building stays ARC.
-4. Sanitizer runs (`-fsanitize=address,undefined`) of the compiler itself
-   on the corpus and BTRSmith, and the language spec, corpus programs and
-   diagnostics for the new construct in both compilers.
-
-Exit: btrcc 10–15 s on BTRSmith cold; the runtime profile no longer shows
-`__btrc_arc_lock_mutation`, `__btrc_reverse_add` or `__btrc_cycle_grow_slots`
-in the top twenty.
-
----
-
-## M10 — Parallel analysis and lowering
-
-Possible once M9 removes the global lock from the compiler's hot path and
-M8 makes node graphs cheap to build per thread.
-
-1. **Freeze the shared tables.** After analysis, every lazily filled cache
-   in `Analyzed` is either filled eagerly or made thread-local; the analyzer
-   registers a "frozen" state that asserts no further mutation.
-2. **Per-function work items.** `FunctionLowerer.lowerBody`, per-function
-   validation and the setjmp analysis run over a pool of threads with a
-   per-thread arena and temporary-name state seeded per function; results
-   are appended in original order so the output is byte-identical to the
-   sequential run (which stays available as `BTRC_JOBS=1`).
-3. **Determinism gate.** Two runs `cmp` equal; `-fsanitize=thread` on the
-   compiler over the corpus.
-
-Exit: btrcc 3–5 s on BTRSmith cold on this machine; parity with clang -O0
-per line of input.
-
----
-
-## M11 — Separate compilation (the dev loop)
-
-After M6 an edit costs a whole transpile because analysis, generic
+Why: after M6 an edit costs a whole transpile because analysis, generic
 instantiation, DCE and cycle analysis are whole-program. clang is fast on
 an edit because it never recompiles the world. The stdlib archive
-(`--build-stdlib`, one C unit plus a header with `extern` shared state) is
-already a working instance of the design; this milestone generalises it
-to every module.
+(`--build-stdlib` / `--stdlib`, `src/compiler/python/application/pipeline.py`
+`StdlibArchiveAdapter`, `artifacts/archive.py`, `artifacts/stdlib.py`:
+one C unit plus a header with `extern` shared state, consumed by later
+compiles) is already a working instance of the design for one module.
 
-1. **Module interface summaries.** Per module, the front end writes a
-   summary (`.btrci`, keyed by the module's content hash and its imports'
-   summary hashes): exported declarations with fully resolved types, class
-   layouts and hierarchies, method ABIs and contracts, and the ownership
-   facts other modules need (which types may cycle, which methods release).
-   Analysis of a module consumes summaries, never the sources of its
-   imports.
+1. **Module interface summaries.** For each module (a `.btrc` file with
+   its `btrc.toml` package context) the front end writes a summary
+   (`<module>.btrci`, JSON, keyed by the module's content hash and the
+   summary hashes of its imports): exported declarations with fully
+   resolved types, class layouts and hierarchies, method ABIs and call
+   contracts, native-import contracts, and the ownership facts other
+   modules need (which runtime types may cycle, which methods release or
+   capture, realtime effects). Analysis of a module consumes summaries,
+   never the sources of its imports. Start from what `Analyzed`
+   (`analyzer/Models.btrc`, `analyzer/program.py`) already holds per
+   declaration; the resolver's `FeDependencyGraph` /
+   `SourceDependencyGraph` gives the import order.
 2. **Program facts as a link-time pass.** The facts that are truly
-   whole-program — runtime-type may-cycle, the set of reachable helpers,
-   the instantiation set — are computed by merging summaries, which is
-   cheap, and written to a program summary that the per-module lowerings
-   read.
+   whole-program — runtime-type may-cycle (`CycleSemantics`), the set of
+   reachable runtime helpers (`RuntimeReferenceCollector`), the generic
+   instantiation set, DCE roots — are computed by merging summaries
+   (cheap: no bodies) into a program summary that every per-module lowering
+   reads. Cycle analysis over summaries needs the field types of every
+   class, which the summaries carry.
 3. **One C unit per module.** Each module lowers to its own C file against
-   a generated program header (types, prototypes, shared runtime state as
-   the archive already does it). The symbol ABI is the current
-   deterministic mangling; runtime helpers are defined once in a runtime
-   unit and declared everywhere.
-4. **Generics.** Instantiations are lowered in the module that first
-   needs them, recorded in the program summary, and given weak linkage
-   (`__attribute__((weak))` on ELF and Mach-O, `selectany` on MSVC) so a
-   second module that needs the same instantiation may emit it and the
-   linker folds duplicates. A deterministic assignment from the summary
-   (each instantiation owned by exactly one module) is the reproducible
-   alternative; pick it if weak symbols cause any drift.
+   a generated program header (types, prototypes, runtime helper
+   prototypes, shared runtime state as `runtime_state.py` /
+   `RuntimeState.btrc` already shape it); runtime helpers are defined once
+   in a runtime unit. The symbol ABI is today's deterministic mangling
+   (`TypeIdentity`); nothing in a module's C may depend on another
+   module's bodies. The unit partition of M6 becomes "one module, one
+   unit" in this mode.
+4. **Generics.** An instantiation is lowered in the module that first
+   needs it and recorded in the program summary; emit it with weak linkage
+   (`__attribute__((weak))` on ELF and Mach-O, `__declspec(selectany)` on
+   MSVC) so another module may emit the same one and the linker folds
+   them. If weak symbols cause any drift, use the deterministic
+   alternative: the program summary assigns each instantiation to exactly
+   one owning module, and the driver re-lowers that module when the set
+   changes.
 5. **Whole-program passes in dev mode.** DCE becomes per-module plus a
-   program-level unreachable list from the summaries; release builds keep
-   today's whole-program path until the corpus shows separate-mode output
-   behaves identically (stdout goldens, not `cmp`, gate this milestone).
-6. **Build driver.** `btrcc --module PATH --summary-dir DIR` per module and
-   a dependency-aware driver (`btrc-build`, also usable from make) that
-   re-analyses and re-lowers only modules whose sources or imported
-   summaries changed; the M6 object cache covers the C side. BTRSmith's
-   `BUILD=dev` uses it.
+   program-level unreachable list from the summaries (less aggressive than
+   today; acceptable for dev builds). Release builds keep the whole-program
+   path until the corpus shows separate-mode output behaves identically
+   under the stdout goldens; then decide whether release moves too.
+6. **Build driver.** `btrcc --module PATH --summary-dir DIR` (and the
+   same in btrcpy) analyses one module against summaries and emits its
+   unit and updated summary; `btrc-build` (a Python tool next to
+   `tools/native_plan.py`, also callable from make) walks the dependency
+   graph, re-analyses and re-lowers only modules whose sources or imported
+   summaries changed, then links through the M6 object cache. BTRSmith's
+   `BUILD=dev` uses it; `application-frontend-check` runs in both modes.
 
-Exit: editing one BTRSmith module and rebuilding takes under 10 s
-(summary reads, one module lowered, one unit compiled, link); a cold dev
-build is no slower than today's; release output is unchanged.
+### M9 — Arena allocation for compiler-lifetime data
+
+Target: btrcc 10–15 s on BTRSmith cold; `__btrc_arc_lock_mutation`,
+`__btrc_reverse_add` and `__btrc_cycle_grow_slots` gone from the top
+twenty of the compiler's profile; corpus byte-identical (the generated
+code's shape does not change).
+
+Why: everything the compiler builds lives until the process exits; M1–M3
+already `keep` the big graphs to skip a 200 s teardown. Refcounting,
+reverse edges and the mutation lock buy nothing for that data, and the
+lock is what forbids threads (M10).
+
+1. **Language feature.** Add region allocation to btrc: an `Arena` value
+   and allocation of a class instance in an arena, whose objects are
+   neither refcounted nor cycle-collected and are released with the arena.
+   Analyzer rules (both analyzers, `analyzer/validation/*.btrc` and
+   `python/analyzer/*.py`): arena objects may reference each other and
+   ordinary ARC objects; an ARC-owned field may reference an arena object
+   only while the arena is alive. The first version allows only
+   process-lifetime arenas (never released), which makes that rule
+   trivially true and is all the compiler needs. Spec it in
+   `src/language/`, add corpus programs and diagnostics tests.
+2. **Runtime.** `src/runtime/c/cycles.c`: arena allocation is a bump
+   allocator; `__btrc_arc_retain`/`release`/`retain_edge`/`release_edge`
+   recognise an arena object from its header and return without taking
+   the lock or touching reverse edges. Generated code does not change.
+3. **Compiler adoption.** Tokens, AST, analysis tables and IR go into one
+   compiler arena (the pipeline creates it; `keep` becomes unnecessary);
+   the emitter's string building stays ARC.
+4. **Gates.** `-fsanitize=address,undefined` builds of btrcc over the
+   corpus and BTRSmith; the runtime boundary fixtures re-accepted once;
+   `make test`, `bootstrap`, `test-c11`.
+
+### M10 — Parallel analysis and lowering
+
+Target: btrcc 3–5 s on BTRSmith on this machine (16 cores); parity with
+clang -O0 per line of input; output byte-identical to the sequential run.
+
+Possible once M9 removes the lock from the compiler's hot path and M8
+makes per-thread node graphs cheap.
+
+1. **Freeze the shared tables.** After analysis every lazily filled cache
+   in `Analyzed` (inheritance index, native indexes, `runtimeTypeMayCycle`
+   memo, typedef resolution memo, expression-type memos) is either filled
+   eagerly or made thread-local; `Analyzed.freeze()` asserts no further
+   mutation (debug builds trap on a write after freeze).
+2. **Per-function work items.** `FunctionLowerer.lowerBody`, per-function
+   validation (`DeclarationValidator.validateCallableBody`) and the setjmp
+   flow run over a thread pool (`spawn`/`Thread<T>`) with a per-thread
+   arena and a temporary-name state seeded per function so names do not
+   depend on scheduling; results are appended in original order.
+   `BTRC_JOBS=1` keeps the sequential path.
+3. **Determinism gate.** Two runs `cmp` equal on the corpus and BTRSmith;
+   `-fsanitize=thread` build of btrcc over the corpus; the same shape in
+   btrcpy with `multiprocessing` only if profiling shows it pays (pickling
+   the analysed program may cost more than it saves).
 
 ---
 
-## Order of operations, one line
+## 5. Order of operations, one line
 
 M0 measure → M1 subclass index → M2 scope chains → M3 remaining scans and
 allocation → M4 multi-unit emission and parallel clang → M5 `#line` and
-dev builds → M6 stable units and the object cache → M7 profile-driven cuts
-→ M8 per-kind nodes → M11 separate compilation → M9 arenas → M10 parallel
-lowering.
+dev builds → M6 stable units and the object cache → **M7 profile-driven
+cuts (finish) → M8 per-kind nodes → M11 separate compilation → M9 arenas →
+M10 parallel lowering.**
 
 M11 comes before M9 and M10 because it changes what an edit costs, which
 matters more than what a cold build costs, and it depends on neither; M9
-and M10 then shrink both. M6's open items 4–6 (prologue trimming, no-op
-rebuilds, the reference compiler) ride along with M7 and M8 as they are
-measured. M1–M3 and M7–M10 are byte-identical-output
-changes gated by `cmp`; M4–M6 and M11 change the emitted shape and are
-gated by the corpus goldens, bootstrap and the BTRSmith suite. Each
-milestone ends with the table in `docs/design/compile-performance.md`
-updated.
+and M10 then shrink both. M6's open items ride along with M7 and M8 as
+they are measured. M1–M3 and M7–M10 are byte-identical-output changes
+gated by `cmp`; M4–M6 and M11 change the emitted shape and are gated by
+the corpus goldens, bootstrap and the BTRSmith suite. Each milestone ends
+with the table in `docs/design/compile-performance.md` updated.
