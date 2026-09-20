@@ -322,6 +322,15 @@ The planner allocates about 35 million origin vectors per compile, one per
 expression flow result; interning those sets is the next cut. btrcpy is
 unchanged at 259 s (lower 140 s, optimize 57 s).
 
+### Beyond M7
+
+`PLAN.md` now carries the next four milestones with their reasoning: M8
+per-kind AST and IR nodes (~30 s), M11 separate compilation with module
+interface summaries and per-module C units so an edit rebuilds one module
+(under 10 s), M9 arena allocation for compiler-lifetime data (~10–15 s, and
+the end of the global ARC lock on the compiler's hot path), M10 parallel
+analysis and lowering (3–5 s, parity with clang -O0 per line of input).
+
 ## Raw data
 
 `/tmp/claude-1000/prof/`: `btrcc-timing.txt`, `gprof-flat.txt`,
