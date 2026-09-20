@@ -201,6 +201,7 @@ class BtrccCommandLine {
 		BtrccOptions options = BtrccOptions();
 		int index = 1;
 		int importMode = 0;
+		int inputIndex = -1;
 		while (index < self.arguments.len) {
 			string option = self.arguments.get(index);
 			if (option.equals("--no-stdlib")) {
@@ -264,26 +265,31 @@ class BtrccCommandLine {
 			} else if (option.equals("--")) {
 				index++;
 				break;
-			} else if (option.startsWith("-")) {
+			} else if (option.startsWith("-") && option.length() > 1) {
 				return self.invalid(options, f"unknown option: {option}");
+			} else if (inputIndex >= 0) {
+				return self.invalid(options, "only one input file may be compiled at a time");
 			} else {
-				break;
+				inputIndex = index;  /* options may follow the input file */
 			}
 			index++;
 		}
-		options.inputIndex = index;
+		if (index < self.arguments.len) {
+			if (inputIndex >= 0 || index + 1 < self.arguments.len) {
+				return self.invalid(options, "only one input file may be compiled at a time");
+			}
+			inputIndex = index;
+		}
+		options.inputIndex = inputIndex;
 		if (options.showHelp) { return options; }
 		if (options.showStdlibDirectory) {
-			if (index < self.arguments.len) {
+			if (inputIndex >= 0) {
 				return self.invalid(options, "--stdlib-dir does not accept an input file");
 			}
 			return options;
 		}
-		if (index >= self.arguments.len) {
+		if (inputIndex < 0) {
 			return self.invalid(options, "missing input file");
-		}
-		if (index + 1 < self.arguments.len) {
-			return self.invalid(options, "only one input file may be compiled at a time");
 		}
 		return options;
 	}
