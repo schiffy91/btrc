@@ -116,20 +116,36 @@ class CEmitter:
             self._indent = 0
             self._emit_function(func)
             sizes.append(len(self._lines))
-        total = sum(sizes)
-        count = min(total // target_lines + 1, 64)
-        starts = [0]
-        accumulated = 0
-        for index, size in enumerate(sizes, start=1):
-            if len(starts) >= count:
-                break
-            accumulated += size
-            if accumulated * count >= total * len(starts) and index < len(sizes):
-                starts.append(index)
+        starts = self._unit_starts(module, sizes, target_lines)
         return [
             self._emit_unit(module, unit, first, starts[unit + 1] if unit + 1 < len(starts) else len(sizes))
             for unit, first in enumerate(starts)
         ]
+
+    @staticmethod
+    def _unit_starts(module: IRModule, sizes: list[int], target_lines: int) -> list[int]:
+        """Units are runs of consecutive functions from the same source module
+        packed to about `target_lines` each (at most 64 units), so editing one
+        module changes that module's unit and leaves the others byte-identical
+        for the native object cache. Synthesized functions join the preceding
+        module's run."""
+        total = sum(sizes)
+        target = max(target_lines, total // 64 + 1)
+        starts = [0]
+        run_file = module.function_defs[0].source_file if module.function_defs else ""
+        run_start = 0
+        unit_lines = 0
+        for index in range(len(sizes) + 1):
+            file = module.function_defs[index].source_file if index < len(sizes) else ""
+            if index < len(sizes) and (not file or file == run_file):
+                continue
+            run_lines = sum(sizes[run_start:index])
+            if unit_lines and unit_lines + run_lines > target:
+                starts.append(run_start)
+                unit_lines = 0
+            unit_lines += run_lines
+            run_start, run_file = index, file
+        return starts
 
     def _emit_unit(self, module: IRModule, unit_index: int, first: int, end: int) -> str:
         """unit_index -1 is the whole program as one unit; 0 the primary of a

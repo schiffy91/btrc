@@ -145,13 +145,17 @@ class IRLowerer {
 		Vector<GenericClassLoweringPlan> classPlans = self.genericPlans.classPlans();
 		int classIndex = 0;
 		while (classIndex < classPlans.len) {
+			int before = module.functions.len;
 			self.declarations.emitGenericInstance(classPlans.get(classIndex).instance, module);
+			self.context.stampFunctionSources(module, before, classPlans.get(classIndex).declaration.line);
 			classIndex = classIndex + 1;
 		}
 		Vector<GenericMethodLoweringPlan> methodPlans = self.genericPlans.methodPlans();
 		int methodIndex = 0;
 		while (methodIndex < methodPlans.len) {
+			int before = module.functions.len;
 			self.functions.emitOneMethodGenericInstance(methodPlans.get(methodIndex).instance, module);
+			self.context.stampFunctionSources(module, before, methodPlans.get(methodIndex).method.line);
 			methodIndex = methodIndex + 1;
 		}
 

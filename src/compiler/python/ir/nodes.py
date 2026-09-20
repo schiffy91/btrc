@@ -699,6 +699,7 @@ class IRFunctionDef(IRNode):
     archive_export: bool = False
     is_realtime: bool = False
     c_linkage: bool = False
+    source_file: str = ""  # the .btrc module this came from; "" for synthesized code
 
 
 @dataclass

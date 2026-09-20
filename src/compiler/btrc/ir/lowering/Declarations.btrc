@@ -2452,9 +2452,14 @@ class DeclarationLowerer {
 			globalDeclarationIndex = globalDeclarationIndex + 1;
 		}
 		StdlibReachability? reachability = self.context.reachability;
+		int stampedFrom = m.functions.len;
+		int stampedLine = 0;
 		int i = 0;
 		while (i < prog.declarations.len) {
 			Node d = prog.declarations.get(i);
+			self.context.stampFunctionSources(m, stampedFrom, stampedLine);
+			stampedFrom = m.functions.len;
+			stampedLine = d.line;
 			if (self.analyzed.isNativeDeclaration(d)) {
 				i++;
 				continue;
@@ -2509,6 +2514,7 @@ class DeclarationLowerer {
 			}
 			i = i + 1;
 		}
+		self.context.stampFunctionSources(m, stampedFrom, stampedLine);
 	}
 
 	/* Raw by-value structs must be complete before a monomorphized generic

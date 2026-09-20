@@ -8,6 +8,7 @@ compiles only the generated C file plus units enumerated by the canonical plan.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -17,6 +18,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -449,6 +451,7 @@ class NativePlanBuilder:
         optimization: int = 2,
         jobs: int | None = None,
         debug_info: bool = False,
+        object_cache: Path | None = None,
     ) -> None:
         if type(optimization) is not int or optimization not in range(4):
             raise NativePlanError("optimization must be an integer from 0 through 3")
@@ -475,40 +478,46 @@ class NativePlanBuilder:
         strict = ["-pedantic-errors", "-Wall", "-Wextra", "-Werror"]
         if debug_info:
             strict.append("-g")
+        cache = _ObjectCache(object_cache, self._runner) if object_cache is not None else None
         with tempfile.TemporaryDirectory(prefix=".btrc-native-", dir=parent) as temporary_text:
             temporary = Path(temporary_text)
             objects: list[Path] = []
-            commands: list[list[str]] = []
+            commands: list[tuple[list[str], Path, Path]] = []
             for index, source in enumerate((generated, *emitted)):
                 generated_object = temporary / ("generated.o" if index == 0 else f"generated-{index}.o")
                 commands.append(
-                    [
-                        tools["cc"],
-                        "-x",
-                        "c",
-                        "-std=c11",
-                        *strict,
-                        *includes,
-                        *defines,
-                        *package_compile,
-                        f"-O{optimization}",
-                        "-c",
-                        str(source),
-                        "-o",
-                        str(generated_object),
-                    ]
+                    (
+                        [
+                            tools["cc"],
+                            "-x",
+                            "c",
+                            "-std=c11",
+                            *strict,
+                            *includes,
+                            *defines,
+                            *package_compile,
+                            f"-O{optimization}",
+                            "-c",
+                            str(source),
+                            "-o",
+                            str(generated_object),
+                        ],
+                        Path(source),
+                        generated_object,
+                    )
                 )
                 objects.append(generated_object)
             # The emitted units are independent; compile them side by side.
+            compile_one = lambda job: self._compile(cache, *job)  # noqa: E731
             if jobs > 1 and len(commands) > 1:
                 from concurrent.futures import ThreadPoolExecutor
 
                 with ThreadPoolExecutor(max_workers=min(jobs, len(commands))) as pool:
-                    for _ in pool.map(self._run, commands):
+                    for _ in pool.map(compile_one, commands):
                         pass
             else:
-                for command in commands:
-                    self._run(command)
+                for job in commands:
+                    compile_one(job)
             for index, unit in enumerate((*plan.units, *plan.generated_units)):
                 object_path = temporary / f"native-{index}.o"
                 policy = []
@@ -526,7 +535,8 @@ class NativePlanBuilder:
                         policy = ["-fexceptions"]
                 else:
                     source_path = unit.path
-                self._run(
+                self._compile(
+                    cache,
                     [
                         tools[SOURCE_DRIVERS[unit.language]],
                         *SOURCE_LANGUAGE_ARGUMENTS[unit.language],
@@ -541,7 +551,9 @@ class NativePlanBuilder:
                         str(source_path),
                         "-o",
                         str(object_path),
-                    ]
+                    ],
+                    Path(source_path),
+                    object_path,
                 )
                 objects.append(object_path)
             staged = temporary / output.name
@@ -562,6 +574,17 @@ class NativePlanBuilder:
                 ]
             )
             os.replace(staged, output)
+        if cache is not None:
+            cache.prune()
+
+    def _compile(self, cache: _ObjectCache | None, command: list[str], source: Path, object_path: Path) -> None:
+        """Run one compile, or copy the object the cache holds for the same source and command."""
+        key = cache.key(command, source) if cache is not None else None
+        if key is not None and cache.restore(key, object_path):
+            return
+        self._run(command)
+        if key is not None:
+            cache.store(key, object_path)
 
     def _tool(self, value: str, context: str) -> str:
         _text(value, context)
@@ -606,6 +629,66 @@ class NativePlanBuilder:
             raise NativePlanError(f"native build command failed ({rendered}): {detail}")
 
 
+class _ObjectCache:
+    """Objects keyed by compiler identity, flags and source text, so a
+    translation unit whose emitted C did not change is not compiled again.
+    Entries untouched for two weeks are removed after each build."""
+
+    KEEP_SECONDS = 14 * 24 * 3600
+
+    def __init__(self, directory: Path, runner: Callable[..., subprocess.CompletedProcess[str]]) -> None:
+        self.directory = directory
+        self._runner = runner
+        self._identities: dict[str, str] = {}
+        directory.mkdir(parents=True, exist_ok=True)
+
+    def _identity(self, tool: str) -> str:
+        if tool not in self._identities:
+            version = self._runner([tool, "--version"], capture_output=True, text=True, check=False, shell=False)
+            self._identities[tool] = f"{tool}\0{version.returncode}\0{version.stdout}"
+        return self._identities[tool]
+
+    def key(self, command: list[str], source: Path) -> str | None:
+        try:
+            text = source.read_bytes()
+        except OSError:
+            return None
+        digest = hashlib.sha256()
+        arguments = [part for part in command[1:] if part != str(source)]
+        if "-o" in arguments:
+            del arguments[arguments.index("-o") : arguments.index("-o") + 2]
+        for part in (self._identity(command[0]), *arguments):
+            digest.update(part.encode("utf-8", "surrogateescape") + b"\0")
+        digest.update(b"\0source\0" + text)
+        return digest.hexdigest()
+
+    def restore(self, key: str, object_path: Path) -> bool:
+        cached = self.directory / f"{key}.o"
+        try:
+            shutil.copyfile(cached, object_path)
+            os.utime(cached)
+        except OSError:
+            return False
+        return True
+
+    def store(self, key: str, object_path: Path) -> None:
+        staged = self.directory / f".{key}.{os.getpid()}.tmp"
+        try:
+            shutil.copyfile(object_path, staged)
+            os.replace(staged, self.directory / f"{key}.o")
+        except OSError:
+            staged.unlink(missing_ok=True)
+
+    def prune(self) -> None:
+        cutoff = time.time() - self.KEEP_SECONDS
+        try:
+            for entry in os.scandir(self.directory):
+                if entry.name.endswith(".o") and entry.stat().st_mtime < cutoff:
+                    Path(entry.path).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="btrc-native-plan")
     parser.add_argument("--plan", required=True, type=Path)
@@ -618,6 +701,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--jobs", type=int, default=None, help="parallel C compiles for emitted units (default: CPU count)"
     )
     parser.add_argument("--debug-info", action="store_true", help="compile with -g so binaries carry source locations")
+    parser.add_argument(
+        "--object-cache",
+        type=Path,
+        default=None,
+        help="reuse objects of unchanged translation units from this directory",
+    )
     parser.add_argument(
         "--optimization",
         type=int,
@@ -637,6 +726,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             optimization=arguments.optimization,
             jobs=arguments.jobs,
             debug_info=arguments.debug_info,
+            object_cache=arguments.object_cache,
         )
     except (NativePlanError, OSError) as error:
         sys.stderr.write(f"btrc-native-plan: error: {error}\n")

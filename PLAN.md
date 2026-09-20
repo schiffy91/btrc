@@ -194,52 +194,45 @@ clang; a crash under gdb shows btrc source locations.
 
 ---
 
-## M6 — Per-module front end and cache
+## M6 — Incremental rebuilds
 
-The front end stops concatenating the closure into one string; the
-resolver already has the dependency graph (`FeDependencyGraph`), it just
-throws it away after building the string.
+Re-measured after M1–M5, the front end (resolve, lex, parse, visibility)
+is 3 s of btrcc's 58 s on BTRSmith and 13 s of btrcpy's 225 s, so a
+per-module parse cache would buy at most 5 %; and no per-function analysis
+or lowering cache is possible while instantiation, DCE, ownership and cycle
+analysis are whole-program. The milestone therefore targets the part of an
+edit-rebuild that *can* be skipped, the C compiler:
 
-1. **Per-module parse**: lex and parse each source identity separately into
-   its own declaration list, keyed by `(source identity, content hash)`.
-   Line numbers become `(file, line)` everywhere they are `(concatenated
-   line)` today — diagnostics, `#line`, `userLines`, `stdlibLineCount`.
-   The program AST is the concatenation of the per-module declaration
-   lists in the same order as today, so analysis sees the same input.
-2. **Cache the parsed modules** in the existing cache directory
-   (`~/.cache/btrc`, `artifacts/cache.py` and its btrc mirror), keyed by
-   content hash + grammar + toolchain fingerprint. Unchanged modules are
-   loaded from cache, so `lex`/`parse` are paid only for edited files.
-3. **Cache analysis per module** where analysis is local (declaration
-   registration, member tables, visibility, per-function validation for
-   functions whose types are all resolved within the closure that did not
-   change). Whole-program passes (instantiation, DCE, cycle analysis,
-   lowering) still run; after M1–M3 they are the cheap part.
-4. **Per-unit reuse** with M4: a unit whose emitted text is unchanged is
-   not recompiled (content-hash the unit, keep the object in the build
-   directory).
-5. Turn the cache on by default in the Makefiles (drop `--no-cache`); keep
-   `--no-cache` for the goldens and CI's clean-tree runs.
+1. **Stable unit partition**: every `IRFunction` records the `.btrc`
+   module it was lowered from (stamped per top-level declaration and per
+   generic instantiation; synthesized helpers join the preceding run), and
+   `--emit-units` packs consecutive same-module runs to the line target
+   instead of cutting balanced slices. Editing one module changes that
+   module's unit and leaves the other units byte-identical.
+2. **Object cache**: `btrc-native-plan --object-cache DIR` keys each
+   compile on compiler identity, flags and source text and copies a cached
+   object instead of compiling; entries untouched for two weeks are pruned.
+   BTRSmith links with `BTRC_OBJECT_CACHE=build/objects` by default.
+3. The whole-program C cache (`--no-cache` in the Makefiles) stays off for
+   builds: it can only hit when nothing in the closure changed, which make
+   already skips. `--no-cache` remains for the goldens and CI's clean-tree
+   runs.
 
-Exit: editing one BTRSmith adapter and rebuilding takes under a minute;
-each BTRSmith check target re-transpiles the app in about a minute; a
-cold build is unchanged from M4.
+Exit (measured, BTRSmith, btrcc): cold 101 s; one-line edit in one module
+→ 1 of 15 units recompiled, 98 s, of which the transpile is ~90 s. The
+rebuild is now the transpile; M7 works on that.
 
 ---
 
-## M7 — Parallel lowering and a slimmer AST
+## M7 — Lowering and optimisation time
 
-Only if M6 leaves lowering as the bottleneck, and in this order.
-
-1. **Parallel lowering**: after analysis the shared tables are read-only;
-   `FunctionLowerer.lowerBody` runs over a thread pool with per-thread
-   temporaries, results appended in the original order. Needs the ARC
-   runtime's thread-confinement rules written down and a sanitizer run
-   (`-fsanitize=thread`) on the compiler itself.
-2. **Per-kind AST nodes**: replace the one 103-field `Node` with a base
-   node plus per-kind structs generated from the same schema (`generated/ast`).
-   Memory ~3× down, allocation ~3× faster. Every pass in both compilers is
-   touched, which is why it is last.
+Parallel lowering is off the table as written: the ARC runtime takes one
+global spinlock on every retain and release (`__btrc_arc_lock_mutation`),
+so threads inside the compiler would serialise on it, and the analyzer's
+lazily filled caches are not thread-safe. Per-kind AST nodes remain the
+last, largest lever. In between, the profile-driven single-thread work
+continues on the phases that now dominate — lower (35 s), analyze (11 s),
+optimize (7 s) in btrcc — re-profiling after each cut until flat.
 
 Exit: btrcc under 1 minute on BTRSmith cold; peak RSS under 2 GB.
 
@@ -249,8 +242,8 @@ Exit: btrcc under 1 minute on BTRSmith cold; peak RSS under 2 GB.
 
 M0 measure → M1 subclass index → M2 scope chains → M3 remaining scans and
 allocation (re-profile until flat) → M4 multi-unit emission and parallel
-clang → M5 `#line` and dev builds → M6 per-module front end and cache →
-M7 parallel lowering, slimmer nodes.
+clang → M5 `#line` and dev builds → M6 stable units and the object cache →
+M7 profile-driven lowering work, slimmer nodes.
 
 M1–M3 are byte-identical-output changes gated by `cmp`; M4 onwards change
 the emitted shape and are gated by the corpus, bootstrap and the BTRSmith

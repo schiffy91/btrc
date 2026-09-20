@@ -216,18 +216,18 @@ static void __btrc_mark_destroyed(void* ptr) {
 /* btrc-runtime-helper:end __btrc_mark_destroyed */
 /* btrc-runtime-helper:begin __btrc_suspect_state */
 /* ARC cycle detection: suspect buffer */
-static void** __btrc_suspects = NULL;
-static int __btrc_suspect_count = 0;
-static __btrc_visit_fn* __btrc_visit_table = NULL;
-static __btrc_destroy_fn* __btrc_destroy_table = NULL;
-static void** __btrc_suspect_keys = NULL;
+BTRC_RT_STATE(void** __btrc_suspects, NULL)
+BTRC_RT_STATE(int __btrc_suspect_count, 0)
+BTRC_RT_STATE(__btrc_visit_fn* __btrc_visit_table, NULL)
+BTRC_RT_STATE(__btrc_destroy_fn* __btrc_destroy_table, NULL)
+BTRC_RT_STATE(void** __btrc_suspect_keys, NULL)
 /* Buffer index of the suspect held at each hash slot, so forgetting one never
  * scans the buffer. */
-static int* __btrc_suspect_slots = NULL;
-static int __btrc_suspect_key_cap = 0;
+BTRC_RT_STATE(int* __btrc_suspect_slots, NULL)
+BTRC_RT_STATE(int __btrc_suspect_key_cap, 0)
 /* btrc-runtime-helper:end __btrc_suspect_state */
 /* btrc-runtime-helper:begin __btrc_suspect_capacity */
-static int __btrc_suspect_cap = 0;
+BTRC_RT_STATE(int __btrc_suspect_cap, 0)
 /* btrc-runtime-helper:end __btrc_suspect_capacity */
 /* btrc-runtime-helper:begin __btrc_ptr_hash */
 static size_t __btrc_ptr_hash(const void* ptr) {
@@ -345,7 +345,7 @@ static inline void __btrc_suspect(
  * platform lock would need a header the manifest cannot express, because the
  * dependency would hold on one target and not on another, and --freestanding
  * output is allowed to include nothing but btrc_rt.h. */
-static _Atomic int __btrc_arc_lock_word = 0;
+BTRC_RT_STATE(_Atomic int __btrc_arc_lock_word, 0)
 
 /* A waiter polls the word with plain loads and a pause hint, so contending
  * threads do not bounce the cache line on every spin and the owner keeps the
@@ -373,16 +373,16 @@ static void __btrc_arc_unlock_raw(void) {
 }
 /* btrc-runtime-helper:end __btrc_arc_lock_state */
 /* btrc-runtime-helper:begin __btrc_arc_shutdown_state */
-static int __btrc_arc_shutdown = 0;
+BTRC_RT_STATE(int __btrc_arc_shutdown, 0)
 /* btrc-runtime-helper:end __btrc_arc_shutdown_state */
 /* btrc-runtime-helper:begin __btrc_arc_active_drains_state */
-static int __btrc_arc_active_drains = 0;
+BTRC_RT_STATE(int __btrc_arc_active_drains, 0)
 /* btrc-runtime-helper:end __btrc_arc_active_drains_state */
 /* btrc-runtime-helper:begin __btrc_arc_active_unwinds_state */
-static int __btrc_arc_active_unwinds = 0;
+BTRC_RT_STATE(int __btrc_arc_active_unwinds, 0)
 /* btrc-runtime-helper:end __btrc_arc_active_unwinds_state */
 /* btrc-runtime-helper:begin __btrc_arc_snapshot_state */
-static _Atomic int __btrc_arc_snapshotting = 0;
+BTRC_RT_STATE(_Atomic int __btrc_arc_snapshotting, 0)
 /* btrc-runtime-helper:end __btrc_arc_snapshot_state */
 /* btrc-runtime-helper:begin __btrc_arc_mutation_lock */
 static void __btrc_arc_lock_mutation(void) {
@@ -406,8 +406,8 @@ static void __btrc_arc_unlock_mutation(void) {
 }
 /* btrc-runtime-helper:end __btrc_arc_mutation_lock */
 /* btrc-runtime-helper:begin __btrc_arc_topology_state */
-static int __btrc_arc_topology_active = 0;
-static int __btrc_arc_topology_flush_pending = 0;
+BTRC_RT_STATE(int __btrc_arc_topology_active, 0)
+BTRC_RT_STATE(int __btrc_arc_topology_flush_pending, 0)
 /* btrc-runtime-helper:end __btrc_arc_topology_state */
 /* btrc-runtime-helper:begin __btrc_arc_topology_depth_state */
 /* __btrc_tls.arc_topology_depth and __btrc_tls.arc_draining live in the thread-local record __btrc_tls. */
@@ -532,7 +532,7 @@ static void __btrc_arc_enqueue_locked(void* object) {
 /* btrc-runtime-helper:end __btrc_arc_deferred_state */
 /* btrc-runtime-helper:begin __btrc_arc_snapshot_gate_state */
 /* Publish snapshot intent before waiting for topology owners. */
-static _Atomic int __btrc_arc_snapshot_pending = 0;
+BTRC_RT_STATE(_Atomic int __btrc_arc_snapshot_pending, 0)
 /* btrc-runtime-helper:end __btrc_arc_snapshot_gate_state */
 /* btrc-runtime-helper:begin __btrc_arc_exclusive_snapshot */
 static void __btrc_arc_exclusive_snapshot_begin(void) {
@@ -595,13 +595,13 @@ static void __btrc_arc_exclusive_snapshot_end(void) {
 /* btrc-runtime-helper:end __btrc_arc_exclusive_snapshot */
 /* btrc-runtime-helper:begin __btrc_arc_reverse_state */
 /* Scratch state for exact reverse-root classification. */
-static void** __btrc_reverse_queue = NULL;
-static int __btrc_reverse_queue_cap = 0;
-static void** __btrc_reverse_keys = NULL;
-static unsigned int* __btrc_reverse_marks = NULL;
-static int __btrc_reverse_key_cap = 0;
-static int __btrc_reverse_count = 0;
-static unsigned int __btrc_reverse_epoch = 0;
+BTRC_RT_STATE(void** __btrc_reverse_queue, NULL)
+BTRC_RT_STATE(int __btrc_reverse_queue_cap, 0)
+BTRC_RT_STATE(void** __btrc_reverse_keys, NULL)
+BTRC_RT_STATE(unsigned int* __btrc_reverse_marks, NULL)
+BTRC_RT_STATE(int __btrc_reverse_key_cap, 0)
+BTRC_RT_STATE(int __btrc_reverse_count, 0)
+BTRC_RT_STATE(unsigned int __btrc_reverse_epoch, 0)
 /* btrc-runtime-helper:end __btrc_arc_reverse_state */
 /* btrc-runtime-helper:begin __btrc_arc_register_incoming */
 static void __btrc_arc_register_incoming(
@@ -1223,8 +1223,8 @@ typedef struct {
     int slot_cap;
     unsigned int slot_epoch;
 } __btrc_cycle_context;
-static __btrc_cycle_context __btrc_cycle_scratch;
-static int __btrc_collecting = 0;
+BTRC_RT_STATE_ZERO(__btrc_cycle_context __btrc_cycle_scratch)
+BTRC_RT_STATE(int __btrc_collecting, 0)
 
 /* btrc-runtime-helper:end __btrc_cycle_collector_state */
 /* btrc-runtime-helper:begin __btrc_arc_graph_primitives */

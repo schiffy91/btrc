@@ -28,8 +28,8 @@ typedef struct {
     int abandon_count;
     int abandon_cap;
 } __btrc_tls_record;
-static _Thread_local __btrc_tls_record __btrc_tls = {
-    .try_top = -1, .try_cap = 16, .cleanup_top = -1, .cleanup_cap = 64};
+BTRC_RT_STATE(_Thread_local __btrc_tls_record __btrc_tls,
+    {.try_top = -1, .try_cap = 16, .cleanup_top = -1, .cleanup_cap = 64})
 /* btrc-runtime-helper:end __btrc_tls_state */
 /* btrc-runtime-helper:begin __btrc_try_level */
 /* __btrc_tls.try_top lives in the thread-local record __btrc_tls. */

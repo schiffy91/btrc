@@ -279,6 +279,24 @@ byte-identical to M4 through both compilers without `--debug`.
 both on with `--optimization 0`; the dev binaries pass the goldens and their
 DWARF line tables name the `.btrc` sources.
 
+### M6: incremental rebuilds (2026-09-20)
+
+The front end is 3 s of btrcc's 58 s on BTRSmith after M1–M5, so caching
+parsed modules was dropped for cause; the milestone became the C side of an
+edit-rebuild. Every lowered function now records its `.btrc` module and
+`--emit-units` packs consecutive same-module runs to the line target, so an
+edit changes one unit and the others stay byte-identical. `btrc-native-plan
+--object-cache DIR` then reuses their objects (keyed on compiler identity,
+flags and source bytes; entries idle for two weeks are pruned).
+
+| BTRSmith, btrcc, 15 units | wall |
+| --- | --- |
+| cold (empty cache) | 101 s |
+| no change (make re-runs the transpile) | 94 s |
+| one-line edit in `NavigationHistory.btrc` | 98 s, 1 of 15 units recompiled |
+
+The rebuild is now the transpile; the C compiler is a few seconds.
+
 ## Raw data
 
 `/tmp/claude-1000/prof/`: `btrcc-timing.txt`, `gprof-flat.txt`,

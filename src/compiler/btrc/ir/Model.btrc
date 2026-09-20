@@ -708,6 +708,7 @@ class IRFunction {
 	public bool archiveExport;
 	public bool isRealtime;
 	public bool cLinkage = false;
+	public string sourceFile = "";  /* the .btrc module this came from; "" for synthesized code */
 
 	public IRFunction() {
 		self.name = "";

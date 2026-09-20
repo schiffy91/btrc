@@ -31,6 +31,19 @@ class LoweringContext {
 	public Map<string, int> packAlignments;
 	/* --debug: statements carry line markers back to their .btrc source. */
 	public bool debug = false;
+
+	/* Functions appended since `from` came from the declaration at `line`;
+	 * the emitter packs translation units along these source boundaries. */
+	public void stampFunctionSources(IRModule m, int from, int line) {
+		if (line <= 0) { return; }
+		string file = self.sourceFileForLine(line);
+		int index = from;
+		while (index < m.functions.len) {
+			IRFunction fn = m.functions.get(index);
+			if (fn.sourceFile.isEmpty()) { fn.sourceFile = file; }
+			index = index + 1;
+		}
+	}
 	public Map<string, bool> borrowedLocalBindings;
 	public Map<string, string> sourceLexicalBindings;
 	public int tryDepth;

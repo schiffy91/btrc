@@ -86,16 +86,7 @@ class CEmitter {
 			sizes.push(self.lines.len);
 			total = total + self.lines.len;
 		}
-		int count = total / targetLines + 1;
-		if (count > 64) { count = 64; }
-		Vector<int> starts = [0];
-		int accumulated = 0;
-		int index = 0;
-		while (index < sizes.len && starts.len < count) {
-			accumulated = accumulated + sizes.get(index);
-			index = index + 1;
-			if (accumulated * count >= total * starts.len && index < sizes.len) { starts.push(index); }
-		}
+		Vector<int> starts = self.unitStarts(m, sizes, total, targetLines);
 		int unit = 0;
 		while (unit < starts.len) {
 			int first = starts.get(unit);
@@ -104,6 +95,37 @@ class CEmitter {
 			unit = unit + 1;
 		}
 		return units;
+	}
+
+	/* Units are runs of consecutive functions from the same source module
+	 * packed to about targetLines each (at most 64 units), so editing one
+	 * module changes that module's unit and leaves the others byte-identical
+	 * for the native object cache. Synthesized functions join the preceding
+	 * module's run. */
+	private Vector<int> unitStarts(IRModule m, Vector<int> sizes, int total, int targetLines) {
+		int target = targetLines;
+		if (total / 64 + 1 > target) { target = total / 64 + 1; }
+		Vector<int> starts = [0];
+		string runFile = "";
+		int runStart = 0;
+		int unitLines = 0;
+		int index = 0;
+		while (index <= sizes.len) {
+			string file = index < sizes.len ? m.functions.get(index).sourceFile : "";
+			if (index == 0) { runFile = file; }
+			bool runEnds = index == sizes.len || (!file.isEmpty() && file != runFile);
+			if (runEnds) {
+				int runLines = 0;
+				int at = runStart;
+				while (at < index) { runLines = runLines + sizes.get(at); at = at + 1; }
+				if (unitLines > 0 && unitLines + runLines > target) { starts.push(runStart); unitLines = 0; }
+				unitLines = unitLines + runLines;
+				runStart = index;
+				runFile = file;
+			}
+			index = index + 1;
+		}
+		return starts;
 	}
 
 	/* unitIndex -1 is the whole program as one unit; 0 the primary of a split

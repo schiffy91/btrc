@@ -313,3 +313,44 @@ def test_flake_installs_adapter_and_runs_native_plan_check() -> None:
     assert "btrc = pkgs.symlinkJoin" in flake
     assert "native-package-plan = pkgs.runCommand" in flake
     assert "NATIVE_PLAN=${self.packages.${system}.btrc-native-plan}/bin/btrc-native-plan" in flake
+
+
+def test_object_cache_skips_unchanged_compiles(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    shutil.copytree(EXAMPLE, project, ignore=shutil.ignore_patterns(".btrc-cache", "build"))
+    generated = tmp_path / "program.c"
+    plan = tmp_path / "program.link.json"
+    output = tmp_path / "program"
+    cache = tmp_path / "objects"
+    _emit_plan(project, generated, plan)
+
+    commands: list[list[str]] = []
+
+    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        return subprocess.run(command, **kwargs)
+
+    builder = NativePlanBuilder(runner=run)
+    builder.build(plan_path=plan, generated_c=generated, output=output, object_cache=cache)
+    first = [command for command in commands if "-c" in command]
+    assert len(first) == 1 + len(json.loads(plan.read_text())["units"])
+    assert len(list(cache.glob("*.o"))) == len(first)
+
+    commands.clear()
+    output.unlink()
+    builder.build(plan_path=plan, generated_c=generated, output=output, object_cache=cache)
+    assert [command for command in commands if "-c" in command] == []
+    assert (
+        subprocess.run([str(output)], capture_output=True, check=True, text=True).stdout
+        == "PASS: native package graph\n"
+    )
+
+    generated.write_text(generated.read_text().replace("PASS: native package graph", "PASS: edited"))
+    commands.clear()
+    builder.build(plan_path=plan, generated_c=generated, output=output, object_cache=cache, optimization=0)
+    recompiled = [command for command in commands if "-c" in command]
+    assert len(recompiled) == 1 + len(json.loads(plan.read_text())["units"]), "new flags miss for every source"
+    commands.clear()
+    builder.build(plan_path=plan, generated_c=generated, output=output, object_cache=cache)
+    assert [command[command.index("-c") + 1] for command in commands if "-c" in command] == [str(generated)]
+    assert subprocess.run([str(output)], capture_output=True, check=True, text=True).stdout == "PASS: edited\n"

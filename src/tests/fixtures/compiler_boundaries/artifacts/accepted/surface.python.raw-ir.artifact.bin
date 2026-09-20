@@ -178,7 +178,8 @@
         "is_static": false,
         "archive_export": false,
         "is_realtime": false,
-        "c_linkage": false
+        "c_linkage": false,
+        "source_file": "/home/alexanderschiffhauer/Downloads/btrc/build/verification/compiler-boundaries/workspace/sources/surface/surface.btrc"
       },
       {
         "$type": "IRFunctionDef",
@@ -234,7 +235,8 @@
         "is_static": false,
         "archive_export": false,
         "is_realtime": false,
-        "c_linkage": false
+        "c_linkage": false,
+        "source_file": "/home/alexanderschiffhauer/Downloads/btrc/build/verification/compiler-boundaries/workspace/sources/surface/surface.btrc"
       }
     ],
     "gpu_kernels": [],

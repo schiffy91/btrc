@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING
 
@@ -161,10 +162,10 @@ class TranslationUnitLowerer:
             with self._session.specialization(view):
                 self._functions.declare_specialization(view)
         for view in class_views:
-            with self._session.specialization(view):
+            with self._session.specialization(view), self._stamping_sources(view.declaration):
                 self._classes.lower_specialization(view)
         for view in method_views:
-            with self._session.specialization(view):
+            with self._session.specialization(view), self._stamping_sources(view.declaration):
                 self._functions.lower_specialization(view)
         self._emit_enums()
         self._emit_declarations()
@@ -290,6 +291,22 @@ class TranslationUnitLowerer:
     def _emit_enums(self):
         self._declarations.emit_enum_decls()
 
+    @contextmanager
+    def _stamping_sources(self, declaration) -> Iterator[None]:
+        """Functions appended while lowering `declaration` came from its .btrc
+        module; the emitter packs translation units along those boundaries."""
+        functions = self._session.module.function_defs
+        before = len(functions)
+        try:
+            yield
+        finally:
+            line = getattr(declaration, "line", 0)
+            mapped = self._session.source_map.combined(line) if self._session.source_map and line else None
+            if mapped is not None:
+                for function in functions[before:]:
+                    if not function.source_file:
+                        function.source_file = mapped[0]
+
     def _emit_declarations(self):
         """Emit executable and non-executable top-level declarations."""
         emitted_globals = set()
@@ -300,83 +317,84 @@ class TranslationUnitLowerer:
             if reachability is None or reachability.reaches_name(name):
                 self._classes.emit_interface(name)
         for decl in declarations:
-            if (
-                reachability is not None
-                and isinstance(decl, (ClassDecl, FunctionDecl, StructDecl, RichEnumDecl, TypedefDecl))
-                and not reachability.reaches(decl)
-            ):
-                continue
-            if isinstance(getattr(decl, "source_file", None), NativeHeaderSource):
+            with self._stamping_sources(decl):
                 if (
-                    isinstance(decl, VarDeclStmt)
-                    and (
-                        decl.source_file.language in {"objective-c", "c++"}
-                        or decl.name in self._analyzed.native_owned_globals
-                    )
-                    and decl.name not in emitted_globals
+                    reachability is not None
+                    and isinstance(decl, (ClassDecl, FunctionDecl, StructDecl, RichEnumDecl, TypedefDecl))
+                    and not reachability.reaches(decl)
                 ):
-                    if decl.initializer is None:
-                        self._functions.emit_native_global(decl)
-                    else:
-                        self._emit_global_var(decl)
-                    emitted_globals.add(decl.name)
+                    continue
+                if isinstance(getattr(decl, "source_file", None), NativeHeaderSource):
+                    if (
+                        isinstance(decl, VarDeclStmt)
+                        and (
+                            decl.source_file.language in {"objective-c", "c++"}
+                            or decl.name in self._analyzed.native_owned_globals
+                        )
+                        and decl.name not in emitted_globals
+                    ):
+                        if decl.initializer is None:
+                            self._functions.emit_native_global(decl)
+                        else:
+                            self._emit_global_var(decl)
+                        emitted_globals.add(decl.name)
+                    if isinstance(decl, ClassDecl):
+                        if decl.source_file.invocation:
+                            continue
+                        elif decl.source_file.language == "c++":
+                            self._functions.emit_cxx_class(decl)
+                        elif decl.source_file.resource is not None:
+                            self._functions.emit_resource_lifetime(decl)
+                        else:
+                            self._functions.emit_objective_c_adapters(decl)
+                    if isinstance(decl, FunctionDecl) and decl.name not in native_adapters:
+                        self._session.module.native_external_names.add(decl.name)
+                        self._functions.emit_native_adapter(decl)
+                        native_adapters.add(decl.name)
+                    continue
+                if isinstance(decl, ImportDecl):
+                    continue
                 if isinstance(decl, ClassDecl):
-                    if decl.source_file.invocation:
-                        continue
-                    elif decl.source_file.language == "c++":
-                        self._functions.emit_cxx_class(decl)
-                    elif decl.source_file.resource is not None:
-                        self._functions.emit_resource_lifetime(decl)
-                    else:
-                        self._functions.emit_objective_c_adapters(decl)
-                if isinstance(decl, FunctionDecl) and decl.name not in native_adapters:
-                    self._session.module.native_external_names.add(decl.name)
-                    self._functions.emit_native_adapter(decl)
-                    native_adapters.add(decl.name)
-                continue
-            if isinstance(decl, ImportDecl):
-                continue
-            if isinstance(decl, ClassDecl):
-                if not decl.generic_params:
-                    self._classes.emit_class_decl(
+                    if not decl.generic_params:
+                        self._classes.emit_class_decl(
+                            decl,
+                        )
+                elif isinstance(decl, FunctionDecl):
+                    self._functions.emit_function_decl(
                         decl,
                     )
-            elif isinstance(decl, FunctionDecl):
-                self._functions.emit_function_decl(
-                    decl,
-                )
-            elif isinstance(decl, TypedefDecl):
-                self._session.module.typedef_defs.append(
-                    IRTypedefDef(
-                        target_type=CType(text=self._types.render(decl.original)),
-                        name=decl.alias,
-                        is_volatile=bool(decl.original.is_volatile),
+                elif isinstance(decl, TypedefDecl):
+                    self._session.module.typedef_defs.append(
+                        IRTypedefDef(
+                            target_type=CType(text=self._types.render(decl.original)),
+                            name=decl.alias,
+                            is_volatile=bool(decl.original.is_volatile),
+                        )
                     )
-                )
-            elif isinstance(decl, VarDeclStmt):
-                if decl.name in emitted_globals:
-                    continue
-                emitted_globals.add(decl.name)
-                group = [
-                    candidate
-                    for candidate in declarations
-                    if isinstance(candidate, VarDeclStmt) and candidate.name == decl.name
-                ]
-                definition = next(
-                    (
+                elif isinstance(decl, VarDeclStmt):
+                    if decl.name in emitted_globals:
+                        continue
+                    emitted_globals.add(decl.name)
+                    group = [
                         candidate
-                        for candidate in group
-                        if not (candidate.type and candidate.type.is_extern and (candidate.initializer is None))
-                    ),
-                    None,
-                )
-                chosen = definition or group[0]
-                paired_extern = definition is not None and any(
-                    candidate.type and candidate.type.is_extern for candidate in group
-                )
-                self._emit_global_var(chosen, force_external=paired_extern)
-            elif isinstance(decl, PreprocessorDirective):
-                self.lower_preprocessor(decl)
+                        for candidate in declarations
+                        if isinstance(candidate, VarDeclStmt) and candidate.name == decl.name
+                    ]
+                    definition = next(
+                        (
+                            candidate
+                            for candidate in group
+                            if not (candidate.type and candidate.type.is_extern and (candidate.initializer is None))
+                        ),
+                        None,
+                    )
+                    chosen = definition or group[0]
+                    paired_extern = definition is not None and any(
+                        candidate.type and candidate.type.is_extern for candidate in group
+                    )
+                    self._emit_global_var(chosen, force_external=paired_extern)
+                elif isinstance(decl, PreprocessorDirective):
+                    self.lower_preprocessor(decl)
 
     def _emit_global_var(self, decl: VarDeclStmt, *, force_external=False):
         self.emit_global_var(decl, force_external=force_external)

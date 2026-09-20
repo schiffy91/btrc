@@ -1,0 +1,1 @@
+{"asset":"strings.c","btrc_order":10,"category":"string_ownership","dependencies":["__btrc_unit_linkage"],"headers":["stdatomic.h"],"name":"__btrc_string_registry_lock_state","provided_objects":[],"provided_types":[],"python_order":11,"source_sha256":"28ee9adafb1c9d95f5372a87100ac553fe813226478e5c4fc490f9d520591471","source_size":63,"source_visible":false}
