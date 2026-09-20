@@ -160,6 +160,16 @@ class CompilerPipeline {
 		}
 		string emitted = emitter.emit(module);
 		BtrccPhaseTimer.mark("emit");
+		/* One compile is one process. Releasing the program, its analysis and
+		 * the IR would cost the ARC runtime a reverse-reachability proof per
+		 * reference (tens of seconds on a large program) for memory the exit
+		 * frees anyway, so the graphs stay alive. */
+		keep program;
+		keep resolved;
+		keep analyzer;
+		keep analyzed;
+		keep lowerer;
+		keep module;
 		BtrccPhaseTimer.print();
 		return BtrccCompilationResult(true, emitted, "", packages.linkPlan.canonicalJson());
 	}

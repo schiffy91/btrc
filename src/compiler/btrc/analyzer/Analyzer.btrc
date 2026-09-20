@@ -4,6 +4,7 @@ import Library.Vector;
 
 import ../generated/ast/Node.btrc;
 import ../frontend/Models.btrc;
+import ../frontend/Timing.btrc;
 import ./Declarations.btrc;
 import ./Expressions.btrc;
 import ./Generics.btrc;
@@ -44,14 +45,25 @@ class SemanticAnalyzer {
 		self.managedValues = ManagedValueSemantics(self.analysis);
 		self.cycles = CycleSemantics(self.analysis, self.managedValues);
 		self.declarations.registerProgram(program);
+		BtrccPhaseTimer.mark("a-register");
 		self.expressions.inferGlobals(program);
 		self.generics.discover(program);
+		BtrccPhaseTimer.mark("a-generics");
 		SemanticValidator validator = SemanticValidator(program, self.analysis, hostedAbi, self.operators, self.gpu, self.cycles, self.sourceRuntimeSymbols, self.types, self.declarations, self.expressions);
 		validator.validate();
+		BtrccPhaseTimer.mark("a-validate");
 		self.generics.closeExpressionGraph(program, hostedAbi);
+		BtrccPhaseTimer.mark("a-close-generics");
 		RealtimeAnalyzer realtime = RealtimeAnalyzer(program, self.analysis, hostedAbi, self.sourceRuntimeSymbols, self.expressions);
 		realtime.validate();
 		validator.validateCompletedGeneratedSymbols();
+		BtrccPhaseTimer.mark("a-realtime");
+		/* The validator and realtime analyzer index most of the program. One
+		 * compile is one process, and releasing those indices costs the ARC
+		 * runtime a reverse-reachability proof per entry (minutes on a large
+		 * program), so they are kept until the process exits. */
+		keep validator;
+		keep realtime;
 		return self.analysis;
 	}
 
