@@ -104,7 +104,12 @@ class CompilerCommand:
             action="store_true",
             help="Disable dead-code elimination for byte-identical output",
         )
-        parser.add_argument("--profile", action="store_true", help="Print a per-phase timing breakdown")
+        parser.add_argument(
+            "--profile",
+            action="store_true",
+            default=bool(os.environ.get("BTRC_TIMING")),
+            help="Print a per-phase timing breakdown (also enabled by BTRC_TIMING=1)",
+        )
         parser.add_argument(
             "--fetch",
             action="store_true",
@@ -501,8 +506,10 @@ class CompilerDiagnostics:
         )
 
     def print_profile(self, profile: dict[str, float], source_len: int) -> None:
-        """Print a per-phase timing breakdown."""
+        """Print a per-phase timing breakdown, with a one-line form shaped like btrcc's."""
         total = sum(profile.values()) or 1e-9
+        marks = " ".join(f"{label}={int(seconds * 1_000_000)}us" for label, seconds in profile.items())
+        print(f"btrcpy timing: {marks}", file=self.stderr)
         print("--- btrc profile ---", file=self.stderr)
         for label, seconds in profile.items():
             pct = 100.0 * seconds / total

@@ -504,6 +504,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("tempDir", "string", "method", (("string", "prefix"),), "tempDir"),
         BuiltinMemberSpec("listDir", "Vector<string>", "method", (("string", "path"),), "listDir"),
         BuiltinMemberSpec("readText", "string", "method", (("string", "path"),), "readText"),
+        BuiltinMemberSpec("readBytes", "Bytes", "method", (("string", "path"),), "readBytes"),
         BuiltinMemberSpec("writeText", "bool", "method", (("string", "path"), ("string", "content"),), "writeText"),
     )),
     ("FileSystemDiagnostics", (
@@ -686,6 +687,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("closeConnection", "void", "method", (("int", "descriptor"),), "closeConnection"),
         BuiltinMemberSpec("emptyBytes", "Bytes", "method", (), "emptyBytes"),
         BuiltinMemberSpec("readRequest", "Bytes", "method", (("int", "descriptor"), ("int", "maxHeaderBytes"), ("int", "maxBodyBytes"), ("int", "maxRequestBytes"), ("int", "timeoutSecs"),), "readRequest"),
+        BuiltinMemberSpec("sendBytesUntil", "bool", "method", (("int", "descriptor"), ("Bytes", "data"), ("long long", "deadline"),), "sendBytesUntil"),
         BuiltinMemberSpec("sendAllUntil", "bool", "method", (("int", "descriptor"), ("string", "data"), ("long long", "deadline"),), "sendAllUntil"),
         BuiltinMemberSpec("sendAll", "bool", "method", (("int", "descriptor"), ("string", "data"), ("int", "timeoutSecs"),), "sendAll"),
     )),

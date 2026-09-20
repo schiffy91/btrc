@@ -13,7 +13,7 @@ class BtrccPhaseTimer {
 	class Vector<string>? report = null;
 
 	class void begin() {
-		BtrccPhaseTimer.enabled = getenv("BTRCC_TIMING") != null;
+		BtrccPhaseTimer.enabled = getenv("BTRC_TIMING") != null || getenv("BTRCC_TIMING") != null;
 		Vector<string> empty = [];
 		BtrccPhaseTimer.report = empty;
 		Timer clock = Timer();

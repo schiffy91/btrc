@@ -5,7 +5,7 @@
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
         extension extension-install \
         devcontainer clean \
-	test-shard-unit test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline
+	test-shard-unit test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline perf-btrsmith perf-self
 
 SHELL       := $(if $(wildcard /bin/bash),/bin/bash,bash)  # NixOS has no /bin/bash; make searches PATH for a bare name
 NIX         := nix develop --command
@@ -351,6 +351,19 @@ bench-check: generated-check btrcc ## Measure, then fail on regressions against 
 
 bench-baseline: generated-check btrcc ## Measure and record this platform's baseline (src/tests/fixtures/benchmarks)
 	$(NIX) $(BENCH) baseline $(BENCH_OPTIONS)
+
+# One whole program through both compilers, by phase and peak memory, then the
+# C compiler on the result. `perf-btrsmith` needs BTRSmith's own packages, so
+# run it from that checkout's dev shell: `nix develop ../btrsmith -c make NIX= perf-btrsmith`.
+PERF := python3 -m tools.perf
+PERF_ARGS ?=
+PERF_OPTIONS := --btrcc "$(abspath $(BTRCC_NATIVE))" --cc "$(HOST_CC)" $(PERF_ARGS)
+BTRSMITH ?= ../btrsmith
+perf-btrsmith: btrcc ## Measure the BTRSmith application build (both compilers, phases, RSS, cc)
+	$(NIX) $(PERF) "$(BTRSMITH)/src/BTRSmith.btrc" --json build/perf/btrsmith.json $(PERF_OPTIONS)
+
+perf-self: btrcc ## The same measurement on the self-hosted compiler: similar output size, a third of the classes
+	$(NIX) $(PERF) src/compiler/btrc/BtrccMain.btrc --json build/perf/self.json $(PERF_OPTIONS)
 
 # ─── VSCode Extension ───────────────────────────────────────────────────────
 

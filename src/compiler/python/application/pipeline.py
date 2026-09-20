@@ -637,7 +637,7 @@ class CompilationPipeline:
                 module.realtime_safe_externals.add(declaration.name)
                 if contract.adapter_symbol(declaration.name) != declaration.name:
                     module.realtime_safe_externals.add("__builtin_trap")
-        self._timed(profile, "ir_gen", start)
+        self._timed(profile, "lower", start)
         return module
 
     def optimize(self, module, options: CompilerOptions, profile: dict[str, float] | None = None):
