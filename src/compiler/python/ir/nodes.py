@@ -14,6 +14,12 @@ if TYPE_CHECKING:
     from ..runtime.generated import GeneratedRuntimeHelperRow
 
 
+# Traversed field names per dataclass type, or None for a type that is not a
+# dataclass; filled on first sight so the walk never reflects twice.
+_TRAVERSAL_FIELDS: dict[type, tuple[str, ...] | None] = {}
+_CONTAINERS = (list, tuple, set, frozenset)
+
+
 class IRNode:
     """Base for typed IR values with one owned acyclic tree traversal."""
 
@@ -22,20 +28,33 @@ class IRNode:
 
     @classmethod
     def walk_value(cls, value: object) -> Iterator[object]:
-        if dataclasses.is_dataclass(value):
-            yield value
-            for node_field in dataclasses.fields(value):
-                if not node_field.metadata.get("ir_traverse", True):
-                    continue
-                yield from cls.walk_value(getattr(value, node_field.name))
-            return
-        if isinstance(value, dict):
-            for item in value.values():
-                yield from cls.walk_value(item)
-            return
-        if isinstance(value, (list, tuple, set, frozenset)):
-            for item in value:
-                yield from cls.walk_value(item)
+        """Pre-order over dataclass values, fields in declared order, through
+        dict values and sequence items. Iterative: the recursive generator
+        forwarded every node through every enclosing frame, which made the
+        optimizer's many whole-module walks the slowest thing in the compiler."""
+        stack = [value]
+        while stack:
+            value = stack.pop()
+            value_type = type(value)
+            names = _TRAVERSAL_FIELDS.get(value_type, _CONTAINERS)
+            if names is _CONTAINERS:
+                if dataclasses.is_dataclass(value):
+                    names = tuple(
+                        node_field.name
+                        for node_field in dataclasses.fields(value)
+                        if node_field.metadata.get("ir_traverse", True)
+                    )
+                else:
+                    names = None
+                _TRAVERSAL_FIELDS[value_type] = names
+            if names is not None:
+                yield value
+                for name in reversed(names):
+                    stack.append(getattr(value, name))
+            elif isinstance(value, dict):
+                stack.extend(reversed(list(value.values())))
+            elif isinstance(value, _CONTAINERS):
+                stack.extend(reversed(list(value)))
 
 
 @dataclass(frozen=True)
