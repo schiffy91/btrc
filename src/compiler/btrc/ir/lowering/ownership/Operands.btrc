@@ -38,21 +38,12 @@ class OwnershipOperandEnvironment {
 
 	public bool hasVariable(string name) { return self.variableTypes.has(name); }
 
-	public Map<string, Node> variables() { return self.copyTypes(self.variableTypes); }
+	/* The tables are shared, not copied: type inference and call-target
+	 * resolution only read them, and every boundary context is built fresh
+	 * for one plan, so a snapshot per expression bought nothing but time. */
+	public Map<string, Node> variables() { return self.variableTypes; }
 
-	public Map<string, Node> typeArguments() { return self.copyTypes(self.typeParameters); }
-
-	private Map<string, Node> copyTypes(Map<string, Node> source) {
-		Map<string, Node> copy = {};
-		Vector<string> names = source.keys();
-		int index = 0;
-		while (index < names.len) {
-			string name = names.get(index);
-			copy.put(name, source.get(name));
-			index = index + 1;
-		}
-		return copy;
-	}
+	public Map<string, Node> typeArguments() { return self.typeParameters; }
 
 	public Node resolveType(Node? typeExpr, Analyzed analyzed) {
 		if (self.resolvesTypeParameters) {

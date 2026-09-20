@@ -673,6 +673,8 @@ class SetjmpEffectAnalysis {
 	private Map<string, SetjmpFunctionEffect> externalEffects;
 	private Map<string, SetjmpStorage> globals;
 	private int globalCount;
+	/* Definitions whose summary the flow being analyzed consulted. */
+	private Map<string, bool> consulted = {};
 
 	public SetjmpEffectAnalysis(HostedAbiRepository hostedAbi) { self.hostedAbi = hostedAbi; }
 
@@ -767,6 +769,7 @@ class SetjmpEffectAnalysis {
 
 	private SetjmpFunctionEffect effectFor(string callee, int count) {
 		if (self.summaries.has(callee)) {
+			self.consulted.put(callee, true);
 			return self.summaries.get(callee);
 		}
 		if (self.externalEffects.has(callee)) {
@@ -1355,31 +1358,50 @@ class SetjmpEffectAnalysis {
 		return flow.result;
 	}
 
+	/* The summaries form a monotone join lattice, so the least fixed point is
+	 * the same whichever functions each round revisits: after the first round,
+	 * only a function that consulted a summary that just moved can move. A
+	 * flow computed once no consulted summary moves afterwards is the flow the
+	 * final catalog would give, so the contexts reuse it. */
 	public Map<string, SetjmpCallEffects> analyze(IRModule module) {
 		self.initialize(module);
-		bool changed = true;
-		while (changed) {
-			changed = false;
+		Map<string, SetjmpPointerFlowResult> flows = {};
+		Map<string, Map<string, bool>> consultedBy = {};
+		Map<string, bool> moved = {};
+		bool first = true;
+		while (true) {
+			Map<string, bool> movedNow = {};
 			int index = 0;
 			while (index < self.module.functions.len) {
 				IRFunction definition = self.module.functions.get(index);
-				if (definition.body != null) {
-					SetjmpPointerFlowResult flow = self.analyzePointerFlow(definition);
-					SetjmpFunctionEffect summary = self.flowSummary(flow, self.flowParameters(flow, definition));
-					if (self.summaries.get(definition.name).merge(summary)) {
-						changed = true;
-					}
-				}
 				index = index + 1;
+				if (definition.body == null) { continue; }
+				if (!first) {
+					bool stale = false;
+					for callee in consultedBy.get(definition.name).keys() {
+						if (moved.has(callee)) { stale = true; }
+					}
+					if (!stale) { continue; }
+				}
+				self.consulted = {};
+				SetjmpPointerFlowResult flow = self.analyzePointerFlow(definition);
+				consultedBy.put(definition.name, self.consulted);
+				flows.put(definition.name, flow);
+				SetjmpFunctionEffect summary = self.flowSummary(flow, self.flowParameters(flow, definition));
+				if (self.summaries.get(definition.name).merge(summary)) {
+					movedNow.put(definition.name, true);
+				}
 			}
+			if (movedNow.len == 0) { break; }
+			moved = movedNow;
+			first = false;
 		}
 		Map<string, SetjmpCallEffects> contexts = {};
 		int index = 0;
 		while (index < self.module.functions.len) {
 			IRFunction definition = self.module.functions.get(index);
 			if (definition.body != null) {
-				SetjmpPointerFlowResult flow = self.analyzePointerFlow(definition);
-				contexts.put(definition.name, SetjmpCallEffects(self.summaries, self.externalEffects, flow));
+				contexts.put(definition.name, SetjmpCallEffects(self.summaries, self.externalEffects, flows.get(definition.name)));
 			}
 			index = index + 1;
 		}

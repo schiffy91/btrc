@@ -172,10 +172,14 @@ class FunctionEffectCatalog:
     ) -> None:
         self._functions = {name: FunctionEffect() for name in function_names}
         self._external = dict(external_effects)
+        # Definitions whose summary the flow being analyzed consulted.
+        self.consulted: set[str] | None = None
 
     def resolve(self, callee: object, argument_count: int) -> FunctionEffect:
         """Resolve one call without exposing the catalog's mutable maps."""
         if isinstance(callee, str) and callee in self._functions:
+            if self.consulted is not None:
+                self.consulted.add(callee)
             return self._functions[callee]
         if isinstance(callee, str) and callee in self._external:
             return self._external[callee]
@@ -1151,20 +1155,32 @@ class ExceptionLowerer:
         globals_by_name = ExceptionLowerer._global_storages(module, type_facts)
         catalog = FunctionEffectCatalog(set(definitions), external)
         flows: dict[str, PointerFlowResult] = {}
+        consulted_by: dict[str, set[str]] = {}
 
-        changed = True
-        while changed:
-            changed = False
+        # The summaries form a monotone join lattice, so the least fixed point
+        # is the same whichever functions each round revisits: after the first
+        # round only a function that consulted a summary that just moved can
+        # move. A flow computed once no consulted summary moves afterwards is
+        # the flow the final catalog would give, so it is kept as the result.
+        moved: set[str] = set()
+        first = True
+        while True:
+            moved_now: set[str] = set()
             for name, function in definitions.items():
+                if not first and not (consulted_by[name] & moved):
+                    continue
+                catalog.consulted = set()
                 flow = ExceptionLowerer.analyze_pointer_flow(function, globals_by_name, type_facts, catalog)
+                consulted_by[name] = catalog.consulted
+                catalog.consulted = None
                 parameters = [flow.storages[id(parameter)] for parameter in function.params]
                 flows[name] = flow
                 if catalog.merge(name, ExceptionLowerer._flow_effect(flow, parameters)):
-                    changed = True
-        flows = {
-            name: ExceptionLowerer.analyze_pointer_flow(function, globals_by_name, type_facts, catalog)
-            for name, function in definitions.items()
-        }
+                    moved_now.add(name)
+            if not moved_now:
+                break
+            moved = moved_now
+            first = False
         return {name: SetjmpCallEffects(catalog=catalog, flow=flows[name]) for name in definitions}
 
     @staticmethod
@@ -1387,11 +1403,15 @@ class ExceptionLowerer:
         representable in the source type model.
         """
         globals_by_name = ExceptionLowerer.reject_volatile_global_aliases(module)
-        if not any(ExceptionLowerer.contains_setjmp(function.body) for function in module.function_defs):
+        with_setjmp = {
+            id(function): ExceptionLowerer.contains_setjmp(function.body) for function in module.function_defs
+        }
+        if not any(with_setjmp.values()):
             return
         call_effects = ExceptionLowerer.build_setjmp_call_effects(module)
         for function in module.function_defs:
-            ExceptionLowerer.reject_unmodelled_setjmp_captures(function, call_effects[function.name])
+            if with_setjmp[id(function)]:
+                ExceptionLowerer.reject_unmodelled_setjmp_captures(function, call_effects[function.name])
             visibility = _LexicalVisibilityPass(function.params, call_effects[function.name])
             visibility.block(function.body)
             ExceptionLowerer.reject_inferred_volatile_aliases(function, visibility.inferred_volatile, globals_by_name)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from src.compiler.python.analyzer.program import AnalyzedProgram
 from src.compiler.python.analyzer.types import TypeIdentity
@@ -23,6 +23,11 @@ class TypeSubstitution:
     _argument_values: tuple[tuple[str, str], ...]
     _typedef_values: tuple[tuple[str, str], ...]
     identity: TypeIdentity
+    # The frozen JSON is the identity; the decoded trees are a per-instance
+    # cache, filled on first use instead of on every resolve (36 million
+    # decodes per BTRSmith compile before this).
+    _arguments_cache: dict[str, TypeExpr] | None = field(default=None, compare=False, hash=False, repr=False)
+    _typedefs_cache: dict[str, TypeExpr] | None = field(default=None, compare=False, hash=False, repr=False)
 
     def __init__(
         self,
@@ -34,15 +39,30 @@ class TypeSubstitution:
         object.__setattr__(self, "_argument_values", self._freeze(arguments, codec))
         object.__setattr__(self, "_typedef_values", self._freeze(typedefs, codec))
         object.__setattr__(self, "identity", identity)
+        object.__setattr__(self, "_arguments_cache", None)
+        object.__setattr__(self, "_typedefs_cache", None)
+
+    def _arguments(self) -> dict[str, TypeExpr]:
+        cached = self._arguments_cache
+        if cached is None:
+            cached = self._thaw(self._argument_values)
+            object.__setattr__(self, "_arguments_cache", cached)
+        return cached
+
+    def _typedefs(self) -> dict[str, TypeExpr]:
+        cached = self._typedefs_cache
+        if cached is None:
+            cached = self._thaw(self._typedef_values)
+            object.__setattr__(self, "_typedefs_cache", cached)
+        return cached
 
     def resolve(self, type_expr: TypeExpr | None) -> TypeExpr | None:
-        arguments = self._thaw(self._argument_values)
-        return self.identity.substitute(type_expr, arguments, reference_resolver=self._resolve_typedef)
+        return self.identity.substitute(type_expr, self._arguments(), reference_resolver=self._resolve_typedef)
 
     def applies_to(self, type_expr: TypeExpr | None) -> bool:
         """Whether this substitution binds any parameter in one source type."""
         names = {name for name, _value in self._argument_values}
-        typedefs = self._thaw(self._typedef_values)
+        typedefs = self._typedefs()
 
         def references_parameter(candidate: TypeExpr | None, aliases: frozenset[str]) -> bool:
             if candidate is None:
@@ -58,7 +78,7 @@ class TypeSubstitution:
         return references_parameter(type_expr, frozenset())
 
     def _resolve_typedef(self, type_expr: TypeExpr) -> TypeExpr:
-        typedefs = self._thaw(self._typedef_values)
+        typedefs = self._typedefs()
         seen: set[str] = set()
         resolved = type_expr
         while resolved.base in typedefs and resolved.base not in seen:

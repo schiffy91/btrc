@@ -65,14 +65,8 @@ class CycleSemantics {
 		}
 		if (!self.isGraphManaged(resolved)) { return; }
 		if (resolved.genericArgs.len == 0 && (self.analyzed.isClass(resolved.base) || self.analyzed.isInterface(resolved.base))) {
-			Vector<string> runtimeClasses = self.analyzed.classTable.keys();
-			int index = 0;
-			while (index < runtimeClasses.len) {
-				string runtimeClass = runtimeClasses.get(index);
-				if (self.analyzed.isSubclass(runtimeClass, resolved.base)) {
-					output.push(SemanticTypeSystem.primitive(runtimeClass));
-				}
-				index = index + 1;
+			for runtimeClass in self.analyzed.subclassesOf(resolved.base) {
+				output.push(SemanticTypeSystem.primitive(runtimeClass));
 			}
 			if (self.analyzed.isInterface(resolved.base)) {
 				for instance in self.analyzed.genericInstances {
@@ -279,14 +273,8 @@ class CycleSemantics {
 
 	private bool computeRuntimeTypeMayCycle(string runtimeType) {
 		if (self.analyzed.isClass(runtimeType)) {
-			Vector<string> runtimeClasses = self.analyzed.classTable.keys();
-			int runtimeIndex = 0;
-			while (runtimeIndex < runtimeClasses.len) {
-				string runtimeClass = runtimeClasses.get(runtimeIndex);
-				if (self.analyzed.isSubclass(runtimeClass, runtimeType) && self.typeIsCyclable(SemanticTypeSystem.primitive(runtimeClass))) {
-					return true;
-				}
-				runtimeIndex = runtimeIndex + 1;
+			for runtimeClass in self.analyzed.subclassesOf(runtimeType) {
+				if (self.typeIsCyclable(SemanticTypeSystem.primitive(runtimeClass))) { return true; }
 			}
 			return false;
 		}

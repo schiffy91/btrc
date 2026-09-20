@@ -223,16 +223,6 @@ class IROptimizer {
 		module.globalDecls = kept;
 	}
 
-	/* Membership in a Vector<string>. */
-	private bool containsName(Vector<string> names, string name) {
-		int i = 0;
-		while (i < names.len) {
-			if (names.get(i) == name) { return true; }
-			i = i + 1;
-		}
-		return false;
-	}
-
 	/* True if a char can be part of a C identifier. */
 	private bool isIdentChar(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'; }
 
@@ -466,12 +456,12 @@ class IROptimizer {
 		}
 		/* Filter functions. */
 		Vector<IRFunction> kept = [];
-		Vector<string> removed = [];
+		Map<string, bool> removed = {};
 		int f = 0;
 		while (f < m.functions.len) {
 			IRFunction fn = m.functions.get(f);
 			if (keepSet.has(fn.name)) { kept.push(fn); }
-			else { removed.push(fn.name); }
+			else { removed.put(fn.name, true); }
 			f = f + 1;
 		}
 		m.functions = kept;
@@ -481,7 +471,7 @@ class IROptimizer {
 			int d = 0;
 			while (d < m.functionDecls.len) {
 				IRFunctionDecl declaration = m.functionDecls.get(d);
-				if (!self.containsName(removed, declaration.name)) {
+				if (!removed.has(declaration.name)) {
 					declarations.push(declaration);
 				}
 				d = d + 1;
@@ -658,12 +648,12 @@ class IROptimizer {
 		}
 		if (keepSet.len == names.len) { return; }
 		Vector<IRStructDef> kept = [];
-		Vector<string> removed = [];
+		Map<string, bool> removed = {};
 		int s = 0;
 		while (s < m.structDefs.len) {
 			IRStructDef sd = m.structDefs.get(s);
 			if (keepSet.has(sd.name)) { kept.push(sd); }
-			else { removed.push(sd.name); }
+			else { removed.put(sd.name, true); }
 			s = s + 1;
 		}
 		m.structDefs = kept;
@@ -671,7 +661,7 @@ class IROptimizer {
 		int d = 0;
 		while (d < m.structForwards.len) {
 			IRStructForward declaration = m.structForwards.get(d);
-			if (!self.containsName(removed, declaration.name)) {
+			if (!removed.has(declaration.name)) {
 				forwards.push(declaration);
 			}
 			d = d + 1;

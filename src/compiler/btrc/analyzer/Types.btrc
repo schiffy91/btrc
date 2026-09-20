@@ -281,6 +281,8 @@ class SemanticTypeSystem {
 
 	class Node? resolveOuterTypedefType(Node? typeExpr, Map<string, Node> typedefs) {
 		if (typeExpr == null) { return null; }
+		/* Most queries name no typedef; answer them without building a visit set. */
+		if (typeExpr.genericArgs.len > 0 || !typedefs.has(typeExpr.base)) { return typeExpr; }
 		Map<string, bool> visited = {};
 		return SemanticTypeSystem.resolveOuterTypedefTypeInner(typeExpr, typedefs, visited, typeExpr);
 	}
@@ -318,16 +320,21 @@ class SemanticTypeSystem {
 		Node current = outer;
 		if (current.genericArgs.len == 0) { return current; }
 		Vector<Node> args = [];
+		bool changed = false;
 		int index = 0;
 		while (index < current.genericArgs.len) {
-			Node? resolved = SemanticTypeSystem.resolveTypedefType(current.genericArgs.get(index), typedefs);
+			Node argument = current.genericArgs.get(index);
+			Node? resolved = SemanticTypeSystem.resolveTypedefType(argument, typedefs);
 			if (resolved == null) {
 				SemanticTypeSystem.typedefSemanticFail("Invalid null generic type", typeExpr);
 			}
 			Node concrete = resolved;
+			if (concrete != argument) { changed = true; }
 			args.push(concrete);
 			index = index + 1;
 		}
+		/* No argument named a typedef: the type is already its own resolution. */
+		if (!changed) { return current; }
 		return TypeShape.copyWithArguments(current, args);
 	}
 

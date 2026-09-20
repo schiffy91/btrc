@@ -47,6 +47,19 @@ class Analyzed {
 	private Map<string, FeNativeImportedDeclaration> nativeClassIndex;
 	private Map<string, Node> nativeOwnedFunctions = {};
 	public Map<string, bool> nativeLifetimeOperations = {};
+	/* Native globals by name, first declaration first, exactly as the linear
+	 * scans they replace answered: any declaration for read-only-ness, the first
+	 * uninitialised typed one for ownership, and whether an Objective-C one exists. */
+	private Map<string, FeNativeImportedDeclaration> nativeGlobalAnyIndex = {};
+	private Map<string, FeNativeImportedDeclaration> nativeTypedGlobalIndex = {};
+	private Map<string, bool> objectiveCGlobals = {};
+	/* The other per-query scans, by declaration identity or name, first match first. */
+	private Map<string, FeNativeImportedDeclaration> nativeByDeclaration = {};
+	private Map<string, FeNativeCallContract> nativeMethodContracts = {};
+	private Map<string, bool> nativeTypedefAliases = {};
+	private Map<string, Vector<FeNativeImportedDeclaration>> nativeStructsByName = {};
+	private Map<string, string> nativeTypeSpellings = {};
+	private Map<string, bool> objectiveCRecords = {};
 
 	/* Native declarations are installed before analysis, then read-only. Keep
 	 * class queries independent of the number of unrelated SDK declarations. */
@@ -55,8 +68,47 @@ class Analyzed {
 		self.nativeClassIndex = {};
 		self.nativeLifetimeOperations = {};
 		self.nativeOwnedFunctions = {};
+		self.nativeGlobalAnyIndex = {};
+		self.nativeTypedGlobalIndex = {};
+		self.objectiveCGlobals = {};
+		self.nativeByDeclaration = {};
+		self.nativeMethodContracts = {};
+		self.nativeTypedefAliases = {};
+		self.nativeStructsByName = {};
+		self.nativeTypeSpellings = {};
+		self.objectiveCRecords = {};
 		for imported in declarations {
 			var contract = imported.callContract;
+			Node native = imported.declaration;
+			string identity = AstIdentity.key(native);
+			if (!self.nativeByDeclaration.has(identity)) { self.nativeByDeclaration.put(identity, imported); }
+			if (native.kind == NK_CLASS_DECL) {
+				for member in native.members {
+					if (!imported.methods.has(member.name)) { continue; }
+					string memberIdentity = AstIdentity.key(member);
+					if (!self.nativeMethodContracts.has(memberIdentity)) { self.nativeMethodContracts.put(memberIdentity, imported.methods.get(member.name)); }
+				}
+			}
+			if (native.kind == NK_TYPEDEF_DECL) {
+				self.nativeTypedefAliases.put(native.alias, true);
+				if (!imported.coalesced && !self.nativeTypeSpellings.has(native.alias)) { self.nativeTypeSpellings.put(native.alias, imported.typeSpelling); }
+			}
+			if (native.kind == NK_STRUCT_DECL) {
+				if (!self.nativeStructsByName.has(native.name)) { Vector<FeNativeImportedDeclaration> fresh = []; self.nativeStructsByName.put(native.name, fresh); }
+				self.nativeStructsByName.get(native.name).push(imported);
+				if (!imported.coalesced) {
+					if (!self.nativeTypeSpellings.has(native.name)) { self.nativeTypeSpellings.put(native.name, imported.typeSpelling); }
+					if (!self.objectiveCRecords.has(native.name)) { self.objectiveCRecords.put(native.name, imported.language == "objective-c"); }
+				}
+			}
+			if (imported.declaration.kind == NK_VAR_DECL_STMT) {
+				string globalName = imported.declaration.name;
+				if (!self.nativeGlobalAnyIndex.has(globalName)) { self.nativeGlobalAnyIndex.put(globalName, imported); }
+				if (imported.declaration.initializer == null) {
+					if (imported.language == "objective-c") { self.objectiveCGlobals.put(globalName, true); }
+					if (imported.declaration.type != null && !self.nativeTypedGlobalIndex.has(globalName)) { self.nativeTypedGlobalIndex.put(globalName, imported); }
+				}
+			}
 			if (imported.declaration.kind == NK_FUNCTION_DECL && contract != null && contract.returnsOwned() && !imported.coalesced) { self.nativeOwnedFunctions.put(imported.declaration.name, imported.declaration); }
 			var resource = imported.resource;
 			if (resource != null) { self.nativeLifetimeOperations.put(resource.retainFunction, true); self.nativeLifetimeOperations.put(resource.releaseFunction, true); }
@@ -64,21 +116,13 @@ class Analyzed {
 		}
 	}
 
-	public bool isNativeDeclaration(Node site) {
-		for imported in self.nativeDeclarations {
-			if (imported.declaration == site) { return true; }
-		}
-		return false;
-	}
+	public bool isNativeDeclaration(Node site) { return self.nativeByDeclaration.has(AstIdentity.key(site)); }
 
-	public bool isNativeTypedef(string name) {
-		for imported in self.nativeDeclarations {
-			if (imported.declaration.kind == NK_TYPEDEF_DECL && imported.declaration.alias.equals(name)) { return true; }
-		}
-		return false;
-	}
+	public bool isNativeTypedef(string name) { return self.nativeTypedefAliases.has(name); }
 
 	public bool nativeRecordHasPrivateFields(Node declaration) {
+		string identity = AstIdentity.key(declaration);
+		if (!self.nativeByDeclaration.has(identity)) { return false; }
 		for imported in self.nativeDeclarations { if (imported.declaration == declaration && imported.privateFields) { return true; } }
 		return false;
 	}
@@ -90,64 +134,45 @@ class Analyzed {
 	public bool nativeFunctionReturnsOwned(Node declaration) { return self.nativeOwnedFunctions.has(declaration.name) && self.nativeOwnedFunctions.get(declaration.name) == declaration; }
 
 	public bool nativeGlobalReadOnly(string name) {
-		for imported in self.nativeDeclarations {
-			if (imported.declaration.kind == NK_VAR_DECL_STMT && imported.declaration.name.equals(name)) { return imported.readOnly; }
-		}
-		return false;
+		if (!self.nativeGlobalAnyIndex.has(name)) { return false; }
+		return self.nativeGlobalAnyIndex.get(name).readOnly;
 	}
 
-	public bool isObjectiveCGlobal(string name) {
-		for imported in self.nativeDeclarations {
-			if (imported.language == "objective-c" && imported.declaration.kind == NK_VAR_DECL_STMT && imported.declaration.initializer == null && imported.declaration.name == name) { return true; }
-		}
-		return false;
-	}
+	public bool isObjectiveCGlobal(string name) { return self.objectiveCGlobals.has(name); }
 
 	public bool nativeGlobalReturnsOwned(string name) {
-		for imported in self.nativeDeclarations {
-			Node declaration = imported.declaration;
-			if (declaration.kind == NK_VAR_DECL_STMT && declaration.initializer == null && declaration.name == name && declaration.type != null) {
-				return self.nativeClassLanguage(declaration.type.base) == "objective-c" || (imported.callContract != null && !imported.callContract.resourceResult.isEmpty());
-			}
-		}
-		return false;
+		if (!self.nativeTypedGlobalIndex.has(name)) { return false; }
+		var imported = self.nativeTypedGlobalIndex.get(name);
+		return self.nativeClassLanguage(imported.declaration.type.base) == "objective-c" || (imported.callContract != null && !imported.callContract.resourceResult.isEmpty());
 	}
 
 	public FeNativeCallContract? nativeCallContract(Node declaration) {
-		for imported in self.nativeDeclarations {
-			if (imported.declaration == declaration) { return imported.callContract; }
-			if (imported.declaration.kind == NK_CLASS_DECL && imported.methods.has(declaration.name)) {
-				for member in imported.declaration.members { if (member == declaration) { return imported.methods.get(declaration.name); } }
-			}
-		}
+		string identity = AstIdentity.key(declaration);
+		if (self.nativeByDeclaration.has(identity)) { return self.nativeByDeclaration.get(identity).callContract; }
+		if (self.nativeMethodContracts.has(identity)) { return self.nativeMethodContracts.get(identity); }
 		return null;
 	}
 
 	public FeNativeCallContract? nativeFieldCallContract(string owner, string field) {
-		for imported in self.nativeDeclarations {
-			if (imported.declaration.kind == NK_STRUCT_DECL && imported.declaration.name.equals(owner) && imported.fieldContracts.has(field)) { return imported.fieldContracts.get(field); }
+		if (!self.nativeStructsByName.has(owner)) { return null; }
+		for imported in self.nativeStructsByName.get(owner) {
+			if (imported.fieldContracts.has(field)) { return imported.fieldContracts.get(field); }
 		}
 		return null;
 	}
 
-	public string nativeTypeSpelling(string name) {
-		for imported in self.nativeDeclarations {
-			if (imported.coalesced) { continue; }
-			if (imported.declaration.kind == NK_STRUCT_DECL && imported.declaration.name.equals(name)) { return imported.typeSpelling; }
-			if (imported.declaration.kind == NK_TYPEDEF_DECL && imported.declaration.alias.equals(name)) { return imported.typeSpelling; }
-		}
-		return "";
-	}
+	public string nativeTypeSpelling(string name) { return self.nativeTypeSpellings.has(name) ? self.nativeTypeSpellings.get(name) : ""; }
 
-	public bool isObjectiveCRecord(string name) {
-		for imported in self.nativeDeclarations {
-			if (imported.coalesced) { continue; }
-			if (imported.declaration.kind == NK_STRUCT_DECL && imported.declaration.name == name) { return imported.language == "objective-c"; }
-		}
-		return false;
-	}
+	public bool isObjectiveCRecord(string name) { return self.objectiveCRecords.has(name) && self.objectiveCRecords.get(name); }
 	private Map<string, bool>? lexicalTypeParameterNames;
 	private int lexicalTypeParameterTableSize;
+	/* Inheritance closure per class/interface name, and its inverse in class-table
+	 * order, both rebuilt when a declaration table grows (cycle analysis asks
+	 * for the descendants of every field type; the walk used to run per query). */
+	private Map<string, Map<string, bool>> ancestorSets = {};
+	private Map<string, Vector<string>> descendantLists = {};
+	private bool descendantListsBuilt = false;
+	private int inheritanceTableSize = -1;
 	/* function name -> the function's return TypeExpr node (NK_TYPE_EXPR) */
 	public Map<string, Node> funcRetTypes;
 	/* set of declared function names (value always "1") */
@@ -429,11 +454,28 @@ class Analyzed {
 			if (self.nativeClassLanguage(base) != self.nativeClassLanguage(sub)) { return false; }
 			return sub == base || self.nativeClassIndex.get(sub).nativeAncestors.contains(base);
 		}
-		Vector<string> pending = [sub];
+		return sub == base || self.ancestorsOf(sub).has(base);
+	}
+
+	private void refreshInheritanceIndex() {
+		int tableSize = self.classTable.len + self.genericClassTable.len + self.interfaceTable.len;
+		if (tableSize == self.inheritanceTableSize) { return; }
+		self.inheritanceTableSize = tableSize;
+		self.ancestorSets = {};
+		self.descendantLists = {};
+		self.descendantListsBuilt = false;
+	}
+
+	/* Every name the inheritance walk from `sub` visits, itself included; the
+	 * walk follows parents and interfaces through the three declaration tables
+	 * and keeps names it cannot resolve, exactly as the query used to. */
+	private Map<string, bool> ancestorsOf(string sub) {
+		self.refreshInheritanceIndex();
+		if (self.ancestorSets.has(sub)) { return self.ancestorSets.get(sub); }
 		Map<string, bool> seen = {};
+		Vector<string> pending = [sub];
 		while (pending.len > 0) {
 			string cur = pending.pop();
-			if (cur == base) { return true; }
 			if (cur == "" || seen.has(cur)) { continue; }
 			seen.put(cur, true);
 			Node? declaration = null;
@@ -444,7 +486,34 @@ class Analyzed {
 			if (declaration.parent != null) { pending.push(declaration.parent); }
 			for implemented in declaration.interfaces { pending.push(implemented); }
 		}
-		return false;
+		self.ancestorSets.put(sub, seen);
+		return seen;
+	}
+
+	/* The classes for which isSubclass(class, base) holds, in class-table order. */
+	public Vector<string> subclassesOf(string base) {
+		self.refreshInheritanceIndex();
+		if (!self.descendantListsBuilt) {
+			self.descendantListsBuilt = true;
+			Vector<string> classNames = self.classTable.keys();
+			for name in classNames {
+				Vector<string> bases = [];
+				if (self.nativeClassLanguage(name) == "objective-c" || self.nativeClassLanguage(name) == "c") {
+					bases.push(name);
+					for ancestor in self.nativeClassIndex.get(name).nativeAncestors {
+						if (self.nativeClassLanguage(ancestor) == self.nativeClassLanguage(name)) { bases.push(ancestor); }
+					}
+				} else {
+					bases = self.ancestorsOf(name).keys();
+				}
+				for ancestor in bases {
+					if (!self.descendantLists.has(ancestor)) { Vector<string> fresh = []; self.descendantLists.put(ancestor, fresh); }
+					self.descendantLists.get(ancestor).push(name);
+				}
+			}
+		}
+		if (!self.descendantLists.has(base)) { Vector<string> none = []; return none; }
+		return self.descendantLists.get(base);
 	}
 
 	public string nativeResourceQueryType(Node? target, Node? source) {

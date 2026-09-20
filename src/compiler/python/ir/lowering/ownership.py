@@ -361,6 +361,10 @@ class CycleMetadata:
         self._visitor_types: set[str] = set()
         self._emitted_may_cycle: dict[str, bool] = {}
         self._may_cycle_cache: dict[str, bool] = {}
+        # Inheritance closure per name and its inverse in class-table order:
+        # the cycle walk asks for the runtime candidates of every field type.
+        self._ancestor_cache: dict[str, frozenset[str]] = {}
+        self._descendant_lists: dict[str, list[str]] | None = None
 
     def visitor_symbol(self, emitted_name: str) -> str:
         return f"__btrc_arc_visit_{emitted_name}"
@@ -559,28 +563,29 @@ class CycleMetadata:
     def _runtime_type_candidates(self, static_type: TypeExpr) -> list[TypeExpr]:
         static_type = self._graph_values.canonical(static_type) or static_type
         if static_type.base in self._analyzed.interface_table:
-            return [
-                TypeExpr(base=name) for name in self._analyzed.class_table if self._is_subclass(name, static_type.base)
-            ]
+            return [TypeExpr(base=name) for name in self._subclasses_of(static_type.base)]
         candidates = [static_type]
         if static_type.generic_args or static_type.base not in self._analyzed.class_table:
             return candidates
         candidates.extend(
-            TypeExpr(base=name)
-            for name in self._analyzed.class_table
-            if name != static_type.base and self._is_subclass(name, static_type.base)
+            TypeExpr(base=name) for name in self._subclasses_of(static_type.base) if name != static_type.base
         )
         return candidates
 
     def _is_subclass(self, child: str, parent: str) -> bool:
+        return parent in self._ancestors(child)
+
+    def _ancestors(self, child: str) -> frozenset[str]:
+        """Every name the inheritance walk from `child` visits, itself included."""
+        cached = self._ancestor_cache.get(child)
+        if cached is not None:
+            return cached
         pending = [child]
         seen: set[str] = set()
         while pending:
             current = pending.pop()
             if current in seen:
                 continue
-            if current == parent:
-                return True
             seen.add(current)
             info = self._analyzed.class_table.get(current)
             if info is not None:
@@ -589,7 +594,19 @@ class CycleMetadata:
                 info = self._analyzed.interface_table.get(current)
             if info is not None and info.parent:
                 pending.append(info.parent)
-        return False
+        result = frozenset(seen)
+        self._ancestor_cache[child] = result
+        return result
+
+    def _subclasses_of(self, base: str) -> list[str]:
+        """The classes for which _is_subclass(class, base) holds, in class-table order."""
+        if self._descendant_lists is None:
+            lists: dict[str, list[str]] = {}
+            for name in self._analyzed.class_table:
+                for ancestor in self._ancestors(name):
+                    lists.setdefault(ancestor, []).append(name)
+            self._descendant_lists = lists
+        return self._descendant_lists.get(base, [])
 
     def _substitute_type(self, type_expr: TypeExpr, substitutions: dict[str, TypeExpr]) -> TypeExpr:
         try:
