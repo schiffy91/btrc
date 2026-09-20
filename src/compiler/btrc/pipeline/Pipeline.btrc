@@ -151,6 +151,7 @@ class CompilerPipeline {
 				if (!contract.adapterSymbol(imported.declaration.name).equals(imported.declaration.name)) { module.realtimeSafeExternals.put("__builtin_trap", true); }
 			}
 		}
+		BtrccPhaseTimer.mark("setjmp-analysis");
 		SetjmpSafetyPlanner setjmpSafety = SetjmpSafetyPlanner(setjmpEffects);
 		IROptimizer optimizer = IROptimizer(setjmpSafety, runtimeHelpers);
 		optimizer.optimize(module, options.runDce);

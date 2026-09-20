@@ -300,6 +300,28 @@ flags and source bytes; entries idle for two weeks are pruned).
 
 The rebuild is now the transpile; the C compiler is a few seconds.
 
+### M7: profile-driven cuts (2026-09-20)
+
+Parallel lowering was ruled out by the runtime: every ARC retain and
+release takes the global spinlock `__btrc_arc_lock_mutation`, so worker
+threads inside btrcc would serialise on it. The work instead follows the
+profile with new sub-phase marks (`l-*`, `o-*` under `BTRC_TIMING=1`).
+
+| btrcc on BTRSmith | before | after |
+| --- | --- | --- |
+| cleanup validator adapter lookup | 54k linear scans of 30k functions | one name index |
+| `TypeIdentity.utf8Hex` | 2 string concatenations per byte | one builder |
+| setjmp body scans | per use | memoised per function |
+| setjmp alias states | every origin set copied per branch | copy-on-write, shared empty sets |
+| boundary context variables | map snapshot per query (144k) | shared table |
+| **wall** | **85 s** | **76 s** |
+
+Remaining split: lower 28 s (generic class instances 12 s, declarations
+15 s), setjmp safety planner 12 s, analyze 12 s, DCE 2.8 s, emit 2.8 s.
+The planner allocates about 35 million origin vectors per compile, one per
+expression flow result; interning those sets is the next cut. btrcpy is
+unchanged at 259 s (lower 140 s, optimize 57 s).
+
 ## Raw data
 
 `/tmp/claude-1000/prof/`: `btrcc-timing.txt`, `gprof-flat.txt`,

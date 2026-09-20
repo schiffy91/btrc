@@ -65,17 +65,8 @@ class CallableBoundaryContext {
 		return snapshot;
 	}
 
-	public Map<string, Node> variables() {
-		Map<string, Node> snapshot = {};
-		Vector<string> names = self.variableTypes.keys();
-		int index = 0;
-		while (index < names.len) {
-			string name = names.get(index);
-			snapshot.put(name, self.variableTypes.get(name));
-			index = index + 1;
-		}
-		return snapshot;
-	}
+	/* The live table; callers only read it (inference never writes back). */
+	public Map<string, Node> variables() { return self.variableTypes; }
 
 	public bool hasVariable(string name) { return self.variableTypes.has(name); }
 

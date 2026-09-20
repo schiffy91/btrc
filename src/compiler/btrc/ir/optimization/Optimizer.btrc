@@ -3,6 +3,7 @@
 import Library.Map;
 import Library.Vector;
 
+import ../../frontend/Timing.btrc;
 import ../gpu/Pipeline.btrc;
 import ../lowering/ownership/CycleBoundaries.btrc;
 import ../Model.btrc;
@@ -25,15 +26,21 @@ class IROptimizer {
      * structured IR plus immutable repositories supplied by the pipeline. */
 	public void optimize(IRModule module, bool eliminateDeadCode) {
 		RealtimeIRVerifier(module).validate(module);
+		BtrccPhaseTimer.mark("o-realtime");
 		self.setjmpSafety.apply(module);
+		BtrccPhaseTimer.mark("o-setjmp");
 		CleanupSlotValidator(module).validate();
+		BtrccPhaseTimer.mark("o-cleanup");
 		if (eliminateDeadCode) {
 			self.eliminateUnreachable(module);
 		}
+		BtrccPhaseTimer.mark("o-dce");
 		CycleReturnBoundaryLowerer(module.temporaryNames).installProgramBoundary(module);
 		self.normalizeUnusedParameters(module);
+		BtrccPhaseTimer.mark("o-params");
 		RuntimeReferenceCollector references = RuntimeReferenceCollector(self.runtimeHelpers);
 		self.runtimeHelpers.materializeInto(module, references.requiredBy(module));
+		BtrccPhaseTimer.mark("o-helpers");
 	}
 
 	private void eliminateUnreachable(IRModule module) {

@@ -1,6 +1,7 @@
 import Library.Map;
 import Library.Vector;
 
+import ../../frontend/Timing.btrc;
 import ../../analyzer/Declarations.btrc;
 import ../../analyzer/Expressions.btrc;
 import ../../analyzer/GPU.btrc;
@@ -137,10 +138,12 @@ class IRLowerer {
 			self.declarations.requireSystemInclude(module, "setjmp.h");
 		}
 
+		BtrccPhaseTimer.mark("l-setup");
 		self.declarations.emitForwardDecls(program, module);
 		self.gpuPipeline.registerKernels(program, module);
 		self.cTypes.appendTypedefs(program, module, self.context.reachability);
 		self.declarations.emitStructDefinitions(program, module);
+		BtrccPhaseTimer.mark("l-types");
 
 		Vector<GenericClassLoweringPlan> classPlans = self.genericPlans.classPlans();
 		int classIndex = 0;
@@ -150,6 +153,7 @@ class IRLowerer {
 			self.context.stampFunctionSources(module, before, classPlans.get(classIndex).declaration.line);
 			classIndex = classIndex + 1;
 		}
+		BtrccPhaseTimer.mark("l-generic-classes");
 		Vector<GenericMethodLoweringPlan> methodPlans = self.genericPlans.methodPlans();
 		int methodIndex = 0;
 		while (methodIndex < methodPlans.len) {
@@ -158,8 +162,10 @@ class IRLowerer {
 			self.context.stampFunctionSources(module, before, methodPlans.get(methodIndex).method.line);
 			methodIndex = methodIndex + 1;
 		}
+		BtrccPhaseTimer.mark("l-generic-methods");
 
 		self.declarations.emitDeclarations(program, module);
+		BtrccPhaseTimer.mark("l-declarations");
 		self.functions.materializeDeferredClosure();
 		self.cTypes.appendFunctionPointerTypedefs(module);
 		self.cTypes.appendRealtimeTypeDeclarations(module);
@@ -168,6 +174,7 @@ class IRLowerer {
 		}
 		self.cleanupSlots.finalize(module);
 		self.expressionTypes.disableMemo();
+		BtrccPhaseTimer.mark("l-finalize");
 		return module;
 	}
 }

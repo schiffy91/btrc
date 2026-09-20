@@ -123,6 +123,7 @@ class SetjmpNodeOrigins {
 class SetjmpAliasSlot {
 	public SetjmpStorage storage;
 	public Vector<SetjmpOrigin> origins;
+	public bool owned = true;  /* false: origins is shared with a copied state; copy before mutating */
 	public SetjmpAliasSlot(SetjmpStorage storage, Vector<SetjmpOrigin> origins) {
 		self.storage = storage;
 		self.origins = origins;
@@ -174,6 +175,7 @@ class SetjmpPointerFlowResult {
 	public Vector<SetjmpNodeOrigins> writes;
 	private Map<IRNode, SetjmpNodeOrigins> writesByNode;
 	private Map<IRNode, SetjmpNodeOrigins> originsByNode;
+	private Vector<SetjmpOrigin> noOrigins;
 	private Map<IRNode, SetjmpStorage> declarationStorages;
 	private Map<IRParam, SetjmpStorage> parameterStorages;
 	public Vector<SetjmpOrigin> captures;
@@ -184,6 +186,7 @@ class SetjmpPointerFlowResult {
 		self.writes = [];
 		self.writesByNode = {};
 		self.originsByNode = {};
+		self.noOrigins = [];
 		self.declarationStorages = {};
 		self.parameterStorages = {};
 		self.captures = [];
@@ -215,14 +218,11 @@ class SetjmpPointerFlowResult {
 		return result;
 	}
 
+	/* Lookups are read-only; nodes without origins share one empty set. */
 	private Vector<SetjmpOrigin> nodeOrigins(Map<IRNode, SetjmpNodeOrigins> entries, IRNode? node) {
-		if (node == null) {
-			Vector<SetjmpOrigin> empty = [];
-			return empty;
-		}
+		if (node == null) { return self.noOrigins; }
 		if (entries.has(node)) { return entries.get(node).origins; }
-		Vector<SetjmpOrigin> none = [];
-		return none;
+		return self.noOrigins;
 	}
 
 	public Vector<SetjmpOrigin> originsFor(IRNode? node) { return self.nodeOrigins(self.originsByNode, node); }
@@ -585,8 +585,7 @@ class SetjmpPointerFlow {
 	public Vector<SetjmpOrigin> aliases(SetjmpStorage storage) {
 		SetjmpAliasSlot? slot = self.state.slot(storage);
 		if (slot != null) { return self.result.copyOrigins(slot.origins); }
-		Vector<SetjmpOrigin> empty = [];
-		return empty;
+		return self.result.originsFor(null);
 	}
 
 	public void replaceAliases(SetjmpStorage storage, Vector<SetjmpOrigin> origins) {
@@ -595,6 +594,7 @@ class SetjmpPointerFlow {
 			self.state.add(SetjmpAliasSlot(storage, self.result.copyOrigins(origins)));
 		} else {
 			slot.origins = self.result.copyOrigins(origins);
+			slot.owned = true;
 		}
 	}
 
@@ -603,16 +603,32 @@ class SetjmpPointerFlow {
 		if (slot == null) {
 			self.state.add(SetjmpAliasSlot(storage, self.result.copyOrigins(origins)));
 		} else {
+			self.ownOrigins(slot);
 			self.result.addOrigins(slot.origins, origins);
 		}
+	}
+
+	/* States are copied at every branch and call; the copy shares each slot's
+	 * origin set until one side mutates it (copy-on-write), which keeps the
+	 * per-branch cost at the number of slots rather than the number of origins. */
+	private SetjmpAliasSlot shareSlot(SetjmpAliasSlot slot) {
+		SetjmpAliasSlot shared = SetjmpAliasSlot(slot.storage, slot.origins);
+		shared.owned = false;
+		slot.owned = false;
+		return shared;
+	}
+
+	private void ownOrigins(SetjmpAliasSlot slot) {
+		if (slot.owned) { return; }
+		slot.origins = self.result.copyOrigins(slot.origins);
+		slot.owned = true;
 	}
 
 	public SetjmpAliasState copyState(SetjmpAliasState source) {
 		SetjmpAliasState result = SetjmpAliasState();
 		int index = 0;
 		while (index < source.slots.len) {
-			SetjmpAliasSlot slot = source.slots.get(index);
-			result.add(SetjmpAliasSlot(slot.storage, self.result.copyOrigins(slot.origins)));
+			result.add(self.shareSlot(source.slots.get(index)));
 			index = index + 1;
 		}
 		return result;
@@ -625,8 +641,9 @@ class SetjmpPointerFlow {
 			SetjmpAliasSlot slot = right.slots.get(index);
 			SetjmpAliasSlot? existing = result.slot(slot.storage);
 			if (existing == null) {
-				result.add(SetjmpAliasSlot(slot.storage, self.result.copyOrigins(slot.origins)));
+				result.add(self.shareSlot(slot));
 			} else {
+				self.ownOrigins(existing);
 				self.result.addOrigins(existing.origins, slot.origins);
 			}
 			index = index + 1;

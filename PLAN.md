@@ -230,9 +230,21 @@ Parallel lowering is off the table as written: the ARC runtime takes one
 global spinlock on every retain and release (`__btrc_arc_lock_mutation`),
 so threads inside the compiler would serialise on it, and the analyzer's
 lazily filled caches are not thread-safe. Per-kind AST nodes remain the
-last, largest lever. In between, the profile-driven single-thread work
-continues on the phases that now dominate — lower (35 s), analyze (11 s),
-optimize (7 s) in btrcc — re-profiling after each cut until flat.
+last, largest lever. The profile-driven single-thread work continues with
+`BTRC_TIMING=1` sub-phase marks (`l-*` in lowering, `o-*` in
+optimisation) so each cut is measured against the phase it targets.
+
+Done so far (every step byte-identical on the corpus and BTRSmith):
+cleanup-adapter index, `utf8Hex` through a builder, memoised setjmp body
+scans, copy-on-write alias states and shared empty origin sets in the
+setjmp flow, the boundary context's variable table shared instead of
+snapshotted per query. btrcc on BTRSmith: 85 s → 76 s.
+
+Where the time is now (btrcc, BTRSmith): lower 28 s (generic class
+instances 12 s, declarations 15 s), setjmp safety planner 12 s, analyze
+12 s, DCE 2.8 s, emit 2.8 s. The setjmp planner allocates ~35 M origin
+vectors per compile (one per expression flow result); interning origin
+sets or returning them by reference is the next cut, then per-kind nodes.
 
 Exit: btrcc under 1 minute on BTRSmith cold; peak RSS under 2 GB.
 
