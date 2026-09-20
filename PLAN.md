@@ -16,22 +16,17 @@ open milestones step by step, section 5 the order.
 
 ## 1. Handoff state (2026-09-20)
 
-- **btrc `main` is 15 commits ahead of `origin/main`** (b27a1acb..a5b79afe):
-  M0–M7 plus this plan. Every gate below is green on the final tree
-  (`make test` 8608 passed, `make bootstrap`, `make test-c11` on gcc and
-  clang -O0..-O3, `make lint`, `make format-check`). **They are not pushed**:
-  the 1Password SSH agent refused to sign from the automated session. Push
-  is the first thing to do: `cd ~/Downloads/btrc && git push origin main`.
-- **btrsmith `main` is 1 commit ahead** (ee24762: `make/Config.mk`,
-  `make/Toolchain.mk`, `tools/LinkPlanParity.btrc` — units, object cache,
-  `BUILD=dev`). Push it, then **repin its btrc flake input** to the pushed
-  btrc rev: its Nix build needs the new `--emit-units` and `-o` flags of
-  btrcc, so until the repin `nix build` of btrsmith uses the old compiler.
+- **Everything is pushed.** btrc `main` = 0823f8c1 (M0–M7 and this plan;
+  every gate green on that tree: `make test` 8608 passed, `make bootstrap`,
+  `make test-c11` on gcc and clang -O0..-O3, `make lint`, `make format-check`).
+  btrsmith `main` = 965db86: units, object cache and `BUILD=dev` in
+  `make/Config.mk`, `make/Toolchain.mk`, `tools/LinkPlanParity.btrc`, and
+  its btrc flake input repinned to 0823f8c1 (`nix build .` of btrsmith
+  passed against that pin, 502 s including the store btrcc build).
 - The user's own uncommitted edit to btrc `README.md` (a rewritten opening)
   is in the working tree. Leave it alone; never `git add -A`.
-- Commits were made unsigned (`git -c commit.gpgsign=false commit`) because
-  signing needs the user's 1Password session; keep doing that unless the
-  user is present.
+- Commit unsigned (`git -c commit.gpgsign=false commit`) unless the user's
+  1Password session is available for signing; pushes need it too.
 - Current numbers (BTRSmith, x86_64 NixOS, quiet machine):
 
   | | wall | phases |
