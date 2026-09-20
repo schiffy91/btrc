@@ -64,9 +64,12 @@ def test_split_units_link_and_run_like_one(tmp_path, request, frontend):
     assert len(units) >= 1, "a 120-line target must split this program"
     plan_text = plan.read_text()
     assert f'"emitted-units":{len(units)}' in plan_text and '"schema":3' in plan_text
-    assert "#define BTRC_RT_PRIMARY_UNIT 1" in out.read_text().splitlines()[:3]
+    primary = out.read_text()
+    assert "\n_Thread_local __btrc_tls_record __btrc_tls = {" in primary
+    assert "static _Thread_local __btrc_tls_record __btrc_tls" not in primary
     secondary = units[0].read_text()
-    assert "#define BTRC_RT_SECONDARY_UNIT 1" in secondary.splitlines()[:3]
+    assert "\nextern _Thread_local __btrc_tls_record __btrc_tls;" in secondary
+    assert "__btrc_tls = {" not in secondary
     assert "static void* __btrc_cleanup_take" not in secondary
     executable = tmp_path / "program"
     NativePlanBuilder().build(plan_path=plan, generated_c=out, output=executable, cc="cc", cxx="c++")
@@ -93,8 +96,8 @@ def test_single_unit_output_keeps_static_runtime_state(tmp_path):
     completed = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, timeout=600)
     assert completed.returncode == 0, completed.stderr
     text = out.read_text()
-    assert "BTRC_RT_PRIMARY_UNIT" not in text.splitlines()[:3]
-    assert "BTRC_RT_STATE(_Thread_local __btrc_tls_record __btrc_tls" in text
+    assert "static _Thread_local __btrc_tls_record __btrc_tls = {" in text
+    assert "extern _Thread_local" not in text
     assert not list(tmp_path.glob("program.c.unit-*.c"))
 
 

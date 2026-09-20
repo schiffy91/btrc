@@ -3,6 +3,7 @@ import Library.Strings;
 import Library.Vector;
 
 import ./Model.btrc;
+import ./RuntimeState.btrc;
 
 /* Stage 6 — C emitter (minimal).
  *
@@ -20,6 +21,7 @@ class CEmitter {
 	 * linkage, and a secondary unit only declares the globals and kernels. */
 	private bool sharedLinkage = false;
 	private bool declarationsOnly = false;
+	private int unitIndex = -1;
 	/* --debug: every content line inside a function body is preceded by a
 	 * #line directive naming its .btrc origin, or the generated file itself
 	 * once a marker-less stretch begins (the line number is patched in last). */
@@ -137,6 +139,7 @@ class CEmitter {
 		self.indent = 0;
 		self.sharedLinkage = unitIndex >= 0;
 		self.declarationsOnly = unitIndex > 0;
+		self.unitIndex = unitIndex;
 		self.debug = m.debug;
 		self.debugCfile = m.debugCfile;
 		if (unitIndex > 0 && !m.debugCfile.isEmpty()) { self.debugCfile = m.debugCfile + ".unit-" + Strings.fromInt(unitIndex) + ".c"; }
@@ -146,7 +149,6 @@ class CEmitter {
 		if (unitIndex >= 0) {
 			/* Every unit carries every helper the program selected; the ones
 			 * this unit's functions do not reach are unused here by design. */
-			self.line(unitIndex == 0 ? "#define BTRC_RT_PRIMARY_UNIT 1" : "#define BTRC_RT_SECONDARY_UNIT 1");
 			self.line("#pragma GCC diagnostic ignored \"-Wunused-function\"");
 		}
 
@@ -165,7 +167,10 @@ class CEmitter {
 		/* Runtime helpers (raw C source, blank line after each). */
 		int h = 0;
 		while (h < m.helpers.len) {
-			self.raw(m.helpers.get(h));
+			/* A split program defines the helpers' file-scope state in the
+			 * primary unit and declares it extern in the others. */
+			if (self.sharedLinkage) { self.raw(RuntimeUnitState.forUnit(m.helpers.get(h), self.unitIndex == 0)); }
+			else { self.raw(m.helpers.get(h)); }
 			self.line("");
 			h = h + 1;
 		}

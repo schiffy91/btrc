@@ -1,19 +1,3 @@
-/* btrc-runtime-helper:begin __btrc_unit_linkage */
-/* File-scope runtime state has one definition per program. A program
- * emitted as several translation units defines BTRC_RT_PRIMARY_UNIT in the
- * unit that owns the state and BTRC_RT_SECONDARY_UNIT in the others, which
- * see extern declarations; a single unit keeps the state static. */
-#if defined(BTRC_RT_SECONDARY_UNIT)
-#define BTRC_RT_STATE(declaration, ...) extern declaration;
-#define BTRC_RT_STATE_ZERO(declaration) extern declaration;
-#elif defined(BTRC_RT_PRIMARY_UNIT)
-#define BTRC_RT_STATE(declaration, ...) declaration = __VA_ARGS__;
-#define BTRC_RT_STATE_ZERO(declaration) declaration;
-#else
-#define BTRC_RT_STATE(declaration, ...) static declaration = __VA_ARGS__;
-#define BTRC_RT_STATE_ZERO(declaration) static declaration;
-#endif
-/* btrc-runtime-helper:end __btrc_unit_linkage */
 /* btrc-runtime-helper:begin __btrc_strdup */
 static inline char* __btrc_strdup(const char* s) {
     if (!s) return NULL;

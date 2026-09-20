@@ -25,29 +25,6 @@ class GeneratedIntrinsicEffectRow(NamedTuple):
 
 RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
     GeneratedRuntimeHelperRow(
-        category='runtime',
-        name='__btrc_unit_linkage',
-        c_source=(
-            '/* File-scope runtime state has one definition per program. A program\n *'
-            ' emitted as several translation units defines BTRC_RT_PRIMARY_UNIT in th'
-            'e\n * unit that owns the state and BTRC_RT_SECONDARY_UNIT in the others, '
-            'which\n * see extern declarations; a single unit keeps the state static. '
-            '*/\n#if defined(BTRC_RT_SECONDARY_UNIT)\n#define BTRC_RT_STATE(declaration'
-            ', ...) extern declaration;\n#define BTRC_RT_STATE_ZERO(declaration) exter'
-            'n declaration;\n#elif defined(BTRC_RT_PRIMARY_UNIT)\n#define BTRC_RT_STATE'
-            '(declaration, ...) declaration = __VA_ARGS__;\n#define BTRC_RT_STATE_ZERO'
-            '(declaration) declaration;\n#else\n#define BTRC_RT_STATE(declaration, ...)'
-            ' static declaration = __VA_ARGS__;\n#define BTRC_RT_STATE_ZERO(declaratio'
-            'n) static declaration;\n#endif'
-        ),
-        depends_on=(),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
         category='alloc',
         name='__btrc_strdup',
         c_source=(
@@ -254,12 +231,12 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'so the cache\n     * never goes stale; it turns every substring, length a'
             'nd index query on\n     * a large text from a strlen of the whole text in'
             'to a table lookup. */\n    size_t length;\n    struct __btrc_string_entry*'
-            ' next;\n} __btrc_string_entry;\n\nBTRC_RT_STATE(__btrc_string_entry* __btrc'
-            '_string_inline_buckets[64], {0})\nBTRC_RT_STATE(__btrc_string_entry** __b'
-            'trc_string_buckets,\n    __btrc_string_inline_buckets)\nBTRC_RT_STATE(size'
-            '_t __btrc_string_bucket_count, 64)'
+            ' next;\n} __btrc_string_entry;\n\nstatic __btrc_string_entry* __btrc_string'
+            '_inline_buckets[64] = {0};\nstatic __btrc_string_entry** __btrc_string_bu'
+            'ckets =\n    __btrc_string_inline_buckets;\nstatic size_t __btrc_string_bu'
+            'cket_count = 64;'
         ),
-        depends_on=('__btrc_unit_linkage',),
+        depends_on=(),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -270,9 +247,9 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='string_ownership',
         name='__btrc_string_registry_lock_state',
         c_source=(
-            'BTRC_RT_STATE(atomic_flag __btrc_string_lock, ATOMIC_FLAG_INIT)'
+            'static atomic_flag __btrc_string_lock = ATOMIC_FLAG_INIT;'
         ),
-        depends_on=('__btrc_unit_linkage',),
+        depends_on=(),
         required_headers=('stdatomic.h',),
         provided_types=(),
         provided_objects=(),
@@ -335,9 +312,9 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='string_ownership',
         name='__btrc_string_registry_count',
         c_source=(
-            'BTRC_RT_STATE(size_t __btrc_string_entry_count, 0)'
+            'static size_t __btrc_string_entry_count = 0;'
         ),
-        depends_on=('__btrc_unit_linkage',),
+        depends_on=(),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -1676,11 +1653,10 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'arc_topology_depth;\n    int arc_draining;\n    void* arc_deferred_head;\n '
             '   void* arc_deferred_tail;\n    void (*abandon_drain_callback)(void);\n  '
             '  void** abandon_queue;\n    int abandon_count;\n    int abandon_cap;\n} __'
-            'btrc_tls_record;\nBTRC_RT_STATE(_Thread_local __btrc_tls_record __btrc_tl'
-            's,\n    {.try_top = -1, .try_cap = 16, .cleanup_top = -1, .cleanup_cap = '
-            '64})'
+            'btrc_tls_record;\nstatic _Thread_local __btrc_tls_record __btrc_tls = {\n '
+            '   .try_top = -1, .try_cap = 16, .cleanup_top = -1, .cleanup_cap = 64};'
         ),
-        depends_on=('__btrc_unit_linkage',),
+        depends_on=(),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -2613,15 +2589,15 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='cycles',
         name='__btrc_suspect_state',
         c_source=(
-            '/* ARC cycle detection: suspect buffer */\nBTRC_RT_STATE(void** __btrc_su'
-            'spects, NULL)\nBTRC_RT_STATE(int __btrc_suspect_count, 0)\nBTRC_RT_STATE(_'
-            '_btrc_visit_fn* __btrc_visit_table, NULL)\nBTRC_RT_STATE(__btrc_destroy_f'
-            'n* __btrc_destroy_table, NULL)\nBTRC_RT_STATE(void** __btrc_suspect_keys,'
-            ' NULL)\n/* Buffer index of the suspect held at each hash slot, so forgett'
-            'ing one never\n * scans the buffer. */\nBTRC_RT_STATE(int* __btrc_suspect_'
-            'slots, NULL)\nBTRC_RT_STATE(int __btrc_suspect_key_cap, 0)'
+            '/* ARC cycle detection: suspect buffer */\nstatic void** __btrc_suspects '
+            '= NULL;\nstatic int __btrc_suspect_count = 0;\nstatic __btrc_visit_fn* __b'
+            'trc_visit_table = NULL;\nstatic __btrc_destroy_fn* __btrc_destroy_table ='
+            ' NULL;\nstatic void** __btrc_suspect_keys = NULL;\n/* Buffer index of the '
+            'suspect held at each hash slot, so forgetting one never\n * scans the buf'
+            'fer. */\nstatic int* __btrc_suspect_slots = NULL;\nstatic int __btrc_suspe'
+            'ct_key_cap = 0;'
         ),
-        depends_on=('__btrc_arc_callback_types', '__btrc_unit_linkage'),
+        depends_on=('__btrc_arc_callback_types',),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -2632,9 +2608,9 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='cycles',
         name='__btrc_suspect_capacity',
         c_source=(
-            'BTRC_RT_STATE(int __btrc_suspect_cap, 0)'
+            'static int __btrc_suspect_cap = 0;'
         ),
-        depends_on=('__btrc_unit_linkage',),
+        depends_on=(),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -2749,24 +2725,24 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'nifest is the only place a runtime dependency may be declared. A\n * plat'
             'form lock would need a header the manifest cannot express, because the\n '
             '* dependency would hold on one target and not on another, and --freestan'
-            'ding\n * output is allowed to include nothing but btrc_rt.h. */\nBTRC_RT_S'
-            'TATE(_Atomic int __btrc_arc_lock_word, 0)\n\n/* A waiter polls the word wi'
-            'th plain loads and a pause hint, so contending\n * threads do not bounce '
-            'the cache line on every spin and the owner keeps the\n * cycles it needs '
-            'to release. The hint is a compiler builtin: no header. */\nstatic inline '
-            'void __btrc_arc_lock_relax(void) {\n#if defined(__aarch64__) || defined(_'
-            '_arm__)\n    __asm__ __volatile__("yield" ::: "memory");\n#elif (defined(_'
-            '_x86_64__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clan'
-            'g__))\n    __asm__ __volatile__("pause" ::: "memory");\n#endif\n}\nstatic vo'
-            'id __btrc_arc_lock_raw(void) {\n    for (;;) {\n        if (!atomic_exchan'
-            'ge_explicit(\n                &__btrc_arc_lock_word, 1, memory_order_acqu'
-            'ire))\n            return;\n        while (atomic_load_explicit(\n         '
-            '       &__btrc_arc_lock_word, memory_order_relaxed))\n            __btrc_'
-            'arc_lock_relax();\n    }\n}\nstatic void __btrc_arc_unlock_raw(void) {\n    '
-            'atomic_store_explicit(\n        &__btrc_arc_lock_word, 0, memory_order_re'
-            'lease);\n}'
+            'ding\n * output is allowed to include nothing but btrc_rt.h. */\nstatic _A'
+            'tomic int __btrc_arc_lock_word = 0;\n\n/* A waiter polls the word with pla'
+            'in loads and a pause hint, so contending\n * threads do not bounce the ca'
+            'che line on every spin and the owner keeps the\n * cycles it needs to rel'
+            'ease. The hint is a compiler builtin: no header. */\nstatic inline void _'
+            '_btrc_arc_lock_relax(void) {\n#if defined(__aarch64__) || defined(__arm__'
+            ')\n    __asm__ __volatile__("yield" ::: "memory");\n#elif (defined(__x86_6'
+            '4__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))\n'
+            '    __asm__ __volatile__("pause" ::: "memory");\n#endif\n}\nstatic void __b'
+            'trc_arc_lock_raw(void) {\n    for (;;) {\n        if (!atomic_exchange_exp'
+            'licit(\n                &__btrc_arc_lock_word, 1, memory_order_acquire))\n'
+            '            return;\n        while (atomic_load_explicit(\n               '
+            ' &__btrc_arc_lock_word, memory_order_relaxed))\n            __btrc_arc_lo'
+            'ck_relax();\n    }\n}\nstatic void __btrc_arc_unlock_raw(void) {\n    atomic'
+            '_store_explicit(\n        &__btrc_arc_lock_word, 0, memory_order_release)'
+            ';\n}'
         ),
-        depends_on=('__btrc_unit_linkage',),
+        depends_on=(),
         required_headers=('stdatomic.h',),
         provided_types=(),
         provided_objects=(),
@@ -2777,9 +2753,9 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='cycles',
         name='__btrc_arc_shutdown_state',
         c_source=(
-            'BTRC_RT_STATE(int __btrc_arc_shutdown, 0)'
+            'static int __btrc_arc_shutdown = 0;'
         ),
-        depends_on=('__btrc_unit_linkage',),
+        depends_on=(),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -2790,9 +2766,9 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='cycles',
         name='__btrc_arc_active_drains_state',
         c_source=(
-            'BTRC_RT_STATE(int __btrc_arc_active_drains, 0)'
+            'static int __btrc_arc_active_drains = 0;'
         ),
-        depends_on=('__btrc_unit_linkage',),
+        depends_on=(),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -2803,9 +2779,9 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='cycles',
         name='__btrc_arc_active_unwinds_state',
         c_source=(
-            'BTRC_RT_STATE(int __btrc_arc_active_unwinds, 0)'
+            'static int __btrc_arc_active_unwinds = 0;'
         ),
-        depends_on=('__btrc_unit_linkage',),
+        depends_on=(),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -2816,9 +2792,9 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='cycles',
         name='__btrc_arc_snapshot_state',
         c_source=(
-            'BTRC_RT_STATE(_Atomic int __btrc_arc_snapshotting, 0)'
+            'static _Atomic int __btrc_arc_snapshotting = 0;'
         ),
-        depends_on=('__btrc_unit_linkage',),
+        depends_on=(),
         required_headers=('stdatomic.h',),
         provided_types=(),
         provided_objects=(),
@@ -2850,10 +2826,10 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='cycles',
         name='__btrc_arc_topology_state',
         c_source=(
-            'BTRC_RT_STATE(int __btrc_arc_topology_active, 0)\nBTRC_RT_STATE(int __btr'
-            'c_arc_topology_flush_pending, 0)'
+            'static int __btrc_arc_topology_active = 0;\nstatic int __btrc_arc_topolog'
+            'y_flush_pending = 0;'
         ),
-        depends_on=('__btrc_unit_linkage',),
+        depends_on=(),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -2996,10 +2972,10 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='cycles',
         name='__btrc_arc_snapshot_gate_state',
         c_source=(
-            '/* Publish snapshot intent before waiting for topology owners. */\nBTRC_R'
-            'T_STATE(_Atomic int __btrc_arc_snapshot_pending, 0)'
+            '/* Publish snapshot intent before waiting for topology owners. */\nstatic'
+            ' _Atomic int __btrc_arc_snapshot_pending = 0;'
         ),
-        depends_on=('__btrc_unit_linkage',),
+        depends_on=(),
         required_headers=('stdatomic.h',),
         provided_types=(),
         provided_objects=(),
@@ -3051,14 +3027,13 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='cycles',
         name='__btrc_arc_reverse_state',
         c_source=(
-            '/* Scratch state for exact reverse-root classification. */\nBTRC_RT_STATE'
-            '(void** __btrc_reverse_queue, NULL)\nBTRC_RT_STATE(int __btrc_reverse_que'
-            'ue_cap, 0)\nBTRC_RT_STATE(void** __btrc_reverse_keys, NULL)\nBTRC_RT_STATE'
-            '(unsigned int* __btrc_reverse_marks, NULL)\nBTRC_RT_STATE(int __btrc_reve'
-            'rse_key_cap, 0)\nBTRC_RT_STATE(int __btrc_reverse_count, 0)\nBTRC_RT_STATE'
-            '(unsigned int __btrc_reverse_epoch, 0)'
+            '/* Scratch state for exact reverse-root classification. */\nstatic void**'
+            ' __btrc_reverse_queue = NULL;\nstatic int __btrc_reverse_queue_cap = 0;\ns'
+            'tatic void** __btrc_reverse_keys = NULL;\nstatic unsigned int* __btrc_rev'
+            'erse_marks = NULL;\nstatic int __btrc_reverse_key_cap = 0;\nstatic int __b'
+            'trc_reverse_count = 0;\nstatic unsigned int __btrc_reverse_epoch = 0;'
         ),
-        depends_on=('__btrc_unit_linkage',),
+        depends_on=(),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -3597,10 +3572,10 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'object_values;\n    unsigned int* object_marks;\n    int object_cap;\n    u'
             'nsigned int object_epoch;\n    volatile void** slot_keys;\n    int* slot_v'
             'alues;\n    unsigned int* slot_marks;\n    int slot_cap;\n    unsigned int '
-            'slot_epoch;\n} __btrc_cycle_context;\nBTRC_RT_STATE_ZERO(__btrc_cycle_cont'
-            'ext __btrc_cycle_scratch)\nBTRC_RT_STATE(int __btrc_collecting, 0)\n'
+            'slot_epoch;\n} __btrc_cycle_context;\nstatic __btrc_cycle_context __btrc_c'
+            'ycle_scratch;\nstatic int __btrc_collecting = 0;\n'
         ),
-        depends_on=('__btrc_arc_callback_types', '__btrc_unit_linkage'),
+        depends_on=('__btrc_arc_callback_types',),
         required_headers=(),
         provided_types=(),
         provided_objects=(),

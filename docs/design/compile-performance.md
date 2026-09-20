@@ -251,9 +251,12 @@ the link plan (schema 3, `emitted-units`) counts them and `btrc-native-plan`
 compiles them in parallel (`--jobs`, default: CPU count). Every unit carries
 the prologue, helpers, types and prototypes; the primary defines globals and
 kernels, the secondaries declare them; functions and globals lose internal
-linkage so units can reference each other. The runtime's file-scope state is
-declared through `BTRC_RT_STATE`, which the primary defines once and the
-secondaries see as `extern` — the only runtime change the split needed.
+linkage so units can reference each other. The runtime's file-scope state
+(the ARC tables, the string registry, the thread-local try record) stays
+written as plain `static` definitions; the unit emitters reshape that text
+the way the stdlib archive already does — the primary unit drops `static`
+and defines each variable once, every other unit declares it `extern`
+without an initializer — so no runtime source changed for the split.
 
 | | units | C compile + link |
 | --- | --- | --- |

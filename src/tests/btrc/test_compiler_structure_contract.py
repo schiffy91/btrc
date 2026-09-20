@@ -87,6 +87,7 @@ EXPECTED_BTRC_FILES = frozenset(
     ir/lowering/Strings.btrc
     ir/lowering/Types.btrc
     ir/Model.btrc
+    ir/RuntimeState.btrc
     ir/optimization/Cleanup.btrc
     ir/optimization/Optimizer.btrc
     ir/optimization/Realtime.btrc
@@ -218,6 +219,7 @@ REQUIRED_OWNER_BY_PATH = {
     "ir/optimization/Cleanup.btrc": "CleanupSlotValidator",
     "ir/optimization/setjmp/Analysis.btrc": "SetjmpEffectAnalysis",
     "ir/optimization/setjmp/Safety.btrc": "SetjmpSafetyPlanner",
+    "ir/RuntimeState.btrc": "RuntimeUnitState",
     "ir/Emitter.btrc": "CEmitter",
 }
 
@@ -467,7 +469,7 @@ def test_selfhost_tree_is_the_exact_ownership_namespace() -> None:
     actual = {path.relative_to(SELFHOST).as_posix() for path in SELFHOST.rglob("*.btrc")}
 
     assert actual == EXPECTED_BTRC_FILES
-    assert len(actual) == 97
+    assert len(actual) == 98
     assert {path.name for path in SELFHOST.glob("*.btrc")} == {"BtrccMain.btrc", "Compiler.btrc"}
 
 

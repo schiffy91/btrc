@@ -1,0 +1,72 @@
+/* Runtime helper C text split at top level, and its file-scope state shaped
+ * for one translation unit of a split program (mirrors backend/runtime_state.py):
+ * helpers are plain `static` definitions; the unit that owns the state drops
+ * `static` and every other unit declares the same names `extern` without an
+ * initializer. */
+
+import Library.Strings;
+import Library.Vector;
+
+class RuntimeUnitState {
+	/* Top-level C units: one declaration, definition or directive each. Blank
+	 * lines and comments between units are dropped. */
+	class Vector<string> splitToplevelUnits(string source) {
+		Vector<string> units = [];
+		Vector<string> current = [];
+		int depth = 0;
+		bool directive = false;
+		Vector<string> lines = Strings.split(source, "\n");
+		int index = 0;
+		while (index < lines.len) {
+			string line = lines.get(index);
+			string stripped = line.trim();
+			index = index + 1;
+			if (directive || (current.len == 0 && stripped.startsWith("#"))) {
+				current.push(line);
+				directive = stripped.endsWith("\\");
+				if (!directive) { units.push(Strings.join(current, "\n")); current = []; }
+				continue;
+			}
+			if (current.len == 0 && (stripped.isEmpty() || stripped.startsWith("/*") || stripped.startsWith("*") || stripped.startsWith("//"))) { continue; }
+			current.push(line);
+			depth = depth + Strings.count(line, "{") - Strings.count(line, "}");
+			if (depth == 0 && (stripped.endsWith(";") || stripped.endsWith("}"))) { units.push(Strings.join(current, "\n")); current = []; }
+		}
+		if (current.len > 0) { units.push(Strings.join(current, "\n")); }
+		return units;
+	}
+
+	/* True when the unit is a function definition rather than a variable. */
+	class bool isFunctionDefinition(string unit) {
+		if (unit.trim().startsWith("#")) { return false; }
+		int brace = Strings.find(unit, "{", 0);
+		if (brace < 0) { return false; }
+		string signature = Strings.rstrip(unit.substring(0, brace));
+		return signature.contains("(") && !signature.endsWith("=");
+	}
+
+	/* A `static` file-scope variable that is neither const nor a function. */
+	class bool isMutableState(string unit) {
+		string head = Strings.lstrip(unit);
+		if (!head.startsWith("static ") || head.startsWith("static const ") || head.startsWith("static inline ")) { return false; }
+		return !RuntimeUnitState.isFunctionDefinition(unit);
+	}
+
+	/* Helper text for one unit of a split program: the primary defines the
+	 * mutable state once, every other unit declares it `extern`. */
+	class string forUnit(string source, bool primary) {
+		Vector<string> output = [];
+		for unit in RuntimeUnitState.splitToplevelUnits(source) {
+			if (!RuntimeUnitState.isMutableState(unit)) { output.push(unit); continue; }
+			string head = Strings.lstrip(unit);
+			string definition = head.substring(7, head.length() - 7);
+			if (primary) { output.push(definition); continue; }
+			string declaration = Strings.rstrip(definition);
+			if (declaration.endsWith(";")) { declaration = declaration.substring(0, declaration.length() - 1); }
+			int initializer = Strings.find(declaration, "=", 0);
+			if (initializer >= 0) { declaration = Strings.rstrip(declaration.substring(0, initializer)); }
+			output.push("extern " + declaration + ";");
+		}
+		return Strings.join(output, "\n");
+	}
+}

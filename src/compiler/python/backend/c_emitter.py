@@ -66,6 +66,7 @@ from ..ir.nodes import (
     IRWhile,
 )
 from ..ir.verifier import IRVerifier
+from . import runtime_state
 from .wgsl_emitter import WgslEmitter
 
 _INLINE_EXPRESSION_LIMIT = 1000
@@ -164,7 +165,6 @@ class CEmitter:
         if unit_index >= 0:
             # Every unit carries every helper the program selected; the ones
             # this unit's functions do not reach are unused here by design.
-            self._line("#define BTRC_RT_PRIMARY_UNIT 1" if unit_index == 0 else "#define BTRC_RT_SECONDARY_UNIT 1")
             self._line('#pragma GCC diagnostic ignored "-Wunused-function"')
 
         # Reserve the preprocessor slot. In freestanding mode whether btrc_rt.h is
@@ -178,9 +178,13 @@ class CEmitter:
         if module.objective_c_classes:
             self._line("")
 
-        # Runtime helpers
+        # Runtime helpers; a split program defines their file-scope state in
+        # the primary unit and declares it extern in the others.
         for helper in module.helper_decls:
-            self._raw(helper.c_source)
+            source = helper.c_source
+            if unit_index >= 0:
+                source = runtime_state.unit_state(source, unit_index == 0)
+            self._raw(source)
             self._line("")
 
         # Type forwards precede the module's already-planned heterogeneous type

@@ -9,6 +9,7 @@ from types import MappingProxyType
 from typing import Protocol
 
 from src.compiler.python.analyzer.types import NumericLiteralSemantics, TypeIdentity
+from src.compiler.python.backend import runtime_state
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.lowering.types import CodegenError
 
@@ -348,40 +349,10 @@ class StdlibArchiveAdapter:
             completed.update(required)
 
     def split_toplevel_units(self, source: str) -> list[str]:
-        units: list[str] = []
-        current: list[str] = []
-        depth = 0
-        directive = False
-        for line in source.split("\n"):
-            stripped = line.strip()
-            if directive or (not current and stripped.startswith("#")):
-                current.append(line)
-                directive = stripped.endswith("\\")
-                if not directive:
-                    units.append("\n".join(current))
-                    current = []
-                continue
-            if not current and (
-                not stripped or stripped.startswith("/*") or stripped.startswith("*") or stripped.startswith("//")
-            ):
-                continue
-            current.append(line)
-            depth += line.count("{") - line.count("}")
-            if depth == 0 and (stripped.endswith(";") or stripped.endswith("}")):
-                units.append("\n".join(current))
-                current = []
-        if current:
-            units.append("\n".join(current))
-        return units
+        return runtime_state.split_toplevel_units(source)
 
     def function_definition_prototype(self, unit: str) -> str | None:
-        if unit.lstrip().startswith("#"):
-            return None
-        brace = unit.find("{")
-        if brace < 0:
-            return None
-        signature = unit[:brace].rstrip()
-        return None if "(" not in signature or signature.endswith("=") else signature + ";"
+        return runtime_state.function_definition_prototype(unit)
 
     def externize_toplevel(self, text: str) -> str:
         output = []

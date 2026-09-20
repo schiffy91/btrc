@@ -1,4 +1,3 @@
-__btrc_unit_linkage
 __btrc_strdup
 __btrc_safe_realloc
 __btrc_safe_calloc

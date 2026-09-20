@@ -12,21 +12,6 @@
 #include <limits.h>
 #include <stdatomic.h>
 
-/* File-scope runtime state has one definition per program. A program
- * emitted as several translation units defines BTRC_RT_PRIMARY_UNIT in the
- * unit that owns the state and BTRC_RT_SECONDARY_UNIT in the others, which
- * see extern declarations; a single unit keeps the state static. */
-#if defined(BTRC_RT_SECONDARY_UNIT)
-#define BTRC_RT_STATE(declaration, ...) extern declaration;
-#define BTRC_RT_STATE_ZERO(declaration) extern declaration;
-#elif defined(BTRC_RT_PRIMARY_UNIT)
-#define BTRC_RT_STATE(declaration, ...) declaration = __VA_ARGS__;
-#define BTRC_RT_STATE_ZERO(declaration) declaration;
-#else
-#define BTRC_RT_STATE(declaration, ...) static declaration = __VA_ARGS__;
-#define BTRC_RT_STATE_ZERO(declaration) static declaration;
-#endif
-
 static inline void* __btrc_safe_realloc(void* ptr, size_t size) {
     if (size == 0) { free(ptr); return NULL; }
     void* result = realloc(ptr, size);
@@ -52,12 +37,12 @@ typedef struct __btrc_string_entry {
     struct __btrc_string_entry* next;
 } __btrc_string_entry;
 
-BTRC_RT_STATE(__btrc_string_entry* __btrc_string_inline_buckets[64], {0})
-BTRC_RT_STATE(__btrc_string_entry** __btrc_string_buckets,
-    __btrc_string_inline_buckets)
-BTRC_RT_STATE(size_t __btrc_string_bucket_count, 64)
+static __btrc_string_entry* __btrc_string_inline_buckets[64] = {0};
+static __btrc_string_entry** __btrc_string_buckets =
+    __btrc_string_inline_buckets;
+static size_t __btrc_string_bucket_count = 64;
 
-BTRC_RT_STATE(atomic_flag __btrc_string_lock, ATOMIC_FLAG_INIT)
+static atomic_flag __btrc_string_lock = ATOMIC_FLAG_INIT;
 
 static inline void __btrc_string_registry_lock(void) {
     unsigned int delay = 1;
@@ -89,7 +74,7 @@ static inline __btrc_string_entry** __btrc_string_slot(const char* value) {
     return slot;
 }
 
-BTRC_RT_STATE(size_t __btrc_string_entry_count, 0)
+static size_t __btrc_string_entry_count = 0;
 
 static inline void __btrc_string_registry_resize(size_t capacity) {
     __btrc_string_entry** old_buckets = __btrc_string_buckets;

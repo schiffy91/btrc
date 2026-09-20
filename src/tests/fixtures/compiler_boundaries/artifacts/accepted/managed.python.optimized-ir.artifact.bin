@@ -134,14 +134,6 @@
     "helper_decls": [
       {
         "$type": "IRHelperDecl",
-        "category": "runtime",
-        "name": "__btrc_unit_linkage",
-        "c_source": "/* File-scope runtime state has one definition per program. A program\n * emitted as several translation units defines BTRC_RT_PRIMARY_UNIT in the\n * unit that owns the state and BTRC_RT_SECONDARY_UNIT in the others, which\n * see extern declarations; a single unit keeps the state static. */\n#if defined(BTRC_RT_SECONDARY_UNIT)\n#define BTRC_RT_STATE(declaration, ...) extern declaration;\n#define BTRC_RT_STATE_ZERO(declaration) extern declaration;\n#elif defined(BTRC_RT_PRIMARY_UNIT)\n#define BTRC_RT_STATE(declaration, ...) declaration = __VA_ARGS__;\n#define BTRC_RT_STATE_ZERO(declaration) declaration;\n#else\n#define BTRC_RT_STATE(declaration, ...) static declaration = __VA_ARGS__;\n#define BTRC_RT_STATE_ZERO(declaration) static declaration;\n#endif",
-        "depends_on": [],
-        "required_headers": []
-      },
-      {
-        "$type": "IRHelperDecl",
         "category": "alloc",
         "name": "__btrc_safe_realloc",
         "c_source": "static inline void* __btrc_safe_realloc(void* ptr, size_t size) {\n    if (size == 0) { free(ptr); return NULL; }\n    void* result = realloc(ptr, size);\n    if (!result) { fprintf(stderr, \"btrc: out of memory (realloc %zu bytes)\\n\", size); exit(1); }\n    return result;\n}",
@@ -160,20 +152,16 @@
         "$type": "IRHelperDecl",
         "category": "string_ownership",
         "name": "__btrc_string_registry",
-        "c_source": "typedef struct __btrc_string_entry {\n    char* value;\n    size_t references;\n    /* Byte length, cached by the first length query of a long string (0 =\n     * not yet measured). Strings are immutable once published, so the cache\n     * never goes stale; it turns every substring, length and index query on\n     * a large text from a strlen of the whole text into a table lookup. */\n    size_t length;\n    struct __btrc_string_entry* next;\n} __btrc_string_entry;\n\nBTRC_RT_STATE(__btrc_string_entry* __btrc_string_inline_buckets[64], {0})\nBTRC_RT_STATE(__btrc_string_entry** __btrc_string_buckets,\n    __btrc_string_inline_buckets)\nBTRC_RT_STATE(size_t __btrc_string_bucket_count, 64)",
-        "depends_on": [
-          "__btrc_unit_linkage"
-        ],
+        "c_source": "typedef struct __btrc_string_entry {\n    char* value;\n    size_t references;\n    /* Byte length, cached by the first length query of a long string (0 =\n     * not yet measured). Strings are immutable once published, so the cache\n     * never goes stale; it turns every substring, length and index query on\n     * a large text from a strlen of the whole text into a table lookup. */\n    size_t length;\n    struct __btrc_string_entry* next;\n} __btrc_string_entry;\n\nstatic __btrc_string_entry* __btrc_string_inline_buckets[64] = {0};\nstatic __btrc_string_entry** __btrc_string_buckets =\n    __btrc_string_inline_buckets;\nstatic size_t __btrc_string_bucket_count = 64;",
+        "depends_on": [],
         "required_headers": []
       },
       {
         "$type": "IRHelperDecl",
         "category": "string_ownership",
         "name": "__btrc_string_registry_lock_state",
-        "c_source": "BTRC_RT_STATE(atomic_flag __btrc_string_lock, ATOMIC_FLAG_INIT)",
-        "depends_on": [
-          "__btrc_unit_linkage"
-        ],
+        "c_source": "static atomic_flag __btrc_string_lock = ATOMIC_FLAG_INIT;",
+        "depends_on": [],
         "required_headers": [
           "stdatomic.h"
         ]
@@ -211,10 +199,8 @@
         "$type": "IRHelperDecl",
         "category": "string_ownership",
         "name": "__btrc_string_registry_count",
-        "c_source": "BTRC_RT_STATE(size_t __btrc_string_entry_count, 0)",
-        "depends_on": [
-          "__btrc_unit_linkage"
-        ],
+        "c_source": "static size_t __btrc_string_entry_count = 0;",
+        "depends_on": [],
         "required_headers": []
       },
       {
