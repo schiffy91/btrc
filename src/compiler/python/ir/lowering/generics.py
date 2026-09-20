@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -14,6 +15,25 @@ from src.compiler.python.syntax.ast.generated import ClassDecl, MethodDecl, Type
 # One codec serves every freeze and thaw: building a codec per call was most of
 # the cost of resolving a generic type (a hundred thousand times per compile).
 _CODEC = AstJsonCodec()
+
+
+class _CopyOnRead(Mapping[str, TypeExpr]):
+    """A view of a cached type table whose lookups return deep copies."""
+
+    def __init__(self, table: Mapping[str, TypeExpr]) -> None:
+        self._table = table
+
+    def __getitem__(self, name: str) -> TypeExpr:
+        return copy.deepcopy(self._table[name])
+
+    def __contains__(self, name: object) -> bool:
+        return name in self._table
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._table)
+
+    def __len__(self) -> int:
+        return len(self._table)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -57,7 +77,11 @@ class TypeSubstitution:
         return cached
 
     def resolve(self, type_expr: TypeExpr | None) -> TypeExpr | None:
-        return self.identity.substitute(type_expr, self._arguments(), reference_resolver=self._resolve_typedef)
+        # Results may be mutated by callers; hand out copies of the cached
+        # trees for the parameters this type actually names.
+        return self.identity.substitute(
+            type_expr, _CopyOnRead(self._arguments()), reference_resolver=self._resolve_typedef
+        )
 
     def applies_to(self, type_expr: TypeExpr | None) -> bool:
         """Whether this substitution binds any parameter in one source type."""
@@ -84,7 +108,7 @@ class TypeSubstitution:
         while resolved.base in typedefs and resolved.base not in seen:
             seen.add(resolved.base)
             resolved = typedefs[resolved.base]
-        return resolved
+        return resolved if resolved is type_expr else copy.deepcopy(resolved)
 
     @staticmethod
     def _freeze(values: Mapping[str, TypeExpr], codec: AstJsonCodec) -> tuple[tuple[str, str], ...]:
