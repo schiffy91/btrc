@@ -165,6 +165,9 @@ class NativeBuildPlan:
     pkg_config: tuple[str, ...]
     units: tuple[NativeUnit, ...]
     generated_units: tuple[NativeGeneratedUnit, ...] = ()
+    # Secondary translation units the compiler wrote beside the generated C
+    # as <generated>.unit-<k>.c; they compile in parallel and link with it.
+    emitted_units: int = 0
 
 
 class NativePlanReader:
@@ -180,11 +183,15 @@ class NativePlanReader:
             )
         except (UnicodeError, json.JSONDecodeError, RecursionError) as error:
             raise NativePlanError(f"cannot parse native link plan {path}: {error}") from error
-        fields = (
-            ROOT_FIELDS | {"generated-units"}
-            if isinstance(payload, dict) and payload.get("schema") == 2
-            else ROOT_FIELDS
-        )
+        schema = payload.get("schema") if isinstance(payload, dict) else None
+        fields = ROOT_FIELDS
+        if schema == 2:
+            fields = ROOT_FIELDS | {"generated-units"}
+        elif schema == 3:
+            # Schema 3 always counts its emitted units; adapter units stay optional.
+            fields = ROOT_FIELDS | {"emitted-units"}
+            if isinstance(payload, dict) and "generated-units" in payload:
+                fields = fields | {"generated-units"}
         root = _exact_mapping(payload, fields, "native link plan")
         canonical = json.dumps(root, allow_nan=False, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
         if encoded != canonical.encode("utf-8"):
@@ -212,8 +219,8 @@ class NativePlanReader:
         return encoded
 
     def _validate(self, root: dict[str, object]) -> NativeBuildPlan:
-        if type(root["schema"]) is not int or root["schema"] not in (1, 2):
-            raise NativePlanError("native link plan schema must be integer 1 or 2")
+        if type(root["schema"]) is not int or root["schema"] not in (1, 2, 3):
+            raise NativePlanError("native link plan schema must be integer 1, 2 or 3")
         target = _exact_mapping(root["target"], frozenset({"arch", "os"}), "native link plan target")
         operating_system = _text(target["os"], "native link plan target.os")
         architecture = _text(target["arch"], "native link plan target.arch")
@@ -235,7 +242,14 @@ class NativePlanReader:
             raise NativePlanError("native link plan frameworks require a macos target")
         pkg_config = self._name_records(root["pkg-config"], "pkg-config", package_roots)
         units = self._units(root["units"], package_roots)
-        generated_units = self._generated_units(root["generated-units"]) if root["schema"] == 2 else ()
+        generated_units = (
+            self._generated_units(root["generated-units"]) if root["schema"] >= 2 and "generated-units" in root else ()
+        )
+        emitted_units = 0
+        if root["schema"] == 3 and "emitted-units" in root:
+            emitted_units = root["emitted-units"]
+            if type(emitted_units) is not int or not 1 <= emitted_units <= 4096:
+                raise NativePlanError("native link plan emitted-units must be an integer from 1 through 4096")
         linker_language = _text(root["linker-language"], "native link plan linker-language")
         expected_linker = (
             "c++" if any(unit.language in {"c++", "objective-c++"} for unit in (*units, *generated_units)) else "c"
@@ -254,6 +268,7 @@ class NativePlanReader:
             pkg_config,
             units,
             generated_units,
+            emitted_units,
         )
 
     def _generated_units(self, value: object) -> tuple[NativeGeneratedUnit, ...]:
@@ -432,15 +447,24 @@ class NativePlanBuilder:
         cxx: str = "c++",
         pkg_config: str = "pkg-config",
         optimization: int = 2,
+        jobs: int | None = None,
     ) -> None:
         if type(optimization) is not int or optimization not in range(4):
             raise NativePlanError("optimization must be an integer from 0 through 3")
+        if jobs is None:
+            jobs = os.cpu_count() or 1
+        if type(jobs) is not int or jobs < 1:
+            raise NativePlanError("jobs must be a positive integer")
         plan = self._reader.read(plan_path)
         generated = _regular_file(str(generated_c.absolute()), "generated C input")
+        emitted = [
+            _regular_file(f"{generated}.unit-{index}.c", f"emitted translation unit {index}")
+            for index in range(1, plan.emitted_units + 1)
+        ]
         if not output.is_absolute():
             output = output.absolute()
         parent = _real_directory(str(output.parent), "native output directory")
-        inputs = {plan_path.absolute(), generated, *(unit.path for unit in plan.units)}
+        inputs = {plan_path.absolute(), generated, *emitted, *(unit.path for unit in plan.units)}
         if output in inputs:
             raise NativePlanError("native output must differ from its plan and source inputs")
         tools = {"cc": self._tool(cc, "C compiler"), "cxx": self._tool(cxx, "C++ compiler")}
@@ -451,25 +475,37 @@ class NativePlanBuilder:
         with tempfile.TemporaryDirectory(prefix=".btrc-native-", dir=parent) as temporary_text:
             temporary = Path(temporary_text)
             objects: list[Path] = []
-            generated_object = temporary / "generated.o"
-            self._run(
-                [
-                    tools["cc"],
-                    "-x",
-                    "c",
-                    "-std=c11",
-                    *strict,
-                    *includes,
-                    *defines,
-                    *package_compile,
-                    f"-O{optimization}",
-                    "-c",
-                    str(generated),
-                    "-o",
-                    str(generated_object),
-                ]
-            )
-            objects.append(generated_object)
+            commands: list[list[str]] = []
+            for index, source in enumerate((generated, *emitted)):
+                generated_object = temporary / ("generated.o" if index == 0 else f"generated-{index}.o")
+                commands.append(
+                    [
+                        tools["cc"],
+                        "-x",
+                        "c",
+                        "-std=c11",
+                        *strict,
+                        *includes,
+                        *defines,
+                        *package_compile,
+                        f"-O{optimization}",
+                        "-c",
+                        str(source),
+                        "-o",
+                        str(generated_object),
+                    ]
+                )
+                objects.append(generated_object)
+            # The emitted units are independent; compile them side by side.
+            if jobs > 1 and len(commands) > 1:
+                from concurrent.futures import ThreadPoolExecutor
+
+                with ThreadPoolExecutor(max_workers=min(jobs, len(commands))) as pool:
+                    for _ in pool.map(self._run, commands):
+                        pass
+            else:
+                for command in commands:
+                    self._run(command)
             for index, unit in enumerate((*plan.units, *plan.generated_units)):
                 object_path = temporary / f"native-{index}.o"
                 policy = []
@@ -576,6 +612,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--cxx", default="c++")
     parser.add_argument("--pkg-config", default="pkg-config")
     parser.add_argument(
+        "--jobs", type=int, default=None, help="parallel C compiles for emitted units (default: CPU count)"
+    )
+    parser.add_argument(
         "--optimization",
         type=int,
         choices=range(4),
@@ -592,6 +631,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             cxx=arguments.cxx,
             pkg_config=arguments.pkg_config,
             optimization=arguments.optimization,
+            jobs=arguments.jobs,
         )
     except (NativePlanError, OSError) as error:
         sys.stderr.write(f"btrc-native-plan: error: {error}\n")

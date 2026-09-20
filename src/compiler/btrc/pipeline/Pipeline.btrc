@@ -158,7 +158,16 @@ class CompilerPipeline {
 			if ((unit.language != "objective-c" && unit.language != "c++") || unit.nativeUnits.len > 0) { throw "native adapter must be a standalone Objective-C or C++ unit"; }
 			packages.linkPlan.generatedUnits.push(FeNativeGeneratedUnit(name, unit.language, unit.language == "c++" ? "c++17" : "c11", unit.language == "c++" ? "raii" : "arc", CEmitter().emit(unit)));
 		}
-		string emitted = emitter.emit(module);
+		Vector<string> units = [];
+		string emitted = "";
+		if (options.unitsPrefix.isEmpty()) { emitted = emitter.emit(module); }
+		else {
+			char* configuredUnitLines = getenv("BTRC_UNIT_LINES");
+			units = emitter.emitUnits(module, configuredUnitLines == null ? 40000 : atoi(configuredUnitLines));
+			emitted = units.get(0);
+			units.remove(0);
+			packages.linkPlan.emittedUnits = units.len;
+		}
 		BtrccPhaseTimer.mark("emit");
 		/* One compile is one process. Releasing the program, its analysis and
 		 * the IR would cost the ARC runtime a reverse-reachability proof per
@@ -171,6 +180,8 @@ class CompilerPipeline {
 		keep lowerer;
 		keep module;
 		BtrccPhaseTimer.print();
-		return BtrccCompilationResult(true, emitted, "", packages.linkPlan.canonicalJson());
+		BtrccCompilationResult result = BtrccCompilationResult(true, emitted, "", packages.linkPlan.canonicalJson());
+		result.units = units;
+		return result;
 	}
 }

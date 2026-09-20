@@ -1890,6 +1890,8 @@ class FeNativeLinkPlan {
 	public Vector<FePackageNode> packages;
 	public Vector<FeNativeDeclaration> declarations;
 	public Vector<FeNativeGeneratedUnit> generatedUnits;
+	/* Secondary translation units emitted beside the generated C, if any. */
+	public int emittedUnits = 0;
 
 	public FeNativeLinkPlan(FePackageTarget target, Vector<FePackageNode> packages, Vector<FeNativeDeclaration> declarations) {
 		self.target = target;
@@ -2217,6 +2219,7 @@ class FeNativeLinkPlan {
 
 		JSONValue root = JSONValue.makeObject();
 		root.set("defines", self.defineRecords());
+		if (self.emittedUnits > 0) { root.set("emitted-units", JSONValue.makeInt(self.emittedUnits)); }
 		root.set("frameworks", self.nameRecords("framework"));
 		if (self.generatedUnits.len > 0) {
 			Vector<FeNativeGeneratedUnit> ordered = [];
@@ -2239,7 +2242,7 @@ class FeNativeLinkPlan {
 		root.set("linker-language", JSONValue.makeString(self.linkerLanguage()));
 		root.set("packages", self.packageRecords());
 		root.set("pkg-config", self.nameRecords("pkg-config"));
-		root.set("schema", JSONValue.makeInt(self.generatedUnits.len > 0 ? 2 : 1));
+		root.set("schema", JSONValue.makeInt(self.emittedUnits > 0 ? 3 : (self.generatedUnits.len > 0 ? 2 : 1)));
 		root.set("target", targetValue);
 		root.set("units", self.unitRecords());
 		return root.stringify() + "\n";

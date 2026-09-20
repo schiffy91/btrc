@@ -503,6 +503,8 @@ class NativeLinkPlan:
     packages: tuple[PackageNode, ...] = ()
     declarations: tuple[NativeDeclaration, ...] = ()
     generated_units: tuple[NativeGeneratedUnit, ...] = ()
+    # Secondary translation units emitted beside the generated C, if any.
+    emitted_units: int = 0
 
     @property
     def bindings(self) -> tuple[NativeBinding, ...]:
@@ -598,6 +600,9 @@ class NativeLinkPlan:
             result["generated-units"] = [
                 unit.as_dict() for unit in sorted(self.generated_units, key=lambda unit: unit.name)
             ]
+        if self.emitted_units > 0:
+            result["schema"] = 3
+            result["emitted-units"] = self.emitted_units
         return result
 
     def canonical_json(self) -> str:

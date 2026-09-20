@@ -10,13 +10,13 @@ typedef struct __btrc_string_entry {
     struct __btrc_string_entry* next;
 } __btrc_string_entry;
 
-static __btrc_string_entry* __btrc_string_inline_buckets[64] = {0};
-static __btrc_string_entry** __btrc_string_buckets =
-    __btrc_string_inline_buckets;
-static size_t __btrc_string_bucket_count = 64;
+BTRC_RT_STATE(__btrc_string_entry* __btrc_string_inline_buckets[64], {0})
+BTRC_RT_STATE(__btrc_string_entry** __btrc_string_buckets,
+    __btrc_string_inline_buckets)
+BTRC_RT_STATE(size_t __btrc_string_bucket_count, 64)
 /* btrc-runtime-helper:end __btrc_string_registry */
 /* btrc-runtime-helper:begin __btrc_string_registry_lock_state */
-static atomic_flag __btrc_string_lock = ATOMIC_FLAG_INIT;
+BTRC_RT_STATE(atomic_flag __btrc_string_lock, ATOMIC_FLAG_INIT)
 /* btrc-runtime-helper:end __btrc_string_registry_lock_state */
 /* btrc-runtime-helper:begin __btrc_string_registry_lock */
 static inline void __btrc_string_registry_lock(void) {
@@ -52,7 +52,7 @@ static inline __btrc_string_entry** __btrc_string_slot(const char* value) {
 }
 /* btrc-runtime-helper:end __btrc_string_registry_slot */
 /* btrc-runtime-helper:begin __btrc_string_registry_count */
-static size_t __btrc_string_entry_count = 0;
+BTRC_RT_STATE(size_t __btrc_string_entry_count, 0)
 /* btrc-runtime-helper:end __btrc_string_registry_count */
 /* btrc-runtime-helper:begin __btrc_string_registry_resize */
 static inline void __btrc_string_registry_resize(size_t capacity) {

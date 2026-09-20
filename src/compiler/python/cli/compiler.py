@@ -60,6 +60,11 @@ class CompilerCommand:
             help="Atomically write the canonical native link plan to PATH",
         )
         parser.add_argument(
+            "--emit-units",
+            metavar="PREFIX",
+            help="Split the C into translation units; secondaries are written as PREFIX.unit-<k>.c",
+        )
+        parser.add_argument(
             "--target",
             metavar="OS-ARCH",
             help="Select native package predicates (for example linux-x86_64 or macos-arm64)",
@@ -219,6 +224,7 @@ class CompilerCommand:
             refresh_packages=args.fetch,
             stdlib_archive=args.stdlib,
             generated_c_path=out_path,
+            units_prefix=args.emit_units,
             target=args.target,
         )
 
@@ -263,6 +269,8 @@ class CompilerCommand:
                 result.source_length,
             )
         self._file_io.write_output(out_path, result.c_source)
+        for index, unit in enumerate(result.c_units, start=1):
+            self._file_io.write_output(f"{args.emit_units}.unit-{index}.c", unit)
 
         if args.freestanding:
             rt_path = os.path.join(os.path.dirname(out_path) or ".", "btrc_rt.h")

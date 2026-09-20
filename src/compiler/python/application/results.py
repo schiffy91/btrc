@@ -94,6 +94,8 @@ class CompilerOptions:
     stdlib_archive: str | None = None
     generated_c_path: str | None = None
     target: str | None = None
+    # Split the emitted C into units written as <prefix>.unit-<k>.c; None means one unit.
+    units_prefix: str | None = None
 
     @property
     def parses_program(self) -> bool:
@@ -109,6 +111,7 @@ class CompilerOptions:
             and self.dce
             and not self.debug
             and not self.profile
+            and self.units_prefix is None
         )
 
 
@@ -140,6 +143,8 @@ class CompilerResult:
     analyzed: AnalyzedProgram | None = None
     ir_module: IRModule | None = None
     c_source: str | None = None
+    # Secondary translation units in order; empty for a single-unit program.
+    c_units: tuple[str, ...] = ()
     native_plan: NativeLinkPlan = field(default_factory=NativeLinkPlan.empty)
     failure: CompilerFailure | None = None
     diagnostics: tuple[CompilerDiagnostic, ...] = ()

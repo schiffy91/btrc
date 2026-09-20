@@ -676,6 +676,8 @@ class CompilationPipeline:
     ) -> CompilerResult:
         native_plan = source.native_plan
         module = values.get("ir_module")
+        if values.get("c_units"):
+            native_plan = replace(native_plan, emitted_units=len(values["c_units"]))
         if module is not None and module.native_units:
             native_plan = replace(
                 native_plan,
@@ -771,7 +773,14 @@ class CompilationPipeline:
                 self._timed(profile, "stdlib_archive", start)
             if options.debug and options.generated_c_path:
                 module.debug_cfile = os.path.abspath(options.generated_c_path)
-            c_source = self.emit(module, profile)
+            c_units: tuple[str, ...] = ()
+            if options.units_prefix is not None:
+                start = time.perf_counter()
+                units = CEmitter().emit_units(module, int(os.environ.get("BTRC_UNIT_LINES", "40000")))
+                self._timed(profile, "emit", start)
+                c_source, c_units = units[0], tuple(units[1:])
+            else:
+                c_source = self.emit(module, profile)
         except (CodegenError, StdlibArchiveError) as error:
             return self._result(source, options, profile, failure=self._failure(error), **common)
         return self._result(
@@ -780,6 +789,7 @@ class CompilationPipeline:
             profile,
             ir_module=module,
             c_source=c_source,
+            c_units=c_units,
             **common,
         )
 

@@ -1,4 +1,5 @@
 /* Cross-stage application models for the self-hosted compiler. */
+import Library.Vector;
 
 class BtrccOptions {
 	public bool valid;
@@ -9,6 +10,8 @@ class BtrccOptions {
 	public bool showStdlibDirectory;
 	public string target;
 	public string linkPlanPath;
+	/* Split the emitted C into units written as <prefix>.unit-<k>.c; empty means one unit. */
+	public string unitsPrefix = "";
 	public int inputIndex;
 	public string diagnostic;
 
@@ -31,6 +34,8 @@ class BtrccCompilationResult {
 	public string output;
 	public string diagnostic;
 	public string linkPlan;
+	/* Secondary units in order; empty for a single-unit program. */
+	public Vector<string> units = [];
 
 	public BtrccCompilationResult(bool success, string output, string diagnostic, string linkPlan) {
 		self.success = success;

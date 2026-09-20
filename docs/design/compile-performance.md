@@ -218,6 +218,53 @@ form; btrcpy's `--profile` is also switched on by `BTRC_TIMING`.
 `cc -O2` on btrcc's unit: 110.6 s, 1.7 GB. Note btrcpy's `optimize` phase
 (159 s: the setjmp planner) dominates its self-compile, where btrcc's is 6.6 s.
 
+## Progress
+
+### After M1–M3 (2026-09-20, BTRSmith, every step byte-identical per compiler)
+
+| Compiler | Before | After | What moved |
+| --- | --- | --- | --- |
+| btrcc | 542 s / 5.2 GB | **85 s** / 5.4 GB | analyze 209 s → 13 s, lower 248 s → 34 s, optimize 46 s → 17 s |
+| btrcpy | 742 s / 2.5 GB | **344 s** / 1.7 GB | lower 531 s → 139 s; optimize (setjmp planner) still 130 s |
+
+The largest single item was not an algorithm: releasing the validator and
+realtime analyzer at the end of analysis cost **200 s**, because the ARC
+runtime proves reverse reachability (`__btrc_arc_reverse_proves_live`) for
+every reference an object drops once its only remaining owners are edges,
+and those indices held a reference to most of the program. The compiler now
+keeps its analysis and IR graphs alive until the process exits. The same
+cost model applies to any btrc program that tears down a large object
+graph; a runtime-side fix (bounding the proof, or a generational witness)
+is worth its own milestone.
+
+The other items, in order of what they removed: the subclass index (~200 s
+of gprof time in `isSubclass`), shared operand environments (~88 s), the
+native-declaration index (~60 s including its ARC churn), the setjmp
+worklist (optimize 36 → 17 s), typedef fast paths, DCE sets.
+
+### M4: translation units (2026-09-20)
+
+`--emit-units PREFIX` (both compilers) splits the program into a primary unit
+plus secondaries of about 40k lines of function definitions each
+(`BTRC_UNIT_LINES` overrides the target), written as `PREFIX.unit-<k>.c`;
+the link plan (schema 3, `emitted-units`) counts them and `btrc-native-plan`
+compiles them in parallel (`--jobs`, default: CPU count). Every unit carries
+the prologue, helpers, types and prototypes; the primary defines globals and
+kernels, the secondaries declare them; functions and globals lose internal
+linkage so units can reference each other. The runtime's file-scope state is
+declared through `BTRC_RT_STATE`, which the primary defines once and the
+secondaries see as `extern` — the only runtime change the split needed.
+
+| | units | C compile + link |
+| --- | --- | --- |
+| BTRSmith, btrcpy output | 16 secondaries | **8.6 s** (84.9 s with `--jobs 1`) |
+| BTRSmith, btrcc output | 14 secondaries | **7.8 s** |
+
+The whole corpus splits, links and runs with its goldens through both
+compilers (the three GPU programs need the GPU runtime library the corpus
+runner links separately), and the split BTRSmith passes its library smoke
+from either compiler's units.
+
 ## Raw data
 
 `/tmp/claude-1000/prof/`: `btrcc-timing.txt`, `gprof-flat.txt`,

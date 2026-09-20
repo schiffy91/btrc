@@ -1,7 +1,7 @@
 # Package manifests and native link plans
 
 This document defines package manifest version 1, lockfile schema 3, and native
-link-plan schemas 1 and 2.  The reference and self-hosted compilers implement the same
+link-plan schemas 1, 2 and 3.  The reference and self-hosted compilers implement the same
 strict local graph, lock, and plan contracts. The reference compiler also
 materializes Git dependencies; the self-hosted compiler currently rejects that
 acquisition surface precisely. A build tool consumes the emitted plan; compilers never execute
@@ -1751,6 +1751,17 @@ Schema 2 adds a nonempty `generated-units` array, sorted by unique identifier
 package path: generated output must not masquerade as a source-package file.
 The plan is the single published artifact, so it cannot refer to a half-published
 adapter file. This is compiler output, not a new manifest input table.
+
+Schema 3 is written when the compiler was asked to split the program with
+`--emit-units PREFIX`. It adds `emitted-units`, the count of secondary
+translation units the compiler wrote beside the generated C as
+`<generated>.unit-<k>.c` for `k` from 1; `generated-units` stays optional. The
+units are compiler output like the generated C itself, so the plan carries the
+count rather than paths: `btrc-native-plan` derives them from the generated C it
+is given and compiles them in parallel before one link. A split program's
+functions and globals have external linkage and the runtime's file-scope state
+is defined by the primary unit alone, so every unit must come from the same
+compiler run.
 
 Generated C uses `c11`/`manual`, C++ uses `c++17` or `c++20`/`raii`, and
 Objective-C or Objective-C++ uses the matching standard with `arc`. The builder
