@@ -26,5 +26,6 @@ int main() {
 	Bytes missing = FileSystem.readBytes(PathTools.join(directory, "absent.bin"));
 	assert(missing.len == 0);
 	FileSystem.removeRecursive(directory);
+	print("PASS: test_stdlib_filesystem_read_bytes");
 	return 0;
 }

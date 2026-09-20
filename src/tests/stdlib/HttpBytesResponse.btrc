@@ -53,5 +53,6 @@ int main() {
 	assert(headerEnd > 0);
 	Bytes body = wire.slice(headerEnd + 4, wire.len);
 	assert(body.equals(payload));
+	print("PASS: test_stdlib_http_bytes_response");
 	return 0;
 }
