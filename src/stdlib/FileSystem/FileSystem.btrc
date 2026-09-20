@@ -717,6 +717,18 @@ class FileSystem {
 
 	class string readText(string path) { return Path.readAll(path); }
 
+	/* The whole regular file as bytes, NUL preserved, through a versioned
+	 * snapshot so a file that changes underneath the read is rejected rather
+	 * than returned torn. Empty on any failure. */
+	class Bytes readBytes(string path) {
+		RegularFileSnapshotOpenOutcome opened = RegularFileSnapshot.open(path, 2147483647LL);
+		if (!opened.ok()) { return Bytes(); }
+		RegularFileSnapshot snapshot = opened.snapshot();
+		ExactFileReadOutcome read = snapshot.readExactAt(0LL, (int)snapshot.size());
+		snapshot.close();
+		return read.ok() ? read.bytes() : Bytes();
+	}
+
 	/* Writes content to path (truncating). Returns true on success, false on
      * open/write failure (and prints a clear stderr message via Path.writeAll).
      * Callers that ignore the result keep the previous fire-and-forget shape. */

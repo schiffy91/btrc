@@ -1,0 +1,30 @@
+/* readBytes returns the whole file, NUL bytes included, and nothing for a
+ * missing path. */
+import Library.Bytes;
+import Library.FileSystem;
+import Library.Strings;
+
+#include <assert.h>
+#include <stdio.h>
+
+int main() {
+	string directory = FileSystem.tempDir("btrc-readbytes");
+	string path = PathTools.join(directory, "blob.bin");
+	FILE* handle = fopen(path, "wb");
+	assert(handle != NULL);
+	unsigned char raw[6] = { 1, 0, 2, 0, 3, 255 };
+	assert(fwrite(raw, 1, sizeof(raw), handle) == sizeof(raw));
+	fclose(handle);
+
+	Bytes data = FileSystem.readBytes(path);
+	assert(data.len == 6);
+	assert(data.get(0) == 1);
+	assert(data.get(1) == 0);
+	assert(data.get(3) == 0);
+	assert(data.get(5) == 255);
+
+	Bytes missing = FileSystem.readBytes(PathTools.join(directory, "absent.bin"));
+	assert(missing.len == 0);
+	FileSystem.removeRecursive(directory);
+	return 0;
+}

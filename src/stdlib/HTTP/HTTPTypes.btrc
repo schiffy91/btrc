@@ -64,13 +64,30 @@ class HTTPResponse {
 	public int status;
 	public string contentType;
 	public string body;
+	public Bytes? bodyBytes;   /* binary-safe body; when set it replaces body on the wire */
 	public Vector<string> extraHeaders;
 
 	public HTTPResponse(int status, string contentType, string body) {
 		self.status = status;
 		self.contentType = contentType;
 		self.body = body;
+		self.bodyBytes = null;
 		self.extraHeaders = [];
+	}
+
+	/* A response whose body is arbitrary bytes (images, archives): the length
+	 * comes from the buffer, never from a NUL scan. */
+	class HTTPResponse bytes(int status, string contentType, Bytes body) {
+		HTTPResponse response = HTTPResponse(status, contentType, "");
+		response.bodyBytes = body;
+		return response;
+	}
+
+	public bool isBinary() { return self.bodyBytes != null; }
+
+	public long long bodyLength() {
+		if (self.bodyBytes != null) { return (long long)self.bodyBytes.len; }
+		return self.body == null ? 0LL : (long long)strlen(self.body);
 	}
 
 	public HTTPResponse addHeader(string line) {

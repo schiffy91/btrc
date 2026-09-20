@@ -1,0 +1,57 @@
+// BTRC_TEST_REQUIRES: loopback-listener
+/* A binary response carries every byte of its buffer, NUL included, with a
+ * Content-Length taken from the buffer rather than a string scan. */
+import Library.Bytes;
+import Library.HTTP.HTTPServer;
+import Library.HTTP.HTTPTypes;
+import Library.Strings;
+
+#include <assert.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <errno.h>
+
+Bytes readToClose(int descriptor) {
+	Bytes data = Bytes();
+	char buffer[4096];
+	while (true) {
+		ssize_t count = recv(descriptor, buffer, sizeof(buffer), 0);
+		if (count > (ssize_t)0) { data.appendRaw(buffer, (int)count); }
+		else if (count < (ssize_t)0 && errno == EINTR) { continue; }
+		else { break; }
+	}
+	return data;
+}
+
+int main() {
+	Bytes payload = Bytes();
+	payload.append(137);
+	payload.append(80);
+	payload.append(0);
+	payload.append(0);
+	payload.append(71);
+	HTTPResponse response = HTTPResponse.bytes(200, "image/png", payload);
+	assert(response.isBinary());
+	assert(response.bodyLength() == 5LL);
+	assert(response.body.isEmpty());
+	HTTPResponse plain = HTTPResponse.text("hello");
+	assert(!plain.isBinary());
+	assert(plain.bodyLength() == 5LL);
+
+	int pair[2];
+	assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
+	HTTPServer server = HTTPServer(0);
+	server.respond(pair[0], response);
+	close(pair[0]);
+	Bytes wire = readToClose(pair[1]);
+	close(pair[1]);
+	string head = wire.toString();
+	assert(head.startsWith("HTTP/1.1 200 OK\r\n"));
+	assert(head.contains("Content-Type: image/png\r\n"));
+	assert(head.contains("Content-Length: 5\r\n"));
+	int headerEnd = Strings.find(head, "\r\n\r\n", 0);
+	assert(headerEnd > 0);
+	Bytes body = wire.slice(headerEnd + 4, wire.len);
+	assert(body.equals(payload));
+	return 0;
+}

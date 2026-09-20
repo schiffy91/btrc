@@ -235,14 +235,16 @@ class HTTPServer {
          * representable without a following response. */
 		if (status < 200 || status > 599) { status = 500; }
 		string body = response.body == null ? "" : response.body;
+		Bytes? bodyBytes = response.bodyBytes;
 		if (status == 204 || status == 205 || status == 304) {
 			body = "";
+			bodyBytes = null;
 		}
 		string contentType = response.contentType;
 		if (contentType == null || contentType.isEmpty() || contentType.len() > 1024 || !HTTPFraming.fieldValue(contentType)) {
 			contentType = "application/octet-stream";
 		}
-		long long bodyLength = (long long)strlen(body);
+		long long bodyLength = bodyBytes != null ? (long long)bodyBytes.len : (long long)strlen(body);
 		string phrase = self.reason(status);
 		string head = f"HTTP/1.1 {status} {phrase}\r\nContent-Type: {contentType}\r\nContent-Length: {bodyLength}\r\nCache-Control: no-store\r\nConnection: close\r\n";
 		if (response.extraHeaders != null) {
@@ -259,7 +261,9 @@ class HTTPServer {
 		head = head + "\r\n";
 		long long deadline = HTTPSocket.deadlineAfter(self.timeoutSecs);
 		bool sent = HTTPSocket.sendAllUntil(c, head, deadline);
-		if (sent && !body.isEmpty()) {
+		if (sent && bodyBytes != null) {
+			HTTPSocket.sendBytesUntil(c, bodyBytes, deadline);
+		} else if (sent && !body.isEmpty()) {
 			HTTPSocket.sendAllUntil(c, body, deadline);
 		}
 		shutdown(c, SHUT_WR);

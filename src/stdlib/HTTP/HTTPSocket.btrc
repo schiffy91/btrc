@@ -199,6 +199,31 @@ class HTTPSocket {
 		return HTTPSocket.emptyBytes();
 	}
 
+	/* Sends every byte of data before the deadline; the length is the buffer's own. */
+	class bool sendBytesUntil(int descriptor, Bytes data, long long deadline) {
+		if (descriptor < 0 || data == null) { return false; }
+		if (data.len <= 0) { return true; }
+		if (!HTTPSocket.configureDescriptor(descriptor, true)) { return false; }
+		size_t total = (size_t)data.len;
+		size_t sent = 0;
+		while (sent < total) {
+			if (!HTTPSocket.waitFor(descriptor, POLLOUT, deadline)) {
+				return false;
+			}
+			long long count = HTTPSocket.sendNoSignal(descriptor, data.data + sent, total - sent);
+			if (count > 0LL) {
+				sent = sent + (size_t)count;
+			} else if (count < 0LL && errno == EINTR) {
+				continue;
+			} else if (count < 0LL && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+				continue;
+			} else {
+				return false;
+			}
+		}
+		return true;
+	}
+
 	class bool sendAllUntil(int descriptor, string data, long long deadline) {
 		if (descriptor < 0 || data == null) { return false; }
 		if (!HTTPSocket.configureDescriptor(descriptor, true)) { return false; }
