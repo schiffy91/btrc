@@ -3010,6 +3010,7 @@ class FeNativeDeclarationImporter {
 				var row = rows.at(index);
 				if (!row.isObject() || !row.get("id").asString().equals(identities.get(index))) { return new Map<string, FeNativeHeaderRead>(); }
 			}
+
 			for index in range(requests.len) {
 				var row = rows.at(index);
 				if (!row.get("prepared").asBool() || !row.get("cache_eligible").asBool()) { continue; }

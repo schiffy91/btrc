@@ -11,7 +11,9 @@ import Library.Strings;
 class DigestOwner {
 	private ISHA256Digest provider;
 	public DigestOwner(ISHA256Digest provider) { self.provider = provider; }
+
 	public string text(string value) { return self.provider.digest(value); }
+
 	public string bytes(Bytes value) { return self.provider.digestBytes(value); }
 }
 

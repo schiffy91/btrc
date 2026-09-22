@@ -13,15 +13,16 @@ against the repeated baseline. Keep both compilers, strict C11, ownership safety
 and bootstrap qualification. Section 1 defines intermediate targets and
 exactly what is timed. These are proposed acceptance budgets, not forecasts.
 
-Latest September 22 actual-Make comparison on macOS: **99.975 s cold** and
-**93.962 s navigation body edit**, medians of two alternating baseline/current
-pairs. The setjmp traversal/allocation cut saves **4.6% cold / 5.4% edit** versus
-the matched previous compiler; the earlier filename-reuse cut saved 13.7%/13.3%
-in its own comparison. These are diagnostic pairs, not qualifying 5-cold/20-edit
-distributions. M0–M6 landed; unchanged latency is closed at 5 s, and M7 is
-partially complete. The working design budgets remain **13 s cold / 10 s edit**,
-with final ≥10× acceptance against a frozen repeated baseline on each required
-host. The next M7 owner is generic/type and declaration lowering.
+Latest September 22 actual-Make comparison on macOS: **97.427 s cold** and
+**92.095 s navigation body edit**, medians of two alternating baseline/current
+pairs. The lexical type-map copy cut saves **3.35% cold / 2.26% edit** versus
+its matched previous compiler (100.803/94.224 s). The earlier filename-reuse
+and setjmp cuts saved 13.7%/13.3% and 4.6%/5.4% in their own comparisons.
+These are diagnostic pairs, not qualifying 5-cold/20-edit distributions.
+M0–M6 landed; unchanged latency is closed at 5 s, and M7 is partially complete.
+The working design budgets remain **13 s cold / 10 s edit**, with final ≥10×
+acceptance against a frozen repeated baseline on each required host. Continue
+M7's remaining analysis/lowering costs before M8a and M11.
 Historical measurements live in
 [`docs/design/compile-performance.md`](docs/design/compile-performance.md).
 
@@ -312,9 +313,9 @@ checks without skips**. Five paired cold-helper samples per frontend add
 | KPI | Delivery goal | Latest recorded evidence | Remaining proof |
 | --- | --- | --- | --- |
 | No-op build, either frontend | **≤5 s; latency objective closed by user** | Actual Make: self-host 4.180 s / reference 4.732 s medians; all 10 current samples <5 s, full hits and zero compiles/links | Retain regression guard; required-host evidence remains separate. No further no-op optimization campaign. |
-| Self-host body edit | ≤10 s at M11; final ≤5 s median / ≤8 s p95 | 93.962 s navigation edit median in two matched pairs; other two fixtures retain their earlier single-sample diagnostics | Separate compilation and real edit workloads on the required hosts |
-| Cold self-host dev executable | ≥10×; working 13 s budget, ≤min(20 s, frozen baseline / 10) | 99.975 s actual-Make median in two matched pairs; 4.6% faster than their 104.836 s baseline | Actual entry point, pinned product/toolchain, 5 cold samples and final gates |
-| Cold self-host compiler command | M7 ≤55 s; final ≤10 s | 91.390 s cold compiler median in the matched pairs, including artifact storage/output publication | Repeated phase/wall/RSS evidence; separate pipeline and publication costs |
+| Self-host body edit | ≤10 s at M11; final ≤5 s median / ≤8 s p95 | 92.095 s navigation edit median in two matched pairs; other two fixtures retain their earlier single-sample diagnostics | Separate compilation and real edit workloads on the required hosts |
+| Cold self-host dev executable | ≥10×; working 13 s budget, ≤min(20 s, frozen baseline / 10) | 97.427 s actual-Make median in two matched pairs; 3.35% faster than their 100.803 s baseline | Actual entry point, pinned product/toolchain, 5 cold samples and final gates |
+| Cold self-host compiler command | M7 ≤55 s; final ≤10 s | 88.750 s cold compiler median in the matched pairs, including artifact storage/output publication | Repeated phase/wall/RSS evidence; separate pipeline and publication costs |
 | Cold reference dev executable | Final ≤75 s median | 349.113 s in one actual-Make diagnostic before debug-input retention | Pinned product/toolchain, 5 cold samples and final gates |
 
 The historical 101 s cold build, September 20 direct CLI diagnostics and these
@@ -2744,12 +2745,33 @@ construction/destruction is 6.421/2.349 s; IR construction/destruction is
 1.557/0.431 s. Constructor cost alone cannot explain the remaining gap. Both
 profiles preserve all fifteen C units. Evidence is in the performance document.
 
-**Next concrete action: M7 body/expression lowering.** Attribute repeated
-call-target/inference work and scope/flow snapshot lifetime before changing
-reuse. There are 298,932 target resolutions versus 59,491 ownership plans;
-prove which repeats are redundant and which have different semantic contexts.
-Preserve statement evaluation, defaults, ownership, generic and flow identity.
-Measure
+**M7 lexical type-map copying: implemented and measured.** A full-product
+owner probe measures **6.561 s across 91,506 `TypeValidator.cloneTypes` calls**.
+Callable snapshots/restores cost only 0.396/0.162 s, and source/borrowed-binding
+and GPU-capacity snapshots/restores each cost less than 0.05 s. Keep their
+isolation contracts; do not introduce shared flow snapshots to save that time.
+The implementation uses the existing `Map.merge` operation to copy lexical
+type bindings in bucket order, removing the temporary key vector and repeated
+source lookups while retaining independently mutable maps. The candidate passes a strict-C11/O2
+byte-identical bootstrap and 1,001 focused tests with no skips. Two alternating
+actual-Make pairs measure **100.803 → 97.427 s cold** and
+**94.224 → 92.095 s edit**, saving **3.35% / 2.26%**. All thirty output-unit
+comparisons and source checks pass; compiler peak RSS is effectively flat.
+All unchanged controls remain below 5 s with no compiles or links.
+Evidence: `~/.cache/btrc/perf/scope-copy-builds-2026-09-22/{results,summary}.json`.
+This qualifies the cut at that scope; M7 and final acceptance remain open.
+The baseline passed 945 call, closure, ownership, default-argument and scope
+tests. The profile preserves all
+fifteen product C units and input hashes.
+
+**Next: M7 remaining analysis/body lowering.** Cold analysis/lowering now
+measure 18.343/31.281 s. The preceding owner profile measured
+call-target resolution at 3.475 s / 298,932 calls; closure-escape checking
+is 2.901 s / 118,656 calls, with nested time overlapping. Some apparent repeats
+have different flow state. Calls with no explicit arguments can still have
+default callback arguments requiring validation; do not skip those checks.
+Preserve statement evaluation, defaults, ownership, generic and flow identity
+when revisiting call resolution. Measure
 repeated substitution and type-node allocation inside the remaining dominant
 lowering phases. The code already reuses unbound leaf types; inspect compound
 no-change resolution and repeated resolving/rendering of the same signature.

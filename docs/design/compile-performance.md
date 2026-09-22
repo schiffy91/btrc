@@ -5710,3 +5710,94 @@ generated diagnostic C and strict-C11/O2 build. Together these profiles put the
 next work in body/expression lowering, repeated call/inference work and their
 state lifetime. Preserve mutable-result isolation and scope/flow validity;
 neither type caching nor constructor allocation alone explains the whole gap.
+
+
+### M7 scope-copy attribution, September 22
+
+A targeted full-product diagnostic separates lexical type-map copying from
+callable flow bookkeeping. Each row times the outermost recursion of that
+owner; rows overlap and must not be summed.
+
+| Owner | Seconds | Calls |
+| --- | ---: | ---: |
+| `TypeValidator.cloneTypes` | **6.561** | **91,506** |
+| Callable flow snapshot | 0.396 | 551,700 |
+| Callable flow restore | 0.162 | 442,009 |
+| Callable flow evaluation | 0.515 | 233,267 |
+| Callable ABI classification | 0.436 | 606,592 |
+| Source-binding snapshot / restore | 0.033 / 0.044 | 70,133 / 89,268 |
+| Borrowed-binding snapshot / restore | 0.009 / 0.008 | 51,072 / 51,410 |
+| GPU-capacity snapshot / restore | 0.024 / 0.016 | 44,529 / 44,529 |
+| Closure-escape checks | 2.901 | 118,656 |
+| Call ownership planning | 2.903 | 59,491 |
+| Call-target resolution | 3.475 | 298,932 |
+
+All fifteen C units match after mapping only exact generated-output `#line`
+filenames; input hashes remain unchanged. The 92.113 s instrumented wall is
+not a new KPI. No allocation counters were enabled in this probe.
+Evidence: `~/.cache/btrc/perf/flow-owner-2026-09-22/results.json`, raw profile,
+strict-C11/O2 diagnostic build and compile logs. The baseline passed 945 tests
+with no skips in 131.46 s using four workers and the qualified de11 compiler.
+An earlier serial baseline was deliberately interrupted before restarting
+with four workers; its partial log is not an additional passing suite.
+
+The selected production cut replaces key-vector construction plus repeated
+source lookups in `TypeValidator.cloneTypes` with `result.merge(source)`.
+Both paths scan source occupied buckets in the same order and call `put` on a
+fresh destination, preserving insertion order, value retention and independent
+map mutation. This removes repeated copying machinery without sharing mutable
+flow state. The reference analyzer uses parent-linked `Scope` objects, and its
+block lowerer pushes scope dictionaries; this key-vector copy loop has no
+direct counterpart there.
+The candidate reaches a byte-identical self-hosting fixed point with strict
+C11/O2, and the expanded suite passes **1,001 tests with zero skips** in
+139.34 s. Bootstrap stages take 59.073 s (seed self-compile), 99.081 s (native
+compile), and 58.910 s (candidate self-compile). These are qualification runs,
+not paired bootstrap-speed evidence. Candidate binary SHA-256:
+`43afc90301d875be153e7a725eb8fb0fc8b420f6d19ae76f9eac46c5c6183515`;
+fixed-point C SHA-256:
+`0f7a29cd38d7ece82907a92eea8c32036423debf2057c208488dc9697e395879`.
+Evidence: `~/.cache/btrc/perf/scope-copy-2026-09-22/bootstrap/results.json`
+and `build/plan-scope-copy-tests.log`.
+
+Two alternating actual-Make baseline/candidate pairs now measure:
+
+| Scenario | Previous compiler | Map-copy cut | Saving |
+| --- | ---: | ---: | ---: |
+| Cold dev executable | 100.803 s | **97.427 s** | **3.375 s / 3.35%** |
+| Navigation body edit | 94.224 s | **92.095 s** | **2.129 s / 2.26%** |
+| Cold compiler command | 91.865 s | 88.750 s | 3.115 s |
+| Edit compiler command | 87.955 s | 85.885 s | 2.070 s |
+
+Both pairs improve in each active scenario. Cold analysis decreases
+19.846 → 18.343 s; lowering decreases 33.158 → 31.281 s. Compiler peak RSS
+is effectively flat (cold 4,515,168,256 → 4,517,625,856 bytes); this is not
+aggregate process-tree memory. Every cold run compiles 17 units, and every edit
+compiles one, reuses sixteen, links and changes the executable. All thirty C-unit
+comparisons match after only exact output-filename `#line` normalization.
+Compiler/product inputs and restored source bytes pass their hash checks.
+All four unchanged controls are below 5 s with no compilation or linking;
+the candidate control median is 4.111 s.
+
+Evidence: `~/.cache/btrc/perf/scope-copy-builds-2026-09-22/{results,summary}.json`,
+raw Make/native reports, and `build/plan-scope-copy-builds.py` plus its summary
+driver. This is a paired diagnostic comparison, not final 5-cold/20-edit or
+required-host acceptance. M7's ≤55 s compiler command, the ≥10× end-to-end
+goals, and the full final-tree matrix remain open.
+
+Do not infer that every repeated call-target query can be reused: operand
+lowering changes flow state. A no-explicit-argument shortcut is also invalid
+because omitted defaults can contain callback values requiring validation.
+
+
+Final formatting checks found four files needing only blank-line separators:
+`frontend/NativeImports.btrc`, both portable native-digest facade/provider files,
+and the native-digest test driver. After those spacing repairs, a fresh strict
+C11/O2 bootstrap again reaches a raw byte-identical fixed point. Its executable
+is **byte-identical to the measured 43afc903 compiler**, so the tested compiler
+binary is unchanged. Comparing C across temporary build roots initially failed
+on the sole absolute `CommonDigest.h` include path; exact normalization of that
+one line, with identical header SHA-256, proves all remaining C bytes equal.
+This normalization is separate from the raw within-root fixed-point check.
+Evidence: `~/.cache/btrc/perf/scope-copy-final-2026-09-22/bootstrap/results.json`
+and `format-equivalence.json` in its parent directory.

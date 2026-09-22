@@ -100,13 +100,7 @@ class TypeValidator {
 
 	class Map<string, Node> cloneTypes(Map<string, Node> source) {
 		Map<string, Node> result = {};
-		Vector<string> keys = source.keys();
-		int index = 0;
-		while (index < keys.len) {
-			string key = keys.get(index);
-			result.put(key, source.get(key));
-			index = index + 1;
-		}
+		result.merge(source);
 		return result;
 	}
 

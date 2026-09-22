@@ -3,5 +3,6 @@ import Library.Digest.SHA256;
 
 class NativeSHA256Provider {
 	class string digest(string text) { return SHA256.digest(text); }
+
 	class string digestBytes(Bytes bytes) { return SHA256.digestBytes(bytes); }
 }
