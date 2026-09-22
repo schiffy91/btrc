@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import shlex
+import shutil
+import signal
+import stat
 import subprocess
-from dataclasses import dataclass, replace
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, dataclass, replace
 from typing import ClassVar
 
 from ..abi.native_generated import (
@@ -42,6 +48,207 @@ from .packages import IncludeResolutionError, NativeLinkPlan
 
 class NativeImportError(ValueError):
     """The native reader returned unsupported or inconsistent semantics."""
+
+
+@dataclass(frozen=True)
+class NativeHeaderRead:
+    """A bounded process result, independent of declaration/diagnostic ordering."""
+
+    arguments: tuple[str, ...]
+    members: tuple[int, ...]
+    payload: str | None = None
+    cache_directory: str = ""
+    cached_response: dict | None = None
+    MAX_READS: ClassVar[int] = 4
+    WAVE_BYTES: ClassVar[int] = 128 * 1024 * 1024
+    STREAM_BYTES: ClassVar[int] = 8 * 1024 * 1024
+
+    @property
+    def allowance(self):
+        return (len(self.members) + 1) * self.STREAM_BYTES
+
+    def read(self, environment):
+        if self.cache_directory:
+            cached = NativeHeaderSession.response(self)
+            if cached is not None:
+                return cached
+            request = {
+                "schema": "btrc.native-read.v1",
+                "cache_directory": self.cache_directory,
+                "arguments": list(self.arguments[1:]),
+                "input": self.payload,
+                "output_limit": len(self.members) * self.STREAM_BYTES,
+            }
+            encoded = json.dumps(request)
+            if len(encoded.encode("utf-8")) <= self.STREAM_BYTES:
+                return NativeHeaderRead((self.arguments[0], "--cached-native-read=-"), self.members, encoded).read(
+                    environment
+                )
+        # File-backed capture bounds resident response storage before decoding.
+        # Preserve each selection's allowance, including large standalone groups.
+        with (
+            tempfile.TemporaryFile() as output,
+            tempfile.TemporaryFile() as errors,
+            subprocess.Popen(
+                self.arguments,
+                stdin=subprocess.PIPE,
+                stdout=output,
+                stderr=errors,
+                env=environment,
+                start_new_session=os.name == "posix",
+            ) as process,
+        ):
+            try:
+                process.communicate(
+                    None if self.payload is None else self.payload.encode("utf-8"),
+                    timeout=60 * len(self.members),
+                )
+            except BaseException:
+                try:
+                    if os.name == "posix":
+                        os.killpg(process.pid, signal.SIGKILL)
+                    else:
+                        process.kill()
+                except ProcessLookupError:
+                    pass
+                process.wait()
+                raise
+            if output.tell() > len(self.members) * self.STREAM_BYTES or errors.tell() > self.STREAM_BYTES:
+                raise NativeImportError("native header reader output exceeds capture allowance")
+            errors.seek(0)
+            diagnostic = errors.read().decode("utf-8")
+            if process.returncode:
+                raise NativeImportError(diagnostic.strip() or "native header reader failed")
+            output.seek(0)
+            source = output.read().decode("utf-8")
+            if "\0" in source:
+                raise NativeImportError("native header reader output contains NUL")
+            return source
+
+
+class NativeHeaderSession:
+    """One shared validation session; workers and semantics retain their ordering."""
+
+    @classmethod
+    def prepare(cls, requests, environment):
+        if not requests or os.name != "posix":
+            return {}
+        directory = environment.get("BTRC_CACHE_DIR") or os.path.join(environment.get("HOME", ""), ".cache", "btrc")
+        if not os.path.isabs(directory):
+            return {}
+        directory = os.path.join(directory, "native-headers-v1")
+        payload = json.dumps(
+            {
+                "schema": "btrc.native-session-requests.v1",
+                "compact": True,
+                "cache_directory": directory,
+                "groups": [
+                    {
+                        "id": str(request.members[0]),
+                        "arguments": list(request.arguments[1:]),
+                        "input": request.payload,
+                        "output_limit": len(request.members) * request.STREAM_BYTES,
+                    }
+                    for request in requests
+                ],
+            }
+        )
+        if len(payload.encode("utf-8")) > NativeHeaderRead.STREAM_BYTES:
+            return {}
+        try:
+            text = NativeHeaderRead((requests[0].arguments[0], "--prepare-native-session=-"), (0,), payload).read(
+                environment
+            )
+            reply = json.loads(text)
+            if (
+                not isinstance(reply, dict)
+                or reply.get("schema") != "btrc.native-session-prepared.v1"
+                or reply.get("runtime_stable") is not True
+            ):
+                return {}
+            if reply.get("launcher") != requests[0].arguments[0] or reply.get("eligible_launcher") is not True:
+                return {}
+            groups = reply.get("groups")
+            if not isinstance(groups, list) or len(groups) != len(requests):
+                return {}
+            prepared = {}
+            for request, group in zip(requests, groups, strict=True):
+                if not isinstance(group, dict) or group.get("id") != str(request.members[0]):
+                    return {}
+                if group.get("prepared") is not True or group.get("cache_eligible") is not True:
+                    continue
+                prepared[request.members[0]] = replace(
+                    request,
+                    cache_directory=directory,
+                    cached_response=group.get("response") if group.get("cache_hit") is True else None,
+                )
+            return prepared
+        except (OSError, UnicodeError, ValueError, subprocess.TimeoutExpired):
+            return {}
+
+    @staticmethod
+    def _stream(directory, descriptor, limit):
+        if not isinstance(descriptor, dict):
+            return None
+        digest, size = descriptor.get("sha256"), descriptor.get("bytes")
+        if (
+            not isinstance(digest, str)
+            or not re.fullmatch("[0-9a-f]{64}", digest)
+            or type(size) is not int
+            or not 0 <= size <= limit
+        ):
+            return None
+        path = os.path.join(directory, "blob-" + digest)
+        if descriptor.get("path") != path:
+            return None
+        fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as source:
+            before = os.fstat(source.fileno())
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or before.st_uid != os.geteuid()
+                or stat.S_IMODE(before.st_mode) != 0o600
+                or before.st_nlink != 1
+                or before.st_size != size
+            ):
+                return None
+            data = source.read(size + 1)
+            after = os.fstat(source.fileno())
+        fields = (
+            "st_dev",
+            "st_ino",
+            "st_mode",
+            "st_uid",
+            "st_gid",
+            "st_nlink",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+        )
+        if (
+            any(getattr(before, field) != getattr(after, field) for field in fields)
+            or len(data) != size
+            or hashlib.sha256(data).hexdigest() != digest
+        ):
+            return None
+        return data.decode("utf-8")
+
+    @classmethod
+    def response(cls, request):
+        if not isinstance(request.cached_response, dict):
+            return None
+        try:
+            errors = cls._stream(request.cache_directory, request.cached_response.get("stderr"), request.STREAM_BYTES)
+            if errors is None:
+                return None
+            output = cls._stream(
+                request.cache_directory,
+                request.cached_response.get("stdout"),
+                len(request.members) * request.STREAM_BYTES,
+            )
+            return output if output is not None and "\0" not in output else None
+        except (OSError, UnicodeError, ValueError):
+            return None
 
 
 @dataclass(frozen=True)
@@ -403,6 +610,14 @@ class NativeHeaderSource(str):
         )
 
 
+@dataclass(frozen=True)
+class NativeImportResolution:
+    """Validated declarations and identity of the native inputs actually consumed."""
+
+    declarations: tuple
+    cache_identity: str | None
+
+
 class NativeDeclarationImporter:
     """Import selected C declarations into the normal typed compiler pipeline.
 
@@ -444,9 +659,21 @@ class NativeDeclarationImporter:
         self._string_views = {}
         self._used_string_views = set()
 
-    def resolve(self, plan: NativeLinkPlan) -> tuple:
+    @staticmethod
+    def _reader_identity(reader: str) -> tuple[str, str] | None:
+        """An uninspectable optional cache identity must not prevent SDK use."""
+        try:
+            path = shutil.which(reader)
+            if path is None:
+                return None
+            with open(path, "rb") as stream:
+                return os.path.realpath(path), hashlib.file_digest(stream, "sha256").hexdigest()
+        except OSError:
+            return None
+
+    def resolve(self, plan: NativeLinkPlan, *, use_cache: bool = False) -> NativeImportResolution:
         if not plan.bindings:
-            return ()
+            return NativeImportResolution((), None)
         self._callback_operations = {
             operation
             for binding in plan.bindings
@@ -467,6 +694,16 @@ class NativeDeclarationImporter:
         reader = os.environ.get("BTRC_NATIVE_HEADER_READER")
         if not reader:
             plan.require_resolved_bindings()
+        reader_identity = self._reader_identity(reader)
+        environment = dict(os.environ)
+        fingerprint = hashlib.sha256(b"btrc-native-resolution-v2\0")
+        fingerprint.update(
+            json.dumps(
+                {"reader": reader_identity, "environment": environment},
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8", errors="surrogatepass")
+        )
         target = os.environ.get("BTRC_NATIVE_TARGET", "")
         sysroot = os.environ.get("BTRC_NATIVE_SYSROOT", "")
         architecture = plan.target.architecture
@@ -483,7 +720,9 @@ class NativeDeclarationImporter:
             )
         if not os.path.isdir(sysroot):
             raise IncludeResolutionError("native imports require an explicit available BTRC_NATIVE_SYSROOT")
-        for binding in plan.bindings:
+        for binding, arguments, semantics in self._read_headers(
+            plan, reader, target, sysroot, environment, use_cache=use_cache
+        ):
             self._borrows = set(binding.read_only_borrows)
             self._realtime = set(binding.realtime_safe)
             self._callbacks = {callback.parameter: callback for callback in binding.callbacks}
@@ -504,79 +743,18 @@ class NativeDeclarationImporter:
             self._variadic_calls = {shape.parameter: shape for shape in binding.variadic_calls}
             self._output_offsets = {key: (input, length, field) for key, input, length, field in binding.output_offsets}
             self._origin = NativeHeaderSource(binding.module, binding.header, language=binding.language)
-            if binding.language not in ("c", "objective-c", "c++"):
-                raise IncludeResolutionError(f"{binding.module}: Objective-C++ call adapters are not implemented")
-            # C++ resources select their methods (including explicit zero-argument
-            # selectors) beside the class; by-value records are read as scalar layouts.
-            cxx_symbols = (
-                [f"{resource.name}::{method}" for resource in binding.resources for method in resource.methods]
-                if binding.language == "c++"
-                else []
-            )
-            arguments = [
-                reader,
-                *(f"--symbol={name}" for name in (*binding.symbols, *cxx_symbols)),
-                *(f"--record-value={name}" for name in (binding.owned_records if binding.language == "c++" else ())),
-                *(
-                    f"--record-path={path}"
-                    for path in sorted(
-                        {
-                            f"{snapshot.owner}.{path}"
-                            for snapshot in binding.record_snapshots
-                            for path in (
-                                *[path for _, path in snapshot.fields],
-                                *snapshot.byte_plane[1:],
-                                *snapshot.guard[:1],
-                                *[path for _, path in snapshot.strings],
-                                *snapshot.byte_span[1:],
-                            )
-                        }
-                    )
-                ),
-                *(
-                    f"--pkg-config={name}"
-                    for name in sorted(
-                        {
-                            item.value
-                            for item in plan.declarations
-                            if item.kind == "pkg-config" and item.selected_for(plan.target)
-                        }
-                    )
-                ),
-                binding.header,
-                "--",
-                "-x",
-                binding.language,
-                f"-std={binding.standard}",
-                f"--target={target}",
-                "-isysroot",
-                sysroot,
-            ]
-            if binding.language == "objective-c":
-                if plan.target.operating_system != "macos":
-                    raise IncludeResolutionError("Objective-C adapters currently require the macOS runtime")
-                arguments.extend(("-fblocks", "-fobjc-arc"))
-            if plan.target.operating_system == "linux":
-                arguments.extend(("-isystem", os.path.join(sysroot, "usr", "include")))
-            if binding.language == "c++":
-                for directory in self._cxx_toolchain_includes(binding.standard, target, sysroot):
-                    arguments.extend(("-isystem", directory))
-            for declaration in plan.declarations:
-                if not declaration.selected_for(plan.target):
-                    continue
-                if declaration.kind == "include-directory":
-                    arguments.extend(("-I", declaration.value))
-                elif declaration.kind == "define":
-                    arguments.append(
-                        f"-D{declaration.value}={declaration.detail}"
-                        if declaration.detail
-                        else f"-D{declaration.value}"
-                    )
             try:
-                result = subprocess.run(arguments, capture_output=True, text=True, timeout=60, check=False)
-                if result.returncode:
-                    raise NativeImportError(result.stderr.strip() or "native header reader failed")
-                header = NativeHeaderCodec().decode(result.stdout, expected_target=target)
+                header = NativeHeaderCodec().decode(semantics, expected_target=target)
+                # Fresh extraction or validated SDK reuse supplies the exact
+                # semantic dependency closure consumed by this frontend.
+                # Binding ownership/callback facts are not in the linker plan.
+                encoded = json.dumps(
+                    {"binding": asdict(binding), "arguments": arguments, "semantics": asdict(header)},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8", errors="surrogatepass")
+                fingerprint.update(len(encoded).to_bytes(8, "big"))
+                fingerprint.update(encoded)
                 self._callback_exports = {declaration.name: declaration for declaration in header.exports}
                 if binding.language == "c++":
                     self._import_cxx_binding(binding, header)
@@ -644,7 +822,184 @@ class NativeDeclarationImporter:
             self._validate_selector_storage()
         except NativeImportError as error:
             raise IncludeResolutionError(str(error)) from error
-        return (*self._declarations.values(), *self._input_classes)
+        identity = (
+            fingerprint.hexdigest()
+            if reader_identity is not None and self._reader_identity(reader) == reader_identity
+            else None
+        )
+        return NativeImportResolution((*self._declarations.values(), *self._input_classes), identity)
+
+    @staticmethod
+    def _reader_group(arguments):
+        boundary = arguments.index("--")
+        return (
+            *(
+                arg
+                for arg in arguments[:boundary]
+                if not arg.startswith(("--symbol=", "--record-path=", "--record-value="))
+            ),
+            *arguments[boundary:],
+        )
+
+    @staticmethod
+    def _reader_selection(arguments, identity):
+        options = arguments[: arguments.index("--")]
+        return {
+            "id": identity,
+            **{
+                name: [arg.removeprefix(prefix) for arg in options if arg.startswith(prefix)]
+                for name, prefix in (
+                    ("symbols", "--symbol="),
+                    ("record_paths", "--record-path="),
+                    ("record_values", "--record-value="),
+                )
+            },
+        }
+
+    def _header_request(self, key, members, commands):
+        if len(members) == 1:
+            return NativeHeaderRead(tuple(commands[members[0]]), tuple(members))
+        payload = {
+            "schema": "btrc.native-requests.v1",
+            "requests": [self._reader_selection(commands[member], str(member)) for member in members],
+        }
+        return NativeHeaderRead((key[0], "--batch=-", *key[1:]), tuple(members), json.dumps(payload))
+
+    def _read_headers(self, plan, reader, target, sysroot, environment, *, use_cache=False):
+        """Dispatch bounded independent reads, consuming semantics in binding order."""
+        commands = []
+        groups = {}
+        for index, binding in enumerate(plan.bindings):
+            try:
+                arguments = self._reader_arguments(binding, plan, reader, target, sysroot)
+            except (OSError, subprocess.TimeoutExpired, NativeImportError) as error:
+                raise IncludeResolutionError(f"{binding.module}: {error}") from error
+            commands.append(arguments)
+            groups.setdefault(self._reader_group(arguments), []).append(index)
+        prepared = (
+            NativeHeaderSession.prepare(
+                [self._header_request(key, members, commands) for key, members in groups.items()], environment
+            )
+            if use_cache
+            else {}
+        )
+        responses = {}
+        pending = {}
+        for index, binding in enumerate(plan.bindings):
+            arguments = commands[index]
+            try:
+                if index not in responses:
+                    if index not in pending:
+                        requests = []
+                        selected = set()
+                        allowance = 0
+                        for candidate in range(index, len(commands)):
+                            if candidate in pending or candidate in responses or candidate in selected:
+                                continue
+                            key = self._reader_group(commands[candidate])
+                            request = prepared.get(candidate) or self._header_request(key, groups[key], commands)
+                            if requests and (
+                                len(requests) == NativeHeaderRead.MAX_READS
+                                or allowance + request.allowance > NativeHeaderRead.WAVE_BYTES
+                            ):
+                                break
+                            requests.append(request)
+                            selected.update(request.members)
+                            allowance += request.allowance
+                        # All workers finish before the compiler resumes semantics.
+                        # Futures retain failures until their declaration is reached.
+                        with ThreadPoolExecutor(max_workers=NativeHeaderRead.MAX_READS) as pool:
+                            for request in requests:
+                                future = pool.submit(request.read, environment)
+                                for member in request.members:
+                                    pending[member] = future
+                    members = groups[self._reader_group(arguments)]
+                    future = pending[index]
+                    for member in members:
+                        del pending[member]
+                    source = future.result()
+                    if len(members) == 1:
+                        responses[index] = (source, ())
+                    else:
+                        identities = [str(member) for member in members]
+                        responses.update(
+                            zip(members, NativeHeaderCodec().decode_batch(source, identities), strict=True)
+                        )
+                source, errors = responses.pop(index)
+                if errors:
+                    raise NativeImportError("\n".join(f"error: {error}" for error in errors))
+            except (OSError, UnicodeError, subprocess.TimeoutExpired, NativeImportError) as error:
+                raise IncludeResolutionError(f"{binding.module}: {error}") from error
+            yield binding, arguments, source
+
+    def _reader_arguments(self, binding, plan, reader, target, sysroot):
+        if binding.language not in ("c", "objective-c", "c++"):
+            raise IncludeResolutionError(f"{binding.module}: Objective-C++ call adapters are not implemented")
+        # C++ resources select their methods (including explicit zero-argument
+        # selectors) beside the class; by-value records are read as scalar layouts.
+        cxx_symbols = (
+            [f"{resource.name}::{method}" for resource in binding.resources for method in resource.methods]
+            if binding.language == "c++"
+            else []
+        )
+        arguments = [
+            reader,
+            *(f"--symbol={name}" for name in (*binding.symbols, *cxx_symbols)),
+            *(f"--record-value={name}" for name in (binding.owned_records if binding.language == "c++" else ())),
+            *(
+                f"--record-path={path}"
+                for path in sorted(
+                    {
+                        f"{snapshot.owner}.{path}"
+                        for snapshot in binding.record_snapshots
+                        for path in (
+                            *[path for _, path in snapshot.fields],
+                            *snapshot.byte_plane[1:],
+                            *snapshot.guard[:1],
+                            *[path for _, path in snapshot.strings],
+                            *snapshot.byte_span[1:],
+                        )
+                    }
+                )
+            ),
+            *(
+                f"--pkg-config={name}"
+                for name in sorted(
+                    {
+                        item.value
+                        for item in plan.declarations
+                        if item.kind == "pkg-config" and item.selected_for(plan.target)
+                    }
+                )
+            ),
+            binding.header,
+            "--",
+            "-x",
+            binding.language,
+            f"-std={binding.standard}",
+            f"--target={target}",
+            "-isysroot",
+            sysroot,
+        ]
+        if binding.language == "objective-c":
+            if plan.target.operating_system != "macos":
+                raise IncludeResolutionError("Objective-C adapters currently require the macOS runtime")
+            arguments.extend(("-fblocks", "-fobjc-arc"))
+        if plan.target.operating_system == "linux":
+            arguments.extend(("-isystem", os.path.join(sysroot, "usr", "include")))
+        if binding.language == "c++":
+            for directory in self._cxx_toolchain_includes(binding.standard, target, sysroot):
+                arguments.extend(("-isystem", directory))
+        for declaration in plan.declarations:
+            if not declaration.selected_for(plan.target):
+                continue
+            if declaration.kind == "include-directory":
+                arguments.extend(("-I", declaration.value))
+            elif declaration.kind == "define":
+                arguments.append(
+                    f"-D{declaration.value}={declaration.detail}" if declaration.detail else f"-D{declaration.value}"
+                )
+        return arguments
 
     def _prepare_record_fields(self, binding):
         self._record_private_fields = {}
@@ -4313,6 +4668,30 @@ class NativeHeaderCodec:
         if value not in choices:
             raise NativeImportError(f"unsupported native semantic value: {value}")
         return value
+
+    def decode_batch(self, source: str, identities: list[str]) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        """Validate transport before any binding consumes a result; errors stay scoped."""
+        try:
+            value = json.loads(source, object_pairs_hook=self._unique_object)
+            self._object(value, {"schema", "results"})
+            if value["schema"] != "btrc.native-responses.v1":
+                raise NativeImportError("unsupported native batch schema")
+            entries = self._array(value["results"])
+            if len(entries) != len(identities) or len(set(identities)) != len(identities):
+                raise NativeImportError("native batch result count does not match requests")
+            results = []
+            for identity, entry in zip(identities, entries, strict=True):
+                self._object(entry, {"id", "errors", "document"})
+                if self._text(entry["id"]) != identity:
+                    raise NativeImportError("native batch result identity does not match request order")
+                errors = tuple(self._text(error) for error in self._array(entry["errors"]))
+                document = entry["document"]
+                if (errors and document is not None) or (not errors and not isinstance(document, dict)):
+                    raise NativeImportError("native batch result must contain either a document or errors")
+                results.append(("" if errors else json.dumps(document, sort_keys=True, separators=(",", ":")), errors))
+            return tuple(results)
+        except (json.JSONDecodeError, RecursionError) as error:
+            raise NativeImportError(f"invalid native batch document: {error}") from error
 
     def decode(self, source: str, *, expected_target: str | None = None) -> NativeHeader:
         try:

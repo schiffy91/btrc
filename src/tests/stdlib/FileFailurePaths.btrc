@@ -10,6 +10,8 @@ int main() {
 	// A path under a nonexistent directory cannot be opened for writing.
 	File bad = File("/nonexistent_dir_btrc/x.txt", "w");
 	assert(!bad.ok());
+	assert(bad.snapshot().kind() == FILE_SNAPSHOT_CLOSED);
+	assert(bad.snapshot().nativeCode() == 0);
 	assert(!bad.write("x"));
 	assert(!bad.writeLine("x"));
 	assert(!bad.flush());

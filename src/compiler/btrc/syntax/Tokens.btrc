@@ -1,29 +1,85 @@
 /* Token data and the grammar-derived lexical vocabulary. */
 
 import Library.Map;
+import Library.JSON;
 import Library.Vector;
 
 class TokenVocabulary {
+	public string cacheIdentity() {
+		if (!self.cachedIdentity.isEmpty()) { return self.cachedIdentity; }
+		var identity = JSONValue.makeArray();
+		for table in [self.keywordTokens, self.operatorTokens, self.annotationTokens] {
+			var rows = JSONValue.makeArray();
+			for key in table.keys() {
+				rows.push(JSONValue.makeString(key));
+				rows.push(JSONValue.makeString(table.get(key)));
+			}
+			identity.push(rows);
+		}
+		var operators = JSONValue.makeArray();
+		for spelling in self.orderedOperators { operators.push(JSONValue.makeString(spelling)); }
+		identity.push(operators);
+		self.cachedIdentity = identity.stringify();
+		return self.cachedIdentity;
+	}
 	private Map<string, string> keywordTokens;
 	private Vector<string> orderedOperators;
 	private Map<string, string> operatorTokens;
 	private Map<string, string> annotationTokens;
+	/* All vocabulary mutations invalidate this owned, immutable string. */
+	private string cachedIdentity = "";
+	/* Rows index all byte values, not a hardcoded set of operator spellings.
+	 * A transition stores its destination row offset; zero means no edge. */
+	private Vector<int> operatorTransitions;
+	private Vector<int> operatorTerminals;
 
 	public TokenVocabulary() {
 		self.keywordTokens = {};
 		self.orderedOperators = [];
 		self.operatorTokens = {};
 		self.annotationTokens = {};
+		self.operatorTransitions = [];
+		self.operatorTerminals = [];
+		self.addOperatorNode();
 	}
 
-	public void addKeyword(string spelling, string tokenName) { self.keywordTokens.put(spelling, tokenName); }
+	private int addOperatorNode() {
+		int offset = self.operatorTransitions.len;
+		for (int byte = 0; byte < 256; byte++) { self.operatorTransitions.push(0); }
+		self.operatorTerminals.push(-1);
+		return offset;
+	}
+
+	public void addKeyword(string spelling, string tokenName) {
+		self.cachedIdentity = "";
+		self.keywordTokens.put(spelling, tokenName);
+	}
 
 	public void addOperator(string spelling, string tokenName) {
+		self.cachedIdentity = "";
+		int ordinal = self.orderedOperators.len;
 		self.orderedOperators.push(spelling);
 		self.operatorTokens.put(spelling, tokenName);
+		int node = 0;
+		int length = spelling.length();
+		for (int index = 0; index < length; index++) {
+			int edge = node + (int)(unsigned char)spelling[index];
+			int next = self.operatorTransitions.get(edge);
+			if (next == 0) {
+				next = self.addOperatorNode();
+				self.operatorTransitions.set(edge, next);
+			}
+			node = next;
+		}
+		/* Re-registering a spelling replaces its token name but preserves the
+		 * original matching priority, just as the ordered vocabulary does. */
+		if (self.operatorTerminals.get(node / 256) < 0) { self.operatorTerminals.set(node / 256, ordinal); }
 	}
 
-	public void addAnnotation(string spelling, string tokenName) { self.annotationTokens.put(spelling, tokenName); }
+	public void addAnnotation(string spelling, string tokenName) {
+		self.cachedIdentity = "";
+		self.annotationTokens.put(spelling, tokenName);
+	}
 
 	public string keywordToken(string spelling) {
 		if (!self.keywordTokens.has(spelling)) { return ""; }
@@ -35,11 +91,27 @@ class TokenVocabulary {
 		return self.annotationTokens.get(spelling);
 	}
 
-	public int operatorCount() { return self.orderedOperators.len; }
-
 	public string operatorAt(int index) { return self.orderedOperators.get(index); }
 
 	public string operatorToken(string spelling) { return self.operatorTokens.get(spelling); }
+
+	/* The parser registers longest-first spellings. Retain the same first-match
+	 * priority for other vocabulary owners, including later registrations.
+	 * The lexer owns sourceLength; never rescan the source to obtain its size. */
+	public int operatorIndexAt(string source, int offset, int sourceLength) {
+		if (offset < 0 || offset > sourceLength) { return -1; }
+		int node = 0;
+		int selected = self.operatorTerminals.get(0);
+		int cursor = offset;
+		while (cursor < sourceLength) {
+			node = self.operatorTransitions.get(node + (int)(unsigned char)source[cursor]);
+			if (node == 0) { break; }
+			int candidate = self.operatorTerminals.get(node / 256);
+			if (candidate >= 0 && (selected < 0 || candidate < selected)) { selected = candidate; }
+			cursor++;
+		}
+		return selected;
+	}
 }
 
 class Token {

@@ -1,5 +1,9 @@
 /* Unix host's bounded SDK-reader execution; no native semantics live here. */
 
+import Library.Bytes;
+import Library.Digest.SHA256;
+import Library.FileSystem;
+import Library.JSON;
 import Library.Process;
 import Library.Result;
 import Library.Strings;
@@ -8,8 +12,85 @@ import Library.Vector;
 import ./Models.btrc;
 
 class FeNativeHeaderProcess {
-	class void read(FeNativeHeaderRead request) {
-		var result = ChildProcess.run(request.command(), request.argv(), timeoutMilliseconds = 60000);
-		request.complete(new Result<string, string>(result.ok(), request.captureStderr ? result.err : result.out, result.err.isEmpty() ? "native header reader failed" : result.err.trim()));
+	class void read(FeNativeHeaderBatch batch) { FeNativeHeaderProcess.readRange(batch, 0, batch.size()); }
+
+	/* Thread handles remain unique local owners. A balanced split uses at
+	 * most three workers plus the calling thread for the four admitted reads. */
+	class int readRange(FeNativeHeaderBatch batch, int begin, int end) {
+		if (begin >= end) { return 0; }
+		if (end - begin == 1) {
+			FeNativeHeaderProcess.readOne(batch.get(begin));
+			return 0;
+		}
+		int middle = begin + (end - begin) / 2;
+		Thread<int> first = spawn(() => FeNativeHeaderProcess.readRange(batch, begin, middle));
+		FeNativeHeaderProcess.readRange(batch, middle, end);
+		return first.join();
+	}
+
+	class Result<string, string> cachedStream(string directory, JSONValue descriptor, int maximumBytes) {
+		var missing = new Result<string, string>(false, "", "cache miss");
+		if (!descriptor.isObject() || !descriptor.get("sha256").isString() || !descriptor.get("bytes").isInt()) { return missing; }
+		string hash = descriptor.get("sha256").asString();
+		if (hash.length() != 64) { return missing; }
+		for index in range(64) { if (!"0123456789abcdef".contains(hash.substring(index, 1))) { return missing; } }
+		int size = descriptor.get("bytes").asInt();
+		if (size < 0 || size > maximumBytes) { return missing; }
+		string path = PathTools.join(directory, "blob-" + hash);
+		if (!descriptor.get("path").asString().equals(path)) { return missing; }
+		var opened = RegularFileSnapshot.open(path, (long long)maximumBytes);
+		if (!opened.ok()) { return missing; }
+		var file = opened.snapshot();
+		if (file.size() != (long long)size) { file.close(); return missing; }
+		var read = file.readExactAt(0LL, size);
+		bool closed = file.close().ok();
+		if (!read.ok() || !closed) { return missing; }
+		var bytes = read.bytes();
+		if (!SHA256.digestBytes(bytes).equals(hash) || !bytes.isNulFreeUtf8()) { return missing; }
+		return new Result<string, string>(true, bytes.toStringLossy(), "");
+	}
+
+	class Result<string, string> cached(FeNativeHeaderRead request) {
+		var response = JSONValue.parse(request.cachedResponse);
+		if (response.isObject()) {
+			var diagnostic = FeNativeHeaderProcess.cachedStream(request.cacheDirectory, response.get("stderr"), 8388608);
+			if (diagnostic.isOk()) { return FeNativeHeaderProcess.cachedStream(request.cacheDirectory, response.get("stdout"), request.maxStdoutBytes); }
+		}
+		return new Result<string, string>(false, "", "cache miss");
+	}
+
+	class string cacheRequest(FeNativeHeaderRead request) {
+		var value = JSONValue.makeObject();
+		value.set("schema", JSONValue.makeString("btrc.native-read.v1"));
+		value.set("cache_directory", JSONValue.makeString(request.cacheDirectory));
+		value.set("output_limit", JSONValue.makeInt(request.maxStdoutBytes));
+		var arguments = JSONValue.makeArray();
+		for argument in request.argv() { arguments.push(JSONValue.makeString(argument)); }
+		value.set("arguments", arguments);
+		value.set("input", request.input().isEmpty() ? JSONValue.makeNull() : JSONValue.makeString(request.input()));
+		return value.stringify();
+	}
+
+	class void readOne(FeNativeHeaderRead request) {
+		try {
+			Vector<string> arguments = request.argv();
+			string input = request.input();
+			if (!request.captureStderr && !request.cacheDirectory.isEmpty()) {
+				var cached = FeNativeHeaderProcess.cached(request);
+				if (cached.isOk()) { request.complete(cached); return; }
+				string payload = FeNativeHeaderProcess.cacheRequest(request);
+				if (payload.length() <= 8388608) { arguments = ["--cached-native-read=-"]; input = payload; }
+			}
+			var result = ChildProcess.run(request.command(), arguments, timeoutMilliseconds = request.timeoutMilliseconds, maxStdoutBytes = request.maxStdoutBytes, stdinData = input);
+			string text = request.captureStderr ? result.err : result.out;
+			int capturedBytes = request.captureStderr ? result.capturedStderrBytes : result.capturedStdoutBytes;
+			if (result.ok() && text.length() != capturedBytes) {
+				request.complete(new Result<string, string>(false, "", "native header reader output contains NUL"));
+				return;
+			}
+			request.complete(new Result<string, string>(result.ok(), text, result.err.isEmpty() ? "native header reader failed" : result.err.trim()));
+		} catch (string error) {
+			request.complete(new Result<string, string>(false, "", error));
+		}
 	}
 }

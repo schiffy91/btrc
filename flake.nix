@@ -165,7 +165,10 @@
           excludedPrefixes = [ ];
         };
         nativePlanSource = sourceSubset {
-          prefixes = [ "tools/native_plan.py" ];
+          prefixes = [
+            "tools/native_plan.py"
+            "src/compiler/python/artifacts/publication.py"
+          ];
           excludedPrefixes = [ ];
         };
         formatterSource = sourceSubset {
@@ -210,8 +213,11 @@
           nativeBuildInputs = [ btrcpy ];
           buildPhase = ''
             runHook preBuild
+            export BTRC_STATE_DIR="$TMPDIR/btrc-state"
+            export BTRC_CACHE_DIR="$TMPDIR/btrc-cache"
             btrcpy --strict-imports --no-cache \
-              src/compiler/btrc/BtrccMain.btrc -o btrcc.c
+              --target ${if isDarwin then "macos" else "linux"}-${if pkgs.stdenv.hostPlatform.isAarch64 then "arm64" else "x64"} \
+              src/compiler/btrc/${if isDarwin then "cli/MacOSMain.btrc" else "BtrccMain.btrc"} -o btrcc.c
             $CC -std=c11 -Wall -Wextra -Werror -pedantic -O2 \
               btrcc.c -o btrcc -lm -lpthread
             runHook postBuild
@@ -322,8 +328,8 @@
           name = "btrc-native-plan";
           runtimeInputs = [ pkgs.python314 pkgs.stdenv.cc pkgs.pkg-config ];
           text = ''
-            export PYTHONPATH="${nativePlanSource}''${PYTHONPATH:+:$PYTHONPATH}"
-            exec ${pkgs.python314}/bin/python3 -m tools.native_plan "$@"
+            export PYTHONPATH="${nativePlanSource}"
+            exec ${pkgs.python314}/bin/python3 -P -m tools.native_plan "$@"
           '';
         };
         nativeHeaderReader = pkgs.llvmPackages_21.stdenv.mkDerivation {
@@ -335,7 +341,12 @@
           buildInputs = with pkgs.llvmPackages_21; [ libclang llvm ];
           buildPhase = ''
             runHook preBuild
-            $CXX -std=c++17 -Wall -Wextra -Werror "$src" -lclang-cpp -lLLVM -o btrc-native-header
+            $CXX -std=c++17 -Wall -Wextra -Werror \
+              -DBTRC_NATIVE_CLANG_DRIVER='"${pkgs.llvmPackages_21.stdenv.cc}/bin/clang"' \
+              -DBTRC_NATIVE_CLANGXX_DRIVER='"${pkgs.llvmPackages_21.stdenv.cc}/bin/clang++"' \
+              -DBTRC_NATIVE_CLANG_COMPILER='"${pkgs.llvmPackages_21.stdenv.cc.cc}/bin/clang"' \
+              -DBTRC_NATIVE_CLANGXX_COMPILER='"${pkgs.llvmPackages_21.stdenv.cc.cc}/bin/clang++"' \
+              "$src" -lclang-cpp -lLLVM -o btrc-native-header
             runHook postBuild
           '';
           installPhase = ''

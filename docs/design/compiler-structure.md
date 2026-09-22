@@ -4,7 +4,7 @@ Status: **active architecture contract**.
 
 This document records the ownership-driven destination shared by the Python
 reference compiler, the self-hosted compiler, and developer tooling. The
-normative inventory is exactly 84 production Python compiler files and 95
+normative inventory is exactly 84 production Python compiler files and 99
 self-hosted `.btrc` files. File size is a review signal, not a boundary:
 independent state, invariants, and change reasons justify a separate owner.
 
@@ -52,6 +52,15 @@ process composition root: it injects `CompilerCache`,
 fingerprint. Application and artifacts have no import edge in either
 direction; concrete artifact owners satisfy the application ports
 structurally.
+
+The self-hosted application accepts an optional `IBtrccArtifactCache` port from
+its process composition root. `CompilerPipeline.resolve` returns the current
+source/package/native facts; `Compiler` owns the reuse decision and calls
+`compileResolved` on a miss. `BtrccArtifactCache` in the existing CLI owner file
+stores complete generations using private directory leases and checksums.
+`FeNativeLinkPlan` validates restored generated units against current resolved
+facts. The pipeline owns no cache I/O, and the CLI's existing generation owner
+still validates and publishes every named output.
 
 ## Object ownership
 
@@ -213,7 +222,7 @@ src/compiler/python/
 
 ## Exact self-hosted destination
 
-The self-hosted compiler contains exactly 95 `.btrc` files: 89
+The self-hosted compiler contains exactly 99 `.btrc` files: 93
 compiler/generated files and six explicit developer-tool files. Only the
 public compiler application object and thin process entry point remain at the
 package root:
@@ -227,6 +236,7 @@ src/compiler/btrc/
   cli/
     Driver.btrc                   # BtrccDriver, command line, paths, output
     WindowsMain.btrc              # Windows host composition without Unix SDK scanning
+    MacOSMain.btrc                # Native macOS host with SDK-backed artifact hashing
 
   pipeline/
     Stage.btrc                    # public package manifest
@@ -265,6 +275,7 @@ src/compiler/btrc/
     Stdlib.btrc                   # FeStdlibRepository
     Resolver.btrc                 # FeFrontendResolver
     Visibility.btrc               # ImportVisibilityChecker
+    Timing.btrc                   # opt-in compiler phase timings
 
   parser/
     Stage.btrc                    # public package manifest
@@ -306,12 +317,14 @@ src/compiler/btrc/
     Stage.btrc                    # public IR package manifest
     Model.btrc                    # complete structured IR model
     Emitter.btrc                  # CEmitter only
+    RuntimeState.btrc             # runtime state ownership across emitted units
 
     runtime/
       Catalog.btrc                # RuntimeHelperCatalog/registry
       References.btrc             # RuntimeReferenceCollector
 
     lowering/
+      Reachability.btrc           # source reachability before lowering
       Context.btrc                # LoweringContext
       Lowerer.btrc                # IRLowerer composition root
       Types.btrc                  # CTypeLowerer
@@ -559,3 +572,9 @@ dismissed as pre-existing.
 - Python/self-host tokens, AST, IR, optimized IR, diagnostics, emitted C,
   runtime metadata, runtime behavior, and bootstrap output satisfy the
   bit-perfect completion gates.
+
+The M6a artifact-hashing work adds `cli/MacOSMain.btrc` as an explicit host
+composition root, taking the self-host inventory from 98 to 99 files. The
+portable Unix entry and cross-release C remain SDK-independent; the native
+macOS entry supplies a managed digest provider to the existing cache owner.
+No compiler stage, lowering path or native ownership model is duplicated.

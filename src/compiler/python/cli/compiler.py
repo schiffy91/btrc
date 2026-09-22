@@ -11,7 +11,7 @@ import sys
 from collections.abc import Sequence
 from typing import TextIO
 
-from ..application.compiler import Compiler
+from ..application.compiler import Compiler, CompilerInputIdentity, CompilerOutputPublicationPort
 from ..application.results import (
     CompilerActionResult,
     CompilerDiagnostic,
@@ -237,15 +237,22 @@ class CompilerCommand:
         )
         self._emit_failure(result, printer)
 
+        output_paths = []
+        if out_path is not None:
+            output_paths.append(out_path)
+            output_paths.extend(f"{args.emit_units}.unit-{index}.c" for index in range(1, len(result.c_units) + 1))
+            if args.freestanding:
+                output_paths.append(os.path.join(os.path.dirname(out_path) or ".", "btrc_rt.h"))
         if args.emit_link_plan:
-            plan_path = os.path.realpath(args.emit_link_plan)
-            aliases = {os.path.realpath(args.input)}
-            if out_path is not None:
-                aliases.add(os.path.realpath(out_path))
-            if plan_path in aliases:
-                print("error: link-plan output must differ from the input and generated C paths", file=sys.stderr)
-                raise SystemExit(1)
-            self._file_io.write_output(args.emit_link_plan, result.native_plan.canonical_json())
+            output_paths.append(args.emit_link_plan)
+        prepared = self._file_io.prepare_output_paths(
+            output_paths, (args.input, *result.input_paths), identities=result.input_identities
+        )
+
+        if args.emit_link_plan and output is not CompilerOutput.C:
+            self._file_io.write_outputs(
+                ((args.emit_link_plan, result.native_plan.canonical_json()),), prepared=prepared
+            )
 
         if output is CompilerOutput.TOKENS:
             for token in result.tokens:
@@ -268,21 +275,91 @@ class CompilerCommand:
                 dict(result.profile),
                 result.source_length,
             )
-        self._file_io.write_output(out_path, result.c_source)
-        for index, unit in enumerate(result.c_units, start=1):
-            self._file_io.write_output(f"{args.emit_units}.unit-{index}.c", unit)
+        outputs = [(out_path, result.c_source)]
+        roles = ["primary", *("secondary" for _ in result.c_units)]
+        outputs.extend(
+            (f"{args.emit_units}.unit-{index}.c", unit) for index, unit in enumerate(result.c_units, start=1)
+        )
+        if args.emit_link_plan:
+            outputs.append((args.emit_link_plan, result.native_plan.canonical_json()))
+            roles.append("link-plan")
+        self._file_io.write_outputs(outputs, prepared=prepared, roles=roles)
 
         if args.freestanding:
             rt_path = os.path.join(os.path.dirname(out_path) or ".", "btrc_rt.h")
             if self._file_io.write_output_if_missing(
                 rt_path,
                 self.compiler.freestanding_header,
+                prepared=prepared,
             ):
                 print(f"Wrote freestanding runtime seam → {rt_path}")
 
         cached = " (cached)" if result.cache_hit else ""
         print(f"Transpiled {args.input} → {out_path}{cached}")
         return 0
+
+
+class PreparedCompilerOutputs:
+    """Freeze validated output resolution and protect captured source identities."""
+
+    def __init__(
+        self,
+        file_io: CompilerFileIO,
+        outputs: Sequence[str],
+        inputs: Sequence[str],
+        identities: Sequence[CompilerInputIdentity] = (),
+    ) -> None:
+        self._file_io = file_io
+        self._read_identities = tuple(identities)
+        self._inputs = tuple(inputs)
+        self._protected = tuple(file_io._path_identity(path) for path in inputs)
+        self.targets = {path: os.path.realpath(path) for path in outputs}
+        # Joining preserves symlink/../ traversal; abspath would normalize it
+        # before resolving the symlink and could select a different directory.
+        self._requested = {path: os.path.join(os.getcwd(), path) for path in outputs}
+        self._parents = {
+            os.path.dirname(target): self._directory_identity(os.path.dirname(target))
+            for target in self.targets.values()
+        }
+        self.validate(tuple(self.targets[path] for path in outputs))
+
+    def _directory_identity(self, path: str) -> tuple[int, int] | None:
+        try:
+            metadata = os.stat(path)
+        except OSError:
+            return None
+        return metadata.st_dev, metadata.st_ino
+
+    def validate(self, destinations: Sequence[str]) -> None:
+        for identity in self._read_identities:
+            identity.validate()
+        for path in self._requested:
+            self.validate_resolution(path)
+        protected = (*self._protected, *(self._file_io._path_identity(path) for path in self._inputs))
+        paths = {path for path, _identity in protected}
+        files = {identity for _path, identity in protected if identity is not None}
+        for destination in destinations:
+            canonical, identity = self._file_io._path_identity(destination)
+            if canonical in paths or (identity is not None and identity in files):
+                raise ValueError(f"output path {destination!r} refers to the same file as a source or another output")
+            paths.add(canonical)
+            if identity is not None:
+                files.add(identity)
+
+    def validate_resolution(self, path: str) -> None:
+        if os.path.realpath(self._requested[path]) != self.targets[path]:
+            raise ValueError(f"output path changed after validation: {path}")
+        parent = os.path.dirname(self.targets[path])
+        if os.path.realpath(parent) != parent or self._directory_identity(parent) != self._parents[parent]:
+            raise ValueError(f"output directory changed after validation: {parent}")
+
+    def validate_publication(self, destinations: Sequence[str], written: Sequence[str]) -> None:
+        # A separately preserved output (currently the create-if-absent seam)
+        # is still reserved by this invocation. Recovery or retirement cannot
+        # delete it just because an earlier generation owned that same path.
+        writing = set(written)
+        reserved = tuple(target for path, target in self.targets.items() if path not in writing)
+        self.validate((*destinations, *reserved))
 
 
 class CompilerFileIO:
@@ -293,54 +370,67 @@ class CompilerFileIO:
     reported.
     """
 
-    def read_input(self, path: str) -> str:
+    def __init__(self, *, publication: CompilerOutputPublicationPort | None = None) -> None:
+        self._publication = publication
+        self._input_identity: CompilerInputIdentity | None = None
+
+    def prepare_output_paths(
+        self, outputs: Sequence[str], inputs: Sequence[str], *, identities: Sequence[CompilerInputIdentity] = ()
+    ) -> PreparedCompilerOutputs:
+        captured = tuple(identities)
+        if self._input_identity is not None:
+            captured = (self._input_identity, *captured)
         try:
-            with open(path, "rb") as source_file:
-                encoded = source_file.read()
-        except FileNotFoundError as error:
-            print(f"error: source file {path!r} not found", file=sys.stderr)
-            raise SystemExit(1) from error
-        except OSError as error:
-            print(f"error: cannot read source file {path!r}: {error}", file=sys.stderr)
-            raise SystemExit(1) from error
-        except MemoryError as error:
-            print(f"error: cannot allocate memory for source file {path!r}", file=sys.stderr)
+            return PreparedCompilerOutputs(self, outputs, inputs, captured)
+        except (OSError, ValueError) as error:
+            print(f"error: {error}", file=sys.stderr)
             raise SystemExit(1) from error
 
+    def read_input(self, path: str) -> str:
+        self._input_identity = None
         try:
-            source = encoded.decode("utf-8-sig")
-        except UnicodeDecodeError as error:
-            print(
-                f"error: source file {path!r} is not valid UTF-8 at byte {error.start}",
-                file=sys.stderr,
-            )
+            loaded = Compiler.read_source(path)
+        except OSError as error:
+            print(f"error: {error}", file=sys.stderr)
             raise SystemExit(1) from error
-        except MemoryError as error:
-            print(f"error: cannot allocate memory for source file {path!r}", file=sys.stderr)
-            raise SystemExit(1) from error
-        nul = source.find("\0")
-        if nul >= 0:
-            print(
-                f"error: source file {path!r} contains a NUL byte at character {nul}",
-                file=sys.stderr,
-            )
-            raise SystemExit(1)
-        if "\r" not in source:
-            return source
-        return source.replace("\r\n", "\n").replace("\r", "\n")
+        self._input_identity = loaded.identity
+        return loaded.text
 
     def output_path(self, input_path: str, requested_path: str | None) -> str:
         """Return the requested/default output path, rejecting source aliases."""
 
         path = requested_path if requested_path is not None else os.path.splitext(input_path)[0] + ".c"
-        try:
-            aliases_input = os.path.samefile(input_path, path)
-        except OSError:
-            aliases_input = os.path.normcase(os.path.realpath(input_path)) == os.path.normcase(os.path.realpath(path))
-        if aliases_input:
-            print("error: input and output paths refer to the same file", file=sys.stderr)
-            raise SystemExit(1)
+        self.validate_output_paths((path,), (input_path,))
         return path
+
+    def _path_identity(self, path: str) -> tuple[str, tuple[int, int] | None]:
+        canonical = os.path.normcase(os.path.realpath(path))
+        try:
+            metadata = os.stat(path)
+        except OSError:
+            return canonical, None
+        return canonical, (metadata.st_dev, metadata.st_ino) if stat.S_ISREG(metadata.st_mode) else None
+
+    def validate_output_paths(self, outputs: Sequence[str], inputs: Sequence[str]) -> None:
+        """Reject whole-generation/source aliases before publishing any output."""
+        paths: set[str] = set()
+        files: set[tuple[int, int]] = set()
+        for path in set(inputs):
+            canonical, identity = self._path_identity(path)
+            paths.add(canonical)
+            if identity is not None:
+                files.add(identity)
+        for path in outputs:
+            canonical, identity = self._path_identity(path)
+            if canonical in paths or (identity is not None and identity in files):
+                print(
+                    f"error: output path {path!r} refers to the same file as a source or another output",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
+            paths.add(canonical)
+            if identity is not None:
+                files.add(identity)
 
     def _stage_output(self, target: str, content: str) -> str:
         """Durably write content to a same-directory, umask-respecting temp file."""
@@ -387,50 +477,131 @@ class CompilerFileIO:
                     os.remove(temporary_path)
             raise
 
+    def _regular_output(self, path: str) -> bool:
+        try:
+            return stat.S_ISREG(os.stat(path).st_mode)
+        except FileNotFoundError:
+            return True
+
     def write_output(self, path: str, content: str) -> None:
         """Write deterministic UTF-8/LF output, atomically replacing files."""
 
-        target = os.path.realpath(path) if os.path.islink(path) else path
-        temporary_path = None
+        self.write_outputs(((path, content),))
+
+    def write_outputs(
+        self,
+        outputs: Sequence[tuple[str, str]],
+        *,
+        prepared: PreparedCompilerOutputs | None = None,
+        roles: Sequence[str] | None = None,
+    ) -> None:
+        """Stage every regular payload before publishing destinations in order.
+
+        Staging failures leave all prior outputs intact. Configured regular
+        compiler outputs use generation publication. Unconfigured writes and
+        requests containing devices retain per-file publication semantics.
+        """
+
+        staged: list[tuple[str, str, str | None, str]] = []
+        path = outputs[0][0] if outputs else ""
         try:
-            try:
-                target_mode = os.stat(target).st_mode
-            except FileNotFoundError:
-                target_mode = None
-            if target_mode is not None and not stat.S_ISREG(target_mode):
-                with open(target, "w", encoding="utf-8", newline="\n") as output_file:
-                    output_file.write(content)
-                    output_file.flush()
+            prepared = prepared or PreparedCompilerOutputs(self, tuple(path for path, _content in outputs), ())
+            prepared.validate(tuple(prepared.targets.values()))
+            if (
+                self._publication is not None
+                and roles is not None
+                and all(self._regular_output(prepared.targets[path]) for path, _content in outputs)
+            ):
+                if len(roles) != len(outputs):
+                    raise ValueError("compiler output roles do not match requested files")
+                if self._publication.retain_unchanged(
+                    tuple(
+                        (prepared.targets[path], content, role)
+                        for (path, content), role in zip(outputs, roles, strict=True)
+                    ),
+                    validate=lambda destinations: prepared.validate_publication(
+                        destinations, tuple(path for path, _content in outputs)
+                    ),
+                ):
+                    return
+            for path, content in outputs:
+                prepared.validate_resolution(path)
+                target = prepared.targets[path]
+                try:
+                    target_mode = os.stat(target).st_mode
+                except FileNotFoundError:
+                    target_mode = None
+                if target_mode is not None and stat.S_ISDIR(target_mode):
+                    raise IsADirectoryError(f"output destination is a directory: {target}")
+                temporary = (
+                    self._stage_output(target, content) if target_mode is None or stat.S_ISREG(target_mode) else None
+                )
+                staged.append((path, target, temporary, content))
+            if (
+                self._publication is not None
+                and roles is not None
+                and all(temporary is not None for _, _, temporary, _ in staged)
+            ):
+                if len(roles) != len(staged):
+                    raise ValueError("compiler output roles do not match staged files")
+                self._publication.publish_staged(
+                    tuple(
+                        (temporary, target, role) for (_, target, temporary, _), role in zip(staged, roles, strict=True)
+                    ),
+                    validate=lambda destinations: prepared.validate_publication(
+                        destinations, tuple(path for path, _content in outputs)
+                    ),
+                )
                 return
-            temporary_path = self._stage_output(target, content)
-            os.replace(temporary_path, target)
-            self._sync_parent(target)
-        except (OSError, UnicodeError) as error:
+            for path, target, temporary, content in staged:  # noqa: B007 - path identifies publication failures below
+                prepared.validate(tuple(prepared.targets.values()))
+                if temporary is None:
+                    with open(target, "w", encoding="utf-8", newline="\n") as output_file:
+                        output_file.write(content)
+                        output_file.flush()
+                else:
+                    os.replace(temporary, target)
+                    self._sync_parent(target)
+        except (OSError, UnicodeError, ValueError) as error:
             print(
                 f"error: cannot write output file {path!r}: {error}",
                 file=sys.stderr,
             )
             raise SystemExit(1) from error
         finally:
-            if temporary_path is not None:
-                with contextlib.suppress(FileNotFoundError):
-                    os.remove(temporary_path)
+            for _path, _target, temporary, _content in staged:
+                if temporary is not None:
+                    with contextlib.suppress(FileNotFoundError):
+                        os.remove(temporary)
 
-    def write_output_if_missing(self, path: str, content: str) -> bool:
+    def write_output_if_missing(
+        self,
+        path: str,
+        content: str,
+        *,
+        prepared: PreparedCompilerOutputs | None = None,
+    ) -> bool:
         """Atomically create output without clobbering a concurrent user file."""
 
         temporary_path = None
         published = False
         try:
-            temporary_path = self._stage_output(path, content)
+            if prepared is not None:
+                prepared.validate(tuple(prepared.targets.values()))
+            # Keep create-if-absent on the requested directory entry: an
+            # existing symlink is an existing seam, not permission to follow it.
+            target = os.path.join(os.path.realpath(os.path.dirname(path) or "."), os.path.basename(path))
+            temporary_path = self._stage_output(target, content)
+            if prepared is not None:
+                prepared.validate(tuple(prepared.targets.values()))
             if os.name == "nt":
-                os.rename(temporary_path, path)
+                os.rename(temporary_path, target)
             else:
-                os.link(temporary_path, path)
+                os.link(temporary_path, target)
             published = True
         except FileExistsError:
             return False
-        except (OSError, UnicodeError) as error:
+        except (OSError, UnicodeError, ValueError) as error:
             print(
                 f"error: cannot write output file {path!r}: {error}",
                 file=sys.stderr,

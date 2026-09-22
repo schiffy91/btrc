@@ -84,6 +84,24 @@ def test_cached_default_output(tmp_path, monkeypatch, capsys):
     assert "(cached)" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("flag", ["--no-cache", "--profile"])
+def test_cli_explicit_pipeline_run_bypasses_directive_storage(tmp_path, monkeypatch, flag):
+    from src.compiler.python.artifacts.cache import CompilerCache
+
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "cache"))
+    src = write(tmp_path / "Main.btrc", "import ./Value.btrc;\nint main() { return value(); }\n")
+    write(tmp_path / "Value.btrc", "int value() { return 7; }\n")
+    run_main(monkeypatch, [src, "-o", str(tmp_path / "program.c")])
+    assert len(list((tmp_path / "cache").glob("*.directives.json"))) == 2
+
+    def unexpected_cache_access(*_args, **_kwargs):
+        raise AssertionError("explicit full pipeline runs must not use directive storage")
+
+    monkeypatch.setattr(CompilerCache, "load_directives", unexpected_cache_access)
+    monkeypatch.setattr(CompilerCache, "store_directives", unexpected_cache_access)
+    run_main(monkeypatch, [flag, src, "-o", str(tmp_path / "program.c")])
+
+
 def test_emit_tokens(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     src = write(tmp_path / "t.btrc", BARE)
@@ -678,10 +696,10 @@ def test_disk_cache_write_failure_does_not_fail_compilation(tmp_path, monkeypatc
     output = tmp_path / "cacheless.c"
 
     class UnavailableCache:
-        def load_text(self, *_args, **_kwargs):
+        def load_artifacts(self, *_args, **_kwargs):
             return None
 
-        def store_text(self, *_args, **_kwargs):
+        def store_artifacts(self, *_args, **_kwargs):
             raise PermissionError("read-only cache root")
 
     CompilerCommand(Compiler(cache=UnavailableCache())).run(["--no-stdlib", source, "-o", str(output)])
@@ -752,3 +770,33 @@ def test_cached_stdlib_decls_never_executes_legacy_pickle(tmp_path, monkeypatch)
     assert decls and not marker.exists()
     assert not legacy.exists()
     assert list(cache_dir.glob("stdlib-*.ast.json"))
+
+
+@pytest.mark.parametrize("debug", [False, True])
+@pytest.mark.parametrize("relaxed", [False, True])
+def test_cached_warning_preserves_imported_location_and_text(tmp_path, monkeypatch, capsys, debug, relaxed):
+    dependency = tmp_path / "Boxes.btrc"
+    dependency.write_text("class Box { public int value = 7; }\nint readBox(Box? box) { return box.value; }\n")
+    source = tmp_path / "Main.btrc"
+    source.write_text("import ./Boxes.btrc;\nint main() { return readBox(Box()) == 7 ? 0 : 1; }\n")
+    output = tmp_path / "Main.c"
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "cache"))
+    flags = [
+        str(source),
+        "--relaxed-imports" if relaxed else "--no-stdlib",
+        "-o",
+        str(output),
+        *(["--debug"] if debug else []),
+    ]
+    run_main(monkeypatch, flags)
+    cold = capsys.readouterr()
+    assert "(cached)" not in cold.out
+    assert "warning:" in cold.err and str(dependency) in cold.err
+    assert "box.value" in cold.err
+    first = output.read_bytes()
+    output.unlink()
+    run_main(monkeypatch, flags)
+    warm = capsys.readouterr()
+    assert "(cached)" in warm.out
+    assert warm.err == cold.err
+    assert output.read_bytes() == first

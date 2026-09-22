@@ -6,6 +6,7 @@
  */
 
 import Library.Bytes;
+import Library.IO;
 import Library.Platform;
 import Library.Strings;
 
@@ -23,7 +24,7 @@ import Library.Strings;
 
 extern char* mkdtemp(char* templatePath);
 
-/* Counts only the long-lived FileHandle and DirectoryHandle capabilities
+/* Counts only the long-lived exact filesystem handle capabilities
  * owned by this generated program. It never probes native descriptor tables,
  * so the diagnostic has identical semantics on every supported platform.
  * Static Atomic<T> storage is zero-initialized before program entry. */
@@ -44,13 +45,6 @@ static void btrcReleaseExactFileSystemHandle() {
 		abort();
 	}
 }
-
-enum FileKind {
-	FILE_REGULAR = 0,
-	FILE_DIRECTORY = 1,
-	FILE_SYMLINK = 2,
-	FILE_OTHER = 3
-};
 
 enum FileSystemErrorKind {
 	FS_INVALID_ARGUMENT = 0,
@@ -156,81 +150,6 @@ class FileSystemError {
 	public int nativeCode() { return self._nativeCode; }
 
 	public string message() { return self._message; }
-}
-
-class FileSnapshot {
-	private FileKind _kind;
-	private long long _size;
-	private unsigned long long _device;
-	private unsigned long long _inode;
-	private unsigned long long _mode;
-	private unsigned long long _modifiedSeconds;
-	private unsigned long long _modifiedNanoseconds;
-	private unsigned long long _changedSeconds;
-	private unsigned long long _changedNanoseconds;
-
-	public FileSnapshot(FileKind kind, long long size, unsigned long long device, unsigned long long inode, unsigned long long mode, unsigned long long modifiedSeconds, unsigned long long modifiedNanoseconds, unsigned long long changedSeconds, unsigned long long changedNanoseconds) {
-		self._kind = kind;
-		self._size = size;
-		self._device = device;
-		self._inode = inode;
-		self._mode = mode;
-		self._modifiedSeconds = modifiedSeconds;
-		self._modifiedNanoseconds = modifiedNanoseconds;
-		self._changedSeconds = changedSeconds;
-		self._changedNanoseconds = changedNanoseconds;
-	}
-
-	class FileSnapshot fromStatus(struct stat* status) {
-		FileKind kind = FILE_OTHER;
-		if (S_ISREG(status->st_mode)) {
-			kind = FILE_REGULAR;
-		} else if (S_ISDIR(status->st_mode)) {
-			kind = FILE_DIRECTORY;
-		} else if (S_ISLNK(status->st_mode)) {
-			kind = FILE_SYMLINK;
-		}
-		/* st_mtime/st_ctime are the portable POSIX aliases for the tv_sec
-         * member of the platform's embedded timespec. POSIX places tv_sec
-         * first, so converting its address back to struct timespec preserves
-         * the native nanosecond precision on both Darwin and Linux without
-         * exposing either platform's differently named stat members. */
-		struct timespec* modified = (struct timespec*)&status->st_mtime;
-		struct timespec* changed = (struct timespec*)&status->st_ctime;
-		return FileSnapshot(kind, (long long)status->st_size, (unsigned long long)status->st_dev, (unsigned long long)status->st_ino, (unsigned long long)status->st_mode, (unsigned long long)modified->tv_sec, (unsigned long long)modified->tv_nsec, (unsigned long long)changed->tv_sec, (unsigned long long)changed->tv_nsec);
-	}
-
-	public FileKind kind() { return self._kind; }
-
-	public long long size() { return self._size; }
-
-	public bool sameObject(FileSnapshot other) { return other != null && self._device == other._device && self._inode == other._inode; }
-
-	public bool sameVersion(FileSnapshot other) { return self.sameObject(other) && self._kind == other._kind && self._size == other._size && self._mode == other._mode && self._modifiedSeconds == other._modifiedSeconds && self._modifiedNanoseconds == other._modifiedNanoseconds && self._changedSeconds == other._changedSeconds && self._changedNanoseconds == other._changedNanoseconds; }
-
-	private void appendU64(Bytes bytes, unsigned long long value) {
-		for (int shift = 0; shift < 64; shift = shift + 8) {
-			bytes.append((int)((value >> shift) & 255ULL));
-		}
-	}
-
-	/* Opaque, versioned metadata bytes for deterministic cache revisions.
-     * Equality here is not an authorization or stale-publication check;
-     * sameVersion() compares the complete captured snapshot. */
-	public Bytes cacheToken() {
-		Bytes token = Bytes();
-		token.append(1);
-		self.appendU64(token, (unsigned long long)self._kind);
-		self.appendU64(token, (unsigned long long)self._size);
-		self.appendU64(token, self._device);
-		self.appendU64(token, self._inode);
-		self.appendU64(token, self._mode);
-		self.appendU64(token, self._modifiedSeconds);
-		self.appendU64(token, self._modifiedNanoseconds);
-		self.appendU64(token, self._changedSeconds);
-		self.appendU64(token, self._changedNanoseconds);
-		return token;
-	}
 }
 
 class FileSnapshotOutcome {
@@ -1681,11 +1600,31 @@ class PrivateDirectory {
 
 	public string path() { return self._path; }
 
-	/* Performs one non-blocking advisory-lock attempt. Contention and a second
-     * live lease from this handle report FS_RESOURCE_EXHAUSTED so the caller
-     * owns its retry, cancellation, and time budgets.
-     */
-	public ExclusiveFileLeaseOpenOutcome acquireExclusiveLease(string childName) {
+	/* A lease deliberately keeps the original directory alive across renames.
+	 * Callers whose authority also depends on its public name can revalidate
+	 * that binding and private permissions after waiting or before mutation. */
+	public FileSnapshotOutcome validatePath() {
+		if (!self.isOpen()) { return FileSnapshotOutcome.failed(FileSystemError.closed("validate private directory", self._path)); }
+		struct stat opened;
+		struct stat current;
+		errno = 0;
+		if (fstat(self._descriptor, &opened) != 0 || lstat(self._path, &current) != 0) {
+			int nativeCode = errno;
+			return FileSnapshotOutcome.failed(FileSystemError.fromNative("validate private directory", self._path, nativeCode));
+		}
+		if (!S_ISDIR(opened.st_mode) || !S_ISDIR(current.st_mode) || opened.st_dev != current.st_dev || opened.st_ino != current.st_ino) {
+			return FileSnapshotOutcome.failed(FileSystemError.changed("validate private directory", self._path));
+		}
+		if ((unsigned long long)opened.st_uid != (unsigned long long)geteuid() || (unsigned long long)current.st_uid != (unsigned long long)geteuid() || (opened.st_mode & (mode_t)0777) != (mode_t)0700 || (current.st_mode & (mode_t)0777) != (mode_t)0700) {
+			return FileSnapshotOutcome.failed(FileSystemError(FS_ACCESS_DENIED, "validate private directory", self._path, EPERM, "private directory must remain owned by the current user with mode 0700"));
+		}
+		return FileSnapshotOutcome.available(FileSnapshot.fromStatus(&opened));
+	}
+
+	/* Nonblocking by default. wait=true is for command-line owners that share
+     * a persistent flock with other processes, never UI/realtime executors.
+     * A second live lease on this handle always reports resource exhaustion. */
+	public ExclusiveFileLeaseOpenOutcome acquireExclusiveLease(string childName, bool wait = false) {
 		if (!self.isOpen()) {
 			return ExclusiveFileLeaseOpenOutcome.failed(FileSystemError.closed("acquire exclusive file lease", self._path));
 		}
@@ -1803,7 +1742,7 @@ class PrivateDirectory {
 		int lockResult = -1;
 		do {
 			errno = 0;
-			lockResult = flock(lockDescriptor, (int)LOCK_EX | (int)LOCK_NB);
+			lockResult = flock(lockDescriptor, wait ? (int)LOCK_EX : ((int)LOCK_EX | (int)LOCK_NB));
 		} while (lockResult != 0 && errno == EINTR);
 		if (lockResult != 0) {
 			int nativeCode = errno;
@@ -2107,6 +2046,40 @@ class PrivateDirectory {
 		return DurableReplaceOutcome.succeeded();
 	}
 
+	/* Retire authority relative to the pinned lease directory. An uncertain
+	 * directory flush is retryable even when the child name is already gone. */
+	public DurableReplaceOutcome removeRegularChildDurablyForLease(int generation, string lockName, string childName) {
+		if (!self.leaseActive(generation, lockName)) { return DurableReplaceOutcome.failed(FileSystemError.closed("remove private file", self._path)); }
+		if (!self.validDataChildNameForLease(childName, lockName)) { return DurableReplaceOutcome.failed(FileSystemError.invalid("remove private file", childName)); }
+		string path = self._path + "/" + childName;
+		struct stat status;
+		errno = 0;
+		if (fstatat(self._leaseDirectoryDescriptor, childName, &status, AT_SYMLINK_NOFOLLOW) == 0) {
+			if (S_ISLNK(status.st_mode)) { return DurableReplaceOutcome.failed(FileSystemError.symlink("remove private file", path)); }
+			if (!S_ISREG(status.st_mode)) { return DurableReplaceOutcome.failed(FileSystemError.wrongType("remove private file", path)); }
+			if (!self.secureRegular(&status)) { return DurableReplaceOutcome.failed(self.insecureRegular("remove private file", path)); }
+			if (unlinkat(self._leaseDirectoryDescriptor, childName, 0) != 0) { return DurableReplaceOutcome.failed(FileSystemError.fromNative("remove private file", path, errno)); }
+		} else if (errno != ENOENT) { return DurableReplaceOutcome.failed(FileSystemError.fromNative("inspect removed private file", path, errno)); }
+		if (!self.syncDescriptor(self._leaseDirectoryDescriptor)) { return DurableReplaceOutcome.durabilityUncertain(FileSystemError.fromNative("sync removed private file", path, errno)); }
+		return DurableReplaceOutcome.succeeded();
+	}
+
+	public FileSnapshotOutcome validateLeaseFor(int generation, string lockName) {
+		if (!self.leaseActive(generation, lockName)) { return FileSnapshotOutcome.failed(FileSystemError.closed("validate exclusive lease", self._path)); }
+		string path = self._path + "/" + lockName;
+		struct stat opened;
+		struct stat current;
+		errno = 0;
+		if (fstat(self._leaseLockDescriptor, &opened) != 0 || fstatat(self._leaseDirectoryDescriptor, lockName, &current, AT_SYMLINK_NOFOLLOW) != 0) {
+			int nativeCode = errno;
+			return FileSnapshotOutcome.failed(FileSystemError.fromNative("validate exclusive lease", path, nativeCode));
+		}
+		if (!self.secureRegular(&opened) || !self.secureRegular(&current) || opened.st_dev != current.st_dev || opened.st_ino != current.st_ino) {
+			return FileSnapshotOutcome.failed(FileSystemError.changed("validate exclusive lease", path));
+		}
+		return FileSnapshotOutcome.available(FileSnapshot.fromStatus(&opened));
+	}
+
 	public bool leaseActive(int generation, string lockName) { return self.isOpen() && self._leaseDirectoryDescriptor >= 0 && self._leaseLockDescriptor >= 0 && generation == self._leaseGeneration && lockName != null && lockName.equals(self._leaseName); }
 
 	public FileSystemCloseOutcome releaseExclusiveLease(int generation, string lockName) {
@@ -2192,11 +2165,22 @@ class ExclusiveFileLease {
 
 	public bool isOpen() { return self._open && self._owner.leaseActive(self._generation, self._lockName); }
 
+	/* A persistent lease file must keep its inode and private permissions. */
+	public FileSnapshotOutcome validate() {
+		if (!self.isOpen()) { return FileSnapshotOutcome.failed(FileSystemError.closed("validate exclusive lease", self._owner.path())); }
+		return self._owner.validateLeaseFor(self._generation, self._lockName);
+	}
+
 	public PrivateFileReadOutcome readRegularChild(string childName, int maximumBytes) {
 		if (!self.isOpen()) {
 			return PrivateFileReadOutcome.failed(FileSystemError.closed("read private file", self._owner.path()));
 		}
 		return self._owner.readRegularChildForLease(self._generation, self._lockName, childName, maximumBytes);
+	}
+
+	public DurableReplaceOutcome removeRegularChildDurably(string childName) {
+		if (!self.isOpen() || self._owner == null) { return DurableReplaceOutcome.failed(FileSystemError.closed("remove private file", childName)); }
+		return self._owner.removeRegularChildDurablyForLease(self._generation, self._lockName, childName);
 	}
 
 	public DurableReplaceOutcome replaceRegularChildDurably(string childName, Bytes content) {
@@ -2212,6 +2196,123 @@ class ExclusiveFileLease {
 		}
 		self._open = false;
 		return self._owner.releaseExclusiveLease(self._generation, self._lockName);
+	}
+
+	public void __del__() { self.close(); }
+}
+
+
+class AdvisoryFileLockOpenOutcome {
+	private AdvisoryFileLock? _lock;
+	private FileSystemError? _error;
+
+	private AdvisoryFileLockOpenOutcome(AdvisoryFileLock? lock, FileSystemError? error) { self._lock = lock; self._error = error; }
+
+	class AdvisoryFileLockOpenOutcome acquired(AdvisoryFileLock lock) {
+		if (lock == null) { throw "advisory file lock is null"; }
+		return AdvisoryFileLockOpenOutcome(lock, null);
+	}
+
+	class AdvisoryFileLockOpenOutcome failed(FileSystemError error) {
+		if (error == null) { throw "advisory file lock error is null"; }
+		return AdvisoryFileLockOpenOutcome(null, error);
+	}
+
+	public bool ok() { return self._lock != null; }
+
+	public AdvisoryFileLock lock() { if (self._lock == null) { throw "advisory file lock unavailable"; } return self._lock; }
+
+	public FileSystemError error() { if (self._error == null) { throw "advisory file lock has no error"; } return self._error; }
+}
+
+/* A persistent coordination file, never the data file a caller will replace.
+ * POSIX flock interoperates with other processes using the same inode. The
+ * default attempt is nonblocking; wait=true is for blocking command-line
+ * owners, not UI/realtime executors. Closing releases ownership but never
+ * unlinks the coordination file. Aliases observe the same closed state.
+ * A lock is advisory, not authorization to modify files or a transaction. */
+class AdvisoryFileLock {
+	private int _descriptor;
+	private string _path;
+	private FileSnapshot _identity;
+
+	private AdvisoryFileLock(int descriptor, string path, FileSnapshot identity) {
+		self._descriptor = descriptor;
+		self._path = path;
+		self._identity = identity;
+		btrcOwnExactFileSystemHandle();
+	}
+
+	class AdvisoryFileLockOpenOutcome acquire(string path, bool wait = false) {
+		if (path == null || path.isEmpty()) { return AdvisoryFileLockOpenOutcome.failed(FileSystemError.invalid("acquire advisory lock", path)); }
+		if (Platform.isWindows()) { return AdvisoryFileLockOpenOutcome.failed(FileSystemError.unsupported("acquire advisory lock", path)); }
+		struct stat before;
+		errno = 0;
+		bool existed = lstat(path, &before) == 0;
+		if (!existed && errno != ENOENT) { return AdvisoryFileLockOpenOutcome.failed(FileSystemError.fromNative("inspect advisory lock", path, errno)); }
+		if (existed && S_ISLNK(before.st_mode)) { return AdvisoryFileLockOpenOutcome.failed(FileSystemError.symlink("acquire advisory lock", path)); }
+		if (existed && (!S_ISREG(before.st_mode) || before.st_nlink != 1)) { return AdvisoryFileLockOpenOutcome.failed(FileSystemError.wrongType("acquire advisory lock", path)); }
+		errno = 0;
+		int descriptor = open(path, (int)O_RDWR | (int)O_CREAT | (int)O_CLOEXEC | (int)O_NOFOLLOW | (int)O_NONBLOCK, (mode_t)0600);
+		if (descriptor < 0) { return AdvisoryFileLockOpenOutcome.failed(FileSystemError.fromNative("open advisory lock", path, errno)); }
+		struct stat opened;
+		struct stat current;
+		errno = 0;
+		if (fstat(descriptor, &opened) != 0 || lstat(path, &current) != 0) {
+			int nativeCode = errno;
+			close(descriptor);
+			return AdvisoryFileLockOpenOutcome.failed(FileSystemError.fromNative("validate advisory lock", path, nativeCode));
+		}
+		if (!S_ISREG(opened.st_mode) || !S_ISREG(current.st_mode) || opened.st_nlink != 1 || current.st_nlink != 1 || opened.st_dev != current.st_dev || opened.st_ino != current.st_ino || (existed && (opened.st_dev != before.st_dev || opened.st_ino != before.st_ino))) {
+			close(descriptor);
+			return AdvisoryFileLockOpenOutcome.failed(FileSystemError.changed("validate advisory lock", path));
+		}
+		int flags = wait ? (int)LOCK_EX : ((int)LOCK_EX | (int)LOCK_NB);
+		int locked = -1;
+		do { errno = 0; locked = flock(descriptor, flags); } while (locked != 0 && errno == EINTR);
+		if (locked != 0) {
+			int nativeCode = errno;
+			close(descriptor);
+			return AdvisoryFileLockOpenOutcome.failed(FileSystemError.fromNative("acquire advisory lock", path, nativeCode));
+		}
+		var owner = AdvisoryFileLock(descriptor, Strings.copy(path), FileSnapshot.fromStatus(&opened));
+		var checked = owner.validate();
+		if (!checked.ok()) { owner.close(); return AdvisoryFileLockOpenOutcome.failed(checked.error()); }
+		return AdvisoryFileLockOpenOutcome.acquired(owner);
+	}
+
+	public bool isOpen() { return self._descriptor >= 0; }
+
+	/* Recheck after a wait and before protected work. This detects replacement;
+	 * cooperating users must retain the file to keep one shared lock identity. */
+	public FileSnapshotOutcome validate() {
+		if (!self.isOpen()) { return FileSnapshotOutcome.failed(FileSystemError.closed("validate advisory lock", self._path)); }
+		struct stat opened;
+		struct stat current;
+		errno = 0;
+		if (fstat(self._descriptor, &opened) != 0 || lstat(self._path, &current) != 0) {
+			int nativeCode = errno;
+			return FileSnapshotOutcome.failed(FileSystemError.fromNative("validate advisory lock", self._path, nativeCode));
+		}
+		if (!S_ISREG(opened.st_mode) || !S_ISREG(current.st_mode) || opened.st_nlink != 1 || current.st_nlink != 1 || !self._identity.sameObject(FileSnapshot.fromStatus(&opened)) || !self._identity.sameObject(FileSnapshot.fromStatus(&current))) {
+			return FileSnapshotOutcome.failed(FileSystemError.changed("validate advisory lock", self._path));
+		}
+		return FileSnapshotOutcome.available(FileSnapshot.fromStatus(&current));
+	}
+
+	public FileSystemCloseOutcome close() {
+		if (!self.isOpen()) { return FileSystemCloseOutcome.alreadyClosed(); }
+		int descriptor = self._descriptor;
+		self._descriptor = -1;
+		int unlocked = -1;
+		do { errno = 0; unlocked = flock(descriptor, (int)LOCK_UN); } while (unlocked != 0 && errno == EINTR);
+		int unlockError = unlocked == 0 ? 0 : errno;
+		errno = 0;
+		int closed = close(descriptor);
+		int closeError = closed == 0 ? 0 : errno;
+		btrcReleaseExactFileSystemHandle();
+		if (unlockError != 0 || closeError != 0) { return FileSystemCloseOutcome.failed(FileSystemError.fromNative("close advisory lock", self._path, unlockError != 0 ? unlockError : closeError)); }
+		return FileSystemCloseOutcome.closed();
 	}
 
 	public void __del__() { self.close(); }

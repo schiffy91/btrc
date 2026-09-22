@@ -1,0 +1,74 @@
+/* Real lock ownership and filesystem identity, through both frontends. */
+import Library.FileSystem;
+import Library.FileSystem.FileSystemHandles;
+
+#include <assert.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+int main() {
+	var initial = FileSystem.ownedHandleInventory();
+	var temporary = FileSystem.createTemporaryDirectory("btrc-advisory-lock");
+	assert(temporary.ok());
+	var root = temporary.directory();
+	string path = root.path() + "/coordination.lock";
+	assert(!AdvisoryFileLock.acquire("").ok());
+	assert(AdvisoryFileLock.acquire("").error().kind() == FS_INVALID_ARGUMENT);
+	var opened = AdvisoryFileLock.acquire(path);
+	assert(opened.ok());
+	var owner = opened.lock();
+	var alias = owner;
+	assert(owner.isOpen());
+	assert(owner.validate().ok());
+	assert(FileSystem.ownedHandleInventory().openCount() == initial.openCount() + 2);
+	var contended = AdvisoryFileLock.acquire(path);
+	assert(!contended.ok());
+	assert(contended.error().kind() == FS_RESOURCE_EXHAUSTED);
+	assert(FileSystem.ownedHandleInventory().openCount() == initial.openCount() + 2);
+	assert(owner.close().ok());
+	assert(!alias.isOpen());
+	assert(!alias.validate().ok());
+	assert(alias.close().kind() == FS_ALREADY_CLOSED);
+	assert(FileSystem.isFile(path));
+
+	for (int cycle = 0; cycle < 100; cycle++) {
+		var acquired = AdvisoryFileLock.acquire(path);
+		assert(acquired.ok());
+		assert(acquired.lock().close().ok());
+	}
+	assert(FileSystem.ownedHandleInventory().openCount() == initial.openCount() + 1);
+
+	string linked = root.path() + "/linked.lock";
+	assert(symlink(path, linked) == 0);
+	assert(!AdvisoryFileLock.acquire(linked).ok());
+	assert(AdvisoryFileLock.acquire(linked).error().kind() == FS_SYMLINK);
+	assert(unlink(linked) == 0);
+	char nativePath[4096];
+	char nativeLinked[4096];
+	assert(snprintf(nativePath, sizeof(nativePath), "%s", path) < 4096);
+	assert(snprintf(nativeLinked, sizeof(nativeLinked), "%s", linked) < 4096);
+	assert(link(nativePath, nativeLinked) == 0);
+	assert(!AdvisoryFileLock.acquire(path).ok());
+	assert(!AdvisoryFileLock.acquire(linked).ok());
+	assert(unlink(linked) == 0);
+	assert(mkfifo(nativeLinked, (mode_t)0600) == 0);
+	assert(!AdvisoryFileLock.acquire(linked).ok());
+	assert(AdvisoryFileLock.acquire(linked).error().kind() == FS_WRONG_TYPE);
+	assert(unlink(linked) == 0);
+	assert(!AdvisoryFileLock.acquire(root.path()).ok());
+
+	var replaced = AdvisoryFileLock.acquire(path);
+	assert(replaced.ok());
+	string previous = root.path() + "/previous.lock";
+	assert(rename(path, previous) == 0);
+	assert(FileSystem.writeText(path, "replacement"));
+	assert(!replaced.lock().validate().ok());
+	assert(replaced.lock().validate().error().kind() == FS_CHANGED);
+	assert(replaced.lock().close().ok());
+	assert(FileSystem.readText(path).equals("replacement"));
+	assert(FileSystem.ownedHandleInventory().openCount() == initial.openCount() + 1);
+	assert(root.close().ok());
+	assert(FileSystem.ownedHandleInventory().sameAs(initial));
+	print("PASS: advisory lock ownership and identity");
+	return 0;
+}

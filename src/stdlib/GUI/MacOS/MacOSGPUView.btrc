@@ -74,8 +74,9 @@ class MacOSGPUView implements IMacOSGPUView, IMacOSView {
 			if (state == GPU_DEVICE_FAILED) { self._error = device.error(); return false; }
 			if (state != GPU_DEVICE_READY) { return false; }
 			if (self._renderer == null) {
-				self._renderer = GPUSurfaceRenderer(device, self._target.nativeSurface(), self._capture);
-				if (self._captureRequestPending) { self._captureRequestPending = false; self._renderer.requestCapture(); }
+				var renderer = GPUSurfaceRenderer(device, self._target.nativeSurface(), self._capture);
+				self._renderer = renderer;
+				if (self._captureRequestPending) { self._captureRequestPending = false; renderer.requestCapture(); }
 			}
 		} catch (string error) { self._error = error; return false; }
 		return true;

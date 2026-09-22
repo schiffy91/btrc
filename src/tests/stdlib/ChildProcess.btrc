@@ -66,6 +66,15 @@ int childProbe(int argc, char** argv) {
 		for (int i = 0; i < 20000; i++) { fputs("err\n", stderr); }
 		return 0;
 	}
+	if (mode.equals("--binary")) {
+		fputs("before", stdout);
+		fputc(0, stdout);
+		fputs("after", stdout);
+		fputs("err", stderr);
+		fputc(0, stderr);
+		fputs("tail", stderr);
+		return 0;
+	}
 	return 64;
 }
 
@@ -135,6 +144,23 @@ int main(int argc, char** argv) {
 	ExecResult input = ChildProcess.run(executable, ["--stdin"], stdinData="anonymous input");
 	assert(input.ok());
 	assert(input.stdout().equals("stdin=anonymous input"));
+	assert(input.capturedStdoutBytes == input.stdout().length());
+	assert(input.capturedStderrBytes == 0);
+
+	ExecResult binary = ChildProcess.run(executable, ["--binary"]);
+	assert(binary.ok());
+	assert(binary.stdout().equals("before"));
+	assert(binary.stderr().equals("err"));
+	assert(binary.capturedStdoutBytes == 12 && binary.capturedStderrBytes == 8);
+	ExecResult combined = ChildProcess.run(executable, ["--binary"], stderr=CommandOutput.combine());
+	assert(combined.ok());
+	assert(combined.capturedStdoutBytes == 20 && combined.capturedStderrBytes == 0);
+	ExecResult suppressed = ChildProcess.run(executable, ["--binary"], stdout=CommandOutput.suppress(), stderr=CommandOutput.suppress());
+	assert(suppressed.ok());
+	assert(suppressed.capturedStdoutBytes == 0 && suppressed.capturedStderrBytes == 0);
+	ExecResult shellBinary = UnixShell().run(ShellWords.quote(executable) + " --binary", stderr=CommandOutput.collect());
+	assert(shellBinary.ok());
+	assert(shellBinary.capturedStdoutBytes == 12 && shellBinary.capturedStderrBytes == 8);
 
 	ExecResult pathOverride = ChildProcess.run("helper with spaces", ["--probe"], cwd=root, environment=["PATH=" + root], timeoutMilliseconds=2000);
 	assert(pathOverride.code == 23);
@@ -157,11 +183,13 @@ int main(int argc, char** argv) {
 	assert(volume.ok());
 	assert(volume.stdout().len() == 80000);
 	assert(volume.stderr().len() == 80000);
+	assert(volume.capturedStdoutBytes == 80000 && volume.capturedStderrBytes == 80000);
 
 	ExecResult bounded = ChildProcess.run(executable, ["--volume"], timeoutMilliseconds=2000, maxStdoutBytes=1024, maxStderrBytes=1024);
 	assert(bounded.code == 125);
 	assert(bounded.stdout().len() <= 1024);
 	assert(bounded.stderr().contains("capture limit"));
+	assert(bounded.capturedStdoutBytes <= 1024 && bounded.capturedStderrBytes <= 1024);
 
 	string descendantMarker = PathTools.join(root, "descendant survived");
 	Timer timer = Timer();

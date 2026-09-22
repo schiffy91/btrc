@@ -9,10 +9,13 @@ Both consume `src/language/grammar.ebnf` and `src/language/ast.asdl`, then run
 lexer, parser, analyzer, IR generation, optimization, and C emission. Language
 tests share the same source fixtures and golden runtime output.
 
-The self-hosted destination is an exact 91-file `.btrc` inventory: 85
+The self-hosted destination is an exact 99-file `.btrc` inventory: 93
 compiler/generated files and six explicit developer-tool files. At the package
 root, `Compiler.btrc` is the public application object and `BtrccMain.btrc` is
-the only production process entry point. The file-by-file inventory is recorded
+the portable Unix process entry point. `cli/WindowsMain.btrc` composes the
+Windows host without Unix SDK scanning; `cli/MacOSMain.btrc` composes the
+Unix reader and a managed native artifact digest provider for native macOS
+builds. The file-by-file inventory is recorded
 in [Compiler Structure](compiler-structure.md).
 
 ## Bootstrap contract
@@ -29,6 +32,13 @@ btrcc2(btrcc source) -> btrcc3.c
 byte. This fixed point proves that the self-built compiler reproduces itself;
 the same suite also compiles and runs a representative program with the
 self-built binary.
+
+Bootstrap stages use an explicit compiler-host target from `TargetCatalog`.
+On macOS with a configured SDK reader, the harness selects `cli/MacOSMain.btrc`;
+without that reader it preserves the portable entry. Native `make btrcc` and
+the macOS Nix package select the accelerated entry. Cross-release C continues
+to use the portable Unix entry, avoiding a new SDK dependency on cross hosts.
+The compiler's host selection does not force a target on programs it compiles.
 
 ## Stage contracts
 

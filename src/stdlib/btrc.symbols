@@ -1,4 +1,4 @@
-btrc-symbols 1 2e44d671-242855-27
+btrc-symbols 1 77d52bc1-249191-27
 Array	Array.btrc
 AtomicBuffer	OwnedBuffer.btrc
 BitPattern32	BitPattern.btrc
@@ -34,14 +34,26 @@ DateTime	Datetime.btrc
 Environment	Platform.btrc
 Error	Error.btrc
 ExecResult	Process.btrc
+FILE_DIRECTORY	IO.btrc
 FILE_LINE_READ_END	IO.btrc
 FILE_LINE_READ_IO_FAILED	IO.btrc
 FILE_LINE_READ_LIMIT_EXCEEDED	IO.btrc
 FILE_LINE_READ_LINE	IO.btrc
+FILE_OTHER	IO.btrc
+FILE_REGULAR	IO.btrc
+FILE_SNAPSHOT_AVAILABLE	IO.btrc
+FILE_SNAPSHOT_CLOSED	IO.btrc
+FILE_SNAPSHOT_FAILED	IO.btrc
+FILE_SNAPSHOT_UNSUPPORTED	IO.btrc
+FILE_SYMLINK	IO.btrc
 Failed	Callback.btrc
 File	IO.btrc
+FileKind	IO.btrc
 FileLineReadKind	IO.btrc
 FileLineReadOutcome	IO.btrc
+FileSnapshot	IO.btrc
+FileSnapshotReadKind	IO.btrc
+FileSnapshotReadOutcome	IO.btrc
 ICallbackContext	Callback.btrc
 ICallbackRegistration	Callback.btrc
 IOError	Error.btrc
@@ -113,7 +125,7 @@ callbackGateDrain	Callback.btrc
 callbackGateLeave	Callback.btrc
 callbackGateTryEnter	Callback.btrc
 environ	Process.btrc
-fileno	Process.btrc
+fileno	IO.btrc
 localeconv	JSON.btrc
 pclose	Process.btrc
 popen	Process.btrc

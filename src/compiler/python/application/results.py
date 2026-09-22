@@ -11,7 +11,7 @@ from src.compiler.python.syntax.ast.generated import Program
 
 from ..analyzer.program import AnalyzedProgram
 from ..frontend.packages import NativeLinkPlan
-from ..frontend.sources import ResolvedSource, SourceDependencyGraph
+from ..frontend.sources import ResolvedSource, SourceDependencyGraph, SourceReadIdentity
 from ..ir.nodes import IRCanonicalRenderer, IRModule
 from ..syntax.ast.codec import AstCanonicalRenderer
 from ..syntax.tokens import Token
@@ -108,10 +108,7 @@ class CompilerOptions:
             and self.output is CompilerOutput.C
             and self.stdlib_archive is None
             and not self.freestanding
-            and self.dce
-            and not self.debug
             and not self.profile
-            and self.units_prefix is None
         )
 
 
@@ -159,6 +156,20 @@ class CompilerResult:
     @property
     def source_length(self) -> int:
         return len(self.source_bundle.source) if self.source_bundle is not None else 0
+
+    @property
+    def input_identities(self) -> tuple[SourceReadIdentity, ...]:
+        return self.source_bundle.input_identities if self.source_bundle is not None else ()
+
+    @property
+    def input_paths(self) -> tuple[str, ...]:
+        """Expose resolved source/package inputs for output-path protection."""
+        paths = set(self.native_plan.input_paths())
+        if self.source_bundle is not None:
+            paths.update(self.source_bundle.graph.source_paths())
+            paths.update(path for path, _line in self.source_bundle.source_positions)
+            paths.add(self.source_bundle.root_source_path)
+        return tuple(sorted(path for path in paths if path))
 
     def map_diagnostic(self, diagnostic: CompilerDiagnostic) -> tuple[str, int] | None:
         if self.source_bundle is None:

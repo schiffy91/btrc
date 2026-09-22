@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.python.test_native_import_consumer import apple_environment
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
@@ -67,7 +68,9 @@ def test_btrc_directory_picker_appkit(tmp_path, request, frontend, sanitized):
         options = ["-O2"] if Path(command[0]).name in {"clang", "clang++"} else []
         if options and sanitized:
             options += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
-        return subprocess.run([command[0], *options, *command[1:]], env=environment, **kwargs)
+        return subprocess.run(
+            [command[0], *options, *command[1:]], env=apple_environment(kwargs.pop("env", environment)), **kwargs
+        )
 
     executable = tmp_path / "Picker"
     NativePlanBuilder(runner=run).build(
@@ -151,16 +154,29 @@ def test_btrc_text_field_appkit(tmp_path, request, frontend, sanitized, consumer
     plan = tmp_path / f"{control}.link.json"
     flags = ["--no-stdlib", "--target", f"macos-{architecture}", "--emit-link-plan", str(plan), str(source)]
     command = (
-        [sys.executable, "-B", "-m", "src.compiler.python.main", "--no-cache", *flags, "-o", str(generated)]
+        [sys.executable, "-B", "-m", "src.compiler.python.main", *flags, "-o", str(generated)]
         if frontend == "python"
         else [str(request.getfixturevalue("immutable_btrcc")), *flags]
     )
+    environment["BTRC_CACHE_DIR"] = str(tmp_path / "compiler-cache")
     compiled = subprocess.run(
         command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=BTRC_TRANSPILE_TIMEOUT
     )
     assert compiled.returncode == 0, compiled.stderr
     if frontend == "selfhost":
         generated.write_text(compiled.stdout)
+    if frontend == "python":
+        assert "(cached)" not in compiled.stdout
+        emitted = generated.read_bytes(), plan.read_bytes()
+        generated.unlink()
+        plan.unlink()
+        restored = subprocess.run(
+            command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=BTRC_TRANSPILE_TIMEOUT
+        )
+        assert restored.returncode == 0, restored.stderr
+        assert "(cached)" in restored.stdout
+        assert restored.stderr == compiled.stderr
+        assert (generated.read_bytes(), plan.read_bytes()) == emitted
     payload = json.loads(plan.read_text())
     assert len(payload["units"]) == 1  # Test driver only; the provider is BTRC.
     assert payload["generated-units"]
@@ -169,12 +185,25 @@ def test_btrc_text_field_appkit(tmp_path, request, frontend, sanitized, consumer
         options = ["-O2"] if Path(command[0]).name in {"clang", "clang++"} else []
         if options and sanitized:
             options += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
-        return subprocess.run([command[0], *options, *command[1:]], env=environment, **kwargs)
+        return subprocess.run(
+            [command[0], *options, *command[1:]], env=apple_environment(kwargs.pop("env", environment)), **kwargs
+        )
 
     executable = tmp_path / control
-    NativePlanBuilder(runner=run).build(
-        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    builder = NativePlanBuilder(runner=run)
+    options = dict(
+        plan_path=plan,
+        generated_c=generated,
+        output=executable,
+        cc="/usr/bin/clang",
+        cxx="/usr/bin/clang++",
+        object_cache=tmp_path / "objects",
     )
+    cold = builder.build(**options)
+    assert cold.adapter_source_status == "retained"
+    warm = builder.build(**options)
+    assert warm.as_dict()["compiled_units"] == 0
+    assert warm.as_dict()["reused_units"] == len(warm.units)
     completed = subprocess.run([str(executable)], env=environment, capture_output=True, text=True, timeout=30)
     assert completed.returncode == 0, completed.stdout + completed.stderr
     expected = "scroll view composition" if scrolling else "text field editing"

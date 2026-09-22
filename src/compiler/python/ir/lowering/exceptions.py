@@ -28,6 +28,7 @@ from src.compiler.python.ir.nodes import (
     IRFor,
     IRFunctionDecl,
     IRFunctionDef,
+    IRFunctionRef,
     IRGlobalDecl,
     IRIf,
     IRIndex,
@@ -274,7 +275,8 @@ class PointerFlowResult:
 
     def record_origins(self, value: object, origins) -> set[PointerOrigin]:
         result = set(origins)
-        self.origins.setdefault(id(value), set()).update(result)
+        if result:
+            self.origins.setdefault(id(value), set()).update(result)
         return result
 
     def record_write(self, value: object, origins) -> None:
@@ -516,7 +518,7 @@ class PointerFlow:
         return {storage: set(all_origins if storage.is_pointer else origins) for storage, origins in state.items()}
 
     def _expression(self, value, state):
-        if value is None:
+        if value is None or isinstance(value, (IRLiteral, IRFunctionRef)):
             return (set(), state)
         if isinstance(value, IRVar):
             storage = self._resolve(value.name)

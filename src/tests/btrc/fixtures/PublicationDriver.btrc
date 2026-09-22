@@ -1,0 +1,88 @@
+import Library.FileSystem;
+import Library.FileSystem.FileSystemHandles;
+import Library.JSON;
+import Library.Strings;
+import Library.Vector;
+
+import ../../../compiler/btrc/cli/Driver.btrc;
+import ../../../compiler/btrc/frontend/SourceIo.btrc;
+
+/* Probe before process exit, which would otherwise conceal leaked locks. */
+void verifyReleased(JSONValue configuration, FileSystemHandleInventory initial) {
+	if (!FileSystem.ownedHandleInventory().sameAs(initial)) { throw "publication leaked filesystem handles"; }
+	var paths = configuration.get("probeLocks");
+	for (int index = 0; index < paths.size(); index++) {
+		var acquired = AdvisoryFileLock.acquire(paths.at(index).asString());
+		if (!acquired.ok()) { throw "publication retained a lock after cleanup"; }
+		if (!acquired.lock().close().ok()) { throw "cannot close cleanup probe lock"; }
+	}
+	if (!FileSystem.ownedHandleInventory().sameAs(initial)) { throw "cleanup probe leaked filesystem handles"; }
+}
+
+int main(int argc, char** argv) {
+	if (argc != 3) { return 2; }
+	var initial = FileSystem.ownedHandleInventory();
+	try {
+		var configuration = JSONValue.parse(FileSystem.readText(argv[2]));
+		var sourceFiles = FeSourceFileReader();
+		var readInputs = configuration.get("readInputs");
+		for (int index = 0; index < readInputs.size(); index++) { sourceFiles.readRequired(readInputs.at(index).asString()); }
+		Vector<BtrccPublicationTarget> targets = [];
+		Vector<BtrccPublicationTarget> prior = [];
+		Vector<string> inputs = [];
+		Vector<string> contents = [];
+		Vector<int> modes = [];
+		var rows = configuration.get("targets");
+		for (int index = 0; index < rows.size(); index++) {
+			var row = rows.at(index);
+			targets.push(BtrccPublicationTarget(row.get("path").asString(), row.get("absent").asBool(), row.get("digest").asString()));
+			contents.push(row.get("content").asString());
+			modes.push((int)row.get("mode").asInt());
+		}
+		var previous = configuration.get("prior");
+		for (int index = 0; index < previous.size(); index++) {
+			var row = previous.at(index);
+			prior.push(BtrccPublicationTarget(row.get("path").asString(), row.get("absent").asBool()));
+		}
+		var protected = configuration.get("inputs");
+		for (int index = 0; index < protected.size(); index++) { inputs.push(protected.at(index).asString()); }
+		string operation = Strings.copy(argv[1]);
+		if (operation.equals("generation")) {
+			Vector<string> destinations = [];
+			Vector<string> payloads = [];
+			Vector<string> roles = [];
+			for (int index = 0; index < targets.len; index++) {
+				if (targets.get(index).absent) { continue; }
+				destinations.push(targets.get(index).path);
+				payloads.push(contents.get(index));
+				roles.push(index == 0 ? "primary" : "secondary");
+			}
+			var digests = BtrccArtifactDigests();
+			var remembered = configuration.get("digestContents");
+			for (int index = 0; index < remembered.size(); index++) { digests.digest(index, remembered.at(index).asString()); }
+			if (configuration.get("clearDigests").asBool()) { digests.clear(); }
+			var generation = BtrccGenerationOwner(sourceFiles, digests);
+			string diagnostic = generation.acquire(destinations.get(0), destinations);
+			if (diagnostic.isEmpty()) { diagnostic = generation.publish(destinations, payloads, roles, inputs); }
+			string closed = generation.close();
+			if (!generation.close().isEmpty()) { throw "generation close is not idempotent"; }
+			verifyReleased(configuration, initial);
+			if (!closed.isEmpty()) { diagnostic = diagnostic.isEmpty() ? closed : diagnostic + "; " + closed; }
+			if (!diagnostic.isEmpty()) { throw diagnostic; }
+			return 0;
+		}
+		var publication = BtrccFilePublication(configuration.get("name").asString(), targets, inputs, prior);
+		string diagnostic = "";
+		try {
+			if (operation.equals("recover")) { publication.recover(); }
+			else if (operation.equals("publish")) { publication.publish(contents, modes); }
+			else { return 2; }
+		} catch (string error) { diagnostic = error; }
+		string closed = publication.releaseLocks();
+		if (!publication.releaseLocks().isEmpty()) { throw "publication release is not idempotent"; }
+		verifyReleased(configuration, initial);
+		if (!closed.isEmpty()) { diagnostic = diagnostic.isEmpty() ? closed : diagnostic + "; " + closed; }
+		if (!diagnostic.isEmpty()) { throw diagnostic; }
+		return 0;
+	} catch (string error) { fprintf(stderr, "%s\n", error); return 1; }
+}

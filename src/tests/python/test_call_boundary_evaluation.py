@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
 from src.compiler.python.ir.lowering.calls import (
     CallBoundaryLowerer,
     CallOperand,
     CallResultPlan,
 )
 from src.compiler.python.ir.lowering.session import LoweringSession
-from src.compiler.python.ir.nodes import IRFieldAccess, IRLiteral, IRModule, IRVar
+from src.compiler.python.ir.nodes import IRBinOp, IRCall, IRFieldAccess, IRLiteral, IRModule, IRVar
 from src.compiler.python.syntax.ast.generated import TypeExpr
 
 
@@ -75,28 +77,35 @@ def _boundary(
 
 
 class TestCallBoundaryEvaluation:
-    def test_typed_result_is_volatile_only_across_exception_cleanup(self) -> None:
-        ordinary_declarations = []
-        _session, _lifetime, ordinary = _boundary()
-        ordinary._append_typed_result(
-            [],
-            [],
-            ordinary_declarations,
-            IRLiteral(text="probe()"),
-            CallResultPlan(c_type="Probe*"),
-        )
-        assert not ordinary_declarations[0].is_volatile
+    @pytest.mark.parametrize(
+        ("cleanup_scope", "has_suffix", "expected_volatile"),
+        [
+            (_CleanupScope, False, False),
+            (_CleanupScope, True, False),
+            (_ActiveCleanupScope, False, False),
+            (_ActiveCleanupScope, True, True),
+        ],
+        ids=("ordinary-result", "ordinary-cleanup", "try-result", "try-cleanup"),
+    )
+    def test_typed_result_survives_suffix_cleanup_before_delivery(
+        self, cleanup_scope, has_suffix, expected_volatile
+    ) -> None:
+        declarations = []
+        sequence = []
+        suffix = [IRCall(callee="release_operand", args=[])] if has_suffix else []
+        call = IRCall(callee="probe", args=[])
+        _session, _lifetime, boundary = _boundary(cleanup_scope())
+        boundary._append_typed_result(sequence, suffix, declarations, call, CallResultPlan(c_type="Probe*"))
 
-        protected_declarations = []
-        _session, _lifetime, protected = _boundary(_ActiveCleanupScope())
-        protected._append_typed_result(
-            [],
-            [],
-            protected_declarations,
-            IRLiteral(text="probe()"),
-            CallResultPlan(c_type="Probe*"),
-        )
-        assert protected_declarations[0].is_volatile
+        assert len(declarations) == 1
+        assert declarations[0].c_type.text == "Probe*"
+        assert declarations[0].is_volatile is expected_volatile
+        assert isinstance(sequence[0], IRBinOp)
+        assert sequence[0].op == "=" and sequence[0].right is call
+        assert sequence[0].left.name == declarations[0].name
+        assert sequence[1:-1] == suffix
+        assert isinstance(sequence[-1], IRVar)
+        assert sequence[-1].name == declarations[0].name
 
     def test_owned_operand_is_protected_by_the_retained_lifetime_owner(self) -> None:
         session, lifetime, boundary = _boundary()

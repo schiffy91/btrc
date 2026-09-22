@@ -1,0 +1,33 @@
+import Library.Strings;
+import Library.Vector;
+
+import ../../../compiler/btrc/frontend/Models.btrc;
+import ../../../compiler/btrc/frontend/NativeHeaderProcess.btrc;
+
+int main(int argc, char** argv) {
+	if (argc != 5) { return 1; }
+	Vector<string> empty = [];
+	string executable = Strings.copy(argv[1]);
+	string script = Strings.copy(argv[2]);
+	string mode = Strings.copy(argv[3]);
+	string marker = Strings.copy(argv[4]);
+	var batch = FeNativeHeaderBatch();
+	for index in range(4) {
+		var request = FeNativeHeaderRead(executable, [script, Strings.fromInt(index), mode, marker]);
+		request.timeoutMilliseconds = 1000;
+		if (!batch.append(request)) { return 2; }
+	}
+	if (batch.append(FeNativeHeaderRead(executable, empty))) { return 3; }
+	FeNativeHeaderProcess.read(batch);
+	for index in range(4) {
+		var result = batch.get(index).result();
+		if (index == 1) {
+			if (!result.isErr()) { return 4; }
+		} else if (result.isErr() || !result.unwrap().equals(f"response {index}\n")) { return 5; }
+	}
+	var large = FeNativeHeaderBatch();
+	var request = FeNativeHeaderRead(executable, empty);
+	request.maxStdoutBytes = 17 * 8388608;
+	if (!large.append(request) || large.append(FeNativeHeaderRead(executable, empty))) { return 6; }
+	return 0;
+}

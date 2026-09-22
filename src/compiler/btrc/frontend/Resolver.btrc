@@ -83,8 +83,52 @@ class FeDependencyGraphBuilder {
 
 class FeDirectiveScanner {
 	private GrammarInfo grammar;
+	private FeDirectiveCache? cache;
 
-	public FeDirectiveScanner(GrammarInfo grammar) { self.grammar = grammar; }
+	public FeDirectiveScanner(GrammarInfo grammar, FeDirectiveCache? cache = null) {
+		self.grammar = grammar;
+		self.cache = cache;
+	}
+
+	public Vector<FeDirective> scan(string source) {
+		var cache = self.cache;
+		string identity = cache == null ? "" : self.grammar.vocabulary.cacheIdentity();
+		if (cache != null) {
+			var ranges = cache.load(source, identity);
+			if (ranges != null) {
+				var restored = self.restore(source, ranges);
+				if (restored != null) { return restored; }
+			}
+		}
+		var directives = self.scanSource(source, false);
+		/* The main lexer owns lexical diagnostics. Never persist this as a
+		 * successful empty scan. */
+		if (directives == null) { Vector<FeDirective> empty = []; return empty; }
+		if (cache != null) {
+			Vector<FeDirectiveRange> ranges = [];
+			for directive in directives { ranges.push(FeDirectiveRange(directive.start, directive.end)); }
+			cache.store(source, identity, ranges);
+		}
+		return directives;
+	}
+
+	private Vector<FeDirective>? restore(string source, Vector<FeDirectiveRange> ranges) {
+		var lines = FeSourceText(source).lines();
+		Vector<FeDirective> directives = [];
+		int previous = 0;
+		for range in ranges {
+			if (range.start <= previous || range.end < range.start || range.end > lines.len) { return null; }
+			Vector<string> fragmentLines = [];
+			for (int index = range.start - 1; index < range.end; index++) { fragmentLines.push(lines.get(index)); }
+			var fragment = self.scanSource(Strings.join(fragmentLines, "\n"), true);
+			if (fragment == null || fragment.len != 1) { return null; }
+			var directive = fragment.get(0);
+			if (directive.start != 1 || directive.end != fragmentLines.len) { return null; }
+			directives.push(FeDirective(directive.kind, directive.payload, range.start, range.end));
+			previous = range.end;
+		}
+		return directives;
+	}
 
 	/* Extract the include path from a `#include "X.btrc"` preprocessor token,
      * or return "" for a C include (`<...>` or non-.btrc). */
@@ -183,10 +227,11 @@ class FeDirectiveScanner {
 
 	/* Locate whole-line import and btrc-include directives. The lexer makes
      * the scan comment- and string-aware using the pipeline grammar. */
-	public Vector<FeDirective> scan(string source) {
+	private Vector<FeDirective>? scanSource(string source, bool speculative) {
 		Vector<FeDirective> directives = [];
 		Lexer lexer = Lexer(source, self.grammar);
 		Vector<Token> tokens = lexer.tokenize();
+		if (lexer.failed) { return null; }
 
 		Map<int, int> firstCol = {};
 		Map<int, int> lastCol = {};
@@ -210,6 +255,7 @@ class FeDirectiveScanner {
 			if (isFirst && isImport) {
 				int specEnd = self.importTokenEnd(tokens, index + 1);
 				if (specEnd < 0) {
+					if (speculative) { return null; }
 					fprintf(stderr, "error: invalid import specification at line %d\n", token.line);
 					exit(1);
 				}
@@ -547,9 +593,9 @@ class FeFrontendResolver {
 	private FeSourcePathPolicy sourcePaths;
 	private FeResolvedPackages packages;
 
-	public FeFrontendResolver(GrammarInfo grammar, FeStdlibRepository stdlib, bool includeStdlib, bool strictImports, FeResolvedPackages packages = null) {
+	public FeFrontendResolver(GrammarInfo grammar, FeStdlibRepository stdlib, bool includeStdlib, bool strictImports, FeResolvedPackages packages = null, FeDirectiveCache? directiveCache = null) {
 		self.importPolicy = FePackageImportPolicy(packages == null ? null : packages.linkPlan.target);
-		self.directiveScanner = FeDirectiveScanner(grammar);
+		self.directiveScanner = FeDirectiveScanner(grammar, directiveCache);
 		self.sourceDirectories = FeSourceDirectoryScanner();
 		self.sourcePaths = FeSourcePathPolicy();
 		self.stdlib = stdlib;

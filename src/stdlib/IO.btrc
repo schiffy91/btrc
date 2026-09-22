@@ -3,10 +3,15 @@
  */
 
 import Library.Bytes;
+import Library.Platform;
 import Library.Strings;
 import Library.Vector;
 
+#include <errno.h>
 #include <sys/stat.h>
+#include <time.h>
+
+extern int fileno(FILE* stream);
 
 enum FileLineReadKind {
 	FILE_LINE_READ_LINE = 0,
@@ -70,6 +75,131 @@ class FileLineReadOutcome {
 	}
 }
 
+/* Copied metadata shared by stream inspection and exact filesystem handles.
+ * This value has no descriptor or dependency on the filesystem handle group. */
+enum FileKind {
+	FILE_REGULAR = 0,
+	FILE_DIRECTORY = 1,
+	FILE_SYMLINK = 2,
+	FILE_OTHER = 3
+};
+
+class FileSnapshot {
+	private FileKind _kind;
+	private long long _size;
+	private unsigned long long _device;
+	private unsigned long long _inode;
+	private unsigned long long _mode;
+	private unsigned long long _modifiedSeconds;
+	private unsigned long long _modifiedNanoseconds;
+	private unsigned long long _changedSeconds;
+	private unsigned long long _changedNanoseconds;
+
+	public FileSnapshot(FileKind kind, long long size, unsigned long long device, unsigned long long inode, unsigned long long mode, unsigned long long modifiedSeconds, unsigned long long modifiedNanoseconds, unsigned long long changedSeconds, unsigned long long changedNanoseconds) {
+		self._kind = kind;
+		self._size = size;
+		self._device = device;
+		self._inode = inode;
+		self._mode = mode;
+		self._modifiedSeconds = modifiedSeconds;
+		self._modifiedNanoseconds = modifiedNanoseconds;
+		self._changedSeconds = changedSeconds;
+		self._changedNanoseconds = changedNanoseconds;
+	}
+
+	class FileSnapshot fromStatus(struct stat* status) {
+		FileKind kind = FILE_OTHER;
+		if (S_ISREG(status->st_mode)) {
+			kind = FILE_REGULAR;
+		} else if (S_ISDIR(status->st_mode)) {
+			kind = FILE_DIRECTORY;
+		} else if (S_ISLNK(status->st_mode)) {
+			kind = FILE_SYMLINK;
+		}
+		/* st_mtime/st_ctime are the portable POSIX aliases for the tv_sec
+         * member of the platform's embedded timespec. POSIX places tv_sec
+         * first, so converting its address back to struct timespec preserves
+         * the native nanosecond precision on both Darwin and Linux without
+         * exposing either platform's differently named stat members. */
+		struct timespec* modified = (struct timespec*)&status->st_mtime;
+		struct timespec* changed = (struct timespec*)&status->st_ctime;
+		return FileSnapshot(kind, (long long)status->st_size, (unsigned long long)status->st_dev, (unsigned long long)status->st_ino, (unsigned long long)status->st_mode, (unsigned long long)modified->tv_sec, (unsigned long long)modified->tv_nsec, (unsigned long long)changed->tv_sec, (unsigned long long)changed->tv_nsec);
+	}
+
+	public FileKind kind() { return self._kind; }
+
+	public long long size() { return self._size; }
+
+	public bool sameObject(FileSnapshot other) { return other != null && self._device == other._device && self._inode == other._inode; }
+
+	public bool sameVersion(FileSnapshot other) { return self.sameObject(other) && self._kind == other._kind && self._size == other._size && self._mode == other._mode && self._modifiedSeconds == other._modifiedSeconds && self._modifiedNanoseconds == other._modifiedNanoseconds && self._changedSeconds == other._changedSeconds && self._changedNanoseconds == other._changedNanoseconds; }
+
+	private void appendU64(Bytes bytes, unsigned long long value) {
+		for (int shift = 0; shift < 64; shift = shift + 8) {
+			bytes.append((int)((value >> shift) & 255ULL));
+		}
+	}
+
+	/* Opaque, versioned metadata bytes for deterministic cache revisions.
+     * Equality here is not an authorization or stale-publication check;
+     * sameVersion() compares the complete captured snapshot. */
+	public Bytes cacheToken() {
+		Bytes token = Bytes();
+		token.append(1);
+		self.appendU64(token, (unsigned long long)self._kind);
+		self.appendU64(token, (unsigned long long)self._size);
+		self.appendU64(token, self._device);
+		self.appendU64(token, self._inode);
+		self.appendU64(token, self._mode);
+		self.appendU64(token, self._modifiedSeconds);
+		self.appendU64(token, self._modifiedNanoseconds);
+		self.appendU64(token, self._changedSeconds);
+		self.appendU64(token, self._changedNanoseconds);
+		return token;
+	}
+}
+
+enum FileSnapshotReadKind {
+	FILE_SNAPSHOT_AVAILABLE = 0,
+	FILE_SNAPSHOT_CLOSED = 1,
+	FILE_SNAPSHOT_UNSUPPORTED = 2,
+	FILE_SNAPSHOT_FAILED = 3
+};
+
+class FileSnapshotReadOutcome {
+	private FileSnapshotReadKind outcomeKind;
+	private FileSnapshot? value;
+	private int errorCode;
+
+	private FileSnapshotReadOutcome(FileSnapshotReadKind kind, FileSnapshot? value, int errorCode) {
+		self.outcomeKind = kind;
+		self.value = value;
+		self.errorCode = errorCode;
+	}
+
+	class FileSnapshotReadOutcome available(FileSnapshot value) {
+		if (value == null) { throw "stream snapshot is null"; }
+		return FileSnapshotReadOutcome(FILE_SNAPSHOT_AVAILABLE, value, 0);
+	}
+
+	class FileSnapshotReadOutcome closed() { return FileSnapshotReadOutcome(FILE_SNAPSHOT_CLOSED, null, 0); }
+
+	class FileSnapshotReadOutcome unsupported() { return FileSnapshotReadOutcome(FILE_SNAPSHOT_UNSUPPORTED, null, 0); }
+
+	class FileSnapshotReadOutcome failed(int nativeCode) { return FileSnapshotReadOutcome(FILE_SNAPSHOT_FAILED, null, nativeCode); }
+
+	public FileSnapshotReadKind kind() { return self.outcomeKind; }
+
+	public bool ok() { return self.outcomeKind == FILE_SNAPSHOT_AVAILABLE; }
+
+	public int nativeCode() { return self.errorCode; }
+
+	public FileSnapshot snapshot() {
+		if (self.value == null) { throw "stream snapshot unavailable"; }
+		return self.value;
+	}
+}
+
 class File {
 	private FILE* handle;
 	private string path;
@@ -90,6 +220,17 @@ class File {
 	public bool ok() { return self.isOpen; }
 
 	public bool failed() { return self.ioFailed; }
+
+	/* Copied metadata from this stream's descriptor, never a fresh path open.
+	 * Windows needs a native handle-identity provider; CRT stat is insufficient. */
+	public FileSnapshotReadOutcome snapshot() {
+		if (!self.isOpen) { return FileSnapshotReadOutcome.closed(); }
+		if (Platform.isWindows()) { return FileSnapshotReadOutcome.unsupported(); }
+		struct stat status;
+		errno = 0;
+		if (fstat(fileno(self.handle), &status) != 0) { return FileSnapshotReadOutcome.failed(errno); }
+		return FileSnapshotReadOutcome.available(FileSnapshot.fromStatus(&status));
+	}
 
 	/* Reads everything from the current position to EOF.
      * Chunked, so it works on non-seekable streams (pipes via setHandle)

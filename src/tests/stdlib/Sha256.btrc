@@ -1,8 +1,9 @@
-/* SHA-256 known vectors plus binary-safe Bytes coverage. */
+/* SHA-256 known vectors, chunk boundaries and borrowed-input lifetime. */
 
 import Library.Bytes;
 import Library.Digest.SHA256;
 import Library.Strings;
+import Library.Vector;
 
 #include <assert.h>
 
@@ -30,6 +31,78 @@ int main() {
 	lengthPrefixed.appendBytes(Bytes.fromString("abc"));
 	assert(SHA256.digestBytes(lengthPrefixed).equals("d04b72a650ce0f8ce4963330a53ee283" + "2733d2baeffff3c1d8e256cca096d120"));
 	assert(SHA256.digestBytes(Bytes.fromString("abc")).equals(SHA256.digest("abc")));
+
+
+	/* Independent hashlib answers for patterned binary messages, including
+	 * both padding-block boundaries and a full file-read chunk. */
+	Vector<int> lengths = [0, 1, 55, 56, 63, 64, 65, 119, 120, 127, 128, 129, 65535, 65536, 65537];
+	Vector<string> expected = [
+		"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		"e7cf46a078fed4fafd0b5e3aff144802b853f8ae459a4f0c14add3314b7cc3a6",
+		"2900465fcb533e05a158fd2b3be0e5e3b03740d83060aa3580e0d98a96bf2384",
+		"31454ff48ef36af2f08fd511bdc37d9d5855ac23e992e5ff5445cb6b7674a674",
+		"5f6401b96532c36de4e65beec0409b69b1d181864c8009b7a04f43e5d56350d1",
+		"94eb5de4943613fd048dc93393ab06877405faa39c11f53e9386083339833e7e",
+		"fc518669b6eb4b4dd91827ecacef86689c725bd5bab888fd3b26dbb196eec954",
+		"b0dc41b1a384e2f1203f0351b38fbeaafceef577ce1191d5bfc25da39f721eae",
+		"5df24dd802ac26132ce608dcb5f09841eef039ee0f152acf98d26d17fe4e88e6",
+		"0fe729ff19257bd6fec853acc2ea355f6b34b58e6c0f684c3e188fcdfcd9baae",
+		"0aedd4856f8eba0963627336ad5144a9a7dbe12498e6066f0165fc97d8ddee4c",
+		"4f1757ae4bffbae86d775b831765b75af154d52f7deaa46dd378051a2d3ad57f",
+		"11cad04d25d7e2ae2bde1131397c1ee623dcf0731e3e123f278fa192a9d72976",
+		"6fc179cfd193754e6109ad043f56d146c7e7d7c3623ffceae318266286f58388",
+		"3123afca912e156e19bcd2055eb92e944cf6e6fdb0eef16d65464342ad1f5a1a"
+	];
+	for (int index = 0; index < lengths.len; index++) {
+		int length = lengths.get(index);
+		var source = Bytes();
+		for (int byteIndex = 0; byteIndex < length; byteIndex++) { source.append((byteIndex * 37 + 11) & 255); }
+		assert(SHA256.digestBytes(source).equals(expected.get(index)));
+		Vector<int> chunks = length < 130 ? [1, 7, 55, 64, 65] : [55, 64, 65, 4096, 65536];
+		for chunk in chunks {
+			var digest = SHA256();
+			digest.appendBytes(null);
+			for (int offset = 0; offset < length; offset = offset + chunk) { digest.appendBytes(source.slice(offset, offset + chunk)); }
+			assert(digest.finish().equals(expected.get(index)));
+			assert(digest.finish().equals(expected.get(index)));
+		}
+		if (length < 130) {
+			for (int split = 0; split <= length; split++) {
+				var digest = SHA256();
+				digest.appendBytes(source.slice(0, split));
+				digest.appendBytes(source.slice(split, length));
+				assert(digest.finish().equals(expected.get(index)));
+			}
+		}
+		assert(source.length() == length);
+		if (length > 0) { assert(source.get(0) == 11); }
+	}
+
+	var borrowed = Bytes.fromString("abc");
+	var retained = SHA256();
+	retained.appendBytes(borrowed);
+	borrowed.set(0, 'z');
+	borrowed.free();
+	assert(retained.finish().equals(SHA256.digest("abc")));
+	bool bytesRejected = false;
+	try { retained.appendBytes(null); } catch (string error) { bytesRejected = error.equals("SHA256 is finalized"); }
+	assert(bytesRejected);
+	bool textRejected = false;
+	try { retained.appendText(""); } catch (string error) { textRejected = error.equals("SHA256 is finalized"); }
+	assert(textRejected);
+	assert(retained.finish().equals(SHA256.digest("abc")));
+
+	var first = SHA256();
+	var second = SHA256();
+	first.appendText("a");
+	second.appendText("é漢🙂");
+	first.appendBytes(Bytes.fromString("b"));
+	first.appendText(null);
+	first.appendText("c");
+	assert(first.finish().equals(SHA256.digest("abc")));
+	assert(second.finish().equals("9f9ce7bf6e75b055897605db83193fd11935acde9785cbc5cf2093c20125c4e7"));
+	assert(SHA256.digest(null).equals(SHA256.digest("")));
+	assert(SHA256.digestBytes(null).equals(SHA256.digest("")));
 
 	print("PASS: SHA256");
 	return 0;

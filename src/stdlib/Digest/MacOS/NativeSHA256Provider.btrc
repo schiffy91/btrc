@@ -1,0 +1,32 @@
+import Library.Bytes;
+import Library.Strings;
+
+/* The SDK borrows this call's input and writes into our fixed result buffer.
+ * BTRC lengths fit CC_LONG; no native state or pointer escapes. */
+class NativeSHA256Provider {
+	class string render(unsigned char* output) {
+		string digits = "0123456789abcdef";
+		var result = StringBuilder();
+		for (int index = 0; index < 32; index++) {
+			result.appendChar(digits[(int)(output[index] >> 4)]);
+			result.appendChar(digits[(int)(output[index] & 15)]);
+		}
+		return result.toString();
+	}
+
+	class string digest(string text) {
+		string input = text == null ? "" : text;
+		unsigned char output[32];
+		if (CC_SHA256((void*)input, (CC_LONG)input.length(), output) == null) { throw "native SHA256 failed"; }
+		return NativeSHA256Provider.render(output);
+	}
+
+	class string digestBytes(Bytes bytes) {
+		if (bytes == null) { return NativeSHA256Provider.digest(""); }
+		int length = bytes.length();
+		if (length < 0) { throw "SHA256 message is too large"; }
+		unsigned char output[32];
+		if (CC_SHA256((void*)bytes.data, (CC_LONG)length, output) == null) { throw "native SHA256 failed"; }
+		return NativeSHA256Provider.render(output);
+	}
+}

@@ -14,13 +14,21 @@ import ../generated/native_abi/Models.btrc;
 class FeNativeHeaderRead {
 	private string executable;
 	private Vector<string> arguments;
+	private string inputData;
 	private Result<string, string> outcome;
 	/* Toolchain probes read the driver's diagnostic listing rather than its output. */
 	public bool captureStderr = false;
+	/* Optional SDK session result; toolchain probes never populate it. */
+	public string cacheDirectory = "";
+	public string cachedResponse = "";
+	/* Preserve the existing per-selection capture allowance when requests share a process. */
+	public int maxStdoutBytes = 8388608;
+	public int timeoutMilliseconds = 60000;
 
-	public FeNativeHeaderRead(string executable, Vector<string> arguments) {
+	public FeNativeHeaderRead(string executable, Vector<string> arguments, string inputData = "") {
 		self.executable = executable;
 		self.arguments = arguments;
+		self.inputData = inputData;
 		self.outcome = new Result<string, string>(false, "", "native header reader did not complete");
 	}
 
@@ -28,12 +36,34 @@ class FeNativeHeaderRead {
 
 	public Vector<string> argv() { return self.arguments; }
 
+	public string input() { return self.inputData; }
+
 	public void complete(Result<string, string> outcome) { self.outcome = outcome; }
 
 	public Result<string, string> result() { return self.outcome; }
 }
 
-typedef CFunction<void, FeNativeHeaderRead> FeNativeHeaderReader;
+/* One synchronous dispatch owns a bounded wave of independent reads. The
+ * host completes every request before returning; semantics consume them in
+ * declaration order. An oversized allowed request runs alone. */
+class FeNativeHeaderBatch {
+	private Vector<FeNativeHeaderRead> reads = [];
+	private long allowance = 0;
+
+	public bool append(FeNativeHeaderRead request) {
+		long bytes = (long)request.maxStdoutBytes + (long)8388608;
+		if (self.reads.len >= 4 || (self.reads.len > 0 && self.allowance + bytes > (long)134217728)) { return false; }
+		self.reads.push(request);
+		self.allowance += bytes;
+		return true;
+	}
+
+	public int size() { return self.reads.len; }
+
+	public FeNativeHeaderRead get(int index) { return self.reads.get(index); }
+}
+
+typedef CFunction<void, FeNativeHeaderBatch> FeNativeHeaderReader;
 
 class FeSourceText {
 	private string content;
@@ -675,6 +705,19 @@ class FeResolvedSource {
 		if (index < 0 || index >= self.userLines.len) { return null; }
 		return self.userLines.get(index);
 	}
+}
+
+/* Cache only source ranges; resolution owns paths, packages and providers. */
+class FeDirectiveRange {
+	public int start;
+	public int end;
+
+	public FeDirectiveRange(int start, int end) { self.start = start; self.end = end; }
+}
+
+interface FeDirectiveCache {
+	Vector<FeDirectiveRange>? load(string source, string grammar);
+	void store(string source, string grammar, Vector<FeDirectiveRange> ranges);
 }
 
 class FeDirective {

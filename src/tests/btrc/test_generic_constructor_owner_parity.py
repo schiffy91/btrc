@@ -60,6 +60,32 @@ def _strict_build_and_run(generated: Path, executable: Path, compiler: str) -> N
 
 VALID_PROGRAMS = (
     pytest.param(
+        """\
+import Library.Vector;
+class Part {
+    public int value;
+    public Part(int value) { self.value = value; }
+}
+interface PartReader {
+    Vector<Part>? read(Vector<Part> parts);
+}
+class EchoParts implements PartReader {
+    public Vector<Part>? read(Vector<Part> parts) { return parts; }
+}
+int main() {
+    Vector<Part>? result = null;
+    {
+        Vector<Part> input = [Part(7)];
+        PartReader reader = EchoParts();
+        result = reader.read(input);
+    }
+    if (result == null) { return 1; }
+    return result.get(0).value - 7;
+}
+""",
+        id="interface-owned-generic-arguments",
+    ),
+    pytest.param(
         "import Library.Vector;\nint main() { return 0; }\n",
         id="imported-generic-constructor",
     ),
@@ -105,6 +131,47 @@ def test_generic_constructor_owners_have_strict_runtime_parity(
         for compiler in COMPILERS:
             executable = tmp_path / f"{frontend}-{Path(compiler).name}"
             _strict_build_and_run(generated, executable, compiler)
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "interface Unused { Vector<Part>? read(); }",
+        "interface Unused { void store(Vector<Part> parts); }",
+        "interface Unused { Vector<Vector<Part>> read(); }",
+        "interface Unused<T> { Vector<T> read(); }",
+    ],
+)
+def test_interface_only_generic_types_are_declared(semantic_btrcc, tmp_path, declaration):
+    source = f"""
+import Library.Vector;
+class Part {{ public int value = 7; }}
+{declaration}
+int main() {{ return 0; }}
+"""
+    for frontend, result, generated in _compile_pair(semantic_btrcc, tmp_path, source):
+        assert result.returncode == 0, result.stderr
+        for compiler in COMPILERS:
+            _strict_build_and_run(generated, tmp_path / f"{frontend}-{Path(compiler).name}", compiler)
+
+
+@pytest.mark.parametrize("position", ["return", "parameter"])
+def test_interface_container_arguments_keep_distinct_class_identity(semantic_btrcc, tmp_path, position):
+    result = "Vector<Other>?" if position == "return" else "Vector<Part>?"
+    parameter = "Vector<Other>" if position == "parameter" else "Vector<Part>"
+    source = f"""
+import Library.Vector;
+class Part {{ public int value = 1; }}
+class Other {{ public int value = 2; }}
+interface PartReader {{ Vector<Part>? read(Vector<Part> parts); }}
+class WrongParts implements PartReader {{
+    public {result} read({parameter} parts) {{ return null; }}
+}}
+int main() {{ return 0; }}
+"""
+    for _frontend, result, _generated in _compile_pair(semantic_btrcc, tmp_path, source):
+        assert result.returncode == 1
+        assert "interface" in result.stderr.lower(), result.stderr
 
 
 INVALID_PROGRAMS = (

@@ -1,0 +1,81 @@
+import Library.IO;
+import Library.Strings;
+import Library.Vector;
+
+import ../../../compiler/btrc/syntax/Grammar.btrc;
+import ../../../compiler/btrc/frontend/Models.btrc;
+import ../../../compiler/btrc/frontend/Resolver.btrc;
+#include <assert.h>
+
+class RememberedDirectives implements FeDirectiveCache {
+	public int loads = 0;
+	public int stores = 0;
+	public Vector<FeDirectiveRange>? ranges = null;
+	private string source = "";
+	private string grammar = "";
+
+	public Vector<FeDirectiveRange>? load(string source, string grammar) {
+		self.loads++;
+		if (!self.source.equals(source) || !self.grammar.equals(grammar)) { return null; }
+		return self.ranges;
+	}
+
+	public void store(string source, string grammar, Vector<FeDirectiveRange> ranges) {
+		self.stores++;
+		self.source = source;
+		self.grammar = grammar;
+		self.ranges = ranges;
+	}
+}
+
+int main(int argc, char** argv) {
+	if (argc != 4) { return 2; }
+	var grammar = EbnfGrammarParser(Path.readAll(Strings.copy(argv[1]))).parse();
+	string source = Path.readAll(Strings.copy(argv[2]));
+	string mode = Strings.copy(argv[3]);
+	var cache = RememberedDirectives();
+	var scanner = FeDirectiveScanner(grammar, cache);
+	var first = scanner.scan(source);
+	if (mode.equals("malformed")) {
+		assert(cache.stores == 0);
+		scanner.scan(source);
+		assert(cache.stores == 0);
+		print("uncached lexical failure");
+		return 0;
+	}
+	assert(cache.stores == 1);
+	if (mode.equals("grammar")) {
+		grammar.vocabulary.addKeyword("unusedKeyword", "UNUSED");
+	} else if (mode.equals("grammar-keyword-replace")) {
+		grammar.vocabulary.addKeyword("return", "CHANGED");
+	} else if (mode.equals("grammar-operator")) {
+		grammar.vocabulary.addOperator("~~", "UNUSED");
+	} else if (mode.equals("grammar-operator-replace")) {
+		grammar.vocabulary.addOperator("+", "CHANGED");
+	} else if (mode.equals("grammar-annotation")) {
+		grammar.vocabulary.addAnnotation("unusedAnnotation", "UNUSED");
+	} else if (mode.equals("bad-range")) {
+		Vector<FeDirectiveRange> invalid = [FeDirectiveRange(0, 1)];
+		cache.ranges = invalid;
+	} else if (mode.equals("bad-fragment")) {
+		/* Line two is an invalid import inside a multiline comment. A
+		 * speculative fragment must miss rather than terminate the process. */
+		Vector<FeDirectiveRange> invalid = [FeDirectiveRange(2, 2)];
+		cache.ranges = invalid;
+	}
+	var second = scanner.scan(source);
+	assert(first.len == second.len);
+	for (int index = 0; index < second.len; index++) {
+		var item = second.get(index);
+		assert(first.get(index).kind.equals(item.kind));
+		assert(first.get(index).payload.equals(item.payload));
+		assert(first.get(index).start == item.start);
+		assert(first.get(index).end == item.end);
+		print(f"{item.kind}:{item.start}:{item.end}:{item.payload}");
+	}
+	if (mode.equals("warm")) { assert(cache.stores == 1); }
+	else { assert(cache.stores == 2); }
+	assert(cache.loads == 2);
+	print(f"loads={cache.loads} stores={cache.stores}");
+	return 0;
+}

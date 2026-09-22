@@ -503,8 +503,8 @@ class NativeLinkPlan:
     packages: tuple[PackageNode, ...] = ()
     declarations: tuple[NativeDeclaration, ...] = ()
     generated_units: tuple[NativeGeneratedUnit, ...] = ()
-    # Secondary translation units emitted beside the generated C, if any.
-    emitted_units: int = 0
+    # Ordered absolute paths of secondary compiler outputs (schema 4).
+    emitted_units: tuple[str, ...] = ()
 
     @property
     def bindings(self) -> tuple[NativeBinding, ...]:
@@ -522,6 +522,19 @@ class NativeLinkPlan:
             raise IncludeResolutionError(
                 f"native binding for module {binding.module!r} requires BTRC_NATIVE_HEADER_READER for typed header imports"
             )
+
+    def input_paths(self) -> tuple[str, ...]:
+        """Known package/native inputs that generated output must not replace."""
+        paths = {
+            os.path.join(package.root, filename) for package in self.packages for filename in ("btrc.toml", "btrc.lock")
+        }
+        paths.update(
+            item.value
+            for item in self.declarations
+            if item.kind in {"source", "header"} and item.selected_for(self.target)
+        )
+        paths.update(binding.header for binding in self.bindings)
+        return tuple(sorted(paths))
 
     @classmethod
     def empty(cls, target: PackageTarget | None = None) -> NativeLinkPlan:
@@ -600,9 +613,9 @@ class NativeLinkPlan:
             result["generated-units"] = [
                 unit.as_dict() for unit in sorted(self.generated_units, key=lambda unit: unit.name)
             ]
-        if self.emitted_units > 0:
-            result["schema"] = 3
-            result["emitted-units"] = self.emitted_units
+        if self.emitted_units:
+            result["schema"] = 4
+            result["emitted-units"] = list(self.emitted_units)
         return result
 
     def canonical_json(self) -> str:
@@ -616,6 +629,68 @@ class NativeLinkPlan:
             )
             + "\n"
         )
+
+    @staticmethod
+    def output_prefix(prefix: str) -> str:
+        """Resolve the destination directory without following the output file.
+
+        Resolve a complete output name first: prefixes ending in '/', '.' or
+        '..' name files only after their unit suffix has been appended.
+        """
+        suffix = ".unit-1.c"
+        directory, filename = os.path.split(prefix + suffix)
+        return os.path.join(os.path.realpath(directory or "."), filename).removesuffix(suffix)
+
+    def with_emitted_units(self, prefix: str | None, count: int) -> NativeLinkPlan:
+        """Name secondary outputs independently of the primary C destination."""
+        if type(count) is not int or count < 0 or (count and not prefix):
+            raise ValueError("emitted units require a nonnegative count and an output prefix")
+        absolute_prefix = self.output_prefix(prefix) if count else ""
+        return replace(
+            self,
+            emitted_units=tuple(f"{absolute_prefix}.unit-{index}.c" for index in range(1, count + 1)),
+        )
+
+    def with_cached_artifacts(
+        self, serialized: str, emitted_units: int, units_prefix: str | None = None
+    ) -> NativeLinkPlan | None:
+        """Restore generated adapters only when all resolved plan facts match."""
+        if type(emitted_units) is not int or emitted_units < 0:
+            return None
+        try:
+            document = json.loads(serialized)
+            if not isinstance(document, dict):
+                return None
+            records = document.get("generated-units", [])
+            if not isinstance(records, list):
+                return None
+            units = []
+            for record in records:
+                if (
+                    not isinstance(record, dict)
+                    or set(record) != {"name", "language", "standard", "memory-management", "source"}
+                    or not all(isinstance(value, str) and value and "\0" not in value for value in record.values())
+                ):
+                    return None
+                language = record["language"]
+                memory = "arc" if language.startswith("objective-c") else "raii" if language == "c++" else "manual"
+                if (
+                    not _IDENTIFIER.fullmatch(record["name"])
+                    or record["standard"] not in _SOURCE_STANDARDS.get(language, ())
+                    or record["memory-management"] != memory
+                ):
+                    return None
+                units.append(
+                    NativeGeneratedUnit(record["name"], language, record["standard"], memory, record["source"])
+                )
+            if len({unit.name for unit in units}) != len(units):
+                return None
+            restored = replace(self, generated_units=tuple(units)).with_emitted_units(units_prefix, emitted_units)
+            # Canonical equality rejects unknown/duplicate fields, wrong unit
+            # count, stale package roots/flags/target, and changed schema/order.
+            return restored if restored.canonical_json() == serialized else None
+        except (ValueError, RecursionError):
+            return None
 
     @staticmethod
     def _source_identity(path: str) -> str:

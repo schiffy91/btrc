@@ -105,7 +105,7 @@ def reader() -> str:
     return executable
 
 
-def read(reader, tmp_path, source, symbols, *flags, record_values=()):
+def read(reader, tmp_path, source, symbols, *flags, record_values=(), record_paths=()):
     path = tmp_path / "Native.c"
     path.write_text(source, encoding="utf-8")
     result = subprocess.run(
@@ -113,6 +113,7 @@ def read(reader, tmp_path, source, symbols, *flags, record_values=()):
             reader,
             *(f"--symbol={name}" for name in symbols),
             *(f"--record-value={name}" for name in record_values),
+            *(f"--record-path={name}" for name in record_paths),
             str(path),
             "--",
             "-x",
@@ -133,6 +134,289 @@ def underlying(value):
     while value["kind"] in {"typedef", "qualified"}:
         value = value["underlying"]
     return value
+
+
+def read_batch(reader, tmp_path, source, requests, *flags, extra=()):
+    path = tmp_path / "Native.c"
+    path.write_text(source, encoding="utf-8")
+    batch = tmp_path / "Requests.json"
+    batch.write_text(json.dumps({"schema": "btrc.native-requests.v1", "requests": requests}), encoding="utf-8")
+    return subprocess.run(
+        [reader, f"--batch={batch}", *extra, str(path), "--", "-x", "c", "-std=c11", *flags],
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+
+
+@pytest.mark.parametrize("target", ["x86_64-unknown-linux-gnu", "i686-unknown-linux-gnu"])
+def test_native_reader_batch_matches_independent_selections(reader, tmp_path, target):
+    source = "struct Point { long x; int y; }; struct Point point(void); int count(void);"
+    requests = [
+        {"id": "point", "symbols": ["point"]},
+        {"id": "count", "symbols": ["count"]},
+        {"id": "missing", "symbols": ["absent"]},
+        {"id": "point-again", "symbols": ["point"]},
+    ]
+    result = read_batch(reader, tmp_path, source, requests, f"--target={target}")
+    assert result.returncode == 0, result.stderr
+    document = json.loads(result.stdout)
+    assert document["schema"] == "btrc.native-responses.v1"
+    assert [item["id"] for item in document["results"]] == [item["id"] for item in requests]
+    for request, item in zip(requests, document["results"], strict=True):
+        standalone = read(reader, tmp_path, source, request["symbols"], f"--target={target}")
+        if standalone.returncode:
+            assert item["document"] is None
+            assert standalone.stderr.strip().splitlines() == [f"error: {error}" for error in item["errors"]]
+        else:
+            assert item["errors"] == []
+            assert item["document"] == json.loads(standalone.stdout)
+            NativeHeaderCodec().decode(json.dumps(item["document"]), expected_target=target)
+    assert document["results"][1]["document"]["records"] == []
+
+
+def test_native_reader_batch_does_not_union_cpp_authority(reader, tmp_path):
+    source = 'struct Point { int x; }; extern "C" Point point();'
+    requests = [
+        {"id": "owner", "symbols": ["Point", "point"], "record_values": ["Point"]},
+        {"id": "unselected-owner", "symbols": ["point"]},
+        {"id": "owner-again", "symbols": ["Point", "point"], "record_values": ["Point"]},
+    ]
+    flags = ("-x", "c++", "-std=c++17")
+    result = read_batch(reader, tmp_path, source, requests, *flags)
+    assert result.returncode == 0, result.stderr
+    for request, item in zip(requests, json.loads(result.stdout)["results"], strict=True):
+        standalone = read(
+            reader, tmp_path, source, request["symbols"], *flags, record_values=request.get("record_values", ())
+        )
+        if standalone.returncode:
+            assert item["document"] is None
+            assert any("C++ record adapters" in error for error in item["errors"])
+        else:
+            assert not item["errors"]
+            assert item["document"] == json.loads(standalone.stdout)
+
+
+def test_native_reader_batch_keeps_record_paths_independent(reader, tmp_path):
+    source = "struct Inner { int count; }; struct Outer { struct Inner *inner; }; typedef struct Outer *Handle;"
+    requests = [
+        {"id": "opaque", "symbols": ["Handle"]},
+        {"id": "snapshot", "symbols": ["Handle"], "record_paths": ["Handle.inner.count"]},
+        {"id": "bad-path", "symbols": ["Handle"], "record_paths": ["Handle.absent"]},
+    ]
+    result = read_batch(reader, tmp_path, source, requests)
+    assert result.returncode == 0, result.stderr
+    for request, item in zip(requests, json.loads(result.stdout)["results"], strict=True):
+        standalone = read(
+            reader,
+            tmp_path,
+            source,
+            request["symbols"],
+            record_paths=request.get("record_paths", ()),
+        )
+        if standalone.returncode:
+            assert item["document"] is None
+            assert standalone.stderr.strip().splitlines() == [f"error: {error}" for error in item["errors"]]
+        else:
+            assert not item["errors"]
+            assert item["document"] == json.loads(standalone.stdout)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_native_reader_batch_record_path_requires_its_own_selected_owner(reader, tmp_path, reverse):
+    source = "struct Point { int value; }; typedef struct Point *Handle; int count(void);"
+    requests = [
+        {"id": "owner", "symbols": ["Handle"], "record_paths": ["Handle.value"]},
+        {"id": "unselected", "symbols": ["count"], "record_paths": ["Handle.value"]},
+        {"id": "plain", "symbols": ["count"]},
+    ]
+    if reverse:
+        requests.reverse()
+    result = read_batch(reader, tmp_path, source, requests)
+    assert result.returncode == 0, result.stderr
+    responses = {item["id"]: item for item in json.loads(result.stdout)["results"]}
+    assert responses["unselected"]["document"] is None
+    assert responses["unselected"]["errors"] == ["Record path requires a selected SDK record owner: Handle.value"]
+    for request in requests:
+        if request["id"] == "unselected":
+            continue
+        standalone = read(reader, tmp_path, source, request["symbols"], record_paths=request.get("record_paths", ()))
+        assert standalone.returncode == 0, standalone.stderr
+        assert responses[request["id"]]["errors"] == []
+        assert responses[request["id"]]["document"] == json.loads(standalone.stdout)
+    assert responses["plain"]["document"]["records"] == []
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_native_reader_batch_ambiguities_keep_request_scope_and_declaration_order(reader, tmp_path, reverse):
+    source = 'struct Counter { int z(int); int z(double); int a(int); int a(double); };extern "C" int count();'
+    requests = [
+        {"id": "both", "symbols": ["Counter::a", "Counter::z"]},
+        {"id": "one", "symbols": ["Counter::z"]},
+        {"id": "clean", "symbols": ["Counter", "count"]},
+    ]
+    if reverse:
+        requests.reverse()
+    flags = ("-x", "c++", "-std=c++17")
+    result = read_batch(reader, tmp_path, source, requests, *flags)
+    assert result.returncode == 0, result.stderr
+    responses = {item["id"]: item for item in json.loads(result.stdout)["results"]}
+    assert responses["both"]["document"] is None
+    assert responses["both"]["errors"] == [
+        "Ambiguous native declaration: Counter::z",
+        "Ambiguous native declaration: Counter::a",
+    ]
+    assert responses["one"]["document"] is None
+    assert responses["one"]["errors"] == ["Ambiguous native declaration: Counter::z"]
+    standalone = read(reader, tmp_path, source, ["Counter", "count"], *flags)
+    assert standalone.returncode == 0, standalone.stderr
+    assert responses["clean"]["errors"] == []
+    assert responses["clean"]["document"] == json.loads(standalone.stdout)
+
+
+@pytest.mark.parametrize(
+    "requests",
+    [
+        [],
+        [None],
+        [{"id": "one", "symbols": []}],
+        [{"id": "one", "symbols": ["count"], "record_paths": None}],
+        [{"id": "one", "symbols": ["count"], "record_values": [False]}],
+        [{"id": "one", "symbols": ["count"], "unexpected": []}],
+        [{"id": "one", "symbols": ["count"]}] * 2,
+        [{"id": "", "symbols": ["count"]}],
+        [{"id": "one", "symbols": ["count\x00"]}],
+    ],
+)
+def test_native_reader_batch_rejects_malformed_selections(reader, tmp_path, requests):
+    result = read_batch(reader, tmp_path, "int count(void);", requests)
+    assert result.returncode != 0 and not result.stdout
+    assert "error:" in result.stderr
+
+
+def test_native_reader_batch_parse_failure_has_no_partial_output(reader, tmp_path):
+    result = read_batch(reader, tmp_path, "int count(void); int broken(;", [{"id": "one", "symbols": ["count"]}])
+    assert result.returncode != 0 and not result.stdout
+    assert "error:" in result.stderr
+
+
+def test_native_reader_batch_rejects_mixed_selection_modes(reader, tmp_path):
+    result = read_batch(
+        reader, tmp_path, "int count(void);", [{"id": "one", "symbols": ["count"]}], extra=("--symbol=count",)
+    )
+    assert result.returncode != 0 and not result.stdout
+    assert "batch cannot be combined" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "contents",
+    ["{", '{"schema":"unknown","requests":[]}', '{"schema":"btrc.native-requests.v1","requests":[],"extra":0}'],
+)
+def test_native_reader_batch_rejects_invalid_envelope(reader, tmp_path, contents):
+    batch = tmp_path / "Requests.json"
+    batch.write_text(contents, encoding="utf-8")
+    path = tmp_path / "Native.c"
+    path.write_text("int count(void);", encoding="utf-8")
+    result = subprocess.run(
+        [reader, f"--batch={batch}", str(path), "--", "-x", "c"], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode != 0 and not result.stdout
+    assert "error:" in result.stderr
+
+
+def test_native_reader_batch_stdin_matches_file(reader, tmp_path):
+    requests = [{"id": "first", "symbols": ["count"]}, {"id": "second", "symbols": ["count"]}]
+    file_result = read_batch(reader, tmp_path, "int count(void);", requests)
+    assert file_result.returncode == 0, file_result.stderr
+    result = subprocess.run(
+        [reader, "--batch=-", str(tmp_path / "Native.c"), "--", "-x", "c", "-std=c11"],
+        input=json.dumps({"schema": "btrc.native-requests.v1", "requests": requests}),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == file_result.stdout
+
+
+def test_native_reader_batch_missing_file_has_no_output(reader, tmp_path):
+    path = tmp_path / "Native.c"
+    path.write_text("int count(void);", encoding="utf-8")
+    result = subprocess.run(
+        [reader, f"--batch={tmp_path / 'Missing.json'}", str(path), "--", "-x", "c"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode != 0 and not result.stdout
+    assert "cannot read native request batch" in result.stderr
+
+
+def test_native_reader_batch_documents_keep_codec_parity(reader, codec_probe, tmp_path):
+    result = read_batch(
+        reader,
+        tmp_path,
+        "struct Point { long x; int y; }; struct Point point(void); int count(void);",
+        [{"id": "point", "symbols": ["point"]}, {"id": "count", "symbols": ["count"]}],
+    )
+    assert result.returncode == 0, result.stderr
+    for item in json.loads(result.stdout)["results"]:
+        assert not item["errors"]
+        assert_codec_parity(codec_probe, tmp_path, json.dumps(item["document"]))
+
+
+def test_native_reader_batch_preserves_objective_c_receivers(reader, tmp_path):
+    source = (
+        "__attribute__((objc_root_class)) @interface Root\n"
+        "- (int)value;\n@end\n"
+        "@interface Child : Root\n- (void)setValue:(int)value;\n@end\n"
+    )
+    requests = [
+        {"id": "base", "symbols": ["-[Root value]"]},
+        {"id": "child", "symbols": ["-[Child value]", "-[Child setValue:]"]},
+        {"id": "missing", "symbols": ["-[Child missing]"]},
+    ]
+    flags = ("-x", "objective-c", "-fobjc-arc", "--target=arm64-apple-macosx14.0.0")
+    result = read_batch(reader, tmp_path, source, requests, *flags)
+    assert result.returncode == 0, result.stderr
+    for request, item in zip(requests, json.loads(result.stdout)["results"], strict=True):
+        standalone = read(reader, tmp_path, source, request["symbols"], *flags)
+        if standalone.returncode:
+            assert item["document"] is None
+            assert standalone.stderr.strip().splitlines() == [f"error: {error}" for error in item["errors"]]
+        else:
+            assert not item["errors"]
+            assert item["document"] == json.loads(standalone.stdout)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_native_reader_batch_indexes_implicit_accessors_and_separate_protocol_names(reader, tmp_path, reverse):
+    source = (
+        "@protocol Root\n- (double)value;\n@end\n"
+        "@protocol Required\n- (int)requiredValue;\n@end\n"
+        "__attribute__((objc_root_class)) @interface Root\n@property int value;\n@end\n"
+        "@interface Child : Root\n@end\n"
+    )
+    requests = [
+        {"id": "base", "symbols": ["-[Root value]", "-[Root setValue:]"]},
+        {"id": "child", "symbols": ["-[Child value]", "-[Child setValue:]"]},
+        {"id": "protocol", "symbols": ["-[Required requiredValue]"]},
+    ]
+    if reverse:
+        requests.reverse()
+    flags = ("-x", "objective-c", "-fobjc-arc", "--target=arm64-apple-macosx14.0.0")
+    result = read_batch(reader, tmp_path, source, requests, *flags)
+    assert result.returncode == 0, result.stderr
+    for request, item in zip(requests, json.loads(result.stdout)["results"], strict=True):
+        standalone = read(reader, tmp_path, source, request["symbols"], *flags)
+        assert standalone.returncode == 0, standalone.stderr
+        assert item["errors"] == []
+        assert item["document"] == json.loads(standalone.stdout)
+        if request["id"] == "protocol":
+            assert item["document"]["interfaces"] == []
+            assert item["document"]["declarations"][0]["protocol_owner"]
+        else:
+            assert {entry["owner"] for entry in item["document"]["declarations"]} == {"Root"}
 
 
 @pytest.mark.parametrize(
@@ -791,6 +1075,11 @@ def test_cpp_pugixml_sdk_resource_metadata(reader, codec_probe, tmp_path):
         for name in ("empty", "type", "name", "child_value()", "first_child", "next_sibling()", "first_attribute")
     ]
     symbols += ["pugi::xml_attribute::" + name for name in ("empty", "name", "value", "next_attribute")]
+    # Like production imports, the direct reader needs the configured C++
+    # driver's standard-library paths; an SDK sysroot alone does not supply them.
+    include_directories = NativeDeclarationImporter._cxx_toolchain_includes(
+        "c++17", os.environ["BTRC_NATIVE_TARGET"], os.environ["BTRC_NATIVE_SYSROOT"]
+    )
     result = read(
         reader,
         tmp_path,
@@ -800,6 +1089,7 @@ def test_cpp_pugixml_sdk_resource_metadata(reader, codec_probe, tmp_path):
         "c++",
         "-std=c++17",
         *shlex.split(flags.stdout),
+        *(argument for directory in include_directories for argument in ("-isystem", directory)),
         "-isysroot",
         os.environ["BTRC_NATIVE_SYSROOT"],
         "-target",

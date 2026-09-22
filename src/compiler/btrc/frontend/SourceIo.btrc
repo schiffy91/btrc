@@ -1,7 +1,9 @@
 /* Bounded source filesystem, path, and decoding owners. */
 
 import Library.Bytes;
+import Library.Digest.SHA256;
 import Library.FileSystem;
+import Library.FileSystem.FileSystemHandles;
 import Library.Map;
 import Library.IO;
 import Library.Platform;
@@ -232,14 +234,92 @@ class FeUtf8SourceDecoder {
 	}
 }
 
+/* Source bytes and their original path binding travel together. No native
+ * descriptor is retained for the duration of compilation. */
+class FeSourceReadIdentity {
+	private string path;
+	private string canonical;
+	private FileSnapshot version;
+
+	public FeSourceReadIdentity(string path, FileSnapshot version) {
+		self.path = PathTools.isAbsolute(path) ? path : PathTools.join(FileSystem.currentDirectory(), path);
+		self.canonical = PathTools.absolute(self.path);
+		self.version = version;
+	}
+
+	public string validate() {
+		if (!PathTools.absolute(self.path).equals(self.canonical)) { return "source input changed after read: " + self.path; }
+		var current = FileSystem.inspectExact(self.canonical);
+		if (!current.ok() || !self.version.sameVersion(current.snapshot())) { return "source input changed after read: " + self.path; }
+		return "";
+	}
+
+	public bool sameVersion(FileSnapshot version) { return self.version.sameVersion(version); }
+}
+
 /* Fail-closed source-file input for one compiler application.  A source file is
  * read until the operating system reports end of file; only real open, read,
  * close, decoding, and allocation failures are diagnosed.  Buffer growth keeps
  * its own integer-overflow protection. */
 class FeSourceFileReader {
 	private FeUtf8SourceDecoder decoder;
+	private Map<string, bool> readPaths = {};
+	private Map<string, FeSourceReadIdentity> readIdentities = {};
+	private Map<string, string> contentDigests = {};
 
 	public FeSourceFileReader() { self.decoder = FeUtf8SourceDecoder(); }
+
+	/* Copied inventory of successful reads, including grammar, manifests and
+	 * stdlib metadata as well as source text. Output validation consumes it. */
+	public Vector<string> inputPaths() { return self.readPaths.keys(); }
+
+	/* Content and requested/canonical names, never modification times. Fresh
+	 * resolution discovers removed imports and newly shadowing files first. */
+	public string contentIdentity() {
+		var digest = SHA256();
+		var paths = self.contentDigests.keys();
+		paths.sortBy((string left, string right) => Strings.lessThan(left, right));
+		for path in paths {
+			digest.appendText(SHA256.digest(path));
+			digest.appendText(self.contentDigests.get(path));
+		}
+		return digest.finish();
+	}
+
+	/* Optional tool identity: binary bytes are never decoded as source. Missing
+	 * or unstable executables disable reuse; normal execution owns diagnostics. */
+	public string binaryIdentity(string path) {
+		if (path.isEmpty() || Platform.isWindows()) { return ""; }
+		var opened = RegularFileSnapshot.open(PathTools.absolute(path), 9223372036854775807LL);
+		if (!opened.ok()) { return ""; }
+		var file = opened.snapshot();
+		var identity = FeSourceReadIdentity(path, file.revision());
+		var digest = SHA256();
+		long long offset = 0LL;
+		bool valid = identity.validate().isEmpty();
+		while (valid && offset < file.size()) {
+			int count = file.size() - offset > 65536LL ? 65536 : (int)(file.size() - offset);
+			var part = file.readExactAt(offset, count);
+			if (!part.ok()) { valid = false; break; }
+			digest.appendBytes(part.bytes());
+			offset = offset + (long long)count;
+		}
+		bool closed = file.close().ok();
+		if (!valid || !closed || !identity.validate().isEmpty()) { return ""; }
+		if (!self.readIdentities.has(path)) { self.readIdentities.put(path, identity); }
+		self.readPaths.put(path, true);
+		string result = digest.finish();
+		self.contentDigests.put(path, SHA256.digest(PathTools.absolute(path)) + result);
+		return result;
+	}
+
+	public string validateInputs() {
+		for path in self.readIdentities.keys() {
+			string diagnostic = self.readIdentities.get(path).validate();
+			if (!diagnostic.isEmpty()) { return diagnostic; }
+		}
+		return "";
+	}
 
 	private void fail(string path, string reason) {
 		fprintf(stderr, "error: cannot read source file '%s': %s\n", path, reason);
@@ -249,12 +329,39 @@ class FeSourceFileReader {
 	public string readRequired(string path) {
 		File source = File(path, "rb");
 		if (!source.ok()) { self.fail(path, "open failed"); }
+		FeSourceReadIdentity? identity = null;
+		/* Named-primary Windows publication is already unavailable until native
+		 * private storage/locks exist. Do not fabricate identity from CRT stat. */
+		if (!Platform.isWindows()) {
+			var before = source.snapshot();
+			if (!before.ok()) { source.close(); self.fail(path, "cannot inspect opened source"); }
+			identity = FeSourceReadIdentity(path, before.snapshot());
+			string diagnostic = identity.validate();
+			if (!diagnostic.isEmpty()) { source.close(); self.fail(path, diagnostic); }
+		}
 		Bytes encoded = source.readBytes();
 		bool readFailed = source.failed();
+		string changed = "";
+		if (identity != null) {
+			var after = source.snapshot();
+			if (!after.ok() || !identity.sameVersion(after.snapshot())) { changed = "source input changed during read"; }
+		}
 		bool closed = source.close();
 		if (readFailed) { self.fail(path, "read failed"); }
 		if (!closed || source.failed()) { self.fail(path, "close failed"); }
-		return self.decoder.decode(encoded, path);
+		if (!changed.isEmpty()) { self.fail(path, changed); }
+		if (identity != null) {
+			string diagnostic = identity.validate();
+			if (!diagnostic.isEmpty()) { self.fail(path, diagnostic); }
+			/* Reusable repositories may read a newer snapshot. Keep the original
+			 * identity so a later read cannot bless a mixed output generation;
+			 * publication validates the complete reader inventory separately. */
+			if (!self.readIdentities.has(path)) { self.readIdentities.put(path, identity); }
+		}
+		string decoded = self.decoder.decode(encoded, path);
+		self.readPaths.put(path, true);
+		self.contentDigests.put(path, SHA256.digest(PathTools.absolute(path)) + SHA256.digest(decoded));
+		return decoded;
 	}
 }
 

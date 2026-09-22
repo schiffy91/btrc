@@ -230,7 +230,7 @@ class SetjmpPointerFlowResult {
 	public Vector<SetjmpOrigin> writesFor(IRNode? node) { return self.nodeOrigins(self.writesByNode, node); }
 
 	public void recordOrigins(IRNode? node, Vector<SetjmpOrigin> values) {
-		if (node == null) { return; }
+		if (node == null || values.len == 0) { return; }
 		if (self.originsByNode.has(node)) {
 			self.addOrigins(self.originsByNode.get(node).origins, values);
 			return;
@@ -1072,6 +1072,7 @@ class SetjmpEffectAnalysis {
 	private Vector<SetjmpOrigin> flowExpression(SetjmpPointerFlow flow, IRNode? value) {
 		Vector<SetjmpOrigin> origins = [];
 		if (value == null) { return origins; }
+		if (value.kind == IRK_LITERAL || value.kind == IRK_FUNCTION_REF) { return origins; }
 		if (value.kind == IRK_VAR) {
 			SetjmpStorage? storage = flow.resolve(value.name);
 			if (value.arrayStorageKnown && value.arrayStorageRoot != "") {

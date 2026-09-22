@@ -443,13 +443,13 @@ and their golden output live alongside the topic-organized corpus in
 ## btrc Compiler (src/compiler/btrc/)
 
 The self-hosted compiler implements the same six-stage pipeline with fat tagged
-AST and IR nodes. Its destination contains exactly 95 `.btrc` files: 89
+AST and IR nodes. Its destination contains exactly 99 `.btrc` files: 93
 compiler/generated files and six explicit developer-tool files. Only
 `Compiler.btrc` and the thin `BtrccMain.btrc` process entry point remain at the
 package root. The owned packages are:
 
 ```text
-cli/                              BtrccDriver and Windows host entry point
+cli/                              BtrccDriver and Windows/macOS host entry points
 pipeline/                         stage manifest, mutable options/results, CompilerPipeline
 syntax/                           grammar, tokens, identity/canonical rendering, types, literals
 generated/ast/                    ASDL-generated Node data/schema only
@@ -482,7 +482,7 @@ and the parse inspection tool calls that owner; generated `Node` data owns no
 formatting behavior. The unified generator check structurally verifies that
 the handwritten renderer covers every ASDL constructor and field.
 
-The exact 95-file inventory is normative in
+The exact 99-file inventory is normative in
 `docs/design/compiler-structure.md`. Stage manifests contain imports only;
 implementation behavior belongs to the concrete owner. The unified language
 runner executes the corpus through both compilers, and the bootstrap suite
@@ -492,7 +492,11 @@ Host capabilities are composed at the process entry point. `BtrccMain.btrc`
 supplies the bounded Unix SDK-reader process; `cli/WindowsMain.btrc` uses the
 same driver and pipeline without SDK scanning, until a real Windows process
 provider exists. Native semantics depend only on `FeNativeHeaderReader`, not
-on Unix process APIs. Build and bootstrap the entry point for the compiler's
+on Unix process APIs. The explicit `cli/MacOSMain.btrc` entry additionally composes the SDK-backed
+artifact digest provider. It intentionally adds one host-composition file to
+the previously checked 98-file inventory; the six stage owners are unchanged. The portable
+Unix entry remains usable without SDK hashing, including cross releases.
+Build and bootstrap the entry point for the compiler's
 host, not for the target of an arbitrary program it later compiles.
 
 ## Verification

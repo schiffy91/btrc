@@ -12,7 +12,14 @@
  * source of executable or language data.
  */
 
+import Library.Bytes;
 import Library.FileSystem;
+import Library.FileSystem.FileSystemHandles;
+import Library.IO;
+import Library.Map;
+import Library.JSON;
+import Library.Digest.SHA256;
+import Library.Process;
 import Library.Platform;
 import Library.Strings;
 import Library.Vector;
@@ -169,6 +176,8 @@ class BtrccRuntimePaths {
 		}
 		return self.failure(installed.diagnostic + f"; no valid development data root at " + developmentRoot);
 	}
+
+	public string executablePath() { return self.resolveExecutable(self.executableArgument); }
 }
 
 /* Command-line model for the production self-hosted compiler driver. */
@@ -189,7 +198,7 @@ class BtrccCommandLine {
 
 	public string argument(int index) { return self.arguments.get(index); }
 
-	public string usage() { return "usage: btrcc [--strict-imports | --relaxed-imports] " + "[--no-stdlib] [--no-dce] [--target OS-ARCH] " + "[--emit-link-plan PATH] [--emit-units PREFIX] [--debug] [-o PATH] [--] <file.btrc>\n" + "       btrcc --stdlib-dir\n\n" + "Strict imports are the default; --strict-imports explicitly " + "asserts that mode.\n" + "--relaxed-imports enables legacy implicit cross-file visibility " + "and stdlib composition.\n" + "--no-stdlib disables relaxed stdlib composition; explicit " + "imports still resolve."; }
+	public string usage() { return "usage: btrcc [--strict-imports | --relaxed-imports] " + "[--no-stdlib] [--no-dce] [--no-cache] [--target OS-ARCH] " + "[--emit-link-plan PATH] [--emit-units PREFIX] [--debug] [-o PATH] [--] <file.btrc>\n" + "       btrcc --stdlib-dir\n\n" + "Strict imports are the default; --strict-imports explicitly " + "asserts that mode.\n" + "--relaxed-imports enables legacy implicit cross-file visibility " + "and stdlib composition.\n" + "--no-stdlib disables relaxed stdlib composition; explicit " + "imports still resolve."; }
 
 	private BtrccOptions invalid(BtrccOptions options, string diagnostic) {
 		options.valid = false;
@@ -204,7 +213,9 @@ class BtrccCommandLine {
 		int inputIndex = -1;
 		while (index < self.arguments.len) {
 			string option = self.arguments.get(index);
-			if (option.equals("--no-stdlib")) {
+			if (option.equals("--no-cache")) {
+				options.useCache = false;
+			} else if (option.equals("--no-stdlib")) {
 				options.includeStdlib = false;
 			} else if (option.equals("--strict-imports")) {
 				if (importMode < 0) {
@@ -324,19 +335,1320 @@ class BtrccOutput {
 	public bool writeLine(string value) { return self.write(value, true); }
 }
 
-/* Command-line application owner for the production self-hosted compiler. */
+/* One captured filesystem identity for output exclusion. The inspection is
+ * metadata-only: a device or FIFO cannot block output validation. */
+class BtrccPathIdentity {
+	public string path;
+	public FileSnapshot? snapshot = null;
+	public string diagnostic = "";
 
+	public BtrccPathIdentity(string requested) {
+		self.path = PathTools.absolute(requested);
+		var inspected = FileSystem.inspectExact(self.path);
+		if (inspected.ok()) {
+			self.snapshot = inspected.snapshot();
+		} else if (inspected.error().kind() == FS_NOT_FOUND) {
+			/* realpath needs an existing leaf. Normalize a missing filename
+			 * through its existing parent, without lexical symlink/.. folding. */
+			string parent = PathTools.absolute(PathTools.dirname(requested));
+			if (!FileSystem.isDir(parent)) { self.diagnostic = "output/input directory is unavailable: " + parent; }
+			self.path = PathTools.join(parent, PathTools.basename(requested));
+		} else {
+			self.diagnostic = "cannot inspect output/input path: " + requested + ": " + inspected.error().message();
+		}
+		if (self.snapshot != null && self.snapshot.kind() == FILE_SYMLINK) {
+			self.diagnostic = "cannot resolve output/input symbolic link: " + requested;
+		}
+	}
+
+	public bool aliases(BtrccPathIdentity other) {
+		if (self.path.equals(other.path)) { return true; }
+		if (Platform.isWindows() && self.path.toLower().equals(other.path.toLower())) { return true; }
+		return self.snapshot != null && other.snapshot != null && self.snapshot.sameObject(other.snapshot);
+	}
+}
+
+/* Validate the entire output inventory before the first file is replaced.
+ * This is the path-authority boundary for the pending generation publisher;
+ * it is not itself a transaction or a substitute for publication locks. */
+class BtrccOutputPaths {
+	public string validate(Vector<string> requested, Vector<string> inputs) {
+		if (requested.len == 0) { return ""; }
+		Vector<BtrccPathIdentity> protected = [];
+		Map<string, bool> seenInputs = {};
+		for path in inputs {
+			if (path.isEmpty() || seenInputs.has(path)) { continue; }
+			seenInputs.put(path, true);
+			var identity = BtrccPathIdentity(path);
+			if (!identity.diagnostic.isEmpty()) { return identity.diagnostic; }
+			protected.push(identity);
+		}
+		Vector<BtrccPathIdentity> outputs = [];
+		for path in requested {
+			if (path.isEmpty() || path.endsWith("/") || (Platform.isWindows() && path.endsWith("\\"))) {
+				return "output path must name a regular file: " + path;
+			}
+			var identity = BtrccPathIdentity(path);
+			if (!identity.diagnostic.isEmpty()) { return identity.diagnostic; }
+			if (identity.snapshot != null && identity.snapshot.kind() != FILE_REGULAR) {
+				return "output path must name a regular file: " + path;
+			}
+			string name = PathTools.basename(path);
+			string resolvedName = PathTools.basename(identity.path);
+			if (name.equals(".btrc-publications.lock") || resolvedName.equals(".btrc-publications.lock") || (name.startsWith(".") && name.contains(".publish.")) || (resolvedName.startsWith(".") && resolvedName.contains(".publish."))) {
+				return "output path must not replace publication control files: " + path;
+			}
+			for source in protected {
+				if (identity.aliases(source)) { return "output path is the same file as a source input: " + path; }
+			}
+			for previous in outputs {
+				if (identity.aliases(previous)) { return "output paths must name different files: " + path; }
+			}
+			outputs.push(identity);
+		}
+		return "";
+	}
+}
+
+/* One sorted directory-lock set for a requested compiler publication.
+ * Freeze path resolution before waiting, then revalidate under all locks.
+ * Pending journals require the authorized generation owner; their contents
+ * never supply recovery authority to this writer. */
+class BtrccPublicationLocks {
+	private Vector<AdvisoryFileLock> locks = [];
+	private Vector<BtrccPathIdentity> directories = [];
+	private Vector<BtrccPathIdentity> outputs = [];
+	private Vector<BtrccPathIdentity> parents = [];
+
+	public string acquire(Vector<string> requested) {
+		Map<string, bool> names = {};
+		for path in requested {
+			var output = BtrccPathIdentity(path);
+			var parent = BtrccPathIdentity(PathTools.dirname(path));
+			if (!output.diagnostic.isEmpty()) { return output.diagnostic; }
+			if (!parent.diagnostic.isEmpty()) { return parent.diagnostic; }
+			self.outputs.push(output);
+			self.parents.push(parent);
+			names.put(parent.path, true);
+			names.put(PathTools.dirname(output.path), true);
+		}
+		Vector<string> sorted = names.keys();
+		sorted.sortBy((string left, string right) => Strings.lessThan(left, right));
+		for path in sorted {
+			var directory = BtrccPathIdentity(path);
+			if (!directory.diagnostic.isEmpty()) { return directory.diagnostic; }
+			if (directory.snapshot == null || directory.snapshot.kind() != FILE_DIRECTORY) { return "publication directory is unavailable: " + path; }
+			/* Multiple names for one directory must not acquire the same flock
+			 * twice through separate descriptors. */
+			bool duplicate = false;
+			for previous in self.directories { if (directory.aliases(previous)) { duplicate = true; } }
+			if (!duplicate) { self.directories.push(directory); }
+		}
+		for directory in self.directories {
+			var acquired = AdvisoryFileLock.acquire(PathTools.join(directory.path, ".btrc-publications.lock"), true);
+			if (!acquired.ok()) { return "cannot lock publication directory: " + directory.path + ": " + acquired.error().message(); }
+			self.locks.push(acquired.lock());
+		}
+		return "";
+	}
+
+	public Vector<string> destinations() {
+		Vector<string> paths = [];
+		for output in self.outputs { paths.push(output.path); }
+		return paths;
+	}
+
+	public string validate(Vector<string> requested, Vector<string> inputs, Vector<string> ownedJournals = []) {
+		if (requested.len != self.outputs.len) { return "publication output inventory changed while acquiring locks"; }
+		for (int index = 0; index < requested.len; index++) {
+			var output = BtrccPathIdentity(requested.get(index));
+			var parent = BtrccPathIdentity(PathTools.dirname(requested.get(index)));
+			if (!output.diagnostic.isEmpty()) { return output.diagnostic; }
+			if (!parent.diagnostic.isEmpty()) { return parent.diagnostic; }
+			if (!output.path.equals(self.outputs.get(index).path) || !parent.aliases(self.parents.get(index))) {
+				return "publication output path changed while acquiring locks: " + requested.get(index);
+			}
+		}
+		for lock in self.locks {
+			var checked = lock.validate();
+			if (!checked.ok()) { return "publication lock changed: " + checked.error().path(); }
+		}
+		for directory in self.directories {
+			var current = FileSystem.inspectExact(directory.path);
+			if (!current.ok() || current.snapshot().kind() != FILE_DIRECTORY || !current.snapshot().sameObject(directory.snapshot)) {
+				return "publication directory changed while acquiring locks: " + directory.path;
+			}
+			var opened = FileSystem.openDirectoryExact(directory.path);
+			if (!opened.ok()) { return "cannot inspect publication directory: " + directory.path; }
+			DirectoryHandle entries = opened.directory();
+			string diagnostic = "";
+			while (true) {
+				var step = entries.next();
+				if (!step.ok()) { diagnostic = "cannot inspect publication directory: " + directory.path; break; }
+				if (step.kind() == DIRECTORY_STEP_END) { break; }
+				string name = step.entry().name();
+				if (name.startsWith(".") && name.endsWith(".publish.journal") && !ownedJournals.contains(PathTools.join(directory.path, name))) {
+					diagnostic = "publication requires recovery: " + PathTools.join(directory.path, name);
+					break;
+				}
+			}
+			var closed = entries.close();
+			if (!diagnostic.isEmpty()) { return diagnostic; }
+			if (!closed.ok()) { return "cannot close publication directory: " + directory.path; }
+		}
+		return BtrccOutputPaths().validate(requested, inputs);
+	}
+
+	public string close() {
+		string diagnostic = "";
+		while (self.locks.len > 0) {
+			var lock = self.locks.get(self.locks.len - 1);
+			self.locks.remove(self.locks.len - 1);
+			var closed = lock.close();
+			if (!closed.ok()) {
+				string failure = "cannot release publication lock: " + closed.error().message();
+				diagnostic = diagnostic.isEmpty() ? failure : diagnostic + "; " + failure;
+			}
+		}
+		return diagnostic;
+	}
+
+	public void __del__() { self.close(); }
+}
+
+/* Independently authorized regular-file target. A retirement digest comes from
+ * committed ownership, never from a publication journal. */
+class BtrccPublicationTarget {
+	public string path;
+	public bool absent;
+	public string previousDigest;
+
+	public BtrccPublicationTarget(string path, bool absent = false, string previousDigest = "") {
+		self.path = path;
+		self.absent = absent;
+		self.previousDigest = previousDigest;
+	}
+}
+
+/* Regular-file specialization of artifacts/publication.py. The supplied
+ * inventory authorizes every path; journals only describe transaction state.
+ * Directory and publication locks cover recovery, staging and publication. */
+interface IBtrccPublicationGuard { void validatePublicationAuthority(); }
+
+class BtrccFilePublication {
+	private string name;
+	private string directory;
+	private Vector<BtrccPublicationTarget> targets;
+	private Vector<BtrccPublicationTarget> prior;
+	private Vector<string> inputs;
+	private Vector<string> paths = [];
+	private BtrccPublicationLocks locks = BtrccPublicationLocks();
+	private AdvisoryFileLock? transactionLock = null;
+	private IBtrccPublicationGuard? guard = null;
+
+	public BtrccFilePublication(string name, Vector<BtrccPublicationTarget> targets, Vector<string> inputs, Vector<BtrccPublicationTarget> prior = [], Vector<string> requested = [], IBtrccPublicationGuard? guard = null) {
+		if (name.isEmpty()) { throw "publication name is empty"; }
+		for (int index = 0; index < name.length(); index++) {
+			char c = name[index];
+			bool alphanumeric = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+			if (!alphanumeric && (index == 0 || (c != '-' && c != '_' && c != '.'))) { throw "invalid publication name"; }
+		}
+		self.name = name;
+		self.guard = guard;
+		self.targets = targets;
+		self.prior = [];
+		var priorInventory = prior.len == 0 ? targets : prior;
+		for target in priorInventory { self.prior.push(target); }
+		self.inputs = inputs;
+		self.validateInventory(self.targets);
+		self.validateInventory(self.prior);
+		self.directory = PathTools.dirname(targets.get(0).path);
+		if (!self.prior.get(0).path.equals(targets.get(0).path)) { throw "recovery inventory changed the publication anchor"; }
+		Vector<string> resolved = [];
+		for path in requested { self.paths.push(path); resolved.push(BtrccPathIdentity(path).path); }
+		for target in self.targets { if (!resolved.contains(target.path)) { self.paths.push(target.path); resolved.push(target.path); } }
+		for target in self.prior { if (!resolved.contains(target.path)) { self.paths.push(target.path); resolved.push(target.path); } }
+	}
+
+	private void validateInventory(Vector<BtrccPublicationTarget> inventory) {
+		if (inventory.len == 0 || inventory.get(0).absent || inventory.get(inventory.len - 1).absent) { throw "invalid publication boundaries"; }
+		Map<string, bool> seen = {};
+		for target in inventory {
+			string path = target.path;
+			if (!PathTools.isAbsolute(path) || path.endsWith("/") || !path.equals(PathTools.join(PathTools.absolute(PathTools.dirname(path)), PathTools.basename(path))) || seen.has(path)) { throw "invalid publication target: " + path; }
+			seen.put(path, true);
+		}
+	}
+
+	private Vector<string> directories(Vector<BtrccPublicationTarget> inventory) {
+		Vector<string> result = [];
+		for target in inventory { string parent = PathTools.dirname(target.path); if (!result.contains(parent)) { result.push(parent); } }
+		result.sortBy((string left, string right) => Strings.lessThan(left, right));
+		return result;
+	}
+
+	private string control(string parent, string suffix) {
+		string participant = self.name;
+		if (!parent.equals(self.directory)) { participant = participant + "-" + SHA256.digest(self.directory); }
+		return PathTools.join(parent, "." + participant + ".publish." + suffix);
+	}
+
+	private string stage(Vector<BtrccPublicationTarget> inventory, int index) { return self.control(PathTools.dirname(inventory.get(index).path), f"new-{index}"); }
+
+	private string backup(Vector<BtrccPublicationTarget> inventory, int index) { return self.control(PathTools.dirname(inventory.get(index).path), f"previous-{index}"); }
+
+	private Vector<string> journals(Vector<BtrccPublicationTarget> inventory) {
+		Vector<string> result = [self.control(self.directory, "journal")];
+		for parent in self.directories(inventory) { if (!parent.equals(self.directory)) { result.push(self.control(parent, "journal")); } }
+		return result;
+	}
+
+	private Vector<string> ownedJournals() {
+		var result = self.journals(self.targets);
+		for path in self.journals(self.prior) { if (!result.contains(path)) { result.push(path); } }
+		return result;
+	}
+
+	private bool exists(string path) {
+		var observed = FileSystem.inspectExact(path);
+		if (observed.ok()) {
+			if (observed.snapshot().kind() != FILE_REGULAR) { throw "publication requires a regular file: " + path; }
+			return true;
+		}
+		if (observed.error().kind() != FS_NOT_FOUND) { throw "cannot inspect publication file: " + path; }
+		return false;
+	}
+
+	private void sync(string path, bool directory = false) {
+		int flags = (int)O_RDONLY | (int)O_CLOEXEC | (int)O_NOFOLLOW | (int)O_NONBLOCK;
+		if (directory) { flags = flags | (int)O_DIRECTORY; }
+		int descriptor = open(path, flags);
+		if (descriptor < 0) { throw "cannot open publication durability barrier: " + path; }
+		try {
+			struct stat pinned;
+			struct stat named;
+			if (fstat(descriptor, &pinned) != 0 || lstat(path, &named) != 0) { throw "cannot inspect publication durability barrier: " + path; }
+			var identity = FileSnapshot.fromStatus(&pinned);
+			if (identity.kind() != (directory ? FILE_DIRECTORY : FILE_REGULAR) || !identity.sameVersion(FileSnapshot.fromStatus(&named))) { throw "publication durability path changed: " + path; }
+			int result = -1;
+			do { errno = 0; result = fsync(descriptor); } while (result != 0 && errno == EINTR);
+			if (result != 0) { throw "cannot flush publication path: " + path; }
+		} catch (string error) { close(descriptor); throw error; }
+		if (close(descriptor) != 0) { throw "cannot close publication durability barrier: " + path; }
+	}
+
+	private void remove(string path) {
+		if (self.exists(path) && unlink(path) != 0) { throw "cannot remove publication file: " + path; }
+	}
+
+	private void move(string source, string destination) {
+		if (!self.exists(source)) { throw "publication source disappeared: " + source; }
+		self.exists(destination);
+		if (rename(source, destination) != 0) { throw "cannot replace publication file: " + destination; }
+		self.sync(PathTools.dirname(destination), true);
+	}
+
+	/* Closing consumes the snapshot even on failure. Retain both diagnostics
+	 * when a failed read is followed by a failed release. */
+	private void closeSnapshot(RegularFileSnapshot file, string path, string primary) {
+		string diagnostic = primary;
+		var closed = file.close();
+		if (!closed.ok()) {
+			string failure = "cannot close publication snapshot: " + path + ": " + closed.error().message();
+			diagnostic = diagnostic.isEmpty() ? failure : diagnostic + "; " + failure;
+		}
+		if (!diagnostic.isEmpty()) { throw diagnostic; }
+	}
+
+	private Bytes read(string path, long long maximumBytes) {
+		var opened = FileSystem.openRegularFileSnapshot(path, maximumBytes);
+		if (!opened.ok()) { throw "cannot read publication file: " + path; }
+		var file = opened.snapshot();
+		Bytes result = Bytes();
+		string diagnostic = "";
+		try {
+			if (file.size() > 2147483646LL) { throw "publication file exceeds byte-buffer capacity: " + path; }
+			var read = file.readExactAt(0LL, (int)file.size());
+			if (!read.ok()) { throw "publication file changed during read: " + path; }
+			result = read.bytes();
+		} catch (string error) { diagnostic = error; }
+		self.closeSnapshot(file, path, diagnostic);
+		return result;
+	}
+
+	private string fileDigest(string path) {
+		var opened = FileSystem.openRegularFileSnapshot(path, 2305843009213693951LL);
+		if (!opened.ok()) { throw "cannot read publication file: " + path; }
+		var file = opened.snapshot();
+		string value = "";
+		string diagnostic = "";
+		try {
+			var digest = SHA256();
+			long long offset = 0LL;
+			/* Even an empty file needs a version-checked read. */
+			do {
+				long long remaining = file.size() - offset;
+				int count = remaining > 65536LL ? 65536 : (int)remaining;
+				var read = file.readExactAt(offset, count);
+				if (!read.ok()) { throw "publication file changed during read: " + path; }
+				digest.appendBytes(read.bytes());
+				offset = offset + (long long)count;
+			} while (offset < file.size());
+			value = digest.finish();
+		} catch (string error) { diagnostic = error; }
+		self.closeSnapshot(file, path, diagnostic);
+		return value;
+	}
+
+	private JSONValue record(Vector<BtrccPublicationTarget> inventory, string state, Vector<bool> previous) {
+		bool distributed = self.directories(inventory).len > 1;
+		bool retiring = false;
+		for target in inventory { if (target.absent) { retiring = true; } }
+		var record = JSONValue.makeObject();
+		record.set("schema", JSONValue.makeInt(retiring ? 3 : (distributed ? 2 : 1)));
+		record.set("state", JSONValue.makeString(state));
+		var flags = JSONValue.makeArray();
+		for existed in previous { flags.push(JSONValue.makeBool(existed)); }
+		record.set("previous", flags);
+		var artifacts = JSONValue.makeArray();
+		for target in inventory {
+			var row = JSONValue.makeObject();
+			row.set("name", JSONValue.makeString(distributed || retiring ? target.path : PathTools.basename(target.path)));
+			row.set("directory", JSONValue.makeBool(false));
+			if (retiring) { row.set("absent", JSONValue.makeBool(target.absent)); }
+			artifacts.push(row);
+		}
+		record.set("artifacts", artifacts);
+		return record;
+	}
+
+	private bool keys(JSONValue value, Vector<string> expected) {
+		if (!value.isObject() || value.size() != expected.len) { return false; }
+		for key in expected { if (!value.has(key)) { return false; } }
+		return true;
+	}
+
+	private JSONValue readJournalRecord(string path) {
+		Vector<bool> emptyPrevious = [];
+		long long currentSize = (long long)self.record(self.targets, "publishing", emptyPrevious).stringify().length();
+		long long priorSize = (long long)self.record(self.prior, "publishing", emptyPrevious).stringify().length();
+		/* Either independently authorized inventory can own this journal. Size
+		 * the read for both before validating which one matches; a larger new
+		 * generation must not look like an I/O failure against the old bound.
+		 * Account for Python ASCII escaping without a fixed unit-count ceiling. */
+		long long bound = 12LL * (currentSize > priorSize ? currentSize : priorSize) + 1024LL;
+		if (bound < 65536LL) { bound = 65536LL; }
+		var bytes = self.read(path, bound);
+		if (!bytes.isNulFreeUtf8()) { throw "invalid publication journal encoding: " + path; }
+		return JSONValue.parse(bytes.toString());
+	}
+
+	private void validateJournal(JSONValue record, string path, Vector<BtrccPublicationTarget> inventory) {
+		Vector<bool> emptyPrevious = [];
+		var expected = self.record(inventory, "publishing", emptyPrevious);
+		if (!self.keys(record, ["schema", "state", "previous", "artifacts"]) || !record.get("schema").isInt() || record.get("schema").asInt() != expected.get("schema").asInt() || !record.get("state").isString() || (!record.get("state").asString().equals("publishing") && !record.get("state").asString().equals("committed"))) { throw "invalid publication recovery journal: " + path; }
+		var previous = record.get("previous");
+		var artifacts = record.get("artifacts");
+		if (!previous.isArray() || previous.size() != inventory.len || !artifacts.isArray() || artifacts.size() != inventory.len) { throw "invalid publication recovery inventory: " + path; }
+		bool retiring = record.get("schema").asInt() == 3;
+		for (int index = 0; index < inventory.len; index++) {
+			var row = artifacts.at(index);
+			if (!previous.at(index).isBool() || !self.keys(row, retiring ? ["name", "directory", "absent"] : ["name", "directory"]) || !row.get("name").isString() || !row.get("name").asString().equals(expected.get("artifacts").at(index).get("name").asString()) || !row.get("directory").isBool() || row.get("directory").asBool() || (retiring && (!row.get("absent").isBool() || row.get("absent").asBool() != inventory.get(index).absent))) { throw "invalid publication recovery target: " + path; }
+		}
+	}
+
+	private JSONValue readJournal(string path, Vector<BtrccPublicationTarget> inventory) {
+		if (!self.exists(path)) { return JSONValue.makeNull(); }
+		var record = self.readJournalRecord(path);
+		self.validateJournal(record, path, inventory);
+		return record;
+	}
+
+	private void writeJournal(string path, JSONValue record) {
+		self.remove(path + ".tmp");
+		var candidate = FePackageFileStore().stage(path + ".tmp", record.stringify(), 0600);
+		if (candidate == null) { throw "cannot stage publication journal: " + path; }
+		try {
+			if (!candidate.publish().committed()) { throw "cannot durably stage journal: " + path; }
+			self.move(path + ".tmp", path);
+		} finally { candidate.discard(); }
+	}
+
+	private void restore(Vector<BtrccPublicationTarget> inventory, int index) {
+		var target = inventory.get(index);
+		string backup = self.backup(inventory, index);
+		if (target.absent && self.exists(target.path)) { throw "retired artifact reappeared during recovery: " + target.path; }
+		self.sync(backup);
+		self.remove(target.path);
+		self.move(backup, target.path);
+		/* A failed post-rename flush must retain the restored last good copy. */
+		self.sync(target.path);
+		self.sync(PathTools.dirname(target.path), true);
+	}
+
+	private void recoverLocked(Vector<BtrccPublicationTarget> inventory) {
+		var journals = self.journals(inventory);
+		var record = self.readJournal(journals.get(0), inventory);
+		for (int index = 1; index < journals.len; index++) { self.readJournal(journals.get(index), inventory); }
+		if (!record.isNull()) {
+			if (record.get("state").asString().equals("publishing")) {
+				int last = inventory.len - 1;
+				var validator = inventory.get(last);
+				if (record.get("previous").at(last).asBool()) {
+					if (self.exists(self.backup(inventory, last))) { self.sync(self.backup(inventory, last)); self.remove(validator.path); }
+					else { self.sync(validator.path); }
+				} else { self.remove(validator.path); }
+				for (int index = 0; index < last; index++) {
+					var target = inventory.get(index);
+					if (record.get("previous").at(index).asBool()) {
+						if (self.exists(self.backup(inventory, index))) { self.restore(inventory, index); }
+						else { self.sync(target.path); }
+					} else if (!target.absent) { self.remove(target.path); }
+				}
+				if (self.exists(self.backup(inventory, last))) { self.restore(inventory, last); }
+			} else {
+				for target in inventory {
+					if (target.absent) { if (self.exists(target.path)) { throw "retired artifact reappeared during recovery: " + target.path; } }
+					else { self.sync(target.path); }
+				}
+			}
+		}
+		for (int index = 0; index < inventory.len; index++) { self.remove(self.stage(inventory, index)); self.remove(self.backup(inventory, index)); }
+		for parent in self.directories(inventory) { self.sync(parent, true); }
+		/* Coordinator first: a surviving participant cannot replay rollback. */
+		for journal in journals { self.remove(journal); self.remove(journal + ".tmp"); self.sync(PathTools.dirname(journal), true); }
+	}
+
+	private bool matches(Vector<BtrccPublicationTarget> inventory) {
+		var expected = self.journals(inventory);
+		for path in self.ownedJournals() {
+			if (!self.exists(path)) { continue; }
+			if (!expected.contains(path)) { return false; }
+			/* Only a schema/inventory mismatch permits the alternate inventory.
+			 * Read and close failures must stop recovery before any mutation. */
+			var record = self.readJournalRecord(path);
+			try { self.validateJournal(record, path, inventory); }
+			catch (string error) { return false; }
+		}
+		return true;
+	}
+
+	private void validate() {
+		string diagnostic = self.locks.validate(self.paths, self.inputs, self.ownedJournals());
+		if (!diagnostic.isEmpty()) { throw diagnostic; }
+		var guard = self.guard;
+		if (guard != null) { guard.validatePublicationAuthority(); }
+		var lock = self.transactionLock;
+		if (lock == null || !lock.validate().ok()) { throw "publication owner lock changed"; }
+		var resolved = self.locks.destinations();
+		for target in self.targets { if (!resolved.contains(target.path)) { throw "publication output binding changed"; } self.exists(target.path); }
+		for target in self.prior { if (!resolved.contains(target.path)) { throw "publication recovery binding changed"; } self.exists(target.path); }
+	}
+
+	private void acquire() {
+		string diagnostic = self.locks.acquire(self.paths);
+		if (!diagnostic.isEmpty()) { throw diagnostic; }
+		var acquired = AdvisoryFileLock.acquire(self.control(self.directory, "lock"), true);
+		if (!acquired.ok()) { throw "cannot acquire publication owner lock"; }
+		self.transactionLock = acquired.lock();
+		self.validate();
+	}
+
+	private void recoverInventories() {
+		if (self.matches(self.prior)) { self.recoverLocked(self.prior); self.recoverLocked(self.targets); }
+		else if (self.matches(self.targets)) { self.recoverLocked(self.targets); self.recoverLocked(self.prior); }
+		else { throw "conflicting publication recovery inventories"; }
+	}
+
+	/* Successful recovery retains the complete lock union so the generation
+	 * owner can prepare durable authority without an intervening writer. */
+	public void recover() {
+		try { self.acquire(); self.recoverInventories(); }
+		catch (string error) {
+			string cleanup = self.releaseLocks();
+			throw cleanup.isEmpty() ? error : error + "; " + cleanup;
+		}
+	}
+
+	public void replaceInventory(Vector<BtrccPublicationTarget> targets) {
+		self.validateInventory(targets);
+		if (!targets.get(0).path.equals(self.targets.get(0).path)) { throw "publication anchor changed"; }
+		var locked = self.locks.destinations();
+		for target in targets { if (!locked.contains(target.path)) { throw "new publication target is outside the locked inventory"; } }
+		self.targets = targets;
+		self.validate();
+		self.recoverLocked(self.targets);
+	}
+
+	private bool contentMatches(RegularFileSnapshot file, string expected) {
+		int length = expected.length();
+		if (file.size() != (long long)length) { return false; }
+		int offset = 0;
+		/* An empty read also validates the open snapshot's current identity. */
+		do {
+			int count = length - offset;
+			if (count > 65536) { count = 65536; }
+			var read = file.readExactAt((long long)offset, count);
+			if (!read.ok()) { return false; }
+			var bytes = read.bytes();
+			if (count > 0 && memcmp(bytes.data, (char*)expected + offset, (size_t)count) != 0) { return false; }
+			offset = offset + count;
+		} while (offset < length);
+		return true;
+	}
+
+	/* A retained generation is verified under the same recovered lock union
+	 * as replacement, including its final ownership manifest. No stage is made. */
+	public bool retain(Vector<string> contents, Vector<int> modes) {
+		if (contents.len != self.targets.len || modes.len != self.targets.len) { throw "publication payload inventory is inconsistent"; }
+		self.validate();
+		Vector<FileSnapshot> revisions = [];
+		for (int index = 0; index < self.targets.len; index++) {
+			var target = self.targets.get(index);
+			if (target.absent) { if (self.exists(target.path)) { return false; } continue; }
+			if (!self.exists(target.path)) { return false; }
+			string expected = contents.get(index);
+			var opened = FileSystem.openRegularFileSnapshot(target.path, (long long)expected.length());
+			if (!opened.ok()) { return false; }
+			var file = opened.snapshot();
+			bool matches = false;
+			string diagnostic = "";
+			try {
+				matches = self.contentMatches(file, expected) && (FileStatus(target.path).mode & 07777) == modes.get(index);
+				revisions.push(file.revision());
+			} catch (string error) { diagnostic = error; }
+			self.closeSnapshot(file, target.path, diagnostic);
+			if (!matches) { return false; }
+		}
+		self.validate();
+		int revision = 0;
+		for target in self.targets {
+			if (target.absent) { if (self.exists(target.path)) { throw "retired output changed during retention: " + target.path; } continue; }
+			var current = FileSystem.inspectExact(target.path);
+			if (!current.ok() || !revisions.get(revision).sameVersion(current.snapshot())) { throw "compiler output changed during retention: " + target.path; }
+			revision = revision + 1;
+		}
+		return true;
+	}
+
+	private void validatePrepared(Vector<string> contents, Vector<int> modes) {
+		for (int index = 0; index < self.targets.len; index++) {
+			var target = self.targets.get(index);
+			if (target.absent) {
+				if (target.previousDigest.length() != 64) { throw "retirement requires a prior digest"; }
+				for (int digit = 0; digit < 64; digit++) {
+					char c = target.previousDigest[digit];
+					if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) { throw "invalid retirement digest"; }
+				}
+				if (self.exists(target.path) && !self.fileDigest(target.path).equals(target.previousDigest)) { throw "retired artifact changed: " + target.path; }
+				continue;
+			}
+			string path = self.stage(self.targets, index);
+			string expected = contents.get(index);
+			int length = expected.length();
+			var opened = FileSystem.openRegularFileSnapshot(path, (long long)length);
+			if (!opened.ok()) { throw "staged publication payload changed: " + path; }
+			var file = opened.snapshot();
+			string diagnostic = "";
+			try {
+				if (!self.contentMatches(file, expected)) { throw "staged publication payload changed: " + path; }
+				if ((FileStatus(path).mode & 07777) != modes.get(index)) { throw "staged publication mode changed: " + path; }
+			} catch (string error) { diagnostic = error; }
+			self.closeSnapshot(file, path, diagnostic);
+		}
+	}
+
+	public void publish(Vector<string> contents, Vector<int> modes) {
+		if (contents.len != self.targets.len || modes.len != self.targets.len) { throw "publication payload inventory is inconsistent"; }
+		Vector<FeStagedFile> candidates = [];
+		try {
+			if (self.transactionLock == null) { self.recover(); }
+			try {
+				for (int index = 0; index < self.targets.len; index++) {
+					var target = self.targets.get(index);
+					if (target.absent) { continue; }
+					var candidate = FePackageFileStore().stage(self.stage(self.targets, index), contents.get(index), modes.get(index));
+					if (candidate == null) { throw "cannot stage publication payload: " + target.path; }
+					candidates.push(candidate);
+					if (!candidate.publish().committed()) { throw "cannot durably stage publication payload: " + target.path; }
+				}
+				self.validate();
+				self.validatePrepared(contents, modes);
+				Vector<bool> previous = [];
+				for target in self.targets { previous.push(self.exists(target.path)); }
+				var journals = self.journals(self.targets);
+				var publishing = self.record(self.targets, "publishing", previous);
+				for (int index = 1; index < journals.len; index++) { self.writeJournal(journals.get(index), publishing); }
+				self.writeJournal(journals.get(0), publishing);
+				int last = self.targets.len - 1;
+				if (previous.get(last)) { self.move(self.targets.get(last).path, self.backup(self.targets, last)); }
+				for (int index = 0; index < last; index++) { if (previous.get(index)) { self.move(self.targets.get(index).path, self.backup(self.targets, index)); } }
+				for (int index = 0; index < self.targets.len; index++) {
+					if (!self.targets.get(index).absent) { self.move(self.stage(self.targets, index), self.targets.get(index).path); }
+					else { self.sync(PathTools.dirname(self.targets.get(index).path), true); }
+				}
+				self.writeJournal(journals.get(0), self.record(self.targets, "committed", previous));
+			} catch (string error) {
+				try { self.recoverLocked(self.targets); }
+				catch (string recoveryError) { throw error + "; recovery incomplete: " + recoveryError; }
+				throw error;
+			}
+			self.recoverLocked(self.targets);
+		} catch (string error) {
+			string cleanup = self.releaseLocks();
+			throw cleanup.isEmpty() ? error : error + "; " + cleanup;
+		}
+		finally { for candidate in candidates { candidate.discard(); } }
+	}
+
+	/* Explicit callers report cleanup failures; the destructor only performs
+	 * best-effort fallback. Always consume every lease, including after error. */
+	public string releaseLocks() {
+		string diagnostic = "";
+		var lock = self.transactionLock;
+		self.transactionLock = null;
+		if (lock != null) {
+			var closed = lock.close();
+			if (!closed.ok()) { diagnostic = "cannot release publication owner lock: " + closed.error().message(); }
+		}
+		string directories = self.locks.close();
+		if (!directories.isEmpty()) { diagnostic = diagnostic.isEmpty() ? directories : diagnostic + "; " + directories; }
+		return diagnostic;
+	}
+
+	public void __del__() { self.releaseLocks(); }
+}
+
+/* The text owns its lifetime; the digest is computed here, never supplied by
+ * a cache manifest or indexed by a borrowed address. */
+class BtrccArtifactDigest {
+	private string content;
+	private string digest;
+
+	public BtrccArtifactDigest(string content, ISHA256Digest? provider = null) {
+		self.content = content;
+		self.digest = provider == null ? SHA256.digest(content) : provider.digest(content);
+	}
+
+	public bool matches(string content) { return self.content.equals(content); }
+
+	public string value() { return self.digest; }
+}
+
+/* Cache loading and publication share one inventory for one compilation.
+ * Replacing a payload, even at the same slot, requires its own digest. */
+class BtrccArtifactDigests {
+	private Map<int, BtrccArtifactDigest> entries = {};
+	private ISHA256Digest? provider;
+
+	public BtrccArtifactDigests(ISHA256Digest? provider = null) { self.provider = provider; }
+
+	public string digest(int slot, string content) {
+		string text = content == null ? "" : content;
+		if (self.entries.has(slot)) {
+			var previous = self.entries.get(slot);
+			if (previous.matches(text)) { return previous.value(); }
+		}
+		var current = BtrccArtifactDigest(text, self.provider);
+		self.entries.put(slot, current);
+		return current.value();
+	}
+
+	public void clear() { self.entries.clear(); }
+}
+
+/* Durable generation authority shared by both frontends. The private owner
+ * lock precedes the union of current and interrupted output-directory locks. */
+class BtrccGenerationOwner implements IBtrccPublicationGuard {
+	private PrivateDirectory? root = null;
+	private PrivateDirectory? entry = null;
+	private ExclusiveFileLease? lease = null;
+	private string anchor = "";
+	private Vector<BtrccPublicationTarget> owned = [];
+	private Vector<BtrccPublicationTarget> intent = [];
+	private string authority = "";
+	private FeSourceFileReader? sourceFiles;
+	private BtrccArtifactDigests? artifactDigests;
+
+	public BtrccGenerationOwner(FeSourceFileReader? sourceFiles = null, BtrccArtifactDigests? artifactDigests = null) {
+		self.sourceFiles = sourceFiles;
+		self.artifactDigests = artifactDigests;
+	}
+
+	private string payloadDigest(int slot, string content) {
+		var digests = self.artifactDigests;
+		if (digests == null) { return SHA256.digest(content); }
+		return digests.digest(slot, content);
+	}
+
+	private string statePath() {
+		string configured = Environment.get("BTRC_STATE_DIR", "");
+		if (!configured.isEmpty()) { return configured; }
+		if (Platform.isWindows()) { return ""; }
+		string home = Environment.get("HOME", "");
+		if (!PathTools.isAbsolute(home)) { return ""; }
+		var kernel = ChildProcess.run("uname", ["-s"], timeoutMilliseconds = 1000, maxStdoutBytes = 128, maxStderrBytes = 1024);
+		if (!kernel.ok()) { return ""; }
+		if (kernel.out.trim().equals("Darwin")) { return PathTools.join(home, "Library/Application Support/btrc/generations"); }
+		if (!kernel.out.trim().equals("Linux")) { return ""; }
+		return PathTools.join(Environment.get("XDG_STATE_HOME", PathTools.join(home, ".local/state")), "btrc/generations");
+	}
+
+	private bool keys(JSONValue value, Vector<string> expected) {
+		if (!value.isObject() || value.size() != expected.len) { return false; }
+		for key in expected { if (!value.has(key)) { return false; } }
+		return true;
+	}
+
+	private bool outputPath(string path) {
+		var root = self.root;
+		if (path.isEmpty() || !PathTools.isAbsolute(path) || root == null) { return false; }
+		if (path.contains("//") || path.contains("/./") || path.contains("/../") || path.endsWith("/.") || path.endsWith("/..") || path.endsWith("/")) { return false; }
+		if (path.equals(root.path()) || path.startsWith(root.path() + "/")) { return false; }
+		return path.equals(PathTools.join(PathTools.absolute(PathTools.dirname(path)), PathTools.basename(path)));
+	}
+
+	private bool digest(string value) {
+		if (value.length() != 64) { return false; }
+		for (int index = 0; index < 64; index++) {
+			char c = value[index];
+			if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) { return false; }
+		}
+		return true;
+	}
+
+	private string validateCommitted(ExclusiveFileLease lease) {
+		self.owned.clear();
+		var loaded = lease.readRegularChild("committed.json", 67108864);
+		if (!loaded.ok()) { return "cannot read private compiler generation: " + loaded.error().message(); }
+		if (!loaded.found()) { return ""; }
+		var bytes = loaded.bytes();
+		self.authority = self.authority + SHA256.digestBytes(bytes);
+		if (!bytes.isNulFreeUtf8()) { return "invalid compiler generation encoding"; }
+		var record = JSONValue.parse(bytes.toString());
+		if (!self.keys(record, ["schema", "anchor", "files"]) || !record.get("schema").isInt() || record.get("schema").asInt() != 1 || !record.get("anchor").isString() || !record.get("anchor").asString().equals(self.anchor) || !record.get("files").isArray()) { return "invalid committed compiler generation"; }
+		var files = record.get("files");
+		if (files.size() == 0) { return "compiler generation has no primary output"; }
+		Map<string, bool> paths = {};
+		Map<string, bool> roles = {};
+		for (int index = 0; index < files.size(); index++) {
+			var row = files.at(index);
+			if (!self.keys(row, ["path", "role", "sha256", "mode"]) || !row.get("path").isString() || !row.get("role").isString() || !row.get("sha256").isString() || !row.get("mode").isInt()) { return "invalid compiler generation output identity"; }
+			string path = row.get("path").asString();
+			string role = row.get("role").asString();
+			long long mode = row.get("mode").asInt();
+			if (!self.outputPath(path) || paths.has(path) || !self.digest(row.get("sha256").asString()) || mode < 0LL || mode > 4095LL) { return "invalid compiler generation output identity"; }
+			if (!role.equals("primary") && !role.equals("secondary") && !role.equals("link-plan") && !role.equals("freestanding")) { return "unknown compiler generation output role"; }
+			if (index == 0 && (!path.equals(self.anchor) || !role.equals("primary"))) { return "compiler generation must begin with its primary output"; }
+			if (!role.equals("secondary") && roles.has(role)) { return "duplicate compiler generation output role"; }
+			paths.put(path, true);
+			roles.put(role, true);
+			self.owned.push(BtrccPublicationTarget(path, false, row.get("sha256").asString()));
+		}
+		return "";
+	}
+
+	public string acquire(string primary, Vector<string> requested) {
+		if (primary.isEmpty()) { return ""; }
+		string configured = self.statePath();
+		if (configured.isEmpty() || !PathTools.isAbsolute(configured)) { return "compiler generation state directory must be absolute; configure BTRC_STATE_DIR"; }
+		string parent = PathTools.dirname(configured);
+		if (FileSystem.mkdirp(parent) != 0) { return "cannot create compiler generation state parent"; }
+		string state = PathTools.join(PathTools.absolute(parent), PathTools.basename(configured));
+		var opened = FileSystem.openPrivateDirectory(state);
+		if (!opened.ok()) { return "cannot open private compiler generation state: " + opened.error().message(); }
+		self.root = opened.directory();
+		for path in requested {
+			var destination = BtrccPathIdentity(path);
+			if (!destination.diagnostic.isEmpty()) { return destination.diagnostic; }
+			if (!self.outputPath(destination.path)) { return "compiler outputs must not replace generation state"; }
+		}
+		self.anchor = BtrccPathIdentity(primary).path;
+		string entryPath = PathTools.join(state, SHA256.digest(self.anchor));
+		var entryOpen = FileSystem.openPrivateDirectory(entryPath);
+		if (!entryOpen.ok()) { return "cannot open private compiler generation owner: " + entryOpen.error().message(); }
+		var entry = entryOpen.directory();
+		self.entry = entry;
+		var acquired = entry.acquireExclusiveLease(".compiler-owner.publish.lock", true);
+		if (!acquired.ok()) { return "cannot lock compiler generation owner: " + acquired.error().message(); }
+		self.lease = acquired.lease();
+		return self.validate();
+	}
+
+	public string validate() {
+		var sourceFiles = self.sourceFiles;
+		if (sourceFiles != null) {
+			string diagnostic = sourceFiles.validateInputs();
+			if (!diagnostic.isEmpty()) { return diagnostic; }
+		}
+		var lease = self.lease;
+		if (lease == null) { return ""; }
+		var root = self.root;
+		var entry = self.entry;
+		if (root == null || entry == null) { return "compiler generation owner is closed"; }
+		if (!lease.validate().ok()) { return "compiler generation owner lock changed"; }
+		if (!root.validatePath().ok() || !entry.validatePath().ok()) { return "compiler generation directory changed or lost private permissions"; }
+		var intent = lease.readRegularChild("intent.json", 67108864);
+		if (!intent.ok()) { return "cannot read private compiler generation intent: " + intent.error().message(); }
+		self.intent.clear();
+		self.authority = "";
+		if (intent.found()) {
+			var bytes = intent.bytes();
+			if (!bytes.isNulFreeUtf8()) { return "invalid compiler generation intent encoding"; }
+			self.authority = SHA256.digestBytes(bytes);
+			var record = JSONValue.parse(bytes.toString());
+			if (!self.keys(record, ["schema", "anchor", "targets"]) || !record.get("schema").isInt() || record.get("schema").asInt() != 1 || !record.get("anchor").isString() || !record.get("anchor").asString().equals(self.anchor) || !record.get("targets").isArray()) { return "invalid prepared compiler generation"; }
+			var rows = record.get("targets");
+			Map<string, bool> seen = {};
+			if (rows.size() < 2) { return "invalid compiler generation recovery boundaries"; }
+			for (int index = 0; index < rows.size(); index++) {
+				var row = rows.at(index);
+				if (!self.keys(row, ["path", "absent"]) || !row.get("path").isString() || !row.get("absent").isBool()) { return "invalid prepared compiler generation target"; }
+				string path = row.get("path").asString();
+				bool absent = row.get("absent").asBool();
+				if (seen.has(path)) { return "duplicate compiler generation recovery target"; }
+				if (index == 0 && (!path.equals(self.anchor) || absent)) { return "invalid compiler generation recovery anchor"; }
+				if (index == rows.size() - 1) {
+					if (!path.equals(PathTools.join(entry.path(), "committed.json")) || absent) { return "invalid compiler generation recovery validator"; }
+				} else if (!self.outputPath(path)) { return "invalid compiler generation recovery output"; }
+				seen.put(path, true);
+				self.intent.push(BtrccPublicationTarget(path, absent));
+			}
+		} else {
+			string journal = PathTools.join(PathTools.dirname(self.anchor), ".btrc-output-" + SHA256.digest(self.anchor) + ".publish.journal");
+			var pending = FileSystem.inspectExact(journal);
+			if (pending.ok() || pending.error().kind() != FS_NOT_FOUND) { return "compiler publication has no owned recovery inventory"; }
+		}
+		return self.validateCommitted(lease);
+	}
+
+	public void validatePublicationAuthority() {
+		string expected = self.authority;
+		string diagnostic = self.validate();
+		if (!diagnostic.isEmpty()) { throw diagnostic; }
+		if (!self.authority.equals(expected)) { throw "compiler generation authority changed while waiting for publication"; }
+	}
+
+	private Vector<BtrccPublicationTarget> publicationTargets(Vector<string> destinations, string committed) {
+		Vector<BtrccPublicationTarget> targets = [];
+		for path in destinations { targets.push(BtrccPublicationTarget(path)); }
+		for prior in self.owned { if (!destinations.contains(prior.path)) { targets.push(BtrccPublicationTarget(prior.path, true, prior.previousDigest)); } }
+		targets.push(BtrccPublicationTarget(committed));
+		return targets;
+	}
+
+	private void clearIntent(ExclusiveFileLease lease) {
+		for name in ["candidate.json", "intent.json"] {
+			var removed = lease.removeRegularChildDurably(name);
+			if (!removed.committed()) { throw "cannot durably retire compiler generation intent: " + removed.error().message(); }
+		}
+	}
+
+	public string publish(Vector<string> requested, Vector<string> contents, Vector<string> roles, Vector<string> inputs) {
+		var lease = self.lease;
+		var entry = self.entry;
+		if (lease == null || entry == null || requested.len == 0 || contents.len != requested.len || roles.len != requested.len) { return "invalid compiler generation publication"; }
+		BtrccFilePublication? publication = null;
+		string failure = "";
+		try {
+			Vector<string> destinations = [];
+			/* Owner contention can outlive the preflight path bindings. Reject
+			 * newly resolved private paths before persisting recovery authority. */
+			for path in requested {
+				var destination = BtrccPathIdentity(path);
+				if (!destination.diagnostic.isEmpty()) { throw destination.diagnostic; }
+				if (!self.outputPath(destination.path)) { throw "compiler outputs must not replace generation state"; }
+				destinations.push(destination.path);
+			}
+			if (!destinations.get(0).equals(self.anchor)) { throw "compiler generation anchor changed"; }
+			string committed = PathTools.join(entry.path(), "committed.json");
+			var transaction = BtrccFilePublication("btrc-output-" + SHA256.digest(self.anchor), self.publicationTargets(destinations, committed), inputs, self.intent, requested, self);
+			publication = transaction;
+			transaction.recover();
+			/* Recovery may have restored a different ownership manifest. Read it
+			 * before deciding retirement, with the complete directory union held. */
+			string diagnostic = self.validate();
+			if (!diagnostic.isEmpty()) { throw diagnostic; }
+			self.clearIntent(lease);
+			diagnostic = self.validate();
+			if (!diagnostic.isEmpty()) { throw diagnostic; }
+			var targets = self.publicationTargets(destinations, committed);
+			transaction.replaceInventory(targets);
+			var manifest = JSONValue.makeObject();
+			manifest.set("schema", JSONValue.makeInt(1));
+			manifest.set("anchor", JSONValue.makeString(self.anchor));
+			var files = JSONValue.makeArray();
+			Vector<string> payloads = [];
+			Vector<int> modes = [];
+			for (int index = 0; index < requested.len; index++) {
+				string path = destinations.get(index);
+				var status = FileStatus(path);
+				int mode = status.isFile() ? status.mode & 07777 : 0644;
+				var row = JSONValue.makeObject();
+				row.set("path", JSONValue.makeString(path));
+				row.set("role", JSONValue.makeString(roles.get(index)));
+				row.set("sha256", JSONValue.makeString(self.payloadDigest(index, contents.get(index))));
+				row.set("mode", JSONValue.makeInt(mode));
+				files.push(row);
+				payloads.push(contents.get(index));
+				modes.push(mode);
+			}
+			manifest.set("files", files);
+			while (payloads.len < targets.len - 1) { payloads.push(""); modes.push(0); }
+			string encoded = manifest.stringify() + "\n";
+			payloads.push(encoded); modes.push(0600);
+			var prepared = JSONValue.makeObject();
+			prepared.set("schema", JSONValue.makeInt(1));
+			prepared.set("anchor", JSONValue.makeString(self.anchor));
+			var rows = JSONValue.makeArray();
+			for target in targets {
+				var row = JSONValue.makeObject();
+				row.set("path", JSONValue.makeString(target.path));
+				row.set("absent", JSONValue.makeBool(target.absent));
+				rows.push(row);
+			}
+			prepared.set("targets", rows);
+			if (!transaction.retain(payloads, modes)) {
+				if (!lease.replaceRegularChildDurably("candidate.json", Bytes.fromString(encoded)).committed()) { throw "cannot durably stage compiler generation manifest"; }
+				if (!lease.replaceRegularChildDurably("intent.json", Bytes.fromString(prepared.stringify() + "\n")).committed()) { throw "cannot durably prepare compiler generation intent"; }
+				diagnostic = self.validate();
+				if (!diagnostic.isEmpty()) { throw diagnostic; }
+				transaction.publish(payloads, modes);
+				diagnostic = self.validate();
+				if (!diagnostic.isEmpty()) { throw diagnostic; }
+				self.clearIntent(lease);
+			}
+		} catch (string error) { failure = error; }
+		var transaction = publication;
+		if (transaction != null) {
+			string cleanup = transaction.releaseLocks();
+			if (!cleanup.isEmpty()) { failure = failure.isEmpty() ? cleanup : failure + "; " + cleanup; }
+		}
+		return failure;
+	}
+
+	public string close() {
+		string diagnostic = "";
+		var lease = self.lease;
+		if (lease != null) { if (!lease.close().ok()) { diagnostic = "cannot release compiler generation owner"; } self.lease = null; }
+		var entry = self.entry;
+		if (entry != null) { if (!entry.close().ok()) { diagnostic = "cannot close compiler generation owner"; } self.entry = null; }
+		var root = self.root;
+		if (root != null) { if (!root.close().ok()) { diagnostic = "cannot close compiler generation state"; } self.root = null; }
+		return diagnostic;
+	}
+
+	public void __del__() { self.close(); }
+}
+
+/* Secondary-only payloads are staged as one set before any replacement.
+ * Named-primary outputs use BtrccGenerationOwner; this stdout path has no
+ * generation anchor and provides per-file publication without rollback. */
+class BtrccPreparedOutputs {
+	private Vector<FeStagedFile> candidates = [];
+
+	public string prepare(Vector<string> destinations, Vector<string> contents) {
+		if (destinations.len != contents.len) { return "compiler output payload inventory is inconsistent"; }
+		for (int index = 0; index < destinations.len; index++) {
+			string path = destinations.get(index);
+			var previous = FileStatus(path);
+			int mode = previous.isFile() ? previous.mode & 07777 : 0644;
+			var candidate = FePackageFileStore().stage(path, contents.get(index), mode);
+			if (candidate == null) { return "cannot stage compiler output: " + path; }
+			self.candidates.push(candidate);
+		}
+		return "";
+	}
+
+	public string publish() {
+		for candidate in self.candidates {
+			var published = candidate.publish();
+			if (!published.committed()) {
+				string state = published.mayHaveCommitted() ? "compiler output durability uncertain: " : "cannot publish compiler output: ";
+				return state + published.error().path() + ": " + published.error().message();
+			}
+		}
+		return "";
+	}
+
+	public string discard() {
+		string diagnostic = "";
+		for candidate in self.candidates {
+			if (!candidate.discard() && diagnostic.isEmpty()) { diagnostic = "cannot discard compiler output candidate"; }
+		}
+		self.candidates.clear();
+		return diagnostic;
+	}
+
+	public void __del__() { self.discard(); }
+}
+
+/* Optional scanner metadata, keyed by immutable content and compiler/grammar
+ * identity. Each operation holds only its own entry lease; source validation
+ * and dependency resolution remain with the frontend and publication owners. */
+class BtrccDirectiveCache implements FeDirectiveCache {
+	private string directory;
+	private string compilerIdentity;
+	private PrivateDirectory? root = null;
+	private ExclusiveFileLease? lease = null;
+
+	public BtrccDirectiveCache(string directory, string compilerIdentity) {
+		self.directory = directory;
+		self.compilerIdentity = compilerIdentity;
+	}
+
+	private bool close() {
+		var lease = self.lease; self.lease = null;
+		var root = self.root; self.root = null;
+		bool clean = true;
+		if (lease != null && !lease.close().ok()) { clean = false; }
+		if (root != null && !root.close().ok()) { clean = false; }
+		return clean;
+	}
+
+	private string key(string source, string grammar) {
+		/* Fixed-width digests frame arbitrary source and grammar bytes. */
+		return SHA256.digest("btrcc-directives-v1:" + SHA256.digest(self.compilerIdentity) + SHA256.digest(grammar) + SHA256.digest(source));
+	}
+
+	private bool open(string key) {
+		self.close();
+		if (Platform.isWindows() || self.compilerIdentity.isEmpty() || !PathTools.isAbsolute(self.directory)) { return false; }
+		if (FileSystem.mkdirp(PathTools.dirname(self.directory)) != 0) { return false; }
+		var opened = FileSystem.openPrivateDirectory(self.directory);
+		if (!opened.ok()) { return false; }
+		self.root = opened.directory();
+		/* Contention is an optional cache miss, not a compiler-wide wait. */
+		var acquired = opened.directory().acquireExclusiveLease(key + ".lock");
+		if (!acquired.ok()) { return false; }
+		self.lease = acquired.lease();
+		return opened.directory().validatePath().ok();
+	}
+
+	private Vector<FeDirectiveRange>? read(string key) {
+		var lease = self.lease;
+		if (lease == null) { return null; }
+		var record = lease.readRegularChild(key + ".json", 8388608);
+		if (!record.ok() || !record.found() || !record.bytes().isNulFreeUtf8()) { return null; }
+		var manifest = JSONValue.parse(record.bytes().toString());
+		if (!manifest.isObject() || manifest.size() != 4 || !manifest.get("schema").isInt() || manifest.get("schema").asInt() != 1 || !manifest.get("key").isString() || !manifest.get("key").asString().equals(key) || !manifest.get("ranges").isArray() || !manifest.get("sha256").isString()) { return null; }
+		var rows = manifest.get("ranges");
+		if (!SHA256.digest(rows.stringify()).equals(manifest.get("sha256").asString())) { return null; }
+		Vector<FeDirectiveRange> ranges = [];
+		int previous = 0;
+		for (int index = 0; index < rows.size(); index++) {
+			var row = rows.at(index);
+			if (!row.isArray() || row.size() != 2 || !row.at(0).isInt() || !row.at(1).isInt()) { return null; }
+			int start = row.at(0).asInt();
+			int end = row.at(1).asInt();
+			if (start <= previous || end < start) { return null; }
+			ranges.push(FeDirectiveRange(start, end));
+			previous = end;
+		}
+		return ranges;
+	}
+
+	public Vector<FeDirectiveRange>? load(string source, string grammar) {
+		Vector<FeDirectiveRange>? result = null;
+		try {
+			string key = self.key(source, grammar);
+			if (self.open(key)) { result = self.read(key); }
+		} catch (string error) { result = null; }
+		if (!self.close()) { return null; }
+		return result;
+	}
+
+	public void store(string source, string grammar, Vector<FeDirectiveRange> ranges) {
+		try {
+			string key = self.key(source, grammar);
+			var rows = JSONValue.makeArray();
+			for range in ranges {
+				var row = JSONValue.makeArray();
+				row.push(JSONValue.makeInt(range.start));
+				row.push(JSONValue.makeInt(range.end));
+				rows.push(row);
+			}
+			var manifest = JSONValue.makeObject();
+			manifest.set("schema", JSONValue.makeInt(1));
+			manifest.set("key", JSONValue.makeString(key));
+			manifest.set("ranges", rows);
+			manifest.set("sha256", JSONValue.makeString(SHA256.digest(rows.stringify())));
+			string content = manifest.stringify();
+			if (content.length() <= 8388608 && self.open(key)) {
+				var lease = self.lease;
+				if (lease != null) { lease.replaceRegularChildDurably(key + ".json", Bytes.fromString(content)); }
+			}
+		} catch (string error) { }
+		self.close();
+	}
+
+	public void __del__() { self.close(); }
+}
+
+/* Optional persistent emitted generations. Each key has one private lease;
+ * payloads are replaced first and the checksummed manifest is committed last.
+ * An interrupted or corrupt cache is a miss, never publication authority. */
+class BtrccArtifactCache implements IBtrccArtifactCache {
+	private string directory;
+	private string compilerIdentity = "";
+	private FeSourceFileReader sourceFiles;
+	private string unitsPrefix;
+	private PrivateDirectory? root = null;
+	private PrivateDirectory? entry = null;
+	private ExclusiveFileLease? lease = null;
+	private BtrccArtifactDigests? artifactDigests;
+
+	public BtrccArtifactCache(string executable, FeSourceFileReader sourceFiles, string unitsPrefix, BtrccArtifactDigests? artifactDigests = null) {
+		self.sourceFiles = sourceFiles;
+		self.artifactDigests = artifactDigests;
+		self.unitsPrefix = unitsPrefix.isEmpty() ? "" : FeNativeLinkPlan.outputPrefix(unitsPrefix);
+		string configured = Environment.get("BTRC_CACHE_DIR", "");
+		if (configured.isEmpty()) { configured = PathTools.join(Environment.get("HOME", ""), ".cache/btrc"); }
+		self.directory = PathTools.isAbsolute(configured) ? PathTools.join(configured, "selfhost-artifacts-v1") : "";
+		if (Platform.isWindows() || executable.isEmpty() || self.directory.isEmpty()) { return; }
+		self.compilerIdentity = sourceFiles.binaryIdentity(executable);
+	}
+
+	public FeDirectiveCache directiveCache() { return BtrccDirectiveCache(PathTools.join(PathTools.dirname(self.directory), "selfhost-directives-v1"), self.compilerIdentity); }
+
+	private bool close() {
+		bool clean = true;
+		var lease = self.lease; self.lease = null;
+		var entry = self.entry; self.entry = null;
+		var root = self.root; self.root = null;
+		if (lease != null && !lease.close().ok()) { clean = false; }
+		if (entry != null && !entry.close().ok()) { clean = false; }
+		if (root != null && !root.close().ok()) { clean = false; }
+		return clean;
+	}
+
+	private string key(string identity) { return SHA256.digest(self.compilerIdentity + identity); }
+
+	private string payloadDigest(int slot, string content) {
+		var digests = self.artifactDigests;
+		if (digests == null) { return SHA256.digest(content); }
+		return digests.digest(slot, content);
+	}
+
+	private bool open(string identity) {
+		self.close();
+		if (self.compilerIdentity.isEmpty()) { return false; }
+		if (!self.sourceFiles.validateInputs().isEmpty()) { return false; }
+		if (FileSystem.mkdirp(PathTools.dirname(self.directory)) != 0) { return false; }
+		var opened = FileSystem.openPrivateDirectory(self.directory);
+		if (!opened.ok()) { return false; }
+		self.root = opened.directory();
+		var entry = FileSystem.openPrivateDirectory(PathTools.join(self.directory, self.key(identity)));
+		if (!entry.ok()) { return false; }
+		self.entry = entry.directory();
+		var acquired = entry.directory().acquireExclusiveLease(".artifacts.lock", true);
+		if (!acquired.ok()) { return false; }
+		self.lease = acquired.lease();
+		return opened.directory().validatePath().ok() && entry.directory().validatePath().ok();
+	}
+
+	private BtrccCompilationResult? read(string identity) {
+		var lease = self.lease;
+		if (lease == null) { return null; }
+		var record = lease.readRegularChild("manifest.json", 67108864);
+		if (!record.ok() || !record.found() || !record.bytes().isNulFreeUtf8()) { return null; }
+		var manifest = JSONValue.parse(record.bytes().toString());
+		if (!manifest.isObject() || manifest.size() != 4 || !manifest.get("schema").isInt() || manifest.get("schema").asInt() != 1 || !manifest.get("identity").isString() || !manifest.get("identity").asString().equals(self.key(identity)) || !manifest.get("hashes").isArray() || !manifest.get("diagnostic").isString()) { return null; }
+		var hashes = manifest.get("hashes");
+		if (hashes.size() < 2) { return null; }
+		Vector<string> payloads = [];
+		int remaining = 536870912;
+		for (int index = 0; index < hashes.size(); index++) {
+			if (!hashes.at(index).isString() || hashes.at(index).asString().length() != 64 || remaining <= 0) { return null; }
+			var payload = lease.readRegularChild(f"part-{index}", remaining);
+			if (!payload.ok() || !payload.found()) { return null; }
+			var bytes = payload.bytes();
+			if (!bytes.isNulFreeUtf8()) { return null; }
+			string content = bytes.toString();
+			if (!self.payloadDigest(index, content).equals(hashes.at(index).asString())) { return null; }
+			remaining = remaining - bytes.length();
+			payloads.push(content);
+		}
+		string planText = payloads.get(payloads.len - 1);
+		var plan = JSONValue.parse(planText);
+		if (!plan.isObject() || !plan.get("schema").isInt()) { return null; }
+		int count = payloads.len - 2;
+		var emitted = plan.get("emitted-units");
+		if (count == 0 && plan.has("emitted-units")) { return null; }
+		if (count > 0 && (self.unitsPrefix.isEmpty() || !emitted.isArray() || emitted.size() != count)) { return null; }
+		var result = BtrccCompilationResult(true, payloads.get(0), manifest.get("diagnostic").asString(), planText);
+		for (int index = 0; index < count; index++) {
+			string path = self.unitsPrefix + f".unit-{index + 1}.c";
+			if (!emitted.at(index).isString() || !emitted.at(index).asString().equals(path)) { return null; }
+			result.units.push(payloads.get(index + 1));
+			result.unitPaths.push(path);
+		}
+		return result;
+	}
+
+	public BtrccCompilationResult? load(string identity) {
+		var digests = self.artifactDigests;
+		if (digests != null) { digests.clear(); }
+		BtrccCompilationResult? result = null;
+		try { if (self.open(identity)) { result = self.read(identity); } }
+		catch (string error) { result = null; }
+		if (!self.close()) { result = null; }
+		/* A partial or rejected cache generation must not remain alive beside
+		 * the fresh compilation that follows this miss. */
+		if (result == null && digests != null) { digests.clear(); }
+		return result;
+	}
+
+	private void write(string identity, BtrccCompilationResult result) {
+		var lease = self.lease;
+		if (lease == null) { return; }
+		Vector<string> payloads = [result.output];
+		for unit in result.units { payloads.push(unit); }
+		payloads.push(result.linkPlan);
+		long long total = 0LL;
+		for payload in payloads { total = total + (long long)payload.length(); }
+		if (total > 536870912LL) { return; }
+		var manifest = JSONValue.makeObject();
+		manifest.set("schema", JSONValue.makeInt(1));
+		manifest.set("identity", JSONValue.makeString(self.key(identity)));
+		manifest.set("diagnostic", JSONValue.makeString(result.diagnostic));
+		var hashes = JSONValue.makeArray();
+		/* Readers hold the same lease. A failed overwrite cannot advertise an
+		 * old manifest over a partial replacement generation. */
+		if (!lease.removeRegularChildDurably("manifest.json").committed()) { return; }
+		for (int index = 0; index < payloads.len; index++) {
+			string payload = payloads.get(index);
+			hashes.push(JSONValue.makeString(self.payloadDigest(index, payload)));
+			if (!lease.replaceRegularChildDurably(f"part-{index}", Bytes.fromString(payload)).committed()) { return; }
+		}
+		manifest.set("hashes", hashes);
+		if (!self.sourceFiles.validateInputs().isEmpty()) { return; }
+		lease.replaceRegularChildDurably("manifest.json", Bytes.fromString(manifest.stringify()));
+	}
+
+	public void store(string identity, BtrccCompilationResult result) {
+		try { if (result.success && self.open(identity)) { self.write(identity, result); } }
+		catch (string error) { }
+		self.close();
+	}
+
+	public void __del__() { self.close(); }
+}
+
+/* Command-line application owner for the production self-hosted compiler. */
 class BtrccDriver {
 	private BtrccCommandLine commandLine;
 	private BtrccOutput output;
 	private FeSourceFileReader sourceFiles;
 	private FeNativeHeaderReader nativeHeaderReader;
+	private ISHA256Digest? artifactDigestProvider;
 
-	public BtrccDriver(int argc, char** argv, FeNativeHeaderReader nativeHeaderReader = (FeNativeHeaderReader)null) {
+	public BtrccDriver(int argc, char** argv, FeNativeHeaderReader nativeHeaderReader = (FeNativeHeaderReader)null, ISHA256Digest? artifactDigestProvider = null) {
 		self.commandLine = BtrccCommandLine(argc, argv);
 		self.output = BtrccOutput(stdout);
 		self.sourceFiles = FeSourceFileReader();
 		self.nativeHeaderReader = nativeHeaderReader;
+		self.artifactDigestProvider = artifactDigestProvider;
 	}
 
 	private int fail(string diagnostic) {
@@ -382,29 +1694,58 @@ class BtrccDriver {
 		if (!FileSystem.isFile(sourcePath)) {
 			return self.fail("input file does not exist: " + sourcePath);
 		}
-		if (!options.linkPlanPath.isEmpty() && PathTools.absolute(options.linkPlanPath).equals(PathTools.absolute(sourcePath))) {
-			return self.fail("link-plan output must differ from the input path");
-		}
 		string source = self.sourceFiles.readRequired(sourcePath);
-		Compiler compiler = Compiler(grammar, dataPaths.stdlib, self.sourceFiles, self.nativeHeaderReader);
+		BtrccArtifactDigests? artifactDigests = null;
+		if (!options.outputPath.isEmpty()) { artifactDigests = BtrccArtifactDigests(self.artifactDigestProvider); }
+		IBtrccArtifactCache? cache = null;
+		FeDirectiveCache? directiveCache = null;
+		if (options.useCache && !options.outputPath.isEmpty()) {
+			var artifacts = BtrccArtifactCache(runtimePaths.executablePath(), self.sourceFiles, options.unitsPrefix, artifactDigests);
+			cache = artifacts;
+			directiveCache = artifacts.directiveCache();
+		}
+		Compiler compiler = Compiler(grammar, dataPaths.stdlib, self.sourceFiles, self.nativeHeaderReader, cache, directiveCache);
 		BtrccCompilationResult result = compiler.compile(source, sourcePath, options);
 		if (!result.success) {
 			fprintf(stderr, "%s\n", result.diagnostic);
 			return 1;
 		}
-		if (!options.linkPlanPath.isEmpty() && !FePackageFileStore().writeAtomically(options.linkPlanPath, result.linkPlan)) {
-			return self.fail("cannot write native link plan: " + options.linkPlanPath);
-		}
-		int unit = 0;
-		while (unit < result.units.len) {
-			string unitPath = options.unitsPrefix + ".unit-" + Strings.fromInt(unit + 1) + ".c";
-			if (!FePackageFileStore().writeAtomically(unitPath, result.units.get(unit))) { return self.fail("cannot write translation unit: " + unitPath); }
-			unit = unit + 1;
-		}
+		if (result.unitPaths.len != result.units.len) { return self.fail("translation-unit output inventory is inconsistent"); }
+		Vector<string> outputPaths = [];
+		Vector<string> contents = [];
+		Vector<string> roles = [];
+		if (!options.outputPath.isEmpty()) { outputPaths.push(options.outputPath); contents.push(result.output); roles.push("primary"); }
+		for (int index = 0; index < result.unitPaths.len; index++) { outputPaths.push(result.unitPaths.get(index)); contents.push(result.units.get(index)); roles.push("secondary"); }
+		if (!options.linkPlanPath.isEmpty()) { outputPaths.push(options.linkPlanPath); contents.push(result.linkPlan); roles.push("link-plan"); }
+		string sourceDiagnostic = self.sourceFiles.validateInputs();
+		if (!sourceDiagnostic.isEmpty()) { return self.fail(sourceDiagnostic); }
+		string outputDiagnostic = BtrccOutputPaths().validate(outputPaths, result.inputPaths);
+		if (!outputDiagnostic.isEmpty()) { return self.fail(outputDiagnostic); }
+		var generation = BtrccGenerationOwner(self.sourceFiles, artifactDigests);
+		string diagnostic = generation.acquire(options.outputPath, outputPaths);
 		if (!options.outputPath.isEmpty()) {
-			if (!FePackageFileStore().writeAtomically(options.outputPath, result.output)) { return self.fail("cannot write generated C: " + options.outputPath); }
+			if (diagnostic.isEmpty()) { diagnostic = generation.publish(outputPaths, contents, roles, result.inputPaths); }
+			string ownerClose = generation.close();
+			if (!ownerClose.isEmpty()) { diagnostic = diagnostic.isEmpty() ? ownerClose : diagnostic + "; " + ownerClose; }
+			if (!diagnostic.isEmpty()) { return self.fail(diagnostic); }
 			return 0;
 		}
+		var publication = BtrccPublicationLocks();
+		if (diagnostic.isEmpty()) { diagnostic = publication.acquire(outputPaths); }
+		if (diagnostic.isEmpty()) { diagnostic = publication.validate(outputPaths, result.inputPaths); }
+		var prepared = BtrccPreparedOutputs();
+		if (diagnostic.isEmpty()) { diagnostic = prepared.prepare(publication.destinations(), contents); }
+		if (diagnostic.isEmpty()) { diagnostic = publication.validate(outputPaths, result.inputPaths); }
+		if (diagnostic.isEmpty()) { diagnostic = generation.validate(); }
+		if (diagnostic.isEmpty()) { diagnostic = prepared.publish(); }
+		string discardDiagnostic = prepared.discard();
+		string closeDiagnostic = publication.close();
+		string ownerCloseDiagnostic = generation.close();
+		if (!diagnostic.isEmpty()) { return self.fail(diagnostic); }
+		if (!discardDiagnostic.isEmpty()) { return self.fail(discardDiagnostic); }
+		if (!closeDiagnostic.isEmpty()) { return self.fail(closeDiagnostic); }
+		if (!ownerCloseDiagnostic.isEmpty()) { return self.fail(ownerCloseDiagnostic); }
+		if (!options.outputPath.isEmpty()) { return 0; }
 		if (self.output.write(result.output)) { return 0; }
 		return self.fail("cannot write standard output");
 	}

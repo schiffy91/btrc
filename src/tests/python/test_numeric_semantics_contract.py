@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,50 @@ from src.compiler.python.parser.parser import ParseError, Parser
 from src.tests.python.test_codegen import emit_c
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+
+
+@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_native_integer_widths_match_c_compiler(tmp_path: Path, c_compiler: str):
+    source = tmp_path / "widths.c"
+    executable = tmp_path / "widths"
+    source.write_text(
+        "#include <limits.h>\n#include <stdio.h>\n"
+        'int main(void) { printf("%zu %zu %zu %zu %zu\\n", '
+        "sizeof(char) * CHAR_BIT, sizeof(short) * CHAR_BIT, sizeof(int) * CHAR_BIT, "
+        "sizeof(long) * CHAR_BIT, sizeof(long long) * CHAR_BIT); return 0; }\n"
+    )
+    subprocess.run([c_compiler, "-std=c11", "-pedantic-errors", str(source), "-o", str(executable)], check=True)
+    result = subprocess.run([str(executable)], capture_output=True, text=True, check=True)
+    widths = CIntegerWidths.native()
+    assert tuple(map(int, result.stdout.split())) == (
+        widths.char,
+        widths.short,
+        widths.int_,
+        widths.long,
+        widths.long_long,
+    )
+
+
+def test_reference_compiler_emits_without_foreign_function_runtime(tmp_path: Path):
+    source = tmp_path / "Main.btrc"
+    source.write_text("int main() { return 0; }\n")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import runpy, sys; sys.modules['ctypes'] = None; sys.modules['_ctypes'] = None; "
+            "sys.argv = ['btrcpy', sys.argv[1], '--strict-imports', '--no-cache']; "
+            "runpy.run_module('src.compiler.python.main', run_name='__main__')",
+            str(source),
+        ],
+        cwd=Path(__file__).resolve().parents[3],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "int main(" in source.with_suffix(".c").read_text()
 
 
 def test_numeric_literal_semantics_drives_pipeline_inference():

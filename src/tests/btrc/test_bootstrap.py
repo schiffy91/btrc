@@ -28,6 +28,8 @@ import sys
 import tempfile
 import unittest
 
+from src.compiler.python.artifacts.archive import TargetCatalog
+
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
 CFLAGS = shlex.split(os.environ.get("BTRC_CFLAGS", "-std=c11 -Wall -Wextra -Werror -pedantic -O2"))
@@ -68,6 +70,9 @@ PYTHON = shlex.split(os.environ["BTRC_PYTHON"]) if "BTRC_PYTHON" in os.environ e
 BOOTSTRAP_TIMEOUT = int(os.environ.get("BTRC_BOOTSTRAP_TIMEOUT_SECONDS", "1200"))
 EXE_SUFFIX = ".exe" if os.name == "nt" else ""
 COMPILER_ENTRYPOINT = os.path.join("cli", "WindowsMain.btrc") if os.name == "nt" else "BtrccMain.btrc"
+if sys.platform == "darwin" and os.environ.get("BTRC_NATIVE_HEADER_READER"):
+    COMPILER_ENTRYPOINT = os.path.join("cli", "MacOSMain.btrc")
+COMPILER_HOST_TARGET = TargetCatalog().host_target()
 
 
 def _terminate_process_tree(process: subprocess.Popen) -> None:
@@ -151,6 +156,8 @@ def _transpile_with_python(project_root: str, data_root: str, in_btrc: str, out_
             "src.compiler.python.main",
             in_btrc,
             "--strict-imports",
+            "--target",
+            COMPILER_HOST_TARGET,
             "--no-cache",
             "-o",
             out_c,
@@ -178,7 +185,7 @@ def _btrcc(binary: str, in_btrc: str, out_c: str, *, data_root: str, workdir: st
     output = os.path.join(REPO, out_c)
     with open(output, "w") as generated:
         r = _run_process(
-            [binary, "--strict-imports", in_btrc],
+            [binary, "--strict-imports", "--target", COMPILER_HOST_TARGET, in_btrc],
             cwd=workdir,
             env={**os.environ, "BTRC_HOME": data_root},
             stdout=generated,

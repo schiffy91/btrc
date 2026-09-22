@@ -51,6 +51,11 @@ int main() {
 	assert(privateDirectory.isOpen());
 	assert(privateDirectory.path().equals(privatePath));
 	assert(exactMode(privatePath) == 448);
+	assert(privateDirectory.validatePath().ok());
+	assert(FileSystem.chmod(privatePath, 493) == 0);
+	assert(privateDirectory.validatePath().error().kind() == FS_ACCESS_DENIED);
+	assert(FileSystem.chmod(privatePath, 448) == 0);
+	assert(privateDirectory.validatePath().ok());
 
 	PrivateDirectoryOpenOutcome secondOpen = FileSystem.openPrivateDirectory(privatePath);
 	assert(secondOpen.ok());
@@ -64,7 +69,15 @@ int main() {
 	umask(priorMask);
 	assert(firstLeaseOpen.ok());
 	ExclusiveFileLease firstLease = firstLeaseOpen.lease();
+	assert(firstLease.validate().ok());
 	assert(firstLease.isOpen());
+	assert(firstLease.removeRegularChildDurably("missing.bin").committed());
+	assert(firstLease.removeRegularChildDurably("state.lock").error().kind() == FS_INVALID_ARGUMENT);
+	assert(firstLease.removeRegularChildDurably("../escape").error().kind() == FS_INVALID_ARGUMENT);
+	assert(firstLease.replaceRegularChildDurably("remove.bin", Bytes.fromString("retired")).committed());
+	assert(firstLease.removeRegularChildDurably("remove.bin").committed());
+	assert(!firstLease.readRegularChild("remove.bin", 64).found());
+	assert(firstLease.removeRegularChildDurably("remove.bin").committed());
 	assert(exactMode(PathTools.join(privatePath, "state.lock")) == 384);
 
 	ExclusiveFileLeaseOpenOutcome contended = secondDirectory.acquireExclusiveLease("state.lock");
@@ -114,6 +127,7 @@ int main() {
 	createRegular(symlinkTarget, "target", 384);
 	string symlinkChild = PathTools.join(privatePath, "symlink.bin");
 	assert(FileSystem.symlink(symlinkTarget, symlinkChild) == 0);
+	assert(firstLease.removeRegularChildDurably("symlink.bin").error().kind() == FS_SYMLINK);
 	assert(!firstLease.readRegularChild("symlink.bin", 64).ok());
 	assert(firstLease.readRegularChild("symlink.bin", 64).error().kind() == FS_SYMLINK);
 	assert(!firstLease.replaceRegularChildDurably("symlink.bin", secondBytes).committed());
@@ -121,11 +135,13 @@ int main() {
 
 	string directoryChild = PathTools.join(privatePath, "directory.bin");
 	assert(FileSystem.mkdir(directoryChild, 448) == 0);
+	assert(firstLease.removeRegularChildDurably("directory.bin").error().kind() == FS_WRONG_TYPE);
 	assert(!firstLease.readRegularChild("directory.bin", 64).ok());
 	assert(firstLease.readRegularChild("directory.bin", 64).error().kind() == FS_WRONG_TYPE);
 
 	string unsafeChild = PathTools.join(privatePath, "unsafe.bin");
 	createRegular(unsafeChild, "unsafe", 420);
+	assert(firstLease.removeRegularChildDurably("unsafe.bin").error().kind() == FS_ACCESS_DENIED);
 	assert(!firstLease.readRegularChild("unsafe.bin", 64).ok());
 	assert(firstLease.readRegularChild("unsafe.bin", 64).error().kind() == FS_ACCESS_DENIED);
 	assert(!firstLease.replaceRegularChildDurably("unsafe.bin", secondBytes).committed());
@@ -140,8 +156,10 @@ int main() {
 
 	assert(firstLease.close().kind() == FS_CLOSED_NOW);
 	assert(firstLease.close().kind() == FS_ALREADY_CLOSED);
+	assert(!firstLease.validate().ok());
 	assert(!firstLease.readRegularChild("state.bin", 64).ok());
 	assert(firstLease.readRegularChild("state.bin", 64).error().kind() == FS_CLOSED);
+	assert(firstLease.removeRegularChildDurably("state.bin").error().kind() == FS_CLOSED);
 
 	ExclusiveFileLeaseOpenOutcome afterRelease = secondDirectory.acquireExclusiveLease("state.lock");
 	assert(afterRelease.ok());
@@ -171,6 +189,7 @@ int main() {
 	assert(FileSystem.mkdir(outside, 448) == 0);
 	assert(rename(privatePath, movedPrivate) == 0);
 	assert(FileSystem.symlink(outside, privatePath) == 0);
+	assert(privateDirectory.validatePath().error().kind() == FS_CHANGED);
 	assert(!FileSystem.openPrivateDirectory(privatePath).ok());
 	assert(FileSystem.openPrivateDirectory(privatePath).error().kind() == FS_SYMLINK);
 
@@ -181,9 +200,13 @@ int main() {
 	assert(pinnedLease.replaceRegularChildDurably("pinned.bin", pinnedBytes).committed());
 	assert(FileSystem.exists(PathTools.join(movedPrivate, "pinned.bin")));
 	assert(!FileSystem.exists(PathTools.join(outside, "pinned.bin")));
+	assert(pinnedLease.removeRegularChildDurably("pinned.bin").committed());
+	assert(!FileSystem.exists(PathTools.join(movedPrivate, "pinned.bin")));
+	assert(!FileSystem.exists(PathTools.join(outside, "pinned.bin")));
 	assert(pinnedLease.close().kind() == FS_CLOSED_NOW);
 	assert(privateDirectory.close().kind() == FS_CLOSED_NOW);
 	assert(privateDirectory.close().kind() == FS_ALREADY_CLOSED);
+	assert(privateDirectory.validatePath().error().kind() == FS_CLOSED);
 
 	int descriptorBaseline = descriptorCount();
 	for i in range(32) {

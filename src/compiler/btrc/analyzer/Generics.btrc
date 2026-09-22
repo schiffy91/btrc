@@ -555,7 +555,15 @@ class GenericSpecializer {
      * skipped — their T resolves per instance from the (already-upgraded) instance
      * args, exactly as in the reference. */
 	private void upgradeDeclGenericArgs(Node d, Analyzed a) {
-		if (d.kind == NK_FUNCTION_DECL) {
+		if (d.kind == NK_INTERFACE_DECL) {
+			/* Requirements and implementations must use the same representation
+			 * for nested class arguments, including nullable container returns. */
+			Map<string, bool> unresolved = SemanticTypeSystem.genericParameterSet(d.genericParams);
+			for method in d.methods {
+				SemanticTypeSystem.upgradeTypeGenericArgs(method.returnType, a, unresolved);
+				for parameter in method.params { SemanticTypeSystem.upgradeTypeGenericArgs(parameter.type, a, unresolved); }
+			}
+		} else if (d.kind == NK_FUNCTION_DECL) {
 			Map<string, bool> unresolved = SemanticTypeSystem.genericParameterSet(d.genericParams);
 			int i = 0;
 			while (i < d.params.len) {
@@ -786,7 +794,15 @@ class GenericSpecializer {
 	/* Walk a top-level declaration for generic instances (param/return/field types
      * and statement bodies). */
 	private void collectGenericsDecl(Node d, Analyzed a) {
-		if (d.kind == NK_FUNCTION_DECL) {
+		if (d.kind == NK_INTERFACE_DECL) {
+			/* Dispatch signatures need concrete types even when no implementation
+			 * or call site independently instantiates the interface's containers. */
+			Map<string, bool> unresolved = SemanticTypeSystem.genericParameterSet(d.genericParams);
+			for method in d.methods {
+				self.registerGenericInstanceWithUnresolved(method.returnType, a, unresolved);
+				for parameter in method.params { self.registerGenericInstanceWithUnresolved(parameter.type, a, unresolved); }
+			}
+		} else if (d.kind == NK_FUNCTION_DECL) {
 			Map<string, bool> unresolved = SemanticTypeSystem.genericParameterSet(d.genericParams);
 			int i = 0;
 			while (i < d.params.len) {

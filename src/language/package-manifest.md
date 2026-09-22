@@ -1,7 +1,7 @@
 # Package manifests and native link plans
 
 This document defines package manifest version 1, lockfile schema 3, and native
-link-plan schemas 1, 2 and 3.  The reference and self-hosted compilers implement the same
+link-plan schemas 1 through 4. The reference and self-hosted compilers implement the same
 strict local graph, lock, and plan contracts. The reference compiler also
 materializes Git dependencies; the self-hosted compiler currently rejects that
 acquisition surface precisely. A build tool consumes the emitted plan; compilers never execute
@@ -816,6 +816,57 @@ Types or explicit ownership annotations that cannot yet be lowered faithfully
 fail; unannotated pointers remain raw, not managed resources. Native compilations
 bypass artifact caching until its key includes transitive headers and toolchain
 identity. This is not a completed cross-platform import or lifetime feature.
+
+#### Shared native-reader batch protocol
+
+The host reader accepts either standalone `--symbol`/`--record-path`/
+`--record-value` selections or `--batch=FILE` (`--batch=-` reads stdin).
+Exactly one translation unit, target and compile command applies to the whole
+batch, including ordered include/define flags and pkg-config dependencies.
+Consumers may group requests only when these inputs agree. Sharing a header
+basename, language or target alone is insufficient. This shares a fresh parse;
+it is not a persistent SDK cache and does not waive header validation.
+
+The request envelope has exactly `schema = "btrc.native-requests.v1"` and a
+nonempty `requests` array. Each request has a unique nonempty string `id`, a
+nonempty string array `symbols`, and optional string arrays `record_paths` and
+`record_values`. Unknown fields and malformed selections fail before Clang
+executes. Symbols, layouts, receiver interfaces and extraction errors remain
+private to their request; one request's selected C++ owner grants no permission
+to another. The command-line standalone selection options cannot be mixed
+with a batch.
+
+The response envelope is `schema = "btrc.native-responses.v1"` with `results`
+in request order. Each result contains the same `id`, an `errors` string array,
+and `document`: the existing native-declarations semantic document on success,
+or JSON null when selection fails. A successful batch process means the
+envelope was produced, **not that every selection succeeded**. Consumers must
+validate the exact expected ID set/order, reject malformed envelopes, attribute
+selection errors to the original binding and pass each successful document
+through the ordinary semantic decoder. Never import a sibling's declarations
+as a substitute for a failed request. An invalid batch, unavailable dependency
+or Clang translation-unit error gives a nonzero exit and no partial stdout.
+
+The text transport must also reject embedded raw NUL bytes, including after an
+otherwise valid document. A C-string prefix is not the complete response. The
+self-host Unix provider compares the selected captured stream's byte count
+against its text length before admission; the codec separately rejects escaped
+NUL inside JSON strings. This applies to standalone responses as well as batches.
+
+Both compiler consumers group requests by the complete ordered non-selection
+arguments and preserve original binding projection order. Singletons keep the
+standalone path. The reference consumer captures one environment snapshot per
+resolution and fingerprints validated semantic values, so equivalent standalone
+and batch JSON formatting does not change artifact identity. Every resolution
+still reads the SDK afresh.
+
+The self-host host request carries stdin and explicit capture/time allowances.
+Each member retains its existing 8 MiB output and 60-second execution allowance;
+groups above 255 members are partitioned to fit the process API's signed 32-bit
+capture budget. This is a process partition, not an import-count limit. Envelope
+validation precedes per-binding projection, and a later failed selection remains
+attributed to that binding. Batching does not establish self-host artifact-cache
+parity or satisfy the complete product no-op budget by itself.
 
 Outer `_Nullable` and `_Nonnull` pointer annotations on function parameters and
 results are preserved. Nullable values keep their original pointer depth;
@@ -1752,16 +1803,42 @@ package path: generated output must not masquerade as a source-package file.
 The plan is the single published artifact, so it cannot refer to a half-published
 adapter file. This is compiler output, not a new manifest input table.
 
-Schema 3 is written when the compiler was asked to split the program with
-`--emit-units PREFIX`. It adds `emitted-units`, the count of secondary
-translation units the compiler wrote beside the generated C as
-`<generated>.unit-<k>.c` for `k` from 1; `generated-units` stays optional. The
-units are compiler output like the generated C itself, so the plan carries the
-count rather than paths: `btrc-native-plan` derives them from the generated C it
-is given and compiles them in parallel before one link. A split program's
+Schema 4 is written when `--emit-units PREFIX` produces secondary translation
+units. Its `emitted-units` field is a nonempty ordered array of absolute paths
+to `PREFIX.unit-<k>.c`, for `k` from 1. Resolve relative prefixes against the
+compiler process's working directory and resolve its destination directory
+through existing symlinks, without following the final output file. Append a
+unit suffix before separating directory and filename: a prefix ending in `/`,
+`.` or `..` is not itself a completed filesystem path. Existing outputs must
+not change the emitted plan's spelling. The prefix can differ from the primary
+C destination, including its directory; the builder must not infer these paths
+from the primary C filename or its own working directory. `generated-units`
+stays optional. Paths name compiler outputs, not package-owned sources, and
+their order is emission order rather than lexical sorting (unit 10 follows
+unit 9). The builder validates nonempty strings, absolute paths and distinct
+regular files, rejecting symlinks, missing files, duplicate/hardlink aliases
+and aliases of the primary C or native source units before invoking build tools.
+The plan's existing total-byte bound applies; schema 4 adds no fixed unit-count
+ceiling. Reference cache restoration validates these exact paths and their order
+against the current emission options and cached unit count.
+
+The builder continues to read schema 3, whose `emitted-units` is an integer
+count from 1 through 4096. Only that legacy schema derives secondary paths as
+`<generated>.unit-<k>.c` beside the primary C supplied to the builder. New
+compilers do not write schema 3. Consumers must upgrade their plan reader with
+the compiler before using schema 4; an old reader must reject the newer schema.
+Unsplit output, including a split request that produces no secondary units,
+retains schema 1 or 2 as appropriate.
+
+The builder compiles secondary units in parallel before linking or validating
+a retained executable. A split program's
 functions and globals have external linkage and the runtime's file-scope state
 is defined by the primary unit alone, so every unit must come from the same
-compiler run.
+compiler run. Explicit paths establish an output inventory, not generation
+atomicity: interrupted publication, prior-inventory recovery, obsolete-unit
+retirement and cooperating-reader validation still require the generation
+protocol tracked in M6a. A plan alone does not prove that its files share one
+generation. Debug resets for generated code use each unit's actual output path.
 
 Generated C uses `c11`/`manual`, C++ uses `c++17` or `c++20`/`raii`, and
 Objective-C or Objective-C++ uses the matching standard with `arc`. The builder
@@ -1771,10 +1848,64 @@ handwritten Objective-C sources keep their existing memory-management behavior.
 No unit accepts arbitrary compiler flags. Both ordinary and generated C++ units
 participate in linker-language selection.
 
-The builder validates the whole plan before invoking tools, writes generated
-units only inside its private temporary build directory, and removes them after
-success or failure. It replaces the requested executable only after a successful
-link. Existing package-root/path validation remains unchanged for source units.
+The builder validates the whole plan before invoking tools. Without object
+caching or debug information it writes generated units inside its private
+temporary build directory and removes them after success or failure.
+With `--object-cache` or `--debug-info`, it can retain
+one content-addressed adapter source generation in
+`<output-directory>/.btrc-adapters-v1-<digest>/`. Each generation contains exactly
+the declared adapter files and a versioned manifest of their names, language,
+standard, ownership policy and source hashes. The complete directory publishes
+atomically; subsequent builders verify the manifest, file contents and closed
+file inventory before using it. Partial, corrupt, linked or unavailable
+generations fall back to private sources without modifying the shared
+generation. Debug builds retain those private sources as output dependencies;
+other builds use temporary sources. Reports expose `adapter_source_status` as
+`none`, `temporary`, `retained`, `retained-private` or `fallback`.
+
+Both retained and temporary source directories are one level below the native
+output directory, preserving parent-relative quoted includes. Source paths,
+preprocessed output and transitive headers remain inputs to object validation;
+retention never strips observable paths to manufacture hits. Retained files
+remain available for debugger source lookup and are removed when their build
+output directory is cleaned. Builders do not evict source generations another
+compiler might be using. The embedded plan remains authoritative; this is not
+a new manifest input table or a complete compiler-output generation cache.
+
+On macOS, `--debug-info` also retains a complete immutable object generation in
+`.btrc-debug-v1-<digest>/` beside the executable. Darwin's debug map refers to
+these object paths and timestamps after linking. The generation identity covers
+object names and content hashes; validation checks the closed file inventory,
+manifest, object contents and fixed nonzero timestamps. Invalid shared generations
+remain untouched; a private retained generation serves the current build.
+`debug_object_status` reports `none`, `retained` or `retained-private`. These are
+build outputs, independent of the optional object cache: cache deletion does not
+remove them. Keep them with development executables; build-directory cleanup
+removes them. Reports and executables cannot overwrite retained debug inputs.
+
+On Darwin with `--object-cache`, qualified Clang/native-linker invocations can
+reuse the requested executable. The receipt binds the expanded command, ordered
+object contents and configuration, driver/compiler/linker and loaded-image
+identities, wrapper support files, environment, selected libraries, missing
+search candidates and path bindings. Actual executable bytes and mode must also
+match. Unknown argument languages, response files and unqualified wrappers bypass
+reuse; other hosts still link normally. A discovery link identifies inputs;
+a second link bracketed by fresh content and negative-lookup snapshots qualifies
+the receipt. A supported miss therefore normally performs two links, and a hit
+performs zero. Input changes during qualification prevent receipt publication.
+
+Final validation/link/publication shares the existing output-parent lock,
+including configurations using different caches. Receipts are optional records
+in `<object-cache>/links/`, atomically published after the executable and subject
+to the object cache's age-based pruning. Removing a receipt causes a miss.
+Reports expose actual `links`, `link_validation_s` and `link_cache_status`:
+`disabled`, `unsupported-input`, `miss`, `hit`, `stored`, `publication-failed`
+or `unverified-inputs`. `link_s` times actual links; validation is separate.
+A hit retains the executable's bytes, inode and timestamp.
+
+The builder replaces the requested executable only after successful linking;
+a failed discovery or verification link preserves the prior executable.
+Existing package-root/path validation remains unchanged for source units.
 
 The plan contains the target, package roots and dependency aliases, selected
 headers, include directories, defines, source compilation units, frameworks,

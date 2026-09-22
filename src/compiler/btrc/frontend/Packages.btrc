@@ -1,6 +1,8 @@
 /* Versioned package graph and native link-plan ownership. */
 
 import Library.FileSystem;
+import Library.FileSystem.FileSystemHandles;
+import Library.IO;
 import Library.JSON;
 import Library.Map;
 import Library.Platform;
@@ -1890,14 +1892,44 @@ class FeNativeLinkPlan {
 	public Vector<FePackageNode> packages;
 	public Vector<FeNativeDeclaration> declarations;
 	public Vector<FeNativeGeneratedUnit> generatedUnits;
-	/* Secondary translation units emitted beside the generated C, if any. */
-	public int emittedUnits = 0;
+	/* Ordered absolute paths of secondary compiler outputs (schema 4). */
+	public Vector<string> emittedUnits = [];
+
+	/* Resolve a complete filename before removing its suffix: '/', '.' and
+	 * '..' at the end of a prefix are not yet directory components. Resolve the
+	 * parent, not the output itself, so existing files cannot change the plan. */
+	class string outputPrefix(string prefix) {
+		string suffix = ".unit-1.c";
+		string filename = prefix + suffix;
+		string parent = PathTools.absolute(PathTools.dirname(filename));
+		string first = PathTools.join(parent, PathTools.basename(filename));
+		return first.substring(0, first.length() - suffix.length());
+	}
 
 	public FeNativeLinkPlan(FePackageTarget target, Vector<FePackageNode> packages, Vector<FeNativeDeclaration> declarations) {
 		self.target = target;
 		self.packages = packages;
 		self.declarations = declarations;
 		self.generatedUnits = [];
+	}
+
+	/* Known native/package inputs also belong to the output exclusion set,
+	 * even when a C compiler rather than this frontend reads their contents. */
+	public Vector<string> inputPaths() {
+		Map<string, bool> paths = {};
+		for package in self.packages {
+			paths.put(PathTools.join(package.root, "btrc.toml"), true);
+			paths.put(PathTools.join(package.root, "btrc.lock"), true);
+			for binding in package.bindings {
+				if (binding.selectedFor(self.target)) { paths.put(binding.header, true); }
+			}
+		}
+		for declaration in self.declarations {
+			if ((declaration.kind.equals("source") || declaration.kind.equals("header")) && declaration.selectedFor(self.target)) {
+				paths.put(declaration.value, true);
+			}
+		}
+		return paths.keys();
 	}
 
 	public Vector<FeNativeBinding> bindingImports() {
@@ -2212,6 +2244,49 @@ class FeNativeLinkPlan {
 		return "c";
 	}
 
+	private bool generatedIdentifier(string name) {
+		if (name.isEmpty()) { return false; }
+		for (int index = 0; index < name.length(); index++) {
+			char c = name[index];
+			if (c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) { continue; }
+			if (index > 0 && c >= '0' && c <= '9') { continue; }
+			return false;
+		}
+		return true;
+	}
+
+	/* Reconstruct generated parts over today's resolved package facts. Exact
+	 * canonical equality rejects stale targets, roots, flags and unknown fields. */
+	public FeNativeLinkPlan? withCachedArtifacts(string serialized, int count, string prefix) {
+		if (count < 0 || (count > 0 && prefix.isEmpty())) { return null; }
+		var document = JSONValue.parse(serialized);
+		if (!document.isObject()) { return null; }
+		var restored = FeNativeLinkPlan(self.target, self.packages, self.declarations);
+		var names = new Map<string, bool>();
+		if (document.has("generated-units")) {
+			var records = document.get("generated-units");
+			if (!records.isArray()) { return null; }
+			for (int index = 0; index < records.size(); index++) {
+				var row = records.at(index);
+				if (!row.isObject() || row.size() != 5) { return null; }
+				for key in ["name", "language", "standard", "memory-management", "source"] {
+					if (!row.get(key).isString() || row.get(key).asString().isEmpty()) { return null; }
+				}
+				string name = row.get("name").asString();
+				string language = row.get("language").asString();
+				string standard = row.get("standard").asString();
+				string memory = row.get("memory-management").asString();
+				if (!self.generatedIdentifier(name) || names.has(name)) { return null; }
+				if (!((language == "objective-c" && standard == "c11" && memory == "arc") || (language == "c++" && standard == "c++17" && memory == "raii"))) { return null; }
+				names.put(name, true);
+				restored.generatedUnits.push(FeNativeGeneratedUnit(name, language, standard, memory, row.get("source").asString()));
+			}
+		}
+		string output = count == 0 ? "" : FeNativeLinkPlan.outputPrefix(prefix);
+		for (int index = 0; index < count; index++) { restored.emittedUnits.push(output + f".unit-{index + 1}.c"); }
+		return restored.canonicalJson().equals(serialized) ? restored : null;
+	}
+
 	public string canonicalJson() {
 		JSONValue targetValue = JSONValue.makeObject();
 		targetValue.set("arch", JSONValue.makeString(self.target.architecture));
@@ -2219,7 +2294,11 @@ class FeNativeLinkPlan {
 
 		JSONValue root = JSONValue.makeObject();
 		root.set("defines", self.defineRecords());
-		if (self.emittedUnits > 0) { root.set("emitted-units", JSONValue.makeInt(self.emittedUnits)); }
+		if (self.emittedUnits.len > 0) {
+			var emitted = JSONValue.makeArray();
+			for path in self.emittedUnits { emitted.push(JSONValue.makeString(path)); }
+			root.set("emitted-units", emitted);
+		}
 		root.set("frameworks", self.nameRecords("framework"));
 		if (self.generatedUnits.len > 0) {
 			Vector<FeNativeGeneratedUnit> ordered = [];
@@ -2242,54 +2321,145 @@ class FeNativeLinkPlan {
 		root.set("linker-language", JSONValue.makeString(self.linkerLanguage()));
 		root.set("packages", self.packageRecords());
 		root.set("pkg-config", self.nameRecords("pkg-config"));
-		root.set("schema", JSONValue.makeInt(self.emittedUnits > 0 ? 3 : (self.generatedUnits.len > 0 ? 2 : 1)));
+		root.set("schema", JSONValue.makeInt(self.emittedUnits.len > 0 ? 4 : (self.generatedUnits.len > 0 ? 2 : 1)));
 		root.set("target", targetValue);
 		root.set("units", self.unitRecords());
 		return root.stringify() + "\n";
 	}
 }
 
-/* One same-directory temporary followed by rename is the only publication
- * path for package state and plan sidecars.  Manifests never supply this path
- * or any command-shaped data. */
+/* One owned, flushed candidate. Publication consumes its name; cleanup never
+ * removes an unrelated replacement placed at that name. Group publication
+ * stages every payload before consuming any candidate. */
+class FeStagedFile {
+	private string destination;
+	private string temporaryPath;
+	private FileSnapshot identity;
+	private FileSnapshot directoryIdentity;
+
+	public FeStagedFile(string destination, string temporaryPath, FileSnapshot identity, FileSnapshot directoryIdentity) {
+		self.destination = destination;
+		self.temporaryPath = temporaryPath;
+		self.identity = identity;
+		self.directoryIdentity = directoryIdentity;
+	}
+
+	private FileSystemError? syncDirectory() {
+		string directory = PathTools.dirname(self.destination);
+		int descriptor = open(directory, (int)O_RDONLY | (int)O_DIRECTORY | (int)O_CLOEXEC | (int)O_NOFOLLOW);
+		if (descriptor < 0) { return FileSystemError.fromNative("open publication directory", directory, errno); }
+		struct stat opened;
+		struct stat current;
+		errno = 0;
+		if (fstat(descriptor, &opened) != 0 || lstat(directory, &current) != 0) {
+			int nativeCode = errno;
+			close(descriptor);
+			return FileSystemError.fromNative("inspect publication directory", directory, nativeCode);
+		}
+		var openedIdentity = FileSnapshot.fromStatus(&opened);
+		var currentIdentity = FileSnapshot.fromStatus(&current);
+		if (openedIdentity.kind() != FILE_DIRECTORY || currentIdentity.kind() != FILE_DIRECTORY || !self.directoryIdentity.sameObject(openedIdentity) || !self.directoryIdentity.sameObject(currentIdentity)) {
+			close(descriptor);
+			return FileSystemError.changed("flush publication directory", directory);
+		}
+		int flushed = -1;
+		do { errno = 0; flushed = fsync(descriptor); } while (flushed != 0 && errno == EINTR);
+		int flushError = flushed == 0 ? 0 : errno;
+		errno = 0;
+		int closed = close(descriptor);
+		int closeError = closed == 0 ? 0 : errno;
+		if (flushError != 0 || closeError != 0) { return FileSystemError.fromNative("flush publication directory", directory, flushError != 0 ? flushError : closeError); }
+		return null;
+	}
+
+	public DurableReplaceOutcome publish() {
+		if (self.temporaryPath.isEmpty()) { return DurableReplaceOutcome.failed(FileSystemError.closed("publish candidate", self.destination)); }
+		var current = FileSystem.inspectExact(self.temporaryPath);
+		if (!current.ok() || !self.identity.sameVersion(current.snapshot())) {
+			return DurableReplaceOutcome.failed(FileSystemError.changed("validate publication candidate", self.temporaryPath));
+		}
+		var parent = FileSystem.inspectExact(PathTools.dirname(self.destination));
+		if (!parent.ok() || parent.snapshot().kind() != FILE_DIRECTORY || !self.directoryIdentity.sameObject(parent.snapshot())) {
+			return DurableReplaceOutcome.failed(FileSystemError.changed("validate publication directory", self.destination));
+		}
+		errno = 0;
+		if (rename(self.temporaryPath, self.destination) != 0) {
+			int nativeCode = errno;
+			return DurableReplaceOutcome.failed(FileSystemError.fromNative("publish candidate", self.destination, nativeCode));
+		}
+		self.temporaryPath = "";
+		var error = self.syncDirectory();
+		if (error != null) { return DurableReplaceOutcome.durabilityUncertain(error); }
+		return DurableReplaceOutcome.succeeded();
+	}
+
+	public bool discard() {
+		if (self.temporaryPath.isEmpty()) { return true; }
+		var current = FileSystem.inspectExact(self.temporaryPath);
+		if (!current.ok()) {
+			if (current.error().kind() != FS_NOT_FOUND) { return false; }
+			self.temporaryPath = "";
+			return true;
+		}
+		if (current.snapshot().kind() != FILE_REGULAR || !self.identity.sameObject(current.snapshot())) { return false; }
+		if (unlink(self.temporaryPath) != 0) { return false; }
+		self.temporaryPath = "";
+		return true;
+	}
+
+	public void __del__() { self.discard(); }
+}
+
+/* Same-filesystem candidates for package state and compiler outputs. Manifests
+ * never supply an output path or command-shaped data. */
 class FePackageFileStore {
-	public bool writeAtomically(string path, string content) {
-		if (path == null || path.isEmpty() || content == null) { return false; }
-		string directory = PathTools.dirname(path);
-		if (!FileSystem.isDir(directory)) { return false; }
+	public FeStagedFile? stage(string path, string content, int mode = 0644) {
+		if (path == null || path.isEmpty() || content == null || mode < 0 || mode > 07777) { return null; }
+		string directory = PathTools.absolute(PathTools.dirname(path));
+		var parent = FileSystem.inspectExact(directory);
+		if (!parent.ok() || parent.snapshot().kind() != FILE_DIRECTORY) { return null; }
+		string destination = PathTools.join(directory, PathTools.basename(path));
 		string templatePath = PathTools.join(directory, ".btrc-package-XXXXXX");
 		int templateLength = templatePath.length();
 		char* mutablePath = (char*)__btrc_safe_realloc(NULL, (size_t)templateLength + (size_t)1);
 		memcpy(mutablePath, templatePath, (size_t)templateLength + (size_t)1);
 		int descriptor = mkstemp(mutablePath);
-		if (descriptor < 0) {
-			free(mutablePath);
-			return false;
-		}
+		if (descriptor < 0) { free(mutablePath); return null; }
 		string temporaryPath = Strings.copy(mutablePath);
 		free(mutablePath);
-		bool modeSet = fchmod(descriptor, (mode_t)0644) == 0;
+		struct stat created;
+		bool identified = fstat(descriptor, &created) == 0;
+		bool written = identified && fcntl(descriptor, F_SETFD, FD_CLOEXEC) == 0 && fchmod(descriptor, (mode_t)mode) == 0;
 		size_t length = strlen(content);
 		size_t offset = (size_t)0;
-		bool written = modeSet;
 		while (written && offset < length) {
 			ssize_t count = write(descriptor, (char*)content + offset, length - offset);
 			if (count > (ssize_t)0) { offset = offset + (size_t)count; }
 			else if (count < (ssize_t)0 && errno == EINTR) { continue; }
 			else { written = false; }
 		}
-		bool durable = written && fsync(descriptor) == 0;
+		int flushed = -1;
+		if (written) { do { errno = 0; flushed = fsync(descriptor); } while (flushed != 0 && errno == EINTR); }
+		struct stat staged;
+		bool inspected = fstat(descriptor, &staged) == 0;
 		bool closed = close(descriptor) == 0;
-		if (!durable || !closed || rename(temporaryPath, path) != 0) {
-			unlink(temporaryPath);
-			return false;
+		if (!written || flushed != 0 || !inspected || !closed) {
+			/* The name can change even when writing fails. Only discard the
+			 * inode observed through our own descriptor; if neither metadata
+			 * read succeeded, preserve the uncertain candidate for inspection. */
+			if (inspected) { FeStagedFile(destination, temporaryPath, FileSnapshot.fromStatus(&staged), parent.snapshot()).discard(); }
+			else if (identified) { FeStagedFile(destination, temporaryPath, FileSnapshot.fromStatus(&created), parent.snapshot()).discard(); }
+			return null;
 		}
-		int directoryDescriptor = open(directory, (int)O_RDONLY | (int)O_DIRECTORY | (int)O_CLOEXEC);
-		if (directoryDescriptor >= 0) {
-			fsync(directoryDescriptor);
-			close(directoryDescriptor);
-		}
-		return true;
+		return FeStagedFile(destination, temporaryPath, FileSnapshot.fromStatus(&staged), parent.snapshot());
+	}
+
+	public bool writeAtomically(string path, string content) {
+		var candidate = self.stage(path, content);
+		if (candidate == null) { return false; }
+		var published = candidate.publish();
+		bool discarded = candidate.discard();
+		return published.committed() && discarded;
 	}
 }
 
@@ -2684,7 +2854,10 @@ class FePackageGraphResolver {
 		target = FePackageTarget.parse(targetValue);
 		string root = FeCanonicalPath.absolute(PathTools.dirname(manifestPath));
 		string lockPath = PathTools.join(root, "btrc.lock");
-		FePackageLock lock = FePackageLock(self.sourceFiles);
+		/* The old lock is validated derived state, not the input version this
+		 * compile publishes against. Record the resulting lock below, after any
+		 * compiler-owned rewrite, so first and subsequent lookups agree. */
+		FePackageLock lock = FePackageLock(FeSourceFileReader());
 		string existingLock = lock.validatedExisting(lockPath);
 		string rootPackage = self.resolveNode(root);
 		Map<string, FePackageNode> nodes = {};
@@ -2707,6 +2880,9 @@ class FePackageGraphResolver {
 		string lockPayload = lock.payload(root, rootPackage, packages);
 		if (!existingLock.equals(lockPayload) && !FePackageFileStore().writeAtomically(lockPath, lockPayload)) {
 			FePackageFailure.fail(f"cannot atomically publish package lock '{lockPath}'");
+		}
+		if (!self.sourceFiles.readRequired(lockPath).equals(lockPayload)) {
+			FePackageFailure.fail(f"package lock changed during resolution: '{lockPath}'");
 		}
 		return FeResolvedPackages(true, manifestPath, rootPackage, nodes, plan);
 	}

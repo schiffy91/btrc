@@ -1,0 +1,43 @@
+import Library.Bytes;
+import Library.Digest.NativeSHA256;
+import Library.Digest.SHA256;
+import Library.FileSystem;
+import Library.Strings;
+
+#include <assert.h>
+
+/* Keep a temporary provider past construction; interface returns retain their
+ * source-owned string ABI through a stored field and a second method call. */
+class DigestOwner {
+	private ISHA256Digest provider;
+	public DigestOwner(ISHA256Digest provider) { self.provider = provider; }
+	public string text(string value) { return self.provider.digest(value); }
+	public string bytes(Bytes value) { return self.provider.digestBytes(value); }
+}
+
+int main(int argc, char** argv) {
+	if (argc != 2) { return 2; }
+	var owner = DigestOwner(NativeSHA256());
+	string empty = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+	assert(owner.text(null).equals(empty));
+	assert(owner.bytes(null).equals(empty));
+	assert(owner.bytes(Bytes()).equals(empty));
+	assert(owner.text("é漢🙂").equals("9f9ce7bf6e75b055897605db83193fd11935acde9785cbc5cf2093c20125c4e7"));
+	var borrowed = Bytes.fromString("abc");
+	string retained = owner.bytes(borrowed);
+	borrowed.set(0, 'z');
+	borrowed.free();
+	assert(retained.equals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+	var invalid = Bytes.fromString("abc");
+	invalid.len = -1;
+	bool rejected = false;
+	try { owner.bytes(invalid); } catch (string error) { rejected = error.equals("SHA256 message is too large"); }
+	invalid.len = 3;
+	assert(rejected);
+	var source = FileSystem.readBytes(Strings.copy(argv[1]));
+	string digest = owner.bytes(source);
+	if (source.isNulFreeUtf8()) { assert(owner.text(source.toString()).equals(digest)); }
+	assert(SHA256.digestBytes(source).equals(digest));
+	print(digest);
+	return 0;
+}

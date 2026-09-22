@@ -2,4 +2,23 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_digest"
-exports = ["Digest", "SHA256"]
+exports = ["Digest", "NativeSHA256", "SHA256"]
+
+[[package.providers]]
+module = "NativeSHA256"
+implementation = "MacOS.NativeSHA256Provider"
+os = ["macos"]
+
+[[package.providers]]
+module = "NativeSHA256"
+implementation = "NativeSHA256Provider"
+os = ["linux", "windows"]
+
+[[native.bindings]]
+module = "MacOS.NativeSHA256Provider"
+header = "MacOS/CommonDigest.h"
+language = "c"
+standard = "c11"
+symbols = ["CC_SHA256", "CC_LONG"]
+read-only-borrows = ["CC_SHA256.data"]
+os = ["macos"]

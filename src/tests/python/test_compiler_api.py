@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast as python_ast
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
 from src.compiler.python import Compiler, CompilerOptions, CompilerResult
 from src.compiler.python.application.pipeline import CompilationPipeline
@@ -135,13 +136,30 @@ class MemoryCache:
         self.loads = 0
         self.stores = 0
 
-    def load_text(self, source, input_path, *, source_identity=""):
+    def load_artifacts(self, source, input_path, *, source_identity=""):
         self.loads += 1
         return self.value
 
-    def store_text(self, source, c_source, input_path=None, *, source_identity=""):
+    def store_artifacts(
+        self,
+        source,
+        c_source,
+        input_path=None,
+        *,
+        c_units=(),
+        link_plan,
+        diagnostics=(),
+        split_source_spaces=False,
+        source_identity="",
+    ):
         self.stores += 1
-        self.value = c_source
+        self.value = SimpleNamespace(
+            c_source=c_source,
+            c_units=c_units,
+            link_plan=link_plan,
+            diagnostics=diagnostics,
+            split_source_spaces=split_source_spaces,
+        )
 
 
 def test_public_compiler_defaults_to_strict_imports_and_emits_c(tmp_path):
@@ -307,10 +325,11 @@ def test_application_dependency_boundaries_are_explicit_and_acyclic():
         node for node in publisher.body if isinstance(node, python_ast.FunctionDef) and node.name == "publish"
     )
     assert [argument.arg for argument in publish.args.args] == ["self", "name", "artifacts"]
-    assert [argument.arg for argument in publish.args.kwonlyargs] == ["policy"]
-    assert "StagedPublicationPolicy" in {
+    assert [argument.arg for argument in publish.args.kwonlyargs] == ["policy", "previous_inventory"]
+    assert {"StagedPublicationPolicy", "PublicationTarget"} <= {
         node.name for node in publication_tree.body if isinstance(node, python_ast.ClassDef)
     }
+    assert python_ast.unparse(publish.args.kwonlyargs[1].annotation) == "Sequence[PublicationTarget] | None"
     target_catalog = next(
         node for node in archive_tree.body if isinstance(node, python_ast.ClassDef) and node.name == "TargetCatalog"
     )

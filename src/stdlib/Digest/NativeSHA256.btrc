@@ -1,0 +1,9 @@
+import Library.Bytes;
+import Library.Digest.SHA256;
+
+/* Explicit target-selected acceleration. Importing ordinary SHA256 retains
+ * its SDK-independent portable implementation and incremental API. */
+class NativeSHA256 implements ISHA256Digest {
+	public string digest(string text) { return NativeSHA256Provider.digest(text); }
+	public string digestBytes(Bytes bytes) { return NativeSHA256Provider.digestBytes(bytes); }
+}

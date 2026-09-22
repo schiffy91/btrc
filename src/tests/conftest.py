@@ -118,6 +118,20 @@ def _isolated_btrc_cache(tmp_path_factory):
 
 
 @pytest.fixture(scope="session", autouse=True)
+def _isolated_compiler_generation_state(tmp_path_factory):
+    """Keep durable output ownership out of the developer's real state root."""
+    state = tmp_path_factory.mktemp("btrc-generations")
+    state.chmod(0o700)
+    old = os.environ.get("BTRC_STATE_DIR")
+    os.environ["BTRC_STATE_DIR"] = str(state)
+    yield
+    if old is None:
+        os.environ.pop("BTRC_STATE_DIR", None)
+    else:
+        os.environ["BTRC_STATE_DIR"] = old
+
+
+@pytest.fixture(scope="session", autouse=True)
 def _selfhost_runtime_data():
     """Give temp-built self-host compilers an explicit, hermetic data root.
 

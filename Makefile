@@ -71,6 +71,8 @@ wheel: generated-check ## Build the installable Python wheel -> dist/
 ZIG     := $(NIX) zig
 BTRCC_C := dist/btrcc.c
 BTRCC_WINDOWS_C := dist/btrcc-windows.c
+BTRCC_MACOS_C := dist/btrcc-macos-native.c
+BTRCC_NATIVE_C := $(if $(filter Darwin,$(shell uname -s)),$(BTRCC_MACOS_C),$(BTRCC_C))
 BTRCC_NATIVE := bin/btrcc
 BTRCC_BUILD_ROOT := build/btrcc
 BTRCC_BUNDLER := $(NIX) python3 -m src.compiler.python.main bundle
@@ -104,14 +106,20 @@ $(BTRCC_WINDOWS_C): $(BTRCC_INPUTS) | generated-check
 	@mkdir -p dist
 	$(NIX) python3 -m src.compiler.python.main src/compiler/btrc/cli/WindowsMain.btrc --strict-imports --no-cache -o $(BTRCC_WINDOWS_C)
 
+# This host-only entry imports a checked SDK digest provider. Cross releases
+# keep the portable Unix C above and do not acquire a macOS SDK dependency.
+$(BTRCC_MACOS_C): $(BTRCC_INPUTS) | generated-check
+	@mkdir -p dist
+	$(NIX) sh -eu -c 'target=$$(python3 -c "from src.compiler.python.artifacts.archive import TargetCatalog; print(TargetCatalog().host_target())"); python3 -m src.compiler.python.main src/compiler/btrc/cli/MacOSMain.btrc --strict-imports --no-cache --target "$$target" -o "$(BTRCC_MACOS_C)"'
+
 btrcc-release-c: generated-check
 	$(MAKE) --no-print-directory $(BTRCC_C)
 
 btrcc: $(BTRCC_NATIVE) ## Build the self-hosted compiler for THIS machine -> bin/btrcc
 
-$(BTRCC_NATIVE): $(BTRCC_C)
+$(BTRCC_NATIVE): $(BTRCC_NATIVE_C)
 	@mkdir -p bin
-	$(NIX) $(HOST_CC) $(NATIVE_CFLAGS) -O2 $(BTRCC_C) -o $(BTRCC_NATIVE) -lm -lpthread
+	$(NIX) $(HOST_CC) $(NATIVE_CFLAGS) -O2 $(BTRCC_NATIVE_C) -o $(BTRCC_NATIVE) -lm -lpthread
 	@echo "Built bin/btrcc (native $$(uname -s) $$(uname -m))"
 
 btrcc-macos-arm64: btrcc-release-c ## Build relocatable btrcc bundle for macOS arm64 -> dist/

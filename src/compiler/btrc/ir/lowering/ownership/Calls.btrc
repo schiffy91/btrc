@@ -184,10 +184,10 @@ class OwnershipBoundary {
 		string resultC = self.cTypes.lower(resultType);
 		string resultName = self.context.freshTemporary("__btrc_boundary_result");
 		IRNode resultDeclaration = IRNode.variableDeclaration(resultC, resultName, null);
-		/* setjmp cleanup needs volatile storage across longjmp. Ordinary call
-         * results do not, and unconditional volatile triggers a GCC/Darwin
-         * -O2/-O3 miscompile of inlined mixed-ABI constructors. */
-		resultDeclaration.isVolatile = self.context.exceptionsAreEnabled();
+		/* Without suffix cleanup the stored value is consumed immediately;
+         * operands run before the assignment. Managed protection below owns
+         * its volatile slot; the setjmp planner handles actual captures. */
+		resultDeclaration.isVolatile = self.context.exceptionsAreEnabled() && self.suffix.len > 0;
 		self.declarations.push(resultDeclaration);
 		self.context.recordLocal(resultDeclaration);
 		IRNode result = IRNode.variable(resultName);

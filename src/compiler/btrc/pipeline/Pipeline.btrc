@@ -19,14 +19,16 @@ class CompilerPipeline {
 	private HostedAbiRepository hostedAbi;
 	private FeSourceFileReader sourceFiles;
 	private FeNativeHeaderReader nativeHeaderReader;
+	private FeDirectiveCache? directiveCache;
 
-	public CompilerPipeline(GrammarInfo grammar, string stdlibDirectory, FeSourceFileReader sourceFiles, FeNativeHeaderReader nativeHeaderReader = (FeNativeHeaderReader)null) {
+	public CompilerPipeline(GrammarInfo grammar, string stdlibDirectory, FeSourceFileReader sourceFiles, FeNativeHeaderReader nativeHeaderReader = (FeNativeHeaderReader)null, FeDirectiveCache? directiveCache = null) {
 		self.grammar = grammar;
 		self.stdlib = FeStdlibRepository(stdlibDirectory, sourceFiles);
 		self.stdlibSymbols = FeStdlibSymbolIndex();
 		self.hostedAbi = HostedAbiRepository(GeneratedHostedAbiData());
 		self.sourceFiles = sourceFiles;
 		self.nativeHeaderReader = nativeHeaderReader;
+		self.directiveCache = directiveCache;
 		BtrccPhaseTimer.mark("tables");
 	}
 
@@ -42,20 +44,33 @@ class CompilerPipeline {
 		return Strings.join(rendered, "\n");
 	}
 
-	public BtrccCompilationResult compile(string source, string sourcePath, BtrccOptions options) {
+	public BtrccCompilationResult compile(string source, string sourcePath, BtrccOptions options) { return self.compileResolved(self.resolve(source, sourcePath, options), options); }
+
+	public BtrccResolvedCompilation resolve(string source, string sourcePath, BtrccOptions options) {
 		/* Canonical paths are memoized for one compile: a process that compiles
 		 * repeatedly must not answer from a tree that has changed since. */
 		FeCanonicalPath.reset();
 		FeResolvedPackages packages = FePackageGraphResolver(self.sourceFiles).resolveFor(sourcePath, options.target);
 		BtrccPhaseTimer.mark("packages");
-		FeFrontendResolver resolver = FeFrontendResolver(self.grammar, self.stdlib, options.includeStdlib, options.strictImports, packages);
+		FeFrontendResolver resolver = FeFrontendResolver(self.grammar, self.stdlib, options.includeStdlib, options.strictImports, packages, options.useCache ? self.directiveCache : null);
 		FeResolvedSource resolved = resolver.resolve(source, sourcePath);
 		BtrccPhaseTimer.mark("resolve");
 		Vector<string> sources = resolved.dependencies.sourceIdentities();
 		packages.linkPlan.restrictToSources(sources);
 		packages.linkPlan.includeStdlib(self.stdlib.directory(), sources, self.sourceFiles);
-		resolved.nativeDeclarations = FeNativeDeclarationImporter(self.nativeHeaderReader).resolve(packages.linkPlan);
+		var nativeImporter = FeNativeDeclarationImporter(self.nativeHeaderReader, self.sourceFiles);
+		resolved.nativeDeclarations = nativeImporter.resolve(packages.linkPlan, options.useCache);
 		BtrccPhaseTimer.mark("native");
+		var inputs = self.sourceFiles.inputPaths();
+		inputs.push(sourcePath);
+		for path in packages.linkPlan.inputPaths() { inputs.push(path); }
+		return BtrccResolvedCompilation(resolved, packages, sourcePath, self.sourceFiles.contentIdentity(), nativeImporter.cacheIdentity(), inputs);
+	}
+
+	public BtrccCompilationResult compileResolved(BtrccResolvedCompilation input, BtrccOptions options) {
+		var resolved = input.source;
+		var packages = input.packages;
+		string sourcePath = input.sourcePath;
 
 		Lexer lexer = Lexer(resolved.source, self.grammar);
 		Vector<Token> tokens = lexer.tokenize();
@@ -167,10 +182,13 @@ class CompilerPipeline {
 		if (options.unitsPrefix.isEmpty()) { emitted = emitter.emit(module); }
 		else {
 			char* configuredUnitLines = getenv("BTRC_UNIT_LINES");
-			units = emitter.emitUnits(module, configuredUnitLines == null ? 40000 : atoi(configuredUnitLines));
+			string unitsPrefix = FeNativeLinkPlan.outputPrefix(options.unitsPrefix);
+			units = emitter.emitUnits(module, configuredUnitLines == null ? 40000 : atoi(configuredUnitLines), unitsPrefix);
 			emitted = units.get(0);
 			units.remove(0);
-			packages.linkPlan.emittedUnits = units.len;
+			for (int index = 0; index < units.len; index++) {
+				packages.linkPlan.emittedUnits.push(unitsPrefix + ".unit-" + Strings.fromInt(index + 1) + ".c");
+			}
 		}
 		BtrccPhaseTimer.mark("emit");
 		/* One compile is one process. Releasing the program, its analysis and
@@ -186,6 +204,8 @@ class CompilerPipeline {
 		BtrccPhaseTimer.print();
 		BtrccCompilationResult result = BtrccCompilationResult(true, emitted, "", packages.linkPlan.canonicalJson());
 		result.units = units;
+		result.unitPaths = packages.linkPlan.emittedUnits;
+		result.inputPaths = input.inputPaths;
 		return result;
 	}
 }

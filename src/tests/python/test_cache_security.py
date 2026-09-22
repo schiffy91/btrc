@@ -13,7 +13,7 @@ import pytest
 import src.compiler.python.artifacts.cache as artifact_cache
 import src.compiler.python.syntax.ast.codec as ast_codec
 from src.compiler.python.artifacts.cache import CompilerCache
-from src.compiler.python.frontend.sources import StdlibAstCache
+from src.compiler.python.frontend.sources import SourceDirectiveScanner, StdlibAstCache
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.syntax.ast.codec import AstJsonCodec
@@ -163,16 +163,16 @@ def test_stdlib_cache_retries_pruning_after_unavailable_directory(tmp_path):
 def test_disk_cache_atomic_failure_preserves_previous_entry(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
     cache = CompilerCache()
-    cache.store_text("source", "old output")
+    cache.store_artifacts("source", "old output", link_plan="{}")
 
     def interrupted(_source, _target):
         raise OSError("simulated crash before replace")
 
     monkeypatch.setattr(artifact_cache.os, "replace", interrupted)
     with pytest.raises(OSError, match="simulated crash"):
-        cache.store_text("source", "partial new output")
+        cache.store_artifacts("source", "partial new output", link_plan="{}")
 
-    assert cache.load_text("source") == "old output"
+    assert cache.load_artifacts("source").c_source == "old output"
     assert not list(tmp_path.glob(".btrc-cache-*"))
 
 
@@ -273,21 +273,39 @@ def test_atomic_text_explicit_mode_replaces_unsafe_existing_mode(tmp_path):
 def test_disk_cache_corrupt_utf8_is_a_cache_miss(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
     cache = CompilerCache()
-    cache.store_text("source", "valid")
-    cached_file = next(tmp_path.glob("*.c"))
+    cache.store_artifacts("source", "valid", link_plan="{}")
+    cached_file = next(tmp_path.glob("*.artifacts/primary.c"))
     cached_file.write_bytes(b"\xff\xfe")
 
-    assert cache.load_text("source") is None
+    assert cache.load_artifacts("source") is None
 
 
 def test_disk_cache_oversized_entry_is_a_cache_miss(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
     writer = CompilerCache()
-    writer.store_text("source", "valid")
-    cached_file = next(tmp_path.glob("*.c"))
+    writer.store_artifacts("source", "valid", link_plan="{}")
+    cached_file = next(tmp_path.glob("*.artifacts/primary.c"))
     cached_file.write_bytes(b"12345")
 
-    assert CompilerCache(max_entry_bytes=4).load_text("source") is None
+    assert CompilerCache(max_entry_bytes=4).load_artifacts("source") is None
+
+
+def test_default_cache_preserves_large_split_debug_generation(tmp_path, monkeypatch):
+    # BTRSmith's measured split/debug generation is 327 MB. Exercise the old
+    # 256 MiB boundary with real files, not a mocked file-size or capacity check.
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
+    unit = "/* debug source map and repeated declarations */\n" * 400_000
+    units = (unit,) * 15
+    assert sum(len(part.encode()) for part in units) > 256 * 1024 * 1024
+    cache = CompilerCache()
+    cache.store_artifacts("large product", "primary", c_units=units, link_plan="{}")
+
+    restored = CompilerCache().load_artifacts("large product")
+    assert restored is not None
+    assert restored.c_source == "primary" and restored.c_units == units
+    assert restored.link_plan == "{}"
+    # A reader with an explicitly smaller memory budget must still miss.
+    assert CompilerCache(max_entry_bytes=1024).load_artifacts("large product") is None
 
 
 def test_disk_cache_unavailable_directory_is_a_cache_miss():
@@ -295,7 +313,56 @@ def test_disk_cache_unavailable_directory_is_a_cache_miss():
         def resolve(self, _input_path=None):
             raise PermissionError("read-only cache root")
 
-    assert CompilerCache(directory=UnavailableDirectory()).load_text("source") is None
+    assert CompilerCache(directory=UnavailableDirectory()).load_artifacts("source") is None
+
+
+@pytest.mark.parametrize(
+    "damage", ["checksum", "key", "truncated", "linked", "negative", "overlap", "past-end", "non-directive", "bool"]
+)
+def test_directive_cache_damage_falls_back_to_current_source(tmp_path, monkeypatch, damage):
+    import hashlib
+
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
+    source = "import ./First.btrc;\nimport ./Second.btrc;\nint value() { return 0; }\n"
+    expected = SourceDirectiveScanner().scan(source)
+    path = str(tmp_path / "Main.btrc")
+    assert SourceDirectiveScanner(CompilerCache()).scan(source, cache_input=path) == expected
+    [entry] = tmp_path.glob("*.directives.json")
+    payload = json.loads(entry.read_text())
+    if damage == "checksum":
+        payload["sha256"] = "0" * 64
+    elif damage == "key":
+        payload["key"] = "other"
+    elif damage == "truncated":
+        entry.write_text("{")
+    elif damage == "linked":
+        entry.rename(tmp_path / "outside.json")
+        entry.symlink_to(tmp_path / "outside.json")
+    else:
+        payload["ranges"] = {
+            "negative": [[-1, 1]],
+            "overlap": [[1, 2], [2, 2]],
+            "past-end": [[1, 100]],
+            "non-directive": [[3, 3]],
+            "bool": [[True, 1]],
+        }[damage]
+        payload["sha256"] = hashlib.sha256(json.dumps(payload["ranges"], separators=(",", ":")).encode()).hexdigest()
+    if damage not in {"truncated", "linked"}:
+        entry.write_text(json.dumps(payload))
+    assert SourceDirectiveScanner(CompilerCache()).scan(source, cache_input=path) == expected
+
+
+def test_directive_cache_storage_failure_and_bounds_do_not_break_scanning(tmp_path, monkeypatch):
+    class UnavailableDirectory:
+        def resolve(self, _input_path=None):
+            raise PermissionError("read-only cache root")
+
+    source = "import ./First.btrc;\n"
+    expected = SourceDirectiveScanner().scan(source)
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
+    for cache in (CompilerCache(directory=UnavailableDirectory()), CompilerCache(max_entry_bytes=4)):
+        assert SourceDirectiveScanner(cache).scan(source, cache_input=str(tmp_path / "Main.btrc")) == expected
+    assert not list(tmp_path.glob("*.directives.json"))
 
 
 @pytest.mark.skipif(not hasattr(os, "O_NOFOLLOW"), reason="platform has no no-follow open flag")
@@ -332,3 +399,99 @@ assert manifest._artifact_hash(path) is None
         cwd=repo_root,
         timeout=5,
     )
+
+
+@pytest.mark.parametrize("damage", ["content", "missing", "extra", "manifest", "symlink", "directory-link"])
+def test_compiled_generation_rejects_partial_corrupt_or_linked_payloads(tmp_path, monkeypatch, damage):
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
+    cache = CompilerCache()
+    cache.store_artifacts("source", "primary", c_units=("secondary",), link_plan="plan")
+    generation = next(tmp_path.glob("*.artifacts"))
+    original = cache.load_artifacts("source")
+    assert original is not None and original.c_units == ("secondary",)
+    unit = generation / "unit-1.c"
+    if damage == "content":
+        unit.write_text("corrupted")
+    elif damage == "missing":
+        unit.unlink()
+    elif damage == "extra":
+        (generation / "unexpected.c").write_text("untracked")
+    elif damage == "manifest":
+        (generation / "manifest.json").write_text('{"schema":true}')
+    elif damage == "symlink":
+        unit.rename(tmp_path / "external")
+        unit.symlink_to(tmp_path / "external")
+    else:
+        saved = tmp_path / "saved"
+        generation.rename(saved)
+        generation.symlink_to(saved, target_is_directory=True)
+    assert cache.load_artifacts("source") is None
+
+
+def test_compiled_generation_publication_failure_preserves_previous(tmp_path, monkeypatch):
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
+    cache = CompilerCache()
+    cache.store_artifacts("source", "old primary", c_units=("old unit",), link_plan="old plan")
+    before = cache.load_artifacts("source")
+    replace = os.replace
+
+    def fail_install(source, destination):
+        if str(source).endswith(".publish.new-0"):
+            raise OSError("injected installation failure")
+        replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", fail_install)
+    with pytest.raises(OSError, match="injected"):
+        cache.store_artifacts("source", "new primary", c_units=("new unit",), link_plan="new plan")
+    assert cache.load_artifacts("source") == before
+    assert not list(tmp_path.glob(".btrc-generation-*"))
+    assert not list(tmp_path.glob("*.journal"))
+
+
+def test_compiled_generation_bounds_total_bytes(tmp_path, monkeypatch):
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
+    writer = CompilerCache()
+    writer.store_artifacts("source", "1234", c_units=("5678",), link_plan="90")
+    manifest = json.loads(next(tmp_path.glob("*.artifacts/manifest.json")).read_text())
+    total = sum(record["bytes"] for record in manifest["files"])
+    assert CompilerCache(max_entry_bytes=total - 1).load_artifacts("source") is None
+    assert CompilerCache(max_entry_bytes=total).load_artifacts("source") is not None
+    CompilerCache(max_entry_bytes=total - 1).store_artifacts("other", "1234", c_units=("5678",), link_plan="90")
+    assert writer.load_artifacts("other") is None
+
+
+def test_compiled_generation_recovers_after_writer_process_dies(tmp_path, monkeypatch):
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
+    cache = CompilerCache()
+    cache.store_artifacts("source", "old primary", c_units=("old unit",), link_plan="old plan")
+    before = cache.load_artifacts("source")
+    script = """
+import os
+from pathlib import Path
+from src.compiler.python.artifacts.cache import CompilerCache
+replace = os.replace
+
+def interrupt(source, destination):
+    replace(source, destination)
+    if str(source).endswith(".publish.new-0"):
+        os._exit(91)
+
+os.replace = interrupt
+CompilerCache().store_artifacts("source", "interrupted", c_units=("interrupted",), link_plan="interrupted")
+"""
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 91, result.stderr
+    assert cache.load_artifacts("source") is None
+    # Recovery must restore the last committed generation even if the next
+    # writer fails too; a partially published directory is never a cache hit.
+    replace = os.replace
+
+    def fail_install(source, destination):
+        if str(source).endswith(".publish.new-0"):
+            raise OSError("second writer failed")
+        replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", fail_install)
+    with pytest.raises(OSError, match="second writer"):
+        cache.store_artifacts("source", "retry", c_units=("retry",), link_plan="retry")
+    assert cache.load_artifacts("source") == before

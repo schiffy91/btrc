@@ -25,7 +25,7 @@ from src.compiler.python.artifacts.cache import (
 )
 from src.compiler.python.artifacts.publication import ArtifactPublisher, ArtifactStorage
 from src.compiler.python.artifacts.stdlib import StdlibArchivePublisher
-from src.compiler.python.frontend.sources import FrontendFingerprint, StdlibRepository
+from src.compiler.python.frontend.sources import FrontendFingerprint, SourceDirectiveScanner, StdlibRepository
 
 STDLIB = StdlibRepository()
 
@@ -70,6 +70,17 @@ def test_toolchain_hash_is_short_hex_and_memoized():
 def test_toolchain_hash_unknown_scope_rejected():
     with pytest.raises(ValueError):
         ToolchainFingerprint().digest("nonsense")
+
+
+def test_directive_spans_require_identical_content_and_toolchain(tmp_path, monkeypatch):
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
+    cache = CompilerCache(fingerprint=FixedFingerprint("first"))
+    source = "import ./First.btrc;\nint value() { return 1; }\n"
+    path = str(tmp_path / "Main.btrc")
+    SourceDirectiveScanner(cache).scan(source, cache_input=path)
+    assert cache.load_directives(source, path) == ((1, 1),)
+    assert cache.load_directives(source.replace("return 1", "return 2"), path) is None
+    assert CompilerCache(fingerprint=FixedFingerprint("second")).load_directives(source, path) is None
 
 
 def test_full_scope_covers_codegen_sources():
@@ -228,11 +239,11 @@ def test_cache_dir_xdg_respected(tmp_path, monkeypatch):
 def test_disk_cache_roundtrip_in_resolved_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "c"))
     cache = CompilerCache()
-    assert cache.load_text("src-A") is None
-    cache.store_text("src-A", "/* c output */")
-    assert cache.load_text("src-A") == "/* c output */"
-    names = os.listdir(tmp_path / "c")
-    assert len(names) == 1 and names[0].endswith(".c")
+    assert cache.load_artifacts("src-A") is None
+    cache.store_artifacts("src-A", "/* c output */", link_plan="{}")
+    assert cache.load_artifacts("src-A").c_source == "/* c output */"
+    generations = list((tmp_path / "c").glob("*.artifacts"))
+    assert len(generations) == 1 and generations[0].is_dir()
 
 
 def test_disk_cache_input_path_anchors_project_root(tmp_path, monkeypatch):
@@ -242,10 +253,10 @@ def test_disk_cache_input_path_anchors_project_root(tmp_path, monkeypatch):
     (root / "btrc.toml").write_text("[package]\nname = 'p'\n")
     monkeypatch.chdir(tmp_path)  # cwd is NOT the project
     cache = CompilerCache()
-    cache.store_text("src-B", "out", input_path=str(root / "Main.btrc"))
+    cache.store_artifacts("src-B", "out", input_path=str(root / "Main.btrc"), link_plan="{}")
     assert os.listdir(root / ".btrc-cache")  # cache landed in the project
     assert not (tmp_path / ".btrc-cache").exists()
-    assert cache.load_text("src-B", input_path=str(root / "Main.btrc")) == "out"
+    assert cache.load_artifacts("src-B", input_path=str(root / "Main.btrc")).c_source == "out"
 
 
 # --------------------------------------------------------------------------
@@ -438,3 +449,36 @@ def test_archive_manifest_refuses_corrupt_or_unsupported_schema(tmp_path, payloa
 
     with pytest.raises(stdlib_archive.ArchiveVersionError, match="invalid or unsupported"):
         _archive_service().load(str(tmp_path), "stdlib source")
+
+
+def test_compiled_generation_concurrent_readers_never_observe_mixed_payloads(tmp_path, monkeypatch):
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
+    fingerprint = FixedFingerprint("test-generation")
+    CompilerCache(fingerprint=fingerprint).store_artifacts("source", "0", c_units=("0",), link_plan="0")
+    barrier = threading.Barrier(8)
+
+    def publish_and_read(index):
+        cache = CompilerCache(fingerprint=fingerprint)
+        barrier.wait()
+        for repeat in range(3):
+            value = f"{index}-{repeat}"
+            cache.store_artifacts("source", value, c_units=(value,), link_plan=value)
+            result = cache.load_artifacts("source")
+            assert result is not None
+            assert result.c_source == result.c_units[0] == result.link_plan
+
+    with ThreadPoolExecutor(max_workers=8) as workers:
+        list(workers.map(publish_and_read, range(8)))
+
+
+def test_full_fingerprint_includes_runtime_asset_content(tmp_path):
+    compiler = tmp_path / "compiler" / "python"
+    compiler.mkdir(parents=True)
+    runtime = tmp_path / "runtime" / "c"
+    runtime.mkdir(parents=True)
+    asset = runtime / "strings.c"
+    asset.write_text("first runtime")
+    inventory = ToolchainSourceInventory(str(compiler), str(tmp_path))
+    before = ToolchainFingerprint(inventory).digest()
+    asset.write_text("changed runtime")
+    assert ToolchainFingerprint(inventory).digest() != before

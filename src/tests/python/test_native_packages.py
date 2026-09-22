@@ -820,3 +820,44 @@ def test_compile_wraps_strict_manifest_failures_as_package_diagnostics(tmp_path:
     assert result.failure is not None
     assert result.failure.kind.value == "package"
     assert "unexpected field" in result.failure.message
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [None, "target", "unit-count", "unit-path", "unit-order", "source", "duplicate", "memory", "unknown", "name"],
+)
+def test_restore_cached_native_adapters_validates_resolved_plan(damage):
+    from dataclasses import replace
+
+    from src.compiler.python.frontend.packages import NativeGeneratedUnit
+
+    resolved = NativeLinkPlan.empty(PackageTarget.parse("macos-aarch64"))
+    cached = replace(
+        resolved,
+        generated_units=(NativeGeneratedUnit("Adapter", "c++", "c++17", "raii", "// adapter\n"),),
+    ).with_emitted_units("/tmp/output", 2)
+    data = cached.as_dict()
+    if damage == "target":
+        data["target"]["os"] = "linux"
+    elif damage == "unit-count":
+        data["emitted-units"].pop()
+    elif damage == "unit-path":
+        data["emitted-units"][0] = "/tmp/wrong.unit-1.c"
+    elif damage == "unit-order":
+        data["emitted-units"].reverse()
+    elif damage == "source":
+        data["generated-units"][0]["source"] = None
+    elif damage == "duplicate":
+        data["generated-units"].append(dict(data["generated-units"][0]))
+    elif damage == "memory":
+        data["generated-units"][0]["memory-management"] = "manual"
+    elif damage == "unknown":
+        data["untracked"] = True
+    elif damage == "name":
+        data["generated-units"][0]["name"] = "../escape"
+    serialized = json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n"
+    restored = resolved.with_cached_artifacts(serialized, 2, "/tmp/output")
+    if damage is None:
+        assert restored == cached
+    else:
+        assert restored is None

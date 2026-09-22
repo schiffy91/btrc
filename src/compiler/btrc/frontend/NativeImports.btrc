@@ -2,9 +2,11 @@
  * and unsupported native shapes fail before structured adapter lowering. */
 
 import Library.JSON;
+import Library.Digest.SHA256;
 import Library.FileSystem;
 import Library.Map;
 import Library.Platform;
+import Library.Result;
 import Library.Strings;
 import Library.Vector;
 
@@ -14,8 +16,16 @@ import ../syntax/Literals.btrc;
 import ../syntax/Identity.btrc;
 import ./Models.btrc;
 import ./Packages.btrc;
+import ./SourceIo.btrc;
 
 class FeNativeDeclarationImporter {
+	private SHA256 resolvedIdentity = SHA256();
+	private FeSourceFileReader sourceFiles;
+	private bool cacheable = true;
+
+	/* Only consumed after resolve succeeds, so unchecked reader responses can
+	 * never authorize reuse. Binding policy is covered by source-file identity. */
+	public string cacheIdentity() { return self.cacheable ? self.resolvedIdentity.finish() : ""; }
 	private Vector<FeNativeImportedDeclaration> declarations;
 	private Map<string, string> typeIdentities;
 	private string module;
@@ -62,7 +72,8 @@ class FeNativeDeclarationImporter {
 	private Map<string, FeNativeStringView> stringViews = {};
 	private Map<string, bool> usedStringViews = {};
 
-	public FeNativeDeclarationImporter(FeNativeHeaderReader headerReader = (FeNativeHeaderReader)null) {
+	public FeNativeDeclarationImporter(FeNativeHeaderReader headerReader = (FeNativeHeaderReader)null, FeSourceFileReader? sourceFiles = null) {
+		self.sourceFiles = sourceFiles == null ? FeSourceFileReader() : sourceFiles;
 		self.nativeInterfaces = {};
 		self.interfaceNames = {};
 		self.recordLayouts = {};
@@ -871,7 +882,9 @@ class FeNativeDeclarationImporter {
 		arguments.extend(["-x", "c++", "-std=" + standard, "--target=" + target, "-isysroot", sysroot, "-E", "-v", "/dev/null"]);
 		var request = FeNativeHeaderRead(compiler.get(0), arguments);
 		request.captureStderr = true;
-		self.headerReader(request);
+		var batch = FeNativeHeaderBatch();
+		batch.append(request);
+		self.headerReader(batch);
 		var result = request.result();
 		Vector<string> directories = [];
 		bool listing = false;
@@ -2889,7 +2902,200 @@ class FeNativeDeclarationImporter {
 		}
 	}
 
-	public Vector<FeNativeImportedDeclaration> resolve(FeNativeLinkPlan plan) {
+	private Vector<string> readerGroup(Vector<string> arguments) {
+		Vector<string> result = [];
+		bool compileFlags = false;
+		for argument in arguments {
+			if (argument.equals("--")) { compileFlags = true; }
+			if (!compileFlags && (argument.startsWith("--symbol=") || argument.startsWith("--record-path=") || argument.startsWith("--record-value="))) { continue; }
+			result.push(argument);
+		}
+		return result;
+	}
+
+	private string readerGroupKey(Vector<string> arguments) {
+		var value = JSONValue.makeArray();
+		for argument in self.readerGroup(arguments) { value.push(JSONValue.makeString(argument)); }
+		return value.stringify();
+	}
+
+	private JSONValue readerSelection(Vector<string> arguments, string identity) {
+		var value = JSONValue.makeObject();
+		value.set("id", JSONValue.makeString(identity));
+		var symbols = JSONValue.makeArray();
+		var paths = JSONValue.makeArray();
+		var records = JSONValue.makeArray();
+		for argument in arguments {
+			if (argument.equals("--")) { break; }
+			if (argument.startsWith("--symbol=")) { symbols.push(JSONValue.makeString(argument.substring(9, argument.length() - 9))); }
+			else if (argument.startsWith("--record-path=")) { paths.push(JSONValue.makeString(argument.substring(14, argument.length() - 14))); }
+			else if (argument.startsWith("--record-value=")) { records.push(JSONValue.makeString(argument.substring(15, argument.length() - 15))); }
+		}
+		value.set("symbols", symbols);
+		value.set("record_paths", paths);
+		value.set("record_values", records);
+		return value;
+	}
+
+	private Vector<int> readerMembers(int index, Vector<Vector<string>> commands, Map<string, Vector<int>> groups) {
+		Vector<int> members = [];
+		/* Preserve the 8 MiB allowance per selection within int32 captures. */
+		for member in groups.get(self.readerGroupKey(commands.get(index))) {
+			if (member < index) { continue; }
+			members.push(member);
+			if (members.len == 255) { break; }
+		}
+		return members;
+	}
+
+	private FeNativeHeaderRead readerRequest(string reader, Vector<Vector<string>> commands, Vector<int> members) {
+		var arguments = commands.get(members.get(0));
+		if (members.len == 1) { return FeNativeHeaderRead(reader, arguments); }
+		var selections = JSONValue.makeArray();
+		for member in members { selections.push(self.readerSelection(commands.get(member), Strings.fromInt(member))); }
+		var payload = JSONValue.makeObject();
+		payload.set("schema", JSONValue.makeString("btrc.native-requests.v1"));
+		payload.set("requests", selections);
+		Vector<string> batchArguments = ["--batch=-"];
+		batchArguments.extend(self.readerGroup(arguments));
+		var request = FeNativeHeaderRead(reader, batchArguments, payload.stringify());
+		request.maxStdoutBytes = members.len * 8388608;
+		request.timeoutMilliseconds = members.len * 60000;
+		return request;
+	}
+
+	private Map<string, FeNativeHeaderRead> prepareReaders(string reader, Vector<Vector<string>> commands, Map<string, Vector<int>> groups) {
+		Map<string, FeNativeHeaderRead> prepared = {};
+		string root = Environment.get("BTRC_CACHE_DIR", "");
+		if (root.isEmpty()) { root = PathTools.join(Environment.get("HOME", ""), ".cache/btrc"); }
+		if (!PathTools.isAbsolute(root)) { return prepared; }
+		string directory = PathTools.join(root, "native-headers-v1");
+		Vector<FeNativeHeaderRead> requests = [];
+		Vector<string> identities = [];
+		Map<string, bool> selected = {};
+		var encoded = JSONValue.makeArray();
+		for index in range(commands.len) {
+			string identity = Strings.fromInt(index);
+			if (selected.has(identity)) { continue; }
+			var members = self.readerMembers(index, commands, groups);
+			var request = self.readerRequest(reader, commands, members);
+			requests.push(request); identities.push(identity);
+			for member in members { selected.put(Strings.fromInt(member), true); }
+			var group = JSONValue.makeObject();
+			group.set("id", JSONValue.makeString(identity));
+			group.set("input", request.input().isEmpty() ? JSONValue.makeNull() : JSONValue.makeString(request.input()));
+			group.set("output_limit", JSONValue.makeInt(request.maxStdoutBytes));
+			var arguments = JSONValue.makeArray();
+			for argument in request.argv() { arguments.push(JSONValue.makeString(argument)); }
+			group.set("arguments", arguments); encoded.push(group);
+		}
+		if (requests.len == 0) { return prepared; }
+		var document = JSONValue.makeObject();
+		document.set("schema", JSONValue.makeString("btrc.native-session-requests.v1"));
+		document.set("compact", JSONValue.makeBool(true));
+		document.set("cache_directory", JSONValue.makeString(directory));
+		document.set("groups", encoded);
+		string payload = document.stringify();
+		if (payload.length() > 8388608) { return prepared; }
+		try {
+			var control = FeNativeHeaderRead(reader, ["--prepare-native-session=-"], payload);
+			var batch = FeNativeHeaderBatch(); batch.append(control); self.headerReader(batch);
+			var result = control.result(); if (result.isErr()) { return prepared; }
+			var response = JSONValue.parse(result.unwrap());
+			if (!response.isObject() || !response.get("schema").asString().equals("btrc.native-session-prepared.v1") || !response.get("runtime_stable").asBool()) { return prepared; }
+			if (!response.get("launcher").asString().equals(reader) || !response.get("eligible_launcher").asBool()) { return prepared; }
+			var rows = response.get("groups");
+			if (!rows.isArray() || rows.size() != requests.len) { return prepared; }
+			for index in range(requests.len) {
+				var row = rows.at(index);
+				if (!row.isObject() || !row.get("id").asString().equals(identities.get(index))) { return new Map<string, FeNativeHeaderRead>(); }
+			}
+			for index in range(requests.len) {
+				var row = rows.at(index);
+				if (!row.get("prepared").asBool() || !row.get("cache_eligible").asBool()) { continue; }
+				var request = requests.get(index); request.cacheDirectory = directory;
+				if (row.get("cache_hit").asBool()) { request.cachedResponse = row.get("response").stringify(); }
+				prepared.put(identities.get(index), request);
+			}
+		} catch (string error) { return new Map<string, FeNativeHeaderRead>(); }
+		return prepared;
+	}
+
+	private string readHeader(int index, string reader, Vector<Vector<string>> commands, Map<string, Vector<int>> groups, Map<string, FeNativeHeaderRead> prepared, Map<string, FeNativeHeaderRead> pending, Map<string, Result<string, string>> responses) {
+		string identity = Strings.fromInt(index);
+		if (!responses.has(identity)) {
+			if (!pending.has(identity)) {
+				var batch = FeNativeHeaderBatch();
+				/* No worker escapes this dispatch. Retain at most one bounded wave
+				 * of unread groups; failures are consumed in declaration order. */
+				for candidate in range(index, commands.len) {
+					string key = Strings.fromInt(candidate);
+					if (pending.has(key) || responses.has(key)) { continue; }
+					var members = self.readerMembers(candidate, commands, groups);
+					var request = prepared.has(key) ? prepared.get(key) : self.readerRequest(reader, commands, members);
+					if (!batch.append(request)) { break; }
+					for member in members { pending.put(Strings.fromInt(member), request); }
+				}
+				self.headerReader(batch);
+			}
+			var result = pending.get(identity).result();
+			var members = self.readerMembers(index, commands, groups);
+			for member in members { pending.remove(Strings.fromInt(member)); }
+			if (result.isErr()) { self.fail(result.unwrapErr()); }
+			if (members.len == 1) { responses.put(identity, result); }
+			else {
+				Vector<string> identities = [];
+				for member in members { identities.push(Strings.fromInt(member)); }
+				var decoded = FeNativeHeaderCodec().decodeBatch(result.unwrap(), identities);
+				for position in range(members.len) { responses.put(identities.get(position), decoded.get(position)); }
+			}
+		}
+		var result = responses.get(identity);
+		responses.remove(identity);
+		if (result.isErr()) { self.fail(result.unwrapErr()); }
+		return result.unwrap();
+	}
+
+	private Vector<string> readerArguments(FeNativeBinding binding, FeNativeLinkPlan plan, string target, string sysroot) {
+		Vector<string> arguments = [];
+		for name in binding.symbols { arguments.push("--symbol=" + name); }
+		if (binding.language == "c++") {
+			/* C++ resources select their methods (including explicit zero-argument selectors) beside the class; by-value records are read as scalar layouts. */
+			for name in binding.resources.keys() { for method in binding.resources.get(name).methods { arguments.push("--symbol=" + name + "::" + method); } }
+			for name in binding.ownedRecords { arguments.push("--record-value=" + name); }
+		}
+		Vector<string> snapshotPaths = [];
+		for snapshot in binding.recordSnapshots {
+			for name in snapshot.fields.keys() { string path = snapshot.owner + "." + snapshot.fields.get(name); if (!snapshotPaths.contains(path)) { snapshotPaths.push(path); } }
+			for index in range(1, snapshot.bytePlane.len) { string path = snapshot.owner + "." + snapshot.bytePlane.get(index); if (!snapshotPaths.contains(path)) { snapshotPaths.push(path); } }
+			for name in snapshot.strings.keys() { string path = snapshot.owner + "." + snapshot.strings.get(name); if (!snapshotPaths.contains(path)) { snapshotPaths.push(path); } }
+			for index in range(1, snapshot.byteSpan.len) { string path = snapshot.owner + "." + snapshot.byteSpan.get(index); if (!snapshotPaths.contains(path)) { snapshotPaths.push(path); } }
+			if (snapshot.guard.len > 0) { string path = snapshot.owner + "." + snapshot.guard.get(0); if (!snapshotPaths.contains(path)) { snapshotPaths.push(path); } }
+		}
+		snapshotPaths.sortBy((string left, string right) => Strings.lessThan(left, right));
+		for path in snapshotPaths { arguments.push("--record-path=" + path); }
+		Vector<string> packages = [];
+		for declaration in plan.declarations {
+			if (declaration.kind == "pkg-config" && declaration.selectedFor(plan.target) && !packages.contains(declaration.value)) { packages.push(declaration.value); }
+		}
+		packages.sortBy((string left, string right) => Strings.lessThan(left, right));
+		for package in packages { arguments.push("--pkg-config=" + package); }
+		arguments.extend([binding.header, "--", "-x", binding.language, "-std=" + binding.standard, "--target=" + target, "-isysroot", sysroot]);
+		if (binding.language == "objective-c") {
+			if (plan.target.operatingSystem != "macos") { self.fail("Objective-C adapters currently require the macOS runtime"); }
+			arguments.extend(["-fblocks", "-fobjc-arc"]);
+		}
+		if (plan.target.operatingSystem.equals("linux")) { arguments.extend(["-isystem", PathTools.join(sysroot, "usr/include")]); }
+		if (binding.language == "c++") { for directory in self.cxxToolchainIncludes(binding.standard, target, sysroot) { arguments.extend(["-isystem", directory]); } }
+		for declaration in plan.declarations {
+			if (!declaration.selectedFor(plan.target)) { continue; }
+			if (declaration.kind.equals("include-directory")) { arguments.extend(["-I", declaration.value]); }
+			if (declaration.kind.equals("define")) { arguments.push("-D" + declaration.value + (declaration.detail.isEmpty() ? "" : "=" + declaration.detail)); }
+		}
+		return arguments;
+	}
+
+	public Vector<FeNativeImportedDeclaration> resolve(FeNativeLinkPlan plan, bool useCache = false) {
 		Vector<FeNativeBinding> bindings = plan.bindingImports();
 		if (bindings.len == 0) { return self.declarations; }
 		for binding in bindings {
@@ -2906,11 +3112,33 @@ class FeNativeDeclarationImporter {
 		}
 		string reader = Environment.get("BTRC_NATIVE_HEADER_READER", "");
 		if (reader.isEmpty()) { plan.requireResolvedBindings(); }
+		string readerIdentity = PathTools.isAbsolute(reader) ? self.sourceFiles.binaryIdentity(reader) : "";
+		self.cacheable = !readerIdentity.isEmpty();
+		self.resolvedIdentity.appendText(readerIdentity);
 		string target = Environment.get("BTRC_NATIVE_TARGET", "");
 		string sysroot = Environment.get("BTRC_NATIVE_SYSROOT", "");
 		if (!self.matchesTarget(plan.target, target)) { throw "native imports require an explicit matching macOS or Linux GNU BTRC_NATIVE_TARGET triple"; }
 		if (!FileSystem.isDir(sysroot)) { throw "native imports require an explicit available BTRC_NATIVE_SYSROOT"; }
-		for binding in bindings {
+		Vector<Vector<string>> commands = [];
+		Map<string, Vector<int>> groups = {};
+		Map<string, Result<string, string>> responses = {};
+		Map<string, FeNativeHeaderRead> pending = {};
+		for index in range(bindings.len) {
+			var binding = bindings.get(index);
+			self.module = binding.module;
+			if (binding.language != "c" && binding.language != "objective-c" && binding.language != "c++") { self.fail("Objective-C++ call adapters are not implemented"); }
+			if (self.headerReader == null) { self.fail("SDK header scanning is unavailable in this compiler host build"); }
+			var arguments = self.readerArguments(binding, plan, target, sysroot);
+			commands.push(arguments);
+			string key = self.readerGroupKey(arguments);
+			if (!groups.has(key)) { groups.put(key, new Vector<int>()); }
+			groups.get(key).push(index);
+		}
+
+		Map<string, FeNativeHeaderRead> prepared = useCache ? self.prepareReaders(reader, commands, groups) : new Map<string, FeNativeHeaderRead>();
+
+		for index in range(bindings.len) {
+			var binding = bindings.get(index);
 			self.staticGlobals = {};
 			for name in binding.staticGlobals { self.staticGlobals.put(name, true); }
 			self.borrows = {};
@@ -2922,46 +3150,11 @@ class FeNativeDeclarationImporter {
 			self.language = binding.language;
 			if (self.language != "c" && self.language != "objective-c" && self.language != "c++") { self.fail("Objective-C++ call adapters are not implemented"); }
 			if (self.headerReader == null) { self.fail("SDK header scanning is unavailable in this compiler host build"); }
-			Vector<string> arguments = [];
-			for name in binding.symbols { arguments.push("--symbol=" + name); }
-			if (self.language == "c++") {
-				/* C++ resources select their methods (including explicit zero-argument selectors) beside the class; by-value records are read as scalar layouts. */
-				for name in binding.resources.keys() { for method in binding.resources.get(name).methods { arguments.push("--symbol=" + name + "::" + method); } }
-				for name in binding.ownedRecords { arguments.push("--record-value=" + name); }
-			}
-			Vector<string> snapshotPaths = [];
-			for snapshot in binding.recordSnapshots {
-				for name in snapshot.fields.keys() { string path = snapshot.owner + "." + snapshot.fields.get(name); if (!snapshotPaths.contains(path)) { snapshotPaths.push(path); } }
-				for index in range(1, snapshot.bytePlane.len) { string path = snapshot.owner + "." + snapshot.bytePlane.get(index); if (!snapshotPaths.contains(path)) { snapshotPaths.push(path); } }
-				for name in snapshot.strings.keys() { string path = snapshot.owner + "." + snapshot.strings.get(name); if (!snapshotPaths.contains(path)) { snapshotPaths.push(path); } }
-				for index in range(1, snapshot.byteSpan.len) { string path = snapshot.owner + "." + snapshot.byteSpan.get(index); if (!snapshotPaths.contains(path)) { snapshotPaths.push(path); } }
-				if (snapshot.guard.len > 0) { string path = snapshot.owner + "." + snapshot.guard.get(0); if (!snapshotPaths.contains(path)) { snapshotPaths.push(path); } }
-			}
-			snapshotPaths.sortBy((string left, string right) => Strings.lessThan(left, right));
-			for path in snapshotPaths { arguments.push("--record-path=" + path); }
-			Vector<string> packages = [];
-			for declaration in plan.declarations {
-				if (declaration.kind == "pkg-config" && declaration.selectedFor(plan.target) && !packages.contains(declaration.value)) { packages.push(declaration.value); }
-			}
-			packages.sortBy((string left, string right) => Strings.lessThan(left, right));
-			for package in packages { arguments.push("--pkg-config=" + package); }
-			arguments.extend([binding.header, "--", "-x", self.language, "-std=" + binding.standard, "--target=" + target, "-isysroot", sysroot]);
-			if (self.language == "objective-c") {
-				if (plan.target.operatingSystem != "macos") { self.fail("Objective-C adapters currently require the macOS runtime"); }
-				arguments.extend(["-fblocks", "-fobjc-arc"]);
-			}
-			if (plan.target.operatingSystem.equals("linux")) { arguments.extend(["-isystem", PathTools.join(sysroot, "usr/include")]); }
-			if (self.language == "c++") { for directory in self.cxxToolchainIncludes(binding.standard, target, sysroot) { arguments.extend(["-isystem", directory]); } }
-			for declaration in plan.declarations {
-				if (!declaration.selectedFor(plan.target)) { continue; }
-				if (declaration.kind.equals("include-directory")) { arguments.extend(["-I", declaration.value]); }
-				if (declaration.kind.equals("define")) { arguments.push("-D" + declaration.value + (declaration.detail.isEmpty() ? "" : "=" + declaration.detail)); }
-			}
-			var request = FeNativeHeaderRead(reader, arguments);
-			self.headerReader(request);
-			var result = request.result();
-			if (result.isErr()) { self.fail(result.unwrapErr()); }
-			NativeNode decoded = FeNativeHeaderCodec().decode(result.unwrap(), target);
+			string response = self.readHeader(index, reader, commands, groups, prepared, pending, responses);
+			NativeNode decoded = FeNativeHeaderCodec().decode(response, target);
+			self.resolvedIdentity.appendText(SHA256.digest(response));
+			self.resolvedIdentity.appendText(SHA256.digest(reader));
+			for argument in commands.get(index) { self.resolvedIdentity.appendText(SHA256.digest(argument)); }
 			self.callbackExports = {};
 			for declaration in decoded.exports { self.callbackExports.put(declaration.name, declaration); }
 			if (self.language == "c++") { self.importCxxBinding(binding, decoded); continue; }
@@ -3333,15 +3526,47 @@ class FeNativeHeaderCodec {
 		}
 	}
 
-	public NativeNode decode(string source, string expectedTarget = "") {
+	private JSONValue document(string source) {
 		/* Library.JSON strings are NUL-terminated. Reject an escaped NUL before it can disappear. */
-		for index in range(source.length()) {
+		int length = source.length();
+		for index in range(length) {
 			if (source[index] == '\\') {
-				if (index + 5 < source.length() && source.substring(index + 1, 5).equals("u0000")) { self.fail("native text contains NUL"); }
+				if (length - index > 5 && source[index + 1] == 'u' && source[index + 2] == '0' && source[index + 3] == '0' && source[index + 4] == '0' && source[index + 5] == '0') { self.fail("native text contains NUL"); }
 				index++;
 			}
 		}
-		JSONValue value = JSONValue.parse(source);
+		return JSONValue.parse(source);
+	}
+
+	public Vector<Result<string, string>> decodeBatch(string source, Vector<string> identities) {
+		var value = self.document(source);
+		self.fields(value, "schema,results");
+		if (!self.text(value.get("schema")).equals("btrc.native-responses.v1")) { self.fail("unsupported native batch schema"); }
+		var entries = self.array(value.get("results"));
+		if (entries.len != identities.len) { self.fail("native batch result count does not match requests"); }
+		Map<string, bool> seen = {};
+		Vector<Result<string, string>> results = [];
+		for index in range(entries.len) {
+			var entry = entries.get(index);
+			self.fields(entry, "id,errors,document");
+			string identity = self.text(entry.get("id"));
+			if (!identity.equals(identities.get(index)) || seen.has(identity)) { self.fail("native batch result identity does not match request order"); }
+			seen.put(identity, true);
+			var errors = self.array(entry.get("errors"));
+			var document = entry.get("document");
+			if ((errors.len > 0 && !document.isNull()) || (errors.len == 0 && !document.isObject())) { self.fail("native batch result must contain either a document or errors"); }
+			var diagnostic = StringBuilder();
+			for position in range(errors.len) {
+				if (position > 0) { diagnostic.append("\n"); }
+				diagnostic.append("error: " + self.text(errors.get(position)));
+			}
+			results.push(new Result<string, string>(errors.len == 0, errors.len == 0 ? document.stringify() : "", diagnostic.toString()));
+		}
+		return results;
+	}
+
+	public NativeNode decode(string source, string expectedTarget = "") {
+		JSONValue value = self.document(source);
 		self.fields(value, "schema,target,clang,big_endian,character_bits,declarations,records", "interfaces");
 		if (!self.text(value.get("schema")).equals("btrc.native-declarations.experimental")) { self.fail("unsupported native header schema"); }
 		var result = self.node(NNK_NATIVE_HEADER);

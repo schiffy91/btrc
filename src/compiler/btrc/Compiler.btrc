@@ -1,11 +1,59 @@
 /* Application composition root for the production self-hosted compiler. */
 
+import Library.Digest.SHA256;
+import Library.FileSystem;
+import Library.Process;
+import Library.Strings;
+
 import ./pipeline/Stage.btrc;
+import ./frontend/Timing.btrc;
 
 class Compiler {
 	private CompilerPipeline pipeline;
+	private IBtrccArtifactCache? cache;
+	private GrammarInfo grammar;
+	private string stdlibDirectory;
 
-	public Compiler(GrammarInfo grammar, string stdlibDirectory, FeSourceFileReader sourceFiles, FeNativeHeaderReader nativeHeaderReader = (FeNativeHeaderReader)null) { self.pipeline = CompilerPipeline(grammar, stdlibDirectory, sourceFiles, nativeHeaderReader); }
+	public Compiler(GrammarInfo grammar, string stdlibDirectory, FeSourceFileReader sourceFiles, FeNativeHeaderReader nativeHeaderReader = (FeNativeHeaderReader)null, IBtrccArtifactCache? cache = null, FeDirectiveCache? directiveCache = null) {
+		self.pipeline = CompilerPipeline(grammar, stdlibDirectory, sourceFiles, nativeHeaderReader, directiveCache);
+		self.cache = cache;
+		self.grammar = grammar;
+		self.stdlibDirectory = stdlibDirectory;
+	}
 
-	public BtrccCompilationResult compile(string source, string sourcePath, BtrccOptions options) { return self.pipeline.compile(source, sourcePath, options); }
+	private string artifactIdentity(string rootSource, BtrccResolvedCompilation input, BtrccOptions options) {
+		var digest = SHA256();
+		for value in ["btrcc-artifacts-v1", rootSource, input.sourcePath, input.source.source,
+			input.source.userSource, input.contentIdentity, input.nativeIdentity,
+			input.packages.linkPlan.canonicalJson(), self.grammar.vocabulary.cacheIdentity(),
+			self.stdlibDirectory, FileSystem.currentDirectory(), options.target,
+			options.outputPath, options.unitsPrefix, options.linkPlanPath,
+			Environment.get("BTRC_UNIT_LINES", "40000"),
+			f"{options.debug}:{options.runDce}:{options.strictImports}:{options.includeStdlib}"] {
+			digest.appendText(SHA256.digest(value));
+		}
+		return digest.finish();
+	}
+
+	public BtrccCompilationResult compile(string source, string sourcePath, BtrccOptions options) {
+		var cache = self.cache;
+		if (cache == null || !options.useCache) { return self.pipeline.compile(source, sourcePath, options); }
+		var input = self.pipeline.resolve(source, sourcePath, options);
+		if (input.nativeIdentity.isEmpty()) { return self.pipeline.compileResolved(input, options); }
+		string identity = self.artifactIdentity(source, input, options);
+		var cached = cache.load(identity);
+		if (cached != null && cached.success) {
+			var restored = input.packages.linkPlan.withCachedArtifacts(cached.linkPlan, cached.units.len, options.unitsPrefix);
+			if (restored != null) {
+				cached.inputPaths = input.inputPaths;
+				cached.unitPaths = restored.emittedUnits;
+				BtrccPhaseTimer.mark("artifact-hit");
+				BtrccPhaseTimer.print();
+				return cached;
+			}
+		}
+		var result = self.pipeline.compileResolved(input, options);
+		if (result.success) { cache.store(identity, result); }
+		return result;
+	}
 }

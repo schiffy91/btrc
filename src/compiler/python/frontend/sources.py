@@ -49,6 +49,7 @@ class CompilerStdlibSource(str):
 class StdlibSource:
     source: str
     source_positions: tuple[tuple[str, int], ...]
+    input_identities: tuple[SourceReadIdentity, ...] = ()
 
 
 class SourceDependencyKind(Enum):
@@ -76,6 +77,16 @@ class SourceDependencyGraph:
     """
 
     _outgoing: dict[str, set[SourceDependency]] = field(default_factory=dict)
+    _reads: dict[str, SourceReadIdentity] = field(default_factory=dict)
+
+    def record_read(self, identity: SourceReadIdentity) -> None:
+        previous = self._reads.get(identity.path)
+        if previous is not None and previous != identity:
+            raise SourceReadError(f"source input changed between reads: {identity.path}")
+        self._reads[identity.path] = identity
+
+    def read_identities(self) -> tuple[SourceReadIdentity, ...]:
+        return tuple(self._reads.values())
 
     @staticmethod
     def canonical_file(path: str) -> str:
@@ -243,6 +254,8 @@ class ResolvedSource:
     root_source_path: str = ""
     native_plan: NativeLinkPlan = field(default_factory=NativeLinkPlan.empty)
     native_declarations: tuple = ()
+    native_cache_identity: str | None = None
+    input_identities: tuple[SourceReadIdentity, ...] = ()
 
     def source_map(self, *, split_spaces: bool) -> SourceMap:
         """Return the immutable source map used by IR lowering."""
@@ -289,9 +302,10 @@ class ResolvedSource:
             digest.update(len(encoded).to_bytes(8, "big"))
             digest.update(encoded)
 
-        add_text("btrc-source-provenance-v2")
+        add_text("btrc-source-provenance-v3")
         add_text(self.root_source_path)
         add_text(self.native_plan.canonical_json())
+        add_text(self.native_cache_identity or "")
         for source_file, native_line in self.source_positions:
             normalized = os.path.abspath(source_file) if os.path.exists(source_file) else source_file
             add_text(normalized)
@@ -307,6 +321,43 @@ class SourceReadError(OSError):
     """A source file could not be read under the compiler's input contract."""
 
 
+@dataclass(frozen=True, slots=True)
+class SourceReadIdentity:
+    """Copied identity of an opened source, independent of later path lookup."""
+
+    path: str
+    canonical: str
+    version: tuple[int, int, int, int, int, int]
+
+    @staticmethod
+    def file_version(metadata: os.stat_result) -> tuple[int, int, int, int, int, int]:
+        return (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_mode,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+        )
+
+    def validate(self) -> None:
+        try:
+            unchanged = (
+                os.path.normcase(os.path.realpath(self.path)) == self.canonical
+                and self.file_version(os.stat(self.path)) == self.version
+            )
+        except OSError as error:
+            raise SourceReadError(f"source input changed after read: {self.path}: {error}") from error
+        if not unchanged:
+            raise SourceReadError(f"source input changed after read: {self.path}")
+
+
+@dataclass(frozen=True, slots=True)
+class SourceText:
+    text: str
+    identity: SourceReadIdentity
+
+
 class SourceFileReader:
     """Own deterministic UTF-8 source reads for one compiler application.
 
@@ -316,11 +367,22 @@ class SourceFileReader:
     """
 
     def read(self, path: str) -> str:
-        """Read one source file and normalize universal newlines."""
+        return self.read_source(path).text
 
+    def read_source(self, path: str) -> SourceText:
+        """Correlate decoded bytes with the opened file and its requested name."""
+
+        requested = os.path.join(os.getcwd(), path)
         try:
-            with open(path, "rb") as source_file:
+            canonical = os.path.normcase(os.path.realpath(requested))
+            with open(requested, "rb") as source_file:
+                identity = SourceReadIdentity(
+                    requested, canonical, SourceReadIdentity.file_version(os.fstat(source_file.fileno()))
+                )
                 encoded = source_file.read()
+                if SourceReadIdentity.file_version(os.fstat(source_file.fileno())) != identity.version:
+                    raise SourceReadError(f"source input changed during read: {requested}")
+            identity.validate()
         except FileNotFoundError as error:
             raise SourceReadError(f"source file {path!r} not found") from error
         except OSError as error:
@@ -336,9 +398,8 @@ class SourceFileReader:
         nul = text.find("\0")
         if nul >= 0:
             raise SourceReadError(f"source file {path!r} contains a NUL byte at character {nul}")
-        if "\r" not in text:
-            return text
-        return text.replace("\r\n", "\n").replace("\r", "\n")
+        normalized = text if "\r" not in text else text.replace("\r\n", "\n").replace("\r", "\n")
+        return SourceText(normalized, identity)
 
 
 class FrontendFingerprint:
@@ -563,18 +624,63 @@ class SourceDirective:
     end: int
 
 
+class SourceDirectiveCachePort(Protocol):
+    """Value-only persistence for directive spans keyed by complete source bytes."""
+
+    def load_directives(self, source: str, input_path: str) -> tuple[tuple[int, int], ...] | None: ...
+
+    def store_directives(self, source: str, ranges: tuple[tuple[int, int], ...], input_path: str) -> None: ...
+
+
 class SourceDirectiveScanner:
     """Own comment-aware import/include discovery through the real lexer."""
 
     _BTRC_INCLUDE = re.compile(r'^\s*#include\s+[<"]([^>"]+\.btrc)[>"]\s*$')
 
-    def scan(self, source: str) -> list[SourceDirective]:
+    def __init__(self, cache: SourceDirectiveCachePort | None = None) -> None:
+        self._cache = cache
+
+    def scan(self, source: str, *, cache_input: str | None = None) -> list[SourceDirective]:
         """Return directives that own their complete source line range."""
+
+        if self._cache is not None and cache_input is not None:
+            ranges = self._cache.load_directives(source, cache_input)
+            if ranges is not None:
+                restored = self._restore(source, ranges)
+                if restored is not None:
+                    return restored
+        directives = self._scan(source)
+        if directives is None:
+            return []  # malformed source: the main lexer/parser owns the error
+        if self._cache is not None and cache_input is not None:
+            self._cache.store_directives(source, tuple((item.start, item.end) for item in directives), cache_input)
+        return directives
+
+    def _restore(self, source: str, ranges: tuple[tuple[int, int], ...]) -> list[SourceDirective] | None:
+        lines = source.split("\n")
+        previous = 0
+        directives = []
+        for start, end in ranges:
+            if not previous < start <= end <= len(lines):
+                return None
+            # Use the same lexer/parser for the actual fragment. If it requires
+            # surrounding multiline-comment context, rescan the complete file.
+            fragment = self._scan("\n".join(lines[start - 1 : end]))
+            if fragment is None or len(fragment) != 1:
+                return None
+            [item] = fragment
+            if item.start != 1 or item.end != end - start + 1:
+                return None
+            directives.append(SourceDirective(item.kind, item.payload, start, end))
+            previous = end
+        return directives
+
+    def _scan(self, source: str) -> list[SourceDirective] | None:
 
         try:
             tokens = Lexer(source).tokenize()
         except Exception:
-            return []  # malformed source: the main lexer/parser owns the error
+            return None
 
         first_on_line: dict[int, Token] = {}
         last_on_line: dict[int, Token] = {}
@@ -789,12 +895,15 @@ class StdlibRepository:
         user_names = self.defined_names(user_source)
         lines: list[str] = []
         source_positions: list[tuple[str, int]] = []
+        identities: list[SourceReadIdentity] = []
         for filename in self.relaxed_composition_files():
             path = os.path.join(self._directory, filename)
             if not os.path.isfile(path):
                 continue
             try:
-                content = self._source_reader.read(path)
+                loaded = self._source_reader.read_source(path)
+                content = loaded.text
+                identities.append(loaded.identity)
             except SourceReadError as error:
                 raise IncludeResolutionError(str(error)) from error
             if self.defined_names(content) & user_names:
@@ -808,6 +917,7 @@ class StdlibRepository:
         return StdlibSource(
             source="\n".join(lines),
             source_positions=tuple(source_positions),
+            input_identities=tuple(identities),
         )
 
     def cached_declarations(self, stdlib_source: str) -> list:
@@ -989,6 +1099,7 @@ class SourceResolver:
         strict_imports: bool = True,
         map_stdlib_positions: bool = False,
         refresh_packages: bool = False,
+        use_cache: bool = True,
         target: str | None = None,
         profile: dict[str, float] | None = None,
     ) -> ResolvedSource:
@@ -1005,25 +1116,26 @@ class SourceResolver:
             source_path,
             packages,
             exit_on_error=False,
+            use_cache=use_cache,
         )
         self._timed(profile, "resolve_includes", start)
 
         stdlib_source = ""
         stdlib_positions: tuple[tuple[str, int], ...] = ()
+        stdlib_identities: tuple[SourceReadIdentity, ...] = ()
         if include_stdlib and not strict_imports:
             start = time.perf_counter()
+            stdlib = self.stdlib.source_mapped(user_source)
+            stdlib_source = stdlib.source
+            stdlib_identities = stdlib.input_identities
             if map_stdlib_positions:
-                stdlib = self.stdlib.source_mapped(user_source)
-                stdlib_source = stdlib.source
                 stdlib_positions = stdlib.source_positions
-            else:
-                stdlib_source = self.stdlib.source(user_source)
             self._timed(profile, "stdlib_include", start)
 
         full_source = f"{stdlib_source}\n{user_source}" if stdlib_source else user_source
         sources = graph.source_paths()
         native_plan = packages.native_plan.for_sources(sources).with_stdlib(self.stdlib.directory(), sources)
-        native_declarations = NativeDeclarationImporter().resolve(native_plan)
+        native = NativeDeclarationImporter().resolve(native_plan, use_cache=use_cache)
         return ResolvedSource(
             user_source=user_source,
             source=full_source,
@@ -1034,7 +1146,9 @@ class SourceResolver:
             strict_imports=strict_imports,
             root_source_path=os.path.realpath(source_path),
             native_plan=native_plan,
-            native_declarations=native_declarations,
+            native_declarations=native.declarations,
+            native_cache_identity=native.cache_identity,
+            input_identities=graph.read_identities() + stdlib_identities,
         )
 
     def resolve_includes(

@@ -10,10 +10,14 @@ import Library.GUI.MacOS.MacOSViewCapture;
 #include <assert.h>
 
 void clickSlider(MacOSApplication app, MacOSWindow window, MacOSSlider slider) {
-	var point = slider.nativeView().frame().origin;
+	var view = slider.nativeView();
+	var point = view.bounds().origin;
 	point.x += 285.0;
 	point.y += 15.0;
-	assert(window.contentView().hitTest(point) == slider.nativeView());
+	point = window.contentView().convertPoint(point, view);
+	var hit = window.contentView().hitTest(point);
+	// AppKit may route a hit to a private descendant inside the native slider.
+	assert(hit != null && (hit == view || hit.isDescendantOf(view)));
 	var down = NSEvent.mouseEventWithType(NSEventTypeLeftMouseDown, point, 0UL, 0.0, window.nativeWindow().windowNumber(), null, 1L, 1L, 1.0f);
 	var up = NSEvent.mouseEventWithType(NSEventTypeLeftMouseUp, point, 0UL, 0.0, window.nativeWindow().windowNumber(), null, 2L, 1L, 0.0f);
 	assert(down != null && up != null);

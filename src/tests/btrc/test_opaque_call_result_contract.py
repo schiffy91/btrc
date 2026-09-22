@@ -62,7 +62,7 @@ def test_fchmod_exact_abi_types_ordered_nonvolatile_result_in_both_frontends(
         _strict_build_and_run(generated, tmp_path / f"exact-fchmod-{index}")
 
 
-def test_fchmod_result_is_volatile_across_exception_cleanup_in_both_frontends(
+def test_fchmod_result_without_suffix_cleanup_stays_nonvolatile_inside_try(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
@@ -95,11 +95,72 @@ def test_fchmod_result_is_volatile_across_exception_cleanup_in_both_frontends(
             return 0;
         }
     """
-    result = re.compile(r"\bvolatile int __btrc_(?:call|boundary)_result_\d+;")
+    result = re.compile(r"\bint __btrc_(?:call|boundary)_result_\d+;")
+    volatile_result = re.compile(r"\bvolatile int __btrc_(?:call|boundary)_result_\d+;")
     for index, generated in enumerate(_compile_success_pair(semantic_btrcc, tmp_path, source)):
         emitted = generated.read_text()
         assert result.search(emitted)
-        _strict_build_and_run(generated, tmp_path / f"protected-fchmod-{index}")
+        assert not volatile_result.search(emitted)
+        _strict_build_and_run(generated, tmp_path / f"try-fchmod-{index}", optimization="-O2")
+
+
+def test_result_storage_preserves_throwing_suffix_and_owned_result_cleanup(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        #include <assert.h>
+
+        int alive = 0;
+        int destroyed = 0;
+        int trace = 0;
+        class Tracked {
+            public int id;
+            public Tracked(int id) { self.id = id; alive++; }
+            public void __del__() {
+                alive--;
+                destroyed++;
+                if (self.id == 1) { throw "argument cleanup"; }
+            }
+        }
+
+        int step(int expected) { assert(trace == expected); trace++; return expected; }
+        int read(Tracked value) { assert(value.id == 1); trace = 2; return 7; }
+        Tracked make(int first, int second) {
+            assert(first == 0 && second == 1);
+            return new Tracked(2);
+        }
+
+        int main() {
+            bool delivered = false;
+            bool caught = false;
+            try {
+                int value = read(new Tracked(1));
+                assert(value == 7);
+                delivered = true;
+            } catch (string error) {
+                caught = error.equals("argument cleanup");
+            }
+            assert(caught && !delivered && trace == 2);
+            assert(alive == 0 && destroyed == 1);
+            trace = 0;
+            Tracked owned = make(step(0), step(1));
+            assert(trace == 2 && owned.id == 2 && alive == 1);
+            delete owned;
+            assert(alive == 0 && destroyed == 2);
+            return 0;
+        }
+    """
+    scalar = re.compile(r"\bvolatile int __btrc_(?:call|boundary)_result_\d+;")
+    managed = re.compile(r"\bTracked\s*\*\s*volatile __btrc_(?:call|boundary)_result_\d+;")
+    for index, generated in enumerate(_compile_success_pair(semantic_btrcc, tmp_path, source)):
+        emitted = generated.read_text()
+        assert scalar.search(emitted)
+        assert managed.search(emitted)
+        for optimization in ("-O2", "-O3"):
+            _strict_build_and_run(
+                generated, tmp_path / f"cleanup-results-{index}{optimization}", optimization=optimization
+            )
 
 
 def test_opaque_wide_result_keeps_native_c_type_in_both_frontends(

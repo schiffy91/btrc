@@ -19,7 +19,7 @@ from ..analyzer.analyzer import SemanticAnalyzer
 from ..backend.c_emitter import CEmitter
 from ..frontend.imports import FrontendVisibilityError
 from ..frontend.native_imports import NativeHeaderSource
-from ..frontend.packages import NativeGeneratedUnit
+from ..frontend.packages import NativeGeneratedUnit, NativeLinkPlan
 from ..frontend.sources import CompilerStdlibSource, ResolvedSource, SourceResolver, StdlibRepository
 from ..frontend.stage import FrontendParseResult, FrontendStage
 from ..ir.nodes import IRHelperDecl, IRInclude, IRMacroDef
@@ -544,6 +544,7 @@ class CompilationPipeline:
             strict_imports=options.strict_imports,
             map_stdlib_positions=options.map_stdlib_positions,
             refresh_packages=options.refresh_packages,
+            use_cache=options.use_cache and not options.profile,
             target=options.target,
             profile=profile,
         )
@@ -648,7 +649,7 @@ class CompilationPipeline:
         native_plan = source.native_plan
         module = values.get("ir_module")
         if values.get("c_units"):
-            native_plan = replace(native_plan, emitted_units=len(values["c_units"]))
+            native_plan = native_plan.with_emitted_units(options.units_prefix, len(values["c_units"]))
         if module is not None and module.native_units:
             native_plan = replace(
                 native_plan,
@@ -747,7 +748,11 @@ class CompilationPipeline:
             c_units: tuple[str, ...] = ()
             if options.units_prefix is not None:
                 start = time.perf_counter()
-                units = CEmitter().emit_units(module, int(os.environ.get("BTRC_UNIT_LINES", "40000")))
+                units = CEmitter().emit_units(
+                    module,
+                    int(os.environ.get("BTRC_UNIT_LINES", "40000")),
+                    NativeLinkPlan.output_prefix(options.units_prefix),
+                )
                 self._timed(profile, "emit", start)
                 c_source, c_units = units[0], tuple(units[1:])
             else:

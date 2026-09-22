@@ -527,8 +527,11 @@ def test_import_resolver_owns_deterministic_bulk_paths_and_c11_rendering(
     not CC or shutil.which(CC[0]) is None,
     reason="needs a C compiler",
 )
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
 def test_stdlib_repository_instances_reuse_their_own_isolated_state(
     tmp_path: Path,
+    request,
+    frontend: str,
 ) -> None:
     stage = REPO / "src/compiler/btrc/frontend/Stage.btrc"
     grammar_path = REPO / "src/language/grammar.ebnf"
@@ -584,12 +587,25 @@ def test_stdlib_repository_instances_reuse_their_own_isolated_state(
         '            || firstSource.contains("import Library.Strings")) { return 6; }\n'
         '    if (!secondResolver.sourceAtSnapshot("int userValue;\\n", secondSnapshot).contains("class Beta")) { return 7; }\n'
         '    if (secondResolver.sourceAtSnapshot("class Beta { }\\n", secondSnapshot).contains("class Beta")) { return 8; }\n'
+        "    if (!sourceFiles.validateInputs().isEmpty()) { return 9; }\n"
+        f'    if (!FileSystem.writeText({json.dumps(str(first_input))}, "updated\\n")) {{ return 10; }}\n'
+        f"    string updatedRead = sourceFiles.readRequired({json.dumps(str(first_input))});\n"
+        '    if (!updatedRead.equals("updated\\n") || !firstRead.equals("alpha\\n")) { return 11; }\n'
+        '    if (!sourceFiles.validateInputs().contains("source input changed after read")) { return 12; }\n'
+        "    if (!isolatedSourceFiles.validateInputs().isEmpty()) { return 13; }\n"
+        "    FeSourceFileReader nextCompilation = FeSourceFileReader();\n"
+        f"    if (!nextCompilation.readRequired({json.dumps(str(first_input))}).equals(updatedRead)\n"
+        "            || !nextCompilation.validateInputs().isEmpty()) { return 14; }\n"
         "    return 0;\n"
         "}\n",
         encoding="utf-8",
     )
 
-    transpile = _reference(program, generated, timeout=300)
+    if frontend == "reference":
+        transpile = _reference(program, generated, timeout=300)
+    else:
+        transpile = _selfhost(request.getfixturevalue("semantic_btrcc"), program, timeout=300)
+        generated.write_text(transpile.stdout, encoding="utf-8")
     assert transpile.returncode == 0, transpile.stderr
     native = subprocess.run(
         [

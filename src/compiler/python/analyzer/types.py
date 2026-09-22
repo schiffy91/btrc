@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import ctypes
 import math
+import struct
 from collections.abc import Callable, Iterable, Mapping, Set
 from dataclasses import dataclass, replace
 from types import MappingProxyType
@@ -118,11 +118,11 @@ class CIntegerWidths:
     def native(cls) -> CIntegerWidths:
         """Describe the ABI targeted by the running compiler process."""
         return cls(
-            char=ctypes.sizeof(ctypes.c_byte) * 8,
-            short=ctypes.sizeof(ctypes.c_short) * 8,
-            int_=ctypes.sizeof(ctypes.c_int) * 8,
-            long=ctypes.sizeof(ctypes.c_long) * 8,
-            long_long=ctypes.sizeof(ctypes.c_longlong) * 8,
+            char=struct.calcsize("@b") * 8,
+            short=struct.calcsize("@h") * 8,
+            int_=struct.calcsize("@i") * 8,
+            long=struct.calcsize("@l") * 8,
+            long_long=struct.calcsize("@q") * 8,
         )
 
 

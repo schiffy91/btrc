@@ -44,6 +44,7 @@ EXPECTED_BTRC_FILES = frozenset(
     analyzer/validation/Validator.btrc
     BtrccMain.btrc
     cli/Driver.btrc
+    cli/MacOSMain.btrc
     cli/WindowsMain.btrc
     Compiler.btrc
     frontend/Models.btrc
@@ -132,6 +133,7 @@ STAGE_MANIFESTS = frozenset(
 PUBLIC_ENTRY_POINTS = frozenset(
     {
         "BtrccMain.btrc",
+        "cli/MacOSMain.btrc",
         "cli/WindowsMain.btrc",
         "tools/FrontendMain.btrc",
         "tools/LexMain.btrc",
@@ -334,7 +336,7 @@ def _declaring_method(
     return None
 
 
-def _member_result_owner(classes: dict[str, tuple[str, object]], owner: str | None, name: str) -> str | None:
+def _member_result_type(classes: dict[str, tuple[str, object]], owner: str | None, name: str) -> object | None:
     visited: set[str] = set()
     while owner is not None and owner in classes and owner not in visited:
         visited.add(owner)
@@ -343,52 +345,85 @@ def _member_result_owner(classes: dict[str, tuple[str, object]], owner: str | No
             if member.name != name:
                 continue
             if type(member).__name__ in {"FieldDecl", "PropertyDecl"}:
-                return member.type.base
+                return member.type
             if type(member).__name__ == "MethodDecl":
-                return member.return_type.base
+                return member.return_type
         owner = declaration.parent
     return None
 
 
-def _receiver_owner(
+def _interface_method_targets(classes, interfaces, owner, name) -> set[tuple[str, str]]:
+    """Resolve declared interface dispatch without conflating same-named methods."""
+
+    def ancestors(table, initial):
+        seen = set()
+        while initial in table and initial not in seen:
+            seen.add(initial)
+            yield initial
+            initial = table[initial].parent
+
+    if owner not in interfaces or not any(
+        method.name == name for interface in ancestors(interfaces, owner) for method in interfaces[interface].methods
+    ):
+        return set()
+    declarations = {key: declaration for key, (_, declaration) in classes.items()}
+    targets = set()
+    for candidate in classes:
+        implements = any(
+            owner in set(ancestors(interfaces, interface))
+            for base in ancestors(declarations, candidate)
+            for interface in declarations[base].interfaces
+        )
+        if implements and (target := _declaring_method(classes, candidate, name)) is not None:
+            targets.add((target[0], target[1].name))
+    return targets
+
+
+def _receiver_type(
     expression: object,
     current: str | None,
     bindings: dict[str, object],
     classes: dict[str, tuple[str, object]],
-) -> str | None:
+) -> object | None:
     kind = type(expression).__name__
     if kind == "SelfExpr":
         return current
     if kind == "SuperExpr":
         return classes[current][1].parent if current is not None else None
     if kind == "Identifier":
-        binding = bindings.get(
+        return bindings.get(
             expression.name,
             expression.name if expression.name in classes else None,
         )
-        return binding if isinstance(binding, str) else getattr(binding, "base", None)
     if kind == "NewExpr":
-        return expression.type.base
+        return expression.type
     if kind == "CastExpr":
-        return expression.target_type.base
+        return expression.target_type
     if kind == "CallExpr":
         callee = expression.callee
         if type(callee).__name__ == "Identifier" and callee.name in classes:
             return callee.name
         if type(callee).__name__ == "FieldAccessExpr":
-            if type(callee.obj).__name__ == "Identifier":
-                receiver_type = bindings.get(callee.obj.name)
-                generic_arguments = getattr(receiver_type, "generic_args", [])
-                if callee.field in {"get", "first", "last", "iterGet"} and generic_arguments:
-                    return generic_arguments[0].base
-                if callee.field in {"getOrDefault", "iterValueAt"} and len(generic_arguments) > 1:
-                    return generic_arguments[1].base
+            receiver_type = _receiver_type(callee.obj, current, bindings, classes)
+            generic_arguments = getattr(receiver_type, "generic_args", [])
+            if callee.field in {"getOrDefault", "iterValueAt"} or (
+                callee.field == "get" and getattr(receiver_type, "base", None) == "Map"
+            ):
+                if len(generic_arguments) > 1:
+                    return generic_arguments[1]
+            elif callee.field in {"get", "first", "last", "iterGet"} and generic_arguments:
+                return generic_arguments[0]
             owner = _receiver_owner(callee.obj, current, bindings, classes)
-            return _member_result_owner(classes, owner, callee.field)
+            return _member_result_type(classes, owner, callee.field)
     if kind == "FieldAccessExpr":
         owner = _receiver_owner(expression.obj, current, bindings, classes)
-        return _member_result_owner(classes, owner, expression.field)
+        return _member_result_type(classes, owner, expression.field)
     return None
+
+
+def _receiver_owner(expression, current, bindings, classes) -> str | None:
+    result = _receiver_type(expression, current, bindings, classes)
+    return result if isinstance(result, str) else getattr(result, "base", None)
 
 
 def _callable_bindings(
@@ -418,9 +453,9 @@ def _callable_bindings(
         for variable in variables:
             if variable.name in bindings:
                 continue
-            owner = _receiver_owner(variable.initializer, current, bindings, classes)
-            if owner is not None:
-                bindings[variable.name] = owner
+            inferred = _receiver_type(variable.initializer, current, bindings, classes)
+            if inferred is not None:
+                bindings[variable.name] = inferred
                 changed = True
         if not changed:
             return bindings
@@ -442,21 +477,7 @@ def _scoped_ast_nodes(root, current, bindings, classes):
         if kind == "LambdaExpr":
             nested = {**scope, **{parameter.name: parameter.type for parameter in node.params}}
         elif kind == "ForInStmt":
-            iterable = node.iterable
-            collection_type = None
-            if type(iterable).__name__ == "Identifier":
-                collection_type = scope.get(iterable.name)
-            elif type(iterable).__name__ == "FieldAccessExpr":
-                owner = _receiver_owner(iterable.obj, current, scope, classes)
-                if owner in classes:
-                    collection_type = next(
-                        (
-                            member.type
-                            for member in classes[owner][1].members
-                            if type(member).__name__ in {"FieldDecl", "PropertyDecl"} and member.name == iterable.field
-                        ),
-                        None,
-                    )
+            collection_type = _receiver_type(node.iterable, current, scope, classes)
             arguments = getattr(collection_type, "generic_args", [])
             if arguments:
                 nested = {**scope, node.var_name: arguments[0]}
@@ -469,7 +490,7 @@ def test_selfhost_tree_is_the_exact_ownership_namespace() -> None:
     actual = {path.relative_to(SELFHOST).as_posix() for path in SELFHOST.rglob("*.btrc")}
 
     assert actual == EXPECTED_BTRC_FILES
-    assert len(actual) == 98
+    assert len(actual) == 99
     assert {path.name for path in SELFHOST.glob("*.btrc")} == {"BtrccMain.btrc", "Compiler.btrc"}
 
 
@@ -499,6 +520,63 @@ def test_reference_scanner_keeps_shadowed_callback_and_iteration_receivers() -> 
         if type(node).__name__ == "FieldAccessExpr" and node.field == "key"
     )
     assert references == {"First": 2, "Second": 2}
+
+
+def test_reference_scanner_tracks_collection_values_through_members_and_locals() -> None:
+    program = Parser(
+        Lexer("""
+        class First { public int key() { return 1; } }
+        class Second { public int key() { return 2; } }
+        class Owner {
+            public Map<int, Second> entries;
+            public Vector<First> items;
+            public Map<int, Second> values() { return self.entries; }
+            public void visit(Map<int, Second> source) {
+                var found = self.entries.get(0);
+                found.key();
+                var mapped = self.values();
+                mapped.get(0).key();
+                self.values().get(0).key();
+                source.get(0).key();
+                self.items.get(0).key();
+            }
+        }
+    """).tokenize()
+    ).parse()
+    classes = {declaration.name: ("probe", declaration) for declaration in program.declarations}
+    method = next(member for member in classes["Owner"][1].members if member.name == "visit")
+    bindings = _callable_bindings(method.body, method.params, "Owner", classes)
+    references = Counter(
+        _receiver_owner(node.obj, "Owner", scope, classes)
+        for node, scope in _scoped_ast_nodes(method.body, "Owner", bindings, classes)
+        if type(node).__name__ == "FieldAccessExpr" and node.field == "key"
+    )
+    assert references == {"First": 1, "Second": 4}
+
+
+def test_reference_scanner_distinguishes_interface_implementations_with_shared_names() -> None:
+    program = Parser(
+        Lexer("""
+        interface First { int load(); }
+        interface Child extends First { int store(); }
+        interface Other { int load(); }
+        class Real implements Child {
+            public int load() { return 1; }
+            public int store() { return 2; }
+            public int helper() { return 3; }
+        }
+        class Derived extends Real {}
+        class Separate implements Other { public int load() { return 4; } }
+        class Unrelated { public int load() { return 5; } }
+    """).tokenize()
+    ).parse()
+    classes = {d.name: ("probe", d) for d in program.declarations if type(d).__name__ == "ClassDecl"}
+    interfaces = {d.name: d for d in program.declarations if type(d).__name__ == "InterfaceDecl"}
+    assert _interface_method_targets(classes, interfaces, "First", "load") == {("Real", "load")}
+    assert _interface_method_targets(classes, interfaces, "Child", "load") == {("Real", "load")}
+    assert _interface_method_targets(classes, interfaces, "Child", "store") == {("Real", "store")}
+    assert _interface_method_targets(classes, interfaces, "Other", "load") == {("Separate", "load")}
+    assert _interface_method_targets(classes, interfaces, "First", "helper") == set()
 
 
 def test_every_unit_parses_and_behavior_files_have_complete_owners() -> None:
@@ -805,6 +883,12 @@ def test_same_owner_method_calls_are_explicitly_qualified() -> None:
 
 def test_only_explicit_external_probes_are_definition_only() -> None:
     classes = _class_declarations()
+    interfaces = {
+        declaration.name: declaration
+        for relative in EXPECTED_BTRC_FILES
+        for declaration in _program(relative).declarations
+        if type(declaration).__name__ == "InterfaceDecl"
+    }
     methods = {
         (owner, member.name): member
         for owner, (_, declaration) in classes.items()
@@ -821,7 +905,11 @@ def test_only_explicit_external_probes_are_definition_only() -> None:
                 owner = _receiver_owner(node.obj, current, scope, classes)
                 target = _declaring_method(classes, owner, node.field)
                 if target is None:
-                    unresolved_names.add(node.field)
+                    implementations = _interface_method_targets(classes, interfaces, owner, node.field)
+                    if implementations:
+                        references.update(implementations)
+                    else:
+                        unresolved_names.add(node.field)
                 else:
                     references[(target[0], target[1].name)] += 1
             elif (
@@ -854,6 +942,8 @@ def test_only_explicit_external_probes_are_definition_only() -> None:
         if method.body is not None
         and not method.is_abstract
         and not method.is_constructor
+        # ARC calls destructors implicitly, just as construction calls constructors.
+        and method.name != "__del__"
         and references[identity] == 0
     }
     assert definition_only == INTENTIONAL_DEFINITION_ONLY_METHODS

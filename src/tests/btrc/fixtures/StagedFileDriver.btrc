@@ -1,0 +1,80 @@
+import Library.FileSystem;
+import Library.FileSystem.FileSystemHandles;
+import Library.Vector;
+
+import ../../../compiler/btrc/frontend/Packages.btrc;
+#include <assert.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+string stagedPath(string directory) {
+	string result = "";
+	for name in FileSystem.listDir(directory) {
+		if (name.startsWith(".btrc-package-")) { assert(result.isEmpty()); result = PathTools.join(directory, name); }
+	}
+	return result;
+}
+
+int main() {
+	var created = FileSystem.createTemporaryDirectory("btrc-staged-output");
+	assert(created.ok());
+	var root = created.directory();
+	string path = root.path() + "/output";
+	assert(FileSystem.writeText(path, "previous"));
+	var store = FePackageFileStore();
+	var candidate = store.stage(path, "replacement", 0640);
+	assert(candidate != null);
+	assert(FileSystem.readText(path).equals("previous"));
+	assert(!stagedPath(root.path()).isEmpty());
+	assert(candidate.publish().committed());
+	assert(candidate.discard());
+	assert(!candidate.publish().mayHaveCommitted());
+	assert(FileSystem.readText(path).equals("replacement"));
+	assert((FileStatus(path).mode & 0777) == 0640);
+	assert(stagedPath(root.path()).isEmpty());
+
+	var canceled = store.stage(path, "canceled");
+	assert(canceled != null);
+	assert(canceled.discard());
+	assert(canceled.discard());
+	assert(FileSystem.readText(path).equals("replacement"));
+	assert(stagedPath(root.path()).isEmpty());
+
+	var changed = store.stage(path, "candidate");
+	assert(changed != null);
+	assert(FileSystem.writeText(stagedPath(root.path()), "changed candidate"));
+	assert(!changed.publish().mayHaveCommitted());
+	assert(changed.discard());
+	assert(FileSystem.readText(path).equals("replacement"));
+
+	var substituted = store.stage(path, "candidate");
+	assert(substituted != null);
+	string stage = stagedPath(root.path());
+	string moved = root.path() + "/moved-candidate";
+	assert(rename(stage, moved) == 0);
+	assert(FileSystem.writeText(stage, "unrelated replacement"));
+	assert(!substituted.publish().mayHaveCommitted());
+	assert(!substituted.discard());
+	assert(FileSystem.readText(stage).equals("unrelated replacement"));
+	assert(unlink(stage) == 0);
+	assert(substituted.discard());
+	assert(unlink(moved) == 0);
+
+	string directoryTarget = root.path() + "/directory";
+	assert(mkdir(directoryTarget, (mode_t)0700) == 0);
+	var rejected = store.stage(directoryTarget, "candidate");
+	assert(rejected != null);
+	assert(!rejected.publish().mayHaveCommitted());
+	assert(rejected.discard());
+	assert(stagedPath(root.path()).isEmpty());
+	assert(FileSystem.isDir(directoryTarget));
+
+	assert(store.stage(path, "bad mode", -1) == null);
+	assert(store.stage(root.path() + "/missing/output", "missing parent") == null);
+	assert(store.writeAtomically(path, "package state"));
+	assert(FileSystem.readText(path).equals("package state"));
+	assert(stagedPath(root.path()).isEmpty());
+	assert(root.close().ok());
+	print("PASS: staged file lifetime and publication");
+	return 0;
+}

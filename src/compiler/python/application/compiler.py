@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Protocol
 
 from ..frontend.packages import IncludeResolutionError
-from ..frontend.sources import ResolvedSource
+from ..frontend.sources import ResolvedSource, SourceFileReader, SourceText
 from .pipeline import CompilationPipeline
 from .results import (
     CompilerActionResult,
+    CompilerDiagnostic,
     CompilerFailure,
     CompilerFailureKind,
     CompilerOptions,
@@ -20,23 +23,63 @@ from .results import (
 )
 
 
-class CompilerCachePort(Protocol):
-    """Persistent C-output operations required by the compiler application."""
+class CachedCompilation(Protocol):
+    """Value-only view of a verified complete emitted generation."""
 
-    def load_text(
+    c_source: str
+    c_units: tuple[str, ...]
+    link_plan: str
+    diagnostics: tuple[tuple[str, int, int, str, str | None], ...]
+    split_source_spaces: bool
+
+
+class CompilerInputIdentity(Protocol):
+    """Read-time source authority rechecked before publishing compiler output."""
+
+    def validate(self) -> None: ...
+
+
+class CompilerOutputPublicationPort(Protocol):
+    """Publish staged CLI outputs with the caller's final path safety check."""
+
+    def retain_unchanged(
+        self,
+        outputs: Sequence[tuple[str, str, str]],
+        *,
+        validate: Callable[[Sequence[str]], None],
+    ) -> bool:
+        """Retain a complete owned generation of (destination, text, role) outputs."""
+        ...
+
+    def publish_staged(
+        self,
+        outputs: Sequence[tuple[str, str, str]],
+        *,
+        validate: Callable[[Sequence[str]], None],
+    ) -> None: ...
+
+
+class CompilerCachePort(Protocol):
+    """Persistent emitted-artifact operations required by the application."""
+
+    def load_artifacts(
         self,
         resolved_source: str,
         input_path: str | None = None,
         *,
         source_identity: str = "",
-    ) -> str | None: ...
+    ) -> CachedCompilation | None: ...
 
-    def store_text(
+    def store_artifacts(
         self,
         resolved_source: str,
         c_output: str,
         input_path: str | None = None,
         *,
+        c_units: tuple[str, ...] = (),
+        link_plan: str,
+        diagnostics: tuple[tuple[str, int, int, str, str | None], ...] = (),
+        split_source_spaces: bool = False,
         source_identity: str = "",
     ) -> None: ...
 
@@ -45,7 +88,7 @@ class DisabledCompilerCache:
     """Explicit no-persistence cache used by an unconfigured library compiler."""
 
     @staticmethod
-    def load_text(
+    def load_artifacts(
         resolved_source: str,
         input_path: str | None = None,
         *,
@@ -55,14 +98,18 @@ class DisabledCompilerCache:
         return None
 
     @staticmethod
-    def store_text(
+    def store_artifacts(
         resolved_source: str,
         c_output: str,
         input_path: str | None = None,
         *,
+        c_units: tuple[str, ...] = (),
+        link_plan: str,
+        diagnostics: tuple[tuple[str, int, int, str, str | None], ...] = (),
+        split_source_spaces: bool = False,
         source_identity: str = "",
     ) -> None:
-        del resolved_source, c_output, input_path, source_identity
+        del resolved_source, c_output, input_path, c_units, link_plan, diagnostics, split_source_spaces, source_identity
 
 
 class SelfhostBundlePublication(Protocol):
@@ -133,14 +180,36 @@ class Compiler:
         return self.pipeline.stdlib_archive.repository.available
 
     @staticmethod
-    def _cache_inputs(source: ResolvedSource) -> tuple[str, str]:
+    def _cache_inputs(source: ResolvedSource, options: CompilerOptions) -> tuple[str, str]:
         """Adapt a frontend result to the artifact cache's value-only contract."""
 
         import_mode = "strict" if source.strict_imports else "relaxed"
         return (
             f"import-mode={import_mode}\0{source.source}",
-            source.cache_identity(),
+            json.dumps(
+                {
+                    "source": source.cache_identity(),
+                    "debug": options.debug,
+                    "dce": options.dce,
+                    "use_ast_cache": options.use_ast_cache,
+                    "map_stdlib_positions": options.map_stdlib_positions,
+                    # Only debug emission observes the primary output path.
+                    "generated_c_path": options.generated_c_path if options.debug else None,
+                    "units_prefix": options.units_prefix,
+                    "unit_lines": os.environ.get("BTRC_UNIT_LINES", "40000")
+                    if options.units_prefix is not None
+                    else None,
+                    "cwd": os.getcwd() if options.debug or options.units_prefix is not None else None,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
         )
+
+    @classmethod
+    def read_source(cls, path: str) -> SourceText:
+        """Read file-backed input with identity; compile() also accepts memory text."""
+        return SourceFileReader().read_source(path)
 
     def compile(
         self,
@@ -161,24 +230,34 @@ class Compiler:
                 failure=CompilerFailure(CompilerFailureKind.PACKAGE, str(error)),
                 profile=CompilerResult.profile_snapshot(profile),
             )
-        # SDK transitive headers/toolchain identity are not in the artifact key yet.
-        cache_inputs = self._cache_inputs(resolved) if options.cacheable and not resolved.native_plan.bindings else None
+        cache_inputs = (
+            self._cache_inputs(resolved, options)
+            if options.cacheable and (not resolved.native_plan.bindings or resolved.native_cache_identity is not None)
+            else None
+        )
 
         if cache_inputs is not None:
-            cached = self.cache.load_text(
+            cached = self.cache.load_artifacts(
                 cache_inputs[0],
                 source_path,
                 source_identity=cache_inputs[1],
             )
             if cached is not None:
-                return CompilerResult(
-                    options=options,
-                    source_bundle=resolved,
-                    c_source=cached,
-                    native_plan=resolved.native_plan,
-                    cache_hit=True,
-                    profile=CompilerResult.profile_snapshot(profile),
+                native_plan = resolved.native_plan.with_cached_artifacts(
+                    cached.link_plan, len(cached.c_units), options.units_prefix
                 )
+                if native_plan is not None:
+                    return CompilerResult(
+                        options=options,
+                        source_bundle=resolved,
+                        c_source=cached.c_source,
+                        c_units=cached.c_units,
+                        native_plan=native_plan,
+                        diagnostics=tuple(CompilerDiagnostic(*record) for record in cached.diagnostics),
+                        split_source_spaces=cached.split_source_spaces,
+                        cache_hit=True,
+                        profile=CompilerResult.profile_snapshot(profile),
+                    )
 
         result = self.pipeline.compile_resolved(
             resolved,
@@ -187,11 +266,18 @@ class Compiler:
             profile,
         )
         if cache_inputs is not None and result.successful and result.c_source is not None:
-            with contextlib.suppress(OSError, UnicodeError):
-                self.cache.store_text(
+            with contextlib.suppress(OSError, UnicodeError, ValueError):
+                self.cache.store_artifacts(
                     cache_inputs[0],
                     result.c_source,
                     input_path=source_path,
+                    c_units=result.c_units,
+                    link_plan=result.native_plan.canonical_json(),
+                    diagnostics=tuple(
+                        (diagnostic.message, diagnostic.line, diagnostic.col, diagnostic.severity, diagnostic.file)
+                        for diagnostic in result.diagnostics
+                    ),
+                    split_source_spaces=result.split_source_spaces,
                     source_identity=cache_inputs[1],
                 )
         return result

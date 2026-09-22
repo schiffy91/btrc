@@ -25,7 +25,6 @@ import Library.Vector;
 extern FILE* popen(const char* command, const char* mode);
 extern int pclose(FILE* stream);
 extern char** environ;
-extern int fileno(FILE* stream);
 
 class ProcessStatus {
 	public int raw;
@@ -207,13 +206,20 @@ class ExecResult {
 	public string err;
 	public string command;
 	public bool timedOut;
+	/* Bytes retained from each capture pipe, before NUL-terminated text access
+	 * or appended process diagnostics. Combined output counts under stdout;
+	 * streamed/suppressed output and synthetic results have no captured bytes. */
+	public int capturedStdoutBytes;
+	public int capturedStderrBytes;
 
-	public ExecResult(int code, string out, string err, string command) {
+	public ExecResult(int code, string out, string err, string command, int capturedStdoutBytes = 0, int capturedStderrBytes = 0) {
 		self.code = code;
 		self.out = out;
 		self.err = err;
 		self.command = command;
 		self.timedOut = false;
+		self.capturedStdoutBytes = capturedStdoutBytes;
+		self.capturedStderrBytes = capturedStderrBytes;
 	}
 
 	public bool ok() { return self.code == 0; }
@@ -1115,7 +1121,7 @@ class ChildProcess {
 		if (captureExceeded) {
 			errorText = errorText + "child output exceeded capture limit\n";
 		}
-		ExecResult result = ExecResult(code, output.text(), errorText, command);
+		ExecResult result = ExecResult(code, output.text(), errorText, command, output.buffer.len, error.buffer.len);
 		result.timedOut = timedOut;
 		return result;
 	}
@@ -1237,7 +1243,7 @@ class UnixShell {
 		if (throwOnFailure && code != 0) {
 			throw f"Command failed ({code}): {UnixShell.redactText(rendered, redactSubstring)}";
 		}
-		ExecResult result = ExecResult(code, child.out, child.err, rendered);
+		ExecResult result = ExecResult(code, child.out, child.err, rendered, child.capturedStdoutBytes, child.capturedStderrBytes);
 		result.timedOut = child.timedOut;
 		return result;
 	}

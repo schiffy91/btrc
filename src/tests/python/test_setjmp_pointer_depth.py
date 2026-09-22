@@ -6,6 +6,9 @@ from src.compiler.python.ir.lowering.exceptions import (
     OPAQUE_POINTER_DEPTH,
     ExceptionLowerer,
     ParameterEffect,
+    PointerFlowResult,
+    PointerOrigin,
+    Storage,
 )
 from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.ir.nodes import (
@@ -29,6 +32,27 @@ from src.compiler.python.ir.nodes import (
     IRVarDecl,
 )
 from src.tests.python.test_codegen import emit_c
+
+
+def test_node_origin_facts_accumulate_across_empty_visits_without_aliasing():
+    result = PointerFlowResult()
+    node = IRVar("pointer")
+    first = PointerOrigin(Storage("first", 1, "automatic"))
+    second = PointerOrigin(Storage("second", 2, "automatic"), depth=1, source_exposed=True)
+
+    empty = result.record_origins(node, ())
+    empty.add(first)
+    assert not result.origins.get(id(node), ())
+
+    supplied = {first}
+    returned = result.record_origins(node, supplied)
+    supplied.clear()
+    returned.add(second)
+    assert result.origins[id(node)] == {first}
+    assert result.record_origins(node, ()) == set()
+    assert result.origins[id(node)] == {first}
+    assert result.record_origins(node, {second}) == {second}
+    assert result.origins[id(node)] == {first, second}
 
 
 def _dereference(value, count):

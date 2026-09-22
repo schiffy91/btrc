@@ -1,0 +1,66 @@
+import Library.IO;
+import Library.Strings;
+import Library.Vector;
+
+import ../../../compiler/btrc/syntax/Tokens.btrc;
+import ../../../compiler/btrc/syntax/Grammar.btrc;
+import ../../../compiler/btrc/lexer/Lexer.btrc;
+#include <assert.h>
+
+int main(int argc, char** argv) {
+	if (argc == 1) {
+		var vocabulary = TokenVocabulary();
+		vocabulary.addOperator("<=", "FIRST");
+		vocabulary.addOperator("<", "SHORT");
+		var grammar = GrammarInfo(vocabulary);
+		var first = Lexer("<=<", grammar).tokenize();
+		assert(first.len == 3);
+		assert(first.get(0).type.equals("FIRST"));
+		assert(first.get(1).type.equals("SHORT"));
+		string identity = vocabulary.cacheIdentity();
+		vocabulary.addOperator("<=", "REPLACED");
+		vocabulary.addOperator("<<<", "LATER");
+		assert(!identity.equals(vocabulary.cacheIdentity()));
+		var second = Lexer("<= <<<", grammar).tokenize();
+		assert(second.len == 5);
+		assert(second.get(0).type.equals("REPLACED"));
+		for (int index = 1; index < 4; index++) {
+			assert(second.get(index).type.equals("SHORT"));
+		}
+		var other = TokenVocabulary();
+		other.addOperator("<<<", "INDEPENDENT");
+		var third = Lexer("<<<", GrammarInfo(other)).tokenize();
+		assert(third.len == 2);
+		assert(third.get(0).type.equals("INDEPENDENT"));
+		/* Returned identities remain valid across mutations and owner teardown. */
+		string oldIdentity = vocabulary.cacheIdentity();
+		assert(oldIdentity.equals(vocabulary.cacheIdentity()));
+		vocabulary.addKeyword("word", "KEYWORD");
+		string keywordIdentity = vocabulary.cacheIdentity();
+		assert(!oldIdentity.equals(keywordIdentity));
+		vocabulary.addAnnotation("tag", "ANNOTATION");
+		string annotationIdentity = vocabulary.cacheIdentity();
+		assert(!keywordIdentity.equals(annotationIdentity));
+		vocabulary.addAnnotation("tag", "REPLACED");
+		assert(!annotationIdentity.equals(vocabulary.cacheIdentity()));
+		string retainedIdentity = "";
+		{
+			var temporary = TokenVocabulary();
+			temporary.addKeyword("word", "KEYWORD");
+			retainedIdentity = temporary.cacheIdentity();
+			temporary.addKeyword("word", "REPLACED");
+		}
+		var equivalent = TokenVocabulary();
+		equivalent.addKeyword("word", "KEYWORD");
+		assert(retainedIdentity.equals(equivalent.cacheIdentity()));
+		print("PASS: mutable vocabulary preserves priority and isolation");
+		return 0;
+	}
+	if (argc != 3) { return 2; }
+	var grammar = EbnfGrammarParser(Path.readAll(Strings.copy(argv[1]))).parse();
+	var lexer = Lexer(Path.readAll(Strings.copy(argv[2])), grammar);
+	var tokens = lexer.tokenize();
+	if (lexer.failed) { fprintf(stderr, "error: %s\n", lexer.diagnostic); return 1; }
+	for token in tokens { print(token.repr()); }
+	return 0;
+}

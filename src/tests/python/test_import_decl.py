@@ -8,7 +8,10 @@ finds the right files via the front-end helpers.
 
 import pytest
 
+from src.compiler.python.artifacts.cache import CompilerCache
+from src.compiler.python.frontend.imports import ImportResolver
 from src.compiler.python.frontend.packages import IncludeResolutionError
+from src.compiler.python.frontend.sources import SourceDirectiveScanner
 from src.compiler.python.frontend.stage import FrontendStage
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -213,3 +216,84 @@ def test_resolve_missing_std_module_errors(tmp_path):
     src = "import Library.nonexistent_xyz\nint main() { return 0; }"
     with pytest.raises(IncludeResolutionError):
         RESOLVER.resolve_includes(src, write(tmp_path / "m.btrc", src), exit_on_error=False)
+
+
+@pytest.mark.parametrize(
+    "directives",
+    [
+        "import Library.Vector;\n",
+        "import Library.{Vector,\n Strings,};\n",
+        "import Library.**;\nimport dependency.API;\n",
+        'import "./relative.btrc";\nimport ./modules/**;\n',
+        '#include "Other.btrc"\n',
+        '/* import ./missing.btrc; */\nstring text = "import ./missing.btrc;";\n',
+        "",
+    ],
+)
+def test_directive_cache_reparses_only_owned_fragments(tmp_path, monkeypatch, directives):
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "cache"))
+    source = directives + "\n".join(f"int function{index}() {{ return {index}; }}" for index in range(100))
+    path = str(tmp_path / "Main.btrc")
+    expected = SourceDirectiveScanner().scan(source)
+    assert SourceDirectiveScanner(CompilerCache()).scan(source, cache_input=path) == expected
+    assert list((tmp_path / "cache").glob("*.directives.json"))
+    scanner = SourceDirectiveScanner(CompilerCache())
+    original = scanner._scan
+    scanned = []
+
+    def scan_fragment(fragment):
+        scanned.append(fragment)
+        return original(fragment)
+
+    monkeypatch.setattr(scanner, "_scan", scan_fragment)
+    assert scanner.scan(source, cache_input=path) == expected
+    assert source not in scanned
+    assert len(scanned) == len(expected)
+
+
+@pytest.mark.parametrize(
+    "source", ["/* begins\n*/ import ./Other.btrc;\n", "import ./Other.btrc; /* begins\n ends */\n"]
+)
+def test_cached_directive_with_external_comment_context_falls_back(tmp_path, monkeypatch, source):
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
+    expected = SourceDirectiveScanner().scan(source)
+    assert len(expected) == 1
+    path = str(tmp_path / "Main.btrc")
+    for _ in range(2):
+        assert SourceDirectiveScanner(CompilerCache()).scan(source, cache_input=path) == expected
+
+
+def test_invalid_source_does_not_publish_an_empty_directive_scan(tmp_path, monkeypatch):
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
+    scanner = SourceDirectiveScanner(CompilerCache())
+    assert scanner.scan('import ./Other.btrc;\n"unterminated', cache_input=str(tmp_path / "Main.btrc")) == []
+    assert not list(tmp_path.glob("*.directives.json"))
+
+
+def test_cached_import_syntax_still_resolves_current_directory_membership(tmp_path, monkeypatch):
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "cache"))
+    modules = tmp_path / "modules"
+    modules.mkdir()
+    first = modules / "First.btrc"
+    first.write_text("int first() { return 1; }\n")
+    source = "import ./modules/*;\nint main() { return first(); }\n"
+    path = write(tmp_path / "Main.btrc", source)
+
+    def resolve():
+        imports = ImportResolver(directive_scanner=SourceDirectiveScanner(CompilerCache()))
+        return FrontendStage(imports=imports).resolve(source, path)
+
+    before = resolve()
+    assert resolve().source == before.source
+    first.touch()
+    assert resolve().source == before.source
+    second = modules / "Second.btrc"
+    second.write_text("int second() { return 2; }\n")
+    assert "int second()" in resolve().source
+    first.write_text("int first() { return 3; }\n")
+    assert "return 3" in resolve().source
+    second.unlink()
+    assert "int second()" not in resolve().source
+    first.write_text("import ./Missing.btrc;\nint first() { return 3; }\n")
+    with pytest.raises(IncludeResolutionError, match="Missing"):
+        resolve()

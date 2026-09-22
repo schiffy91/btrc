@@ -123,6 +123,7 @@ class ImportResolver:
         included: set[str] | None = None,
         *,
         exit_on_error: bool = True,
+        use_cache: bool = True,
     ) -> tuple[str, list[str], list[tuple[str, int]], SourceDependencyGraph]:
         """Resolve a source graph with file and original-line provenance."""
         graph = SourceDependencyGraph()
@@ -133,6 +134,7 @@ class ImportResolver:
                 packages,
                 set() if included is None else included,
                 graph,
+                source_path if use_cache else None,
             )
         except IncludeResolutionError as error:
             if not exit_on_error:
@@ -222,9 +224,11 @@ class ImportResolver:
             return [candidate]
         return [self._resolve_include_path(spec, source_dir)]
 
-    def _read_source(self, path: str) -> str:
+    def _read_source(self, path: str, graph: SourceDependencyGraph) -> str:
         try:
-            return self._source_reader.read(path)
+            loaded = self._source_reader.read_source(path)
+            graph.record_read(loaded.identity)
+            return loaded.text
         except SourceReadError as error:
             raise IncludeResolutionError(str(error)) from error
 
@@ -248,6 +252,7 @@ class ImportResolver:
         included: set[str],
         graph: SourceDependencyGraph,
         access: PackageImportPolicy,
+        cache_input: str | None,
     ) -> ResolutionFrame | None:
         """Register one source in the graph and start traversing it once."""
 
@@ -257,7 +262,7 @@ class ImportResolver:
         if identity in included:
             return None
         included.add(identity)
-        directives = self._directives.scan(source)
+        directives = self._directives.scan(source, cache_input=cache_input)
         return ResolutionFrame(
             absolute=absolute,
             source_dir=os.path.dirname(absolute),
@@ -305,6 +310,7 @@ class ImportResolver:
         graph: SourceDependencyGraph,
         output: list[tuple[str, str, int]],
         access: PackageImportPolicy,
+        cache_input: str | None,
     ) -> ResolutionFrame | None:
         """Inline one dependency, returning a child frame for btrc sources."""
 
@@ -321,11 +327,12 @@ class ImportResolver:
             output.append((self.render_c_include(absolute), frame.absolute, line_number))
             return None
         return self._open_frame(
-            self._read_source(path),
+            self._read_source(path, graph),
             path,
             included,
             graph,
             access,
+            cache_input,
         )
 
     def _resolve_traced(
@@ -335,6 +342,7 @@ class ImportResolver:
         packages: ResolvedPackages,
         included: set[str],
         graph: SourceDependencyGraph,
+        cache_input: str | None,
     ) -> list[tuple[str, str, int]]:
         """Compose one source graph depth-first without host recursion.
 
@@ -345,7 +353,7 @@ class ImportResolver:
 
         output: list[tuple[str, str, int]] = []
         access = PackageImportPolicy(packages.native_plan.target)
-        root = self._open_frame(source, source_path, included, graph, access)
+        root = self._open_frame(source, source_path, included, graph, access, cache_input)
         stack: list[ResolutionFrame] = [] if root is None else [root]
         while stack:
             frame = stack[-1]
@@ -359,6 +367,7 @@ class ImportResolver:
                     graph,
                     output,
                     access,
+                    cache_input,
                 )
                 if child is not None:
                     stack.append(child)

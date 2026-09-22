@@ -142,7 +142,7 @@ def pugixml_project(native_project, monkeypatch):
     return source, sdk, triple
 
 
-def build_native_program(native_compile, source, sanitize):
+def build_native_program(native_compile, source, sanitize, *, object_cache=None):
     root = source.parent.parent
     plan = root / "Main.link.json"
     result = native_compile(source, plan_path=plan)
@@ -159,11 +159,15 @@ def build_native_program(native_compile, source, sanitize):
         # Sanitizer flags belong to the compiler and linker steps, not pkg-config.
         extra = flags if command[0].endswith(("clang", "clang++")) else []
         return subprocess.run(
-            [command[0], *extra, *command[1:]], env=environment, timeout=BTRC_TRANSPILE_TIMEOUT, **kwargs
+            [command[0], *extra, *command[1:]],
+            env=apple_environment(kwargs.pop("env", environment)),
+            timeout=BTRC_TRANSPILE_TIMEOUT,
+            **kwargs,
         )
 
     executable = root / "Main"
-    NativePlanBuilder(runner=run_command).build(
+    builder = NativePlanBuilder(runner=run_command)
+    options = dict(
         plan_path=plan,
         generated_c=generated,
         output=executable,
@@ -171,7 +175,16 @@ def build_native_program(native_compile, source, sanitize):
         cxx="/usr/bin/clang++",
         pkg_config="pkg-config",
         optimization=1 if sanitize else 2,
+        object_cache=object_cache,
     )
+    cold = builder.build(**options)
+    if object_cache is not None:
+        assert cold.adapter_units > 0 and cold.adapter_source_status == "retained"
+        assert cold.link_cache_status == "stored" and cold.links == 2
+        warm = builder.build(**options)
+        assert warm.as_dict()["compiled_units"] == 0
+        assert warm.link_cache_status == "hit" and warm.links == 0
+        assert warm.as_dict()["reused_units"] == len(warm.units)
     return executable, environment
 
 
@@ -179,6 +192,15 @@ def build_native_program(native_compile, source, sanitize):
 def test_cxx_owner_views_and_copied_strings(pugixml_project, native_compile, sanitize):
     source, _sdk, _triple = pugixml_project
     executable, environment = build_native_program(native_compile, source, sanitize)
+    ran = subprocess.run([str(executable)], env=environment, capture_output=True, text=True, timeout=30)
+    assert ran.returncode == 0, (ran.stdout, ran.stderr)
+
+
+def test_cxx_generated_adapter_object_cache(pugixml_project, native_compile):
+    source, _sdk, _triple = pugixml_project
+    executable, environment = build_native_program(
+        native_compile, source, False, object_cache=source.parent.parent / "objects"
+    )
     ran = subprocess.run([str(executable)], env=environment, capture_output=True, text=True, timeout=30)
     assert ran.returncode == 0, (ran.stdout, ran.stderr)
 
@@ -242,3 +264,28 @@ def test_cxx_projection_rejects_incomplete_facts(pugixml_project, native_compile
     result = native_compile(source)
     assert not result.successful
     assert message in str(result.failure) + "".join(item.message for item in result.diagnostics)
+
+
+def test_cxx_artifact_cache_restores_generated_adapters(pugixml_project, monkeypatch):
+    from src.compiler.python import Compiler, CompilerOptions
+    from src.compiler.python.artifacts.cache import CompilerCache
+
+    source, _sdk, _triple = pugixml_project
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(source.parent.parent / "compiler-cache"))
+    compiler = Compiler(cache=CompilerCache())
+    options = CompilerOptions(include_stdlib=False)
+
+    def compile_cached(source, *, plan_path):
+        first = compiler.compile(source.read_text(), str(source), options)
+        assert first.successful and not first.cache_hit, first.failure
+        assert first.native_plan.generated_units
+        warm = compiler.compile(source.read_text(), str(source), options)
+        assert warm.successful and warm.cache_hit, warm.failure
+        assert warm.c_source == first.c_source
+        assert warm.native_plan == first.native_plan
+        plan_path.write_text(warm.native_plan.canonical_json())
+        return warm
+
+    executable, environment = build_native_program(compile_cached, source, False)
+    ran = subprocess.run([str(executable)], env=environment, capture_output=True, text=True, timeout=30)
+    assert ran.returncode == 0, (ran.stdout, ran.stderr)

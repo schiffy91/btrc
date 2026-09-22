@@ -331,7 +331,7 @@ int main() {
 	while (deadline.elapsed() < 10.0f && owner.state() != GPU_DEVICE_READY && owner.state() != GPU_DEVICE_FAILED) { owner.poll(); app.pumpEvents(1); Timer.sleep(0.001); }
 	if (owner.state() != GPU_DEVICE_READY) { fprintf(stderr, "GPU device setup: %s\n", owner.error()); }
 	assert(owner.state() == GPU_DEVICE_READY);
-	var renderer = GPUSurfaceRenderer(owner, surface);
+	var renderer = GPUSurfaceRenderer(owner, surface, true);
 	assert(renderer.beginFrame(0.0, 0.0, 0.0) == GPU_SURFACE_FRAME_EMPTY);
 	NativeGpuChildTest.verifyIdleFrame(renderer);
 	Image initialCapture = null;

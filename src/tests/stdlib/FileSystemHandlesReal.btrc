@@ -43,6 +43,27 @@ int main() {
 	assert(writer.writeBytes(payload));
 	assert(writer.close());
 
+	/* Stream metadata is tied to the open descriptor, even after its name
+	 * points to a replacement. Inspecting the pathname here would be wrong. */
+	string streamPath = PathTools.join(rootPath, "stream-source");
+	string savedStream = PathTools.join(rootPath, "stream-original");
+	assert(FileSystem.writeText(streamPath, "original stream"));
+	File stream = File(streamPath, "rb");
+	var streamBefore = stream.snapshot();
+	assert(streamBefore.ok());
+	assert(rename(streamPath, savedStream) == 0);
+	assert(FileSystem.writeText(streamPath, "replacement stream"));
+	var streamAfter = stream.snapshot();
+	assert(streamAfter.ok());
+	assert(streamAfter.snapshot().sameObject(streamBefore.snapshot()));
+	assert(!streamAfter.snapshot().sameObject(FileSystem.inspectExact(streamPath).snapshot()));
+	assert(stream.read().equals("original stream"));
+	assert(stream.close());
+	assert(!stream.snapshot().ok());
+	assert(stream.snapshot().kind() == FILE_SNAPSHOT_CLOSED);
+	assert(unlink(streamPath) == 0);
+	assert(unlink(savedStream) == 0);
+
 	string childPath = PathTools.join(rootPath, "child");
 	assert(FileSystem.mkdir(childPath, 448) == 0);
 	assert(FileSystem.writeText(PathTools.join(childPath, "nested.txt"), "nested"));

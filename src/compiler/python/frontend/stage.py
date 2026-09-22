@@ -67,6 +67,7 @@ class FrontendStage:
         strict_imports: bool = True,
         map_stdlib_positions: bool = False,
         refresh_packages: bool = False,
+        use_cache: bool = True,
         target: str | None = None,
         profile: dict[str, float] | None = None,
     ) -> ResolvedSource:
@@ -77,6 +78,7 @@ class FrontendStage:
             strict_imports=strict_imports,
             map_stdlib_positions=map_stdlib_positions,
             refresh_packages=refresh_packages,
+            use_cache=use_cache,
             target=target,
             profile=profile,
         )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -9,8 +10,8 @@ import shutil
 import stat
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
-from contextlib import suppress
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
@@ -157,7 +158,9 @@ class ArtifactStorage:
 
     def _open_regular(self, path: Path, access: int) -> int:
         flags = access | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
-        flags |= getattr(os, "O_NOFOLLOW", 0)
+        # Validate the opened identity without blocking if a FIFO was put at a
+        # record/candidate path. O_NONBLOCK does not change regular-file I/O.
+        flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         descriptor = os.open(path, flags)
         try:
             opened = os.fstat(descriptor)
@@ -316,12 +319,12 @@ _NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 class PublicationLock:
-    """Own one no-follow writer lock from acquisition through release."""
+    """Own a no-follow writer lock; ``name=None`` locks all publications in a directory."""
 
     def __init__(
         self,
         directory: Path,
-        name: str,
+        name: str | None,
         process_lock: threading.Lock,
         storage: ArtifactStorage | None = None,
     ) -> None:
@@ -334,14 +337,16 @@ class PublicationLock:
         self._process_lock_held = False
 
     def __enter__(self) -> PublicationLock:
-        if not _NAME_PATTERN.fullmatch(self._name):
+        if self._name is not None and not _NAME_PATTERN.fullmatch(self._name):
             raise ValueError(f"invalid publication name: {self._name!r}")
         self._directory.mkdir(parents=True, exist_ok=True)
         self._storage.require_real_directory(
             self._directory,
             "publication output directory",
         )
-        path = self._directory / f".{self._name}.publish.lock"
+        path = self._directory / (
+            f".{self._name}.publish.lock" if self._name is not None else ".btrc-publications.lock"
+        )
         flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0)
         self._process_lock.acquire()
@@ -417,10 +422,29 @@ _JOURNAL_SCHEMA, _MAX_JOURNAL_BYTES = 1, 64 * 1024
 
 
 @dataclass(frozen=True)
-class PublishedArtifact:
-    staged: Path
+class PublicationTarget:
+    """Caller-authorized committed state, independent of candidate files."""
+
     destination: Path
     is_directory: bool = False
+    is_absent: bool = False
+
+
+@dataclass(frozen=True)
+class PublishedArtifact:
+    # None retires an unchanged regular file from a caller-owned generation.
+    staged: Path | None
+    destination: Path
+    is_directory: bool = False
+    expected_digest: str | None = None
+
+    @property
+    def target(self) -> PublicationTarget:
+        return PublicationTarget(self.destination, self.is_directory, self.staged is None)
+
+    @property
+    def is_absent(self) -> bool:
+        return self.staged is None
 
 
 class StagedPublicationPolicy(ABC):
@@ -428,7 +452,7 @@ class StagedPublicationPolicy(ABC):
 
     @abstractmethod
     def validate(self, staged: tuple[Path, ...]) -> None:
-        """Reject a staged generation that is unsafe to publish."""
+        """Validate replacement payloads in write order; retirements have no stage."""
 
 
 class ArtifactPublisher:
@@ -449,38 +473,168 @@ class ArtifactPublisher:
     def publication_in_progress(self, directory: Path, name: str) -> bool:
         return self._storage.lstat_or_none(self._control_path(directory, name, "journal")) is not None
 
+    @contextmanager
+    def read_directories(self, directories: Sequence[Path]) -> Iterator[None]:
+        """Keep caller-selected inputs stable against cooperating publishers.
+
+        Hold the same sorted directory locks as publication through every read,
+        including reads in child compilers. A journal only requires rejection;
+        readers do not infer recovery authority from its contents. Never recover
+        a generation owner while holding these locks (owners lock first).
+        """
+        parents = sorted({directory.resolve(strict=True) for directory in directories})
+        if not parents:
+            raise ValueError("publication reader requires input directories")
+        for parent in parents:
+            self._storage.require_real_directory(parent, "publication input directory")
+        with ExitStack() as locks:
+            for parent in parents:
+                locks.enter_context(PublicationLock(parent, None, threading.Lock(), self._storage))
+            for parent in parents:
+                # scandir propagates listing errors; unavailable evidence must
+                # not be mistaken for a directory with no pending publication.
+                with os.scandir(parent) as entries:
+                    for entry in entries:
+                        if entry.name.startswith(".") and entry.name.endswith(".publish.journal"):
+                            raise ValueError(f"publication requires recovery before reading: {parent / entry.name}")
+            yield
+
+    def recover(self, name: str, inventory: Sequence[PublicationTarget]) -> None:
+        """Recover a caller-authorized attempt without beginning another one.
+
+        Persistent generation owners must finish this before replacing their
+        prepared inventory. Otherwise a third requested layout could strand the
+        only authority for an earlier interrupted attempt.
+        """
+        if not _NAME_PATTERN.fullmatch(name):
+            raise ValueError(f"invalid publication name: {name!r}")
+        targets = tuple(
+            PublicationTarget(
+                target.destination.parent.resolve() / target.destination.name, target.is_directory, target.is_absent
+            )
+            for target in inventory
+        )
+        self._validate_inventory(targets)
+        directory = targets[0].destination.parent
+        directories = sorted({target.destination.parent for target in targets})
+        self._validate_control_paths(directory, name, (), targets)
+        for parent in directories:
+            self._storage.require_real_directory(parent, "publication output directory")
+        with ExitStack() as locks:
+            for parent in directories:
+                locks.enter_context(PublicationLock(parent, None, threading.Lock(), self._storage))
+            locks.enter_context(self.lock(directory, name))
+            journals = set(self._journal_paths(directory, name, targets))
+            for parent in directories:
+                for pending in parent.glob(".*.publish.journal"):
+                    if pending not in journals:
+                        raise ValueError(f"another publication requires recovery: {pending}")
+            self._recover(directory, name, targets)
+
     def publish(
         self,
         name: str,
         artifacts: Sequence[PublishedArtifact],
         *,
         policy: StagedPublicationPolicy | None = None,
+        previous_inventory: Sequence[PublicationTarget] | None = None,
     ) -> None:
-        """Durably publish payloads in order, with the final validator last."""
+        """Durably publish payloads in order, with the final validator last.
+
+        Candidates must be on their destination filesystem. Directory locks
+        serialize overlapping writers; participant journals protect recovery
+        when payloads span directories. A changed layout supplies the independently
+        authorized inventory of the interrupted attempt; journal paths never
+        enlarge that authority. Both layouts stay locked through recovery and
+        publication. Retirement hashes must come from the caller's owned prior
+        generation; changed files cause a conflict rather than silent deletion.
+        """
 
         if not artifacts:
             raise ValueError("publication requires at least one artifact")
-        directory = artifacts[0].destination.parent
-        if any(artifact.destination.parent != directory for artifact in artifacts):
-            raise ValueError("all publication destinations must share one directory")
-        if len({artifact.destination for artifact in artifacts}) != len(artifacts):
-            raise ValueError("publication destinations must be unique")
-        if any(artifact.staged == artifact.destination for artifact in artifacts):
+        if not _NAME_PATTERN.fullmatch(name):
+            raise ValueError(f"invalid publication name: {name!r}")
+        for artifact in artifacts:
+            if artifact.is_absent:
+                if (
+                    artifact.is_directory
+                    or not isinstance(artifact.expected_digest, str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", artifact.expected_digest)
+                ):
+                    raise ValueError("retirement requires a regular file and its prior SHA-256 digest")
+            elif artifact.expected_digest is not None:
+                raise ValueError("replacement artifacts must not specify a retirement digest")
+            artifact.destination.parent.mkdir(parents=True, exist_ok=True)
+            self._storage.require_real_directory(artifact.destination.parent, "publication output directory")
+        artifacts = tuple(
+            PublishedArtifact(
+                artifact.staged.parent.resolve() / artifact.staged.name if artifact.staged is not None else None,
+                artifact.destination.parent.resolve() / artifact.destination.name,
+                artifact.is_directory,
+                artifact.expected_digest,
+            )
+            for artifact in artifacts
+        )
+        targets = tuple(artifact.target for artifact in artifacts)
+        prior = (
+            targets
+            if previous_inventory is None
+            else tuple(
+                PublicationTarget(
+                    target.destination.parent.resolve() / target.destination.name, target.is_directory, target.is_absent
+                )
+                for target in previous_inventory
+            )
+        )
+        for inventory in (targets, prior):
+            self._validate_inventory(inventory)
+        if prior[0].destination != targets[0].destination:
+            raise ValueError("recovery inventory must retain the publication anchor")
+        directory = targets[0].destination.parent
+        directories = sorted({target.destination.parent for target in (*targets, *prior)})
+        for parent in directories:
+            self._storage.require_real_directory(parent, "publication output directory")
+        destinations = {target.destination for target in (*targets, *prior)}
+        if any(artifact.staged in destinations for artifact in artifacts):
             raise ValueError("staged artifacts must not be public destinations")
-        with self.lock(directory, name):
-            self._recover(directory, name, artifacts)
+        self._validate_control_paths(directory, name, artifacts, prior)
+        with ExitStack() as locks:
+            # Hold the union: releasing old-layout locks between recovery and
+            # publication would admit a competing writer in that gap.
+            for parent in directories:
+                locks.enter_context(PublicationLock(parent, None, threading.Lock(), self._storage))
+            locks.enter_context(self.lock(directory, name))
+            journals = self._journal_paths(directory, name, targets)
+            owned_journals = set(journals) | set(self._journal_paths(directory, name, prior))
+            for parent in directories:
+                for pending in parent.glob(".*.publish.journal"):
+                    if pending not in owned_journals:
+                        raise ValueError(f"another publication requires recovery: {pending}")
+            if prior == targets:
+                self._recover(directory, name, targets)
+            else:
+                recovering = self._recovery_inventory(directory, name, prior, targets)
+                self._recover(directory, name, recovering)
+                self._recover(directory, name, targets if recovering == prior else prior)
             fixed_stages = []
             try:
                 for index, artifact in enumerate(artifacts):
+                    if artifact.is_absent:
+                        fixed_stages.append(None)
+                        continue
                     self._storage.validate_artifact(artifact.staged, artifact.is_directory)
                     self._storage.destination_exists(artifact.destination, artifact.is_directory)
-                    fixed = self._stage_path(directory, name, index)
+                    fixed = self._stage_path(directory, name, index, artifact)
                     os.replace(artifact.staged, fixed)
                     fixed_stages.append(fixed)
                     self._storage.fsync_artifact(fixed, artifact.is_directory)
-                self._storage.fsync_directory(directory)
+                for parent in directories:
+                    self._storage.fsync_directory(parent)
                 if policy is not None:
-                    policy.validate(tuple(fixed_stages))
+                    policy.validate(tuple(path for path in fixed_stages if path is not None))
+                for artifact in artifacts:
+                    if artifact.is_absent:
+                        self._validate_retirement(artifact)
                 previous = [
                     self._storage.destination_exists(
                         artifact.destination,
@@ -489,6 +643,10 @@ class ArtifactPublisher:
                     for artifact in artifacts
                 ]
                 journal = self._control_path(directory, name, "journal")
+                # Participant markers precede the coordinator journal. No
+                # destination is changed until all of them are durable.
+                for participant in journals[1:]:
+                    self._write_journal(participant, self._journal_record(artifacts, "publishing", previous))
                 self._write_journal(
                     journal,
                     self._journal_record(artifacts, "publishing", previous),
@@ -497,49 +655,160 @@ class ArtifactPublisher:
                     if previous[index]:
                         os.replace(
                             artifacts[index].destination,
-                            self._backup_path(directory, name, index),
+                            self._backup_path(directory, name, index, artifacts[index]),
                         )
-                        self._storage.fsync_directory(directory)
+                        self._storage.fsync_directory(artifacts[index].destination.parent)
                 for index, artifact in enumerate(artifacts):
-                    os.replace(fixed_stages[index], artifact.destination)
-                    self._storage.fsync_directory(directory)
+                    if fixed_stages[index] is not None:
+                        os.replace(fixed_stages[index], artifact.destination)
+                    self._storage.fsync_directory(artifact.destination.parent)
                 self._write_journal(
                     journal,
                     self._journal_record(artifacts, "committed", previous),
                 )
             except BaseException:
-                if self.publication_in_progress(directory, name):
-                    self._recover(directory, name, artifacts)
+                if any(self._storage.lstat_or_none(path) is not None for path in journals):
+                    self._recover(directory, name, targets)
                 else:
                     for fixed in fixed_stages:
-                        self._storage.remove(fixed)
-                    self._storage.fsync_directory(directory)
+                        if fixed is not None:
+                            self._storage.remove(fixed)
+                    for parent in directories:
+                        self._storage.fsync_directory(parent)
                 raise
-            self._recover(directory, name, artifacts)
+            self._recover(directory, name, targets)
+
+    def _validate_inventory(self, targets: Sequence[PublicationTarget]) -> None:
+        if not targets:
+            raise ValueError("publication inventory must not be empty")
+        if any(type(target.is_directory) is not bool or type(target.is_absent) is not bool for target in targets):
+            raise ValueError("publication inventory kinds must be booleans")
+        if targets[0].is_absent or targets[-1].is_absent:
+            raise ValueError("publication anchor and final validator must be replacements")
+        if any(target.is_directory and target.is_absent for target in targets):
+            raise ValueError("retirement requires a regular file")
+        if len({target.destination for target in targets}) != len(targets):
+            raise ValueError("publication destinations must be unique")
+
+    def _recovery_inventory(
+        self,
+        directory: Path,
+        name: str,
+        prior: tuple[PublicationTarget, ...],
+        current: tuple[PublicationTarget, ...],
+    ) -> tuple[PublicationTarget, ...]:
+        """Select only among the two caller-authorized layouts, before mutation."""
+        prior_journals = set(self._journal_paths(directory, name, prior))
+        current_journals = set(self._journal_paths(directory, name, current))
+        present = {path for path in prior_journals | current_journals if self._storage.lstat_or_none(path) is not None}
+        invalid = None
+        for inventory, journals in ((prior, prior_journals), (current, current_journals)):
+            if not present <= journals:
+                continue
+            expected = self._journal_record(inventory, "publishing", [])
+            try:
+                for path in sorted(present):
+                    self._read_journal(path, expected)
+            except ValueError as error:
+                invalid = error
+            else:
+                return inventory
+        raise ValueError(f"invalid publication recovery journal: conflicting inventories for {name}") from invalid
+
+    def _validate_retirement(self, artifact: PublishedArtifact) -> None:
+        if self._storage.lstat_or_none(artifact.destination) is None:
+            return
+        descriptor = self._storage.open_regular(artifact.destination)
+        try:
+            with os.fdopen(descriptor, "rb") as stream:
+                descriptor = -1
+                digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+        if digest != artifact.expected_digest:
+            raise ValueError(f"retired artifact was modified: {artifact.destination}")
 
     def _control_path(self, directory: Path, name: str, suffix: str) -> Path:
         return directory / f".{name}.publish.{suffix}"
 
-    def _stage_path(self, directory: Path, name: str, index: int) -> Path:
-        return self._control_path(directory, name, f"new-{index}")
+    def _validate_control_paths(
+        self, directory: Path, name: str, artifacts: Sequence[PublishedArtifact], prior: Sequence[PublicationTarget]
+    ) -> None:
+        current = tuple(artifact.target for artifact in artifacts)
+        targets = (*current, *prior)
+        parents = {target.destination.parent for target in targets}
+        controls = {
+            *(parent / ".btrc-publications.lock" for parent in parents),
+            self._control_path(directory, name, "lock"),
+        }
+        for inventory in (current, prior):
+            journals = self._journal_paths(directory, name, inventory)
+            controls.update(journals)
+            controls.update(journal.with_name(f"{journal.name}.tmp") for journal in journals)
+            for index, target in enumerate(inventory):
+                controls.add(self._stage_path(directory, name, index, target))
+                controls.add(self._backup_path(directory, name, index, target))
+        candidates = tuple(artifact.staged for artifact in artifacts if artifact.staged is not None)
+        if any(path in controls for path in (*candidates, *(target.destination for target in targets))):
+            raise ValueError("publication artifacts must not use transaction control paths")
+        for target in targets:
+            if target.is_directory and (
+                any(
+                    other.destination != target.destination and other.destination.is_relative_to(target.destination)
+                    for other in targets
+                )
+                or any(candidate.is_relative_to(target.destination) for candidate in candidates)
+            ):
+                raise ValueError("publication artifacts must not contain other destinations or candidates")
 
-    def _backup_path(self, directory: Path, name: str, index: int) -> Path:
-        return self._control_path(directory, name, f"previous-{index}")
+    def _participant_name(self, directory: Path, name: str, parent: Path) -> str:
+        if parent == directory:
+            return name
+        coordinator = hashlib.sha256(os.fsencode(os.path.normcase(directory))).hexdigest()
+        return f"{name}-{coordinator}"
+
+    def _journal_paths(
+        self, directory: Path, name: str, artifacts: Sequence[PublicationTarget | PublishedArtifact]
+    ) -> tuple[Path, ...]:
+        parents = sorted({artifact.destination.parent for artifact in artifacts} - {directory})
+        return (
+            self._control_path(directory, name, "journal"),
+            *(
+                self._control_path(parent, self._participant_name(directory, name, parent), "journal")
+                for parent in parents
+            ),
+        )
+
+    def _stage_path(
+        self, directory: Path, name: str, index: int, artifact: PublicationTarget | PublishedArtifact | None = None
+    ) -> Path:
+        parent = directory if artifact is None else artifact.destination.parent
+        return self._control_path(parent, self._participant_name(directory, name, parent), f"new-{index}")
+
+    def _backup_path(
+        self, directory: Path, name: str, index: int, artifact: PublicationTarget | PublishedArtifact | None = None
+    ) -> Path:
+        parent = directory if artifact is None else artifact.destination.parent
+        return self._control_path(parent, self._participant_name(directory, name, parent), f"previous-{index}")
 
     def _journal_record(
         self,
-        artifacts: Sequence[PublishedArtifact],
+        artifacts: Sequence[PublicationTarget | PublishedArtifact],
         state: str,
         previous: list[bool],
     ) -> dict:
+        distributed = len({artifact.destination.parent for artifact in artifacts}) > 1
+        retiring = any(artifact.is_absent for artifact in artifacts)
         return {
-            "schema": _JOURNAL_SCHEMA,
+            "schema": 3 if retiring else 2 if distributed else _JOURNAL_SCHEMA,
             "state": state,
             "previous": previous,
             "artifacts": [
                 {
-                    "name": artifact.destination.name,
+                    "name": str(artifact.destination) if distributed or retiring else artifact.destination.name,
                     "directory": artifact.is_directory,
+                    **({"absent": artifact.is_absent} if retiring else {}),
                 }
                 for artifact in artifacts
             ],
@@ -566,27 +835,48 @@ class ArtifactPublisher:
             with suppress(FileNotFoundError):
                 temporary.unlink()
 
+    @staticmethod
+    def _unique_journal_object(pairs: list[tuple[str, object]]) -> dict:
+        record = {}
+        for key, value in pairs:
+            if key in record:
+                raise ValueError(f"duplicate publication journal field: {key}")
+            record[key] = value
+        return record
+
     def _read_journal(self, path: Path, expected: dict) -> dict | None:
         if self._storage.lstat_or_none(path) is None:
             return None
+        # Bound untrusted data by the caller's known inventory, not an implicit
+        # translation-unit ceiling. Allow the small legacy formatting allowance.
+        byte_limit = max(_MAX_JOURNAL_BYTES, 2 * len(json.dumps(expected).encode("utf-8")))
         descriptor = self._storage.open_regular(path)
         try:
             with os.fdopen(descriptor, "rb") as stream:
                 descriptor = -1
-                encoded = stream.read(_MAX_JOURNAL_BYTES + 1)
+                encoded = stream.read(byte_limit + 1)
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
         try:
-            record = json.loads(encoded.decode("utf-8"))
-        except (UnicodeError, ValueError) as error:
+            record = json.loads(encoded.decode("utf-8"), object_pairs_hook=self._unique_journal_object)
+        except (UnicodeError, ValueError, RecursionError) as error:
             raise ValueError(f"invalid publication recovery journal: {path}") from error
         if (
-            len(encoded) > _MAX_JOURNAL_BYTES
+            len(encoded) > byte_limit
             or not isinstance(record, dict)
             or set(record) != {"schema", "state", "previous", "artifacts"}
-            or record.get("schema") != _JOURNAL_SCHEMA
+            or type(record.get("schema")) is not int
+            or record.get("schema") != expected["schema"]
+            or not isinstance(record.get("state"), str)
             or record.get("state") not in {"publishing", "committed"}
+            or not isinstance(record.get("artifacts"), list)
+            or not all(
+                isinstance(artifact, dict)
+                and type(artifact.get("directory")) is bool
+                and (record["schema"] != 3 or type(artifact.get("absent")) is bool)
+                for artifact in record["artifacts"]
+            )
             or record.get("artifacts") != expected["artifacts"]
             or not isinstance(record.get("previous"), list)
             or len(record["previous"]) != len(expected["artifacts"])
@@ -595,36 +885,40 @@ class ArtifactPublisher:
             raise ValueError(f"invalid publication recovery journal: {path}")
         return record
 
-    def _restore_backup(self, backup: Path, artifact: PublishedArtifact) -> None:
+    def _restore_backup(self, backup: Path, artifact: PublicationTarget) -> None:
+        if artifact.is_absent and self._storage.lstat_or_none(artifact.destination) is not None:
+            raise ValueError(f"retired artifact reappeared during recovery: {artifact.destination}")
         self._storage.fsync_artifact(backup, artifact.is_directory)
         self._storage.remove(artifact.destination)
         os.replace(backup, artifact.destination)
-        try:
-            self._storage.fsync_artifact(
-                artifact.destination,
-                artifact.is_directory,
-            )
-        except BaseException:
-            self._storage.remove(artifact.destination)
-            self._storage.fsync_directory(artifact.destination.parent)
-            raise
+        # The backup now lives at the destination. A flush failure must retain
+        # that last good copy; the journal marks recovery incomplete and lets it
+        # retry the flush when it finds no remaining backup name.
+        self._storage.fsync_artifact(
+            artifact.destination,
+            artifact.is_directory,
+        )
         self._storage.fsync_directory(artifact.destination.parent)
 
     def _recover(
         self,
         directory: Path,
         name: str,
-        artifacts: Sequence[PublishedArtifact],
+        artifacts: Sequence[PublicationTarget | PublishedArtifact],
     ) -> None:
         journal = self._control_path(directory, name, "journal")
+        journals = self._journal_paths(directory, name, artifacts)
         expected = self._journal_record(artifacts, "publishing", [])
         record = self._read_journal(journal, expected)
+        # A participant marker is never interpreted as an independent commit.
+        # Validate its complete caller-supplied path inventory before cleanup.
+        for participant in journals[1:]:
+            self._read_journal(participant, expected)
         if record is None:
-            for index in range(len(artifacts)):
-                self._storage.remove(self._stage_path(directory, name, index))
-                self._storage.remove(self._backup_path(directory, name, index))
-            self._storage.remove(journal.with_name(f"{journal.name}.tmp"))
-            self._storage.fsync_directory(directory)
+            for index, artifact in enumerate(artifacts):
+                self._storage.remove(self._stage_path(directory, name, index, artifact))
+                self._storage.remove(self._backup_path(directory, name, index, artifact))
+            self._finish_recovery(journals, artifacts)
             return
         if record["state"] == "publishing":
             validator_index = len(artifacts) - 1
@@ -633,6 +927,7 @@ class ArtifactPublisher:
                 directory,
                 name,
                 validator_index,
+                validator,
             )
             if record["previous"][validator_index]:
                 if self._storage.lstat_or_none(validator_backup) is not None:
@@ -650,7 +945,7 @@ class ArtifactPublisher:
                 self._storage.remove(validator.destination)
             for index in range(validator_index):
                 artifact = artifacts[index]
-                backup = self._backup_path(directory, name, index)
+                backup = self._backup_path(directory, name, index, artifact)
                 if record["previous"][index]:
                     if self._storage.lstat_or_none(backup) is not None:
                         self._restore_backup(backup, artifact)
@@ -659,22 +954,34 @@ class ArtifactPublisher:
                             artifact.destination,
                             artifact.is_directory,
                         )
-                else:
+                elif not artifact.is_absent:
                     self._storage.remove(artifact.destination)
             if self._storage.lstat_or_none(validator_backup) is not None:
                 self._restore_backup(validator_backup, validator)
-            for index in range(len(artifacts)):
-                self._storage.remove(self._stage_path(directory, name, index))
-                self._storage.remove(self._backup_path(directory, name, index))
+            for index, artifact in enumerate(artifacts):
+                self._storage.remove(self._stage_path(directory, name, index, artifact))
+                self._storage.remove(self._backup_path(directory, name, index, artifact))
         else:
             for artifact in artifacts:
-                self._storage.fsync_artifact(
-                    artifact.destination,
-                    artifact.is_directory,
-                )
-            for index in range(len(artifacts)):
-                self._storage.remove(self._backup_path(directory, name, index))
-                self._storage.remove(self._stage_path(directory, name, index))
-        self._storage.fsync_directory(directory)
-        journal.unlink()
-        self._storage.fsync_directory(directory)
+                if artifact.is_absent:
+                    if self._storage.lstat_or_none(artifact.destination) is not None:
+                        raise ValueError(f"retired artifact reappeared during recovery: {artifact.destination}")
+                else:
+                    self._storage.fsync_artifact(artifact.destination, artifact.is_directory)
+            for index, artifact in enumerate(artifacts):
+                self._storage.remove(self._backup_path(directory, name, index, artifact))
+                self._storage.remove(self._stage_path(directory, name, index, artifact))
+        self._finish_recovery(journals, artifacts)
+
+    def _finish_recovery(
+        self, journals: Sequence[Path], artifacts: Sequence[PublicationTarget | PublishedArtifact]
+    ) -> None:
+        for parent in sorted({artifact.destination.parent for artifact in artifacts}):
+            self._storage.fsync_directory(parent)
+        # Retire the coordinator first. After a crash, remaining participant
+        # markers block overlapping writers until retry cleans them; an absent
+        # coordinator must never cause a completed rollback to run again.
+        for journal in journals:
+            self._storage.remove(journal)
+            self._storage.remove(journal.with_name(f"{journal.name}.tmp"))
+            self._storage.fsync_directory(journal.parent)

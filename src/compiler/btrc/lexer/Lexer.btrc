@@ -251,26 +251,14 @@ class Lexer {
 	private void readOperator() {
 		int line = self.line;
 		int col = self.col;
-		int i = 0;
-		int n = self.grammar.vocabulary.operatorCount();
-		while (i < n) {
-			string op = self.grammar.vocabulary.operatorAt(i);
+		int index = self.grammar.vocabulary.operatorIndexAt(self.source, self.pos, self.sourceLen);
+		if (index >= 0) {
+			string op = self.grammar.vocabulary.operatorAt(index);
 			int oplen = op.length();
-			bool matches = self.pos + oplen <= self.sourceLen;
-			int compared = 0;
-			while (matches && compared < oplen) {
-				if (self.source[self.pos + compared] != op[compared]) {
-					matches = false;
-				}
-				compared = compared + 1;
-			}
-			if (matches) {
-				int k = 0;
-				while (k < oplen) { self.advance(); k = k + 1; }
-				self.tokens.push(Token(self.grammar.vocabulary.operatorToken(op), op, line, col));
-				return;
-			}
-			i = i + 1;
+			int consumed = 0;
+			while (consumed < oplen) { self.advance(); consumed++; }
+			self.tokens.push(Token(self.grammar.vocabulary.operatorToken(op), op, line, col));
+			return;
 		}
 		int unexpected = (int)self.peek(0);
 		if (unexpected < 0 || unexpected > 127) {
