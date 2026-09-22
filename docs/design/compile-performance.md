@@ -5801,3 +5801,29 @@ one line, with identical header SHA-256, proves all remaining C bytes equal.
 This normalization is separate from the raw within-root fixed-point check.
 Evidence: `~/.cache/btrc/perf/scope-copy-final-2026-09-22/bootstrap/results.json`
 and `format-equivalence.json` in its parent directory.
+
+### September 22 quota checkpoint: unit-suite repair
+
+The scope-copy optimization is saved in signed, pushed commit `9437a22`.
+Implementation is paused at the user's request; resume with M7's remaining
+analysis/lowering costs, then M8a and M11. No additional optimization or native
+UI work belongs to this wrap-up.
+
+The initial full unit run found 33 failures (7,606 passed, 49 skipped). The
+repairs update the native macOS generated-C filename assertion, read FreeType's
+binding from its GUI group manifest, refresh the strict-import inventory to
+1,233 sources, and import `Library.IO` explicitly in three process fixtures
+that call `fileno`. These preserve the existing behavior assertions.
+
+The remaining failures were local verification setup: Apple C++ inherited a
+Nix SDKROOT, and the temporary Python environment lacked the declared `build`
+dependency. Clearing SDKROOT/DEVELOPER_DIR for the host run and installing the
+declared packaging dependencies resolves them without compiler changes. All
+296 tests across the seven affected modules pass with zero skips; all six
+executions of the changed process fixtures pass through both compilers.
+Generated-source checks, lint, Python/btrc formatting, 31 structure/naming
+checks, and diff whitespace checks pass.
+
+Evidence: `build/plan-wrap-retest.{log,json}`, `build/plan-wrap-corpus.log`,
+and `build/plan-wrap-checks.json`. The full final-tree platform, GPU, extension
+and C11 optimization matrix remains a separate release gate.

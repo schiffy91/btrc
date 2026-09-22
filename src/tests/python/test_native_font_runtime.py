@@ -27,9 +27,9 @@ def test_freetype_unique_setup(native_project, native_compile, sanitize, snapsho
     provider = REPO / "src/stdlib/GUI/FreeType"
     (source.parent / "FreeTypeFace.btrc").write_text((provider / "FreeTypeFace.btrc").read_text())
     (root / "FreeType.h").write_text((provider / "FreeType.h").read_text())
-    manifest = (REPO / "src/stdlib/btrc.toml").read_text()
+    manifest = (REPO / "src/stdlib/GUI/btrc.toml").read_text()
     binding = re.search(
-        r'\[\[native\.bindings\]\]\nmodule = "GUI\.FreeType\.FreeTypeFace"\n.*?(?=\n\[\[native\.)',
+        r'\[\[native\.bindings\]\]\nmodule = "FreeType\.FreeTypeFace"\n.*?(?=\n\[\[native\.)',
         manifest,
         re.DOTALL,
     )
@@ -37,8 +37,8 @@ def test_freetype_unique_setup(native_project, native_compile, sanitize, snapsho
     (root / "btrc.toml").write_text(
         'manifest-version = 1\n[package]\nname = "freeTypeSetup"\n'
         + binding.group()
-        .replace('"GUI.FreeType.FreeTypeFace"', '"FreeTypeFace"')
-        .replace('"GUI/FreeType/FreeType.h"', '"FreeType.h"')
+        .replace('"FreeType.FreeTypeFace"', '"FreeTypeFace"')
+        .replace('"FreeType/FreeType.h"', '"FreeType.h"')
         + '\n[[native.pkg-config]]\nname = "freetype2"\nmodules = ["FreeTypeFace"]\n'
     )
     source.write_text("""import ./FreeTypeFace.btrc;

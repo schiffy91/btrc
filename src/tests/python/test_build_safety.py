@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import subprocess
 import tomllib
 from pathlib import Path
@@ -208,7 +209,8 @@ def test_native_btrcc_rebuilds_from_changed_selfhost_source():
     )
 
     assert "python3 -m src.compiler.python.main" in output
-    assert "dist/btrcc.c -o bin/btrcc" in output
+    generated = "dist/btrcc-macos-native.c" if platform.system() == "Darwin" else "dist/btrcc.c"
+    assert f"{generated} -o bin/btrcc" in output
 
 
 def test_windows_btrcc_builds_the_host_entrypoint_without_unix_reader():
