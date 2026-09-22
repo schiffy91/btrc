@@ -26,8 +26,12 @@ M7's remaining analysis/lowering costs before M8a and M11.
 Historical measurements live in
 [`docs/design/compile-performance.md`](docs/design/compile-performance.md).
 
-Implementation is paused at the user's September 22 quota checkpoint. On resume,
-continue bucket 1 at M7 before M8a and M11. Conditional
+Implementation is paused at the user's September 22 quota checkpoint. The full
+unit rerun records **7,638 passed / 49 skipped / 1 intermittent warm-link cache
+assertion failure**. The affected modules subsequently pass 42 tests, and ten
+diagnostic repetitions pass; this does not close the failed full-suite gate.
+On resume, reproduce that cache miss under suite load, then continue bucket 1
+at M7 before M8a and M11. Conditional
 experiments still require their stated evidence; proposed budgets are not
 measured results. Section 1 records evidence and budgets; section 2 defines
 verification; section 3 preserves the implementation history; section 4

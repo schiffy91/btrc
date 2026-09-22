@@ -5827,3 +5827,25 @@ checks, and diff whitespace checks pass.
 Evidence: `build/plan-wrap-retest.{log,json}`, `build/plan-wrap-corpus.log`,
 and `build/plan-wrap-checks.json`. The full final-tree platform, GPU, extension
 and C11 optimization matrix remains a separate release gate.
+
+The complete corrected-environment rerun finishes at **7,638 passed, 49 skipped,
+1 failed** in 1,837.45 s. The remaining failure is
+`test_complete_build_measurement_includes_every_unit_and_mode[btrcc]`: a warm
+debug build reused all six objects but performed two qualifying links instead
+of retaining the previous executable. Cold/dev and cold/release receipts were
+stored; warm/release correctly performed zero links. This is an intermittent
+link-reuse qualification issue, not a successful full-suite result.
+
+An unchanged rerun of both performance/link-reuse modules passes **42 tests
+with one unavailable Nix-Clang skip**. Five additional diagnostic repetitions
+for each frontend pass all **10 cases**; instrumented receipt comparisons find
+no repeated miss. No assertion was relaxed and no speculative production fix
+was made. Reproduce this miss under full-suite load before claiming a clean
+unit gate or continuing optimization. All 33 original failures are resolved;
+the final full run's single intermittent failure remains explicitly open.
+
+Final evidence: `build/plan-wrap-final-unit.{log,json}`,
+`build/plan-wrap-link-retest.log`, and `build/plan-link-trace-{0..4}.log`.
+A persistent copy is under
+`~/.cache/btrc/checkpoints/2026-09-22-m7/unit-wrap/`. The quota wrap-up stops here;
+the implementation goal remains paused.
