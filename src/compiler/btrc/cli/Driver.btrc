@@ -15,11 +15,11 @@
 import Library.Bytes;
 import Library.FileSystem;
 import Library.FileSystem.FileSystemHandles;
+import Library.FileSystem.ApplicationDirectories;
 import Library.IO;
 import Library.Map;
 import Library.JSON;
 import Library.Digest.SHA256;
-import Library.Process;
 import Library.Platform;
 import Library.Strings;
 import Library.Vector;
@@ -1084,14 +1084,9 @@ class BtrccGenerationOwner implements IBtrccPublicationGuard {
 	private string statePath() {
 		string configured = Environment.get("BTRC_STATE_DIR", "");
 		if (!configured.isEmpty()) { return configured; }
-		if (Platform.isWindows()) { return ""; }
-		string home = Environment.get("HOME", "");
-		if (!PathTools.isAbsolute(home)) { return ""; }
-		var kernel = ChildProcess.run("uname", ["-s"], timeoutMilliseconds = 1000, maxStdoutBytes = 128, maxStderrBytes = 1024);
-		if (!kernel.ok()) { return ""; }
-		if (kernel.out.trim().equals("Darwin")) { return PathTools.join(home, "Library/Application Support/btrc/generations"); }
-		if (!kernel.out.trim().equals("Linux")) { return ""; }
-		return PathTools.join(Environment.get("XDG_STATE_HOME", PathTools.join(home, ".local/state")), "btrc/generations");
+		var directories = ApplicationDirectories.resolveStandard();
+		if (!directories.ok()) { return ""; }
+		return PathTools.join(directories.roots().stateRoot(), "btrc/generations");
 	}
 
 	private bool keys(JSONValue value, Vector<string> expected) {

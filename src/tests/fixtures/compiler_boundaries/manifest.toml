@@ -591,9 +591,9 @@ channel = "artifact"
 baseline_path = "baseline/surface.python.raw-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/surface.python.raw-ir.artifact.bin"
-accepted_sha256 = "ea221034129f16416f18aeb60589429de3948b7fd3eaa2e3cffd87d8b554206c"
-reason = "IR function definitions carry the .btrc module they were lowered from (source_file) so --emit-units packs translation units along module boundaries; the reference IR dumps gain that field and generated C is unchanged."
-regressions = ["src/tests/python/test_emitted_units.py"]
+accepted_sha256 = "ecdead3279615bae25c0e7ece69d71c463ffd3603d80d317cc559408e915ac74"
+reason = "IR function definitions carry the .btrc module they were lowered from (source_file) so --emit-units packs translation units along module boundaries; the reference IR dumps gain that field and generated C is unchanged. Boundary capture replaces only the checkout prefix in function provenance with $REPOSITORY so the same modules compare across hosts."
+regressions = ["src/tests/python/test_emitted_units.py", "src/tests/python/test_boundary_manifest.py"]
 
 [[records]]
 id = "surface.python.raw-ir.status"
@@ -619,9 +619,9 @@ channel = "artifact"
 baseline_path = "baseline/surface.python.optimized-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/surface.python.optimized-ir.artifact.bin"
-accepted_sha256 = "6be52a903ea96ea6b85e2dc6ec5a785b05bdd03089d8d5baccdad23b1894f73c"
-reason = "IR function definitions carry the .btrc module they were lowered from (source_file) so --emit-units packs translation units along module boundaries; the reference IR dumps gain that field and generated C is unchanged."
-regressions = ["src/tests/python/test_emitted_units.py"]
+accepted_sha256 = "c6fb36632c42e43fdae698c150c8c3caed362436a63ca1d12c01311dc96d86d8"
+reason = "IR function definitions carry the .btrc module they were lowered from (source_file) so --emit-units packs translation units along module boundaries; the reference IR dumps gain that field and generated C is unchanged. Boundary capture replaces only the checkout prefix in function provenance with $REPOSITORY so the same modules compare across hosts."
+regressions = ["src/tests/python/test_emitted_units.py", "src/tests/python/test_boundary_manifest.py"]
 
 [[records]]
 id = "surface.python.optimized-ir.status"
@@ -759,9 +759,9 @@ channel = "artifact"
 baseline_path = "baseline/managed.python.raw-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.python.raw-ir.artifact.bin"
-accepted_sha256 = "26db86b82a89d197382b65c3f732493cd3a02e9a51cc2597c8e73f1866d8ec83"
-reason = "IR function definitions carry the .btrc module they were lowered from (source_file) so --emit-units packs translation units along module boundaries; the reference IR dumps gain that field and generated C is unchanged."
-regressions = ["src/tests/python/test_emitted_units.py"]
+accepted_sha256 = "2639263c6393fb7b0e73bd0c312df3ec808811ef61bedebab0b435950d8570b0"
+reason = "IR function definitions carry the .btrc module they were lowered from (source_file) so --emit-units packs translation units along module boundaries; the reference IR dumps gain that field and generated C is unchanged. Boundary capture replaces only the checkout prefix in function provenance with $REPOSITORY so the same modules compare across hosts."
+regressions = ["src/tests/python/test_emitted_units.py", "src/tests/python/test_boundary_manifest.py"]
 
 [[records]]
 id = "managed.python.raw-ir.status"
@@ -787,9 +787,9 @@ channel = "artifact"
 baseline_path = "baseline/managed.python.optimized-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.python.optimized-ir.artifact.bin"
-accepted_sha256 = "f5d773e4497905592be74be9ae8b6c15b3cf56045a885d2c068f365bfdb9d6d1"
-reason = "IR function definitions carry the .btrc module they were lowered from (source_file) so --emit-units packs translation units along module boundaries; the reference IR dumps gain that field and generated C is unchanged."
-regressions = ["src/tests/python/test_emitted_units.py"]
+accepted_sha256 = "99f7cb829a2ec6713c4ff2f73af72edd3d312ee9ffcc060f074fb27fb18a21ca"
+reason = "IR function definitions carry the .btrc module they were lowered from (source_file) so --emit-units packs translation units along module boundaries; the reference IR dumps gain that field and generated C is unchanged. Boundary capture replaces only the checkout prefix in function provenance with $REPOSITORY so the same modules compare across hosts."
+regressions = ["src/tests/python/test_emitted_units.py", "src/tests/python/test_boundary_manifest.py"]
 
 [[records]]
 id = "managed.python.optimized-ir.status"

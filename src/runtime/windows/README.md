@@ -40,6 +40,8 @@ fills exactly those gaps — nothing more.
   - `open(..., O_CLOEXEC)` maps to UCRT's non-inheritable descriptor flag;
     unsupported `O_NOFOLLOW`/`O_DIRECTORY` requests fail with `ENOTSUP` instead
     of silently following a reparse point or weakening a directory-only open
+  - `fchmod`, `fcntl`, and `pread` fail with `ENOTSUP`; private-file capabilities
+    require a native handle backend and do not emulate them with weaker calls
   - `geteuid`/`getuid` → the compatibility sentinel `0`, not a Windows identity
   - `gmtime_r`/`localtime_r` (thread-safe time, via copy-out)
   - `setenv`/`unsetenv` (via `_putenv_s`)

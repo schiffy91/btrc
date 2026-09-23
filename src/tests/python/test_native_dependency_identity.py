@@ -136,14 +136,17 @@ def test_cache_distinguishes_both_headers_with_same_depfile_spelling(tmp_path, c
 
 
 @pytest.mark.parametrize("name", ["line\nheader.h", "line\rheader.h", "line\r\nheader.h"])
-def test_cache_declines_lossy_header_report_names(tmp_path, clang, name):
+def test_cache_declines_lossy_header_report_names(tmp_path, monkeypatch, clang, name):
     directory = tmp_path / name
     directory.mkdir()
     header = directory / "value.h"
     header.write_text("#define VALUE 1\n")
     source = tmp_path / "Main.c"
     source.write_text("#include <value.h>\nint main(void) { return VALUE; }\n")
-    command = [clang, "-I", str(directory), "-c", str(source), "-o", str(tmp_path / "Main.o")]
+    # CPATH reaches Clang intact through Nix's wrapper, whose processing of
+    # -I flags splits paths on newlines before invoking the real compiler.
+    monkeypatch.setenv("CPATH", str(directory))
+    command = [clang, "-c", str(source), "-o", str(tmp_path / "Main.o")]
     # Clang accepts these inputs, but its header report folds CR/LF/CRLF to
     # one spelling. A valid ordinary build must remain available without reuse.
     subprocess.run(command, capture_output=True, check=True)

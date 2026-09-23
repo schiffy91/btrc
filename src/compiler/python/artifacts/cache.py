@@ -838,9 +838,11 @@ class CompilerCache:
             directory = Path(self._directory.resolve(input_path))
             name = f"{key}.artifacts"
             generation = directory / name
-            if not generation.exists():
-                return None
             with self._publisher.lock(directory, name):
+                # Publication briefly removes the old directory before it
+                # installs its replacement. Observe existence under the lock.
+                if not generation.exists():
+                    return None
                 if self._publisher.publication_in_progress(directory, name):
                     return None
                 self._storage.require_real_directory(generation, "compiled generation")

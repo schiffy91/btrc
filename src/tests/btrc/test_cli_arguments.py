@@ -224,6 +224,7 @@ def test_selfhost_default_generation_state_matches_reference_location(immutable_
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("BTRC_STATE_DIR", raising=False)
     monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "no-executables"))
     source = tmp_path / "Main.btrc"
     source.write_text("int main() { return 0; }\n")
     result = _run(immutable_btrcc, "--no-stdlib", str(source), "-o", str(tmp_path / "program.c"))

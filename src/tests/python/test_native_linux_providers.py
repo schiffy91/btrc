@@ -89,6 +89,7 @@ def _build(source: Path, tmp_path: Path, frontend: str, sanitized: bool, request
     def run(command, **kwargs):
         command = list(command)
         if "-c" in command:
+            command[1:1] = sanitizers
             if faults is not None and str(generated) in command:
                 command[1:1] = ["-include", str(faults.with_suffix(".h"))]
         elif "-o" in command:
@@ -149,6 +150,22 @@ def test_linux_audio_session(tmp_path, request, frontend, sanitized):
         request,
         "PASS: linux audio session",
     )
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="requires ALSA")
+@pytest.mark.parametrize("available", [True, False])
+def test_audio_capability_opens_the_configured_pcm(tmp_path, monkeypatch, available):
+    if subprocess.run(["pkg-config", "--exists", "alsa"], capture_output=True).returncode:
+        pytest.skip("requires ALSA development files")
+    config = tmp_path / "asound.conf"
+    config.write_text("pcm.!default { type null }\n" if available else "")
+    monkeypatch.setenv("ALSA_CONFIG_PATH", str(config))
+    monkeypatch.delenv("BTRC_SKIP_AUDIO_TESTS", raising=False)
+    error = linux_audio_backend_error()
+    if available:
+        assert error is None
+    else:
+        assert error is not None and "cannot open default ALSA PCM" in error
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])

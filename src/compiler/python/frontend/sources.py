@@ -342,10 +342,15 @@ class SourceReadIdentity:
 
     def validate(self) -> None:
         try:
-            unchanged = (
-                os.path.normcase(os.path.realpath(self.path)) == self.canonical
-                and self.file_version(os.stat(self.path)) == self.version
-            )
+            if sys.platform == "win32":
+                # Windows path stat and fstat can give st_ctime different
+                # meanings (birth vs change time). Compare handles there.
+                with open(self.path, "rb") as source_file:
+                    version = self.file_version(os.fstat(source_file.fileno()))
+            else:
+                # Reopening a POSIX FIFO could block after its writer exits.
+                version = self.file_version(os.stat(self.path))
+            unchanged = os.path.normcase(os.path.realpath(self.path)) == self.canonical and version == self.version
         except OSError as error:
             raise SourceReadError(f"source input changed after read: {self.path}: {error}") from error
         if not unchanged:

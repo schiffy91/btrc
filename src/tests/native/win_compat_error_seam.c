@@ -47,5 +47,15 @@ int main(void) {
             || errno != ENOTSUP) {
         return 9;
     }
+    errno = 0;
+    if (fcntl(0, F_SETFD, FD_CLOEXEC) != -1 || errno != ENOTSUP) {
+        return 10;
+    }
+    char value = 'x';
+    errno = 0;
+    if (pread(0, &value, (size_t)1, (off_t)0) != (ssize_t)-1
+            || errno != ENOTSUP || value != 'x') {
+        return 11;
+    }
     return 0;
 }

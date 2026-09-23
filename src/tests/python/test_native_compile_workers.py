@@ -159,9 +159,22 @@ def test_compile_workers_exit_when_their_cli_parent_is_killed(project):
     workers = {}
 
     def identity(pid):
-        return subprocess.run(
-            ["ps", "-o", "lstart=,command=", "-p", str(pid)], capture_output=True, text=True, check=False
-        ).stdout
+        if sys.platform == "linux":
+            try:
+                # BusyBox ps lacks -p and lstart. /proc also distinguishes
+                # PID reuse and exited workers awaiting the container reaper.
+                fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+            except (FileNotFoundError, ProcessLookupError):
+                # Exit may remove the entry before open (ENOENT) or while
+                # reading an already opened proc file (ESRCH).
+                return None
+            return None if fields[0] == "Z" else fields[19]
+        return (
+            subprocess.run(
+                ["ps", "-o", "lstart=,command=", "-p", str(pid)], capture_output=True, text=True, check=False
+            ).stdout
+            or None
+        )
 
     with (directory / "stdout").open("w") as stdout, (directory / "stderr").open("w") as stderr:
         child = subprocess.Popen(command, cwd=REPO, stdout=stdout, stderr=stderr)
@@ -175,6 +188,7 @@ def test_compile_workers_exit_when_their_cli_parent_is_killed(project):
                 assert time.monotonic() < deadline, "workers never reached real preprocessing"
                 time.sleep(0.02)
             assert child.pid not in workers
+            assert all(workers.values()), "could not identify active compile workers"
             child.kill()
             child.wait(timeout=10)
             deadline = time.monotonic() + 5

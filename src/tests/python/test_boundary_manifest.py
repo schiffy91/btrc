@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shlex
 import subprocess
 import sys
@@ -407,6 +408,14 @@ def test_toolchain_observation_and_behavior_commands_do_not_leak_absolute_paths(
     )
     session = _BoundaryCaptureSession(manifest, tmp_path, tmp_path)
     executable = tmp_path / "fake-compiler"
+    source_path = str(tmp_path / "src" / "Module.btrc")
+    ir = {"functions": [{"$type": "IRFunctionDef", "source_file": source_path}], "literal": source_path}
+    normalized_ir = json.loads(session._canonical_ir(json.dumps(ir).encode()))
+    assert normalized_ir["functions"][0]["source_file"] == "$REPOSITORY/src/Module.btrc"
+    assert normalized_ir["literal"] == source_path
+    assert session._canonical_ir(session._canonical_ir(json.dumps(ir).encode())) == session._canonical_ir(
+        json.dumps(ir).encode()
+    )
     executable.write_bytes(b"compiler")
     monkeypatch.setattr(
         session,

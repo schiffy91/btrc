@@ -34,6 +34,9 @@ in
     COPY --chown=${uid}:${uid} examples/native-package/ /tmp/flake/examples/native-package/
     USER ${uid}:${uid}
     ENV HOME="${home}" DEVCONTAINER=true LANG=C.UTF-8 BASH_ENV="${home}/.nix-devshell.sh" PATH="${home}/.local/bin:/nix/var/nix/profiles/default/bin:$PATH"
+    # The bind-mounted checkout keeps the host UID. Trust only this configured
+    # workspace so Git-backed build provenance works for the container user.
+    RUN git config --global --add safe.directory '${cfg.workspace}'
     RUN cd /tmp/flake && git init -q && git add -A && \
         nix print-dev-env . > ${home}/.nix-devshell.sh && \
         rm -rf /tmp/flake

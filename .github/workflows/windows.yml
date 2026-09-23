@@ -88,6 +88,9 @@ jobs:
       - name: zig version
         run: zig version
 
+      - name: Verify native Windows compatibility seams
+        run: python -m pytest -q src/tests/python/test_native_win_compat.py
+
       - name: Transpile + build relocatable btrcc bundle (native Windows)
         run: |
           python -m tools.compiler_codegen.main check

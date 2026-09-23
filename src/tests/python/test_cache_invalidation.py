@@ -471,6 +471,45 @@ def test_compiled_generation_concurrent_readers_never_observe_mixed_payloads(tmp
         list(workers.map(publish_and_read, range(8)))
 
 
+def test_compiled_generation_reader_waits_during_directory_replacement(tmp_path, monkeypatch):
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
+    fingerprint = FixedFingerprint("test-generation")
+    writer = CompilerCache(fingerprint=fingerprint)
+    reader = CompilerCache(fingerprint=fingerprint)
+    writer.store_artifacts("source", "old", link_plan="old")
+    generation = tmp_path / f"{writer.key_for('source')}.artifacts"
+    removed = threading.Event()
+    resume = threading.Event()
+    reading = threading.Event()
+    replace = os.replace
+    lock = reader._publisher.lock
+
+    def pause_after_backup(source, destination):
+        replace(source, destination)
+        if source == generation:
+            removed.set()
+            assert resume.wait(10)
+
+    def observed_lock(directory, name):
+        reading.set()
+        return lock(directory, name)
+
+    monkeypatch.setattr(os, "replace", pause_after_backup)
+    monkeypatch.setattr(reader._publisher, "lock", observed_lock)
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        publishing = workers.submit(writer.store_artifacts, "source", "new", link_plan="new")
+        try:
+            assert removed.wait(10)
+            loading = workers.submit(reader.load_artifacts, "source")
+            assert reading.wait(5), "reader bypassed the publication lock during replacement"
+        finally:
+            resume.set()
+        publishing.result(timeout=10)
+        result = loading.result(timeout=10)
+    assert result is not None
+    assert result.c_source == result.link_plan == "new"
+
+
 def test_full_fingerprint_includes_runtime_asset_content(tmp_path):
     compiler = tmp_path / "compiler" / "python"
     compiler.mkdir(parents=True)

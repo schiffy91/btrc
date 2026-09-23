@@ -5,6 +5,8 @@ import json
 import multiprocessing
 import os
 import stat
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -30,6 +32,56 @@ def test_source_read_accepts_utf8_bom_and_normalizes_newlines(tmp_path):
     path = tmp_path / "bom.btrc"
     path.write_bytes(b"\xef\xbb\xbfint x;\r\nint y;\rint z;\n")
     assert SourceFileReader().read(str(path)) == "int x;\nint y;\nint z;\n"
+
+
+def test_windows_source_validation_uses_consistent_handle_timestamps(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    path = tmp_path / "Source.btrc"
+    path.write_text("int original;\n")
+    fstat = os.fstat
+
+    def handle_metadata(fd):
+        metadata = fstat(fd)
+        # CPython on Windows can report change time for handles and creation
+        # time for paths. Preserve that distinction instead of dropping ctime.
+        return SimpleNamespace(
+            **{name: getattr(metadata, name) for name in ("st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns")},
+            st_ctime_ns=metadata.st_ctime_ns + 1,
+        )
+
+    with monkeypatch.context() as windows:
+        windows.setattr(sys, "platform", "win32")
+        windows.setattr(os, "fstat", handle_metadata)
+        source = SourceFileReader().read_source(str(path))
+        assert source.text == "int original;\n"
+        source.identity.validate()
+        path.write_text("int changed;\n")
+        with pytest.raises(SourceReadError, match="source input changed"):
+            source.identity.validate()
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="requires POSIX FIFOs")
+def test_source_validation_does_not_block_on_a_fifo_without_a_writer(tmp_path):
+    fifo = tmp_path / "Source.btrc"
+    os.mkfifo(fifo)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import os, sys\n"
+            "from src.compiler.python.frontend.sources import SourceReadIdentity\n"
+            "path = sys.argv[1]\n"
+            "identity = SourceReadIdentity(path, os.path.realpath(path), "
+            "SourceReadIdentity.file_version(os.stat(path)))\n"
+            "identity.validate()\n",
+            str(fifo),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_source_read_rejects_invalid_utf8(tmp_path):

@@ -219,6 +219,30 @@ static inline int btrc_fchmod(int descriptor, mode_t mode) {
 #endif
 #define fchmod(descriptor, mode) btrc_fchmod((descriptor), (mode))
 
+/* Private-file reads and descriptor flag changes require the same native
+   handle backend. Never emulate pread with a shared seek position or claim
+   that an unsupported close-on-exec request succeeded. */
+#ifndef F_SETFD
+#define F_SETFD 2
+#endif
+#ifndef FD_CLOEXEC
+#define FD_CLOEXEC 1
+#endif
+static inline int btrc_fcntl(int descriptor, int command, ...) {
+    (void)descriptor; (void)command;
+    errno = ENOTSUP;
+    return -1;
+}
+static inline ssize_t btrc_pread(
+        int descriptor, void *buffer, size_t count, off_t offset) {
+    (void)descriptor; (void)buffer; (void)count; (void)offset;
+    errno = ENOTSUP;
+    return (ssize_t)-1;
+}
+#define fcntl(...) btrc_fcntl(__VA_ARGS__)
+#define pread(descriptor, buffer, count, offset) \
+    btrc_pread((descriptor), (buffer), (count), (offset))
+
 static inline int btrc_openat(int directory, const char *path, int flags, ...) {
     (void)directory; (void)path; (void)flags;
     errno = ENOTSUP;

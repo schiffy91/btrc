@@ -1,0 +1,1 @@
+{"manifest-hash":"3d023089d28328acae64f710522720261df8d12212730e73bc6bb4b60977f29b","packages":[{"dependencies":{},"manifest-hash":"15862cb913bb93e1e68710f8db4ac0fa79d9d2c80bd67869f110baca5cf1d968","name":"btrc_stdlib_localapplicationchannel","source":{"path":"."}}],"root":"btrc_stdlib_localapplicationchannel","schema":3}

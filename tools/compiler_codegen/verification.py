@@ -1162,6 +1162,8 @@ class _BoundaryCaptureSession:
             command.extend(("-o", output_path.as_posix()))
         result = self._run(command)
         artifact = result.stdout
+        if capability.boundary in {"raw-ir", "optimized-ir"} and result.returncode == 0:
+            artifact = self._canonical_ir(artifact)
         if capability.boundary == "c":
             if result.returncode == 0 and not output_target.is_file():
                 raise CompilerVerificationError(f"Python C boundary omitted output for fixture {fixture.id}")
@@ -1174,6 +1176,24 @@ class _BoundaryCaptureSession:
                 stderr = b""
             result = subprocess.CompletedProcess(result.args, result.returncode, result.stdout, stderr)
         return self._select_process_channels(capability, result, artifact)
+
+    def _canonical_ir(self, artifact: bytes) -> bytes:
+        """Keep module provenance without freezing the capture machine's root."""
+
+        document = json.loads(artifact)
+        pending = [document]
+        root = self.execution_repository.resolve()
+        while pending:
+            value = pending.pop()
+            if isinstance(value, dict):
+                if value.get("$type") == "IRFunctionDef" and value.get("source_file"):
+                    source = Path(value["source_file"])
+                    if source.is_relative_to(root):
+                        value["source_file"] = "$REPOSITORY/" + source.relative_to(root).as_posix()
+                pending.extend(value.values())
+            elif isinstance(value, list):
+                pending.extend(value)
+        return (json.dumps(document, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
 
     def _selfhost_boundary(
         self,

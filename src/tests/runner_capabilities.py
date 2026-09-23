@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import socket
 import subprocess
@@ -192,8 +193,40 @@ def linux_display_error() -> str | None:
 
 def linux_audio_backend_error() -> str | None:
     """Return why no ALSA PCM can be opened from this session."""
-    if subprocess.run(["pkg-config", "--exists", "alsa"], capture_output=True).returncode != 0:
-        return "native audio backend is unavailable: pkg-config cannot find alsa"
     if os.environ.get("BTRC_SKIP_AUDIO_TESTS"):
         return "native audio backend tests are disabled by BTRC_SKIP_AUDIO_TESTS"
+    flags = subprocess.run(["pkg-config", "--cflags", "--libs", "alsa"], capture_output=True, text=True)
+    if flags.returncode != 0:
+        return "native audio backend is unavailable: pkg-config cannot find alsa"
+    with tempfile.TemporaryDirectory(prefix="btrc-alsa-probe-") as temporary:
+        source = Path(temporary, "probe.c")
+        binary = Path(temporary, "probe")
+        source.write_text(
+            "#include <alsa/asoundlib.h>\n#include <stdio.h>\n"
+            "int main(void) {\n"
+            "    snd_pcm_t *pcm = NULL;\n"
+            '    int status = snd_pcm_open(&pcm, "default", SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);\n'
+            '    if (status < 0) { fprintf(stderr, "%s\\n", snd_strerror(status)); return 77; }\n'
+            "    return snd_pcm_close(pcm) < 0 ? 1 : 0;\n"
+            "}\n"
+        )
+        try:
+            compiled = subprocess.run(
+                ["cc", str(source), "-o", str(binary), *shlex.split(flags.stdout)],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise CapabilityProbeBuildError(f"ALSA probe could not be built: {error}") from error
+        if compiled.returncode != 0:
+            raise CapabilityProbeBuildError(f"ALSA probe could not be built: {compiled.stderr[:300]}")
+        try:
+            result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise CapabilityProbeRuntimeError(f"ALSA probe could not run: {error}") from error
+    if result.returncode == 77:
+        return f"native audio backend is unavailable: cannot open default ALSA PCM ({result.stderr.strip()[-300:]})"
+    if result.returncode != 0:
+        raise CapabilityProbeRuntimeError(f"ALSA probe failed with status {result.returncode}: {result.stderr[:300]}")
     return None
