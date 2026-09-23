@@ -118,6 +118,14 @@ BackgroundJobSubmitOutcome submitProbe(BackgroundJobExecutor executor, Backgroun
 	return executor.submit(generation, work, runProbe);
 }
 
+/* The outcome is released on return, leaving the caller the sole owner. */
+BackgroundJobCompletion awaitReady(BackgroundJobExecutor executor) {
+	BackgroundJobPollOutcome awaited = executor.awaitCompletion();
+	assert(awaited.kind == BACKGROUND_JOB_POLL_READY);
+	assert(awaited.completion != null);
+	return awaited.completion;
+}
+
 int completionIdentity(BackgroundJobCompletion completion) {
 	JobProbeWork work = (JobProbeWork)completion.work();
 	return work.identity();
@@ -322,6 +330,72 @@ int main() {
 	assert(!laterToken.requested());
 	laterToken.request();
 	assert(laterToken.requested());
+
+	/* awaitCompletion blocks the owner until a completion is claimable, hands
+	 * each one over exactly once, and never waits with nothing outstanding. */
+	job_probe_reset();
+	BackgroundJobExecutor awaiting = openExecutor(2, 4);
+	BackgroundJobGeneration awaitGeneration = BackgroundJobGeneration(9ULL);
+	assert(awaiting.awaitCompletion().kind == BACKGROUND_JOB_POLL_EMPTY);
+	assert(submitProbe(awaiting, awaitGeneration, 20, JOB_PROBE_HOLD).kind == BACKGROUND_JOB_SUBMITTED);
+	assert(submitProbe(awaiting, awaitGeneration, 21, JOB_PROBE_COMPLETE).kind == BACKGROUND_JOB_SUBMITTED);
+	Thread<int> foreignWait = spawn(() => {
+			BackgroundJobPollOutcome outcome = awaiting.awaitCompletion();
+			return outcome.kind == BACKGROUND_JOB_POLL_NOT_OWNER ? 0 : 1;
+		});
+	assert(foreignWait.join() == 0);
+	Thread<int> releaser = spawn(() => {
+			for (int attempt = 0; attempt < 2000000; attempt++) {
+				if (job_probe_started(20) != 0 && job_probe_finished(21) != 0) {
+					job_probe_release();
+					return 0;
+				}
+				job_probe_yield();
+			}
+			return 1;
+		});
+	int awaitedMask = 0;
+	for (int claimed = 0; claimed < 2; claimed++) {
+		BackgroundJobCompletion awaitedCompletion = awaitReady(awaiting);
+		assert(awaitedCompletion.kind == BACKGROUND_JOB_COMPLETED);
+		int identity = completionIdentity(awaitedCompletion);
+		assert(identity == 20 || identity == 21);
+		int bit = identity == 20 ? 1 : 2;
+		assert((awaitedMask & bit) == 0);
+		awaitedMask = awaitedMask | bit;
+		delete awaitedCompletion;
+	}
+	assert(releaser.join() == 0);
+	assert(awaitedMask == 3);
+	assert(job_probe_runs(20) == 1 && job_probe_runs(21) == 1);
+	assert(job_probe_disposals(20) == 1 && job_probe_disposals(21) == 1);
+	assert(awaiting.awaitCompletion().kind == BACKGROUND_JOB_POLL_EMPTY);
+
+	/* Contended producer/consumer traffic through a full queue: every job
+	 * completes once and its work is destroyed once, with no lost wakeup. */
+	int submitted = 0;
+	int fullRejections = 0;
+	int claimedJobs = 0;
+	while (claimedJobs < 256) {
+		while (submitted < 256) {
+			BackgroundJobSubmitOutcome outcome = submitProbe(awaiting, awaitGeneration, 30, JOB_PROBE_COMPLETE);
+			if (outcome.kind == BACKGROUND_JOB_QUEUE_FULL) { fullRejections++; break; }
+			assert(outcome.kind == BACKGROUND_JOB_SUBMITTED);
+			submitted++;
+		}
+		BackgroundJobCompletion nextCompletion = awaitReady(awaiting);
+		assert(nextCompletion.kind == BACKGROUND_JOB_COMPLETED);
+		delete nextCompletion;
+		claimedJobs++;
+	}
+	assert(submitted == 256);
+	assert(job_probe_runs(30) == 256);
+	/* A rejected submission retains nothing, so its work is destroyed at once. */
+	assert(fullRejections > 0);
+	assert(job_probe_disposals(30) == 256 + fullRejections);
+	assert(awaiting.awaitCompletion().kind == BACKGROUND_JOB_POLL_EMPTY);
+	assert(awaiting.close(BACKGROUND_JOBS_DRAIN).kind == BACKGROUND_JOBS_CLOSED);
+	assert(awaiting.awaitCompletion().kind == BACKGROUND_JOB_POLL_CLOSED);
 
 	/* Reject foreign control calls before reading owner-only shutdown state. */
 	BackgroundJobExecutor ownerGuard = openExecutor(1, 1);

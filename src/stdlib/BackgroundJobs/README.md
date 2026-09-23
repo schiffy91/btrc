@@ -9,6 +9,14 @@ includes queued, running, and terminal-but-unpolled jobs. `poll()` is
 owner-thread-only and strictly nonblocking: it returns `READY`, `EMPTY`, or
 `BUSY` without waiting on a condition or worker.
 
+Owners that schedule dependent work, such as a compiler waiting for the next
+finished module, use `awaitCompletion()` instead. It is also owner-only. It
+blocks on a condition until a completion is claimable and returns `READY`;
+it returns `EMPTY` immediately when nothing is outstanding, so it cannot wait
+forever on an idle executor, and `CLOSED` when a worker has failed or
+synchronization fails. Each completion is handed over exactly once, whether
+it is claimed by `poll()` or `awaitCompletion()`.
+
 Each submission carries:
 
 - a nonzero `BackgroundJobGeneration` and generated `BackgroundJobTicket`;

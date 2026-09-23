@@ -21,17 +21,23 @@ and setjmp cuts saved 13.7%/13.3% and 4.6%/5.4% in their own comparisons.
 These are diagnostic pairs, not qualifying 5-cold/20-edit distributions.
 M0–M6 landed; unchanged latency is closed at 5 s, and M7 is partially complete.
 The working design budgets remain **13 s cold / 10 s edit**, with final ≥10×
-acceptance against a frozen repeated baseline on each required host. Continue
-M7's remaining analysis/lowering costs before M8a and M11.
+acceptance against a frozen repeated baseline on each required host. The revised
+priority is **M11a module reuse with M10 concurrency contracts**, then bounded
+parallel module compilation. Remaining M7/M8a work follows demonstrated
+prerequisites or measured bottlenecks rather than blocking that delivery.
 Historical measurements live in
 [`docs/design/compile-performance.md`](docs/design/compile-performance.md).
 
-Implementation is paused at the user's September 22 quota checkpoint. The full
+Implementation was paused at the user's September 22 quota checkpoint. The full
 unit rerun records **7,638 passed / 49 skipped / 1 intermittent warm-link cache
 assertion failure**. The affected modules subsequently pass 42 tests, and ten
 diagnostic repetitions pass; this does not close the failed full-suite gate.
-On resume, reproduce that cache miss under suite load, then continue bucket 1
-at M7 before M8a and M11. Conditional
+That is historical test evidence: the subsequent CI repair fixed a concurrent
+cache-read race and passed the full Linux suite and bootstrap; required-host
+and GitHub qualification remain separate. The user's subsequent planning
+discussion brings module reuse and parallelism forward together. This plan
+revision does not itself restart implementation. On resume, continue bucket 1
+with M11a and the M10 contracts below. Conditional
 experiments still require their stated evidence; proposed budgets are not
 measured results. Section 1 records evidence and budgets; section 2 defines
 verification; section 3 preserves the implementation history; section 4
@@ -72,8 +78,11 @@ to develop platform/UI work alongside optimization.
    device/audio behavior, performance budgets and release gates on every target.
 
 **Current assignment:** the initial cold/body-edit diagnostic checkpoint is
-complete. Execute M7's dominant compiler cuts, M8a's measured allocation experiment
-and M11a/full M11's separate compilation. Seek **at least 10×** improvement
+complete. Prove M11a's module reuse with M10's ownership and concurrency contracts,
+then deliver bounded parallel module compilation and full M11. Extend the
+stdlib's concurrency primitives where the real compiler workload demonstrates
+a missing contract. M7/M8a cuts remain available for proven prerequisites and
+remaining bottlenecks. Seek **at least 10×** improvement
 against the frozen baseline in both self-host scenarios. Budgets are
 **≤min(10 s, edit baseline / 10)** for body edits and
 **≤min(20 s, cold baseline / 10)** for cold dev executables; the existing
@@ -88,7 +97,7 @@ updates must lead with the active milestone, measured KPI gap and next action.
 
 | Order | Bucket | Milestones / scope | State and exit requirement |
 | --- | --- | --- | --- |
-| 1 | Compiler performance and reliable incremental builds | M6a → M7 → M8a → M11a/full M11; then evidence-gated M8b/M9/M10 as required by the remaining budgets | **Active: M7 → M8a → M11; initial edit/cold diagnostics complete.** M6a unchanged latency is closed at ≤5 s by user direction. Prove section 1's remaining build/compile/memory KPIs on the actual BTRSmith workload and required hosts, with applicable compiler gates. Headline goals: ≤5 s no-op regression guard, ≥10× self-host edit/cold acceleration, ≤10 s edit build at M11, ultimately ≤20 s cold self-host dev build and ≤5 s self-host body edit. |
+| 1 | Compiler performance and reliable incremental builds | M11a with M10 concurrency contracts → bounded parallel module compilation/full M11; M7/M8a cuts where justified, conditional M8b/M9 | **Next: M11a + M10; implementation remains at its saved checkpoint.** M6a unchanged latency is closed at ≤5 s by user direction. Prove section 1's remaining build/compile/memory KPIs on the actual BTRSmith workload and required hosts, with applicable compiler gates. Headline goals: ≤5 s no-op regression guard, ≥10× self-host edit/cold acceleration, ≤10 s edit build at M11, ultimately ≤20 s cold self-host dev build and ≤5 s self-host body edit. |
 | 2 | C compatibility | C1 → C2 → C3 → C4 → C5, with a reproducible baseline before changing behavior | **Queued.** Both frontends pass the specified compatibility/negative corpus; deliberate refusals are documented and applicable compiler gates pass. |
 | 3 | Cross-platform build and runtime foundations | P0 → P1 → P2/P3/P4; W1 and the non-UI target, runtime, storage, audio/GPU and packaging foundations of W2/I1/I2/A1/A2 | **Queued.** Required Windows/iOS/Android targets, ABI/runtime/library/package contracts and test hosts work through both frontends. UI-dependent product exits remain assigned to buckets 4/5. |
 | 4 | Native UI across all five platforms | UI0 → UI1 → UI2/UI3 → UI4–UI9 → UI10/UI11, including the UI portions of W2/I1/I2/A1/A2 | **Queued; inventory only so far.** Implement and qualify the full native UI contracts, platform providers, BTRSmith screens and UI budgets; retain all extended toolkit scope. Accessibility and ownership are acceptance criteria for each control. |
@@ -1756,6 +1765,13 @@ it is **not a prerequisite for the M11 prototype**.
 
 ### M11 — Separate compilation, with explicit dependency contracts
 
+**September 22 priority revision:** design reuse and parallel execution together.
+The dependency graph determines both which cached groups remain valid after an
+edit and which groups can execute concurrently on a cold build. M11a is now the
+next implementation slice; M10's shared-state and stdlib contracts are part of
+its design, rather than a retrofit after serial separate compilation. Prove the
+slice with one worker, then multiple workers before broad product integration.
+
 This is the main developer-loop delivery: **≤10 s self-host / ≤15 s
 reference** for the body-edit scenario in section 1. Preserve release
 whole-program compilation until separate mode is fully qualified. A cold
@@ -1774,6 +1790,10 @@ clean, edit, rebuild incrementally, then rebuild clean in a second output
 directory. Compare diagnostics, runtime behavior and canonical semantic/link
 artifacts; same-mode deterministic C should also match. Whole-program and
 separate mode need behavioral/ABI equivalence, not identical C text.
+Use the same scheduling and publication contracts with one and multiple workers.
+Show that independent ready groups overlap, a dependent waits for the facts it
+needs, and an unchanged group stays cached after a private body edit. Include
+worker failure and cancellation without deadlock or partial cache publication.
 
 #### Module artifacts and owners
 
@@ -1919,9 +1939,10 @@ Initial end-to-end design envelopes are **≤7 s compiler + ≤5 s native + ≤1
 outer driver** for cold dev builds, and **≤4.5 s compiler + ≤4.5 s native +
 ≤1 s outer driver** for edits. These are proposed budgets, not a demonstrated
 speedup or predicted allocation. Replace them with measured allocations as
-M7/M8a/M11 land; keep the end-to-end 10× requirement. If remaining serial work
-exceeds the envelope, identify its owner and require new evidence before the
-conditional M8b/M9/M10 experiments. Caching cannot close a cold serial floor.
+M11/M10 and justified M7/M8a cuts land; keep the end-to-end 10× requirement.
+If remaining serial work exceeds the envelope, identify its owner and require
+new evidence before conditional M8b/M9 or finer-grained M10 experiments.
+Caching cannot close a cold serial floor.
 
 #### Acceptance before enabling BTRSmith dev mode
 
@@ -1981,18 +2002,49 @@ system. Run mixed-edge stress, ASan/UBSan, failure-path and repeated-compilation
 tests, then the full matrix. Track lock time directly: disappearing from the
 top twenty profile entries alone is not an acceptance criterion.
 
-### M10 — Parallel analysis and lowering, conditional on measured scaling
+### M10 — Parallel compilation and reusable stdlib concurrency
+
+**September 22 user direction:** parallelism is a compiler design principle and
+a real consumer of the stdlib's concurrency facilities. Bring its contracts
+forward with M11a. Coarse module scheduling is part of the planned delivery;
+finer-grained parallel analysis/lowering and default worker counts still require
+measured benefit. This changes the earlier sequence that deferred all M10 work
+until after M7/M8a/M11.
+
+#### Compiler and stdlib ownership
+
+- The compiler owns dependency/SCC scheduling, semantic barriers, specialization
+  ownership and deterministic merging of diagnostics and artifacts. The stdlib
+  owns reusable synchronization, bounded work delivery and worker lifecycle.
+  Audit existing owners first; extend them instead of building compiler-private
+  mutex, queue or pool implementations.
+- Prefer immutable shared summaries and worker-owned mutable analysis/IR state.
+  Specify transfer/publication and ARC/collector safety across worker boundaries;
+  a mutex around a map does not make the mutable graph stored in it thread-safe.
+  Avoid a global compiler lock or an unbounded whole-program copy per worker.
+- Define the needed mutex, wait/notification and bounded-queue contracts from
+  the actual workload: predicate rechecking, visibility after publication,
+  backpressure, close/drain, cancellation, error propagation and joined shutdown.
+  Decide container synchronization from access patterns; a concurrent map or
+  lock-free implementation is not automatically required.
+- Prove those stdlib contracts with real threads: contention, producer/consumer
+  races, full/empty queues, shutdown while blocked, worker failure and exactly-once
+  task completion with managed payload destruction. Compose them in the real
+  M11a compiler fixture and retain that path as regression coverage. Qualify
+  native providers on the supported hosts; do not claim portability from a
+  single-platform thread test.
 
 Final objectives remain those in section 1. **3–5 s cold transpile is a
-stretch target**, not a result implied by having 16 cores. Record serial
-fraction after prior milestones before predicting parallel speedup.
+stretch target**, not a result implied by having 16 cores. Record the serial
+fraction of the one-worker baseline before predicting parallel speedup.
 
 1. Inventory writes reachable from each proposed work item: analyzer caches,
    generic registries, runtime/helper selection, native adapters, diagnostic
    storage, generated symbol counters and ownership state. Freeze shared
    tables after their fixed point; make remaining writes local or merge them
    deterministically. A shallow `freeze()` on `Analyzed` is insufficient.
-2. Begin with already-independent per-function setjmp work. Move body lowering
+2. Begin with dependency-ready M11a groups; inspect per-function setjmp work
+   as a finer-grained candidate when measurements justify it. Move body lowering
    and validation only after demonstrating their dependencies. Per-worker
    contexts own temporary names and allocation; stable declaration identities
    determine ordering, names and diagnostics. Cross-function fixed points stay
@@ -2005,12 +2057,13 @@ fraction after prior milestones before predicting parallel speedup.
    repeated shuffled schedules. Use TSan where the runtime/toolchain supports
    it, plus stress fixtures; report unavailable coverage. ASan/UBSan and the
    full normal matrix remain required.
-5. For Python, benchmark process workers on coarse independent modules only
-   after M11. Include serialization, process startup and duplicated RSS in
+5. For Python, benchmark process workers on coarse independent modules once
+   M11a's dependency contracts are proven. Include serialization, process startup and duplicated RSS in
    wall/memory results; do not mirror a thread implementation mechanically.
 
-Stop adding parallel machinery if separate compilation already meets the
-interactive goals and a measured cold-build benefit does not justify it.
+Keep parallel-ready ownership and the qualified stdlib contracts even when a
+small workload runs best with one worker. Stop adding finer-grained scheduling
+or concurrent containers when measured cold-build benefit does not justify them.
 
 ---
 
@@ -2601,11 +2654,13 @@ and keep the overall milestone open until its last required gate passes.
 
 1. **Compiler performance and reliable incremental builds.** The user closed
    unchanged latency at ≤5 s. Initial actual-Make cold/edit diagnostics are
-   recorded. Continue M7's measured compiler cuts, M8a's allocation experiment and M11a/full
-   M11 separate compilation. Deliver at least 10× improvement in self-host
+   recorded. Bring M11a module reuse and M10 concurrency contracts forward
+   together, prove one-worker and bounded parallel execution, then integrate
+   full M11. Use M7/M8a cuts for demonstrated prerequisites and bottlenecks.
+   Deliver at least 10× improvement in self-host
    edit-to-executable and cold dev builds, with the stricter absolute budgets
-   stated in the current assignment. Profile again before conditional M8b/M9/M10
-   work. Preserve the ≤5 s unchanged regression guard and all correctness,
+   stated in the current assignment. Profile again before conditional M8b/M9
+   or finer-grained M10 work. Preserve the ≤5 s unchanged regression guard and all correctness,
    reference, memory and required-host qualification. Do not revive the retired
    2 s no-op target or the shelved SDK projection work without new scope/evidence.
 2. **C compatibility.** Freeze the reproducible audit/negative cases, then
@@ -2769,8 +2824,8 @@ The baseline passed 945 call, closure, ownership, default-argument and scope
 tests. The profile preserves all
 fifteen product C units and input hashes.
 
-**Next: M7 remaining analysis/body lowering.** Cold analysis/lowering now
-measure 18.343/31.281 s. The preceding owner profile measured
+**Retained M7 leads, after the module/concurrency slice unless prerequisites.**
+Cold analysis/lowering now measure 18.343/31.281 s. The preceding owner profile measured
 call-target resolution at 3.475 s / 298,932 calls; closure-escape checking
 is 2.901 s / 118,656 calls, with nested time overlapping. Some apparent repeats
 have different flow state. Calls with no explicit arguments can still have
@@ -2796,8 +2851,11 @@ owner profile puts artifact storage/publication at only 0.181/0.281 s. The
 remaining unmarked compiler lifetime is not all filesystem work, and the
 pipeline explicitly retains major graphs, so teardown needs actual attribution.
 
-**Remaining sequence:** finish M7's setjmp/generic/declaration cuts, run M8a's
-allocation experiment, then prove M11a's module-contract slice before full M11.
+**Remaining sequence, revised September 22:** prove M11a's module-contract slice
+with M10's ownership and stdlib concurrency contracts, first through the same
+scheduler at one worker and then with bounded parallel ready groups. Integrate
+full M11; apply remaining M7/M8a work to demonstrated prerequisites or measured
+bottlenecks rather than requiring those milestones to finish first.
 For edits, reuse validated analyzed/lowered groups and stable C units, rebuild
 only the changed group and consumers of genuinely changed semantic facts.
 For cold builds, reduce repeated work/bytes and use bounded ready-group

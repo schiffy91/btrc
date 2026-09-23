@@ -289,8 +289,10 @@ class BackgroundJobRing {
 class BackgroundJobQueue {
 	private pthread_mutex_t* mutex;
 	private pthread_cond_t* available;
+	private pthread_cond_t* finished;
 	private bool mutexReady;
 	private bool conditionReady;
+	private bool finishedReady;
 	private Vector<BackgroundJobSlot> slots;
 	private BackgroundJobRing pending;
 	private BackgroundJobRing completed;
@@ -308,8 +310,10 @@ class BackgroundJobQueue {
 	public BackgroundJobQueue(int capacity) {
 		self.mutex = null;
 		self.available = null;
+		self.finished = null;
 		self.mutexReady = false;
 		self.conditionReady = false;
+		self.finishedReady = false;
 		self.slots = [];
 		self.pending = BackgroundJobRing(capacity);
 		self.completed = BackgroundJobRing(capacity);
@@ -326,12 +330,15 @@ class BackgroundJobQueue {
 		if (!self.pending.opened() || !self.completed.opened()) { return; }
 		self.mutex = (pthread_mutex_t*)calloc(1, sizeof(pthread_mutex_t));
 		self.available = (pthread_cond_t*)calloc(1, sizeof(pthread_cond_t));
-		if (self.mutex == null || self.available == null) { return; }
+		self.finished = (pthread_cond_t*)calloc(1, sizeof(pthread_cond_t));
+		if (self.mutex == null || self.available == null || self.finished == null) { return; }
 		self.openKind = BACKGROUND_JOBS_OPEN_THREAD_FAILED;
 		if (pthread_mutex_init(self.mutex, null) != 0) { return; }
 		self.mutexReady = true;
 		if (pthread_cond_init(self.available, null) != 0) { return; }
 		self.conditionReady = true;
+		if (pthread_cond_init(self.finished, null) != 0) { return; }
+		self.finishedReady = true;
 		for (int index = 0; index < capacity; index++) { self.slots.push(BackgroundJobSlot()); }
 		self.openKind = BACKGROUND_JOBS_OPENED;
 	}
@@ -349,6 +356,7 @@ class BackgroundJobQueue {
 		self.closing = true;
 		self.cancelPending();
 		pthread_cond_broadcast(self.available);
+		pthread_cond_broadcast(self.finished);
 	}
 
 	public int workLoop() {
@@ -371,6 +379,7 @@ class BackgroundJobQueue {
 			slot.result = result;
 			slot.state = BACKGROUND_SLOT_TERMINAL;
 			if (!self.completed.push(index)) { self.failLocked(); }
+			else { pthread_cond_signal(self.finished); }
 			pthread_mutex_unlock(self.mutex);
 		}
 		return 1;
@@ -447,16 +456,53 @@ class BackgroundJobQueue {
 		return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_READY, completion, "");
 	}
 
+	/* Blocks the owner until a completion is claimable. The predicate is
+	 * rechecked after every wakeup; with nothing outstanding the wait would
+	 * never end, so it returns EMPTY instead, and a failed worker (which may
+	 * strand queued work) ends it with CLOSED. */
+	public BackgroundJobPollOutcome awaitCompletion() {
+		if (pthread_mutex_lock(self.mutex) != 0) { return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_CLOSED, null, "background job synchronization failed"); }
+		for (;;) {
+			int index = self.completed.pop();
+			if (index >= 0) {
+				BackgroundJobSlot slot = self.slots.get(index);
+				BackgroundJobCompletion completion = slot.completion();
+				slot.clear();
+				self.outstandingCount--;
+				pthread_mutex_unlock(self.mutex);
+				return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_READY, completion, "");
+			}
+			if (self.outstandingCount == 0) {
+				pthread_mutex_unlock(self.mutex);
+				return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_EMPTY, null, "");
+			}
+			if (self.failedWorker.load(MemoryOrder.ACQUIRE)) {
+				pthread_mutex_unlock(self.mutex);
+				return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_CLOSED, null, "background job worker failed");
+			}
+			if (pthread_cond_wait(self.finished, self.mutex) != 0) {
+				pthread_mutex_unlock(self.mutex);
+				return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_CLOSED, null, "background job synchronization failed");
+			}
+		}
+		return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_CLOSED, null, "background job synchronization failed");
+	}
+
 	public bool beginClose(BackgroundJobsCloseMode mode) {
 		if (pthread_mutex_lock(self.mutex) != 0) { return false; }
 		self.closing = true;
 		if (mode == BACKGROUND_JOBS_CANCEL_PENDING) { self.cancelPending(); }
 		pthread_cond_broadcast(self.available);
+		pthread_cond_broadcast(self.finished);
 		pthread_mutex_unlock(self.mutex);
 		return true;
 	}
 
 	private bool releaseSynchronization() {
+		if (self.finishedReady) {
+			if (pthread_cond_destroy(self.finished) != 0) { return false; }
+			self.finishedReady = false;
+		}
 		if (self.conditionReady) {
 			if (pthread_cond_destroy(self.available) != 0) { return false; }
 			self.conditionReady = false;
@@ -465,8 +511,10 @@ class BackgroundJobQueue {
 			if (pthread_mutex_destroy(self.mutex) != 0) { return false; }
 			self.mutexReady = false;
 		}
+		free(self.finished);
 		free(self.available);
 		free(self.mutex);
+		self.finished = null;
 		self.available = null;
 		self.mutex = null;
 		return true;
@@ -630,6 +678,15 @@ class BackgroundJobExecutor {
 		if (!self.onOwner()) { return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_NOT_OWNER, null, "background job polling requires its owner thread"); }
 		if (!self.isOpen()) { return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_CLOSED, null, "background job executor is closed"); }
 		return self.queue.poll();
+	}
+
+	/* Blocking counterpart of poll() for owners that schedule dependent work:
+	 * READY hands over one completion, EMPTY means nothing is outstanding, and
+	 * CLOSED reports a failed worker or synchronization. */
+	public BackgroundJobPollOutcome awaitCompletion() {
+		if (!self.onOwner()) { return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_NOT_OWNER, null, "background job waiting requires its owner thread"); }
+		if (!self.isOpen()) { return BackgroundJobPollOutcome(BACKGROUND_JOB_POLL_CLOSED, null, "background job executor is closed"); }
+		return self.queue.awaitCompletion();
 	}
 
 	public BackgroundJobsCloseOutcome close(BackgroundJobsCloseMode mode = BACKGROUND_JOBS_CANCEL_PENDING) {

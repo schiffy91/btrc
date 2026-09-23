@@ -82,6 +82,7 @@ void shutdownRetry(int operation) {
 int main() {
 	startupFailure(FAULT_MUTEX_INIT, 1);
 	startupFailure(FAULT_COND_INIT, 1);
+	startupFailure(FAULT_COND_INIT, 2);
 	for (int occurrence = 1; occurrence <= 3; occurrence++) { startupFailure(FAULT_CREATE, occurrence); }
 	shutdownRetry(FAULT_JOIN);
 	shutdownRetry(FAULT_MUTEX_DESTROY);
