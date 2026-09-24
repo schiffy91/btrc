@@ -697,11 +697,12 @@ class CallValidator {
 
 	public void addMethodSubstitutions(Node method, Node call, Map<string, Node> substitutions) {
 		if (method.genericParams.len == 0) { return; }
-		string callKey = AstIdentity.key(call);
-		if (!self.state.analyzed.methodGenCallArgs.has(callKey)) {
+		Vector<Node>? inferred = self.state.analyzed.methodCallArguments(call);
+		if (inferred == null) {
 			TypeValidator.fail("Cannot infer generic arguments for method '" + method.name + "'", call);
+			return;
 		}
-		Vector<Node> arguments = self.state.analyzed.methodGenCallArgs.get(callKey);
+		Vector<Node> arguments = inferred;
 		if (arguments.len != method.genericParams.len) {
 			TypeValidator.fail("Generic method '" + method.name + "' requires " + Strings.fromInt(method.genericParams.len) + " type argument(s)", call);
 		}

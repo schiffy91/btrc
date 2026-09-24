@@ -94,6 +94,19 @@ class SemanticValidator {
 		}
 
 		Map<string, Node> globals = self.declarations.globalTypes(self.state.analyzed);
+		/* Field and global array bounds before any body, so every body sees
+		 * which are constant whatever the declaration order. */
+		for declaration in self.program.declarations {
+			if (declaration.kind == NK_CLASS_DECL) {
+				for member in declaration.members {
+					if (member.kind == NK_FIELD_DECL) {
+						self.storage.validateArrayBound(member.type, "field '" + declaration.name + "." + member.name + "'", "field", member, globals);
+					}
+				}
+			} else if (declaration.kind == NK_VAR_DECL_STMT && declaration.type != null) {
+				self.storage.validateArrayBound(declaration.type, "Global '" + declaration.name + "'", "global", declaration, globals);
+			}
+		}
 		index = 0;
 		while (index < self.program.declarations.len) {
 			Node declaration = self.program.declarations.get(index);

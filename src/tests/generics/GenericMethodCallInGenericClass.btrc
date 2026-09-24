@@ -1,0 +1,28 @@
+/* A generic class method calls a generic method with an argument of the
+ * class's own type parameter. Every specialization of the class passes its
+ * own type, and the template itself validates in its own terms. */
+#include <assert.h>
+
+class Sizer {
+	public Sizer() {}
+	public int measure<U>(U value) { return (int)sizeof(value); }
+}
+
+class Box<T> {
+	public T value;
+	public Box(T value) { self.value = value; }
+
+	public int size() {
+		Sizer sizer = Sizer();
+		return sizer.measure(self.value);
+	}
+}
+
+int main() {
+	Box<char> small = new Box<char>('a');
+	Box<double> large = new Box<double>(1.5);
+	assert(small.size() == (int)sizeof(char));
+	assert(large.size() == (int)sizeof(double));
+	print("PASS: test_generic_method_call_in_generic_class");
+	return 0;
+}

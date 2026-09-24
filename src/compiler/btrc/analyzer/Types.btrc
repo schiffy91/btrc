@@ -538,11 +538,11 @@ class SemanticTypeSystem {
 			substitutions.put(name, classArguments.get(name));
 			classIndex = classIndex + 1;
 		}
-		string callKey = AstIdentity.key(call);
-		if (!analyzed.methodGenCallArgs.has(callKey)) {
+		Vector<Node>? inferred = analyzed.methodCallArguments(call);
+		if (inferred == null) {
 			return substitutions;
 		}
-		Vector<Node> methodArguments = analyzed.methodGenCallArgs.get(callKey);
+		Vector<Node> methodArguments = inferred;
 		int methodIndex = 0;
 		while (methodIndex < method.genericParams.len && methodIndex < methodArguments.len) {
 			substitutions.put(method.genericParams.get(methodIndex), methodArguments.get(methodIndex));

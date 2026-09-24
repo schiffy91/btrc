@@ -1,0 +1,29 @@
+/* Span(array) over a class field and a global declared after their use. Each
+ * extent is the array's constant bound, including when the field is reached
+ * through a retained receiver and passed on as a pointer temporary. */
+#include <assert.h>
+
+int sum(Span<int> values) {
+	int result = 0;
+	for value in values { result += value; }
+	return result;
+}
+
+int fieldTotal(Holder holder) { return sum(Span(holder.values)); }
+
+int globalTotal() { return sum(Span(limits)); }
+
+int limits[3] = {1, 2, 3};
+
+class Holder {
+	public int values[4];
+	public Holder() { for (int index = 0; index < 4; index++) { self.values[index] = index; } }
+}
+
+int main() {
+	Holder holder = new Holder();
+	assert(fieldTotal(holder) == 6);
+	assert(globalTotal() == 6);
+	print("PASS: test_span_of_declared_later_arrays");
+	return 0;
+}

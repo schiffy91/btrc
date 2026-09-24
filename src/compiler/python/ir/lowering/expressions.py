@@ -928,6 +928,8 @@ class ExpressionLowerer:
             arguments = self._abi_call_arguments(plan, values, source_types)
             if callable_environment is not None:
                 arguments.append(self._callable_environment_argument(callable_environment))
+            if plan.dispatch is CallDispatch.SPAN_CONSTRUCTOR and len(arguments) == 1:
+                arguments.append(self._span_extent(plan.source.args[0], provenance))
             return self._calls.materialize_requested_hosted_result(
                 plan.source,
                 self._calls.materialize(plan, callee, receiver, arguments),
@@ -1040,6 +1042,8 @@ class ExpressionLowerer:
         arguments = self._abi_call_arguments(plan, argument_values, source_types)
         if callable_environment is not None:
             arguments.append(self._callable_environment_argument(callable_environment))
+        if plan.dispatch is CallDispatch.SPAN_CONSTRUCTOR and len(arguments) == 1:
+            arguments.append(self._span_extent(plan.source.args[0], provenance))
         call = self._calls.materialize(plan, lowered_callee, lowered_receiver, arguments)
         call = self._calls.materialize_requested_hosted_result(plan.source, call)
         return self._call_boundary.materialize(
@@ -1131,6 +1135,22 @@ class ExpressionLowerer:
                 )
             expanded.append(row)
         return expanded
+
+    def _span_extent(self, source, provenance) -> IRExpr:
+        """A fixed array's element count, lowered from its constant bound.
+
+        The sequenced operand may be a decayed pointer temporary, which
+        `sizeof` measures as a pointer rather than as the array.
+        """
+        source_type = self._types.canonical_type(self._session.type_of(source))
+        if (
+            source_type is None
+            or not source_type.is_array
+            or source_type.array_size is None
+            or id(source_type.array_size) not in self._analyzed.constant_array_bound_ids
+        ):
+            raise CodegenError("Span construction without an extent requires fixed-array storage")
+        return IRCast(target_type=CType(text="size_t"), expr=self.lower_expr(source_type.array_size, provenance))
 
     def _abi_call_arguments(self, plan, values, source_types) -> list[IRExpr]:
         ordered: dict[int, IRExpr] = {}

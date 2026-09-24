@@ -73,6 +73,13 @@ INVALID_CASES = (
         id="source-dereference-return",
     ),
     pytest.param(
+        "class Box {} int main() { Box owner = new Box(); "
+        "void* raw = unwrap((void**)&owner); (void)raw; return 0; } "
+        "void* unwrap(void** value) { return *value; }",
+        "parameter is not proven borrow-only",
+        id="source-dereference-return-declared-after-caller",
+    ),
+    pytest.param(
         "#include <string.h>\nvoid wipe(void* value) { memset(value, 0, 8); } "
         "class Box {} int main() { Box owner = new Box(); "
         "wipe((void*)owner); return 0; }",

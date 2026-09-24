@@ -88,7 +88,8 @@ def test_span_lowering_keeps_pointer_and_extent_in_a_plain_value() -> None:
     assert re.search(r"struct btrc_Span_.*\{", generated)
     assert "size_t length;" in generated
     assert "int* data;" in generated
-    assert "sizeof(values) / sizeof(values[0])" in generated
+    # The extent is the array's constant bound, never sizeof of the operand.
+    assert ".length = ((size_t)3)" in generated
     assert "Span(" not in generated
 
 
@@ -105,4 +106,4 @@ def test_const_span_is_a_read_only_borrowed_view() -> None:
     )
 
     assert "const int* data;" in generated
-    assert "sizeof(values) / sizeof(values[0])" in generated
+    assert ".length = ((size_t)2)" in generated

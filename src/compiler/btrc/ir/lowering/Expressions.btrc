@@ -2489,17 +2489,23 @@ class ExpressionLowerer {
 		return self.calls.materializeArguments(plan, evaluated);
 	}
 
-	private IRNode lowerSpanConstructor(Node node, Vector<IRNode> args, Map<string, Node> varTypes) {
+	private IRNode lowerSpanConstructor(Node node, Vector<IRNode> args, Map<string, Node> varTypes, CallableFlowState callableFlow) {
 		Node? resultType = self.resolvedExpressionType(node, varTypes);
 		self.operandPlanner.requireType(resultType, node);
 		Node spanType = resultType;
 		Node element = spanType.genericArgs.get(0);
+		IRNode extent = IRNode.literal("0");
 		if (args.len == 1) {
 			Node? sourceType = self.resolvedExpressionType(node.args.get(0), varTypes);
 			if (sourceType == null || !sourceType.isArray || sourceType.arraySize == null || !self.analyzed.constantArrayBoundKeys.has(AstIdentity.key(sourceType.arraySize))) {
 				print("internal compiler error: Span construction without an extent requires fixed-array storage");
 				exit(1);
 			}
+			/* The element count comes from the constant bound: the sequenced
+			 * operand may be a decayed pointer, which sizeof cannot measure. */
+			extent = IRNode.cast("size_t", self.lowerExpr(sourceType.arraySize, varTypes, callableFlow));
+		} else {
+			extent = IRNode.cast("size_t", args.get(1));
 		}
 		string dataName = self.context.freshTemporary("__btrc_span_data");
 		string lengthName = self.context.freshTemporary("__btrc_span_length");
@@ -2510,13 +2516,6 @@ class ExpressionLowerer {
 		declarations.push(IRNode.variableDeclaration("size_t", lengthName, null));
 		Vector<IRNode> sequence = [];
 		sequence.push(IRNode.binary(data, "=", args.get(0)));
-		IRNode extent = IRNode.literal("0");
-		if (args.len == 1) {
-			IRNode source = args.get(0);
-			extent = IRNode.binary(IRNode.sizeofExpression(source), "/", IRNode.sizeofExpression(IRNode.indexAccess(source, IRNode.literal("0"))));
-		} else {
-			extent = IRNode.cast("size_t", args.get(1));
-		}
 		sequence.push(IRNode.binary(length, "=", extent));
 		Vector<string> fields = [];
 		fields.push("data");
@@ -2613,7 +2612,7 @@ class ExpressionLowerer {
 				return args.get(0);
 			}
 			if (name == "Span" && !self.analyzed.funcNames.has(name) && !self.analyzed.isClass(name)) {
-				return self.lowerSpanConstructor(node, args, varTypes);
+				return self.lowerSpanConstructor(node, args, varTypes, callableFlow);
 			}
 			/* Mutex(val) constructor -> __btrc_mutex_val_create(boxed_val).
              * Exact typed storage preserves every scalar, aggregate, data

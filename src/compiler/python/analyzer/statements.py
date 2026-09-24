@@ -494,8 +494,11 @@ class StatementAnalyzer:
         if not type_expr.is_array or bound is None:
             return
         marker = id(bound)
-        if self.session.mark_array_bound(bound):
-            self.analyze_expression(bound)
+        # Declaration bounds are validated before bodies, so every body sees
+        # which are constant; a later visit of the same bound adds nothing.
+        if not self.session.mark_array_bound(bound):
+            return
+        self.analyze_expression(bound)
         bound_type = self.storage.type_of(bound)
         if bound_type is not None and (not self.types.is_integral_value(bound_type)):
             self.session.error(
@@ -1124,6 +1127,8 @@ class StatementAnalyzer:
                     role="alias",
                 )
                 self._validate_array_bound(declaration.original, f"typedef '{declaration.alias}'", "global")
+            elif isinstance(declaration, VarDeclStmt) and declaration.type is not None:
+                self._validate_array_bound(declaration.type, f"Global '{declaration.name}'", "global")
 
     def _validate_function_signature_types(self, function) -> None:
         self.declarations.validate_hosted_function(function)

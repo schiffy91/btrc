@@ -209,8 +209,15 @@ class Analyzed {
 	public Map<string, bool> methodGenSeen;
 	/* call-site AstIdentity.key (stable Node identity) -> the inferred method
      * type args, so IR-gen can mangle the call to its monomorphized instance
-     * without re-running inference. Mirrors generic_method_call_args. */
+     * without re-running inference. Mirrors generic_method_call_args. Inside a
+     * generic class template the args are in the template's own terms. */
 	public Map<string, Vector<Node>> methodGenCallArgs;
+	/* The same, per specialization of a template: `instance + "\t" + call key`
+     * -> args under that specialization's substitutions. A template call node
+     * is shared by every specialization, so each keeps its own entry. */
+	public Map<string, Vector<Node>> instanceMethodCallArgs;
+	/* The specialization whose body is being scanned or lowered, or "". */
+	public string activeInstance;
 	/* Canonical stdlib call sites that must bypass a user source definition
      * sharing a compiler-owned hosted spelling. */
 	public Map<string, bool> hostedCallKeys;
@@ -274,6 +281,8 @@ class Analyzed {
 		self.methodGenInstances = [];
 		self.methodGenSeen = {};
 		self.methodGenCallArgs = {};
+		self.instanceMethodCallArgs = {};
+		self.activeInstance = "";
 		self.hostedCallKeys = {};
 		self.genericConstructorTypes = {};
 		self.globalVarTypes = {};
@@ -305,6 +314,36 @@ class Analyzed {
 	}
 
 	class string memberKey(string owner, string member) { return owner + "." + member; }
+
+	/* Scan or lower `instance` ("class <mangled>" or "method <instance key>");
+	 * returns the specialization to restore with `endInstance`. */
+	public string beginInstance(string instance) {
+		string previous = self.activeInstance;
+		self.activeInstance = instance;
+		return previous;
+	}
+
+	public void endInstance(string previous) { self.activeInstance = previous; }
+
+	public void recordMethodCallArguments(Node call, Vector<Node> arguments) {
+		if (self.activeInstance.isEmpty()) {
+			self.methodGenCallArgs.put(AstIdentity.key(call), arguments);
+		} else {
+			self.instanceMethodCallArgs.put(self.activeInstance + "\t" + AstIdentity.key(call), arguments);
+		}
+	}
+
+	/* A generic method call's type args under the active specialization, else
+	 * as the call's own context inferred them. */
+	public Vector<Node>? methodCallArguments(Node call) {
+		string key = AstIdentity.key(call);
+		if (!self.activeInstance.isEmpty()) {
+			string instanceKey = self.activeInstance + "\t" + key;
+			if (self.instanceMethodCallArgs.has(instanceKey)) { return self.instanceMethodCallArgs.get(instanceKey); }
+		}
+		if (self.methodGenCallArgs.has(key)) { return self.methodGenCallArgs.get(key); }
+		return null;
+	}
 
 	/* Generic type-parameter names of every class and method, rebuilt only when a
 	 * class table grows: the binding-name conflict check below runs once per

@@ -26,10 +26,13 @@ class GenericSpecializer {
 	 * so only instances registered since the last closure need walking. */
 	private Map<string, bool> closedClassInstances;
 	private Map<string, bool> closedMethodInstances;
+	/* Type parameters of the template whose body is being scanned, if any. */
+	private Map<string, bool> templateParameters;
 
 	public GenericSpecializer(Analyzed analyzed, OperatorSemantics operators, ExpressionTypeResolver expressions) {
 		self.closedClassInstances = {};
 		self.closedMethodInstances = {};
+		self.templateParameters = {};
 		self.analyzed = analyzed;
 		self.operators = operators;
 		self.expressions = expressions;
@@ -152,9 +155,31 @@ class GenericSpecializer {
 				}
 				i = i + 1;
 			}
+		} else if (d.kind == NK_CLASS_DECL) {
+			/* Generic-class method bodies are templates. Their calls are recorded
+			 * in the template's own terms for validating the template; concrete
+			 * instances come from the per-instance closure scans. */
+			Vector<Node> parameters = [];
+			for name in d.genericParams {
+				Node parameter = Node();
+				parameter.kind = NK_TYPE_EXPR;
+				parameter.base = name;
+				parameters.push(parameter);
+			}
+			for member in d.members {
+				if (member.kind != NK_METHOD_DECL || member.bodyNode == null) { continue; }
+				Map<string, bool> previous = self.templateParameters;
+				self.templateParameters = SemanticTypeSystem.genericParameterSet(d.genericParams);
+				for name in member.genericParams { self.templateParameters.put(name, true); }
+				Map<string, Node> vt = {};
+				vt.put("self", self.genericClosureSelfType(d.name, parameters));
+				for parameter in member.params { vt.put(parameter.name, parameter.type); }
+				bool ownsMemo = self.expressions.beginScopedMemo();
+				self.collectMethodGenericsBlock(member.bodyNode, a, operators, vt);
+				self.expressions.endScopedMemo(ownsMemo);
+				self.templateParameters = previous;
+			}
 		}
-		/* Generic-class method bodies are templates; their call sites with concrete
-         * receivers are reached through the per-instance lowering, not here. */
 	}
 
 	private void collectMethodGenericsBlock(Node block, Analyzed a, OperatorSemantics operators, Map<string, Node> vt) {
@@ -326,6 +351,17 @@ class GenericSpecializer {
 			mp = mp + 1;
 		}
 		if (!ok) { return; }
+		/* A template call whose args name the template's parameters is not an
+		 * instance; keep its args for validating the template itself. */
+		if (self.templateParameters.len > 0) {
+			bool templated = false;
+			for argument in classArgs { if (TypeIdentity.referencesNames(argument, self.templateParameters)) { templated = true; } }
+			for argument in methodArgs { if (TypeIdentity.referencesNames(argument, self.templateParameters)) { templated = true; } }
+			if (templated) {
+				a.recordMethodCallArguments(call, methodArgs);
+				return;
+			}
+		}
 
 		string owner = classBase + "." + method;
 		self.validateGenericArgumentsForOwner(owner, methodArgs);
@@ -358,8 +394,9 @@ class GenericSpecializer {
 			a.methodGenSeen.put(key, true);
 			a.methodGenInstances.push(MethodGenInstance(classBase, method, classArgs, methodArgs));
 		}
-		/* Record per-call-site method args for IR-gen mangling. */
-		a.methodGenCallArgs.put(AstIdentity.key(call), methodArgs);
+		/* Record per-call-site method args for IR-gen mangling, per instance
+		 * while an instance's body is scanned. */
+		a.recordMethodCallArguments(call, methodArgs);
 
 		/* Register concrete generic types that the substituted signature mentions
          * (e.g. Vector<string> from mapTo's return type). */
@@ -1214,9 +1251,17 @@ class GenericSpecializer {
 		baseVariables.put("self", self.genericClosureSelfType(instance.base, instance.args));
 		Map<string, bool> visited = {};
 		bool ownsMemo = self.expressions.beginScopedMemo();
+		string previous = analyzed.beginInstance(GenericSpecializer.classInstanceContext(instance));
 		self.genericClosureScanHierarchy(declaration, instance.args, substitutions, analyzed, operators, baseVariables, visited, true);
+		analyzed.endInstance(previous);
 		self.expressions.endScopedMemo(ownsMemo);
 	}
+
+	/* The specialization context of a class instance's body, shared with lowering. */
+	class string classInstanceContext(GenInstance instance) { return "class " + instance.mangled; }
+
+	/* The specialization context of a generic method instance's body. */
+	class string methodInstanceContext(MethodGenInstance instance) { return "method " + TypeIdentity.methodInstanceKey(instance.classBase, instance.classArgs, instance.methodName, instance.methodArgs); }
 
 	private Node? genericClosureMethodDeclaration(MethodGenInstance instance, Analyzed analyzed) {
 		if (analyzed.isGenericClass(instance.classBase)) {
@@ -1252,8 +1297,10 @@ class GenericSpecializer {
 		Map<string, Node> variables = self.genericClosureGlobalTypes(analyzed);
 		variables.put("self", self.genericClosureSelfType(instance.classBase, instance.classArgs));
 		bool ownsMemo = self.expressions.beginScopedMemo();
+		string previous = analyzed.beginInstance(GenericSpecializer.methodInstanceContext(instance));
 		self.genericClosureSeedParameters(method, substitutions, unresolved, analyzed, operators, variables);
 		self.genericClosureWalkNode(method.bodyNode, substitutions, unresolved, analyzed, operators, variables);
+		analyzed.endInstance(previous);
 		self.expressions.endScopedMemo(ownsMemo);
 	}
 

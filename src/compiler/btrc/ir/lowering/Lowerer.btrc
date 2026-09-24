@@ -5,6 +5,7 @@ import ../../frontend/Timing.btrc;
 import ../../analyzer/Declarations.btrc;
 import ../../analyzer/Expressions.btrc;
 import ../../analyzer/GPU.btrc;
+import ../../analyzer/Generics.btrc;
 import ../../analyzer/HostedAbi.btrc;
 import ../../analyzer/Models.btrc;
 import ../../analyzer/Operators.btrc;
@@ -43,6 +44,7 @@ import ./Types.btrc;
 
 class IRLowerer {
 	private Map<string, bool>? stdlibKeys = null;
+	private Analyzed analyzed;
 	private ExpressionTypeResolver expressionTypes;
 	private LoweringContext context;
 	private CleanupSlotRegistry cleanupSlots;
@@ -58,6 +60,7 @@ class IRLowerer {
 	private LoweringProgramFacts? programFacts = null;
 
 	public IRLowerer(Analyzed analyzed, HostedAbiRepository hostedAbi, DeclarationRegistry semanticDeclarations, OperatorSemantics operators, ExpressionTypeResolver expressionTypes, GpuSemantics gpuSemantics, ManagedValueSemantics managedValues, CycleSemantics cycles, RuntimeHelperCatalog runtimeHelpers, string sourceFile, int stdlibLineCount, Vector<FeLine> userLines) {
+		self.analyzed = analyzed;
 		self.expressionTypes = expressionTypes;
 		self.runtimeHelpers = runtimeHelpers;
 		self.context = LoweringContext();
@@ -195,7 +198,9 @@ class IRLowerer {
 				int before = module.functions.len;
 				DeclarationOwnershipScope classScope = self.context.beginOwnership(module, classOwner);
 				classScope.instance = true;
+				string previousInstance = self.analyzed.beginInstance(GenericSpecializer.classInstanceContext(classPlan.instance));
 				self.declarations.emitGenericInstance(classPlan.instance, module);
+				self.analyzed.endInstance(previousInstance);
 				self.context.endOwnership(module, classScope);
 				self.context.stampFunctionSources(module, before, classPlan.declaration.line);
 			}
@@ -211,7 +216,9 @@ class IRLowerer {
 				int before = module.functions.len;
 				DeclarationOwnershipScope methodScope = self.context.beginOwnership(module, methodOwner);
 				methodScope.instance = true;
+				string previousInstance = self.analyzed.beginInstance(GenericSpecializer.methodInstanceContext(methodPlan.instance));
 				self.functions.emitOneMethodGenericInstance(methodPlan.instance, module);
+				self.analyzed.endInstance(previousInstance);
 				self.context.endOwnership(module, methodScope);
 				self.context.stampFunctionSources(module, before, methodPlan.method.line);
 			}

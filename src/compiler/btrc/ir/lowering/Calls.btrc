@@ -461,8 +461,9 @@ class CallTargetResolver {
 		target.signature = self.declarationSignature(method, substitutions);
 		string prefix = receiverType.genericArgs.len > 0 ? TypeIdentity.mangleGenericType(receiverType.base, receiverType.genericArgs) : receiverType.base;
 		target.symbol = self.methodSymbol(receiverType.base, method.name, prefix);
-		if (method.genericParams.len > 0 && self.analyzed.methodGenCallArgs.has(AstIdentity.key(call))) {
-			target.symbol = GenericSpecializer.genericMethodInstanceName(receiverType.base, receiverType.genericArgs, method.name, self.analyzed.methodGenCallArgs.get(AstIdentity.key(call)));
+		Vector<Node>? methodArguments = method.genericParams.len > 0 ? self.analyzed.methodCallArguments(call) : null;
+		if (methodArguments != null) {
+			target.symbol = GenericSpecializer.genericMethodInstanceName(receiverType.base, receiverType.genericArgs, method.name, methodArguments);
 		}
 		self.configureDefaultMethodTarget(target, receiverType.base, receiverType, method);
 		return target;

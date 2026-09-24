@@ -36,7 +36,6 @@ from src.compiler.python.ir.nodes import (
     IRIndex,
     IRLiteral,
     IRParam,
-    IRSizeof,
     IRStmtExpr,
     IRTernary,
     IRUnaryOp,
@@ -2564,26 +2563,10 @@ class CallLowerer:
         span_type = plan.receiver_type
         if span_type is None or span_type.base != "Span" or len(span_type.generic_args) != 1:
             raise CodegenError("Span construction has no concrete analyzed element type")
-        if len(arguments) not in {1, 2}:
-            raise CodegenError("Span construction requires a backing pointer and optional extent")
-        data = arguments[0]
-        if len(arguments) == 2:
-            length = arguments[1]
-        else:
-            source = plan.source.args[0]
-            source_type = self._types.canonical_type(self._session.type_of(source))
-            if (
-                source_type is None
-                or not source_type.is_array
-                or source_type.array_size is None
-                or id(source_type.array_size) not in self._analyzed.constant_array_bound_ids
-            ):
-                raise CodegenError("Span construction without an extent requires fixed-array storage")
-            length = IRBinOp(
-                left=IRSizeof(operand=data),
-                op="/",
-                right=IRSizeof(operand=IRIndex(obj=data, index=IRLiteral(text="0"))),
-            )
+        # A fixed array's extent arrives lowered from its constant bound.
+        if len(arguments) != 2:
+            raise CodegenError("Span construction requires a backing pointer and an extent")
+        data, length = arguments
         return IRCompoundLiteral(
             c_type=CType(text=self._types.render(span_type)),
             fields=[("data", data), ("length", length)],

@@ -258,6 +258,8 @@ class OwnershipAnalyzer:
         self._raw_borrow_effect_cache: dict[tuple[int, int, str | None], bool] = {}
         self._raw_borrow_effect_visiting: set[tuple[int, int, str | None]] = set()
         self._raw_borrow_owner_cache: dict[int, object] | None = None
+        # (callee, parameter index, label, argument, source file) awaiting proof.
+        self._raw_borrow_obligations: list[tuple[object, int, str, object, str | None]] = []
 
     def begin(self) -> None:
         """Reset the ownership facts owned by one analysis invocation."""
@@ -265,6 +267,7 @@ class OwnershipAnalyzer:
         self._raw_borrow_effect_cache.clear()
         self._raw_borrow_effect_visiting.clear()
         self._raw_borrow_owner_cache = None
+        self._raw_borrow_obligations = []
 
     def type_of(self, expression):
         """Read a type fact produced by ExpressionAnalyzer."""
@@ -1485,10 +1488,27 @@ class OwnershipAnalyzer:
                 and HOSTED_ABI.parameter_is_nonescaping(label, parameter_index)
             )
         )
-        if hosted_borrow or (
-            declaration is not None and self._raw_parameter_is_borrow_only(declaration, parameter_index)
-        ):
+        if hosted_borrow:
             return
+        if declaration is not None:
+            # The proof reads the callee's analyzed body, which a callee later
+            # in program order does not have yet: prove once every body has.
+            self._raw_borrow_obligations.append(
+                (declaration, parameter_index, label, argument, self.session.current_source_file)
+            )
+            return
+        self._report_unproven_borrow(label, argument)
+
+    def settle_raw_borrow_obligations(self) -> None:
+        """Prove every deferred borrow-only argument against analyzed bodies."""
+        obligations, self._raw_borrow_obligations = self._raw_borrow_obligations, []
+        for declaration, parameter_index, label, argument, source_file in obligations:
+            if self._raw_parameter_is_borrow_only(declaration, parameter_index):
+                continue
+            with self.session.source(source_file):
+                self._report_unproven_borrow(label, argument)
+
+    def _report_unproven_borrow(self, label, argument) -> None:
         self.session.error(
             f"Argument to '{label}()' cannot forward a managed value as a raw representation because the parameter is not proven borrow-only",
             getattr(argument, "line", 0),
