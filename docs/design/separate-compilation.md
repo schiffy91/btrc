@@ -102,6 +102,101 @@ validation is 9.7 s). Skipping an unchanged group's body analysis needs:
   raw-borrow proofs, which the interface digest does not capture; those
   proofs join the per-callable summaries listed above.
 
+Both analyzers were mapped on September 23. Four facts shape the plan.
+
+- **Node-keyed facts cross groups.** Several facts are keyed by node
+  identity and read across groups: a callee's default arguments are lowered
+  and realtime-visited in the caller, and `constantArrayBoundKeys` covers
+  foreign field and global bound nodes. The reference analyzer's
+  `node_types` values alias other declarations' type nodes.
+- **Some results depend on analysis order.**
+  - Raw-borrow proofs are cached per run and answer a call cycle with a
+    provisional `false`. In the reference analyzer they read the callee's
+    `node_types`, which do not exist yet when the callee comes later in
+    program order.
+  - Constant array bounds of a class declared later are not visible to an
+    earlier caller.
+  - In the self-hosted analyzer, generic method-call arguments on template
+    nodes are last-writer-wins across instances.
+- **Body analysis rewrites the AST.** It upgrades generic arguments, infers
+  `var` types, fills lambda captures and merges defaults, so a skipped
+  group's AST still needs those patches.
+- **Instance demand is order-sensitive.** The instance lists are ordered and
+  their de-duplication suppresses fan-out depending on earlier demand. A
+  record therefore replays demand calls in program order; it does not store
+  the resulting lists.
+
+The plan: a group that is lowered is analyzed live. A reused group replays a
+record at each declaration's place in program order, with its diagnostics,
+demand calls, AST patches, node facts keyed by structural position,
+deferred symbol references, realtime events and the raw-borrow summaries it
+consulted. Delivery order:
+
+0. **Groundwork.**
+   - Make raw-borrow proofs order-independent (solved after every body is
+     analyzed).
+   - Make template call arguments per instance.
+   - Add a structural node index per group (declaration ordinal plus
+     pre-order position, verified by kind and relative position), and a
+     differential harness that replays every group and compares every
+     analysis table and emitted unit with live analysis across the corpus.
+1. **Skip body validation** for reused groups (about 10 s of the
+   self-hosted edit build).
+2. **Skip the generic body scans**, replaying demand (about 5 s).
+3. **Skip the realtime scans**, replaying events; the fixed point stays live
+   (about 3 s).
+4. **Key reuse by the declarations a group consulted** rather than the
+   program interface, so a signature edit invalidates only its consumers.
+
+Stage B alone does not reach the 10 s edit budget. After it, an edit still
+parses every file, reads native headers, builds visibility and lowers the
+declarations session. Per-file parse and header caches are separate work.
+
+#### Prior work and resulting changes (September 24)
+
+A survey of published work and production compilers changes the plan in
+six ways.
+
+- **Identity by declaration path.** Record keys are
+  `(group, declaration path, index local to the declaration)`, not a
+  position within the group. A position shifts every key below an edit;
+  rustc, Zig and Nominal Adapton key by stable names for that reason.
+- **Two hashes per declaration, and recorded lookups.** Each declaration
+  has an interface hash and a body hash, and each group logs the name
+  lookups its analysis made together with their answers (Zwaan et al.,
+  OOPSLA 2022). A group re-validates when its own body changed or a
+  recorded answer differs. A dependency's changed source alone does not
+  make it stale. This replaces the program-wide interface digest in record
+  keys (slice 4) and moves it earlier.
+- **Summaries with early cutoff.** Setjmp, realtime and raw-borrow
+  summaries are keyed by the group's own body and the summaries it
+  consulted, never by dependency sources (Leino and Wüstholz, CAV 2015;
+  Infer). The setjmp solve already works this way. Cross-unit fixed points
+  restart from clean groups' recorded summaries rather than retracting
+  facts.
+- **A durable tier.** The standard library and native headers are durable
+  inputs, as in Salsa. When their combined hash is unchanged, their groups
+  replay without being revisited. Native header import (about 3 s) gets its
+  own cache keyed by header content, like clangd's preambles.
+- **A correctness gate before speed.**
+  - A scripted edit-sequence harness requires incremental output to equal a
+    clean build's after each edit (Zig's incremental test tool). The
+    function-body comparison added for M11a is its first check.
+  - Stage B falls back to full analysis when many groups are dirty, since
+    updating a large change can cost more than recomputing it.
+  - When a record is ambiguous, it is invalidated.
+- **No general query engine.** With a nearly acyclic graph of single-file
+  groups, fixed per-group records with explicit hashes are the lower-risk
+  route. rustc pays 10–20% on cold builds and hashing is its largest
+  incremental cost.
+
+Allocation is a separate lever and the only one that also reduces cold time
+and memory; the reports put arena gains at roughly 10–20% and more with a
+flat layout. Before any node-layout redesign, measure a faster general
+allocator and per-group arenas. Parallel body validation over the import
+DAG's dependency layers is the other cold-build lever: Scope States reported
+5× on 8 cores, and rustc's parallel front end 30–50%.
+
 **Stage C — bounded parallel groups.** Schedule dependency-ready groups on
 workers with the same scheduler used for one worker.
 

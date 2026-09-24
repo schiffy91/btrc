@@ -50,6 +50,89 @@ summaries), which the ≤10 s edit budget needs because whole-program front end
 and analysis alone take about 28 s. Details:
 [`docs/design/separate-compilation.md`](docs/design/separate-compilation.md).
 
+**September 24 status and plan revision (bucket 1, M11).** M11a module
+reuse is committed as `c955059`, with `4bb4694` fixing a realtime
+diagnostic; neither is pushed.
+
+*KPI gap.* All figures are compiler-only, single samples on macOS: no
+native compile or link, and not the required distributions on the
+acceptance host.
+
+| Scenario | Baseline | Latest | M11 budget | Confidence |
+| --- | ---: | ---: | ---: | --- |
+| Self-host body edit | 98 s | 40.5 s (module units) | ≤10 s | moderate: Stage B plus front-end caching are both needed |
+| Self-host cold | 76 s historical transpile | 96.6 s whole / 88.2 s module units (`--debug`) | ≤55 s transpile, ≤80 s dev build | moderate–high; four workers reach 66.7 s but exceed the memory ceiling |
+| Reference cold transpile | 259 s | 209.5 s whole / 205.2 s module units | ≤180 s | moderate |
+| Reference body edit | unmeasured | 80.9 s, before the September 23 cold fixes | ≤15 s | low: front end and analysis alone are about 35 s |
+| Self-host memory | 5.4 GB | 4.2 GB whole; 5.93 GiB with two workers | ≤3 GiB | low without M8a allocation work |
+
+The final objectives (≤5 s edit, ≤20 s cold) need per-group parallel
+analysis and allocation work beyond the current slices.
+
+*Defects found while preparing Stage B.* Each fix has a regression test.
+Fixes 3–6 are uncommitted and waiting on the gates. The C11 matrix fails
+only on the timing-sensitive `stdlib/Daemon.btrc` daemon-stop deadline,
+twice while other jobs loaded the machine; a quiet rerun is pending.
+
+1. The reference realtime analyzer captured global names before
+   registration.
+2. The reference compiler's module units emitted `NULL` cycle visitors for
+   specializations another unit owns.
+3. The reference analyzer accepted an unproven raw borrow when the callee
+   followed its caller, because the proof read node types not yet recorded.
+   The proofs are now settled after the body loop.
+4. The self-hosted compiler rejected a generic class method calling a
+   generic method with the class's parameter. Template-level and
+   per-instance call arguments are now kept apart.
+5. Both compilers computed `Span(array)` length with `sizeof` of a
+   sequenced pointer temporary, which was wrong code: a field reached
+   through a retained receiver gave 2 instead of 4. The length now comes
+   from the constant bound.
+6. Constant array bounds were order-dependent in both compilers: field
+   bounds in the self-hosted compiler, global bounds in the reference.
+   Declaration bounds are now validated before bodies.
+
+*Plan changes from mapping both analyzers and surveying prior work* (rustc,
+Salsa, Zig, Swift, Kotlin, TypeScript, Carbon, clangd; Zwaan et al. OOPSLA
+2022, Leino and Wüstholz CAV 2015, Infer, Nominal Adapton, Scope States
+ECOOP 2021, Build Systems à la Carte). Details are in the design document.
+
+- Stage B records key facts by declaration path plus local index, not
+  group position.
+- Each declaration carries an interface hash and a body hash. Each group
+  logs its lookups and their answers, and re-validates only when its body
+  or a recorded answer changes. This replaces the program-wide interface
+  digest.
+- Effect summaries are keyed by own body plus consulted summaries, with
+  early cutoff.
+- The stdlib and native headers form a durable tier, and native header
+  import gets a content-keyed cache.
+- An edit-sequence equivalence harness and a fall back to full analysis
+  gate Stage B.
+- No general query engine.
+- Allocation is measured before any node-layout redesign: first a faster
+  general allocator, then per-group arenas. Parallel body validation over
+  the import DAG's layers is the other cold-build lever.
+
+*Next action: a measurement round before Stage B code.* Each step decides
+an ordering question.
+
+1. End-to-end dev edit and cold builds including native compile and link:
+   the three edit fixtures, repeated, on a quiet machine.
+2. The reference compiler's edit profile after the September 23 fixes.
+3. A throwaway run that skips reused groups' body analysis unsafely, to
+   find Stage B's floor and the time that remains.
+4. Parse, AST-decode and native-header cache costs.
+5. The share of analysis time spent in stdlib groups.
+6. Allocator experiments: a faster general allocator, then per-group arenas.
+7. Node-key round-trip counts across the corpus and BTRSmith, which is also
+   Stage B groundwork.
+8. Baselines in the Linux container, pending a decision on the x86 NixOS
+   acceptance host.
+
+Then re-budget section 1 per phase, and order Stage B, front-end caching
+and M8a by measured payoff.
+
 Implementation was paused at the user's September 22 quota checkpoint. The full
 unit rerun records **7,638 passed / 49 skipped / 1 intermittent warm-link cache
 assertion failure**. The affected modules subsequently pass 42 tests, and ten
@@ -119,7 +202,7 @@ updates must lead with the active milestone, measured KPI gap and next action.
 
 | Order | Bucket | Milestones / scope | State and exit requirement |
 | --- | --- | --- | --- |
-| 1 | Compiler performance and reliable incremental builds | M11a with M10 concurrency contracts → bounded parallel module compilation/full M11; M7/M8a cuts where justified, conditional M8b/M9 | **Next: M11a + M10; implementation remains at its saved checkpoint.** M6a unchanged latency is closed at ≤5 s by user direction. Prove section 1's remaining build/compile/memory KPIs on the actual BTRSmith workload and required hosts, with applicable compiler gates. Headline goals: ≤5 s no-op regression guard, ≥10× self-host edit/cold acceleration, ≤10 s edit build at M11, ultimately ≤20 s cold self-host dev build and ≤5 s self-host body edit. |
+| 1 | Compiler performance and reliable incremental builds | M11a with M10 concurrency contracts → bounded parallel module compilation/full M11; M7/M8a cuts where justified, conditional M8b/M9 | **Active: M11. M11a module reuse and M10 workers landed (`c955059`); next is the September 24 measurement round, then Stage B groundwork (see above).** M6a unchanged latency is closed at ≤5 s by user direction. Prove section 1's remaining build/compile/memory KPIs on the actual BTRSmith workload and required hosts, with applicable compiler gates. Headline goals: ≤5 s no-op regression guard, ≥10× self-host edit/cold acceleration, ≤10 s edit build at M11, ultimately ≤20 s cold self-host dev build and ≤5 s self-host body edit. |
 | 2 | C compatibility | C1 → C2 → C3 → C4 → C5, with a reproducible baseline before changing behavior | **Queued.** Both frontends pass the specified compatibility/negative corpus; deliberate refusals are documented and applicable compiler gates pass. |
 | 3 | Cross-platform build and runtime foundations | P0 → P1 → P2/P3/P4; W1 and the non-UI target, runtime, storage, audio/GPU and packaging foundations of W2/I1/I2/A1/A2 | **Queued.** Required Windows/iOS/Android targets, ABI/runtime/library/package contracts and test hosts work through both frontends. UI-dependent product exits remain assigned to buckets 4/5. |
 | 4 | Native UI across all five platforms | UI0 → UI1 → UI2/UI3 → UI4–UI9 → UI10/UI11, including the UI portions of W2/I1/I2/A1/A2 | **Queued; inventory only so far.** Implement and qualify the full native UI contracts, platform providers, BTRSmith screens and UI budgets; retain all extended toolkit scope. Accessibility and ownership are acceptance criteria for each control. |
@@ -1786,6 +1869,12 @@ it is **not a prerequisite for the M11 prototype**.
   and regressions, not a blanket recapture.
 
 ### M11 — Separate compilation, with explicit dependency contracts
+
+**September 24 revision:** M11a landed. Stage B's design now follows the
+analyzer mapping and the survey of prior work recorded in the status section
+at the top of this plan and in `docs/design/separate-compilation.md`. The
+measurement round listed there decides the order of Stage B, front-end
+caching and M8a allocation work.
 
 **September 22 priority revision:** design reuse and parallel execution together.
 The dependency graph determines both which cached groups remain valid after an
